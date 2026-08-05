@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "permissions": {
+    "deny": [
+      "Read(**/secrets*.yml)",
+      "Read(**/secrets*.yaml)",
+      "Read(**/*.vault)",
+      "Read(**/vault.yml)",
+      "Read(**/*.sops.yml)",
+      "Read(**/*.sops.yaml)",
+      "Read(**/.env*)",
+      "Read(/etc/secretd/**)",
+      "Read(/var/log/secretd/**)",
+      "Read(**/age.key)",
+      "Read(**/id_rsa)",
+      "Read(**/id_ed25519)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/libexec/secretd/pretooluse-guard.py",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

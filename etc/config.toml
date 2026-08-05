@@ -1,0 +1,155 @@
+# /etc/secretd/config.toml -- broker policy.
+#
+# The allowlist is DEFAULT-DENY: a command matching no [[allow]] rule is
+# refused.  Regexes are applied with re.search(), so anchor them.
+
+[server]
+socket_path = "/run/secretd/sock"
+socket_mode = "0660"
+max_concurrency = 4
+max_request_bytes = 262144
+# Peer credentials are checked against these in addition to the socket mode.
+allowed_groups = ["devwork"]
+allowed_uids = []
+
+[exec]
+default_cwd = "/srv/ansible-ctrl"
+default_timeout_sec = 600
+max_timeout_sec = 3600
+max_output_bytes = 1048576
+allowed_bin_dirs = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/local/sbin", "/usr/sbin"]
+term_cols = 120
+term_rows = 40
+kill_grace_sec = 5
+
+# The child's entire environment.  The broker's own environ is never inherited.
+[exec.base_env]
+PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+TERM = "xterm-256color"
+LANG = "C.UTF-8"
+LC_ALL = "C.UTF-8"
+DEBIAN_FRONTEND = "noninteractive"
+ANSIBLE_FORCE_COLOR = "1"
+ANSIBLE_HOST_KEY_CHECKING = "True"
+ANSIBLE_NOCOWS = "1"
+
+[secrets]
+# Every sops file the broker manages.  ALL of their values go into the
+# redaction value set, not just the ones injected into a given command --
+# ansible-playbook decrypts vars internally and can print them itself.
+files = ["/srv/ansible-ctrl/group_vars/all/vault.sops.yml"]
+decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
+age_key_credential = "age_key"
+refresh_interval_sec = 5
+
+# Values below these thresholds are NOT redacted -- a short or low-entropy
+# value would blank out unrelated output at random.  The broker logs a warning
+# naming each one; lengthen them or accept that they can reach the model.
+min_length = 8
+min_unique_chars = 4
+min_entropy_bits_per_char = 1.5
+
+[audit]
+raw_log = "/var/log/secretd/raw.log"
+max_record_bytes = 4194304
+
+[sync]
+# The agent authors and commits; the broker executes only committed content.
+enabled = true
+source = "/home/agent/work/ansible-ctrl"
+dest = "/srv/ansible-ctrl"
+default_ref = "HEAD"
+allowed_refs = ['^(HEAD|main|master|refs/heads/[A-Za-z0-9._/-]{1,100}|[A-Za-z0-9._/-]{1,100})$']
+git = "/usr/bin/git"
+clean = true
+timeout_sec = 120
+
+# ---------------------------------------------------------------------------
+# Allowlist
+# ---------------------------------------------------------------------------
+
+# provide_age_key: Ansible resolves sops vars itself at run time, so it needs
+# the age key in its environment.  Only rules that opt in get it -- notably the
+# bash rule does not.  The key is also part of the redaction value set, so a
+# child that prints it gets «SECRET:broker/age-key» rather than the key.
+[[allow]]
+name = "ansible-playbook"
+argv0 = '^ansible-playbook$'
+provide_age_key = true
+cwd_allow = ['^/srv/ansible-ctrl(/|$)']
+args_allow = [
+  '^[A-Za-z0-9._][A-Za-z0-9._/-]*\.ya?ml$',
+  '^-v{1,4}$',
+  '^--(check|diff|syntax-check|list-hosts|list-tasks|list-tags|flush-cache|force-handlers|become|step)$',
+  '^-(i|l|e|t|C|D|b)$',
+  '^--(inventory|limit|tags|skip-tags|extra-vars|forks|start-at-task|vault-id)(=.*)?$',
+  '^[A-Za-z0-9@:._,!*/=+ -]{1,4096}$',
+]
+args_deny = [
+  '^--vault-password-file',           # vault is gone; this would mean a stray key file
+  '^--ask-vault-pass$',
+  '(^|=)/etc/secretd',
+  '(^|=)/proc/',
+]
+
+[[allow]]
+name = "ansible"
+argv0 = '^ansible$'
+provide_age_key = true
+cwd_allow = ['^/srv/ansible-ctrl(/|$)']
+args_allow = ['^[A-Za-z0-9@:._,!*/=+ {}"\[\]-]{1,4096}$']
+args_deny = ['(^|=)/etc/secretd', '(^|=)/proc/']
+
+[[allow]]
+name = "ansible-galaxy"
+argv0 = '^ansible-galaxy$'
+cwd_allow = ['^/srv/ansible-ctrl(/|$)']
+args_allow = ['^[A-Za-z0-9@:._,/=+-]{1,512}$']
+max_timeout_sec = 600
+
+# Exists so redaction is demonstrable end to end (verification test 3): the
+# agent can prove a credential reached the right variable without seeing it.
+# Harmless because output is redacted; drop it if you prefer.
+[[allow]]
+name = "printenv"
+argv0 = '^printenv$'
+args_allow = ['^[A-Za-z_][A-Za-z0-9_]*$']
+max_timeout_sec = 30
+
+[[allow]]
+name = "ssh"
+argv0 = '^ssh$'
+args_allow = ['^[A-Za-z0-9@:._,/=+ -]{1,1024}$']
+args_deny = [
+  '^-o\s*(PermitLocalCommand|ProxyCommand|LocalCommand)',  # arbitrary local exec
+  '(^|=)/etc/secretd',
+]
+
+[[allow]]
+name = "curl"
+argv0 = '^curl$'
+args_allow = ['^[A-Za-z0-9@:._,/=+%?&#~ -]{1,2048}$', '^https?://[^\s]{1,2048}$']
+args_deny = [
+  '^-K$', '^--config$',              # would read flags (and headers) from a file
+  '^--(unix-socket|upload-file|form)$',
+  'file://',
+]
+
+# bash is what makes pipelines possible: the broker never spawns a shell for
+# the caller, so a pipeline has to be requested explicitly as
+# ["bash", "-lc", "…"].  It is also the widest rule here -- removing it is the
+# single biggest tightening available, at the cost of losing pipelines and of
+# verification tests 4/5/10/11 in the README.
+[[allow]]
+name = "bash"
+argv0 = '^(bash|sh)$'
+args_allow = ['^-[lc]{1,2}$', '^-lc$', '^[^\x00]{0,8192}$']
+args_deny = ['(^|\s)/etc/secretd', '/proc/\d+/environ']
+
+[[allow]]
+name = "git-readonly"
+argv0 = '^git$'
+cwd_allow = ['^/srv/ansible-ctrl(/|$)']
+args_allow = ['^(status|log|show|diff|rev-parse|describe|-C|--no-pager|HEAD|-1|--stat|--oneline|--porcelain)$', '^[A-Za-z0-9._/-]{1,200}$']
+args_deny = ['^(push|remote|config|clone|fetch|pull|checkout|reset|clean)$']
+max_timeout_sec = 60

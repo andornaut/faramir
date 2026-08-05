@@ -1,0 +1,195 @@
+"""Configuration for secretd: /etc/secretd/config.toml.
+
+Everything the broker will do is described here.  The allowlist is
+default-deny: a command that matches no ``[[allow]]`` rule is refused.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import tomllib
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+DEFAULT_CONFIG_PATH = "/etc/secretd/config.toml"
+
+_DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+
+class ConfigError(Exception):
+    """Raised for a malformed or unsafe configuration."""
+
+
+def _compile_all(patterns: list[str], where: str) -> list[re.Pattern[str]]:
+    out = []
+    for p in patterns:
+        try:
+            out.append(re.compile(p))
+        except re.error as exc:
+            raise ConfigError(f"{where}: bad regex {p!r}: {exc}") from exc
+    return out
+
+
+@dataclass(frozen=True)
+class AllowRule:
+    """One entry in the default-deny allowlist."""
+
+    name: str
+    argv0: re.Pattern[str]
+    args_allow: list[re.Pattern[str]] = field(default_factory=list)
+    args_deny: list[re.Pattern[str]] = field(default_factory=list)
+    cwd_allow: list[re.Pattern[str]] = field(default_factory=list)
+    max_timeout_sec: int | None = None
+    # Whether this program gets SOPS_AGE_KEY in its environment.  Ansible has
+    # to decrypt vars itself, so it needs the key; a shell must never get it.
+    # The key is in the redaction value set regardless, so it cannot be printed
+    # in the clear -- but keeping it out of most children is still cheaper than
+    # relying on that.
+    provide_age_key: bool = False
+
+    @classmethod
+    def parse(cls, raw: dict[str, Any], index: int) -> "AllowRule":
+        name = raw.get("name") or f"rule[{index}]"
+        if "argv0" not in raw:
+            raise ConfigError(f"allow rule {name!r}: missing 'argv0'")
+        return cls(
+            name=str(name),
+            argv0=_compile_all([raw["argv0"]], f"allow rule {name!r} argv0")[0],
+            args_allow=_compile_all(
+                list(raw.get("args_allow", [])), f"allow rule {name!r} args_allow"
+            ),
+            args_deny=_compile_all(
+                list(raw.get("args_deny", [])), f"allow rule {name!r} args_deny"
+            ),
+            cwd_allow=_compile_all(
+                list(raw.get("cwd_allow", [])), f"allow rule {name!r} cwd_allow"
+            ),
+            max_timeout_sec=raw.get("max_timeout_sec"),
+            provide_age_key=bool(raw.get("provide_age_key", False)),
+        )
+
+
+@dataclass(frozen=True)
+class ServerConfig:
+    socket_path: str = "/run/secretd/sock"
+    socket_mode: int = 0o660
+    max_concurrency: int = 4
+    max_request_bytes: int = 262144
+    allowed_uids: list[int] = field(default_factory=list)
+    allowed_groups: list[str] = field(default_factory=lambda: ["devwork"])
+
+
+@dataclass(frozen=True)
+class ExecConfig:
+    default_cwd: str = "/srv/ansible-ctrl"
+    default_timeout_sec: int = 600
+    max_timeout_sec: int = 3600
+    max_output_bytes: int = 1048576
+    allowed_bin_dirs: list[str] = field(
+        default_factory=lambda: ["/usr/local/bin", "/usr/bin", "/bin", "/usr/local/sbin"]
+    )
+    base_env: dict[str, str] = field(
+        default_factory=lambda: {
+            "PATH": _DEFAULT_PATH,
+            "TERM": "xterm-256color",
+            "LANG": "C.UTF-8",
+            "LC_ALL": "C.UTF-8",
+            "DEBIAN_FRONTEND": "noninteractive",
+        }
+    )
+    term_cols: int = 120
+    term_rows: int = 40
+    kill_grace_sec: int = 5
+
+
+@dataclass(frozen=True)
+class SecretsConfig:
+    files: list[str] = field(default_factory=list)
+    decrypt_command: list[str] = field(
+        default_factory=lambda: ["sops", "--output-type", "json", "--decrypt", "{file}"]
+    )
+    age_key_credential: str = "age_key"
+    age_key_file: str = ""
+    refresh_interval_sec: int = 5
+    min_length: int = 8
+    min_unique_chars: int = 4
+    min_entropy_bits_per_char: float = 1.5
+
+
+@dataclass(frozen=True)
+class AuditConfig:
+    raw_log: str = "/var/log/secretd/raw.log"
+    max_record_bytes: int = 4194304
+
+
+@dataclass(frozen=True)
+class SyncConfig:
+    """Mediated ``git`` pull from the agent's working tree into /srv.
+
+    The agent authors playbooks; the broker only ever executes committed ones.
+    """
+
+    enabled: bool = False
+    source: str = "/home/agent/work/ansible-ctrl"
+    dest: str = "/srv/ansible-ctrl"
+    default_ref: str = "HEAD"
+    allowed_refs: list[re.Pattern[str]] = field(default_factory=list)
+    git: str = "/usr/bin/git"
+    clean: bool = True
+    timeout_sec: int = 120
+
+
+@dataclass(frozen=True)
+class Config:
+    path: str
+    server: ServerConfig
+    exec: ExecConfig
+    secrets: SecretsConfig
+    audit: AuditConfig
+    sync: SyncConfig
+    allow: list[AllowRule]
+
+    @classmethod
+    def load(cls, path: str | os.PathLike[str] | None = None) -> "Config":
+        path = str(path or os.environ.get("SECRETD_CONFIG") or DEFAULT_CONFIG_PATH)
+        try:
+            raw = tomllib.loads(Path(path).read_text("utf-8"))
+        except FileNotFoundError as exc:
+            raise ConfigError(f"config not found: {path}") from exc
+        except tomllib.TOMLDecodeError as exc:
+            raise ConfigError(f"{path}: {exc}") from exc
+        return cls.from_dict(raw, path)
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any], path: str = "<memory>") -> "Config":
+        server_raw = dict(raw.get("server", {}))
+        mode = server_raw.pop("socket_mode", None)
+        server = ServerConfig(
+            **server_raw,
+            **({"socket_mode": int(str(mode), 8)} if mode is not None else {}),
+        )
+
+        exec_cfg = ExecConfig(**raw.get("exec", {}))
+        secrets = SecretsConfig(**raw.get("secrets", {}))
+        audit = AuditConfig(**raw.get("audit", {}))
+
+        sync_raw = dict(raw.get("sync", {}))
+        sync_refs = _compile_all(list(sync_raw.pop("allowed_refs", [])), "sync.allowed_refs")
+        sync = SyncConfig(**sync_raw, allowed_refs=sync_refs)
+
+        allow = [AllowRule.parse(r, i) for i, r in enumerate(raw.get("allow", []))]
+        if not allow:
+            raise ConfigError(
+                f"{path}: no [[allow]] rules; the broker would refuse every command"
+            )
+        return cls(
+            path=path,
+            server=server,
+            exec=exec_cfg,
+            secrets=secrets,
+            audit=audit,
+            sync=sync,
+            allow=allow,
+        )

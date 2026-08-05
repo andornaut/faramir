@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "secretd": {
+      "command": "/usr/local/bin/secretd-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}
