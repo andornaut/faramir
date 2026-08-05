@@ -10,6 +10,7 @@ say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 say "stopping services"
 systemctl disable --now secretd.socket secretd.service 2>/dev/null || true
 rm -f /etc/systemd/system/secretd.socket /etc/systemd/system/secretd.service
+rm -rf /etc/systemd/system/secretd.service.d
 systemctl daemon-reload
 
 say "removing binaries and library"

@@ -14,7 +14,9 @@ OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
 AGENT_USER="${AGENT_USER:-agent}"
 BROKER_USER="${BROKER_USER:-secretd}"
 GROUP="${DEVWORK_GROUP:-devwork}"
-WORKTREE="${WORKTREE:-/home/${AGENT_USER}/work/ansible-ctrl}"
+# WORKTREE's default needs the agent's real home, which the account below may
+# not have yet, so it is resolved after the account exists.
+WORKTREE="${WORKTREE:-}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 
@@ -29,6 +31,10 @@ if ! id -u "$AGENT_USER" >/dev/null 2>&1; then
 else
   usermod -aG "$GROUP" "$AGENT_USER"
 fi
+# Read the passwd entry rather than assuming /home/<user>, so all three install
+# scripts agree for an account whose home is somewhere else.
+AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)"
+WORKTREE="${WORKTREE:-${AGENT_HOME}/work/ansible-ctrl}"
 
 # The broker needs a real, writable home: it holds the SSH keys used to reach
 # managed hosts, and Ansible insists on creating ~/.ansible/tmp.  It must NOT
@@ -64,7 +70,7 @@ fi
 
 # Without umask 002 the two accounts fight over every new file.  This is the
 # single most likely thing to make an operator abandon the setup.
-for profile in "/home/${AGENT_USER}/.bashrc" "$(getent passwd "$OPERATOR" | cut -d: -f6)/.bashrc"; do
+for profile in "${AGENT_HOME}/.bashrc" "$(getent passwd "$OPERATOR" | cut -d: -f6)/.bashrc"; do
   [[ -f $profile ]] || continue
   if ! grep -q '^umask 002' "$profile"; then
     say "umask 002 -> ${profile}"

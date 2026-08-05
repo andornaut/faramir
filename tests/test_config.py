@@ -64,6 +64,13 @@ class TestSocketMode(unittest.TestCase):
         with self.assertRaises(ConfigError) as caught:
             load(server={"socket_mode": 660})
         self.assertIn("range", str(caught.exception))
+        self.assertIn("looks like decimal", str(caught.exception))
+
+    def test_out_of_range_octal_string_gets_no_decimal_hint(self):
+        """"1000" is already octal; advising 0o512 would be wrong."""
+        with self.assertRaises(ConfigError) as caught:
+            load(server={"socket_mode": "1000"})
+        self.assertNotIn("looks like decimal", str(caught.exception))
 
     def test_garbage_is_a_config_error(self):
         for value in ["09", "rw-rw----", True, 1.5, -1, 0o7777]:
@@ -84,6 +91,55 @@ class TestAllowRules(unittest.TestCase):
         with self.assertRaises(ConfigError) as caught:
             Config.from_dict({"allow": [{"name": "oops", "argv0": "("}]}, "test.toml")
         self.assertIn("oops", str(caught.exception))
+
+    def test_non_string_argv0_is_a_config_error(self):
+        for value in [5, ["^/bin/ls$"], None]:
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigError):
+                    Config.from_dict({"allow": [{"name": "x", "argv0": value}]}, "t")
+
+    def test_max_timeout_must_be_a_positive_int(self):
+        for value in ["600", 0, -1, 1.5, True]:
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigError):
+                    load(allow=[{**MINIMAL_ALLOW[0], "max_timeout_sec": value}])
+        self.assertEqual(
+            load(allow=[{**MINIMAL_ALLOW[0], "max_timeout_sec": 60}])
+            .allow[0]
+            .max_timeout_sec,
+            60,
+        )
+
+
+class TestPatternListsMustBeLists(unittest.TestCase):
+    """A bare string splits into characters, one of which is '$'.
+
+    That matches everything, so a missing pair of brackets would silently turn
+    a default-deny allowlist into match-anything.
+    """
+
+    RULE_FIELDS = ["args_allow", "args_deny", "cwd_allow"]
+
+    def test_string_in_an_allow_rule_is_rejected(self):
+        for field in self.RULE_FIELDS:
+            with self.subTest(field=field):
+                with self.assertRaises(ConfigError) as caught:
+                    load(allow=[{**MINIMAL_ALLOW[0], field: "^-l$"}])
+                self.assertIn(field, str(caught.exception))
+
+    def test_string_in_allowed_refs_is_rejected(self):
+        with self.assertRaises(ConfigError) as caught:
+            load(sync={"allowed_refs": "^main$"})
+        self.assertIn("allowed_refs", str(caught.exception))
+
+    def test_non_string_element_is_rejected(self):
+        with self.assertRaises(ConfigError):
+            load(sync={"allowed_refs": ["^main$", 5]})
+
+    def test_a_real_list_still_works(self):
+        cfg = load(sync={"allowed_refs": ["^main$"]})
+        self.assertEqual([p.pattern for p in cfg.sync.allowed_refs], ["^main$"])
+        self.assertFalse(any(p.search("evil/../x") for p in cfg.sync.allowed_refs))
 
 
 if __name__ == "__main__":

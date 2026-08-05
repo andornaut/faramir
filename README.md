@@ -238,13 +238,13 @@ Tests 1, 2 and 9's permission checks only mean something on a real deployment â€
   process that needs it. `install/10-accounts.sh` sets this up; an account
   created by hand with `useradd -M` will fail with
   `Unable to create local directories`.
-- **Changing `[sync] source` needs a matching `BindReadOnlyPaths=`.** `/home` is
-  an empty tmpfs inside the unit apart from read-only bind mounts of the sync
-  source. `install/20-install-broker.sh` writes
-  `secretd.service.d/10-sync-source.conf` for the worktree it was given, so an
-  install with `AGENT_USER=` or `WORKTREE=` set is handled. Editing `source` in
-  `config.toml` afterwards is not: add the bind mount by hand, or every sync
-  fails with `source ... does not exist`.
+- **`[sync] source` and the unit's `BindReadOnlyPaths=` must name the same
+  path.** `/home` is an empty tmpfs inside the unit apart from read-only bind
+  mounts of the sync source, so a `source` that is not bound in is invisible to
+  the broker no matter what the config says. `install/20-install-broker.sh`
+  writes both from the worktree it was given, and warns when an existing
+  `config.toml` disagrees. Editing `source` by hand afterwards means adding the
+  bind mount by hand too, or every sync fails with `source ... does not exist`.
 - **Children do not inherit the broker's environment.** The child gets exactly
   `[exec.base_env]` plus its injected secrets. If a tool works for you but not
   through the broker, an environment variable is usually the reason â€”

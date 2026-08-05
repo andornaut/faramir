@@ -9,7 +9,10 @@ BROKER_USER="${BROKER_USER:-secretd}"
 AGENT_USER="${AGENT_USER:-agent}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 LIB="${SECRETD_LIB:-/usr/local/lib/secretd}"
-WORKTREE="${WORKTREE:-/home/${AGENT_USER}/work/ansible-ctrl}"
+# Derive from the passwd entry when the account exists, so this agrees with
+# 40-agent-config.sh for a home that is not /home/<user>.
+AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)"
+WORKTREE="${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/ansible-ctrl}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -53,12 +56,36 @@ install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/secretd
 # CLEANUP (added 2026-08-05): remove once every host has run this script once.
 rm -f /etc/secretd/deny-patterns.txt
 
+# [sync] source must name the worktree this install was given, not the default
+# baked into the shipped config.  The bind mount below makes only that one path
+# visible to the broker, so a source pointing anywhere else fails every sync.
+configured_source() {
+  awk '/^\[sync\]/ { in_sync = 1; next }
+       /^\[/       { in_sync = 0 }
+       in_sync && /^[[:space:]]*source[[:space:]]*=/ {
+         sub(/^[^=]*=[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$1"
+}
+
 if [[ -f /etc/secretd/config.toml ]]; then
   say "keeping existing /etc/secretd/config.toml (new default at config.toml.dist)"
   install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/secretd/config.toml.dist
+  existing="$(configured_source /etc/secretd/config.toml)"
+  if [[ -n $existing && $existing != "$WORKTREE" ]]; then
+    say "WARNING: [sync] source is ${existing} but this install binds ${WORKTREE}"
+    say "         sync will fail until they match; edit /etc/secretd/config.toml"
+  fi
 else
-  say "config -> /etc/secretd/config.toml"
+  say "config -> /etc/secretd/config.toml (sync source ${WORKTREE})"
   install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/secretd/config.toml
+  awk -v worktree="$WORKTREE" '
+    /^\[sync\]/ { in_sync = 1 }
+    /^\[/ && !/^\[sync\]/ { in_sync = 0 }
+    in_sync && /^[[:space:]]*source[[:space:]]*=/ {
+      print "source = \"" worktree "\""; next }
+    { print }' /etc/secretd/config.toml >/etc/secretd/config.toml.new
+  chown root:"$BROKER_USER" /etc/secretd/config.toml.new
+  chmod 0640 /etc/secretd/config.toml.new
+  mv /etc/secretd/config.toml.new /etc/secretd/config.toml
 fi
 
 say "systemd units"

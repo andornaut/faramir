@@ -68,6 +68,7 @@ def _octal_mode(value: Any, where: str) -> int:
     """
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ConfigError(f"{where}: expected an octal string or integer")
+    written_as_int = isinstance(value, int)
     if isinstance(value, str):
         try:
             value = int(value, 8)
@@ -76,17 +77,50 @@ def _octal_mode(value: Any, where: str) -> int:
     if not 0 <= value <= 0o777:
         hint = ""
         digits = str(value)
-        # Only suggest the octal spelling when it is one: 660 is a typo for
-        # 0o660, but 4095 is not a mode at all.
-        if set(digits) <= set("01234567") and int(digits, 8) <= 0o777:
+        # Only suggest the octal spelling when the value was written as a bare
+        # integer and reads as one: 660 is a typo for 0o660, 4095 is not a mode
+        # at all, and "1000" was already octal so the advice would be wrong.
+        if written_as_int and set(digits) <= set("01234567") and int(digits, 8) <= 0o777:
             hint = f'; {value} looks like decimal, write it as "{digits}" or 0o{digits}'
         raise ConfigError(f"{where}: out of range, expected 0 to 0o777{hint}")
     return value
 
 
-def _compile_all(patterns: list[str], where: str) -> list[re.Pattern[str]]:
+def _positive_int(value: Any, where: str) -> int | None:
+    """An optional positive integer, rejected here rather than at use time.
+
+    An unvalidated ``max_timeout_sec`` survives ``--check`` and then fails
+    inside ``min()`` when a request finally exercises the rule.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"{where}: expected an integer, got {type(value).__name__}")
+    if value <= 0:
+        raise ConfigError(f"{where}: expected a positive integer, got {value}")
+    return value
+
+
+def _compile_all(patterns: Any, where: str) -> list[re.Pattern[str]]:
+    """Compile a list of regexes, rejecting anything that is not one.
+
+    The type check is the point.  ``list("^main$")`` splits a bare string into
+    single characters, one of which is ``$``, and ``$`` matches everything --
+    so a missing pair of brackets silently turns a default-deny allowlist into
+    match-anything with no error at ``--check`` time.
+    """
+    if isinstance(patterns, str) or not isinstance(patterns, (list, tuple)):
+        raise ConfigError(
+            f"{where}: expected a list of regex strings, got "
+            f"{type(patterns).__name__}"
+            + (f" (write it as [{patterns!r}])" if isinstance(patterns, str) else "")
+        )
     out = []
     for p in patterns:
+        if not isinstance(p, str):
+            raise ConfigError(
+                f"{where}: expected a regex string, got {type(p).__name__}: {p!r}"
+            )
         try:
             out.append(re.compile(p))
         except re.error as exc:
@@ -116,19 +150,24 @@ class AllowRule:
         name = raw.get("name") or f"rule[{index}]"
         if "argv0" not in raw:
             raise ConfigError(f"allow rule {name!r}: missing 'argv0'")
+        # No list() around the raw values: it would split a bare string into
+        # characters before _compile_all could reject it, which is the bug that
+        # check exists to catch.
         return cls(
             name=str(name),
             argv0=_compile_all([raw["argv0"]], f"allow rule {name!r} argv0")[0],
             args_allow=_compile_all(
-                list(raw.get("args_allow", [])), f"allow rule {name!r} args_allow"
+                raw.get("args_allow", []), f"allow rule {name!r} args_allow"
             ),
             args_deny=_compile_all(
-                list(raw.get("args_deny", [])), f"allow rule {name!r} args_deny"
+                raw.get("args_deny", []), f"allow rule {name!r} args_deny"
             ),
             cwd_allow=_compile_all(
-                list(raw.get("cwd_allow", [])), f"allow rule {name!r} cwd_allow"
+                raw.get("cwd_allow", []), f"allow rule {name!r} cwd_allow"
             ),
-            max_timeout_sec=raw.get("max_timeout_sec"),
+            max_timeout_sec=_positive_int(
+                raw.get("max_timeout_sec"), f"allow rule {name!r} max_timeout_sec"
+            ),
             provide_age_key=bool(raw.get("provide_age_key", False)),
         )
 
@@ -248,7 +287,9 @@ class Config:
         audit = _section(AuditConfig, _table(raw, "audit", path), f"{path}: [audit]")
 
         sync_raw = _table(raw, "sync", path)
-        sync_refs = _compile_all(list(sync_raw.pop("allowed_refs", [])), "sync.allowed_refs")
+        sync_refs = _compile_all(
+            sync_raw.pop("allowed_refs", []), f"{path}: sync.allowed_refs"
+        )
         sync = _section(
             SyncConfig, sync_raw, f"{path}: [sync]", allowed_refs=sync_refs
         )
