@@ -9,7 +9,7 @@
 
 # Direct decryption of the secret store
 ansible-vault\s+(view|decrypt|edit|rekey)
-\bsops\s+(-d|--decrypt|-i\s+.*-d)
+\bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)
 \bage\s+(-d|--decrypt)
 \bage-keygen\b
 \bop\s+read\b

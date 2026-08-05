@@ -35,7 +35,7 @@ PATTERNS_FILE = os.environ.get(
 # weaker than the shipped list turns an install problem into a silent gap.
 FALLBACK = [
     r"ansible-vault\s+(view|decrypt|edit|rekey)",
-    r"\bsops\s+(-d|--decrypt|-i\s+.*-d)",
+    r"\bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)",
     r"\bage\s+(-d|--decrypt)",
     r"\bage-keygen\b",
     r"\bop\s+read\b",

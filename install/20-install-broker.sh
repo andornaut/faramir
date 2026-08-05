@@ -6,8 +6,10 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BROKER_USER="${BROKER_USER:-secretd}"
+AGENT_USER="${AGENT_USER:-agent}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 LIB="${SECRETD_LIB:-/usr/local/lib/secretd}"
+WORKTREE="${WORKTREE:-/home/${AGENT_USER}/work/ansible-ctrl}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -62,6 +64,19 @@ fi
 say "systemd units"
 install -m 0644 "$REPO/systemd/secretd.socket" /etc/systemd/system/secretd.socket
 install -m 0644 "$REPO/systemd/secretd.service" /etc/systemd/system/secretd.service
+
+# /home is an empty tmpfs inside the unit, so the sync source has to be bound in
+# explicitly.  The unit hardcodes the default; bind the configured worktree too,
+# or an install with AGENT_USER or WORKTREE set starts clean and then fails
+# every sync at runtime.  BindReadOnlyPaths= is a list, so this appends.
+say "sync source bind mount -> ${WORKTREE}"
+install -d -m 0755 /etc/systemd/system/secretd.service.d
+cat >/etc/systemd/system/secretd.service.d/10-sync-source.conf <<EOF
+# Written by install/20-install-broker.sh.  Regenerated on every run.
+[Service]
+BindReadOnlyPaths=-${WORKTREE}
+EOF
+chmod 0644 /etc/systemd/system/secretd.service.d/10-sync-source.conf
 
 # systemd may not be running (container, chroot, image build).  Install the
 # units anyway; just do not pretend to have started anything.

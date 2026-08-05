@@ -58,6 +58,7 @@ class TestDenied(unittest.TestCase):
         "ansible-vault edit vault.yml",
         "sops -d group_vars/all/vault.sops.yml",
         "sops --decrypt secrets.yaml",
+        "sops decrypt group_vars/all/vault.sops.yml",  # sops 3.9+ subcommand
         "age --decrypt -i key.txt file.age",
         "op read op://vault/item/field",
         "pass show servers/router",
@@ -160,7 +161,10 @@ class TestFailClosed(unittest.TestCase):
                 for line in fh
                 if line.strip() and not line.lstrip().startswith("#")
             ]
-        self.assertEqual(shipped, load_guard().FALLBACK)
+        # Set comparison, not assertEqual: reordering or regrouping the file
+        # does not weaken anything, and CI should not care.
+        missing = sorted(set(shipped) - set(load_guard().FALLBACK))
+        self.assertEqual(missing, [], f"FALLBACK is missing: {missing}")
 
     def test_default_patterns_path_is_agent_readable(self):
         """Not under /etc/secretd, which is 0750 secretd:secretd."""

@@ -48,6 +48,15 @@ def _git(cfg: SyncConfig, args: Sequence[str], cwd: str | None = None) -> str:
         "GIT_ASKPASS": "/bin/true",
         "GIT_CONFIG_NOSYSTEM": "1",
         "LANG": "C.UTF-8",
+        # The source tree is owned by the agent's uid and read by the broker's,
+        # which git refuses as "dubious ownership" since 2.35.2.  Grant it for
+        # exactly the two paths sync touches, via the environment rather than a
+        # config file: nothing the agent can write changes what this trusts.
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "safe.directory",
+        "GIT_CONFIG_VALUE_0": cfg.source,
+        "GIT_CONFIG_KEY_1": "safe.directory",
+        "GIT_CONFIG_VALUE_1": cfg.dest,
     }
     try:
         proc = subprocess.run(

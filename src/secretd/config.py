@@ -42,21 +42,46 @@ def _section(factory: Any, raw: dict[str, Any], where: str, **extra: Any) -> Any
         raise ConfigError(f"{where}: {exc}") from exc
 
 
+def _table(raw: dict[str, Any], key: str, where: str) -> dict[str, Any]:
+    """One ``[section]`` as a dict, rejecting a scalar written in its place.
+
+    ``dict(scalar)`` raises ValueError, which nothing up the stack converts, so
+    ``server = "0660"`` in place of ``[server]`` would kill ``--check`` with a
+    traceback rather than name the section.
+    """
+    value = raw.get(key, {})
+    if not isinstance(value, dict):
+        raise ConfigError(f"{where}: expected a [{key}] table, got {type(value).__name__}")
+    return dict(value)
+
+
 def _octal_mode(value: Any, where: str) -> int:
     """Accept both ``"0660"`` and TOML's own ``0o660``.
 
-    TOML parses ``0o660`` to the int 432, which is already the mode.  Running
-    every value through ``int(str(v), 8)`` would reinterpret that as 0o432 --
-    write for others, no read for the group -- without any error.
+    TOML parses ``0o660`` to the int 432, which is already the mode, so it is
+    taken as-is; running it through ``int(str(v), 8)`` would reinterpret it as
+    0o432 -- write for others, no read for the group -- without any error.
+
+    The range check is what catches an unquoted decimal ``660``, which is a
+    plausible typo for ``0o660`` and would otherwise mean 0o1224.  Every real
+    mode fits in 0o777, so anything above it is a mistake either way.
     """
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ConfigError(f"{where}: expected an octal string or integer")
-    if isinstance(value, int):
-        return value
-    try:
-        return int(value, 8)
-    except ValueError as exc:
-        raise ConfigError(f"{where}: {value!r} is not octal") from exc
+    if isinstance(value, str):
+        try:
+            value = int(value, 8)
+        except ValueError as exc:
+            raise ConfigError(f"{where}: {value!r} is not octal") from exc
+    if not 0 <= value <= 0o777:
+        hint = ""
+        digits = str(value)
+        # Only suggest the octal spelling when it is one: 660 is a typo for
+        # 0o660, but 4095 is not a mode at all.
+        if set(digits) <= set("01234567") and int(digits, 8) <= 0o777:
+            hint = f'; {value} looks like decimal, write it as "{digits}" or 0o{digits}'
+        raise ConfigError(f"{where}: out of range, expected 0 to 0o777{hint}")
+    return value
 
 
 def _compile_all(patterns: list[str], where: str) -> list[re.Pattern[str]]:
@@ -201,7 +226,7 @@ class Config:
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any], path: str = "<memory>") -> "Config":
-        server_raw = dict(raw.get("server", {}))
+        server_raw = _table(raw, "server", path)
         mode = server_raw.pop("socket_mode", None)
         server = _section(
             ServerConfig,
@@ -214,19 +239,26 @@ class Config:
             ),
         )
 
-        exec_cfg = _section(ExecConfig, dict(raw.get("exec", {})), f"{path}: [exec]")
-        secrets = _section(
-            SecretsConfig, dict(raw.get("secrets", {})), f"{path}: [secrets]"
+        exec_cfg = _section(
+            ExecConfig, _table(raw, "exec", path), f"{path}: [exec]"
         )
-        audit = _section(AuditConfig, dict(raw.get("audit", {})), f"{path}: [audit]")
+        secrets = _section(
+            SecretsConfig, _table(raw, "secrets", path), f"{path}: [secrets]"
+        )
+        audit = _section(AuditConfig, _table(raw, "audit", path), f"{path}: [audit]")
 
-        sync_raw = dict(raw.get("sync", {}))
+        sync_raw = _table(raw, "sync", path)
         sync_refs = _compile_all(list(sync_raw.pop("allowed_refs", [])), "sync.allowed_refs")
         sync = _section(
             SyncConfig, sync_raw, f"{path}: [sync]", allowed_refs=sync_refs
         )
 
-        allow = [AllowRule.parse(r, i) for i, r in enumerate(raw.get("allow", []))]
+        allow_raw = raw.get("allow", [])
+        if not isinstance(allow_raw, list) or not all(
+            isinstance(r, dict) for r in allow_raw
+        ):
+            raise ConfigError(f"{path}: [[allow]] must be a list of tables")
+        allow = [AllowRule.parse(r, i) for i, r in enumerate(allow_raw)]
         if not allow:
             raise ConfigError(
                 f"{path}: no [[allow]] rules; the broker would refuse every command"

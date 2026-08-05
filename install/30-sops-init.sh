@@ -7,6 +7,7 @@
 set -euo pipefail
 
 BROKER_USER="${BROKER_USER:-secretd}"
+GROUP="${DEVWORK_GROUP:-devwork}"
 KEY=/etc/secretd/age.key
 REPO="${REPO:-/srv/ansible-ctrl}"
 
@@ -48,9 +49,15 @@ creation_rules:
       - age:
           - ${PUB}
 EOF
-    # Both the agent and the broker are non-root and must read this to encrypt.
-    chgrp devwork "$SOPS_YAML" 2>/dev/null || true
-    chmod 0640 "$SOPS_YAML"
+    # Both the agent and the broker are non-root and must read this to encrypt,
+    # so 0640 is only safe once the group is actually right.  Fall back to 0644
+    # rather than leave a file only root can read.
+    if chgrp "$GROUP" "$SOPS_YAML" 2>/dev/null; then
+      chmod 0640 "$SOPS_YAML"
+    else
+      say "group ${GROUP} not found; leaving ${SOPS_YAML} world-readable"
+      chmod 0644 "$SOPS_YAML"
+    fi
   fi
 fi
 

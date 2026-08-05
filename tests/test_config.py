@@ -36,6 +36,19 @@ class TestUnknownKeys(unittest.TestCase):
             load(server={"sockt_path": "/run/x"})
         self.assertIn("socket_path", str(caught.exception))
 
+    def test_scalar_where_a_table_belongs(self):
+        """`server = "0660"` instead of `[server]` must not traceback."""
+        for section in self.SECTIONS:
+            with self.subTest(section=section):
+                with self.assertRaises(ConfigError):
+                    load(**{section: "0660"})
+
+    def test_allow_must_be_a_list_of_tables(self):
+        for value in ["ls", [1, 2], {"name": "ls"}]:
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigError):
+                    Config.from_dict({"allow": value}, "test.toml")
+
 
 class TestSocketMode(unittest.TestCase):
     def test_octal_string(self):
@@ -46,8 +59,14 @@ class TestSocketMode(unittest.TestCase):
         which grants write to others and denies read to the devwork group."""
         self.assertEqual(load(server={"socket_mode": 0o660}).server.socket_mode, 0o660)
 
+    def test_unquoted_decimal_is_rejected(self):
+        """660 is a plausible typo for 0o660 and would otherwise mean 0o1224."""
+        with self.assertRaises(ConfigError) as caught:
+            load(server={"socket_mode": 660})
+        self.assertIn("range", str(caught.exception))
+
     def test_garbage_is_a_config_error(self):
-        for value in ["09", "rw-rw----", True, 1.5]:
+        for value in ["09", "rw-rw----", True, 1.5, -1, 0o7777]:
             with self.subTest(value=value):
                 with self.assertRaises(ConfigError):
                     load(server={"socket_mode": value})
