@@ -39,18 +39,18 @@ class AuditLog:
         if self._ready:
             return
         path = Path(self.config.raw_log)
-        previous = os.umask(0o077)  # restored below: children inherit our umask
         try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            if not path.exists():
-                path.touch(mode=0o600)
+            path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            # os.open with an explicit mode rather than umask-plus-touch: the
+            # umask is process-wide, and a child forked by another request
+            # thread during that window would inherit it and create files the
+            # devwork group cannot read.
+            os.close(os.open(path, os.O_CREAT | os.O_APPEND | os.O_WRONLY, 0o600))
             os.chmod(path, 0o600)
             self._ready = True
         except OSError as exc:
             log.error("cannot open audit log %s: %s", path, exc)
             raise
-        finally:
-            os.umask(previous)
 
     def write(self, record: dict[str, Any], raw_output: str) -> None:
         """Record one invocation together with its *unredacted* output."""

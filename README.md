@@ -234,10 +234,14 @@ Tests 1, 2 and 9's permission checks only mean something on a real deployment �
 - **The broker's home is `/var/lib/secretd`, not `/home/secretd`.** It needs a
   writable home — it holds the SSH keys for managed hosts, and
   `ansible-playbook` creates `~/.ansible/tmp` unconditionally — and the unit
-  sets `ProtectHome=true`, which would hide a home under `/home` from the very
+  sets `ProtectHome=tmpfs`, which would hide a home under `/home` from the very
   process that needs it. `install/10-accounts.sh` sets this up; an account
   created by hand with `useradd -M` will fail with
   `Unable to create local directories`.
+- **Changing `[sync] source` needs a matching `BindReadOnlyPaths=`.** `/home` is
+  an empty tmpfs inside the unit apart from one read-only bind mount of the sync
+  source. Point `source` somewhere else without adding the bind mount and every
+  sync fails with `source ... does not exist`.
 - **Children do not inherit the broker's environment.** The child gets exactly
   `[exec.base_env]` plus its injected secrets. If a tool works for you but not
   through the broker, an environment variable is usually the reason —

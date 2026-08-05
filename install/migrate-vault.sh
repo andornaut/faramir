@@ -19,6 +19,13 @@ command -v sops >/dev/null || { echo "sops not found" >&2; exit 1; }
 command -v ansible-vault >/dev/null || { echo "ansible-vault not found" >&2; exit 1; }
 [[ -f $SRC ]] || { echo "no such file: $SRC" >&2; exit 1; }
 [[ -e $DST ]] && { echo "refusing to overwrite $DST" >&2; exit 1; }
+[[ -d $(dirname "$DST") ]] || { echo "no such directory: $(dirname "$DST")" >&2; exit 1; }
+
+# sops finds .sops.yaml by walking up from the file it is encrypting, and picks
+# a creation rule by matching that file's path.  The plaintext lives in
+# /dev/shm, which matches nothing, so the destination path has to be named
+# explicitly or sops exits with "no matching creation rules".
+DST_ABS="$(cd "$(dirname "$DST")" && pwd)/$(basename "$DST")"
 
 TMPDIR_SHM="$(mktemp -d /dev/shm/vault-migrate.XXXXXX)"
 chmod 700 "$TMPDIR_SHM"
@@ -34,7 +41,18 @@ fi
 chmod 600 "$PLAIN"
 
 echo "==> encrypting to $DST"
-sops --encrypt "$PLAIN" >"$DST"
+# Encrypt into /dev/shm first: a redirect straight to $DST would leave an empty
+# file behind on failure, and the -e guard above would then block the retry.
+ENCRYPTED="$TMPDIR_SHM/out.sops.yml"
+if sops --help 2>&1 | grep -q -- '--filename-override'; then
+  sops --encrypt --filename-override "$DST_ABS" "$PLAIN" >"$ENCRYPTED"
+elif [[ -n ${AGE_RECIPIENT:-} ]]; then
+  sops --encrypt --age "$AGE_RECIPIENT" "$PLAIN" >"$ENCRYPTED"
+else
+  echo "this sops predates --filename-override; re-run with AGE_RECIPIENT=age1..." >&2
+  exit 1
+fi
+cat "$ENCRYPTED" >"$DST"
 
 echo "==> verifying round trip"
 if ! diff <(sops --decrypt "$DST") "$PLAIN" >/dev/null; then

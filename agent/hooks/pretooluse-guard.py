@@ -22,18 +22,39 @@ import os
 import re
 import sys
 
-PATTERNS_FILE = os.environ.get("SECRETD_DENY_PATTERNS", "/etc/secretd/deny-patterns.txt")
+# Next to the hook rather than under /etc/secretd: this runs as the agent uid,
+# which cannot traverse /etc/secretd (0750 secretd:secretd).  A patterns file
+# the hook cannot read is worse than no patterns file, because the fallback
+# below is silently weaker.
+PATTERNS_FILE = os.environ.get(
+    "SECRETD_DENY_PATTERNS", "/usr/local/libexec/secretd/deny-patterns.txt"
+)
 
 # Used if the patterns file is missing, so a broken install still fails closed.
+# Keep this in step with agent/hooks/deny-patterns.txt: a fallback that is
+# weaker than the shipped list turns an install problem into a silent gap.
 FALLBACK = [
-    r"ansible-vault\s+(view|decrypt|edit)",
-    r"\bsops\s+-d",
-    r"\bage\s+--?d(ecrypt)?\b",
+    r"ansible-vault\s+(view|decrypt|edit|rekey)",
+    r"\bsops\s+(-d|--decrypt|-i\s+.*-d)",
+    r"\bage\s+(-d|--decrypt)",
+    r"\bage-keygen\b",
     r"\bop\s+read\b",
     r"\bpass\s+show\b",
+    r"\bgopass\s+show\b",
+    r"\bvault\s+(read|kv\s+get)\b",
     r"\bprintenv\b",
     r"\benv\b(?!.*\|)",
-    r"\bcat\b.*(vault|secrets?|\.env|age\.key)",
+    r"\bset\s*$",
+    r"\bdeclare\s+-x\b",
+    r"/proc/\d+/environ",
+    r"/proc/self/environ",
+    r"\b(cat|less|more|head|tail|bat|xxd|od|strings)\b.*"
+    r"(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials)",
+    r"\b(cat|less|more|head|tail)\b.*/etc/secretd",
+    r"\bfind\b.*-name.*(age\.key|\.env|id_rsa)",
+    r"/var/log/secretd",
+    r"\bjournalctl\b.*secretd",
+    r"\bsudo\b.*\b(secretd|-u\s+secretd)\b",
 ]
 
 ADVICE = (
@@ -91,8 +112,13 @@ def main() -> int:
     if not command:
         return 0
 
-    # secure-run is the sanctioned path; do not match patterns inside it.
-    stripped = re.sub(r"^\s*(sudo\s+)?secure-run\b.*$", "", command)
+    # secure-run is the sanctioned path; do not match patterns inside it.  Stop
+    # at the first separator: anything past it is a separate command that the
+    # prefix does not sanction, and consuming it would let `secure-run --status;
+    # printenv` through untouched.
+    stripped = re.sub(
+        r"(?:^|(?<=[;&|\n]))\s*(sudo\s+)?secure-run\b[^;&|\n]*", "", command
+    )
 
     for pattern, compiled in load_patterns():
         if compiled.search(stripped):

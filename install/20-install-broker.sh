@@ -33,7 +33,10 @@ install -m 0755 "$REPO/bin/secretd-mcp" /usr/local/bin/secretd-mcp
 say "hook -> /usr/local/libexec/secretd"
 install -d -m 0755 /usr/local/libexec/secretd
 install -m 0755 "$REPO/agent/hooks/pretooluse-guard.py" /usr/local/libexec/secretd/pretooluse-guard.py
-install -m 0644 "$REPO/agent/hooks/deny-patterns.txt" /etc/secretd/deny-patterns.txt
+# Next to the hook, not in /etc/secretd: the hook runs as the agent uid, which
+# cannot traverse /etc/secretd (0750 secretd:secretd).  A patterns file it
+# cannot read means it silently falls back to a much weaker built-in list.
+install -m 0644 "$REPO/agent/hooks/deny-patterns.txt" /usr/local/libexec/secretd/deny-patterns.txt
 
 say "docs -> /usr/local/share/doc/secretd"
 install -d -m 0755 /usr/local/share/doc/secretd
@@ -42,6 +45,11 @@ install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/secretd/
 
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/secretd
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/secretd
+
+# Left over from installs that placed the patterns under /etc/secretd, where the
+# agent uid could not read them.
+# CLEANUP (added 2026-08-05): remove once every host has run this script once.
+rm -f /etc/secretd/deny-patterns.txt
 
 if [[ -f /etc/secretd/config.toml ]]; then
   say "keeping existing /etc/secretd/config.toml (new default at config.toml.dist)"

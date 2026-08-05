@@ -13,10 +13,21 @@ import os
 import subprocess
 import sys
 import unittest
+from unittest import mock
 
 REPO = os.path.join(os.path.dirname(__file__), "..")
 HOOK = os.path.join(REPO, "agent", "hooks", "pretooluse-guard.py")
 PATTERNS = os.path.join(REPO, "agent", "hooks", "deny-patterns.txt")
+
+
+def load_guard():
+    """Import the hook as a module, to assert on its constants."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("secretd_guard", HOOK)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_hook(command: str, tool: str = "Bash") -> dict:
@@ -103,6 +114,25 @@ class TestAllowed(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "")
 
 
+class TestSecureRunExemption(unittest.TestCase):
+    """The exemption covers the secure-run invocation, not the whole line."""
+
+    def test_trailing_command_is_still_checked(self):
+        for command in [
+            "secure-run --status; printenv ROUTER_PW",
+            "secure-run --status && cat /etc/secretd/age.key",
+            "secure-run --status | printenv",
+            "secure-run --sync\nprintenv ROUTER_PW",
+        ]:
+            with self.subTest(command=command):
+                self.assertEqual(decision(command), "deny")
+
+    def test_chained_secure_run_is_still_exempt(self):
+        self.assertIsNone(
+            decision("secure-run --sync && secure-run -- ansible-playbook site.yml")
+        )
+
+
 class TestFailClosed(unittest.TestCase):
     def test_missing_patterns_file_still_denies(self):
         env = dict(os.environ)
@@ -116,6 +146,27 @@ class TestFailClosed(unittest.TestCase):
             timeout=30,
         )
         self.assertIn("deny", result.stdout)
+
+    def test_fallback_is_not_weaker_than_the_shipped_list(self):
+        """A patterns file the hook cannot read must not widen what is allowed.
+
+        The hook runs as the agent uid; if the installed file ever becomes
+        unreadable again, the fallback is what stands between the agent and a
+        plaintext credential in the context window.
+        """
+        with open(PATTERNS, encoding="utf-8") as fh:
+            shipped = [
+                line.strip()
+                for line in fh
+                if line.strip() and not line.lstrip().startswith("#")
+            ]
+        self.assertEqual(shipped, load_guard().FALLBACK)
+
+    def test_default_patterns_path_is_agent_readable(self):
+        """Not under /etc/secretd, which is 0750 secretd:secretd."""
+        with mock.patch.dict(os.environ):
+            os.environ.pop("SECRETD_DENY_PATTERNS", None)
+            self.assertNotIn("/etc/secretd", load_guard().PATTERNS_FILE)
 
 
 class TestPatternsFile(unittest.TestCase):

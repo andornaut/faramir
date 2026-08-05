@@ -125,7 +125,7 @@ class Server:
         except Exception as exc:  # noqa: BLE001 - one bad connection must not kill us
             log.exception("connection failed")
             try:
-                self._send(conn, error_response("internal", str(exc)))
+                self._send(conn, error_response("internal", self._safe_detail(exc)))
             except OSError:
                 pass
         finally:
@@ -133,6 +133,19 @@ class Server:
                 conn.close()
             except OSError:
                 pass
+
+    def _safe_detail(self, exc: BaseException) -> str:
+        """An exception message the agent may see.
+
+        An unexpected exception can have interpolated a secret into its message,
+        so it goes through the redactor like every other agent-visible string.
+        If building the redactor is what failed, say nothing rather than risk it.
+        """
+        try:
+            return Redactor(self.store.pairs(), self.store.policy).redact_text(str(exc))
+        except Exception:  # noqa: BLE001 - the error path must not raise
+            log.exception("could not redact error detail")
+            return "internal error (see the broker log)"
 
     def _peer(self, conn: socket.socket) -> dict[str, Any] | None:
         """SO_PEERCRED check.
@@ -262,7 +275,12 @@ class Server:
             self.audit.write(
                 {"log_id": log_id, "op": "sync", "peer": peer, "error": str(exc)}, ""
             )
-            return error_response("sync_failed", str(exc), log_id)
+            # git's combined stdout+stderr, which can carry a credential in a
+            # remote URL or a hook's output.  Everything else the agent sees is
+            # redacted; this must be too.
+            return error_response(
+                "sync_failed", redactor.redact_text(str(exc)), log_id
+            )
         self.audit.write(
             {
                 "log_id": log_id,

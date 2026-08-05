@@ -32,7 +32,7 @@ fi
 
 # The broker needs a real, writable home: it holds the SSH keys used to reach
 # managed hosts, and Ansible insists on creating ~/.ansible/tmp.  It must NOT
-# be under /home -- the service unit sets ProtectHome=true, which would make it
+# be under /home -- the service unit sets ProtectHome=tmpfs, which would make it
 # invisible to the very process that needs it.
 BROKER_HOME="${BROKER_HOME:-/var/lib/secretd}"
 say "user ${BROKER_USER} (broker, no login, home ${BROKER_HOME})"

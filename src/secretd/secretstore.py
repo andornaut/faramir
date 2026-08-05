@@ -51,8 +51,12 @@ def _flatten(node: Any, prefix: str = "") -> Iterator[tuple[str, str]]:
     """Walk decrypted YAML/JSON into ``path/to/key`` -> string pairs."""
     if isinstance(node, dict):
         for key, value in node.items():
-            if str(key).startswith("sops"):
-                continue  # sops' own metadata block
+            # Exactly the top-level 'sops' key, which is sops' own metadata
+            # block.  A prefix match at any depth would silently drop real
+            # secrets (sops_backup_token, home/sopsuser) from the value set,
+            # and a dropped secret is never redacted and never warned about.
+            if prefix == "" and str(key) == "sops":
+                continue
             yield from _flatten(value, f"{prefix}/{key}" if prefix else str(key))
     elif isinstance(node, list):
         for i, value in enumerate(node):

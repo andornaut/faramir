@@ -15,7 +15,7 @@ test:
 	$(PYTHON) -m unittest discover -s tests -t . -v
 
 test-unit:
-	$(PYTHON) -m unittest tests.test_redact tests.test_allowlist tests.test_protocol tests.test_hook -v
+	$(PYTHON) -m unittest tests.test_redact tests.test_allowlist tests.test_protocol tests.test_config tests.test_hook -v
 
 test-e2e:
 	$(PYTHON) -m unittest tests.test_e2e tests.test_sync -v

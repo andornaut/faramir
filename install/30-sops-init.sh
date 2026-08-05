@@ -22,8 +22,9 @@ if [[ -f $KEY ]]; then
   say "keeping existing ${KEY}"
 else
   say "generating age keypair"
-  umask 077
-  age-keygen -o "$KEY" 2>/dev/null
+  # Subshell: a bare 'umask 077' here would leak into everything below, and
+  # .sops.yaml has to stay group-readable.
+  (umask 077; age-keygen -o "$KEY" 2>/dev/null)
   chown "$BROKER_USER:$BROKER_USER" "$KEY"
   chmod 0400 "$KEY"
 fi
@@ -47,7 +48,9 @@ creation_rules:
       - age:
           - ${PUB}
 EOF
+    # Both the agent and the broker are non-root and must read this to encrypt.
     chgrp devwork "$SOPS_YAML" 2>/dev/null || true
+    chmod 0640 "$SOPS_YAML"
   fi
 fi
 

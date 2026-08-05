@@ -17,6 +17,7 @@ from secretd.redact import (  # noqa: E402
     token_for,
     variants,
 )
+from secretd.secretstore import _flatten  # noqa: E402
 
 SECRET = "hunter2-correct-horse-battery"
 REF = "home/router/admin"
@@ -71,6 +72,36 @@ class TestValueSet(unittest.TestCase):
         vs = variants(value)
         self.assertIn("it'\\''s a $secret", vs)
         self.assertIn("it's a \\$secret", vs)
+
+
+class TestFlatten(unittest.TestCase):
+    """What ``_flatten`` drops is never redacted and never warned about, so the
+    only thing it may drop is sops' own top-level metadata block."""
+
+    def test_sops_metadata_block_is_dropped(self):
+        tree = {"sops": {"age": [{"recipient": "age1x"}], "lastmodified": "..."}}
+        self.assertEqual(list(_flatten(tree)), [])
+
+    def test_keys_merely_starting_with_sops_are_kept(self):
+        tree = {
+            "sops_backup_token": "S3cret-Value-Long",
+            "home": {"sopsuser": "AnotherL0ngSecret"},
+        }
+        self.assertEqual(
+            list(_flatten(tree)),
+            [
+                ("sops_backup_token", "S3cret-Value-Long"),
+                ("home/sopsuser", "AnotherL0ngSecret"),
+            ],
+        )
+
+    def test_nested_sops_key_is_kept(self):
+        """Only the top-level 'sops' key is metadata."""
+        tree = {"vault": {"sops": "a-real-secret-value"}}
+        self.assertEqual(list(_flatten(tree)), [("vault/sops", "a-real-secret-value")])
+
+    def test_booleans_and_nulls_are_skipped(self):
+        self.assertEqual(list(_flatten({"a": True, "b": None})), [])
 
 
 class TestMatching(unittest.TestCase):

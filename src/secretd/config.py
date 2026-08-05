@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import re
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +20,43 @@ _DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 class ConfigError(Exception):
     """Raised for a malformed or unsafe configuration."""
+
+
+def _section(factory: Any, raw: dict[str, Any], where: str, **extra: Any) -> Any:
+    """Build one config dataclass, reporting a typo as a ConfigError.
+
+    A bare ``Factory(**raw)`` raises TypeError, which nothing up the stack
+    converts, so a single mistyped key makes ``secretd --check`` die with a
+    traceback instead of naming the offending line.
+    """
+    known = {f.name for f in fields(factory)}
+    unknown = sorted(set(raw) - known)
+    if unknown:
+        raise ConfigError(
+            f"{where}: unknown key(s): {', '.join(unknown)}; "
+            f"known keys: {', '.join(sorted(known))}"
+        )
+    try:
+        return factory(**raw, **extra)
+    except TypeError as exc:
+        raise ConfigError(f"{where}: {exc}") from exc
+
+
+def _octal_mode(value: Any, where: str) -> int:
+    """Accept both ``"0660"`` and TOML's own ``0o660``.
+
+    TOML parses ``0o660`` to the int 432, which is already the mode.  Running
+    every value through ``int(str(v), 8)`` would reinterpret that as 0o432 --
+    write for others, no read for the group -- without any error.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        raise ConfigError(f"{where}: expected an octal string or integer")
+    if isinstance(value, int):
+        return value
+    try:
+        return int(value, 8)
+    except ValueError as exc:
+        raise ConfigError(f"{where}: {value!r} is not octal") from exc
 
 
 def _compile_all(patterns: list[str], where: str) -> list[re.Pattern[str]]:
@@ -166,18 +203,28 @@ class Config:
     def from_dict(cls, raw: dict[str, Any], path: str = "<memory>") -> "Config":
         server_raw = dict(raw.get("server", {}))
         mode = server_raw.pop("socket_mode", None)
-        server = ServerConfig(
-            **server_raw,
-            **({"socket_mode": int(str(mode), 8)} if mode is not None else {}),
+        server = _section(
+            ServerConfig,
+            server_raw,
+            f"{path}: [server]",
+            **(
+                {"socket_mode": _octal_mode(mode, f"{path}: server.socket_mode")}
+                if mode is not None
+                else {}
+            ),
         )
 
-        exec_cfg = ExecConfig(**raw.get("exec", {}))
-        secrets = SecretsConfig(**raw.get("secrets", {}))
-        audit = AuditConfig(**raw.get("audit", {}))
+        exec_cfg = _section(ExecConfig, dict(raw.get("exec", {})), f"{path}: [exec]")
+        secrets = _section(
+            SecretsConfig, dict(raw.get("secrets", {})), f"{path}: [secrets]"
+        )
+        audit = _section(AuditConfig, dict(raw.get("audit", {})), f"{path}: [audit]")
 
         sync_raw = dict(raw.get("sync", {}))
         sync_refs = _compile_all(list(sync_raw.pop("allowed_refs", [])), "sync.allowed_refs")
-        sync = SyncConfig(**sync_raw, allowed_refs=sync_refs)
+        sync = _section(
+            SyncConfig, sync_raw, f"{path}: [sync]", allowed_refs=sync_refs
+        )
 
         allow = [AllowRule.parse(r, i) for i, r in enumerate(raw.get("allow", []))]
         if not allow:
