@@ -41,6 +41,16 @@ class SyncResult:
     output: str
 
 
+def _config_quote(value: str) -> str:
+    """Quote a path for a git-config value.
+
+    Unquoted values stop at ``#`` or ``;``, lose trailing whitespace, and treat
+    backslash as an escape, so a path containing any of those would produce a
+    grant for some shorter path and the real one would still be refused.
+    """
+    return '"' + value.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
 @contextlib.contextmanager
 def _safe_directory_config(cfg: SyncConfig) -> Iterator[str]:
     """A throwaway git config granting ``safe.directory`` for sync's two repos.
@@ -69,7 +79,7 @@ def _safe_directory_config(cfg: SyncConfig) -> Iterator[str]:
     ) as fh:
         fh.write("[safe]\n")
         for entry in entries:
-            fh.write(f"\tdirectory = {entry}\n")
+            fh.write(f"\tdirectory = {_config_quote(entry)}\n")
         fh.flush()
         yield fh.name
 

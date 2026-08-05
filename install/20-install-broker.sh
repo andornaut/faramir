@@ -10,8 +10,10 @@ AGENT_USER="${AGENT_USER:-agent}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 LIB="${SECRETD_LIB:-/usr/local/lib/secretd}"
 # Derive from the passwd entry when the account exists, so this agrees with
-# 40-agent-config.sh for a home that is not /home/<user>.
-AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)"
+# 40-agent-config.sh for a home that is not /home/<user>.  getent exits 2 for a
+# missing account, which pipefail would turn into a silent abort before the
+# EUID check below has had a chance to say anything useful.
+AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 WORKTREE="${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/ansible-ctrl}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
@@ -59,18 +61,34 @@ rm -f /etc/secretd/deny-patterns.txt
 # [sync] source must name the worktree this install was given, not the default
 # baked into the shipped config.  The bind mount below makes only that one path
 # visible to the broker, so a source pointing anywhere else fails every sync.
+# Read it as TOML rather than pattern-matching the line: quoting styles,
+# trailing comments and an absent key (which means SyncConfig's default, not
+# "no source") all have to be read the way the broker reads them, or the
+# warning below fires on configs that are perfectly correct.
 configured_source() {
-  awk '/^\[sync\]/ { in_sync = 1; next }
-       /^\[/       { in_sync = 0 }
-       in_sync && /^[[:space:]]*source[[:space:]]*=/ {
-         sub(/^[^=]*=[[:space:]]*/, ""); gsub(/"/, ""); print; exit }' "$1"
+  SECRETD_LIB="$LIB" python3 - "$1" <<'PY'
+import sys, tomllib
+sys.path.insert(0, __import__("os").environ["SECRETD_LIB"])
+from secretd.config import SyncConfig
+
+try:
+    with open(sys.argv[1], "rb") as fh:
+        raw = tomllib.load(fh)
+except (OSError, tomllib.TOMLDecodeError) as exc:
+    sys.exit(f"cannot read {sys.argv[1]}: {exc}")
+section = raw.get("sync")
+section = section if isinstance(section, dict) else {}
+print(section.get("source", SyncConfig.source))
+PY
 }
 
 if [[ -f /etc/secretd/config.toml ]]; then
   say "keeping existing /etc/secretd/config.toml (new default at config.toml.dist)"
   install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/secretd/config.toml.dist
-  existing="$(configured_source /etc/secretd/config.toml)"
-  if [[ -n $existing && $existing != "$WORKTREE" ]]; then
+  # No -n guard: an absent source key means SyncConfig's default, which is
+  # exactly the mismatch worth warning about on a non-default install.
+  if existing="$(configured_source /etc/secretd/config.toml)" &&
+     [[ $existing != "$WORKTREE" ]]; then
     say "WARNING: [sync] source is ${existing} but this install binds ${WORKTREE}"
     say "         sync will fail until they match; edit /etc/secretd/config.toml"
   fi

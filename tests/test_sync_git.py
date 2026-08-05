@@ -127,6 +127,19 @@ class TestSyncGit(unittest.TestCase):
         with self.assertRaises(SyncError):
             sync(cfg, "--upload-pack=touch /tmp/pwned")
 
+    def test_source_path_containing_a_config_comment_character(self):
+        """git-config values stop at '#', so an unquoted grant would truncate.
+
+        The path would then be granted for some shorter prefix and the real one
+        still refused, which surfaces as dubious ownership on every sync.
+        """
+        awkward = os.path.join(self.dir, "re#po; and more")
+        shutil.move(self.source, awkward)
+        cfg = SyncConfig(**{**self.cfg.__dict__, "source": awkward})
+        git(awkward, "config", "user.email", "t@t")
+        with self.assume_different_owner():
+            self.assertEqual(sync(cfg, None).subject, "first")
+
     def test_no_temporary_config_is_left_behind(self):
         before = set(os.listdir(tempfile.gettempdir()))
         sync(self.cfg, None)

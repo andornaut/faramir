@@ -9,7 +9,9 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 AGENT_USER="${AGENT_USER:-agent}"
-AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)"
+# getent exits 2 for a missing account, and pipefail would abort here before
+# the "no such user" check below could report it.
+AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 WORKTREE="${WORKTREE:-${AGENT_HOME}/work/ansible-ctrl}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }

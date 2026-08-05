@@ -33,7 +33,8 @@ else
 fi
 # Read the passwd entry rather than assuming /home/<user>, so all three install
 # scripts agree for an account whose home is somewhere else.
-AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)"
+AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
+[[ -n $AGENT_HOME ]] || { echo "no home for ${AGENT_USER} after useradd" >&2; exit 1; }
 WORKTREE="${WORKTREE:-${AGENT_HOME}/work/ansible-ctrl}"
 
 # The broker needs a real, writable home: it holds the SSH keys used to reach

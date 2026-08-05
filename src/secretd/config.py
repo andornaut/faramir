@@ -65,24 +65,24 @@ def _octal_mode(value: Any, where: str) -> int:
     The range check is what catches an unquoted decimal ``660``, which is a
     plausible typo for ``0o660`` and would otherwise mean 0o1224.  Every real
     mode fits in 0o777, so anything above it is a mistake either way.
+
+    The error names the accepted spellings rather than guessing which one was
+    meant.  tomllib parses ``0o1000`` and ``512`` to the same int, so the
+    original spelling is not recoverable here and any specific advice would be
+    wrong for one of them.
     """
     if isinstance(value, bool) or not isinstance(value, (str, int)):
         raise ConfigError(f"{where}: expected an octal string or integer")
-    written_as_int = isinstance(value, int)
     if isinstance(value, str):
         try:
             value = int(value, 8)
         except ValueError as exc:
             raise ConfigError(f"{where}: {value!r} is not octal") from exc
     if not 0 <= value <= 0o777:
-        hint = ""
-        digits = str(value)
-        # Only suggest the octal spelling when the value was written as a bare
-        # integer and reads as one: 660 is a typo for 0o660, 4095 is not a mode
-        # at all, and "1000" was already octal so the advice would be wrong.
-        if written_as_int and set(digits) <= set("01234567") and int(digits, 8) <= 0o777:
-            hint = f'; {value} looks like decimal, write it as "{digits}" or 0o{digits}'
-        raise ConfigError(f"{where}: out of range, expected 0 to 0o777{hint}")
+        raise ConfigError(
+            f"{where}: out of range, expected 0 to 0o777; write the mode in "
+            'octal, as "0660" or 0o660'
+        )
     return value
 
 

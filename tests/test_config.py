@@ -64,13 +64,20 @@ class TestSocketMode(unittest.TestCase):
         with self.assertRaises(ConfigError) as caught:
             load(server={"socket_mode": 660})
         self.assertIn("range", str(caught.exception))
-        self.assertIn("looks like decimal", str(caught.exception))
 
-    def test_out_of_range_octal_string_gets_no_decimal_hint(self):
-        """"1000" is already octal; advising 0o512 would be wrong."""
-        with self.assertRaises(ConfigError) as caught:
-            load(server={"socket_mode": "1000"})
-        self.assertNotIn("looks like decimal", str(caught.exception))
+    def test_the_error_never_guesses_the_spelling(self):
+        """tomllib parses 0o1000 and 512 to the same int.
+
+        Any advice naming a specific replacement value is wrong for one of the
+        spellings, so the message names the accepted forms instead.
+        """
+        for value in [660, 0o1000, "1000", 4095]:
+            with self.subTest(value=value):
+                with self.assertRaises(ConfigError) as caught:
+                    load(server={"socket_mode": value})
+                message = str(caught.exception)
+                self.assertIn('"0660" or 0o660', message)
+                self.assertNotIn("looks like decimal", message)
 
     def test_garbage_is_a_config_error(self):
         for value in ["09", "rw-rw----", True, 1.5, -1, 0o7777]:
