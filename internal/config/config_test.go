@@ -214,12 +214,16 @@ func TestALeftoverSyncSectionIsAConfigError(t *testing.T) {
 	}
 }
 
-func TestAConfigWithNoneOfThemLoads(t *testing.T) {
-	cfg, err := load(t, minimal)
-	if err != nil {
-		t.Fatal(err)
+// The name asserted a property the file no longer has, so it is a hard error
+// rather than a silently renamed key.
+func TestRawLogIsNowLogPath(t *testing.T) {
+	_, err := load(t, minimal+"\n[audit]\nraw_log = \"/var/log/faramir/raw.log\"\n")
+	if err == nil {
+		t.Fatal("raw_log was accepted")
 	}
-	if cfg.Exec.DefaultCwd != "/home/agent/work/repo" {
-		t.Errorf("default_cwd = %q", cfg.Exec.DefaultCwd)
+	for _, want := range []string{"raw_log", "log_path", "redacted"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message does not mention %q: %v", want, err)
+		}
 	}
 }

@@ -141,7 +141,7 @@ Phase 1 acceptance (run these):
   sudo -u ${AGENT_USER} cat /etc/faramir/age.key        -> Permission denied
   sudo -u ${BROKER_USER} cat /etc/faramir/age.key       -> Permission denied
   sudo -u ${EXEC_USER} cat /etc/faramir/age.key         -> Permission denied
-  sudo -u ${EXEC_USER} cat /var/log/faramir/raw.log     -> Permission denied
+  sudo -u ${EXEC_USER} cat /var/log/faramir/audit.log   -> Permission denied
   sudo -u ${AGENT_USER} ls ~${OPERATOR}/.ssh            -> Permission denied
   sudo -u ${AGENT_USER} touch ${WORKTREE}/.perm-check   -> succeeds
   sudo -u ${EXEC_USER} touch ${WORKTREE}/.perm-check    -> succeeds

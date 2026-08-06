@@ -316,8 +316,12 @@ type SecretsConfig struct {
 	MinEntropyBitsPerChar float64
 }
 
+// AuditConfig is the operator-only record of what the broker ran.
+//
+// It holds no secret value: output is recorded after redaction.  See
+// internal/audit for why the unredacted copy went.
 type AuditConfig struct {
-	RawLog         string
+	LogPath        string
 	MaxRecordBytes int
 }
 
@@ -371,7 +375,7 @@ var (
 		"ssh_agent", "ssh_add"}
 	secretsKeys = []string{"files", "decrypt_command", "refresh_interval_sec",
 		"min_length", "min_unique_chars", "min_entropy_bits_per_char"}
-	auditKeys = []string{"raw_log", "max_record_bytes"}
+	auditKeys = []string{"log_path", "max_record_bytes"}
 )
 
 func FromMap(raw map[string]any, path string) (*Config, error) {
@@ -699,11 +703,19 @@ func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	if err != nil {
 		return err
 	}
+	if _, ok := sec["raw_log"]; ok {
+		// The name asserted a property the file no longer has, and leaving it
+		// working would keep an operator believing the log held the plaintext
+		// they were relying on for debugging.
+		return errf("%s: [audit] raw_log is now log_path, and the log holds "+
+			"redacted output: what it records is what the agent saw, plus the "+
+			"peer, the command, the refs and the result. Rename the key.", path)
+	}
 	if err := rejectUnknownKeys(sec, auditKeys, where); err != nil {
 		return err
 	}
-	*out = AuditConfig{RawLog: "/var/log/faramir/raw.log", MaxRecordBytes: 4194304}
-	if out.RawLog, err = str(sec["raw_log"], where, out.RawLog); err != nil {
+	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log", MaxRecordBytes: 4194304}
+	if out.LogPath, err = str(sec["log_path"], where, out.LogPath); err != nil {
 		return err
 	}
 	if out.MaxRecordBytes, err = atLeast(sec, "max_record_bytes", where, out.MaxRecordBytes, 1); err != nil {

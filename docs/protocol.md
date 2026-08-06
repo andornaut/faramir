@@ -81,7 +81,7 @@ the secrets that are never tokenized, so it stays operator-side, behind
 reached the right place without seeing it. A count of 0 for a secret it
 expected is a genuine signal that something is misconfigured.
 
-`log_id` points into `/var/log/faramir/raw.log`, which the agent cannot read.
+`log_id` points into `/var/log/faramir/audit.log`, which the agent cannot read.
 It is there so the agent can say "see log 2026-08-05T14:22:01Z-a91f" to the
 operator.
 

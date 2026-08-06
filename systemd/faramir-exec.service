@@ -26,7 +26,7 @@ SupplementaryGroups=devwork
 #   /etc/faramir/age.key      no  (0400 faramir-keeper)
 #   /run/faramir/keeper.sock  no  (0660 root:faramir-broker)
 #   /run/faramir/exec.sock    no  (0660 root:faramir-broker)
-#   /var/log/faramir/raw.log  no  (0600 faramir-broker)
+#   /var/log/faramir/audit.log  no  (0600 faramir-broker)
 #   ~faramir-broker/.ssh      no  (0700 faramir-broker)
 #   the working tree          read and write, via devwork above
 #   the rest of /home         nothing at all (empty tmpfs)

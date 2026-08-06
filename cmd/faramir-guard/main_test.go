@@ -14,7 +14,7 @@ func TestDeniedCommands(t *testing.T) {
 		"env",
 		"cat /proc/self/environ",
 		"cat /etc/faramir/config.toml",
-		"tail /var/log/faramir/raw.log",
+		"tail /var/log/faramir/audit.log",
 		"journalctl -u faramir-broker",
 		"sudo -u faramir-keeper cat /etc/faramir/age.key",
 		"cat ~/.ssh/id_rsa",

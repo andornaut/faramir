@@ -36,12 +36,12 @@ func TestCutAtRuneKeepsOutputAfterAnInteriorInvalidByte(t *testing.T) {
 }
 
 // The same case through the log itself: the record has to hold what the child
-// printed, because it is the only unredacted copy the operator gets.
+// printed: a record cut back to the first bad byte audits nothing.
 func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 	dir := t.TempDir()
 	limit := 1 << 16
 	log := NewLog(config.AuditConfig{
-		RawLog: filepath.Join(dir, "raw.log"), MaxRecordBytes: limit,
+		LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: limit,
 	})
 
 	// One bad byte halfway through, then a marker just before the cut.
@@ -59,22 +59,22 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 		t.Fatal("writing one record took over 10s; the truncation is superlinear")
 	}
 
-	data, err := os.ReadFile(filepath.Join(dir, "raw.log"))
+	data, err := os.ReadFile(filepath.Join(dir, "audit.log"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var record struct {
-		RawOutput    string `json:"raw_output"`
-		RawTruncated bool   `json:"raw_truncated"`
+		Output    string `json:"output"`
+		Truncated bool   `json:"output_truncated"`
 	}
 	if err := json.Unmarshal(data, &record); err != nil {
 		t.Fatal(err)
 	}
-	if !record.RawTruncated {
+	if !record.Truncated {
 		t.Error("an over-length record was not flagged as truncated")
 	}
-	if !strings.Contains(record.RawOutput, "TAIL-MARKER") {
+	if !strings.Contains(record.Output, "TAIL-MARKER") {
 		t.Errorf("the record was cut back to the invalid byte: %d bytes kept, want ~%d",
-			len(record.RawOutput), limit)
+			len(record.Output), limit)
 	}
 }

@@ -49,11 +49,12 @@ type Result struct {
 
 // Run executes argv through the executor, returning redacted merged output.
 //
-// rawSink receives the unredacted text for the operator-only audit log.
-// Nothing else in this process ever sees it.
+// auditSink receives the same redacted text, before the response's own
+// truncation, so the operator's log can hold more of a long run than the
+// agent is given without holding anything the agent is not.
 func Run(argv []string, cwd string, env map[string]string, timeoutSec int,
 	redactor *redact.Redactor, execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
-	rawSink func(string)) (*Result, error) {
+	auditSink func(string)) (*Result, error) {
 
 	master, slave, err := ptyutil.Open()
 	if err != nil {
@@ -80,6 +81,20 @@ func Run(argv []string, cwd string, env map[string]string, timeoutSec int,
 	// This is a backstop for the case where it does not come back at all.
 	deadline := started.Add(time.Duration(timeoutSec+execCfg.KillGraceSec+backstopMarginSec) * time.Second)
 
+	// Every path that produces output goes through here, so the audit log and
+	// the response cannot drift apart: the log gets the redacted text before
+	// the response's cap is applied, and the truncation marker appendOutput
+	// adds belongs to the response alone.
+	emit := func(safe string) {
+		if safe == "" {
+			return
+		}
+		if auditSink != nil {
+			auditSink(safe)
+		}
+		emitted, truncated = appendOutput(&chunks, safe, emitted, execCfg.MaxOutputBytes, truncated)
+	}
+
 	// carry holds bytes that end in a partial UTF-8 sequence, so a rune split
 	// across two reads is decoded once rather than replaced twice.
 	var carry []byte
@@ -101,12 +116,7 @@ func Run(argv []string, cwd string, env map[string]string, timeoutSec int,
 			text, rest := decodeUTF8(carry)
 			carry = rest
 			if text != "" {
-				if rawSink != nil {
-					rawSink(text)
-				}
-				if safe := redactor.Feed(text); safe != "" {
-					emitted, truncated = appendOutput(&chunks, safe, emitted, execCfg.MaxOutputBytes, truncated)
-				}
+				emit(redactor.Feed(text))
 			}
 		}
 		if err != nil {
@@ -122,19 +132,11 @@ func Run(argv []string, cwd string, env map[string]string, timeoutSec int,
 	}
 
 	if len(carry) > 0 {
-		tail := string(carry)
-		if rawSink != nil {
-			rawSink(tail)
-		}
 		// Feed releases whatever the overlap buffer no longer needs to hold;
 		// dropping it here would drop that much of the child's output.
-		if safe := redactor.Feed(tail); safe != "" {
-			emitted, truncated = appendOutput(&chunks, safe, emitted, execCfg.MaxOutputBytes, truncated)
-		}
+		emit(redactor.Feed(string(carry)))
 	}
-	if final := redactor.Flush(); final != "" {
-		emitted, truncated = appendOutput(&chunks, final, emitted, execCfg.MaxOutputBytes, truncated)
-	}
+	emit(redactor.Flush())
 	_ = master.Close()
 
 	var exitCode int

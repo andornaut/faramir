@@ -169,6 +169,33 @@ Relying on the redactor here was always weaker than it looked: a child holding
 the key could write it to a file or send it somewhere, and redaction only ever
 sees output.
 
+## The audit log is redacted too
+
+The log records output *after* redaction, so the same tokens the agent got are
+what reaches disk. Everything else in a record is already value-free: the refs
+are names, and `argv` is redacted on its way in as well, because the broker
+never puts a value there but a caller can.
+
+It used to hold the unredacted stream, justified as the operator's debugging
+copy. The cost was the only plaintext this system writes to disk: unencrypted
+while every sops file beside it is encrypted, unbounded, and in `/var/log`,
+where backups, snapshots and log shippers reach and the `0600 faramir-broker`
+mode does not follow. A stolen disk gave up every secret that had ever appeared
+in output.
+
+Auditing needs who ran what, when, against which refs, and to what effect, and
+none of that is a value. Confirming that a credential actually arrived is what
+the redaction counts are for, which is the same argument already made for the
+agent in [protocol.md](protocol.md): a count of 1 for `«SECRET:home/router/admin»`
+proves it landed, and a count of 0 when you expected 1 is the real signal.
+
+What this costs: you cannot tell from the log whether the value that arrived
+was the one currently in sops or a stale one. Compare the ref at the source
+instead. The one caveat is the same one the response carries, and it is not new
+here: a value refused at load is absent from the redactor, so if it reaches the
+output some other way it lands in the log in plaintext. `faramir-broker --check`
+names every such ref; lengthen them.
+
 ## What is deliberately not done
 
 - **No hashing/fuzzy matching.** Redacting `sha256(secret)` would be easy and
@@ -176,6 +203,6 @@ sees output.
   documented boundary of the threat model, not an oversight.
 - **No redaction of the request.** The agent chooses what it sends; the broker
   has nothing to hide from it there.
-- **No attempt to redact the raw log.** That file exists precisely so the
-  operator has the unredacted truth. It is 0600 `faramir-broker`, and the agent is
-  given a `log_id` to quote instead.
+- **No reversal of a token.** There is no lookup from `«SECRET:ref»` back to a
+  value anywhere in the system, including for the operator. Read the sops file
+  if you need one.

@@ -79,5 +79,5 @@ min_unique_chars = 4
 min_entropy_bits_per_char = 1.5
 
 [audit]
-raw_log = "/var/log/faramir/raw.log"
+log_path = "/var/log/faramir/audit.log"
 max_record_bytes = 4194304

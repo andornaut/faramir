@@ -53,7 +53,7 @@ func newServer(t *testing.T, values map[string]string) *Server {
 			RefreshIntervalSec: 0, MinLength: 8, MinUniqueChars: 4,
 			MinEntropyBitsPerChar: 1.5,
 		},
-		Audit: config.AuditConfig{RawLog: filepath.Join(dir, "raw.log"), MaxRecordBytes: 1 << 20},
+		Audit: config.AuditConfig{LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: 1 << 20},
 	}
 	s := New(cfg)
 	s.Store.Reload()

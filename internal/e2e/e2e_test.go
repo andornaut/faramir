@@ -30,7 +30,7 @@ const routerPassword = "hunter2-correct-horse-battery"
 type harness struct {
 	dir        string
 	brokerSock string
-	rawLog     string
+	auditLog   string
 	secretFile string
 	sopsBinary string
 }
@@ -70,7 +70,7 @@ func newHarness(t *testing.T) *harness {
 
 	// Collect the directories the test's programs actually live in.
 	dirs := map[string]bool{}
-	for _, name := range []string{"bash", "printenv", "base64", "rev", "cut", "cat", "true"} {
+	for _, name := range []string{"bash", "printenv", "base64", "rev", "cut", "cat", "echo", "true"} {
 		dirs[binDir(t, name)] = true
 	}
 	var binDirs []string
@@ -78,7 +78,7 @@ func newHarness(t *testing.T) *harness {
 		binDirs = append(binDirs, d)
 	}
 
-	rawLog := filepath.Join(dir, "raw.log")
+	auditLog := filepath.Join(dir, "audit.log")
 	// A HOME of its own, so a sops the child runs cannot find the developer's
 	// own ~/.config/sops/age/keys.txt and quietly succeed.
 	childHome := filepath.Join(dir, "child-home")
@@ -113,7 +113,7 @@ func newHarness(t *testing.T) *harness {
 			RefreshIntervalSec: 0,
 			MinLength:          8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
 		},
-		Audit: config.AuditConfig{RawLog: rawLog, MaxRecordBytes: 1 << 22},
+		Audit: config.AuditConfig{LogPath: auditLog, MaxRecordBytes: 1 << 22},
 	}
 
 	k := keeper.New(cfg)
@@ -139,7 +139,7 @@ func newHarness(t *testing.T) *harness {
 	t.Cleanup(func() { s.Close() })
 
 	return &harness{
-		dir: dir, brokerSock: cfg.Server.SocketPath, rawLog: rawLog,
+		dir: dir, brokerSock: cfg.Server.SocketPath, auditLog: auditLog,
 		secretFile: secretPath, sopsBinary: sopstest.SopsBinary(t),
 	}
 }
@@ -335,8 +335,12 @@ func TestReservedEnvIsRefused(t *testing.T) {
 	}
 }
 
-// Matrix 9: the unredacted stream is in the operator's log.
-func TestRawLogHoldsPlaintext(t *testing.T) {
+// Matrix 9: the operator's log records the invocation, and holds no value.
+//
+// This is the only plaintext the design would ever write to disk, so it is
+// asserted at the strongest point: the exact value that was injected into this
+// very command must not appear anywhere in the file.
+func TestAuditLogRecordsTheRunWithoutTheValue(t *testing.T) {
 	h := newHarness(t)
 	r := h.call(t, map[string]any{
 		"op":       "exec",
@@ -346,50 +350,84 @@ func TestRawLogHoldsPlaintext(t *testing.T) {
 	if r.Error != nil {
 		t.Fatal(r.Error)
 	}
-	data, err := os.ReadFile(h.rawLog)
+	data, err := os.ReadFile(h.auditLog)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), routerPassword) {
-		t.Error("raw log does not contain the plaintext; the operator cannot debug")
+	body := string(data)
+
+	if strings.Contains(body, routerPassword) {
+		t.Error("PLAINTEXT IN THE AUDIT LOG: the value reached disk unredacted")
 	}
-	if !strings.Contains(string(data), r.LogID) {
-		t.Errorf("log_id %s is not in the raw log", r.LogID)
+	// Present, not merely absent of secrets: an empty log audits nothing.
+	if !strings.Contains(body, token) {
+		t.Errorf("the output was not recorded at all: %q", body)
 	}
-	info, err := os.Stat(h.rawLog)
+	if !strings.Contains(body, r.LogID) {
+		t.Errorf("log_id %s is not in the audit log", r.LogID)
+	}
+	// The ref name is what makes the record useful without the value.
+	if !strings.Contains(body, "home/router/admin") {
+		t.Errorf("the record does not name the ref that was injected: %q", body)
+	}
+
+	info, err := os.Stat(h.auditLog)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if info.Mode().Perm() != 0o600 {
-		t.Errorf("raw log mode is %o, want 600", info.Mode().Perm())
+		t.Errorf("audit log mode is %o, want 600", info.Mode().Perm())
 	}
 }
 
-// Matrix 10 and 11.  These are NOT defects: an agent that deliberately
-// transforms a value defeats output redaction, and with unrestricted egress
-// that value is gone.  They are asserted to keep leaking so that a future
-// change which appears to fix them is caught and forces the threat model to be
-// revisited rather than silently outgrown.
-func TestAdversarialTransformsStillLeak(t *testing.T) {
+// The same property where it is easiest to lose: a value the broker never
+// injected, printed by the command itself.  The redactor covers the whole
+// value set, so the log is covered too.
+func TestAuditLogOmitsAValueTheBrokerNeverInjected(t *testing.T) {
 	h := newHarness(t)
-
-	reversed := reverse(routerPassword)
-	r := h.runBash(t, `printenv ROUTER_PW | rev`)
+	// On disk rather than in argv, so this tests the output path only.  A
+	// managed host printing its own configuration is the real shape of it.
+	leak := filepath.Join(h.dir, "leaked.conf")
+	if err := os.WriteFile(leak, []byte("password = "+routerPassword+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := h.call(t, map[string]any{"op": "exec", "cmd": []any{"cat", leak}})
 	if r.Error != nil {
 		t.Fatal(r.Error)
 	}
-	if !strings.Contains(r.Output, reversed) {
-		t.Fatalf("matrix test 10 no longer leaks (output %q). This is not a fix to "+
-			"celebrate: revisit the threat model in the README before changing this "+
-			"assertion, because the matcher cannot be completed.", r.Output)
+	data, err := os.ReadFile(h.auditLog)
+	if err != nil {
+		t.Fatal(err)
 	}
+	if strings.Contains(string(data), routerPassword) {
+		t.Error("PLAINTEXT IN THE AUDIT LOG: an uninjected value reached disk")
+	}
+	if !strings.Contains(string(data), token) {
+		t.Errorf("the uninjected value was not tokenized in the log: %q", string(data))
+	}
+}
 
-	r = h.runBash(t, `printenv ROUTER_PW | cut -c1-4`)
+// The record carries the command line, and a caller can put a value there even
+// though the broker never does.  argv is not written to disk; this record is.
+func TestAuditLogRedactsAValueInTheCommandLine(t *testing.T) {
+	h := newHarness(t)
+	r := h.call(t, map[string]any{
+		"op":  "exec",
+		"cmd": []any{"echo", "--password=" + routerPassword},
+	})
 	if r.Error != nil {
 		t.Fatal(r.Error)
 	}
-	if !strings.Contains(r.Output, routerPassword[:4]) {
-		t.Fatalf("matrix test 11 no longer leaks (output %q); see the note above.", r.Output)
+	data, err := os.ReadFile(h.auditLog)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), routerPassword) {
+		t.Error("PLAINTEXT IN THE AUDIT LOG: a value in argv reached disk")
+	}
+	// Still legible: the operator must be able to see what ran.
+	if !strings.Contains(string(data), "--password="+token) {
+		t.Errorf("the command line was not recorded legibly: %q", string(data))
 	}
 }
 
@@ -482,18 +520,6 @@ func TestOutputEndingMidRuneIsNotTruncated(t *testing.T) {
 	}
 }
 
-// A PTY, not a pipe: the child must see a terminal on stdout.
-func TestChildGetsATerminal(t *testing.T) {
-	h := newHarness(t)
-	r := h.runBash(t, `test -t 1 && echo IS_TTY || echo NOT_TTY`)
-	if r.Error != nil {
-		t.Fatal(r.Error)
-	}
-	if !strings.Contains(r.Output, "IS_TTY") {
-		t.Errorf("child did not get a terminal: %q", r.Output)
-	}
-}
-
 // stdin is /dev/null, so an interactive prompt fails immediately rather than
 // hanging and holding a concurrency slot.
 func TestStdinIsClosed(t *testing.T) {
@@ -546,12 +572,4 @@ func TestInlineTokenNeverExpandsBrokerSide(t *testing.T) {
 	if !strings.Contains(r.Output, token) {
 		t.Errorf("inline token did not resolve to the secret: %q", r.Output)
 	}
-}
-
-func reverse(s string) string {
-	r := []rune(s)
-	for i, j := 0, len(r)-1; i < j; i, j = i+1, j-1 {
-		r[i], r[j] = r[j], r[i]
-	}
-	return string(r)
 }

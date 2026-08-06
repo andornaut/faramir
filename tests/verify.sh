@@ -7,8 +7,10 @@
 #
 #   sudo tests/verify.sh
 #
-# Tests 10 and 11 are EXPECTED TO LEAK.  They are the boundary of the threat
-# model, not defects.  If they ever stop leaking, the README is wrong.
+# Checks 10 and 11 are demonstrations, not assertions: a transformed value is
+# one the redactor never claimed to catch, so there is nothing there to pass or
+# fail.  They print what actually reaches the caller, because that boundary is
+# easier to believe once seen.
 set -uo pipefail
 
 AGENT_USER="${AGENT_USER:-agent}"
@@ -20,7 +22,7 @@ KEEPER_SOCKET="${KEEPER_SOCKET:-/run/faramir/keeper.sock}"
 EXEC_SOCKET="${EXEC_SOCKET:-/run/faramir/exec.sock}"
 WORKTREE="${WORKTREE:-/home/${AGENT_USER}/work/repo}"
 SOCKET="${FARAMIR_SOCKET:-/run/faramir/broker.sock}"
-RAW_LOG="${RAW_LOG:-/var/log/faramir/raw.log}"
+AUDIT_LOG="${AUDIT_LOG:-/var/log/faramir/audit.log}"
 PW_REF="${PW_REF:-secret://home/router/admin}"
 PLAYBOOK="${PLAYBOOK:-site.yml}"
 
@@ -100,11 +102,11 @@ else
   no "1g brokered commands run as '$(tr -d '\n' <<<"$out")', expected ${EXEC_USER}"
 fi
 
-out="$(as_exec cat "$RAW_LOG")"
+out="$(as_exec cat "$AUDIT_LOG")"
 if grep -qiE 'permission denied|no such file' <<<"$out"; then
-  ok "1h ${EXEC_USER} cannot read the raw audit log"
+  ok "1h ${EXEC_USER} cannot read the audit log"
 else
-  no "1h ${EXEC_USER} CAN read the raw log, so it can also truncate it"
+  no "1h ${EXEC_USER} CAN read the audit log, so it can also truncate it"
 fi
 
 # Commands run in the agent's tree and are meant to write it: ansible drops
@@ -245,39 +247,60 @@ rm -f "$probe"
 
 head_ "9  audit log"
 
-if [[ -f $RAW_LOG ]]; then
-  mode="$(stat -c '%a %U' "$RAW_LOG")"
+if [[ -f $AUDIT_LOG ]]; then
+  mode="$(stat -c '%a %U' "$AUDIT_LOG")"
   if [[ $mode == "600 ${BROKER_USER}" ]]; then
-    ok "9a raw log is 0600 ${BROKER_USER}"
+    ok "9a audit log is 0600 ${BROKER_USER}"
   else
-    no "9a raw log is '$mode', expected '600 ${BROKER_USER}'"
+    no "9a audit log is '$mode', expected '600 ${BROKER_USER}'"
   fi
-  out="$(as_agent cat "$RAW_LOG")"
+  out="$(as_agent cat "$AUDIT_LOG")"
   if grep -qi 'permission denied' <<<"$out"; then
-    ok "9b agent cannot read the raw log"
+    ok "9b agent cannot read the audit log"
   else
-    no "9b agent CAN read the raw log"
+    no "9b agent CAN read the audit log"
   fi
-  if [[ -s $RAW_LOG ]]; then ok "9c raw log has content"; else no "9c raw log is empty"; fi
+  if [[ -s $AUDIT_LOG ]]; then ok "9c audit log has content"; else no "9c audit log is empty"; fi
+
+  # The log holds what the agent saw, so it must hold tokens and no values.
+  # Run one command that injects a secret, then look for the value on disk.
+  srun --env "ROUTER_PW=${PW_REF}" -- printenv ROUTER_PW >/dev/null 2>&1
+  if grep -q 'SECRET:' "$AUDIT_LOG"; then
+    ok "9d the audit log records redacted output"
+  else
+    no "9d no token in the audit log; is anything being recorded?"
+  fi
+  # PW_PLAINTEXT is only for this check, and only an operator can supply it:
+  # nothing here can obtain the value on its own, which is the whole point.
+  if [[ -n ${PW_PLAINTEXT:-} ]]; then
+    if grep -qF -- "$PW_PLAINTEXT" "$AUDIT_LOG"; then
+      no "9e PLAINTEXT IN THE AUDIT LOG: the value reached disk unredacted"
+    else
+      ok "9e the injected value does not appear in the audit log"
+    fi
+  else
+    skipt "9e set PW_PLAINTEXT=<the value of ${PW_REF}> to check the log for it"
+  fi
 else
-  skipt "9  $RAW_LOG does not exist yet"
+  skipt "9  $AUDIT_LOG does not exist yet"
 fi
 
-head_ "10-11  documented leaks (these SHOULD leak)"
+head_ "10-11  the boundary, demonstrated (not assertions)"
 
-out="$(srun --env "ROUTER_PW=${PW_REF}" -- bash -lc 'printenv ROUTER_PW | rev')"
-if grep -q 'SECRET:' <<<"$out"; then
-  no "10 reversed value was redacted -- unexpected; the README says it leaks"
-else
-  ok "10 reversed value leaks, as documented (adversarial exfiltration is out of scope)"
-fi
-
-out="$(srun --env "ROUTER_PW=${PW_REF}" -- bash -lc 'printenv ROUTER_PW | cut -c1-4')"
-if grep -q 'SECRET:' <<<"$out"; then
-  no "11 partial value was redacted -- unexpected; the README says it leaks"
-else
-  ok "11 partial value leaks, as documented"
-fi
+# Deliberately not pass/fail.  A transformed value is one the redactor does not
+# claim to catch, so "it was not caught" asserts nothing, and asserting it would
+# turn any future improvement into a red test.  It is shown because operators
+# do not believe this until they watch it happen.
+for transform in rev 'cut -c1-4'; do
+  out="$(srun --env "ROUTER_PW=${PW_REF}" -- bash -lc "printenv ROUTER_PW | ${transform}")"
+  if grep -q 'SECRET:' <<<"$out"; then
+    printf '  \033[33mNOTE\033[0m  %s was caught; redaction now covers more than the README claims\n' "$transform"
+  else
+    printf '  \033[33mNOTE\033[0m  %s reaches the caller transformed, as documented: %s\n' \
+      "$transform" "$(tr -d '\n' <<<"$out" | cut -c1-40)"
+  fi
+done
+printf '        Adversarial exfiltration is out of scope. See the README.\n'
 
 head_ "extra  the acceptance invariant"
 

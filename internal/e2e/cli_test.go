@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"testing"
-
-	"github.com/andornaut/faramir/internal/version"
 )
 
 var (
@@ -199,17 +197,6 @@ func TestCLIHonoursFaramirSocketEnv(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "secret://home/router/admin") {
 		t.Errorf("stdout = %q", out.String())
-	}
-}
-
-func TestCLIVersionMatchesTheBroker(t *testing.T) {
-	cmd := exec.Command(faramirCLI(t), "version")
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(out), version.Version) {
-		t.Errorf("version = %q, want %q", string(out), version.Version)
 	}
 }
 

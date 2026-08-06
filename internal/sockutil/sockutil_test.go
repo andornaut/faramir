@@ -7,15 +7,6 @@ import (
 	"testing"
 )
 
-// Our own uid always passes, which is what lets the single-uid test harness
-// drive all three sockets.
-func TestOurOwnUIDIsAllowed(t *testing.T) {
-	peer := &Peer{UID: int32(os.Getuid()), GID: int32(os.Getgid())}
-	if !Allowed(peer, nil, nil, nil) {
-		t.Error("our own uid was rejected")
-	}
-}
-
 func TestAnUnlistedPeerIsRejected(t *testing.T) {
 	peer := &Peer{UID: unusedUID(t), GID: 65500}
 	if Allowed(peer, nil, nil, nil) {

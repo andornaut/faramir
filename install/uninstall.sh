@@ -41,7 +41,7 @@ cat <<'EOF'
 Left in place on purpose:
   /etc/faramir/age.key      deleting it makes every sops file unreadable
   /etc/faramir/config.toml
-  /var/log/faramir/         the unredacted audit log
+  /var/log/faramir/         the audit log
   users agent, faramir-broker, faramir-keeper and faramir-exec, group devwork
 
 Remove those by hand if you really mean to, and note that the agent account's

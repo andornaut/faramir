@@ -214,11 +214,17 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 
 	argv0Path, err := resolve.Program(cmd[0], cwd, execCfg)
 	if err != nil {
+		// Redacted like every other agent-visible string, and like the output
+		// this log records: "the audit log holds no value" is worth more as a
+		// property with no exceptions than as one with a footnote.
+		record := s.redactor()
+		detail := record.RedactText(err.Error())
 		s.Audit.Write(map[string]any{
 			"log_id": logID, "op": "exec", "peer": peer,
-			"cmd": cmd, "cwd": cwd, "error": err.Error(),
+			"cmd": redactEach(record, cmd), "cwd": record.RedactText(cwd),
+			"error": detail,
 		}, "")
-		return protocol.ErrorResponse("exec_failed", err.Error(), logID)
+		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
 
 	// Resolve secret values.  This is the only place plaintext is touched
@@ -266,7 +272,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// managed host can print a credential the broker never injected, and
 	// catching that is the accidental-disclosure guarantee.
 	redactor := redact.New(s.Store.Pairs(), s.Store.Policy)
-	collector := audit.NewRawCollector(s.Config.Audit.MaxRecordBytes)
+	collector := audit.NewCollector(s.Config.Audit.MaxRecordBytes)
 	started := time.Now()
 
 	argv := append([]string{argv0Path}, cmd[1:]...)
@@ -282,9 +288,13 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		return protocol.ErrorResponse("exec_failed", s.safeDetail(err.Error()), logID)
 	}
 
+	record := s.redactor()
 	s.Audit.Write(map[string]any{
-		"log_id": logID, "op": "exec", "peer": peer, "cmd": cmd,
-		"argv0_path": argv0Path, "cwd": cwd, "env_refs": injected, "exit_code": result.ExitCode,
+		"log_id": logID, "op": "exec", "peer": peer,
+		"cmd":        redactEach(record, cmd),
+		"argv0_path": record.RedactText(argv0Path),
+		"cwd":        record.RedactText(cwd),
+		"env_refs":   injected, "exit_code": result.ExitCode,
 		"duration_sec": result.DurationSec, "timed_out": result.TimedOut,
 		"started_at": started.Unix(), "redactions": result.Redactions,
 	}, collector.Text())
@@ -304,12 +314,34 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	}
 }
 
+// redactor builds a fresh matcher over the whole value set.  Fresh because a
+// Redactor carries per-stream state and per-stream counts; the one the child's
+// output goes through must not be shared with anything else.
+func (s *Server) redactor() *redact.Redactor {
+	return redact.New(s.Store.Pairs(), s.Store.Policy)
+}
+
 // safeDetail is an error message the agent may see.
 //
 // An unexpected error can have interpolated a secret into its message, so it
 // goes through the redactor like every other agent-visible string.
 func (s *Server) safeDetail(detail string) string {
-	return redact.New(s.Store.Pairs(), s.Store.Policy).RedactText(detail)
+	return s.redactor().RedactText(detail)
+}
+
+// redactEach covers the command line an audit record carries.
+//
+// The broker never substitutes a value into argv, which is why a value cannot
+// reach ps or /proc/<pid>/cmdline through it.  A caller can still put one there
+// itself, and unlike argv this record is written to disk, so it gets the same
+// treatment as the output: what ran stays legible as
+// "mysql -p«SECRET:db/root»", and the value does not land in the file.
+func redactEach(r *redact.Redactor, in []string) []string {
+	out := make([]string, len(in))
+	for i, s := range in {
+		out[i] = r.RedactText(s)
+	}
+	return out
 }
 
 // CheckOutput is the operator-facing --check report.  It names the refs that

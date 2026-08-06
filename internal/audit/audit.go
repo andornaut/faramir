@@ -1,9 +1,25 @@
-// Package audit writes the unredacted audit log, readable only by the broker's uid.
+// Package audit writes the audit log, readable only by the broker's uid.
 //
-// The operator needs the real output to debug a failed playbook; the agent
-// must not be able to read it.  The response carries a log_id that points into
-// this file, which is the whole point: the agent can say "see log
-// 2026-08-05T14:22:01Z-a91f" without seeing what is in it.
+// The log holds no secret value.  Output is recorded after redaction, exactly
+// as the agent received it, and every other field of a record is already
+// value-free: the refs are names, and argv never carries a value because
+// nothing is ever substituted into it.
+//
+// That is a deliberate narrowing.  The log used to hold the unredacted stream,
+// justified as the operator's debugging copy, and the cost was the only
+// plaintext this system writes to disk: unencrypted, unbounded, in /var/log,
+// where backups and log shippers reach and the mode does not follow.  What
+// auditing actually needs is who ran what, when, against which refs, and to
+// what effect, and none of that requires a value.  Confirming a credential
+// arrived is what the redaction counts are for.
+//
+// The response carries a log_id that points into this file, so the agent can
+// say "see log 2026-08-05T14:22:01Z-a91f" without being able to read it.
+//
+// One caveat, and it is the same one the response carries: a value refused at
+// load is absent from the redactor, so if it reaches the output by some other
+// route it arrives here in plaintext too.  Lengthen it; faramir-broker
+// --check names every such ref.
 package audit
 
 import (
@@ -41,7 +57,7 @@ func (l *Log) ensure() error {
 	if l.ready {
 		return nil
 	}
-	path := l.config.RawLog
+	path := l.config.LogPath
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
@@ -60,16 +76,16 @@ func (l *Log) ensure() error {
 	return nil
 }
 
-// Write records one invocation together with its unredacted output.
-func (l *Log) Write(record map[string]any, rawOutput string) {
+// Write records one invocation together with its redacted output.
+func (l *Log) Write(record map[string]any, output string) {
 	payload := make(map[string]any, len(record)+2)
 	maps.Copy(payload, record)
 	limit := l.config.MaxRecordBytes
-	if len(rawOutput) > limit {
-		payload["raw_truncated"] = true
-		rawOutput = cutAtRune(rawOutput, limit)
+	if len(output) > limit {
+		payload["output_truncated"] = true
+		output = cutAtRune(output, limit)
 	}
-	payload["raw_output"] = rawOutput
+	payload["output"] = output
 
 	line, err := json.Marshal(payload)
 	if err != nil {
@@ -80,10 +96,10 @@ func (l *Log) Write(record map[string]any, rawOutput string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if err := l.ensure(); err != nil {
-		log.Printf("cannot open audit log %s: %v", l.config.RawLog, err)
+		log.Printf("cannot open audit log %s: %v", l.config.LogPath, err)
 		return
 	}
-	fh, err := os.OpenFile(l.config.RawLog, os.O_APPEND|os.O_WRONLY, 0o600)
+	fh, err := os.OpenFile(l.config.LogPath, os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		// Never fail a request because logging broke.
 		log.Printf("audit write failed: %v", err)
@@ -124,17 +140,18 @@ func cutAtRune(s string, limit int) string {
 	return cut
 }
 
-// RawCollector accumulates the unredacted stream for one invocation, with a
-// hard cap.
-type RawCollector struct {
+// Collector accumulates the redacted stream for one invocation, with a hard
+// cap of its own: the log may hold more of a long run than the response does,
+// but never anything the response would not have shown.
+type Collector struct {
 	limit int
 	parts []string
 	size  int
 }
 
-func NewRawCollector(limit int) *RawCollector { return &RawCollector{limit: limit} }
+func NewCollector(limit int) *Collector { return &Collector{limit: limit} }
 
-func (c *RawCollector) Add(text string) {
+func (c *Collector) Add(text string) {
 	if c.size >= c.limit {
 		return
 	}
@@ -142,7 +159,7 @@ func (c *RawCollector) Add(text string) {
 	c.size += len(text)
 }
 
-func (c *RawCollector) Text() string {
+func (c *Collector) Text() string {
 	var b strings.Builder
 	b.Grow(c.size)
 	for _, p := range c.parts {
