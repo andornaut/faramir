@@ -56,10 +56,13 @@ build. Nothing else at runtime: the binaries are static, so the host needs no
 interpreter and no libc of a particular vintage.
 
 ```bash
+make build
 sudo make install
 ```
 
-That builds the binaries and runs the four phases in order. They are numbered in
+Two commands because `install` deliberately does not depend on `build`: the
+compiler should not run as root, and the installer is meant to work on a host
+with no Go at all. It runs the four phases in order. They are numbered in
 the order they run and each is idempotent, so a single phase can be re-run on
 its own after an edit:
 
@@ -74,6 +77,7 @@ Set `CONFIG` to install the configuration for a real workload instead of the
 starter, and `WORKTREE` to the tree it should run in:
 
 ```bash
+make build
 sudo CONFIG=etc/examples/ansible-fleet.toml \
      WORKTREE=/home/agent/work/ansible-ctrl make install
 ```
@@ -85,7 +89,11 @@ before binding that one path into all three units, so they cannot disagree.
 
 `30-install-broker.sh` refuses to run without built binaries and needs no
 toolchain on the target, so building on one machine and copying `bin/` to
-another works. Point it elsewhere with `FARAMIR_BIN`.
+another works: `sudo FARAMIR_BIN=/opt/faramir/bin make install`.
+
+A `CONFIG` that names the tree literally instead of through `@WORKTREE@` is
+refused at install time rather than silently disagreeing with the bind mounts,
+which would fail per command with `cwd does not exist`.
 
 `install/uninstall.sh` removes the broker and leaves the accounts, `/etc/faramir` and the audit log alone: deleting the age key would make every sops file in the repo unreadable, which is not a decision a teardown script should make for you.
 

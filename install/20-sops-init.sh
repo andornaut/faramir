@@ -14,8 +14,10 @@ KEY=/etc/faramir/age.key
 AGENT_USER="${AGENT_USER:-agent}"
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 # The agent's working tree, which is also where brokered commands run and where
-# the sops files live.
-REPO="${REPO:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
+# the sops files live.  WORKTREE is what the other three phases call it, and a
+# one-command install passes it to all of them; REPO stays accepted so an
+# existing invocation keeps working.
+REPO="${REPO:-${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }

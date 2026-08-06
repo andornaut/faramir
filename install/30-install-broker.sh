@@ -75,28 +75,53 @@ rm -f /usr/local/libexec/faramir/pretooluse-guard.py
 
 # The working tree appears in the config more than once -- [exec] default_cwd
 # and [secrets] files -- and the bind mounts below make exactly one path visible
-# to the three units.  The shipped config writes it as @WORKTREE@ so this is one
-# substitution rather than a read-the-old-value-then-replace-it dance, which
-# needed a literal (non-regex) replace of an arbitrary path.
+# to the three units.  The shipped configs write it as @WORKTREE@, so this is
+# one substitution.
 #
-# sed is safe here because only the *replacement* is arbitrary, and the shell
-# quoting below keeps it literal: the pattern is a fixed token.  A worktree path
-# containing "|" would still break it, so it is rejected up front rather than
-# silently producing a mangled config.
-case $WORKTREE in
-  *'|'*) echo "WORKTREE may not contain '|': ${WORKTREE}" >&2; exit 1 ;;
-esac
+# sed's replacement side treats \ and & specially and would also eat the
+# delimiter, and a worktree path is arbitrary, so escape all three rather than
+# refusing paths that contain them.
+worktree_escaped="$(printf '%s' "$WORKTREE" | sed 's/[\\&|]/\\&/g')"
 
-# Reading an existing config still needs the broker's own parser: quoting styles
-# and trailing comments have to be read the way the broker reads them, or the
-# warning below fires on configs that are perfectly correct.
+substitute() {
+  # Never redirect onto the destination: the shell truncates it before sed
+  # runs, so a failure would leave an empty config behind and every later run
+  # would take the "keeping existing" branch and preserve it forever.
+  local src="$1" dst="$2" tmp
+  tmp="$(mktemp "${dst}.XXXXXX")"
+  if ! sed "s|@WORKTREE@|${worktree_escaped}|g" "$src" >"$tmp"; then
+    rm -f "$tmp"; return 1
+  fi
+  if grep -q '@WORKTREE@' "$tmp"; then
+    rm -f "$tmp"
+    echo "substitution left a @WORKTREE@ placeholder in ${dst}" >&2
+    return 1
+  fi
+  chown root:root "$tmp"
+  chmod 0644 "$tmp"
+  mv "$tmp" "$dst"
+}
+
+# Reading a config needs the broker's own parser: quoting styles and trailing
+# comments have to be read the way the broker reads them, or the checks below
+# fire on configs that are perfectly correct.
 configured_cwd() {
   "$BIN/faramir-broker" -c "$1" --print-default-cwd 2>/dev/null || return 1
 }
 
+# Before anything is written to the host: a CONFIG that does not parse should
+# abort here, not halfway through.
+configured_cwd "$CONFIG" >/dev/null || {
+  say "cannot read ${CONFIG}: it does not parse as a faramir config"
+  exit 1
+}
+
 if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
-  install -m 0644 -o root -g root "$CONFIG" /etc/faramir/config.toml.dist
+  # Substituted, not copied verbatim: the message above invites an operator to
+  # move this into place, and a .dist still carrying @WORKTREE@ would start a
+  # broker whose every command fails with "cwd does not exist".
+  substitute "$CONFIG" /etc/faramir/config.toml.dist || exit 1
   if existing="$(configured_cwd /etc/faramir/config.toml)" &&
      [[ -n $existing && $existing != "$WORKTREE"* ]]; then
     say "WARNING: [exec] default_cwd is ${existing} but this install binds ${WORKTREE}"
@@ -105,13 +130,17 @@ if [[ -f /etc/faramir/config.toml ]]; then
   fi
 else
   say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (worktree ${WORKTREE})"
-  sed "s|@WORKTREE@|${WORKTREE}|g" "$CONFIG" >/etc/faramir/config.toml
-  chown root:root /etc/faramir/config.toml
-  chmod 0644 /etc/faramir/config.toml
-  # A config that still mentions the placeholder was never substituted, which
-  # would leave the broker running in a directory that does not exist.
-  if grep -q '@WORKTREE@' /etc/faramir/config.toml; then
-    say "substitution failed: /etc/faramir/config.toml still contains @WORKTREE@"
+  substitute "$CONFIG" /etc/faramir/config.toml || exit 1
+  # A CONFIG that names the tree literally rather than through the placeholder
+  # is installed unchanged, and would then disagree with the bind mounts below.
+  # Refuse at install time rather than letting every command fail with "cwd
+  # does not exist" later.
+  installed="$(configured_cwd /etc/faramir/config.toml)" || installed=""
+  if [[ $installed != "$WORKTREE" ]]; then
+    rm -f /etc/faramir/config.toml
+    say "[exec] default_cwd is ${installed:-unset} but this install binds ${WORKTREE}."
+    say "Write the tree as @WORKTREE@ in ${CONFIG}, or re-run with"
+    say "WORKTREE=${installed}. Nothing was installed."
     exit 1
   fi
 fi

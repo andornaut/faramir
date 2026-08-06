@@ -39,9 +39,11 @@ check:
 	go vet ./...
 	@gofmt -l . | grep . && { echo "gofmt needed on the files above"; exit 1; } || true
 
-## install: the four phases, in order.  build first; the installer refuses to
-## run without the binaries and needs no toolchain on the target host.
-install: build
+## install: the four phases, in order.  Deliberately NOT dependent on build:
+## this runs as root, the compiler should not, and the installer is meant to
+## work on a host with no Go at all (see FARAMIR_BIN).  Phase 3 refuses to run
+## without the binaries and says so.
+install:
 	@for phase in install/[0-9][0-9]-*.sh; do \
 		echo "==> $$phase"; "$$phase" || exit 1; \
 	done

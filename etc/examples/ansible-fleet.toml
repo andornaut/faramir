@@ -4,9 +4,9 @@
 #   sudo CONFIG=etc/examples/ansible-fleet.toml \
 #        WORKTREE=/home/agent/work/ansible-ctrl make install
 #
-# WORKTREE, because the installer rewrites every mention of the tree below to
-# the one it binds into the three units: set it here or they are overwritten
-# with the installer's own default.
+# WORKTREE names the tree.  It is written below as @WORKTREE@, which the
+# installer substitutes everywhere before binding that one path into the three
+# units, so there is nothing to edit here.
 #
 # It differs from etc/config.toml in the Ansible variables in [exec.base_env],
 # the SSH keys that reach managed hosts, the sops file it manages, and the name

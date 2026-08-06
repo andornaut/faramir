@@ -12,7 +12,7 @@ AGENT_USER="${AGENT_USER:-agent}"
 # getent exits 2 for a missing account, and pipefail would abort here before
 # the "no such user" check below could report it.
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
-# The installed config is authoritative: step 20 rewrote [exec] default_cwd to
+# The installed config is authoritative: phase 3 wrote [exec] default_cwd to
 # the tree it bound into the three units, and registering the MCP server on a
 # different tree would leave the agent no way to reach the broker from the one
 # its commands actually run in.
