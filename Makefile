@@ -5,7 +5,7 @@ PREFIX ?= /usr/local
 
 help:
 	@echo "make test            run the whole suite (needs sops + age)"
-	@echo "make test-unit       redaction, allowlist, protocol, hook -- no privileges needed"
+	@echo "make test-unit       everything that needs neither sops, age, nor privileges"
 	@echo "make test-e2e        end-to-end against a real broker in a temp dir"
 	@echo "make check           byte-compile + config validation + unit hardening score"
 	@echo "make install         install the broker (root)"
