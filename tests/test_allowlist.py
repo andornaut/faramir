@@ -12,11 +12,17 @@ from faramir.config import Config, ConfigError  # noqa: E402
 
 REPO = os.path.join(os.path.dirname(__file__), "..")
 SHIPPED_CONFIG = os.path.join(REPO, "etc", "config.toml")
+EXAMPLES_DIR = os.path.join(REPO, "etc", "examples")
+ANSIBLE_EXAMPLE = os.path.join(EXAMPLES_DIR, "ansible-fleet.toml")
+
+
+def load_config(path):
+    with open(path, "rb") as fh:
+        return Config.from_dict(tomllib.load(fh), path)
 
 
 def load_shipped():
-    with open(SHIPPED_CONFIG, "rb") as fh:
-        return Config.from_dict(tomllib.load(fh), SHIPPED_CONFIG)
+    return load_config(SHIPPED_CONFIG)
 
 
 class TestShippedAllowlist(unittest.TestCase):
@@ -27,7 +33,7 @@ class TestShippedAllowlist(unittest.TestCase):
         cls.config = load_shipped()
         cls.rules = cls.config.allow
         # Point cwd checks at a directory that exists in the test environment.
-        cls.cwd = "/srv/ansible-ctrl"
+        cls.cwd = "/srv/faramir"
 
     def check(self, cmd, cwd=None):
         return authorize(cmd, cwd or self.cwd, self.rules, self.config.exec)
@@ -54,7 +60,12 @@ class TestShippedAllowlist(unittest.TestCase):
     def test_denial_names_the_alternatives(self):
         with self.assertRaises(DeniedError) as ctx:
             self.check(["nmap", "10.0.0.0/24"])
-        self.assertIn("ansible-playbook", str(ctx.exception))
+        self.assertIn("printenv", str(ctx.exception))
+
+    def test_it_prefers_no_workload(self):
+        # The starter demonstrates the broker; which commands a deployment
+        # actually runs is the operator's choice, kept in etc/examples/.
+        self.assertEqual({r.name for r in self.rules}, {"printenv", "bash"})
 
     def test_printenv_is_allowed(self):
         self.assertEqual(self.check(["printenv", "ROUTER_PW"]).rule.name, "printenv")
@@ -76,6 +87,28 @@ class TestShippedAllowlist(unittest.TestCase):
         with self.assertRaises(DeniedError):
             self.check(["bash", "-lc", "cat /proc/1234/environ"])
 
+    def test_absolute_path_still_matches_rule(self):
+        decision = self.check(["/usr/bin/printenv", "PATH"])
+        self.assertEqual(decision.rule.name, "printenv")
+
+    def test_binary_outside_allowed_dirs_denied(self):
+        with self.assertRaises(DeniedError) as ctx:
+            self.check(["/tmp/printenv", "PATH"])
+        self.assertIn("allowed_bin_dirs", str(ctx.exception))
+
+
+class TestTheAnsibleExample(unittest.TestCase):
+    """etc/examples/ansible-fleet.toml: a policy for a real workload."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.config = load_config(ANSIBLE_EXAMPLE)
+        cls.rules = cls.config.allow
+        cls.cwd = "/srv/faramir"
+
+    def check(self, cmd, cwd=None):
+        return authorize(cmd, cwd or self.cwd, self.rules, self.config.exec)
+
     def test_ansible_playbook_allowed(self):
         decision = self.check(["ansible-playbook", "site.yml", "--limit", "routers"])
         self.assertEqual(decision.rule.name, "ansible-playbook")
@@ -90,7 +123,7 @@ class TestShippedAllowlist(unittest.TestCase):
 
     def test_ansible_playbook_outside_checkout_denied(self):
         with self.assertRaises(DeniedError) as ctx:
-            self.check(["ansible-playbook", "site.yml"], cwd="/home/agent/work/ansible-ctrl")
+            self.check(["ansible-playbook", "site.yml"], cwd="/home/agent/work/repo")
         self.assertIn("cwd", str(ctx.exception))
 
     def test_curl_config_file_denied(self):
@@ -101,33 +134,44 @@ class TestShippedAllowlist(unittest.TestCase):
         with self.assertRaises(DeniedError):
             self.check(["git", "push"])
 
-    def test_absolute_path_still_matches_rule(self):
-        decision = self.check(["/usr/bin/printenv", "PATH"])
-        self.assertEqual(decision.rule.name, "printenv")
-
-    def test_binary_outside_allowed_dirs_denied(self):
-        with self.assertRaises(DeniedError) as ctx:
-            self.check(["/tmp/printenv", "PATH"])
-        self.assertIn("allowed_bin_dirs", str(ctx.exception))
+    def test_it_keeps_the_starter_rules(self):
+        self.assertIn("printenv", {r.name for r in self.rules})
 
 
 class TestConfigValidation(unittest.TestCase):
+    def test_every_example_parses(self):
+        # An example nobody loads is an example that rots.
+        examples = sorted(
+            os.path.join(EXAMPLES_DIR, f)
+            for f in os.listdir(EXAMPLES_DIR)
+            if f.endswith(".toml")
+        )
+        self.assertTrue(examples)
+        for path in examples:
+            with self.subTest(example=os.path.basename(path)):
+                self.assertTrue(load_config(path).allow)
+
     def test_shipped_config_parses(self):
         config = load_shipped()
         self.assertTrue(config.allow)
         self.assertEqual(config.server.socket_mode, 0o660)
 
     def test_config_without_rules_is_rejected(self):
-        with self.assertRaises(ConfigError):
-            Config.from_dict({"server": {}})
+        with self.assertRaises(ConfigError) as ctx:
+            Config.from_dict({"exec": {"default_cwd": "/srv/faramir"}, "server": {}})
+        self.assertIn("[[allow]]", str(ctx.exception))
 
     def test_bad_regex_is_rejected(self):
         with self.assertRaises(ConfigError):
-            Config.from_dict({"allow": [{"name": "x", "argv0": "([unclosed"}]})
+            Config.from_dict(
+                {"exec": {"default_cwd": "/srv/faramir"},
+                 "allow": [{"name": "x", "argv0": "([unclosed"}]})
 
     def test_rule_without_argv0_is_rejected(self):
         with self.assertRaises(ConfigError):
-            Config.from_dict({"allow": [{"name": "x"}]})
+            Config.from_dict(
+                {"exec": {"default_cwd": "/srv/faramir"},
+                 "allow": [{"name": "x"}]})
 
     def test_empty_command_denied(self):
         config = load_shipped()

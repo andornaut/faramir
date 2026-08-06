@@ -1,5 +1,15 @@
 # /etc/faramir/config.toml -- broker policy.
 #
+# This starter allows two commands, both of which exist to demonstrate the
+# broker rather than to do any particular job: `printenv`, which proves a
+# credential reached the right variable, and `bash`, which is how a pipeline is
+# requested.  Everything a deployment actually runs is a rule you add.
+#
+# etc/examples/ holds complete configs for real workloads, which are policy
+# choices rather than defaults the broker should make for you:
+#
+#   ansible-fleet.toml   running Ansible against a fleet of managed hosts
+#
 # The allowlist is DEFAULT-DENY: a command matching no [[allow]] rule is
 # refused.  Regexes are applied with re.search(), so anchor them.
 
@@ -36,7 +46,9 @@ allowed_groups = []
 max_concurrency = 16
 
 [exec]
-default_cwd = "/srv/ansible-ctrl"
+# Required: where a command runs when the request does not say.  This is the
+# broker's execution checkout, which install/10-accounts.sh creates.
+default_cwd = "/srv/faramir"
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576
@@ -45,21 +57,19 @@ term_cols = 120
 term_rows = 40
 kill_grace_sec = 5
 
-# The child's entire environment.  The broker's own environ is never inherited.
+# The child's entire environment.  The broker's own environ is never inherited,
+# so a tool that needs a variable needs it named here.
 [exec.base_env]
 PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 TERM = "xterm-256color"
 LANG = "C.UTF-8"
 LC_ALL = "C.UTF-8"
 DEBIAN_FRONTEND = "noninteractive"
-ANSIBLE_FORCE_COLOR = "1"
-ANSIBLE_HOST_KEY_CHECKING = "True"
-ANSIBLE_NOCOWS = "1"
 
-# SSH keys for managed hosts.  Listing them here makes the broker load them
-# into an agent it owns and pass only SSH_AUTH_SOCK to the child: a brokered
-# command can authenticate with them but cannot read them, and a leaked fleet
-# key is permanent in a way a leaked password is not.
+# SSH keys for hosts a brokered command needs to reach.  Listing them here
+# makes the broker load them into an agent it owns and pass only SSH_AUTH_SOCK
+# to the child: the command can authenticate with them but cannot read them,
+# and a leaked key is permanent in a way a leaked password is not.
 #
 # Leave `keys` empty to skip the agent entirely, in which case the keys have to
 # live somewhere the executor's own uid can read (~faramir-exec/.ssh).
@@ -75,13 +85,13 @@ exec_group = "faramir-exec"
 # redaction value set, not just the ones injected into a given command: a
 # managed host can print a credential the broker never injected.
 # The broker stats these to notice edits; only the keeper can decrypt them.
-files = ["/srv/ansible-ctrl/group_vars/all/vault.sops.yml"]
+files = ["/srv/faramir/secrets.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
 
-# Values below these thresholds are NOT redacted -- a short or low-entropy
-# value would blank out unrelated output at random.  The broker logs a warning
-# naming each one; lengthen them or accept that they can reach the model.
+# Values below these thresholds cannot be redacted -- a short or low-entropy
+# value would blank out unrelated output at random -- so the broker refuses to
+# load them at all.  It names each one in the log and in --check.
 min_length = 8
 min_unique_chars = 4
 min_entropy_bits_per_char = 1.5
@@ -92,9 +102,10 @@ max_record_bytes = 4194304
 
 [sync]
 # The agent authors and commits; the broker executes only committed content.
+# source and dest are required whenever this is enabled.
 enabled = true
-source = "/home/agent/work/ansible-ctrl"
-dest = "/srv/ansible-ctrl"
+source = "/home/agent/work/repo"
+dest = "/srv/faramir"
 default_ref = "HEAD"
 allowed_refs = ['^(HEAD|main|master|refs/heads/[A-Za-z0-9._/-]{1,100}|[A-Za-z0-9._/-]{1,100})$']
 git = "/usr/bin/git"
@@ -105,42 +116,9 @@ timeout_sec = 120
 # Allowlist
 # ---------------------------------------------------------------------------
 
-# No rule receives the age key: there is no longer a flag that grants it, and
-# the broker does not hold it to grant.  Ansible therefore cannot resolve sops
-# vars itself; give it the values it needs through env_refs and have group_vars
-# read them with lookup('env', ...).  See docs/ansible-sops.md.
-[[allow]]
-name = "ansible-playbook"
-argv0 = '^ansible-playbook$'
-cwd_allow = ['^/srv/ansible-ctrl(/|$)']
-args_allow = [
-  '^[A-Za-z0-9._][A-Za-z0-9._/-]*\.ya?ml$',
-  '^-v{1,4}$',
-  '^--(check|diff|syntax-check|list-hosts|list-tasks|list-tags|flush-cache|force-handlers|become|step)$',
-  '^-(i|l|e|t|C|D|b)$',
-  '^--(inventory|limit|tags|skip-tags|extra-vars|forks|start-at-task|vault-id)(=.*)?$',
-  '^[A-Za-z0-9@:._,!*/=+ -]{1,4096}$',
-]
-args_deny = [
-  '^--vault-password-file',           # vault is gone; this would mean a stray key file
-  '^--ask-vault-pass$',
-  '(^|=)/etc/faramir',
-  '(^|=)/proc/',
-]
-
-[[allow]]
-name = "ansible"
-argv0 = '^ansible$'
-cwd_allow = ['^/srv/ansible-ctrl(/|$)']
-args_allow = ['^[A-Za-z0-9@:._,!*/=+ {}"\[\]-]{1,4096}$']
-args_deny = ['(^|=)/etc/faramir', '(^|=)/proc/']
-
-[[allow]]
-name = "ansible-galaxy"
-argv0 = '^ansible-galaxy$'
-cwd_allow = ['^/srv/ansible-ctrl(/|$)']
-args_allow = ['^[A-Za-z0-9@:._,/=+-]{1,512}$']
-max_timeout_sec = 600
+# No rule receives the age key: there is no flag that grants it, and the broker
+# does not hold it to grant.  A command that wants a secret is given it through
+# env_refs and reads it from the environment.
 
 # Exists so redaction is demonstrable end to end (verification test 3): the
 # agent can prove a credential reached the right variable without seeing it.
@@ -157,40 +135,13 @@ min_args = 1
 max_args = 1
 max_timeout_sec = 30
 
-[[allow]]
-name = "ssh"
-argv0 = '^ssh$'
-args_allow = ['^[A-Za-z0-9@:._,/=+ -]{1,1024}$']
-args_deny = [
-  '^-o\s*(PermitLocalCommand|ProxyCommand|LocalCommand)',  # arbitrary local exec
-  '(^|=)/etc/faramir',
-]
-
-[[allow]]
-name = "curl"
-argv0 = '^curl$'
-args_allow = ['^[A-Za-z0-9@:._,/=+%?&#~ -]{1,2048}$', '^https?://[^\s]{1,2048}$']
-args_deny = [
-  '^-K$', '^--config$',              # would read flags (and headers) from a file
-  '^--(unix-socket|upload-file|form)$',
-  'file://',
-]
-
 # bash is what makes pipelines possible: the broker never spawns a shell for
 # the caller, so a pipeline has to be requested explicitly as
-# ["bash", "-lc", "…"].  It is also the widest rule here -- removing it is the
-# single biggest tightening available, at the cost of losing pipelines and of
-# verification tests 4/5/10/11 in the README.
+# ["bash", "-lc", "…"].  It is also the widest rule that ships -- removing it
+# is the single biggest tightening available, at the cost of losing pipelines
+# and of verification tests 4/5/10/11 in the README.
 [[allow]]
 name = "bash"
 argv0 = '^(bash|sh)$'
 args_allow = ['^-[lc]{1,2}$', '^-lc$', '^[^\x00]{0,8192}$']
 args_deny = ['(^|\s)/etc/faramir', '/proc/\d+/environ']
-
-[[allow]]
-name = "git-readonly"
-argv0 = '^git$'
-cwd_allow = ['^/srv/ansible-ctrl(/|$)']
-args_allow = ['^(status|log|show|diff|rev-parse|describe|-C|--no-pager|HEAD|-1|--stat|--oneline|--porcelain)$', '^[A-Za-z0-9._/-]{1,200}$']
-args_deny = ['^(push|remote|config|clone|fetch|pull|checkout|reset|clean)$']
-max_timeout_sec = 60

@@ -5,9 +5,10 @@ Commands needing credentials run through the `faramir_run` MCP tool (CLI:
 and output comes back with them replaced by `«SECRET:ref»`.
 
 ```
-faramir_run(cmd=["ansible-playbook", "site.yml", "--limit", "routers"],
+faramir_run(cmd=["printenv", "ROUTER_PW"],
             env_refs={"ROUTER_PW": "secret://home/router/admin"})
 ```
 
-`faramir_list_secrets` lists available names. The broker executes only committed
-work from `/srv/ansible-ctrl`: commit, then `faramir_sync`, then run.
+`faramir_list_secrets` lists available names, and `faramir_status` lists the
+allowlist rules, which are what determines the commands you may run. The broker executes only committed
+work from `/srv/faramir`: commit, then `faramir_sync`, then run.

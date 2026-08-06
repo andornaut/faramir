@@ -63,7 +63,7 @@ ADVICE = (
     "Use the faramir_run tool instead — it runs the command as a separate uid "
     "that holds the keys and returns output with secrets replaced by "
     "«SECRET:ref» tokens. Secrets are named, never pasted:\n\n"
-    "    faramir_run(cmd=[\"ansible-playbook\", \"site.yml\"],\n"
+    "    faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n"
     "                env_refs={\"ROUTER_PW\": \"secret://home/router/admin\"})\n\n"
     "Call faramir_list_secrets to see the available names. You do not need the "
     "value of a secret to use it, and you will not be given one."

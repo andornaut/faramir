@@ -14,9 +14,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from faramir.config import Config, ConfigError  # noqa: E402
 
 MINIMAL_ALLOW = [{"name": "ls", "argv0": r"^/bin/ls$"}]
+# [exec] default_cwd has no default: the broker will not guess where commands
+# run, so the smallest loadable config still has to name it.
+MINIMAL_EXEC = {"default_cwd": "/srv/faramir"}
 
 
 def load(**sections):
+    sections.setdefault("exec", MINIMAL_EXEC)
     return Config.from_dict({"allow": MINIMAL_ALLOW, **sections}, "test.toml")
 
 
@@ -96,14 +100,12 @@ class TestTheAgeKeyMigration(unittest.TestCase):
 
     def test_provide_age_key_names_the_rule_and_says_what_to_do(self):
         with self.assertRaises(ConfigError) as caught:
-            Config.from_dict(
-                {"allow": [{"name": "ansible", "argv0": "^ansible$", "provide_age_key": True}]},
-                "test.toml",
-            )
+            load(allow=[{"name": "decryptor", "argv0": "^x$", "provide_age_key": True}])
         message = str(caught.exception)
-        self.assertIn("ansible", message)
+        self.assertIn("decryptor", message)
         self.assertIn("provide_age_key", message)
         self.assertIn("keeper", message)
+        self.assertIn("env_refs", message)
 
     def test_age_key_settings_under_secrets_point_at_the_keeper(self):
         for key in ("age_key_credential", "age_key_file"):
@@ -151,7 +153,7 @@ class TestAllowRules(unittest.TestCase):
 
     def test_bad_regex_names_the_rule(self):
         with self.assertRaises(ConfigError) as caught:
-            Config.from_dict({"allow": [{"name": "oops", "argv0": "("}]}, "test.toml")
+            load(allow=[{"name": "oops", "argv0": "("}])
         self.assertIn("oops", str(caught.exception))
 
     def test_non_string_argv0_is_a_config_error(self):
@@ -171,6 +173,34 @@ class TestAllowRules(unittest.TestCase):
             .max_timeout_sec,
             60,
         )
+
+
+class TestDeploymentPathsAreRequired(unittest.TestCase):
+    """The broker has no opinion about where a deployment keeps its work.
+
+    A default here would run commands, or sync a checkout, somewhere the
+    operator never named.
+    """
+
+    def test_default_cwd_is_required(self):
+        with self.assertRaises(ConfigError) as caught:
+            Config.from_dict({"allow": MINIMAL_ALLOW}, "test.toml")
+        self.assertIn("default_cwd", str(caught.exception))
+
+    def test_sync_paths_are_required_when_enabled(self):
+        for section in ({"enabled": True}, {"enabled": True, "source": "/a"}):
+            with self.subTest(section=section):
+                with self.assertRaises(ConfigError) as caught:
+                    load(sync=section)
+                self.assertIn("[sync]", str(caught.exception))
+
+    def test_sync_paths_are_not_required_when_disabled(self):
+        config = load(sync={"enabled": False})
+        self.assertEqual(config.sync.source, "")
+
+    def test_a_complete_sync_section_parses(self):
+        config = load(sync={"enabled": True, "source": "/a", "dest": "/b"})
+        self.assertEqual((config.sync.source, config.sync.dest), ("/a", "/b"))
 
 
 class TestArgumentCounts(unittest.TestCase):

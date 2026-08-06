@@ -170,12 +170,12 @@ class AllowRule:
             # Nothing the broker executes receives the age key any more: the
             # keeper holds it and returns values only.  Failing loudly matters
             # because silently ignoring the flag would leave a config that
-            # still reads as though Ansible were being handed the master key.
+            # still reads as though a command were being handed the master key.
             raise ConfigError(
                 f"allow rule {name!r}: 'provide_age_key' no longer exists. The "
-                "keeper holds the age key and no child ever receives it; have "
-                "Ansible read its vars from the environment instead (see "
-                "docs/ansible-sops.md)."
+                "keeper holds the age key and no child ever receives it; pass "
+                "the values a command needs through env_refs and have it read "
+                "them from the environment."
             )
         # A mistyped key here fails open: the rule silently keeps the wider
         # bounds it was written to narrow, and --check still reports success.
@@ -222,7 +222,9 @@ class ServerConfig:
 
 @dataclass(frozen=True)
 class ExecConfig:
-    default_cwd: str = "/srv/ansible-ctrl"
+    # No default: where commands run is a property of the deployment, and a
+    # broker that guesses would run them somewhere the operator never named.
+    default_cwd: str = ""
     default_timeout_sec: int = 600
     max_timeout_sec: int = 3600
     max_output_bytes: int = 1048576
@@ -311,14 +313,17 @@ class AuditConfig:
 
 @dataclass(frozen=True)
 class SyncConfig:
-    """Mediated ``git`` pull from the agent's working tree into /srv.
+    """Mediated ``git`` pull from the agent's working tree into the checkout.
 
-    The agent authors playbooks; the broker only ever executes committed ones.
+    The agent authors and commits; the broker only ever executes committed
+    content.
     """
 
     enabled: bool = False
-    source: str = "/home/agent/work/ansible-ctrl"
-    dest: str = "/srv/ansible-ctrl"
+    # No defaults, for the same reason as exec.default_cwd: required when
+    # enabled, and checked there rather than pointed at someone else's tree.
+    source: str = ""
+    dest: str = ""
     default_ref: str = "HEAD"
     allowed_refs: list[re.Pattern[str]] = field(default_factory=list)
     git: str = "/usr/bin/git"
@@ -398,6 +403,11 @@ class Config:
         exec_cfg = _section(
             ExecConfig, _table(raw, "exec", path), f"{path}: [exec]"
         )
+        if not exec_cfg.default_cwd:
+            raise ConfigError(
+                f"{path}: [exec] default_cwd is required; name the directory "
+                "brokered commands run in (see etc/config.toml)"
+            )
         secrets_raw = _table(raw, "secrets", path)
         moved = [k for k in ("age_key_credential", "age_key_file") if k in secrets_raw]
         if moved:
@@ -432,6 +442,14 @@ class Config:
         sync = _section(
             SyncConfig, sync_raw, f"{path}: [sync]", allowed_refs=sync_refs
         )
+        if sync.enabled:
+            missing = [k for k in ("source", "dest") if not getattr(sync, k)]
+            if missing:
+                raise ConfigError(
+                    f"{path}: [sync] {', '.join(missing)} required when "
+                    "enabled; name the tree the agent commits to and the "
+                    "checkout the broker executes"
+                )
 
         allow_raw = raw.get("allow", [])
         if not isinstance(allow_raw, list) or not all(

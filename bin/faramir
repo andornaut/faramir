@@ -2,7 +2,7 @@
 """faramir -- run a command that needs credentials, without seeing them.
 
     faramir run --env ROUTER_PW=secret://home/router/admin -- \
-        ansible-playbook site.yml --limit routers
+        printenv ROUTER_PW
 
     faramir list-secrets
     faramir sync                 # promote committed work into the broker checkout

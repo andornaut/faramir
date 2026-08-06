@@ -32,7 +32,8 @@ class ExecutorTestCase(unittest.TestCase):
         self.tmp = TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.config = Config.from_dict(
-            {"allow": [{"name": "ls", "argv0": "^/bin/ls$"}]}, "t"
+            {"exec": {"default_cwd": self.tmp.name},
+             "allow": [{"name": "ls", "argv0": "^/bin/ls$"}]}, "t"
         )
         self.executor = Executor(self.config)
 

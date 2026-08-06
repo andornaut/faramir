@@ -11,7 +11,7 @@ BROKER_USER="${BROKER_USER:-faramir-broker}"
 KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 KEY=/etc/faramir/age.key
-REPO="${REPO:-/srv/ansible-ctrl}"
+REPO="${REPO:-/srv/faramir}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }

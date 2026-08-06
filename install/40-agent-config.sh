@@ -12,7 +12,7 @@ AGENT_USER="${AGENT_USER:-agent}"
 # getent exits 2 for a missing account, and pipefail would abort here before
 # the "no such user" check below could report it.
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
-WORKTREE="${WORKTREE:-${AGENT_HOME}/work/ansible-ctrl}"
+WORKTREE="${WORKTREE:-${AGENT_HOME}/work/repo}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 [[ -n $AGENT_HOME ]] || { echo "no such user: $AGENT_USER" >&2; exit 1; }

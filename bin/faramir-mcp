@@ -39,8 +39,10 @@ TOOLS = [
             "Secrets are referenced by name using secret:// URIs and are injected as "
             "environment variables only; they are never substituted into the command "
             "line. Call faramir_list_secrets to discover available names.\n\n"
-            "Example: cmd=[\"ansible-playbook\",\"site.yml\",\"--limit\",\"routers\"], "
-            "env_refs={\"ROUTER_PW\":\"secret://home/router/admin\"}.\n"
+            "Example: cmd=[\"printenv\",\"ROUTER_PW\"], "
+            "env_refs={\"ROUTER_PW\":\"secret://home/router/admin\"}. What you may "
+            "run is whatever the operator's allowlist permits; call faramir_status "
+            "for the rule names.\n"
             "For a pipeline, pass cmd=[\"bash\",\"-lc\",\"…\"] explicitly (subject to "
             "the same allowlist)."
         ),

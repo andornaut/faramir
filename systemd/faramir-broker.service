@@ -43,7 +43,7 @@ ProtectSystem=strict
 # when AGENT_USER or WORKTREE is set; a source that is not bound in here is
 # invisible to the broker no matter what [sync] source says.
 ProtectHome=tmpfs
-BindReadOnlyPaths=-/home/agent/work/ansible-ctrl
+BindReadOnlyPaths=-/home/agent/work/repo
 PrivateTmp=true
 # PrivateDevices would hide /dev/ptmx, and the broker allocates a PTY for every
 # child (see docs/redaction.md).  Narrow the device ACL instead of dropping it.
@@ -51,7 +51,7 @@ PrivateDevices=false
 DevicePolicy=closed
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
-ReadWritePaths=/srv/ansible-ctrl /var/log/faramir
+ReadWritePaths=/srv/faramir /var/log/faramir
 RuntimeDirectory=faramir
 # /run/faramir holds the keeper's socket as well as this one; without this,
 # stopping the broker removes the directory and takes keeper.sock with it.
@@ -79,7 +79,7 @@ ProtectKernelModules=true
 ProtectKernelTunables=true
 RemoveIPC=true
 # 0027, not 0077: the executor reads the checkout this process writes during a
-# sync, and it is a different uid.  /srv/ansible-ctrl is setgid faramir-exec,
+# sync, and it is a different uid.  /srv/faramir is setgid faramir-exec,
 # so a checked-out file lands 0640 faramir-broker:faramir-exec: readable there,
 # writable only here.  The audit log is unaffected, since audit.py opens it
 # with an explicit 0600 rather than relying on the umask.

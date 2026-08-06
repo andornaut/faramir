@@ -22,10 +22,11 @@ test-e2e:
 
 check:
 	$(PYTHON) -m compileall -q src bin/faramir-broker bin/faramir bin/faramir-mcp bin/faramir-keeper bin/faramir-exec agent/hooks
-	$(PYTHON) -c "import sys, tomllib; sys.path.insert(0,'src'); \
+	$(PYTHON) -c "import glob, sys, tomllib; sys.path.insert(0,'src'); \
 	from faramir.config import Config; \
-	c = Config.from_dict(tomllib.load(open('etc/config.toml','rb')), 'etc/config.toml'); \
-	print('config OK:', ', '.join(r.name for r in c.allow))"
+	[print('config OK:', p, '->', ', '.join(r.name for r in \
+	  Config.from_dict(tomllib.load(open(p,'rb')), p).allow)) \
+	 for p in ['etc/config.toml'] + sorted(glob.glob('etc/examples/*.toml'))]"
 	@command -v systemd-analyze >/dev/null && \
 	  systemd-analyze security --offline=true systemd/faramir-broker.service systemd/faramir-keeper.service systemd/faramir-exec.service | tail -3 || true
 

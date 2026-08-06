@@ -2,8 +2,8 @@
 
 Request (op defaults to "exec")::
 
-    {"cmd": ["ansible-playbook", "site.yml", "--limit", "routers"],
-     "cwd": "/srv/ansible-ctrl",
+    {"cmd": ["printenv", "ROUTER_PW"],
+     "cwd": "/srv/faramir",
      "env_refs": {"ROUTER_PW": "secret://home/router/admin"},
      "timeout_sec": 600}
 

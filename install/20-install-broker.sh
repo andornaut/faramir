@@ -14,7 +14,10 @@ LIB="${FARAMIR_LIB:-/usr/local/lib/faramir}"
 # missing account, which pipefail would turn into a silent abort before the
 # EUID check below has had a chance to say anything useful.
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
-WORKTREE="${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/ansible-ctrl}"
+WORKTREE="${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
+# The starter policy allows two commands, both of them demonstrations.  Point
+# this at etc/examples/<workload>.toml to install a policy for a real workload.
+CONFIG="${CONFIG:-$REPO/etc/config.toml}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -65,10 +68,11 @@ rm -f /etc/faramir/deny-patterns.txt /etc/secretd/deny-patterns.txt
 # [sync] source must name the worktree this install was given, not the default
 # baked into the shipped config.  The bind mount below makes only that one path
 # visible to the broker, so a source pointing anywhere else fails every sync.
-# Read it as TOML rather than pattern-matching the line: quoting styles,
-# trailing comments and an absent key (which means SyncConfig's default, not
-# "no source") all have to be read the way the broker reads them, or the
-# warning below fires on configs that are perfectly correct.
+# Read it as TOML rather than pattern-matching the line: quoting styles and
+# trailing comments have to be read the way the broker reads them, or the
+# warning below fires on configs that are perfectly correct.  An absent key is
+# reported as <unset>, which is a config the broker refuses to load while sync
+# is enabled, so it warns here too.
 configured_source() {
   FARAMIR_LIB="$LIB" python3 - "$1" <<'PY'
 import sys, tomllib
@@ -82,23 +86,22 @@ except (OSError, tomllib.TOMLDecodeError) as exc:
     sys.exit(f"cannot read {sys.argv[1]}: {exc}")
 section = raw.get("sync")
 section = section if isinstance(section, dict) else {}
-print(section.get("source", SyncConfig.source))
+print(section.get("source", SyncConfig.source) or "<unset>")
 PY
 }
 
 if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
-  install -m 0644 -o root -g root "$REPO/etc/config.toml" /etc/faramir/config.toml.dist
-  # No -n guard: an absent source key means SyncConfig's default, which is
-  # exactly the mismatch worth warning about on a non-default install.
+  install -m 0644 -o root -g root "$CONFIG" /etc/faramir/config.toml.dist
+  # No -n guard: an absent source key is itself a mismatch worth warning about.
   if existing="$(configured_source /etc/faramir/config.toml)" &&
      [[ $existing != "$WORKTREE" ]]; then
     say "WARNING: [sync] source is ${existing} but this install binds ${WORKTREE}"
     say "         sync will fail until they match; edit /etc/faramir/config.toml"
   fi
 else
-  say "config -> /etc/faramir/config.toml (sync source ${WORKTREE})"
-  install -m 0644 -o root -g root "$REPO/etc/config.toml" /etc/faramir/config.toml
+  say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (sync source ${WORKTREE})"
+  install -m 0644 -o root -g root "$CONFIG" /etc/faramir/config.toml
   awk -v worktree="$WORKTREE" '
     /^\[sync\]/ { in_sync = 1 }
     /^\[/ && !/^\[sync\]/ { in_sync = 0 }

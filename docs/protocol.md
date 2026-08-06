@@ -23,8 +23,8 @@ than `[server] max_request_bytes` is refused.
 ```json
 {
   "op": "exec",
-  "cmd": ["ansible-playbook", "site.yml", "--limit", "routers"],
-  "cwd": "/srv/ansible-ctrl",
+  "cmd": ["printenv", "ROUTER_PW"],
+  "cwd": "/srv/faramir",
   "env_refs": { "ROUTER_PW": "secret://home/router/admin" },
   "timeout_sec": 600
 }
@@ -103,7 +103,7 @@ operator.
   "truncated": false,
   "redactions": [],
   "log_id": "2026-08-05T14:22:01Z-a91f",
-  "error": { "code": "denied", "message": "'cat' is not in the allowlist. Permitted programs: ansible, ansible-playbook, …" }
+  "error": { "code": "denied", "message": "'cat' is not in the allowlist. Permitted programs: bash, printenv, …" }
 }
 ```
 
@@ -169,8 +169,8 @@ Internal, between the broker and the uid that forks commands. One request,
 carrying a single file descriptor as ancillary data:
 
 ```json
-{"argv": ["/usr/bin/ansible-playbook", "site.yml"],
- "cwd": "/srv/ansible-ctrl",
+{"argv": ["/usr/bin/printenv", "ROUTER_PW"],
+ "cwd": "/srv/faramir",
  "env": {"ROUTER_PW": "…"},
  "timeout_sec": 600,
  "kill_grace_sec": 5}

@@ -1,0 +1,177 @@
+# A complete config.toml for running Ansible against a fleet, which is the
+# workload faramir was built for.  Install it in place of the shipped starter:
+#
+#   sudo CONFIG=etc/examples/ansible-fleet.toml \
+#        WORKTREE=/home/agent/work/ansible-ctrl install/20-install-broker.sh
+#
+# WORKTREE, because the installer rewrites [sync] source to the tree it binds
+# into the broker's unit: set it here or the source below is overwritten with
+# the installer's own default.
+#
+# It differs from etc/config.toml only in policy: the allowlist, the Ansible
+# variables in [exec.base_env], the sops file it manages, and the name of the
+# agent's authoring tree.  The paths the installer and the systemd units create
+# (/srv/faramir, the sockets, the audit log) are the same, so nothing outside
+# this file changes.
+#
+# The allowlist is DEFAULT-DENY: a command matching no [[allow]] rule is
+# refused.  Regexes are applied with re.search(), so anchor them.
+
+[server]
+socket_path = "/run/faramir/broker.sock"
+socket_mode = "0660"
+max_concurrency = 4
+max_request_bytes = 262144
+allowed_groups = ["devwork"]
+allowed_uids = []
+
+[keeper]
+socket_path = "/run/faramir/keeper.sock"
+socket_mode = "0660"
+allowed_users = ["faramir-broker"]
+allowed_groups = []
+age_key_credential = "age_key"
+
+[executor]
+socket_path = "/run/faramir/exec.sock"
+socket_mode = "0660"
+allowed_users = ["faramir-broker"]
+allowed_groups = []
+max_concurrency = 16
+
+[exec]
+default_cwd = "/srv/faramir"
+default_timeout_sec = 600
+max_timeout_sec = 3600
+max_output_bytes = 1048576
+allowed_bin_dirs = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/local/sbin", "/usr/sbin"]
+term_cols = 120
+term_rows = 40
+kill_grace_sec = 5
+
+# The child's entire environment.  The broker's own environ is never inherited,
+# so anything Ansible needs has to be named here.
+[exec.base_env]
+PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+TERM = "xterm-256color"
+LANG = "C.UTF-8"
+LC_ALL = "C.UTF-8"
+DEBIAN_FRONTEND = "noninteractive"
+ANSIBLE_FORCE_COLOR = "1"
+ANSIBLE_HOST_KEY_CHECKING = "True"
+ANSIBLE_NOCOWS = "1"
+
+# The keys that reach managed hosts.  Listed here, the broker loads them into
+# an agent it owns and passes the child only SSH_AUTH_SOCK, so a playbook can
+# authenticate with them but no brokered command can copy them.
+[ssh]
+keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
+agent_socket = "/run/faramir/ssh-agent.sock"
+agent_socket_mode = "0660"
+exec_group = "faramir-exec"
+
+[secrets]
+files = ["/srv/faramir/group_vars/all/vault.sops.yml"]
+decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
+refresh_interval_sec = 5
+min_length = 8
+min_unique_chars = 4
+min_entropy_bits_per_char = 1.5
+
+[audit]
+raw_log = "/var/log/faramir/raw.log"
+max_record_bytes = 4194304
+
+[sync]
+enabled = true
+source = "/home/agent/work/ansible-ctrl"
+dest = "/srv/faramir"
+default_ref = "HEAD"
+allowed_refs = ['^(HEAD|main|master|refs/heads/[A-Za-z0-9._/-]{1,100}|[A-Za-z0-9._/-]{1,100})$']
+git = "/usr/bin/git"
+clean = true
+timeout_sec = 120
+
+# ---------------------------------------------------------------------------
+# Allowlist
+# ---------------------------------------------------------------------------
+
+# No rule receives the age key: there is no longer a flag that grants it, and
+# the broker does not hold it to grant.  Ansible therefore cannot resolve sops
+# vars itself; give it the values it needs through env_refs and have group_vars
+# read them with lookup('env', ...).  See docs/ansible-sops.md.
+[[allow]]
+name = "ansible-playbook"
+argv0 = '^ansible-playbook$'
+cwd_allow = ['^/srv/faramir(/|$)']
+args_allow = [
+  '^[A-Za-z0-9._][A-Za-z0-9._/-]*\.ya?ml$',
+  '^-v{1,4}$',
+  '^--(check|diff|syntax-check|list-hosts|list-tasks|list-tags|flush-cache|force-handlers|become|step)$',
+  '^-(i|l|e|t|C|D|b)$',
+  '^--(inventory|limit|tags|skip-tags|extra-vars|forks|start-at-task|vault-id)(=.*)?$',
+  '^[A-Za-z0-9@:._,!*/=+ -]{1,4096}$',
+]
+args_deny = [
+  '^--vault-password-file',           # vault is gone; this would mean a stray key file
+  '^--ask-vault-pass$',
+  '(^|=)/etc/faramir',
+  '(^|=)/proc/',
+]
+
+[[allow]]
+name = "ansible"
+argv0 = '^ansible$'
+cwd_allow = ['^/srv/faramir(/|$)']
+args_allow = ['^[A-Za-z0-9@:._,!*/=+ {}"\[\]-]{1,4096}$']
+args_deny = ['(^|=)/etc/faramir', '(^|=)/proc/']
+
+[[allow]]
+name = "ansible-galaxy"
+argv0 = '^ansible-galaxy$'
+cwd_allow = ['^/srv/faramir(/|$)']
+args_allow = ['^[A-Za-z0-9@:._,/=+-]{1,512}$']
+max_timeout_sec = 600
+
+[[allow]]
+name = "ssh"
+argv0 = '^ssh$'
+args_allow = ['^[A-Za-z0-9@:._,/=+ -]{1,1024}$']
+args_deny = [
+  '^-o\s*(PermitLocalCommand|ProxyCommand|LocalCommand)',  # arbitrary local exec
+  '(^|=)/etc/faramir',
+]
+
+[[allow]]
+name = "curl"
+argv0 = '^curl$'
+args_allow = ['^[A-Za-z0-9@:._,/=+%?&#~ -]{1,2048}$', '^https?://[^\s]{1,2048}$']
+args_deny = [
+  '^-K$', '^--config$',              # would read flags (and headers) from a file
+  '^--(unix-socket|upload-file|form)$',
+  'file://',
+]
+
+[[allow]]
+name = "git-readonly"
+argv0 = '^git$'
+cwd_allow = ['^/srv/faramir(/|$)']
+args_allow = ['^(status|log|show|diff|rev-parse|describe|-C|--no-pager|HEAD|-1|--stat|--oneline|--porcelain)$', '^[A-Za-z0-9._/-]{1,200}$']
+args_deny = ['^(push|remote|config|clone|fetch|pull|checkout|reset|clean)$']
+max_timeout_sec = 60
+
+# Kept from the starter config: printenv proves redaction end to end, and bash
+# is what makes pipelines possible.  See etc/config.toml for both.
+[[allow]]
+name = "printenv"
+argv0 = '^printenv$'
+args_allow = ['^[A-Za-z_][A-Za-z0-9_]*$']
+min_args = 1
+max_args = 1
+max_timeout_sec = 30
+
+[[allow]]
+name = "bash"
+argv0 = '^(bash|sh)$'
+args_allow = ['^-[lc]{1,2}$', '^-lc$', '^[^\x00]{0,8192}$']
+args_deny = ['(^|\s)/etc/faramir', '/proc/\d+/environ']

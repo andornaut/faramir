@@ -43,7 +43,7 @@ fi
 # scripts agree for an account whose home is somewhere else.
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 [[ -n $AGENT_HOME ]] || { echo "no home for ${AGENT_USER} after useradd" >&2; exit 1; }
-WORKTREE="${WORKTREE:-${AGENT_HOME}/work/ansible-ctrl}"
+WORKTREE="${WORKTREE:-${AGENT_HOME}/work/repo}"
 
 # The broker needs a real, writable home: it holds the SSH keys used to reach
 # managed hosts, and Ansible insists on creating ~/.ansible/tmp.  It must NOT
@@ -130,11 +130,11 @@ install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 # command can read the playbooks it runs and cannot rewrite them behind the
 # commit-then-sync gate.  Not group devwork: a playbook that wrote a credential
 # here with a permissive mode would otherwise be readable by the agent.
-install -d -m 2750 -o "$BROKER_USER" -g "$EXEC_USER" /srv/ansible-ctrl
-if [[ -d /srv/ansible-ctrl ]]; then
-  chgrp -R "$EXEC_USER" /srv/ansible-ctrl
-  chmod -R g+rX,g-w,o-rwx /srv/ansible-ctrl
-  find /srv/ansible-ctrl -type d -exec chmod g+s {} +
+install -d -m 2750 -o "$BROKER_USER" -g "$EXEC_USER" /srv/faramir
+if [[ -d /srv/faramir ]]; then
+  chgrp -R "$EXEC_USER" /srv/faramir
+  chmod -R g+rX,g-w,o-rwx /srv/faramir
+  find /srv/faramir -type d -exec chmod g+s {} +
 fi
 
 cat <<EOF
@@ -143,7 +143,7 @@ Phase 1 acceptance (run these):
   sudo -u ${AGENT_USER} cat /etc/faramir/age.key        -> Permission denied
   sudo -u ${BROKER_USER} cat /etc/faramir/age.key       -> Permission denied
   sudo -u ${EXEC_USER} cat /var/log/faramir/raw.log     -> Permission denied
-  sudo -u ${EXEC_USER} touch /srv/ansible-ctrl/x        -> Permission denied
+  sudo -u ${EXEC_USER} touch /srv/faramir/x        -> Permission denied
   sudo -u ${AGENT_USER} ls ~${OPERATOR}/.ssh            -> Permission denied
   sudo -u ${AGENT_USER} touch ${WORKTREE}/.perm-check   -> succeeds
 

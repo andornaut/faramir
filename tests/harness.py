@@ -42,7 +42,7 @@ class Broker:
     def __init__(self, *, ssh_keys: bool = False) -> None:
         self.ssh_keys = ssh_keys
         self.root = Path(tempfile.mkdtemp(prefix="faramir-e2e-"))
-        self.workdir = self.root / "srv" / "ansible-ctrl"
+        self.workdir = self.root / "srv" / "faramir"
         self.agent_tree = self.root / "home" / "agent" / "work" / "ansible-ctrl"
         self.creds = self.root / "creds"
         self.socket_path = self.root / "sock"
@@ -123,10 +123,19 @@ class Broker:
         assert ROUTER_PW not in self.secrets_file.read_text()
 
     def _write_config(self) -> None:
-        """Reuse the shipped allowlist verbatim; only rewrite the paths."""
-        text = (REPO / "etc" / "config.toml").read_text()
+        """Reuse the Ansible example verbatim; only rewrite the paths.
+
+        The e2e suite exercises the Ansible workload, so it runs against the
+        policy that ships for it.  That keeps the example under test: an
+        example nobody loads is an example that rots.  The starter config in
+        etc/config.toml allows two commands and is covered by test_allowlist.
+        """
+        text = (REPO / "etc" / "examples" / "ansible-fleet.toml").read_text()
+        # The example lists a key that exists only on a real deployment.  Tests
+        # that want an agent put their own key in below.
+        text = re.sub(r"^keys = \[.*\]$", "keys = []", text, count=1, flags=re.M)
         replacements = {
-            "/srv/ansible-ctrl": str(self.workdir),
+            "/srv/faramir": str(self.workdir),
             "/home/agent/work/ansible-ctrl": str(self.agent_tree),
             "/run/faramir/broker.sock": str(self.socket_path),
             "/run/faramir/keeper.sock": str(self.keeper_socket_path),

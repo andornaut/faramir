@@ -18,7 +18,7 @@ EXEC_USER="${EXEC_USER:-faramir-exec}"
 AGE_KEY="${AGE_KEY:-/etc/faramir/age.key}"
 KEEPER_SOCKET="${KEEPER_SOCKET:-/run/faramir/keeper.sock}"
 EXEC_SOCKET="${EXEC_SOCKET:-/run/faramir/exec.sock}"
-CHECKOUT="${CHECKOUT:-/srv/ansible-ctrl}"
+CHECKOUT="${CHECKOUT:-/srv/faramir}"
 SOCKET="${FARAMIR_SOCKET:-/run/faramir/broker.sock}"
 RAW_LOG="${RAW_LOG:-/var/log/faramir/raw.log}"
 PW_REF="${PW_REF:-secret://home/router/admin}"
@@ -186,7 +186,7 @@ if grep -q 'SECRET:' <<<"$out"; then ok "5  unwrapped base64 redacted"; else no 
 
 head_ "6-7  redaction of values the broker never injected"
 
-if [[ -f "/srv/ansible-ctrl/${PLAYBOOK}" ]]; then
+if [[ -f "/srv/faramir/${PLAYBOOK}" ]]; then
   out="$(srun -- ansible-playbook "$PLAYBOOK" -vvv)"
   if grep -q 'SECRET:' <<<"$out" || ! grep -qi 'password\|token' <<<"$out"; then
     ok "6  ansible-playbook -vvv produced no plaintext"
@@ -200,8 +200,8 @@ if [[ -f "/srv/ansible-ctrl/${PLAYBOOK}" ]]; then
     skipt "7  no redaction seen -- does $PLAYBOOK print a vault var?"
   fi
 else
-  skipt "6  /srv/ansible-ctrl/${PLAYBOOK} not found"
-  skipt "7  /srv/ansible-ctrl/${PLAYBOOK} not found"
+  skipt "6  /srv/faramir/${PLAYBOOK} not found"
+  skipt "7  /srv/faramir/${PLAYBOOK} not found"
 fi
 
 head_ "8  allowlist"
@@ -260,7 +260,7 @@ fi
 
 head_ "extra  the acceptance invariant"
 
-if [[ -f /home/${AGENT_USER}/work/ansible-ctrl/CLAUDE.md ]]; then
+if [[ -f /home/${AGENT_USER}/work/repo/CLAUDE.md ]]; then
   printf '  \033[33mNOTE\033[0m  CLAUDE.md exists. Delete it and re-run 1, 2 and 8:\n'
   printf '        nothing about what is *reachable* may change.\n'
 fi
