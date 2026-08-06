@@ -254,12 +254,12 @@ class Server:
         }
 
     def _op_list_secrets(self) -> dict[str, Any]:
+        # Names only, and no marker saying which of them are too short to
+        # redact: that would hand the caller a shortlist of exactly the
+        # secrets it can obtain in plaintext.  The operator gets it instead,
+        # from the log at load time and from `faramir-broker --check`.
         refs = self.store.refs()
-        weak = dict(self.store.weak_refs())
-        lines = [
-            f"secret://{ref}" + (f"    [NOT REDACTABLE: {weak[ref]}]" if ref in weak else "")
-            for ref in refs
-        ]
+        lines = [f"secret://{ref}" for ref in refs]
         return {
             "exit_code": 0,
             "output": "\n".join(lines) + ("\n" if lines else ""),
@@ -456,7 +456,12 @@ def main(argv: list[str] | None = None) -> int:
     server.ssh.start()
 
     if args.check:
-        print(json.dumps(server.store.describe(), indent=2, sort_keys=True))
+        # Operator-facing, so this one names the weak refs.
+        print(
+            json.dumps(
+                server.store.describe(include_weak=True), indent=2, sort_keys=True
+            )
+        )
         print(f"allow rules: {', '.join(r.name for r in config.allow)}")
         return 0
 

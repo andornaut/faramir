@@ -101,6 +101,17 @@ def _positive_int(value: Any, where: str) -> int | None:
     return value
 
 
+def _count(value: Any, where: str) -> int | None:
+    """An optional argument count.  Zero is meaningful, so not _positive_int."""
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ConfigError(f"{where}: expected an integer, got {type(value).__name__}")
+    if value < 0:
+        raise ConfigError(f"{where}: expected zero or more, got {value}")
+    return value
+
+
 def _compile_all(patterns: Any, where: str) -> list[re.Pattern[str]]:
     """Compile a list of regexes, rejecting anything that is not one.
 
@@ -138,6 +149,11 @@ class AllowRule:
     args_deny: list[re.Pattern[str]] = field(default_factory=list)
     cwd_allow: list[re.Pattern[str]] = field(default_factory=list)
     max_timeout_sec: int | None = None
+    # How many arguments the rule accepts.  Separate from args_allow, which
+    # only describes the arguments that are present: without min_args a rule
+    # that permits exactly one variable name still permits none at all.
+    min_args: int | None = None
+    max_args: int | None = None
 
     @classmethod
     def parse(cls, raw: dict[str, Any], index: int) -> "AllowRule":
@@ -154,6 +170,13 @@ class AllowRule:
                 "keeper holds the age key and no child ever receives it; have "
                 "Ansible read its vars from the environment instead (see "
                 "docs/ansible-sops.md)."
+            )
+        min_args = _count(raw.get("min_args"), f"allow rule {name!r} min_args")
+        max_args = _count(raw.get("max_args"), f"allow rule {name!r} max_args")
+        if min_args is not None and max_args is not None and min_args > max_args:
+            raise ConfigError(
+                f"allow rule {name!r}: min_args ({min_args}) exceeds "
+                f"max_args ({max_args}), so the rule can never match"
             )
         # No list() around the raw values: it would split a bare string into
         # characters before _compile_all could reject it, which is the bug that
@@ -173,6 +196,8 @@ class AllowRule:
             max_timeout_sec=_positive_int(
                 raw.get("max_timeout_sec"), f"allow rule {name!r} max_timeout_sec"
             ),
+            min_args=min_args,
+            max_args=max_args,
         )
 
 

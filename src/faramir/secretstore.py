@@ -178,11 +178,20 @@ class SecretStore:
                 if (reason := self.policy.check(value))
             ]
 
-    def describe(self) -> dict[str, Any]:
+    def describe(self, *, include_weak: bool = False) -> dict[str, Any]:
+        """Loaded-state summary.
+
+        ``include_weak`` names the refs that are too short or too low-entropy
+        to redact.  That is a list of exactly which secrets reach the caller in
+        plaintext, so it belongs to the operator: it goes to the log and to
+        ``faramir-broker --check``, never onto the agent-facing wire.
+        """
         with self._lock:
-            return {
+            described = {
                 "files": [s.path for s in self._state],
                 "ref_count": len(self._values),
                 "errors": list(self.load_errors),
-                "not_redactable": [ref for ref, _ in self.weak_refs()],
             }
+        if include_weak:
+            described["not_redactable"] = [ref for ref, _ in self.weak_refs()]
+        return described

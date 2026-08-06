@@ -71,6 +71,20 @@ def _check_cwd(rule: AllowRule, cwd: str) -> str | None:
 
 
 def _check_args(rule: AllowRule, args: Sequence[str]) -> str | None:
+    # Count first.  ``args_allow`` constrains the arguments that are *present*,
+    # so a rule that carefully describes its one permitted argument still lets
+    # the bare command through -- which for ``printenv`` means dumping the whole
+    # child environment rather than naming one variable.
+    if rule.min_args is not None and len(args) < rule.min_args:
+        return (
+            f"rule {rule.name!r} requires at least {rule.min_args} argument(s), "
+            f"got {len(args)}"
+        )
+    if rule.max_args is not None and len(args) > rule.max_args:
+        return (
+            f"rule {rule.name!r} permits at most {rule.max_args} argument(s), "
+            f"got {len(args)}"
+        )
     for arg in args:
         for deny in rule.args_deny:
             if deny.search(arg):

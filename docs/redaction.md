@@ -105,11 +105,17 @@ A short password redacts unrelated output at random. If `cat` is a secret, the
 word "concatenate" gets mangled and the agent is left debugging a phantom.
 
 Defaults: at least 8 characters, at least 4 distinct characters, at least 1.5
-bits/char of Shannon entropy. Values that fail are **not redacted at all**, and:
+bits/char of Shannon entropy. Values that fail are **not redacted at all**, and
+the operator is told which:
 
 - the broker logs a warning naming each one at load time,
-- `faramir_list_secrets` marks them `NOT REDACTABLE: <reason>`,
-- `faramir_status` lists them under `not_redactable`.
+- `faramir-broker --check` lists them under `not_redactable`.
+
+The agent is not. `faramir_list_secrets` and `faramir_status` still name every
+ref, because a ref is still injectable, but neither says which ones fail the
+gate: that would be a shortlist of exactly the secrets a caller can obtain in
+plaintext, which is targeting information rather than a warning. The warning is
+for whoever can lengthen the value, and that is not the agent.
 
 The right fix is to lengthen the secret, not to lower the threshold, but the
 thresholds are configurable in `[secrets]` if you have a genuinely short value

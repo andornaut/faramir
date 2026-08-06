@@ -32,6 +32,20 @@ class TestShippedAllowlist(unittest.TestCase):
     def check(self, cmd, cwd=None):
         return authorize(cmd, cwd or self.cwd, self.rules, self.config.exec)
 
+    def test_bare_printenv_is_denied(self):
+        # args_allow only constrains the arguments that are present, so
+        # without min_args the shipped printenv rule would permit a bare
+        # invocation, which dumps the whole child environment.
+        with self.assertRaises(DeniedError) as ctx:
+            self.check(["printenv"])
+        self.assertIn("at least 1", str(ctx.exception))
+
+    def test_printenv_takes_exactly_one_variable(self):
+        self.check(["printenv", "ROUTER_PW"])
+        with self.assertRaises(DeniedError) as ctx:
+            self.check(["printenv", "ROUTER_PW", "API_TOKEN"])
+        self.assertIn("at most 1", str(ctx.exception))
+
     def test_cat_is_denied(self):
         with self.assertRaises(DeniedError) as ctx:
             self.check(["cat", "/etc/passwd"])

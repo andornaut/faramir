@@ -329,6 +329,28 @@ class Broker:
         """Talk to the keeper directly, the way only the broker should."""
         return call(request, str(self.keeper_socket_path), timeout=60)
 
+    def store_describe(self, *, include_weak: bool = False) -> dict:
+        """What `faramir-broker --check` prints: operator-side, out of band."""
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "faramir",
+                "-c",
+                str(self.config_path),
+                "--check",
+            ],
+            env=self._env(with_credentials=False),
+            capture_output=True,
+            text=True,
+            timeout=120,
+            cwd=str(self.root),
+        )
+        described = json.loads(result.stdout.split("allow rules:")[0])
+        if not include_weak:
+            described.pop("not_redactable", None)
+        return described
+
     def exec_call(self, request: dict) -> dict:
         """Talk to the executor directly, without passing a terminal fd."""
         return call(request, str(self.exec_socket_path), timeout=60)

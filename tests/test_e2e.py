@@ -46,7 +46,6 @@ class TestSecretResolution(BrokerTestCase):
         response = self.broker.call({"op": "status"})
         self.assertIn('"ref_count": 4', response["output"])
         self.assertIn("vault.sops.yml", response["output"])
-        self.assertIn("short_pin", response["output"])  # flagged as not redactable
         self.assertNoPlaintext(response["output"])
 
     def test_list_secrets_returns_names_only(self):
@@ -56,10 +55,22 @@ class TestSecretResolution(BrokerTestCase):
         self.assertNoPlaintext(response["output"])
         self.assertNoPlaintext(response["output"], secret=API_TOKEN)
 
-    def test_short_secret_is_flagged_as_not_redactable(self):
-        response = self.broker.call({"op": "list_secrets"})
-        self.assertIn("short_pin", response["output"])
-        self.assertIn("NOT REDACTABLE", response["output"])
+    def test_weak_refs_are_not_named_to_the_caller(self):
+        # Naming them would hand the caller a shortlist of exactly the secrets
+        # it can obtain in plaintext.  The operator learns which they are from
+        # the broker log and from `faramir-broker --check`.
+        for op in ("list_secrets", "status"):
+            with self.subTest(op=op):
+                response = self.broker.call({"op": op})
+                self.assertNotIn("NOT REDACTABLE", response["output"])
+                self.assertNotIn("not_redactable", response["output"])
+        # ...but the ref itself is still listed, because it is still injectable.
+        listed = self.broker.call({"op": "list_secrets"})
+        self.assertIn("secret://short_pin", listed["output"])
+
+    def test_the_operator_check_path_does_name_them(self):
+        described = self.broker.store_describe(include_weak=True)
+        self.assertIn("short_pin", described["not_redactable"])
 
     def test_unknown_ref_is_an_error(self):
         response = self.broker.run(["printenv", "X"], {"X": "secret://nope/nothing"})

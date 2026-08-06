@@ -213,6 +213,15 @@ else
   no "8  'cat /etc/passwd' was not denied: $out"
 fi
 
+# args_allow constrains the arguments that are present, not how many there are;
+# without min_args this dumps the whole child environment.
+out="$(srun -- printenv)"
+if grep -q 'denied' <<<"$out"; then
+  ok "8b bare printenv denied (min_args)"
+else
+  no "8b bare printenv dumped the environment: $out"
+fi
+
 head_ "9  audit log"
 
 if [[ -f $RAW_LOG ]]; then

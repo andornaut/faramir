@@ -173,6 +173,35 @@ class TestAllowRules(unittest.TestCase):
         )
 
 
+class TestArgumentCounts(unittest.TestCase):
+    def rule(self, **extra):
+        return Config.from_dict(
+            {"allow": [{"name": "r", "argv0": "^r$", **extra}]}, "test.toml"
+        ).allow[0]
+
+    def test_defaults_are_unconstrained(self):
+        rule = self.rule()
+        self.assertIsNone(rule.min_args)
+        self.assertIsNone(rule.max_args)
+
+    def test_zero_is_a_meaningful_maximum(self):
+        self.assertEqual(self.rule(max_args=0).max_args, 0)
+
+    def test_negative_is_rejected(self):
+        with self.assertRaises(ConfigError) as caught:
+            self.rule(min_args=-1)
+        self.assertIn("min_args", str(caught.exception))
+
+    def test_a_non_integer_is_rejected(self):
+        with self.assertRaises(ConfigError):
+            self.rule(max_args="2")
+
+    def test_an_impossible_range_is_rejected(self):
+        with self.assertRaises(ConfigError) as caught:
+            self.rule(min_args=3, max_args=1)
+        self.assertIn("never match", str(caught.exception))
+
+
 class TestPatternListsMustBeLists(unittest.TestCase):
     """A bare string splits into characters, one of which is '$'.
 

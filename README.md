@@ -195,6 +195,10 @@ faramir sync
 - **`redactions` reports counts, not values**, so the caller can confirm a
   secret reached the right place without seeing it. `log_id` points into the
   operator-only raw log.
+- **`args_allow` constrains the arguments that are present, not how many there
+  are.** A rule that permits exactly one variable name still permits none at
+  all unless it also sets `min_args`. The shipped `printenv` rule sets
+  `min_args = 1` and `max_args = 1` for that reason.
 
 ---
 
@@ -218,8 +222,10 @@ Full detail in [docs/redaction.md](docs/redaction.md). In short:
    still caught.
 6. **Short or low-entropy values are not redacted**: an 8-character floor plus
    an entropy gate, because a short password would blank out unrelated output
-   at random. The broker logs a warning naming each one, and
-   `faramir_list_secrets` marks them `NOT REDACTABLE`. Lengthen them.
+   at random. The broker logs a warning naming each one and
+   `faramir-broker --check` lists them; the agent is told neither, since that
+   would be a shortlist of the secrets it can obtain in plaintext. Lengthen
+   them.
 7. **Tokens are stable**: the same secret always renders as `«SECRET:ref»`, so
    the model can reason about it across turns.
 
@@ -261,6 +267,7 @@ sudo make verify   # the matrix below, against the live deployment
 | 7 | playbook containing `debug: var=<secret>`, run from the `/srv` checkout | redacted | `test_e2e`, `verify.sh` |
 | 7b | playbook that tries to decrypt the sops file itself | fails, no key available | `test_e2e` |
 | 8 | `faramir run -- cat /etc/passwd` | denied by allowlist | `test_e2e`, `verify.sh` |
+| 8b | `faramir run -- printenv` (no argument) | denied, `min_args` | `test_allowlist`, `verify.sh` |
 | 9 | grep the raw log for the value | plaintext present, agent cannot read it | `test_e2e`, `verify.sh` |
 | **10** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **LEAKS, expected** | asserted in `test_e2e` |
 | **11** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **LEAKS, expected** | asserted in `test_e2e` |

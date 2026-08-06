@@ -59,7 +59,10 @@ not start with `-`. Deliberately not reachable through `exec`: the shipped
 {"op": "list_secrets"}
 ```
 
-Returns ref names only, with any non-redactable ones flagged. Never values.
+Returns ref names only. Never values, and no marker saying which of them are
+too short or too low-entropy to redact: that list is a shortlist of the secrets
+the caller can obtain in plaintext, so it goes to the broker log and to
+`faramir-broker --check` instead.
 
 ### `status`
 
@@ -68,7 +71,7 @@ Returns ref names only, with any non-redactable ones flagged. Never values.
 ```
 
 Loaded files, ref count, load errors, allowlist rule names, whether sync is
-enabled.
+enabled. Not the non-redactable refs; see `list_secrets` above.
 
 ## Responses
 

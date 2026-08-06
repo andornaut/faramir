@@ -145,10 +145,16 @@ max_timeout_sec = 600
 # Exists so redaction is demonstrable end to end (verification test 3): the
 # agent can prove a credential reached the right variable without seeing it.
 # Harmless because output is redacted; drop it if you prefer.
+#
+# min_args/max_args, not just args_allow: args_allow describes the arguments
+# that are present, so on its own it would still permit a bare `printenv`,
+# which dumps the whole environment instead of naming one variable.
 [[allow]]
 name = "printenv"
 argv0 = '^printenv$'
 args_allow = ['^[A-Za-z_][A-Za-z0-9_]*$']
+min_args = 1
+max_args = 1
 max_timeout_sec = 30
 
 [[allow]]
