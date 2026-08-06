@@ -1,7 +1,7 @@
 # How the redactor works
 
 The redactor is the only substantial piece of new code in this project
-(`src/faramir/redact.py`, ~250 lines). Everything else is plumbing around uid
+([internal/redact](../internal/redact)). Everything else is plumbing around uid
 separation. This document explains why each stage exists, because several of
 them look like over-engineering until you hit the case they exist for.
 
@@ -18,7 +18,9 @@ injector-based redactor has never seen those values and cannot mask them.
 
 Therefore: **the redactor's value set is every secret the keeper manages**, not
 the subset relevant to the current command. The broker fetches it on startup,
-on `SIGHUP`, and when a managed file's mtime changes.
+on `SIGHUP`, when a managed file's mtime changes, and again when the previous
+fetch could not reach the keeper: the files are unchanged in that case, so the
+mtime poll would never notice, and an empty value set redacts nothing.
 
 ## Why a PTY and not a pipe
 
@@ -31,8 +33,8 @@ Two reasons, and the second is the one that matters.
    entirely. `ssh` and `sudo` do exactly this for password prompts. A pipe on
    stdout/stderr never sees those writes. Owning the controlling terminal does.
 
-The `test_writes_to_dev_tty_are_captured_and_redacted` case in `tests/test_e2e.py`
-pins this down: `printenv ROUTER_PW > /dev/tty` is captured and redacted.
+`TestWritesToDevTtyAreCapturedAndRedacted` in `internal/e2e` pins this down:
+`printenv ROUTER_PW > /dev/tty` is captured and comes back as a token.
 
 The fork happens in `faramir-exec`, but the PTY does not move with it. The
 broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the
@@ -98,12 +100,17 @@ to spans in the original text so surrounding output is preserved.
 ### 4. Stream with an overlap buffer
 
 The redactor holds back `2 × max(len(variant)) + 16` characters of the tail on
-every `feed()`, releasing them only on `flush()`. The doubling covers base64
-line wrapping (newlines inserted *inside* a value make its on-the-wire length
-longer than the variant itself).
+every `Feed`, releasing them only on `Flush`. The doubling covers base64 line
+wrapping (newlines inserted *inside* a value make its on-the-wire length longer
+than the variant itself).
 
 Because the retained tail has already been redacted, re-scanning it on the next
 chunk cannot double-count: a token contains no secret.
+
+Everything `Feed` returns is output, including the release triggered by the
+last partial-rune tail at end of stream. Dropping that return would lose the
+final characters of every command whose last write splits a rune;
+`TestOutputEndingMidRuneIsNotTruncated` in `internal/e2e` holds that down.
 
 ### 5. Minimum length and entropy gate
 

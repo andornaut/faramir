@@ -85,6 +85,30 @@ func TestStrippingStopsAtASeparator(t *testing.T) {
 	}
 }
 
+// The prefix sanctions the faramir CLI, not the daemons.  "faramir\b" also
+// matched the hyphen in "faramir-broker", which stripped these before the deny
+// list ever saw them and left that rule unable to fire at all.
+func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
+	for _, cmd := range []string{
+		"sudo faramir-broker --check",
+		"sudo faramir-keeper --check",
+		"sudo faramir-exec --version",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("the prefix sanctioned a daemon invocation: %q", cmd)
+		}
+	}
+}
+
+// Requiring whitespace after "faramir" must not break a chain of them: the
+// separator is left in place, so the second call still starts at one.
+func TestEveryCallInAChainIsStripped(t *testing.T) {
+	cmd := "faramir status; faramir run --env A=secret://a -- printenv A"
+	if pattern, denied := decide(cmd); denied {
+		t.Errorf("wrongly denied %q (pattern %q)", cmd, pattern)
+	}
+}
+
 // A patterns file that cannot be read must not disable the hook.
 func TestFallbackIsUsedWhenThePatternsFileIsMissing(t *testing.T) {
 	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")

@@ -24,7 +24,7 @@ SupplementaryGroups=devwork
 # can reach is the list of things a command can reach:
 #
 #   /etc/faramir/age.key      no  (0400 faramir-keeper)
-#   /run/faramir/keeper.sock  no  (0660 faramir-keeper:faramir-broker)
+#   /run/faramir/keeper.sock  no  (0660 root:faramir-broker)
 #   /run/faramir/exec.sock    no  (0660 root:faramir-broker)
 #   /var/log/faramir/raw.log  no  (0600 faramir-broker)
 #   ~faramir-broker/.ssh      no  (0700 faramir-broker)
@@ -84,7 +84,7 @@ UMask=0077
 #
 #   PrivateNetwork=, IPAddressDeny=
 #       Brokered commands reach managed hosts.  Egress control is a non-goal;
-#       see README section 1.
+#       see "What it protects against" in the README.
 #   MemoryDenyWriteExecute=
 #       Children are arbitrary operator-chosen programs, some of them JITs.
 #   SystemCallFilter=~@privileged, ~@resources

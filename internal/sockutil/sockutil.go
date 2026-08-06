@@ -4,6 +4,7 @@
 package sockutil
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
@@ -97,12 +99,19 @@ func PeerCred(conn net.Conn) (*Peer, error) {
 	return &Peer{PID: cred.Pid, UID: int32(cred.Uid), GID: int32(cred.Gid)}, nil
 }
 
-// AllowedByUsersOrGroups is the authorisation the two internal sockets use.
+// Allowed is the authorisation every faramir socket uses.
 //
-// Our own uid covers the single-uid test harness; root is unavoidable.
-func AllowedByUsersOrGroups(peer *Peer, users, groups []string) bool {
+// Our own uid covers the single-uid test harness; root is unavoidable.  A uid
+// listed in uids, a user named in users, or membership of a group in groups --
+// primary or supplementary -- is what else passes.
+func Allowed(peer *Peer, uids []int, users, groups []string) bool {
 	if peer.UID == 0 || int(peer.UID) == os.Getuid() {
 		return true
+	}
+	for _, uid := range uids {
+		if int32(uid) == peer.UID {
+			return true
+		}
 	}
 	for _, name := range users {
 		if u, err := user.Lookup(name); err == nil {
@@ -111,15 +120,80 @@ func AllowedByUsersOrGroups(peer *Peer, users, groups []string) bool {
 			}
 		}
 	}
-	for _, name := range groups {
-		if g, err := user.LookupGroup(name); err == nil {
-			if gid, err := strconv.Atoi(g.Gid); err == nil && int32(gid) == peer.GID {
+	if len(groups) > 0 && inAnyGroup(peer, groups) {
+		return true
+	}
+	log.Printf("rejected connection from uid=%d gid=%d pid=%d", peer.UID, peer.GID, peer.PID)
+	return false
+}
+
+// AllowedByUsersOrGroups is Allowed without a uid list, for the two internal
+// sockets, which name their one legitimate client by user.
+func AllowedByUsersOrGroups(peer *Peer, users, groups []string) bool {
+	return Allowed(peer, nil, users, groups)
+}
+
+// WarnIfGroupsAllowed names a live allowed_groups on one of the internal
+// sockets at startup.
+//
+// Group membership is honoured whether it is primary or supplementary, which
+// is the only way it could match at all: devwork and its like are granted with
+// usermod -aG.  That also means naming a group here is a wider grant than it
+// looks, on two sockets whose only legitimate client is the broker, so it says
+// so rather than waiting to be discovered.
+func WarnIfGroupsAllowed(what string, groups []string) {
+	if len(groups) == 0 {
+		return
+	}
+	log.Printf("WARNING: [%s] allowed_groups is %v; every member of those groups, "+
+		"including supplementary members, may connect. This socket's only "+
+		"legitimate client is the broker: name it in allowed_users instead.",
+		what, groups)
+}
+
+// inAnyGroup checks the peer's primary gid and, failing that, the
+// supplementary member lists.  Checking only the gid would silently ignore
+// every allowed_groups entry that is a secondary group, which is how the
+// devwork group is actually granted.
+func inAnyGroup(peer *Peer, groups []string) bool {
+	name := ""
+	if u, err := user.LookupId(strconv.Itoa(int(peer.UID))); err == nil {
+		name = u.Username
+	}
+	for _, group := range groups {
+		g, err := user.LookupGroup(group)
+		if err != nil {
+			continue
+		}
+		if gid, err := strconv.Atoi(g.Gid); err == nil && int32(gid) == peer.GID {
+			return true
+		}
+		if name == "" {
+			continue
+		}
+		for _, member := range groupMembers(group) {
+			if member == name {
 				return true
 			}
 		}
 	}
-	log.Printf("rejected connection from uid=%d gid=%d pid=%d", peer.UID, peer.GID, peer.PID)
 	return false
+}
+
+// groupMembers reads the supplementary member list for a group.  Go's os/user
+// exposes no equivalent of getgrnam()'s gr_mem.
+func groupMembers(name string) []string {
+	data, err := os.ReadFile("/etc/group")
+	if err != nil {
+		return nil
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		fields := strings.Split(line, ":")
+		if len(fields) >= 4 && fields[0] == name {
+			return strings.Split(fields[3], ",")
+		}
+	}
+	return nil
 }
 
 // ReadLine reads one newline-terminated JSON payload, up to limit bytes.
@@ -128,7 +202,7 @@ func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 	buf := make([]byte, 0, 4096)
 	chunk := make([]byte, 65536)
 	for {
-		if idx := indexByte(buf, '\n'); idx >= 0 {
+		if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
 			return buf[:idx], nil
 		}
 		n, err := conn.Read(chunk)
@@ -145,37 +219,16 @@ func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 			return nil, err
 		}
 	}
-	if idx := indexByte(buf, '\n'); idx >= 0 {
+	if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
 		return buf[:idx], nil
 	}
-	if len(trimSpace(buf)) == 0 {
+	if len(bytes.TrimSpace(buf)) == 0 {
 		return nil, nil
 	}
 	return buf, nil
 }
 
 var ErrTooLarge = errors.New("request too large")
-
-func indexByte(b []byte, c byte) int {
-	for i, x := range b {
-		if x == c {
-			return i
-		}
-	}
-	return -1
-}
-
-func trimSpace(b []byte) []byte {
-	start := 0
-	for start < len(b) && (b[start] == ' ' || b[start] == '\t' || b[start] == '\n' || b[start] == '\r') {
-		start++
-	}
-	end := len(b)
-	for end > start && (b[end-1] == ' ' || b[end-1] == '\t' || b[end-1] == '\n' || b[end-1] == '\r') {
-		end--
-	}
-	return b[start:end]
-}
 
 // Send writes one JSON response followed by a newline.
 func Send(conn net.Conn, response any) error {

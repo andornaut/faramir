@@ -37,6 +37,7 @@ package keeper
 import (
 	"context"
 	"encoding/json"
+	goerrors "errors"
 	"fmt"
 	"log"
 	"net"
@@ -210,12 +211,11 @@ func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]strin
 		cancel()
 
 		if err != nil {
-			var stderr string
 			var exitErr *exec.ExitError
-			if ok := asExitError(err, &exitErr); ok {
-				stderr = lastLine(string(exitErr.Stderr))
+			if goerrors.As(err, &exitErr) {
 				errors = append(errors, keys.Scrub(fmt.Sprintf(
-					"%s: decrypt failed (%d): %s", path, exitErr.ExitCode(), stderr)))
+					"%s: decrypt failed (%d): %s", path, exitErr.ExitCode(),
+					lastLine(string(exitErr.Stderr)))))
 			} else {
 				errors = append(errors, keys.Scrub(fmt.Sprintf(
 					"%s: running %s failed: %v", path, argv[0], err)))
@@ -236,14 +236,6 @@ func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]strin
 		}
 	}
 	return values, errors
-}
-
-func asExitError(err error, target **exec.ExitError) bool {
-	if e, ok := err.(*exec.ExitError); ok {
-		*target = e
-		return true
-	}
-	return false
 }
 
 func envOr(name, fallback string) string {

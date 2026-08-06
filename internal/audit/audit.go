@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/andornaut/faramir/internal/config"
 )
@@ -66,7 +67,7 @@ func (l *Log) Write(record map[string]any, rawOutput string) {
 	limit := l.config.MaxRecordBytes
 	if len(rawOutput) > limit {
 		payload["raw_truncated"] = true
-		rawOutput = string([]byte(rawOutput)[:limit])
+		rawOutput = cutAtRune(rawOutput, limit)
 	}
 	payload["raw_output"] = rawOutput
 
@@ -92,6 +93,35 @@ func (l *Log) Write(record map[string]any, rawOutput string) {
 	if _, err := fh.Write(append(line, '\n')); err != nil {
 		log.Printf("audit write failed: %v", err)
 	}
+}
+
+// cutAtRune returns the first limit bytes of s, backing off only far enough
+// not to end on a partial rune, which JSON would otherwise record as U+FFFD.
+//
+// The search is bounded to UTFMax because that is the longest a partial rune
+// can be.  Scanning back for the first valid prefix instead would discard
+// everything after the last invalid byte in the record: brokered output is raw
+// PTY bytes, so a child printing binary or Latin-1 puts one mid-stream, and
+// the record would silently lose the rest while still claiming a clean cut.
+func cutAtRune(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(s) <= limit {
+		return s
+	}
+	cut := s[:limit]
+	for i := 1; i < utf8.UTFMax && i <= len(cut); i++ {
+		start := len(cut) - i
+		if !utf8.RuneStart(cut[start]) {
+			continue
+		}
+		if utf8.ValidString(cut[start:]) {
+			return cut // the last rune is whole
+		}
+		return cut[:start]
+	}
+	return cut
 }
 
 // RawCollector accumulates the unredacted stream for one invocation, with a

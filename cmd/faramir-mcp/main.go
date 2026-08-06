@@ -18,11 +18,11 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 const (
 	serverName      = "faramir"
-	serverVersion   = "1.0.0"
 	protocolVersion = "2025-06-18"
 	defaultSocket   = "/run/faramir/broker.sock"
 )
@@ -53,14 +53,14 @@ var tools = []tool{
 			"The command runs as a separate uid that holds the keys. Output comes back " +
 			"with every known secret value replaced by a stable «SECRET:ref» token, so " +
 			"you can confirm a credential reached the right place without ever seeing " +
-			"it. Do not attempt to work around this — transformed output (base64, rev, " +
+			"it. Do not attempt to work around this: transformed output (base64, rev, " +
 			"cut) is a policy violation, not a puzzle.\n\n" +
 			"Secrets are referenced by name using secret:// URIs and are injected as " +
 			"environment variables only; they are never substituted into the command " +
 			"line. Call faramir_list_secrets to discover available names.\n\n" +
 			"Example: cmd=[\"printenv\",\"ROUTER_PW\"], " +
 			"env_refs={\"ROUTER_PW\":\"secret://home/router/admin\"}.\n" +
-			"For a pipeline, pass cmd=[\"bash\",\"-lc\",\"…\"] explicitly — no shell is " +
+			"For a pipeline, pass cmd=[\"bash\",\"-lc\",\"…\"] explicitly; no shell is " +
 			"spawned for you. A bare command name is looked up on the broker's " +
 			"configured PATH; pass an absolute path for anything else.",
 		InputSchema: map[string]any{
@@ -70,7 +70,7 @@ var tools = []tool{
 					"type":        "array",
 					"items":       map[string]any{"type": "string"},
 					"minItems":    1,
-					"description": "argv array. Not a shell string — no shell is spawned for you.",
+					"description": "argv array. Not a shell string; no shell is spawned for you.",
 				},
 				"env_refs": map[string]any{
 					"type":                 "object",
@@ -92,7 +92,7 @@ var tools = []tool{
 	},
 	{
 		Name: "faramir_list_secrets",
-		Description: "List the secret:// references the broker can inject. Returns names only — " +
+		Description: "List the secret:// references the broker can inject. Returns names only, " +
 			"never values. Use this to find the right ref for faramir_run's env_refs.",
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 	},
@@ -244,14 +244,14 @@ func handle(m *message) map[string]any {
 
 	switch {
 	case m.Method == "initialize":
-		version := m.Params.ProtocolVersion
-		if version == "" {
-			version = protocolVersion
+		negotiated := m.Params.ProtocolVersion
+		if negotiated == "" {
+			negotiated = protocolVersion
 		}
 		result = map[string]any{
-			"protocolVersion": version,
+			"protocolVersion": negotiated,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": serverName, "version": serverVersion},
+			"serverInfo":      map[string]any{"name": serverName, "version": version.Version},
 			"instructions": "Any command that needs a credential must go through faramir_run. " +
 				"Secrets are referenced by name (secret://…); their values are never " +
 				"visible to you and never need to be.",
@@ -287,9 +287,19 @@ func handle(m *message) map[string]any {
 	return map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(m.ID), "result": result}
 }
 
-func main() { os.Exit(run()) }
+func main() { os.Exit(run(os.Args[1:])) }
 
-func run() int {
+func run(args []string) int {
+	// No flags: this is a stdio server, started by the agent, never by hand.
+	// --version is the one exception, because it is how an operator confirms
+	// which build the agent is actually talking to.
+	for _, arg := range args {
+		if arg == "--version" || arg == "-version" {
+			fmt.Println("faramir-mcp " + version.Version)
+			return 0
+		}
+	}
+
 	in := bufio.NewScanner(os.Stdin)
 	// A tools/call response can carry a whole command's output.
 	in.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)

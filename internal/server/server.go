@@ -16,10 +16,8 @@ import (
 	"maps"
 	"net"
 	"os"
-	"os/user"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -34,10 +32,8 @@ import (
 	"github.com/andornaut/faramir/internal/secretstore"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/sshagent"
+	"github.com/andornaut/faramir/internal/version"
 )
-
-// Version is the reported build version.
-const Version = "0.1.0-go"
 
 type Server struct {
 	Config *config.Config
@@ -144,46 +140,7 @@ func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 		return nil, err
 	}
 	cfg := s.Config.Server
-	allowed := peer.UID == 0 || int(peer.UID) == os.Getuid()
-	if !allowed && len(cfg.AllowedUIDs) > 0 {
-		for _, uid := range cfg.AllowedUIDs {
-			if int32(uid) == peer.UID {
-				allowed = true
-				break
-			}
-		}
-	}
-	if !allowed && len(cfg.AllowedGroups) > 0 {
-		name := ""
-		if u, err := user.LookupId(strconv.Itoa(int(peer.UID))); err == nil {
-			name = u.Username
-		}
-		for _, group := range cfg.AllowedGroups {
-			g, err := user.LookupGroup(group)
-			if err != nil {
-				continue
-			}
-			if gid, err := strconv.Atoi(g.Gid); err == nil && int32(gid) == peer.GID {
-				allowed = true
-				break
-			}
-			if name != "" {
-				if members, err := groupMembers(group); err == nil {
-					for _, m := range members {
-						if m == name {
-							allowed = true
-							break
-						}
-					}
-				}
-			}
-			if allowed {
-				break
-			}
-		}
-	}
-	if !allowed {
-		log.Printf("rejected connection from uid=%d gid=%d pid=%d", peer.UID, peer.GID, peer.PID)
+	if !sockutil.Allowed(peer, cfg.AllowedUIDs, nil, cfg.AllowedGroups) {
 		return nil, nil
 	}
 	return peer, nil
@@ -213,7 +170,7 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 
 func (s *Server) opStatus() protocol.Response {
 	body, _ := json.MarshalIndent(map[string]any{
-		"version":     Version,
+		"version":     version.Version,
 		"config":      s.Config.Path,
 		"secrets":     s.Store.Describe(),
 		"default_cwd": s.Config.Exec.DefaultCwd,
@@ -375,20 +332,4 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		return body, 1
 	}
 	return body, 0
-}
-
-// groupMembers reads the supplementary member list for a group.  Go's os/user
-// exposes no equivalent of grp.getgrnam().gr_mem.
-func groupMembers(name string) ([]string, error) {
-	data, err := os.ReadFile("/etc/group")
-	if err != nil {
-		return nil, err
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		fields := strings.Split(line, ":")
-		if len(fields) >= 4 && fields[0] == name {
-			return strings.Split(fields[3], ","), nil
-		}
-	}
-	return nil, nil
 }

@@ -17,6 +17,12 @@
 # etc/examples/ holds complete configs for real workloads:
 #
 #   ansible-fleet.toml   running Ansible against a fleet of managed hosts
+#
+# A mistyped key or [section] is a hard error naming the alternatives, not a
+# silently ignored line, and so is a size or count out of range -- a zero
+# max_concurrency or default_timeout_sec would otherwise leave a broker that
+# refuses every request, or kills every command as it starts.
+# Check a config with:  faramir-broker -c FILE --check
 
 [server]
 socket_path = "/run/faramir/broker.sock"
@@ -24,6 +30,8 @@ socket_mode = "0660"
 max_concurrency = 4
 max_request_bytes = 262144
 # Peer credentials are checked against these in addition to the socket mode.
+# Group membership counts whether it is the peer's primary group or a
+# supplementary one, which is how devwork is granted (usermod -aG).
 allowed_groups = ["devwork"]
 allowed_uids = []
 
@@ -35,6 +43,12 @@ socket_path = "/run/faramir/keeper.sock"
 socket_mode = "0660"
 # The broker is the only legitimate client.  Checked with SO_PEERCRED, on top
 # of the socket mode.
+#
+# Leave allowed_groups empty.  Naming a group here admits every member of it,
+# supplementary membership included, and devwork holds the agent's own uid:
+# adding it would let the agent ask the keeper for decrypted values directly.
+# The socket mode would still refuse the connection, but do not rely on that
+# being the only thing in the way.
 allowed_users = ["faramir-broker"]
 allowed_groups = []
 # Name of the systemd LoadCredential= entry in faramir-keeper.service.
@@ -43,6 +57,9 @@ age_key_credential = "age_key"
 # The process that forks brokered commands.  Its uid holds nothing: no key, no
 # secret values, no audit log, and no SSH keys.  A child forked by the broker
 # would inherit all four.
+#
+# Leave allowed_groups empty here too, and for a sharper reason: a peer that
+# reaches this socket runs commands that are never redacted and never audited.
 [executor]
 socket_path = "/run/faramir/exec.sock"
 socket_mode = "0660"

@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/version"
 )
 
 var (
@@ -146,6 +148,68 @@ func TestCLIListSecretsAndStatus(t *testing.T) {
 	if r := runCLI(t, h.brokerSock, "status"); r.code != 0 ||
 		!strings.Contains(r.stdout, "ref_count") {
 		t.Errorf("status: exit=%d stdout=%q", r.code, r.stdout)
+	}
+}
+
+// Asking for help is a request that succeeded.  Exiting non-zero on --help
+// makes the CLI unusable from any script with "set -e".
+func TestCLIHelpExitsZeroOnStdout(t *testing.T) {
+	for _, args := range [][]string{{"--help"}, {"run", "--help"}, {"status", "--help"}} {
+		cmd := exec.Command(faramirCLI(t), args...)
+		var out, errBuf strings.Builder
+		cmd.Stdout, cmd.Stderr = &out, &errBuf
+		_ = cmd.Run()
+		if code := cmd.ProcessState.ExitCode(); code != 0 {
+			t.Errorf("%v: exit = %d, want 0", args, code)
+		}
+		if out.Len() == 0 {
+			t.Errorf("%v: help went nowhere (stderr=%q)", args, errBuf.String())
+		}
+	}
+}
+
+// A bad flag is the opposite case: it belongs on stderr, with exit 2.
+func TestCLIBadFlagIsAUsageErrorOnStderr(t *testing.T) {
+	cmd := exec.Command(faramirCLI(t), "run", "--not-a-flag")
+	var out, errBuf strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errBuf
+	_ = cmd.Run()
+	if code := cmd.ProcessState.ExitCode(); code != 2 {
+		t.Errorf("exit = %d, want 2", code)
+	}
+	if out.Len() != 0 {
+		t.Errorf("a usage error went to stdout: %q", out.String())
+	}
+	if !strings.Contains(errBuf.String(), "not-a-flag") {
+		t.Errorf("stderr does not name the flag: %q", errBuf.String())
+	}
+}
+
+// FARAMIR_SOCKET moves every subcommand at once.  faramir-mcp already honours
+// it and tests/verify.sh sets it, so the CLI has to agree.
+func TestCLIHonoursFaramirSocketEnv(t *testing.T) {
+	h := newHarness(t)
+	cmd := exec.Command(faramirCLI(t), "list-secrets")
+	cmd.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock)
+	var out, errBuf strings.Builder
+	cmd.Stdout, cmd.Stderr = &out, &errBuf
+	_ = cmd.Run()
+	if code := cmd.ProcessState.ExitCode(); code != 0 {
+		t.Fatalf("exit = %d stderr=%q", code, errBuf.String())
+	}
+	if !strings.Contains(out.String(), "secret://home/router/admin") {
+		t.Errorf("stdout = %q", out.String())
+	}
+}
+
+func TestCLIVersionMatchesTheBroker(t *testing.T) {
+	cmd := exec.Command(faramirCLI(t), "version")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(out), version.Version) {
+		t.Errorf("version = %q, want %q", string(out), version.Version)
 	}
 }
 

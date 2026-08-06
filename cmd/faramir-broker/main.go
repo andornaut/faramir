@@ -12,6 +12,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/server"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 func main() { os.Exit(run()) }
@@ -24,10 +25,18 @@ func run() int {
 	// broker reads it: quoting styles and trailing comments have to agree, or a
 	// perfectly correct config trips the "worktree disagrees" warning.
 	printCwd := flag.Bool("print-default-cwd", false, "print [exec] default_cwd and exit")
+	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
 	log.SetFlags(0)
 	log.SetPrefix("faramir-broker: ")
+
+	// Before the config is loaded: --version has to answer on a host whose
+	// config is broken, which is when someone is most likely to ask.
+	if *showVersion {
+		fmt.Println("faramir-broker " + version.Version)
+		return 0
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {

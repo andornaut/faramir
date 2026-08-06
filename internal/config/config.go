@@ -40,6 +40,16 @@ func errf(format string, args ...any) error { return &Error{msg: fmt.Sprintf(for
 
 // rejectUnknownKeys fails on a mistyped key, naming it and the alternatives.
 func rejectUnknownKeys(raw map[string]any, known []string, where string) error {
+	return rejectUnknown(raw, known, where, "key")
+}
+
+// rejectUnknownSections is the same check one level up, where the entries are
+// [tables] rather than keys inside one.
+func rejectUnknownSections(raw map[string]any, known []string, where string) error {
+	return rejectUnknown(raw, known, where, "section")
+}
+
+func rejectUnknown(raw map[string]any, known []string, where, noun string) error {
 	var unknown []string
 	set := make(map[string]bool, len(known))
 	for _, k := range known {
@@ -56,8 +66,8 @@ func rejectUnknownKeys(raw map[string]any, known []string, where string) error {
 	sort.Strings(unknown)
 	sorted := append([]string(nil), known...)
 	sort.Strings(sorted)
-	return errf("%s: unknown key(s): %s; known keys: %s",
-		where, strings.Join(unknown, ", "), strings.Join(sorted, ", "))
+	return errf("%s: unknown %s(s): %s; known %ss: %s",
+		where, noun, strings.Join(unknown, ", "), noun, strings.Join(sorted, ", "))
 }
 
 // table returns one [section] as a map, rejecting a scalar written in its place.
@@ -93,8 +103,6 @@ func octalMode(value any, where string) (os.FileMode, error) {
 		return rangeCheckMode(n, where)
 	case int64:
 		return rangeCheckMode(v, where)
-	case bool:
-		return 0, errf("%s: expected an octal string or integer", where)
 	default:
 		return 0, errf("%s: expected an octal string or integer", where)
 	}
@@ -190,6 +198,34 @@ func integer(value any, where string, fallback int) (int, error) {
 	return int(n), nil
 }
 
+// intInRange is the value check the sizes and counts need.
+//
+// Checking key names but not their values leaves the same failure this file
+// exists to prevent: a config that reads as though it had taken effect.  The
+// out-of-range cases are not theoretical -- max_concurrency = -1 panics the
+// broker on startup, max_concurrency = 0 refuses every request as busy, and
+// default_timeout_sec = 0 kills every command the instant it starts.
+func intInRange(sec map[string]any, key, where string, fallback, low, high int) (int, error) {
+	n, err := integer(sec[key], where, fallback)
+	if err != nil {
+		return 0, err
+	}
+	if n < low || n > high {
+		if high == maxInt {
+			return 0, errf("%s: %s must be at least %d, got %d", where, key, low, n)
+		}
+		return 0, errf("%s: %s must be between %d and %d, got %d", where, key, low, high, n)
+	}
+	return n, nil
+}
+
+// atLeast is intInRange with no upper bound worth naming.
+func atLeast(sec map[string]any, key, where string, fallback, low int) (int, error) {
+	return intInRange(sec, key, where, fallback, low, maxInt)
+}
+
+const maxInt = int(^uint(0) >> 1)
+
 func float(value any, where string, fallback float64) (float64, error) {
 	if value == nil {
 		return fallback, nil
@@ -202,17 +238,6 @@ func float(value any, where string, fallback float64) (float64, error) {
 	default:
 		return 0, errf("%s: expected a number, got %T", where, value)
 	}
-}
-
-func boolean(value any, where string, fallback bool) (bool, error) {
-	if value == nil {
-		return fallback, nil
-	}
-	b, ok := value.(bool)
-	if !ok {
-		return false, errf("%s: expected a boolean, got %T", where, value)
-	}
-	return b, nil
 }
 
 // --------------------------------------------------------------------------
@@ -333,6 +358,7 @@ func Load(path string) (*Config, error) {
 }
 
 var (
+	sections   = []string{"server", "keeper", "executor", "exec", "ssh", "secrets", "audit"}
 	serverKeys = []string{"socket_path", "socket_mode", "max_concurrency",
 		"max_request_bytes", "allowed_uids", "allowed_groups"}
 	keeperKeys = []string{"socket_path", "socket_mode", "allowed_users",
@@ -350,6 +376,32 @@ var (
 
 func FromMap(raw map[string]any, path string) (*Config, error) {
 	cfg := &Config{Path: path}
+
+	// Removed sections first: a config still carrying one produces a specific
+	// error naming what replaced it, rather than whatever the section loaders
+	// happen to complain about on the way past.
+	if _, ok := raw["sync"]; ok {
+		// Ignoring the section would leave a config that reads as though the
+		// broker still executed a separate checkout, and an [exec] default_cwd
+		// still pointing at a directory nothing populates.
+		return nil, errf("%s: [sync] no longer exists. Brokered commands run in "+
+			"the agent's working tree directly, so there is nothing to promote: "+
+			"delete the section and point [exec] default_cwd and [secrets] files "+
+			"at that tree.", path)
+	}
+	if _, ok := raw["allow"]; ok {
+		// Ignoring the rules would leave a config that reads as though commands
+		// were still being constrained by it.
+		return nil, errf("%s: [[allow]] no longer exists. The broker runs what it "+
+			"is asked to run, as a uid that holds nothing, and redacts the "+
+			"output; a rule permitting any interpreter reached past every "+
+			"constraint these expressed. Delete the [[allow]] tables.", path)
+	}
+	// A mistyped section is as silent as a mistyped key, and worse: [secret]
+	// for [secrets] leaves a broker that manages no files and redacts nothing.
+	if err := rejectUnknownSections(raw, sections, path); err != nil {
+		return nil, err
+	}
 
 	if err := loadServer(raw, path, &cfg.Server); err != nil {
 		return nil, err
@@ -372,25 +424,6 @@ func FromMap(raw map[string]any, path string) (*Config, error) {
 	if err := loadAudit(raw, path, &cfg.Audit); err != nil {
 		return nil, err
 	}
-	if _, ok := raw["sync"]; ok {
-		// Ignoring the section would leave a config that reads as though the
-		// broker still executed a separate checkout, and an [exec] default_cwd
-		// still pointing at a directory nothing populates.
-		return nil, errf("%s: [sync] no longer exists. Brokered commands run in "+
-			"the agent's working tree directly, so there is nothing to promote: "+
-			"delete the section and point [exec] default_cwd and [secrets] files "+
-			"at that tree.", path)
-	}
-
-	if _, ok := raw["allow"]; ok {
-		// Ignoring the rules would leave a config that reads as though commands
-		// were still being constrained by it.
-		return nil, errf("%s: [[allow]] no longer exists. The broker runs what it "+
-			"is asked to run, as a uid that holds nothing, and redacts the "+
-			"output; a rule permitting any interpreter reached past every "+
-			"constraint these expressed. Delete the [[allow]] tables.", path)
-	}
-
 	return cfg, nil
 }
 
@@ -417,10 +450,12 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 			return err
 		}
 	}
-	if out.MaxConcurrency, err = integer(sec["max_concurrency"], where, out.MaxConcurrency); err != nil {
+	// 1, not 0: make(chan, 0) is unbuffered, so the non-blocking slot grab in
+	// the broker always falls through and every request is refused as busy.
+	if out.MaxConcurrency, err = atLeast(sec, "max_concurrency", where, out.MaxConcurrency, 1); err != nil {
 		return err
 	}
-	if out.MaxRequestBytes, err = integer(sec["max_request_bytes"], where, out.MaxRequestBytes); err != nil {
+	if out.MaxRequestBytes, err = atLeast(sec, "max_request_bytes", where, out.MaxRequestBytes, 1); err != nil {
 		return err
 	}
 	if out.AllowedUIDs, err = intList(sec["allowed_uids"], where, nil); err != nil {
@@ -495,7 +530,7 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 	if out.AllowedGroups, err = stringList(sec["allowed_groups"], where, nil); err != nil {
 		return err
 	}
-	if out.MaxConcurrency, err = integer(sec["max_concurrency"], where, out.MaxConcurrency); err != nil {
+	if out.MaxConcurrency, err = atLeast(sec, "max_concurrency", where, out.MaxConcurrency, 1); err != nil {
 		return err
 	}
 	return nil
@@ -530,30 +565,41 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 	if out.DefaultCwd, err = str(sec["default_cwd"], where, ""); err != nil {
 		return err
 	}
-	if out.DefaultTimeoutSec, err = integer(sec["default_timeout_sec"], where, out.DefaultTimeoutSec); err != nil {
+	// A timeout of 0 is not "no limit": the executor arms a timer with it and
+	// SIGTERMs the child the instant it starts, with no output and no clue why.
+	if out.DefaultTimeoutSec, err = atLeast(sec, "default_timeout_sec", where, out.DefaultTimeoutSec, 1); err != nil {
 		return err
 	}
-	if out.MaxTimeoutSec, err = integer(sec["max_timeout_sec"], where, out.MaxTimeoutSec); err != nil {
+	if out.MaxTimeoutSec, err = atLeast(sec, "max_timeout_sec", where, out.MaxTimeoutSec, 1); err != nil {
 		return err
 	}
-	if out.MaxOutputBytes, err = integer(sec["max_output_bytes"], where, out.MaxOutputBytes); err != nil {
+	if out.MaxOutputBytes, err = atLeast(sec, "max_output_bytes", where, out.MaxOutputBytes, 1); err != nil {
 		return err
 	}
 	if out.BaseEnv, err = stringMap(sec["base_env"], where, out.BaseEnv); err != nil {
 		return err
 	}
-	if out.TermCols, err = integer(sec["term_cols"], where, out.TermCols); err != nil {
+	// The winsize ioctl takes uint16s, so a larger value wraps silently.
+	if out.TermCols, err = intInRange(sec, "term_cols", where, out.TermCols, 1, 65535); err != nil {
 		return err
 	}
-	if out.TermRows, err = integer(sec["term_rows"], where, out.TermRows); err != nil {
+	if out.TermRows, err = intInRange(sec, "term_rows", where, out.TermRows, 1, 65535); err != nil {
 		return err
 	}
-	if out.KillGraceSec, err = integer(sec["kill_grace_sec"], where, out.KillGraceSec); err != nil {
+	// 0 is meaningful here: SIGKILL immediately after SIGTERM.
+	if out.KillGraceSec, err = atLeast(sec, "kill_grace_sec", where, out.KillGraceSec, 0); err != nil {
 		return err
 	}
 	if out.DefaultCwd == "" {
 		return errf("%s: [exec] default_cwd is required; name the directory "+
 			"brokered commands run in (see etc/config.toml)", path)
+	}
+	// Every request is clamped to max_timeout_sec, so a smaller one here does
+	// not cap default_timeout_sec, it replaces it.
+	if out.MaxTimeoutSec < out.DefaultTimeoutSec {
+		return errf("%s: [exec] max_timeout_sec (%d) is below default_timeout_sec "+
+			"(%d), which would silently override it for every command",
+			path, out.MaxTimeoutSec, out.DefaultTimeoutSec)
 	}
 	return nil
 }
@@ -589,17 +635,24 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	if out.DecryptCommand, err = stringList(sec["decrypt_command"], where, out.DecryptCommand); err != nil {
 		return err
 	}
-	if out.RefreshIntervalSec, err = integer(sec["refresh_interval_sec"], where, out.RefreshIntervalSec); err != nil {
+	// 0 is meaningful: check on every request.
+	if out.RefreshIntervalSec, err = atLeast(sec, "refresh_interval_sec", where, out.RefreshIntervalSec, 0); err != nil {
 		return err
 	}
-	if out.MinLength, err = integer(sec["min_length"], where, out.MinLength); err != nil {
+	// 1, not 0: a zero-length value passes the gate and compiles to a matcher
+	// for the empty string's quoted form, which would rewrite unrelated output.
+	if out.MinLength, err = atLeast(sec, "min_length", where, out.MinLength, 1); err != nil {
 		return err
 	}
-	if out.MinUniqueChars, err = integer(sec["min_unique_chars"], where, out.MinUniqueChars); err != nil {
+	if out.MinUniqueChars, err = atLeast(sec, "min_unique_chars", where, out.MinUniqueChars, 1); err != nil {
 		return err
 	}
 	if out.MinEntropyBitsPerChar, err = float(sec["min_entropy_bits_per_char"], where, out.MinEntropyBitsPerChar); err != nil {
 		return err
+	}
+	if out.MinEntropyBitsPerChar < 0 {
+		return errf("%s: min_entropy_bits_per_char must not be negative, got %v",
+			where, out.MinEntropyBitsPerChar)
 	}
 	return nil
 }
@@ -653,7 +706,7 @@ func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	if out.RawLog, err = str(sec["raw_log"], where, out.RawLog); err != nil {
 		return err
 	}
-	if out.MaxRecordBytes, err = integer(sec["max_record_bytes"], where, out.MaxRecordBytes); err != nil {
+	if out.MaxRecordBytes, err = atLeast(sec, "max_record_bytes", where, out.MaxRecordBytes, 1); err != nil {
 		return err
 	}
 	return nil

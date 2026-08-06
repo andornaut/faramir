@@ -113,7 +113,8 @@ UMask=0077
 #       Children are arbitrary operator-chosen programs; a broker that refuses to
 #       run the operator's tooling gets switched off, which is worse.
 #   RootDirectory=/RootImage=
-#       Containers were considered and rejected -- see README section 2.
+#       Containers were considered and rejected -- see "Architecture" in the
+#       README.
 #
 # Anything flagged here that is NOT on this list is a regression: investigate
 # it before accepting it.

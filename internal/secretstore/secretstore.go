@@ -25,6 +25,7 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -45,12 +46,24 @@ type Store struct {
 	keeper config.KeeperConfig
 	Policy redact.EligibilityPolicy
 
-	mu         sync.RWMutex
-	values     map[string]string
-	refused    map[string]string
-	state      []fileState
+	mu      sync.RWMutex
+	values  map[string]string
+	refused map[string]string
+	state   []fileState
+	// retry is set when the keeper could not be reached.  The mtime poll alone
+	// would never notice: the files have not changed, only our ability to
+	// decrypt them, so without this the value set stays as it was until a file
+	// is edited or SIGHUP arrives.  On a cold start that set is empty, which
+	// means nothing is redacted.
+	retry      bool
 	checkedAt  time.Time
 	LoadErrors []string
+
+	// Held across a refresh-driven reload, not under mu: Reload takes mu
+	// itself, and the point is to keep concurrent requests from each starting
+	// their own keeper round trip.  An explicit Reload (startup, SIGHUP) is
+	// never skipped.
+	refreshing atomic.Bool
 }
 
 func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
@@ -88,9 +101,11 @@ func (s *Store) Reload() {
 		s.mu.Lock()
 		s.LoadErrors = append(append([]string{}, errors...), err.Error())
 		s.state = state
+		s.retry = true
 		s.checkedAt = time.Now()
 		s.mu.Unlock()
-		log.Printf("keeper unreachable, keeping the previous value set: %v", err)
+		log.Printf("keeper unreachable, keeping the previous value set "+
+			"and retrying on the next request: %v", err)
 		return
 	}
 	errors = append(errors, keeperErrors...)
@@ -113,6 +128,7 @@ func (s *Store) Reload() {
 	s.values = redactable
 	s.refused = refused
 	s.state = state
+	s.retry = false
 	s.LoadErrors = errors
 	s.checkedAt = time.Now()
 	s.mu.Unlock()
@@ -128,7 +144,15 @@ func (s *Store) Reload() {
 		len(redactable), len(state), len(refused))
 }
 
-// RefreshIfStale is a cheap mtime poll; it reloads when a managed file changed.
+// RefreshIfStale is a cheap mtime poll; it reloads when a managed file changed,
+// or when the last attempt could not reach the keeper.
+//
+// refresh_interval_sec bounds how often the poll runs at all.  It may be 0,
+// which asks for a check on every request, so the interval alone cannot bound
+// the work: a reload is a keeper round trip plus a sops exec per managed file,
+// and requests arrive concurrently.  One refresh-driven reload runs at a time
+// and the rest return immediately, which also covers the case this has always
+// had -- several requests arriving at once just after a file was edited.
 func (s *Store) RefreshIfStale() {
 	s.mu.Lock()
 	interval := time.Duration(s.config.RefreshIntervalSec) * time.Second
@@ -137,12 +161,24 @@ func (s *Store) RefreshIfStale() {
 		return
 	}
 	s.checkedAt = time.Now()
+	retry := s.retry
 	previous := make(map[fileState]bool, len(s.state))
 	for _, st := range s.state {
 		previous[st] = true
 	}
 	paths := append([]string{}, s.config.Files...)
 	s.mu.Unlock()
+
+	if !s.refreshing.CompareAndSwap(false, true) {
+		return
+	}
+	defer s.refreshing.Store(false)
+
+	if retry {
+		log.Printf("the last load did not reach the keeper; retrying")
+		s.Reload()
+		return
+	}
 
 	current := map[fileState]bool{}
 	for _, path := range paths {

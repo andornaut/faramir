@@ -126,7 +126,11 @@ func Run(argv []string, cwd string, env map[string]string, timeoutSec int,
 		if rawSink != nil {
 			rawSink(tail)
 		}
-		redactor.Feed(tail)
+		// Feed releases whatever the overlap buffer no longer needs to hold;
+		// dropping it here would drop that much of the child's output.
+		if safe := redactor.Feed(tail); safe != "" {
+			emitted, truncated = appendOutput(&chunks, safe, emitted, execCfg.MaxOutputBytes, truncated)
+		}
 	}
 	if final := redactor.Flush(); final != "" {
 		emitted, truncated = appendOutput(&chunks, final, emitted, execCfg.MaxOutputBytes, truncated)
@@ -157,6 +161,32 @@ func Run(argv []string, cwd string, env map[string]string, timeoutSec int,
 		TimedOut:    timedOut,
 		Redactions:  redactor.Summary(),
 	}, nil
+}
+
+// cutAtRune returns the first limit bytes of s, backing off only far enough
+// not to end on a partial rune.  Same bounded search as decodeUTF8, and
+// bounded for the same reason: output is raw PTY bytes, so an invalid one can
+// appear anywhere in the middle and must not take the rest of the chunk with
+// it.
+func cutAtRune(s string, limit int) string {
+	if limit <= 0 {
+		return ""
+	}
+	if len(s) <= limit {
+		return s
+	}
+	cut := s[:limit]
+	for i := 1; i < utf8.UTFMax && i <= len(cut); i++ {
+		start := len(cut) - i
+		if !utf8.RuneStart(cut[start]) {
+			continue
+		}
+		if utf8.ValidString(cut[start:]) {
+			return cut // the last rune is whole
+		}
+		return cut[:start]
+	}
+	return cut
 }
 
 // decodeUTF8 returns the complete prefix of b as a string, plus any trailing
@@ -194,12 +224,12 @@ func appendOutput(chunks *strings.Builder, text string, emitted, limit int, trun
 		return emitted + size, false
 	}
 	if room := limit - emitted; room > 0 {
-		// Cut on a rune boundary so the tail is not a broken character.
-		cut := text[:room]
-		for len(cut) > 0 && !utf8.ValidString(cut) {
-			cut = cut[:len(cut)-1]
-		}
-		chunks.WriteString(cut)
+		// Cut on a rune boundary so the tail is not a broken character.  The
+		// back-off is bounded by decodeUTF8, which trims at most a partial
+		// rune: scanning back for the first valid prefix would instead drop
+		// everything after any invalid byte a child happened to print, and
+		// cost O(n^2) doing it.
+		chunks.WriteString(cutAtRune(text, room))
 	}
 	chunks.WriteString(fmt.Sprintf("\n[faramir] output truncated at %d bytes\n", limit))
 	return limit, true

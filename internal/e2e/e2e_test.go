@@ -1,9 +1,9 @@
 // Package e2e drives a real keeper, executor and broker over real sockets.
 //
-// Everything runs under one uid, exactly like the Python harness: that
-// exercises the protocol, the PTY hand-off and the redactor, but not the uid
-// boundary itself.  The permission cases in the verification matrix only mean
-// something on a real deployment.
+// Everything runs under one uid, which exercises the protocol, the PTY
+// hand-off and the redactor, but not the uid boundary itself.  The permission
+// cases in the verification matrix only mean something on a real deployment,
+// so they live in tests/verify.sh.
 package e2e
 
 import (
@@ -31,6 +31,8 @@ type harness struct {
 	dir        string
 	brokerSock string
 	rawLog     string
+	secretFile string
+	sopsBinary string
 }
 
 func binDir(t *testing.T, name string) string {
@@ -77,6 +79,12 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	rawLog := filepath.Join(dir, "raw.log")
+	// A HOME of its own, so a sops the child runs cannot find the developer's
+	// own ~/.config/sops/age/keys.txt and quietly succeed.
+	childHome := filepath.Join(dir, "child-home")
+	if err := os.MkdirAll(childHome, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	cfg := &config.Config{
 		Path: "<test>",
 		Server: config.ServerConfig{
@@ -96,7 +104,7 @@ func newHarness(t *testing.T) *harness {
 			MaxOutputBytes: 1 << 20,
 			BaseEnv: map[string]string{
 				"PATH": strings.Join(binDirs, ":"), "TERM": "xterm-256color",
-				"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8",
+				"LANG": "C.UTF-8", "LC_ALL": "C.UTF-8", "HOME": childHome,
 			},
 			TermCols: 120, TermRows: 40, KillGraceSec: 2,
 		},
@@ -130,7 +138,10 @@ func newHarness(t *testing.T) *harness {
 	go s.Serve()
 	t.Cleanup(func() { s.Close() })
 
-	return &harness{dir: dir, brokerSock: cfg.Server.SocketPath, rawLog: rawLog}
+	return &harness{
+		dir: dir, brokerSock: cfg.Server.SocketPath, rawLog: rawLog,
+		secretFile: secretPath, sopsBinary: sopstest.SopsBinary(t),
+	}
 }
 
 type response struct {
@@ -404,6 +415,70 @@ func TestShortSecretIsRefusedAtLoad(t *testing.T) {
 	}
 	if !strings.Contains(list.Output, "secret://home/router/admin") {
 		t.Errorf("loaded secret missing from list: %q", list.Output)
+	}
+}
+
+// Matrix 7b: a brokered command cannot decrypt the secret store itself.  This
+// is the property that lets Ansible be one consumer of the broker rather than
+// a holder of the master key: the child gets named values or nothing.
+func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
+	h := newHarness(t)
+	r := h.call(t, map[string]any{
+		"op":  "exec",
+		"cmd": []any{h.sopsBinary, "--output-type", "json", "--decrypt", h.secretFile},
+	})
+	if r.Error != nil {
+		t.Fatalf("sops did not even start: %v", r.Error)
+	}
+	if r.ExitCode == nil || *r.ExitCode == 0 {
+		t.Fatalf("a child decrypted the store: exit=%v output=%q", r.ExitCode, r.Output)
+	}
+	if strings.Contains(r.Output, routerPassword) {
+		t.Errorf("PLAINTEXT LEAKED: %q", r.Output)
+	}
+	// It has to fail for want of key material, not because sops was missing or
+	// mis-invoked, or this passes for the wrong reason forever.
+	if !strings.Contains(r.Output, "data key") && !strings.Contains(r.Output, "master key") {
+		t.Errorf("sops failed for some other reason than a missing key: %q", r.Output)
+	}
+}
+
+// The reason for the PTY: ssh and sudo write their prompts straight to
+// /dev/tty, which no pipe on stdout or stderr would ever see.  Captured is
+// half of it; redacted is the half that matters.
+func TestWritesToDevTtyAreCapturedAndRedacted(t *testing.T) {
+	h := newHarness(t)
+	r := h.runBash(t, `printenv ROUTER_PW > /dev/tty`)
+	if r.Error != nil {
+		t.Fatal(r.Error)
+	}
+	if strings.Contains(r.Output, routerPassword) {
+		t.Errorf("PLAINTEXT LEAKED to /dev/tty: %q", r.Output)
+	}
+	if !strings.Contains(r.Output, token) {
+		t.Errorf("a /dev/tty write was not captured: %q", r.Output)
+	}
+}
+
+// Output that ends mid-rune is the one case where the read loop has bytes left
+// over after the child exits.  Feeding that tail releases whatever the
+// redactor's overlap buffer no longer needs to hold, and that release is part
+// of the child's output: dropping it silently loses characters from the end of
+// every command whose last write splits a rune.
+func TestOutputEndingMidRuneIsNotTruncated(t *testing.T) {
+	h := newHarness(t)
+	const width = 500
+	r := h.call(t, map[string]any{
+		"op": "exec",
+		// A lone 0xC3 is the first byte of a two-byte sequence, so the reader
+		// carries it past the end of the stream.
+		"cmd": []any{"bash", "-lc", `printf 'x%.0s' $(seq 1 500); printf '\303'`},
+	})
+	if r.Error != nil {
+		t.Fatal(r.Error)
+	}
+	if got := strings.Count(r.Output, "x"); got != width {
+		t.Errorf("output holds %d of %d characters; the tail was dropped", got, width)
 	}
 }
 

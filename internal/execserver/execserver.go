@@ -21,6 +21,7 @@
 package execserver
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -156,7 +157,7 @@ func readRequest(conn net.Conn) (*request, int, error) {
 	fds := []int{}
 
 	for {
-		if idx := indexByte(buf, '\n'); idx >= 0 {
+		if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
 			break
 		}
 		n, oobn, _, _, err := uc.ReadMsgUnix(chunk, oob)
@@ -189,7 +190,7 @@ func readRequest(conn net.Conn) (*request, int, error) {
 		slaveFD = fds[0]
 	}
 
-	if idx := indexByte(buf, '\n'); idx >= 0 {
+	if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
 		buf = buf[:idx]
 	}
 	if len(buf) == 0 {
@@ -200,15 +201,6 @@ func readRequest(conn net.Conn) (*request, int, error) {
 		return nil, slaveFD, err
 	}
 	return &req, slaveFD, nil
-}
-
-func indexByte(b []byte, c byte) int {
-	for i, x := range b {
-		if x == c {
-			return i
-		}
-	}
-	return -1
 }
 
 // run takes ownership of slaveFD and always closes it.
@@ -455,7 +447,7 @@ func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 
 	buf := make([]byte, 0, 1024)
 	chunk := make([]byte, 65536)
-	for indexByte(buf, '\n') < 0 {
+	for bytes.IndexByte(buf, '\n') < 0 {
 		n, err := c.conn.Read(chunk)
 		if n > 0 {
 			buf = append(buf, chunk[:n]...)
@@ -467,7 +459,7 @@ func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 			return nil, errf("executor: %v", err)
 		}
 	}
-	if idx := indexByte(buf, '\n'); idx >= 0 {
+	if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
 		buf = buf[:idx]
 	}
 	if len(buf) == 0 {

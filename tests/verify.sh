@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 7 -- verification matrix, run against a REAL deployment.
+# The verification matrix, run against a REAL deployment.
 #
 # The unit and end-to-end suites (make test) cover the broker's behaviour in a
 # temp directory.  This script covers the parts that only exist once the thing
@@ -33,7 +33,10 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 as_agent() { sudo -u "$AGENT_USER" "$@" 2>&1; }
 as_broker() { sudo -u "$BROKER_USER" "$@" 2>&1; }
 as_exec() { sudo -u "$EXEC_USER" "$@" 2>&1; }
-srun() { sudo -u "$AGENT_USER" faramir run --quiet "$@" 2>&1; }
+# --socket explicitly: sudo does not carry FARAMIR_SOCKET across, so a
+# non-default SOCKET would otherwise be honoured by the checks above and
+# silently ignored by every brokered one.
+srun() { sudo -u "$AGENT_USER" faramir run --socket "$SOCKET" --quiet "$@" 2>&1; }
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 id -u "$AGENT_USER" >/dev/null 2>&1 || { echo "no such user: $AGENT_USER" >&2; exit 1; }
@@ -72,8 +75,8 @@ else
   ok "1d agent cannot reach the keeper socket"
 fi
 
-# A brokered command runs as ${BROKER_USER}; the credential directory is the
-# route that used to work regardless of any per-rule flag.
+# The keeper holds the key through LoadCredential=, so the credential
+# directory is the one place a brokered command might still find it.
 out="$(srun -- bash -lc 'cat /run/credentials/*/age_key 2>&1 | head -1')"
 if grep -qiE 'no such file|permission denied|AGE-KEY' <<<"$out" || [[ -z ${out// /} ]]; then
   ok "1e brokered command cannot read a systemd credential holding the key"

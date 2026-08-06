@@ -34,8 +34,8 @@ than `[server] max_request_bytes` is refused.
 |---|---|---|
 | `cmd` | yes | **Array.** A string is rejected with guidance; the broker never runs `sh -c` for you. |
 | `cwd` | no | Absolute, and must exist. Defaults to `[exec] default_cwd`. A relative `cmd[0]` resolves against it. |
-| `env_refs` | no | `NAME` → `secret://ref`. Values are impossible to pass; names are validated, and `PATH`, `LD_PRELOAD`, `SOPS_AGE_KEY` and similar are reserved. |
-| `timeout_sec` | no | Clamped to the rule's and the global maximum. |
+| `env_refs` | no | `NAME` → `secret://ref`. Values are impossible to pass; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved. |
+| `timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`. |
 
 `{{SECRET:ref}}` may appear inside an argument for readability. It is rewritten
 to `${VAR}` (a shell variable *reference*) and `VAR` is added to the injected
@@ -58,7 +58,10 @@ injectable; see [redaction.md](redaction.md).
 {"op": "status"}
 ```
 
-Loaded files, ref count, load errors, and `[exec] default_cwd`. Not the refs refused at load; see `list_secrets` above.
+Broker version, config path, loaded files, ref count, load errors, and
+`[exec] default_cwd`. Not the refs refused at load: that list names exactly
+the secrets that are never tokenized, so it stays operator-side, behind
+`faramir-broker --check`.
 
 ## Responses
 
@@ -97,13 +100,13 @@ operator.
 
 | Code | Meaning |
 |---|---|
-| `bad_request` | Malformed request, bad env var name, literal value where a ref was required |
-| `unknown_secret` | The ref does not exist in any managed file |
-| `busy` | At `max_concurrency`; retry |
+| `bad_request` | Malformed request, bad env var name, reserved env var name, `cwd` that does not exist |
+| `unknown_secret` | The ref does not exist in any managed file, or was refused at load as not redactable |
+| `busy` | At `[server] max_concurrency`; retry |
 | `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started |
 | `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`) |
-| `too_large` | Request exceeded `max_request_bytes` |
-| `internal` | Bug; check the journal |
+| `too_large` | Request exceeded `[server] max_request_bytes` |
+| `timeout` | The connection was opened but no request arrived within 30s |
 
 There is no command allowlist, so there is no `denied`. Errors are deliberately
 specific about what failed and where to fix it -- a program that is not on

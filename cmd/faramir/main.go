@@ -5,10 +5,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -16,41 +18,57 @@ import (
 	"filippo.io/age"
 
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 const defaultSocket = "/run/faramir/broker.sock"
 
+// socketDefault lets FARAMIR_SOCKET move every subcommand at once.  faramir-mcp
+// already honours it, and tests/verify.sh sets it.
+func socketDefault() string {
+	if v := os.Getenv("FARAMIR_SOCKET"); v != "" {
+		return v
+	}
+	return defaultSocket
+}
+
 func main() { os.Exit(run(os.Args[1:])) }
 
-func usage() {
-	fmt.Fprint(os.Stderr, `usage: faramir [-h] <command> ...
+func usage(w io.Writer) {
+	fmt.Fprintf(w, `usage: faramir <command> [options] [-- program [args...]]
 
 Run a credential-bearing command through the secret broker.
 
-positional arguments:
-  <command>
-    run           run a command with secrets injected
-    list-secrets  list secret refs (names only)
-    status        show broker status
-    keygen        mint an age keypair for the keeper
+Commands:
+  run           run a command with secrets injected
+  list-secrets  list secret refs (names only)
+  status        show broker status
+  keygen        mint an age keypair for the keeper
+  version       print the version and exit
 
-options:
-  -h, --help    show this help message and exit
+Run "faramir <command> --help" for that command's own options.
+
+Every command that talks to the broker accepts:
+  --socket PATH   broker socket (default %s; $FARAMIR_SOCKET)
+  --json          print the raw response instead of the output
 
 Secrets are injected as environment variables only; they are never substituted
 into the command line.
-`)
+`, socketDefault())
 }
 
 func run(args []string) int {
-	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
-		usage()
-		if len(args) == 0 {
-			return 2
-		}
-		return 0
+	if len(args) == 0 {
+		usage(os.Stderr)
+		return 2
 	}
 	switch args[0] {
+	case "-h", "--help", "help":
+		usage(os.Stdout)
+		return 0
+	case "-V", "--version", "version":
+		fmt.Println("faramir " + version.Version)
+		return 0
 	case "run":
 		return cmdRun(args[1:])
 	case "list-secrets":
@@ -61,8 +79,39 @@ func run(args []string) int {
 		return cmdKeygen(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "faramir: unknown command %q\n", args[0])
-		usage()
+		usage(os.Stderr)
 		return 2
+	}
+}
+
+// newFlagSet builds a subcommand's flag set with a usage line of its own.
+// flag's default ("Usage of run:") says nothing about what run takes.
+func newFlagSet(name, synopsis string) *flag.FlagSet {
+	fs := flag.NewFlagSet(name, flag.ContinueOnError)
+	fs.Usage = func() {
+		fmt.Fprintf(fs.Output(), "usage: faramir %s\n\noptions:\n", synopsis)
+		fs.PrintDefaults()
+	}
+	return fs
+}
+
+// parseFlags runs a subcommand's flag set.  An explicit --help is a request
+// that succeeded, so it goes to stdout and exits 0; a bad flag goes to stderr
+// and exits 2.  flag writes both through the same handle, so the output is
+// captured and routed afterwards.
+func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
+	var captured bytes.Buffer
+	fs.SetOutput(&captured)
+	err := fs.Parse(args)
+	switch {
+	case err == nil:
+		return 0, true
+	case errors.Is(err, flag.ErrHelp):
+		fmt.Fprint(os.Stdout, captured.String())
+		return 0, false
+	default:
+		fmt.Fprint(os.Stderr, captured.String())
+		return 2, false
 	}
 }
 
@@ -73,10 +122,10 @@ func run(args []string) int {
 // with.  It does not replace the sops CLI, which is what an operator edits
 // encrypted files with.
 func cmdKeygen(args []string) int {
-	fs := flag.NewFlagSet("keygen", flag.ContinueOnError)
+	fs := newFlagSet("keygen", "keygen [-o FILE]")
 	out := fs.String("o", "", "write the identity to this file instead of stdout")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
 	}
 
 	id, err := age.GenerateX25519Identity()
@@ -111,24 +160,21 @@ func cmdKeygen(args []string) int {
 	return 0
 }
 
-// common registers the flags every subcommand shares.  --socket and --json are
-// on all of them; the short forms exist because the CLI is typed by hand far
-// more often than the MCP tools are.
+// common registers the flags every broker-facing subcommand shares.
 type common struct {
 	socket *string
 	json   *bool
 }
 
 func addCommon(fs *flag.FlagSet) common {
-	c := common{
-		socket: fs.String("socket", defaultSocket, "broker socket path"),
+	return common{
+		socket: fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)"),
 		json:   fs.Bool("json", false, "print the raw response"),
 	}
-	return c
 }
 
 func cmdRun(args []string) int {
-	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs := newFlagSet("run", "run [options] [--] program [args...]")
 	c := addCommon(fs)
 	quiet := fs.Bool("quiet", false, "suppress the redaction summary")
 	cwd := fs.String("cwd", "", "working directory for the command")
@@ -137,17 +183,20 @@ func cmdRun(args []string) int {
 	fs.IntVar(timeout, "t", 0, "timeout in seconds (shorthand)")
 	var envRefs multiFlag
 	fs.Var(&envRefs, "env", "NAME=secret://ref (repeatable)")
-	if err := fs.Parse(args); err != nil {
-		return 2
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
 	}
 
 	rest := fs.Args()
-	// argparse's REMAINDER keeps a leading "--"; strip it so both spellings work.
+	// A leading "--" is the habitual spelling and flag has already stopped
+	// parsing by the time it reaches us; strip it so both forms work.
 	if len(rest) > 0 && rest[0] == "--" {
 		rest = rest[1:]
 	}
 	if len(rest) == 0 {
 		fmt.Fprintln(os.Stderr, "faramir run: no command given")
+		fs.SetOutput(os.Stderr)
+		fs.Usage()
 		return 2
 	}
 
@@ -176,9 +225,14 @@ func cmdRun(args []string) int {
 
 // call runs a subcommand that takes no arguments of its own.
 func call(op string, args []string) int {
-	fs := flag.NewFlagSet(op, flag.ContinueOnError)
+	name := strings.ReplaceAll(op, "_", "-")
+	fs := newFlagSet(name, name+" [options]")
 	c := addCommon(fs)
-	if err := fs.Parse(args); err != nil {
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+	if rest := fs.Args(); len(rest) > 0 {
+		fmt.Fprintf(os.Stderr, "faramir %s: unexpected argument %q\n", name, rest[0])
 		return 2
 	}
 	// Only run has --quiet; the others never print a summary anyway.
@@ -229,8 +283,9 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 	}
 
 	if asJSON {
-		// Re-encode rather than echoing the line, so the output is indented
-		// like the Python CLI's and still exactly what the broker sent.
+		// Re-encode rather than echoing the line: indented output is readable
+		// at a terminal, and a round trip through any is still exactly the
+		// values the broker sent.
 		var raw any
 		if err := json.Unmarshal(line, &raw); err == nil {
 			enc := json.NewEncoder(os.Stdout)

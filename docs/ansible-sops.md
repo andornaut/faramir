@@ -99,9 +99,11 @@ Earlier versions used the `community.sops` vars plugin, or a
 environment, so neither works now, and both fail with a sops error about
 missing key material rather than anything about faramir.
 
-`tests/harness.py` keeps a playbook that attempts the `lookup('pipe', …)` form
-and asserts it **fails**, so a change that quietly hands the key back to a
-child is caught.
+`TestABrokeredCommandCannotDecryptTheStore` in `internal/e2e` runs `sops
+--decrypt` as a brokered command and asserts it **fails for want of key
+material**, so a change that quietly hands the key back to a child is caught.
+`lookup('pipe', 'sops -d …')` is that same call with a playbook wrapped around
+it.
 
 Encrypted files still need to be listed in `[secrets] files` so their values
 land in the redaction set, whether or not any playbook names them.

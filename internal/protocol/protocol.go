@@ -26,10 +26,15 @@ import (
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
+//
+// SSH_AUTH_SOCK is here for the same reason as PATH: the broker points it at
+// an agent holding keys the child must not be able to read, and a caller that
+// could rebind it would decide what the child authenticates against.
 var ReservedEnv = map[string]bool{
 	"PATH": true, "HOME": true, "LD_PRELOAD": true, "LD_LIBRARY_PATH": true,
 	"IFS": true, "BASH_ENV": true, "ENV": true, "SOPS_AGE_KEY": true,
 	"SOPS_AGE_KEY_FILE": true, "CREDENTIALS_DIRECTORY": true,
+	"SSH_AUTH_SOCK": true, "SSH_AGENT_PID": true,
 }
 
 var ops = []string{"exec", "list_secrets", "status"}

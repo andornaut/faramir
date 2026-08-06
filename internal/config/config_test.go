@@ -60,6 +60,73 @@ func TestUnknownKeysAreRefused(t *testing.T) {
 	}
 }
 
+// A mistyped section is as silent as a mistyped key and worse in its effect:
+// [secret] for [secrets] leaves a broker that manages no files and therefore
+// redacts nothing, while reading as though it were configured.
+func TestUnknownSectionsAreRefused(t *testing.T) {
+	_, err := load(t, minimal+"\n[secret]\nfiles = [\"/x.sops.yml\"]\n")
+	if err == nil {
+		t.Fatal("a mistyped section was accepted")
+	}
+	for _, want := range []string{"unknown section", "secret", "secrets"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("message does not mention %q: %v", want, err)
+		}
+	}
+}
+
+// Checking key names but not their values leaves the same failure this file
+// exists to prevent.  Each of these has a concrete consequence, named in the
+// loader: a broker that panics on startup, refuses every request as busy, or
+// kills every command the instant it starts.
+func TestOutOfRangeValuesAreRefused(t *testing.T) {
+	cases := map[string]string{
+		"negative max_concurrency":  minimal + "\n[server]\nmax_concurrency = -1\n",
+		"zero max_concurrency":      minimal + "\n[server]\nmax_concurrency = 0\n",
+		"zero executor concurrency": minimal + "\n[executor]\nmax_concurrency = 0\n",
+		"zero max_request_bytes":    minimal + "\n[server]\nmax_request_bytes = 0\n",
+		"zero default_timeout_sec":  "[exec]\ndefault_cwd = \"/t\"\ndefault_timeout_sec = 0\n",
+		"zero max_timeout_sec":      "[exec]\ndefault_cwd = \"/t\"\nmax_timeout_sec = 0\n",
+		"zero max_output_bytes":     "[exec]\ndefault_cwd = \"/t\"\nmax_output_bytes = 0\n",
+		"negative kill_grace_sec":   "[exec]\ndefault_cwd = \"/t\"\nkill_grace_sec = -1\n",
+		"term_cols past a uint16":   "[exec]\ndefault_cwd = \"/t\"\nterm_cols = 70000\n",
+		"zero term_rows":            "[exec]\ndefault_cwd = \"/t\"\nterm_rows = 0\n",
+		"negative refresh":          minimal + "\n[secrets]\nrefresh_interval_sec = -1\n",
+		"zero min_length":           minimal + "\n[secrets]\nmin_length = 0\n",
+		"zero min_unique_chars":     minimal + "\n[secrets]\nmin_unique_chars = 0\n",
+		"negative min_entropy":      minimal + "\n[secrets]\nmin_entropy_bits_per_char = -1.0\n",
+		"negative max_record_bytes": minimal + "\n[audit]\nmax_record_bytes = -1\n",
+	}
+	for name, text := range cases {
+		if _, err := load(t, text); err == nil {
+			t.Errorf("%s was accepted", name)
+		}
+	}
+}
+
+// A max below the default does not cap it, it replaces it for every command,
+// which makes default_timeout_sec a setting that reads as though it applies.
+func TestMaxTimeoutBelowDefaultIsRefused(t *testing.T) {
+	_, err := load(t, "[exec]\ndefault_cwd = \"/t\"\ndefault_timeout_sec = 600\nmax_timeout_sec = 60\n")
+	if err == nil || !strings.Contains(err.Error(), "max_timeout_sec") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// The meaningful zeroes stay legal: kill_grace_sec 0 is "SIGKILL at once", and
+// refresh_interval_sec 0 is "check on every request".
+func TestMeaningfulZeroesAreAccepted(t *testing.T) {
+	cfg, err := load(t, "[exec]\ndefault_cwd = \"/t\"\nkill_grace_sec = 0\n"+
+		"[secrets]\nrefresh_interval_sec = 0\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Exec.KillGraceSec != 0 || cfg.Secrets.RefreshIntervalSec != 0 {
+		t.Errorf("kill_grace_sec = %d, refresh_interval_sec = %d",
+			cfg.Exec.KillGraceSec, cfg.Secrets.RefreshIntervalSec)
+	}
+}
+
 func TestOctalModeSpellings(t *testing.T) {
 	for _, spelling := range []string{`"0660"`, `0o660`} {
 		cfg, err := load(t, minimal+"\n[server]\nsocket_mode = "+spelling+"\n")

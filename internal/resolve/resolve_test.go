@@ -151,8 +151,8 @@ func TestEmptyIsRefused(t *testing.T) {
 }
 
 // An absolute cmd[0] must not be joined onto cwd.  Go's filepath.Join would
-// produce "/cwd/usr/bin/sh"; Python's os.path.join lets the absolute path win,
-// and the child's own view agrees with Python.
+// produce "/cwd/bin/sh"; the absolute path has to win outright, because that
+// is what the child's own exec would do with it.
 func TestAnAbsolutePathIgnoresTheCwd(t *testing.T) {
 	got, err := Program("/bin/sh", "/tmp", config.ExecConfig{DefaultCwd: "/tmp"})
 	if err != nil {

@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -24,7 +26,13 @@ type fakeKeeper struct {
 
 func newFakeKeeper(t *testing.T, values map[string]string) *fakeKeeper {
 	t.Helper()
-	path := filepath.Join(t.TempDir(), "keeper.sock")
+	return serveFakeKeeper(t, filepath.Join(t.TempDir(), "keeper.sock"), values)
+}
+
+// serveFakeKeeper binds a named socket, so a test can start one *after* the
+// store has already tried and failed to reach it.
+func serveFakeKeeper(t *testing.T, path string, values map[string]string) *fakeKeeper {
+	t.Helper()
 	ln, err := net.Listen("unix", path)
 	if err != nil {
 		t.Fatal(err)
@@ -202,6 +210,122 @@ func TestAnUnreachableKeeperKeepsThePreviousValueSet(t *testing.T) {
 	}
 	if len(s.LoadErrors) == 0 {
 		t.Error("the failure was not reported")
+	}
+}
+
+// And it must recover on its own once the keeper is back.  The files have not
+// changed, only our ability to decrypt them, so the mtime poll alone would
+// never notice: on a cold start that leaves an empty value set, and an empty
+// value set redacts nothing.
+func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
+	dir := t.TempDir()
+	managed := filepath.Join(dir, "v.sops.yml")
+	if err := os.WriteFile(managed, []byte("a\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Cold start: nothing is listening yet, so the first load fails outright.
+	sock := filepath.Join(dir, "keeper.sock")
+	s := New(
+		config.SecretsConfig{
+			Files: []string{managed}, RefreshIntervalSec: 0,
+			MinLength: 8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
+		},
+		config.KeeperConfig{SocketPath: sock},
+	)
+	s.Reload()
+	if len(s.Refs()) != 0 {
+		t.Fatalf("refs = %v, want none before the keeper exists", s.Refs())
+	}
+
+	serveFakeKeeper(t, sock, map[string]string{"x": "hunter2-correct-horse"})
+	// No edit, no SIGHUP: only the retry may recover this.
+	s.RefreshIfStale()
+
+	if got, err := s.Value("x"); err != nil || got != "hunter2-correct-horse" {
+		t.Errorf("the store did not recover once the keeper was up: %q %v", got, err)
+	}
+}
+
+// refresh_interval_sec may be 0, which asks for a check on every request, so
+// the interval alone cannot bound the work.  Concurrent requests must not each
+// start their own keeper round trip and sops exec.
+func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "keeper.sock")
+	s := New(
+		config.SecretsConfig{
+			RefreshIntervalSec: 0,
+			MinLength:          8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
+		},
+		config.KeeperConfig{SocketPath: sock},
+	)
+	s.Reload() // fails: nothing is listening, so every later poll wants a retry
+
+	var served atomic.Int32
+	// serving closes once a reload is inside the keeper call; release holds it
+	// there.  Sequencing it rather than sleeping is what keeps this from
+	// passing on a loaded machine simply because the other callers arrived
+	// after the first one had already finished.
+	serving := make(chan struct{})
+	release := make(chan struct{})
+
+	ln, err := net.Listen("unix", sock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			if served.Add(1) == 1 {
+				close(serving)
+				<-release
+			}
+			_ = sockutil.Send(conn, map[string]any{
+				"values": map[string]string{"x": "hunter2-correct-horse"},
+				"errors": []string{},
+			})
+			_ = conn.Close()
+		}
+	}()
+
+	var winner sync.WaitGroup
+	winner.Add(1)
+	go func() {
+		defer winner.Done()
+		s.RefreshIfStale()
+	}()
+	<-serving // the winner now holds the guard, mid-keeper-call
+
+	var others sync.WaitGroup
+	for range 7 {
+		others.Add(1)
+		go func() {
+			defer others.Done()
+			s.RefreshIfStale()
+		}()
+	}
+	// These must all return while the winner is still blocked.  If any of them
+	// dialled the keeper instead, it would block on release and time this out.
+	done := make(chan struct{})
+	go func() { others.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("a concurrent RefreshIfStale started its own keeper call")
+	}
+
+	close(release)
+	winner.Wait()
+
+	if n := served.Load(); n != 1 {
+		t.Errorf("the keeper served %d reloads, want 1", n)
+	}
+	if got, err := s.Value("x"); err != nil || got != "hunter2-correct-horse" {
+		t.Errorf("the one reload that ran did not land: %q %v", got, err)
 	}
 }
 

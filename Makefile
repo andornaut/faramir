@@ -28,10 +28,13 @@ build-debug:
 test:
 	go test ./...
 
+## test-unit: everything except the end-to-end suite.  Derived rather than
+## listed, so a new package is covered the day it is added.
 test-unit:
-	go test ./internal/config/ ./internal/redact/ ./internal/resolve/ \
-	        ./internal/keeper/ ./internal/execserver/ ./cmd/faramir-guard/
+	go test $$(go list ./... | grep -v '/internal/e2e$$')
 
+## test-e2e: end-to-end, against a real keeper, executor and broker in a
+## temp directory, all under one uid.
 test-e2e:
 	go test -v ./internal/e2e/
 

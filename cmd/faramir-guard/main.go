@@ -17,16 +17,18 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/version"
 )
 
-// patternsFile sits next to the hook rather than under /etc/faramir: this runs
-// as the agent uid, which cannot traverse /etc/faramir (0750
-// faramir-broker:faramir-broker).  A patterns file the hook cannot read is
-// worse than no patterns file, because the fallback below is silently weaker.
+// patternsFile sits next to the hook rather than under /etc/faramir, so it
+// travels with the binary that reads it: a hook installed without its patterns
+// falls back to the list below, which is silently weaker than the shipped one.
 func patternsFile() string {
 	if v := os.Getenv("FARAMIR_DENY_PATTERNS"); v != "" {
 		return v
@@ -65,7 +67,7 @@ var fallback = []string{
 
 const advice = "Blocked: this command would put a credential (or an encrypted blob) into " +
 	"the conversation, where it would be sent to the model provider.\n\n" +
-	"Use the faramir_run tool instead — it runs the command as a separate uid " +
+	"Use the faramir_run tool instead: it runs the command as a separate uid " +
 	"that holds the keys and returns output with secrets replaced by " +
 	"«SECRET:ref» tokens. Secrets are named, never pasted:\n\n" +
 	"    faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n" +
@@ -127,13 +129,19 @@ func commandOf(p *payload) string {
 }
 
 // faramirCall matches a sanctioned faramir invocation so its own arguments are
-// not scanned.  Python used a lookbehind for the separator; RE2 has none, so
-// the separator is captured and put back by the "$1" replacement instead.
+// not scanned.  RE2 has no lookbehind, so the leading separator is captured and
+// put back by the "$1" replacement instead.
 //
 // It stops at the first separator: anything past it is a separate command that
 // the prefix does not sanction, and consuming it would let
-// "faramir status; printenv" through untouched.
-var faramirCall = regexp.MustCompile(`(^|[;&|\n])\s*(sudo\s+)?faramir\b[^;&|\n]*`)
+// "faramir status; printenv" through untouched.  It also leaves the separator
+// in place, so the next command in a chain still starts at one.
+//
+// The whitespace after "faramir" is required, not optional: "faramir\b" also
+// matches the hyphen in "faramir-broker", so it sanctioned every
+// "sudo faramir-keeper ..." and left the deny pattern for the daemons unable
+// to fire.
+var faramirCall = regexp.MustCompile(`(^|[;&|\n])\s*(sudo\s+)?faramir[ \t][^;&|\n]*`)
 
 func decide(command string) (string, bool) {
 	stripped := faramirCall.ReplaceAllString(command, "$1")
@@ -145,9 +153,18 @@ func decide(command string) (string, bool) {
 	return "", false
 }
 
-func main() { os.Exit(run()) }
+func main() { os.Exit(run(os.Args[1:])) }
 
-func run() int {
+func run(args []string) int {
+	// Checked before stdin is read: this is a hook, so an operator running it
+	// by hand would otherwise get a process that sits waiting for a payload.
+	for _, arg := range args {
+		if arg == "--version" || arg == "-version" {
+			fmt.Println("faramir-guard " + version.Version)
+			return 0
+		}
+	}
+
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return 0
