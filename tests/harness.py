@@ -39,7 +39,8 @@ def have(*programs: str) -> bool:
 class Broker:
     """A running broker, with its own key, secrets, socket and log."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, ssh_keys: bool = False) -> None:
+        self.ssh_keys = ssh_keys
         self.root = Path(tempfile.mkdtemp(prefix="faramir-e2e-"))
         self.workdir = self.root / "srv" / "ansible-ctrl"
         self.agent_tree = self.root / "home" / "agent" / "work" / "ansible-ctrl"
@@ -55,6 +56,8 @@ class Broker:
         self.stderr_path = self.root / "faramir.stderr"
         self.keeper_stderr_path = self.root / "faramir-keeper.stderr"
         self.exec_stderr_path = self.root / "faramir-exec.stderr"
+        self.ssh_key = self.root / "ssh" / "id_ed25519"
+        self.ssh_agent_socket = self.root / "ssh-agent.sock"
 
     # -- setup -------------------------------------------------------------
 
@@ -63,6 +66,8 @@ class Broker:
             path.mkdir(parents=True, exist_ok=True)
         os.chmod(self.creds, 0o700)
         self._keygen()
+        if self.ssh_keys:
+            self._ssh_keygen()
         self._write_secrets()
         self._write_config()
         self._write_playbooks()
@@ -83,6 +88,17 @@ class Broker:
             for line in text.splitlines()
             if line.strip().startswith("AGE-SECRET-KEY-")
         ][0]
+
+    def _ssh_keygen(self) -> None:
+        """A key the broker holds and the child may only use through the agent."""
+        self.ssh_key.parent.mkdir(parents=True, exist_ok=True)
+        os.chmod(self.ssh_key.parent, 0o700)
+        subprocess.run(
+            ["ssh-keygen", "-t", "ed25519", "-N", "", "-C", "faramir-test",
+             "-f", str(self.ssh_key)],
+            check=True,
+            capture_output=True,
+        )
 
     def _write_secrets(self) -> None:
         plain = self.root / "plain.yml"
@@ -132,6 +148,14 @@ class Broker:
                 text,
                 count=1,
                 flags=re.MULTILINE,
+            )
+        if self.ssh_keys:
+            text = text.replace(
+                "keys = []", f'keys = ["{self.ssh_key}"]'
+            ).replace(
+                '"/run/faramir/ssh-agent.sock"', f'"{self.ssh_agent_socket}"'
+            ).replace(
+                'exec_group = "faramir-exec"', 'exec_group = ""'
             )
         # The temp dir lives outside allowed_bin_dirs; keep the shipped list.
         self.config_path.write_text(text)

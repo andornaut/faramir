@@ -56,6 +56,20 @@ ANSIBLE_FORCE_COLOR = "1"
 ANSIBLE_HOST_KEY_CHECKING = "True"
 ANSIBLE_NOCOWS = "1"
 
+# SSH keys for managed hosts.  Listing them here makes the broker load them
+# into an agent it owns and pass only SSH_AUTH_SOCK to the child: a brokered
+# command can authenticate with them but cannot read them, and a leaked fleet
+# key is permanent in a way a leaked password is not.
+#
+# Leave `keys` empty to skip the agent entirely, in which case the keys have to
+# live somewhere the executor's own uid can read (~faramir-exec/.ssh).
+[ssh]
+keys = []
+# keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
+agent_socket = "/run/faramir/ssh-agent.sock"
+agent_socket_mode = "0660"
+exec_group = "faramir-exec"
+
 [secrets]
 # Every sops file the keeper manages.  ALL of their values go into the
 # redaction value set, not just the ones injected into a given command: a

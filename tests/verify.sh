@@ -126,6 +126,31 @@ else
   ok "1k ${EXEC_USER} cannot reach the executor socket"
 fi
 
+# Only meaningful when [ssh] keys is configured; otherwise the keys are
+# deliberately in the executor's own home and this has nothing to check.
+SSH_AGENT_SOCKET="${SSH_AGENT_SOCKET:-/run/faramir/ssh-agent.sock}"
+if [[ -S $SSH_AGENT_SOCKET ]]; then
+  out="$(srun -- bash -lc 'ssh-add -l')"
+  if grep -qE 'SHA256|no identities' <<<"$out"; then
+    ok "1l brokered commands can use the ssh-agent"
+  else
+    no "1l brokered commands cannot reach the ssh-agent: $out"
+  fi
+  leaked=0
+  while read -r key; do
+    [[ -n $key ]] || continue
+    if ! grep -qi 'permission denied' <<<"$(as_exec cat "$key")"; then
+      no "1m ${EXEC_USER} CAN read ${key}; the agent buys nothing"
+      leaked=1
+    fi
+  done < <(sudo -u "$BROKER_USER" find "$(getent passwd "$BROKER_USER" | cut -d: -f6)/.ssh" \
+             -name 'id_*' ! -name '*.pub' 2>/dev/null)
+  [[ $leaked -eq 0 ]] && ok "1m ${EXEC_USER} cannot read any broker-held SSH key"
+else
+  skipt "1l no ssh-agent socket; [ssh] keys is empty"
+  skipt "1m no ssh-agent socket; [ssh] keys is empty"
+fi
+
 BROKER_PID="$(pgrep -u "$BROKER_USER" -f '[f]aramir-broker' | head -1)"
 if [[ -z $BROKER_PID ]]; then
   skipt "2  broker is not running"

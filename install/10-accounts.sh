@@ -85,6 +85,11 @@ if ! id -u "$EXEC_USER" >/dev/null 2>&1; then
   useradd -r -m -d "$EXEC_HOME" -s /usr/sbin/nologin "$EXEC_USER"
 fi
 install -d -m 0700 -o "$EXEC_USER" -g "$EXEC_USER" "$EXEC_HOME"
+# Where SSH keys go when [ssh] keys is left empty.  Prefer listing them in
+# [ssh] keys instead: the broker then holds them and hands the executor only an
+# agent socket, so a brokered command can authenticate without being able to
+# read, copy or exfiltrate a key that opens the whole fleet.
+install -d -m 0700 -o "$EXEC_USER" -g "$EXEC_USER" "${EXEC_HOME}/.ssh"
 for forbidden in "$GROUP" "$BROKER_USER" "$KEEPER_USER"; do
   if id -nG "$EXEC_USER" 2>/dev/null | tr ' ' '\n' | grep -qx "$forbidden"; then
     say "WARNING: ${EXEC_USER} is in ${forbidden}; remove it, that is the boundary"

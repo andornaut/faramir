@@ -18,7 +18,7 @@ test-unit:
 	$(PYTHON) -m unittest tests.test_redact tests.test_allowlist tests.test_protocol tests.test_config tests.test_hook tests.test_sync_git -v
 
 test-e2e:
-	$(PYTHON) -m unittest tests.test_e2e tests.test_keeper tests.test_exec tests.test_sync -v
+	$(PYTHON) -m unittest tests.test_e2e tests.test_keeper tests.test_exec tests.test_ssh tests.test_sync -v
 
 check:
 	$(PYTHON) -m compileall -q src bin/faramir-broker bin/faramir bin/faramir-mcp bin/faramir-keeper bin/faramir-exec agent/hooks

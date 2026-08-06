@@ -117,9 +117,31 @@ In this order, and not before:
 
 ## 6. SSH keys
 
-The broker's uid owns the SSH keys used to reach managed hosts
-(`~faramir-broker/.ssh/`). The agent uid cannot read them, which is the point, so
-`ssh` connection problems have to be debugged through `faramir` or from the
+Brokered commands run as `faramir-exec`, which must be able to *use* the keys
+that reach managed hosts without being able to read them: a password can be
+rotated, a fleet SSH key that has been copied cannot be un-copied.
+
+List them in `[ssh] keys` and the broker keeps the files under its own uid,
+loads them into an `ssh-agent` it owns, and passes the child only
+`SSH_AUTH_SOCK`:
+
+```toml
+[ssh]
+keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
+```
+
+The keys must have no passphrase, since nothing is there to type one; the
+broker logs a clear error and carries on if `ssh-add` refuses. The agent lives
+and dies with the broker, so a restart reloads it and nothing outlives the
+process with keys in memory.
+
+Leave `keys` empty and no agent runs. Authentication is then whatever the
+executor's own uid can do on its own, which in practice means keys in
+`~faramir-exec/.ssh`, readable by every brokered command. It works; it is not
+the arrangement to choose.
+
+Either way the *agent* account cannot read the keys, which is the point, so
+`ssh` connection problems have to be debugged through `faramir run` or from the
 raw log, using the `log_id` the agent reports.
 
 Keep `ANSIBLE_HOST_KEY_CHECKING=True` in `[exec.base_env]`. Turning it off to

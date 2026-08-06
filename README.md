@@ -78,6 +78,7 @@ group devwork                 shared access to the repo working tree
 /run/faramir/broker.sock      socket-activated, 0660 root:devwork
 /run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
 /run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
+/run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
 /etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
 /etc/faramir/config.toml      0644 root:root, read by all three
 /srv/ansible-ctrl             2750 faramir-broker:faramir-exec, broker writes, exec reads
@@ -94,7 +95,7 @@ can reach. What a brokered command cannot do, and why:
 | open the keeper socket | 0660 `root:faramir-broker`, and it is not in that group |
 | ask the keeper for the key | there is no such request |
 | read or truncate the raw log | 0600 `faramir-broker` |
-| read the SSH keys for managed hosts | 0700 `faramir-broker` |
+| read the SSH keys for managed hosts | 0700 `faramir-broker`; it gets an agent socket instead |
 | write `/srv/ansible-ctrl` | group has read and execute, not write |
 | receive `SOPS_AGE_KEY` | nothing puts it there |
 
@@ -250,6 +251,8 @@ sudo make verify   # the matrix below, against the live deployment
 | 1i | `faramir run -- bash -lc 'touch /srv/ansible-ctrl/x'` | Permission denied | `verify.sh` |
 | 1j | `sudo -u faramir-exec test -w /run/faramir/exec.sock` | not writable | `verify.sh` |
 | 1k | broker hangs up mid-command | child's process group is killed | `test_exec` |
+| 1l | `faramir run -- bash -lc 'ssh-add -l'` | lists keys it cannot read | `test_ssh`, `verify.sh` |
+| 1m | `sudo -u faramir-exec cat ~faramir-broker/.ssh/id_*` | Permission denied | `verify.sh` |
 | 2 | `sudo -u agent cat /proc/$(pgrep -u faramir-broker faramir-broker)/environ` | No such file | `verify.sh` |
 | 3 | `faramir run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `test_e2e`, `verify.sh` |
 | 4 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `test_e2e`, `verify.sh` |
@@ -319,6 +322,11 @@ the protocol and the split, not the uid boundary itself.
 - **Do not bind-mount or symlink the operator's `~/.claude` into the agent
   account.** A session that can write agent config paths can persist hooks or
   MCP servers that run with different privileges on the next launch.
+- **SSH keys belong in `[ssh] keys`, not in the executor's home.** Listed
+  there, the broker loads them into an agent it owns and passes the child only
+  `SSH_AUTH_SOCK`, so a brokered command can authenticate without being able to
+  copy a key that opens the whole fleet. Left empty, the keys must sit in
+  `~faramir-exec/.ssh`, where every brokered command can read them.
 - **The `bash` allowlist rule is the widest thing in the shipped policy.**
   Removing it is the single biggest available tightening; the cost is losing
   pipelines (and verification tests 4, 5, 10 and 11).
@@ -334,7 +342,11 @@ the protocol and the split, not the uid boundary itself.
 - A brokered command still receives the values it asked for, in its
   environment, because that is the point. What it does with them afterwards is
   the adversarial-exfiltration row in section 1.
-- The SSH keys for managed hosts are still readable by whichever uid runs
-  Ansible. Moving them behind a broker-held `ssh-agent`, so they can be used
-  but not extracted, is a further step that is not done yet.
+- The SSH agent lends authentication, not keys, and only while the broker
+  runs. A command can still use it to reach any host those keys open, for as
+  long as it is running. Bound that at the far end with `command=` in
+  `authorized_keys` if it matters.
+- With `[ssh] keys` left empty there is no agent, and the keys have to live
+  where the executor's uid can read them. That is a working setup, not a
+  recommended one.
 - `git history still contains your old plaintext.` See section 4.

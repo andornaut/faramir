@@ -33,6 +33,7 @@ from .executor import run as exec_run
 from .protocol import ProtocolError, Request, error_response, resolve_inline_tokens
 from .redact import Redactor
 from .secretstore import SecretError, SecretStore, parse_secret_uri
+from .sshagent import SshAgent
 from .sync import SyncError, sync as do_sync
 
 log = logging.getLogger("faramir")
@@ -46,6 +47,7 @@ class Server:
         self.config = config
         self.store = SecretStore(config.secrets, config.keeper)
         self.audit = AuditLog(config.audit)
+        self.ssh = SshAgent(config.ssh)
         self._slots = threading.BoundedSemaphore(config.server.max_concurrency)
         self._stop = threading.Event()
         self._listener: socket.socket | None = None
@@ -339,6 +341,9 @@ class Server:
         # broker executes can obtain it.
         # HOME is left to the executor: the child runs as its uid, not ours.
         env = dict(exec_cfg.base_env)
+        # SSH_AUTH_SOCK, when the broker holds the keys in an agent.  The
+        # child can authenticate with them; it cannot read them.
+        env.update(self.ssh.env())
         injected: dict[str, str] = {}
         for name, uri in env_refs.items():
             try:
@@ -448,6 +453,7 @@ def main(argv: list[str] | None = None) -> int:
 
     server = Server(config)
     server.store.reload()
+    server.ssh.start()
 
     if args.check:
         print(json.dumps(server.store.describe(), indent=2, sort_keys=True))
@@ -460,7 +466,10 @@ def main(argv: list[str] | None = None) -> int:
 
     server.listen()
     notify_ready()
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    finally:
+        server.ssh.stop()
     return 0
 
 

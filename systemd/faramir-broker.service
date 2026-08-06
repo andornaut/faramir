@@ -9,8 +9,11 @@ Type=notify
 NotifyAccess=main
 User=faramir-broker
 Group=faramir-broker
-# Read access to the shared working tree (the sync source), nothing more.
-SupplementaryGroups=devwork
+# devwork: read access to the shared working tree (the sync source).
+# faramir-exec: needed only to hand the ssh-agent socket to the executor's uid,
+# which is a chown this process could not otherwise perform.  It grants the
+# broker nothing it did not already have; the executor gains nothing at all.
+SupplementaryGroups=devwork faramir-exec
 ExecStart=/usr/local/bin/faramir-broker
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure

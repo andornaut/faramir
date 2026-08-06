@@ -242,6 +242,22 @@ class ExecutorConfig:
 
 
 @dataclass(frozen=True)
+class SshConfig:
+    """An ssh-agent the broker owns, for keys the executor must not read.
+
+    With no ``keys`` no agent is started and nothing is injected; SSH then
+    authenticates however the operator has arranged it for the executor's uid.
+    """
+
+    keys: list[str] = field(default_factory=list)
+    agent_socket: str = "/run/faramir/ssh-agent.sock"
+    agent_socket_mode: int = 0o660
+    exec_group: str = "faramir-exec"
+    ssh_agent: str = "/usr/bin/ssh-agent"
+    ssh_add: str = "/usr/bin/ssh-add"
+
+
+@dataclass(frozen=True)
 class SecretsConfig:
     files: list[str] = field(default_factory=list)
     decrypt_command: list[str] = field(
@@ -283,6 +299,7 @@ class Config:
     keeper: KeeperConfig
     executor: ExecutorConfig
     exec: ExecConfig
+    ssh: SshConfig
     secrets: SecretsConfig
     audit: AuditConfig
     sync: SyncConfig
@@ -355,6 +372,23 @@ class Config:
                 "broker no longer reads the age key at all"
             )
         secrets = _section(SecretsConfig, secrets_raw, f"{path}: [secrets]")
+
+        ssh_raw = _table(raw, "ssh", path)
+        ssh_mode = ssh_raw.pop("agent_socket_mode", None)
+        ssh = _section(
+            SshConfig,
+            ssh_raw,
+            f"{path}: [ssh]",
+            **(
+                {
+                    "agent_socket_mode": _octal_mode(
+                        ssh_mode, f"{path}: ssh.agent_socket_mode"
+                    )
+                }
+                if ssh_mode is not None
+                else {}
+            ),
+        )
         audit = _section(AuditConfig, _table(raw, "audit", path), f"{path}: [audit]")
 
         sync_raw = _table(raw, "sync", path)
@@ -381,6 +415,7 @@ class Config:
             keeper=keeper,
             executor=executor,
             exec=exec_cfg,
+            ssh=ssh,
             secrets=secrets,
             audit=audit,
             sync=sync,
