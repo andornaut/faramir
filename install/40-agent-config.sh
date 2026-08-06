@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Phase 6 -- register the broker with the agent account.
+# Phase 4 -- register the broker with the agent account.
 #
 # Installs into ~agent/.claude, owned by agent.  Deliberately NOT a bind mount
 # or symlink of the operator's ~/.claude: a session that can write agent config
@@ -61,7 +61,7 @@ fi
 
 cat <<EOF
 
-Phase 6 done.
+Phase 4 done.
 
 The hook and the filesystem permissions are the enforcement layer; CLAUDE.md is
 only there so the agent does not waste turns discovering the tool. Deleting

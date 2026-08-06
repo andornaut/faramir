@@ -37,7 +37,7 @@ AmbientCapabilities=
 ProtectSystem=strict
 # tmpfs, not true: the sops files live in the working tree, usually under
 # /home, and this is the only process that decrypts them.  Read-only -- the
-# keeper never writes the tree.  install/20-install-broker.sh writes
+# keeper never writes the tree.  install/30-install-broker.sh writes
 # faramir-keeper.service.d/10-worktree.conf with the configured tree.
 ProtectHome=tmpfs
 BindReadOnlyPaths=-/home/agent/work/repo

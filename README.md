@@ -56,27 +56,34 @@ build. Nothing else at runtime: the binaries are static, so the host needs no
 interpreter and no libc of a particular vintage.
 
 ```bash
-make build
-sudo install/10-accounts.sh        # accounts, group, shared tree, umask 002
-sudo install/30-sops-init.sh       # age keypair -> /etc/faramir/age.key, .sops.yaml
-sudo install/20-install-broker.sh  # code, config, systemd units
-sudo install/40-agent-config.sh    # MCP registration, hook, CLAUDE.md
+sudo make install
 ```
 
+That builds the binaries and runs the four phases in order. They are numbered in
+the order they run and each is idempotent, so a single phase can be re-run on
+its own after an edit:
+
+Phase | Does
+--- | ---
+`10-accounts.sh` | accounts, group, shared tree, `umask 002`
+`20-sops-init.sh` | age keypair -> `/etc/faramir/age.key`, `.sops.yaml`
+`30-install-broker.sh` | binaries, config, systemd units
+`40-agent-config.sh` | MCP registration, hook, `CLAUDE.md`
+
 Set `CONFIG` to install the configuration for a real workload instead of the
-starter:
+starter, and `WORKTREE` to the tree it should run in:
 
 ```bash
 sudo CONFIG=etc/examples/ansible-fleet.toml \
-     WORKTREE=/home/agent/work/ansible-ctrl install/20-install-broker.sh
+     WORKTREE=/home/agent/work/ansible-ctrl make install
 ```
 
-`WORKTREE` names the working tree — the one the agent edits and the broker runs
-in. The installer rewrites every mention of it in the config (`[exec]
-default_cwd` and `[secrets] files`) and binds that one path into all three
-units, so they cannot disagree.
+`WORKTREE` names the working tree: the one the agent edits and the broker runs
+in. The shipped config carries a `@WORKTREE@` placeholder, which the installer
+substitutes everywhere it appears (`[exec] default_cwd` and `[secrets] files`)
+before binding that one path into all three units, so they cannot disagree.
 
-`20-install-broker.sh` refuses to run without built binaries and needs no
+`30-install-broker.sh` refuses to run without built binaries and needs no
 toolchain on the target, so building on one machine and copying `bin/` to
 another works. Point it elsewhere with `FARAMIR_BIN`.
 
@@ -293,7 +300,7 @@ The permission checks in tests 1 through 2 and 9 only mean something on a real d
 - **The keeper must be up before the broker is useful.** With no keeper the broker keeps whatever value set it already had and logs the failure; on a cold start that set is empty, which means nothing gets redacted. Check `systemctl status faramir-keeper` first when tokens stop appearing.
 - **The keeper needs the sops files visible.** They live in the working tree, so its unit sets `ProtectHome=tmpfs` and the installer binds that one path in read-only. A `[secrets] files` entry outside the tree is visible as-is under `ProtectSystem=strict`; one somewhere else under `/home` needs its own `BindReadOnlyPaths=` drop-in.
 - **The broker's home is `/var/lib/faramir-broker`, not `/home/faramir-broker`.** It needs a writable home, because it holds the SSH keys for managed hosts and `ansible-playbook` creates `~/.ansible/tmp` unconditionally, and the unit sets `ProtectHome=tmpfs`, which would hide a home under `/home` from the very process that needs it. `install/10-accounts.sh` sets this up; an account created by hand with `useradd -M` will fail with `Unable to create local directories`.
-- **The working tree and the units' bind mounts must name the same path.** `/home` is an empty tmpfs inside all three units apart from a bind mount of that tree, so a tree that is not bound in is invisible no matter what the config says — the keeper reports every ref as missing and the executor fails with `cwd does not exist`. `install/20-install-broker.sh` writes all three drop-ins from the `WORKTREE` it was given and rewrites the config to match, and warns when an existing `config.toml` disagrees. Moving the tree by hand afterwards means editing `10-worktree.conf` in each of `faramir-broker.service.d`, `faramir-keeper.service.d` and `faramir-exec.service.d`, or re-running the installer.
+- **The working tree and the units' bind mounts must name the same path.** `/home` is an empty tmpfs inside all three units apart from a bind mount of that tree, so a tree that is not bound in is invisible no matter what the config says — the keeper reports every ref as missing and the executor fails with `cwd does not exist`. `install/30-install-broker.sh` writes all three drop-ins from the `WORKTREE` it was given and rewrites the config to match, and warns when an existing `config.toml` disagrees. Moving the tree by hand afterwards means editing `10-worktree.conf` in each of `faramir-broker.service.d`, `faramir-keeper.service.d` and `faramir-exec.service.d`, or re-running the installer.
 - **Children do not inherit the broker's environment.** The child gets exactly `[exec.base_env]` plus its injected secrets. If a tool works for you but not through the broker, an environment variable is usually the reason. Add it to `base_env` rather than widening anything else.
 - **Interactive prompts fail, they do not hang.** The child owns a PTY for output, but its stdin is `/dev/null`, so a command that waits for input gets EOF immediately. Pass the non-interactive flags.
 - **Output is truncated** at `max_output_bytes` (1 MiB default). The full, unredacted stream is always in the raw log.
@@ -301,7 +308,7 @@ The permission checks in tests 1 through 2 and 9 only mean something on a real d
 - **Do not bind-mount or symlink the operator's `~/.claude` into the agent account.** A session that can write agent config paths can persist hooks or MCP servers that run with different privileges on the next launch.
 - **SSH keys belong in `[ssh] keys`, not in the executor's home.** Listed there, the broker loads them into an agent it owns and passes the child only `SSH_AUTH_SOCK`, so a brokered command can authenticate without being able to copy a key that opens the whole fleet. Left empty, the keys must sit in `~faramir-exec/.ssh`, where every brokered command can read them.
 - **There is no blast-radius bound.** A brokered command runs anything the executor's uid can run. That uid holds no key, no audit log and no SSH key, which is the property the design rests on — but it does have write access to the working tree, so a destructive command is destructive. See [What it protects against](#what-it-protects-against).
-- **Upgrading from a `[sync]` config fails loudly.** The broker refuses a config that still has the section, rather than ignoring it and leaving `[exec] default_cwd` pointing at a `/srv` checkout nothing populates any more. Delete `[sync]`, point `default_cwd` and `[secrets] files` at the working tree, and re-run `install/20-install-broker.sh`. `/srv/faramir` is then dead weight; remove it once you have confirmed nothing else reads it.
+- **Upgrading from a `[sync]` config fails loudly.** The broker refuses a config that still has the section, rather than ignoring it and leaving `[exec] default_cwd` pointing at a `/srv` checkout nothing populates any more. Delete `[sync]`, point `default_cwd` and `[secrets] files` at the working tree, and re-run `install/30-install-broker.sh`. `/srv/faramir` is then dead weight; remove it once you have confirmed nothing else reads it.
 
 ## Limits worth stating plainly
 

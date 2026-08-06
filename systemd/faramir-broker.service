@@ -39,7 +39,7 @@ ProtectSystem=strict
 # broker would report every ref as missing.  The bind mount below is the only
 # thing visible under /home, read-only -- the broker never writes the tree.
 #
-# This is the default worktree only.  install/20-install-broker.sh writes
+# This is the default worktree only.  install/30-install-broker.sh writes
 # faramir-broker.service.d/10-worktree.conf with the configured one, which
 # matters when AGENT_USER or WORKTREE is set.  The leading '-' keeps the unit
 # startable before the tree has been cloned.

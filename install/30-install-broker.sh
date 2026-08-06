@@ -75,13 +75,21 @@ rm -f /usr/local/libexec/faramir/pretooluse-guard.py
 
 # The working tree appears in the config more than once -- [exec] default_cwd
 # and [secrets] files -- and the bind mounts below make exactly one path visible
-# to the three units.  Rather than rewrite each key, take the tree the shipped
-# config was written around ([exec] default_cwd) and replace it everywhere with
-# the one this install was given.
+# to the three units.  The shipped config writes it as @WORKTREE@ so this is one
+# substitution rather than a read-the-old-value-then-replace-it dance, which
+# needed a literal (non-regex) replace of an arbitrary path.
 #
-# Read it with the broker's own parser rather than pattern-matching the line:
-# quoting styles and trailing comments have to be read the way the broker reads
-# them, or the warning below fires on configs that are perfectly correct.
+# sed is safe here because only the *replacement* is arbitrary, and the shell
+# quoting below keeps it literal: the pattern is a fixed token.  A worktree path
+# containing "|" would still break it, so it is rejected up front rather than
+# silently producing a mangled config.
+case $WORKTREE in
+  *'|'*) echo "WORKTREE may not contain '|': ${WORKTREE}" >&2; exit 1 ;;
+esac
+
+# Reading an existing config still needs the broker's own parser: quoting styles
+# and trailing comments have to be read the way the broker reads them, or the
+# warning below fires on configs that are perfectly correct.
 configured_cwd() {
   "$BIN/faramir-broker" -c "$1" --print-default-cwd 2>/dev/null || return 1
 }
@@ -96,30 +104,15 @@ if [[ -f /etc/faramir/config.toml ]]; then
     say "         edit /etc/faramir/config.toml"
   fi
 else
-  packaged="$(configured_cwd "$CONFIG")" || {
-    say "cannot read ${CONFIG}: it does not parse as a faramir config"
-    exit 1
-  }
   say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (worktree ${WORKTREE})"
-  install -m 0644 -o root -g root "$CONFIG" /etc/faramir/config.toml
-  if [[ -n $packaged && $packaged != "$WORKTREE" ]]; then
-    say "rewriting ${packaged} -> ${WORKTREE}"
-    # A literal, non-regex replacement: a worktree path can contain characters
-    # sed would otherwise treat as syntax.
-    OLD="$packaged" NEW="$WORKTREE" perl -pi -e 's/\Q$ENV{OLD}\E/$ENV{NEW}/g' \
-      /etc/faramir/config.toml 2>/dev/null || {
-      # perl is not guaranteed present; fall back to an awk literal replace.
-      OLD="$packaged" NEW="$WORKTREE" awk '
-        BEGIN { old = ENVIRON["OLD"]; new = ENVIRON["NEW"] }
-        { n = index($0, old)
-          while (n > 0) { $0 = substr($0, 1, n-1) new substr($0, n+length(old))
-                          n = index($0, old) }
-          print }
-      ' /etc/faramir/config.toml >/etc/faramir/config.toml.tmp &&
-        mv /etc/faramir/config.toml.tmp /etc/faramir/config.toml
-    }
-    chown root:root /etc/faramir/config.toml
-    chmod 0644 /etc/faramir/config.toml
+  sed "s|@WORKTREE@|${WORKTREE}|g" "$CONFIG" >/etc/faramir/config.toml
+  chown root:root /etc/faramir/config.toml
+  chmod 0644 /etc/faramir/config.toml
+  # A config that still mentions the placeholder was never substituted, which
+  # would leave the broker running in a directory that does not exist.
+  if grep -q '@WORKTREE@' /etc/faramir/config.toml; then
+    say "substitution failed: /etc/faramir/config.toml still contains @WORKTREE@"
+    exit 1
   fi
 fi
 
@@ -142,7 +135,7 @@ say "worktree bind mounts -> ${WORKTREE}"
 for unit in faramir-broker faramir-keeper; do
   install -d -m 0755 "/etc/systemd/system/${unit}.service.d"
   cat >"/etc/systemd/system/${unit}.service.d/10-worktree.conf" <<EOF
-# Written by install/20-install-broker.sh.  Regenerated on every run.
+# Written by install/30-install-broker.sh.  Regenerated on every run.
 [Service]
 BindReadOnlyPaths=-${WORKTREE}
 EOF
@@ -150,7 +143,7 @@ EOF
 done
 install -d -m 0755 /etc/systemd/system/faramir-exec.service.d
 cat >/etc/systemd/system/faramir-exec.service.d/10-worktree.conf <<EOF
-# Written by install/20-install-broker.sh.  Regenerated on every run.
+# Written by install/30-install-broker.sh.  Regenerated on every run.
 [Service]
 BindPaths=-${WORKTREE}
 EOF
@@ -184,7 +177,7 @@ if [[ $HAVE_SYSTEMD -eq 1 && -f /etc/faramir/age.key ]]; then
   done
 elif [[ ! -f /etc/faramir/age.key ]]; then
   say "NOT starting faramir: /etc/faramir/age.key is missing."
-  say "Run install/30-sops-init.sh first, then:"
+  say "Run install/20-sops-init.sh first, then:"
   say "  systemctl enable --now faramir-keeper.socket faramir-exec.socket faramir-broker.socket"
 fi
 

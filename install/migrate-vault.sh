@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Phase 2 -- convert one ansible-vault file to a sops-encrypted file.
+# Convert one ansible-vault file to a sops-encrypted file.  Not a numbered
+# phase: run it once per vault file, whenever you migrate, after phase 2.
 #
 # Run this as the OPERATOR, on a machine the operator trusts, NOT through the
 # agent.  It necessarily handles plaintext: the intermediate file is written to

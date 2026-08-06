@@ -2,7 +2,7 @@
 # workload faramir was built for.  Install it in place of the shipped starter:
 #
 #   sudo CONFIG=etc/examples/ansible-fleet.toml \
-#        WORKTREE=/home/agent/work/ansible-ctrl install/20-install-broker.sh
+#        WORKTREE=/home/agent/work/ansible-ctrl make install
 #
 # WORKTREE, because the installer rewrites every mention of the tree below to
 # the one it binds into the three units: set it here or they are overwritten
@@ -41,7 +41,7 @@ allowed_groups = []
 max_concurrency = 16
 
 [exec]
-default_cwd = "/home/agent/work/ansible-ctrl"
+default_cwd = "@WORKTREE@"
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576
@@ -71,7 +71,7 @@ agent_socket_mode = "0660"
 exec_group = "faramir-exec"
 
 [secrets]
-files = ["/home/agent/work/ansible-ctrl/group_vars/all/vault.sops.yml"]
+files = ["@WORKTREE@/group_vars/all/vault.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
 min_length = 8

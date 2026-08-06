@@ -53,9 +53,12 @@ max_concurrency = 16
 [exec]
 # Required: where a command runs when the request does not say.  This is the
 # agent's own working tree -- the broker runs what is on disk, so an edit is
-# live as soon as it is saved.  install/20-install-broker.sh rewrites this to
-# the WORKTREE it was given and binds that path into all three units.
-default_cwd = "/home/agent/work/repo"
+# live as soon as it is saved.
+#
+# The placeholder below is substituted by install/30-install-broker.sh with the
+# WORKTREE it was given, everywhere it appears, and that path is bound into all
+# three units.  An installed /etc/faramir/config.toml has a real path here.
+default_cwd = "@WORKTREE@"
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576
@@ -92,7 +95,7 @@ exec_group = "faramir-exec"
 # managed host can print a credential the broker never injected.
 # The broker stats these to notice edits; only the keeper can decrypt them.
 # They live in the working tree, which is why the keeper is bound to it too.
-files = ["/home/agent/work/repo/secrets.sops.yml"]
+files = ["@WORKTREE@/secrets.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
 

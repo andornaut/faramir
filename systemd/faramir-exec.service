@@ -46,7 +46,7 @@ AmbientCapabilities=
 ProtectSystem=strict
 # tmpfs, not true: commands run in the working tree, which usually lives under
 # /home.  The bind mount below is the only thing visible there, and unlike the
-# broker's it is read-write.  install/20-install-broker.sh writes
+# broker's it is read-write.  install/30-install-broker.sh writes
 # faramir-exec.service.d/10-worktree.conf with the configured tree; the leading
 # '-' keeps the unit startable before it has been cloned.
 ProtectHome=tmpfs

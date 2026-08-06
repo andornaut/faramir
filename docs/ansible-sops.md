@@ -19,7 +19,7 @@ retroactively, including everything already in git history.
 
 ## 1. Encrypt values, not keys
 
-`.sops.yaml` in the repo root (written by `install/30-sops-init.sh`):
+`.sops.yaml` in the repo root (written by `install/20-sops-init.sh`):
 
 ```yaml
 creation_rules:

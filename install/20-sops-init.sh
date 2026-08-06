@@ -28,7 +28,7 @@ for candidate in /usr/local/bin/faramir "$(dirname "${BASH_SOURCE[0]}")/../bin/f
   [[ -x $candidate ]] && { KEYGEN="$candidate"; break; }
 done
 [[ -n $KEYGEN ]] || {
-  echo "faramir not found; run 'make build' first (or install/20-install-broker.sh)" >&2
+  echo "faramir not found; run 'make build' first (or install/30-install-broker.sh)" >&2
   exit 1
 }
 # sops is still required: it is what encrypts and edits the managed files.

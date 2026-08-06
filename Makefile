@@ -42,10 +42,9 @@ check:
 ## install: the four phases, in order.  build first; the installer refuses to
 ## run without the binaries and needs no toolchain on the target host.
 install: build
-	install/10-accounts.sh
-	install/30-sops-init.sh
-	install/20-install-broker.sh
-	install/40-agent-config.sh
+	@for phase in install/[0-9][0-9]-*.sh; do \
+		echo "==> $$phase"; "$$phase" || exit 1; \
+	done
 
 ## verify: the verification matrix, against a live deployment (root)
 verify:
