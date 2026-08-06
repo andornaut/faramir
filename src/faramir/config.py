@@ -22,12 +22,13 @@ class ConfigError(Exception):
     """Raised for a malformed or unsafe configuration."""
 
 
-def _section(factory: Any, raw: dict[str, Any], where: str, **extra: Any) -> Any:
-    """Build one config dataclass, reporting a typo as a ConfigError.
+def _reject_unknown_keys(factory: Any, raw: dict[str, Any], where: str) -> None:
+    """Fail on a mistyped key, naming it and the alternatives.
 
-    A bare ``Factory(**raw)`` raises TypeError, which nothing up the stack
-    converts, so a single mistyped key makes ``faramir-broker --check`` die with a
-    traceback instead of naming the offending line.
+    Every settable key is a field of the dataclass it configures, so the
+    dataclass is the schema.  Rules that are parsed by hand rather than built
+    from ``raw`` still have to come through here: a key that is merely ignored
+    leaves the config reading as though it had taken effect.
     """
     known = {f.name for f in fields(factory)}
     unknown = sorted(set(raw) - known)
@@ -36,6 +37,16 @@ def _section(factory: Any, raw: dict[str, Any], where: str, **extra: Any) -> Any
             f"{where}: unknown key(s): {', '.join(unknown)}; "
             f"known keys: {', '.join(sorted(known))}"
         )
+
+
+def _section(factory: Any, raw: dict[str, Any], where: str, **extra: Any) -> Any:
+    """Build one config dataclass, reporting a typo as a ConfigError.
+
+    A bare ``Factory(**raw)`` raises TypeError, which nothing up the stack
+    converts, so a single mistyped key makes ``faramir-broker --check`` die with a
+    traceback instead of naming the offending line.
+    """
+    _reject_unknown_keys(factory, raw, where)
     try:
         return factory(**raw, **extra)
     except TypeError as exc:
@@ -86,29 +97,24 @@ def _octal_mode(value: Any, where: str) -> int:
     return value
 
 
-def _positive_int(value: Any, where: str) -> int | None:
-    """An optional positive integer, rejected here rather than at use time.
+def _int_at_least(value: Any, where: str, minimum: int) -> int | None:
+    """An optional integer with a floor, rejected here rather than at use time.
 
     An unvalidated ``max_timeout_sec`` survives ``--check`` and then fails
     inside ``min()`` when a request finally exercises the rule.
+
+    ``minimum`` is 1 for a duration and 0 for an argument count, where zero is
+    a meaningful bound: ``max_args = 0`` is a rule that takes no arguments.
+
+    bool is excluded explicitly because it is an int: ``max_args = true`` would
+    otherwise pass as 1.
     """
     if value is None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
         raise ConfigError(f"{where}: expected an integer, got {type(value).__name__}")
-    if value <= 0:
-        raise ConfigError(f"{where}: expected a positive integer, got {value}")
-    return value
-
-
-def _count(value: Any, where: str) -> int | None:
-    """An optional argument count.  Zero is meaningful, so not _positive_int."""
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ConfigError(f"{where}: expected an integer, got {type(value).__name__}")
-    if value < 0:
-        raise ConfigError(f"{where}: expected zero or more, got {value}")
+    if value < minimum:
+        raise ConfigError(f"{where}: expected {minimum} or more, got {value}")
     return value
 
 
@@ -171,8 +177,11 @@ class AllowRule:
                 "Ansible read its vars from the environment instead (see "
                 "docs/ansible-sops.md)."
             )
-        min_args = _count(raw.get("min_args"), f"allow rule {name!r} min_args")
-        max_args = _count(raw.get("max_args"), f"allow rule {name!r} max_args")
+        # A mistyped key here fails open: the rule silently keeps the wider
+        # bounds it was written to narrow, and --check still reports success.
+        _reject_unknown_keys(cls, raw, f"allow rule {name!r}")
+        min_args = _int_at_least(raw.get("min_args"), f"allow rule {name!r} min_args", 0)
+        max_args = _int_at_least(raw.get("max_args"), f"allow rule {name!r} max_args", 0)
         if min_args is not None and max_args is not None and min_args > max_args:
             raise ConfigError(
                 f"allow rule {name!r}: min_args ({min_args}) exceeds "
@@ -193,8 +202,8 @@ class AllowRule:
             cwd_allow=_compile_all(
                 raw.get("cwd_allow", []), f"allow rule {name!r} cwd_allow"
             ),
-            max_timeout_sec=_positive_int(
-                raw.get("max_timeout_sec"), f"allow rule {name!r} max_timeout_sec"
+            max_timeout_sec=_int_at_least(
+                raw.get("max_timeout_sec"), f"allow rule {name!r} max_timeout_sec", 1
             ),
             min_args=min_args,
             max_args=max_args,

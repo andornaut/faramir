@@ -39,6 +39,12 @@ broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the
 master, so everything below runs exactly where it always did, on the child's
 bytes, with no extra hop for output to take.
 
+Output only: the child's stdin is `/dev/null`. Nothing ever writes to the
+master, so a readable stdin would mean any command that reads it, a password
+prompt or a shell started with no arguments, blocks until its timeout while
+holding a concurrency slot. The controlling terminal is claimed through
+stdout instead, which is what `/dev/tty` writes depend on.
+
 The cost is that stdout and stderr arrive merged, with no way to tell them
 apart. That is accepted.
 
@@ -105,17 +111,25 @@ A short password redacts unrelated output at random. If `cat` is a secret, the
 word "concatenate" gets mangled and the agent is left debugging a phantom.
 
 Defaults: at least 8 characters, at least 4 distinct characters, at least 1.5
-bits/char of Shannon entropy. Values that fail are **not redacted at all**, and
-the operator is told which:
+bits/char of Shannon entropy. A value that fails the gate is **refused at
+load**: it is not held, not listed by `faramir_list_secrets`, and not
+injectable. Asking for it returns an error naming the reason.
+
+Refusing rather than serving-and-warning means the broker is never the thing
+that hands over a value it cannot cover. It does not make the value safe. A
+refused value is absent from the redactor, so if it reaches the output by
+another route, a managed host printing its own configuration, it arrives in
+plaintext. That is the same leak as before; refusal only closes the injection
+half of it.
+
+Which is why the refused list stays operator-side. It names exactly the
+secrets that are never tokenized, which is a repair list for whoever can
+lengthen them and targeting information for anyone else:
 
 - the broker logs a warning naming each one at load time,
-- `faramir-broker --check` lists them under `not_redactable`.
-
-The agent is not. `faramir_list_secrets` and `faramir_status` still name every
-ref, because a ref is still injectable, but neither says which ones fail the
-gate: that would be a shortlist of exactly the secrets a caller can obtain in
-plaintext, which is targeting information rather than a warning. The warning is
-for whoever can lengthen the value, and that is not the agent.
+- `faramir-broker --check` reports them under `secrets.not_redactable`, with
+  the reason, and exits non-zero,
+- `faramir_status` and `faramir_list_secrets` say nothing about them.
 
 The right fix is to lengthen the secret, not to lower the threshold, but the
 thresholds are configurable in `[secrets]` if you have a genuinely short value

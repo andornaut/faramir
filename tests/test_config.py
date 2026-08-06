@@ -175,9 +175,7 @@ class TestAllowRules(unittest.TestCase):
 
 class TestArgumentCounts(unittest.TestCase):
     def rule(self, **extra):
-        return Config.from_dict(
-            {"allow": [{"name": "r", "argv0": "^r$", **extra}]}, "test.toml"
-        ).allow[0]
+        return load(allow=[{**MINIMAL_ALLOW[0], **extra}]).allow[0]
 
     def test_defaults_are_unconstrained(self):
         rule = self.rule()
@@ -200,6 +198,15 @@ class TestArgumentCounts(unittest.TestCase):
         with self.assertRaises(ConfigError) as caught:
             self.rule(min_args=3, max_args=1)
         self.assertIn("never match", str(caught.exception))
+
+    def test_a_mistyped_bound_is_rejected(self):
+        # Ignoring it would leave the rule wider than it reads, and --check
+        # would still report success.
+        for key in ("min_arg", "minargs", "max_args_"):
+            with self.subTest(key=key):
+                with self.assertRaises(ConfigError) as caught:
+                    self.rule(**{key: 1})
+                self.assertIn(key, str(caught.exception))
 
 
 class TestPatternListsMustBeLists(unittest.TestCase):

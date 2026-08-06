@@ -329,8 +329,12 @@ class Broker:
         """Talk to the keeper directly, the way only the broker should."""
         return call(request, str(self.keeper_socket_path), timeout=60)
 
-    def store_describe(self, *, include_weak: bool = False) -> dict:
-        """What `faramir-broker --check` prints: operator-side, out of band."""
+    def store_check(self) -> tuple[int, dict]:
+        """Run `faramir-broker --check`: its exit code and parsed report.
+
+        Operator-side and out of band, so this is the only place a test can
+        see the refs that were refused at load.
+        """
         result = subprocess.run(
             [
                 sys.executable,
@@ -346,10 +350,13 @@ class Broker:
             timeout=120,
             cwd=str(self.root),
         )
-        described = json.loads(result.stdout.split("allow rules:")[0])
-        if not include_weak:
-            described.pop("not_redactable", None)
-        return described
+        try:
+            return result.returncode, json.loads(result.stdout)
+        except json.JSONDecodeError:
+            # Exit 2 (config did not load) prints nothing on stdout.
+            raise AssertionError(
+                f"faramir-broker --check failed ({result.returncode}): {result.stderr}"
+            ) from None
 
     def exec_call(self, request: dict) -> dict:
         """Talk to the executor directly, without passing a terminal fd."""

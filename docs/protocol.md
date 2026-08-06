@@ -59,10 +59,9 @@ not start with `-`. Deliberately not reachable through `exec`: the shipped
 {"op": "list_secrets"}
 ```
 
-Returns ref names only. Never values, and no marker saying which of them are
-too short or too low-entropy to redact: that list is a shortlist of the secrets
-the caller can obtain in plaintext, so it goes to the broker log and to
-`faramir-broker --check` instead.
+Returns ref names only, never values. A ref whose value is too short or too
+low-entropy to redact is refused at load, so it does not appear here and is not
+injectable; see [redaction.md](redaction.md).
 
 ### `status`
 
@@ -71,7 +70,7 @@ the caller can obtain in plaintext, so it goes to the broker log and to
 ```
 
 Loaded files, ref count, load errors, allowlist rule names, whether sync is
-enabled. Not the non-redactable refs; see `list_secrets` above.
+enabled. Not the refs refused at load; see `list_secrets` above.
 
 ## Responses
 

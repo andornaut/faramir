@@ -67,15 +67,16 @@ class ExecError(Exception):
 def _child_setup() -> None:
     """Runs in the forked child, before exec: become session and TTY leader.
 
-    CPython performs the stdin/stdout/stderr dup2 before calling this, so fd 0
-    is already the PTY slave.
+    CPython performs the stdin/stdout/stderr dup2 before calling this, so fd 1
+    is already the PTY slave.  fd 0 is not: stdin is /dev/null, so the
+    controlling terminal has to be claimed through one of the other two.
     """
     os.setsid()
     try:
         import fcntl
         import termios
 
-        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
+        fcntl.ioctl(1, termios.TIOCSCTTY, 0)
     except OSError:
         pass
 
@@ -300,7 +301,13 @@ class Executor:
                 argv,
                 cwd=cwd,
                 env=env,
-                stdin=slave_fd,
+                # Nothing ever writes to the master, so a child reading stdin
+                # would block until its timeout, holding a concurrency slot:
+                # `bash` with no arguments, or any password prompt, does it.
+                # /dev/null turns that into an immediate EOF.  stdout and
+                # stderr keep the PTY, which is what `test -t 1` and writes to
+                # /dev/tty depend on.
+                stdin=subprocess.DEVNULL,
                 stdout=slave_fd,
                 stderr=slave_fd,
                 close_fds=True,

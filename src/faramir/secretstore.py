@@ -70,6 +70,7 @@ class SecretStore:
         )
         self._lock = threading.RLock()
         self._values: dict[str, str] = {}
+        self._refused: dict[str, str] = {}
         self._state: list[_FileState] = []
         self._checked_at = 0.0
         self.load_errors: list[str] = []
@@ -102,27 +103,40 @@ class SecretStore:
             return
         errors.extend(keeper_errors)
 
+        # A value the redactor cannot cover is not loaded at all.  Serving it
+        # would put it in a child's environment with nothing to catch it on
+        # the way out, and the ref is useless to an attacker who cannot obtain
+        # the value, so there is nothing here to withhold from the agent.
+        redactable: dict[str, str] = {}
+        refused: dict[str, str] = {}
+        for ref, value in values.items():
+            reason = self.policy.check(value)
+            if reason is None:
+                redactable[ref] = value
+            else:
+                refused[ref] = reason
+
         with self._lock:
-            self._values = values
+            self._values = redactable
+            self._refused = refused
             self._state = state
             self.load_errors = errors
             self._checked_at = time.monotonic()
 
         for err in errors:
             log.error("secret load: %s", err)
-        weak = [(ref, r) for ref, v in values.items() if (r := self.policy.check(v))]
-        for ref, reason in weak:
+        for ref, reason in sorted(refused.items()):
             log.warning(
-                "secret %s will NOT be redacted (%s) -- lengthen it or it can "
-                "reach the model in plaintext",
+                "secret %s was NOT loaded (%s) -- it cannot be redacted, so "
+                "the broker refuses to inject it; lengthen it",
                 ref,
                 reason,
             )
         log.info(
-            "loaded %d secret refs from %d file(s), %d not redactable",
-            len(values),
+            "loaded %d secret refs from %d file(s), %d refused as not redactable",
+            len(redactable),
             len(state),
-            len(weak),
+            len(refused),
         )
 
     def refresh_if_stale(self) -> None:
@@ -157,6 +171,14 @@ class SecretStore:
             try:
                 return self._values[ref]
             except KeyError:
+                # Naming the refusal separately: "unknown ref" would send the
+                # operator looking for a typo in a ref that is spelled right.
+                reason = self._refused.get(ref)
+                if reason is not None:
+                    raise SecretError(
+                        f"secret {ref} was refused at load ({reason}); it cannot "
+                        "be redacted, so it is not injectable. Lengthen the value."
+                    ) from None
                 raise SecretError(f"unknown secret ref: {ref}") from None
 
     def pairs(self) -> list[tuple[str, str]]:
@@ -170,28 +192,30 @@ class SecretStore:
         with self._lock:
             return sorted(self._values.items())
 
-    def weak_refs(self) -> list[tuple[str, str]]:
+    def describe(self) -> dict[str, Any]:
+        """Loaded-state summary.  Safe for the agent-facing wire."""
         with self._lock:
-            return [
-                (ref, reason)
-                for ref, value in sorted(self._values.items())
-                if (reason := self.policy.check(value))
-            ]
-
-    def describe(self, *, include_weak: bool = False) -> dict[str, Any]:
-        """Loaded-state summary.
-
-        ``include_weak`` names the refs that are too short or too low-entropy
-        to redact.  That is a list of exactly which secrets reach the caller in
-        plaintext, so it belongs to the operator: it goes to the log and to
-        ``faramir-broker --check``, never onto the agent-facing wire.
-        """
-        with self._lock:
-            described = {
+            return {
                 "files": [s.path for s in self._state],
                 "ref_count": len(self._values),
                 "errors": list(self.load_errors),
             }
-        if include_weak:
-            described["not_redactable"] = [ref for ref, _ in self.weak_refs()]
-        return described
+
+    def describe_for_operator(self) -> dict[str, Any]:
+        """``describe()`` plus the refs refused at load, and why.
+
+        Refusing a value stops the broker injecting it; it does not stop the
+        value reaching the output some other way, and a refused value is absent
+        from the redactor, so it arrives in plaintext when it does.  The list is
+        therefore still a shortlist of exactly which secrets are never
+        tokenized, which is targeting information for the agent and a repair
+        list for the operator.  Only the operator gets it.
+
+        One snapshot: a reload between the counts and the refused refs would
+        otherwise report a set that never existed.
+        """
+        with self._lock:
+            return {
+                **self.describe(),
+                "not_redactable": dict(sorted(self._refused.items())),
+            }

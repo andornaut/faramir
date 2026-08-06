@@ -44,7 +44,7 @@ class BrokerTestCase(unittest.TestCase):
 class TestSecretResolution(BrokerTestCase):
     def test_status_reports_loaded_secrets(self):
         response = self.broker.call({"op": "status"})
-        self.assertIn('"ref_count": 4', response["output"])
+        self.assertIn('"ref_count": 3', response["output"])
         self.assertIn("vault.sops.yml", response["output"])
         self.assertNoPlaintext(response["output"])
 
@@ -55,22 +55,33 @@ class TestSecretResolution(BrokerTestCase):
         self.assertNoPlaintext(response["output"])
         self.assertNoPlaintext(response["output"], secret=API_TOKEN)
 
-    def test_weak_refs_are_not_named_to_the_caller(self):
-        # Naming them would hand the caller a shortlist of exactly the secrets
-        # it can obtain in plaintext.  The operator learns which they are from
-        # the broker log and from `faramir-broker --check`.
+    def test_a_value_the_redactor_cannot_cover_is_not_loaded(self):
+        listed = self.broker.call({"op": "list_secrets"})
+        self.assertNotIn("short_pin", listed["output"])
+        _, report = self.broker.store_check()
+        self.assertIn("short_pin", report["secrets"]["not_redactable"])
+
+    def test_the_refused_refs_are_not_named_to_the_agent(self):
+        # A refused value is absent from the redactor, so it arrives in
+        # plaintext if a managed host prints it.  Naming it would tell the
+        # agent exactly which secret that is.
         for op in ("list_secrets", "status"):
             with self.subTest(op=op):
                 response = self.broker.call({"op": op})
-                self.assertNotIn("NOT REDACTABLE", response["output"])
                 self.assertNotIn("not_redactable", response["output"])
-        # ...but the ref itself is still listed, because it is still injectable.
-        listed = self.broker.call({"op": "list_secrets"})
-        self.assertIn("secret://short_pin", listed["output"])
+                self.assertNotIn("short_pin", response["output"])
 
-    def test_the_operator_check_path_does_name_them(self):
-        described = self.broker.store_describe(include_weak=True)
-        self.assertIn("short_pin", described["not_redactable"])
+    def test_check_fails_when_a_ref_was_refused(self):
+        # install/20-install-broker.sh gates the install on this exit code.
+        code, _ = self.broker.store_check()
+        self.assertEqual(code, 1)
+
+    def test_a_refused_ref_cannot_be_injected(self):
+        # And the error says why, so the operator is not sent looking for a
+        # typo in a ref that is spelled correctly.
+        response = self.broker.run(["printenv", "X"], {"X": "secret://short_pin"})
+        self.assertEqual(response["error"]["code"], "unknown_secret")
+        self.assertIn("refused at load", response["error"]["message"])
 
     def test_unknown_ref_is_an_error(self):
         response = self.broker.run(["printenv", "X"], {"X": "secret://nope/nothing"})
@@ -218,6 +229,19 @@ class TestExecutionSemantics(BrokerTestCase):
         # A pipe would report "not a tty" -- and would miss /dev/tty writes.
         response = self.broker.run(["bash", "-lc", "test -t 1 && echo IS_TTY"])
         self.assertIn("IS_TTY", response["output"])
+
+    def test_a_child_reading_stdin_gets_eof_rather_than_blocking(self):
+        # Nothing writes to the master, so a readable stdin would hold a
+        # concurrency slot until the timeout: a password prompt, or `bash`
+        # with no arguments, which the allowlist permits.
+        response = self.broker.run(["bash", "-lc", "read -r x; echo GOT=[$x]"], timeout_sec=15)
+        self.assertFalse(response["timed_out"])
+        self.assertIn("GOT=[]", response["output"])
+
+    def test_a_bare_shell_exits_instead_of_waiting(self):
+        response = self.broker.run(["bash"], timeout_sec=15)
+        self.assertFalse(response["timed_out"])
+        self.assertEqual(response["exit_code"], 0)
 
     def test_writes_to_dev_tty_are_captured_and_redacted(self):
         # This is the case a pipe cannot catch: ssh and sudo prompt this way.

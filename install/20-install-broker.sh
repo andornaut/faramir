@@ -159,7 +159,8 @@ fi
 
 say "validating the installed config"
 FARAMIR_LIB="$LIB" /usr/local/bin/faramir-broker -c /etc/faramir/config.toml --check || {
-  say "config validation FAILED -- fix /etc/faramir/config.toml before enabling the unit"
+  say "validation FAILED -- fix /etc/faramir/config.toml, or lengthen any secret"
+  say "reported under not_redactable, before enabling the unit"
   exit 1
 }
 

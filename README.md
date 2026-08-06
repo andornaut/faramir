@@ -220,12 +220,12 @@ Full detail in [docs/redaction.md](docs/redaction.md). In short:
    double-quoted.
 5. **Streaming uses an overlap buffer**, so a value split across two reads is
    still caught.
-6. **Short or low-entropy values are not redacted**: an 8-character floor plus
-   an entropy gate, because a short password would blank out unrelated output
-   at random. The broker logs a warning naming each one and
-   `faramir-broker --check` lists them; the agent is told neither, since that
-   would be a shortlist of the secrets it can obtain in plaintext. Lengthen
-   them.
+6. **Short or low-entropy values are refused at load**: an 8-character floor
+   plus an entropy gate, because a short password would blank out unrelated
+   output at random if redacted. The broker will not hold or inject one, and
+   names it in the log and in `faramir-broker --check`; the agent is told
+   neither, since a value that is never tokenized is one worth targeting.
+   Lengthen them.
 7. **Tokens are stable**: the same secret always renders as `«SECRET:ref»`, so
    the model can reason about it across turns.
 
@@ -319,9 +319,9 @@ the protocol and the split, not the uid boundary itself.
   `[exec.base_env]` plus its injected secrets. If a tool works for you but not
   through the broker, an environment variable is usually the reason. Add it
   to `base_env` rather than widening anything else.
-- **Interactive prompts hang.** The child owns a PTY but nothing writes to it,
-  so a command that waits for input runs until its timeout. Pass the
-  non-interactive flags.
+- **Interactive prompts fail, they do not hang.** The child owns a PTY for
+  output, but its stdin is `/dev/null`, so a command that waits for input gets
+  EOF immediately. Pass the non-interactive flags.
 - **Output is truncated** at `max_output_bytes` (1 MiB default). The full,
   unredacted stream is always in the raw log.
 - **The raw log grows without bound.** Add a logrotate rule; keep the mode at
@@ -344,8 +344,10 @@ the protocol and the split, not the uid boundary itself.
 
 - Redaction is best-effort against *accidents*, not against intent. See
   section 1.
-- A secret shorter than 8 characters, or with very low entropy, is not
-  redacted at all. The broker tells you which ones; fix them at the source.
+- A secret shorter than 8 characters, or with very low entropy, is refused at
+  load: the broker will not inject it. It is also absent from the redactor, so
+  if it reaches the output some other way it arrives in plaintext. The broker
+  tells you which ones; fix them at the source.
 - A brokered command still receives the values it asked for, in its
   environment, because that is the point. What it does with them afterwards is
   the adversarial-exfiltration row in section 1.

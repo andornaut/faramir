@@ -254,15 +254,12 @@ class Server:
         }
 
     def _op_list_secrets(self) -> dict[str, Any]:
-        # Names only, and no marker saying which of them are too short to
-        # redact: that would hand the caller a shortlist of exactly the
-        # secrets it can obtain in plaintext.  The operator gets it instead,
-        # from the log at load time and from `faramir-broker --check`.
+        # Names only, and only refs that were actually loaded: a value the
+        # redactor cannot cover is refused at load and never listed here.
         refs = self.store.refs()
-        lines = [f"secret://{ref}" for ref in refs]
         return {
             "exit_code": 0,
-            "output": "\n".join(lines) + ("\n" if lines else ""),
+            "output": "".join(f"secret://{ref}\n" for ref in refs),
             "truncated": False,
             "redactions": [],
             "log_id": None,
@@ -453,27 +450,46 @@ def main(argv: list[str] | None = None) -> int:
 
     server = Server(config)
     server.store.reload()
-    server.ssh.start()
 
+    # Before starting the agent: --check runs against a live broker, and
+    # starting a second agent would replace the running one's socket and
+    # outlive this process with the fleet keys loaded.
     if args.check:
-        # Operator-facing, so this one names the weak refs.
+        # One JSON object, shaped like the status op, but operator-facing:
+        # this one names the refs that were refused at load.
+        secrets = server.store.describe_for_operator()
         print(
             json.dumps(
-                server.store.describe(include_weak=True), indent=2, sort_keys=True
+                {"secrets": secrets, "allow_rules": [r.name for r in config.allow]},
+                indent=2,
+                sort_keys=True,
             )
         )
-        print(f"allow rules: {', '.join(r.name for r in config.allow)}")
+        # Non-zero on a refused ref: the config parses, but a command that
+        # injects that ref will fail at runtime, and --check is the install
+        # gate that is supposed to catch it (install/20-install-broker.sh).
+        refused = secrets["not_redactable"]
+        if refused:
+            log.error(
+                "%d secret(s) refused as not redactable: %s",
+                len(refused),
+                ", ".join(refused),
+            )
+            return 1
         return 0
 
-    signal.signal(signal.SIGHUP, server.reload)
-    signal.signal(signal.SIGTERM, server.stop)
-    signal.signal(signal.SIGINT, server.stop)
-
-    server.listen()
-    notify_ready()
+    server.ssh.start()
     try:
+        signal.signal(signal.SIGHUP, server.reload)
+        signal.signal(signal.SIGTERM, server.stop)
+        signal.signal(signal.SIGINT, server.stop)
+
+        server.listen()
+        notify_ready()
         server.serve_forever()
     finally:
+        # Covers listen() too: a failed bind must not leave an agent holding
+        # the fleet keys on a socket the executor's group can already reach.
         server.ssh.stop()
     return 0
 
