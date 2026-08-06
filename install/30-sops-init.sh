@@ -20,7 +20,18 @@ REPO="${REPO:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 
-command -v age-keygen >/dev/null || { echo "install age first (apt install age)" >&2; exit 1; }
+# faramir mints the keypair itself, so the host needs no age binary.  Prefer an
+# installed faramir; fall back to the built one, so this phase works whichever
+# order the installer scripts are run in.
+KEYGEN=""
+for candidate in /usr/local/bin/faramir "$(dirname "${BASH_SOURCE[0]}")/../bin/faramir"; do
+  [[ -x $candidate ]] && { KEYGEN="$candidate"; break; }
+done
+[[ -n $KEYGEN ]] || {
+  echo "faramir not found; run 'make build' first (or install/20-install-broker.sh)" >&2
+  exit 1
+}
+# sops is still required: it is what encrypts and edits the managed files.
 command -v sops >/dev/null || { echo "install sops first (https://github.com/getsops/sops/releases)" >&2; exit 1; }
 
 install -d -m 0755 -o root -g root /etc/faramir
@@ -30,8 +41,9 @@ if [[ -f $KEY ]]; then
 else
   say "generating age keypair"
   # Subshell: a bare 'umask 077' here would leak into everything below, and
-  # .sops.yaml has to stay group-readable.
-  (umask 077; age-keygen -o "$KEY" 2>/dev/null)
+  # .sops.yaml has to stay group-readable.  faramir keygen writes 0400 and
+  # refuses to clobber, so an existing key cannot be destroyed by a re-run.
+  (umask 077; "$KEYGEN" keygen -o "$KEY" >/dev/null)
 fi
 # Re-asserted every run, not just on creation: a host that installed before the
 # keeper existed still has this key owned by the broker, where every brokered
