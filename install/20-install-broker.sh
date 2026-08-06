@@ -34,15 +34,16 @@ install -m 0644 "$REPO"/src/faramir/*.py "${LIB}/faramir/"
 
 say "binaries -> /usr/local/bin"
 install -m 0755 "$REPO/bin/faramir-broker" /usr/local/bin/faramir-broker
+install -m 0755 "$REPO/bin/faramir-keeper" /usr/local/bin/faramir-keeper
 install -m 0755 "$REPO/bin/faramir" /usr/local/bin/faramir
 install -m 0755 "$REPO/bin/faramir-mcp" /usr/local/bin/faramir-mcp
 
 say "hook -> /usr/local/libexec/faramir"
 install -d -m 0755 /usr/local/libexec/faramir
 install -m 0755 "$REPO/agent/hooks/pretooluse-guard.py" /usr/local/libexec/faramir/pretooluse-guard.py
-# Next to the hook, not in /etc/faramir: the hook runs as the agent uid, which
-# cannot traverse /etc/faramir (0750 faramir-broker:faramir-broker).  A patterns file it
-# cannot read means it silently falls back to a much weaker built-in list.
+# Next to the hook rather than under /etc/faramir, so it travels with the thing
+# that reads it.  A patterns file the hook cannot read is worse than none: it
+# falls back to a built-in list that is silently weaker.
 install -m 0644 "$REPO/agent/hooks/deny-patterns.txt" /usr/local/libexec/faramir/deny-patterns.txt
 
 say "docs -> /usr/local/share/doc/faramir"
@@ -50,7 +51,9 @@ install -d -m 0755 /usr/local/share/doc/faramir
 install -m 0644 "$REPO/README.md" /usr/local/share/doc/faramir/README.md
 install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/faramir/
 
-install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/faramir
+# Three services read config.toml from here, so the directory belongs to none
+# of them.  The age key is protected by its own mode, not by this one.
+install -d -m 0755 -o root -g root /etc/faramir
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
 # Left over from installs that placed the patterns under the config directory,
@@ -84,7 +87,7 @@ PY
 
 if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
-  install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/faramir/config.toml.dist
+  install -m 0644 -o root -g root "$REPO/etc/config.toml" /etc/faramir/config.toml.dist
   # No -n guard: an absent source key means SyncConfig's default, which is
   # exactly the mismatch worth warning about on a non-default install.
   if existing="$(configured_source /etc/faramir/config.toml)" &&
@@ -94,21 +97,23 @@ if [[ -f /etc/faramir/config.toml ]]; then
   fi
 else
   say "config -> /etc/faramir/config.toml (sync source ${WORKTREE})"
-  install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/faramir/config.toml
+  install -m 0644 -o root -g root "$REPO/etc/config.toml" /etc/faramir/config.toml
   awk -v worktree="$WORKTREE" '
     /^\[sync\]/ { in_sync = 1 }
     /^\[/ && !/^\[sync\]/ { in_sync = 0 }
     in_sync && /^[[:space:]]*source[[:space:]]*=/ {
       print "source = \"" worktree "\""; next }
     { print }' /etc/faramir/config.toml >/etc/faramir/config.toml.new
-  chown root:"$BROKER_USER" /etc/faramir/config.toml.new
-  chmod 0640 /etc/faramir/config.toml.new
+  chown root:root /etc/faramir/config.toml.new
+  chmod 0644 /etc/faramir/config.toml.new
   mv /etc/faramir/config.toml.new /etc/faramir/config.toml
 fi
 
 say "systemd units"
-install -m 0644 "$REPO/systemd/faramir-broker.socket" /etc/systemd/system/faramir-broker.socket
-install -m 0644 "$REPO/systemd/faramir-broker.service" /etc/systemd/system/faramir-broker.service
+for unit in faramir-broker.socket faramir-broker.service \
+            faramir-keeper.socket faramir-keeper.service; do
+  install -m 0644 "$REPO/systemd/${unit}" "/etc/systemd/system/${unit}"
+done
 
 # /home is an empty tmpfs inside the unit, so the sync source has to be bound in
 # explicitly.  The unit hardcodes the default; bind the configured worktree too,
@@ -134,13 +139,18 @@ else
 fi
 
 if [[ $HAVE_SYSTEMD -eq 1 && -f /etc/faramir/age.key ]]; then
-  systemctl enable --now faramir-broker.socket
+  # The keeper first: the broker asks it for the value set on startup.
+  systemctl enable --now faramir-keeper.socket faramir-broker.socket
+  systemctl restart faramir-keeper.service || true
   systemctl restart faramir-broker.service || true
-  say "systemd-analyze security faramir-broker.service"
-  systemd-analyze security faramir-broker.service || true
+  for unit in faramir-keeper.service faramir-broker.service; do
+    say "systemd-analyze security ${unit}"
+    systemd-analyze security "$unit" || true
+  done
 elif [[ ! -f /etc/faramir/age.key ]]; then
-  say "NOT starting faramir-broker: /etc/faramir/age.key is missing."
-  say "Run install/30-sops-init.sh first, then: systemctl enable --now faramir-broker.socket"
+  say "NOT starting faramir: /etc/faramir/age.key is missing."
+  say "Run install/30-sops-init.sh first, then:"
+  say "  systemctl enable --now faramir-keeper.socket faramir-broker.socket"
 fi
 
 say "validating the installed config"

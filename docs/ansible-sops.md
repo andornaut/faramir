@@ -1,7 +1,15 @@
 # Wiring Ansible to sops
 
-Phase 2 of the migration: playbooks resolve their vars from sops at run time,
-natively, with no decrypt step and no plaintext on disk.
+Playbooks get their credentials the same way every other brokered program
+does: the caller names refs, the broker injects values as environment
+variables, and `group_vars` reads them.
+
+Ansible does **not** decrypt sops itself here, and cannot. Doing so needs the
+age private key, and no process the broker starts ever receives it: the keeper
+holds it under its own uid and serves decrypted values only. Since a playbook
+can run arbitrary tasks, a playbook holding the master key would mean anything
+that can reach Ansible can obtain the key that decrypts every managed file,
+retroactively, including everything already in git history.
 
 ## 1. Encrypt values, not keys
 
@@ -12,7 +20,7 @@ creation_rules:
   - path_regex: (^|/)(group_vars|host_vars)/.*\.sops\.ya?ml$
     key_groups:
       - age:
-          - age1... # the broker's public key
+          - age1... # the keeper's public key
 ```
 
 Keeping key *names* readable means diffs stay per-key and reviewable, and the
@@ -34,51 +42,63 @@ home:
 vault_router_password: …   # secret://vault_router_password
 ```
 
-## 3. Native resolution: community.sops
+## 3. Resolution: read the environment
 
-Install the collection **on the broker host**, as the broker's uid can reach it:
+Add a committed, **unencrypted** vars file that maps each var to the
+environment variable the broker will inject. It contains no secrets, so it is
+readable and reviewable like any other file:
+
+```yaml
+# group_vars/all/vars.yml
+vault_router_password: "{{ lookup('env', 'ROUTER_PW') }}"
+vault_api_token: "{{ lookup('env', 'API_TOKEN') }}"
+```
+
+The caller names the refs per run:
 
 ```bash
-ansible-galaxy collection install community.sops
+faramir run \
+    --env ROUTER_PW=secret://vault_router_password \
+    --env API_TOKEN=secret://home/api/token -- \
+    ansible-playbook site.yml --limit routers
 ```
 
-`ansible.cfg` in `/srv/ansible-ctrl`:
+or, from the agent:
 
-```ini
-[defaults]
-vars_plugins_enabled = host_group_vars,community.sops.sops
-
-[community.sops]
-# sops finds the key through SOPS_AGE_KEY, which the broker injects for
-# ansible and ansible-playbook only (provide_age_key = true).
 ```
-
-Now `group_vars/all/vault.sops.yml` is loaded like any other group_vars file,
-decrypted in memory by the vars plugin. Nothing changes in the playbooks.
+faramir_run(cmd=["ansible-playbook", "site.yml", "--limit", "routers"],
+            env_refs={"ROUTER_PW": "secret://vault_router_password",
+                      "API_TOKEN": "secret://home/api/token"})
+```
 
 Verify:
 
 ```bash
-faramir run -- ansible-playbook site.yml --check
-faramir run -- ansible localhost -m debug -a 'var=vault_router_password'
+faramir run --env ROUTER_PW=secret://vault_router_password -- \
+    ansible localhost -m debug -a 'var=vault_router_password'
 # -> «SECRET:vault_router_password»
 ```
 
-That second command is worth running once: it proves the var resolved *and*
-that printing it produces a token.
+That is worth running once: it proves the var resolved *and* that printing it
+produces a token rather than a value.
 
-## 4. If you cannot install the collection
+A var whose ref was not injected resolves to an empty string, which usually
+surfaces as a task failing further along rather than as a clear error. When a
+playbook behaves as though a credential were blank, check `env_refs` first.
 
-A `lookup('pipe', …)` works with no collection at all, at the cost of one
-subprocess per lookup and a less pleasant syntax:
+## 4. What this replaces
 
-```yaml
-vars:
-  vault: "{{ lookup('pipe', 'sops --output-type json -d group_vars/all/vault.sops.yml') | from_json }}"
-```
+Earlier versions used the `community.sops` vars plugin, or a
+`lookup('pipe', 'sops -d …')`. Both need `SOPS_AGE_KEY` in the playbook's
+environment, so neither works now, and both fail with a sops error about
+missing key material rather than anything about faramir.
 
-This is what `tests/harness.py` uses, so the end-to-end suite runs without
-network access to Galaxy. Prefer the vars plugin in production.
+`tests/harness.py` keeps a playbook that attempts the `lookup('pipe', …)` form
+and asserts it **fails**, so a change that quietly hands the key back to a
+child is caught.
+
+Encrypted files still need to be listed in `[secrets] files` so their values
+land in the redaction set, whether or not any playbook names them.
 
 ## 5. Removing ansible-vault
 
@@ -86,18 +106,19 @@ In this order, and not before:
 
 1. Point `[secrets] files` in `/etc/faramir/config.toml` at the new `.sops.yml`
    files, then `systemctl reload faramir-broker`.
-2. Run a real playbook end to end through `faramir` — not `--check` — and
-   confirm it works and prints no plaintext.
-3. `git rm` the old vault files.
-4. Delete the vault password file.
-5. **Rotate every credential that was ever committed**, or rewrite history.
+2. Add the `lookup('env', …)` vars file from section 3 and commit it.
+3. Run a real playbook end to end through `faramir run`, not `--check`, with
+   the refs it needs in `--env`, and confirm it works and prints no plaintext.
+4. `git rm` the old vault files.
+5. Delete the vault password file.
+6. **Rotate every credential that was ever committed**, or rewrite history.
    See the warning in the README: the plaintext-equivalent blobs are still in
    git history and the old vault password still opens them.
 
 ## 6. SSH keys
 
 The broker's uid owns the SSH keys used to reach managed hosts
-(`~faramir-broker/.ssh/`). The agent uid cannot read them — that is the point — so
+(`~faramir-broker/.ssh/`). The agent uid cannot read them, which is the point, so
 `ssh` connection problems have to be debugged through `faramir` or from the
 raw log, using the `log_id` the agent reports.
 

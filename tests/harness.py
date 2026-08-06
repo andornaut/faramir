@@ -45,10 +45,13 @@ class Broker:
         self.agent_tree = self.root / "home" / "agent" / "work" / "ansible-ctrl"
         self.creds = self.root / "creds"
         self.socket_path = self.root / "sock"
+        self.keeper_socket_path = self.root / "keeper.sock"
         self.raw_log = self.root / "log" / "raw.log"
         self.config_path = self.root / "config.toml"
         self.proc: subprocess.Popen[bytes] | None = None
+        self.keeper_proc: subprocess.Popen[bytes] | None = None
         self.stderr_path = self.root / "faramir.stderr"
+        self.keeper_stderr_path = self.root / "faramir-keeper.stderr"
 
     # -- setup -------------------------------------------------------------
 
@@ -107,6 +110,7 @@ class Broker:
             "/srv/ansible-ctrl": str(self.workdir),
             "/home/agent/work/ansible-ctrl": str(self.agent_tree),
             "/run/faramir/broker.sock": str(self.socket_path),
+            "/run/faramir/keeper.sock": str(self.keeper_socket_path),
             "/var/log/faramir/raw.log": str(self.raw_log),
             '"/usr/bin/git"': f'"{shutil.which("git") or "/usr/bin/git"}"',
         }
@@ -135,11 +139,27 @@ class Broker:
         (self.workdir / "inventory.ini").write_text(
             "[local]\nlocalhost ansible_connection=local\n"
         )
-        # Resolves the sops file at run time and then prints the variable --
-        # exactly the accident redaction exists for.  In production this
-        # lookup is the community.sops vars plugin; the property under test
-        # (Ansible decrypts internally, then prints) is identical.
+        # How Ansible is meant to get its credentials now: the broker injects
+        # the named refs as environment variables and group_vars reads them.
+        # The playbook then prints one, which is exactly the accident that
+        # redaction exists for.
         (self.workdir / "site.yml").write_text(
+            "- hosts: local\n"
+            "  gather_facts: false\n"
+            "  vars:\n"
+            "    vault_router_password: \"{{ lookup('env', 'ROUTER_PW') }}\"\n"
+            "  tasks:\n"
+            "    - name: print the vault variable\n"
+            "      debug:\n"
+            "        var: vault_router_password\n"
+            "    - name: print it again inside a message\n"
+            "      debug:\n"
+            "        msg: \"router password is {{ vault_router_password }}\"\n"
+        )
+        # The old arrangement, kept as a negative test: a playbook that tries
+        # to decrypt the sops file itself must now fail, because no child of
+        # the broker holds the age key.
+        (self.workdir / "decrypt.yml").write_text(
             "- hosts: local\n"
             "  gather_facts: false\n"
             "  vars:\n"
@@ -149,53 +169,93 @@ class Broker:
             "    - name: print the vault variable\n"
             "      debug:\n"
             "        var: vault.vault_router_password\n"
-            "    - name: print it again inside a message\n"
-            "      debug:\n"
-            "        msg: \"router password is {{ vault.home.router.admin }}\"\n"
         )
 
     # -- lifecycle ---------------------------------------------------------
 
-    def start(self, timeout: float = 20.0) -> "Broker":
+    def _env(self, *, with_credentials: bool) -> dict[str, str]:
         env = {
             "PATH": os.environ.get("PATH", ""),
             "PYTHONPATH": str(SRC),
             "PYTHONUNBUFFERED": "1",
-            "CREDENTIALS_DIRECTORY": str(self.creds),
             "HOME": str(self.root),
             "LANG": "C.UTF-8",
         }
+        # Only the keeper is given the age key, exactly as in the deployment,
+        # where LoadCredential= lives on faramir-keeper.service alone.
+        if with_credentials:
+            env["CREDENTIALS_DIRECTORY"] = str(self.creds)
+        return env
+
+    def start(self, timeout: float = 20.0) -> "Broker":
+        """Start the keeper, then the broker, and wait for both sockets.
+
+        Both run as the current uid.  That is enough to exercise the protocol
+        and the split; the uid boundary itself only exists on a real
+        deployment, and tests/verify.sh is what checks it there.
+        """
+        self._keeper_stderr = open(self.keeper_stderr_path, "wb")
+        self.keeper_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "faramir.keeper",
+                "-c",
+                str(self.config_path),
+            ],
+            env=self._env(with_credentials=True),
+            stdout=self._keeper_stderr,
+            stderr=self._keeper_stderr,
+            cwd=str(self.root),
+        )
+        self._await_socket(
+            self.keeper_socket_path, self.keeper_proc, timeout, "the keeper"
+        )
+
         self._stderr = open(self.stderr_path, "wb")
         self.proc = subprocess.Popen(
             [sys.executable, "-m", "faramir", "-c", str(self.config_path)],
-            env=env,
+            env=self._env(with_credentials=False),
             stdout=self._stderr,
             stderr=self._stderr,
             cwd=str(self.root),
         )
+        self._await_socket(self.socket_path, self.proc, timeout, "the broker")
+        return self
+
+    def _await_socket(
+        self,
+        path: Path,
+        proc: subprocess.Popen[bytes],
+        timeout: float,
+        what: str,
+    ) -> None:
         deadline = time.time() + timeout
         while time.time() < deadline:
-            if self.socket_path.exists():
+            if path.exists():
                 try:
                     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as probe:
-                        probe.connect(str(self.socket_path))
-                    return self
+                        probe.connect(str(path))
+                    return
                 except OSError:
                     pass
-            if self.proc.poll() is not None:
-                raise RuntimeError(f"the broker exited early:\n{self.log()}")
+            if proc.poll() is not None:
+                raise RuntimeError(f"{what} exited early:\n{self.log()}")
             time.sleep(0.05)
-        raise RuntimeError(f"the broker did not start:\n{self.log()}")
+        raise RuntimeError(f"{what} did not start:\n{self.log()}")
 
     def stop(self) -> None:
-        if self.proc and self.proc.poll() is None:
-            self.proc.send_signal(signal.SIGTERM)
-            try:
-                self.proc.wait(timeout=10)
-            except subprocess.TimeoutExpired:
-                self.proc.kill()
-        if getattr(self, "_stderr", None):
-            self._stderr.close()
+        for proc in (self.proc, self.keeper_proc):
+            if proc and proc.poll() is None:
+                proc.send_signal(signal.SIGTERM)
+                try:
+                    proc.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+        for attr in ("_stderr", "_keeper_stderr"):
+            handle = getattr(self, attr, None)
+            if handle:
+                handle.close()
 
     def cleanup(self) -> None:
         self.stop()
@@ -204,10 +264,22 @@ class Broker:
     # -- helpers -----------------------------------------------------------
 
     def log(self) -> str:
-        try:
-            return self.stderr_path.read_text()
-        except OSError:
-            return ""
+        parts = []
+        for label, path in (
+            ("keeper", self.keeper_stderr_path),
+            ("broker", self.stderr_path),
+        ):
+            try:
+                text = path.read_text()
+            except OSError:
+                continue
+            if text:
+                parts.append(f"--- {label} ---\n{text}")
+        return "\n".join(parts)
+
+    def keeper_call(self, request: dict) -> dict:
+        """Talk to the keeper directly, the way only the broker should."""
+        return call(request, str(self.keeper_socket_path), timeout=60)
 
     def raw_log_text(self) -> str:
         try:

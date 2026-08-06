@@ -13,6 +13,9 @@ set -uo pipefail
 
 AGENT_USER="${AGENT_USER:-agent}"
 BROKER_USER="${BROKER_USER:-faramir-broker}"
+KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
+AGE_KEY="${AGE_KEY:-/etc/faramir/age.key}"
+KEEPER_SOCKET="${KEEPER_SOCKET:-/run/faramir/keeper.sock}"
 SOCKET="${FARAMIR_SOCKET:-/run/faramir/broker.sock}"
 RAW_LOG="${RAW_LOG:-/var/log/faramir/raw.log}"
 PW_REF="${PW_REF:-secret://home/router/admin}"
@@ -25,6 +28,7 @@ skipt(){ printf '  \033[33mSKIP\033[0m  %s\n' "$*"; skip=$((skip+1)); }
 head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 as_agent() { sudo -u "$AGENT_USER" "$@" 2>&1; }
+as_broker() { sudo -u "$BROKER_USER" "$@" 2>&1; }
 srun() { sudo -u "$AGENT_USER" faramir run --quiet "$@" 2>&1; }
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
@@ -34,11 +38,50 @@ head_ "1-2  uid separation"
 
 # Note: capture first, then grep.  With `pipefail`, piping a failing command
 # into a succeeding grep still reports failure, which silently inverts results.
-out="$(as_agent cat /etc/faramir/age.key)"
+out="$(as_agent cat "$AGE_KEY")"
 if grep -qi 'permission denied' <<<"$out"; then
-  ok "1  agent cannot read /etc/faramir/age.key"
+  ok "1  agent cannot read ${AGE_KEY}"
 else
   no "1  agent CAN read the age key -- phase 1 is broken, stop here"
+fi
+
+# The point of the keeper: the uid that runs every brokered command must not be
+# able to read the key either, by any route.
+out="$(as_broker cat "$AGE_KEY")"
+if grep -qi 'permission denied' <<<"$out"; then
+  ok "1b ${BROKER_USER} cannot read the age key (the keeper holds it)"
+else
+  no "1b ${BROKER_USER} CAN read the age key -- so can every brokered command"
+fi
+
+owner="$(stat -c '%a %U' "$AGE_KEY" 2>/dev/null || echo missing)"
+if [[ $owner == "400 ${KEEPER_USER}" ]]; then
+  ok "1c age key is 0400 ${KEEPER_USER}"
+else
+  no "1c age key is '${owner}', expected '400 ${KEEPER_USER}'"
+fi
+
+out="$(as_agent test -w "$KEEPER_SOCKET" && echo writable)"
+if [[ $out == writable ]]; then
+  no "1d agent can reach the keeper socket ${KEEPER_SOCKET}"
+else
+  ok "1d agent cannot reach the keeper socket"
+fi
+
+# A brokered command runs as ${BROKER_USER}; the credential directory is the
+# route that used to work regardless of any allowlist flag.
+out="$(srun -- bash -lc 'cat /run/credentials/*/age_key 2>&1 | head -1')"
+if grep -qiE 'no such file|permission denied|AGE-KEY' <<<"$out" || [[ -z ${out// /} ]]; then
+  ok "1e brokered command cannot read a systemd credential holding the key"
+else
+  no "1e brokered command read something from /run/credentials: $out"
+fi
+
+out="$(srun -- bash -lc 'echo "[${SOPS_AGE_KEY:-unset}]"')"
+if grep -q '\[unset\]' <<<"$out"; then
+  ok "1f no brokered command receives SOPS_AGE_KEY"
+else
+  no "1f SOPS_AGE_KEY is present in a child environment: $out"
 fi
 
 BROKER_PID="$(pgrep -u "$BROKER_USER" -f '[f]aramir-broker' | head -1)"

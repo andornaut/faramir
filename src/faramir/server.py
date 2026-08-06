@@ -43,7 +43,7 @@ _UCRED = struct.Struct("3i")
 class Server:
     def __init__(self, config: Config) -> None:
         self.config = config
-        self.store = SecretStore(config.secrets)
+        self.store = SecretStore(config.secrets, config.keeper)
         self.audit = AuditLog(config.audit)
         self._slots = threading.BoundedSemaphore(config.server.max_concurrency)
         self._stop = threading.Event()
@@ -334,15 +334,10 @@ class Server:
 
         # Resolve secret values.  This is the only place plaintext is touched
         # outside the store, and it goes straight into the child's environ.
+        # The age key is not among them: the keeper holds it, and nothing the
+        # broker executes can obtain it.
         env = dict(exec_cfg.base_env)
         env.setdefault("HOME", self._home())
-        if decision.rule.provide_age_key:
-            # Ansible resolves sops vars itself, so it needs the key.  Only
-            # rules that opt in get it, and the key is in the redaction value
-            # set, so printing it yields a token.
-            key = self.store.age_key_material()
-            if key:
-                env["SOPS_AGE_KEY"] = key
         injected: dict[str, str] = {}
         for name, uri in env_refs.items():
             try:
@@ -366,8 +361,9 @@ class Server:
                 log_id,
             )
 
-        # The value set is *every* known secret, not only the injected ones:
-        # ansible-playbook decrypts vars internally and prints them itself.
+        # The value set is *every* known secret, not only the injected ones: a
+        # managed host can print a credential the broker never injected, and
+        # catching that is the accidental-disclosure guarantee.
         redactor = Redactor(self.store.pairs(), self.store.policy)
         collector = RawCollector(self.config.audit.max_record_bytes)
         started = time.time()

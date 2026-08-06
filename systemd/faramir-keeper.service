@@ -1,0 +1,61 @@
+[Unit]
+Description=faramir keeper: holds the age key, serves decrypted values
+Documentation=file:///usr/local/share/doc/faramir/README.md
+Requires=faramir-keeper.socket
+After=faramir-keeper.socket
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=faramir-keeper
+Group=faramir-keeper
+ExecStart=/usr/local/bin/faramir-keeper
+Restart=on-failure
+RestartSec=2
+
+# The whole point of this unit.  The key is readable at
+# $CREDENTIALS_DIRECTORY/age_key by this process and by nothing else: the file
+# is 0400 faramir-keeper, and no command the broker runs shares this uid.
+LoadCredential=age_key:/etc/faramir/age.key
+
+# This process execs sops and nothing else.  It never runs an allowlisted
+# command, never touches a PTY, and never talks to the network, so it can be
+# locked down considerably harder than the broker.
+PrivateNetwork=true
+RestrictAddressFamilies=AF_UNIX
+ProtectProc=invisible
+ProcSubset=pid
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+# Somewhere for sops to put ~/.config; it writes nothing that outlives a run.
+StateDirectory=faramir-keeper
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @mount @debug @cpu-emulation @obsolete
+SystemCallArchitectures=native
+SystemCallErrorNumber=EPERM
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RemoveIPC=true
+UMask=0077
+
+# The managed sops files must be readable here.  Under ProtectSystem=strict the
+# whole tree is read-only but visible, so a file under /srv works as shipped.
+# A [secrets] file under /home needs a BindReadOnlyPaths= drop-in, because
+# ProtectHome=true makes /home empty for this unit.
+
+[Install]
+WantedBy=multi-user.target

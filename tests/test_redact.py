@@ -17,7 +17,7 @@ from faramir.redact import (  # noqa: E402
     token_for,
     variants,
 )
-from faramir.secretstore import _flatten  # noqa: E402
+from faramir.keeper import flatten  # noqa: E402
 
 SECRET = "hunter2-correct-horse-battery"
 REF = "home/router/admin"
@@ -75,12 +75,12 @@ class TestValueSet(unittest.TestCase):
 
 
 class TestFlatten(unittest.TestCase):
-    """What ``_flatten`` drops is never redacted and never warned about, so the
+    """What ``flatten`` drops is never redacted and never warned about, so the
     only thing it may drop is sops' own top-level metadata block."""
 
     def test_sops_metadata_block_is_dropped(self):
         tree = {"sops": {"age": [{"recipient": "age1x"}], "lastmodified": "..."}}
-        self.assertEqual(list(_flatten(tree)), [])
+        self.assertEqual(list(flatten(tree)), [])
 
     def test_keys_merely_starting_with_sops_are_kept(self):
         tree = {
@@ -88,7 +88,7 @@ class TestFlatten(unittest.TestCase):
             "home": {"sopsuser": "AnotherL0ngSecret"},
         }
         self.assertEqual(
-            list(_flatten(tree)),
+            list(flatten(tree)),
             [
                 ("sops_backup_token", "S3cret-Value-Long"),
                 ("home/sopsuser", "AnotherL0ngSecret"),
@@ -98,10 +98,10 @@ class TestFlatten(unittest.TestCase):
     def test_nested_sops_key_is_kept(self):
         """Only the top-level 'sops' key is metadata."""
         tree = {"vault": {"sops": "a-real-secret-value"}}
-        self.assertEqual(list(_flatten(tree)), [("vault/sops", "a-real-secret-value")])
+        self.assertEqual(list(flatten(tree)), [("vault/sops", "a-real-secret-value")])
 
     def test_booleans_and_nulls_are_skipped(self):
-        self.assertEqual(list(_flatten({"a": True, "b": None})), [])
+        self.assertEqual(list(flatten({"a": True, "b": None})), [])
 
 
 class TestMatching(unittest.TestCase):

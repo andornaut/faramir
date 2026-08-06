@@ -21,7 +21,7 @@ def load(**sections):
 
 
 class TestUnknownKeys(unittest.TestCase):
-    SECTIONS = ["server", "exec", "secrets", "audit", "sync"]
+    SECTIONS = ["server", "keeper", "exec", "secrets", "audit", "sync"]
 
     def test_typo_is_a_config_error(self):
         for section in self.SECTIONS:
@@ -87,6 +87,42 @@ class TestSocketMode(unittest.TestCase):
 
     def test_default(self):
         self.assertEqual(load().server.socket_mode, 0o660)
+
+
+class TestTheAgeKeyMigration(unittest.TestCase):
+    """The broker no longer reads the key, so the old settings must not be
+    ignored: silently dropping them leaves a config that reads as though
+    Ansible were still being handed the master key."""
+
+    def test_provide_age_key_names_the_rule_and_says_what_to_do(self):
+        with self.assertRaises(ConfigError) as caught:
+            Config.from_dict(
+                {"allow": [{"name": "ansible", "argv0": "^ansible$", "provide_age_key": True}]},
+                "test.toml",
+            )
+        message = str(caught.exception)
+        self.assertIn("ansible", message)
+        self.assertIn("provide_age_key", message)
+        self.assertIn("keeper", message)
+
+    def test_age_key_settings_under_secrets_point_at_the_keeper(self):
+        for key in ("age_key_credential", "age_key_file"):
+            with self.subTest(key=key):
+                with self.assertRaises(ConfigError) as caught:
+                    load(secrets={key: "age_key"})
+                self.assertIn(key, str(caught.exception))
+                self.assertIn("[keeper]", str(caught.exception))
+
+    def test_the_keeper_section_parses(self):
+        config = load(
+            keeper={"socket_path": "/run/x/k.sock", "allowed_users": ["b"], "socket_mode": "0600"}
+        )
+        self.assertEqual(config.keeper.socket_path, "/run/x/k.sock")
+        self.assertEqual(config.keeper.allowed_users, ["b"])
+        self.assertEqual(config.keeper.socket_mode, 0o600)
+
+    def test_the_keeper_has_defaults(self):
+        self.assertEqual(load().keeper.allowed_users, ["faramir-broker"])
 
 
 class TestAllowRules(unittest.TestCase):

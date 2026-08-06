@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
 # Phase 2 -- generate the age keypair and wire the repo up for sops.
 #
-# The private key ends up at /etc/faramir/age.key, 0400 faramir-broker:faramir-broker.  It is
-# never copied anywhere else; the broker reads it through systemd's
-# LoadCredential=, so it is not even readable from the broker's own $PATH view.
+# The private key ends up at /etc/faramir/age.key, 0400 owned by the KEEPER,
+# not the broker.  Every brokered command runs as the broker's uid, so a key
+# the broker could read is a key any command could read.  The keeper reads it
+# through systemd's LoadCredential= and serves decrypted values only.
 set -euo pipefail
 
 BROKER_USER="${BROKER_USER:-faramir-broker}"
+KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 KEY=/etc/faramir/age.key
 REPO="${REPO:-/srv/ansible-ctrl}"
@@ -17,7 +19,7 @@ say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 command -v age-keygen >/dev/null || { echo "install age first (apt install age)" >&2; exit 1; }
 command -v sops >/dev/null || { echo "install sops first (https://github.com/getsops/sops/releases)" >&2; exit 1; }
 
-install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/faramir
+install -d -m 0755 -o root -g root /etc/faramir
 
 if [[ -f $KEY ]]; then
   say "keeping existing ${KEY}"
@@ -26,9 +28,18 @@ else
   # Subshell: a bare 'umask 077' here would leak into everything below, and
   # .sops.yaml has to stay group-readable.
   (umask 077; age-keygen -o "$KEY" 2>/dev/null)
-  chown "$BROKER_USER:$BROKER_USER" "$KEY"
-  chmod 0400 "$KEY"
 fi
+# Re-asserted every run, not just on creation: a host that installed before the
+# keeper existed still has this key owned by the broker, where every brokered
+# command could read it.
+# CLEANUP (added 2026-08-05): the chown can drop back inside the else branch
+# once every host has run this script once.
+id -u "$KEEPER_USER" >/dev/null 2>&1 || {
+  echo "no such user: ${KEEPER_USER}; run install/10-accounts.sh first" >&2
+  exit 1
+}
+chown "$KEEPER_USER:$KEEPER_USER" "$KEY"
+chmod 0400 "$KEY"
 
 PUB="$(grep -o 'age1[0-9a-z]*' "$KEY" | tail -1)"
 say "public key: ${PUB}"

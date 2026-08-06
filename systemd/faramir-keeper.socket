@@ -1,0 +1,16 @@
+[Unit]
+Description=faramir keeper socket
+Documentation=file:///usr/local/share/doc/faramir/README.md
+
+[Socket]
+ListenStream=/run/faramir/keeper.sock
+# Owned by the keeper, reachable only by the broker.  This is the boundary:
+# processes that execute commands run as faramir-exec (or, until the executor
+# split lands, as faramir-broker) and must not be able to open this.
+SocketMode=0660
+SocketUser=faramir-keeper
+SocketGroup=faramir-broker
+Accept=no
+
+[Install]
+WantedBy=sockets.target

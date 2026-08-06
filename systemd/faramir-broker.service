@@ -1,8 +1,8 @@
 [Unit]
 Description=Secret broker for local AI agents
 Documentation=file:///usr/local/share/doc/faramir/README.md
-Requires=faramir-broker.socket
-After=faramir-broker.socket network.target
+Requires=faramir-broker.socket faramir-keeper.socket
+After=faramir-broker.socket faramir-keeper.socket network.target
 
 [Service]
 Type=notify
@@ -16,10 +16,10 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2
 
-# The age key is passed as a systemd credential, so it is readable at
-# $CREDENTIALS_DIRECTORY/age_key and nowhere else -- not from a path a child
-# could re-open, not from an environment variable.
-LoadCredential=age_key:/etc/faramir/age.key
+# No LoadCredential= here, deliberately.  A systemd credential is readable by
+# the unit's uid, and every brokered command runs as that uid, so loading the
+# age key here would hand it to every child no matter what the allowlist said.
+# faramir-keeper.service holds it instead and serves values only.
 
 # The critical one: without ProtectProc the agent uid can read
 # /proc/<pid>/environ of the broker and of every command it runs.
@@ -50,6 +50,9 @@ DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
 ReadWritePaths=/srv/ansible-ctrl /var/log/faramir
 RuntimeDirectory=faramir
+# /run/faramir holds the keeper's socket as well as this one; without this,
+# stopping the broker removes the directory and takes keeper.sock with it.
+RuntimeDirectoryPreserve=yes
 # The broker's home: SSH keys for managed hosts, and ~/.ansible/tmp, which
 # ansible-playbook creates unconditionally.  It lives here rather than under
 # /home precisely because ProtectHome= would otherwise hide it.

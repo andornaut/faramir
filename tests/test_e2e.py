@@ -101,18 +101,34 @@ class TestVerificationMatrix(BrokerTestCase):
 
     @unittest.skipUnless(have("ansible-playbook"), "needs ansible-core")
     def test_06_ansible_playbook_vvv_has_no_plaintext(self):
-        response = self.broker.run(["ansible-playbook", "-i", "inventory.ini", "site.yml", "-vvv"])
+        response = self.broker.run(
+            ["ansible-playbook", "-i", "inventory.ini", "site.yml", "-vvv"],
+            {"ROUTER_PW": PW_REF},
+        )
         self.assertNoPlaintext(response["output"])
         self.assertIn("PLAY RECAP", response["output"])
 
     @unittest.skipUnless(have("ansible-playbook"), "needs ansible-core")
     def test_07_playbook_that_prints_a_vault_var_is_redacted(self):
-        response = self.broker.run(["ansible-playbook", "-i", "inventory.ini", "site.yml"])
+        response = self.broker.run(
+            ["ansible-playbook", "-i", "inventory.ini", "site.yml"],
+            {"ROUTER_PW": PW_REF},
+        )
         self.assertEqual(response["exit_code"], 0, response["output"])
         self.assertNoPlaintext(response["output"])
         self.assertIn(ROUTER_TOKEN, response["output"])
         # ...and it really did run the task, rather than failing early.
         self.assertIn("print the vault variable", response["output"])
+
+    @unittest.skipUnless(have("ansible-playbook"), "needs ansible-core")
+    def test_07b_playbook_cannot_decrypt_the_sops_file_itself(self):
+        # The arrangement this replaced: Ansible resolving sops vars at run
+        # time.  It needed the age key, and nothing gets the age key now.
+        response = self.broker.run(
+            ["ansible-playbook", "-i", "inventory.ini", "decrypt.yml"]
+        )
+        self.assertNotEqual(response["exit_code"], 0, response["output"])
+        self.assertNoPlaintext(response["output"])
 
     def test_08_non_allowlisted_command_is_denied(self):
         response = self.broker.run(["cat", "/etc/passwd"])
@@ -159,16 +175,19 @@ class TestNonInjectedSecrets(BrokerTestCase):
         self.assertNoPlaintext(response["output"], secret=API_TOKEN)
         self.assertIn(token_for("home/api/token"), response["output"])
 
-    def test_age_key_itself_is_redacted(self):
-        response = self.broker.run(
-            ["bash", "-lc", f"echo 'key is {self.broker.age_private}'"]
-        )
-        self.assertNoPlaintext(response["output"], secret=self.broker.age_private)
-        self.assertIn(token_for("broker/age-key"), response["output"])
-
     def test_bash_does_not_receive_the_age_key(self):
         response = self.broker.run(["bash", "-lc", "echo \"[${SOPS_AGE_KEY:-unset}]\""])
         self.assertIn("[unset]", response["output"])
+
+    def test_the_age_key_is_not_in_the_brokers_value_set(self):
+        # It used to be, so that a child which printed it got a token instead.
+        # Now no child can obtain it, so the property holds by construction and
+        # the key is not among the values the broker holds.  Asserting the old
+        # behaviour here would hide a regression where the broker starts
+        # loading the key again.
+        response = self.broker.call({"op": "list_secrets"})
+        self.assertNotIn("age-key", response["output"])
+        self.assertNotIn("age", [r.split("/")[0] for r in response["refs"]])
 
     def test_short_secret_is_not_redacted_and_that_is_deliberate(self):
         response = self.broker.run(["bash", "-lc", f"echo 'pin {SHORT_PW} here'"])

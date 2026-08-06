@@ -10,20 +10,21 @@ them look like over-engineering until you hit the case they exist for.
 `op run`, `chamber exec`, `sops exec-env` and friends mask the values *they*
 injected into the child's environment. That is not sufficient here.
 
-`ansible-playbook` decrypts vars itself, at run time, from a file the broker
-never passed it. A vault var printed by a `debug:` task, or by `-vvv` output,
-was never injected by anything — so an injector-based redactor has never seen
-the value and cannot mask it.
+A credential reaches the output by paths no injector knows about. A managed
+host printing its own configuration over `ssh` emits the very password stored
+in the sops file, whether or not that ref was injected into the command. A
+grep across a log file finds one that was written there weeks ago. An
+injector-based redactor has never seen those values and cannot mask them.
 
-Therefore: **the redactor's value set is every secret the broker manages**, not
-the subset relevant to the current command. It is rebuilt on startup, on
-`SIGHUP`, and when a managed file's mtime changes.
+Therefore: **the redactor's value set is every secret the keeper manages**, not
+the subset relevant to the current command. The broker fetches it on startup,
+on `SIGHUP`, and when a managed file's mtime changes.
 
 ## Why a PTY and not a pipe
 
 Two reasons, and the second is the one that matters.
 
-1. Programs behave differently when stdout is not a terminal — colour
+1. Programs behave differently when stdout is not a terminal: colour
    disappears, progress meters change, buffering changes. Ansible's output in
    particular is much less useful through a pipe.
 2. **A process can write straight to `/dev/tty`**, bypassing stdout redirection
@@ -49,7 +50,7 @@ hunte\x1b[32mr2-correct-horse
 ```
 
 is not `hunter2-correct-horse` to any string matcher, but it renders
-identically on a terminal — and would render identically in a transcript sent
+identically on a terminal, and would render identically in a transcript sent
 to a model. So escapes and stray control characters are removed *first*, and
 the response contains the stripped text.
 
@@ -71,7 +72,7 @@ For every secret, these renderings are generated and matched:
 | shell single-quoted body (`'\''`) | `set -x` traces |
 | shell double-quoted body (`\$`, `` \` ``, `\"`) | `set -x` traces |
 
-Not exhaustive, and deliberately so — an agent that *wants* to defeat this can
+Not exhaustive, and deliberately so: an agent that *wants* to defeat this can
 (see the threat model). These are the encodings ordinary tools produce by
 accident.
 
@@ -105,29 +106,36 @@ bits/char of Shannon entropy. Values that fail are **not redacted at all**, and:
 - `faramir_list_secrets` marks them `NOT REDACTABLE: <reason>`,
 - `faramir_status` lists them under `not_redactable`.
 
-The right fix is to lengthen the secret, not to lower the threshold — but the
+The right fix is to lengthen the secret, not to lower the threshold, but the
 thresholds are configurable in `[secrets]` if you have a genuinely short value
 you would rather redact aggressively.
 
 ### 6. Stable tokens
 
 The same secret always becomes `«SECRET:home/router/admin»`, in every response
-and every session. Two refs holding the *same value* share one token — the
+and every session. Two refs holding the *same value* share one token: the
 redactor deduplicates by value, so a password stored both as
 `home/router/admin` and as `vault_router_password` renders as a single,
 consistent name rather than alternating unpredictably. The model can then reason about "the router password"
 across turns without ever holding it. Guillemets are used because they
 essentially never occur in tool output, so a token is unambiguous.
 
-## The age key is in the value set
+## The age key is not in the value set
 
-Ansible has to decrypt sops vars itself, so `ansible` and `ansible-playbook`
-receive `SOPS_AGE_KEY` (via `provide_age_key = true` on their allowlist rules).
-Anything that can decrypt can also print the key it decrypted with, and that
-would be a worse leak than any single credential — so the key material is
-itself part of the redaction value set, under the ref `broker/age-key`.
+It used to be. When Ansible decrypted sops vars itself it received
+`SOPS_AGE_KEY`, and anything that can decrypt can also print the key it
+decrypted with, so the key material was added to the value set under the ref
+`broker/age-key` and a child that printed it got a token.
 
-Rules without `provide_age_key` — notably `bash` — never see it.
+That is gone, and its absence is the stronger arrangement. No process the
+broker starts receives the key, can read `/etc/faramir/age.key` (owned by
+`faramir-keeper`, mode 0400), or can open the keeper's socket. The property
+"no child prints the age key" no longer rests on the matcher catching it on
+the way out. Redaction is best-effort; a uid boundary is not.
+
+Relying on the redactor here was always weaker than it looked: a child holding
+the key could write it to a file or send it somewhere, and redaction only ever
+sees output.
 
 ## What is deliberately not done
 

@@ -1,31 +1,34 @@
-"""Decrypts the sops files the broker manages and holds the full value set.
+"""The broker's view of the secret values, fetched from the keeper.
 
 Two things matter here:
 
-1. The value set is *every* secret the broker knows about, not just the ones
-   injected into the current command.  ``ansible-playbook`` decrypts vars
-   internally, so an injector-based tool cannot mask a var it never injected.
-   The redactor has to know the lot regardless of injection path.
-2. Plaintext lives only in this process's heap.  It is never written to disk,
-   never placed in an argv, and the age key is read from
-   ``$CREDENTIALS_DIRECTORY`` (systemd ``LoadCredential=``), not from a path
-   the child could re-read.
+1. The value set is *every* secret the keeper knows about, not just the ones
+   injected into the current command.  A secret can reach the output without
+   having been injected -- a managed host printing its own configuration will
+   do it -- and catching that is the accidental-disclosure guarantee.  So the
+   broker holds the lot, and the redactor is built from all of it.
+2. The broker never holds the age key.  It cannot decrypt anything; it asks
+   the keeper, which runs as its own uid and serves values only.  Plaintext
+   values live in this process's heap, are never written to disk, and are
+   never placed in an argv.
+
+The keeper is a separate process, so this class caches: it reloads on start,
+on SIGHUP, and when a managed file's mtime changes.  Stat-ing the sops files
+needs no key, so that poll stays on this side.
 """
 
 from __future__ import annotations
 
-import json
 import logging
 import os
 import re
-import subprocess
 import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
-from .config import SecretsConfig
+from .config import KeeperConfig, SecretsConfig
+from .keeper import KeeperError, fetch_values
 from .redact import EligibilityPolicy
 
 log = logging.getLogger("faramir.secrets")
@@ -35,7 +38,7 @@ INLINE_TOKEN_RE = re.compile(r"\{\{SECRET:(?P<ref>[A-Za-z0-9][A-Za-z0-9._/-]*)\}
 
 
 class SecretError(Exception):
-    """Decryption failed, or an unknown ref was requested."""
+    """The value set could not be loaded, or an unknown ref was requested."""
 
 
 def parse_secret_uri(uri: str) -> str:
@@ -47,26 +50,6 @@ def parse_secret_uri(uri: str) -> str:
     return m.group("ref")
 
 
-def _flatten(node: Any, prefix: str = "") -> Iterator[tuple[str, str]]:
-    """Walk decrypted YAML/JSON into ``path/to/key`` -> string pairs."""
-    if isinstance(node, dict):
-        for key, value in node.items():
-            # Exactly the top-level 'sops' key, which is sops' own metadata
-            # block.  A prefix match at any depth would silently drop real
-            # secrets (sops_backup_token, home/sopsuser) from the value set,
-            # and a dropped secret is never redacted and never warned about.
-            if prefix == "" and str(key) == "sops":
-                continue
-            yield from _flatten(value, f"{prefix}/{key}" if prefix else str(key))
-    elif isinstance(node, list):
-        for i, value in enumerate(node):
-            yield from _flatten(value, f"{prefix}/{i}" if prefix else str(i))
-    elif isinstance(node, bool) or node is None:
-        return  # never secret, and "True"/"False" would redact half the output
-    else:
-        yield prefix, str(node)
-
-
 @dataclass
 class _FileState:
     path: str
@@ -75,10 +58,11 @@ class _FileState:
 
 
 class SecretStore:
-    """Thread-safe, mtime-refreshed view of every managed sops file."""
+    """Thread-safe, mtime-refreshed view of every managed secret value."""
 
-    def __init__(self, config: SecretsConfig) -> None:
+    def __init__(self, config: SecretsConfig, keeper: KeeperConfig) -> None:
         self.config = config
+        self.keeper = keeper
         self.policy = EligibilityPolicy(
             min_length=config.min_length,
             min_unique_chars=config.min_unique_chars,
@@ -88,76 +72,12 @@ class SecretStore:
         self._values: dict[str, str] = {}
         self._state: list[_FileState] = []
         self._checked_at = 0.0
-        self._age_key: str | None = None
         self.load_errors: list[str] = []
-
-    # -- key material ------------------------------------------------------
-
-    AGE_KEY_REF = "broker/age-key"
-
-    def age_key_material(self) -> str | None:
-        """The age private key, for children that must decrypt (Ansible).
-
-        Handing this to a child is a real concession: whoever holds it can
-        decrypt every managed file.  It is mitigated two ways -- only allowlist
-        rules with ``provide_age_key = true`` receive it, and the key itself is
-        part of the redaction value set (see :meth:`pairs`), so a child that
-        prints it gets a token.
-        """
-        return self._age_key_material()
-
-    def _age_key_material(self) -> str | None:
-        """Read the age private key from the systemd credential directory."""
-        if self._age_key is not None:
-            return self._age_key
-        candidates = []
-        creds = os.environ.get("CREDENTIALS_DIRECTORY")
-        if creds and self.config.age_key_credential:
-            candidates.append(os.path.join(creds, self.config.age_key_credential))
-        if self.config.age_key_file:
-            candidates.append(self.config.age_key_file)
-        for candidate in candidates:
-            try:
-                self._age_key = Path(candidate).read_text("utf-8")
-                log.info("loaded age key from %s", candidate)
-                return self._age_key
-            except OSError:
-                continue
-        log.warning("no age key available (tried: %s)", ", ".join(candidates) or "none")
-        return None
 
     # -- loading -----------------------------------------------------------
 
-    def _decrypt(self, path: str) -> dict[str, Any]:
-        argv = [a.replace("{file}", path) for a in self.config.decrypt_command]
-        env = {
-            "PATH": os.environ.get("PATH", "/usr/local/bin:/usr/bin:/bin"),
-            "HOME": os.environ.get("HOME", "/tmp"),
-            "LANG": "C.UTF-8",
-        }
-        key = self._age_key_material()
-        if key:
-            env["SOPS_AGE_KEY"] = key
-        try:
-            proc = subprocess.run(
-                argv, capture_output=True, env=env, timeout=60, check=False
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise SecretError(f"{path}: running {argv[0]} failed: {exc}") from exc
-        if proc.returncode != 0:
-            detail = proc.stderr.decode("utf-8", "replace").strip().splitlines()
-            raise SecretError(
-                f"{path}: decrypt failed ({proc.returncode}): "
-                f"{detail[-1] if detail else 'no output'}"
-            )
-        try:
-            return json.loads(proc.stdout.decode("utf-8", "replace"))
-        except json.JSONDecodeError as exc:
-            raise SecretError(f"{path}: decrypted output is not JSON: {exc}") from exc
-
     def reload(self) -> None:
-        """Re-read every managed file.  Called on startup and on SIGHUP."""
-        values: dict[str, str] = {}
+        """Re-fetch every value from the keeper.  On startup and on SIGHUP."""
         state: list[_FileState] = []
         errors: list[str] = []
         for path in self.config.files:
@@ -167,15 +87,20 @@ class SecretStore:
                 errors.append(f"{path}: {exc.strerror}")
                 continue
             state.append(_FileState(path, st.st_mtime, st.st_size))
-            try:
-                tree = self._decrypt(path)
-            except SecretError as exc:
-                errors.append(str(exc))
-                continue
-            for ref, value in _flatten(tree):
-                if ref in values and values[ref] != value:
-                    log.warning("secret ref %s defined more than once; last wins", ref)
-                values[ref] = value
+
+        try:
+            values, keeper_errors = fetch_values(self.keeper.socket_path)
+        except KeeperError as exc:
+            # Keep the previous value set rather than dropping to empty.  An
+            # empty set means nothing is redacted, which is the worst possible
+            # response to "the keeper is briefly unreachable".
+            with self._lock:
+                self.load_errors = [*errors, str(exc)]
+                self._state = state
+                self._checked_at = time.monotonic()
+            log.error("keeper unreachable, keeping the previous value set: %s", exc)
+            return
+        errors.extend(keeper_errors)
 
         with self._lock:
             self._values = values
@@ -235,21 +160,15 @@ class SecretStore:
                 raise SecretError(f"unknown secret ref: {ref}") from None
 
     def pairs(self) -> list[tuple[str, str]]:
-        """Every (ref, value) pair -- the input to the redactor's value set.
+        """Every (ref, value) pair: the input to the redactor's value set.
 
-        Includes the age private key.  A child that can decrypt can also print
-        the key it decrypted with, and that would be a far worse leak than any
-        single credential.
+        The age key is deliberately absent.  It used to be listed here so that
+        a child which printed it got a token instead of the key; no child can
+        obtain it any more, so that property now holds by construction rather
+        than by the matcher catching it on the way out.
         """
         with self._lock:
-            out = sorted(self._values.items())
-        key = self._age_key_material()
-        if key:
-            for line in key.splitlines():
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    out.append((self.AGE_KEY_REF, line))
-        return out
+            return sorted(self._values.items())
 
     def weak_refs(self) -> list[tuple[str, str]]:
         with self._lock:

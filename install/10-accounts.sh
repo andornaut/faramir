@@ -4,15 +4,20 @@
 # This is the part that actually protects the secrets.  Everything later is
 # ergonomics and blast-radius reduction on top of uid separation.
 #
-#   uid <operator>   normal user, holds nothing special
-#   uid agent        runs the coding agent; member of group devwork
-#   uid faramir-broker  holds the age key and the SSH keys; executes commands
-#   group devwork    shared access to the repo working tree
+#   uid <operator>       normal user, holds nothing special
+#   uid agent            runs the coding agent; member of group devwork
+#   uid faramir-keeper   holds the age key; execs nothing but sops
+#   uid faramir-broker   holds the SSH keys; executes brokered commands
+#   group devwork        shared access to the repo working tree
+#
+# The keeper is a separate uid from the broker because every brokered command
+# runs as the broker's uid, and anything that uid can read, a command can read.
 set -euo pipefail
 
 OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
 AGENT_USER="${AGENT_USER:-agent}"
 BROKER_USER="${BROKER_USER:-faramir-broker}"
+KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 # WORKTREE's default needs the agent's real home, which the account below may
 # not have yet, so it is resolved after the account exists.
@@ -56,6 +61,19 @@ fi
 install -d -m 0700 -o "$BROKER_USER" -g "$BROKER_USER" "$BROKER_HOME"
 install -d -m 0700 -o "$BROKER_USER" -g "$BROKER_USER" "${BROKER_HOME}/.ssh"
 
+# The keeper holds the age key and nothing else.  No devwork membership, no
+# shell, and a home only because sops writes ~/.config.  It must not share a
+# uid with anything that executes a command.
+KEEPER_HOME="${KEEPER_HOME:-/var/lib/faramir-keeper}"
+say "user ${KEEPER_USER} (keeper, no login, no groups, home ${KEEPER_HOME})"
+if ! id -u "$KEEPER_USER" >/dev/null 2>&1; then
+  useradd -r -m -d "$KEEPER_HOME" -s /usr/sbin/nologin "$KEEPER_USER"
+fi
+install -d -m 0700 -o "$KEEPER_USER" -g "$KEEPER_USER" "$KEEPER_HOME"
+if id -nG "$KEEPER_USER" | tr ' ' '\n' | grep -qx "$GROUP"; then
+  say "WARNING: ${KEEPER_USER} is in ${GROUP}; remove it, the keeper needs no shared access"
+fi
+
 say "operator ${OPERATOR} joins ${GROUP}"
 id -u "$OPERATOR" >/dev/null 2>&1 && usermod -aG "$GROUP" "$OPERATOR"
 
@@ -79,7 +97,10 @@ for profile in "${AGENT_HOME}/.bashrc" "$(getent passwd "$OPERATOR" | cut -d: -f
   fi
 done
 
-install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/faramir
+# 0755: the broker, the keeper and the agent all read config.toml from here, so
+# the directory cannot belong to any one of them.  What protects the age key is
+# its own mode (0400 ${KEEPER_USER}), not the directory it sits in.
+install -d -m 0755 -o root -g root /etc/faramir
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 install -d -m 0755 -o "$BROKER_USER" -g "$GROUP" /srv/ansible-ctrl
 
@@ -87,6 +108,7 @@ cat <<EOF
 
 Phase 1 acceptance (run these):
   sudo -u ${AGENT_USER} cat /etc/faramir/age.key        -> Permission denied
+  sudo -u ${BROKER_USER} cat /etc/faramir/age.key       -> Permission denied
   sudo -u ${AGENT_USER} ls ~${OPERATOR}/.ssh            -> Permission denied
   sudo -u ${AGENT_USER} touch ${WORKTREE}/.perm-check   -> succeeds
 

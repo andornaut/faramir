@@ -12,6 +12,19 @@ max_request_bytes = 262144
 allowed_groups = ["devwork"]
 allowed_uids = []
 
+# The process that holds the age key.  It runs as its own uid, execs nothing
+# but sops, and has no operation that returns key material -- so no command the
+# broker runs can reach the key that decrypts every managed file.
+[keeper]
+socket_path = "/run/faramir/keeper.sock"
+socket_mode = "0660"
+# The broker is the only legitimate client.  Checked with SO_PEERCRED, on top
+# of the socket mode.
+allowed_users = ["faramir-broker"]
+allowed_groups = []
+# Name of the systemd LoadCredential= entry in faramir-keeper.service.
+age_key_credential = "age_key"
+
 [exec]
 default_cwd = "/srv/ansible-ctrl"
 default_timeout_sec = 600
@@ -34,12 +47,12 @@ ANSIBLE_HOST_KEY_CHECKING = "True"
 ANSIBLE_NOCOWS = "1"
 
 [secrets]
-# Every sops file the broker manages.  ALL of their values go into the
-# redaction value set, not just the ones injected into a given command --
-# ansible-playbook decrypts vars internally and can print them itself.
+# Every sops file the keeper manages.  ALL of their values go into the
+# redaction value set, not just the ones injected into a given command: a
+# managed host can print a credential the broker never injected.
+# The broker stats these to notice edits; only the keeper can decrypt them.
 files = ["/srv/ansible-ctrl/group_vars/all/vault.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
-age_key_credential = "age_key"
 refresh_interval_sec = 5
 
 # Values below these thresholds are NOT redacted -- a short or low-entropy
@@ -68,14 +81,13 @@ timeout_sec = 120
 # Allowlist
 # ---------------------------------------------------------------------------
 
-# provide_age_key: Ansible resolves sops vars itself at run time, so it needs
-# the age key in its environment.  Only rules that opt in get it -- notably the
-# bash rule does not.  The key is also part of the redaction value set, so a
-# child that prints it gets «SECRET:broker/age-key» rather than the key.
+# No rule receives the age key: there is no longer a flag that grants it, and
+# the broker does not hold it to grant.  Ansible therefore cannot resolve sops
+# vars itself; give it the values it needs through env_refs and have group_vars
+# read them with lookup('env', ...).  See docs/ansible-sops.md.
 [[allow]]
 name = "ansible-playbook"
 argv0 = '^ansible-playbook$'
-provide_age_key = true
 cwd_allow = ['^/srv/ansible-ctrl(/|$)']
 args_allow = [
   '^[A-Za-z0-9._][A-Za-z0-9._/-]*\.ya?ml$',
@@ -95,7 +107,6 @@ args_deny = [
 [[allow]]
 name = "ansible"
 argv0 = '^ansible$'
-provide_age_key = true
 cwd_allow = ['^/srv/ansible-ctrl(/|$)']
 args_allow = ['^[A-Za-z0-9@:._,!*/=+ {}"\[\]-]{1,4096}$']
 args_deny = ['(^|=)/etc/faramir', '(^|=)/proc/']

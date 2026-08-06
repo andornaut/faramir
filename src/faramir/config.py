@@ -138,18 +138,23 @@ class AllowRule:
     args_deny: list[re.Pattern[str]] = field(default_factory=list)
     cwd_allow: list[re.Pattern[str]] = field(default_factory=list)
     max_timeout_sec: int | None = None
-    # Whether this program gets SOPS_AGE_KEY in its environment.  Ansible has
-    # to decrypt vars itself, so it needs the key; a shell must never get it.
-    # The key is in the redaction value set regardless, so it cannot be printed
-    # in the clear -- but keeping it out of most children is still cheaper than
-    # relying on that.
-    provide_age_key: bool = False
 
     @classmethod
     def parse(cls, raw: dict[str, Any], index: int) -> "AllowRule":
         name = raw.get("name") or f"rule[{index}]"
         if "argv0" not in raw:
             raise ConfigError(f"allow rule {name!r}: missing 'argv0'")
+        if "provide_age_key" in raw:
+            # Nothing the broker executes receives the age key any more: the
+            # keeper holds it and returns values only.  Failing loudly matters
+            # because silently ignoring the flag would leave a config that
+            # still reads as though Ansible were being handed the master key.
+            raise ConfigError(
+                f"allow rule {name!r}: 'provide_age_key' no longer exists. The "
+                "keeper holds the age key and no child ever receives it; have "
+                "Ansible read its vars from the environment instead (see "
+                "docs/ansible-sops.md)."
+            )
         # No list() around the raw values: it would split a bare string into
         # characters before _compile_all could reject it, which is the bug that
         # check exists to catch.
@@ -168,7 +173,6 @@ class AllowRule:
             max_timeout_sec=_positive_int(
                 raw.get("max_timeout_sec"), f"allow rule {name!r} max_timeout_sec"
             ),
-            provide_age_key=bool(raw.get("provide_age_key", False)),
         )
 
 
@@ -206,13 +210,27 @@ class ExecConfig:
 
 
 @dataclass(frozen=True)
+class KeeperConfig:
+    """The process that holds the age key.
+
+    Separate uid, separate socket, and no operation that returns the key.  The
+    broker is the only client; ``allowed_users`` is what says so.
+    """
+
+    socket_path: str = "/run/faramir/keeper.sock"
+    socket_mode: int = 0o660
+    allowed_users: list[str] = field(default_factory=lambda: ["faramir-broker"])
+    allowed_groups: list[str] = field(default_factory=list)
+    age_key_credential: str = "age_key"
+    age_key_file: str = ""
+
+
+@dataclass(frozen=True)
 class SecretsConfig:
     files: list[str] = field(default_factory=list)
     decrypt_command: list[str] = field(
         default_factory=lambda: ["sops", "--output-type", "json", "--decrypt", "{file}"]
     )
-    age_key_credential: str = "age_key"
-    age_key_file: str = ""
     refresh_interval_sec: int = 5
     min_length: int = 8
     min_unique_chars: int = 4
@@ -246,6 +264,7 @@ class SyncConfig:
 class Config:
     path: str
     server: ServerConfig
+    keeper: KeeperConfig
     exec: ExecConfig
     secrets: SecretsConfig
     audit: AuditConfig
@@ -278,12 +297,30 @@ class Config:
             ),
         )
 
+        keeper_raw = _table(raw, "keeper", path)
+        keeper_mode = keeper_raw.pop("socket_mode", None)
+        keeper = _section(
+            KeeperConfig,
+            keeper_raw,
+            f"{path}: [keeper]",
+            **(
+                {"socket_mode": _octal_mode(keeper_mode, f"{path}: keeper.socket_mode")}
+                if keeper_mode is not None
+                else {}
+            ),
+        )
+
         exec_cfg = _section(
             ExecConfig, _table(raw, "exec", path), f"{path}: [exec]"
         )
-        secrets = _section(
-            SecretsConfig, _table(raw, "secrets", path), f"{path}: [secrets]"
-        )
+        secrets_raw = _table(raw, "secrets", path)
+        moved = [k for k in ("age_key_credential", "age_key_file") if k in secrets_raw]
+        if moved:
+            raise ConfigError(
+                f"{path}: [secrets] {', '.join(moved)} moved to [keeper]; the "
+                "broker no longer reads the age key at all"
+            )
+        secrets = _section(SecretsConfig, secrets_raw, f"{path}: [secrets]")
         audit = _section(AuditConfig, _table(raw, "audit", path), f"{path}: [audit]")
 
         sync_raw = _table(raw, "sync", path)
@@ -307,6 +344,7 @@ class Config:
         return cls(
             path=path,
             server=server,
+            keeper=keeper,
             exec=exec_cfg,
             secrets=secrets,
             audit=audit,
