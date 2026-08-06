@@ -1,0 +1,103 @@
+package main
+
+import "testing"
+
+func TestDeniedCommands(t *testing.T) {
+	for _, cmd := range []string{
+		"ansible-vault view group_vars/all/vault.yml",
+		"sops -d secrets.sops.yml",
+		"sops --decrypt secrets.sops.yml",
+		"age -d < file",
+		"age-keygen",
+		"printenv",
+		"printenv ROUTER_PW",
+		"env",
+		"cat /proc/self/environ",
+		"cat /etc/faramir/config.toml",
+		"tail /var/log/faramir/raw.log",
+		"journalctl -u faramir-broker",
+		"sudo -u faramir-keeper cat /etc/faramir/age.key",
+		"cat ~/.ssh/id_rsa",
+		"find / -name age.key",
+		"declare -x",
+		"vault kv get secret/foo",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("not denied: %q", cmd)
+		}
+	}
+}
+
+func TestAllowedCommands(t *testing.T) {
+	for _, cmd := range []string{
+		"ls -la",
+		"git status",
+		"ansible-playbook site.yml --check",
+		"grep -r TODO .",
+		"echo hello",
+		// Piping env somewhere narrows it rather than dumping it into context.
+		"env | grep -c PATH",
+	} {
+		if pattern, denied := decide(cmd); denied {
+			t.Errorf("wrongly denied %q (pattern %q)", cmd, pattern)
+		}
+	}
+}
+
+// The lookahead Python used is "(?!.*\|)"; RE2 gets "[^|]*$".  Both mean "env
+// with no pipe after it", so the piped form stays allowed and the bare form
+// stays denied.
+func TestEnvLookaheadTranslation(t *testing.T) {
+	if _, denied := decide("env"); !denied {
+		t.Error("bare env was allowed")
+	}
+	if _, denied := decide("env | grep FOO"); denied {
+		t.Error("piped env was denied")
+	}
+}
+
+// faramir is the sanctioned path, so patterns inside its own arguments must
+// not match.
+func TestFaramirInvocationsAreNotScanned(t *testing.T) {
+	for _, cmd := range []string{
+		"faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW",
+		"sudo faramir status",
+		"faramir list-secrets",
+	} {
+		if pattern, denied := decide(cmd); denied {
+			t.Errorf("wrongly denied %q (pattern %q)", cmd, pattern)
+		}
+	}
+}
+
+// Stripping stops at the first separator: anything past it is a separate
+// command the faramir prefix does not sanction.
+func TestStrippingStopsAtASeparator(t *testing.T) {
+	for _, cmd := range []string{
+		"faramir status; printenv",
+		"faramir status && printenv",
+		"faramir status | printenv",
+		"sudo faramir status; cat /etc/faramir/config.toml",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("a command past the separator slipped through: %q", cmd)
+		}
+	}
+}
+
+// A patterns file that cannot be read must not disable the hook.
+func TestFallbackIsUsedWhenThePatternsFileIsMissing(t *testing.T) {
+	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
+	if _, denied := decide("printenv"); !denied {
+		t.Error("the fallback list did not apply")
+	}
+}
+
+// Every fallback pattern must compile under RE2.  A pattern that does not is
+// skipped at load, which would silently weaken the list.
+func TestEveryFallbackPatternCompiles(t *testing.T) {
+	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
+	if got, want := len(loadPatterns()), len(fallback); got != want {
+		t.Errorf("%d of %d fallback patterns compiled; the rest are RE2-incompatible", got, want)
+	}
+}

@@ -17,17 +17,7 @@ AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 # different tree would leave the agent no way to reach the broker from the one
 # its commands actually run in.
 configured_cwd() {
-  python3 - "$1" <<'TOML' 2>/dev/null
-import sys, tomllib
-
-try:
-    with open(sys.argv[1], "rb") as fh:
-        raw = tomllib.load(fh)
-except (OSError, tomllib.TOMLDecodeError):
-    raise SystemExit(1)
-section = raw.get("exec")
-print((section if isinstance(section, dict) else {}).get("default_cwd", ""))
-TOML
+  /usr/local/bin/faramir-broker -c "$1" --print-default-cwd 2>/dev/null
 }
 if [[ -z ${WORKTREE:-} && -f /etc/faramir/config.toml ]]; then
   WORKTREE="$(configured_cwd /etc/faramir/config.toml)" || WORKTREE=""
@@ -80,5 +70,5 @@ wrong.
 
 Verify the hook fires:
   echo '{"tool_name":"Bash","tool_input":{"command":"printenv"}}' \\
-    | /usr/local/libexec/faramir/pretooluse-guard.py
+    | /usr/local/libexec/faramir/faramir-guard
 EOF

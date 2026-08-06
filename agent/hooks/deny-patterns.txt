@@ -1,4 +1,4 @@
-# Bash commands the agent may not run, one Python regex per line.
+# Bash commands the agent may not run, one RE2 regex per line.
 # Blank lines and #-comments are ignored.  Matched case-insensitively against
 # the whole command string.
 #
@@ -19,7 +19,7 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 
 # Wholesale environment dumps
 \bprintenv\b
-\benv\b(?!.*\|)
+\benv\b[^|]*$
 \bset\s*$
 \bdeclare\s+-x\b
 /proc/\d+/environ

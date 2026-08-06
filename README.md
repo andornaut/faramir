@@ -51,9 +51,12 @@ Failure | Why it is not prevented
 
 ## Installation
 
-Requires Python >= 3.11 (for `tomllib`), systemd, [age](https://github.com/FiloSottile/age), and [sops](https://github.com/getsops/sops).
+Requires systemd and [sops](https://github.com/getsops/sops) on the host, and Go to
+build. Nothing else at runtime: the binaries are static, so the host needs no
+interpreter and no libc of a particular vintage.
 
 ```bash
+make build
 sudo install/10-accounts.sh        # accounts, group, shared tree, umask 002
 sudo install/30-sops-init.sh       # age keypair -> /etc/faramir/age.key, .sops.yaml
 sudo install/20-install-broker.sh  # code, config, systemd units
@@ -72,6 +75,10 @@ sudo CONFIG=etc/examples/ansible-fleet.toml \
 in. The installer rewrites every mention of it in the config (`[exec]
 default_cwd` and `[secrets] files`) and binds that one path into all three
 units, so they cannot disagree.
+
+`20-install-broker.sh` refuses to run without built binaries and needs no
+toolchain on the target, so building on one machine and copying `bin/` to
+another works. Point it elsewhere with `FARAMIR_BIN`.
 
 `install/uninstall.sh` removes the broker and leaves the accounts, `/etc/faramir` and the audit log alone: deleting the age key would make every sops file in the repo unreadable, which is not a decision a teardown script should make for you.
 
@@ -251,28 +258,28 @@ No. | Test | Expected | Covered by
 1b | `sudo -u faramir-broker cat /etc/faramir/age.key` | Permission denied | `verify.sh`
 1c | `sudo -u agent test -w /run/faramir/keeper.sock` | not writable | `verify.sh`
 1d | `faramir run -- bash -lc 'cat /run/credentials/*/age_key'` | no key | `verify.sh`
-1e | `faramir run -- bash -lc 'echo $SOPS_AGE_KEY'` | empty | `test_e2e`, `verify.sh`
-1f | any keeper request other than `get_values` | refused, no key | `test_keeper`
+1e | `faramir run -- bash -lc 'echo $SOPS_AGE_KEY'` | empty | `internal/e2e`, `verify.sh`
+1f | any keeper request other than `get_values` | refused, no key | `internal/keeper`
 1g | `faramir run -- bash -lc 'id -un'` | `faramir-exec` | `verify.sh`
 1h | `sudo -u faramir-exec cat /var/log/faramir/raw.log` | Permission denied | `verify.sh`
 1i | `faramir run -- bash -lc 'touch <worktree>/x'` | succeeds; commands run where the agent edits | `verify.sh`
 1i2 | `sudo -u faramir-exec cat /etc/faramir/age.key` | Permission denied — `devwork` must not grant this | `verify.sh`
 1j | `sudo -u faramir-exec test -w /run/faramir/exec.sock` | not writable | `verify.sh`
-1k | broker hangs up mid-command | child's process group is killed | `test_exec`
-1l | `faramir run -- bash -lc 'ssh-add -l'` | lists keys it cannot read | `test_ssh`, `verify.sh`
+1k | broker hangs up mid-command | child's process group is killed | `internal/execserver`
+1l | `faramir run -- bash -lc 'ssh-add -l'` | lists keys it cannot read | `internal/sshagent`, `verify.sh`
 1m | `sudo -u faramir-exec cat ~faramir-broker/.ssh/id_*` | Permission denied | `verify.sh`
 2 | `sudo -u agent cat /proc/$(pgrep -u faramir-broker faramir-broker)/environ` | No such file | `verify.sh`
-3 | `faramir run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `test_e2e`, `verify.sh`
-4 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `test_e2e`, `verify.sh`
-5 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64 -w0'` | redacted | `test_e2e`, `verify.sh`
-6 | `faramir run -- ansible-playbook site.yml -vvv` | no plaintext anywhere | `test_e2e`, `verify.sh`
-7 | playbook containing `debug: var=<secret>` | redacted | `test_e2e`, `verify.sh`
-7b | playbook that tries to decrypt the sops file itself | fails, no key available | `test_e2e`
-8 | `faramir run -- <not-on-PATH>` | refused, and the error names `[exec.base_env] PATH` | `test_resolve`, `test_e2e`, `verify.sh`
-8b | `faramir run -- <worktree>/script.sh` | runs; a program outside the system directories is not special | `test_resolve`, `verify.sh`
-9 | grep the raw log for the value | plaintext present, agent cannot read it | `test_e2e`, `verify.sh`
-**10** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **LEAKS, expected** | asserted in `test_e2e`
-**11** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **LEAKS, expected** | asserted in `test_e2e`
+3 | `faramir run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `internal/e2e`, `verify.sh`
+4 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `internal/e2e`, `verify.sh`
+5 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64 -w0'` | redacted | `internal/e2e`, `verify.sh`
+6 | `faramir run -- ansible-playbook site.yml -vvv` | no plaintext anywhere | `internal/e2e`, `verify.sh`
+7 | playbook containing `debug: var=<secret>` | redacted | `internal/e2e`, `verify.sh`
+7b | playbook that tries to decrypt the sops file itself | fails, no key available | `internal/e2e`
+8 | `faramir run -- <not-on-PATH>` | refused, and the error names `[exec.base_env] PATH` | `test_resolve`, `internal/e2e`, `verify.sh`
+8b | `faramir run -- <worktree>/script.sh` | runs; a program outside the system directories is not special | `internal/resolve`, `verify.sh`
+9 | grep the raw log for the value | plaintext present, agent cannot read it | `internal/e2e`, `verify.sh`
+**10** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **LEAKS, expected** | asserted in `internal/e2e`
+**11** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **LEAKS, expected** | asserted in `internal/e2e`
 
 > [!NOTE]
 > **Tests 10 and 11 are not defects.** They are the boundary described in [What it protects against](#what-it-protects-against): an agent that deliberately transforms a value defeats output redaction, and with unrestricted egress that value is gone. They are asserted *to keep leaking* so that a future change which appears to fix them is caught and forces this document to be revisited rather than silently outgrown.
@@ -305,28 +312,74 @@ The permission checks in tests 1 through 2 and 9 only mean something on a real d
 - With `[ssh] keys` left empty there is no agent, and the keys have to live where the executor's uid can read them. That is a working setup, not a recommended one.
 - Git history still contains your old plaintext. See [Migrating from ansible-vault](#migrating-from-ansible-vault).
 
+## Implementation
+
+Go, static binaries, no runtime interpreter. The Python implementation this was
+ported from is preserved on the [`python`](../../tree/python) branch; it is
+feature-equivalent as of `679dde4` and remains a working broker.
+
+The port exists for deployment reach. Python needed >= 3.11 for `tomllib`, which
+excludes Ubuntu 22.04, Debian 11 and RHEL 9; a `CGO_ENABLED=0` binary needs only
+a kernel and systemd. Everything the design rests on is a uid boundary, a file
+mode or a systemd directive, and those are identical in both.
+
+Two differences from the Python implementation, both deliberate:
+
+- **The keeper hands sops a key *path*, not the key.** Python set `SOPS_AGE_KEY`
+  in the child's environment, where `/proc/<pid>/environ` held the master key for
+  that process's lifetime. Setting `SOPS_AGE_KEY_FILE` instead means the keeper
+  never reads the key at all, so the material is in neither process. `Scrub`
+  matches the `AGE-SECRET-KEY-…` format rather than a stored copy.
+- **`faramir keygen`** mints an age identity through the linked library, so the
+  host needs no `age` binary. It does not replace the sops CLI: the keeper only
+  decrypts, and encrypting, editing and rotating still want the real tool
+  wherever secrets are authored.
+
+sops itself is executed, not linked. Linking it pulls its whole key-source tree
+(AWS KMS, GCP KMS, Azure Key Vault, Vault, PGP) into the process that holds the
+master key, because `keyservice` imports all seven backends unconditionally and
+Go cannot tree-shake them out; measured, that cost 42 MB and 818 packages in the
+keeper. Executing it keeps that in a separate short-lived process and leaves
+sops upgradable through apt.
+
+Regexes are RE2, which has no lookahead or backreferences. That mattered in
+exactly one place, `agent/hooks/deny-patterns.txt`, where `\benv\b(?!.*\|)`
+became `\benv\b[^|]*$`; `cmd/faramir-guard` asserts that every shipped pattern
+compiles and that the file matches the built-in fallback, because a pattern that
+fails to compile is skipped at load and would silently weaken the list.
+
 ## Developing
 
 ```bash
-make test            # the whole suite (needs sops + age)
-make test-unit       # everything that needs neither sops, age, nor privileges
+make build           # static binaries into bin/
+make test            # the whole suite; needs no sops installed
+make test-unit       # everything that needs no PTY and no subprocesses
 make test-e2e        # end-to-end against a real broker in a temp dir
-make check           # byte-compile + config validation + unit hardening score
-make install         # install the broker (root)
+make check           # go vet + gofmt
+make install         # build, then run all four install phases (root)
 make verify          # the verification matrix, against the live deployment (root)
+make sizes           # per-binary size, package count, and sops linkage
 ```
 
-The end-to-end suites skip unless `sops` and `age` are installed; `make test-unit` needs neither.
+The suite needs no `sops` on PATH: `internal/sopstest` uses the real binary when
+one is installed and otherwise builds a stand-in from the sops libraries, which
+produces genuine sops behaviour. That package is imported only from `_test.go`
+files, which is what keeps sops out of the shipped binaries.
 
 ```text
-src/faramir/       broker, keeper, redaction, PTY execution, protocol
-bin/               faramir (CLI), faramir-broker, faramir-keeper, faramir-mcp
-systemd/           socket + hardened service units, one pair per daemon
-etc/config.toml    starter configuration
-agent/             PreToolUse hook, deny patterns, agent settings, CLAUDE.md snippet
-install/           provisioning scripts, one per phase
-tests/             unit + end-to-end suites, and the verification matrix (verify.sh)
-docs/              how the redactor works; the wire protocol; wiring Ansible to sops
+cmd/faramir            CLI, plus keygen
+cmd/faramir-broker     policy, redaction, audit log, SSH keys
+cmd/faramir-keeper     holds the age key, execs sops, serves values only
+cmd/faramir-exec       forks brokered commands, holds nothing
+cmd/faramir-mcp        MCP stdio server
+cmd/faramir-guard      PreToolUse hook
+internal/              implementation; each package doc explains its own decisions
+systemd/               socket + hardened service units, one pair per daemon
+etc/config.toml        starter configuration
+agent/                 deny patterns, agent settings, CLAUDE.md snippet
+install/               provisioning scripts, one per phase
+tests/verify.sh        the verification matrix, against a live deployment
+docs/                  how the redactor works; the wire protocol; wiring Ansible to sops
 ```
 
 - [docs/redaction.md](docs/redaction.md) - what the redactor covers, and what it cannot

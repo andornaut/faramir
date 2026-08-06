@@ -22,7 +22,7 @@ RestartSec=2
 
 # No LoadCredential= here, deliberately.  A systemd credential is readable by
 # the unit's uid, and every brokered command runs as that uid, so loading the
-# age key here would hand it to every child no matter what the allowlist said.
+# age key here would hand it to every child, whatever else the config said.
 # faramir-keeper.service holds it instead and serves values only.
 
 # The critical one: without ProtectProc the agent uid can read
@@ -81,7 +81,7 @@ ProtectKernelTunables=true
 RemoveIPC=true
 # 0077: this process no longer creates files anything else has to read.  The
 # working tree is written by the agent and by the executor, each under its own
-# umask; the audit log sets an explicit 0600 in audit.py rather than relying on
+# umask; the audit log sets an explicit 0600 in internal/audit rather than on
 # this.
 UMask=0077
 
@@ -110,7 +110,7 @@ UMask=0077
 #       Would map every other uid to nobody, including the agent uid that owns
 #       the working tree.
 #   MemoryDenyWriteExecute=
-#       Children are arbitrary allowlisted programs; a broker that refuses to
+#       Children are arbitrary operator-chosen programs; a broker that refuses to
 #       run the operator's tooling gets switched off, which is worse.
 #   RootDirectory=/RootImage=
 #       Containers were considered and rejected -- see README section 2.

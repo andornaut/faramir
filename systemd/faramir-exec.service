@@ -33,7 +33,7 @@ SupplementaryGroups=devwork
 #
 # /run/faramir/broker.sock IS reachable now, because it is 0660 root:devwork:
 # a brokered command can call the broker back.  That buys it nothing -- the
-# response is redacted, allowlisted and audited exactly like the agent's own,
+# response is redacted and audited exactly like the agent's own,
 # and every ref it could ask for is already listed by faramir_list_secrets.
 #
 # No LoadCredential=, and nothing writable except the working tree, its own
@@ -86,7 +86,7 @@ UMask=0077
 #       Brokered commands reach managed hosts.  Egress control is a non-goal;
 #       see README section 1.
 #   MemoryDenyWriteExecute=
-#       Children are arbitrary allowlisted programs, some of them JITs.
+#       Children are arbitrary operator-chosen programs, some of them JITs.
 #   SystemCallFilter=~@privileged, ~@resources
 #       Ansible's file and user modules call chown and friends.
 #   PrivateDevices=, DeviceAllow=

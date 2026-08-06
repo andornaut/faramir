@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/libexec/faramir/pretooluse-guard.py",
+            "command": "/usr/local/libexec/faramir/faramir-guard",
             "timeout": 10
           }
         ]

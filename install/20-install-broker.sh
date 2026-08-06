@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Phase 3 -- install the broker code, config and systemd units.
+# Phase 3 -- install the broker binaries, config and systemd units.
 #
-# Idempotent: safe to re-run after editing the source.
+# Idempotent: safe to re-run after rebuilding.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BROKER_USER="${BROKER_USER:-faramir-broker}"
 AGENT_USER="${AGENT_USER:-agent}"
 GROUP="${DEVWORK_GROUP:-devwork}"
-LIB="${FARAMIR_LIB:-/usr/local/lib/faramir}"
+BIN="${FARAMIR_BIN:-$REPO/bin}"
 # Derive from the passwd entry when the account exists, so this agrees with
 # 40-agent-config.sh for a home that is not /home/<user>.  getent exits 2 for a
 # missing account, which pipefail would turn into a silent abort before the
@@ -24,33 +24,31 @@ CONFIG="${CONFIG:-etc/config.toml}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 # Before anything is installed: a typo here would otherwise surface as a bare
-# "cannot stat" once the library, binaries and hook are already on the host.
+# "cannot stat" once the binaries and hook are already on the host.
 [[ -f $CONFIG ]] || { echo "no such config: $CONFIG" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 
-say "python check"
-python3 - <<'PY'
-import sys
-if sys.version_info < (3, 11):
-    sys.exit(f"faramir needs Python >= 3.11 (tomllib); found {sys.version.split()[0]}")
-PY
-
-say "library -> ${LIB}/faramir"
-install -d -m 0755 "$LIB"
-rm -rf "${LIB:?}/faramir"
-install -d -m 0755 "${LIB}/faramir"
-install -m 0644 "$REPO"/src/faramir/*.py "${LIB}/faramir/"
+# The binaries are built ahead of time, so this script needs no toolchain and
+# no interpreter on the target host.  Build them with `make build` first.
+say "checking for built binaries in ${BIN}"
+missing=()
+for b in faramir faramir-broker faramir-keeper faramir-exec faramir-mcp faramir-guard; do
+  [[ -x "$BIN/$b" ]] || missing+=("$b")
+done
+if ((${#missing[@]})); then
+  echo "not built: ${missing[*]}" >&2
+  echo "run 'make build' (needs Go), or set FARAMIR_BIN to a directory holding them" >&2
+  exit 1
+fi
 
 say "binaries -> /usr/local/bin"
-install -m 0755 "$REPO/bin/faramir-broker" /usr/local/bin/faramir-broker
-install -m 0755 "$REPO/bin/faramir-keeper" /usr/local/bin/faramir-keeper
-install -m 0755 "$REPO/bin/faramir-exec" /usr/local/bin/faramir-exec
-install -m 0755 "$REPO/bin/faramir" /usr/local/bin/faramir
-install -m 0755 "$REPO/bin/faramir-mcp" /usr/local/bin/faramir-mcp
+for b in faramir faramir-broker faramir-keeper faramir-exec faramir-mcp; do
+  install -m 0755 "$BIN/$b" "/usr/local/bin/$b"
+done
 
 say "hook -> /usr/local/libexec/faramir"
 install -d -m 0755 /usr/local/libexec/faramir
-install -m 0755 "$REPO/agent/hooks/pretooluse-guard.py" /usr/local/libexec/faramir/pretooluse-guard.py
+install -m 0755 "$BIN/faramir-guard" /usr/local/libexec/faramir/faramir-guard
 # Next to the hook rather than under /etc/faramir, so it travels with the thing
 # that reads it.  A patterns file the hook cannot read is worse than none: it
 # falls back to a built-in list that is silently weaker.
@@ -70,6 +68,10 @@ install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 # where the agent uid could not read them.
 # CLEANUP (added 2026-08-05): remove once every host has run this script once.
 rm -f /etc/faramir/deny-patterns.txt /etc/secretd/deny-patterns.txt
+# Left over from the Python implementation, which shipped a library tree.
+# CLEANUP (added 2026-08-06): remove once every host has run this script once.
+rm -rf /usr/local/lib/faramir
+rm -f /usr/local/libexec/faramir/pretooluse-guard.py
 
 # The working tree appears in the config more than once -- [exec] default_cwd
 # and [secrets] files -- and the bind mounts below make exactly one path visible
@@ -77,43 +79,45 @@ rm -f /etc/faramir/deny-patterns.txt /etc/secretd/deny-patterns.txt
 # config was written around ([exec] default_cwd) and replace it everywhere with
 # the one this install was given.
 #
-# Read it as TOML rather than pattern-matching the line: quoting styles and
-# trailing comments have to be read the way the broker reads them, or the
-# warning below fires on configs that are perfectly correct.
+# Read it with the broker's own parser rather than pattern-matching the line:
+# quoting styles and trailing comments have to be read the way the broker reads
+# them, or the warning below fires on configs that are perfectly correct.
 configured_cwd() {
-  python3 - "$1" <<'PY'
-import sys, tomllib
-
-try:
-    with open(sys.argv[1], "rb") as fh:
-        raw = tomllib.load(fh)
-except (OSError, tomllib.TOMLDecodeError) as exc:
-    sys.exit(f"cannot read {sys.argv[1]}: {exc}")
-section = raw.get("exec")
-print((section if isinstance(section, dict) else {}).get("default_cwd", "") or "<unset>")
-PY
+  "$BIN/faramir-broker" -c "$1" --print-default-cwd 2>/dev/null || return 1
 }
 
 if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
   install -m 0644 -o root -g root "$CONFIG" /etc/faramir/config.toml.dist
   if existing="$(configured_cwd /etc/faramir/config.toml)" &&
-     [[ $existing != "$WORKTREE"* ]]; then
+     [[ -n $existing && $existing != "$WORKTREE"* ]]; then
     say "WARNING: [exec] default_cwd is ${existing} but this install binds ${WORKTREE}"
     say "         commands will fail with 'cwd does not exist' until they agree;"
     say "         edit /etc/faramir/config.toml"
   fi
 else
-  packaged="$(configured_cwd "$CONFIG")"
+  packaged="$(configured_cwd "$CONFIG")" || {
+    say "cannot read ${CONFIG}: it does not parse as a faramir config"
+    exit 1
+  }
   say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (worktree ${WORKTREE})"
   install -m 0644 -o root -g root "$CONFIG" /etc/faramir/config.toml
-  if [[ $packaged != "<unset>" && $packaged != "$WORKTREE" ]]; then
+  if [[ -n $packaged && $packaged != "$WORKTREE" ]]; then
     say "rewriting ${packaged} -> ${WORKTREE}"
-    OLD="$packaged" NEW="$WORKTREE" python3 - /etc/faramir/config.toml <<'PY'
-import os, pathlib, sys
-path = pathlib.Path(sys.argv[1])
-path.write_text(path.read_text("utf-8").replace(os.environ["OLD"], os.environ["NEW"]), "utf-8")
-PY
+    # A literal, non-regex replacement: a worktree path can contain characters
+    # sed would otherwise treat as syntax.
+    OLD="$packaged" NEW="$WORKTREE" perl -pi -e 's/\Q$ENV{OLD}\E/$ENV{NEW}/g' \
+      /etc/faramir/config.toml 2>/dev/null || {
+      # perl is not guaranteed present; fall back to an awk literal replace.
+      OLD="$packaged" NEW="$WORKTREE" awk '
+        BEGIN { old = ENVIRON["OLD"]; new = ENVIRON["NEW"] }
+        { n = index($0, old)
+          while (n > 0) { $0 = substr($0, 1, n-1) new substr($0, n+length(old))
+                          n = index($0, old) }
+          print }
+      ' /etc/faramir/config.toml >/etc/faramir/config.toml.tmp &&
+        mv /etc/faramir/config.toml.tmp /etc/faramir/config.toml
+    }
     chown root:root /etc/faramir/config.toml
     chmod 0644 /etc/faramir/config.toml
   fi
@@ -185,7 +189,7 @@ elif [[ ! -f /etc/faramir/age.key ]]; then
 fi
 
 say "validating the installed config"
-FARAMIR_LIB="$LIB" /usr/local/bin/faramir-broker -c /etc/faramir/config.toml --check || {
+/usr/local/bin/faramir-broker -c /etc/faramir/config.toml --check || {
   say "validation FAILED -- fix /etc/faramir/config.toml, or lengthen any secret"
   say "reported under not_redactable, before enabling the unit"
   exit 1

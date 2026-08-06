@@ -1,12 +1,2 @@
-__pycache__/
-*.py[cod]
-.pytest_cache/
-
-# Never commit key material or decrypted output, even by accident.
-*.key
-age.key
-*.agekey
-plain.yml
-*.decrypted.*
-.env
-.env.*
+bin/
+bin-stripped/
