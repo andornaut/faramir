@@ -28,6 +28,7 @@ from . import __version__
 from .allowlist import DeniedError, authorize
 from .audit import AuditLog, RawCollector, new_log_id
 from .config import Config, ConfigError
+from .execserver import ExecError
 from .executor import run as exec_run
 from .protocol import ProtocolError, Request, error_response, resolve_inline_tokens
 from .redact import Redactor
@@ -336,8 +337,8 @@ class Server:
         # outside the store, and it goes straight into the child's environ.
         # The age key is not among them: the keeper holds it, and nothing the
         # broker executes can obtain it.
+        # HOME is left to the executor: the child runs as its uid, not ours.
         env = dict(exec_cfg.base_env)
-        env.setdefault("HOME", self._home())
         injected: dict[str, str] = {}
         for name, uri in env_refs.items():
             try:
@@ -375,8 +376,11 @@ class Server:
                 timeout_sec=timeout,
                 redactor=redactor,
                 exec_cfg=exec_cfg,
+                executor_cfg=self.config.executor,
                 raw_sink=collector,
             )
+        except ExecError as exc:
+            return error_response("exec_failed", str(exc), log_id)
         except OSError as exc:
             return error_response("exec_failed", f"{cmd[0]}: {exc}", log_id)
         finally:
@@ -418,14 +422,6 @@ class Server:
             "timed_out": result.timed_out,
             "duration_sec": result.duration_sec,
         }
-
-    @staticmethod
-    def _home() -> str:
-        try:
-            return pwd.getpwuid(os.getuid()).pw_dir
-        except KeyError:
-            return "/tmp"
-
 
 def main(argv: list[str] | None = None) -> int:
     import argparse

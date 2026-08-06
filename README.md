@@ -55,7 +55,8 @@ accident.
 |---|---|---|
 | Isolation | Unix uid separation + systemd hardening. No Docker, Podman or bubblewrap. | Network isolation was the main thing containers made easy, and it is a non-goal. Everything else comes straight from the kernel and systemd. |
 | Who executes | The broker, as its own uid. Never the agent. | If the client execs, plaintext lives in a process owned by the agent uid, which the agent can read. |
-| Who holds the key | A separate `faramir-keeper` uid that executes nothing. | A systemd credential is readable by the unit's uid, and every brokered command runs as the broker's uid. A key the broker can load is a key any command can read, whatever the allowlist says. |
+| Who holds the key | A separate `faramir-keeper` uid that executes nothing. | A systemd credential is readable by the unit's uid, and every brokered command runs as a broker-adjacent uid. A key the broker can load is a key any command can read, whatever the allowlist says. |
+| Who forks the child | A third `faramir-exec` uid, given the PTY slave over `SCM_RIGHTS`. | Anything the forking uid can reach, the child can reach. Forking from the broker would hand every command the audit log, the SSH keys and write access to the execution checkout. |
 | How Ansible gets its vars | Through `env_refs` and `lookup('env', …)`, like any other program. | Letting Ansible resolve sops itself meant handing it the master key, and Ansible can run arbitrary tasks. Ansible is one consumer of the broker, not the shape of it. |
 | Secret store | sops + age, replacing ansible-vault. | Encrypted YAML in the repo, per-key diffs, no network round trip. |
 | Redaction | Custom. | `op run` and similar mask only the values *they* injected. A managed host can print a credential the broker never injected, so the redactor is built from the whole value set regardless of injection path. |
@@ -70,23 +71,36 @@ accident.
 uid <operator>                normal user, holds nothing special
 uid agent                     runs the coding agent; member of group devwork
 uid faramir-keeper            holds the age key; execs nothing but sops
-uid faramir-broker            holds the SSH keys; executes brokered commands
+uid faramir-broker            policy, redaction, audit log, SSH keys
+uid faramir-exec              forks brokered commands; holds nothing
 group devwork                 shared access to the repo working tree
 
 /run/faramir/broker.sock      socket-activated, 0660 root:devwork
-/run/faramir/keeper.sock      socket-activated, 0660 faramir-keeper:faramir-broker
+/run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
+/run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
 /etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
 /etc/faramir/config.toml      0644 root:root, read by all three
-/srv/ansible-ctrl             broker's own git checkout (execution source of truth)
+/srv/ansible-ctrl             2750 faramir-broker:faramir-exec, broker writes, exec reads
 /home/agent/work/ansible-ctrl agent's working tree (authoring only)
 /var/log/faramir/raw.log      unredacted audit log, 0600 faramir-broker:faramir-broker
 ```
 
-The keeper is the whole reason the master key survives an agent that runs
-arbitrary commands. It answers exactly one question, "what are the current
-values", and there is no request that returns the key. A brokered command
-cannot read `/etc/faramir/age.key` (wrong uid), cannot open the keeper socket
-(wrong uid), and never sees `SOPS_AGE_KEY` (nothing puts it there).
+Three uids, because anything a uid can reach, a command running as that uid
+can reach. What a brokered command cannot do, and why:
+
+| | Why not |
+|---|---|
+| read `/etc/faramir/age.key` | 0400 `faramir-keeper` |
+| open the keeper socket | 0660 `root:faramir-broker`, and it is not in that group |
+| ask the keeper for the key | there is no such request |
+| read or truncate the raw log | 0600 `faramir-broker` |
+| read the SSH keys for managed hosts | 0700 `faramir-broker` |
+| write `/srv/ansible-ctrl` | group has read and execute, not write |
+| receive `SOPS_AGE_KEY` | nothing puts it there |
+
+The PTY does not move with the fork. The broker creates the pair, sends the
+slave over `SCM_RIGHTS`, and keeps the master, so redaction, truncation and
+the audit log stay in the broker and output takes no extra hop.
 
 In this repo:
 
@@ -231,6 +245,11 @@ sudo make verify   # the matrix below, against the live deployment
 | 1d | `faramir run -- bash -lc 'cat /run/credentials/*/age_key'` | no key | `verify.sh` |
 | 1e | `faramir run -- bash -lc 'echo $SOPS_AGE_KEY'` | empty | `test_e2e`, `verify.sh` |
 | 1f | any keeper request other than `get_values` | refused, no key | `test_keeper` |
+| 1g | `faramir run -- bash -lc 'id -un'` | `faramir-exec` | `verify.sh` |
+| 1h | `sudo -u faramir-exec cat /var/log/faramir/raw.log` | Permission denied | `verify.sh` |
+| 1i | `faramir run -- bash -lc 'touch /srv/ansible-ctrl/x'` | Permission denied | `verify.sh` |
+| 1j | `sudo -u faramir-exec test -w /run/faramir/exec.sock` | not writable | `verify.sh` |
+| 1k | broker hangs up mid-command | child's process group is killed | `test_exec` |
 | 2 | `sudo -u agent cat /proc/$(pgrep -u faramir-broker faramir-broker)/environ` | No such file | `verify.sh` |
 | 3 | `faramir run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `test_e2e`, `verify.sh` |
 | 4 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `test_e2e`, `verify.sh` |
@@ -262,6 +281,9 @@ the protocol and the split, not the uid boundary itself.
   also picks up mtime changes within `refresh_interval_sec`. The broker stats
   the files itself and asks the keeper to decrypt, so a reload needs both
   services running.
+- **The keeper and the executor must both be up.** `faramir-broker.service`
+  requires both sockets. With no executor every command fails with
+  `exec_failed`; with no keeper, see below.
 - **The keeper must be up before the broker is useful.** With no keeper the
   broker keeps whatever value set it already had and logs the failure; on a
   cold start that set is empty, which means nothing gets redacted. Check
@@ -309,13 +331,10 @@ the protocol and the split, not the uid boundary itself.
   section 1.
 - A secret shorter than 8 characters, or with very low entropy, is not
   redacted at all. The broker tells you which ones; fix them at the source.
-- The keeper protects the age key, not the individual values. A brokered
-  command still shares a uid with the broker, so it can read the raw audit log
-  and the SSH keys for managed hosts, and it can write `/srv/ansible-ctrl`
-  directly rather than going through commit-then-sync. Splitting execution into
-  a third uid is what closes those; it is not done yet.
-- The broker runs commands as a uid that holds every managed *value*. An
-  allowlisted command that writes one to a file where the agent can read it is
-  a leak the broker will not catch. Keep the allowlist tight and the execution
-  checkout separate.
+- A brokered command still receives the values it asked for, in its
+  environment, because that is the point. What it does with them afterwards is
+  the adversarial-exfiltration row in section 1.
+- The SSH keys for managed hosts are still readable by whichever uid runs
+  Ansible. Moving them behind a broker-held `ssh-agent`, so they can be used
+  but not extracted, is a further step that is not done yet.
 - `git history still contains your old plaintext.` See section 4.

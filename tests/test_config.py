@@ -21,7 +21,7 @@ def load(**sections):
 
 
 class TestUnknownKeys(unittest.TestCase):
-    SECTIONS = ["server", "keeper", "exec", "secrets", "audit", "sync"]
+    SECTIONS = ["server", "keeper", "executor", "exec", "secrets", "audit", "sync"]
 
     def test_typo_is_a_config_error(self):
         for section in self.SECTIONS:
@@ -123,6 +123,25 @@ class TestTheAgeKeyMigration(unittest.TestCase):
 
     def test_the_keeper_has_defaults(self):
         self.assertEqual(load().keeper.allowed_users, ["faramir-broker"])
+
+
+class TestExecutorSection(unittest.TestCase):
+    def test_it_parses(self):
+        config = load(
+            executor={"socket_path": "/run/x/e.sock", "socket_mode": "0600",
+                      "allowed_users": ["b"], "max_concurrency": 2}
+        )
+        self.assertEqual(config.executor.socket_path, "/run/x/e.sock")
+        self.assertEqual(config.executor.socket_mode, 0o600)
+        self.assertEqual(config.executor.max_concurrency, 2)
+
+    def test_only_the_broker_is_allowed_by_default(self):
+        self.assertEqual(load().executor.allowed_users, ["faramir-broker"])
+
+    def test_a_bad_socket_mode_names_the_section(self):
+        with self.assertRaises(ConfigError) as caught:
+            load(executor={"socket_mode": 660})
+        self.assertIn("executor.socket_mode", str(caught.exception))
 
 
 class TestAllowRules(unittest.TestCase):

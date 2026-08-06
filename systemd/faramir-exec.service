@@ -1,0 +1,80 @@
+[Unit]
+Description=faramir executor: forks brokered commands, holds no secrets
+Documentation=file:///usr/local/share/doc/faramir/README.md
+Requires=faramir-exec.socket
+After=faramir-exec.socket network.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=faramir-exec
+Group=faramir-exec
+ExecStart=/usr/local/bin/faramir-exec
+Restart=on-failure
+RestartSec=2
+
+# This uid is the one every brokered command runs as, so the list of things it
+# can reach is the list of things a command can reach:
+#
+#   /etc/faramir/age.key      no  (0400 faramir-keeper)
+#   /run/faramir/keeper.sock  no  (0660 faramir-keeper:faramir-broker)
+#   /run/faramir/broker.sock  no  (0660 root:devwork)
+#   /var/log/faramir/raw.log  no  (0600 faramir-broker)
+#   /srv/ansible-ctrl         read only, via the devwork-free group below
+#   /home                     nothing at all (ProtectHome=true)
+#
+# No LoadCredential=, no SupplementaryGroups=, and nothing writable except its
+# own state directory and PrivateTmp.
+ProtectProc=invisible
+ProcSubset=pid
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# Children run on a PTY, which needs /dev/ptmx and the pts devices.  Narrow the
+# device ACL rather than dropping it.
+PrivateDevices=false
+DevicePolicy=closed
+DeviceAllow=/dev/ptmx rw
+DeviceAllow=char-pts rw
+# Ansible creates ~/.ansible/tmp unconditionally; this is that home.
+StateDirectory=faramir-exec
+RuntimeDirectory=faramir
+RuntimeDirectoryPreserve=yes
+# Ansible reaches managed hosts over SSH, so the network stays.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+SystemCallFilter=@system-service
+SystemCallArchitectures=native
+SystemCallErrorNumber=EPERM
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+RemoveIPC=true
+UMask=0077
+
+# Every remaining exposure item, and why it is accepted:
+#
+#   PrivateNetwork=, IPAddressDeny=
+#       Brokered commands reach managed hosts.  Egress control is a non-goal;
+#       see README section 1.
+#   MemoryDenyWriteExecute=
+#       Children are arbitrary allowlisted programs, some of them JITs.
+#   SystemCallFilter=~@privileged, ~@resources
+#       Ansible's file and user modules call chown and friends.
+#   PrivateDevices=, DeviceAllow=
+#       Every child runs on a PTY.
+#
+# Anything flagged that is NOT on this list is a regression: investigate it
+# before accepting it.
+
+[Install]
+WantedBy=multi-user.target

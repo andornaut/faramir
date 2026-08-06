@@ -6,9 +6,14 @@ response, one connection, no framing beyond the newline.
 | Socket | Who may connect | What it does |
 |---|---|---|
 | `/run/faramir/broker.sock` | the agent (`0660 root:devwork`) | run commands, list refs, sync |
-| `/run/faramir/keeper.sock` | the broker (`0660 faramir-keeper:faramir-broker`) | return decrypted values |
+| `/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values |
+| `/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY |
 
-The broker's protocol is below; the keeper's is at the end. A request larger
+The internal sockets are root-owned so that neither the keeper's nor the
+executor's own uid can connect to them: a child that could reach the executor
+socket would run commands the broker never authorised and never logged.
+
+The broker's protocol is below; the internal ones are at the end. A request larger
 than `[server] max_request_bytes` is refused.
 
 ## Requests
@@ -155,3 +160,34 @@ Anything other than `get_values` is refused:
 **There is no operation that returns the age key, and adding one would defeat
 the reason the keeper is a separate service.** Peer uid is checked against
 `[keeper] allowed_users` on top of the socket mode.
+
+## The executor socket
+
+Internal, between the broker and the uid that forks commands. One request,
+carrying a single file descriptor as ancillary data:
+
+```json
+{"argv": ["/usr/bin/ansible-playbook", "site.yml"],
+ "cwd": "/srv/ansible-ctrl",
+ "env": {"ROUTER_PW": "…"},
+ "timeout_sec": 600,
+ "kill_grace_sec": 5}
+```
+
+```json
+{"exit_code": 0, "timed_out": false, "duration_sec": 12.4}
+```
+
+The descriptor is the **slave** end of a PTY the broker created. The broker
+keeps the master, so redaction and the audit log read the child's bytes
+directly rather than through a second hop. Both sides close their copy of the
+slave once the child holds it, or the master never reaches EOF.
+
+`argv[0]` is re-checked against `[exec] allowed_bin_dirs` here as well as in
+the broker. The duplication is deliberate: a broker bug should not become "run
+anything from anywhere as `faramir-exec`".
+
+The executor owns the timeout, because it owns the process group. **Closing
+the connection is how the broker says "give up"**, and the child's process
+group is killed. That covers the broker dying mid-command, which would
+otherwise leave an orphan holding a credential in its environment.

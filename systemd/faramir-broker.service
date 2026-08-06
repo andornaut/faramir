@@ -1,8 +1,8 @@
 [Unit]
 Description=Secret broker for local AI agents
 Documentation=file:///usr/local/share/doc/faramir/README.md
-Requires=faramir-broker.socket faramir-keeper.socket
-After=faramir-broker.socket faramir-keeper.socket network.target
+Requires=faramir-broker.socket faramir-keeper.socket faramir-exec.socket
+After=faramir-broker.socket faramir-keeper.socket faramir-exec.socket network.target
 
 [Service]
 Type=notify
@@ -75,7 +75,12 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 RemoveIPC=true
-UMask=0077
+# 0027, not 0077: the executor reads the checkout this process writes during a
+# sync, and it is a different uid.  /srv/ansible-ctrl is setgid faramir-exec,
+# so a checked-out file lands 0640 faramir-broker:faramir-exec: readable there,
+# writable only here.  The audit log is unaffected, since audit.py opens it
+# with an explicit 0600 rather than relying on the umask.
+UMask=0027
 
 # systemd-analyze security faramir-broker.service -> 1.7 OK (systemd 255)
 #

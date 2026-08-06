@@ -226,6 +226,22 @@ class KeeperConfig:
 
 
 @dataclass(frozen=True)
+class ExecutorConfig:
+    """The process that forks brokered commands.
+
+    Its uid holds nothing: no age key, no secret values, no audit log, no write
+    access to the execution checkout.  A child forked by the broker instead
+    would inherit all four.
+    """
+
+    socket_path: str = "/run/faramir/exec.sock"
+    socket_mode: int = 0o660
+    allowed_users: list[str] = field(default_factory=lambda: ["faramir-broker"])
+    allowed_groups: list[str] = field(default_factory=list)
+    max_concurrency: int = 16
+
+
+@dataclass(frozen=True)
 class SecretsConfig:
     files: list[str] = field(default_factory=list)
     decrypt_command: list[str] = field(
@@ -265,6 +281,7 @@ class Config:
     path: str
     server: ServerConfig
     keeper: KeeperConfig
+    executor: ExecutorConfig
     exec: ExecConfig
     secrets: SecretsConfig
     audit: AuditConfig
@@ -310,6 +327,23 @@ class Config:
             ),
         )
 
+        executor_raw = _table(raw, "executor", path)
+        executor_mode = executor_raw.pop("socket_mode", None)
+        executor = _section(
+            ExecutorConfig,
+            executor_raw,
+            f"{path}: [executor]",
+            **(
+                {
+                    "socket_mode": _octal_mode(
+                        executor_mode, f"{path}: executor.socket_mode"
+                    )
+                }
+                if executor_mode is not None
+                else {}
+            ),
+        )
+
         exec_cfg = _section(
             ExecConfig, _table(raw, "exec", path), f"{path}: [exec]"
         )
@@ -345,6 +379,7 @@ class Config:
             path=path,
             server=server,
             keeper=keeper,
+            executor=executor,
             exec=exec_cfg,
             secrets=secrets,
             audit=audit,

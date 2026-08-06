@@ -1,4 +1,4 @@
-"""Runs the child on a PTY and streams its output through the redactor.
+"""Owns the PTY, and streams the child's output through the redactor.
 
 Why a PTY and not a pipe:
 
@@ -9,6 +9,12 @@ Why a PTY and not a pipe:
    the controlling terminal catches those writes.  A pipe does not.
 
 The consequence is that stdout and stderr arrive merged.  That is accepted.
+
+The fork happens in ``faramir-exec``, under a uid that holds nothing, but the
+PTY does not move with it: the broker creates the pair, hands the *slave* over
+``SCM_RIGHTS`` and keeps the master.  Redaction, truncation and the audit log
+therefore stay on this side, reading the child's bytes directly, with no extra
+hop for output to take.
 """
 
 from __future__ import annotations
@@ -20,20 +26,21 @@ import logging
 import os
 import pty
 import select
-import signal
 import struct
-import subprocess
 import termios
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
-from .config import ExecConfig
+from .config import ExecConfig, ExecutorConfig
+from .execserver import ExecClient, ExecError
 from .redact import Redactor
 
 log = logging.getLogger("faramir.exec")
 
 _READ_SIZE = 65536
+# How long past the executor's own kill deadline we wait before giving up on it.
+_BACKSTOP_MARGIN_SEC = 10
 
 
 @dataclass
@@ -44,15 +51,6 @@ class ExecResult:
     duration_sec: float
     timed_out: bool = False
     redactions: list[dict[str, object]] = field(default_factory=list)
-
-
-def _child_setup() -> None:
-    """Runs in the forked child, before exec: become session and TTY leader."""
-    os.setsid()
-    try:
-        fcntl.ioctl(0, termios.TIOCSCTTY, 0)
-    except OSError:
-        pass
 
 
 def _set_winsize(fd: int, rows: int, cols: int) -> None:
@@ -69,9 +67,10 @@ def run(
     timeout_sec: int,
     redactor: Redactor,
     exec_cfg: ExecConfig,
+    executor_cfg: ExecutorConfig,
     raw_sink: Callable[[str], None] | None = None,
 ) -> ExecResult:
-    """Execute ``argv``, returning redacted merged output.
+    """Execute ``argv`` through the executor, returning redacted merged output.
 
     ``raw_sink`` receives the *unredacted* text for the operator-only audit
     log.  Nothing else in this process ever sees it.
@@ -79,21 +78,22 @@ def run(
     master, slave = pty.openpty()
     _set_winsize(master, exec_cfg.term_rows, exec_cfg.term_cols)
     started = time.monotonic()
+    client = ExecClient(executor_cfg.socket_path)
     try:
-        proc = subprocess.Popen(  # noqa: S603 - argv is allowlisted, never a shell string
-            list(argv),
+        client.start(
+            argv=list(argv),
             cwd=cwd,
             env=env,
-            stdin=slave,
-            stdout=slave,
-            stderr=slave,
-            close_fds=True,
-            preexec_fn=_child_setup,  # noqa: PLW1509 - single-threaded fork, no locks held
+            timeout_sec=timeout_sec,
+            kill_grace_sec=exec_cfg.kill_grace_sec,
+            slave_fd=slave,
         )
-    except OSError:
+    except ExecError:
         os.close(master)
         raise
     finally:
+        # The executor has its own copy now.  Ours has to go, or the master
+        # never reaches EOF when the child exits.
         try:
             os.close(slave)
         except OSError:
@@ -103,15 +103,17 @@ def run(
     chunks: list[str] = []
     emitted = 0
     truncated = False
-    timed_out = False
-    deadline = started + timeout_sec
+    aborted = False
+    # The executor enforces the timeout, because it owns the process group.
+    # This is a backstop for the case where it does not come back at all.
+    deadline = started + timeout_sec + exec_cfg.kill_grace_sec + _BACKSTOP_MARGIN_SEC
 
     try:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                timed_out = True
-                _terminate(proc, exec_cfg.kill_grace_sec)
+                aborted = True
+                client.abort()  # hanging up kills the child's process group
                 break
             try:
                 ready, _, _ = select.select([master], [], [], min(remaining, 1.0))
@@ -153,9 +155,11 @@ def run(
         except OSError:
             pass
 
-    exit_code = proc.wait()
-    if exit_code < 0:
-        exit_code = 128 - exit_code  # 128 + signal number
+    if aborted:
+        exit_code, timed_out = 128 + 9, True
+    else:
+        result = client.result()
+        exit_code, timed_out = result.exit_code, result.timed_out
     if timed_out:
         chunks.append(f"\n[faramir] timed out after {timeout_sec}s; process killed\n")
 
@@ -188,20 +192,3 @@ def _append(
         chunks.append(text.encode("utf-8", "replace")[:room].decode("utf-8", "ignore"))
     chunks.append(f"\n[faramir] output truncated at {limit} bytes\n")
     return limit, True
-
-
-def _terminate(proc: subprocess.Popen[bytes], grace_sec: int) -> None:
-    """SIGTERM the whole process group, then SIGKILL what is left."""
-    for sig in (signal.SIGTERM, signal.SIGKILL):
-        try:
-            os.killpg(proc.pid, sig)
-        except (ProcessLookupError, PermissionError):
-            try:
-                proc.send_signal(sig)
-            except ProcessLookupError:
-                return
-        try:
-            proc.wait(timeout=grace_sec if sig == signal.SIGTERM else 5)
-            return
-        except subprocess.TimeoutExpired:
-            log.warning("pid %d survived %s", proc.pid, sig.name)

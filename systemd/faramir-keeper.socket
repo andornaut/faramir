@@ -8,7 +8,7 @@ ListenStream=/run/faramir/keeper.sock
 # processes that execute commands run as faramir-exec (or, until the executor
 # split lands, as faramir-broker) and must not be able to open this.
 SocketMode=0660
-SocketUser=faramir-keeper
+SocketUser=root
 SocketGroup=faramir-broker
 Accept=no
 

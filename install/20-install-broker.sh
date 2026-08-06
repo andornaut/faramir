@@ -35,6 +35,7 @@ install -m 0644 "$REPO"/src/faramir/*.py "${LIB}/faramir/"
 say "binaries -> /usr/local/bin"
 install -m 0755 "$REPO/bin/faramir-broker" /usr/local/bin/faramir-broker
 install -m 0755 "$REPO/bin/faramir-keeper" /usr/local/bin/faramir-keeper
+install -m 0755 "$REPO/bin/faramir-exec" /usr/local/bin/faramir-exec
 install -m 0755 "$REPO/bin/faramir" /usr/local/bin/faramir
 install -m 0755 "$REPO/bin/faramir-mcp" /usr/local/bin/faramir-mcp
 
@@ -111,7 +112,8 @@ fi
 
 say "systemd units"
 for unit in faramir-broker.socket faramir-broker.service \
-            faramir-keeper.socket faramir-keeper.service; do
+            faramir-keeper.socket faramir-keeper.service \
+            faramir-exec.socket faramir-exec.service; do
   install -m 0644 "$REPO/systemd/${unit}" "/etc/systemd/system/${unit}"
 done
 
@@ -139,18 +141,20 @@ else
 fi
 
 if [[ $HAVE_SYSTEMD -eq 1 && -f /etc/faramir/age.key ]]; then
-  # The keeper first: the broker asks it for the value set on startup.
-  systemctl enable --now faramir-keeper.socket faramir-broker.socket
-  systemctl restart faramir-keeper.service || true
-  systemctl restart faramir-broker.service || true
-  for unit in faramir-keeper.service faramir-broker.service; do
+  # The keeper and the executor first: the broker talks to both.
+  systemctl enable --now \
+    faramir-keeper.socket faramir-exec.socket faramir-broker.socket
+  for unit in faramir-keeper faramir-exec faramir-broker; do
+    systemctl restart "${unit}.service" || true
+  done
+  for unit in faramir-keeper.service faramir-exec.service faramir-broker.service; do
     say "systemd-analyze security ${unit}"
     systemd-analyze security "$unit" || true
   done
 elif [[ ! -f /etc/faramir/age.key ]]; then
   say "NOT starting faramir: /etc/faramir/age.key is missing."
   say "Run install/30-sops-init.sh first, then:"
-  say "  systemctl enable --now faramir-keeper.socket faramir-broker.socket"
+  say "  systemctl enable --now faramir-keeper.socket faramir-exec.socket faramir-broker.socket"
 fi
 
 say "validating the installed config"

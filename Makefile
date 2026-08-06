@@ -18,16 +18,16 @@ test-unit:
 	$(PYTHON) -m unittest tests.test_redact tests.test_allowlist tests.test_protocol tests.test_config tests.test_hook tests.test_sync_git -v
 
 test-e2e:
-	$(PYTHON) -m unittest tests.test_e2e tests.test_keeper tests.test_sync -v
+	$(PYTHON) -m unittest tests.test_e2e tests.test_keeper tests.test_exec tests.test_sync -v
 
 check:
-	$(PYTHON) -m compileall -q src bin/faramir-broker bin/faramir bin/faramir-mcp bin/faramir-keeper agent/hooks
+	$(PYTHON) -m compileall -q src bin/faramir-broker bin/faramir bin/faramir-mcp bin/faramir-keeper bin/faramir-exec agent/hooks
 	$(PYTHON) -c "import sys, tomllib; sys.path.insert(0,'src'); \
 	from faramir.config import Config; \
 	c = Config.from_dict(tomllib.load(open('etc/config.toml','rb')), 'etc/config.toml'); \
 	print('config OK:', ', '.join(r.name for r in c.allow))"
 	@command -v systemd-analyze >/dev/null && \
-	  systemd-analyze security --offline=true systemd/faramir-broker.service systemd/faramir-keeper.service | tail -2 || true
+	  systemd-analyze security --offline=true systemd/faramir-broker.service systemd/faramir-keeper.service systemd/faramir-exec.service | tail -3 || true
 
 install:
 	install/20-install-broker.sh

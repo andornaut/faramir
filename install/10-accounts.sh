@@ -7,17 +7,20 @@
 #   uid <operator>       normal user, holds nothing special
 #   uid agent            runs the coding agent; member of group devwork
 #   uid faramir-keeper   holds the age key; execs nothing but sops
-#   uid faramir-broker   holds the SSH keys; executes brokered commands
+#   uid faramir-broker   holds the SSH keys and the audit log; policy+redaction
+#   uid faramir-exec     forks brokered commands; holds nothing
 #   group devwork        shared access to the repo working tree
 #
-# The keeper is a separate uid from the broker because every brokered command
-# runs as the broker's uid, and anything that uid can read, a command can read.
+# Three uids rather than one because anything a uid can read, a command running
+# as that uid can read.  The keeper's key, the broker's audit log and SSH keys,
+# and the execution checkout each sit behind a boundary the child cannot cross.
 set -euo pipefail
 
 OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
 AGENT_USER="${AGENT_USER:-agent}"
 BROKER_USER="${BROKER_USER:-faramir-broker}"
 KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
+EXEC_USER="${EXEC_USER:-faramir-exec}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 # WORKTREE's default needs the agent's real home, which the account below may
 # not have yet, so it is resolved after the account exists.
@@ -74,6 +77,20 @@ if id -nG "$KEEPER_USER" | tr ' ' '\n' | grep -qx "$GROUP"; then
   say "WARNING: ${KEEPER_USER} is in ${GROUP}; remove it, the keeper needs no shared access"
 fi
 
+# The uid every brokered command runs as.  No devwork, no shell, no groups: it
+# needs a home only because Ansible creates ~/.ansible/tmp unconditionally.
+EXEC_HOME="${EXEC_HOME:-/var/lib/faramir-exec}"
+say "user ${EXEC_USER} (executor, no login, no groups, home ${EXEC_HOME})"
+if ! id -u "$EXEC_USER" >/dev/null 2>&1; then
+  useradd -r -m -d "$EXEC_HOME" -s /usr/sbin/nologin "$EXEC_USER"
+fi
+install -d -m 0700 -o "$EXEC_USER" -g "$EXEC_USER" "$EXEC_HOME"
+for forbidden in "$GROUP" "$BROKER_USER" "$KEEPER_USER"; do
+  if id -nG "$EXEC_USER" 2>/dev/null | tr ' ' '\n' | grep -qx "$forbidden"; then
+    say "WARNING: ${EXEC_USER} is in ${forbidden}; remove it, that is the boundary"
+  fi
+done
+
 say "operator ${OPERATOR} joins ${GROUP}"
 id -u "$OPERATOR" >/dev/null 2>&1 && usermod -aG "$GROUP" "$OPERATOR"
 
@@ -102,13 +119,26 @@ done
 # its own mode (0400 ${KEEPER_USER}), not the directory it sits in.
 install -d -m 0755 -o root -g root /etc/faramir
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
-install -d -m 0755 -o "$BROKER_USER" -g "$GROUP" /srv/ansible-ctrl
+# The broker writes this checkout during a sync; the executor only reads it.
+# setgid + group faramir-exec means git-created files land 0640
+# faramir-broker:faramir-exec (the broker unit sets UMask=0027), so a brokered
+# command can read the playbooks it runs and cannot rewrite them behind the
+# commit-then-sync gate.  Not group devwork: a playbook that wrote a credential
+# here with a permissive mode would otherwise be readable by the agent.
+install -d -m 2750 -o "$BROKER_USER" -g "$EXEC_USER" /srv/ansible-ctrl
+if [[ -d /srv/ansible-ctrl ]]; then
+  chgrp -R "$EXEC_USER" /srv/ansible-ctrl
+  chmod -R g+rX,g-w,o-rwx /srv/ansible-ctrl
+  find /srv/ansible-ctrl -type d -exec chmod g+s {} +
+fi
 
 cat <<EOF
 
 Phase 1 acceptance (run these):
   sudo -u ${AGENT_USER} cat /etc/faramir/age.key        -> Permission denied
   sudo -u ${BROKER_USER} cat /etc/faramir/age.key       -> Permission denied
+  sudo -u ${EXEC_USER} cat /var/log/faramir/raw.log     -> Permission denied
+  sudo -u ${EXEC_USER} touch /srv/ansible-ctrl/x        -> Permission denied
   sudo -u ${AGENT_USER} ls ~${OPERATOR}/.ssh            -> Permission denied
   sudo -u ${AGENT_USER} touch ${WORKTREE}/.perm-check   -> succeeds
 

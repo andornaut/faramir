@@ -14,8 +14,11 @@ set -uo pipefail
 AGENT_USER="${AGENT_USER:-agent}"
 BROKER_USER="${BROKER_USER:-faramir-broker}"
 KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
+EXEC_USER="${EXEC_USER:-faramir-exec}"
 AGE_KEY="${AGE_KEY:-/etc/faramir/age.key}"
 KEEPER_SOCKET="${KEEPER_SOCKET:-/run/faramir/keeper.sock}"
+EXEC_SOCKET="${EXEC_SOCKET:-/run/faramir/exec.sock}"
+CHECKOUT="${CHECKOUT:-/srv/ansible-ctrl}"
 SOCKET="${FARAMIR_SOCKET:-/run/faramir/broker.sock}"
 RAW_LOG="${RAW_LOG:-/var/log/faramir/raw.log}"
 PW_REF="${PW_REF:-secret://home/router/admin}"
@@ -29,6 +32,7 @@ head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 as_agent() { sudo -u "$AGENT_USER" "$@" 2>&1; }
 as_broker() { sudo -u "$BROKER_USER" "$@" 2>&1; }
+as_exec() { sudo -u "$EXEC_USER" "$@" 2>&1; }
 srun() { sudo -u "$AGENT_USER" faramir run --quiet "$@" 2>&1; }
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
@@ -82,6 +86,44 @@ if grep -q '\[unset\]' <<<"$out"; then
   ok "1f no brokered command receives SOPS_AGE_KEY"
 else
   no "1f SOPS_AGE_KEY is present in a child environment: $out"
+fi
+
+head_ "1g-1k  what a brokered command runs as"
+
+out="$(srun -- bash -lc 'id -un')"
+if grep -qw "$EXEC_USER" <<<"$out"; then
+  ok "1g brokered commands run as ${EXEC_USER}"
+else
+  no "1g brokered commands run as '$(tr -d '\n' <<<"$out")', expected ${EXEC_USER}"
+fi
+
+out="$(as_exec cat "$RAW_LOG")"
+if grep -qiE 'permission denied|no such file' <<<"$out"; then
+  ok "1h ${EXEC_USER} cannot read the raw audit log"
+else
+  no "1h ${EXEC_USER} CAN read the raw log, so it can also truncate it"
+fi
+
+out="$(srun -- bash -lc "touch ${CHECKOUT}/.verify-write")"
+if grep -qi 'permission denied' <<<"$out"; then
+  ok "1i brokered commands cannot write ${CHECKOUT}"
+else
+  no "1i a brokered command wrote to ${CHECKOUT}, bypassing commit-then-sync"
+  rm -f "${CHECKOUT}/.verify-write"
+fi
+
+out="$(as_exec test -w "$KEEPER_SOCKET" && echo writable)"
+if [[ $out == writable ]]; then
+  no "1j ${EXEC_USER} can reach the keeper socket"
+else
+  ok "1j ${EXEC_USER} cannot reach the keeper socket"
+fi
+
+out="$(as_exec test -w "$EXEC_SOCKET" && echo writable)"
+if [[ $out == writable ]]; then
+  no "1k ${EXEC_USER} can reach the executor socket and run unlogged commands"
+else
+  ok "1k ${EXEC_USER} cannot reach the executor socket"
 fi
 
 BROKER_PID="$(pgrep -u "$BROKER_USER" -f '[f]aramir-broker' | head -1)"

@@ -10,15 +10,17 @@ say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 say "stopping services"
 systemctl disable --now \
   faramir-broker.socket faramir-broker.service \
-  faramir-keeper.socket faramir-keeper.service 2>/dev/null || true
+  faramir-keeper.socket faramir-keeper.service \
+  faramir-exec.socket faramir-exec.service 2>/dev/null || true
 rm -f /etc/systemd/system/faramir-broker.socket /etc/systemd/system/faramir-broker.service
 rm -f /etc/systemd/system/faramir-keeper.socket /etc/systemd/system/faramir-keeper.service
+rm -f /etc/systemd/system/faramir-exec.socket /etc/systemd/system/faramir-exec.service
 rm -rf /etc/systemd/system/faramir-broker.service.d
 systemctl daemon-reload
 
 say "removing binaries and library"
 rm -f /usr/local/bin/faramir-broker /usr/local/bin/faramir-keeper \
-      /usr/local/bin/faramir /usr/local/bin/faramir-mcp
+      /usr/local/bin/faramir-exec /usr/local/bin/faramir /usr/local/bin/faramir-mcp
 rm -rf /usr/local/lib/faramir /usr/local/libexec/faramir /usr/local/share/doc/faramir
 
 # The project was called secretd before; a host installed then still has those
@@ -38,7 +40,7 @@ Left in place on purpose:
   /etc/faramir/age.key      deleting it makes every sops file unreadable
   /etc/faramir/config.toml
   /var/log/faramir/         the unredacted audit log
-  users agent, faramir-broker and faramir-keeper, group devwork
+  users agent, faramir-broker, faramir-keeper and faramir-exec, group devwork
 
 Remove those by hand if you really mean to, and note that the agent account's
 ~/.claude/settings.json still points at the (now missing) PreToolUse hook --

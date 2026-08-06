@@ -358,11 +358,12 @@ def fetch_values(
     request: dict[str, Any] = {"op": "get_values"}
     if refs is not None:
         request["refs"] = refs
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
     try:
-        sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         sock.settimeout(timeout)
         sock.connect(socket_path)
     except OSError as exc:
+        sock.close()
         raise KeeperError(
             f"keeper socket {socket_path}: {exc.strerror or exc}"
         ) from exc

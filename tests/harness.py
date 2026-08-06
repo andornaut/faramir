@@ -46,12 +46,15 @@ class Broker:
         self.creds = self.root / "creds"
         self.socket_path = self.root / "sock"
         self.keeper_socket_path = self.root / "keeper.sock"
+        self.exec_socket_path = self.root / "exec.sock"
         self.raw_log = self.root / "log" / "raw.log"
         self.config_path = self.root / "config.toml"
         self.proc: subprocess.Popen[bytes] | None = None
         self.keeper_proc: subprocess.Popen[bytes] | None = None
+        self.exec_proc: subprocess.Popen[bytes] | None = None
         self.stderr_path = self.root / "faramir.stderr"
         self.keeper_stderr_path = self.root / "faramir-keeper.stderr"
+        self.exec_stderr_path = self.root / "faramir-exec.stderr"
 
     # -- setup -------------------------------------------------------------
 
@@ -111,6 +114,7 @@ class Broker:
             "/home/agent/work/ansible-ctrl": str(self.agent_tree),
             "/run/faramir/broker.sock": str(self.socket_path),
             "/run/faramir/keeper.sock": str(self.keeper_socket_path),
+            "/run/faramir/exec.sock": str(self.exec_socket_path),
             "/var/log/faramir/raw.log": str(self.raw_log),
             '"/usr/bin/git"': f'"{shutil.which("git") or "/usr/bin/git"}"',
         }
@@ -188,11 +192,12 @@ class Broker:
         return env
 
     def start(self, timeout: float = 20.0) -> "Broker":
-        """Start the keeper, then the broker, and wait for both sockets.
+        """Start the keeper, the executor, then the broker.
 
-        Both run as the current uid.  That is enough to exercise the protocol
-        and the split; the uid boundary itself only exists on a real
-        deployment, and tests/verify.sh is what checks it there.
+        All three run as the current uid.  That is enough to exercise the
+        protocols and the process split; the uid boundaries themselves only
+        exist on a real deployment, and tests/verify.sh is what checks them
+        there.
         """
         self._keeper_stderr = open(self.keeper_stderr_path, "wb")
         self.keeper_proc = subprocess.Popen(
@@ -210,6 +215,24 @@ class Broker:
         )
         self._await_socket(
             self.keeper_socket_path, self.keeper_proc, timeout, "the keeper"
+        )
+
+        self._exec_stderr = open(self.exec_stderr_path, "wb")
+        self.exec_proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "faramir.execserver",
+                "-c",
+                str(self.config_path),
+            ],
+            env=self._env(with_credentials=False),
+            stdout=self._exec_stderr,
+            stderr=self._exec_stderr,
+            cwd=str(self.root),
+        )
+        self._await_socket(
+            self.exec_socket_path, self.exec_proc, timeout, "the executor"
         )
 
         self._stderr = open(self.stderr_path, "wb")
@@ -245,14 +268,14 @@ class Broker:
         raise RuntimeError(f"{what} did not start:\n{self.log()}")
 
     def stop(self) -> None:
-        for proc in (self.proc, self.keeper_proc):
+        for proc in (self.proc, self.exec_proc, self.keeper_proc):
             if proc and proc.poll() is None:
                 proc.send_signal(signal.SIGTERM)
                 try:
                     proc.wait(timeout=10)
                 except subprocess.TimeoutExpired:
                     proc.kill()
-        for attr in ("_stderr", "_keeper_stderr"):
+        for attr in ("_stderr", "_exec_stderr", "_keeper_stderr"):
             handle = getattr(self, attr, None)
             if handle:
                 handle.close()
@@ -267,6 +290,7 @@ class Broker:
         parts = []
         for label, path in (
             ("keeper", self.keeper_stderr_path),
+            ("executor", self.exec_stderr_path),
             ("broker", self.stderr_path),
         ):
             try:
@@ -280,6 +304,10 @@ class Broker:
     def keeper_call(self, request: dict) -> dict:
         """Talk to the keeper directly, the way only the broker should."""
         return call(request, str(self.keeper_socket_path), timeout=60)
+
+    def exec_call(self, request: dict) -> dict:
+        """Talk to the executor directly, without passing a terminal fd."""
+        return call(request, str(self.exec_socket_path), timeout=60)
 
     def raw_log_text(self) -> str:
         try:

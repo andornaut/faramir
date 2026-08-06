@@ -25,6 +25,16 @@ allowed_groups = []
 # Name of the systemd LoadCredential= entry in faramir-keeper.service.
 age_key_credential = "age_key"
 
+# The process that forks brokered commands.  Its uid holds nothing: no key, no
+# secret values, no audit log, and no write access to the execution checkout.
+# A child forked by the broker would inherit all four.
+[executor]
+socket_path = "/run/faramir/exec.sock"
+socket_mode = "0660"
+allowed_users = ["faramir-broker"]
+allowed_groups = []
+max_concurrency = 16
+
 [exec]
 default_cwd = "/srv/ansible-ctrl"
 default_timeout_sec = 600

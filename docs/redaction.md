@@ -34,6 +34,11 @@ Two reasons, and the second is the one that matters.
 The `test_writes_to_dev_tty_are_captured_and_redacted` case in `tests/test_e2e.py`
 pins this down: `printenv ROUTER_PW > /dev/tty` is captured and redacted.
 
+The fork happens in `faramir-exec`, but the PTY does not move with it. The
+broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the
+master, so everything below runs exactly where it always did, on the child's
+bytes, with no extra hop for output to take.
+
 The cost is that stdout and stderr arrive merged, with no way to tell them
 apart. That is accepted.
 
