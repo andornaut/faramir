@@ -37,6 +37,11 @@ argv0 = '^/bin/ls$'
 
 class MainTestCase(unittest.TestCase):
     def setUp(self):
+        # main() installs handlers bound to its Server.  --check returns before
+        # it gets that far, but that is statement order, not a guarantee, and a
+        # leaked handler points the rest of the suite at a dead Server.
+        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
+            self.addCleanup(signal.signal, sig, signal.getsignal(sig))
         self.tmp = TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.config_path = os.path.join(self.tmp.name, "config.toml")
@@ -91,13 +96,6 @@ class TestTheCheckPath(MainTestCase):
 
 
 class TestTheServingPath(MainTestCase):
-    def setUp(self):
-        super().setUp()
-        # main() installs handlers for these; leaving them in place would
-        # point the rest of the suite at a dead Server.
-        for sig in (signal.SIGHUP, signal.SIGTERM, signal.SIGINT):
-            self.addCleanup(signal.signal, sig, signal.getsignal(sig))
-
     def test_a_failed_bind_does_not_strand_the_ssh_agent(self):
         # The agent holds the fleet keys on a socket the executor's group can
         # already reach, and nothing kills it when this process dies.
