@@ -1,7 +1,7 @@
 """End-to-end tests against a running broker.
 
 This is the Phase 7 verification matrix from the plan, executed against a real
-secretd with a real age key and real sops-encrypted secrets.  The two tests at
+faramir with a real age key and real sops-encrypted secrets.  The two tests at
 the bottom assert that the *documented leaks* still leak: if someone
 accidentally "fixes" them, the README would start promising a property the
 system does not have.
@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from harness import API_TOKEN, ROUTER_PW, SHORT_PW, Broker, have  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from secretd.redact import token_for  # noqa: E402
+from faramir.redact import token_for  # noqa: E402
 
 ROUTER_TOKEN = token_for("home/router/admin")
 PW_REF = "secret://home/router/admin"
@@ -236,8 +236,8 @@ class TestExecutionSemantics(BrokerTestCase):
 
 class TestClientInterfaces(BrokerTestCase):
     def test_cli_prints_redacted_output_and_exit_code(self):
-        result = self.broker.secure_run_cli(
-            ["--env", f"ROUTER_PW={PW_REF}", "--", "printenv", "ROUTER_PW"]
+        result = self.broker.cli(
+            ["run", "--env", f"ROUTER_PW={PW_REF}", "--", "printenv", "ROUTER_PW"]
         )
         self.assertEqual(result.returncode, 0)
         self.assertIn(ROUTER_TOKEN, result.stdout)
@@ -245,16 +245,28 @@ class TestClientInterfaces(BrokerTestCase):
         self.assertIn("redacted", result.stderr)
 
     def test_cli_refuses_a_literal_value(self):
-        result = self.broker.secure_run_cli(["--env", "PW=hunter2", "--", "printenv", "PW"])
+        result = self.broker.cli(["run", "--env", "PW=hunter2", "--", "printenv", "PW"])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("must reference secret://", result.stderr)
 
     def test_cli_propagates_exit_code(self):
-        self.assertEqual(self.broker.secure_run_cli(["--", "bash", "-lc", "exit 7"]).returncode, 7)
+        self.assertEqual(
+            self.broker.cli(["run", "--", "bash", "-lc", "exit 7"]).returncode, 7
+        )
 
     def test_cli_reports_denials_clearly(self):
-        result = self.broker.secure_run_cli(["--", "cat", "/etc/passwd"])
+        result = self.broker.cli(["run", "--", "cat", "/etc/passwd"])
         self.assertIn("denied", result.stderr)
+
+    def test_cli_subcommands_reach_the_broker(self):
+        listed = self.broker.cli(["list-secrets"])
+        self.assertEqual(listed.returncode, 0)
+        self.assertIn(PW_REF, listed.stdout)
+        self.assertNoPlaintext(listed.stdout)
+        self.assertEqual(self.broker.cli(["status"]).returncode, 0)
+
+    def test_cli_without_a_subcommand_is_a_usage_error(self):
+        self.assertEqual(self.broker.cli([]).returncode, 2)
 
     def test_mcp_lists_tools(self):
         responses = self.broker.mcp(
@@ -265,10 +277,10 @@ class TestClientInterfaces(BrokerTestCase):
         )
         names = {t["name"] for t in responses[1]["result"]["tools"]}
         self.assertEqual(
-            names, {"secure_run", "list_secret_refs", "secure_sync", "broker_status"}
+            names, {"faramir_run", "faramir_list_secrets", "faramir_sync", "faramir_status"}
         )
 
-    def test_mcp_secure_run_redacts(self):
+    def test_mcp_faramir_run_redacts(self):
         responses = self.broker.mcp(
             [
                 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
@@ -277,7 +289,7 @@ class TestClientInterfaces(BrokerTestCase):
                     "id": 2,
                     "method": "tools/call",
                     "params": {
-                        "name": "secure_run",
+                        "name": "faramir_run",
                         "arguments": {
                             "cmd": ["printenv", "ROUTER_PW"],
                             "env_refs": {"ROUTER_PW": PW_REF},
@@ -298,13 +310,13 @@ class TestClientInterfaces(BrokerTestCase):
                     "jsonrpc": "2.0",
                     "id": 2,
                     "method": "tools/call",
-                    "params": {"name": "secure_run", "arguments": {"cmd": ["cat", "/etc/shadow"]}},
+                    "params": {"name": "faramir_run", "arguments": {"cmd": ["cat", "/etc/shadow"]}},
                 },
             ]
         )
         self.assertTrue(responses[1]["result"]["isError"])
 
-    def test_mcp_list_secret_refs_shows_no_values(self):
+    def test_mcp_list_secrets_shows_no_values(self):
         responses = self.broker.mcp(
             [
                 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
@@ -312,7 +324,7 @@ class TestClientInterfaces(BrokerTestCase):
                     "jsonrpc": "2.0",
                     "id": 2,
                     "method": "tools/call",
-                    "params": {"name": "list_secret_refs", "arguments": {}},
+                    "params": {"name": "faramir_list_secrets", "arguments": {}},
                 },
             ]
         )

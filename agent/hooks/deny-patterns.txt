@@ -4,7 +4,7 @@
 #
 # This list is ergonomics with teeth, not the security boundary: the agent uid
 # cannot read the key material regardless.  What it buys is that the agent gets
-# a corrective message naming secure_run instead of a confusing EACCES, and
+# a corrective message naming faramir_run instead of a confusing EACCES, and
 # that encrypted blobs and env dumps stop polluting the context window.
 
 # Direct decryption of the secret store
@@ -27,10 +27,10 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 
 # Reading key material or encrypted blobs straight into the context window
 \b(cat|less|more|head|tail|bat|xxd|od|strings)\b.*(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials)
-\b(cat|less|more|head|tail)\b.*/etc/secretd
+\b(cat|less|more|head|tail)\b.*/etc/faramir
 \bfind\b.*-name.*(age\.key|\.env|id_rsa)
 
 # Trying to reach the broker's private state
-/var/log/secretd
-\bjournalctl\b.*secretd
-\bsudo\b.*\b(secretd|-u\s+secretd)\b
+/var/log/faramir
+\bjournalctl\b.*faramir
+\bsudo\b.*(\bfaramir-(broker|keeper|exec)\b|-u\s+faramir)

@@ -31,7 +31,7 @@ from typing import Callable, Sequence
 from .config import ExecConfig
 from .redact import Redactor
 
-log = logging.getLogger("secretd.exec")
+log = logging.getLogger("faramir.exec")
 
 _READ_SIZE = 65536
 
@@ -157,7 +157,7 @@ def run(
     if exit_code < 0:
         exit_code = 128 - exit_code  # 128 + signal number
     if timed_out:
-        chunks.append(f"\n[secretd] timed out after {timeout_sec}s; process killed\n")
+        chunks.append(f"\n[faramir] timed out after {timeout_sec}s; process killed\n")
 
     return ExecResult(
         exit_code=exit_code,
@@ -186,7 +186,7 @@ def _append(
     room = max(0, limit - emitted)
     if room:
         chunks.append(text.encode("utf-8", "replace")[:room].decode("utf-8", "ignore"))
-    chunks.append(f"\n[secretd] output truncated at {limit} bytes\n")
+    chunks.append(f"\n[faramir] output truncated at {limit} bytes\n")
     return limit, True
 
 

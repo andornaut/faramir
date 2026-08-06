@@ -1,13 +1,13 @@
 # Credentials
 
-Commands needing credentials run through the `secure_run` MCP tool (CLI:
-`secure-run`). Secrets are referenced by name; values are never available here
+Commands needing credentials run through the `faramir_run` MCP tool (CLI:
+`faramir run`). Secrets are referenced by name; values are never available here
 and output comes back with them replaced by `«SECRET:ref»`.
 
 ```
-secure_run(cmd=["ansible-playbook", "site.yml", "--limit", "routers"],
-           env_refs={"ROUTER_PW": "secret://home/router/admin"})
+faramir_run(cmd=["ansible-playbook", "site.yml", "--limit", "routers"],
+            env_refs={"ROUTER_PW": "secret://home/router/admin"})
 ```
 
-`list_secret_refs` lists available names. The broker executes only committed
-work from `/srv/ansible-ctrl` — commit, then `secure_sync`, then run.
+`faramir_list_secrets` lists available names. The broker executes only committed
+work from `/srv/ansible-ctrl`: commit, then `faramir_sync`, then run.

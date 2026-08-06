@@ -20,8 +20,8 @@ from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from secretd.config import SyncConfig  # noqa: E402
-from secretd.sync import SyncError, sync  # noqa: E402
+from faramir.config import SyncConfig  # noqa: E402
+from faramir.sync import SyncError, sync  # noqa: E402
 
 
 def git(cwd, *args):
@@ -146,7 +146,7 @@ class TestSyncGit(unittest.TestCase):
         leaked = [
             name
             for name in set(os.listdir(tempfile.gettempdir())) - before
-            if name.startswith("secretd-sync-")
+            if name.startswith("faramir-sync-")
         ]
         self.assertEqual(leaked, [])
 

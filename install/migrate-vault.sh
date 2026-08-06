@@ -67,9 +67,9 @@ cat <<EOF
 Done: $DST
 
 Before deleting $SRC and the vault password file:
-  1. Point [secrets].files in /etc/secretd/config.toml at $DST.
-  2. systemctl reload secretd
-  3. Run a real playbook end to end through secure-run and confirm it works.
+  1. Point [secrets].files in /etc/faramir/config.toml at $DST.
+  2. systemctl reload faramir-broker
+  3. Run a real playbook end to end through faramir run and confirm it works.
 
 Then, and only then:
   git rm $SRC && rm -f "\$VAULT_PASSWORD_FILE"

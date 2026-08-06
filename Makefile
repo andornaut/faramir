@@ -21,13 +21,13 @@ test-e2e:
 	$(PYTHON) -m unittest tests.test_e2e tests.test_sync -v
 
 check:
-	$(PYTHON) -m compileall -q src bin/secretd bin/secure-run bin/secretd-mcp agent/hooks
+	$(PYTHON) -m compileall -q src bin/faramir-broker bin/faramir bin/faramir-mcp agent/hooks
 	$(PYTHON) -c "import sys, tomllib; sys.path.insert(0,'src'); \
-	from secretd.config import Config; \
+	from faramir.config import Config; \
 	c = Config.from_dict(tomllib.load(open('etc/config.toml','rb')), 'etc/config.toml'); \
 	print('config OK:', ', '.join(r.name for r in c.allow))"
 	@command -v systemd-analyze >/dev/null && \
-	  systemd-analyze security --offline=true systemd/secretd.service | tail -1 || true
+	  systemd-analyze security --offline=true systemd/faramir-broker.service | tail -1 || true
 
 install:
 	install/20-install-broker.sh
@@ -43,4 +43,4 @@ verify:
 
 clean:
 	find . -name __pycache__ -type d -prune -exec rm -rf {} +
-	rm -rf /tmp/secretd-e2e-*
+	rm -rf /tmp/faramir-e2e-*

@@ -1,10 +1,10 @@
-# /etc/secretd/config.toml -- broker policy.
+# /etc/faramir/config.toml -- broker policy.
 #
 # The allowlist is DEFAULT-DENY: a command matching no [[allow]] rule is
 # refused.  Regexes are applied with re.search(), so anchor them.
 
 [server]
-socket_path = "/run/secretd/sock"
+socket_path = "/run/faramir/broker.sock"
 socket_mode = "0660"
 max_concurrency = 4
 max_request_bytes = 262144
@@ -50,7 +50,7 @@ min_unique_chars = 4
 min_entropy_bits_per_char = 1.5
 
 [audit]
-raw_log = "/var/log/secretd/raw.log"
+raw_log = "/var/log/faramir/raw.log"
 max_record_bytes = 4194304
 
 [sync]
@@ -88,7 +88,7 @@ args_allow = [
 args_deny = [
   '^--vault-password-file',           # vault is gone; this would mean a stray key file
   '^--ask-vault-pass$',
-  '(^|=)/etc/secretd',
+  '(^|=)/etc/faramir',
   '(^|=)/proc/',
 ]
 
@@ -98,7 +98,7 @@ argv0 = '^ansible$'
 provide_age_key = true
 cwd_allow = ['^/srv/ansible-ctrl(/|$)']
 args_allow = ['^[A-Za-z0-9@:._,!*/=+ {}"\[\]-]{1,4096}$']
-args_deny = ['(^|=)/etc/secretd', '(^|=)/proc/']
+args_deny = ['(^|=)/etc/faramir', '(^|=)/proc/']
 
 [[allow]]
 name = "ansible-galaxy"
@@ -122,7 +122,7 @@ argv0 = '^ssh$'
 args_allow = ['^[A-Za-z0-9@:._,/=+ -]{1,1024}$']
 args_deny = [
   '^-o\s*(PermitLocalCommand|ProxyCommand|LocalCommand)',  # arbitrary local exec
-  '(^|=)/etc/secretd',
+  '(^|=)/etc/faramir',
 ]
 
 [[allow]]
@@ -144,7 +144,7 @@ args_deny = [
 name = "bash"
 argv0 = '^(bash|sh)$'
 args_allow = ['^-[lc]{1,2}$', '^-lc$', '^[^\x00]{0,8192}$']
-args_deny = ['(^|\s)/etc/secretd', '/proc/\d+/environ']
+args_deny = ['(^|\s)/etc/faramir', '/proc/\d+/environ']
 
 [[allow]]
 name = "git-readonly"

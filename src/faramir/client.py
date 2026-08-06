@@ -12,11 +12,11 @@ import os
 import socket
 from typing import Any
 
-DEFAULT_SOCKET = os.environ.get("SECRETD_SOCKET", "/run/secretd/sock")
+DEFAULT_SOCKET = os.environ.get("FARAMIR_SOCKET", "/run/faramir/broker.sock")
 
 
 class BrokerUnavailable(Exception):
-    """Could not talk to secretd."""
+    """Could not talk to the broker."""
 
 
 def call(request: dict[str, Any], socket_path: str = DEFAULT_SOCKET, timeout: float | None = None) -> dict[str, Any]:

@@ -32,15 +32,15 @@ fi
 if [[ -d $WORKTREE ]]; then
   say "MCP server registration -> ${WORKTREE}/.mcp.json"
   if [[ -f ${WORKTREE}/.mcp.json ]]; then
-    say "keeping existing .mcp.json -- add the 'secretd' entry from agent/claude/mcp.json"
+    say "keeping existing .mcp.json -- add the 'faramir' entry from agent/claude/mcp.json"
   else
     install -m 0664 -o "$AGENT_USER" -g "${DEVWORK_GROUP:-devwork}" \
       "$REPO/agent/claude/mcp.json" "${WORKTREE}/.mcp.json"
   fi
 
   say "CLAUDE.md"
-  if [[ -f ${WORKTREE}/CLAUDE.md ]] && grep -q secure_run "${WORKTREE}/CLAUDE.md"; then
-    say "CLAUDE.md already mentions secure_run; leaving it alone"
+  if [[ -f ${WORKTREE}/CLAUDE.md ]] && grep -q faramir_run "${WORKTREE}/CLAUDE.md"; then
+    say "CLAUDE.md already mentions faramir_run; leaving it alone"
   else
     cat "$REPO/agent/claude/CLAUDE.md.snippet" >>"${WORKTREE}/CLAUDE.md"
     chown "$AGENT_USER:${DEVWORK_GROUP:-devwork}" "${WORKTREE}/CLAUDE.md"
@@ -60,5 +60,5 @@ wrong.
 
 Verify the hook fires:
   echo '{"tool_name":"Bash","tool_input":{"command":"printenv"}}' \\
-    | /usr/local/libexec/secretd/pretooluse-guard.py
+    | /usr/local/libexec/faramir/pretooluse-guard.py
 EOF

@@ -19,7 +19,7 @@ from typing import Any
 
 from .config import AuditConfig
 
-log = logging.getLogger("secretd.audit")
+log = logging.getLogger("faramir.audit")
 
 
 def new_log_id() -> str:

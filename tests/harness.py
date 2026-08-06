@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import signal
 import socket
@@ -24,7 +25,7 @@ SRC = REPO / "src"
 
 sys.path.insert(0, str(SRC))
 
-from secretd.client import BrokerUnavailable, call  # noqa: E402
+from faramir.client import BrokerUnavailable, call  # noqa: E402
 
 ROUTER_PW = "Tr0ub4dor-and-3-horses-stapled"
 API_TOKEN = "sk-live-9f2b7c41d8e6a03b5719ce84"
@@ -36,10 +37,10 @@ def have(*programs: str) -> bool:
 
 
 class Broker:
-    """A running secretd, with its own key, secrets, socket and log."""
+    """A running broker, with its own key, secrets, socket and log."""
 
     def __init__(self) -> None:
-        self.root = Path(tempfile.mkdtemp(prefix="secretd-e2e-"))
+        self.root = Path(tempfile.mkdtemp(prefix="faramir-e2e-"))
         self.workdir = self.root / "srv" / "ansible-ctrl"
         self.agent_tree = self.root / "home" / "agent" / "work" / "ansible-ctrl"
         self.creds = self.root / "creds"
@@ -47,7 +48,7 @@ class Broker:
         self.raw_log = self.root / "log" / "raw.log"
         self.config_path = self.root / "config.toml"
         self.proc: subprocess.Popen[bytes] | None = None
-        self.stderr_path = self.root / "secretd.stderr"
+        self.stderr_path = self.root / "faramir.stderr"
 
     # -- setup -------------------------------------------------------------
 
@@ -105,12 +106,25 @@ class Broker:
         replacements = {
             "/srv/ansible-ctrl": str(self.workdir),
             "/home/agent/work/ansible-ctrl": str(self.agent_tree),
-            "/run/secretd/sock": str(self.socket_path),
-            "/var/log/secretd/raw.log": str(self.raw_log),
+            "/run/faramir/broker.sock": str(self.socket_path),
+            "/var/log/faramir/raw.log": str(self.raw_log),
             '"/usr/bin/git"': f'"{shutil.which("git") or "/usr/bin/git"}"',
         }
         for old, new in replacements.items():
             text = text.replace(old, new)
+        # Ansible resolves the sops vars itself, so the *child* needs sops on
+        # its PATH.  The shipped base_env lists only the system directories; on
+        # a machine where sops is installed elsewhere the playbook test would
+        # fail with 127 rather than tell you why.
+        sops = shutil.which("sops")
+        if sops:
+            text = re.sub(
+                r'^(PATH = ")',
+                lambda m: m.group(1) + os.path.dirname(sops) + ":",
+                text,
+                count=1,
+                flags=re.MULTILINE,
+            )
         # The temp dir lives outside allowed_bin_dirs; keep the shipped list.
         self.config_path.write_text(text)
 
@@ -153,7 +167,7 @@ class Broker:
         }
         self._stderr = open(self.stderr_path, "wb")
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "secretd", "-c", str(self.config_path)],
+            [sys.executable, "-m", "faramir", "-c", str(self.config_path)],
             env=env,
             stdout=self._stderr,
             stderr=self._stderr,
@@ -169,9 +183,9 @@ class Broker:
                 except OSError:
                     pass
             if self.proc.poll() is not None:
-                raise RuntimeError(f"secretd exited early:\n{self.log()}")
+                raise RuntimeError(f"the broker exited early:\n{self.log()}")
             time.sleep(0.05)
-        raise RuntimeError(f"secretd did not start:\n{self.log()}")
+        raise RuntimeError(f"the broker did not start:\n{self.log()}")
 
     def stop(self) -> None:
         if self.proc and self.proc.poll() is None:
@@ -211,13 +225,13 @@ class Broker:
         request.update(kw)
         return self.call(request)
 
-    def secure_run_cli(self, args: list[str]) -> subprocess.CompletedProcess:
+    def cli(self, args: list[str]) -> subprocess.CompletedProcess:
         """Drive the real CLI, the way the agent would."""
         env = dict(os.environ)
-        env["SECRETD_SOCKET"] = str(self.socket_path)
-        env["SECRETD_LIB"] = str(SRC)
+        env["FARAMIR_SOCKET"] = str(self.socket_path)
+        env["FARAMIR_LIB"] = str(SRC)
         return subprocess.run(
-            [sys.executable, str(REPO / "bin" / "secure-run"), *args],
+            [sys.executable, str(REPO / "bin" / "faramir"), *args],
             env=env,
             capture_output=True,
             text=True,
@@ -227,11 +241,11 @@ class Broker:
     def mcp(self, messages: list[dict]) -> list[dict]:
         """Drive the real MCP server over stdio."""
         env = dict(os.environ)
-        env["SECRETD_SOCKET"] = str(self.socket_path)
-        env["SECRETD_LIB"] = str(SRC)
+        env["FARAMIR_SOCKET"] = str(self.socket_path)
+        env["FARAMIR_LIB"] = str(SRC)
         payload = "".join(json.dumps(m) + "\n" for m in messages)
         proc = subprocess.run(
-            [sys.executable, str(REPO / "bin" / "secretd-mcp")],
+            [sys.executable, str(REPO / "bin" / "faramir-mcp")],
             input=payload,
             env=env,
             capture_output=True,

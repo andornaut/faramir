@@ -1,17 +1,17 @@
 [Unit]
 Description=Secret broker for local AI agents
-Documentation=file:///usr/local/share/doc/secretd/README.md
-Requires=secretd.socket
-After=secretd.socket network.target
+Documentation=file:///usr/local/share/doc/faramir/README.md
+Requires=faramir-broker.socket
+After=faramir-broker.socket network.target
 
 [Service]
 Type=notify
 NotifyAccess=main
-User=secretd
-Group=secretd
+User=faramir-broker
+Group=faramir-broker
 # Read access to the shared working tree (the sync source), nothing more.
 SupplementaryGroups=devwork
-ExecStart=/usr/local/bin/secretd
+ExecStart=/usr/local/bin/faramir-broker
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2
@@ -19,7 +19,7 @@ RestartSec=2
 # The age key is passed as a systemd credential, so it is readable at
 # $CREDENTIALS_DIRECTORY/age_key and nowhere else -- not from a path a child
 # could re-open, not from an environment variable.
-LoadCredential=age_key:/etc/secretd/age.key
+LoadCredential=age_key:/etc/faramir/age.key
 
 # The critical one: without ProtectProc the agent uid can read
 # /proc/<pid>/environ of the broker and of every command it runs.
@@ -36,7 +36,7 @@ ProtectSystem=strict
 # leading '-' keeps the unit startable on a host that syncs from elsewhere.
 #
 # This is the default worktree only.  install/20-install-broker.sh writes
-# secretd.service.d/10-sync-source.conf with the configured one, which matters
+# faramir-broker.service.d/10-sync-source.conf with the configured one, which matters
 # when AGENT_USER or WORKTREE is set; a source that is not bound in here is
 # invisible to the broker no matter what [sync] source says.
 ProtectHome=tmpfs
@@ -48,13 +48,13 @@ PrivateDevices=false
 DevicePolicy=closed
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
-ReadWritePaths=/srv/ansible-ctrl /var/log/secretd
-RuntimeDirectory=secretd
+ReadWritePaths=/srv/ansible-ctrl /var/log/faramir
+RuntimeDirectory=faramir
 # The broker's home: SSH keys for managed hosts, and ~/.ansible/tmp, which
 # ansible-playbook creates unconditionally.  It lives here rather than under
 # /home precisely because ProtectHome= would otherwise hide it.
-StateDirectory=secretd
-LogsDirectory=secretd
+StateDirectory=faramir-broker
+LogsDirectory=faramir
 # AF_INET/AF_INET6/AF_NETLINK are required: the broker runs Ansible over SSH.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallFilter=@system-service
@@ -74,7 +74,7 @@ ProtectKernelTunables=true
 RemoveIPC=true
 UMask=0077
 
-# systemd-analyze security secretd.service -> 1.7 OK (systemd 255)
+# systemd-analyze security faramir-broker.service -> 1.7 OK (systemd 255)
 #
 # Every remaining exposure item, and why it is accepted:
 #

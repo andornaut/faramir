@@ -12,9 +12,9 @@
 set -uo pipefail
 
 AGENT_USER="${AGENT_USER:-agent}"
-BROKER_USER="${BROKER_USER:-secretd}"
-SOCKET="${SECRETD_SOCKET:-/run/secretd/sock}"
-RAW_LOG="${RAW_LOG:-/var/log/secretd/raw.log}"
+BROKER_USER="${BROKER_USER:-faramir-broker}"
+SOCKET="${FARAMIR_SOCKET:-/run/faramir/broker.sock}"
+RAW_LOG="${RAW_LOG:-/var/log/faramir/raw.log}"
 PW_REF="${PW_REF:-secret://home/router/admin}"
 PLAYBOOK="${PLAYBOOK:-site.yml}"
 
@@ -25,7 +25,7 @@ skipt(){ printf '  \033[33mSKIP\033[0m  %s\n' "$*"; skip=$((skip+1)); }
 head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
 as_agent() { sudo -u "$AGENT_USER" "$@" 2>&1; }
-srun() { sudo -u "$AGENT_USER" secure-run --quiet "$@" 2>&1; }
+srun() { sudo -u "$AGENT_USER" faramir run --quiet "$@" 2>&1; }
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
 id -u "$AGENT_USER" >/dev/null 2>&1 || { echo "no such user: $AGENT_USER" >&2; exit 1; }
@@ -34,14 +34,14 @@ head_ "1-2  uid separation"
 
 # Note: capture first, then grep.  With `pipefail`, piping a failing command
 # into a succeeding grep still reports failure, which silently inverts results.
-out="$(as_agent cat /etc/secretd/age.key)"
+out="$(as_agent cat /etc/faramir/age.key)"
 if grep -qi 'permission denied' <<<"$out"; then
-  ok "1  agent cannot read /etc/secretd/age.key"
+  ok "1  agent cannot read /etc/faramir/age.key"
 else
   no "1  agent CAN read the age key -- phase 1 is broken, stop here"
 fi
 
-BROKER_PID="$(pgrep -u "$BROKER_USER" -f '[s]ecretd' | head -1)"
+BROKER_PID="$(pgrep -u "$BROKER_USER" -f '[f]aramir-broker' | head -1)"
 if [[ -z $BROKER_PID ]]; then
   skipt "2  broker is not running"
 else

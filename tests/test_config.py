@@ -1,7 +1,7 @@
 """Config parsing.
 
 A config error has to arrive as a ConfigError naming the key, because that is
-the only thing ``secretd --check`` can turn into a useful message.  A traceback
+the only thing ``faramir-broker --check`` can turn into a useful message.  A traceback
 tells the operator nothing about which line to fix.
 """
 
@@ -11,7 +11,7 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from secretd.config import Config, ConfigError  # noqa: E402
+from faramir.config import Config, ConfigError  # noqa: E402
 
 MINIMAL_ALLOW = [{"name": "ls", "argv0": r"^/bin/ls$"}]
 

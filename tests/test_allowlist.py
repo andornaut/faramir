@@ -7,8 +7,8 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from secretd.allowlist import DeniedError, authorize  # noqa: E402
-from secretd.config import Config, ConfigError  # noqa: E402
+from faramir.allowlist import DeniedError, authorize  # noqa: E402
+from faramir.config import Config, ConfigError  # noqa: E402
 
 REPO = os.path.join(os.path.dirname(__file__), "..")
 SHIPPED_CONFIG = os.path.join(REPO, "etc", "config.toml")
@@ -56,7 +56,7 @@ class TestShippedAllowlist(unittest.TestCase):
 
     def test_bash_cannot_read_the_key_directory(self):
         with self.assertRaises(DeniedError):
-            self.check(["bash", "-lc", "cat /etc/secretd/age.key"])
+            self.check(["bash", "-lc", "cat /etc/faramir/age.key"])
 
     def test_bash_cannot_read_another_process_environ(self):
         with self.assertRaises(DeniedError):

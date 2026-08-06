@@ -9,8 +9,8 @@
       "Read(**/*.sops.yml)",
       "Read(**/*.sops.yaml)",
       "Read(**/.env*)",
-      "Read(/etc/secretd/**)",
-      "Read(/var/log/secretd/**)",
+      "Read(/etc/faramir/**)",
+      "Read(/var/log/faramir/**)",
       "Read(**/age.key)",
       "Read(**/id_rsa)",
       "Read(**/id_ed25519)"
@@ -23,7 +23,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/libexec/secretd/pretooluse-guard.py",
+            "command": "/usr/local/libexec/faramir/pretooluse-guard.py",
             "timeout": 10
           }
         ]

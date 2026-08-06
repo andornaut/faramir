@@ -11,13 +11,13 @@ import unittest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from secretd.protocol import (  # noqa: E402
+from faramir.protocol import (  # noqa: E402
     ProtocolError,
     Request,
     env_name_for_ref,
     resolve_inline_tokens,
 )
-from secretd.secretstore import SecretError, parse_secret_uri  # noqa: E402
+from faramir.secretstore import SecretError, parse_secret_uri  # noqa: E402
 
 
 class TestRequestParsing(unittest.TestCase):
@@ -106,7 +106,7 @@ class TestInlineTokens(unittest.TestCase):
         self.assertEqual(env, {})
 
     def test_env_name_is_deterministic(self):
-        self.assertEqual(env_name_for_ref("home/router/admin"), "SECRETD_HOME_ROUTER_ADMIN")
+        self.assertEqual(env_name_for_ref("home/router/admin"), "FARAMIR_HOME_ROUTER_ADMIN")
 
 
 if __name__ == "__main__":

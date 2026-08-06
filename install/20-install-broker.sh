@@ -5,10 +5,10 @@
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BROKER_USER="${BROKER_USER:-secretd}"
+BROKER_USER="${BROKER_USER:-faramir-broker}"
 AGENT_USER="${AGENT_USER:-agent}"
 GROUP="${DEVWORK_GROUP:-devwork}"
-LIB="${SECRETD_LIB:-/usr/local/lib/secretd}"
+LIB="${FARAMIR_LIB:-/usr/local/lib/faramir}"
 # Derive from the passwd entry when the account exists, so this agrees with
 # 40-agent-config.sh for a home that is not /home/<user>.  getent exits 2 for a
 # missing account, which pipefail would turn into a silent abort before the
@@ -23,40 +23,40 @@ say "python check"
 python3 - <<'PY'
 import sys
 if sys.version_info < (3, 11):
-    sys.exit(f"secretd needs Python >= 3.11 (tomllib); found {sys.version.split()[0]}")
+    sys.exit(f"faramir needs Python >= 3.11 (tomllib); found {sys.version.split()[0]}")
 PY
 
-say "library -> ${LIB}/secretd"
+say "library -> ${LIB}/faramir"
 install -d -m 0755 "$LIB"
-rm -rf "${LIB:?}/secretd"
-install -d -m 0755 "${LIB}/secretd"
-install -m 0644 "$REPO"/src/secretd/*.py "${LIB}/secretd/"
+rm -rf "${LIB:?}/faramir"
+install -d -m 0755 "${LIB}/faramir"
+install -m 0644 "$REPO"/src/faramir/*.py "${LIB}/faramir/"
 
 say "binaries -> /usr/local/bin"
-install -m 0755 "$REPO/bin/secretd" /usr/local/bin/secretd
-install -m 0755 "$REPO/bin/secure-run" /usr/local/bin/secure-run
-install -m 0755 "$REPO/bin/secretd-mcp" /usr/local/bin/secretd-mcp
+install -m 0755 "$REPO/bin/faramir-broker" /usr/local/bin/faramir-broker
+install -m 0755 "$REPO/bin/faramir" /usr/local/bin/faramir
+install -m 0755 "$REPO/bin/faramir-mcp" /usr/local/bin/faramir-mcp
 
-say "hook -> /usr/local/libexec/secretd"
-install -d -m 0755 /usr/local/libexec/secretd
-install -m 0755 "$REPO/agent/hooks/pretooluse-guard.py" /usr/local/libexec/secretd/pretooluse-guard.py
-# Next to the hook, not in /etc/secretd: the hook runs as the agent uid, which
-# cannot traverse /etc/secretd (0750 secretd:secretd).  A patterns file it
+say "hook -> /usr/local/libexec/faramir"
+install -d -m 0755 /usr/local/libexec/faramir
+install -m 0755 "$REPO/agent/hooks/pretooluse-guard.py" /usr/local/libexec/faramir/pretooluse-guard.py
+# Next to the hook, not in /etc/faramir: the hook runs as the agent uid, which
+# cannot traverse /etc/faramir (0750 faramir-broker:faramir-broker).  A patterns file it
 # cannot read means it silently falls back to a much weaker built-in list.
-install -m 0644 "$REPO/agent/hooks/deny-patterns.txt" /usr/local/libexec/secretd/deny-patterns.txt
+install -m 0644 "$REPO/agent/hooks/deny-patterns.txt" /usr/local/libexec/faramir/deny-patterns.txt
 
-say "docs -> /usr/local/share/doc/secretd"
-install -d -m 0755 /usr/local/share/doc/secretd
-install -m 0644 "$REPO/README.md" /usr/local/share/doc/secretd/README.md
-install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/secretd/
+say "docs -> /usr/local/share/doc/faramir"
+install -d -m 0755 /usr/local/share/doc/faramir
+install -m 0644 "$REPO/README.md" /usr/local/share/doc/faramir/README.md
+install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/faramir/
 
-install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/secretd
-install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/secretd
+install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/faramir
+install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
-# Left over from installs that placed the patterns under /etc/secretd, where the
-# agent uid could not read them.
+# Left over from installs that placed the patterns under the config directory,
+# where the agent uid could not read them.
 # CLEANUP (added 2026-08-05): remove once every host has run this script once.
-rm -f /etc/secretd/deny-patterns.txt
+rm -f /etc/faramir/deny-patterns.txt /etc/secretd/deny-patterns.txt
 
 # [sync] source must name the worktree this install was given, not the default
 # baked into the shipped config.  The bind mount below makes only that one path
@@ -66,10 +66,10 @@ rm -f /etc/secretd/deny-patterns.txt
 # "no source") all have to be read the way the broker reads them, or the
 # warning below fires on configs that are perfectly correct.
 configured_source() {
-  SECRETD_LIB="$LIB" python3 - "$1" <<'PY'
+  FARAMIR_LIB="$LIB" python3 - "$1" <<'PY'
 import sys, tomllib
-sys.path.insert(0, __import__("os").environ["SECRETD_LIB"])
-from secretd.config import SyncConfig
+sys.path.insert(0, __import__("os").environ["FARAMIR_LIB"])
+from faramir.config import SyncConfig
 
 try:
     with open(sys.argv[1], "rb") as fh:
@@ -82,46 +82,46 @@ print(section.get("source", SyncConfig.source))
 PY
 }
 
-if [[ -f /etc/secretd/config.toml ]]; then
-  say "keeping existing /etc/secretd/config.toml (new default at config.toml.dist)"
-  install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/secretd/config.toml.dist
+if [[ -f /etc/faramir/config.toml ]]; then
+  say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
+  install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/faramir/config.toml.dist
   # No -n guard: an absent source key means SyncConfig's default, which is
   # exactly the mismatch worth warning about on a non-default install.
-  if existing="$(configured_source /etc/secretd/config.toml)" &&
+  if existing="$(configured_source /etc/faramir/config.toml)" &&
      [[ $existing != "$WORKTREE" ]]; then
     say "WARNING: [sync] source is ${existing} but this install binds ${WORKTREE}"
-    say "         sync will fail until they match; edit /etc/secretd/config.toml"
+    say "         sync will fail until they match; edit /etc/faramir/config.toml"
   fi
 else
-  say "config -> /etc/secretd/config.toml (sync source ${WORKTREE})"
-  install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/secretd/config.toml
+  say "config -> /etc/faramir/config.toml (sync source ${WORKTREE})"
+  install -m 0640 -o root -g "$BROKER_USER" "$REPO/etc/config.toml" /etc/faramir/config.toml
   awk -v worktree="$WORKTREE" '
     /^\[sync\]/ { in_sync = 1 }
     /^\[/ && !/^\[sync\]/ { in_sync = 0 }
     in_sync && /^[[:space:]]*source[[:space:]]*=/ {
       print "source = \"" worktree "\""; next }
-    { print }' /etc/secretd/config.toml >/etc/secretd/config.toml.new
-  chown root:"$BROKER_USER" /etc/secretd/config.toml.new
-  chmod 0640 /etc/secretd/config.toml.new
-  mv /etc/secretd/config.toml.new /etc/secretd/config.toml
+    { print }' /etc/faramir/config.toml >/etc/faramir/config.toml.new
+  chown root:"$BROKER_USER" /etc/faramir/config.toml.new
+  chmod 0640 /etc/faramir/config.toml.new
+  mv /etc/faramir/config.toml.new /etc/faramir/config.toml
 fi
 
 say "systemd units"
-install -m 0644 "$REPO/systemd/secretd.socket" /etc/systemd/system/secretd.socket
-install -m 0644 "$REPO/systemd/secretd.service" /etc/systemd/system/secretd.service
+install -m 0644 "$REPO/systemd/faramir-broker.socket" /etc/systemd/system/faramir-broker.socket
+install -m 0644 "$REPO/systemd/faramir-broker.service" /etc/systemd/system/faramir-broker.service
 
 # /home is an empty tmpfs inside the unit, so the sync source has to be bound in
 # explicitly.  The unit hardcodes the default; bind the configured worktree too,
 # or an install with AGENT_USER or WORKTREE set starts clean and then fails
 # every sync at runtime.  BindReadOnlyPaths= is a list, so this appends.
 say "sync source bind mount -> ${WORKTREE}"
-install -d -m 0755 /etc/systemd/system/secretd.service.d
-cat >/etc/systemd/system/secretd.service.d/10-sync-source.conf <<EOF
+install -d -m 0755 /etc/systemd/system/faramir-broker.service.d
+cat >/etc/systemd/system/faramir-broker.service.d/10-sync-source.conf <<EOF
 # Written by install/20-install-broker.sh.  Regenerated on every run.
 [Service]
 BindReadOnlyPaths=-${WORKTREE}
 EOF
-chmod 0644 /etc/systemd/system/secretd.service.d/10-sync-source.conf
+chmod 0644 /etc/systemd/system/faramir-broker.service.d/10-sync-source.conf
 
 # systemd may not be running (container, chroot, image build).  Install the
 # units anyway; just do not pretend to have started anything.
@@ -133,27 +133,27 @@ else
   say "systemd is not running here; units installed but not started"
 fi
 
-if [[ $HAVE_SYSTEMD -eq 1 && -f /etc/secretd/age.key ]]; then
-  systemctl enable --now secretd.socket
-  systemctl restart secretd.service || true
-  say "systemd-analyze security secretd.service"
-  systemd-analyze security secretd.service || true
-elif [[ ! -f /etc/secretd/age.key ]]; then
-  say "NOT starting secretd: /etc/secretd/age.key is missing."
-  say "Run install/30-sops-init.sh first, then: systemctl enable --now secretd.socket"
+if [[ $HAVE_SYSTEMD -eq 1 && -f /etc/faramir/age.key ]]; then
+  systemctl enable --now faramir-broker.socket
+  systemctl restart faramir-broker.service || true
+  say "systemd-analyze security faramir-broker.service"
+  systemd-analyze security faramir-broker.service || true
+elif [[ ! -f /etc/faramir/age.key ]]; then
+  say "NOT starting faramir-broker: /etc/faramir/age.key is missing."
+  say "Run install/30-sops-init.sh first, then: systemctl enable --now faramir-broker.socket"
 fi
 
 say "validating the installed config"
-SECRETD_LIB="$LIB" /usr/local/bin/secretd -c /etc/secretd/config.toml --check || {
-  say "config validation FAILED -- fix /etc/secretd/config.toml before enabling the unit"
+FARAMIR_LIB="$LIB" /usr/local/bin/faramir-broker -c /etc/faramir/config.toml --check || {
+  say "config validation FAILED -- fix /etc/faramir/config.toml before enabling the unit"
   exit 1
 }
 
 cat <<EOF
 
 Phase 3 acceptance (run these):
-  sudo -u agent cat /proc/\$(pgrep -u ${BROKER_USER} -f secretd | head -1)/environ
+  sudo -u agent cat /proc/\$(pgrep -u ${BROKER_USER} -f faramir-broker | head -1)/environ
       -> No such file or directory   (ProtectProc=invisible)
-  sudo -u agent test -w /run/secretd/sock && echo writable
+  sudo -u agent test -w /run/faramir/broker.sock && echo writable
       -> writable                    (group ${GROUP} access works)
 EOF

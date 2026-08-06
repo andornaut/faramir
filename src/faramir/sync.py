@@ -27,7 +27,7 @@ from typing import Iterator, Sequence
 
 from .config import SyncConfig
 
-log = logging.getLogger("secretd.sync")
+log = logging.getLogger("faramir.sync")
 
 
 class SyncError(Exception):
@@ -75,7 +75,7 @@ def _safe_directory_config(cfg: SyncConfig) -> Iterator[str]:
         entries.append(path)
         entries.append(os.path.join(path, ".git"))
     with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", prefix="secretd-sync-", suffix=".gitconfig"
+        mode="w", encoding="utf-8", prefix="faramir-sync-", suffix=".gitconfig"
     ) as fh:
         fh.write("[safe]\n")
         for entry in entries:

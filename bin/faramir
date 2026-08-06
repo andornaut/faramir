@@ -1,0 +1,160 @@
+#!/usr/bin/env python3
+"""faramir -- run a command that needs credentials, without seeing them.
+
+    faramir run --env ROUTER_PW=secret://home/router/admin -- \
+        ansible-playbook site.yml --limit routers
+
+    faramir list-secrets
+    faramir sync                 # promote committed work into the broker checkout
+    faramir status
+
+The command runs as the broker's uid.  Output comes back with every known
+secret replaced by «SECRET:ref».
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+
+sys.path.insert(0, os.environ.get("FARAMIR_LIB", "/usr/local/lib/faramir"))
+
+from faramir.client import DEFAULT_SOCKET, BrokerUnavailable, call  # noqa: E402
+
+PROG = "faramir"
+
+
+def build_parser() -> argparse.ArgumentParser:
+    # Shared options live on a parent parser so they can be written *after* the
+    # subcommand ("faramir run --json"), which is where anyone would type them.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--socket", default=DEFAULT_SOCKET, help="broker socket path")
+    common.add_argument("--json", action="store_true", help="print the raw response")
+
+    parser = argparse.ArgumentParser(
+        prog=PROG,
+        description="Run a credential-bearing command through the secret broker.",
+        epilog="Secrets are injected as environment variables only; they are "
+        "never substituted into the command line.",
+    )
+    sub = parser.add_subparsers(dest="op", metavar="<command>")
+
+    run = sub.add_parser(
+        "run", parents=[common], help="run a command with secrets injected"
+    )
+    run.add_argument(
+        "-e",
+        "--env",
+        action="append",
+        default=[],
+        metavar="NAME=secret://ref",
+        help="bind a secret to an environment variable (repeatable)",
+    )
+    run.add_argument("-C", "--cwd", help="working directory for the command")
+    run.add_argument("-t", "--timeout", type=int, help="timeout in seconds")
+    run.add_argument(
+        "--quiet", action="store_true", help="suppress the redaction summary"
+    )
+    run.add_argument("command", nargs=argparse.REMAINDER, help="-- command [args…]")
+
+    sub.add_parser(
+        "list-secrets", parents=[common], help="list secret refs (names only)"
+    )
+    sync = sub.add_parser(
+        "sync", parents=[common], help="git-sync the broker's execution checkout"
+    )
+    sync.add_argument("--ref", help="ref to sync (default: HEAD of the agent tree)")
+    sub.add_parser("status", parents=[common], help="show broker status")
+    return parser
+
+
+def parse_env(pairs: list[str]) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for pair in pairs:
+        name, sep, uri = pair.partition("=")
+        if not sep or not name:
+            raise SystemExit(f"{PROG}: bad --env {pair!r}; expected NAME=secret://ref")
+        if not uri.startswith("secret://"):
+            raise SystemExit(
+                f"{PROG}: --env {name} must reference secret://…, not a literal value"
+            )
+        out[name] = uri
+    return out
+
+
+def build_request(args: argparse.Namespace) -> dict:
+    if args.op == "status":
+        return {"op": "status"}
+    if args.op == "list-secrets":
+        return {"op": "list_secrets"}
+    if args.op == "sync":
+        return {"op": "sync", **({"ref": args.ref} if args.ref else {})}
+
+    cmd = args.command[1:] if args.command[:1] == ["--"] else args.command
+    if not cmd:
+        raise SystemExit(f"{PROG} run: no command given")
+    request: dict = {"op": "exec", "cmd": cmd, "env_refs": parse_env(args.env)}
+    if args.cwd:
+        request["cwd"] = args.cwd
+    if args.timeout:
+        request["timeout_sec"] = args.timeout
+    return request
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if not args.op:
+        parser.print_help(sys.stderr)
+        return 2
+
+    request = build_request(args)
+
+    try:
+        response = call(request, args.socket)
+    except BrokerUnavailable as exc:
+        print(f"{PROG}: {exc}", file=sys.stderr)
+        return 69  # EX_UNAVAILABLE
+
+    if args.json:
+        json.dump(response, sys.stdout, indent=2, ensure_ascii=False)
+        sys.stdout.write("\n")
+        return 0 if not response.get("error") else 1
+
+    if response.get("error"):
+        err = response["error"]
+        print(f"{PROG}: {err['code']}: {err['message']}", file=sys.stderr)
+        if response.get("log_id"):
+            print(f"{PROG}: log_id={response['log_id']}", file=sys.stderr)
+        return 1
+
+    sys.stdout.write(response.get("output", ""))
+    sys.stdout.flush()
+
+    # Only 'run' has --quiet; the other subcommands never print a summary.
+    if not getattr(args, "quiet", False):
+        notes = []
+        if response.get("redactions"):
+            notes.append(
+                "redacted "
+                + ", ".join(
+                    f"{r['token']}×{r['count']}" for r in response["redactions"]
+                )
+            )
+        if response.get("truncated"):
+            notes.append("output truncated")
+        if response.get("timed_out"):
+            notes.append("timed out")
+        if response.get("log_id"):
+            notes.append(f"log_id={response['log_id']}")
+        if notes:
+            print(f"[{PROG}] {'; '.join(notes)}", file=sys.stderr)
+
+    code = response.get("exit_code")
+    return int(code) if isinstance(code, int) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

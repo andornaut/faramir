@@ -1,7 +1,7 @@
 # How the redactor works
 
 The redactor is the only substantial piece of new code in this project
-(`src/secretd/redact.py`, ~250 lines). Everything else is plumbing around uid
+(`src/faramir/redact.py`, ~250 lines). Everything else is plumbing around uid
 separation. This document explains why each stage exists, because several of
 them look like over-engineering until you hit the case they exist for.
 
@@ -102,8 +102,8 @@ Defaults: at least 8 characters, at least 4 distinct characters, at least 1.5
 bits/char of Shannon entropy. Values that fail are **not redacted at all**, and:
 
 - the broker logs a warning naming each one at load time,
-- `list_secret_refs` marks them `NOT REDACTABLE: <reason>`,
-- `broker_status` lists them under `not_redactable`.
+- `faramir_list_secrets` marks them `NOT REDACTABLE: <reason>`,
+- `faramir_status` lists them under `not_redactable`.
 
 The right fix is to lengthen the secret, not to lower the threshold — but the
 thresholds are configurable in `[secrets]` if you have a genuinely short value
@@ -137,5 +137,5 @@ Rules without `provide_age_key` — notably `bash` — never see it.
 - **No redaction of the request.** The agent chooses what it sends; the broker
   has nothing to hide from it there.
 - **No attempt to redact the raw log.** That file exists precisely so the
-  operator has the unredacted truth. It is 0600 `secretd`, and the agent is
+  operator has the unredacted truth. It is 0600 `faramir-broker`, and the agent is
   given a `log_id` to quote instead.

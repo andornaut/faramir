@@ -124,7 +124,7 @@ class Request:
 
 def env_name_for_ref(ref: str) -> str:
     """Deterministic variable name for an inline ``{{SECRET:…}}`` token."""
-    return "SECRETD_" + re.sub(r"[^A-Za-z0-9]+", "_", ref).upper().strip("_")
+    return "FARAMIR_" + re.sub(r"[^A-Za-z0-9]+", "_", ref).upper().strip("_")
 
 
 def resolve_inline_tokens(

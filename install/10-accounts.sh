@@ -6,13 +6,13 @@
 #
 #   uid <operator>   normal user, holds nothing special
 #   uid agent        runs the coding agent; member of group devwork
-#   uid secretd      holds the age key and the SSH keys; executes commands
+#   uid faramir-broker  holds the age key and the SSH keys; executes commands
 #   group devwork    shared access to the repo working tree
 set -euo pipefail
 
 OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
 AGENT_USER="${AGENT_USER:-agent}"
-BROKER_USER="${BROKER_USER:-secretd}"
+BROKER_USER="${BROKER_USER:-faramir-broker}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 # WORKTREE's default needs the agent's real home, which the account below may
 # not have yet, so it is resolved after the account exists.
@@ -41,7 +41,7 @@ WORKTREE="${WORKTREE:-${AGENT_HOME}/work/ansible-ctrl}"
 # managed hosts, and Ansible insists on creating ~/.ansible/tmp.  It must NOT
 # be under /home -- the service unit sets ProtectHome=tmpfs, which would make it
 # invisible to the very process that needs it.
-BROKER_HOME="${BROKER_HOME:-/var/lib/secretd}"
+BROKER_HOME="${BROKER_HOME:-/var/lib/faramir-broker}"
 say "user ${BROKER_USER} (broker, no login, home ${BROKER_HOME})"
 if ! id -u "$BROKER_USER" >/dev/null 2>&1; then
   useradd -r -m -d "$BROKER_HOME" -G "$GROUP" -s /usr/sbin/nologin "$BROKER_USER"
@@ -79,14 +79,14 @@ for profile in "${AGENT_HOME}/.bashrc" "$(getent passwd "$OPERATOR" | cut -d: -f
   fi
 done
 
-install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/secretd
-install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/secretd
+install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/faramir
+install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 install -d -m 0755 -o "$BROKER_USER" -g "$GROUP" /srv/ansible-ctrl
 
 cat <<EOF
 
 Phase 1 acceptance (run these):
-  sudo -u ${AGENT_USER} cat /etc/secretd/age.key        -> Permission denied
+  sudo -u ${AGENT_USER} cat /etc/faramir/age.key        -> Permission denied
   sudo -u ${AGENT_USER} ls ~${OPERATOR}/.ssh            -> Permission denied
   sudo -u ${AGENT_USER} touch ${WORKTREE}/.perm-check   -> succeeds
 

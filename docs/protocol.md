@@ -1,6 +1,6 @@
 # Wire protocol
 
-Newline-delimited JSON over `/run/secretd/sock`. One request, one response, one
+Newline-delimited JSON over `/run/faramir/broker.sock`. One request, one response, one
 connection. No framing beyond the newline; a request larger than
 `[server] max_request_bytes` is refused.
 
@@ -76,7 +76,7 @@ enabled.
 reached the right place without seeing it — a count of 0 for a secret it
 expected is a genuine signal that something is misconfigured.
 
-`log_id` points into `/var/log/secretd/raw.log`, which the agent cannot read.
+`log_id` points into `/var/log/faramir/raw.log`, which the agent cannot read.
 It is there so the agent can say "see log 2026-08-05T14:22:01Z-a91f" to the
 operator.
 

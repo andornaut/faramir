@@ -17,7 +17,7 @@ creation_rules:
 
 Keeping key *names* readable means diffs stay per-key and reviewable, and the
 agent can see the shape of the file without seeing any value. The broker's
-`list_secret_refs` shows the same names.
+`faramir_list_secrets` shows the same names.
 
 ## 2. Keep var names unchanged
 
@@ -59,8 +59,8 @@ decrypted in memory by the vars plugin. Nothing changes in the playbooks.
 Verify:
 
 ```bash
-secure-run -- ansible-playbook site.yml --check
-secure-run -- ansible localhost -m debug -a 'var=vault_router_password'
+faramir run -- ansible-playbook site.yml --check
+faramir run -- ansible localhost -m debug -a 'var=vault_router_password'
 # -> «SECRET:vault_router_password»
 ```
 
@@ -84,9 +84,9 @@ network access to Galaxy. Prefer the vars plugin in production.
 
 In this order, and not before:
 
-1. Point `[secrets] files` in `/etc/secretd/config.toml` at the new `.sops.yml`
-   files, then `systemctl reload secretd`.
-2. Run a real playbook end to end through `secure-run` — not `--check` — and
+1. Point `[secrets] files` in `/etc/faramir/config.toml` at the new `.sops.yml`
+   files, then `systemctl reload faramir-broker`.
+2. Run a real playbook end to end through `faramir` — not `--check` — and
    confirm it works and prints no plaintext.
 3. `git rm` the old vault files.
 4. Delete the vault password file.
@@ -97,8 +97,8 @@ In this order, and not before:
 ## 6. SSH keys
 
 The broker's uid owns the SSH keys used to reach managed hosts
-(`~secretd/.ssh/`). The agent uid cannot read them — that is the point — so
-`ssh` connection problems have to be debugged through `secure-run` or from the
+(`~faramir-broker/.ssh/`). The agent uid cannot read them — that is the point — so
+`ssh` connection problems have to be debugged through `faramir` or from the
 raw log, using the `log_id` the agent reports.
 
 Keep `ANSIBLE_HOST_KEY_CHECKING=True` in `[exec.base_env]`. Turning it off to

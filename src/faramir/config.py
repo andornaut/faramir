@@ -1,4 +1,4 @@
-"""Configuration for secretd: /etc/secretd/config.toml.
+"""Configuration for faramir: /etc/faramir/config.toml.
 
 Everything the broker will do is described here.  The allowlist is
 default-deny: a command that matches no ``[[allow]]`` rule is refused.
@@ -13,7 +13,7 @@ from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import Any
 
-DEFAULT_CONFIG_PATH = "/etc/secretd/config.toml"
+DEFAULT_CONFIG_PATH = "/etc/faramir/config.toml"
 
 _DEFAULT_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
@@ -26,7 +26,7 @@ def _section(factory: Any, raw: dict[str, Any], where: str, **extra: Any) -> Any
     """Build one config dataclass, reporting a typo as a ConfigError.
 
     A bare ``Factory(**raw)`` raises TypeError, which nothing up the stack
-    converts, so a single mistyped key makes ``secretd --check`` die with a
+    converts, so a single mistyped key makes ``faramir-broker --check`` die with a
     traceback instead of naming the offending line.
     """
     known = {f.name for f in fields(factory)}
@@ -174,7 +174,7 @@ class AllowRule:
 
 @dataclass(frozen=True)
 class ServerConfig:
-    socket_path: str = "/run/secretd/sock"
+    socket_path: str = "/run/faramir/broker.sock"
     socket_mode: int = 0o660
     max_concurrency: int = 4
     max_request_bytes: int = 262144
@@ -221,7 +221,7 @@ class SecretsConfig:
 
 @dataclass(frozen=True)
 class AuditConfig:
-    raw_log: str = "/var/log/secretd/raw.log"
+    raw_log: str = "/var/log/faramir/raw.log"
     max_record_bytes: int = 4194304
 
 
@@ -254,7 +254,7 @@ class Config:
 
     @classmethod
     def load(cls, path: str | os.PathLike[str] | None = None) -> "Config":
-        path = str(path or os.environ.get("SECRETD_CONFIG") or DEFAULT_CONFIG_PATH)
+        path = str(path or os.environ.get("FARAMIR_CONFIG") or DEFAULT_CONFIG_PATH)
         try:
             raw = tomllib.loads(Path(path).read_text("utf-8"))
         except FileNotFoundError as exc:

@@ -24,7 +24,7 @@ def load_guard():
     """Import the hook as a module, to assert on its constants."""
     import importlib.util
 
-    spec = importlib.util.spec_from_file_location("secretd_guard", HOOK)
+    spec = importlib.util.spec_from_file_location("faramir_guard", HOOK)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
@@ -32,7 +32,7 @@ def load_guard():
 
 def run_hook(command: str, tool: str = "Bash") -> dict:
     env = dict(os.environ)
-    env["SECRETD_DENY_PATTERNS"] = PATTERNS
+    env["FARAMIR_DENY_PATTERNS"] = PATTERNS
     result = subprocess.run(
         [sys.executable, HOOK],
         input=json.dumps({"tool_name": tool, "tool_input": {"command": command}}),
@@ -65,13 +65,13 @@ class TestDenied(unittest.TestCase):
         "printenv",
         "printenv ROUTER_PW",
         "env",
-        "cat /etc/secretd/age.key",
+        "cat /etc/faramir/age.key",
         "cat group_vars/all/vault.yml",
         "cat .env.production",
         "head -5 ~/.ssh/id_rsa",
         "cat /proc/1234/environ",
-        "sudo -u secretd cat /var/log/secretd/raw.log",
-        "journalctl -u secretd",
+        "sudo -u faramir-broker cat /var/log/faramir/raw.log",
+        "journalctl -u faramir-broker",
     ]
 
     def test_denied(self):
@@ -82,7 +82,7 @@ class TestDenied(unittest.TestCase):
     def test_denial_names_the_alternative(self):
         out = run_hook("printenv ROUTER_PW")
         reason = out["hookSpecificOutput"]["permissionDecisionReason"]
-        self.assertIn("secure_run", reason)
+        self.assertIn("faramir_run", reason)
         self.assertIn("secret://", reason)
         self.assertIn("matched deny pattern", reason)
 
@@ -95,8 +95,8 @@ class TestAllowed(unittest.TestCase):
         "vim group_vars/all/vault.sops.yml",  # editing an encrypted file is fine
         "env | wc -l",  # piped: not a context dump
         "grep -r hostname roles/",
-        "secure-run -- printenv ROUTER_PW",  # the sanctioned path
-        "secure-run --env PW=secret://a/b -- ansible-playbook site.yml",
+        "faramir run -- printenv ROUTER_PW",  # the sanctioned path
+        "faramir run --env PW=secret://a/b -- ansible-playbook site.yml",
     ]
 
     def test_allowed(self):
@@ -115,29 +115,29 @@ class TestAllowed(unittest.TestCase):
         self.assertEqual(result.stdout.strip(), "")
 
 
-class TestSecureRunExemption(unittest.TestCase):
-    """The exemption covers the secure-run invocation, not the whole line."""
+class TestFaramirExemption(unittest.TestCase):
+    """The exemption covers the faramir invocation, not the whole line."""
 
     def test_trailing_command_is_still_checked(self):
         for command in [
-            "secure-run --status; printenv ROUTER_PW",
-            "secure-run --status && cat /etc/secretd/age.key",
-            "secure-run --status | printenv",
-            "secure-run --sync\nprintenv ROUTER_PW",
+            "faramir status; printenv ROUTER_PW",
+            "faramir status && cat /etc/faramir/age.key",
+            "faramir status | printenv",
+            "faramir sync\nprintenv ROUTER_PW",
         ]:
             with self.subTest(command=command):
                 self.assertEqual(decision(command), "deny")
 
-    def test_chained_secure_run_is_still_exempt(self):
+    def test_chained_faramir_is_still_exempt(self):
         self.assertIsNone(
-            decision("secure-run --sync && secure-run -- ansible-playbook site.yml")
+            decision("faramir sync && faramir run -- ansible-playbook site.yml")
         )
 
 
 class TestFailClosed(unittest.TestCase):
     def test_missing_patterns_file_still_denies(self):
         env = dict(os.environ)
-        env["SECRETD_DENY_PATTERNS"] = "/nonexistent/deny-patterns.txt"
+        env["FARAMIR_DENY_PATTERNS"] = "/nonexistent/deny-patterns.txt"
         result = subprocess.run(
             [sys.executable, HOOK],
             input=json.dumps({"tool_name": "Bash", "tool_input": {"command": "printenv"}}),
@@ -167,10 +167,10 @@ class TestFailClosed(unittest.TestCase):
         self.assertEqual(missing, [], f"FALLBACK is missing: {missing}")
 
     def test_default_patterns_path_is_agent_readable(self):
-        """Not under /etc/secretd, which is 0750 secretd:secretd."""
+        """Not under /etc/faramir, which is 0750 faramir-broker:faramir-broker."""
         with mock.patch.dict(os.environ):
-            os.environ.pop("SECRETD_DENY_PATTERNS", None)
-            self.assertNotIn("/etc/secretd", load_guard().PATTERNS_FILE)
+            os.environ.pop("FARAMIR_DENY_PATTERNS", None)
+            self.assertNotIn("/etc/faramir", load_guard().PATTERNS_FILE)
 
 
 class TestPatternsFile(unittest.TestCase):

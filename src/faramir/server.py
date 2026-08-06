@@ -34,7 +34,7 @@ from .redact import Redactor
 from .secretstore import SecretError, SecretStore, parse_secret_uri
 from .sync import SyncError, sync as do_sync
 
-log = logging.getLogger("secretd")
+log = logging.getLogger("faramir")
 
 _SO_PEERCRED = 17  # SO_PEERCRED on Linux
 _UCRED = struct.Struct("3i")
@@ -434,7 +434,9 @@ class Server:
 def main(argv: list[str] | None = None) -> int:
     import argparse
 
-    parser = argparse.ArgumentParser(prog="secretd", description="secret broker daemon")
+    parser = argparse.ArgumentParser(
+        prog="faramir-broker", description="secret broker daemon"
+    )
     parser.add_argument("-c", "--config", default=None, help="path to config.toml")
     parser.add_argument("--check", action="store_true", help="validate config and exit")
     parser.add_argument("--log-level", default="INFO")

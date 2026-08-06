@@ -1,7 +1,7 @@
 {
   "mcpServers": {
-    "secretd": {
-      "command": "/usr/local/bin/secretd-mcp",
+    "faramir": {
+      "command": "/usr/local/bin/faramir-mcp",
       "args": [],
       "env": {}
     }

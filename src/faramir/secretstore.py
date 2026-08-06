@@ -28,7 +28,7 @@ from typing import Any, Iterator
 from .config import SecretsConfig
 from .redact import EligibilityPolicy
 
-log = logging.getLogger("secretd.secrets")
+log = logging.getLogger("faramir.secrets")
 
 SECRET_URI_RE = re.compile(r"^secret://(?P<ref>[A-Za-z0-9][A-Za-z0-9._/-]*)$")
 INLINE_TOKEN_RE = re.compile(r"\{\{SECRET:(?P<ref>[A-Za-z0-9][A-Za-z0-9._/-]*)\}\}")

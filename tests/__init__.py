@@ -1,1 +1,1 @@
-"""Test suite for secretd."""
+"""Test suite for faramir."""

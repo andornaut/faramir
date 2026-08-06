@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # Phase 2 -- generate the age keypair and wire the repo up for sops.
 #
-# The private key ends up at /etc/secretd/age.key, 0400 secretd:secretd.  It is
+# The private key ends up at /etc/faramir/age.key, 0400 faramir-broker:faramir-broker.  It is
 # never copied anywhere else; the broker reads it through systemd's
 # LoadCredential=, so it is not even readable from the broker's own $PATH view.
 set -euo pipefail
 
-BROKER_USER="${BROKER_USER:-secretd}"
+BROKER_USER="${BROKER_USER:-faramir-broker}"
 GROUP="${DEVWORK_GROUP:-devwork}"
-KEY=/etc/secretd/age.key
+KEY=/etc/faramir/age.key
 REPO="${REPO:-/srv/ansible-ctrl}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
@@ -17,7 +17,7 @@ say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 command -v age-keygen >/dev/null || { echo "install age first (apt install age)" >&2; exit 1; }
 command -v sops >/dev/null || { echo "install sops first (https://github.com/getsops/sops/releases)" >&2; exit 1; }
 
-install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/secretd
+install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /etc/faramir
 
 if [[ -f $KEY ]]; then
   say "keeping existing ${KEY}"

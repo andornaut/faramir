@@ -1,9 +1,9 @@
 [Unit]
 Description=Secret broker socket
-Documentation=file:///usr/local/share/doc/secretd/README.md
+Documentation=file:///usr/local/share/doc/faramir/README.md
 
 [Socket]
-ListenStream=/run/secretd/sock
+ListenStream=/run/faramir/broker.sock
 SocketMode=0660
 SocketUser=root
 SocketGroup=devwork

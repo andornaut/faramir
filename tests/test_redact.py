@@ -9,7 +9,7 @@ import urllib.parse
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from secretd.redact import (  # noqa: E402
+from faramir.redact import (  # noqa: E402
     EligibilityPolicy,
     Redactor,
     shannon_entropy,
@@ -17,7 +17,7 @@ from secretd.redact import (  # noqa: E402
     token_for,
     variants,
 )
-from secretd.secretstore import _flatten  # noqa: E402
+from faramir.secretstore import _flatten  # noqa: E402
 
 SECRET = "hunter2-correct-horse-battery"
 REF = "home/router/admin"

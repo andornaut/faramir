@@ -2,7 +2,7 @@
 """PreToolUse hook: deny Bash commands that would put a secret in the context.
 
 This is an enforcement layer that also teaches.  A deterministic block plus a
-corrective message that names ``secure_run`` changes behaviour far more
+corrective message that names ``faramir_run`` changes behaviour far more
 reliably than prose in a config file -- and unlike prose, it still works if the
 model never reads CLAUDE.md.
 
@@ -22,12 +22,12 @@ import os
 import re
 import sys
 
-# Next to the hook rather than under /etc/secretd: this runs as the agent uid,
-# which cannot traverse /etc/secretd (0750 secretd:secretd).  A patterns file
+# Next to the hook rather than under /etc/faramir: this runs as the agent uid,
+# which cannot traverse /etc/faramir (0750 faramir-broker:faramir-broker).  A patterns file
 # the hook cannot read is worse than no patterns file, because the fallback
 # below is silently weaker.
 PATTERNS_FILE = os.environ.get(
-    "SECRETD_DENY_PATTERNS", "/usr/local/libexec/secretd/deny-patterns.txt"
+    "FARAMIR_DENY_PATTERNS", "/usr/local/libexec/faramir/deny-patterns.txt"
 )
 
 # Used if the patterns file is missing, so a broken install still fails closed.
@@ -50,22 +50,22 @@ FALLBACK = [
     r"/proc/self/environ",
     r"\b(cat|less|more|head|tail|bat|xxd|od|strings)\b.*"
     r"(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials)",
-    r"\b(cat|less|more|head|tail)\b.*/etc/secretd",
+    r"\b(cat|less|more|head|tail)\b.*/etc/faramir",
     r"\bfind\b.*-name.*(age\.key|\.env|id_rsa)",
-    r"/var/log/secretd",
-    r"\bjournalctl\b.*secretd",
-    r"\bsudo\b.*\b(secretd|-u\s+secretd)\b",
+    r"/var/log/faramir",
+    r"\bjournalctl\b.*faramir",
+    r"\bsudo\b.*(\bfaramir-(broker|keeper|exec)\b|-u\s+faramir)",
 ]
 
 ADVICE = (
     "Blocked: this command would put a credential (or an encrypted blob) into "
     "the conversation, where it would be sent to the model provider.\n\n"
-    "Use the secure_run tool instead — it runs the command as a separate uid "
+    "Use the faramir_run tool instead — it runs the command as a separate uid "
     "that holds the keys and returns output with secrets replaced by "
     "«SECRET:ref» tokens. Secrets are named, never pasted:\n\n"
-    "    secure_run(cmd=[\"ansible-playbook\", \"site.yml\"],\n"
-    "               env_refs={\"ROUTER_PW\": \"secret://home/router/admin\"})\n\n"
-    "Call list_secret_refs to see the available names. You do not need the "
+    "    faramir_run(cmd=[\"ansible-playbook\", \"site.yml\"],\n"
+    "                env_refs={\"ROUTER_PW\": \"secret://home/router/admin\"})\n\n"
+    "Call faramir_list_secrets to see the available names. You do not need the "
     "value of a secret to use it, and you will not be given one."
 )
 
@@ -112,12 +112,12 @@ def main() -> int:
     if not command:
         return 0
 
-    # secure-run is the sanctioned path; do not match patterns inside it.  Stop
-    # at the first separator: anything past it is a separate command that the
-    # prefix does not sanction, and consuming it would let `secure-run --status;
+    # faramir is the sanctioned path; do not match patterns inside it.  Stop at
+    # the first separator: anything past it is a separate command that the
+    # prefix does not sanction, and consuming it would let `faramir status;
     # printenv` through untouched.
     stripped = re.sub(
-        r"(?:^|(?<=[;&|\n]))\s*(sudo\s+)?secure-run\b[^;&|\n]*", "", command
+        r"(?:^|(?<=[;&|\n]))\s*(sudo\s+)?faramir\b[^;&|\n]*", "", command
     )
 
     for pattern, compiled in load_patterns():

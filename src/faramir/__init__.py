@@ -1,4 +1,4 @@
-"""secretd -- a secret broker for local AI coding agents.
+"""faramir -- a secret broker for local AI coding agents.
 
 The broker runs credential-bearing commands as its own uid and returns output
 with every known secret value replaced by a stable token, so plaintext never

@@ -1,13 +1,13 @@
-# secretd — a secret broker for local AI coding agents
+# faramir: a secret broker for local AI coding agents
 
 Lets a local coding agent run commands that need credentials, without any
 plaintext secret entering the agent's context — and therefore without it being
 transmitted to a model provider.
 
 ```
-$ secure-run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
+$ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
 «SECRET:home/router/admin»
-[secure-run] redacted «SECRET:home/router/admin»×1; log_id=2026-08-05T14:22:01Z-a91f
+[faramir] redacted «SECRET:home/router/admin»×1; log_id=2026-08-05T14:22:01Z-a91f
 ```
 
 The command really ran, the credential really reached it, and the agent never
@@ -56,7 +56,7 @@ accident.
 | Who executes | The broker, as its own uid. Never the agent. | If the client execs, plaintext lives in a process owned by the agent uid, which the agent can read. |
 | Secret store | sops + age, replacing ansible-vault. | Encrypted YAML in the repo, per-key diffs, no network round trip, Ansible reads it natively. |
 | Redaction | Custom. | `op run` and similar mask only the values *they* injected. `ansible-playbook` decrypts internally, so an injector-based tool cannot mask vault vars it never saw. The redactor knows the full value set regardless of injection path. |
-| Agent interface | Unix socket, exposed as an MCP tool (`secure_run`) plus a thin CLI. | A distinct tool is far more discoverable to a model than a convention documented in prose. |
+| Agent interface | Unix socket, exposed as an MCP tool (`faramir_run`) plus a thin CLI. | A distinct tool is far more discoverable to a model than a convention documented in prose. |
 | Enforcement | PreToolUse hook + filesystem permissions. | Instructions in `CLAUDE.md` are ergonomics, not a security boundary. |
 
 ---
@@ -66,22 +66,22 @@ accident.
 ```
 uid <operator>                  normal user, holds nothing special
 uid agent                       runs the coding agent; member of group devwork
-uid secretd                     holds the age key + SSH keys; executes brokered commands
+uid faramir-broker                     holds the age key + SSH keys; executes brokered commands
 group devwork                   shared access to the repo working tree
 
-/run/secretd/sock               socket-activated, 0660 root:devwork
-/etc/secretd/age.key            0400 secretd:secretd
-/etc/secretd/config.toml        allowlist + policy
+/run/faramir/broker.sock               socket-activated, 0660 root:devwork
+/etc/faramir/age.key            0400 faramir-broker:faramir-broker
+/etc/faramir/config.toml        allowlist + policy
 /srv/ansible-ctrl               broker's own git checkout (execution source of truth)
 /home/agent/work/ansible-ctrl   agent's working tree (authoring only)
-/var/log/secretd/raw.log        unredacted audit log, 0600 secretd:secretd
+/var/log/faramir/raw.log        unredacted audit log, 0600 faramir-broker:faramir-broker
 ```
 
 In this repo:
 
 ```
-src/secretd/       broker: redaction, PTY execution, allowlist, protocol, sops store
-bin/               secretd (daemon), secure-run (CLI), secretd-mcp (MCP server)
+src/faramir/       broker: redaction, PTY execution, allowlist, protocol, sops store
+bin/               faramir (CLI), faramir-broker (daemon), faramir-mcp (MCP server)
 systemd/           socket + hardened service unit
 etc/config.toml    starter policy and allowlist
 agent/             PreToolUse hook, deny patterns, agent settings, CLAUDE.md snippet
@@ -98,7 +98,7 @@ Requires Python ≥ 3.11 (for `tomllib`), systemd, `age`, and `sops`.
 
 ```bash
 sudo install/10-accounts.sh        # accounts, group, shared tree, umask 002
-sudo install/30-sops-init.sh       # age keypair -> /etc/secretd/age.key, .sops.yaml
+sudo install/30-sops-init.sh       # age keypair -> /etc/faramir/age.key, .sops.yaml
 sudo install/20-install-broker.sh  # code, config, systemd units
 sudo install/40-agent-config.sh    # MCP registration, hook, CLAUDE.md
 ```
@@ -107,8 +107,8 @@ Then migrate each vault file and verify before deleting anything:
 
 ```bash
 install/migrate-vault.sh group_vars/all/vault.yml group_vars/all/vault.sops.yml
-sudo systemctl reload secretd
-secure-run -- ansible-playbook site.yml --check      # prove it works end to end
+sudo systemctl reload faramir-broker
+faramir run -- ansible-playbook site.yml --check      # prove it works end to end
 ```
 
 ### ⚠️ Rotate everything that was ever committed in plaintext
@@ -130,18 +130,18 @@ playbook run succeeds through the broker, then treat the password as burned.
 
 **From the agent (MCP tools):**
 
-- `secure_run(cmd=[…], env_refs={NAME: "secret://ref"}, cwd=…, timeout_sec=…)`
-- `list_secret_refs()` — names only, never values
-- `secure_sync(ref=…)` — promote committed work into the execution checkout
-- `broker_status()`
+- `faramir_run(cmd=[…], env_refs={NAME: "secret://ref"}, cwd=…, timeout_sec=…)`
+- `faramir_list_secrets()` — names only, never values
+- `faramir_sync(ref=…)` — promote committed work into the execution checkout
+- `faramir_status()`
 
 **From a shell:**
 
 ```bash
-secure-run --list-secrets
-secure-run --env ROUTER_PW=secret://home/router/admin -- \
+faramir list-secrets
+faramir run --env ROUTER_PW=secret://home/router/admin -- \
     ansible-playbook site.yml --limit routers
-secure-run --sync
+faramir sync
 ```
 
 ### Rules that are not negotiable
@@ -157,7 +157,7 @@ secure-run --sync
   never expands to a value on the broker side.
 - **The broker executes committed content.** `/srv/ansible-ctrl` is the
   broker's own checkout; the agent authors in its tree, commits, then calls
-  `secure_sync`. Without this the agent could write `debug: var=<secret>` and
+  `faramir_sync`. Without this the agent could write `debug: var=<secret>` and
   ask the broker to run it — an authorized action that no amount of isolation
   prevents.
 - **`redactions` reports counts, not values**, so the caller can confirm a
@@ -186,7 +186,7 @@ Full detail in [docs/redaction.md](docs/redaction.md). In short:
 6. **Short or low-entropy values are not redacted** — an 8-character floor plus
    an entropy gate, because a short password would blank out unrelated output
    at random. The broker logs a warning naming each one, and
-   `list_secret_refs` marks them `NOT REDACTABLE`. Lengthen them.
+   `faramir_list_secrets` marks them `NOT REDACTABLE`. Lengthen them.
 7. **Tokens are stable**: the same secret always renders as `«SECRET:ref»`, so
    the model can reason about it across turns.
 
@@ -204,17 +204,17 @@ sudo make verify   # the matrix below, against the live deployment
 
 | # | Test | Expected | Covered by |
 |---|---|---|---|
-| 1 | `sudo -u agent cat /etc/secretd/age.key` | Permission denied | `verify.sh` |
-| 2 | `sudo -u agent cat /proc/$(pgrep -u secretd secretd)/environ` | No such file | `verify.sh` |
-| 3 | `secure-run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `test_e2e`, `verify.sh` |
-| 4 | `secure-run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `test_e2e`, `verify.sh` |
-| 5 | `secure-run -- bash -lc 'printenv ROUTER_PW \| base64 -w0'` | redacted | `test_e2e`, `verify.sh` |
-| 6 | `secure-run -- ansible-playbook site.yml -vvv` | no plaintext anywhere | `test_e2e`, `verify.sh` |
+| 1 | `sudo -u agent cat /etc/faramir/age.key` | Permission denied | `verify.sh` |
+| 2 | `sudo -u agent cat /proc/$(pgrep -u faramir-broker faramir-broker)/environ` | No such file | `verify.sh` |
+| 3 | `faramir run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `test_e2e`, `verify.sh` |
+| 4 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `test_e2e`, `verify.sh` |
+| 5 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64 -w0'` | redacted | `test_e2e`, `verify.sh` |
+| 6 | `faramir run -- ansible-playbook site.yml -vvv` | no plaintext anywhere | `test_e2e`, `verify.sh` |
 | 7 | playbook containing `debug: var=<secret>`, run from the `/srv` checkout | redacted | `test_e2e`, `verify.sh` |
-| 8 | `secure-run -- cat /etc/passwd` | denied by allowlist | `test_e2e`, `verify.sh` |
+| 8 | `faramir run -- cat /etc/passwd` | denied by allowlist | `test_e2e`, `verify.sh` |
 | 9 | grep the raw log for the value | plaintext present, agent cannot read it | `test_e2e`, `verify.sh` |
-| **10** | **`secure-run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **LEAKS — expected** | asserted in `test_e2e` |
-| **11** | **`secure-run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **LEAKS — expected** | asserted in `test_e2e` |
+| **10** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **LEAKS — expected** | asserted in `test_e2e` |
+| **11** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **LEAKS — expected** | asserted in `test_e2e` |
 
 **Tests 10 and 11 are not defects.** They are the boundary described in
 section 1: an agent that deliberately transforms a value defeats output
@@ -229,9 +229,9 @@ Tests 1, 2 and 9's permission checks only mean something on a real deployment �
 
 ## 8. Operational notes
 
-- **`systemctl reload secretd`** after editing a sops file the broker manages;
+- **`systemctl reload faramir-broker`** after editing a sops file the broker manages;
   it also picks up mtime changes within `refresh_interval_sec`.
-- **The broker's home is `/var/lib/secretd`, not `/home/secretd`.** It needs a
+- **The broker's home is `/var/lib/faramir-broker`, not `/home/faramir-broker`.** It needs a
   writable home — it holds the SSH keys for managed hosts, and
   `ansible-playbook` creates `~/.ansible/tmp` unconditionally — and the unit
   sets `ProtectHome=tmpfs`, which would hide a home under `/home` from the very
@@ -255,7 +255,7 @@ Tests 1, 2 and 9's permission checks only mean something on a real deployment �
 - **Output is truncated** at `max_output_bytes` (1 MiB default). The full,
   unredacted stream is always in the raw log.
 - **The raw log grows without bound.** Add a logrotate rule; keep the mode at
-  0600 and the owner as `secretd`.
+  0600 and the owner as `faramir-broker`.
 - **Do not bind-mount or symlink the operator's `~/.claude` into the agent
   account.** A session that can write agent config paths can persist hooks or
   MCP servers that run with different privileges on the next launch.
