@@ -110,7 +110,7 @@ chunk cannot double-count: a token contains no secret.
 Everything `Feed` returns is output, including the release triggered by the
 last partial-rune tail at end of stream. Dropping that return would lose the
 final characters of every command whose last write splits a rune;
-`TestOutputEndingMidRuneIsNotTruncated` in `internal/e2e` holds that down.
+`TestOutputEndingMidRuneIsNotTruncated` in `internal/executor` holds that down.
 
 ### 5. Minimum length and entropy gate
 

@@ -47,14 +47,25 @@ type Result struct {
 	Redactions  []redact.Count
 }
 
-// Run executes argv through the executor, returning redacted merged output.
+// Request is one command to run: what the broker decided, already resolved.
+// Argv[0] is an absolute path and Env is the child's entire environment.
+type Request struct {
+	Argv       []string
+	Cwd        string
+	Env        map[string]string
+	TimeoutSec int
+}
+
+// Run executes a request through the executor, returning redacted merged
+// output.
 //
 // auditSink receives the same redacted text, before the response's own
 // truncation, so the operator's log can hold more of a long run than the
 // agent is given without holding anything the agent is not.
-func Run(argv []string, cwd string, env map[string]string, timeoutSec int,
-	redactor *redact.Redactor, execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
-	auditSink func(string)) (*Result, error) {
+func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
+	redactor *redact.Redactor, auditSink func(string), req Request) (*Result, error) {
+
+	argv, cwd, env, timeoutSec := req.Argv, req.Cwd, req.Env, req.TimeoutSec
 
 	master, slave, err := ptyutil.Open()
 	if err != nil {

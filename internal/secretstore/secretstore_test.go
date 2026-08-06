@@ -44,6 +44,10 @@ func serveFakeKeeper(t *testing.T, path string, values map[string]string) *fakeK
 			if err != nil {
 				return
 			}
+			// Read the request before answering, as the real keeper does.
+			// Closing while the client is still writing gives it EPIPE, which
+			// surfaces as an intermittently empty value set.
+			_, _ = sockutil.ReadLine(conn, 1<<16)
 			k.mu.Lock()
 			payload := map[string]any{"values": k.values, "errors": []string{}}
 			k.mu.Unlock()
@@ -280,6 +284,9 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 			if err != nil {
 				return
 			}
+			// Read the request before answering, as the real keeper does.
+			// Closing while the client is still writing gives it EPIPE.
+			_, _ = sockutil.ReadLine(conn, 1<<16)
 			if served.Add(1) == 1 {
 				close(serving)
 				<-release

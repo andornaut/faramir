@@ -27,6 +27,9 @@ func fakeKeeper(t *testing.T, values map[string]string) string {
 			if err != nil {
 				return
 			}
+			// Read the request before answering, as the real keeper does.
+			// Closing while the client is still writing gives it EPIPE.
+			_, _ = sockutil.ReadLine(conn, 1<<16)
 			_ = sockutil.Send(conn, map[string]any{"values": values, "errors": []string{}})
 			_ = conn.Close()
 		}

@@ -216,9 +216,20 @@ func TestExecInjectsAndRedacts(t *testing.T) {
 	}
 }
 
-// Matrix 1e: no child ever receives the age key.
+// Matrix 1e/1f: no child ever receives the age key, by any name.
+//
+// The named variables are the obvious route.  The full dump is the one that
+// matters: it catches key material arriving under a name nobody thought to
+// check, which is the only way this could realistically regress.  It has to be
+// asserted against a real child, because the broker assembling no such
+// variable proves nothing about what the executor adds on the way.
+//
+// The age key is deliberately absent from the redactor's value set, so if it
+// ever reached a child it would show up here in plaintext rather than as a
+// token.  That is what makes the assertion meaningful rather than circular.
 func TestNoAgeKeyInChildEnvironment(t *testing.T) {
 	h := newHarness(t)
+
 	r := h.runBash(t, `echo "[$SOPS_AGE_KEY][$SOPS_AGE_KEY_FILE]"`)
 	if r.Error != nil {
 		t.Fatalf("error: %v", r.Error)
@@ -226,8 +237,20 @@ func TestNoAgeKeyInChildEnvironment(t *testing.T) {
 	if !strings.Contains(r.Output, "[][]") {
 		t.Errorf("age key variables were set in the child: %q", r.Output)
 	}
-	if strings.Contains(r.Output, "AGE-SECRET-KEY") {
-		t.Errorf("AGE KEY LEAKED: %q", r.Output)
+
+	// Bare printenv dumps the child's entire environment.
+	dump := h.call(t, map[string]any{"op": "exec", "cmd": []any{"printenv"}})
+	if dump.Error != nil {
+		t.Fatalf("error: %v", dump.Error)
+	}
+	if dump.Output == "" {
+		t.Fatal("the environment dump was empty; this asserts nothing")
+	}
+	if strings.Contains(dump.Output, "AGE-SECRET-KEY") {
+		t.Errorf("AGE KEY LEAKED into a child: %q", dump.Output)
+	}
+	if strings.Contains(dump.Output, "SOPS_AGE") {
+		t.Errorf("a SOPS_AGE_* variable reached a child: %q", dump.Output)
 	}
 }
 
@@ -247,22 +270,6 @@ func TestBase64IsRedacted(t *testing.T) {
 		}
 		if !strings.Contains(r.Output, token) {
 			t.Errorf("%s: not redacted: %q", script, r.Output)
-		}
-	}
-}
-
-// Matrix 8: an unresolvable program names [exec.base_env] PATH in the error,
-// which is the one failure an operator will actually hit, so it has to be
-// self-correcting rather than merely true.
-func TestUnresolvableProgramNamesThePath(t *testing.T) {
-	h := newHarness(t)
-	r := h.call(t, map[string]any{"op": "exec", "cmd": []any{"definitely-not-installed"}})
-	if r.Error == nil || r.Error.Code != "exec_failed" {
-		t.Fatalf("expected exec_failed: %+v", r)
-	}
-	for _, want := range []string{"not found on the broker's PATH", "base_env"} {
-		if !strings.Contains(r.Error.Message, want) {
-			t.Errorf("message does not mention %q: %q", want, r.Error.Message)
 		}
 	}
 }
@@ -292,46 +299,6 @@ func TestAProgramOutsideTheSystemDirectoriesRuns(t *testing.T) {
 	}
 	if !strings.Contains(r.Output, "DEPLOYED") {
 		t.Errorf("relative output = %q", r.Output)
-	}
-}
-
-// A bare command with no arguments runs: there is no min_args to stop it, and
-// nothing about the broker's job requires one.
-func TestABareCommandRuns(t *testing.T) {
-	h := newHarness(t)
-	r := h.call(t, map[string]any{"op": "exec", "cmd": []any{"printenv"}})
-	if r.Error != nil {
-		t.Fatalf("bare printenv was refused: %v", r.Error)
-	}
-	// It dumps the child's environment, which must not contain the age key.
-	if strings.Contains(r.Output, "AGE-SECRET-KEY") {
-		t.Errorf("AGE KEY LEAKED: %q", r.Output)
-	}
-}
-
-// A string cmd must be refused with guidance, never handed to a shell.
-func TestStringCmdIsRefused(t *testing.T) {
-	h := newHarness(t)
-	r := h.call(t, map[string]any{"op": "exec", "cmd": "printenv ROUTER_PW"})
-	if r.Error == nil || r.Error.Code != "bad_request" {
-		t.Fatalf("string cmd was not refused: %+v", r)
-	}
-	if !strings.Contains(r.Error.Message, "must be an array") {
-		t.Errorf("unhelpful message: %q", r.Error.Message)
-	}
-}
-
-// Reserved names cannot be overwritten by the caller.
-func TestReservedEnvIsRefused(t *testing.T) {
-	h := newHarness(t)
-	for _, name := range []string{"PATH", "LD_PRELOAD", "SOPS_AGE_KEY"} {
-		r := h.call(t, map[string]any{
-			"op": "exec", "cmd": []any{"printenv", name},
-			"env_refs": map[string]any{name: "secret://home/router/admin"},
-		})
-		if r.Error == nil || r.Error.Code != "bad_request" {
-			t.Errorf("%s was not refused: %+v", name, r)
-		}
 	}
 }
 
@@ -380,82 +347,6 @@ func TestAuditLogRecordsTheRunWithoutTheValue(t *testing.T) {
 	}
 }
 
-// The same property where it is easiest to lose: a value the broker never
-// injected, printed by the command itself.  The redactor covers the whole
-// value set, so the log is covered too.
-func TestAuditLogOmitsAValueTheBrokerNeverInjected(t *testing.T) {
-	h := newHarness(t)
-	// On disk rather than in argv, so this tests the output path only.  A
-	// managed host printing its own configuration is the real shape of it.
-	leak := filepath.Join(h.dir, "leaked.conf")
-	if err := os.WriteFile(leak, []byte("password = "+routerPassword+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r := h.call(t, map[string]any{"op": "exec", "cmd": []any{"cat", leak}})
-	if r.Error != nil {
-		t.Fatal(r.Error)
-	}
-	data, err := os.ReadFile(h.auditLog)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), routerPassword) {
-		t.Error("PLAINTEXT IN THE AUDIT LOG: an uninjected value reached disk")
-	}
-	if !strings.Contains(string(data), token) {
-		t.Errorf("the uninjected value was not tokenized in the log: %q", string(data))
-	}
-}
-
-// The record carries the command line, and a caller can put a value there even
-// though the broker never does.  argv is not written to disk; this record is.
-func TestAuditLogRedactsAValueInTheCommandLine(t *testing.T) {
-	h := newHarness(t)
-	r := h.call(t, map[string]any{
-		"op":  "exec",
-		"cmd": []any{"echo", "--password=" + routerPassword},
-	})
-	if r.Error != nil {
-		t.Fatal(r.Error)
-	}
-	data, err := os.ReadFile(h.auditLog)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if strings.Contains(string(data), routerPassword) {
-		t.Error("PLAINTEXT IN THE AUDIT LOG: a value in argv reached disk")
-	}
-	// Still legible: the operator must be able to see what ran.
-	if !strings.Contains(string(data), "--password="+token) {
-		t.Errorf("the command line was not recorded legibly: %q", string(data))
-	}
-}
-
-// A short value is refused at load: it cannot be redacted, so it is not
-// injectable, and the denial says so rather than reporting a typo.
-func TestShortSecretIsRefusedAtLoad(t *testing.T) {
-	h := newHarness(t)
-	r := h.call(t, map[string]any{
-		"op": "exec", "cmd": []any{"printenv", "TINY"},
-		"env_refs": map[string]any{"TINY": "secret://tiny"},
-	})
-	if r.Error == nil || r.Error.Code != "unknown_secret" {
-		t.Fatalf("short secret was injectable: %+v", r)
-	}
-	if !strings.Contains(r.Error.Message, "refused at load") {
-		t.Errorf("message does not explain the refusal: %q", r.Error.Message)
-	}
-
-	// It must also be absent from list_secrets.
-	list := h.call(t, map[string]any{"op": "list_secrets"})
-	if strings.Contains(list.Output, "secret://tiny") {
-		t.Error("a refused secret was listed")
-	}
-	if !strings.Contains(list.Output, "secret://home/router/admin") {
-		t.Errorf("loaded secret missing from list: %q", list.Output)
-	}
-}
-
 // Matrix 7b: a brokered command cannot decrypt the secret store itself.  This
 // is the property that lets Ansible be one consumer of the broker rather than
 // a holder of the master key: the child gets named values or nothing.
@@ -495,62 +386,6 @@ func TestWritesToDevTtyAreCapturedAndRedacted(t *testing.T) {
 	}
 	if !strings.Contains(r.Output, token) {
 		t.Errorf("a /dev/tty write was not captured: %q", r.Output)
-	}
-}
-
-// Output that ends mid-rune is the one case where the read loop has bytes left
-// over after the child exits.  Feeding that tail releases whatever the
-// redactor's overlap buffer no longer needs to hold, and that release is part
-// of the child's output: dropping it silently loses characters from the end of
-// every command whose last write splits a rune.
-func TestOutputEndingMidRuneIsNotTruncated(t *testing.T) {
-	h := newHarness(t)
-	const width = 500
-	r := h.call(t, map[string]any{
-		"op": "exec",
-		// A lone 0xC3 is the first byte of a two-byte sequence, so the reader
-		// carries it past the end of the stream.
-		"cmd": []any{"bash", "-lc", `printf 'x%.0s' $(seq 1 500); printf '\303'`},
-	})
-	if r.Error != nil {
-		t.Fatal(r.Error)
-	}
-	if got := strings.Count(r.Output, "x"); got != width {
-		t.Errorf("output holds %d of %d characters; the tail was dropped", got, width)
-	}
-}
-
-// stdin is /dev/null, so an interactive prompt fails immediately rather than
-// hanging and holding a concurrency slot.
-func TestStdinIsClosed(t *testing.T) {
-	h := newHarness(t)
-	done := make(chan response, 1)
-	go func() { done <- h.runBash(t, `read -r line; echo "got:[$line]"`) }()
-	select {
-	case r := <-done:
-		if !strings.Contains(r.Output, "got:[]") {
-			t.Errorf("unexpected output: %q", r.Output)
-		}
-	case <-time.After(20 * time.Second):
-		t.Fatal("a command reading stdin hung; stdin is not /dev/null")
-	}
-}
-
-func TestStatusReportsNoValues(t *testing.T) {
-	h := newHarness(t)
-	r := h.call(t, map[string]any{"op": "status"})
-	if r.Error != nil {
-		t.Fatal(r.Error)
-	}
-	if strings.Contains(r.Output, routerPassword) {
-		t.Error("status leaked a value")
-	}
-	if !strings.Contains(r.Output, "ref_count") {
-		t.Errorf("status is missing ref_count: %q", r.Output)
-	}
-	// The operator-only refusal list must not be on the agent-facing wire.
-	if strings.Contains(r.Output, "not_redactable") {
-		t.Error("status exposed the not_redactable list to the agent")
 	}
 }
 

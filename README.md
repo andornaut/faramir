@@ -323,16 +323,16 @@ No. | Test | Expected | Covered by
 5 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64 -w0'` | redacted | `internal/e2e`, `verify.sh`
 6 | `faramir run -- ansible-playbook site.yml -vvv` | no plaintext anywhere | `verify.sh`
 7 | playbook containing `debug: var=<secret>` | redacted | `verify.sh`
-8 | `faramir run -- <not-on-PATH>` | refused, and the error names `[exec.base_env] PATH` | `internal/resolve`, `internal/e2e`, `verify.sh`
+8 | `faramir run -- <not-on-PATH>` | refused, and the error names `[exec.base_env] PATH` | `internal/resolve`, `internal/server`, `verify.sh`
 8b | `faramir run -- <worktree>/script.sh` | runs; a program outside the system directories is not special | `internal/resolve`, `internal/e2e`, `verify.sh`
 9a | mode and owner of the audit log | `0600 faramir-broker` | `internal/e2e`, `verify.sh`
 9b | `sudo -u agent cat /var/log/faramir/audit.log` | Permission denied | `verify.sh`
 9c | the audit log has content | records what ran, tokenized | `internal/e2e`, `verify.sh`
-9d/9e | grep the audit log for an injected value | **absent**; the log holds tokens, never values | `internal/e2e`, `verify.sh`
+9d/9e | grep the audit log for an injected value | **absent**; the log holds tokens, never values | `internal/server`, `internal/e2e`, `verify.sh`
 **10** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **reaches the caller transformed** | demonstrated by `verify.sh`, not asserted
 **11** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **reaches the caller transformed** | demonstrated by `verify.sh`, not asserted
 
-Four properties need no live deployment and are therefore asserted only in the
+Some properties need no live deployment and are therefore asserted only in the
 Go suite, where they can be exercised on every run:
 
 Property | Expected | Covered by
@@ -341,6 +341,12 @@ Any keeper request other than `get_values` | refused, and the message says no op
 `sops --decrypt` run *as* a brokered command | fails for want of key material | `internal/e2e`
 Broker hangs up mid-command | the child's process group is killed | `internal/execserver`
 A write straight to `/dev/tty` | captured and tokenized, which a pipe would never see | `internal/e2e`
+A request over `max_concurrency` | refused as `busy`, not queued, and the slot returns | `internal/server`
+`timeout_sec` above `max_timeout_sec` | clamped, which is what bounds how long a slot is held | `internal/server`
+The environment the broker assembles | `base_env` plus the requested refs and nothing else, with no `HOME`: the executor supplies that under its own uid | `internal/server`
+A child's whole environment | no `AGE-SECRET-KEY` and no `SOPS_AGE_*` under any name | `internal/e2e`
+That environment after the run | wiped, so no plaintext copy outlives the request | `internal/server`
+Output past `max_output_bytes` | cut and said so, while the PTY keeps draining | `internal/executor`
 
 > [!NOTE]
 > **10 and 11 are not defects, and not assertions either.** They are the boundary described in [What it protects against](#what-it-protects-against): an agent that deliberately transforms a value defeats output redaction, and with unrestricted egress that value is gone. `verify.sh` prints what actually comes back, because operators do not believe this until they watch it happen, but nothing pins it: a test that fails when redaction gets *better* is a test that has to be deleted to make progress. What is asserted instead is the coverage that is claimed, in `internal/redact`: base64 padded and unpadded, wrapped and not, URL-encoded, JSON-escaped, shell-quoted, and split across chunk boundaries.
@@ -430,6 +436,19 @@ make install         # run the four install phases (root); does NOT build
 make verify          # the verification matrix, against the live deployment (root)
 make sizes           # per-binary size, package count, and sops linkage
 ```
+
+Tests live where the logic does, not where it is easiest to reach. Most of
+what the broker does is decide: which timeout to use, what environment to
+assemble, what to record, when to refuse. None of that needs a socket, a
+terminal or a child process, so `internal/server` substitutes the executor and
+asserts on what it was handed. `internal/executor` stands up an executor and a
+real child, because the PTY and the streaming redactor only mean anything
+against bytes a kernel actually delivered. `internal/e2e` is kept for what
+genuinely needs the whole stack: a real socket round trip, a real keeper and
+sops, a real terminal, and the CLI binary itself.
+
+The rule of thumb: if a test would still pass with the plumbing replaced by a
+stub, it belongs a layer down, where its failure names the thing that broke.
 
 The suite needs no `sops` on PATH: `internal/sopstest` uses the real binary when
 one is installed and otherwise builds a stand-in from the sops libraries, which

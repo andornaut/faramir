@@ -41,6 +41,15 @@ type Server struct {
 	Audit  *audit.Log
 	Ssh    *sshagent.Agent
 
+	// exec runs one command.  A field rather than a direct call to
+	// executor.Run because everything opExec decides around the child -- the
+	// timeout it settles on, the environment it assembles, the record it
+	// writes, the concurrency limit it enforces -- is broker policy, and
+	// reaching it through a socket, a PTY and a forked process tests the
+	// plumbing instead.  New wires in the real executor; a test substitutes
+	// one that records what it was handed.
+	exec func(*redact.Redactor, func(string), executor.Request) (*executor.Result, error)
+
 	slots chan struct{}
 	ln    net.Listener
 	wg    sync.WaitGroup
@@ -53,6 +62,9 @@ func New(cfg *config.Config) *Server {
 		Audit:  audit.NewLog(cfg.Audit),
 		Ssh:    sshagent.New(cfg.Ssh),
 		slots:  make(chan struct{}, cfg.Server.MaxConcurrency),
+		exec: func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
+			return executor.Run(cfg.Exec, cfg.Executor, r, sink, req)
+		},
 	}
 }
 
@@ -275,9 +287,12 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	collector := audit.NewCollector(s.Config.Audit.MaxRecordBytes)
 	started := time.Now()
 
-	argv := append([]string{argv0Path}, cmd[1:]...)
-	result, err := executor.Run(argv, cwd, env, timeout, redactor, execCfg,
-		s.Config.Executor, collector.Add)
+	result, err := s.exec(redactor, collector.Add, executor.Request{
+		Argv:       append([]string{argv0Path}, cmd[1:]...),
+		Cwd:        cwd,
+		Env:        env,
+		TimeoutSec: timeout,
+	})
 	// Drop the plaintext from this map as soon as the child has it.  The
 	// values live on in the store, which is where they belong; a stale copy
 	// here would outlive the request for no reason.
