@@ -109,6 +109,14 @@ configured_cwd() {
   "$BIN/faramir-broker" -c "$1" --print-default-cwd 2>/dev/null || return 1
 }
 
+# Is $1 reachable inside the tree bound into the units?  A plain prefix test
+# would accept "${WORKTREE}-old" and "${WORKTREE}EVIL", which are different
+# trees that the bind mount does not make visible at all; requiring the
+# separator is what distinguishes those from a real subdirectory.
+under_worktree() {
+  [[ $1 == "$WORKTREE" || $1 == "$WORKTREE"/* ]]
+}
+
 # Before anything is written to the host: a CONFIG that does not parse should
 # abort here, not halfway through.
 configured_cwd "$CONFIG" >/dev/null || {
@@ -122,8 +130,10 @@ if [[ -f /etc/faramir/config.toml ]]; then
   # move this into place, and a .dist still carrying @WORKTREE@ would start a
   # broker whose every command fails with "cwd does not exist".
   substitute "$CONFIG" /etc/faramir/config.toml.dist || exit 1
-  if existing="$(configured_cwd /etc/faramir/config.toml)" &&
-     [[ -n $existing && $existing != "$WORKTREE"* ]]; then
+  if ! existing="$(configured_cwd /etc/faramir/config.toml)"; then
+    say "WARNING: the installed /etc/faramir/config.toml does not parse;"
+    say "         the broker will not start until it does"
+  elif ! under_worktree "$existing"; then
     say "WARNING: [exec] default_cwd is ${existing} but this install binds ${WORKTREE}"
     say "         commands will fail with 'cwd does not exist' until they agree;"
     say "         edit /etc/faramir/config.toml"
@@ -136,11 +146,12 @@ else
   # Refuse at install time rather than letting every command fail with "cwd
   # does not exist" later.
   installed="$(configured_cwd /etc/faramir/config.toml)" || installed=""
-  if [[ $installed != "$WORKTREE" ]]; then
+  if ! under_worktree "$installed"; then
     rm -f /etc/faramir/config.toml
-    say "[exec] default_cwd is ${installed:-unset} but this install binds ${WORKTREE}."
+    say "[exec] default_cwd is ${installed:-unset}, which is not inside ${WORKTREE}."
     say "Write the tree as @WORKTREE@ in ${CONFIG}, or re-run with"
-    say "WORKTREE=${installed}. Nothing was installed."
+    say "WORKTREE=${installed}."
+    say "No config was written; the binaries and hook above are already installed."
     exit 1
   fi
 fi

@@ -124,10 +124,10 @@ Run a credential-bearing command through the secret broker.
 
 positional arguments:
   <command>
-    run         run a command with secrets injected
-    list-secrets
-                list secret refs (names only)
-    status      show broker status
+    run           run a command with secrets injected
+    list-secrets  list secret refs (names only)
+    status        show broker status
+    keygen        mint an age keypair for the keeper
 
 options:
   -h, --help    show this help message and exit

@@ -54,9 +54,9 @@ func run(args []string) int {
 	case "run":
 		return cmdRun(args[1:])
 	case "list-secrets":
-		return call(map[string]any{"op": "list_secrets"}, args[1:])
+		return call("list_secrets", args[1:])
 	case "status":
-		return call(map[string]any{"op": "status"}, args[1:])
+		return call("status", args[1:])
 	case "keygen":
 		return cmdKeygen(args[1:])
 	default:
@@ -111,11 +111,30 @@ func cmdKeygen(args []string) int {
 	return 0
 }
 
+// common registers the flags every subcommand shares.  --socket and --json are
+// on all of them; the short forms exist because the CLI is typed by hand far
+// more often than the MCP tools are.
+type common struct {
+	socket *string
+	json   *bool
+}
+
+func addCommon(fs *flag.FlagSet) common {
+	c := common{
+		socket: fs.String("socket", defaultSocket, "broker socket path"),
+		json:   fs.Bool("json", false, "print the raw response"),
+	}
+	return c
+}
+
 func cmdRun(args []string) int {
 	fs := flag.NewFlagSet("run", flag.ContinueOnError)
-	socket := fs.String("socket", defaultSocket, "broker socket path")
+	c := addCommon(fs)
+	quiet := fs.Bool("quiet", false, "suppress the redaction summary")
 	cwd := fs.String("cwd", "", "working directory for the command")
+	fs.StringVar(cwd, "C", "", "working directory for the command (shorthand)")
 	timeout := fs.Int("timeout", 0, "timeout in seconds")
+	fs.IntVar(timeout, "t", 0, "timeout in seconds (shorthand)")
 	var envRefs multiFlag
 	fs.Var(&envRefs, "env", "NAME=secret://ref (repeatable)")
 	if err := fs.Parse(args); err != nil {
@@ -123,8 +142,12 @@ func cmdRun(args []string) int {
 	}
 
 	rest := fs.Args()
+	// argparse's REMAINDER keeps a leading "--"; strip it so both spellings work.
+	if len(rest) > 0 && rest[0] == "--" {
+		rest = rest[1:]
+	}
 	if len(rest) == 0 {
-		fmt.Fprintln(os.Stderr, "faramir run: no command; use -- before it")
+		fmt.Fprintln(os.Stderr, "faramir run: no command given")
 		return 2
 	}
 
@@ -148,31 +171,33 @@ func cmdRun(args []string) int {
 	if *timeout > 0 {
 		request["timeout_sec"] = *timeout
 	}
-	return send(*socket, request)
+	return send(*c.socket, request, *c.json, *quiet)
 }
 
-func call(request map[string]any, args []string) int {
-	fs := flag.NewFlagSet("call", flag.ContinueOnError)
-	socket := fs.String("socket", defaultSocket, "broker socket path")
+// call runs a subcommand that takes no arguments of its own.
+func call(op string, args []string) int {
+	fs := flag.NewFlagSet(op, flag.ContinueOnError)
+	c := addCommon(fs)
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	return send(*socket, request)
+	// Only run has --quiet; the others never print a summary anyway.
+	return send(*c.socket, map[string]any{"op": op}, *c.json, true)
 }
 
 // send performs one request/response round trip.  No secret logic lives on
 // this side of the socket: everything it can see has already been redacted.
-func send(socketPath string, request map[string]any) int {
+func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %s: %v\n", socketPath, err)
-		return 1
+		return 69 // EX_UNAVAILABLE
 	}
 	defer conn.Close()
 
 	if err := sockutil.Send(conn, request); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
-		return 1
+		return 69
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
 		_ = uc.CloseWrite()
@@ -180,13 +205,14 @@ func send(socketPath string, request map[string]any) int {
 	line, err := sockutil.ReadLine(conn, 1<<26)
 	if err != nil || len(line) == 0 {
 		fmt.Fprintln(os.Stderr, "faramir: broker closed the connection without responding")
-		return 1
+		return 69
 	}
 
 	var response struct {
 		ExitCode   *int   `json:"exit_code"`
 		Output     string `json:"output"`
 		Truncated  bool   `json:"truncated"`
+		TimedOut   bool   `json:"timed_out"`
 		LogID      string `json:"log_id"`
 		Redactions []struct {
 			Token string `json:"token"`
@@ -202,23 +228,57 @@ func send(socketPath string, request map[string]any) int {
 		return 1
 	}
 
+	if asJSON {
+		// Re-encode rather than echoing the line, so the output is indented
+		// like the Python CLI's and still exactly what the broker sent.
+		var raw any
+		if err := json.Unmarshal(line, &raw); err == nil {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetEscapeHTML(false)
+			enc.SetIndent("", "  ")
+			_ = enc.Encode(raw)
+		}
+		if response.Error != nil {
+			return 1
+		}
+		return 0
+	}
+
 	if response.Error != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %s: %s\n", response.Error.Code, response.Error.Message)
 		if response.LogID != "" {
-			fmt.Fprintf(os.Stderr, "[faramir] log_id=%s\n", response.LogID)
+			fmt.Fprintf(os.Stderr, "faramir: log_id=%s\n", response.LogID)
 		}
 		return 1
 	}
 
 	fmt.Print(response.Output)
-	if len(response.Redactions) > 0 {
-		var parts []string
-		for _, r := range response.Redactions {
-			parts = append(parts, fmt.Sprintf("%s×%d", r.Token, r.Count))
+
+	if !quiet {
+		var notes []string
+		if len(response.Redactions) > 0 {
+			var parts []string
+			for _, r := range response.Redactions {
+				parts = append(parts, fmt.Sprintf("%s×%d", r.Token, r.Count))
+			}
+			notes = append(notes, "redacted "+strings.Join(parts, ", "))
 		}
-		fmt.Fprintf(os.Stderr, "[faramir] redacted %s; log_id=%s\n",
-			strings.Join(parts, ", "), response.LogID)
+		// Both of these change what the output means, so they are reported
+		// even when nothing was redacted.
+		if response.Truncated {
+			notes = append(notes, "output truncated")
+		}
+		if response.TimedOut {
+			notes = append(notes, "timed out")
+		}
+		if response.LogID != "" {
+			notes = append(notes, "log_id="+response.LogID)
+		}
+		if len(notes) > 0 {
+			fmt.Fprintf(os.Stderr, "[faramir] %s\n", strings.Join(notes, "; "))
+		}
 	}
+
 	if response.ExitCode != nil {
 		return *response.ExitCode
 	}
