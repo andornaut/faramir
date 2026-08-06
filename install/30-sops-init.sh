@@ -11,7 +11,12 @@ BROKER_USER="${BROKER_USER:-faramir-broker}"
 KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 GROUP="${DEVWORK_GROUP:-devwork}"
 KEY=/etc/faramir/age.key
-REPO="${REPO:-/srv/faramir}"
+AGENT_USER="${AGENT_USER:-agent}"
+AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
+# The agent's authoring tree, not the broker's checkout: [sync] dest is cleaned
+# with `git clean -xdff` on every sync, which would delete .sops.yaml, and the
+# agent uid cannot write there in any case.
+REPO="${REPO:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -51,11 +56,13 @@ if [[ -d $REPO ]]; then
   else
     say "writing ${SOPS_YAML}"
     cat >"$SOPS_YAML" <<EOF
-# Which files sops encrypts, and to whom.
+# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits:
+# a rule naming one layout refuses to encrypt a file kept anywhere else, and
+# reports it as "no matching creation rules found".
 # 'encrypted_regex' leaves keys readable and encrypts only values, so diffs
 # stay per-key and reviewable.
 creation_rules:
-  - path_regex: (^|/)(group_vars|host_vars)/.*\.sops\.ya?ml\$
+  - path_regex: \.sops\.ya?ml\$
     key_groups:
       - age:
           - ${PUB}

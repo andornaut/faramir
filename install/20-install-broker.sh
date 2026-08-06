@@ -17,9 +17,15 @@ AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 WORKTREE="${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
 # The starter policy allows two commands, both of them demonstrations.  Point
 # this at etc/examples/<workload>.toml to install a policy for a real workload.
-CONFIG="${CONFIG:-$REPO/etc/config.toml}"
+# A relative path resolves against the repo, so the documented invocation works
+# from any directory.
+CONFIG="${CONFIG:-etc/config.toml}"
+[[ $CONFIG = /* ]] || CONFIG="$REPO/$CONFIG"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
+# Before anything is installed: a typo here would otherwise surface as a bare
+# "cannot stat" once the library, binaries and hook are already on the host.
+[[ -f $CONFIG ]] || { echo "no such config: $CONFIG" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 
 say "python check"

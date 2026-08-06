@@ -2,8 +2,9 @@
 
 Everything here is genuine: a real age keypair, a real sops-encrypted file, a
 real Unix socket, real PTY execution.  Only the paths are temporary, and the
-allowlist is the shipped ``etc/config.toml`` with its paths rewritten, so the
-tests exercise the policy that actually ships.
+allowlist is ``etc/examples/ansible-fleet.toml`` with its paths rewritten, so
+the tests exercise a policy that actually ships.  The starter config allows two
+commands and is covered by test_allowlist instead.
 """
 
 from __future__ import annotations

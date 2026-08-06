@@ -12,6 +12,26 @@ AGENT_USER="${AGENT_USER:-agent}"
 # getent exits 2 for a missing account, and pipefail would abort here before
 # the "no such user" check below could report it.
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
+# The installed config is authoritative: step 20 rewrote [sync] source to the
+# tree it bound into the broker's unit, and registering the MCP server on a
+# different tree would leave the agent no way to reach the broker from the one
+# that is actually synced.
+configured_source() {
+  python3 - "$1" <<'TOML' 2>/dev/null
+import sys, tomllib
+
+try:
+    with open(sys.argv[1], "rb") as fh:
+        raw = tomllib.load(fh)
+except (OSError, tomllib.TOMLDecodeError):
+    raise SystemExit(1)
+section = raw.get("sync")
+print((section if isinstance(section, dict) else {}).get("source", ""))
+TOML
+}
+if [[ -z ${WORKTREE:-} && -f /etc/faramir/config.toml ]]; then
+  WORKTREE="$(configured_source /etc/faramir/config.toml)" || WORKTREE=""
+fi
 WORKTREE="${WORKTREE:-${AGENT_HOME}/work/repo}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }

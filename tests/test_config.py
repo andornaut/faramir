@@ -48,10 +48,13 @@ class TestUnknownKeys(unittest.TestCase):
                     load(**{section: "0660"})
 
     def test_allow_must_be_a_list_of_tables(self):
+        # Through load(), so the [exec] guard cannot satisfy the assertion
+        # before the allowlist is ever looked at.
         for value in ["ls", [1, 2], {"name": "ls"}]:
             with self.subTest(value=value):
-                with self.assertRaises(ConfigError):
-                    Config.from_dict({"allow": value}, "test.toml")
+                with self.assertRaises(ConfigError) as caught:
+                    load(allow=value)
+                self.assertIn("[[allow]]", str(caught.exception))
 
 
 class TestSocketMode(unittest.TestCase):
@@ -148,8 +151,9 @@ class TestExecutorSection(unittest.TestCase):
 
 class TestAllowRules(unittest.TestCase):
     def test_empty_allowlist_is_rejected(self):
-        with self.assertRaises(ConfigError):
-            Config.from_dict({"allow": []}, "test.toml")
+        with self.assertRaises(ConfigError) as caught:
+            load(allow=[])
+        self.assertIn("refuse every command", str(caught.exception))
 
     def test_bad_regex_names_the_rule(self):
         with self.assertRaises(ConfigError) as caught:
@@ -159,8 +163,9 @@ class TestAllowRules(unittest.TestCase):
     def test_non_string_argv0_is_a_config_error(self):
         for value in [5, ["^/bin/ls$"], None]:
             with self.subTest(value=value):
-                with self.assertRaises(ConfigError):
-                    Config.from_dict({"allow": [{"name": "x", "argv0": value}]}, "t")
+                with self.assertRaises(ConfigError) as caught:
+                    load(allow=[{"name": "x", "argv0": value}])
+                self.assertIn("argv0", str(caught.exception))
 
     def test_max_timeout_must_be_a_positive_int(self):
         for value in ["600", 0, -1, 1.5, True]:

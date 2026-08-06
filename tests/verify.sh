@@ -186,7 +186,7 @@ if grep -q 'SECRET:' <<<"$out"; then ok "5  unwrapped base64 redacted"; else no 
 
 head_ "6-7  redaction of values the broker never injected"
 
-if [[ -f "/srv/faramir/${PLAYBOOK}" ]]; then
+if [[ -f "${CHECKOUT}/${PLAYBOOK}" ]]; then
   out="$(srun -- ansible-playbook "$PLAYBOOK" -vvv)"
   if grep -q 'SECRET:' <<<"$out" || ! grep -qi 'password\|token' <<<"$out"; then
     ok "6  ansible-playbook -vvv produced no plaintext"
@@ -200,8 +200,8 @@ if [[ -f "/srv/faramir/${PLAYBOOK}" ]]; then
     skipt "7  no redaction seen -- does $PLAYBOOK print a vault var?"
   fi
 else
-  skipt "6  /srv/faramir/${PLAYBOOK} not found"
-  skipt "7  /srv/faramir/${PLAYBOOK} not found"
+  skipt "6  ${CHECKOUT}/${PLAYBOOK} not found"
+  skipt "7  ${CHECKOUT}/${PLAYBOOK} not found"
 fi
 
 head_ "8  allowlist"
