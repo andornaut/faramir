@@ -1,18 +1,14 @@
 """Configuration for faramir: /etc/faramir/config.toml.
 
-Everything the broker will do is described here.  A command that matches no
-``[[allow]]`` rule is refused, so a config with no rule at all runs nothing --
-but how wide the rules are is the operator's call, and the shipped starter is
-deliberately permissive.  The allowlist bounds blast radius and gives the agent
-a specific error to correct; it is not what keeps plaintext out of the model's
-context.  That is the uid split and the redactor, neither of which depends on
-it.
+Everything the broker will do is described here.  There is no command
+allowlist: the broker runs what it is asked to run, as a uid that holds
+nothing, and redacts the output.  See ``resolve.py`` for why the allowlist was
+removed rather than merely widened.
 """
 
 from __future__ import annotations
 
 import os
-import re
 import tomllib
 from dataclasses import dataclass, field, fields
 from pathlib import Path
@@ -102,119 +98,6 @@ def _octal_mode(value: Any, where: str) -> int:
     return value
 
 
-def _int_at_least(value: Any, where: str, minimum: int) -> int | None:
-    """An optional integer with a floor, rejected here rather than at use time.
-
-    An unvalidated ``max_timeout_sec`` survives ``--check`` and then fails
-    inside ``min()`` when a request finally exercises the rule.
-
-    ``minimum`` is 1 for a duration and 0 for an argument count, where zero is
-    a meaningful bound: ``max_args = 0`` is a rule that takes no arguments.
-
-    bool is excluded explicitly because it is an int: ``max_args = true`` would
-    otherwise pass as 1.
-    """
-    if value is None:
-        return None
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise ConfigError(f"{where}: expected an integer, got {type(value).__name__}")
-    if value < minimum:
-        raise ConfigError(f"{where}: expected {minimum} or more, got {value}")
-    return value
-
-
-def _compile_all(patterns: Any, where: str) -> list[re.Pattern[str]]:
-    """Compile a list of regexes, rejecting anything that is not one.
-
-    The type check is the point.  ``list("^/srv$")`` splits a bare string into
-    single characters, one of which is ``$``, and ``$`` matches everything --
-    so a missing pair of brackets silently turns a rule written to narrow
-    something into match-anything, with no error at ``--check`` time.
-    """
-    if isinstance(patterns, str) or not isinstance(patterns, (list, tuple)):
-        raise ConfigError(
-            f"{where}: expected a list of regex strings, got "
-            f"{type(patterns).__name__}"
-            + (f" (write it as [{patterns!r}])" if isinstance(patterns, str) else "")
-        )
-    out = []
-    for p in patterns:
-        if not isinstance(p, str):
-            raise ConfigError(
-                f"{where}: expected a regex string, got {type(p).__name__}: {p!r}"
-            )
-        try:
-            out.append(re.compile(p))
-        except re.error as exc:
-            raise ConfigError(f"{where}: bad regex {p!r}: {exc}") from exc
-    return out
-
-
-@dataclass(frozen=True)
-class AllowRule:
-    """One entry in the allowlist."""
-
-    name: str
-    argv0: re.Pattern[str]
-    args_allow: list[re.Pattern[str]] = field(default_factory=list)
-    args_deny: list[re.Pattern[str]] = field(default_factory=list)
-    cwd_allow: list[re.Pattern[str]] = field(default_factory=list)
-    max_timeout_sec: int | None = None
-    # How many arguments the rule accepts.  Separate from args_allow, which
-    # only describes the arguments that are present: without min_args a rule
-    # that permits exactly one variable name still permits none at all.
-    min_args: int | None = None
-    max_args: int | None = None
-
-    @classmethod
-    def parse(cls, raw: dict[str, Any], index: int) -> "AllowRule":
-        name = raw.get("name") or f"rule[{index}]"
-        if "argv0" not in raw:
-            raise ConfigError(f"allow rule {name!r}: missing 'argv0'")
-        if "provide_age_key" in raw:
-            # Nothing the broker executes receives the age key any more: the
-            # keeper holds it and returns values only.  Failing loudly matters
-            # because silently ignoring the flag would leave a config that
-            # still reads as though a command were being handed the master key.
-            raise ConfigError(
-                f"allow rule {name!r}: 'provide_age_key' no longer exists. The "
-                "keeper holds the age key and no child ever receives it; pass "
-                "the values a command needs through env_refs and have it read "
-                "them from the environment."
-            )
-        # A mistyped key here fails open: the rule silently keeps the wider
-        # bounds it was written to narrow, and --check still reports success.
-        _reject_unknown_keys(cls, raw, f"allow rule {name!r}")
-        min_args = _int_at_least(raw.get("min_args"), f"allow rule {name!r} min_args", 0)
-        max_args = _int_at_least(raw.get("max_args"), f"allow rule {name!r} max_args", 0)
-        if min_args is not None and max_args is not None and min_args > max_args:
-            raise ConfigError(
-                f"allow rule {name!r}: min_args ({min_args}) exceeds "
-                f"max_args ({max_args}), so the rule can never match"
-            )
-        # No list() around the raw values: it would split a bare string into
-        # characters before _compile_all could reject it, which is the bug that
-        # check exists to catch.
-        return cls(
-            name=str(name),
-            argv0=_compile_all([raw["argv0"]], f"allow rule {name!r} argv0")[0],
-            args_allow=_compile_all(
-                raw.get("args_allow", []), f"allow rule {name!r} args_allow"
-            ),
-            args_deny=_compile_all(
-                raw.get("args_deny", []), f"allow rule {name!r} args_deny"
-            ),
-            cwd_allow=_compile_all(
-                raw.get("cwd_allow", []), f"allow rule {name!r} cwd_allow"
-            ),
-            max_timeout_sec=_int_at_least(
-                raw.get("max_timeout_sec"), f"allow rule {name!r} max_timeout_sec", 1
-            ),
-            min_args=min_args,
-            max_args=max_args,
-        )
-
-
 @dataclass(frozen=True)
 class ServerConfig:
     socket_path: str = "/run/faramir/broker.sock"
@@ -233,9 +116,6 @@ class ExecConfig:
     default_timeout_sec: int = 600
     max_timeout_sec: int = 3600
     max_output_bytes: int = 1048576
-    allowed_bin_dirs: list[str] = field(
-        default_factory=lambda: ["/usr/local/bin", "/usr/bin", "/bin", "/usr/local/sbin"]
-    )
     base_env: dict[str, str] = field(
         default_factory=lambda: {
             "PATH": _DEFAULT_PATH,
@@ -325,7 +205,6 @@ class Config:
     ssh: SshConfig
     secrets: SecretsConfig
     audit: AuditConfig
-    allow: list[AllowRule]
 
     @classmethod
     def load(cls, path: str | os.PathLike[str] | None = None) -> "Config":
@@ -383,9 +262,18 @@ class Config:
             ),
         )
 
-        exec_cfg = _section(
-            ExecConfig, _table(raw, "exec", path), f"{path}: [exec]"
-        )
+        exec_raw = _table(raw, "exec", path)
+        if "allowed_bin_dirs" in exec_raw:
+            # It went with the allowlist: it bounded argv[0] only, so any rule
+            # permitting bash or python walked straight past it, and what it
+            # reliably did instead was refuse every pipx, venv, shim and /opt
+            # install on the host.
+            raise ConfigError(
+                f"{path}: [exec] allowed_bin_dirs no longer exists. A bare "
+                "command name is looked up on [exec.base_env] PATH, which is "
+                "the PATH the child gets; put a venv or shim directory there."
+            )
+        exec_cfg = _section(ExecConfig, exec_raw, f"{path}: [exec]")
         if not exec_cfg.default_cwd:
             raise ConfigError(
                 f"{path}: [exec] default_cwd is required; name the directory "
@@ -429,17 +317,16 @@ class Config:
                 "[secrets] files at that tree."
             )
 
-        allow_raw = raw.get("allow", [])
-        if not isinstance(allow_raw, list) or not all(
-            isinstance(r, dict) for r in allow_raw
-        ):
-            raise ConfigError(f"{path}: [[allow]] must be a list of tables")
-        allow = [AllowRule.parse(r, i) for i, r in enumerate(allow_raw)]
-        if not allow:
+        if "allow" in raw:
+            # Ignoring the rules would leave a config that reads as though
+            # commands were still being constrained by it.
             raise ConfigError(
-                f"{path}: no [[allow]] rules; the broker would refuse every "
-                "command. To allow everything, write one rule with argv0 = '.'"
+                f"{path}: [[allow]] no longer exists. The broker runs what it "
+                "is asked to run, as a uid that holds nothing, and redacts the "
+                "output; a rule permitting any interpreter reached past every "
+                "constraint these expressed. Delete the [[allow]] tables."
             )
+
         return cls(
             path=path,
             server=server,
@@ -449,5 +336,4 @@ class Config:
             ssh=ssh,
             secrets=secrets,
             audit=audit,
-            allow=allow,
         )

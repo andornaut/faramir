@@ -33,7 +33,7 @@ class ExecutorTestCase(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.config = Config.from_dict(
             {"exec": {"default_cwd": self.tmp.name},
-             "allow": [{"name": "ls", "argv0": "^/bin/ls$"}]}, "t"
+             }, "t"
         )
         self.executor = Executor(self.config)
 
@@ -98,9 +98,8 @@ class TestStdin(ExecutorTestCase):
         self.assertIn("GOT=[]", output)
 
     def test_a_bare_shell_exits_instead_of_waiting(self):
-        # The broker's bash rule permits zero arguments, which is an
-        # interactive shell.  The executor re-checks allowed_bin_dirs and
-        # nothing else, so what stops this hanging is the /dev/null stdin.
+        # A bare shell is an interactive one.  The executor checks nothing
+        # about argv, so what stops this hanging is the /dev/null stdin.
         response, _ = self.run_child([BASH])
         self.assertFalse(response["timed_out"])
         self.assertEqual(response["exit_code"], 0)
@@ -139,11 +138,34 @@ class TestTheTerminal(ExecutorTestCase):
 
 
 class TestRefusals(ExecutorTestCase):
-    def test_a_binary_outside_the_allowed_dirs_is_refused(self):
-        # Checked here as well as in the broker, so a broker bug cannot become
-        # "run anything from anywhere as faramir-exec".
-        response, _ = self.run_child([os.path.join(self.tmp.name, "evil")])
-        self.assertEqual(response["error"]["code"], "denied")
+    def test_the_executor_does_not_second_guess_argv0(self):
+        """It runs what the broker sends, from wherever the broker says.
+
+        There used to be an allowed_bin_dirs re-check here, justified as
+        stopping a broker bug becoming "run anything from anywhere as
+        faramir-exec".  It went with the allowlist: it bounded argv[0] only, so
+        any request for bash reached past it in one step, and meanwhile it
+        refused every venv, shim and working-tree script.  What bounds this uid
+        is what it holds -- no key, no audit log, no SSH key -- plus the mode
+        on its socket (0660 root:faramir-broker, so the executor's own uid
+        cannot connect), which tests/verify.sh checks as 1k on a real
+        deployment.
+
+        Asserted the way the documented leaks are: pinned open, so a change
+        that reintroduces a check has to revisit this reasoning first.
+        """
+        script = os.path.join(self.tmp.name, "from-anywhere.sh")
+        with open(script, "w") as fh:
+            fh.write("#!/bin/sh\necho RAN_FROM_TMP\n")
+        os.chmod(script, 0o755)
+        response, output = self.run_child([script])
+        self.assertIsNone(response.get("error"), response.get("error"))
+        self.assertEqual(response["exit_code"], 0)
+        self.assertIn("RAN_FROM_TMP", output)
+
+    def test_a_missing_binary_is_an_exec_failure(self):
+        response, _ = self.run_child([os.path.join(self.tmp.name, "nope")])
+        self.assertEqual(response["error"]["code"], "exec_failed")
 
 
 if __name__ == "__main__":

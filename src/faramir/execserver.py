@@ -3,7 +3,7 @@
 The broker resolves policy, injects secret values, redacts output and writes
 the audit log.  It does not fork the child: this service does, under
 ``faramir-exec``, which holds no secrets, cannot read the raw log, cannot read
-the age key, and cannot write the execution checkout.
+the age key, and cannot read the SSH keys that reach managed hosts.
 
 The split is what makes those statements true.  A child forked by the broker
 shares the broker's uid, and anything that uid can read or write, the child can
@@ -45,7 +45,7 @@ import threading
 import time
 from typing import Any
 
-from .config import Config, ConfigError, ExecConfig
+from .config import Config, ConfigError
 
 log = logging.getLogger("faramir.exec")
 
@@ -281,11 +281,9 @@ class Executor:
         if not isinstance(cwd, str):
             return _error("bad_request", "'cwd' must be a string")
 
-        reason = _outside_bin_dirs(argv[0], self.config.exec)
-        if reason:
-            # The broker checks this too.  Repeating it here means a broker bug
-            # cannot turn into "run anything from anywhere as faramir-exec".
-            return _error("denied", reason)
+        # There is no allowlist to re-check here any more.  What bounds a
+        # brokered command is the uid it runs as, which holds no key, no audit
+        # log and no SSH key -- not a list of permitted programs.
 
         env = dict(env)
         # The child's HOME belongs to *this* uid, not the broker's.  Ansible
@@ -297,7 +295,7 @@ class Executor:
 
         started = time.monotonic()
         try:
-            proc = subprocess.Popen(  # noqa: S603 - argv is allowlisted by the broker
+            proc = subprocess.Popen(  # noqa: S603 - argv[0] is resolved by the broker
                 argv,
                 cwd=cwd,
                 env=env,
@@ -387,16 +385,6 @@ def _own_home() -> str:
 def _positive(value: Any, default: int) -> int:
     return value if isinstance(value, int) and not isinstance(value, bool) and value > 0 else default
 
-
-def _outside_bin_dirs(argv0: str, exec_cfg: ExecConfig) -> str | None:
-    resolved = os.path.realpath(argv0)
-    directory = os.path.dirname(resolved)
-    if any(
-        directory == d or directory.startswith(d.rstrip("/") + "/")
-        for d in exec_cfg.allowed_bin_dirs
-    ):
-        return None
-    return f"{argv0}: resolves to {resolved}, which is outside allowed_bin_dirs"
 
 
 def _error(code: str, message: str) -> dict[str, Any]:

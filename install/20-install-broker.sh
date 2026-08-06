@@ -15,8 +15,8 @@ LIB="${FARAMIR_LIB:-/usr/local/lib/faramir}"
 # EUID check below has had a chance to say anything useful.
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 WORKTREE="${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
-# The starter policy allows anything on the host.  Point this at
-# etc/examples/<workload>.toml to install a narrow policy for a real workload.
+# Point this at etc/examples/<workload>.toml to install the configuration for a
+# real workload rather than the starter.
 # A relative path resolves against the repo, so the documented invocation works
 # from any directory.
 CONFIG="${CONFIG:-etc/config.toml}"
@@ -71,13 +71,11 @@ install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 # CLEANUP (added 2026-08-05): remove once every host has run this script once.
 rm -f /etc/faramir/deny-patterns.txt /etc/secretd/deny-patterns.txt
 
-# The working tree appears in the config more than once -- [exec] default_cwd,
-# [secrets] files, and every cwd_allow in a narrow policy -- and the bind mounts
-# below make exactly one path visible to the three units.  Rather than rewrite
-# each key, take the tree the shipped config was written around ([exec]
-# default_cwd) and replace it everywhere with the one this install was given.
-# That keeps a policy's cwd_allow rules pointing at the tree they are meant to
-# constrain instead of silently permitting nothing.
+# The working tree appears in the config more than once -- [exec] default_cwd
+# and [secrets] files -- and the bind mounts below make exactly one path visible
+# to the three units.  Rather than rewrite each key, take the tree the shipped
+# config was written around ([exec] default_cwd) and replace it everywhere with
+# the one this install was given.
 #
 # Read it as TOML rather than pattern-matching the line: quoting styles and
 # trailing comments have to be read the way the broker reads them, or the
@@ -95,15 +93,6 @@ section = raw.get("exec")
 print((section if isinstance(section, dict) else {}).get("default_cwd", "") or "<unset>")
 PY
 }
-
-# A cwd_allow is a regex, so a worktree containing regex metacharacters would
-# be substituted into one and mean something other than the literal path.
-case $WORKTREE in
-  *[\[\]\(\)\{\}\*\+\?\^\$\|\\]*)
-    say "WARNING: ${WORKTREE} contains regex metacharacters"
-    say "         any cwd_allow built from it will not match the literal path"
-    ;;
-esac
 
 if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"

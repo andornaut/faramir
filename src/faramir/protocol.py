@@ -22,8 +22,9 @@ Two rules that are not negotiable:
   ``ps`` output, in ``/proc/<pid>/cmdline``, and in the child's own error
   messages.
 * ``cmd`` is an array.  The broker never passes a string to ``sh -c``.  A
-  caller who wants a pipeline sends ``["bash", "-lc", "…"]`` explicitly, and
-  that has to match the allowlist like anything else.
+  caller who wants a pipeline sends ``["bash", "-lc", "…"]`` explicitly, so
+  what is being run is visible in the audit log rather than buried in a string
+  the broker handed to a shell.
 """
 
 from __future__ import annotations

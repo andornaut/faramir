@@ -33,7 +33,7 @@ than `[server] max_request_bytes` is refused.
 | Field | Required | Notes |
 |---|---|---|
 | `cmd` | yes | **Array.** A string is rejected with guidance; the broker never runs `sh -c` for you. |
-| `cwd` | no | Absolute. Defaults to `[exec] default_cwd`. Checked against the matching rule's `cwd_allow`. |
+| `cwd` | no | Absolute, and must exist. Defaults to `[exec] default_cwd`. A relative `cmd[0]` resolves against it. |
 | `env_refs` | no | `NAME` → `secret://ref`. Values are impossible to pass; names are validated, and `PATH`, `LD_PRELOAD`, `SOPS_AGE_KEY` and similar are reserved. |
 | `timeout_sec` | no | Clamped to the rule's and the global maximum. |
 
@@ -58,8 +58,7 @@ injectable; see [redaction.md](redaction.md).
 {"op": "status"}
 ```
 
-Loaded files, ref count, load errors, allowlist rule names, and
-`[exec] default_cwd`. Not the refs refused at load; see `list_secrets` above.
+Loaded files, ref count, load errors, and `[exec] default_cwd`. Not the refs refused at load; see `list_secrets` above.
 
 ## Responses
 
@@ -92,23 +91,24 @@ operator.
   "truncated": false,
   "redactions": [],
   "log_id": "2026-08-05T14:22:01Z-a91f",
-  "error": { "code": "denied", "message": "'cat' is not in the allowlist. Permitted programs: bash, printenv, …" }
+  "error": { "code": "exec_failed", "message": "ansible-playbook: not found on the broker's PATH (…)" }
 }
 ```
 
 | Code | Meaning |
 |---|---|
 | `bad_request` | Malformed request, bad env var name, literal value where a ref was required |
-| `denied` | No allowlist rule matched, or an argument/cwd constraint failed |
 | `unknown_secret` | The ref does not exist in any managed file |
 | `busy` | At `max_concurrency`; retry |
-| `exec_failed` | The program could not be started |
+| `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started |
 | `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`) |
 | `too_large` | Request exceeded `max_request_bytes` |
 | `internal` | Bug; check the journal |
 
-Denials are deliberately specific about *which* check failed, so the agent can
-correct itself in one turn instead of guessing.
+There is no command allowlist, so there is no `denied`. Errors are deliberately
+specific about what failed and where to fix it -- a program that is not on
+`[exec.base_env] PATH` says so and names the setting -- so the agent can correct
+itself in one turn instead of guessing.
 
 ## Authentication
 
@@ -173,9 +173,10 @@ keeps the master, so redaction and the audit log read the child's bytes
 directly rather than through a second hop. Both sides close their copy of the
 slave once the child holds it, or the master never reaches EOF.
 
-`argv[0]` is re-checked against `[exec] allowed_bin_dirs` here as well as in
-the broker. The duplication is deliberate: a broker bug should not become "run
-anything from anywhere as `faramir-exec`".
+`argv[0]` arrives already resolved to an absolute path; the executor checks
+nothing about it. What bounds a brokered command is the uid it runs as -- no
+age key, no audit log, no SSH key -- and the mode on this socket, which the
+executor's own uid cannot open.
 
 The executor owns the timeout, because it owns the process group. **Closing
 the connection is how the broker says "give up"**, and the child's process

@@ -25,13 +25,13 @@ import time
 from typing import Any
 
 from . import __version__
-from .allowlist import DeniedError, authorize
 from .audit import AuditLog, RawCollector, new_log_id
 from .config import Config, ConfigError
 from .execserver import ExecError
 from .executor import run as exec_run
 from .protocol import ProtocolError, Request, error_response, resolve_inline_tokens
 from .redact import Redactor
+from .resolve import ResolveError, resolve_program
 from .secretstore import SecretError, SecretStore, parse_secret_uri
 from .sshagent import SshAgent
 
@@ -237,7 +237,6 @@ class Server:
                     "version": __version__,
                     "config": self.config.path,
                     "secrets": self.store.describe(),
-                    "allow_rules": [r.name for r in self.config.allow],
                     "default_cwd": self.config.exec.default_cwd,
                 },
                 indent=2,
@@ -276,8 +275,8 @@ class Server:
             return error_response("bad_request", f"cwd does not exist: {cwd}", log_id)
 
         try:
-            decision = authorize(cmd, cwd, self.config.allow, exec_cfg)
-        except DeniedError as exc:
+            argv0_path = resolve_program(cmd[0], cwd, exec_cfg)
+        except ResolveError as exc:
             self.audit.write(
                 {
                     "log_id": log_id,
@@ -285,11 +284,11 @@ class Server:
                     "peer": peer,
                     "cmd": cmd,
                     "cwd": cwd,
-                    "denied": str(exc),
+                    "error": str(exc),
                 },
                 "",
             )
-            return error_response("denied", str(exc), log_id)
+            return error_response("exec_failed", str(exc), log_id)
 
         # Resolve secret values.  This is the only place plaintext is touched
         # outside the store, and it goes straight into the child's environ.
@@ -309,11 +308,9 @@ class Server:
             except SecretError as exc:
                 return error_response("unknown_secret", str(exc), log_id)
 
-        timeout = request.timeout_sec or exec_cfg.default_timeout_sec
-        ceiling = min(
-            exec_cfg.max_timeout_sec, decision.rule.max_timeout_sec or exec_cfg.max_timeout_sec
+        timeout = min(
+            request.timeout_sec or exec_cfg.default_timeout_sec, exec_cfg.max_timeout_sec
         )
-        timeout = min(timeout, ceiling)
 
         if not self._slots.acquire(blocking=False):
             return error_response(
@@ -331,7 +328,7 @@ class Server:
         started = time.time()
         try:
             result = exec_run(
-                [decision.argv0_path, *cmd[1:]],
+                [argv0_path, *cmd[1:]],
                 cwd=cwd,
                 env=env,
                 timeout_sec=timeout,
@@ -354,9 +351,8 @@ class Server:
                 "op": "exec",
                 "peer": peer,
                 "cmd": cmd,
-                "argv0_path": decision.argv0_path,
+                "argv0_path": argv0_path,
                 "cwd": cwd,
-                "rule": decision.rule.name,
                 "env_refs": injected,
                 "exit_code": result.exit_code,
                 "duration_sec": result.duration_sec,
@@ -367,9 +363,9 @@ class Server:
             collector.text(),
         )
         log.info(
-            "%s rule=%s exit=%s dur=%.1fs redactions=%d",
+            "%s %s exit=%s dur=%.1fs redactions=%d",
             log_id,
-            decision.rule.name,
+            os.path.basename(argv0_path),
             result.exit_code,
             result.duration_sec,
             sum(int(r["count"]) for r in result.redactions),  # type: ignore[arg-type]
@@ -419,7 +415,7 @@ def main(argv: list[str] | None = None) -> int:
         secrets = server.store.describe_for_operator()
         print(
             json.dumps(
-                {"secrets": secrets, "allow_rules": [r.name for r in config.allow]},
+                {"secrets": secrets},
                 indent=2,
                 sort_keys=True,
             )

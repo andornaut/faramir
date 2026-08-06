@@ -73,7 +73,7 @@ else
 fi
 
 # A brokered command runs as ${BROKER_USER}; the credential directory is the
-# route that used to work regardless of any allowlist flag.
+# route that used to work regardless of any per-rule flag.
 out="$(srun -- bash -lc 'cat /run/credentials/*/age_key 2>&1 | head -1')"
 if grep -qiE 'no such file|permission denied|AGE-KEY' <<<"$out" || [[ -z ${out// /} ]]; then
   ok "1e brokered command cannot read a systemd credential holding the key"
@@ -215,36 +215,30 @@ else
   skipt "7  ${WORKTREE}/${PLAYBOOK} not found"
 fi
 
-head_ "8  allowlist"
+head_ "8  what still bounds a command"
 
-# Only meaningful against a narrow policy.  The shipped starter allows anything
-# on the host deliberately -- the allowlist bounds blast radius, it is not what
-# keeps secrets out of the agent's context -- so asserting a denial here would
-# report a correctly-installed default as a failure.  Ask the broker which
-# rules are loaded rather than guessing from the outcome.
-rules="$(sudo -u "$AGENT_USER" faramir status --json 2>/dev/null \
-         | python3 -c 'import json,sys; print(" ".join(json.loads(json.load(sys.stdin)["output"])["allow_rules"]))' \
-         2>/dev/null)"
-if [[ $rules == "anything" ]]; then
-  skipt "8  policy is the permissive starter (rule 'anything'); nothing to deny"
-  skipt "8b policy is the permissive starter; min_args is not in play"
+# There is no allowlist any more, so there is nothing here that refuses a
+# program by name.  What is left is worth checking because an operator will hit
+# it: a bare command name is looked up on [exec.base_env] PATH, which is the
+# PATH the child gets, and the error has to say so.
+out="$(srun -- definitely-not-installed-xyzzy)"
+if grep -q 'base_env' <<<"$out"; then
+  ok "8  an unresolvable program names [exec.base_env] PATH in the error"
 else
-  out="$(srun -- cat /etc/passwd)"
-  if grep -q 'denied' <<<"$out"; then
-    ok "8  non-allowlisted command denied"
-  else
-    no "8  'cat /etc/passwd' was not denied: $out"
-  fi
-
-  # args_allow constrains the arguments that are present, not how many there
-  # are; without min_args this dumps the whole child environment.
-  out="$(srun -- printenv)"
-  if grep -q 'denied' <<<"$out"; then
-    ok "8b bare printenv denied (min_args)"
-  else
-    no "8b bare printenv dumped the environment: $out"
-  fi
+  no "8  unhelpful error for an unresolvable program: $out"
 fi
+
+# The flip side, and the reason the allowlist went: a program outside the
+# system directories has to work.  This is the venv/pipx/working-tree case.
+probe="${WORKTREE}/.verify-probe.sh"
+printf '#!/bin/sh\necho PROBE_OK\n' >"$probe" && chmod 0755 "$probe"
+out="$(srun -- "$probe")"
+if grep -q 'PROBE_OK' <<<"$out"; then
+  ok "8b a program outside the system directories runs"
+else
+  no "8b could not run ${probe}: $out"
+fi
+rm -f "$probe"
 
 head_ "9  audit log"
 

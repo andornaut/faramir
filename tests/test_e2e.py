@@ -152,10 +152,14 @@ class TestVerificationMatrix(BrokerTestCase):
         self.assertNotEqual(response["exit_code"], 0, response["output"])
         self.assertNoPlaintext(response["output"])
 
-    def test_08_non_allowlisted_command_is_denied(self):
-        response = self.broker.run(["cat", "/etc/passwd"])
-        self.assertEqual(response["error"]["code"], "denied")
-        self.assertIn("not in the allowlist", response["error"]["message"])
+    def test_08_an_unknown_program_is_refused_with_a_usable_message(self):
+        # There is no allowlist to refuse this; what refuses it is that the
+        # name is not on the PATH the child would get.  The message has to say
+        # where to fix that, because it is the failure an operator will hit
+        # when a tool lives in a venv or a pipx install.
+        response = self.broker.run(["definitely-not-installed-xyzzy"])
+        self.assertEqual(response["error"]["code"], "exec_failed")
+        self.assertIn("base_env", response["error"]["message"])
         self.assertEqual(response["output"], "")
 
     def test_09_raw_log_contains_the_plaintext(self):
@@ -233,7 +237,7 @@ class TestExecutionSemantics(BrokerTestCase):
     def test_a_child_reading_stdin_gets_eof_rather_than_blocking(self):
         # Nothing writes to the master, so a readable stdin would hold a
         # concurrency slot until the timeout: a password prompt, or `bash`
-        # with no arguments, which the allowlist permits.
+        # with no arguments.
         response = self.broker.run(["bash", "-lc", "read -r x; echo GOT=[$x]"], timeout_sec=15)
         self.assertFalse(response["timed_out"])
         self.assertIn("GOT=[]", response["output"])
@@ -308,9 +312,9 @@ class TestClientInterfaces(BrokerTestCase):
             self.broker.cli(["run", "--", "bash", "-lc", "exit 7"]).returncode, 7
         )
 
-    def test_cli_reports_denials_clearly(self):
-        result = self.broker.cli(["run", "--", "cat", "/etc/passwd"])
-        self.assertIn("denied", result.stderr)
+    def test_cli_reports_failures_clearly(self):
+        result = self.broker.cli(["run", "--", "definitely-not-installed-xyzzy"])
+        self.assertIn("exec_failed", result.stderr)
 
     def test_cli_subcommands_reach_the_broker(self):
         listed = self.broker.cli(["list-secrets"])
@@ -356,7 +360,7 @@ class TestClientInterfaces(BrokerTestCase):
         self.assertIn(ROUTER_TOKEN, text)
         self.assertNoPlaintext(text)
 
-    def test_mcp_reports_denials_as_tool_errors(self):
+    def test_mcp_reports_failures_as_tool_errors(self):
         responses = self.broker.mcp(
             [
                 {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
@@ -364,7 +368,8 @@ class TestClientInterfaces(BrokerTestCase):
                     "jsonrpc": "2.0",
                     "id": 2,
                     "method": "tools/call",
-                    "params": {"name": "faramir_run", "arguments": {"cmd": ["cat", "/etc/shadow"]}},
+                    "params": {"name": "faramir_run",
+                               "arguments": {"cmd": ["definitely-not-installed-xyzzy"]}},
                 },
             ]
         )
@@ -400,9 +405,9 @@ class TestProtocolHardening(BrokerTestCase):
         response = self.broker.run(["printenv", "X"], {"SOPS_AGE_KEY": PW_REF})
         self.assertEqual(response["error"]["code"], "bad_request")
 
-    def test_cwd_outside_the_checkout_is_denied_for_ansible(self):
-        response = self.broker.run(["ansible-playbook", "site.yml"], cwd="/tmp")
-        self.assertEqual(response["error"]["code"], "denied")
+    def test_a_cwd_that_does_not_exist_is_refused(self):
+        response = self.broker.run(["bash", "-lc", "true"], cwd="/no/such/dir")
+        self.assertEqual(response["error"]["code"], "bad_request")
 
     def test_garbage_does_not_kill_the_broker(self):
         import socket as _socket
@@ -413,9 +418,11 @@ class TestProtocolHardening(BrokerTestCase):
             sock.recv(4096)
         self.assertEqual(self.broker.run(["bash", "-lc", "echo alive"])["exit_code"], 0)
 
-    def test_denials_are_audited(self):
-        self.broker.run(["nmap", "10.0.0.1"])
-        self.assertIn("not in the allowlist", self.broker.raw_log_text())
+    def test_failures_are_audited(self):
+        # A command that never started is still a request the operator should
+        # be able to see in the log.
+        self.broker.run(["definitely-not-installed-xyzzy"])
+        self.assertIn("definitely-not-installed-xyzzy", self.broker.raw_log_text())
 
 
 if __name__ == "__main__":

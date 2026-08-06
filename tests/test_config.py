@@ -13,7 +13,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from faramir.config import Config, ConfigError  # noqa: E402
 
-MINIMAL_ALLOW = [{"name": "ls", "argv0": r"^/bin/ls$"}]
 # [exec] default_cwd has no default: the broker will not guess where commands
 # run, so the smallest loadable config still has to name it.
 MINIMAL_EXEC = {"default_cwd": "/home/agent/work/repo"}
@@ -21,7 +20,7 @@ MINIMAL_EXEC = {"default_cwd": "/home/agent/work/repo"}
 
 def load(**sections):
     sections.setdefault("exec", MINIMAL_EXEC)
-    return Config.from_dict({"allow": MINIMAL_ALLOW, **sections}, "test.toml")
+    return Config.from_dict(dict(sections), "test.toml")
 
 
 class TestUnknownKeys(unittest.TestCase):
@@ -46,15 +45,6 @@ class TestUnknownKeys(unittest.TestCase):
             with self.subTest(section=section):
                 with self.assertRaises(ConfigError):
                     load(**{section: "0660"})
-
-    def test_allow_must_be_a_list_of_tables(self):
-        # Through load(), so the [exec] guard cannot satisfy the assertion
-        # before the allowlist is ever looked at.
-        for value in ["ls", [1, 2], {"name": "ls"}]:
-            with self.subTest(value=value):
-                with self.assertRaises(ConfigError) as caught:
-                    load(allow=value)
-                self.assertIn("[[allow]]", str(caught.exception))
 
 
 class TestSocketMode(unittest.TestCase):
@@ -101,15 +91,6 @@ class TestTheAgeKeyMigration(unittest.TestCase):
     ignored: silently dropping them leaves a config that reads as though
     Ansible were still being handed the master key."""
 
-    def test_provide_age_key_names_the_rule_and_says_what_to_do(self):
-        with self.assertRaises(ConfigError) as caught:
-            load(allow=[{"name": "decryptor", "argv0": "^x$", "provide_age_key": True}])
-        message = str(caught.exception)
-        self.assertIn("decryptor", message)
-        self.assertIn("provide_age_key", message)
-        self.assertIn("keeper", message)
-        self.assertIn("env_refs", message)
-
     def test_age_key_settings_under_secrets_point_at_the_keeper(self):
         for key in ("age_key_credential", "age_key_file"):
             with self.subTest(key=key):
@@ -149,37 +130,6 @@ class TestExecutorSection(unittest.TestCase):
         self.assertIn("executor.socket_mode", str(caught.exception))
 
 
-class TestAllowRules(unittest.TestCase):
-    def test_empty_allowlist_is_rejected(self):
-        with self.assertRaises(ConfigError) as caught:
-            load(allow=[])
-        self.assertIn("refuse every command", str(caught.exception))
-
-    def test_bad_regex_names_the_rule(self):
-        with self.assertRaises(ConfigError) as caught:
-            load(allow=[{"name": "oops", "argv0": "("}])
-        self.assertIn("oops", str(caught.exception))
-
-    def test_non_string_argv0_is_a_config_error(self):
-        for value in [5, ["^/bin/ls$"], None]:
-            with self.subTest(value=value):
-                with self.assertRaises(ConfigError) as caught:
-                    load(allow=[{"name": "x", "argv0": value}])
-                self.assertIn("argv0", str(caught.exception))
-
-    def test_max_timeout_must_be_a_positive_int(self):
-        for value in ["600", 0, -1, 1.5, True]:
-            with self.subTest(value=value):
-                with self.assertRaises(ConfigError):
-                    load(allow=[{**MINIMAL_ALLOW[0], "max_timeout_sec": value}])
-        self.assertEqual(
-            load(allow=[{**MINIMAL_ALLOW[0], "max_timeout_sec": 60}])
-            .allow[0]
-            .max_timeout_sec,
-            60,
-        )
-
-
 class TestDeploymentPathsAreRequired(unittest.TestCase):
     """The broker has no opinion about where a deployment keeps its work.
 
@@ -188,7 +138,7 @@ class TestDeploymentPathsAreRequired(unittest.TestCase):
 
     def test_default_cwd_is_required(self):
         with self.assertRaises(ConfigError) as caught:
-            Config.from_dict({"allow": MINIMAL_ALLOW}, "test.toml")
+            Config.from_dict({}, "test.toml")
         self.assertIn("default_cwd", str(caught.exception))
 
 
@@ -211,74 +161,6 @@ class TestTheSyncRemoval(unittest.TestCase):
         # It still describes an arrangement that no longer exists.
         with self.assertRaises(ConfigError):
             load(sync={"enabled": False})
-
-
-class TestArgumentCounts(unittest.TestCase):
-    def rule(self, **extra):
-        return load(allow=[{**MINIMAL_ALLOW[0], **extra}]).allow[0]
-
-    def test_defaults_are_unconstrained(self):
-        rule = self.rule()
-        self.assertIsNone(rule.min_args)
-        self.assertIsNone(rule.max_args)
-
-    def test_zero_is_a_meaningful_maximum(self):
-        self.assertEqual(self.rule(max_args=0).max_args, 0)
-
-    def test_negative_is_rejected(self):
-        with self.assertRaises(ConfigError) as caught:
-            self.rule(min_args=-1)
-        self.assertIn("min_args", str(caught.exception))
-
-    def test_a_non_integer_is_rejected(self):
-        with self.assertRaises(ConfigError):
-            self.rule(max_args="2")
-
-    def test_an_impossible_range_is_rejected(self):
-        with self.assertRaises(ConfigError) as caught:
-            self.rule(min_args=3, max_args=1)
-        self.assertIn("never match", str(caught.exception))
-
-    def test_a_mistyped_bound_is_rejected(self):
-        # Ignoring it would leave the rule wider than it reads, and --check
-        # would still report success.
-        for key in ("min_arg", "minargs", "max_args_"):
-            with self.subTest(key=key):
-                with self.assertRaises(ConfigError) as caught:
-                    self.rule(**{key: 1})
-                self.assertIn(key, str(caught.exception))
-
-
-class TestPatternListsMustBeLists(unittest.TestCase):
-    """A bare string splits into characters, one of which is '$'.
-
-    That matches everything, so a missing pair of brackets would silently turn
-    a default-deny allowlist into match-anything.
-    """
-
-    RULE_FIELDS = ["args_allow", "args_deny", "cwd_allow"]
-
-    def test_string_in_an_allow_rule_is_rejected(self):
-        for field in self.RULE_FIELDS:
-            with self.subTest(field=field):
-                with self.assertRaises(ConfigError) as caught:
-                    load(allow=[{**MINIMAL_ALLOW[0], field: "^-l$"}])
-                self.assertIn(field, str(caught.exception))
-
-    def test_non_string_element_is_rejected(self):
-        for field in self.RULE_FIELDS:
-            with self.subTest(field=field):
-                with self.assertRaises(ConfigError):
-                    load(allow=[{**MINIMAL_ALLOW[0], field: ["^-l$", 5]}])
-
-    def test_a_real_list_still_works(self):
-        rule = load(
-            allow=[{**MINIMAL_ALLOW[0], "cwd_allow": ["^/home/agent/work/repo$"]}]
-        ).allow[0]
-        self.assertEqual(
-            [p.pattern for p in rule.cwd_allow], ["^/home/agent/work/repo$"]
-        )
-        self.assertFalse(any(p.search("/home/agent/work/repo/../x") for p in rule.cwd_allow))
 
 
 if __name__ == "__main__":

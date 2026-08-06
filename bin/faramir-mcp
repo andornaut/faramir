@@ -40,11 +40,10 @@ TOOLS = [
             "environment variables only; they are never substituted into the command "
             "line. Call faramir_list_secrets to discover available names.\n\n"
             "Example: cmd=[\"printenv\",\"ROUTER_PW\"], "
-            "env_refs={\"ROUTER_PW\":\"secret://home/router/admin\"}. What you may "
-            "run is whatever the operator's allowlist permits; call faramir_status "
-            "for the rule names.\n"
-            "For a pipeline, pass cmd=[\"bash\",\"-lc\",\"…\"] explicitly (subject to "
-            "the same allowlist)."
+            "env_refs={\"ROUTER_PW\":\"secret://home/router/admin\"}.\n"
+            "For a pipeline, pass cmd=[\"bash\",\"-lc\",\"…\"] explicitly — no shell is "
+            "spawned for you. A bare command name is looked up on the broker's "
+            "configured PATH; pass an absolute path for anything else."
         ),
         "inputSchema": {
             "type": "object",
@@ -85,8 +84,7 @@ TOOLS = [
         "name": "faramir_status",
         "description": (
             "Show broker configuration: which secret files are loaded, how many refs "
-            "exist, which commands the allowlist permits, and any secrets too short to "
-            "be redacted safely."
+            "exist, and the default working directory commands run in."
         ),
         "inputSchema": {"type": "object", "properties": {}},
     },

@@ -9,7 +9,7 @@ faramir_run(cmd=["printenv", "ROUTER_PW"],
             env_refs={"ROUTER_PW": "secret://home/router/admin"})
 ```
 
-`faramir_list_secrets` lists available names, and `faramir_status` lists the
-allowlist rules, which are what determines the commands you may run. Commands
-run in this working tree as it is on disk, so an edit takes effect as soon as
-you save it — there is nothing to commit or promote first.
+`faramir_list_secrets` lists available names and `faramir_status` shows the
+broker's configuration. Commands run in this working tree as it is on disk, so
+an edit takes effect as soon as you save it — there is nothing to commit or
+promote first.

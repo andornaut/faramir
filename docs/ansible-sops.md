@@ -4,11 +4,11 @@ Playbooks get their credentials the same way every other brokered program
 does: the caller names refs, the broker injects values as environment
 variables, and `group_vars` reads them.
 
-The allowlist rules, `[exec.base_env]` variables and sops file paths this guide
-assumes are in
-[etc/examples/ansible-fleet.toml](../etc/examples/ansible-fleet.toml). The
-shipped `etc/config.toml` allows no Ansible command at all: which commands a
-deployment runs is a policy choice, not a default.
+The `[exec.base_env]` variables and sops file paths this guide assumes are in
+[etc/examples/ansible-fleet.toml](../etc/examples/ansible-fleet.toml). If
+`ansible-playbook` is a pipx or venv install, put its directory on the `PATH`
+in `[exec.base_env]`: that is the PATH the child gets, and where the broker
+looks up a bare command name.
 
 Ansible does **not** decrypt sops itself here, and cannot. Doing so needs the
 age private key, and no process the broker starts ever receives it: the keeper

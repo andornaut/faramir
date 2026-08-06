@@ -1,19 +1,22 @@
-# /etc/faramir/config.toml -- broker policy.
+# /etc/faramir/config.toml -- broker configuration.
 #
-# This starter allows any program found in [exec] allowed_bin_dirs, because the
-# thing that keeps plaintext out of the agent's context is the uid split and
-# the redactor, and neither depends on the allowlist.  Narrowing it bounds
-# blast radius and gives the agent a precise error instead of a confusing
-# failure; it does not change what a secret can do.  Narrow it when you have a
-# reason to -- see the commented rules at the bottom, and
-# etc/examples/ansible-fleet.toml for a fully constrained policy.
+# There is no command allowlist.  The broker runs what it is asked to run, as a
+# uid that holds no key, no audit log and no SSH key, and redacts the output.
+# That is what keeps plaintext out of the agent's context; a list of permitted
+# programs never was, because any rule permitting bash or python reached past
+# every constraint it expressed.
+#
+# What still bounds a command:
+#
+#   [exec.base_env] PATH   where a bare command name is looked up -- and the
+#                          only PATH the child gets, so a venv or shim
+#                          directory belongs here
+#   [exec] max_timeout_sec, max_output_bytes
+#   the executor's uid     see the systemd units
 #
 # etc/examples/ holds complete configs for real workloads:
 #
 #   ansible-fleet.toml   running Ansible against a fleet of managed hosts
-#
-# A command matching no [[allow]] rule is refused, so the file always has to
-# contain at least one.  Regexes are applied with re.search(), so anchor them.
 
 [server]
 socket_path = "/run/faramir/broker.sock"
@@ -56,7 +59,6 @@ default_cwd = "/home/agent/work/repo"
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576
-allowed_bin_dirs = ["/usr/local/bin", "/usr/bin", "/bin", "/usr/local/sbin", "/usr/sbin"]
 term_cols = 120
 term_rows = 40
 kill_grace_sec = 5
@@ -104,46 +106,3 @@ min_entropy_bits_per_char = 1.5
 [audit]
 raw_log = "/var/log/faramir/raw.log"
 max_record_bytes = 4194304
-
-# ---------------------------------------------------------------------------
-# Allowlist
-# ---------------------------------------------------------------------------
-
-# No rule receives the age key: there is no flag that grants it, and the broker
-# does not hold it to grant.  A command that wants a secret is given it through
-# env_refs and reads it from the environment.  That is true of every rule
-# below, however wide, which is why a permissive default is defensible.
-
-# Allow anything.  argv0 is still resolved against [exec] allowed_bin_dirs, so
-# this permits the programs installed on the host and not, say, a script the
-# agent just wrote into /tmp.  Everything a command prints is still redacted,
-# still audited, and still runs as a uid that holds nothing.
-#
-# Replace this rule with narrow ones when you want a specific blast radius.
-[[allow]]
-name = "anything"
-argv0 = '.'
-args_deny = ['(^|\s|=)/etc/faramir', '/proc/\d+/environ']
-
-# What narrowing looks like, if you want it.  Uncomment these and delete the
-# rule above.  `printenv` proves a credential reached the right variable, and
-# `bash` is how a pipeline is requested -- the broker never spawns a shell for
-# you, so ["bash", "-lc", "…"] has to be asked for explicitly.
-#
-# min_args/max_args, not just args_allow: args_allow describes the arguments
-# that are present, so on its own it would still permit a bare `printenv`,
-# which dumps the whole environment instead of naming one variable.
-#
-# [[allow]]
-# name = "printenv"
-# argv0 = '^printenv$'
-# args_allow = ['^[A-Za-z_][A-Za-z0-9_]*$']
-# min_args = 1
-# max_args = 1
-# max_timeout_sec = 30
-#
-# [[allow]]
-# name = "bash"
-# argv0 = '^(bash|sh)$'
-# args_allow = ['^-[lc]{1,2}$', '^-lc$', '^[^\x00]{0,8192}$']
-# args_deny = ['(^|\s)/etc/faramir', '/proc/\d+/environ']

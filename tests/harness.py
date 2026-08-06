@@ -2,9 +2,8 @@
 
 Everything here is genuine: a real age keypair, a real sops-encrypted file, a
 real Unix socket, real PTY execution.  Only the paths are temporary, and the
-allowlist is ``etc/examples/ansible-fleet.toml`` with its paths rewritten, so
-the tests exercise a policy that actually ships.  The starter config allows two
-commands and is covered by test_allowlist instead.
+config is ``etc/examples/ansible-fleet.toml`` with its paths rewritten, so the
+tests exercise a file that actually ships rather than one written for them.
 """
 
 from __future__ import annotations
@@ -127,9 +126,8 @@ class Broker:
         """Reuse the Ansible example verbatim; only rewrite the paths.
 
         The e2e suite exercises the Ansible workload, so it runs against the
-        policy that ships for it.  That keeps the example under test: an
-        example nobody loads is an example that rots.  The starter config in
-        etc/config.toml allows two commands and is covered by test_allowlist.
+        config that ships for it.  That keeps the example under test: an
+        example nobody loads is an example that rots.
         """
         text = (REPO / "etc" / "examples" / "ansible-fleet.toml").read_text()
         # The example lists a key that exists only on a real deployment.  Tests
@@ -165,7 +163,6 @@ class Broker:
             ).replace(
                 'exec_group = "faramir-exec"', 'exec_group = ""'
             )
-        # The temp dir lives outside allowed_bin_dirs; keep the shipped list.
         self.config_path.write_text(text)
 
     def _write_playbooks(self) -> None:

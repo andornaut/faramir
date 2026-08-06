@@ -31,10 +31,6 @@ SHORT = "1234"
 CONFIG = """
 [exec]
 default_cwd = "/home/agent/work/repo"
-
-[[allow]]
-name = "ls"
-argv0 = '^/bin/ls$'
 """
 
 
@@ -67,7 +63,6 @@ class TestTheCheckPath(MainTestCase):
         # should not have to split the output on a label to parse it.
         code, report = self.check({"good": STRONG})
         self.assertEqual(code, 0)
-        self.assertEqual(report["allow_rules"], ["ls"])
         self.assertEqual(report["secrets"]["ref_count"], 1)
 
     def test_it_names_the_refused_refs_and_the_reason(self):
@@ -83,7 +78,7 @@ class TestTheCheckPath(MainTestCase):
 
     def test_a_config_that_does_not_load_exits_two_and_prints_nothing(self):
         with open(self.config_path, "w") as fh:
-            fh.write("[[allow]]\nname = 'x'\nnope = 1\n")
+            fh.write("[exec]\ndefault_cwd = '/tmp'\nnope = 1\n")
         out = io.StringIO()
         with redirect_stdout(out):
             code = main(["-c", self.config_path, "--check"])
@@ -117,8 +112,7 @@ class TestTheServingPath(MainTestCase):
 class TestAgentFacingResponses(unittest.TestCase):
     def server(self, values):
         config = Config.from_dict(
-            {"exec": {"default_cwd": "/home/agent/work/repo"},
-             "allow": [{"name": "ls", "argv0": "^/bin/ls$"}]}, "t")
+            {"exec": {"default_cwd": "/home/agent/work/repo"}}, "t")
         server = Server(config)
         with mock.patch("faramir.secretstore.fetch_values", return_value=(values, [])):
             server.store.reload()

@@ -19,8 +19,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from harness import Broker, have  # noqa: E402
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-from faramir.execserver import ExecClient, ExecError, _outside_bin_dirs  # noqa: E402
-from faramir.config import ExecConfig  # noqa: E402
+from faramir.execserver import ExecClient, ExecError  # noqa: E402
 
 PW_REF = "secret://home/router/admin"
 
@@ -52,33 +51,6 @@ class TestRequestValidation(ExecTestCase):
             with self.subTest(argv=argv):
                 response = self.broker.exec_call({"argv": argv})
                 self.assertEqual(response["error"]["code"], "bad_request")
-
-    def test_binaries_outside_allowed_bin_dirs_are_refused(self):
-        # The broker checks this too.  Repeating it here means a broker bug
-        # cannot become "run anything from anywhere as the executor's uid".
-        master, slave = pty.openpty()
-        client = self.client()
-        try:
-            client.start(
-                argv=[str(self.broker.root / "payload.sh")],
-                cwd=str(self.broker.workdir),
-                env={},
-                timeout_sec=10,
-                kill_grace_sec=1,
-                slave_fd=slave,
-            )
-            with self.assertRaises(ExecError) as caught:
-                client.result()
-            self.assertIn("allowed_bin_dirs", str(caught.exception))
-        finally:
-            os.close(slave)
-            os.close(master)
-            client.close()
-
-    def test_bin_dir_check_resolves_symlinks(self):
-        cfg = ExecConfig(allowed_bin_dirs=["/usr/bin", "/bin"])
-        self.assertIsNone(_outside_bin_dirs("/bin/sh", cfg))
-        self.assertIsNotNone(_outside_bin_dirs("/tmp/sh", cfg))
 
 
 class TestChildLifetime(ExecTestCase):
