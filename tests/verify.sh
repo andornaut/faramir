@@ -18,7 +18,7 @@ EXEC_USER="${EXEC_USER:-faramir-exec}"
 AGE_KEY="${AGE_KEY:-/etc/faramir/age.key}"
 KEEPER_SOCKET="${KEEPER_SOCKET:-/run/faramir/keeper.sock}"
 EXEC_SOCKET="${EXEC_SOCKET:-/run/faramir/exec.sock}"
-CHECKOUT="${CHECKOUT:-/srv/faramir}"
+WORKTREE="${WORKTREE:-/home/${AGENT_USER}/work/repo}"
 SOCKET="${FARAMIR_SOCKET:-/run/faramir/broker.sock}"
 RAW_LOG="${RAW_LOG:-/var/log/faramir/raw.log}"
 PW_REF="${PW_REF:-secret://home/router/admin}"
@@ -104,12 +104,23 @@ else
   no "1h ${EXEC_USER} CAN read the raw log, so it can also truncate it"
 fi
 
-out="$(srun -- bash -lc "touch ${CHECKOUT}/.verify-write")"
-if grep -qi 'permission denied' <<<"$out"; then
-  ok "1i brokered commands cannot write ${CHECKOUT}"
+# Commands run in the agent's tree and are meant to write it: ansible drops
+# .retry files and fact caches there.  What matters is that devwork buys the
+# executor that and nothing else, which 1h, 1i2, 1j and 1m check.
+out="$(srun -- bash -lc "touch ${WORKTREE}/.verify-write && echo wrote")"
+if grep -q wrote <<<"$out"; then
+  ok "1i brokered commands can write the working tree"
+  rm -f "${WORKTREE}/.verify-write"
 else
-  no "1i a brokered command wrote to ${CHECKOUT}, bypassing commit-then-sync"
-  rm -f "${CHECKOUT}/.verify-write"
+  no "1i a brokered command cannot write ${WORKTREE}: $out"
+fi
+
+# The executor uid is in devwork, so it must NOT thereby reach the key.
+out="$(as_exec cat "$AGE_KEY")"
+if grep -qi 'permission denied' <<<"$out"; then
+  ok "1i2 ${EXEC_USER} cannot read the age key"
+else
+  no "1i2 ${EXEC_USER} CAN read the age key -- devwork must not grant this"
 fi
 
 out="$(as_exec test -w "$KEEPER_SOCKET" && echo writable)"
@@ -186,7 +197,7 @@ if grep -q 'SECRET:' <<<"$out"; then ok "5  unwrapped base64 redacted"; else no 
 
 head_ "6-7  redaction of values the broker never injected"
 
-if [[ -f "${CHECKOUT}/${PLAYBOOK}" ]]; then
+if [[ -f "${WORKTREE}/${PLAYBOOK}" ]]; then
   out="$(srun -- ansible-playbook "$PLAYBOOK" -vvv)"
   if grep -q 'SECRET:' <<<"$out" || ! grep -qi 'password\|token' <<<"$out"; then
     ok "6  ansible-playbook -vvv produced no plaintext"
@@ -200,26 +211,39 @@ if [[ -f "${CHECKOUT}/${PLAYBOOK}" ]]; then
     skipt "7  no redaction seen -- does $PLAYBOOK print a vault var?"
   fi
 else
-  skipt "6  ${CHECKOUT}/${PLAYBOOK} not found"
-  skipt "7  ${CHECKOUT}/${PLAYBOOK} not found"
+  skipt "6  ${WORKTREE}/${PLAYBOOK} not found"
+  skipt "7  ${WORKTREE}/${PLAYBOOK} not found"
 fi
 
 head_ "8  allowlist"
 
-out="$(srun -- cat /etc/passwd)"
-if grep -q 'denied' <<<"$out"; then
-  ok "8  non-allowlisted command denied"
+# Only meaningful against a narrow policy.  The shipped starter allows anything
+# on the host deliberately -- the allowlist bounds blast radius, it is not what
+# keeps secrets out of the agent's context -- so asserting a denial here would
+# report a correctly-installed default as a failure.  Ask the broker which
+# rules are loaded rather than guessing from the outcome.
+rules="$(sudo -u "$AGENT_USER" faramir status --json 2>/dev/null \
+         | python3 -c 'import json,sys; print(" ".join(json.loads(json.load(sys.stdin)["output"])["allow_rules"]))' \
+         2>/dev/null)"
+if [[ $rules == "anything" ]]; then
+  skipt "8  policy is the permissive starter (rule 'anything'); nothing to deny"
+  skipt "8b policy is the permissive starter; min_args is not in play"
 else
-  no "8  'cat /etc/passwd' was not denied: $out"
-fi
+  out="$(srun -- cat /etc/passwd)"
+  if grep -q 'denied' <<<"$out"; then
+    ok "8  non-allowlisted command denied"
+  else
+    no "8  'cat /etc/passwd' was not denied: $out"
+  fi
 
-# args_allow constrains the arguments that are present, not how many there are;
-# without min_args this dumps the whole child environment.
-out="$(srun -- printenv)"
-if grep -q 'denied' <<<"$out"; then
-  ok "8b bare printenv denied (min_args)"
-else
-  no "8b bare printenv dumped the environment: $out"
+  # args_allow constrains the arguments that are present, not how many there
+  # are; without min_args this dumps the whole child environment.
+  out="$(srun -- printenv)"
+  if grep -q 'denied' <<<"$out"; then
+    ok "8b bare printenv denied (min_args)"
+  else
+    no "8b bare printenv dumped the environment: $out"
+  fi
 fi
 
 head_ "9  audit log"
@@ -260,7 +284,7 @@ fi
 
 head_ "extra  the acceptance invariant"
 
-if [[ -f /home/${AGENT_USER}/work/repo/CLAUDE.md ]]; then
+if [[ -f ${WORKTREE}/CLAUDE.md ]]; then
   printf '  \033[33mNOTE\033[0m  CLAUDE.md exists. Delete it and re-run 1, 2 and 8:\n'
   printf '        nothing about what is *reachable* may change.\n'
 fi

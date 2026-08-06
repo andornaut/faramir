@@ -12,8 +12,14 @@
 #   group devwork        shared access to the repo working tree
 #
 # Three uids rather than one because anything a uid can read, a command running
-# as that uid can read.  The keeper's key, the broker's audit log and SSH keys,
-# and the execution checkout each sit behind a boundary the child cannot cross.
+# as that uid can read.  The keeper's key and the broker's audit log and SSH
+# keys each sit behind a boundary the child cannot cross.
+#
+# All three service accounts join devwork, because all three need the working
+# tree: the keeper decrypts the sops files in it, the broker stats them, and
+# brokered commands run in it.  That is read/write on files the agent already
+# owns; it is not access to anything the agent could not reach itself.  The
+# boundaries that matter are file modes, not this group.
 set -euo pipefail
 
 OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
@@ -64,25 +70,29 @@ fi
 install -d -m 0700 -o "$BROKER_USER" -g "$BROKER_USER" "$BROKER_HOME"
 install -d -m 0700 -o "$BROKER_USER" -g "$BROKER_USER" "${BROKER_HOME}/.ssh"
 
-# The keeper holds the age key and nothing else.  No devwork membership, no
-# shell, and a home only because sops writes ~/.config.  It must not share a
-# uid with anything that executes a command.
+# The keeper holds the age key and nothing else.  No shell, and a home only
+# because sops writes ~/.config.  It must not share a uid with anything that
+# executes a command.  devwork only so sops can read the encrypted files in the
+# working tree; the key itself is 0400 and in no group at all.
 KEEPER_HOME="${KEEPER_HOME:-/var/lib/faramir-keeper}"
-say "user ${KEEPER_USER} (keeper, no login, no groups, home ${KEEPER_HOME})"
+say "user ${KEEPER_USER} (keeper, no login, home ${KEEPER_HOME})"
 if ! id -u "$KEEPER_USER" >/dev/null 2>&1; then
-  useradd -r -m -d "$KEEPER_HOME" -s /usr/sbin/nologin "$KEEPER_USER"
+  useradd -r -m -d "$KEEPER_HOME" -G "$GROUP" -s /usr/sbin/nologin "$KEEPER_USER"
+else
+  usermod -aG "$GROUP" "$KEEPER_USER"
 fi
 install -d -m 0700 -o "$KEEPER_USER" -g "$KEEPER_USER" "$KEEPER_HOME"
-if id -nG "$KEEPER_USER" | tr ' ' '\n' | grep -qx "$GROUP"; then
-  say "WARNING: ${KEEPER_USER} is in ${GROUP}; remove it, the keeper needs no shared access"
-fi
 
-# The uid every brokered command runs as.  No devwork, no shell, no groups: it
-# needs a home only because Ansible creates ~/.ansible/tmp unconditionally.
+# The uid every brokered command runs as.  No shell; a home because Ansible
+# creates ~/.ansible/tmp unconditionally.  devwork so commands can run in the
+# working tree and write to it -- what it must NOT be in is the broker's or the
+# keeper's group, which is what the check below is for.
 EXEC_HOME="${EXEC_HOME:-/var/lib/faramir-exec}"
-say "user ${EXEC_USER} (executor, no login, no groups, home ${EXEC_HOME})"
+say "user ${EXEC_USER} (executor, no login, home ${EXEC_HOME})"
 if ! id -u "$EXEC_USER" >/dev/null 2>&1; then
-  useradd -r -m -d "$EXEC_HOME" -s /usr/sbin/nologin "$EXEC_USER"
+  useradd -r -m -d "$EXEC_HOME" -G "$GROUP" -s /usr/sbin/nologin "$EXEC_USER"
+else
+  usermod -aG "$GROUP" "$EXEC_USER"
 fi
 install -d -m 0700 -o "$EXEC_USER" -g "$EXEC_USER" "$EXEC_HOME"
 # Where SSH keys go when [ssh] keys is left empty.  Prefer listing them in
@@ -90,7 +100,7 @@ install -d -m 0700 -o "$EXEC_USER" -g "$EXEC_USER" "$EXEC_HOME"
 # agent socket, so a brokered command can authenticate without being able to
 # read, copy or exfiltrate a key that opens the whole fleet.
 install -d -m 0700 -o "$EXEC_USER" -g "$EXEC_USER" "${EXEC_HOME}/.ssh"
-for forbidden in "$GROUP" "$BROKER_USER" "$KEEPER_USER"; do
+for forbidden in "$BROKER_USER" "$KEEPER_USER"; do
   if id -nG "$EXEC_USER" 2>/dev/null | tr ' ' '\n' | grep -qx "$forbidden"; then
     say "WARNING: ${EXEC_USER} is in ${forbidden}; remove it, that is the boundary"
   fi
@@ -124,28 +134,17 @@ done
 # its own mode (0400 ${KEEPER_USER}), not the directory it sits in.
 install -d -m 0755 -o root -g root /etc/faramir
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
-# The broker writes this checkout during a sync; the executor only reads it.
-# setgid + group faramir-exec means git-created files land 0640
-# faramir-broker:faramir-exec (the broker unit sets UMask=0027), so a brokered
-# command can read the playbooks it runs and cannot rewrite them behind the
-# commit-then-sync gate.  Not group devwork: a playbook that wrote a credential
-# here with a permissive mode would otherwise be readable by the agent.
-install -d -m 2750 -o "$BROKER_USER" -g "$EXEC_USER" /srv/faramir
-if [[ -d /srv/faramir ]]; then
-  chgrp -R "$EXEC_USER" /srv/faramir
-  chmod -R g+rX,g-w,o-rwx /srv/faramir
-  find /srv/faramir -type d -exec chmod g+s {} +
-fi
 
 cat <<EOF
 
 Phase 1 acceptance (run these):
   sudo -u ${AGENT_USER} cat /etc/faramir/age.key        -> Permission denied
   sudo -u ${BROKER_USER} cat /etc/faramir/age.key       -> Permission denied
+  sudo -u ${EXEC_USER} cat /etc/faramir/age.key         -> Permission denied
   sudo -u ${EXEC_USER} cat /var/log/faramir/raw.log     -> Permission denied
-  sudo -u ${EXEC_USER} touch /srv/faramir/x        -> Permission denied
   sudo -u ${AGENT_USER} ls ~${OPERATOR}/.ssh            -> Permission denied
   sudo -u ${AGENT_USER} touch ${WORKTREE}/.perm-check   -> succeeds
+  sudo -u ${EXEC_USER} touch ${WORKTREE}/.perm-check    -> succeeds
 
 Note: ${AGENT_USER} and ${OPERATOR} must log out and back in for the new group
 membership to take effect.

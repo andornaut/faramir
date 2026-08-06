@@ -13,9 +13,8 @@ GROUP="${DEVWORK_GROUP:-devwork}"
 KEY=/etc/faramir/age.key
 AGENT_USER="${AGENT_USER:-agent}"
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
-# The agent's authoring tree, not the broker's checkout: [sync] dest is cleaned
-# with `git clean -xdff` on every sync, which would delete .sops.yaml, and the
-# agent uid cannot write there in any case.
+# The agent's working tree, which is also where brokered commands run and where
+# the sops files live.
 REPO="${REPO:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }

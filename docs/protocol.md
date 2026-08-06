@@ -5,7 +5,7 @@ response, one connection, no framing beyond the newline.
 
 | Socket | Who may connect | What it does |
 |---|---|---|
-| `/run/faramir/broker.sock` | the agent (`0660 root:devwork`) | run commands, list refs, sync |
+| `/run/faramir/broker.sock` | the agent (`0660 root:devwork`) | run commands, list refs |
 | `/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values |
 | `/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY |
 
@@ -24,7 +24,7 @@ than `[server] max_request_bytes` is refused.
 {
   "op": "exec",
   "cmd": ["printenv", "ROUTER_PW"],
-  "cwd": "/srv/faramir",
+  "cwd": "/home/agent/work/repo",
   "env_refs": { "ROUTER_PW": "secret://home/router/admin" },
   "timeout_sec": 600
 }
@@ -42,17 +42,6 @@ to `${VAR}` (a shell variable *reference*) and `VAR` is added to the injected
 environment. It never expands to a value broker-side, so the value still never
 appears in any `argv`.
 
-### `sync`
-
-```json
-{"op": "sync", "ref": "HEAD"}
-```
-
-Fetches `ref` from the agent's working tree into the broker's checkout and
-hard-checks it out. `ref` is validated against `[sync] allowed_refs` and may
-not start with `-`. Deliberately not reachable through `exec`: the shipped
-`git-readonly` rule denies `fetch`, `checkout`, `reset` and `clean`.
-
 ### `list_secrets`
 
 ```json
@@ -69,8 +58,8 @@ injectable; see [redaction.md](redaction.md).
 {"op": "status"}
 ```
 
-Loaded files, ref count, load errors, allowlist rule names, whether sync is
-enabled. Not the refs refused at load; see `list_secrets` above.
+Loaded files, ref count, load errors, allowlist rule names, and
+`[exec] default_cwd`. Not the refs refused at load; see `list_secrets` above.
 
 ## Responses
 
@@ -113,7 +102,6 @@ operator.
 | `denied` | No allowlist rule matched, or an argument/cwd constraint failed |
 | `unknown_secret` | The ref does not exist in any managed file |
 | `busy` | At `max_concurrency`; retry |
-| `sync_failed` | Sync refused or git failed |
 | `exec_failed` | The program could not be started |
 | `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`) |
 | `too_large` | Request exceeded `max_request_bytes` |
@@ -170,7 +158,7 @@ carrying a single file descriptor as ancillary data:
 
 ```json
 {"argv": ["/usr/bin/printenv", "ROUTER_PW"],
- "cwd": "/srv/faramir",
+ "cwd": "/home/agent/work/repo",
  "env": {"ROUTER_PW": "…"},
  "timeout_sec": 600,
  "kill_grace_sec": 5}

@@ -13,25 +13,44 @@ ExecStart=/usr/local/bin/faramir-exec
 Restart=on-failure
 RestartSec=2
 
+# devwork, because brokered commands run *in* the working tree and write to it:
+# ansible drops .retry files and fact caches, and a playbook that generates
+# config has to be able to put it somewhere.  The tree is agent-owned and
+# group-writable, so this is the same access the agent already has -- it is not
+# a way into anything the agent could not reach itself.
+SupplementaryGroups=devwork
+
 # This uid is the one every brokered command runs as, so the list of things it
 # can reach is the list of things a command can reach:
 #
 #   /etc/faramir/age.key      no  (0400 faramir-keeper)
 #   /run/faramir/keeper.sock  no  (0660 faramir-keeper:faramir-broker)
-#   /run/faramir/broker.sock  no  (0660 root:devwork)
+#   /run/faramir/exec.sock    no  (0660 root:faramir-broker)
 #   /var/log/faramir/raw.log  no  (0600 faramir-broker)
-#   /srv/faramir         read only, via the devwork-free group below
-#   /home                     nothing at all (ProtectHome=true)
+#   ~faramir-broker/.ssh      no  (0700 faramir-broker)
+#   the working tree          read and write, via devwork above
+#   the rest of /home         nothing at all (empty tmpfs)
 #
-# No LoadCredential=, no SupplementaryGroups=, and nothing writable except its
-# own state directory and PrivateTmp.
+# /run/faramir/broker.sock IS reachable now, because it is 0660 root:devwork:
+# a brokered command can call the broker back.  That buys it nothing -- the
+# response is redacted, allowlisted and audited exactly like the agent's own,
+# and every ref it could ask for is already listed by faramir_list_secrets.
+#
+# No LoadCredential=, and nothing writable except the working tree, its own
+# state directory and PrivateTmp.
 ProtectProc=invisible
 ProcSubset=pid
 NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-ProtectHome=true
+# tmpfs, not true: commands run in the working tree, which usually lives under
+# /home.  The bind mount below is the only thing visible there, and unlike the
+# broker's it is read-write.  install/20-install-broker.sh writes
+# faramir-exec.service.d/10-worktree.conf with the configured tree; the leading
+# '-' keeps the unit startable before it has been cloned.
+ProtectHome=tmpfs
+BindPaths=-/home/agent/work/repo
 PrivateTmp=true
 # Children run on a PTY, which needs /dev/ptmx and the pts devices.  Narrow the
 # device ACL rather than dropping it.
@@ -72,6 +91,9 @@ UMask=0077
 #       Ansible's file and user modules call chown and friends.
 #   PrivateDevices=, DeviceAllow=
 #       Every child runs on a PTY.
+#   SupplementaryGroups=, ProtectHome=tmpfs + BindPaths=
+#       Commands run in the working tree and write to it.  See above: this is
+#       the agent's own access, not a new one.
 #
 # Anything flagged that is NOT on this list is a regression: investigate it
 # before accepting it.

@@ -1,9 +1,14 @@
-"""Default-deny command allowlist.
+"""Command allowlist.
 
 A request is executed only if some ``[[allow]]`` rule matches ``cmd[0]`` *and*
 every argument passes that rule's constraints *and* the working directory is
 permitted.  Denials are explicit about which check failed so the agent can
 correct itself instead of guessing.
+
+How wide the rules are is the operator's choice, and a rule of ``argv0 = '.'``
+is a legitimate one: what keeps plaintext out of the agent's context is the uid
+split and the redactor, and neither runs through here.  Even the widest rule is
+still bounded by ``allowed_bin_dirs``, and every match is audited.
 """
 
 from __future__ import annotations

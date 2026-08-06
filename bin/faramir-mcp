@@ -62,7 +62,8 @@ TOOLS = [
                 },
                 "cwd": {
                     "type": "string",
-                    "description": "Absolute working directory. Defaults to the broker's checkout.",
+                    "description": "Absolute working directory. Defaults to the working tree; "
+                    "your edits are picked up as soon as they are saved.",
                 },
                 "timeout_sec": {
                     "type": "integer",
@@ -79,21 +80,6 @@ TOOLS = [
             "never values. Use this to find the right ref for faramir_run's env_refs."
         ),
         "inputSchema": {"type": "object", "properties": {}},
-    },
-    {
-        "name": "faramir_sync",
-        "description": (
-            "Promote committed work from the agent working tree into the broker's "
-            "execution checkout. The broker only executes committed content, so after "
-            "editing and committing a playbook you must call this before faramir_run "
-            "will see the change."
-        ),
-        "inputSchema": {
-            "type": "object",
-            "properties": {
-                "ref": {"type": "string", "description": "Git ref to promote. Default HEAD."}
-            },
-        },
     },
     {
         "name": "faramir_status",
@@ -148,10 +134,6 @@ def call_tool(name: str, arguments: dict) -> dict:
                 request[key] = arguments[key]
     elif name == "faramir_list_secrets":
         request = {"op": "list_secrets"}
-    elif name == "faramir_sync":
-        request = {"op": "sync"}
-        if arguments.get("ref"):
-            request["ref"] = arguments["ref"]
     elif name == "faramir_status":
         request = {"op": "status"}
     else:

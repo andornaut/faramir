@@ -1,7 +1,12 @@
 """Configuration for faramir: /etc/faramir/config.toml.
 
-Everything the broker will do is described here.  The allowlist is
-default-deny: a command that matches no ``[[allow]]`` rule is refused.
+Everything the broker will do is described here.  A command that matches no
+``[[allow]]`` rule is refused, so a config with no rule at all runs nothing --
+but how wide the rules are is the operator's call, and the shipped starter is
+deliberately permissive.  The allowlist bounds blast radius and gives the agent
+a specific error to correct; it is not what keeps plaintext out of the model's
+context.  That is the uid split and the redactor, neither of which depends on
+it.
 """
 
 from __future__ import annotations
@@ -121,10 +126,10 @@ def _int_at_least(value: Any, where: str, minimum: int) -> int | None:
 def _compile_all(patterns: Any, where: str) -> list[re.Pattern[str]]:
     """Compile a list of regexes, rejecting anything that is not one.
 
-    The type check is the point.  ``list("^main$")`` splits a bare string into
+    The type check is the point.  ``list("^/srv$")`` splits a bare string into
     single characters, one of which is ``$``, and ``$`` matches everything --
-    so a missing pair of brackets silently turns a default-deny allowlist into
-    match-anything with no error at ``--check`` time.
+    so a missing pair of brackets silently turns a rule written to narrow
+    something into match-anything, with no error at ``--check`` time.
     """
     if isinstance(patterns, str) or not isinstance(patterns, (list, tuple)):
         raise ConfigError(
@@ -147,7 +152,7 @@ def _compile_all(patterns: Any, where: str) -> list[re.Pattern[str]]:
 
 @dataclass(frozen=True)
 class AllowRule:
-    """One entry in the default-deny allowlist."""
+    """One entry in the allowlist."""
 
     name: str
     argv0: re.Pattern[str]
@@ -265,9 +270,8 @@ class KeeperConfig:
 class ExecutorConfig:
     """The process that forks brokered commands.
 
-    Its uid holds nothing: no age key, no secret values, no audit log, no write
-    access to the execution checkout.  A child forked by the broker instead
-    would inherit all four.
+    Its uid holds nothing: no age key, no secret values, no audit log, no SSH
+    keys.  A child forked by the broker instead would inherit all four.
     """
 
     socket_path: str = "/run/faramir/exec.sock"
@@ -312,26 +316,6 @@ class AuditConfig:
 
 
 @dataclass(frozen=True)
-class SyncConfig:
-    """Mediated ``git`` pull from the agent's working tree into the checkout.
-
-    The agent authors and commits; the broker only ever executes committed
-    content.
-    """
-
-    enabled: bool = False
-    # No defaults, for the same reason as exec.default_cwd: required when
-    # enabled, and checked there rather than pointed at someone else's tree.
-    source: str = ""
-    dest: str = ""
-    default_ref: str = "HEAD"
-    allowed_refs: list[re.Pattern[str]] = field(default_factory=list)
-    git: str = "/usr/bin/git"
-    clean: bool = True
-    timeout_sec: int = 120
-
-
-@dataclass(frozen=True)
 class Config:
     path: str
     server: ServerConfig
@@ -341,7 +325,6 @@ class Config:
     ssh: SshConfig
     secrets: SecretsConfig
     audit: AuditConfig
-    sync: SyncConfig
     allow: list[AllowRule]
 
     @classmethod
@@ -435,21 +418,16 @@ class Config:
         )
         audit = _section(AuditConfig, _table(raw, "audit", path), f"{path}: [audit]")
 
-        sync_raw = _table(raw, "sync", path)
-        sync_refs = _compile_all(
-            sync_raw.pop("allowed_refs", []), f"{path}: sync.allowed_refs"
-        )
-        sync = _section(
-            SyncConfig, sync_raw, f"{path}: [sync]", allowed_refs=sync_refs
-        )
-        if sync.enabled:
-            missing = [k for k in ("source", "dest") if not getattr(sync, k)]
-            if missing:
-                raise ConfigError(
-                    f"{path}: [sync] {', '.join(missing)} required when "
-                    "enabled; name the tree the agent commits to and the "
-                    "checkout the broker executes"
-                )
+        if "sync" in raw:
+            # Ignoring the section would leave a config that reads as though
+            # the broker still executed a separate checkout, and an [exec]
+            # default_cwd still pointing at a directory nothing populates.
+            raise ConfigError(
+                f"{path}: [sync] no longer exists. Brokered commands run in "
+                "the agent's working tree directly, so there is nothing to "
+                "promote: delete the section and point [exec] default_cwd and "
+                "[secrets] files at that tree."
+            )
 
         allow_raw = raw.get("allow", [])
         if not isinstance(allow_raw, list) or not all(
@@ -459,7 +437,8 @@ class Config:
         allow = [AllowRule.parse(r, i) for i, r in enumerate(allow_raw)]
         if not allow:
             raise ConfigError(
-                f"{path}: no [[allow]] rules; the broker would refuse every command"
+                f"{path}: no [[allow]] rules; the broker would refuse every "
+                "command. To allow everything, write one rule with argv0 = '.'"
             )
         return cls(
             path=path,
@@ -470,6 +449,5 @@ class Config:
             ssh=ssh,
             secrets=secrets,
             audit=audit,
-            sync=sync,
             allow=allow,
         )

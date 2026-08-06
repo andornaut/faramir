@@ -30,7 +30,7 @@ SHORT = "1234"
 
 CONFIG = """
 [exec]
-default_cwd = "/srv/faramir"
+default_cwd = "/home/agent/work/repo"
 
 [[allow]]
 name = "ls"
@@ -117,7 +117,7 @@ class TestTheServingPath(MainTestCase):
 class TestAgentFacingResponses(unittest.TestCase):
     def server(self, values):
         config = Config.from_dict(
-            {"exec": {"default_cwd": "/srv/faramir"},
+            {"exec": {"default_cwd": "/home/agent/work/repo"},
              "allow": [{"name": "ls", "argv0": "^/bin/ls$"}]}, "t")
         server = Server(config)
         with mock.patch("faramir.secretstore.fetch_values", return_value=(values, [])):

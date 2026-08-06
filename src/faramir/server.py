@@ -34,7 +34,6 @@ from .protocol import ProtocolError, Request, error_response, resolve_inline_tok
 from .redact import Redactor
 from .secretstore import SecretError, SecretStore, parse_secret_uri
 from .sshagent import SshAgent
-from .sync import SyncError, sync as do_sync
 
 log = logging.getLogger("faramir")
 
@@ -228,8 +227,6 @@ class Server:
             return self._op_status()
         if request.op == "list_secrets":
             return self._op_list_secrets()
-        if request.op == "sync":
-            return self._op_sync(request, peer)
         return self._op_exec(request, peer)
 
     def _op_status(self) -> dict[str, Any]:
@@ -242,7 +239,6 @@ class Server:
                     "secrets": self.store.describe(),
                     "allow_rules": [r.name for r in self.config.allow],
                     "default_cwd": self.config.exec.default_cwd,
-                    "sync_enabled": self.config.sync.enabled,
                 },
                 indent=2,
                 sort_keys=True,
@@ -264,43 +260,6 @@ class Server:
             "redactions": [],
             "log_id": None,
             "refs": refs,
-        }
-
-    def _op_sync(self, request: Request, peer: dict[str, Any]) -> dict[str, Any]:
-        log_id = new_log_id()
-        redactor = Redactor(self.store.pairs(), self.store.policy)
-        try:
-            result = do_sync(self.config.sync, request.ref)
-        except SyncError as exc:
-            self.audit.write(
-                {"log_id": log_id, "op": "sync", "peer": peer, "error": str(exc)}, ""
-            )
-            # git's combined stdout+stderr, which can carry a credential in a
-            # remote URL or a hook's output.  Everything else the agent sees is
-            # redacted; this must be too.
-            return error_response(
-                "sync_failed", redactor.redact_text(str(exc)), log_id
-            )
-        self.audit.write(
-            {
-                "log_id": log_id,
-                "op": "sync",
-                "peer": peer,
-                "ref": request.ref or self.config.sync.default_ref,
-                "commit": result.commit,
-            },
-            result.output,
-        )
-        output = redactor.redact_text(
-            f"{result.output}\nHEAD is now {result.commit} {result.subject}\n"
-        )
-        return {
-            "exit_code": 0,
-            "output": output,
-            "truncated": False,
-            "redactions": redactor.summary(),
-            "log_id": log_id,
-            "commit": result.commit,
         }
 
     def _op_exec(self, request: Request, peer: dict[str, Any]) -> dict[str, Any]:

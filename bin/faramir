@@ -5,7 +5,6 @@
         printenv ROUTER_PW
 
     faramir list-secrets
-    faramir sync                 # promote committed work into the broker checkout
     faramir status
 
 The command runs as the broker's uid.  Output comes back with every known
@@ -62,10 +61,6 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser(
         "list-secrets", parents=[common], help="list secret refs (names only)"
     )
-    sync = sub.add_parser(
-        "sync", parents=[common], help="git-sync the broker's execution checkout"
-    )
-    sync.add_argument("--ref", help="ref to sync (default: HEAD of the agent tree)")
     sub.add_parser("status", parents=[common], help="show broker status")
     return parser
 
@@ -89,8 +84,6 @@ def build_request(args: argparse.Namespace) -> dict:
         return {"op": "status"}
     if args.op == "list-secrets":
         return {"op": "list_secrets"}
-    if args.op == "sync":
-        return {"op": "sync", **({"ref": args.ref} if args.ref else {})}
 
     cmd = args.command[1:] if args.command[:1] == ["--"] else args.command
     if not cmd:

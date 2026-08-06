@@ -15,8 +15,8 @@ LIB="${FARAMIR_LIB:-/usr/local/lib/faramir}"
 # EUID check below has had a chance to say anything useful.
 AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 WORKTREE="${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
-# The starter policy allows two commands, both of them demonstrations.  Point
-# this at etc/examples/<workload>.toml to install a policy for a real workload.
+# The starter policy allows anything on the host.  Point this at
+# etc/examples/<workload>.toml to install a narrow policy for a real workload.
 # A relative path resolves against the repo, so the documented invocation works
 # from any directory.
 CONFIG="${CONFIG:-etc/config.toml}"
@@ -71,52 +71,63 @@ install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 # CLEANUP (added 2026-08-05): remove once every host has run this script once.
 rm -f /etc/faramir/deny-patterns.txt /etc/secretd/deny-patterns.txt
 
-# [sync] source must name the worktree this install was given, not the default
-# baked into the shipped config.  The bind mount below makes only that one path
-# visible to the broker, so a source pointing anywhere else fails every sync.
+# The working tree appears in the config more than once -- [exec] default_cwd,
+# [secrets] files, and every cwd_allow in a narrow policy -- and the bind mounts
+# below make exactly one path visible to the three units.  Rather than rewrite
+# each key, take the tree the shipped config was written around ([exec]
+# default_cwd) and replace it everywhere with the one this install was given.
+# That keeps a policy's cwd_allow rules pointing at the tree they are meant to
+# constrain instead of silently permitting nothing.
+#
 # Read it as TOML rather than pattern-matching the line: quoting styles and
 # trailing comments have to be read the way the broker reads them, or the
-# warning below fires on configs that are perfectly correct.  An absent key is
-# reported as <unset>, which is a config the broker refuses to load while sync
-# is enabled, so it warns here too.
-configured_source() {
-  FARAMIR_LIB="$LIB" python3 - "$1" <<'PY'
+# warning below fires on configs that are perfectly correct.
+configured_cwd() {
+  python3 - "$1" <<'PY'
 import sys, tomllib
-sys.path.insert(0, __import__("os").environ["FARAMIR_LIB"])
-from faramir.config import SyncConfig
 
 try:
     with open(sys.argv[1], "rb") as fh:
         raw = tomllib.load(fh)
 except (OSError, tomllib.TOMLDecodeError) as exc:
     sys.exit(f"cannot read {sys.argv[1]}: {exc}")
-section = raw.get("sync")
-section = section if isinstance(section, dict) else {}
-print(section.get("source", SyncConfig.source) or "<unset>")
+section = raw.get("exec")
+print((section if isinstance(section, dict) else {}).get("default_cwd", "") or "<unset>")
 PY
 }
+
+# A cwd_allow is a regex, so a worktree containing regex metacharacters would
+# be substituted into one and mean something other than the literal path.
+case $WORKTREE in
+  *[\[\]\(\)\{\}\*\+\?\^\$\|\\]*)
+    say "WARNING: ${WORKTREE} contains regex metacharacters"
+    say "         any cwd_allow built from it will not match the literal path"
+    ;;
+esac
 
 if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
   install -m 0644 -o root -g root "$CONFIG" /etc/faramir/config.toml.dist
-  # No -n guard: an absent source key is itself a mismatch worth warning about.
-  if existing="$(configured_source /etc/faramir/config.toml)" &&
-     [[ $existing != "$WORKTREE" ]]; then
-    say "WARNING: [sync] source is ${existing} but this install binds ${WORKTREE}"
-    say "         sync will fail until they match; edit /etc/faramir/config.toml"
+  if existing="$(configured_cwd /etc/faramir/config.toml)" &&
+     [[ $existing != "$WORKTREE"* ]]; then
+    say "WARNING: [exec] default_cwd is ${existing} but this install binds ${WORKTREE}"
+    say "         commands will fail with 'cwd does not exist' until they agree;"
+    say "         edit /etc/faramir/config.toml"
   fi
 else
-  say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (sync source ${WORKTREE})"
+  packaged="$(configured_cwd "$CONFIG")"
+  say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (worktree ${WORKTREE})"
   install -m 0644 -o root -g root "$CONFIG" /etc/faramir/config.toml
-  awk -v worktree="$WORKTREE" '
-    /^\[sync\]/ { in_sync = 1 }
-    /^\[/ && !/^\[sync\]/ { in_sync = 0 }
-    in_sync && /^[[:space:]]*source[[:space:]]*=/ {
-      print "source = \"" worktree "\""; next }
-    { print }' /etc/faramir/config.toml >/etc/faramir/config.toml.new
-  chown root:root /etc/faramir/config.toml.new
-  chmod 0644 /etc/faramir/config.toml.new
-  mv /etc/faramir/config.toml.new /etc/faramir/config.toml
+  if [[ $packaged != "<unset>" && $packaged != "$WORKTREE" ]]; then
+    say "rewriting ${packaged} -> ${WORKTREE}"
+    OLD="$packaged" NEW="$WORKTREE" python3 - /etc/faramir/config.toml <<'PY'
+import os, pathlib, sys
+path = pathlib.Path(sys.argv[1])
+path.write_text(path.read_text("utf-8").replace(os.environ["OLD"], os.environ["NEW"]), "utf-8")
+PY
+    chown root:root /etc/faramir/config.toml
+    chmod 0644 /etc/faramir/config.toml
+  fi
 fi
 
 say "systemd units"
@@ -126,18 +137,36 @@ for unit in faramir-broker.socket faramir-broker.service \
   install -m 0644 "$REPO/systemd/${unit}" "/etc/systemd/system/${unit}"
 done
 
-# /home is an empty tmpfs inside the unit, so the sync source has to be bound in
-# explicitly.  The unit hardcodes the default; bind the configured worktree too,
-# or an install with AGENT_USER or WORKTREE set starts clean and then fails
-# every sync at runtime.  BindReadOnlyPaths= is a list, so this appends.
-say "sync source bind mount -> ${WORKTREE}"
-install -d -m 0755 /etc/systemd/system/faramir-broker.service.d
-cat >/etc/systemd/system/faramir-broker.service.d/10-sync-source.conf <<EOF
+# /home is an empty tmpfs inside all three units, so the working tree has to be
+# bound in explicitly.  Each unit hardcodes the default; bind the configured
+# tree too, or an install with AGENT_USER or WORKTREE set starts clean and then
+# fails at runtime -- the keeper reporting every ref as missing, the executor
+# with "cwd does not exist".  Bind*Paths= are lists, so these append.
+#
+# The executor gets it read-write because commands run there; the other two get
+# it read-only, because neither has any business writing the agent's tree.
+say "worktree bind mounts -> ${WORKTREE}"
+for unit in faramir-broker faramir-keeper; do
+  install -d -m 0755 "/etc/systemd/system/${unit}.service.d"
+  cat >"/etc/systemd/system/${unit}.service.d/10-worktree.conf" <<EOF
 # Written by install/20-install-broker.sh.  Regenerated on every run.
 [Service]
 BindReadOnlyPaths=-${WORKTREE}
 EOF
-chmod 0644 /etc/systemd/system/faramir-broker.service.d/10-sync-source.conf
+  chmod 0644 "/etc/systemd/system/${unit}.service.d/10-worktree.conf"
+done
+install -d -m 0755 /etc/systemd/system/faramir-exec.service.d
+cat >/etc/systemd/system/faramir-exec.service.d/10-worktree.conf <<EOF
+# Written by install/20-install-broker.sh.  Regenerated on every run.
+[Service]
+BindPaths=-${WORKTREE}
+EOF
+chmod 0644 /etc/systemd/system/faramir-exec.service.d/10-worktree.conf
+
+# Left over from the commit-then-sync arrangement, which no longer exists: the
+# broker executes the working tree directly.
+# CLEANUP (added 2026-08-06): remove once every host has run this script once.
+rm -f /etc/systemd/system/faramir-broker.service.d/10-sync-source.conf
 
 # systemd may not be running (container, chroot, image build).  Install the
 # units anyway; just do not pretend to have started anything.

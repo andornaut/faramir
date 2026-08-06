@@ -13,6 +13,12 @@ ExecStart=/usr/local/bin/faramir-keeper
 Restart=on-failure
 RestartSec=2
 
+# devwork, and only for this: the sops files live in the agent's working tree,
+# which is group devwork, and sops has to read them to decrypt anything.  It is
+# read access to encrypted files -- the key stays 0400 faramir-keeper, and no
+# devwork member gains anything from this process being in the group.
+SupplementaryGroups=devwork
+
 # The whole point of this unit.  The key is readable at
 # $CREDENTIALS_DIRECTORY/age_key by this process and by nothing else: the file
 # is 0400 faramir-keeper, and no command the broker runs shares this uid.
@@ -29,7 +35,12 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-ProtectHome=true
+# tmpfs, not true: the sops files live in the working tree, usually under
+# /home, and this is the only process that decrypts them.  Read-only -- the
+# keeper never writes the tree.  install/20-install-broker.sh writes
+# faramir-keeper.service.d/10-worktree.conf with the configured tree.
+ProtectHome=tmpfs
+BindReadOnlyPaths=-/home/agent/work/repo
 PrivateTmp=true
 PrivateDevices=true
 # Somewhere for sops to put ~/.config; it writes nothing that outlives a run.
@@ -53,9 +64,9 @@ RemoveIPC=true
 UMask=0077
 
 # The managed sops files must be readable here.  Under ProtectSystem=strict the
-# whole tree is read-only but visible, so a file under /srv works as shipped.
-# A [secrets] file under /home needs a BindReadOnlyPaths= drop-in, because
-# ProtectHome=true makes /home empty for this unit.
+# whole tree is read-only but visible, so a [secrets] file outside /home works
+# with no drop-in at all; one under /home needs the bind mount above to name
+# the tree it is in, which is what the installer writes.
 
 [Install]
 WantedBy=multi-user.target

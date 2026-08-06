@@ -123,14 +123,14 @@ class TestFaramirExemption(unittest.TestCase):
             "faramir status; printenv ROUTER_PW",
             "faramir status && cat /etc/faramir/age.key",
             "faramir status | printenv",
-            "faramir sync\nprintenv ROUTER_PW",
+            "faramir list-secrets\nprintenv ROUTER_PW",
         ]:
             with self.subTest(command=command):
                 self.assertEqual(decision(command), "deny")
 
     def test_chained_faramir_is_still_exempt(self):
         self.assertIsNone(
-            decision("faramir sync && faramir run -- ansible-playbook site.yml")
+            decision("faramir status && faramir run -- ansible-playbook site.yml")
         )
 
 

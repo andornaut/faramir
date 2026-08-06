@@ -15,7 +15,9 @@ systemctl disable --now \
 rm -f /etc/systemd/system/faramir-broker.socket /etc/systemd/system/faramir-broker.service
 rm -f /etc/systemd/system/faramir-keeper.socket /etc/systemd/system/faramir-keeper.service
 rm -f /etc/systemd/system/faramir-exec.socket /etc/systemd/system/faramir-exec.service
-rm -rf /etc/systemd/system/faramir-broker.service.d
+rm -rf /etc/systemd/system/faramir-broker.service.d \
+       /etc/systemd/system/faramir-keeper.service.d \
+       /etc/systemd/system/faramir-exec.service.d
 systemctl daemon-reload
 
 say "removing binaries and library"

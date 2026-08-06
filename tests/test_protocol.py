@@ -65,7 +65,7 @@ class TestRequestParsing(unittest.TestCase):
             Request.parse({"op": "rm", "cmd": ["x"]})
 
     def test_ops_without_cmd(self):
-        for op in ("status", "list_secrets", "sync"):
+        for op in ("status", "list_secrets"):
             self.assertEqual(Request.parse({"op": op}).op, op)
 
 

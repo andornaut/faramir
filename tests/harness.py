@@ -43,8 +43,8 @@ class Broker:
     def __init__(self, *, ssh_keys: bool = False) -> None:
         self.ssh_keys = ssh_keys
         self.root = Path(tempfile.mkdtemp(prefix="faramir-e2e-"))
-        self.workdir = self.root / "srv" / "faramir"
-        self.agent_tree = self.root / "home" / "agent" / "work" / "ansible-ctrl"
+        # One tree: the agent authors here and the broker runs here.
+        self.workdir = self.root / "home" / "agent" / "work" / "ansible-ctrl"
         self.creds = self.root / "creds"
         self.socket_path = self.root / "sock"
         self.keeper_socket_path = self.root / "keeper.sock"
@@ -63,7 +63,7 @@ class Broker:
     # -- setup -------------------------------------------------------------
 
     def build(self) -> "Broker":
-        for path in (self.workdir, self.agent_tree, self.creds, self.raw_log.parent):
+        for path in (self.workdir, self.creds, self.raw_log.parent):
             path.mkdir(parents=True, exist_ok=True)
         os.chmod(self.creds, 0o700)
         self._keygen()
@@ -136,13 +136,11 @@ class Broker:
         # that want an agent put their own key in below.
         text = re.sub(r"^keys = \[.*\]$", "keys = []", text, count=1, flags=re.M)
         replacements = {
-            "/srv/faramir": str(self.workdir),
-            "/home/agent/work/ansible-ctrl": str(self.agent_tree),
+            "/home/agent/work/ansible-ctrl": str(self.workdir),
             "/run/faramir/broker.sock": str(self.socket_path),
             "/run/faramir/keeper.sock": str(self.keeper_socket_path),
             "/run/faramir/exec.sock": str(self.exec_socket_path),
             "/var/log/faramir/raw.log": str(self.raw_log),
-            '"/usr/bin/git"': f'"{shutil.which("git") or "/usr/bin/git"}"',
         }
         for old, new in replacements.items():
             text = text.replace(old, new)

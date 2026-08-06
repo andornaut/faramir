@@ -1,17 +1,19 @@
 # /etc/faramir/config.toml -- broker policy.
 #
-# This starter allows two commands, both of which exist to demonstrate the
-# broker rather than to do any particular job: `printenv`, which proves a
-# credential reached the right variable, and `bash`, which is how a pipeline is
-# requested.  Everything a deployment actually runs is a rule you add.
+# This starter allows any program found in [exec] allowed_bin_dirs, because the
+# thing that keeps plaintext out of the agent's context is the uid split and
+# the redactor, and neither depends on the allowlist.  Narrowing it bounds
+# blast radius and gives the agent a precise error instead of a confusing
+# failure; it does not change what a secret can do.  Narrow it when you have a
+# reason to -- see the commented rules at the bottom, and
+# etc/examples/ansible-fleet.toml for a fully constrained policy.
 #
-# etc/examples/ holds complete configs for real workloads, which are policy
-# choices rather than defaults the broker should make for you:
+# etc/examples/ holds complete configs for real workloads:
 #
 #   ansible-fleet.toml   running Ansible against a fleet of managed hosts
 #
-# The allowlist is DEFAULT-DENY: a command matching no [[allow]] rule is
-# refused.  Regexes are applied with re.search(), so anchor them.
+# A command matching no [[allow]] rule is refused, so the file always has to
+# contain at least one.  Regexes are applied with re.search(), so anchor them.
 
 [server]
 socket_path = "/run/faramir/broker.sock"
@@ -36,8 +38,8 @@ allowed_groups = []
 age_key_credential = "age_key"
 
 # The process that forks brokered commands.  Its uid holds nothing: no key, no
-# secret values, no audit log, and no write access to the execution checkout.
-# A child forked by the broker would inherit all four.
+# secret values, no audit log, and no SSH keys.  A child forked by the broker
+# would inherit all four.
 [executor]
 socket_path = "/run/faramir/exec.sock"
 socket_mode = "0660"
@@ -47,8 +49,10 @@ max_concurrency = 16
 
 [exec]
 # Required: where a command runs when the request does not say.  This is the
-# broker's execution checkout, which install/10-accounts.sh creates.
-default_cwd = "/srv/faramir"
+# agent's own working tree -- the broker runs what is on disk, so an edit is
+# live as soon as it is saved.  install/20-install-broker.sh rewrites this to
+# the WORKTREE it was given and binds that path into all three units.
+default_cwd = "/home/agent/work/repo"
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576
@@ -85,7 +89,8 @@ exec_group = "faramir-exec"
 # redaction value set, not just the ones injected into a given command: a
 # managed host can print a credential the broker never injected.
 # The broker stats these to notice edits; only the keeper can decrypt them.
-files = ["/srv/faramir/secrets.sops.yml"]
+# They live in the working tree, which is why the keeper is bound to it too.
+files = ["/home/agent/work/repo/secrets.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
 
@@ -100,48 +105,45 @@ min_entropy_bits_per_char = 1.5
 raw_log = "/var/log/faramir/raw.log"
 max_record_bytes = 4194304
 
-[sync]
-# The agent authors and commits; the broker executes only committed content.
-# source and dest are required whenever this is enabled.
-enabled = true
-source = "/home/agent/work/repo"
-dest = "/srv/faramir"
-default_ref = "HEAD"
-allowed_refs = ['^(HEAD|main|master|refs/heads/[A-Za-z0-9._/-]{1,100}|[A-Za-z0-9._/-]{1,100})$']
-git = "/usr/bin/git"
-clean = true
-timeout_sec = 120
-
 # ---------------------------------------------------------------------------
 # Allowlist
 # ---------------------------------------------------------------------------
 
 # No rule receives the age key: there is no flag that grants it, and the broker
 # does not hold it to grant.  A command that wants a secret is given it through
-# env_refs and reads it from the environment.
+# env_refs and reads it from the environment.  That is true of every rule
+# below, however wide, which is why a permissive default is defensible.
 
-# Exists so redaction is demonstrable end to end (verification test 3): the
-# agent can prove a credential reached the right variable without seeing it.
-# Harmless because output is redacted; drop it if you prefer.
+# Allow anything.  argv0 is still resolved against [exec] allowed_bin_dirs, so
+# this permits the programs installed on the host and not, say, a script the
+# agent just wrote into /tmp.  Everything a command prints is still redacted,
+# still audited, and still runs as a uid that holds nothing.
+#
+# Replace this rule with narrow ones when you want a specific blast radius.
+[[allow]]
+name = "anything"
+argv0 = '.'
+args_deny = ['(^|\s|=)/etc/faramir', '/proc/\d+/environ']
+
+# What narrowing looks like, if you want it.  Uncomment these and delete the
+# rule above.  `printenv` proves a credential reached the right variable, and
+# `bash` is how a pipeline is requested -- the broker never spawns a shell for
+# you, so ["bash", "-lc", "…"] has to be asked for explicitly.
 #
 # min_args/max_args, not just args_allow: args_allow describes the arguments
 # that are present, so on its own it would still permit a bare `printenv`,
 # which dumps the whole environment instead of naming one variable.
-[[allow]]
-name = "printenv"
-argv0 = '^printenv$'
-args_allow = ['^[A-Za-z_][A-Za-z0-9_]*$']
-min_args = 1
-max_args = 1
-max_timeout_sec = 30
-
-# bash is what makes pipelines possible: the broker never spawns a shell for
-# the caller, so a pipeline has to be requested explicitly as
-# ["bash", "-lc", "…"].  It is also the widest rule that ships -- removing it
-# is the single biggest tightening available, at the cost of losing pipelines
-# and of verification tests 4/5/10/11 in the README.
-[[allow]]
-name = "bash"
-argv0 = '^(bash|sh)$'
-args_allow = ['^-[lc]{1,2}$', '^-lc$', '^[^\x00]{0,8192}$']
-args_deny = ['(^|\s)/etc/faramir', '/proc/\d+/environ']
+#
+# [[allow]]
+# name = "printenv"
+# argv0 = '^printenv$'
+# args_allow = ['^[A-Za-z_][A-Za-z0-9_]*$']
+# min_args = 1
+# max_args = 1
+# max_timeout_sec = 30
+#
+# [[allow]]
+# name = "bash"
+# argv0 = '^(bash|sh)$'
+# args_allow = ['^-[lc]{1,2}$', '^-lc$', '^[^\x00]{0,8192}$']
+# args_deny = ['(^|\s)/etc/faramir', '/proc/\d+/environ']

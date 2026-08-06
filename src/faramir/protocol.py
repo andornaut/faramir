@@ -3,7 +3,7 @@
 Request (op defaults to "exec")::
 
     {"cmd": ["printenv", "ROUTER_PW"],
-     "cwd": "/srv/faramir",
+     "cwd": "/home/agent/work/repo",
      "env_refs": {"ROUTER_PW": "secret://home/router/admin"},
      "timeout_sec": 600}
 
@@ -50,7 +50,7 @@ RESERVED_ENV = {
     "CREDENTIALS_DIRECTORY",
 }
 
-OPS = ("exec", "sync", "list_secrets", "status")
+OPS = ("exec", "list_secrets", "status")
 
 
 class ProtocolError(Exception):
@@ -64,7 +64,6 @@ class Request:
     cwd: str | None = None
     env_refs: dict[str, str] = field(default_factory=dict)
     timeout_sec: int | None = None
-    ref: str | None = None  # sync only
 
     @classmethod
     def parse(cls, payload: Any) -> "Request":
@@ -108,17 +107,12 @@ class Request:
             if not isinstance(timeout, int) or isinstance(timeout, bool) or timeout <= 0:
                 raise ProtocolError("'timeout_sec' must be a positive integer")
 
-        ref = payload.get("ref")
-        if ref is not None and not isinstance(ref, str):
-            raise ProtocolError("'ref' must be a string")
-
         return cls(
             op=op,
             cmd=list(cmd) if isinstance(cmd, list) else [],
             cwd=cwd,
             env_refs=env_refs,
             timeout_sec=timeout,
-            ref=ref,
         )
 
 

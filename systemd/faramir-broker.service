@@ -9,7 +9,8 @@ Type=notify
 NotifyAccess=main
 User=faramir-broker
 Group=faramir-broker
-# devwork: read access to the shared working tree (the sync source).
+# devwork: read access to the shared working tree, which is where the sops
+# files live -- the broker stats them to notice edits.
 # faramir-exec: needed only to hand the ssh-agent socket to the executor's uid,
 # which is a chown this process could not otherwise perform.  It grants the
 # broker nothing it did not already have; the executor gains nothing at all.
@@ -33,15 +34,15 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# tmpfs, not true: the sync source lives under /home, and ProtectHome=true would
-# make it unreachable, so every sync would fail with "source does not exist".
-# The bind mount below is the only thing visible under /home, read-only.  The
-# leading '-' keeps the unit startable on a host that syncs from elsewhere.
+# tmpfs, not true: the working tree usually lives under /home, and the broker
+# has to stat the sops files in it.  ProtectHome=true would hide them, and the
+# broker would report every ref as missing.  The bind mount below is the only
+# thing visible under /home, read-only -- the broker never writes the tree.
 #
 # This is the default worktree only.  install/20-install-broker.sh writes
-# faramir-broker.service.d/10-sync-source.conf with the configured one, which matters
-# when AGENT_USER or WORKTREE is set; a source that is not bound in here is
-# invisible to the broker no matter what [sync] source says.
+# faramir-broker.service.d/10-worktree.conf with the configured one, which
+# matters when AGENT_USER or WORKTREE is set.  The leading '-' keeps the unit
+# startable before the tree has been cloned.
 ProtectHome=tmpfs
 BindReadOnlyPaths=-/home/agent/work/repo
 PrivateTmp=true
@@ -51,7 +52,7 @@ PrivateDevices=false
 DevicePolicy=closed
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
-ReadWritePaths=/srv/faramir /var/log/faramir
+ReadWritePaths=/var/log/faramir
 RuntimeDirectory=faramir
 # /run/faramir holds the keeper's socket as well as this one; without this,
 # stopping the broker removes the directory and takes keeper.sock with it.
@@ -78,12 +79,11 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 RemoveIPC=true
-# 0027, not 0077: the executor reads the checkout this process writes during a
-# sync, and it is a different uid.  /srv/faramir is setgid faramir-exec,
-# so a checked-out file lands 0640 faramir-broker:faramir-exec: readable there,
-# writable only here.  The audit log is unaffected, since audit.py opens it
-# with an explicit 0600 rather than relying on the umask.
-UMask=0027
+# 0077: this process no longer creates files anything else has to read.  The
+# working tree is written by the agent and by the executor, each under its own
+# umask; the audit log sets an explicit 0600 in audit.py rather than relying on
+# this.
+UMask=0077
 
 # systemd-analyze security faramir-broker.service -> 1.7 OK (systemd 255)
 #
@@ -99,16 +99,16 @@ UMask=0027
 #   RestrictAddressFamilies=~AF_UNIX
 #       That is the broker's own listening socket.
 #   SupplementaryGroups=
-#       devwork, so the broker can read the agent's tree as a sync source.
+#       devwork, so the broker can stat the sops files in the working tree.
 #   ProtectHome=tmpfs + BindReadOnlyPaths=
-#       /home is an empty tmpfs except for one read-only bind mount of the sync
-#       source.  ProtectHome=true would hide that too and disable sync.
+#       /home is an empty tmpfs except for one read-only bind mount of the
+#       working tree.  ProtectHome=true would hide the sops files with it.
 #   SystemCallFilter=~@privileged, ~@resources
 #       Both are inside @system-service.  Ansible's file/user modules call
 #       chown and friends; dropping these breaks ordinary playbooks.
 #   PrivateUsers=
 #       Would map every other uid to nobody, including the agent uid that owns
-#       the sync source.
+#       the working tree.
 #   MemoryDenyWriteExecute=
 #       Children are arbitrary allowlisted programs; a broker that refuses to
 #       run the operator's tooling gets switched off, which is worse.

@@ -16,7 +16,7 @@ from faramir.config import Config, ConfigError  # noqa: E402
 MINIMAL_ALLOW = [{"name": "ls", "argv0": r"^/bin/ls$"}]
 # [exec] default_cwd has no default: the broker will not guess where commands
 # run, so the smallest loadable config still has to name it.
-MINIMAL_EXEC = {"default_cwd": "/srv/faramir"}
+MINIMAL_EXEC = {"default_cwd": "/home/agent/work/repo"}
 
 
 def load(**sections):
@@ -25,7 +25,7 @@ def load(**sections):
 
 
 class TestUnknownKeys(unittest.TestCase):
-    SECTIONS = ["server", "keeper", "executor", "exec", "secrets", "audit", "sync"]
+    SECTIONS = ["server", "keeper", "executor", "exec", "secrets", "audit"]
 
     def test_typo_is_a_config_error(self):
         for section in self.SECTIONS:
@@ -183,8 +183,7 @@ class TestAllowRules(unittest.TestCase):
 class TestDeploymentPathsAreRequired(unittest.TestCase):
     """The broker has no opinion about where a deployment keeps its work.
 
-    A default here would run commands, or sync a checkout, somewhere the
-    operator never named.
+    A default here would run commands somewhere the operator never named.
     """
 
     def test_default_cwd_is_required(self):
@@ -192,20 +191,26 @@ class TestDeploymentPathsAreRequired(unittest.TestCase):
             Config.from_dict({"allow": MINIMAL_ALLOW}, "test.toml")
         self.assertIn("default_cwd", str(caught.exception))
 
-    def test_sync_paths_are_required_when_enabled(self):
-        for section in ({"enabled": True}, {"enabled": True, "source": "/a"}):
-            with self.subTest(section=section):
-                with self.assertRaises(ConfigError) as caught:
-                    load(sync=section)
-                self.assertIn("[sync]", str(caught.exception))
 
-    def test_sync_paths_are_not_required_when_disabled(self):
-        config = load(sync={"enabled": False})
-        self.assertEqual(config.sync.source, "")
+class TestTheSyncRemoval(unittest.TestCase):
+    """[sync] is gone; commands run in the working tree directly.
 
-    def test_a_complete_sync_section_parses(self):
-        config = load(sync={"enabled": True, "source": "/a", "dest": "/b"})
-        self.assertEqual((config.sync.source, config.sync.dest), ("/a", "/b"))
+    Ignoring a leftover section would leave a config that reads as though the
+    broker still executed a separate checkout, and an [exec] default_cwd
+    pointing at a directory nothing populates any more.
+    """
+
+    def test_a_leftover_sync_section_is_a_config_error(self):
+        with self.assertRaises(ConfigError) as caught:
+            load(sync={"enabled": True, "source": "/a", "dest": "/b"})
+        message = str(caught.exception)
+        self.assertIn("[sync]", message)
+        self.assertIn("default_cwd", message)
+
+    def test_even_a_disabled_one_is_refused(self):
+        # It still describes an arrangement that no longer exists.
+        with self.assertRaises(ConfigError):
+            load(sync={"enabled": False})
 
 
 class TestArgumentCounts(unittest.TestCase):
@@ -260,19 +265,20 @@ class TestPatternListsMustBeLists(unittest.TestCase):
                     load(allow=[{**MINIMAL_ALLOW[0], field: "^-l$"}])
                 self.assertIn(field, str(caught.exception))
 
-    def test_string_in_allowed_refs_is_rejected(self):
-        with self.assertRaises(ConfigError) as caught:
-            load(sync={"allowed_refs": "^main$"})
-        self.assertIn("allowed_refs", str(caught.exception))
-
     def test_non_string_element_is_rejected(self):
-        with self.assertRaises(ConfigError):
-            load(sync={"allowed_refs": ["^main$", 5]})
+        for field in self.RULE_FIELDS:
+            with self.subTest(field=field):
+                with self.assertRaises(ConfigError):
+                    load(allow=[{**MINIMAL_ALLOW[0], field: ["^-l$", 5]}])
 
     def test_a_real_list_still_works(self):
-        cfg = load(sync={"allowed_refs": ["^main$"]})
-        self.assertEqual([p.pattern for p in cfg.sync.allowed_refs], ["^main$"])
-        self.assertFalse(any(p.search("evil/../x") for p in cfg.sync.allowed_refs))
+        rule = load(
+            allow=[{**MINIMAL_ALLOW[0], "cwd_allow": ["^/home/agent/work/repo$"]}]
+        ).allow[0]
+        self.assertEqual(
+            [p.pattern for p in rule.cwd_allow], ["^/home/agent/work/repo$"]
+        )
+        self.assertFalse(any(p.search("/home/agent/work/repo/../x") for p in rule.cwd_allow))
 
 
 if __name__ == "__main__":

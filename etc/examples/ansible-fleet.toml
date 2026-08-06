@@ -4,18 +4,18 @@
 #   sudo CONFIG=etc/examples/ansible-fleet.toml \
 #        WORKTREE=/home/agent/work/ansible-ctrl install/20-install-broker.sh
 #
-# WORKTREE, because the installer rewrites [sync] source to the tree it binds
-# into the broker's unit: set it here or the source below is overwritten with
-# the installer's own default.
+# WORKTREE, because the installer rewrites every mention of the tree below to
+# the one it binds into the three units: set it here or they are overwritten
+# with the installer's own default.
 #
 # It differs from etc/config.toml only in policy: the allowlist, the Ansible
 # variables in [exec.base_env], the sops file it manages, and the name of the
-# agent's authoring tree.  The paths the installer and the systemd units create
-# (/srv/faramir, the sockets, the audit log) are the same, so nothing outside
-# this file changes.
+# working tree.  The paths the installer and the systemd units create (the
+# sockets, the audit log) are the same, so nothing outside this file changes.
 #
-# The allowlist is DEFAULT-DENY: a command matching no [[allow]] rule is
-# refused.  Regexes are applied with re.search(), so anchor them.
+# Unlike the starter, this allowlist is narrow: a command matching no [[allow]]
+# rule is refused.  That bounds what a mistake can reach; it is not what keeps
+# secrets out of the agent's context.  Regexes use re.search(), so anchor them.
 
 [server]
 socket_path = "/run/faramir/broker.sock"
@@ -40,7 +40,7 @@ allowed_groups = []
 max_concurrency = 16
 
 [exec]
-default_cwd = "/srv/faramir"
+default_cwd = "/home/agent/work/ansible-ctrl"
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576
@@ -71,7 +71,7 @@ agent_socket_mode = "0660"
 exec_group = "faramir-exec"
 
 [secrets]
-files = ["/srv/faramir/group_vars/all/vault.sops.yml"]
+files = ["/home/agent/work/ansible-ctrl/group_vars/all/vault.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
 min_length = 8
@@ -81,16 +81,6 @@ min_entropy_bits_per_char = 1.5
 [audit]
 raw_log = "/var/log/faramir/raw.log"
 max_record_bytes = 4194304
-
-[sync]
-enabled = true
-source = "/home/agent/work/ansible-ctrl"
-dest = "/srv/faramir"
-default_ref = "HEAD"
-allowed_refs = ['^(HEAD|main|master|refs/heads/[A-Za-z0-9._/-]{1,100}|[A-Za-z0-9._/-]{1,100})$']
-git = "/usr/bin/git"
-clean = true
-timeout_sec = 120
 
 # ---------------------------------------------------------------------------
 # Allowlist
@@ -103,7 +93,7 @@ timeout_sec = 120
 [[allow]]
 name = "ansible-playbook"
 argv0 = '^ansible-playbook$'
-cwd_allow = ['^/srv/faramir(/|$)']
+cwd_allow = ['^/home/agent/work/ansible-ctrl(/|$)']
 args_allow = [
   '^[A-Za-z0-9._][A-Za-z0-9._/-]*\.ya?ml$',
   '^-v{1,4}$',
@@ -122,14 +112,14 @@ args_deny = [
 [[allow]]
 name = "ansible"
 argv0 = '^ansible$'
-cwd_allow = ['^/srv/faramir(/|$)']
+cwd_allow = ['^/home/agent/work/ansible-ctrl(/|$)']
 args_allow = ['^[A-Za-z0-9@:._,!*/=+ {}"\[\]-]{1,4096}$']
 args_deny = ['(^|=)/etc/faramir', '(^|=)/proc/']
 
 [[allow]]
 name = "ansible-galaxy"
 argv0 = '^ansible-galaxy$'
-cwd_allow = ['^/srv/faramir(/|$)']
+cwd_allow = ['^/home/agent/work/ansible-ctrl(/|$)']
 args_allow = ['^[A-Za-z0-9@:._,/=+-]{1,512}$']
 max_timeout_sec = 600
 
@@ -155,13 +145,16 @@ args_deny = [
 [[allow]]
 name = "git-readonly"
 argv0 = '^git$'
-cwd_allow = ['^/srv/faramir(/|$)']
+cwd_allow = ['^/home/agent/work/ansible-ctrl(/|$)']
 args_allow = ['^(status|log|show|diff|rev-parse|describe|-C|--no-pager|HEAD|-1|--stat|--oneline|--porcelain)$', '^[A-Za-z0-9._/-]{1,200}$']
 args_deny = ['^(push|remote|config|clone|fetch|pull|checkout|reset|clean)$']
 max_timeout_sec = 60
 
-# Kept from the starter config: printenv proves redaction end to end, and bash
-# is what makes pipelines possible.  See etc/config.toml for both.
+# printenv proves redaction end to end (verification test 3), and bash is what
+# makes pipelines possible: the broker never spawns a shell for the caller, so
+# a pipeline has to be requested as ["bash", "-lc", "…"].  bash is the widest
+# rule here -- dropping it is the single biggest tightening available, at the
+# cost of pipelines and of verification tests 4/5/10/11.
 [[allow]]
 name = "printenv"
 argv0 = '^printenv$'

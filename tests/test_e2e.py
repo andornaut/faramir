@@ -331,7 +331,7 @@ class TestClientInterfaces(BrokerTestCase):
         )
         names = {t["name"] for t in responses[1]["result"]["tools"]}
         self.assertEqual(
-            names, {"faramir_run", "faramir_list_secrets", "faramir_sync", "faramir_status"}
+            names, {"faramir_run", "faramir_list_secrets", "faramir_status"}
         )
 
     def test_mcp_faramir_run_redacts(self):

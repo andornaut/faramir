@@ -1,6 +1,13 @@
-"""Allowlist is default-deny; these tests pin that down."""
+"""What each shipped policy actually permits.
+
+The starter is deliberately wide and the Ansible example is deliberately
+narrow, so between them these pin down both ends: that a permissive rule is
+still bounded by ``allowed_bin_dirs``, and that the narrowing machinery
+(``cwd_allow``, ``args_deny``, ``min_args``) really bites when it is used.
+"""
 
 import os
+import shutil
 import sys
 import tomllib
 import unittest
@@ -15,6 +22,14 @@ SHIPPED_CONFIG = os.path.join(REPO, "etc", "config.toml")
 EXAMPLES_DIR = os.path.join(REPO, "etc", "examples")
 ANSIBLE_EXAMPLE = os.path.join(EXAMPLES_DIR, "ansible-fleet.toml")
 
+# authorize() resolves argv0 on the broker's PATH before it checks anything
+# else, so on a host without Ansible these tests would fail with "not found on
+# the broker's PATH" -- or worse, pass, because that is a DeniedError too and a
+# test asserting a denial cannot tell the two apart.
+needs_ansible = unittest.skipUnless(
+    shutil.which("ansible-playbook"), "needs ansible-playbook on PATH"
+)
+
 
 def load_config(path):
     with open(path, "rb") as fh:
@@ -26,22 +41,130 @@ def load_shipped():
 
 
 class TestShippedAllowlist(unittest.TestCase):
-    """The starter allowlist must actually be usable, and actually deny."""
+    """The starter permits anything on the host, on purpose.
+
+    Ergonomics: an operator who has to write a rule before running anything
+    writes a bad one.  The properties that matter do not come from here.
+    """
 
     @classmethod
     def setUpClass(cls):
         cls.config = load_shipped()
         cls.rules = cls.config.allow
         # Point cwd checks at a directory that exists in the test environment.
-        cls.cwd = "/srv/faramir"
+        cls.cwd = "/home/agent/work/repo"
 
     def check(self, cmd, cwd=None):
         return authorize(cmd, cwd or self.cwd, self.rules, self.config.exec)
 
+    def test_it_is_one_permissive_rule(self):
+        self.assertEqual({r.name for r in self.rules}, {"anything"})
+
+    def test_ordinary_programs_are_allowed(self):
+        for cmd in (["printenv", "ROUTER_PW"], ["cat", "/etc/passwd"], ["ls"]):
+            with self.subTest(cmd=cmd):
+                self.assertEqual(self.check(cmd).rule.name, "anything")
+
+    def test_bash_pipeline_is_allowed(self):
+        self.assertEqual(
+            self.check(["bash", "-lc", "printenv ROUTER_PW | base64"]).rule.name,
+            "anything",
+        )
+
+    def test_allowed_bin_dirs_still_bounds_it(self):
+        # The one thing 'allow everything' must not mean: running a program the
+        # agent just wrote somewhere it can write.
+        with self.assertRaises(DeniedError) as ctx:
+            self.check(["/tmp/printenv", "PATH"])
+        self.assertIn("allowed_bin_dirs", str(ctx.exception))
+
+    def test_args_deny_still_bites(self):
+        for arg in ("cat /etc/faramir/age.key", "cat /proc/1234/environ"):
+            with self.subTest(arg=arg):
+                with self.assertRaises(DeniedError):
+                    self.check(["bash", "-lc", arg])
+
+    def test_an_unknown_program_is_still_refused(self):
+        # Not by the allowlist -- there is nothing left to deny -- but because
+        # it does not resolve on the broker's own PATH.
+        with self.assertRaises(DeniedError) as ctx:
+            self.check(["definitely-not-installed-xyzzy"])
+        self.assertIn("PATH", str(ctx.exception))
+
+    def test_absolute_path_still_matches(self):
+        self.assertEqual(self.check(["/usr/bin/printenv", "PATH"]).rule.name, "anything")
+
+
+class TestTheAnsibleExample(unittest.TestCase):
+    """etc/examples/ansible-fleet.toml: a narrow policy for a real workload.
+
+    This is where the constraint machinery is exercised, because this is the
+    shipped config that actually uses it.
+    """
+
+    CWD = "/home/agent/work/ansible-ctrl"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.config = load_config(ANSIBLE_EXAMPLE)
+        cls.rules = cls.config.allow
+        cls.cwd = cls.CWD
+
+    def check(self, cmd, cwd=None):
+        return authorize(cmd, cwd or self.cwd, self.rules, self.config.exec)
+
+    @needs_ansible
+    def test_ansible_playbook_allowed(self):
+        decision = self.check(["ansible-playbook", "site.yml", "--limit", "routers"])
+        self.assertEqual(decision.rule.name, "ansible-playbook")
+
+    @needs_ansible
+    def test_ansible_playbook_verbose_allowed(self):
+        # -vvv must work: it is one of the accident modes redaction exists for.
+        self.check(["ansible-playbook", "site.yml", "-vvv"])
+
+    @needs_ansible
+    def test_ansible_playbook_vault_password_file_denied(self):
+        with self.assertRaises(DeniedError):
+            self.check(["ansible-playbook", "site.yml", "--vault-password-file", "/tmp/p"])
+
+    @needs_ansible
+    def test_ansible_playbook_outside_the_worktree_denied(self):
+        with self.assertRaises(DeniedError) as ctx:
+            self.check(["ansible-playbook", "site.yml"], cwd="/home/agent/work/other")
+        self.assertIn("cwd", str(ctx.exception))
+
+    def test_cwd_allow_names_this_example_worktree(self):
+        # The installer rewrites these along with [exec] default_cwd; if they
+        # ever disagree the rule permits nothing and every run is denied.
+        self.assertEqual(self.config.exec.default_cwd, self.CWD)
+
+    def test_curl_config_file_denied(self):
+        with self.assertRaises(DeniedError):
+            self.check(["curl", "-K", "/tmp/headers"])
+
+    def test_git_write_ops_denied(self):
+        # The broker runs in the agent's tree now, so a write op here would
+        # rewrite the tree the agent is working in.
+        with self.assertRaises(DeniedError):
+            self.check(["git", "push"])
+        with self.assertRaises(DeniedError):
+            self.check(["git", "checkout", "main"])
+
+    def test_cat_is_denied(self):
+        with self.assertRaises(DeniedError) as ctx:
+            self.check(["cat", "/etc/passwd"])
+        self.assertIn("not in the allowlist", str(ctx.exception))
+
+    def test_denial_names_the_alternatives(self):
+        with self.assertRaises(DeniedError) as ctx:
+            self.check(["nmap", "10.0.0.0/24"])
+        self.assertIn("ansible-playbook", str(ctx.exception))
+
     def test_bare_printenv_is_denied(self):
-        # args_allow only constrains the arguments that are present, so
-        # without min_args the shipped printenv rule would permit a bare
-        # invocation, which dumps the whole child environment.
+        # args_allow only constrains the arguments that are present, so without
+        # min_args this rule would permit a bare invocation, which dumps the
+        # whole child environment instead of naming one variable.
         with self.assertRaises(DeniedError) as ctx:
             self.check(["printenv"])
         self.assertIn("at least 1", str(ctx.exception))
@@ -52,90 +175,9 @@ class TestShippedAllowlist(unittest.TestCase):
             self.check(["printenv", "ROUTER_PW", "API_TOKEN"])
         self.assertIn("at most 1", str(ctx.exception))
 
-    def test_cat_is_denied(self):
-        with self.assertRaises(DeniedError) as ctx:
-            self.check(["cat", "/etc/passwd"])
-        self.assertIn("not in the allowlist", str(ctx.exception))
-
-    def test_denial_names_the_alternatives(self):
-        with self.assertRaises(DeniedError) as ctx:
-            self.check(["nmap", "10.0.0.0/24"])
-        self.assertIn("printenv", str(ctx.exception))
-
-    def test_it_prefers_no_workload(self):
-        # The starter demonstrates the broker; which commands a deployment
-        # actually runs is the operator's choice, kept in etc/examples/.
-        self.assertEqual({r.name for r in self.rules}, {"printenv", "bash"})
-
-    def test_printenv_is_allowed(self):
-        self.assertEqual(self.check(["printenv", "ROUTER_PW"]).rule.name, "printenv")
-
     def test_printenv_rejects_a_path_argument(self):
         with self.assertRaises(DeniedError):
             self.check(["printenv", "/etc/shadow"])
-
-    def test_bash_pipeline_is_allowed(self):
-        self.assertEqual(
-            self.check(["bash", "-lc", "printenv ROUTER_PW | base64"]).rule.name, "bash"
-        )
-
-    def test_bash_cannot_read_the_key_directory(self):
-        with self.assertRaises(DeniedError):
-            self.check(["bash", "-lc", "cat /etc/faramir/age.key"])
-
-    def test_bash_cannot_read_another_process_environ(self):
-        with self.assertRaises(DeniedError):
-            self.check(["bash", "-lc", "cat /proc/1234/environ"])
-
-    def test_absolute_path_still_matches_rule(self):
-        decision = self.check(["/usr/bin/printenv", "PATH"])
-        self.assertEqual(decision.rule.name, "printenv")
-
-    def test_binary_outside_allowed_dirs_denied(self):
-        with self.assertRaises(DeniedError) as ctx:
-            self.check(["/tmp/printenv", "PATH"])
-        self.assertIn("allowed_bin_dirs", str(ctx.exception))
-
-
-class TestTheAnsibleExample(unittest.TestCase):
-    """etc/examples/ansible-fleet.toml: a policy for a real workload."""
-
-    @classmethod
-    def setUpClass(cls):
-        cls.config = load_config(ANSIBLE_EXAMPLE)
-        cls.rules = cls.config.allow
-        cls.cwd = "/srv/faramir"
-
-    def check(self, cmd, cwd=None):
-        return authorize(cmd, cwd or self.cwd, self.rules, self.config.exec)
-
-    def test_ansible_playbook_allowed(self):
-        decision = self.check(["ansible-playbook", "site.yml", "--limit", "routers"])
-        self.assertEqual(decision.rule.name, "ansible-playbook")
-
-    def test_ansible_playbook_verbose_allowed(self):
-        # -vvv must work: it is one of the accident modes redaction exists for.
-        self.check(["ansible-playbook", "site.yml", "-vvv"])
-
-    def test_ansible_playbook_vault_password_file_denied(self):
-        with self.assertRaises(DeniedError):
-            self.check(["ansible-playbook", "site.yml", "--vault-password-file", "/tmp/p"])
-
-    def test_ansible_playbook_outside_checkout_denied(self):
-        with self.assertRaises(DeniedError) as ctx:
-            self.check(["ansible-playbook", "site.yml"], cwd="/home/agent/work/repo")
-        self.assertIn("cwd", str(ctx.exception))
-
-    def test_curl_config_file_denied(self):
-        with self.assertRaises(DeniedError):
-            self.check(["curl", "-K", "/tmp/headers"])
-
-    def test_git_write_ops_denied(self):
-        with self.assertRaises(DeniedError):
-            self.check(["git", "push"])
-
-    def test_it_keeps_the_starter_rules(self):
-        self.assertIn("printenv", {r.name for r in self.rules})
 
 
 class TestConfigValidation(unittest.TestCase):
@@ -158,25 +200,25 @@ class TestConfigValidation(unittest.TestCase):
 
     def test_config_without_rules_is_rejected(self):
         with self.assertRaises(ConfigError) as ctx:
-            Config.from_dict({"exec": {"default_cwd": "/srv/faramir"}, "server": {}})
+            Config.from_dict({"exec": {"default_cwd": "/home/agent/work/repo"}, "server": {}})
         self.assertIn("[[allow]]", str(ctx.exception))
 
     def test_bad_regex_is_rejected(self):
         with self.assertRaises(ConfigError):
             Config.from_dict(
-                {"exec": {"default_cwd": "/srv/faramir"},
+                {"exec": {"default_cwd": "/home/agent/work/repo"},
                  "allow": [{"name": "x", "argv0": "([unclosed"}]})
 
     def test_rule_without_argv0_is_rejected(self):
         with self.assertRaises(ConfigError):
             Config.from_dict(
-                {"exec": {"default_cwd": "/srv/faramir"},
+                {"exec": {"default_cwd": "/home/agent/work/repo"},
                  "allow": [{"name": "x"}]})
 
     def test_empty_command_denied(self):
         config = load_shipped()
         with self.assertRaises(DeniedError):
-            authorize([], "/srv", config.allow, config.exec)
+            authorize([], "/home/agent/work", config.allow, config.exec)
 
 
 if __name__ == "__main__":

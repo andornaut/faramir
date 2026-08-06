@@ -15,7 +15,7 @@ The command really ran, the credential really reached it, and the agent never sa
 - [Uid separation, not a container](#architecture) - three service accounts, so what a brokered command cannot reach is a kernel boundary rather than a policy
 - [The master key lives where nothing executes](#architecture) - no brokered command can read the age key, ask for it, or receive it in its environment
 - [Output redaction over the whole value set](#how-redaction-works) - every managed secret, not only the injected ones, so a host that prints its own configuration is covered
-- [A default-deny allowlist](#configuration) - the broker prefers no command; a workload is a policy you choose, and argv is an array, never a string handed to a shell
+- [An allowlist you can make as wide as you like](#configuration) - it bounds blast radius, and argv is an array, never a string handed to a shell; the shipped default allows anything on the host
 - [Secrets in the environment only](#rules-that-are-not-negotiable) - never substituted into `argv`, which is world-readable in `ps`
 - [An operator-only audit log](#operational-notes) - the unredacted stream, which the agent uid cannot read
 - [MCP tools and a CLI](#usage) - `faramir_run` for the agent, `faramir run` for you
@@ -47,6 +47,8 @@ Failure | Why it is not prevented
 
 **Acceptance invariant:** if `CLAUDE.md` were deleted, no secret could reach the model provider. Every enforcement point is a uid boundary, a file mode, or a hook, never the agent choosing to behave.
 
+**The allowlist is not one of those enforcement points.** It bounds what a mistake reaches and gives the agent a precise error to correct, both of which are worth having — but the invariant above holds with a rule of `argv0 = '.'`, which is what ships. Narrow it when you want a specific blast radius, not because the guarantee depends on it.
+
 ## Installation
 
 Requires Python >= 3.11 (for `tomllib`), systemd, [age](https://github.com/FiloSottile/age), and [sops](https://github.com/getsops/sops).
@@ -58,16 +60,18 @@ sudo install/20-install-broker.sh  # code, config, systemd units
 sudo install/40-agent-config.sh    # MCP registration, hook, CLAUDE.md
 ```
 
-The shipped policy allows two commands, both of them demonstrations, so set
-`CONFIG` to install a policy for a real workload instead:
+The shipped policy allows anything on the host. Set `CONFIG` to install a
+narrow policy for a real workload instead:
 
 ```bash
 sudo CONFIG=etc/examples/ansible-fleet.toml \
      WORKTREE=/home/agent/work/ansible-ctrl install/20-install-broker.sh
 ```
 
-`WORKTREE` names the agent's authoring tree: the installer rewrites `[sync] source`
-to it and binds that one path into the broker's unit, so the two cannot disagree.
+`WORKTREE` names the working tree — the one the agent edits and the broker runs
+in. The installer rewrites every mention of it in the config (`[exec]
+default_cwd`, `[secrets] files`, and each `cwd_allow`) and binds that one path
+into all three units, so they cannot disagree.
 
 `install/uninstall.sh` removes the broker and leaves the accounts, `/etc/faramir` and the audit log alone: deleting the age key would make every sops file in the repo unreadable, which is not a decision a teardown script should make for you.
 
@@ -101,7 +105,6 @@ positional arguments:
     run         run a command with secrets injected
     list-secrets
                 list secret refs (names only)
-    sync        git-sync the broker's execution checkout
     status      show broker status
 
 options:
@@ -114,7 +117,6 @@ into the command line.
 ```bash
 faramir list-secrets
 faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
-faramir sync
 ```
 
 What you may actually run is whatever the allowlist permits, which is a policy
@@ -126,18 +128,20 @@ Tool | Description
 --- | ---
 `faramir_run(cmd=[…], env_refs={NAME: "secret://ref"}, cwd=…, timeout_sec=…)` | Run a command with secrets bound to environment variables
 `faramir_list_secrets()` | Ref names only, never values
-`faramir_sync(ref=…)` | Promote committed work into the execution checkout
 `faramir_status()` | Loaded files, ref count, allowlist rule names
 
 The wire protocol behind both is documented in [docs/protocol.md](docs/protocol.md).
 
 ### Configuration
 
-[etc/config.toml](etc/config.toml) is the starter policy. It allows `printenv`,
-which proves a credential reached the right variable, and `bash`, which is how a
-pipeline is requested. It allows nothing else, because which commands a
-deployment runs is the operator's decision and not one the broker should make on
-your behalf.
+[etc/config.toml](etc/config.toml) is the starter policy, and it allows any
+program found in `[exec] allowed_bin_dirs`. That is a deliberate default: the
+uid split and the redactor are what keep plaintext out of the agent's context,
+and an operator forced to write a rule before running anything writes a bad
+one. Narrow it when you want a specific blast radius — the file carries
+commented rules showing how, and
+[ansible-fleet.toml](etc/examples/ansible-fleet.toml) is a fully constrained
+policy.
 
 Complete configs for real workloads live in [etc/examples/](etc/examples/), and
 each is a drop-in replacement rather than a fragment to merge:
@@ -146,14 +150,12 @@ Example | Workload
 --- | ---
 [ansible-fleet.toml](etc/examples/ansible-fleet.toml) | Running Ansible against a fleet of managed hosts, which is what faramir was built for
 
-Two keys have no default, because a wrong guess would run commands, or sync a
-checkout, somewhere you never named. `faramir-broker --check` refuses to load a
-config that omits them:
+One key has no default, because a wrong guess would run commands somewhere you
+never named. `faramir-broker --check` refuses to load a config that omits it:
 
 Key | Meaning
 --- | ---
-`[exec] default_cwd` | Where a command runs when the request does not say
-`[sync] source`, `[sync] dest` | The tree the agent commits to, and the checkout the broker executes, required whenever `[sync] enabled` is true
+`[exec] default_cwd` | Where a command runs when the request does not say. This is the working tree, so an edit is live as soon as it is saved.
 
 ### Rules that are not negotiable
 
@@ -161,9 +163,9 @@ Key | Meaning
 - **Secrets are injected as environment variables only.** There is no way to ask for a value to be substituted into `argv`: argv is visible in `ps`, in `/proc/<pid>/cmdline`, and in the child's own error messages.
 - **`cmd` is an array.** The broker never hands a string to `sh -c`. A pipeline is requested explicitly as `["bash", "-lc", "…"]`, and that must match the allowlist like anything else.
 - **`{{SECRET:ref}}` inside an argument is readability sugar.** It is rewritten to `${VAR}` (a shell *variable reference*) and the variable is injected. It never expands to a value on the broker side.
-- **The broker executes committed content.** `/srv/faramir` is the broker's own checkout; the agent authors in its tree, commits, then calls `faramir_sync`. Without this the agent could write `debug: var=<secret>` and ask the broker to run it, an authorized action that no amount of isolation prevents.
+- **The broker runs the working tree as it is on disk.** There is no promotion step: edit, then run. This used to be mediated by a commit-then-`faramir_sync` gate into a separate `/srv` checkout, which was removed — see [Architecture](#architecture) for why it did not buy what it claimed to.
 - **`redactions` reports counts, not values**, so the caller can confirm a secret reached the right place without seeing it. `log_id` points into the operator-only raw log.
-- **`args_allow` constrains the arguments that are present, not how many there are.** A rule that permits exactly one variable name still permits none at all unless it also sets `min_args`. The shipped `printenv` rule sets `min_args = 1` and `max_args = 1` for that reason.
+- **`args_allow` constrains the arguments that are present, not how many there are.** A rule that permits exactly one variable name still permits none at all unless it also sets `min_args`. The `printenv` rule in the Ansible example sets `min_args = 1` and `max_args = 1` for that reason.
 
 ## Architecture
 
@@ -171,10 +173,12 @@ These decisions were made deliberately; the rationale is recorded so they are no
 
 Decision | Choice | Rationale
 --- | --- | ---
-Isolation | Unix uid separation + systemd hardening. No Docker, Podman or bubblewrap. | Network isolation was the main thing containers made easy, and it is a non-goal. Everything else comes straight from the kernel and systemd.
+Isolation | Unix uid separation + systemd hardening. No Docker, Podman or bubblewrap. | Network isolation was the main thing containers made easy, and it is a non-goal. Everything else comes straight from the kernel and systemd. A sandbox confines what a child *sees*; it cannot make a directory its owner can rewrite from outside hold still, and it is not a substitute for a uid that holds nothing.
+Where commands run | The agent's own working tree, directly. | There used to be a `/srv` checkout, promoted into by a commit-then-`faramir_sync` gate. It was justified as stopping the agent from getting `debug: var=<secret>` executed — which it never did: the agent could commit that and sync it, and verification test 7 shows exactly that content running. What it actually bought was an immutable snapshot (against an agent editing a file mid-run) and a commit sha in the audit log. Both are properties against a *deliberate* agent, which is out of scope, and the cost was a commit per iteration plus a bind-mount/config pair that had to be kept in sync by hand.
 Who executes | The broker, as its own uid. Never the agent. | If the client execs, plaintext lives in a process owned by the agent uid, which the agent can read.
 Who holds the key | A separate `faramir-keeper` uid that executes nothing. | A systemd credential is readable by the unit's uid, and every brokered command runs as a broker-adjacent uid. A key the broker can load is a key any command can read, whatever the allowlist says.
-Who forks the child | A third `faramir-exec` uid, given the PTY slave over `SCM_RIGHTS`. | Anything the forking uid can reach, the child can reach. Forking from the broker would hand every command the audit log, the SSH keys and write access to the execution checkout.
+Who forks the child | A third `faramir-exec` uid, given the PTY slave over `SCM_RIGHTS`. | Anything the forking uid can reach, the child can reach. Forking from the broker would hand every command the audit log and the SSH keys that open the whole fleet.
+Allowlist width | Permissive by default; narrow policies live in `etc/examples/`. | It bounds blast radius and gives the agent a correctable error. It is not what keeps plaintext out of the model's context, so shipping a default that refuses everything trains operators to widen it carelessly rather than deliberately.
 How Ansible gets its vars | Through `env_refs` and `lookup('env', …)`, like any other program. | Letting Ansible resolve sops itself meant handing it the master key, and Ansible can run arbitrary tasks. Ansible is one consumer of the broker, not the shape of it.
 Secret store | sops + age, replacing ansible-vault. | Encrypted YAML in the repo, per-key diffs, no network round trip.
 Redaction | Custom. | `op run` and similar mask only the values *they* injected. A managed host can print a credential the broker never injected, so the redactor is built from the whole value set regardless of injection path.
@@ -189,7 +193,7 @@ uid agent                     runs the coding agent; member of group devwork
 uid faramir-keeper            holds the age key; execs nothing but sops
 uid faramir-broker            policy, redaction, audit log, SSH keys
 uid faramir-exec              forks brokered commands; holds nothing
-group devwork                 shared access to the repo working tree
+group devwork                 shared access to the working tree
 
 /run/faramir/broker.sock      socket-activated, 0660 root:devwork
 /run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
@@ -197,22 +201,24 @@ group devwork                 shared access to the repo working tree
 /run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
 /etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
 /etc/faramir/config.toml      0644 root:root, read by all three
-/srv/faramir             2750 faramir-broker:faramir-exec, broker writes, exec reads
-/home/agent/work/repo         agent's working tree (authoring only)
+/home/agent/work/repo         the working tree: agent edits it, commands run in it
 /var/log/faramir/raw.log      unredacted audit log, 0600 faramir-broker:faramir-broker
 ```
+
+All three service accounts are in `devwork`, because all three need the working tree: the keeper decrypts the sops files in it, the broker stats them to notice edits, and brokered commands run in it. That is access to files the agent already owns — it is not a route to anything the agent could not reach itself.
 
 Three uids, because anything a uid can reach, a command running as that uid can reach. What a brokered command cannot do, and why:
 
 Cannot | Why not
 --- | ---
-read `/etc/faramir/age.key` | 0400 `faramir-keeper`
+read `/etc/faramir/age.key` | 0400 `faramir-keeper`; `devwork` does not appear in that mode
 open the keeper socket | 0660 `root:faramir-broker`, and it is not in that group
 ask the keeper for the key | there is no such request
 read or truncate the raw log | 0600 `faramir-broker`
 read the SSH keys for managed hosts | 0700 `faramir-broker`; it gets an agent socket instead
-write `/srv/faramir` | group has read and execute, not write
 receive `SOPS_AGE_KEY` | nothing puts it there
+
+It **can** write the working tree, which is the point — Ansible drops `.retry` files and fact caches, and a playbook that generates config has to put it somewhere. It can also reach `/run/faramir/broker.sock`, since that is `0660 root:devwork`: a brokered command can call the broker back. That buys it nothing. The response is redacted, allowlisted and audited exactly like the agent's own, and every ref it could name is already listed by `faramir_list_secrets`.
 
 The PTY does not move with the fork. The broker creates the pair, sends the slave over `SCM_RIGHTS`, and keeps the master, so redaction, truncation and the audit log stay in the broker and output takes no extra hop.
 
@@ -247,7 +253,8 @@ No. | Test | Expected | Covered by
 1f | any keeper request other than `get_values` | refused, no key | `test_keeper`
 1g | `faramir run -- bash -lc 'id -un'` | `faramir-exec` | `verify.sh`
 1h | `sudo -u faramir-exec cat /var/log/faramir/raw.log` | Permission denied | `verify.sh`
-1i | `faramir run -- bash -lc 'touch /srv/faramir/x'` | Permission denied | `verify.sh`
+1i | `faramir run -- bash -lc 'touch <worktree>/x'` | succeeds; commands run where the agent edits | `verify.sh`
+1i2 | `sudo -u faramir-exec cat /etc/faramir/age.key` | Permission denied — `devwork` must not grant this | `verify.sh`
 1j | `sudo -u faramir-exec test -w /run/faramir/exec.sock` | not writable | `verify.sh`
 1k | broker hangs up mid-command | child's process group is killed | `test_exec`
 1l | `faramir run -- bash -lc 'ssh-add -l'` | lists keys it cannot read | `test_ssh`, `verify.sh`
@@ -257,13 +264,16 @@ No. | Test | Expected | Covered by
 4 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `test_e2e`, `verify.sh`
 5 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64 -w0'` | redacted | `test_e2e`, `verify.sh`
 6 | `faramir run -- ansible-playbook site.yml -vvv` | no plaintext anywhere | `test_e2e`, `verify.sh`
-7 | playbook containing `debug: var=<secret>`, run from the `/srv` checkout | redacted | `test_e2e`, `verify.sh`
+7 | playbook containing `debug: var=<secret>` | redacted | `test_e2e`, `verify.sh`
 7b | playbook that tries to decrypt the sops file itself | fails, no key available | `test_e2e`
-8 | `faramir run -- cat /etc/passwd` | denied by allowlist | `test_e2e`, `verify.sh`
-8b | `faramir run -- printenv` (no argument) | denied, `min_args` | `test_allowlist`, `verify.sh`
+8 | `faramir run -- cat /etc/passwd` | denied **under a narrow policy** | `test_allowlist`, `verify.sh`
+8b | `faramir run -- printenv` (no argument) | denied, `min_args`, **under a narrow policy** | `test_allowlist`, `verify.sh`
 9 | grep the raw log for the value | plaintext present, agent cannot read it | `test_e2e`, `verify.sh`
 **10** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **LEAKS, expected** | asserted in `test_e2e`
 **11** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **LEAKS, expected** | asserted in `test_e2e`
+
+> [!NOTE]
+> **Tests 8 and 8b describe the Ansible example, not the shipped starter.** The starter allows anything on the host, so there is nothing for them to deny; `test_allowlist` runs them against `etc/examples/ansible-fleet.toml`, and `verify.sh` skips them when it sees the permissive rule loaded. Nothing else in this matrix depends on the allowlist.
 
 > [!NOTE]
 > **Tests 10 and 11 are not defects.** They are the boundary described in [What it protects against](#what-it-protects-against): an agent that deliberately transforms a value defeats output redaction, and with unrestricted egress that value is gone. They are asserted *to keep leaking* so that a future change which appears to fix them is caught and forces this document to be revisited rather than silently outgrown.
@@ -275,16 +285,17 @@ The permission checks in tests 1 through 2 and 9 only mean something on a real d
 - **`systemctl reload faramir-broker`** after editing a sops file it manages; it also picks up mtime changes within `refresh_interval_sec`. The broker stats the files itself and asks the keeper to decrypt, so a reload needs both services running.
 - **The keeper and the executor must both be up.** `faramir-broker.service` requires both sockets. With no executor every command fails with `exec_failed`; with no keeper, see below.
 - **The keeper must be up before the broker is useful.** With no keeper the broker keeps whatever value set it already had and logs the failure; on a cold start that set is empty, which means nothing gets redacted. Check `systemctl status faramir-keeper` first when tokens stop appearing.
-- **The keeper needs the sops files visible.** Its unit sets `ProtectHome=true`, so a `[secrets] files` entry under `/home` needs a `BindReadOnlyPaths=` drop-in. Under `/srv`, as shipped, it works as is.
+- **The keeper needs the sops files visible.** They live in the working tree, so its unit sets `ProtectHome=tmpfs` and the installer binds that one path in read-only. A `[secrets] files` entry outside the tree is visible as-is under `ProtectSystem=strict`; one somewhere else under `/home` needs its own `BindReadOnlyPaths=` drop-in.
 - **The broker's home is `/var/lib/faramir-broker`, not `/home/faramir-broker`.** It needs a writable home, because it holds the SSH keys for managed hosts and `ansible-playbook` creates `~/.ansible/tmp` unconditionally, and the unit sets `ProtectHome=tmpfs`, which would hide a home under `/home` from the very process that needs it. `install/10-accounts.sh` sets this up; an account created by hand with `useradd -M` will fail with `Unable to create local directories`.
-- **`[sync] source` and the unit's `BindReadOnlyPaths=` must name the same path.** `/home` is an empty tmpfs inside the unit apart from read-only bind mounts of the sync source, so a `source` that is not bound in is invisible to the broker no matter what the config says. `install/20-install-broker.sh` writes both from the worktree it was given, and warns when an existing `config.toml` disagrees. Editing `source` by hand afterwards means adding the bind mount by hand too, or every sync fails with `source ... does not exist`.
+- **The working tree and the units' bind mounts must name the same path.** `/home` is an empty tmpfs inside all three units apart from a bind mount of that tree, so a tree that is not bound in is invisible no matter what the config says — the keeper reports every ref as missing and the executor fails with `cwd does not exist`. `install/20-install-broker.sh` writes all three drop-ins from the `WORKTREE` it was given and rewrites the config to match, and warns when an existing `config.toml` disagrees. Moving the tree by hand afterwards means editing `10-worktree.conf` in each of `faramir-broker.service.d`, `faramir-keeper.service.d` and `faramir-exec.service.d`, or re-running the installer.
 - **Children do not inherit the broker's environment.** The child gets exactly `[exec.base_env]` plus its injected secrets. If a tool works for you but not through the broker, an environment variable is usually the reason. Add it to `base_env` rather than widening anything else.
 - **Interactive prompts fail, they do not hang.** The child owns a PTY for output, but its stdin is `/dev/null`, so a command that waits for input gets EOF immediately. Pass the non-interactive flags.
 - **Output is truncated** at `max_output_bytes` (1 MiB default). The full, unredacted stream is always in the raw log.
 - **The raw log grows without bound.** Add a logrotate rule; keep the mode at 0600 and the owner as `faramir-broker`.
 - **Do not bind-mount or symlink the operator's `~/.claude` into the agent account.** A session that can write agent config paths can persist hooks or MCP servers that run with different privileges on the next launch.
 - **SSH keys belong in `[ssh] keys`, not in the executor's home.** Listed there, the broker loads them into an agent it owns and passes the child only `SSH_AUTH_SOCK`, so a brokered command can authenticate without being able to copy a key that opens the whole fleet. Left empty, the keys must sit in `~faramir-exec/.ssh`, where every brokered command can read them.
-- **The `bash` allowlist rule is the widest thing that ships.** Removing it is the single biggest available tightening; the cost is losing pipelines (and [verification](#verification) tests 4, 5, 10 and 11).
+- **The shipped allowlist allows everything on the host.** That is deliberate — see [Configuration](#configuration) — but it means the starter gives you no blast-radius bound at all. If you want one, narrow it before you point the broker at anything you care about; `etc/examples/ansible-fleet.toml` is the worked example.
+- **Upgrading from a `[sync]` config fails loudly.** The broker refuses a config that still has the section, rather than ignoring it and leaving `[exec] default_cwd` pointing at a `/srv` checkout nothing populates any more. Delete `[sync]`, point `default_cwd` and `[secrets] files` at the working tree, and re-run `install/20-install-broker.sh`. `/srv/faramir` is then dead weight; remove it once you have confirmed nothing else reads it.
 
 ## Limits worth stating plainly
 
