@@ -388,23 +388,3 @@ func TestWritesToDevTtyAreCapturedAndRedacted(t *testing.T) {
 		t.Errorf("a /dev/tty write was not captured: %q", r.Output)
 	}
 }
-
-// Inline {{SECRET:ref}} becomes a shell variable reference, never a value.
-func TestInlineTokenNeverExpandsBrokerSide(t *testing.T) {
-	h := newHarness(t)
-	r := h.call(t, map[string]any{
-		"op":  "exec",
-		"cmd": []any{"bash", "-lc", `echo "{{SECRET:home/router/admin}}"`},
-	})
-	if r.Error != nil {
-		t.Fatal(r.Error)
-	}
-	// The shell expands it, so the value reaches the output and is redacted;
-	// what matters is that it never appeared in argv.
-	if strings.Contains(r.Output, routerPassword) {
-		t.Errorf("PLAINTEXT LEAKED: %q", r.Output)
-	}
-	if !strings.Contains(r.Output, token) {
-		t.Errorf("inline token did not resolve to the secret: %q", r.Output)
-	}
-}

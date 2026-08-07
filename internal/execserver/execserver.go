@@ -109,8 +109,7 @@ func (e *Executor) serveConnection(conn net.Conn) {
 	defer conn.Close()
 
 	peer, err := sockutil.PeerCred(conn)
-	if err != nil || !sockutil.AllowedByUsersOrGroups(peer,
-		e.config.Executor.AllowedUsers, e.config.Executor.AllowedGroups) {
+	if err != nil || !sockutil.AllowedUser(peer, e.config.Executor.AllowedUsers) {
 		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
 		return
 	}

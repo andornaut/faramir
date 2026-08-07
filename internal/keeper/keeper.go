@@ -24,14 +24,12 @@
 // Protocol: one line of JSON in, one line of JSON out, same shape as the
 // broker socket.
 //
-//	-> {"op": "get_values"}                  every managed value
-//	-> {"op": "get_values", "refs": [...]}   only those refs
+//	-> {"op": "get_values"}
 //	<- {"values": {ref: value, ...}, "errors": [...]}
 //	<- {"error": {"code": ..., "message": ...}}
 //
-// The refs filter exists so that a later "never resident in the broker" list
-// for break-glass credentials is a configuration change rather than a protocol
-// change.
+// Every managed value, never a subset: the broker builds its redactor from the
+// whole set, because a managed host can print a credential no command injected.
 package keeper
 
 import (
@@ -309,7 +307,7 @@ func (k *Keeper) serveConnection(conn net.Conn) {
 		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
 		return
 	}
-	if !sockutil.AllowedByUsersOrGroups(peer, k.config.Keeper.AllowedUsers, k.config.Keeper.AllowedGroups) {
+	if !sockutil.AllowedUser(peer, k.config.Keeper.AllowedUsers) {
 		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
 		return
 	}
@@ -339,30 +337,7 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 				"operation that returns key material", op))
 	}
 
-	var filter map[string]bool
-	if raw, ok := payload["refs"]; ok && raw != nil {
-		list, isList := raw.([]any)
-		if !isList {
-			return errorResponse("bad_request", "'refs' must be a list of strings")
-		}
-		filter = map[string]bool{}
-		for _, r := range list {
-			s, isStr := r.(string)
-			if !isStr {
-				return errorResponse("bad_request", "'refs' must be a list of strings")
-			}
-			filter[s] = true
-		}
-	}
-
 	values, errs := DecryptAll(k.config.Secrets, k.Keys)
-	if filter != nil {
-		for ref := range values {
-			if !filter[ref] {
-				delete(values, ref)
-			}
-		}
-	}
 	log.Printf("served %d value(s), %d error(s)", len(values), len(errs))
 	if errs == nil {
 		errs = []string{}

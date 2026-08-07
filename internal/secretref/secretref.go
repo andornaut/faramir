@@ -10,10 +10,7 @@ import (
 	"strings"
 )
 
-var (
-	URIRe         = regexp.MustCompile(`^secret://([A-Za-z0-9][A-Za-z0-9._/-]*)$`)
-	InlineTokenRe = regexp.MustCompile(`\{\{SECRET:([A-Za-z0-9][A-Za-z0-9._/-]*)\}\}`)
-)
+var URIRe = regexp.MustCompile(`^secret://([A-Za-z0-9][A-Za-z0-9._/-]*)$`)
 
 // Error is an invalid reference, or one the store does not know.
 type Error struct{ Msg string }

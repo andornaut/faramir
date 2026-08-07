@@ -235,12 +235,6 @@ type entry struct {
 	longest int
 }
 
-// Skipped records a ref that was refused, with the reason.
-type Skipped struct {
-	Ref    string
-	Reason string
-}
-
 // Count is one row of the wire response's "redactions" field.
 type Count struct {
 	Token string `json:"token"`
@@ -253,7 +247,6 @@ type Count struct {
 // still caught; Flush releases it.
 type Redactor struct {
 	Policy  EligibilityPolicy
-	Skipped []Skipped
 	Overlap int
 
 	counts    map[string]int
@@ -268,8 +261,9 @@ type Secret struct {
 	Value string
 }
 
-// New builds a redactor over the given secrets.  Values the policy refuses are
-// recorded in Skipped and are not matched.
+// New builds a redactor over the given secrets.  A value the policy refuses is
+// not matched; naming it is the store's job, which is where the operator-facing
+// refusal list comes from.
 func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 	r := &Redactor{Policy: policy, counts: map[string]int{}}
 	seen := map[string]bool{}
@@ -277,8 +271,7 @@ func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 		if seen[s.Value] {
 			continue
 		}
-		if reason := policy.Check(s.Value); reason != "" {
-			r.Skipped = append(r.Skipped, Skipped{Ref: s.Ref, Reason: reason})
+		if policy.Check(s.Value) != "" {
 			continue
 		}
 		seen[s.Value] = true
@@ -339,9 +332,6 @@ func compile(ref, value string) entry {
 	}
 	return entry{ref: ref, token: TokenFor(ref), pattern: pattern, wrapped: wrapped, longest: longest}
 }
-
-// Active reports whether any secret is being matched.
-func (r *Redactor) Active() bool { return len(r.entries) > 0 }
 
 // Feed absorbs a chunk of raw output and returns the part that is safe to emit.
 func (r *Redactor) Feed(text string) string {

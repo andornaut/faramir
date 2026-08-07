@@ -25,13 +25,13 @@ func errf(format string, args ...any) error { return &Error{Msg: fmt.Sprintf(for
 
 // FetchValues asks the keeper for the decrypted value set.
 //
+// Every value, not a subset: the redactor is built from the whole set, because
+// a managed host can print a credential this command never injected.
+//
 // A per-file decryption failure comes back in the errors slice instead of as
 // an error, so one broken file does not blank the whole value set.
-func FetchValues(socketPath string, refs []string) (map[string]string, []string, error) {
+func FetchValues(socketPath string) (map[string]string, []string, error) {
 	request := map[string]any{"op": "get_values"}
-	if refs != nil {
-		request["refs"] = refs
-	}
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
 		return nil, nil, errf("keeper socket %s: %v", socketPath, err)

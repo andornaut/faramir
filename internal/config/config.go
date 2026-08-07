@@ -270,11 +270,14 @@ type ExecConfig struct {
 //
 // Separate uid, separate socket, and no operation that returns the key.  The
 // broker is the only client; AllowedUsers is what says so.
+//
+// No allowed_groups here.  It admitted every member of a named group, and the
+// only group in play is devwork, which holds the agent's own uid: the one
+// value it could usefully take is the one that must never be set.
 type KeeperConfig struct {
 	SocketPath       string
 	SocketMode       os.FileMode
 	AllowedUsers     []string
-	AllowedGroups    []string
 	AgeKeyCredential string
 	AgeKeyFile       string
 }
@@ -287,7 +290,6 @@ type ExecutorConfig struct {
 	SocketPath     string
 	SocketMode     os.FileMode
 	AllowedUsers   []string
-	AllowedGroups  []string
 	MaxConcurrency int
 }
 
@@ -366,9 +368,9 @@ var (
 	serverKeys = []string{"socket_path", "socket_mode", "max_concurrency",
 		"max_request_bytes", "allowed_uids", "allowed_groups"}
 	keeperKeys = []string{"socket_path", "socket_mode", "allowed_users",
-		"allowed_groups", "age_key_credential", "age_key_file"}
+		"age_key_credential", "age_key_file"}
 	executorKeys = []string{"socket_path", "socket_mode", "allowed_users",
-		"allowed_groups", "max_concurrency"}
+		"max_concurrency"}
 	execKeys = []string{"default_cwd", "default_timeout_sec", "max_timeout_sec",
 		"max_output_bytes", "base_env", "term_cols", "term_rows", "kill_grace_sec"}
 	sshKeys = []string{"keys", "agent_socket", "agent_socket_mode", "exec_group",
@@ -381,26 +383,6 @@ var (
 func FromMap(raw map[string]any, path string) (*Config, error) {
 	cfg := &Config{Path: path}
 
-	// Removed sections first: a config still carrying one produces a specific
-	// error naming what replaced it, rather than whatever the section loaders
-	// happen to complain about on the way past.
-	if _, ok := raw["sync"]; ok {
-		// Ignoring the section would leave a config that reads as though the
-		// broker still executed a separate checkout, and an [exec] default_cwd
-		// still pointing at a directory nothing populates.
-		return nil, errf("%s: [sync] no longer exists. Brokered commands run in "+
-			"the agent's working tree directly, so there is nothing to promote: "+
-			"delete the section and point [exec] default_cwd and [secrets] files "+
-			"at that tree.", path)
-	}
-	if _, ok := raw["allow"]; ok {
-		// Ignoring the rules would leave a config that reads as though commands
-		// were still being constrained by it.
-		return nil, errf("%s: [[allow]] no longer exists. The broker runs what it "+
-			"is asked to run, as a uid that holds nothing, and redacts the "+
-			"output; a rule permitting any interpreter reached past every "+
-			"constraint these expressed. Delete the [[allow]] tables.", path)
-	}
 	// A mistyped section is as silent as a mistyped key, and worse: [secret]
 	// for [secrets] leaves a broker that manages no files and redacts nothing.
 	if err := rejectUnknownSections(raw, sections, path); err != nil {
@@ -495,9 +477,6 @@ func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
 	if out.AllowedUsers, err = stringList(sec["allowed_users"], where, out.AllowedUsers); err != nil {
 		return err
 	}
-	if out.AllowedGroups, err = stringList(sec["allowed_groups"], where, nil); err != nil {
-		return err
-	}
 	if out.AgeKeyCredential, err = str(sec["age_key_credential"], where, out.AgeKeyCredential); err != nil {
 		return err
 	}
@@ -531,9 +510,6 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 	if out.AllowedUsers, err = stringList(sec["allowed_users"], where, out.AllowedUsers); err != nil {
 		return err
 	}
-	if out.AllowedGroups, err = stringList(sec["allowed_groups"], where, nil); err != nil {
-		return err
-	}
 	if out.MaxConcurrency, err = atLeast(sec, "max_concurrency", where, out.MaxConcurrency, 1); err != nil {
 		return err
 	}
@@ -545,15 +521,6 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 	sec, err := table(raw, "exec", path)
 	if err != nil {
 		return err
-	}
-	if _, ok := sec["allowed_bin_dirs"]; ok {
-		// It went with the allowlist: it bounded argv[0] only, so any rule
-		// permitting bash or python walked straight past it, and what it
-		// reliably did instead was refuse every pipx, venv, shim and /opt
-		// install on the host.
-		return errf("%s: [exec] allowed_bin_dirs no longer exists. A bare command "+
-			"name is looked up on [exec.base_env] PATH, which is the PATH the "+
-			"child gets; put a venv or shim directory there.", path)
 	}
 	if err := rejectUnknownKeys(sec, execKeys, where); err != nil {
 		return err
@@ -613,17 +580,6 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	sec, err := table(raw, "secrets", path)
 	if err != nil {
 		return err
-	}
-	var moved []string
-	for _, k := range []string{"age_key_credential", "age_key_file"} {
-		if _, ok := sec[k]; ok {
-			moved = append(moved, k)
-		}
-	}
-	if len(moved) > 0 {
-		sort.Strings(moved)
-		return errf("%s: [secrets] %s moved to [keeper]; the broker no longer "+
-			"reads the age key at all", path, strings.Join(moved, ", "))
 	}
 	if err := rejectUnknownKeys(sec, secretsKeys, where); err != nil {
 		return err
@@ -702,14 +658,6 @@ func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	sec, err := table(raw, "audit", path)
 	if err != nil {
 		return err
-	}
-	if _, ok := sec["raw_log"]; ok {
-		// The name asserted a property the file no longer has, and leaving it
-		// working would keep an operator believing the log held the plaintext
-		// they were relying on for debugging.
-		return errf("%s: [audit] raw_log is now log_path, and the log holds "+
-			"redacted output: what it records is what the agent saw, plus the "+
-			"peer, the command, the refs and the result. Rename the key.", path)
 	}
 	if err := rejectUnknownKeys(sec, auditKeys, where); err != nil {
 		return err

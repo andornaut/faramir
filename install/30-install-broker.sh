@@ -64,15 +64,6 @@ install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/faramir/
 install -d -m 0755 -o root -g root /etc/faramir
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
-# Left over from installs that placed the patterns under the config directory,
-# where the agent uid could not read them.
-# CLEANUP (added 2026-08-05): remove once every host has run this script once.
-rm -f /etc/faramir/deny-patterns.txt /etc/secretd/deny-patterns.txt
-# Left over from the Python implementation, which shipped a library tree.
-# CLEANUP (added 2026-08-06): remove once every host has run this script once.
-rm -rf /usr/local/lib/faramir
-rm -f /usr/local/libexec/faramir/pretooluse-guard.py
-
 # The working tree appears in the config more than once -- [exec] default_cwd
 # and [secrets] files -- so the shipped configs write it as @WORKTREE@ and this
 # is one substitution.  It is the only place the path appears now: the units no
@@ -168,17 +159,6 @@ done
 # read it, which ProtectSystem=strict already allows, and the executor is
 # granted /home, where modes decide what it can actually write.  The tree's
 # path lives in the config and nowhere else.
-
-# Left over from the commit-then-sync arrangement, which no longer exists: the
-# broker executes the working tree directly.
-# CLEANUP (added 2026-08-06): remove once every host has run this script once.
-rm -f /etc/systemd/system/faramir-broker.service.d/10-sync-source.conf
-# Left over from the bind-mount arrangement: /home is no longer a tmpfs inside
-# the units, so a stale drop-in would mount a tree over a tree.
-# CLEANUP (added 2026-08-06): remove once every host has run this script once.
-rm -f /etc/systemd/system/faramir-broker.service.d/10-worktree.conf \
-      /etc/systemd/system/faramir-keeper.service.d/10-worktree.conf \
-      /etc/systemd/system/faramir-exec.service.d/10-worktree.conf
 
 # systemd may not be running (container, chroot, image build).  Install the
 # units anyway; just do not pretend to have started anything.

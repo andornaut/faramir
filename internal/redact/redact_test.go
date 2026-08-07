@@ -142,20 +142,6 @@ func TestEligibilityRefusals(t *testing.T) {
 	}
 }
 
-// A refused value must not be matched at all, and must be reported.
-func TestRefusedValueIsSkipped(t *testing.T) {
-	r := New([]Secret{{Ref: "tiny", Value: "abc"}}, DefaultPolicy())
-	if r.Active() {
-		t.Error("a refused value produced an active matcher")
-	}
-	if len(r.Skipped) != 1 || r.Skipped[0].Ref != "tiny" {
-		t.Errorf("refusal not reported: %+v", r.Skipped)
-	}
-	if out := r.RedactText("abc"); out != "abc" {
-		t.Errorf("a refused value was redacted anyway: %q", out)
-	}
-}
-
 func TestSummaryCountsNotValues(t *testing.T) {
 	r := newTestRedactor()
 	r.RedactText(secret + " " + secret + " " + secret)

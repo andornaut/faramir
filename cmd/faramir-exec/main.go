@@ -37,8 +37,6 @@ func run() int {
 		return 2
 	}
 
-	sockutil.WarnIfGroupsAllowed("executor", cfg.Executor.AllowedGroups)
-
 	e := execserver.New(cfg)
 	if _, err := e.Listen(); err != nil {
 		log.Printf("%v", err)

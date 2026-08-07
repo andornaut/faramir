@@ -30,14 +30,12 @@ allowed_uids = []
 socket_path = "/run/faramir/keeper.sock"
 socket_mode = "0660"
 allowed_users = ["faramir-broker"]
-allowed_groups = []
 age_key_credential = "age_key"
 
 [executor]
 socket_path = "/run/faramir/exec.sock"
 socket_mode = "0660"
 allowed_users = ["faramir-broker"]
-allowed_groups = []
 max_concurrency = 16
 
 [exec]

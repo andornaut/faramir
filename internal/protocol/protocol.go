@@ -10,12 +10,16 @@
 //     who wants a pipeline sends ["bash", "-lc", "..."] explicitly, so what is
 //     being run is visible in the audit log rather than buried in a string the
 //     broker handed to a shell.
+//
+// A secret is named in env_refs and nowhere else.  There was a {{SECRET:ref}}
+// form rewritten into a shell variable reference inside argv; nothing surfaced
+// it, neither the MCP tool descriptions nor the CLI, so no caller could
+// discover it.
 package protocol
 
 import (
 	"encoding/json"
 	"fmt"
-	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -119,6 +123,11 @@ func Parse(payload map[string]any) (*Request, error) {
 			if !isStr {
 				return nil, errf("env_refs[%s] must be a secret:// URI string", name)
 			}
+			// Shape, not existence: a malformed reference is a bad request,
+			// where a well-formed one naming nothing is unknown_secret.
+			if _, err := secretref.Parse(s); err != nil {
+				return nil, errf("env_refs[%s]: %v", name, err)
+			}
 			req.EnvRefs[name] = s
 		}
 	}
@@ -156,51 +165,6 @@ func toInt(raw any) (int, bool) {
 	default:
 		return 0, false
 	}
-}
-
-var nonAlnum = regexp.MustCompile(`[^A-Za-z0-9]+`)
-
-// EnvNameForRef is the deterministic variable name for an inline {{SECRET:…}}
-// token.
-func EnvNameForRef(ref string) string {
-	return "FARAMIR_" + strings.Trim(strings.ToUpper(nonAlnum.ReplaceAllString(ref, "_")), "_")
-}
-
-// ResolveInlineTokens rewrites {{SECRET:ref}} in argv into a shell variable
-// reference.
-//
-// The token is a readability affordance for the caller.  It never expands to a
-// value here: it becomes ${VAR}, and VAR is added to the injected environment.
-// If the caller already bound that ref to a name, that name is reused.  This
-// only expands if the program itself is a shell, which is the point: the value
-// still never appears in any argv.
-func ResolveInlineTokens(cmd []string, envRefs map[string]string) ([]string, map[string]string, error) {
-	byRef := map[string]string{}
-	for name, uri := range envRefs {
-		ref, err := secretref.Parse(uri)
-		if err != nil {
-			return nil, nil, err
-		}
-		byRef[ref] = name
-	}
-	merged := make(map[string]string, len(envRefs))
-	maps.Copy(merged, envRefs)
-
-	rewritten := make([]string, 0, len(cmd))
-	for _, arg := range cmd {
-		out := secretref.InlineTokenRe.ReplaceAllStringFunc(arg, func(m string) string {
-			ref := secretref.InlineTokenRe.FindStringSubmatch(m)[1]
-			name, ok := byRef[ref]
-			if !ok {
-				name = EnvNameForRef(ref)
-				byRef[ref] = name
-				merged[name] = "secret://" + ref
-			}
-			return "${" + name + "}"
-		})
-		rewritten = append(rewritten, out)
-	}
-	return rewritten, merged, nil
 }
 
 // Response is the shape both success and failure share on the wire.

@@ -37,11 +37,6 @@ than `[server] max_request_bytes` is refused.
 | `env_refs` | no | `NAME` → `secret://ref`. Values are impossible to pass; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved. |
 | `timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`. |
 
-`{{SECRET:ref}}` may appear inside an argument for readability. It is rewritten
-to `${VAR}` (a shell variable *reference*) and `VAR` is added to the injected
-environment. It never expands to a value broker-side, so the value still never
-appears in any `argv`.
-
 ### `list_secrets`
 
 ```json
@@ -100,7 +95,7 @@ operator.
 
 | Code | Meaning |
 |---|---|
-| `bad_request` | Malformed request, bad env var name, reserved env var name, `cwd` that does not exist |
+| `bad_request` | Malformed request, bad env var name, reserved env var name, a `secret://` reference that is not well formed, `cwd` that does not exist |
 | `unknown_secret` | The ref does not exist in any managed file, or was refused at load as not redactable |
 | `busy` | At `[server] max_concurrency`; retry |
 | `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started |
@@ -126,16 +121,14 @@ operation:
 
 ```json
 {"op": "get_values"}
-{"op": "get_values", "refs": ["home/router/admin"]}
 ```
 
 ```json
 {"values": {"home/router/admin": "…"}, "errors": []}
 ```
 
-`refs` is optional and filters the result. Without it the keeper returns
-everything, which is what the broker wants: the redactor is built from the
-whole value set, not just the refs a given command injected.
+Every managed value, never a subset: the redactor is built from the whole value
+set, because a managed host can print a credential no command injected.
 
 A per-file decryption failure comes back in `errors` rather than as an error
 response, so one broken file does not blank the whole value set. Key material
@@ -152,7 +145,7 @@ Anything other than `get_values` is refused:
 
 **There is no operation that returns the age key, and adding one would defeat
 the reason the keeper is a separate service.** Peer uid is checked against
-`[keeper] allowed_users` on top of the socket mode.
+`[keeper] allowed_users` on top of the socket mode. There is no group form: the only group in play holds the agent's own uid.
 
 ## The executor socket
 

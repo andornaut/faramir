@@ -39,8 +39,6 @@ func run() int {
 		return 2
 	}
 
-	sockutil.WarnIfGroupsAllowed("keeper", cfg.Keeper.AllowedGroups)
-
 	k := keeper.New(cfg)
 
 	if *check {

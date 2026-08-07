@@ -211,10 +211,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	execCfg := s.Config.Exec
 	logID := audit.NewLogID()
 
-	cmd, envRefs, err := protocol.ResolveInlineTokens(request.Cmd, request.EnvRefs)
-	if err != nil {
-		return protocol.ErrorResponse("bad_request", err.Error(), logID)
-	}
+	cmd, envRefs := request.Cmd, request.EnvRefs
 
 	cwd := request.Cwd
 	if !request.HasCwd || cwd == "" {

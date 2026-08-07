@@ -20,21 +20,10 @@ rm -rf /etc/systemd/system/faramir-broker.service.d \
        /etc/systemd/system/faramir-exec.service.d
 systemctl daemon-reload
 
-say "removing binaries and library"
+say "removing binaries"
 rm -f /usr/local/bin/faramir-broker /usr/local/bin/faramir-keeper \
       /usr/local/bin/faramir-exec /usr/local/bin/faramir /usr/local/bin/faramir-mcp
-rm -rf /usr/local/lib/faramir /usr/local/libexec/faramir /usr/local/share/doc/faramir
-
-# The project was called secretd before; a host installed then still has those
-# units enabled and would keep serving a second broker on the old socket.
-# CLEANUP (added 2026-08-05): remove once every host has been reinstalled.
-say "removing any pre-rename secretd install"
-systemctl disable --now secretd.socket secretd.service 2>/dev/null || true
-rm -f /etc/systemd/system/secretd.socket /etc/systemd/system/secretd.service
-rm -rf /etc/systemd/system/secretd.service.d
-rm -f /usr/local/bin/secretd /usr/local/bin/secure-run /usr/local/bin/secretd-mcp
-rm -rf /usr/local/lib/secretd /usr/local/libexec/secretd /usr/local/share/doc/secretd
-systemctl daemon-reload
+rm -rf /usr/local/libexec/faramir /usr/local/share/doc/faramir
 
 cat <<'EOF'
 

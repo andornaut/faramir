@@ -47,11 +47,8 @@ else
   # refuses to clobber, so an existing key cannot be destroyed by a re-run.
   (umask 077; "$KEYGEN" keygen -o "$KEY" >/dev/null)
 fi
-# Re-asserted every run, not just on creation: a host that installed before the
-# keeper existed still has this key owned by the broker, where every brokered
-# command could read it.
-# CLEANUP (added 2026-08-05): the chown can drop back inside the else branch
-# once every host has run this script once.
+# Re-asserted every run rather than only on creation, so a key placed by hand
+# ends up owned by the keeper like a minted one.
 id -u "$KEEPER_USER" >/dev/null 2>&1 || {
   echo "no such user: ${KEEPER_USER}; run install/10-accounts.sh first" >&2
   exit 1

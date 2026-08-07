@@ -127,28 +127,14 @@ func Allowed(peer *Peer, uids []int, users, groups []string) bool {
 	return false
 }
 
-// AllowedByUsersOrGroups is Allowed without a uid list, for the two internal
-// sockets, which name their one legitimate client by user.
-func AllowedByUsersOrGroups(peer *Peer, users, groups []string) bool {
-	return Allowed(peer, nil, users, groups)
-}
-
-// WarnIfGroupsAllowed names a live allowed_groups on one of the internal
-// sockets at startup.
+// AllowedUser is Allowed with neither a uid list nor groups, for the two
+// internal sockets: each has exactly one legitimate client, and names it.
 //
-// Group membership is honoured whether it is primary or supplementary, which
-// is the only way it could match at all: devwork and its like are granted with
-// usermod -aG.  That also means naming a group here is a wider grant than it
-// looks, on two sockets whose only legitimate client is the broker, so it says
-// so rather than waiting to be discovered.
-func WarnIfGroupsAllowed(what string, groups []string) {
-	if len(groups) == 0 {
-		return
-	}
-	log.Printf("WARNING: [%s] allowed_groups is %v; every member of those groups, "+
-		"including supplementary members, may connect. This socket's only "+
-		"legitimate client is the broker: name it in allowed_users instead.",
-		what, groups)
+// No group form.  The only group in play is devwork, which holds the agent's
+// own uid, so on these sockets the one value it could take is the one that
+// must never be set.
+func AllowedUser(peer *Peer, users []string) bool {
+	return Allowed(peer, nil, users, nil)
 }
 
 // inAnyGroup checks the peer's primary gid and, failing that, the

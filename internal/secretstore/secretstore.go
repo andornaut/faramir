@@ -93,7 +93,7 @@ func (s *Store) Reload() {
 		state = append(state, fileState{path: path, mtime: info.ModTime(), size: info.Size()})
 	}
 
-	values, keeperErrors, err := keeperclient.FetchValues(s.keeper.SocketPath, nil)
+	values, keeperErrors, err := keeperclient.FetchValues(s.keeper.SocketPath)
 	if err != nil {
 		// Keep the previous value set rather than dropping to empty.  An empty
 		// set means nothing is redacted, which is the worst possible response
