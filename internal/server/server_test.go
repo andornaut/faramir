@@ -39,7 +39,10 @@ func fakeKeeper(t *testing.T, values map[string]string) string {
 	return path
 }
 
-func newServer(t *testing.T, values map[string]string) *Server {
+// secretFiles has to be set here rather than on the returned server: the store
+// takes a copy of the secrets config at construction, so assigning to
+// s.Config.Secrets afterwards changes nothing the store reads.
+func newServer(t *testing.T, values map[string]string, secretFiles ...string) *Server {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := &config.Config{
@@ -54,6 +57,7 @@ func newServer(t *testing.T, values map[string]string) *Server {
 			BaseEnv: map[string]string{"PATH": "/usr/bin:/bin"},
 		},
 		Secrets: config.SecretsConfig{
+			Files:              secretFiles,
 			RefreshIntervalSec: 0, MinLength: 8, MinUniqueChars: 4,
 			MinEntropyBitsPerChar: 1.5,
 		},
@@ -240,6 +244,35 @@ func TestCheckPassesOnAReadableSSHKey(t *testing.T) {
 
 	if _, code := s.CheckOutput(); code != 0 {
 		t.Errorf("a readable key failed the gate")
+	}
+}
+
+// The installer's gate runs before the secrets have been migrated, so the file
+// it is configured for does not exist yet.  Failing here would make a first
+// install impossible.
+func TestCheckPassesOnASecretsFileThatDoesNotExistYet(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"},
+		filepath.Join(t.TempDir(), "absent.sops.yml"))
+
+	if _, code := s.CheckOutput(); code != 0 {
+		t.Error("a not-yet-migrated install failed the gate")
+	}
+}
+
+// A file that exists and did not load leaves the broker serving fewer values
+// than it is configured for, and every value it did not load is one that
+// reaches the agent in plaintext.  Reporting that as a healthy install is the
+// failure mode the gate exists to prevent.
+func TestCheckFailsOnASecretsFileThatCouldNotBeRead(t *testing.T) {
+	notADir := filepath.Join(t.TempDir(), "regular")
+	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"},
+		filepath.Join(notADir, "v.sops.yml"))
+
+	if _, code := s.CheckOutput(); code == 0 {
+		t.Error("a secrets file that could not be read passed the gate")
 	}
 }
 

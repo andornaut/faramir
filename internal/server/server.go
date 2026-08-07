@@ -384,6 +384,16 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		// gate that is supposed to catch it.
 		code = 1
 	}
+	// A configured file that does not exist yet is the not-yet-migrated state
+	// and stays quiet.  A file that exists and did not load, or a keeper that
+	// did not answer, leaves the broker serving fewer values than it is
+	// configured for, and every value it is missing is one it cannot redact.
+	if fatal := s.Store.FatalLoadErrors(); len(fatal) > 0 {
+		log.Printf("%d secret load failure(s): %v", len(fatal), fatal)
+		log.Printf("those values are absent from the redactor, so a command " +
+			"that prints one prints it in plaintext")
+		code = 1
+	}
 	if len(missing) > 0 {
 		log.Printf("%d configured SSH key(s) missing or unreadable: %v", len(missing), missing)
 		log.Printf("brokered commands will reach no host that expects one; " +

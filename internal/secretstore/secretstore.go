@@ -59,6 +59,14 @@ type Store struct {
 	checkedAt  time.Time
 	LoadErrors []string
 
+	// LoadErrors minus the configured files that simply do not exist yet.
+	// That one case is the normal state of an install whose secrets have not
+	// been migrated, and the installer runs --check before they have been, so
+	// it cannot be a failure.  Everything else (unreadable, undecryptable, a
+	// keeper that did not answer) leaves the broker running with values it
+	// should have had and does not, so nothing redacts them.
+	fatalLoadErrors []string
+
 	// Held across a refresh-driven reload, not under mu: Reload takes mu
 	// itself, and the point is to keep concurrent requests from each starting
 	// their own keeper round trip.  An explicit Reload (startup, SIGHUP) is
@@ -83,11 +91,14 @@ func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
 // Reload re-fetches every value from the keeper.  On startup and on SIGHUP.
 func (s *Store) Reload() {
 	var state []fileState
-	var errors []string
+	var errors, fatal []string
 	for _, path := range s.config.Files {
 		info, err := os.Stat(path)
 		if err != nil {
 			errors = append(errors, path+": "+err.Error())
+			if !os.IsNotExist(err) {
+				fatal = append(fatal, path+": "+err.Error())
+			}
 			continue
 		}
 		state = append(state, fileState{path: path, mtime: info.ModTime(), size: info.Size()})
@@ -100,6 +111,7 @@ func (s *Store) Reload() {
 		// to "the keeper is briefly unreachable".
 		s.mu.Lock()
 		s.LoadErrors = append(append([]string{}, errors...), err.Error())
+		s.fatalLoadErrors = append(append([]string{}, fatal...), err.Error())
 		s.state = state
 		s.retry = true
 		s.checkedAt = time.Now()
@@ -108,7 +120,10 @@ func (s *Store) Reload() {
 			"and retrying on the next request: %v", err)
 		return
 	}
+	// A keeper error names a file it could not decrypt, so the file exists and
+	// failed: always fatal.
 	errors = append(errors, keeperErrors...)
+	fatal = append(fatal, keeperErrors...)
 
 	// A value the redactor cannot cover is not loaded at all.  Serving it would
 	// put it in a child's environment with nothing to catch it on the way out,
@@ -130,6 +145,7 @@ func (s *Store) Reload() {
 	s.state = state
 	s.retry = false
 	s.LoadErrors = errors
+	s.fatalLoadErrors = fatal
 	s.checkedAt = time.Now()
 	s.mu.Unlock()
 
@@ -287,6 +303,14 @@ func (s *Store) DescribeForOperator() map[string]any {
 	maps.Copy(refused, s.refused)
 	out["not_redactable"] = refused
 	return out
+}
+
+// FatalLoadErrors is the load errors that represent a broken install, as
+// opposed to a configured file that has not been created yet.
+func (s *Store) FatalLoadErrors() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]string{}, s.fatalLoadErrors...)
 }
 
 func sortedKeys[V any](m map[string]V) []string {

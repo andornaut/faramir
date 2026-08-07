@@ -367,6 +367,31 @@ func TestAMissingFileIsReported(t *testing.T) {
 	if _, err := s.Value("a/b"); err != nil {
 		t.Errorf("the value set was lost over a missing file: %v", err)
 	}
+	// The installer runs --check before the secrets have been migrated, so the
+	// one file it is configured for does not exist yet.  Treating that as a
+	// failure would make a first install impossible.
+	if fatal := s.FatalLoadErrors(); len(fatal) != 0 {
+		t.Errorf("a not-yet-created file was treated as a broken install: %v", fatal)
+	}
+}
+
+// A file that exists and cannot be read is the case worth failing on: the
+// broker comes up serving fewer values than it is configured for, and every
+// value it did not load is one it cannot redact.
+func TestAnUnreadableFileIsFatal(t *testing.T) {
+	dir := t.TempDir()
+	notADir := filepath.Join(dir, "regular")
+	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	// Stat fails with ENOTDIR rather than ENOENT, which is the distinction.
+	s := newStore(t, k, filepath.Join(notADir, "v.sops.yml"))
+	s.Reload()
+
+	if len(s.FatalLoadErrors()) == 0 {
+		t.Error("a file that could not be stat'd was reported as a healthy install")
+	}
 }
 
 // The mtime poll is what picks up an edit without a SIGHUP.
