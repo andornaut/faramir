@@ -80,12 +80,21 @@ func (s *Server) Listen() (net.Listener, error) {
 }
 
 func (s *Server) Serve() error {
+	delay := time.Duration(0)
 	for {
 		conn, err := s.ln.Accept()
 		if err != nil {
-			s.wg.Wait()
-			return nil
+			next, retry := sockutil.RetryAccept(err, delay)
+			if !retry {
+				s.wg.Wait()
+				return nil
+			}
+			delay = next
+			log.Printf("broker could not accept (%v); retrying in %v", err, delay)
+			time.Sleep(delay)
+			continue
 		}
+		delay = 0
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()

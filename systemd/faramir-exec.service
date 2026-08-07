@@ -68,8 +68,11 @@ DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
 # Ansible creates ~/.ansible/tmp unconditionally; this is that home.
 StateDirectory=faramir-exec
-RuntimeDirectory=faramir
-RuntimeDirectoryPreserve=yes
+# No RuntimeDirectory=faramir: it would recursively chown the activation
+# sockets to this uid (see faramir-broker.service).  /run/faramir comes from
+# /etc/tmpfiles.d/faramir.conf and stays read-only here; connecting to a socket
+# is not a write the read-only mount can refuse, and the directory's own mode
+# is what keeps this uid from unlinking anything in it.
 # Ansible reaches managed hosts over SSH, so the network stays.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallFilter=@system-service

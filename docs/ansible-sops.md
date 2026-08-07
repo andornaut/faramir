@@ -17,17 +17,17 @@ can run arbitrary tasks, a playbook holding the master key would mean anything
 that can reach Ansible can obtain the key that decrypts every managed file,
 retroactively, including everything already in git history.
 
-## 1. Encrypt values, not keys
+## 1. Encrypt the right file, in the right place
 
 Keep the encrypted file **out of `group_vars/` and `host_vars/`**. Ansible
-loads every `.yml` under those directories as an ordinary vars file, and a sops
-file is valid YAML, so Ansible reads it happily and binds each var to its
-`ENC[AES256_GCM,...]` ciphertext string. Worse, `vault.sops.yml` sorts after
-`vars.yml`, so the ciphertext overwrites the `lookup('env', …)` mapping from
-section 3 and every credential silently becomes the literal text `ENC[...]`.
-Nothing errors: tasks run, and hosts get configured with a password that is the
-ciphertext of the password. `secrets/` at the repo root is not auto-loaded, so
-this guide uses that.
+loads every `.yml` under those directories as a vars file, and a sops file is
+valid YAML: it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and
+`vault.sops.yml` sorts after `vars.yml`, so it also overwrites the
+`lookup('env', …)` mapping from section 3. Nothing errors. Hosts get configured
+with the ciphertext of a credential in place of the credential.
+
+This guide uses `secrets/` at the repo root, which Ansible does not auto-load.
+`install/migrate-vault.sh` refuses the bad destination.
 
 `.sops.yaml` in the repo root (written by `install/20-sops-init.sh`):
 
@@ -154,9 +154,12 @@ keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
 ```
 
 The keys must have no passphrase, since nothing is there to type one.
-`faramir-broker --check` parses each configured key and fails on one `ssh-add`
-would refuse, so a passphrase (or `[ssh] keys` naming the `.pub` by mistake) is
-caught at install time rather than as a fleet-wide authentication failure. At
+`faramir-broker --check`, run as the broker's own account, parses each
+configured key and fails on one `ssh-add` would refuse, so a passphrase (or
+`[ssh] keys` naming the `.pub` by mistake) is caught at install time rather than
+as a fleet-wide authentication failure. It reads the file as the uid that runs
+it, so a key left `root:root` passes a root-run check and then fails for the
+broker. At
 runtime the broker logs the error and carries on, since one bad key should not
 stop the others loading. The agent lives
 and dies with the broker, so a restart reloads it and nothing outlives the

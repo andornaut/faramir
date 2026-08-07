@@ -19,6 +19,9 @@ rm -rf /etc/systemd/system/faramir-broker.service.d \
        /etc/systemd/system/faramir-keeper.service.d \
        /etc/systemd/system/faramir-exec.service.d
 systemctl daemon-reload
+# The sockets are gone with the units above, so the directory holds nothing.
+rm -f /etc/tmpfiles.d/faramir.conf
+rm -rf /run/faramir
 
 say "removing binaries"
 rm -f /usr/local/bin/faramir-broker /usr/local/bin/faramir-keeper \

@@ -152,6 +152,32 @@ if [[ -S $SSH_AGENT_SOCKET ]]; then
   else
     no "1l brokered commands cannot reach the ssh-agent: $out"
   fi
+  # ssh-agent's own socket is the broker's; the executor reaches the keys only
+  # through the relay, which checks SO_PEERCRED.  Connecting to a unix socket
+  # needs write, not read: -r would pass a socket left 0620 that the executor
+  # could in fact use.
+  if as_exec test -w "${SSH_AGENT_SOCKET}.private"; then
+    no "1n ${EXEC_USER} can reach ssh-agent's own socket, bypassing the relay"
+  else
+    ok "1n ${EXEC_USER} cannot reach ssh-agent's own socket"
+  fi
+  # The relay forwards list and sign only.  A brokered command that could send
+  # the rest of the agent protocol would empty the broker's agent, and every
+  # managed host would then refuse it until the broker restarted.
+  # An agent holding nothing has nothing to lose: [ssh] keys can be configured
+  # and still load no key (a passphrase, a missing file), which the broker logs
+  # and carries on from.
+  before="$(srun -- bash -lc 'ssh-add -l')"
+  if grep -q 'SHA256' <<<"$before"; then
+    srun -- bash -lc 'ssh-add -D' >/dev/null 2>&1
+    if [[ "$(srun -- bash -lc 'ssh-add -l')" == "$before" ]]; then
+      ok "1o brokered commands cannot empty the ssh-agent"
+    else
+      no "1o a brokered command changed what the ssh-agent holds; the relay forwards too much (restart the broker to reload the keys)"
+    fi
+  else
+    skipt "1o the agent holds no identities; nothing to empty"
+  fi
   leaked=0
   while read -r key; do
     [[ -n $key ]] || continue
@@ -165,6 +191,8 @@ if [[ -S $SSH_AGENT_SOCKET ]]; then
 else
   skipt "1l no ssh-agent socket; [ssh] keys is empty"
   skipt "1m no ssh-agent socket; [ssh] keys is empty"
+  skipt "1n no ssh-agent socket; [ssh] keys is empty"
+  skipt "1o no ssh-agent socket; [ssh] keys is empty"
 fi
 
 BROKER_PID="$(pgrep -u "$BROKER_USER" -f '[f]aramir-broker' | head -1)"

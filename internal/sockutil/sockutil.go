@@ -16,12 +16,40 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 )
 
 // listenFDStart is systemd's SD_LISTEN_FDS_START.
 const listenFDStart = 3
+
+// Bounds on the accept backoff, shared by every listener loop.
+const (
+	acceptDelayMin = 5 * time.Millisecond
+	acceptDelayMax = time.Second
+)
+
+// RetryAccept reports whether an Accept error is one to sleep on and retry,
+// and how long to sleep, given the previous delay.
+//
+// A loop that returns on any error leaves the socket bound and accepting
+// nothing: a client's connect lands in the backlog and waits for its own
+// timeout instead of failing, and a unit that returns nil exits 0, which
+// Restart=on-failure does not restart.  Running out of descriptors or memory,
+// and a peer that goes away between its connect and our accept, are all
+// recoverable.  Anything else means the listener itself is gone.
+func RetryAccept(err error, delay time.Duration) (time.Duration, bool) {
+	for _, errno := range []unix.Errno{
+		unix.EMFILE, unix.ENFILE, unix.ENOBUFS, unix.ENOMEM,
+		unix.ECONNABORTED, unix.EINTR,
+	} {
+		if errors.Is(err, errno) {
+			return min(max(delay*2, acceptDelayMin), acceptDelayMax), true
+		}
+	}
+	return 0, false
+}
 
 // Listen uses the systemd-passed socket if present, else binds its own.
 func Listen(path string, mode os.FileMode) (net.Listener, error) {

@@ -99,7 +99,10 @@ operator did not name.
 
 ### Migrating from ansible-vault
 
-Migrate each vault file, point `group_vars` at the environment as described in [docs/ansible-sops.md](docs/ansible-sops.md), and verify before deleting anything:
+Migrate each vault file, point `group_vars` at the environment as described in
+[docs/ansible-sops.md](docs/ansible-sops.md), and verify before deleting
+anything. The encrypted file goes somewhere Ansible does not auto-load, which
+is why the destination below is `secrets/` and not `group_vars/`:
 
 ```bash
 install/migrate-vault.sh group_vars/all/vault.yml secrets/vault.sops.yml
@@ -164,9 +167,18 @@ API_TOKEN=secret://home/api/token
 ```
 
 The file holds refs and never values, so it is ordinary reviewable content that
-belongs beside the playbook it serves. A literal value in it is refused, naming
-the file and the line. An explicit `--env` overrides an entry of the same name,
-so a wrapper can substitute one without rewriting the file.
+belongs beside the playbook it serves. An explicit `--env` overrides an entry of
+the same name, so a wrapper can substitute one without rewriting the file.
+
+Both `--env` and `--env-file` refuse a literal value and a name that cannot be
+an environment variable (`export NAME=…` is the usual way in). One file also
+refuses a name given twice with two different refs, an ambiguity that file
+cannot resolve on its own; across sources the layering above decides instead, so
+a later `--env-file` wins over an earlier one and an explicit `--env` wins over
+both. A bad line in a file is reported with the file and the line; a bad `--env`
+has no location to report. The offending value never appears either way, since
+echoing a pasted credential into the terminal is the disclosure the mechanism
+exists to prevent.
 
 A bare command name is looked up on `[exec.base_env] PATH`, which is the PATH
 the child itself gets, so a tool in a venv or a pipx install is reached by
@@ -231,6 +243,38 @@ startup, `max_concurrency = 0` refuses every request as busy, and
 output. Zero stays legal where it means something: `kill_grace_sec = 0` is
 "SIGKILL at once", and `refresh_interval_sec = 0` is "check on every request".
 
+### The install gate
+
+`faramir-broker --check` prints what the broker loaded and exits non-zero on
+anything that would leave it running and protecting less than it appears to.
+Every one of these otherwise produces a healthy-looking install:
+
+Fails on | Because
+--- | ---
+`[exec] default_cwd` missing | A wrong guess would run commands somewhere you never named
+An unknown key or `[section]` | A config that reads as though it took effect; the error names the alternatives
+A value out of range | See above
+A ref too short or too low-entropy to redact | It is refused at load, so it can be injected by nothing and covered by nothing
+A `[secrets]` file that exists and did not load | Unreadable, or the keeper did not answer. Those values are absent from the redactor, so whatever prints one prints plaintext
+A `[ssh] key` that is missing, passphrase-protected, or the `.pub` | `ssh-add` will refuse it, leaving an agent holding nothing and every host unreachable
+
+A `[secrets]` file that does not *exist* passes: that is the normal state of an
+install whose secrets have not been migrated yet, and the installer runs the
+gate before they have been. An empty `[ssh] keys` passes too, being a
+deliberate configuration.
+
+Run the gate as the broker's own account, which is how
+`install/30-install-broker.sh` runs it:
+
+```bash
+sudo -u faramir-broker faramir-broker -c /etc/faramir/config.toml --check
+```
+
+It opens the SSH keys and the secrets files as whatever uid runs it. Run as
+root it reads what the broker cannot, and a key left `root:root 0600` then
+passes a gate the broker itself fails on, which is the fleet-wide
+authentication failure the two rows above exist to catch.
+
 ### Rules that are not negotiable
 
 - **Nothing receives the age key.** There is no flag that grants it and the broker does not hold it to grant. Programs that want to decrypt sops themselves, Ansible included, cannot; they get named values instead.
@@ -272,15 +316,23 @@ group devwork                 shared access to the working tree
 /run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
 /run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
 /run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
+/run/faramir/ssh-agent.sock.private
+                              what ssh-agent itself binds, 0600 faramir-broker
 /etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
 /etc/faramir/config.toml      0644 root:root, read by all three
+/home/agent                   0710 agent:devwork, and so is every component
+/home/agent/work              below it: pass through, do not list
 /home/agent/work/repo         the working tree: agent edits it, commands run in it
 /var/log/faramir/audit.log    audit log, 0600 faramir-broker:faramir-broker
 ```
 
 All three service accounts are in `devwork`, because all three need the working tree: the keeper decrypts the sops files in it, the broker stats them to notice edits, and brokered commands run in it. That is access to files the agent already owns; it is not a route to anything the agent could not reach itself.
 
-What keeps a brokered command out of everything else is the ordinary file mode, not a mount namespace. `ProtectSystem=strict` makes the whole hierarchy read-only, and the executor names one writable path, `/home`, where the only thing its uid can actually write is the group-writable tree: homes are 0700, and `~agent/.claude` is 0700 `agent`.
+Group membership is not enough on its own. The tree sits inside the agent's home, which `useradd` creates 0750 `agent:agent`, and a uid that cannot traverse a directory cannot open anything beneath it. Phase 1 therefore gives `devwork` group-execute on every component from the home down to the tree, and no group-read: they pass through without being able to list the home. Without it the keeper's `open()` fails with `EACCES` rather than `ENOENT`, which reads as a file that exists and would not decrypt.
+
+The SSH agent is two sockets for the same reason. OpenSSH's `ssh-agent` calls `getpeereid()` on every connection and closes any whose peer euid is neither root nor its own, so handing its socket to another uid fails at the protocol layer however permissive the mode is: the client connects and the request is dropped, which `ssh-add` reports as `communication with agent failed`. `ssh-agent` therefore binds a private socket that only the broker's uid uses, and the broker serves the public one, relaying bytes between the two. Every upstream connection is then the broker's own, which also means `ssh-agent`'s uid check no longer decides anything: the relay makes the `SO_PEERCRED` check itself, so the public socket's mode is a second boundary rather than the only one. It also reads the agent protocol rather than piping it: the protocol has no read-only mode, so a connection that can sign can also send `REMOVE_ALL_IDENTITIES` or `ADD_IDENTITY`, and a brokered command could empty the broker's agent or load a key of its own into it. Only `REQUEST_IDENTITIES` and `SIGN_REQUEST` are forwarded, and the connection ends on anything else. The child can therefore authenticate and still cannot extract a key, which the protocol does not offer, change what the agent holds, or ptrace it, since it belongs to another uid.
+
+What keeps a brokered command out of everything else is the ordinary file mode, not a mount namespace. `ProtectSystem=strict` makes the whole hierarchy read-only, and the executor names one writable path, `/home`, where the only thing its uid can actually write is the group-writable tree: homes are 0700 apart from the agent's, which grants `devwork` traversal and nothing else, and `~agent/.claude` is 0700 `agent`.
 
 Three uids, because anything a uid can reach, a command running as that uid can reach. What a brokered command cannot do, and why:
 
@@ -336,6 +388,8 @@ No. | Test | Expected | Covered by
 1k | `sudo -u faramir-exec test -w /run/faramir/exec.sock` | not writable; no unlogged commands | `verify.sh`
 1l | `faramir run -- bash -lc 'ssh-add -l'` | lists keys it cannot read | `internal/sshagent`, `verify.sh`
 1m | `sudo -u faramir-exec cat ~faramir-broker/.ssh/id_*` | Permission denied | `verify.sh`
+1n | `sudo -u faramir-exec test -w /run/faramir/ssh-agent.sock.private` | not connectable; the keys are reachable only through the relay | `internal/sshagent`, `verify.sh`
+1o | `faramir run -- bash -lc 'ssh-add -D'` | refused; the agent still holds its keys | `internal/sshagent`, `verify.sh`
 2 | `sudo -u agent cat /proc/$(pgrep -u faramir-broker faramir-broker)/environ` | No such file | `verify.sh`
 2b | `sudo -u agent test -w /run/faramir/broker.sock` | writable; `devwork` access works | `verify.sh`
 3 | `faramir run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `internal/e2e`, `verify.sh`
@@ -387,7 +441,7 @@ The permission checks in tests 1 through 2b, and 9a/9b, only mean something on a
 - **The audit log grows without bound.** Add a logrotate rule; keep the mode at 0600 and the owner as `faramir-broker`.
 - **The audit log holds no secret value.** Output is recorded after redaction, and the command line is redacted too, so a value a caller put in `argv` itself does not reach disk either. What you get is who ran what, when, against which refs, and what came back with the same `«SECRET:ref»` tokens the agent saw. It is still 0600 and still operator-only, because the command lines and the ref names are worth protecting on their own. See [docs/redaction.md](docs/redaction.md) for what this costs and why the counts are enough.
 - **Do not bind-mount or symlink the operator's `~/.claude` into the agent account.** A session that can write agent config paths can persist hooks or MCP servers that run with different privileges on the next launch.
-- **A key named in `[ssh] keys` that is not there fails `--check`.** The broker would otherwise start, serve, and reach no host that expects it: it logs one warning at startup and carries on, so every socket is active and every playbook fails to authenticate. `faramir-broker --check` reports each configured key under `ssh.keys` with whether it is readable, and exits non-zero when one is not, which is what makes it an install gate rather than a status line. An empty `[ssh] keys` is a deliberate configuration and passes.
+- **A key the broker cannot use fails `--check`.** Missing, passphrase-protected, or `[ssh] keys` naming the `.pub` by mistake: `ssh-add` refuses all three, and the broker then starts with an agent holding nothing. It logs one warning and carries on, so every socket is active and every playbook fails to authenticate against every host. `--check` reports each key under `ssh.keys` with whether it is readable and usable, as the uid that runs it, so run it as the broker's account. See [The install gate](#the-install-gate).
 - **SSH keys belong in `[ssh] keys`, not in the executor's home.** Listed there, the broker loads them into an agent it owns and passes the child only `SSH_AUTH_SOCK`, so a brokered command can authenticate without being able to copy a key that opens the whole fleet. Left empty, the keys must sit in `~faramir-exec/.ssh`, where every brokered command can read them.
 - **There is no blast-radius bound.** A brokered command runs anything the executor's uid can run. That uid holds no key, no audit log and no SSH key, which is the property the design rests on, but it does have write access to the working tree, so a destructive command is destructive. See [What it protects against](#what-it-protects-against).
 

@@ -1,11 +1,17 @@
 package sshagent
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
+	"io"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andornaut/faramir/internal/config"
 )
@@ -161,13 +167,249 @@ func TestThePrivateKeyNeverAppearsInOutput(t *testing.T) {
 func TestTheAgentDiesWithTheBroker(t *testing.T) {
 	a, _ := startedAgent(t)
 	sock := a.Env()["SSH_AUTH_SOCK"]
+	private := a.private
 
 	a.Stop()
 
 	if _, err := os.Stat(sock); err == nil {
 		t.Error("the agent socket outlived the broker")
 	}
+	if _, err := os.Stat(private); err == nil {
+		t.Error("ssh-agent's own socket outlived the broker")
+	}
 	if env := a.Env(); len(env) != 0 {
 		t.Errorf("Env = %v after Stop", env)
+	}
+}
+
+// -- the proxy --------------------------------------------------------------
+
+// ssh-agent's own socket is never handed out: OpenSSH closes any connection
+// whose peer euid is not its own, so the executor has to arrive over a
+// connection the broker opened.
+func TestTheExecutorIsGivenTheProxyNotTheAgentSocket(t *testing.T) {
+	a, _ := startedAgent(t)
+
+	if a.private == "" {
+		t.Fatal("no private socket was recorded")
+	}
+	if sock := a.Env()["SSH_AUTH_SOCK"]; sock == a.private {
+		t.Errorf("ssh-agent's own socket was handed to the executor: %s", sock)
+	}
+	info, err := os.Stat(a.private)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Only the broker's uid connects here, so nothing else needs any access.
+	if perm := info.Mode().Perm(); perm&0o077 != 0 {
+		t.Errorf("ssh-agent's own socket is %o; it is reachable beyond the broker", perm)
+	}
+}
+
+// When ssh-agent hangs up first, the relay has to close the executor's end.
+// Waiting on the other copy direction instead leaves the child blocked on a
+// reply that is not coming until its own timeout, and leaks the connection.
+func TestTheRelayClosesTheClientWhenTheAgentGoesAway(t *testing.T) {
+	a, _ := startedAgent(t)
+	client, err := net.Dial("unix", a.Env()["SSH_AUTH_SOCK"])
+	if err != nil {
+		t.Fatalf("dial the proxy: %v", err)
+	}
+	defer client.Close()
+	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// One complete request first, so the relay is established in both
+	// directions before ssh-agent goes away, and nothing of the reply is left
+	// buffered to be mistaken for the connection still being open.
+	if _, err := client.Write([]byte{0, 0, 0, 1, 11}); err != nil { // request identities
+		t.Fatalf("write to the proxy: %v", err)
+	}
+	var header [4]byte
+	if _, err := io.ReadFull(client, header[:]); err != nil {
+		t.Fatalf("read the agent's reply: %v", err)
+	}
+	if _, err := io.ReadFull(client, make([]byte, binary.BigEndian.Uint32(header[:]))); err != nil {
+		t.Fatalf("read the agent's reply: %v", err)
+	}
+
+	a.Stop()
+
+	if _, err := client.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Errorf("the client was left open after the agent went away: %v", err)
+	}
+}
+
+// The agent protocol has no read-only mode: the same connection that signs can
+// also empty the agent.  A brokered command that does it breaks authentication
+// to every managed host until the broker restarts, so the relay must refuse it.
+func TestTheExecutorCannotEmptyTheAgent(t *testing.T) {
+	a, _ := startedAgent(t)
+	env := append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
+
+	remove := exec.Command("ssh-add", "-D")
+	remove.Env = env
+	if out, err := remove.CombinedOutput(); err == nil {
+		t.Errorf("ssh-add -D succeeded through the relay: %s", out)
+	}
+
+	list := exec.Command("ssh-add", "-l")
+	list.Env = env
+	out, err := list.CombinedOutput()
+	if err != nil {
+		t.Fatalf("ssh-add -l after the refused request: %v: %s", err, out)
+	}
+	if !strings.Contains(string(out), "faramir-test") {
+		t.Errorf("the key did not survive the refused request: %s", out)
+	}
+}
+
+// The other half of the same problem: a key the executor chose must not end up
+// in the broker's agent, where every later brokered command would use it.
+func TestTheExecutorCannotAddAKeyToTheAgent(t *testing.T) {
+	a, _ := startedAgent(t)
+	theirs := newKey(t, t.TempDir())
+
+	add := exec.Command("ssh-add", theirs)
+	add.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
+	if out, err := add.CombinedOutput(); err == nil {
+		t.Errorf("ssh-add of the executor's own key succeeded: %s", out)
+	}
+
+	list := exec.Command("ssh-add", "-l")
+	list.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
+	out, _ := list.CombinedOutput()
+	if strings.Count(string(out), "faramir-test") != 1 {
+		t.Errorf("the agent holds more than the broker's own key: %s", out)
+	}
+}
+
+// A refused request is answered, not thrown.  ssh sends
+// session-bind@openssh.com whenever agent forwarding is in play, and a
+// connection torn down over one unsupported request costs the client its agent
+// for the rest of the session.
+func TestARefusedRequestIsAnsweredAndTheConnectionSurvives(t *testing.T) {
+	a, _ := startedAgent(t)
+	client, err := net.Dial("unix", a.Env()["SSH_AUTH_SOCK"])
+	if err != nil {
+		t.Fatalf("dial the proxy: %v", err)
+	}
+	defer client.Close()
+	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	// SSH_AGENTC_EXTENSION, which the relay does not forward.
+	if _, err := client.Write([]byte{0, 0, 0, 1, 27}); err != nil {
+		t.Fatalf("write to the proxy: %v", err)
+	}
+	reply := make([]byte, 5)
+	if _, err := io.ReadFull(client, reply); err != nil {
+		t.Fatalf("read the refusal: %v", err)
+	}
+	if want := []byte{0, 0, 0, 1, 5}; !bytes.Equal(reply, want) {
+		t.Errorf("reply = %v, want SSH_AGENT_FAILURE %v", reply, want)
+	}
+
+	// The same connection still lists identities.
+	if _, err := client.Write([]byte{0, 0, 0, 1, 11}); err != nil {
+		t.Fatalf("write to the proxy: %v", err)
+	}
+	var header [4]byte
+	if _, err := io.ReadFull(client, header[:]); err != nil {
+		t.Fatalf("the connection did not survive a refused request: %v", err)
+	}
+	body := make([]byte, binary.BigEndian.Uint32(header[:]))
+	if _, err := io.ReadFull(client, body); err != nil {
+		t.Fatalf("read the identities answer: %v", err)
+	}
+	// SSH_AGENT_IDENTITIES_ANSWER.
+	if body[0] != 12 {
+		t.Errorf("answer type = %d, want 12", body[0])
+	}
+}
+
+// A relay that does not unwind holds its slot for good, and enough of them
+// leave the proxy with none: the same denial the filter exists to prevent,
+// reached through the requests it refuses.
+func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
+	a, _ := startedAgent(t)
+	sock := a.Env()["SSH_AUTH_SOCK"]
+	// More than the cap, so a slot that is never released takes the proxy down.
+	for range maxRelays + 4 {
+		client, err := net.Dial("unix", sock)
+		if err != nil {
+			t.Fatalf("dial the proxy: %v", err)
+		}
+		if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		// SSH_AGENTC_REMOVE_ALL_IDENTITIES, which the relay refuses.
+		if _, err := client.Write([]byte{0, 0, 0, 1, 9}); err != nil {
+			t.Fatalf("write to the proxy: %v", err)
+		}
+		if _, err := io.ReadFull(client, make([]byte, 5)); err != nil {
+			t.Fatalf("read the refusal: %v", err)
+		}
+		_ = client.Close()
+		// The slot is released as the relay goroutine unwinds, which the close
+		// above is what starts.
+		for range 100 {
+			if len(a.slots) == 0 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		if held := len(a.slots); held != 0 {
+			t.Fatalf("%d relay slot(s) still held after a refused request", held)
+		}
+	}
+
+	cmd := exec.Command("ssh-add", "-l")
+	cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+sock)
+	out, err := cmd.CombinedOutput()
+	if err != nil || !strings.Contains(string(out), "faramir-test") {
+		t.Errorf("the proxy stopped serving after refused requests: %v: %s", err, out)
+	}
+}
+
+// An unframed or oversized message is not a request the executor could have
+// meant, and forwarding it is how ssh-agent gets asked to allocate on demand.
+func TestAnOversizedMessageIsRefused(t *testing.T) {
+	a, _ := startedAgent(t)
+	client, err := net.Dial("unix", a.Env()["SSH_AUTH_SOCK"])
+	if err != nil {
+		t.Fatalf("dial the proxy: %v", err)
+	}
+	defer client.Close()
+	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+
+	var header [4]byte
+	binary.BigEndian.PutUint32(header[:], maxAgentMessage+1)
+	if _, err := client.Write(header[:]); err != nil {
+		t.Fatalf("write to the proxy: %v", err)
+	}
+	if _, err := client.Read(make([]byte, 1)); !errors.Is(err, io.EOF) {
+		t.Errorf("the connection outlived an oversized message: %v", err)
+	}
+}
+
+// A relay that works once and then wedges would pass every check the installer
+// makes and fail on the second brokered command.
+func TestTheProxyServesMoreThanOneConnection(t *testing.T) {
+	a, _ := startedAgent(t)
+	for i := range 3 {
+		cmd := exec.Command("ssh-add", "-l")
+		cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("ssh-add -l on connection %d: %v: %s", i+1, err, out)
+		}
+		if !strings.Contains(string(out), "faramir-test") {
+			t.Fatalf("connection %d did not reach the key: %s", i+1, out)
+		}
 	}
 }

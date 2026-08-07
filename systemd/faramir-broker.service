@@ -3,6 +3,13 @@ Description=Secret broker for local AI agents
 Documentation=file:///usr/local/share/doc/faramir/README.md
 Requires=faramir-broker.socket faramir-keeper.socket faramir-exec.socket
 After=faramir-broker.socket faramir-keeper.socket faramir-exec.socket network.target
+# /run/faramir comes from /etc/tmpfiles.d/faramir.conf, so it has to exist, and
+# be owned by this unit's User=, before the mount namespace ReadWritePaths=
+# builds is set up.  Without Wants=, a manual start of this unit alone gets the
+# directory auto-created root:root as the parent of a ListenStream=, and the
+# broker then starts but cannot create ssh-agent.sock in it.
+Wants=systemd-tmpfiles-setup.service
+After=systemd-tmpfiles-setup.service
 
 [Service]
 Type=notify
@@ -49,15 +56,27 @@ DevicePolicy=closed
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
 ReadWritePaths=/var/log/faramir
-RuntimeDirectory=faramir
-# /run/faramir holds the keeper's socket as well as this one; without this,
-# stopping the broker removes the directory and takes keeper.sock with it.
-RuntimeDirectoryPreserve=yes
+# /run/faramir is created by /etc/tmpfiles.d/faramir.conf, NOT by
+# RuntimeDirectory=faramir here.  systemd chowns a RuntimeDirectory recursively
+# whenever the directory's owner does not match the unit's User=, and the three
+# activation sockets live in that directory: the chown rewrites their
+# SocketUser=/SocketGroup= on every start, leaving broker.sock 0660
+# faramir-broker:faramir-broker, which no devwork member can reach.  Writable
+# because the broker creates ssh-agent.sock in it.
+#
+# Leading "-": with the directory owned by tmpfiles rather than by this unit, an
+# absent /run/faramir would otherwise fail the unit with a mount-namespace error
+# at startup instead of the broker reporting what is wrong.
+ReadWritePaths=-/run/faramir
 # The broker's home: SSH keys for managed hosts, and ~/.ansible/tmp, which
 # ansible-playbook creates unconditionally.  It lives here rather than under
 # /home because a service account's state belongs there, not in /home.
 StateDirectory=faramir-broker
 LogsDirectory=faramir
+# Two descriptors per relayed ssh-agent connection, and a playbook authenticates
+# to as many hosts at once as -f allows; the default 1024 is not much headroom
+# once Ansible's own children are counted.
+LimitNOFILE=8192
 # AF_INET/AF_INET6/AF_NETLINK are required: the broker runs Ansible over SSH.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallFilter=@system-service

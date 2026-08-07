@@ -109,6 +109,71 @@ done
 say "operator ${OPERATOR} joins ${GROUP}"
 id -u "$OPERATOR" >/dev/null 2>&1 && usermod -aG "$GROUP" "$OPERATOR"
 
+# The service accounts reach the tree through the agent's home, which useradd
+# creates 0750 agent:agent: a uid in $GROUP cannot traverse it, so an open()
+# under it fails with EACCES, and for a file that is not there the keeper
+# reports that instead of ENOENT.  Group-execute on every component from the
+# home down to the tree, and no read: they pass through without being able to
+# list the agent's home.  A tree outside the home is the operator's to make
+# reachable; nothing here can guess which components are safe to widen.
+#
+# The walk starts at the home, so a passwd entry that names a shared directory
+# would hand $GROUP traversal of every account under it.  Two components at
+# minimum, and never one of the system directories.  Resolved, because that is
+# what the walk operates on: a home of /home/agent -> /home passes any test of
+# the literal path.
+home_real="$(readlink -f "$AGENT_HOME")"
+widenable_home=1
+case "$home_real" in
+  /|/home|/root|/usr|/var|/etc|/opt|/srv|/tmp|/run) widenable_home=0 ;;
+  /*/*) ;;
+  *) widenable_home=0 ;;
+esac
+if [[ $widenable_home == 0 ]]; then
+  say "WARNING: not widening ${home_real}: that is a shared directory, not a home"
+elif [[ $WORKTREE == "$AGENT_HOME"/* ]]; then
+  say "group traversal ${AGENT_HOME} -> ${WORKTREE}"
+  # Walk the resolved home: a home that is itself a symlink is an ordinary
+  # arrangement, and the directory that needs the traversal bit is the target.
+  component="$home_real"
+  remainder="${WORKTREE#"${AGENT_HOME}"/}"
+  while :; do
+    # chgrp and chmod follow symlinks, so a component that is one, or that
+    # resolves outside the home, would widen a directory the operator never
+    # named.
+    component_real="$(readlink -f "$component")"
+    if [[ -L $component ]]; then
+      say "not widening ${component}: it is a symlink"
+      break
+    fi
+    if [[ $component_real != "$home_real" && $component_real != "$home_real"/* ]]; then
+      say "not widening ${component}: it resolves outside ${home_real}"
+      break
+    fi
+    # As the agent, not as root.  The test above and the change below are
+    # separate syscalls on a path the agent owns, so it could swap a component
+    # for a link to /etc in between; done under its own uid, chgrp and chmod
+    # then fail with EPERM instead of taking /etc to 0710.  The agent owns every
+    # directory in this walk and is in $GROUP, which is what both calls require.
+    #
+    # o-rwx as well as g=x: chmod g=x rewrites the group class only, and
+    # useradd's HOME_MODE leaves the other bits set on hosts where login.defs
+    # does not override it, which would leave the home listable by any uid.
+    if ! runuser -u "$AGENT_USER" -- chgrp "$GROUP" "$component" 2>/dev/null ||
+       ! runuser -u "$AGENT_USER" -- chmod o-rwx,g=x "$component" 2>/dev/null; then
+      say "WARNING: ${AGENT_USER} cannot widen ${component}; it does not own it."
+      say "         Give ${GROUP} traversal of it yourself, or the keeper cannot"
+      say "         reach ${WORKTREE}."
+      break
+    fi
+    # The last component is the tree itself, which the block below owns.
+    [[ $remainder == */* ]] || break
+    component="${component}/${remainder%%/*}"
+    remainder="${remainder#*/}"
+    [[ -d $component ]] || break
+  done
+fi
+
 if [[ -d $WORKTREE ]]; then
   say "shared working tree ${WORKTREE}"
   chgrp -R "$GROUP" "$WORKTREE"

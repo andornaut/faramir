@@ -20,6 +20,7 @@ import (
 type fakeKeeper struct {
 	mu     sync.Mutex
 	values map[string]string
+	errors []string
 	ln     net.Listener
 	path   string
 }
@@ -49,7 +50,11 @@ func serveFakeKeeper(t *testing.T, path string, values map[string]string) *fakeK
 			// surfaces as an intermittently empty value set.
 			_, _ = sockutil.ReadLine(conn, 1<<16)
 			k.mu.Lock()
-			payload := map[string]any{"values": k.values, "errors": []string{}}
+			errors := k.errors
+			if errors == nil {
+				errors = []string{}
+			}
+			payload := map[string]any{"values": k.values, "errors": errors}
 			k.mu.Unlock()
 			_ = sockutil.Send(conn, payload)
 			_ = conn.Close()
@@ -63,6 +68,12 @@ func (k *fakeKeeper) set(values map[string]string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 	k.values = values
+}
+
+func (k *fakeKeeper) setErrors(errors []string) {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+	k.errors = errors
 }
 
 func newStore(t *testing.T, keeper *fakeKeeper, files ...string) *Store {
@@ -391,6 +402,80 @@ func TestAnUnreadableFileIsFatal(t *testing.T) {
 
 	if len(s.FatalLoadErrors()) == 0 {
 		t.Error("a file that could not be stat'd was reported as a healthy install")
+	}
+}
+
+// The keeper runs as its own uid and may not be able to traverse the path to a
+// managed file, in which case it reports EACCES for a file that does not exist.
+// The broker can stat it, so it is the one that can tell the difference, and a
+// file that is not there yet is the not-yet-migrated state.
+func TestAKeeperErrorAboutAMissingFileIsNotFatal(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "absent.sops.yml")
+	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k.setErrors([]string{absent + ": decrypt failed (2): Error reading file: open " +
+		absent + ": permission denied"})
+	s := newStore(t, k, absent)
+	s.Reload()
+
+	if fatal := s.FatalLoadErrors(); len(fatal) != 0 {
+		t.Errorf("a keeper error about a file that does not exist was treated as a "+
+			"broken install: %v", fatal)
+	}
+	if len(s.LoadErrors) == 0 {
+		t.Error("the keeper error was dropped instead of reported")
+	}
+}
+
+// The loosening above is scoped to a file the broker found absent.  One that is
+// there and did not decrypt still leaves the broker unable to redact its value.
+func TestAKeeperErrorAboutAnExistingFileIsFatal(t *testing.T) {
+	managed := filepath.Join(t.TempDir(), "v.sops.yml")
+	if err := os.WriteFile(managed, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k.setErrors([]string{managed + ": decrypt failed (2): no key"})
+	s := newStore(t, k, managed)
+	s.Reload()
+
+	if len(s.FatalLoadErrors()) == 0 {
+		t.Error("a file that exists and did not decrypt was reported as a healthy install")
+	}
+}
+
+// The loosening is scoped by reason as well as by path.  The two processes are
+// separately sandboxed and can disagree about whether a file exists, so a
+// reason only a file the keeper did read can produce stays fatal: downgrading
+// it would leave the broker running with values missing from the redactor,
+// which is what --check exists to catch.
+func TestAKeeperErrorAMissingFileCannotExplainIsFatal(t *testing.T) {
+	absent := filepath.Join(t.TempDir(), "absent.sops.yml")
+	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k.setErrors([]string{absent + ": decrypted output is not JSON: unexpected end of JSON input"})
+	s := newStore(t, k, absent)
+	s.Reload()
+
+	if len(s.FatalLoadErrors()) == 0 {
+		t.Error("a file the keeper decrypted was written off as not yet created")
+	}
+}
+
+// Stat follows symlinks, so a managed file whose target was moved reports
+// ENOENT for a path that is really there.  That is a broken install rather than
+// the not-yet-migrated state, and it must not silence the keeper's error.
+func TestADanglingSymlinkIsFatal(t *testing.T) {
+	dir := t.TempDir()
+	managed := filepath.Join(dir, "v.sops.yml")
+	if err := os.Symlink(filepath.Join(dir, "moved.sops.yml"), managed); err != nil {
+		t.Fatal(err)
+	}
+	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k.setErrors([]string{managed + ": decrypt failed (2): Error reading file: no such file"})
+	s := newStore(t, k, managed)
+	s.Reload()
+
+	if len(s.FatalLoadErrors()) == 0 {
+		t.Error("a managed file whose symlink target is gone was reported as a healthy install")
 	}
 }
 

@@ -155,6 +155,11 @@ for unit in faramir-broker.socket faramir-broker.service \
   install -m 0644 "$REPO/systemd/${unit}" "/etc/systemd/system/${unit}"
 done
 
+# /run/faramir belongs to tmpfiles, not to a RuntimeDirectory= on any unit:
+# systemd chowns a RuntimeDirectory recursively and would rewrite the ownership
+# systemd itself gave the sockets in it.  See the file's own comment.
+install -m 0644 "$REPO/systemd/faramir.tmpfiles.conf" /etc/tmpfiles.d/faramir.conf
+
 # No drop-ins.  The units name no working tree: the broker and the keeper only
 # read it, which ProtectSystem=strict already allows, and the executor is
 # granted /home, where modes decide what it can actually write.  The tree's
@@ -165,15 +170,26 @@ done
 if systemctl is-system-running --quiet 2>/dev/null || [[ -d /run/systemd/system ]]; then
   HAVE_SYSTEMD=1
   systemctl daemon-reload
+  systemd-tmpfiles --create /etc/tmpfiles.d/faramir.conf
 else
   HAVE_SYSTEMD=0
   say "systemd is not running here; units installed but not started"
 fi
 
 if [[ $HAVE_SYSTEMD -eq 1 && -f /etc/faramir/age.key ]]; then
+  # Nothing in this block is fatal, under set -e or otherwise: a unit that will
+  # not start is exactly when the --check gate below and systemd-analyze have
+  # something to say, and aborting here would replace their output with a raw
+  # systemctl error.
+  #
   # The keeper and the executor first: the broker talks to both.
   systemctl enable --now \
-    faramir-keeper.socket faramir-exec.socket faramir-broker.socket
+    faramir-keeper.socket faramir-exec.socket faramir-broker.socket || true
+  # Restart, not just enable --now: an already-active socket keeps whatever
+  # ownership its file was left with, and the services below have to pick up
+  # the new listeners anyway.
+  systemctl restart \
+    faramir-keeper.socket faramir-exec.socket faramir-broker.socket || true
   for unit in faramir-keeper faramir-exec faramir-broker; do
     systemctl restart "${unit}.service" || true
   done
@@ -187,8 +203,13 @@ elif [[ ! -f /etc/faramir/age.key ]]; then
   say "  systemctl enable --now faramir-keeper.socket faramir-exec.socket faramir-broker.socket"
 fi
 
-say "validating the installed config"
-/usr/local/bin/faramir-broker -c /etc/faramir/config.toml --check || {
+say "validating the installed config as ${BROKER_USER}"
+# As the broker's own uid, not root: --check opens the SSH keys and the secrets
+# files itself, and root reads what the broker cannot.  A key left root:root
+# would otherwise pass here and leave every brokered command unable to
+# authenticate against any host.
+runuser -u "$BROKER_USER" -- \
+  /usr/local/bin/faramir-broker -c /etc/faramir/config.toml --check || {
   say "validation FAILED -- fix /etc/faramir/config.toml, or lengthen any secret"
   say "reported under not_redactable, before enabling the unit"
   exit 1

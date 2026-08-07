@@ -3,11 +3,11 @@
 Two sockets, the same shape on both: newline-delimited JSON, one request, one
 response, one connection, no framing beyond the newline.
 
-| Socket | Who may connect | What it does |
-|---|---|---|
-| `/run/faramir/broker.sock` | the agent (`0660 root:devwork`) | run commands, list refs |
-| `/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values |
-| `/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY |
+Socket | Who may connect | What it does
+--- | --- | ---
+`/run/faramir/broker.sock` | the agent (`0660 root:devwork`) | run commands, list refs
+`/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values
+`/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY
 
 The internal sockets are root-owned so that neither the keeper's nor the
 executor's own uid can connect to them: a child that could reach the executor
@@ -30,12 +30,12 @@ than `[server] max_request_bytes` is refused.
 }
 ```
 
-| Field | Required | Notes |
-|---|---|---|
-| `cmd` | yes | **Array.** A string is rejected with guidance; the broker never runs `sh -c` for you. |
-| `cwd` | no | Absolute, and must exist. Defaults to `[exec] default_cwd`. A relative `cmd[0]` resolves against it. |
-| `env_refs` | no | `NAME` → `secret://ref`. Values are impossible to pass; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved. |
-| `timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`. |
+Field | Required | Notes
+--- | --- | ---
+`cmd` | yes | **Array.** A string is rejected with guidance; the broker never runs `sh -c` for you.
+`cwd` | no | Absolute, and must exist. Defaults to `[exec] default_cwd`. A relative `cmd[0]` resolves against it.
+`env_refs` | no | `NAME` → `secret://ref`. Values are impossible to pass; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved.
+`timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`.
 
 ### `list_secrets`
 
@@ -93,20 +93,20 @@ operator.
 }
 ```
 
-| Code | Meaning |
-|---|---|
-| `bad_request` | Malformed request, bad env var name, reserved env var name, a `secret://` reference that is not well formed, `cwd` that does not exist |
-| `unknown_secret` | The ref does not exist in any managed file, or was refused at load as not redactable |
-| `busy` | At `[server] max_concurrency`; retry |
-| `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started |
-| `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`) |
-| `too_large` | Request exceeded `[server] max_request_bytes` |
-| `timeout` | The connection was opened but no request arrived within 30s |
+Code | Meaning
+--- | ---
+`bad_request` | Malformed request, bad env var name, reserved env var name, a `secret://` reference that is not well formed, `cwd` that does not exist
+`unknown_secret` | The ref does not exist in any managed file, or was refused at load as not redactable
+`busy` | At `[server] max_concurrency`; retry
+`exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
+`forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`)
+`too_large` | Request exceeded `[server] max_request_bytes`
+`timeout` | The connection was opened but no request arrived within 30s
 
 There is no command allowlist, so there is no `denied`. Errors are deliberately
-specific about what failed and where to fix it -- a program that is not on
-`[exec.base_env] PATH` says so and names the setting -- so the agent can correct
-itself in one turn instead of guessing.
+specific about what failed and where to fix it, so the agent can correct itself
+in one turn instead of guessing. A program that is not on `[exec.base_env] PATH`
+says so and names the setting.
 
 ## Authentication
 
@@ -170,9 +170,9 @@ directly rather than through a second hop. Both sides close their copy of the
 slave once the child holds it, or the master never reaches EOF.
 
 `argv[0]` arrives already resolved to an absolute path; the executor checks
-nothing about it. What bounds a brokered command is the uid it runs as -- no
-age key, no audit log, no SSH key -- and the mode on this socket, which the
-executor's own uid cannot open.
+nothing about it. What bounds a brokered command is the uid it runs as (no age
+key, no audit log, no SSH key) and the mode on this socket, which the executor's
+own uid cannot open.
 
 The executor owns the timeout, because it owns the process group. **Closing
 the connection is how the broker says "give up"**, and the child's process

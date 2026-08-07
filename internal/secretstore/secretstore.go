@@ -24,6 +24,7 @@ import (
 	"maps"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -92,11 +93,18 @@ func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
 func (s *Store) Reload() {
 	var state []fileState
 	var errors, fatal []string
+	missing := map[string]bool{}
 	for _, path := range s.config.Files {
 		info, err := os.Stat(path)
 		if err != nil {
 			errors = append(errors, path+": "+err.Error())
-			if !os.IsNotExist(err) {
+			// Stat follows symlinks, so a link whose target was moved reports
+			// ENOENT for a path that is really there.  Lstat is what tells the
+			// not-yet-created file apart from the broken link, and only the
+			// first is the not-yet-migrated state.
+			if os.IsNotExist(err) && !lexists(path) {
+				missing[path] = true
+			} else {
 				fatal = append(fatal, path+": "+err.Error())
 			}
 			continue
@@ -120,10 +128,19 @@ func (s *Store) Reload() {
 			"and retrying on the next request: %v", err)
 		return
 	}
-	// A keeper error names a file it could not decrypt, so the file exists and
-	// failed: always fatal.
+	// A keeper error names a file it could not decrypt, which leaves the broker
+	// serving fewer values than it is configured for: fatal.  The exception is a
+	// file this process just saw was absent, failing for a reason that absence
+	// explains.  The keeper reads through a different uid and reaches the file by
+	// a path it may not be able to traverse, so it reports EACCES for a file that
+	// is not there at all, and a file that does not exist yet is the
+	// not-yet-migrated state.
 	errors = append(errors, keeperErrors...)
-	fatal = append(fatal, keeperErrors...)
+	for _, keeperError := range keeperErrors {
+		if !explainedByAMissingFile(missing, keeperError) {
+			fatal = append(fatal, keeperError)
+		}
+	}
 
 	// A value the redactor cannot cover is not loaded at all.  Serving it would
 	// put it in a child's environment with nothing to catch it on the way out,
@@ -158,6 +175,46 @@ func (s *Store) Reload() {
 	}
 	log.Printf("loaded %d secret refs from %d file(s), %d refused as not redactable",
 		len(redactable), len(state), len(refused))
+}
+
+// lexists reports whether the path itself is there, symlink target or not.
+func lexists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
+}
+
+// reasons the keeper only reports for a file it did read, or for an install
+// that is broken however the file is arranged.  A path prefix alone does not
+// make one of these harmless: the two processes are separately sandboxed and
+// can disagree about whether a path exists (a differing mount namespace, a
+// symlink that resolves elsewhere), and downgrading these would leave the
+// broker running with values missing from the redactor, which is the failure
+// --check exists to catch.
+var reasonsAMissingFileCannotCause = []string{
+	"decrypted output is not JSON",
+	"[secrets] decrypt_command is empty",
+	"running ",
+}
+
+// explainedByAMissingFile reports whether a keeper error is about a file the
+// broker found absent, for a reason that absence explains.  The keeper formats
+// each one as "<path>: <reason>", and matching the prefix rather than splitting
+// on ": " keeps a path that contains one from being misread as a shorter path
+// with a longer reason.
+func explainedByAMissingFile(missing map[string]bool, keeperError string) bool {
+	for path := range missing {
+		if !strings.HasPrefix(keeperError, path+": ") {
+			continue
+		}
+		reason := keeperError[len(path)+len(": "):]
+		for _, proof := range reasonsAMissingFileCannotCause {
+			if strings.HasPrefix(reason, proof) {
+				return false
+			}
+		}
+		return true
+	}
+	return false
 }
 
 // RefreshIfStale is a cheap mtime poll; it reloads when a managed file changed,

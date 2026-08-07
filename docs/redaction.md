@@ -75,15 +75,15 @@ prepends it to the next chunk.
 
 For every secret, these renderings are generated and matched:
 
-| Variant | Produced by |
-|---|---|
-| raw | anything |
-| base64, padded and unpadded | `\| base64`, `\| base64 -w0`, JSON payloads, `Authorization: Basic` |
-| base64 URL-safe | JWTs, signed URLs |
-| percent-encoded (`quote` and `quote_plus`) | any URL containing a credential |
-| JSON string-escaped | `-vvv` output, API responses, structured logging |
-| shell single-quoted body (`'\''`) | `set -x` traces |
-| shell double-quoted body (`\$`, `` \` ``, `\"`) | `set -x` traces |
+Variant | Produced by
+--- | ---
+raw | anything
+base64, padded and unpadded | `\| base64`, `\| base64 -w0`, JSON payloads, `Authorization: Basic`
+base64 URL-safe | JWTs, signed URLs
+percent-encoded (`quote` and `quote_plus`) | any URL containing a credential
+JSON string-escaped | `-vvv` output, API responses, structured logging
+shell single-quoted body (`'\''`) | `set -x` traces
+shell double-quoted body (`\$`, `` \` ``, `\"`) | `set -x` traces
 
 Not exhaustive, and deliberately so: an agent that *wants* to defeat this can
 (see the threat model). These are the encodings ordinary tools produce by
