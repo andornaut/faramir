@@ -13,6 +13,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"strings"
@@ -203,7 +204,25 @@ func callTool(name string, arguments map[string]any) map[string]any {
 	var request map[string]any
 	switch name {
 	case "faramir_run":
-		cmd, _ := arguments["cmd"].([]any)
+		// Writing cmd as a shell string is the likeliest way to call this
+		// wrong.  Without this the assertion yields nil, the broker is sent a
+		// null argv, and its reply is about a malformed request rather than
+		// about the shell string that caused it.
+		cmd, ok := arguments["cmd"].([]any)
+		if !ok {
+			return textResult("cmd must be an array of strings, not a shell string. "+
+				`Use cmd=["ansible-playbook","site.yml"], or `+
+				`cmd=["bash","-lc","a | b"] when you need a pipeline.`, true)
+		}
+		if len(cmd) == 0 {
+			return textResult("cmd must name a program: it is an empty array.", true)
+		}
+		for i, arg := range cmd {
+			if _, isString := arg.(string); !isString {
+				return textResult(fmt.Sprintf(
+					"cmd[%d] is %T, but every element must be a string.", i, arg), true)
+			}
+		}
 		request = map[string]any{"op": "exec", "cmd": cmd}
 		for _, key := range []string{"env_refs", "cwd", "timeout_sec"} {
 			if v, ok := arguments[key]; ok && v != nil {
@@ -244,9 +263,12 @@ func handle(m *message) map[string]any {
 
 	switch {
 	case m.Method == "initialize":
-		negotiated := m.Params.ProtocolVersion
-		if negotiated == "" {
-			negotiated = protocolVersion
+		// Echo the client's version only when it is one this server speaks.
+		// Echoing whatever arrived claims support for any version a client
+		// cares to name, and the client then holds the server to it.
+		negotiated := protocolVersion
+		if m.Params.ProtocolVersion == protocolVersion {
+			negotiated = m.Params.ProtocolVersion
 		}
 		result = map[string]any{
 			"protocolVersion": negotiated,
@@ -299,11 +321,14 @@ func run(args []string) int {
 			return 0
 		}
 	}
+	return serve(os.Stdin, os.Stdout)
+}
 
-	in := bufio.NewScanner(os.Stdin)
+func serve(stdin io.Reader, stdout io.Writer) int {
+	in := bufio.NewScanner(stdin)
 	// A tools/call response can carry a whole command's output.
 	in.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
-	out := bufio.NewWriter(os.Stdout)
+	out := bufio.NewWriter(stdout)
 	defer out.Flush()
 
 	for in.Scan() {
@@ -322,6 +347,13 @@ func run(args []string) int {
 		if response := handle(&m); response != nil {
 			emit(out, response)
 		}
+	}
+	// A read that failed is not a clean end of input.  Returning 0 here would
+	// have the agent's client see the server exit successfully mid-session,
+	// with the last request simply unanswered.
+	if err := in.Err(); err != nil {
+		fmt.Fprintln(os.Stderr, "faramir-mcp: "+err.Error())
+		return 1
 	}
 	return 0
 }
