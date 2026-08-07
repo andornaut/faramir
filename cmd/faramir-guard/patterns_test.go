@@ -75,3 +75,41 @@ func TestTheShippedFileDeniesTheDocumentedCases(t *testing.T) {
 		t.Error("shipped file denied a piped env")
 	}
 }
+
+// faramir_run's own description tells the model that transformed output
+// (base64, rev, cut) is a policy violation rather than a puzzle.  Denying cat
+// while allowing the encoders makes that claim false and the rule look
+// arbitrary, which is the opposite of what a hook that teaches should do.
+func TestReadingKeyMaterialThroughAnEncoderIsDeniedToo(t *testing.T) {
+	abs, err := filepath.Abs(shippedPatterns)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_DENY_PATTERNS", abs)
+
+	for _, cmd := range []string{
+		"cat /var/lib/faramir-keeper/age.key",
+		"base64 /var/lib/faramir-keeper/age.key",
+		"base32 ~/.ssh/id_rsa",
+		"hexdump -C secrets.yml",
+		"rev group_vars/all/vault.sops.yml",
+		"tac .env",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("shipped file did not deny %q", cmd)
+		}
+	}
+
+	// The migration runbook runs this, and the guard must not block a
+	// documented operator step.  "sed" is deliberately absent from the reader
+	// list: it edits far more often than it dumps.
+	for _, cmd := range []string{
+		`sed -i '/^vault_password_file/d' ansible.cfg`,
+		"base64 /tmp/screenshot.png",
+		"ansible-playbook site.yml --check",
+	} {
+		if _, denied := decide(cmd); denied {
+			t.Errorf("shipped file denied %q, which is not a disclosure", cmd)
+		}
+	}
+}

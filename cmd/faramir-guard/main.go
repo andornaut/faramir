@@ -56,7 +56,7 @@ var fallback = []string{
 	`\bdeclare\s+-x\b`,
 	`/proc/\d+/environ`,
 	`/proc/self/environ`,
-	`\b(cat|less|more|head|tail|bat|xxd|od|strings)\b.*` +
+	`\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b.*` +
 		`(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials)`,
 	`\b(cat|less|more|head|tail)\b.*/etc/faramir`,
 	`\bfind\b.*-name.*(age\.key|\.env|id_rsa)`,
