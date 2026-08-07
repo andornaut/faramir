@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -196,5 +197,57 @@ func TestSafeDetailRedactsAValue(t *testing.T) {
 	}
 	if !strings.Contains(got, "«SECRET:a/b»") {
 		t.Errorf("no token in %q", got)
+	}
+}
+
+// -- the SSH keys the broker is configured to lend ---------------------------
+
+// A key named in the config but absent is the other way an install comes up
+// healthy and does nothing: the broker starts, every socket is active, and no
+// brokered command can reach a host that expects that key.  --check is the
+// install gate, so it has to fail on it.
+func TestCheckFailsOnAConfiguredSSHKeyThatIsMissing(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	s.Config.Ssh.Keys = []string{filepath.Join(t.TempDir(), "absent_ed25519")}
+
+	body, code := s.CheckOutput()
+	if code == 0 {
+		t.Error("a missing SSH key passed the install gate")
+	}
+	var report struct {
+		Ssh struct {
+			Keys []struct {
+				Path     string `json:"path"`
+				Readable bool   `json:"readable"`
+			} `json:"keys"`
+		} `json:"ssh"`
+	}
+	if err := json.Unmarshal(body, &report); err != nil {
+		t.Fatal(err)
+	}
+	if len(report.Ssh.Keys) != 1 || report.Ssh.Keys[0].Readable {
+		t.Errorf("report does not name the unreadable key: %+v", report.Ssh.Keys)
+	}
+}
+
+func TestCheckPassesOnAReadableSSHKey(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	key := filepath.Join(t.TempDir(), "id_ed25519")
+	if err := os.WriteFile(key, []byte("not really a key\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.Config.Ssh.Keys = []string{key}
+
+	if _, code := s.CheckOutput(); code != 0 {
+		t.Errorf("a readable key failed the gate")
+	}
+}
+
+// Empty is a deliberate configuration, not a fault.
+func TestCheckPassesWhenNoSSHKeysAreConfigured(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	s.Config.Ssh.Keys = nil
+	if _, code := s.CheckOutput(); code != 0 {
+		t.Error("an empty [ssh] keys failed the gate")
 	}
 }

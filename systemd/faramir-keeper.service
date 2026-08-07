@@ -35,12 +35,10 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# tmpfs, not true: the sops files live in the working tree, usually under
-# /home, and this is the only process that decrypts them.  Read-only -- the
-# keeper never writes the tree.  install/30-install-broker.sh writes
-# faramir-keeper.service.d/10-worktree.conf with the configured tree.
-ProtectHome=tmpfs
-BindReadOnlyPaths=-/home/agent/work/repo
+# No ProtectHome=: this process reads the sops files in the working tree and
+# nothing else under /home, and ProtectSystem=strict already makes the whole
+# hierarchy read-only.  What guards the key is its mode and LoadCredential=,
+# neither of which a tmpfs over /home has anything to do with.
 PrivateTmp=true
 PrivateDevices=true
 # Somewhere for sops to put ~/.config; it writes nothing that outlives a run.
@@ -64,9 +62,8 @@ RemoveIPC=true
 UMask=0077
 
 # The managed sops files must be readable here.  Under ProtectSystem=strict the
-# whole tree is read-only but visible, so a [secrets] file outside /home works
-# with no drop-in at all; one under /home needs the bind mount above to name
-# the tree it is in, which is what the installer writes.
+# whole hierarchy is read-only but visible, so a [secrets] file is readable
+# wherever the operator keeps it, subject to its own mode.
 
 [Install]
 WantedBy=multi-user.target

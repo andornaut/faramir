@@ -34,17 +34,13 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# tmpfs, not true: the working tree usually lives under /home, and the broker
-# has to stat the sops files in it.  ProtectHome=true would hide them, and the
-# broker would report every ref as missing.  The bind mount below is the only
-# thing visible under /home, read-only -- the broker never writes the tree.
-#
-# This is the default worktree only.  install/30-install-broker.sh writes
-# faramir-broker.service.d/10-worktree.conf with the configured one, which
-# matters when AGENT_USER or WORKTREE is set.  The leading '-' keeps the unit
-# startable before the tree has been cloned.
-ProtectHome=tmpfs
-BindReadOnlyPaths=-/home/agent/work/repo
+# No ProtectHome=: the broker only reads the sops files in the working tree,
+# and ProtectSystem=strict already mounts the whole hierarchy read-only.  There
+# was a tmpfs over /home with one bind mount punched through it, which meant the
+# tree's path had to be repeated in a drop-in here and kept in step with the
+# config.  What it bought over file modes was nothing: a home this uid may not
+# read is one the mode already refuses, and a home it may read is one the agent
+# uid can read directly without going through the broker at all.
 PrivateTmp=true
 # PrivateDevices would hide /dev/ptmx, and the broker allocates a PTY for every
 # child (see docs/redaction.md).  Narrow the device ACL instead of dropping it.
@@ -59,7 +55,7 @@ RuntimeDirectory=faramir
 RuntimeDirectoryPreserve=yes
 # The broker's home: SSH keys for managed hosts, and ~/.ansible/tmp, which
 # ansible-playbook creates unconditionally.  It lives here rather than under
-# /home precisely because ProtectHome= would otherwise hide it.
+# /home because a service account's state belongs there, not in /home.
 StateDirectory=faramir-broker
 LogsDirectory=faramir
 # AF_INET/AF_INET6/AF_NETLINK are required: the broker runs Ansible over SSH.
@@ -100,9 +96,10 @@ UMask=0077
 #       That is the broker's own listening socket.
 #   SupplementaryGroups=
 #       devwork, so the broker can stat the sops files in the working tree.
-#   ProtectHome=tmpfs + BindReadOnlyPaths=
-#       /home is an empty tmpfs except for one read-only bind mount of the
-#       working tree.  ProtectHome=true would hide the sops files with it.
+#   ProtectHome=
+#       Removed.  It hid other users' homes from a process that file modes
+#       already keep out of them, and cost a bind mount whose path had to agree
+#       with the config.  See "Architecture" in the README.
 #   SystemCallFilter=~@privileged, ~@resources
 #       Both are inside @system-service.  Ansible's file/user modules call
 #       chown and friends; dropping these breaks ordinary playbooks.

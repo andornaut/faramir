@@ -92,8 +92,8 @@ toolchain on the target, so building on one machine and copying `bin/` to
 another works: `sudo FARAMIR_BIN=/opt/faramir/bin make install`.
 
 A `CONFIG` that names the tree literally instead of through `@WORKTREE@` is
-refused at install time rather than silently disagreeing with the bind mounts,
-which would fail per command with `cwd does not exist`.
+refused at install time rather than quietly running commands somewhere the
+operator did not name.
 
 `install/uninstall.sh` removes the broker and leaves the accounts, `/etc/faramir` and the audit log alone: deleting the age key would make every sops file in the repo unreadable, which is not a decision a teardown script should make for you.
 
@@ -149,6 +149,24 @@ faramir run --quiet -C /home/agent/work/repo -t 120 -- ansible-playbook site.yml
 stderr), `--cwd`/`-C`, `--timeout`/`-t`, and `--env` once per secret. The
 child's exit code is `faramir`'s own, so a script can branch on it; a broker
 that is not running exits 69 (`EX_UNAVAILABLE`) instead.
+
+A command that needs many credentials takes `--env-file` instead of repeating
+`--env`, which is how one gets quietly dropped from one call site:
+
+```bash
+faramir run --env-file deploy.env -- ansible-playbook site.yml
+```
+
+```text
+# deploy.env: NAME=secret://ref, one per line, # for a comment
+ROUTER_PW=secret://home/router/admin
+API_TOKEN=secret://home/api/token
+```
+
+The file holds refs and never values, so it is ordinary reviewable content that
+belongs beside the playbook it serves. A literal value in it is refused, naming
+the file and the line. An explicit `--env` overrides an entry of the same name,
+so a wrapper can substitute one without rewriting the file.
 
 A bare command name is looked up on `[exec.base_env] PATH`, which is the PATH
 the child itself gets, so a tool in a venv or a pipx install is reached by
@@ -228,6 +246,7 @@ These decisions were made deliberately; the rationale is recorded so they are no
 
 Decision | Choice | Rationale
 --- | --- | ---
+Filesystem isolation | None beyond file modes and `ProtectSystem=strict`. | The three units used to put a tmpfs over `/home` and bind the working tree back in. Against this threat model it protected nothing: a home the executor's uid may not read is one the mode already refuses, and a home it may read is one the *agent* uid can read directly, without the broker. What it cost was the tree's path repeated in three drop-ins that had to agree with the config, and a failure mode where an install came up clean and every command died with `cwd does not exist`. The path now appears in one place, the config, and the executor names only `/home` as writable, where modes do the rest.
 Isolation | Unix uid separation + systemd hardening. No Docker, Podman or bubblewrap. | Network isolation was the main thing containers made easy, and it is a non-goal. Everything else comes straight from the kernel and systemd. A sandbox confines what a child *sees*; it cannot make a directory its owner can rewrite from outside hold still, and it is not a substitute for a uid that holds nothing.
 Where commands run | The agent's own working tree, directly. | There used to be a `/srv` checkout, promoted into by a commit-then-`faramir_sync` gate. It was justified as stopping the agent from getting `debug: var=<secret>` executed, which it never did: the agent could commit that and sync it, and verification test 7 shows exactly that content running. What it actually bought was an immutable snapshot (against an agent editing a file mid-run) and a commit sha in the audit log. Both are properties against a *deliberate* agent, which is out of scope, and the cost was a commit per iteration plus a bind-mount/config pair that had to be kept in sync by hand.
 Who executes | The broker, as its own uid. Never the agent. | If the client execs, plaintext lives in a process owned by the agent uid, which the agent can read.
@@ -261,6 +280,8 @@ group devwork                 shared access to the working tree
 ```
 
 All three service accounts are in `devwork`, because all three need the working tree: the keeper decrypts the sops files in it, the broker stats them to notice edits, and brokered commands run in it. That is access to files the agent already owns; it is not a route to anything the agent could not reach itself.
+
+What keeps a brokered command out of everything else is the ordinary file mode, not a mount namespace. `ProtectSystem=strict` makes the whole hierarchy read-only, and the executor names one writable path, `/home`, where the only thing its uid can actually write is the group-writable tree: homes are 0700, and `~agent/.claude` is 0700 `agent`.
 
 Three uids, because anything a uid can reach, a command running as that uid can reach. What a brokered command cannot do, and why:
 
@@ -358,15 +379,16 @@ The permission checks in tests 1 through 2b, and 9a/9b, only mean something on a
 - **`systemctl reload faramir-broker`** after editing a sops file it manages; it also picks up mtime changes within `refresh_interval_sec`, and retries within the same interval when the previous attempt could not reach the keeper. The broker stats the files itself and asks the keeper to decrypt, so a reload needs both services running. One refresh-driven reload runs at a time, so concurrent requests do not each start their own; `refresh_interval_sec = 0` means "check on every request" and is bounded only by that.
 - **The keeper and the executor must both be up.** `faramir-broker.service` requires both sockets. With no executor every command fails with `exec_failed`; with no keeper, see below.
 - **The keeper must be up before the broker is useful.** With no keeper the broker keeps whatever value set it already had and logs the failure; on a cold start that set is empty, which means nothing gets redacted. It retries on the next request after `refresh_interval_sec`, so a keeper that comes back is picked up on its own without a reload. Check `systemctl status faramir-keeper` first when tokens stop appearing.
-- **The keeper needs the sops files visible.** They live in the working tree, so its unit sets `ProtectHome=tmpfs` and the installer binds that one path in read-only. A `[secrets] files` entry outside the tree is visible as-is under `ProtectSystem=strict`; one somewhere else under `/home` needs its own `BindReadOnlyPaths=` drop-in.
-- **The broker's home is `/var/lib/faramir-broker`, not `/home/faramir-broker`.** It needs a writable home, because it holds the SSH keys for managed hosts and `ansible-playbook` creates `~/.ansible/tmp` unconditionally, and the unit sets `ProtectHome=tmpfs`, which would hide a home under `/home` from the very process that needs it. `install/10-accounts.sh` sets this up; an account created by hand with `useradd -M` will fail with `Unable to create local directories`.
-- **The working tree and the units' bind mounts must name the same path.** `/home` is an empty tmpfs inside all three units apart from a bind mount of that tree, so a tree that is not bound in is invisible no matter what the config says: the keeper reports every ref as missing and the executor fails with `cwd does not exist`. `install/30-install-broker.sh` writes all three drop-ins from the `WORKTREE` it was given and rewrites the config to match, and warns when an existing `config.toml` disagrees. Moving the tree by hand afterwards means editing `10-worktree.conf` in each of `faramir-broker.service.d`, `faramir-keeper.service.d` and `faramir-exec.service.d`, or re-running the installer.
+- **`[secrets] files` may live anywhere the keeper's uid can read.** `ProtectSystem=strict` leaves the whole hierarchy visible and read-only, so a path outside the working tree needs no unit change; its own mode is what decides.
+- **The broker's home is `/var/lib/faramir-broker`, not `/home/faramir-broker`.** It needs a writable home, because it holds the SSH keys for managed hosts and `ansible-playbook` creates `~/.ansible/tmp` unconditionally, and `StateDirectory=` is what grants it. `install/10-accounts.sh` sets this up; an account created by hand with `useradd -M` will fail with `Unable to create local directories`.
+- **The working tree's path lives in the config and nowhere else.** Moving it means editing `[exec] default_cwd` and `[secrets] files`, or re-running `install/30-install-broker.sh` with a new `WORKTREE`. The units name no tree and the installer writes no drop-ins: the broker and the keeper only read the tree, which `ProtectSystem=strict` already allows, and the executor is granted `/home`, where modes decide what it can actually write. A tree outside `/home` is the one case needing a drop-in, adding its path to the executor's `ReadWritePaths=`.
 - **Children do not inherit the broker's environment.** The child gets exactly `[exec.base_env]` plus its injected secrets. If a tool works for you but not through the broker, an environment variable is usually the reason. Add it to `base_env` rather than widening anything else.
 - **Interactive prompts fail, they do not hang.** The child owns a PTY for output, but its stdin is `/dev/null`, so a command that waits for input gets EOF immediately. Pass the non-interactive flags.
 - **Output is truncated** at `max_output_bytes` (1 MiB default). The audit log keeps more of it, up to `max_record_bytes` (4 MiB default), tokenized the same way.
 - **The audit log grows without bound.** Add a logrotate rule; keep the mode at 0600 and the owner as `faramir-broker`.
 - **The audit log holds no secret value.** Output is recorded after redaction, and the command line is redacted too, so a value a caller put in `argv` itself does not reach disk either. What you get is who ran what, when, against which refs, and what came back with the same `«SECRET:ref»` tokens the agent saw. It is still 0600 and still operator-only, because the command lines and the ref names are worth protecting on their own. See [docs/redaction.md](docs/redaction.md) for what this costs and why the counts are enough.
 - **Do not bind-mount or symlink the operator's `~/.claude` into the agent account.** A session that can write agent config paths can persist hooks or MCP servers that run with different privileges on the next launch.
+- **A key named in `[ssh] keys` that is not there fails `--check`.** The broker would otherwise start, serve, and reach no host that expects it: it logs one warning at startup and carries on, so every socket is active and every playbook fails to authenticate. `faramir-broker --check` reports each configured key under `ssh.keys` with whether it is readable, and exits non-zero when one is not, which is what makes it an install gate rather than a status line. An empty `[ssh] keys` is a deliberate configuration and passes.
 - **SSH keys belong in `[ssh] keys`, not in the executor's home.** Listed there, the broker loads them into an agent it owns and passes the child only `SSH_AUTH_SOCK`, so a brokered command can authenticate without being able to copy a key that opens the whole fleet. Left empty, the keys must sit in `~faramir-exec/.ssh`, where every brokered command can read them.
 - **There is no blast-radius bound.** A brokered command runs anything the executor's uid can run. That uid holds no key, no audit log and no SSH key, which is the property the design rests on, but it does have write access to the working tree, so a destructive command is destructive. See [What it protects against](#what-it-protects-against).
 - **`[audit] raw_log` is now `log_path`, and fails loudly.** The name asserted that the file held the unredacted stream, which it no longer does. The default moved with it, to `/var/log/faramir/audit.log`. A `raw.log` left behind by an earlier install still holds plaintext: it is the one file here worth shredding rather than deleting.

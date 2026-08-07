@@ -29,7 +29,9 @@ SupplementaryGroups=devwork
 #   /var/log/faramir/audit.log  no  (0600 faramir-broker)
 #   ~faramir-broker/.ssh      no  (0700 faramir-broker)
 #   the working tree          read and write, via devwork above
-#   the rest of /home         nothing at all (empty tmpfs)
+#   the rest of /home         whatever the mode allows, which for a 0700 home
+#                             is nothing; read-only regardless, and the one
+#                             writable path below is the agent's own home
 #
 # /run/faramir/broker.sock IS reachable now, because it is 0660 root:devwork:
 # a brokered command can call the broker back.  That buys it nothing -- the
@@ -44,13 +46,19 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# tmpfs, not true: commands run in the working tree, which usually lives under
-# /home.  The bind mount below is the only thing visible there, and unlike the
-# broker's it is read-write.  install/30-install-broker.sh writes
-# faramir-exec.service.d/10-worktree.conf with the configured tree; the leading
-# '-' keeps the unit startable before it has been cloned.
-ProtectHome=tmpfs
-BindPaths=-/home/agent/work/repo
+# ProtectSystem=strict makes the whole hierarchy read-only, so the one place a
+# brokered command may write has to be named.  /home rather than the working
+# tree inside it: the tree's path is the operator's to choose and lives in the
+# config, and naming it here too made two files that had to agree or every
+# command failed with "cwd does not exist".
+#
+# It grants nothing on its own.  Lifting the read-only mount is not permission;
+# modes still decide, and the only thing under /home this uid can write is the
+# devwork tree that phase 1 group-writes on purpose.  Homes are 0700 and
+# ~agent/.claude is 0700 agent, so both stay unwritable.
+#
+# A working tree outside /home needs a drop-in adding its path.
+ReadWritePaths=-/home
 PrivateTmp=true
 # Children run on a PTY, which needs /dev/ptmx and the pts devices.  Narrow the
 # device ACL rather than dropping it.
@@ -91,7 +99,7 @@ UMask=0077
 #       Ansible's file and user modules call chown and friends.
 #   PrivateDevices=, DeviceAllow=
 #       Every child runs on a PTY.
-#   SupplementaryGroups=, ProtectHome=tmpfs + BindPaths=
+#   SupplementaryGroups=, ReadWritePaths=
 #       Commands run in the working tree and write to it.  See above: this is
 #       the agent's own access, not a new one.
 #

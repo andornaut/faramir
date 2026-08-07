@@ -52,9 +52,9 @@ AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
 WORKTREE="${WORKTREE:-${AGENT_HOME}/work/repo}"
 
 # The broker needs a real, writable home: it holds the SSH keys used to reach
-# managed hosts, and Ansible insists on creating ~/.ansible/tmp.  It must NOT
-# be under /home -- the service unit sets ProtectHome=tmpfs, which would make it
-# invisible to the very process that needs it.
+# managed hosts, and Ansible insists on creating ~/.ansible/tmp.  Under /var/lib
+# rather than /home because that is where a service account's state belongs, and
+# because the unit grants itself that path with StateDirectory=.
 BROKER_HOME="${BROKER_HOME:-/var/lib/faramir-broker}"
 say "user ${BROKER_USER} (broker, no login, home ${BROKER_HOME})"
 if ! id -u "$BROKER_USER" >/dev/null 2>&1; then

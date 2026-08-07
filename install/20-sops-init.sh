@@ -62,6 +62,29 @@ chmod 0400 "$KEY"
 PUB="$(grep -o 'age1[0-9a-z]*' "$KEY" | tail -1)"
 say "public key: ${PUB}"
 
+# Additional age recipients for .sops.yaml, space or comma separated.
+#
+# The keeper is the only recipient by default, which means the operator cannot
+# read the files they are responsible for: editing one, rotating a credential
+# or reading a value back all need a recipient that is not the keeper.  Adding
+# the operator's own key is the ordinary case, and it changes nothing about
+# what the agent can reach: the agent has no age key either way.
+#
+# Mint one with:  faramir keygen -o ~/.config/sops/age/keys.txt
+RECIPIENTS=("$PUB")
+# Space or comma separated, and usually unset, so default before splitting:
+# set -u makes a bare expansion of an unset name fatal.
+_extra_recipients="${EXTRA_AGE_RECIPIENTS:-}"
+for extra in ${_extra_recipients//,/ }; do
+  [[ -n $extra ]] || continue
+  [[ $extra == age1* ]] || {
+    echo "not an age recipient: ${extra}" >&2
+    exit 1
+  }
+  RECIPIENTS+=("$extra")
+  say "extra recipient: ${extra}"
+done
+
 if [[ -d $REPO ]]; then
   SOPS_YAML="${REPO}/.sops.yaml"
   if [[ -f $SOPS_YAML ]]; then
@@ -78,7 +101,7 @@ creation_rules:
   - path_regex: \.sops\.ya?ml\$
     key_groups:
       - age:
-          - ${PUB}
+$(printf '          - %s\n' "${RECIPIENTS[@]}")
 EOF
     # Both the agent and the broker are non-root and must read this to encrypt,
     # so 0640 is only safe once the group is actually right.  Fall back to 0644

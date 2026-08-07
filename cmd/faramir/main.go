@@ -11,6 +11,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"net"
 	"os"
 	"strings"
@@ -51,6 +52,8 @@ Run "faramir <command> --help" for that command's own options.
 Every command that talks to the broker accepts:
   --socket PATH   broker socket (default %s; $FARAMIR_SOCKET)
   --json          print the raw response instead of the output
+
+Name secrets with --env NAME=secret://ref, or --env-file for a file of them.
 
 Secrets are injected as environment variables only; they are never substituted
 into the command line.
@@ -183,6 +186,8 @@ func cmdRun(args []string) int {
 	fs.IntVar(timeout, "t", 0, "timeout in seconds (shorthand)")
 	var envRefs multiFlag
 	fs.Var(&envRefs, "env", "NAME=secret://ref (repeatable)")
+	var envFiles multiFlag
+	fs.Var(&envFiles, "env-file", "file of NAME=secret://ref lines (repeatable)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
@@ -200,7 +205,17 @@ func cmdRun(args []string) int {
 		return 2
 	}
 
+	// Files first, so an explicit --env on the command line overrides the file
+	// rather than the other way round.
 	refs := map[string]string{}
+	for _, path := range envFiles {
+		pairs, err := readEnvFile(path)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
+			return 2
+		}
+		maps.Copy(refs, pairs)
+	}
 	for _, pair := range envRefs {
 		name, uri, ok := strings.Cut(pair, "=")
 		if !ok {
@@ -221,6 +236,40 @@ func cmdRun(args []string) int {
 		request["timeout_sec"] = *timeout
 	}
 	return send(*c.socket, request, *c.json, *quiet)
+}
+
+// readEnvFile reads NAME=secret://ref lines, one per line, # for a comment.
+//
+// A command that needs a dozen credentials otherwise needs a dozen --env flags
+// repeated at every call site, which is how one gets quietly dropped.  The file
+// holds refs and never values, so it is ordinary reviewable content that lives
+// beside the playbook it belongs to; the CLI expands it here and the request on
+// the wire is the same either way.
+func readEnvFile(path string) (map[string]string, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("--env-file %s: %w", path, err)
+	}
+	refs := map[string]string{}
+	for i, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		name, uri, ok := strings.Cut(line, "=")
+		if !ok {
+			return nil, fmt.Errorf("%s:%d: expected NAME=secret://ref, got %q", path, i+1, line)
+		}
+		name, uri = strings.TrimSpace(name), strings.TrimSpace(uri)
+		// Caught here rather than by the broker, so the message names the file
+		// and the line instead of just the offending value.
+		if !strings.HasPrefix(uri, "secret://") {
+			return nil, fmt.Errorf("%s:%d: %s must be a secret:// reference, got %q",
+				path, i+1, name, uri)
+		}
+		refs[name] = uri
+	}
+	return refs, nil
 }
 
 // call runs a subcommand that takes no arguments of its own.

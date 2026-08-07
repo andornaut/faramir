@@ -360,11 +360,20 @@ func redactEach(r *redact.Redactor, in []string) []string {
 }
 
 // CheckOutput is the operator-facing --check report.  It names the refs that
-// were refused at load, which the agent-facing status op never does.
+// were refused at load, which the agent-facing status op never does, and the
+// state of the SSH keys the broker is configured to lend.
+//
+// Both are the same shape of problem: a broker that starts, serves, and cannot
+// do the job it was installed for.  --check is the install gate, so both are
+// reported and both are non-zero.
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
-	body, _ := json.MarshalIndent(map[string]any{"secrets": secrets}, "", "  ")
+	ssh, missing := s.describeSSH()
+	body, _ := json.MarshalIndent(map[string]any{
+		"secrets": secrets, "ssh": ssh,
+	}, "", "  ")
 
+	code := 0
 	refused, _ := secrets["not_redactable"].(map[string]string)
 	if len(refused) > 0 {
 		keys := make([]string, 0, len(refused))
@@ -376,7 +385,42 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		// Non-zero on a refused ref: the config parses, but a command that
 		// injects that ref will fail at runtime, and --check is the install
 		// gate that is supposed to catch it.
-		return body, 1
+		code = 1
 	}
-	return body, 0
+	if len(missing) > 0 {
+		log.Printf("%d configured SSH key(s) missing or unreadable: %v", len(missing), missing)
+		log.Printf("brokered commands will reach no host that expects one; " +
+			"place the key, or set [ssh] keys = [] to authenticate some other way")
+		code = 1
+	}
+	return body, code
+}
+
+// describeSSH reports which of the configured keys the broker can actually
+// read, and returns the ones it cannot.
+//
+// The agent is not started here, so this is the file check rather than the
+// loaded-key count: --check runs before Ssh.Start, and starting a second agent
+// would replace a running broker's socket.  A key that is present and readable
+// is the part an install can get wrong; ssh-add failing on a passphrase is
+// visible in the journal at startup.
+func (s *Server) describeSSH() (map[string]any, []string) {
+	keys := make([]map[string]any, 0, len(s.Config.Ssh.Keys))
+	var missing []string
+	for _, path := range s.Config.Ssh.Keys {
+		fh, err := os.Open(path)
+		readable := err == nil
+		if readable {
+			_ = fh.Close()
+		} else {
+			missing = append(missing, path)
+		}
+		keys = append(keys, map[string]any{"path": path, "readable": readable})
+	}
+	return map[string]any{
+		"agent_socket": s.Config.Ssh.AgentSocket,
+		// Empty is a deliberate configuration, not a fault: the keys then live
+		// where the executor's own uid can read them.
+		"keys": keys,
+	}, missing
 }

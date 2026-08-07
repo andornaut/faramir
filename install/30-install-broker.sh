@@ -74,9 +74,9 @@ rm -rf /usr/local/lib/faramir
 rm -f /usr/local/libexec/faramir/pretooluse-guard.py
 
 # The working tree appears in the config more than once -- [exec] default_cwd
-# and [secrets] files -- and the bind mounts below make exactly one path visible
-# to the three units.  The shipped configs write it as @WORKTREE@, so this is
-# one substitution.
+# and [secrets] files -- so the shipped configs write it as @WORKTREE@ and this
+# is one substitution.  It is the only place the path appears now: the units no
+# longer name it.
 #
 # sed's replacement side treats \ and & specially and would also eat the
 # delimiter, and a worktree path is arbitrary, so escape all three rather than
@@ -109,10 +109,12 @@ configured_cwd() {
   "$BIN/faramir-broker" -c "$1" --print-default-cwd 2>/dev/null || return 1
 }
 
-# Is $1 reachable inside the tree bound into the units?  A plain prefix test
-# would accept "${WORKTREE}-old" and "${WORKTREE}EVIL", which are different
-# trees that the bind mount does not make visible at all; requiring the
-# separator is what distinguishes those from a real subdirectory.
+# Is $1 inside the tree this install was told about?  A plain prefix test would
+# accept "${WORKTREE}-old" and "${WORKTREE}EVIL", which are different trees;
+# requiring the separator is what distinguishes those from a subdirectory.
+#
+# Advisory now rather than load-bearing: a config naming another readable tree
+# works, it is just not the tree the operator asked for.
 under_worktree() {
   [[ $1 == "$WORKTREE" || $1 == "$WORKTREE"/* ]]
 }
@@ -142,9 +144,8 @@ else
   say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (worktree ${WORKTREE})"
   substitute "$CONFIG" /etc/faramir/config.toml || exit 1
   # A CONFIG that names the tree literally rather than through the placeholder
-  # is installed unchanged, and would then disagree with the bind mounts below.
-  # Refuse at install time rather than letting every command fail with "cwd
-  # does not exist" later.
+  # is installed unchanged, and would then run commands somewhere the operator
+  # did not ask for.  Refuse at install time, where it can be said plainly.
   installed="$(configured_cwd /etc/faramir/config.toml)" || installed=""
   if ! under_worktree "$installed"; then
     rm -f /etc/faramir/config.toml
@@ -163,36 +164,21 @@ for unit in faramir-broker.socket faramir-broker.service \
   install -m 0644 "$REPO/systemd/${unit}" "/etc/systemd/system/${unit}"
 done
 
-# /home is an empty tmpfs inside all three units, so the working tree has to be
-# bound in explicitly.  Each unit hardcodes the default; bind the configured
-# tree too, or an install with AGENT_USER or WORKTREE set starts clean and then
-# fails at runtime -- the keeper reporting every ref as missing, the executor
-# with "cwd does not exist".  Bind*Paths= are lists, so these append.
-#
-# The executor gets it read-write because commands run there; the other two get
-# it read-only, because neither has any business writing the agent's tree.
-say "worktree bind mounts -> ${WORKTREE}"
-for unit in faramir-broker faramir-keeper; do
-  install -d -m 0755 "/etc/systemd/system/${unit}.service.d"
-  cat >"/etc/systemd/system/${unit}.service.d/10-worktree.conf" <<EOF
-# Written by install/30-install-broker.sh.  Regenerated on every run.
-[Service]
-BindReadOnlyPaths=-${WORKTREE}
-EOF
-  chmod 0644 "/etc/systemd/system/${unit}.service.d/10-worktree.conf"
-done
-install -d -m 0755 /etc/systemd/system/faramir-exec.service.d
-cat >/etc/systemd/system/faramir-exec.service.d/10-worktree.conf <<EOF
-# Written by install/30-install-broker.sh.  Regenerated on every run.
-[Service]
-BindPaths=-${WORKTREE}
-EOF
-chmod 0644 /etc/systemd/system/faramir-exec.service.d/10-worktree.conf
+# No drop-ins.  The units name no working tree: the broker and the keeper only
+# read it, which ProtectSystem=strict already allows, and the executor is
+# granted /home, where modes decide what it can actually write.  The tree's
+# path lives in the config and nowhere else.
 
 # Left over from the commit-then-sync arrangement, which no longer exists: the
 # broker executes the working tree directly.
 # CLEANUP (added 2026-08-06): remove once every host has run this script once.
 rm -f /etc/systemd/system/faramir-broker.service.d/10-sync-source.conf
+# Left over from the bind-mount arrangement: /home is no longer a tmpfs inside
+# the units, so a stale drop-in would mount a tree over a tree.
+# CLEANUP (added 2026-08-06): remove once every host has run this script once.
+rm -f /etc/systemd/system/faramir-broker.service.d/10-worktree.conf \
+      /etc/systemd/system/faramir-keeper.service.d/10-worktree.conf \
+      /etc/systemd/system/faramir-exec.service.d/10-worktree.conf
 
 # systemd may not be running (container, chroot, image build).  Install the
 # units anyway; just do not pretend to have started anything.
