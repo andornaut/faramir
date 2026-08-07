@@ -102,7 +102,7 @@ operator did not name.
 Migrate each vault file, point `group_vars` at the environment as described in [docs/ansible-sops.md](docs/ansible-sops.md), and verify before deleting anything:
 
 ```bash
-install/migrate-vault.sh group_vars/all/vault.yml group_vars/all/vault.sops.yml
+install/migrate-vault.sh group_vars/all/vault.yml secrets/vault.sops.yml
 sudo systemctl reload faramir-broker
 faramir run --env ROUTER_PW=secret://home/router/admin -- \
     ansible-playbook site.yml --check     # prove it works end to end

@@ -6,7 +6,7 @@
 # agent.  It necessarily handles plaintext: the intermediate file is written to
 # /dev/shm with mode 0600 and removed on exit, including on error.
 #
-#   migrate-vault.sh group_vars/all/vault.yml group_vars/all/vault.sops.yml
+#   migrate-vault.sh group_vars/all/vault.yml secrets/vault.sops.yml
 #
 # Var names are preserved exactly, so playbooks need no change beyond the
 # lookup mechanism.
@@ -21,6 +21,19 @@ command -v ansible-vault >/dev/null || { echo "ansible-vault not found" >&2; exi
 [[ -f $SRC ]] || { echo "no such file: $SRC" >&2; exit 1; }
 [[ -e $DST ]] && { echo "refusing to overwrite $DST" >&2; exit 1; }
 [[ -d $(dirname "$DST") ]] || { echo "no such directory: $(dirname "$DST")" >&2; exit 1; }
+
+# Ansible auto-loads every .yml under group_vars/ and host_vars/ as a vars file.
+# A sops file is valid YAML, so it loads without error and binds each var to its
+# ENC[...] ciphertext; since "vault" sorts after "vars", it also overwrites the
+# lookup('env', ...) mapping.  Nothing fails.  Hosts get configured with the
+# ciphertext of the credential instead of the credential.
+if [[ $DST =~ (^|/)(group_vars|host_vars)/ ]]; then
+  echo "refusing to write $DST" >&2
+  echo "Ansible auto-loads group_vars/ and host_vars/, and would bind every var" >&2
+  echo "to its ENC[...] ciphertext instead of the injected value.  Use a" >&2
+  echo "directory Ansible does not read, e.g. secrets/$(basename "$DST")." >&2
+  exit 1
+fi
 
 # sops finds .sops.yaml by walking up from the file it is encrypting, and picks
 # a creation rule by matching that file's path.  The plaintext lives in

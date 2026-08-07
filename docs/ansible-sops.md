@@ -19,15 +19,28 @@ retroactively, including everything already in git history.
 
 ## 1. Encrypt values, not keys
 
+Keep the encrypted file **out of `group_vars/` and `host_vars/`**. Ansible
+loads every `.yml` under those directories as an ordinary vars file, and a sops
+file is valid YAML, so Ansible reads it happily and binds each var to its
+`ENC[AES256_GCM,...]` ciphertext string. Worse, `vault.sops.yml` sorts after
+`vars.yml`, so the ciphertext overwrites the `lookup('env', …)` mapping from
+section 3 and every credential silently becomes the literal text `ENC[...]`.
+Nothing errors: tasks run, and hosts get configured with a password that is the
+ciphertext of the password. `secrets/` at the repo root is not auto-loaded, so
+this guide uses that.
+
 `.sops.yaml` in the repo root (written by `install/20-sops-init.sh`):
 
 ```yaml
 creation_rules:
-  - path_regex: (^|/)(group_vars|host_vars)/.*\.sops\.ya?ml$
+  - path_regex: \.sops\.ya?ml$
     key_groups:
       - age:
           - age1... # the keeper's public key
 ```
+
+The rule matches on the `.sops.yml` suffix rather than on a directory, so
+moving a file does not silently drop it out of encryption.
 
 Keeping key *names* readable means diffs stay per-key and reviewable, and the
 agent can see the shape of the file without seeing any value. The broker's
@@ -86,7 +99,9 @@ faramir run --env ROUTER_PW=secret://vault_router_password -- \
 ```
 
 That is worth running once: it proves the var resolved *and* that printing it
-produces a token rather than a value.
+produces a token rather than a value. Anything else is a fault. `ENC[AES256_GCM,...]`
+in particular means the encrypted file is somewhere Ansible auto-loads it, per
+section 1.
 
 A var whose ref was not injected resolves to an empty string, which usually
 surfaces as a task failing further along rather than as a clear error. When a

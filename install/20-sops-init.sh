@@ -119,7 +119,7 @@ Public key (also add this to .sops.yaml in the agent's working tree):
 
 Next: convert each ansible-vault file with
 
-  install/migrate-vault.sh group_vars/all/vault.yml group_vars/all/vault.sops.yml
+  install/migrate-vault.sh group_vars/all/vault.yml secrets/vault.sops.yml
 
 then verify a real playbook run through the broker BEFORE deleting the old
 vault files and the vault password file.
