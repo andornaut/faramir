@@ -49,6 +49,37 @@ Failure | Why it is not prevented
 
 **There is no command allowlist**, and the invariant above does not need one. There used to be. It was removed rather than widened, because any rule permitting an interpreter (`bash`, `python`, `env`) reached past every constraint it expressed, so what it actually delivered was a rule to write per program and a denial per mistake. See [Architecture](#architecture).
 
+## How it works
+
+The agent asks for a command to be run and names each credential by reference. The broker resolves the references, runs the command as a uid that holds nothing, redacts the output, and hands back the result. No plaintext ever exists in a process the agent's uid can read.
+
+Every boundary is a uid or a file mode, so it holds whether or not the agent cooperates.
+
+uid | Holds | Runs
+--- | --- | ---
+`agent` | nothing secret | the coding agent itself
+`faramir-keeper` | the age master key | nothing but sops
+`faramir-broker` | plaintext values in memory, SSH keys | policy, redaction, the audit log
+`faramir-exec` | nothing | the brokered commands themselves
+
+The split between the keeper and the broker is the one that matters. The age key decrypts every managed file, retroactively, including everything already in git history, so it lives in a uid that executes nothing: the broker can ask for a value and can never read the key, and a brokered command cannot reach the keeper's socket at all.
+
+### One call, end to end
+
+```console
+$ faramir run --env ROUTER_PW=secret://home/router/admin -- ansible-playbook site.yml
+```
+
+1. The request reaches `/run/faramir/broker.sock` as JSON carrying the reference `secret://home/router/admin`, never a value. `cmd` is an array, never a string handed to a shell, and there is no allowlist: the broker runs what it is asked, as a uid that holds nothing.
+2. The broker resolves the reference by asking the keeper over a socket only the broker can open. The keeper execs sops and returns values; the key stays in that uid.
+3. The broker asks the executor, over a third socket, to fork the command as `faramir-exec` on a PTY the broker created, with the value in the environment. Never in `argv`, which is world-readable in `ps`.
+4. Output comes back through the broker's end of the PTY, and every managed secret is replaced with `«SECRET:ref»` before the agent sees a byte. The redactor is built from the whole value set rather than only what was injected, so a host printing its own configuration is covered as well.
+5. The audit log records what ran, against which refs, and what came back. It holds no value, and only the operator can read it.
+
+### SSH keys
+
+Keys that reach managed hosts cannot simply live in the executor's home, or every brokered command could copy a key that opens the whole fleet. The broker keeps the key files under its own uid, loads them into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`: the child can authenticate for as long as the broker runs, and can never read a key. That takes a relay, because `ssh-agent` refuses any peer uid but its own. [Architecture](#architecture) has the shape of it and what the relay will and will not forward.
+
 ## Installation
 
 Requires systemd and [sops](https://github.com/getsops/sops) on the host, and Go to
