@@ -29,6 +29,11 @@ import (
 
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
+// ValidEnvName reports whether name can be an environment variable.  Exported
+// so the CLI rejects a bad name where it can still name the file and line it
+// came from, using the same rule the broker will apply.
+func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
+
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
 //
 // SSH_AUTH_SOCK is here for the same reason as PATH: the broker points it at

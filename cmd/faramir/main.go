@@ -18,6 +18,7 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -219,7 +220,11 @@ func cmdRun(args []string) int {
 	for _, pair := range envRefs {
 		name, uri, ok := strings.Cut(pair, "=")
 		if !ok {
-			fmt.Fprintf(os.Stderr, "faramir run: --env expects NAME=secret://ref, got %q\n", pair)
+			fmt.Fprintln(os.Stderr, "faramir run: --env expects NAME=secret://ref")
+			return 2
+		}
+		if err := checkRef(name, uri); err != nil {
+			fmt.Fprintf(os.Stderr, "faramir run: --env %v\n", err)
 			return 2
 		}
 		refs[name] = uri
@@ -236,6 +241,32 @@ func cmdRun(args []string) int {
 		request["timeout_sec"] = *timeout
 	}
 	return send(*c.socket, request, *c.json, *quiet)
+}
+
+// checkRef validates one NAME=secret://ref pair, for both --env and
+// --env-file, so the two cannot drift apart.
+//
+// The error never quotes the value.  A pasted credential is the mistake this
+// whole mechanism exists to prevent, and an error that echoes one puts it in
+// the terminal and the scrollback, which is the disclosure it was meant to
+// stop.  The name is safe to quote and is what the operator needs to find the
+// line.
+func checkRef(name, uri string) error {
+	if !protocol.ValidEnvName(name) {
+		// "export NAME=..." is the habitual spelling for a file of environment
+		// variables, and cutting on "=" turns it into a variable literally
+		// named "export NAME".
+		if strings.HasPrefix(name, "export ") {
+			return fmt.Errorf("%q is not a usable environment variable name; "+
+				`drop the "export", this is not a shell script`, name)
+		}
+		return fmt.Errorf("%q is not a usable environment variable name", name)
+	}
+	if !strings.HasPrefix(uri, "secret://") {
+		return fmt.Errorf("%s must be a secret:// reference; "+
+			"secrets are named here, never pasted", name)
+	}
+	return nil
 }
 
 // readEnvFile reads NAME=secret://ref lines, one per line, # for a comment.
@@ -261,11 +292,18 @@ func readEnvFile(path string) (map[string]string, error) {
 			return nil, fmt.Errorf("%s:%d: expected NAME=secret://ref, got %q", path, i+1, line)
 		}
 		name, uri = strings.TrimSpace(name), strings.TrimSpace(uri)
-		// Caught here rather than by the broker, so the message names the file
-		// and the line instead of just the offending value.
-		if !strings.HasPrefix(uri, "secret://") {
-			return nil, fmt.Errorf("%s:%d: %s must be a secret:// reference, got %q",
-				path, i+1, name, uri)
+		// Checked here rather than by the broker so the message can name the
+		// file and the line.
+		if err := checkRef(name, uri); err != nil {
+			return nil, fmt.Errorf("%s:%d: %w", path, i+1, err)
+		}
+		// Last-wins is the usual env-file rule, but this file names credentials
+		// for a fleet: silently picking one of two is how the wrong credential
+		// reaches a host.  An identical repeat is a merge artefact, not an
+		// ambiguity, so it passes.
+		if existing, seen := refs[name]; seen && existing != uri {
+			return nil, fmt.Errorf("%s:%d: %s is given twice, as %s and %s",
+				path, i+1, name, existing, uri)
 		}
 		refs[name] = uri
 	}
