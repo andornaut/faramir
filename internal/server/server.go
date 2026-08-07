@@ -33,6 +33,8 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/sshagent"
 	"github.com/andornaut/faramir/internal/version"
+
+	"golang.org/x/crypto/ssh"
 )
 
 type Server struct {
@@ -365,9 +367,9 @@ func redactEach(r *redact.Redactor, in []string) []string {
 // reported and both are non-zero.
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
-	ssh, missing := s.describeSSH()
+	sshInfo, problems := s.describeSSH()
 	body, _ := json.MarshalIndent(map[string]any{
-		"secrets": secrets, "ssh": ssh,
+		"secrets": secrets, "ssh": sshInfo,
 	}, "", "  ")
 
 	code := 0
@@ -394,8 +396,8 @@ func (s *Server) CheckOutput() ([]byte, int) {
 			"that prints one prints it in plaintext")
 		code = 1
 	}
-	if len(missing) > 0 {
-		log.Printf("%d configured SSH key(s) missing or unreadable: %v", len(missing), missing)
+	if len(problems) > 0 {
+		log.Printf("%d configured SSH key(s) the broker cannot use: %v", len(problems), problems)
 		log.Printf("brokered commands will reach no host that expects one; " +
 			"place the key, or set [ssh] keys = [] to authenticate some other way")
 		code = 1
@@ -403,8 +405,33 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	return body, code
 }
 
+// unusableReason names why ssh-add will refuse this key, or "" if it will take
+// it.  The two cases that happen in practice are a key with a passphrase
+// (nothing is there to type one) and [ssh] keys pointing at the .pub by
+// mistake.  Both leave the broker up with an agent holding nothing, so every
+// brokered command fails to authenticate against the entire fleet while every
+// socket is active and every unit is running.
+//
+// The parse is what ssh-add itself would do, rather than a guess from the file
+// name, and its error is reported without any of the key material in it.
+func unusableReason(data []byte) string {
+	_, err := ssh.ParseRawPrivateKey(data)
+	if err == nil {
+		return ""
+	}
+	var needsPassphrase *ssh.PassphraseMissingError
+	if errors.As(err, &needsPassphrase) {
+		return "passphrase-protected; the broker has no way to type one, " +
+			"so ssh-add will refuse it"
+	}
+	if _, _, _, _, pubErr := ssh.ParseAuthorizedKey(data); pubErr == nil {
+		return "this is a public key; [ssh] keys must name the private key"
+	}
+	return "not a usable private key"
+}
+
 // describeSSH reports which of the configured keys the broker can actually
-// read, and returns the ones it cannot.
+// read and use, and returns one line per key that is neither.
 //
 // The agent is not started here, so this is the file check rather than the
 // loaded-key count: --check runs before Ssh.Start, and starting a second agent
@@ -413,21 +440,29 @@ func (s *Server) CheckOutput() ([]byte, int) {
 // visible in the journal at startup.
 func (s *Server) describeSSH() (map[string]any, []string) {
 	keys := make([]map[string]any, 0, len(s.Config.Ssh.Keys))
-	var missing []string
+	var problems []string
 	for _, path := range s.Config.Ssh.Keys {
-		fh, err := os.Open(path)
+		data, err := os.ReadFile(path)
 		readable := err == nil
-		if readable {
-			_ = fh.Close()
-		} else {
-			missing = append(missing, path)
+		entry := map[string]any{"path": path, "readable": readable}
+		if !readable {
+			problems = append(problems, path+": "+err.Error())
+			keys = append(keys, entry)
+			continue
 		}
-		keys = append(keys, map[string]any{"path": path, "readable": readable})
+		if reason := unusableReason(data); reason != "" {
+			entry["usable"] = false
+			entry["reason"] = reason
+			problems = append(problems, path+": "+reason)
+		} else {
+			entry["usable"] = true
+		}
+		keys = append(keys, entry)
 	}
 	return map[string]any{
 		"agent_socket": s.Config.Ssh.AgentSocket,
 		// Empty is a deliberate configuration, not a fault: the keys then live
 		// where the executor's own uid can read them.
 		"keys": keys,
-	}, missing
+	}, problems
 }

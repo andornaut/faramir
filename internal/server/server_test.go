@@ -1,7 +1,10 @@
 package server
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"net"
 	"os"
 	"path/filepath"
@@ -11,6 +14,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"golang.org/x/crypto/ssh"
 )
 
 // fakeKeeper serves a fixed value set, so the agent-facing responses can be
@@ -234,16 +238,101 @@ func TestCheckFailsOnAConfiguredSSHKeyThatIsMissing(t *testing.T) {
 	}
 }
 
-func TestCheckPassesOnAReadableSSHKey(t *testing.T) {
-	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	key := filepath.Join(t.TempDir(), "id_ed25519")
-	if err := os.WriteFile(key, []byte("not really a key\n"), 0o600); err != nil {
+// writeKeyPair writes an ed25519 private key, encrypted with passphrase when
+// one is given, plus the matching .pub, and returns both paths.
+func writeKeyPair(t *testing.T, passphrase string) (private, public string) {
+	t.Helper()
+	dir := t.TempDir()
+	pub, priv, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
 		t.Fatal(err)
 	}
+
+	var block *pem.Block
+	if passphrase == "" {
+		block, err = ssh.MarshalPrivateKey(priv, "test")
+	} else {
+		block, err = ssh.MarshalPrivateKeyWithPassphrase(priv, "test", []byte(passphrase))
+	}
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	private = filepath.Join(dir, "id_ed25519")
+	if err := os.WriteFile(private, pem.EncodeToMemory(block), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	sshPub, err := ssh.NewPublicKey(pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	public = private + ".pub"
+	if err := os.WriteFile(public, ssh.MarshalAuthorizedKey(sshPub), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return private, public
+}
+
+func TestCheckPassesOnAKeyTheBrokerCanUse(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	key, _ := writeKeyPair(t, "")
 	s.Config.Ssh.Keys = []string{key}
 
 	if _, code := s.CheckOutput(); code != 0 {
-		t.Errorf("a readable key failed the gate")
+		t.Error("a usable key failed the gate")
+	}
+}
+
+// ssh-add cannot type a passphrase, so the broker comes up with an agent
+// holding nothing: every socket active, every unit running, and no brokered
+// command able to authenticate against a single managed host.  Checking only
+// that the file is readable reports that install as healthy.
+func TestCheckFailsOnAPassphraseProtectedKey(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	key, _ := writeKeyPair(t, "hunter2")
+	s.Config.Ssh.Keys = []string{key}
+
+	body, code := s.CheckOutput()
+	if code == 0 {
+		t.Fatal("a key ssh-add will refuse passed the gate")
+	}
+	if !strings.Contains(string(body), "passphrase") {
+		t.Errorf("the report does not say why:\n%s", body)
+	}
+}
+
+// Naming the .pub is the other way to configure this wrong, and it is just as
+// readable as the private key it sits next to.
+func TestCheckFailsWhenKeysNamesThePublicKey(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	_, pub := writeKeyPair(t, "")
+	s.Config.Ssh.Keys = []string{pub}
+
+	body, code := s.CheckOutput()
+	if code == 0 {
+		t.Fatal("a public key passed the gate")
+	}
+	if !strings.Contains(string(body), "public key") {
+		t.Errorf("the report does not say why:\n%s", body)
+	}
+}
+
+// The report is operator-facing and describes key material, so it must carry
+// none of it.
+func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	key, _ := writeKeyPair(t, "hunter2")
+	s.Config.Ssh.Keys = []string{key}
+
+	data, err := os.ReadFile(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := s.CheckOutput()
+	for _, line := range strings.Split(string(data), "\n") {
+		if len(line) > 20 && strings.Contains(string(body), line) {
+			t.Fatalf("the report quotes the key file: %q", line)
+		}
 	}
 }
 

@@ -153,8 +153,12 @@ loads them into an `ssh-agent` it owns, and passes the child only
 keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
 ```
 
-The keys must have no passphrase, since nothing is there to type one; the
-broker logs a clear error and carries on if `ssh-add` refuses. The agent lives
+The keys must have no passphrase, since nothing is there to type one.
+`faramir-broker --check` parses each configured key and fails on one `ssh-add`
+would refuse, so a passphrase (or `[ssh] keys` naming the `.pub` by mistake) is
+caught at install time rather than as a fleet-wide authentication failure. At
+runtime the broker logs the error and carries on, since one bad key should not
+stop the others loading. The agent lives
 and dies with the broker, so a restart reloads it and nothing outlives the
 process with keys in memory.
 
