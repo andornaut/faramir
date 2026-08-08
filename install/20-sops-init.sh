@@ -44,10 +44,14 @@ install -d -m 0755 -o root -g root /etc/faramir
 if getent group "$GROUP" >/dev/null; then
   install -d -m 2770 -o root -g "$GROUP" "$SECRETS_DIR"
 else
-  install -d -m 2770 -o root -g root "$SECRETS_DIR"
-  say "WARNING: group ${GROUP} does not exist yet, so ${SECRETS_DIR} is"
-  say "         root-owned and the keeper cannot read it.  Run"
-  say "         install/10-accounts.sh, which creates the group and fixes this."
+  # Only when absent.  install -d applies -o/-g to a directory that is already
+  # there, so an unconditional call here would re-group a store phase 1 had
+  # already set up correctly under a different DEV_GROUP, and the keeper would
+  # lose read access to every managed file.
+  [[ -d $SECRETS_DIR ]] || install -d -m 2770 -o root -g root "$SECRETS_DIR"
+  say "WARNING: group ${GROUP} does not exist, so ${SECRETS_DIR} may not be"
+  say "         readable by the keeper.  Run install/10-accounts.sh, which"
+  say "         creates the group, or set DEV_GROUP to the one already in use."
 fi
 
 if [[ -f $KEY ]]; then

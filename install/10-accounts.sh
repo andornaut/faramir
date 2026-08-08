@@ -73,8 +73,8 @@ install -d -m 0700 -o "$BROKER_USER" -g "$BROKER_USER" "${BROKER_HOME}/.ssh"
 
 # The keeper holds the age key and nothing else.  No shell, and a home only
 # because sops writes ~/.config.  It must not share a uid with anything that
-# executes a command.  dev only so sops can read the encrypted files in the
-# working tree; the key itself is 0400 and in no group at all.
+# executes a command.  dev only so sops can read the encrypted files in
+# /etc/faramir/secrets; the key itself is 0400 and in no group at all.
 KEEPER_HOME="${KEEPER_HOME:-/var/lib/faramir-keeper}"
 say "user ${KEEPER_USER} (keeper, no login, home ${KEEPER_HOME})"
 if ! id -u "$KEEPER_USER" >/dev/null 2>&1; then
@@ -110,9 +110,11 @@ done
 say "operator ${OPERATOR} joins ${GROUP}"
 id -u "$OPERATOR" >/dev/null 2>&1 && usermod -aG "$GROUP" "$OPERATOR"
 
-# The working tree.  Owned by the operator, who works in it; group dev
-# because the keeper decrypts the sops files here, the broker stats them, and
-# brokered commands run here.
+# The working tree.  Owned by the operator, who works in it; group dev because
+# brokered commands run here, and the operator and a brokered command have to be
+# able to edit each other's files.  The managed sops files are not here: they
+# are in /etc/faramir/secrets, which the keeper and the broker reach through the
+# same group but by their own path.
 #
 # It does not have to sit outside the homes, but it does have to be reachable by
 # two uids that are not the operator's.  A home is 0700, so a tree inside one is
