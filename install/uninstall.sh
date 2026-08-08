@@ -31,13 +31,15 @@ rm -rf /usr/local/libexec/faramir /usr/local/share/doc/faramir
 cat <<'EOF'
 
 Left in place on purpose:
-  /etc/faramir/age.key      deleting it makes every sops file unreadable
+  /etc/faramir/age.key       deleting it makes every sops file unreadable
   /etc/faramir/config.toml
   /etc/faramir/config.d/     per-consumer settings merged over it
-  /var/log/faramir/         the audit log
-  users agent, faramir-broker, faramir-keeper and faramir-exec, group dev
+  /var/log/faramir/          the audit log
+  users faramir-broker, faramir-keeper and faramir-exec, group dev
+  a shared tree's group and setgid bits, and the traversal granted to reach it
 
-Remove those by hand if you really mean to, and note that the agent account's
-~/.claude/settings.json still points at the (now missing) PreToolUse hook --
-a missing hook command does not block anything, so clean it up too.
+Remove those by hand if you really mean to.  A project this was enrolled in
+still has .claude/settings.json naming the hook and .mcp.json naming the MCP
+server, both now missing: neither blocks anything, and install/cleanup.sh
+reports what is left.
 EOF
