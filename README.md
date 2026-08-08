@@ -42,6 +42,7 @@ Failure | Why
 **Adversarial exfiltration.** Transforming a value (`\| rev`, `\| sha256sum`) defeats redaction. | The child chooses the encoding of its own output, so the matcher cannot be completed. Demonstrated in `verify.sh`, not asserted away.
 **Blast radius.** A brokered command runs anything the executor's uid can. | Out of scope, and compounded by Bash auto-approval in enrolled projects.
 **Network egress.** No iptables, namespaces or proxy allowlist. | Deliberate. A secret that escapes redaction is unrecoverable.
+**Anything at rest.** Nothing here encrypts the disk. | The uid boundaries hold while the machine runs and mean nothing once someone has the drive. See [Encryption at rest](#encryption-at-rest).
 **Unenrolled projects.** The value set is global. | A command in a project you never enrolled can print a managed value uncaught. Treat unenrolled as "no redaction", not "safe".
 
 **Acceptance invariant:** if every instruction the agent is given were deleted, no secret could reach the model provider. Every enforcement point is a uid boundary, a file mode, or a hook.
@@ -314,10 +315,42 @@ Two checks are demonstrations rather than assertions: piping a secret through `r
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null`. Pass non-interactive flags.
 - **Output is truncated** at `[exec] max_output_bytes`; the audit log keeps up to `[audit] max_record_bytes`.
 - **The audit log grows without bound.** Add logrotate; keep it 0600 and `faramir-broker`.
+- **Encrypt the disk.** See below; `/etc/faramir/age.key` is a file like any other to someone holding the drive.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
 - **A key the broker cannot use fails `--check`.** Missing, passphrase-protected, or the `.pub`.
 - **SSH keys belong in `[ssh] keys`.** Left empty, they must sit in `~faramir-exec/.ssh` where every brokered command can read them.
 - **The broker's home is `/var/lib/faramir-broker`**, granted by `StateDirectory=`.
+
+## Encryption at rest
+
+`/etc/faramir/age.key` is `0400 faramir-keeper`, which is a *running-system*
+boundary. Powered off, it is an ordinary file on an ordinary filesystem, and it
+decrypts every managed secret retroactively.
+
+Use full-disk encryption. LUKS on the root filesystem covers the key, the audit
+log, `/var/lib/faramir-broker` and swap in one move, and is the only measure
+here that survives the drive leaving the building.
+
+Where a TPM and systemd 250 or later are available, the key can be sealed
+individually instead, which needs no disk surgery:
+
+```bash
+systemd-creds encrypt --with-key=tpm2 /etc/faramir/age.key /etc/faramir/age.key.cred
+# then in faramir-keeper.service, replacing LoadCredential=:
+#   LoadEncryptedCredential=age_key:/etc/faramir/age.key.cred
+```
+
+The plaintext then exists only in the unit's credential directory, on tmpfs and
+readable by that unit alone. TPM sealing binds to PCRs, so a firmware or
+bootloader update can invalidate it: keep the key material somewhere you can
+re-seal from before relying on this.
+
+Per-user encryption (ecryptfs, `ecryptfs-setup-private` and friends) does not
+work for this. Those unlock at login through PAM, the keeper starts at boot as a
+`nologin` account with no session to unlock anything, and `LoadCredential=` is
+fatal when its source is missing. Putting the key in the operator's own
+encrypted home is worse still: the agent runs as the operator, so the boundary
+that made the key unreadable stops existing.
 
 ## Development
 
