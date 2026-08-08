@@ -294,10 +294,16 @@ func (r *runner) preflight() error {
 		return errors.New("cannot find the built binaries: pass --binaries DIR")
 	}
 	var missing []string
-	for _, name := range requiredBinaries {
+	for _, name := range installedBinaries {
 		if !exists(filepath.Join(r.opts.Binaries, name)) {
 			missing = append(missing, name)
 		}
+	}
+	// The hook is checked through the same resolver the copy uses, so a
+	// re-install from BinDir is not refused for the one binary that never goes
+	// there.
+	if r.guardSource() == "" {
+		missing = append(missing, "faramir-guard")
 	}
 	if len(missing) > 0 {
 		return fmt.Errorf("not built in %s: %s. Run 'make build', or pass --binaries "+

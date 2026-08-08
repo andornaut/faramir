@@ -18,11 +18,26 @@ var installedBinaries = []string{
 	"faramir", "faramir-broker", "faramir-keeper", "faramir-exec", "faramir-mcp",
 }
 
-// requiredBinaries is what preflight demands, which is every binary the install
-// copies rather than only the ones going to BinDir.  A source directory missing
-// the hook would otherwise pass the check and fail at the copy, after the
-// accounts, the age key and the SSH key had already been created.
-var requiredBinaries = append(append([]string{}, installedBinaries...), "faramir-guard")
+// guardSource is where faramir-guard is read from.  It installs under
+// LibexecDir rather than beside the others in BinDir, so a faramir that is
+// re-installing itself from BinDir finds every sibling except this one, and
+// the preflight refused the whole run over it.
+//
+// The already-installed copy is the fallback, and it is the honest source in
+// that case: re-installing from BinDir re-installs the versions that are
+// already there, and the hook is one of them.  Empty when neither exists, which
+// preflight reports as missing rather than failing at the copy, after the
+// accounts and the age key have been created.
+func (r *runner) guardSource() string {
+	beside := filepath.Join(r.opts.Binaries, "faramir-guard")
+	if exists(beside) {
+		return beside
+	}
+	if installed := filepath.Join(r.layout.LibexecDir, "faramir-guard"); exists(installed) {
+		return installed
+	}
+	return ""
+}
 
 // stepDirectories creates what everything below writes into.
 func (r *runner) stepDirectories() error {
@@ -138,7 +153,7 @@ func (r *runner) stepBinaries() error {
 	if _, err := r.fs.ensureDir(r.layout.LibexecDir, 0o755, 0, 0, true); err != nil {
 		return err
 	}
-	made, err := r.fs.copyFile(filepath.Join(r.opts.Binaries, "faramir-guard"),
+	made, err := r.fs.copyFile(r.guardSource(),
 		filepath.Join(r.layout.LibexecDir, "faramir-guard"), 0o755, 0, 0)
 	if err != nil {
 		return err
