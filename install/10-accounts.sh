@@ -8,7 +8,7 @@
 #   uid faramir-keeper   holds the age key; execs nothing but sops
 #   uid faramir-broker   holds the SSH keys and the audit log; policy+redaction
 #   uid faramir-exec     forks brokered commands; holds nothing
-#   group dev            shared access to the repo working tree
+#   group dev            shared access to a tree brokered commands run in
 #
 # Three uids rather than one because anything a uid can read, a command running
 # as that uid can read.  The keeper's key and the broker's audit log and SSH
@@ -27,16 +27,6 @@ BROKER_USER="${BROKER_USER:-faramir-broker}"
 KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 EXEC_USER="${EXEC_USER:-faramir-exec}"
 GROUP="${DEV_GROUP:-dev}"
-
-# Optional, and unset by default.  Nothing here needs a tree of its own: the
-# secrets are in /etc/faramir/secrets and a brokered command runs where its
-# caller was, so blessing one directory would only be picking a favourite.
-#
-# Name one to have it group-shared with the service accounts, and to have
-# traversal granted down to it when it sits inside a home.  That second part is
-# the only reason to bother: a home is 0700, so the executor cannot reach a tree
-# inside one until it is given execute access on every component above.
-WORKTREE="${WORKTREE:-}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 
@@ -113,105 +103,10 @@ done
 say "operator ${OPERATOR} joins ${GROUP}"
 id -u "$OPERATOR" >/dev/null 2>&1 && usermod -aG "$GROUP" "$OPERATOR"
 
-if [[ -n $WORKTREE ]]; then
-  # The working tree.  Owned by the operator, who works in it; group dev because
-  # brokered commands run here, and the operator and a brokered command have to be
-  # able to edit each other's files.  The managed sops files are not here: they
-  # are in /etc/faramir/secrets, which the keeper and the broker reach through the
-  # same group but by their own path.
-  #
-  # It does not have to sit outside the homes, but the executor does have to be
-  # able to reach it.  A home is 0700, so a tree inside one is unreachable until
-  # that uid is given traversal, which is what the ACL below is for.  Outside the
-  # homes nothing is needed.
-  install -d -m 2770 -o "$OPERATOR" -g "$GROUP" "$WORKTREE"
-  say "shared working tree ${WORKTREE}"
-  chgrp -R "$GROUP" "$WORKTREE"
-  chmod -R g+rwX "$WORKTREE"
-  # setgid on every directory, so a file either the operator or a brokered command
-  # creates stays readable and writable by the other.
-  find "$WORKTREE" -type d -exec chmod g+s {} +
-
-  # A tree inside the operator's home needs the executor and the broker to be able
-  # to walk down to it.  The executor forks the command there; the broker stats
-  # the requested cwd before accepting the request, and traversal is exactly what
-  # a stat on a path inside a 0700 home requires.  The keeper is the one account
-  # that needs nothing: it reads the sops files from /etc/faramir/secrets and its
-  # unit sets ProtectHome=true.
-  #
-  # An ACL naming those uids rather than "chmod o+x": the mode bit would hand
-  # traversal to every account on the machine, including any service or container
-  # uid, where the ACL grants it to exactly the accounts that have to have it and
-  # leaves "other" at nothing.
-  #
-  # Traversal only, never read: it passes through the home without being able to
-  # list it.  Note this is a permission, not a mount: it holds nothing open, so an
-  # encrypted home still unmounts at logout.  What does hold one open is a
-  # brokered command that is running at the time.
-  OPERATOR_HOME="$(getent passwd "$OPERATOR" | cut -d: -f6)" || OPERATOR_HOME=""
-  if [[ -n $OPERATOR_HOME && $WORKTREE == "$OPERATOR_HOME"/* ]]; then
-    # The executor is the one that has to be here: it forks the command in this
-    # directory.  The broker is granted alongside it only so that an unreachable
-    # cwd is reported clearly; it treats its own permission error there as the
-    # executor's business, so a home that will not take the second entry still
-    # works.  The keeper needs none of it: its files are under /etc and its unit
-    # sets ProtectHome=true.
-    TRAVERSE_USERS=("$EXEC_USER" "$BROKER_USER")
-    if ! command -v setfacl >/dev/null 2>&1; then
-      say "WARNING: ${WORKTREE} is inside ${OPERATOR_HOME} and setfacl is missing."
-      say "         Install the acl package, or move the tree outside the home:"
-      say "         the broker and the executor cannot reach it as things stand."
-    else
-      say "traversal for ${TRAVERSE_USERS[*]}: ${OPERATOR_HOME} -> ${WORKTREE}"
-      # Every component from the home down to the tree's parent.  The tree itself
-      # is group-owned above, so it needs nothing here.
-      component="$OPERATOR_HOME"
-      remainder="${WORKTREE#"${OPERATOR_HOME}"/}"
-      acl_spec=""
-      for u in "${TRAVERSE_USERS[@]}"; do acl_spec+="${acl_spec:+,}u:${u}:x"; done
-      while :; do
-        # One setfacl call granting both, because on ecryptfs only the first write
-        # against an inode lands: two calls would leave the second account out.
-        setfacl -m "$acl_spec" "$component" 2>/dev/null || true
-        # Read it back rather than trusting the exit status.  On ecryptfs setfacl
-        # returns 0 and does nothing whenever the directory already carries an
-        # ACL: the first write lands, every later one is silently dropped, and
-        # even -b does not clear it.  A grant that cannot be corrected, reported
-        # as success, is how a service ends up unable to read a file that
-        # everything says it should.
-        missing=""
-        acl_now="$(getfacl -p --omit-header "$component" 2>/dev/null || true)"
-        for u in "${TRAVERSE_USERS[@]}"; do
-          grep -q "^user:${u}:" <<<"$acl_now" || missing+="${missing:+ }${u}"
-        done
-        if [[ -n $missing ]]; then
-          say "WARNING: ${component} did not take an ACL entry for ${missing}."
-          say "         setfacl reported success; the filesystem dropped it."
-          say "         An ecryptfs directory accepts one ACL and no edits, so"
-          say "         this cannot be fixed in place.  Either put the tree"
-          say "         outside the home, or give this one directory"
-          say "         'chmod o+x' and accept that every uid can then traverse"
-          say "         it.  Nothing below is reachable that its own mode does"
-          say "         not already allow."
-          break
-        fi
-        # Stop at the tree's parent: the tree itself is group-owned above, and
-        # every component before it needs traversal or the walk is pointless.
-        [[ $remainder == */* ]] || break
-        component="${component}/${remainder%%/*}"
-        remainder="${remainder#*/}"
-        [[ -d $component ]] || break
-      done
-    fi
-  fi
-else
-  say "no WORKTREE named; no tree shared and no traversal granted"
-  say "  set WORKTREE=<dir> to share one and grant the executor a path to it"
-fi
-
 # Without umask 002 the operator and a brokered command fight over every new
-# file in the tree.  This is the single most likely thing to make an operator
-# abandon the setup.
+# file in a shared tree.  This is the single most likely thing to make an
+# operator abandon the setup, and it is here rather than in share-tree.sh
+# because it is a property of the account, not of any one directory.
 profile="$(getent passwd "$OPERATOR" | cut -d: -f6)/.bashrc"
 if [[ -f $profile ]] && ! grep -q '^umask 002' "$profile"; then
   say "umask 002 -> ${profile}"
@@ -241,11 +136,16 @@ Phase 1 acceptance (run these):
   sudo -u ${EXEC_USER} cat /etc/faramir/age.key         -> Permission denied
   sudo -u ${EXEC_USER} cat /var/log/faramir/audit.log   -> Permission denied
   sudo -u ${EXEC_USER} ls ~${OPERATOR}                  -> Permission denied
-${WORKTREE:+  sudo -u ${EXEC_USER} touch ${WORKTREE}/.perm-check    -> succeeds
-}
+
 The coding agent runs as ${OPERATOR}: there is no account of its own, and no
 boundary around it.  What the boundaries below still hold is the age key and the
 values decrypted from it, which ${OPERATOR} cannot read either.
+
+No tree is shared here.  Nothing needs one: the managed sops files are under
+/etc and a brokered command runs where its caller was.  To run commands in a
+tree that is inside ${OPERATOR}'s home, give the executor a path to it:
+
+  install/share-tree.sh <directory>
 
 Note: ${OPERATOR} must log out and back in for the new group membership to take
 effect.
