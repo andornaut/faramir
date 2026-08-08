@@ -7,10 +7,75 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/sockutil"
 )
+
+// resolveConfigDir decides which install doctor is examining.
+//
+// The compiled-in default is only right for a host that took it.  Anywhere else
+// doctor would report the config missing and every check that reads it as
+// broken, on a host that is working: the one thing that knows where the config
+// actually is, without being told, is the broker reading it.
+//
+// Asked over the socket rather than read from the unit, because a broker
+// answering at all is what makes the answer worth having.  Falling back to the
+// default when it does not answer is not a guess about the path so much as the
+// only thing left to look at, and a broker that is down is itself the finding.
+func resolveConfigDir(explicit, socketPath string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if dir := brokerConfigDir(socketPath); dir != "" {
+		return dir
+	}
+	return install.DefaultConfigDir
+}
+
+// brokerConfigDir asks a running broker which config it loaded, or returns ""
+// when there is nothing listening or it answers with something unexpected.
+// Every failure is the same answer: doctor carries on against the default and
+// reports what it finds there.
+func brokerConfigDir(socketPath string) string {
+	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	if err != nil {
+		return ""
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	if err := sockutil.Send(conn, map[string]any{"op": "status"}); err != nil {
+		return ""
+	}
+	if uc, ok := conn.(*net.UnixConn); ok {
+		_ = uc.CloseWrite()
+	}
+	line, err := sockutil.ReadLine(conn, 1<<20)
+	if err != nil {
+		return ""
+	}
+	// The status body is itself JSON, carried as the response's output string.
+	var response struct {
+		Output string `json:"output"`
+	}
+	if err := json.Unmarshal(line, &response); err != nil {
+		return ""
+	}
+	var body struct {
+		Configs []string `json:"configs"`
+	}
+	if err := json.Unmarshal([]byte(response.Output), &body); err != nil || len(body.Configs) == 0 {
+		return ""
+	}
+	// The base config is first by construction; the rest are its drop-ins,
+	// which sit in a subdirectory of the same place.
+	return filepath.Dir(body.Configs[0])
+}
 
 func cmdInit(args []string) int {
 	fs := newFlagSet("init", "init [options]")
@@ -169,7 +234,8 @@ func cmdInitProject(args []string) int {
 
 func cmdDoctor(args []string) int {
 	fs := newFlagSet("doctor", "doctor [options]")
-	configDir := fs.String("config-dir", install.DefaultConfigDir, "where config.toml was installed")
+	configDir := fs.String("config-dir", "", "where config.toml was installed (default: ask the broker)")
+	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	operator := fs.String("operator", "", "account the coding agent runs as")
 	group := fs.String("group", install.DefaultGroup, "shared group")
 	brokerUser := fs.String("broker-user", install.DefaultBrokerUser,
@@ -181,7 +247,7 @@ func cmdDoctor(args []string) int {
 		return code
 	}
 	report := install.Diagnose(install.DoctorOptions{
-		ConfigDir:  *configDir,
+		ConfigDir:  resolveConfigDir(*configDir, *socket),
 		Operator:   operatorName(*operator),
 		Group:      *group,
 		BrokerUser: *brokerUser,
