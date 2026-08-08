@@ -190,7 +190,10 @@ func (s *Server) opStatus() protocol.Response {
 	body, _ := json.MarshalIndent(map[string]any{
 		"version": version.Version,
 		"config":  s.Config.Path,
-		"secrets": s.Store.Describe(),
+		// Every file that contributed, not just the base: a setting that is not
+		// what an operator expects is usually a drop-in they forgot applies.
+		"config_sources": s.Config.Sources,
+		"secrets":        s.Store.Describe(),
 	}, "", "  ")
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",

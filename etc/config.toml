@@ -14,9 +14,10 @@
 #   [exec] max_timeout_sec, max_output_bytes
 #   the executor's uid     see the systemd units
 #
-# etc/examples/ holds complete configs for real workloads:
-#
-#   ansible-fleet.toml   running Ansible against a fleet of managed hosts
+# Settings that belong to whatever consumes the broker -- which sops files to
+# manage, which SSH key to lend -- go in /etc/faramir/config.d/*.toml rather
+# than here, so the two have separate owners.  Those merge over this file in
+# lexical order and are held to the same checks.
 #
 # A mistyped key or [section] is a hard error naming the alternatives, not a
 # silently ignored line, and so is a size or count out of range -- a zero

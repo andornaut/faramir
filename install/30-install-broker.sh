@@ -9,8 +9,9 @@ BROKER_USER="${BROKER_USER:-faramir-broker}"
 OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
 GROUP="${DEV_GROUP:-dev}"
 BIN="${FARAMIR_BIN:-$REPO/bin}"
-# Point this at etc/examples/<workload>.toml to install the configuration for a
-# real workload rather than the starter.
+# The base configuration.  Settings belonging to a consumer of the broker go in
+# /etc/faramir/config.d/*.toml instead, which merge over whatever is installed
+# here and survive a config this script declines to overwrite.
 # A relative path resolves against the repo, so the documented invocation works
 # from any directory.
 CONFIG="${CONFIG:-etc/config.toml}"
@@ -57,6 +58,10 @@ install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/faramir/
 # Three services read config.toml from here, so the directory belongs to none
 # of them.  The age key is protected by its own mode, not by this one.
 install -d -m 0755 -o root -g root /etc/faramir
+# Drop-ins, for the settings that belong to whatever consumes the broker rather
+# than to the broker: which sops files to manage, which SSH key to lend.  World
+# readable like the config beside it, and holding no value either.
+install -d -m 0755 -o root -g root /etc/faramir/config.d
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
 # Configs are installed verbatim.  Every path in one is absolute: the secrets

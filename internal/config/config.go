@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -329,7 +330,12 @@ type AuditConfig struct {
 }
 
 type Config struct {
-	Path     string
+	Path string
+	// Every file that contributed, base first, then each drop-in in the order
+	// it was applied.  Reported by status and --check: "which files made this
+	// config" is the first question when one does not say what an operator
+	// expects.
+	Sources  []string
 	Server   ServerConfig
 	Keeper   KeeperConfig
 	Executor ExecutorConfig
@@ -350,6 +356,43 @@ func Load(path string) (*Config, error) {
 	if path == "" {
 		path = DefaultConfigPath
 	}
+	raw, err := readTOML(path)
+	if err != nil {
+		return nil, err
+	}
+
+	// Drop-ins carry the settings that belong to whatever consumes the broker
+	// rather than to the broker: which sops files to manage, which SSH key to
+	// lend.  Keeping those out of the base file means the two have separate
+	// owners and neither has to be merged by hand.
+	dropIns, err := dropInPaths(filepath.Join(filepath.Dir(path), dropInDirName))
+	if err != nil {
+		return nil, err
+	}
+	sources := append([]string{path}, dropIns...)
+	for _, dropIn := range dropIns {
+		layer, err := readTOML(dropIn)
+		if err != nil {
+			return nil, err
+		}
+		mergeInto(raw, layer)
+	}
+
+	// Validated after merging, never before: a drop-in that sets
+	// max_concurrency to 0 has to fail the same range check the base file
+	// would, and an unknown key has to be refused wherever it was written.
+	cfg, err := FromMap(raw, strings.Join(sources, ", "))
+	if err != nil {
+		return nil, err
+	}
+	cfg.Path = path
+	cfg.Sources = sources
+	return cfg, nil
+}
+
+const dropInDirName = "config.d"
+
+func readTOML(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -361,7 +404,52 @@ func Load(path string) (*Config, error) {
 	if err := toml.Unmarshal(data, &raw); err != nil {
 		return nil, errf("%s: %v", path, err)
 	}
-	return FromMap(raw, path)
+	return raw, nil
+}
+
+// dropInPaths lists *.toml in dir, in lexical order so a numeric prefix orders
+// them.  A missing directory is the ordinary case and yields nothing.
+//
+// A directory that exists and cannot be read is an error rather than an empty
+// list: a drop-in that should have applied and silently did not is a broker
+// managing fewer files than its operator believes, which is the failure this
+// package exists to make loud.
+func dropInPaths(dir string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, errf("%s: %v", dir, err)
+	}
+	var paths []string
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".toml") {
+			continue
+		}
+		paths = append(paths, filepath.Join(dir, entry.Name()))
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+// mergeInto layers one decoded config over another.
+//
+// Tables merge key by key, so a drop-in naming one [secrets] file does not
+// discard min_length, and one adding a variable to [exec.base_env] does not
+// have to restate PATH.  Everything else replaces, arrays included: appending
+// would leave no way to remove an entry, and a list that grows by being
+// mentioned is not what "set this" reads as.
+func mergeInto(base, layer map[string]any) {
+	for key, value := range layer {
+		if sub, ok := value.(map[string]any); ok {
+			if existing, ok := base[key].(map[string]any); ok {
+				mergeInto(existing, sub)
+				continue
+			}
+		}
+		base[key] = value
+	}
 }
 
 var (

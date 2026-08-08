@@ -4,7 +4,7 @@ Playbooks get credentials the same way every brokered program does: the caller n
 
 Ansible does **not** decrypt sops and cannot. That needs the age private key, and no process the broker starts receives it. A playbook can run arbitrary tasks, so a playbook holding the master key means anything that can reach Ansible obtains the key to every managed file, retroactively.
 
-Variables and paths assumed here are in [etc/examples/ansible-fleet.toml](../etc/examples/ansible-fleet.toml).
+The variables and paths assumed here are set in a `/etc/faramir/config.d` drop-in rather than in the base config, so the broker's own configuration is not edited to name an Ansible checkout's secrets file.
 
 ## 1. Encrypt the right file, in the right place
 

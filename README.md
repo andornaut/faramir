@@ -86,7 +86,7 @@ Phase | Does
 `30-install-broker.sh` | binaries, config, systemd units
 `40-agent-config.sh` | `Read` deny rules in your account, and the recipe for enrolling a project
 
-- `CONFIG=etc/examples/ansible-fleet.toml` installs a real workload config instead of the starter. Configs install verbatim; every path in one is absolute.
+- `CONFIG=<file>` installs a different base config instead of the starter. Installed verbatim; every path in one is absolute.
 - `WORKTREE` is optional and unset by default. Name a directory to have it group-shared with the service accounts, and to have traversal granted down to it when it sits inside a home. Nothing needs a tree of its own: a brokered command runs where its caller was.
 - `FARAMIR_BIN=/opt/faramir/bin` lets you build on one machine and install on another.
 - A `CONFIG` that does not parse is refused before anything is written.
@@ -98,7 +98,7 @@ Phase | Does
 Step | Do | Why
 --- | --- | ---
 1 | Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them | Not in a checkout: a home is not mounted until login, so a value set inside one is empty at boot
-2 | Add it to `[secrets] files`, then restart `faramir-keeper` and `faramir-broker`, in that order | This is what puts the values in the redaction set. A restart because neither daemon re-reads `config.toml`; the keeper leads because it decrypts the list the broker is served
+2 | Name it in `/etc/faramir/config.d/<project>.toml`, then restart `faramir-keeper` and `faramir-broker`, in that order | This is what puts the values in the redaction set. A drop-in rather than the base config, so the project owns the line naming its own store. A restart because neither daemon re-reads its config; the keeper leads because it decrypts the list the broker is served
 3 | Point the project's config at environment variables | It never decrypts anything; it reads `$NAME` however it already does
 4 | Write the refs beside the project, one `NAME=secret://ref` per line | So a run names refs rather than someone remembering them
 5 | Copy [settings.project.json](agent/claude/settings.project.json) to `.claude/settings.json` and [mcp.json](agent/claude/mcp.json) to `.mcp.json` | Redaction and `faramir_run` for that repo. This is what auto-approves Bash there
@@ -116,9 +116,19 @@ That proves both halves: the value reached the child, and it came back as a toke
 
 ```text
 /etc/faramir/secrets/ansible-ctrl.sops.yml   the values, outside every checkout
+/etc/faramir/config.d/ansible-ctrl.toml      names that file and the SSH key to lend
 group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME')
 faramir.env                                  NAME=secret://ref, one per line
 .claude/settings.json, .mcp.json             hook and MCP for this repo
+```
+
+```toml
+# /etc/faramir/config.d/ansible-ctrl.toml, the whole of it
+[secrets]
+files = ["/etc/faramir/secrets/ansible-ctrl.sops.yml"]
+
+[ssh]
+keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
 ```
 
 ```yaml
@@ -199,7 +209,8 @@ the executor's uid | The real bound
 - `allowed_groups` admits every member of a group including supplementary membership. Intended on `[server]`. Leave it empty on `[keeper]` and `[executor]`, whose only legitimate client is the broker, named in `allowed_users`. Both warn at startup when it is not.
 - No config names where a command runs. A brokered command runs where its caller was; a request naming no cwd is refused.
 - A mistyped key or `[section]` is a hard error naming the alternatives. Values are range-checked. Zero stays legal where it means something (`kill_grace_sec = 0`, `refresh_interval_sec = 0`).
-- Complete workload configs: [etc/examples/](etc/examples/).
+- **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order, which is where the settings belonging to whatever *consumes* the broker go: which sops files to manage, which SSH key to lend. Tables merge key by key, so naming one `[secrets] files` does not discard `min_length` and adding one `[exec.base_env]` variable does not mean restating `PATH`. Everything else replaces, arrays included, because a list that grows by being mentioned cannot be shortened.
+- Validation runs after merging, so a drop-in is held to every rule the base file is, and `faramir status` reports `config_sources` so it is visible which files made the running config.
 
 ### The install gate
 
