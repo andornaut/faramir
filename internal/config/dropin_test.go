@@ -43,7 +43,7 @@ func TestABaseConfigWithNoDropInDirectoryLoads(t *testing.T) {
 
 // The point of the feature: the settings that belong to whatever consumes the
 // broker are named somewhere the broker's own config is not edited.
-func TestADropInReplacesAListAndIsRecorded(t *testing.T) {
+func TestADropInAddsToTheInventoryAndIsRecorded(t *testing.T) {
 	cfg, err := write(t, minimal+`
 [secrets]
 files = ["/etc/faramir/secrets/base.sops.yml"]
@@ -56,16 +56,82 @@ files = ["/etc/faramir/secrets/consumer.sops.yml"]
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Secrets.Files; len(got) != 1 || !strings.HasSuffix(got[0], "consumer.sops.yml") {
-		t.Errorf("files = %v, want the drop-in's list alone", got)
+	// Accumulated, not replaced: both are files somebody asked to have managed.
+	if got := cfg.Secrets.Files; len(got) != 2 {
+		t.Errorf("files = %v, want the base's and the drop-in's", got)
 	}
-	// Replaced the list, merged the table: a drop-in naming one file must not
-	// silently drop the thresholds beside it.
+	// Merged the table around it: naming one file must not drop the thresholds.
 	if cfg.Secrets.MinLength != 12 {
 		t.Errorf("min_length = %d, want 12 carried over from the base", cfg.Secrets.MinLength)
 	}
 	if len(cfg.Sources) != 2 {
 		t.Errorf("sources = %v, want the base and one drop-in", cfg.Sources)
+	}
+}
+
+// The failure this rule exists for. Two projects each name their own store, and
+// under replace semantics the loser's values are neither injectable nor in the
+// redaction set, with nothing said about it.
+func TestTwoProjectsEachKeepTheirOwnStore(t *testing.T) {
+	cfg, err := write(t, minimal, map[string]string{
+		"ansible-ctrl.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/ansible-ctrl.sops.yml\"]\n",
+		"webapp.toml":       "[secrets]\nfiles = [\"/etc/faramir/secrets/webapp.sops.yml\"]\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Secrets.Files) != 2 {
+		t.Errorf("files = %v, want both projects managed", cfg.Secrets.Files)
+	}
+}
+
+// Same for the keys the broker lends: two consumers, two keys, one agent.
+func TestSshKeysAccumulate(t *testing.T) {
+	cfg, err := write(t, minimal, map[string]string{
+		"10-a.toml": "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/a\"]\n",
+		"20-b.toml": "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/b\"]\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Ssh.Keys) != 2 {
+		t.Errorf("keys = %v, want both", cfg.Ssh.Keys)
+	}
+}
+
+// Named twice is managed once, so two owners referring to a shared store does
+// not decrypt it twice or report it twice.
+func TestAnInventoryEntryNamedTwiceAppearsOnce(t *testing.T) {
+	cfg, err := write(t, minimal, map[string]string{
+		"10-a.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
+		"20-b.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Secrets.Files) != 1 {
+		t.Errorf("files = %v, want the shared file once", cfg.Secrets.Files)
+	}
+}
+
+// Policy lists are refused rather than accumulated or silently replaced.
+// Accumulating would widen what the sockets admit by writing a file that never
+// said so; taking the last would make it depend on filename order.
+func TestAPolicyListSetTwiceIsRefused(t *testing.T) {
+	for _, tc := range []struct{ name, base, dropIn string }{
+		{"base and drop-in", "[server]\nallowed_groups = [\"dev\"]\n", "[server]\nallowed_groups = [\"wheel\"]\n"},
+		{"decrypt_command", "[secrets]\ndecrypt_command = [\"sops\"]\n", "[secrets]\ndecrypt_command = [\"cat\"]\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := write(t, minimal+tc.base, map[string]string{"10-x.toml": tc.dropIn})
+			if err == nil {
+				t.Fatal("a policy list was overridden silently")
+			}
+			// Both files, because the fix is to remove it from one of them.
+			if !strings.Contains(err.Error(), "10-x.toml") || !strings.Contains(err.Error(), "config.toml") {
+				t.Errorf("error names too little to act on: %v", err)
+			}
+		})
 	}
 }
 

@@ -428,7 +428,8 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
 	sshInfo, problems := s.describeSSH()
 	body, _ := json.MarshalIndent(map[string]any{
-		"secrets": secrets, "ssh": sshInfo,
+		"config_sources": s.Config.Sources,
+		"secrets":        secrets, "ssh": sshInfo,
 	}, "", "  ")
 
 	code := 0

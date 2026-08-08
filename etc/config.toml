@@ -105,7 +105,11 @@ exec_group = "faramir-exec"
 # an empty value set and redacting nothing.  The directory is 2770 root:dev, so
 # the operator edits them with sops and the keeper reads them, both without
 # sudo.
-files = ["/etc/faramir/secrets/secrets.sops.yml"]
+# Empty here on purpose.  This list accumulates across config.d, so a name left
+# in the starter would be merged into every install forever and reported as a
+# managed file nobody asked for.  Each consumer names its own store in its own
+# drop-in:  files = ["/etc/faramir/secrets/<consumer>.sops.yml"]
+files = []
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
 

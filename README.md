@@ -209,8 +209,17 @@ the executor's uid | The real bound
 - `allowed_groups` admits every member of a group including supplementary membership. Intended on `[server]`. Leave it empty on `[keeper]` and `[executor]`, whose only legitimate client is the broker, named in `allowed_users`. Both warn at startup when it is not.
 - No config names where a command runs. A brokered command runs where its caller was; a request naming no cwd is refused.
 - A mistyped key or `[section]` is a hard error naming the alternatives. Values are range-checked. Zero stays legal where it means something (`kill_grace_sec = 0`, `refresh_interval_sec = 0`).
-- **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order, which is where the settings belonging to whatever *consumes* the broker go: which sops files to manage, which SSH key to lend. Tables merge key by key, so naming one `[secrets] files` does not discard `min_length` and adding one `[exec.base_env]` variable does not mean restating `PATH`. Everything else replaces, arrays included, because a list that grows by being mentioned cannot be shortened.
-- Validation runs after merging, so a drop-in is held to every rule the base file is, and `faramir status` reports `config_sources` so it is visible which files made the running config.
+- **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order, which is where the settings belonging to whatever *consumes* the broker go. Tables merge key by key, so naming one `[secrets] files` does not discard `min_length` and adding one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
+
+Lists split by what they are:
+
+What | Rule | Why
+--- | --- | ---
+`[secrets] files`, `[ssh] keys` | **accumulate**, duplicates collapsed | Inventories with one entry per owner. Two projects each naming their own store both want theirs managed; replacing would leave the broker holding fewer files than its operator believes, injecting nothing for the loser and redacting nothing either.
+every other list | **refused** when two sources set it, naming both | `allowed_users`, `allowed_groups`, `allowed_uids` and `decrypt_command` are policy. Accumulating would widen what the sockets admit by writing a file that never said so; taking the last would make it depend on filename order.
+
+- Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir-broker --check` both report `config_sources`, which is where to look when a setting is not what you expect.
+- Dotfiles are skipped, so an editor's `.#name.toml` lock does not stop the daemons starting.
 
 ### The install gate
 
@@ -407,7 +416,7 @@ cmd/faramir-guard      PreToolUse hook
 internal/              implementation; each package doc explains its decisions
 internal/e2e           end-to-end suite: a real keeper, executor and broker
 systemd/               socket and hardened service units, one pair per daemon
-etc/                   starter config and complete workload examples
+etc/                   the starter config; per-consumer settings go in config.d
 agent/                 deny patterns, settings, the snippet phase 4 installs
 install/               provisioning scripts, one per phase, plus cleanup and uninstall
 tests/verify.sh        the verification matrix

@@ -53,7 +53,7 @@ injectable; see [redaction.md](redaction.md).
 {"op": "status"}
 ```
 
-Broker version, config path, loaded files, ref count and load errors. Not
+Broker version, config path, `config_sources` (the base config and every drop-in that contributed, in the order applied), loaded files, ref count and load errors. Not
 the refs refused at load: that list names exactly
 the secrets that are never tokenized, so it stays operator-side, behind
 `faramir-broker --check`.

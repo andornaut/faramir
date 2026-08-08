@@ -370,12 +370,18 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	sources := append([]string{path}, dropIns...)
+	// Seeded from the base so a drop-in overriding a policy list is refused the
+	// same way two drop-ins are: the base is a source like any other.
+	setBy := map[string]string{}
+	markTable(raw, "", path, setBy)
 	for _, dropIn := range dropIns {
 		layer, err := readTOML(dropIn)
 		if err != nil {
 			return nil, err
 		}
-		mergeInto(raw, layer)
+		if err := mergeInto(raw, layer, "", dropIn, setBy); err != nil {
+			return nil, err
+		}
 	}
 
 	// Validated after merging, never before: a drop-in that sets
@@ -424,7 +430,11 @@ func dropInPaths(dir string) ([]string, error) {
 	}
 	var paths []string
 	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".toml") {
+		name := entry.Name()
+		// Dotfiles are skipped, not read: an editor writes its lock beside the
+		// file as .#name.toml, a dangling symlink, and refusing that would stop
+		// all three daemons starting for as long as a drop-in is open.
+		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".toml") {
 			continue
 		}
 		paths = append(paths, filepath.Join(dir, entry.Name()))
@@ -433,23 +443,106 @@ func dropInPaths(dir string) ([]string, error) {
 	return paths, nil
 }
 
+// inventoryLists name what the broker is to manage, one entry per owner, so
+// they accumulate across sources.  Everything else is policy.
+//
+// The distinction is the whole of the merge rule and it is not cosmetic.  These
+// two grow: two projects each naming their own sops file both want theirs
+// managed, and replacing would leave the broker holding fewer files than its
+// operator believes, injecting nothing for the loser and redacting nothing
+// either.  allowed_users, allowed_groups, allowed_uids and decrypt_command are
+// the opposite: accumulating those would widen what the sockets admit, or what
+// runs to decrypt, by writing a file that never said so.
+var inventoryLists = map[string]bool{
+	"secrets.files": true,
+	"ssh.keys":      true,
+}
+
 // mergeInto layers one decoded config over another.
 //
 // Tables merge key by key, so a drop-in naming one [secrets] file does not
 // discard min_length, and one adding a variable to [exec.base_env] does not
-// have to restate PATH.  Everything else replaces, arrays included: appending
-// would leave no way to remove an entry, and a list that grows by being
-// mentioned is not what "set this" reads as.
-func mergeInto(base, layer map[string]any) {
+// have to restate PATH.  Scalars replace, which is what setting one means.
+//
+// Lists split by the rule above: an inventory accumulates, and any other list
+// set by two sources is refused outright, naming both.  Silently taking the
+// last would make a policy list depend on filename order.
+//
+// setBy records which source last set each dotted key, seeded from the base
+// config, so the error can name the file an operator has to go and look at.
+func mergeInto(base, layer map[string]any, prefix, source string, setBy map[string]string) error {
 	for key, value := range layer {
+		full := key
+		if prefix != "" {
+			full = prefix + "." + key
+		}
+
 		if sub, ok := value.(map[string]any); ok {
 			if existing, ok := base[key].(map[string]any); ok {
-				mergeInto(existing, sub)
+				if err := mergeInto(existing, sub, full, source, setBy); err != nil {
+					return err
+				}
 				continue
 			}
+			base[key] = value
+			markTable(sub, full, source, setBy)
+			continue
 		}
+
+		if list, ok := value.([]any); ok {
+			if inventoryLists[full] {
+				existing, _ := base[key].([]any)
+				base[key] = appendNew(existing, list)
+				setBy[full] = source
+				continue
+			}
+			if prior, seen := setBy[full]; seen {
+				return errf("%s: %s is set by both %s and %s. That list is policy "+
+					"rather than an inventory, so it has one owner: name it in one "+
+					"of them and not the other", source, full, prior, source)
+			}
+		}
+
 		base[key] = value
+		setBy[full] = source
 	}
+	return nil
+}
+
+// markTable records a whole subtree as having come from one source, for a table
+// that replaced rather than merged.  Without it a later drop-in setting a list
+// inside that table would look unset and overwrite it silently.
+func markTable(sub map[string]any, prefix, source string, setBy map[string]string) {
+	for key, value := range sub {
+		full := key
+		if prefix != "" {
+			full = prefix + "." + key
+		}
+		if nested, ok := value.(map[string]any); ok {
+			markTable(nested, full, source, setBy)
+			continue
+		}
+		setBy[full] = source
+	}
+}
+
+// appendNew adds what is not already there, so two owners naming the same file
+// manage it once and the order stays the order it was contributed in.
+func appendNew(existing, incoming []any) []any {
+	seen := make(map[any]bool, len(existing))
+	out := make([]any, 0, len(existing)+len(incoming))
+	for _, v := range existing {
+		seen[v] = true
+		out = append(out, v)
+	}
+	for _, v := range incoming {
+		if seen[v] {
+			continue
+		}
+		seen[v] = true
+		out = append(out, v)
+	}
+	return out
 }
 
 var (

@@ -101,8 +101,10 @@ if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
   install_config "$CONFIG" /etc/faramir/config.toml.dist || exit 1
   if ! config_parses /etc/faramir/config.toml; then
-    say "WARNING: the installed /etc/faramir/config.toml does not parse;"
-    say "         the broker will not start until it does"
+    say "WARNING: the installed config does not parse; the broker will not"
+    say "         start until it does.  The error above names the file, which"
+    say "         may be a drop-in under /etc/faramir/config.d rather than"
+    say "         config.toml itself."
   fi
 else
   say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml"
