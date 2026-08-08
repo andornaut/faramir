@@ -284,10 +284,10 @@ uid faramir-exec              forks brokered commands; holds nothing
 /run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
 /run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
 /run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
-/etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
-/etc/faramir/secrets/         2770 root:dev, managed sops files and .sops.yaml
-/etc/faramir/config.toml      0644 root:root, read by all three daemons
-/etc/faramir/config.d/        0644 root:root, per-consumer settings merged over it
+<config-dir>/age.key          0400 faramir-keeper:faramir-keeper
+<config-dir>/secrets/         2770 root:dev, managed sops files and .sops.yaml
+<config-dir>/config.toml      0644 root:root, read by all three daemons
+<config-dir>/config.d/        0644 root:root, per-consumer settings merged over it
 <any tree you enrol>          2770 <operator>:dev, setgid; faramir init-project
 /var/log/faramir/audit.log    0600 faramir-broker:faramir-broker
 ```
@@ -298,7 +298,7 @@ A brokered command cannot:
 
 Cannot | Why
 --- | ---
-read `/etc/faramir/age.key` | 0400 `faramir-keeper`; `dev` is not in that mode
+read the age key | 0400 `faramir-keeper`; `dev` is not in that mode
 open the keeper socket | 0660 `root:faramir-broker`, and it is not in that group
 ask the keeper for the key | there is no such request
 read or truncate the audit log | 0600 `faramir-broker`
@@ -350,7 +350,7 @@ Two checks are demonstrations rather than assertions: piping a secret through `r
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null`. Pass non-interactive flags.
 - **Output is truncated** at `[exec] max_output_bytes`; the audit log keeps up to `[audit] max_record_bytes`.
 - **The audit log grows without bound.** Add logrotate; keep it 0600 and `faramir-broker`.
-- **Encrypt the disk.** See below; `/etc/faramir/age.key` is a file like any other to someone holding the drive.
+- **Encrypt the disk.** See below; the age key is a file like any other to someone holding the drive.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
 - **A key the broker cannot use fails `--check`.** Missing, passphrase-protected, or the `.pub`.
 - **SSH keys belong in `[ssh] keys`.** Left empty, they must sit in `~faramir-exec/.ssh` where every brokered command can read them.
@@ -358,39 +358,29 @@ Two checks are demonstrations rather than assertions: piping a secret through `r
 
 ## Encryption at rest
 
-`/etc/faramir/age.key` is `0400 faramir-keeper`, which is a *running-system*
-boundary. Powered off, it is an ordinary file on an ordinary filesystem, and it
-decrypts every managed secret retroactively.
+The age key sits beside the config and the store, so all three move together.
+Where you put them is what decides the powered-off case:
 
-Use full-disk encryption. LUKS on the root filesystem covers the key, the audit
-log, `/var/lib/faramir-broker` and swap in one move, and is the only measure
-here that survives the drive leaving the building.
+`--config-dir` | Powered off, with the drive
+--- | ---
+`/etc/faramir` (default) | the key and the store are both on the root filesystem. Use full-disk encryption
+inside an encrypted home | the disk carries neither, and unlocking is the login that already gates the store
 
-### What the key is worth without the store
+LUKS on the root filesystem is the measure that does not depend on where
+anything ended up, and it covers the audit log, `/var/lib/faramir-broker` and
+swap in one move. An encrypted home covers the key and the store and nothing
+else.
 
-A key decrypts nothing on its own. Where the two sit relative to each other is
-what decides whether the powered-off case matters:
+`0400 faramir-keeper` is what keeps the operator out of the key, and it holds
+wherever the key sits: owning the directory is permission to unlink the file,
+not to read it. Replacing it is a deliberate act, and a store encrypted to the
+key it replaced then decrypts for nobody, so what that buys is denial of service
+rather than disclosure. Stopping an agent that is actively sabotaging its own
+host is not what this defends; see [docs/scope.md](docs/scope.md).
 
-Store | Key | Powered off, with the drive
---- | --- | ---
-`/etc/faramir/secrets` (default) | `/etc/faramir/age.key` | both readable: use full-disk encryption
-inside an encrypted home | `/etc/faramir/age.key` | the key is readable and decrypts nothing reachable
-
-So a store moved into an encrypted home already covers the case that sealing the
-key on its own was for. Sealing binds to PCR 7, which tracks Secure Boot policy,
-so changing that state or clearing the TPM stops the blob decrypting: paying that
-fragility for a key whose ciphertext is already out of reach buys nothing.
-
-This stops holding the moment a file encrypted to that recipient lands on the
-unencrypted filesystem. Full-disk encryption is the measure that does not depend
-on where anything ended up.
-
-**The key stays out of the operator's home deliberately.** Per-user encryption
-unlocks at login through PAM, and the keeper starts at boot as a `nologin`
-account with no session to unlock anything. More to the point, the agent runs as
-the operator: write permission on a directory is permission to replace what is
-in it, so a key in that home is one the agent could swap even though `0400
-faramir-keeper` stops it being read.
+Nothing starts the keeper at boot. Its unit is triggered only by its socket, so
+a config directory in a home is read after login, which is when the home is
+there.
 
 ## Development
 

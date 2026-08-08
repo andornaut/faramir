@@ -47,13 +47,9 @@ func (r *runner) stepDirectories() error {
 		changed = changed || made
 	}
 
-	// The age key's directory, which is not under ConfigDir when that has been
-	// moved into a home.  0755 root:root; what protects the key is its own mode.
-	made, err := r.fs.ensureDir(r.layout.AgeKeyDir(), 0o755, 0, 0, false)
-	if err != nil {
-		return err
-	}
-	changed = changed || made
+	// The age key's directory is the config directory, made just above, so there
+	// is nothing to create here.  What protects the key is its own 0400 keeper
+	// ownership, not the mode of what it sits in.
 
 	// The store: 2770 root with the shared group, so the operator edits it with
 	// sops and the keeper decrypts it, both through the group and neither
@@ -65,7 +61,7 @@ func (r *runner) stepDirectories() error {
 	// to edit a file in it, and owning the directory would additionally let them
 	// change its mode, which is the one thing keeping the keeper's access from
 	// being revoked by accident.
-	made, err = r.fs.ensureDir(r.layout.SecretsDir, 0o2770|os.ModeSetgid, 0, r.groupGID, true)
+	made, err := r.fs.ensureDir(r.layout.SecretsDir, 0o2770|os.ModeSetgid, 0, r.groupGID, true)
 	if err != nil {
 		return err
 	}

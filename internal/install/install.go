@@ -238,10 +238,16 @@ func (o Options) layout() (Layout, error) {
 		LogDir:     DefaultLogDir,
 	}
 	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
-	// Not under ConfigDir: that may be inside the operator's own home, and the
-	// age key is the one file this project exists to keep them out of.  The
-	// directory is 0755 root:root and the key's own 0400 is what protects it.
-	layout.AgeKeyPath = filepath.Join(DefaultConfigDir, "age.key")
+	// Beside the config, including when that is inside the operator's own home.
+	// What keeps the operator out of the key is its 0400 keeper ownership, which
+	// holds wherever it sits: owning the directory is permission to unlink the
+	// file, not to read it.  Replacing it is a deliberate act, and a store
+	// encrypted to the key it replaced then decrypts for nobody, so what that
+	// buys an attacker is denial of service rather than disclosure.
+	//
+	// Following the config is what puts the key inside an encrypted home when
+	// the store is already there, so a powered-off disk carries neither.
+	layout.AgeKeyPath = filepath.Join(layout.ConfigDir, "age.key")
 	return layout, layout.validate()
 }
 

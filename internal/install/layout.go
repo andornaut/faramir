@@ -56,13 +56,11 @@ type Layout struct {
 	LogDir     string
 
 	AgeKeyPath string
-	// It is a property of the unit, not a drop-in, so reverting is a re-run
-	// without the flag rather than a file to remember to delete.
 }
 
-// AgeKeyDir is where the key and its sealed form live.  Under the config
-// directory only when that is the default: a config an operator keeps in their
-// own home is theirs to read, and the age key must not be.
+// AgeKeyDir is where the key lives, which is the config directory: the key
+// follows the config so that a store in an encrypted home has the key that
+// opens it in there too.
 func (l Layout) AgeKeyDir() string { return filepath.Dir(l.AgeKeyPath) }
 
 // BrokerHome, KeeperHome and ExecHome are the service accounts' homes.  Derived

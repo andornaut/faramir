@@ -81,7 +81,7 @@ The same secret always becomes `«SECRET:home/router/admin»`, in every response
 
 ## The age key is not in the value set
 
-No process the broker starts receives the key, can read `/etc/faramir/age.key` (`0400 faramir-keeper`), or can open the keeper's socket. "No child prints the age key" holds by construction rather than by the matcher catching it on the way out.
+No process the broker starts receives the key, can read the age key (`0400 faramir-keeper`), or can open the keeper's socket. "No child prints the age key" holds by construction rather than by the matcher catching it on the way out.
 
 Covering it in the redactor would be weaker than it looks: a child holding the key could write it to a file, and redaction only sees output.
 
