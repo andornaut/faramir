@@ -87,7 +87,7 @@ var fallback = []string{
 	// "[^|]*" not ".*", so the rule stops at the first pipe rather than
 	// refusing "cat notes.md | grep credentials".
 	`\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b[^|]*` +
-		`(vault|secrets?\.|\.env|age\.key|id_(rsa|dsa|ecdsa|ed25519)|\.pem\b|credentials|/etc/faramir|/var/log/faramir)`,
+		`(vault|secrets?\.|\.env|age\.key|id_(rsa|dsa|ecdsa|ed25519)|\.pem\b|credentials|/etc/faramir|\.faramir/|/var/log/faramir)`,
 	`\bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))`,
 	// journalctl is deliberately absent: the daemons log ref names and counts,
 	// never values, so refusing it only stops the broker being debugged.

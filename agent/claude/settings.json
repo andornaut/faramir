@@ -10,6 +10,7 @@
       "Read(**/*.sops.yaml)",
       "Read(**/.env*)",
       "Read(/etc/faramir/**)",
+      "Read(**/.faramir/**)",
       "Read(/var/log/faramir/**)",
       "Read(**/age.key)",
       "Read(**/*.key)",
