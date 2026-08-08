@@ -178,3 +178,24 @@ func TestAnEmptySocketEnvVarFallsBackToTheDefault(t *testing.T) {
 		t.Error("an empty FARAMIR_SOCKET left no socket path at all")
 	}
 }
+
+// The account that works in the tree, in the order the install scripts resolve
+// it.  A configuration manager escalates without sudo, so SUDO_USER is unset
+// under Ansible and OPERATOR is what carries the name.
+func TestOperatorNameResolution(t *testing.T) {
+	for _, tc := range []struct{ name, flag, operator, sudoUser, want string }{
+		{"the flag wins", "flagged", "env", "sudo", "flagged"},
+		{"OPERATOR before SUDO_USER", "", "env", "sudo", "env"},
+		{"SUDO_USER when that is all there is", "", "", "sudo", "sudo"},
+		{"root is not an answer", "", "root", "sudo", "sudo"},
+		{"nothing at all", "", "", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("OPERATOR", tc.operator)
+			t.Setenv("SUDO_USER", tc.sudoUser)
+			if got := operatorName(tc.flag); got != tc.want {
+				t.Errorf("operatorName(%q) = %q, want %q", tc.flag, got, tc.want)
+			}
+		})
+	}
+}

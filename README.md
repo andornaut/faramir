@@ -87,7 +87,7 @@ Phase | Does
 `40-agent-config.sh` | `Read` deny rules in your account, and the recipe for enrolling a project
 
 - `CONFIG=<file>` installs a different base config instead of the starter. Installed verbatim; every path in one is absolute.
-- `install/share-tree.sh <dir>` makes one directory usable by brokered commands: group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, execute-only ACLs down to it so `faramir-exec` can enter. Run it per tree, or not at all. Nothing needs a tree of its own, since a brokered command runs where its caller was and the managed sops files are under `/etc`.
+- `faramir share-tree <dir>` (root) makes one directory usable by brokered commands: group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, execute-only ACLs down to it so `faramir-exec` can enter. Run it per tree, or not at all. Nothing needs a tree of its own, since a brokered command runs where its caller was and the managed sops files are under `/etc`.
 - `FARAMIR_BIN=/opt/faramir/bin` lets you build on one machine and install on another.
 - A `CONFIG` that does not parse is refused before anything is written.
 - `install/uninstall.sh` leaves the accounts, `/etc/faramir` and the audit log alone.
@@ -164,7 +164,7 @@ Redaction only, no secret | Skip steps 3 to 5. `faramir redact -- ./script.sh`, 
 ## Usage
 
 ```bash
-faramir status                          # config path, loaded files, ref count
+faramir status                          # config path, sources, ref count
 faramir list-secrets                    # ref names, never values
 faramir run --env NAME=secret://ref -- CMD
 faramir run --env-file deploy.env -- ansible-playbook site.yml
@@ -277,7 +277,7 @@ uid faramir-exec              forks brokered commands; holds nothing
 /etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
 /etc/faramir/secrets/         2770 root:dev, managed sops files and .sops.yaml
 /etc/faramir/config.toml      0644 root:root, read by all three daemons
-<any tree you share>          2770 <operator>:dev, setgid; see share-tree.sh
+<any tree you share>          2770 <operator>:dev, setgid; faramir share-tree
 /var/log/faramir/audit.log    0600 faramir-broker:faramir-broker
 ```
 
@@ -294,7 +294,7 @@ receive `SOPS_AGE_KEY` | nothing puts it there
 
 It **can** write the working tree, which is the point, and reach the broker socket, which buys it nothing: the response is redacted and audited like any other.
 
-A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. `install/share-tree.sh` grants it with an ACL, never `chmod o+x` (with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it). The broker is granted alongside it so an unreachable directory is reported clearly rather than as a child that failed to start, but it is not required: the broker treats its own permission error on the cwd as the executor's business. The keeper needs nothing, its files being under `/etc` and its unit setting `ProtectHome=true`.
+A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. `faramir share-tree` grants it with an ACL, never `chmod o+x` (with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it). The broker is granted alongside it so an unreachable directory is reported clearly rather than as a child that failed to start, but it is not required: the broker treats its own permission error on the cwd as the executor's business. The keeper needs nothing, its files being under `/etc` and its unit setting `ProtectHome=true`.
 
 On ecryptfs an ACL is write-once: the first grant lands and later edits are silently dropped, so both uids go in a single call and a home already carrying one cannot be extended. That is why the broker's grant is a convenience rather than a requirement.
 
@@ -417,7 +417,7 @@ internal/e2e           end-to-end suite: a real keeper, executor and broker
 systemd/               socket and hardened service units, one pair per daemon
 etc/                   the starter config; per-consumer settings go in config.d
 agent/                 deny patterns, settings, the snippet phase 4 installs
-install/               provisioning scripts, one per phase, plus share-tree, cleanup and uninstall
+install/               provisioning scripts, one per phase, plus cleanup and uninstall
 tests/verify.sh        the verification matrix
 docs/                  redaction, wire protocol, Ansible, scope
 ```

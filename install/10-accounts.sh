@@ -105,7 +105,7 @@ id -u "$OPERATOR" >/dev/null 2>&1 && usermod -aG "$GROUP" "$OPERATOR"
 
 # Without umask 002 the operator and a brokered command fight over every new
 # file in a shared tree.  This is the single most likely thing to make an
-# operator abandon the setup, and it is here rather than in share-tree.sh
+# operator abandon the setup, and it is here rather than in `faramir share-tree`
 # because it is a property of the account, not of any one directory.
 profile="$(getent passwd "$OPERATOR" | cut -d: -f6)/.bashrc"
 if [[ -f $profile ]] && ! grep -q '^umask 002' "$profile"; then
@@ -145,7 +145,7 @@ No tree is shared here.  Nothing needs one: the managed sops files are under
 /etc and a brokered command runs where its caller was.  To run commands in a
 tree that is inside ${OPERATOR}'s home, give the executor a path to it:
 
-  install/share-tree.sh <directory>
+  faramir share-tree <directory>
 
 Note: ${OPERATOR} must log out and back in for the new group membership to take
 effect.
