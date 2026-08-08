@@ -71,6 +71,30 @@ func TestTheShippedFileDeniesTheDocumentedCases(t *testing.T) {
 			t.Errorf("shipped file did not deny %q", cmd)
 		}
 	}
+	// Managing a unit is an operator action the docs prescribe; running the
+	// daemon, or running as its account, is not.  Stopping the broker is denied
+	// with the second group because the wrapper fails open without it.
+	for _, cmd := range []string{
+		"sudo faramir-keeper",
+		"sudo -E faramir-broker -c /etc/faramir/config.toml",
+		"sudo -u faramir-exec ls /srv",
+		"sudo systemctl stop faramir-broker",
+		"systemctl disable faramir-keeper",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("shipped file did not deny %q", cmd)
+		}
+	}
+	for _, cmd := range []string{
+		"sudo systemctl restart faramir-keeper",
+		"sudo systemctl status faramir-broker",
+		"systemctl show faramir-exec",
+	} {
+		if pattern, denied := decide(cmd); denied {
+			t.Errorf("shipped file wrongly denied %q (pattern %q)", cmd, pattern)
+		}
+	}
+
 	// A managed file's own name matches none of the credential-shaped
 	// alternatives: "secrets/" is a directory, so "secrets?\." does not fire,
 	// and the path holds no "vault", ".env" or "credentials" either.  Coverage

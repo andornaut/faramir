@@ -32,4 +32,6 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # Trying to reach the broker's private state
 /var/log/faramir
 \bjournalctl\b.*faramir
-\bsudo\b.*(\bfaramir-(broker|keeper|exec)\b|-u\s+faramir)
+\bsudo\b(\s+-\S+)*\s+faramir-(broker|keeper|exec)\b
+\bsudo\b.*-u\s+faramir
+\bsystemctl\b.*\b(stop|disable|mask|kill)\b.*\bfaramir-

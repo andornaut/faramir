@@ -76,7 +76,17 @@ var fallback = []string{
 	`\bfind\b.*-name.*(age\.key|\.env|id_rsa)`,
 	`/var/log/faramir`,
 	`\bjournalctl\b.*faramir`,
-	`\bsudo\b.*(\bfaramir-(broker|keeper|exec)\b|-u\s+faramir)`,
+	// Running the daemon, or running as its account, discloses; managing the
+	// unit does not.  One rule covering both denied "systemctl restart
+	// faramir-keeper", which is what the docs tell an operator to run after
+	// adding a secrets file.  The executable position is what separates them:
+	// sudo's own flags may precede the name, nothing else may.
+	`\bsudo\b(\s+-\S+)*\s+faramir-(broker|keeper|exec)\b`,
+	`\bsudo\b.*-u\s+faramir`,
+	// Stopping the broker is the exception: the wrapper fails open when it
+	// cannot be reached, so taking it down turns redaction off everywhere
+	// rather than breaking anything visibly.
+	`\bsystemctl\b.*\b(stop|disable|mask|kill)\b.*\bfaramir-`,
 }
 
 const advice = "Blocked: this command would put a credential (or an encrypted blob) into " +
