@@ -89,7 +89,6 @@ Flag | Does
 `--binaries DIR` | read the built binaries from here instead of the directory `faramir` itself is in, so you can build on one machine and install on another
 `--operator-age-key PATH` | mint an identity for yourself and list it in `.sops.yaml` alongside the keeper's, so you can still read the files you are responsible for
 `--ssh-key PATH` | generate the identity the broker lends to brokered commands. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run
-`--seal-age-key` | take the age key from a TPM-sealed credential. `--remove-plaintext-age-key` then deletes the file, which is irreversible
 `--agent-config` | install the `Read` deny rules into your own Claude settings
 `--dry-run` | report what would change and write nothing
 `--json` | print the report as JSON, one entry per step with a `changed` flag, for a configuration manager to read
@@ -367,47 +366,31 @@ Use full-disk encryption. LUKS on the root filesystem covers the key, the audit
 log, `/var/lib/faramir-broker` and swap in one move, and is the only measure
 here that survives the drive leaving the building.
 
-### Sealing the key to a TPM
+### What the key is worth without the store
 
-Where a TPM and systemd 250 or later are available, the key can be sealed on its
-own, which needs no disk surgery:
+A key decrypts nothing on its own. Where the two sit relative to each other is
+what decides whether the powered-off case matters:
 
-```bash
-sudo ./bin/faramir init --operator "$USER" --seal-age-key
-```
+Store | Key | Powered off, with the drive
+--- | --- | ---
+`/etc/faramir/secrets` (default) | `/etc/faramir/age.key` | both readable: use full-disk encryption
+inside an encrypted home | `/etc/faramir/age.key` | the key is readable and decrypts nothing reachable
 
-`init` refuses rather than skips when the host has no usable TPM. A security
-measure that quietly does not apply is the install that looks healthy and
-protects less than it appears to.
+So a store moved into an encrypted home already covers the case that sealing the
+key on its own was for. Sealing binds to PCR 7, which tracks Secure Boot policy,
+so changing that state or clearing the TPM stops the blob decrypting: paying that
+fragility for a key whose ciphertext is already out of reach buys nothing.
 
-The keeper's unit then carries `LoadCredentialEncrypted=` in place of
-`LoadCredential=`, and never both: two entries claiming one credential name is a
-unit systemd refuses to start. Reverting is a re-run without the flag, rather
-than a drop-in somebody has to remember to delete.
+This stops holding the moment a file encrypted to that recipient lands on the
+unencrypted filesystem. Full-disk encryption is the measure that does not depend
+on where anything ended up.
 
-`--name=age_key` matters and is what `init` seals under: a credential is bound to
-the name it was encrypted under, and the unit asks for `age_key`. The plaintext
-then exists only in the unit's credential directory, on tmpfs, readable by that
-unit alone.
-
-**The plaintext key is still on disk until you remove it**, and until then this
-has bought nothing. `init` says so on every run that seals without removing it.
-Pass `--remove-plaintext-age-key` only once you have the key material somewhere
-you can re-seal from; it runs last, after the install gate has proved the keeper
-is serving values from the sealed credential.
-
-That last part is not optional. Sealing binds to PCR 7 by default, which tracks
-Secure Boot policy: change the Secure Boot state or its keys and the blob stops
-decrypting, and the only way back is sealing the original key again. Clearing
-the TPM does the same. `--tpm2-pcrs=""` binds to no PCRs, trading that
-fragility for a blob any boot of this machine can decrypt.
-
-Per-user encryption (ecryptfs, `ecryptfs-setup-private` and friends) does not
-work for this. Those unlock at login through PAM, the keeper starts at boot as a
-`nologin` account with no session to unlock anything, and `LoadCredential=` is
-fatal when its source is missing. Putting the key in the operator's own
-encrypted home is worse still: the agent runs as the operator, so the boundary
-that made the key unreadable stops existing.
+**The key stays out of the operator's home deliberately.** Per-user encryption
+unlocks at login through PAM, and the keeper starts at boot as a `nologin`
+account with no session to unlock anything. More to the point, the agent runs as
+the operator: write permission on a directory is permission to replace what is
+in it, so a key in that home is one the agent could swap even though `0400
+faramir-keeper` stops it being read.
 
 ## Development
 

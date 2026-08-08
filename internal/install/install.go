@@ -55,19 +55,6 @@ type Options struct {
 	// puts the keys somewhere the executor can read.
 	SSHKey string
 
-	// SealAgeKey binds the age key to this host's TPM and has the keeper take
-	// it from an encrypted credential.  What it buys is protection at rest:
-	// 0400 keeper is a running-system boundary, and powered off the key is an
-	// ordinary file that decrypts every managed secret retroactively.
-	SealAgeKey bool
-
-	// RemovePlaintextAgeKey deletes the plaintext once the keeper is proven to
-	// run from the sealed credential.  Separate from SealAgeKey because it is
-	// irreversible in the way that matters: sealing binds to PCR 7, so changing
-	// Secure Boot policy or clearing the TPM stops the blob decrypting and the
-	// only way back is sealing the original key again.
-	RemovePlaintextAgeKey bool
-
 	// No tree is enrolled here.  A tree is per project and there is no limit to
 	// how many there are, where this runs once per machine; and the working
 	// directory is the obvious default for "enrol this project" and a hazard for
@@ -190,7 +177,6 @@ func Run(opts Options) (Report, error) {
 		run.stepBinaries,
 		run.stepConfig,
 		run.stepInitDropIn,
-		run.stepSealAgeKey,
 		// Before the units are written and anything is started: it grants the
 		// traversal that lets a service uid reach a config or a store under the
 		// operator's home, and a daemon started without it exits before it opens
@@ -200,7 +186,6 @@ func Run(opts Options) (Report, error) {
 		run.stepSystemd,
 		run.stepAgentConfig,
 		run.stepValidate,
-		run.stepRemovePlaintextAgeKey,
 	}
 	for _, step := range steps {
 		if err := step(); err != nil {
@@ -251,14 +236,12 @@ func (o Options) layout() (Layout, error) {
 		DocDir:     DefaultDocDir,
 		RunDir:     DefaultRunDir,
 		LogDir:     DefaultLogDir,
-		SealAgeKey: o.SealAgeKey,
 	}
 	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
 	// Not under ConfigDir: that may be inside the operator's own home, and the
 	// age key is the one file this project exists to keep them out of.  The
 	// directory is 0755 root:root and the key's own 0400 is what protects it.
 	layout.AgeKeyPath = filepath.Join(DefaultConfigDir, "age.key")
-	layout.AgeKeyCred = layout.AgeKeyPath + ".cred"
 	return layout, layout.validate()
 }
 

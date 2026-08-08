@@ -56,11 +56,8 @@ type Layout struct {
 	LogDir     string
 
 	AgeKeyPath string
-	AgeKeyCred string
-	// SealAgeKey swaps the keeper's LoadCredential= for LoadCredentialEncrypted=.
 	// It is a property of the unit, not a drop-in, so reverting is a re-run
 	// without the flag rather than a file to remember to delete.
-	SealAgeKey bool
 }
 
 // AgeKeyDir is where the key and its sealed form live.  Under the config

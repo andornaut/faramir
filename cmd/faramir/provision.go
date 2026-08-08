@@ -94,9 +94,6 @@ func cmdInit(args []string) int {
 		"mint an age identity here and list it alongside the keeper's, so the operator can read the files they own")
 	sshKey := fs.String("ssh-key", "",
 		"identity the broker lends to brokered commands, generated when missing")
-	sealAgeKey := fs.Bool("seal-age-key", false, "seal the age key to this host's TPM")
-	removePlaintext := fs.Bool("remove-plaintext-age-key", false,
-		"delete the plaintext age key once the sealed one is proven to work (irreversible)")
 	agentConfig := fs.Bool("agent-config", false,
 		"install the Read deny rules into the operator's Claude settings")
 	overwriteConfig := fs.Bool("overwrite-config", false,
@@ -110,22 +107,20 @@ func cmdInit(args []string) int {
 	}
 
 	opts := install.Options{
-		Operator:              operatorName(*operator),
-		Group:                 *group,
-		BrokerUser:            *brokerUser,
-		KeeperUser:            *keeperUser,
-		ExecUser:              *execUser,
-		ConfigDir:             *configDir,
-		SecretsDir:            *secretsDir,
-		Binaries:              *binaries,
-		AgeRecipients:         recipients,
-		OperatorAgeKey:        *operatorAgeKey,
-		SSHKey:                *sshKey,
-		SealAgeKey:            *sealAgeKey,
-		RemovePlaintextAgeKey: *removePlaintext,
-		AgentConfig:           *agentConfig,
-		OverwriteConfig:       *overwriteConfig,
-		DryRun:                *dryRun,
+		Operator:        operatorName(*operator),
+		Group:           *group,
+		BrokerUser:      *brokerUser,
+		KeeperUser:      *keeperUser,
+		ExecUser:        *execUser,
+		ConfigDir:       *configDir,
+		SecretsDir:      *secretsDir,
+		Binaries:        *binaries,
+		AgeRecipients:   recipients,
+		OperatorAgeKey:  *operatorAgeKey,
+		SSHKey:          *sshKey,
+		AgentConfig:     *agentConfig,
+		OverwriteConfig: *overwriteConfig,
+		DryRun:          *dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
 	// --json entirely: a caller asking for the report does not want the prose.

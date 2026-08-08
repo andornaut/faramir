@@ -18,26 +18,6 @@ import (
 // key either of those could read is a key any command could read.  The keeper
 // takes it through systemd's LoadCredential= and serves decrypted values only.
 func (r *runner) stepAgeKey() error {
-	// Nothing to mint once the plaintext has deliberately been removed and the
-	// keeper reads the sealed credential.  Minting here would put a brand-new
-	// identity at the old path, list its recipient in the report, and leave a
-	// keeper that decrypts none of the existing store: an upgrade run would turn
-	// a working broker into a broken one, irreversibly, since the store is still
-	// encrypted to the key that was removed.
-	if exists(r.layout.AgeKeyCred) && !exists(r.layout.AgeKeyPath) {
-		if !r.opts.SealAgeKey {
-			return fmt.Errorf("%s is gone and %s is not, so the keeper has no key to "+
-				"read. Pass --seal-age-key to keep taking it from the sealed "+
-				"credential; without it this run would mint a new identity that "+
-				"decrypts none of the store", r.layout.AgeKeyPath, r.layout.AgeKeyCred)
-		}
-		// keeperRecipient stays empty, which is what stops the sops step below
-		// writing a .sops.yaml that omits the keeper.  The recipient cannot be
-		// recovered from a sealed credential without decrypting it, and nothing
-		// here decrypts one.
-		r.step("age key", false, "removed; the keeper reads "+r.layout.AgeKeyCred)
-		return nil
-	}
 	// Nothing is opened under a dry run.  The key is 0400 and owned by the
 	// keeper, so an unprivileged report can see that it is there and must not
 	// try to read it; the recipient is left unknown, which the sops step below
@@ -246,96 +226,5 @@ func (r *runner) stepSSHKey() error {
 		r.restartFor("ssh key")
 	}
 	r.step("broker ssh key", changed, r.opts.SSHKey)
-	return nil
-}
-
-// stepSealAgeKey binds the age key to this host's TPM.
-//
-// Asserted rather than skipped when the host has no TPM.  A security measure
-// that quietly does not apply is the install that looks healthy and protects
-// less than it appears to.
-//
-// --name is what binds the blob: a credential decrypts only under the name it
-// was encrypted with, and the keeper's unit asks for age_key.  Sealed once and
-// left alone; remove the .cred to re-seal after rotating the key.
-func (r *runner) stepSealAgeKey() error {
-	if !r.opts.SealAgeKey {
-		r.skip("seal age key", "not requested; use full-disk encryption instead, "+
-			"which covers the audit log and swap as well")
-		return nil
-	}
-	if exists(r.layout.AgeKeyCred) {
-		r.step("seal age key", false, "keeping "+r.layout.AgeKeyCred)
-		return nil
-	}
-	if r.opts.DryRun {
-		r.step("seal age key", true, "seal into "+r.layout.AgeKeyCred)
-		return nil
-	}
-	out, err := r.command("systemd-creds", "has-tpm2")
-	if err != nil || !strings.HasPrefix(strings.TrimSpace(out), "yes") {
-		return fmt.Errorf("--seal-age-key was given and systemd-creds reports no usable "+
-			"TPM (%s). Drop the flag and use full-disk encryption, which covers the "+
-			"audit log and swap as well", strings.TrimSpace(out))
-	}
-	if _, err := r.command("systemd-creds", "encrypt", "--name=age_key",
-		r.layout.AgeKeyPath, r.layout.AgeKeyCred); err != nil {
-		return err
-	}
-	// Read by systemd as root at unit start, so it is never opened by the
-	// keeper's own uid.
-	if err := os.Chown(r.layout.AgeKeyCred, 0, 0); err != nil {
-		return err
-	}
-	if err := os.Chmod(r.layout.AgeKeyCred, 0o400); err != nil {
-		return err
-	}
-	r.restartFor("sealed age key")
-	r.step("seal age key", true, r.layout.AgeKeyCred)
-	return nil
-}
-
-// stepRemovePlaintextAgeKey deletes the plaintext key.
-//
-// Last, and only after the validation step has proved the keeper is serving
-// values from the sealed credential.  Until this happens the plaintext is still
-// on disk and the sealing has bought nothing; after it, PCR 7 tracks Secure Boot
-// policy, so changing that state stops the blob decrypting and the only way back
-// is sealing the original key again.
-func (r *runner) stepRemovePlaintextAgeKey() error {
-	if !r.opts.RemovePlaintextAgeKey {
-		if r.opts.SealAgeKey && exists(r.layout.AgeKeyPath) {
-			r.warn("%s is still present, so sealing has bought nothing yet. Pass "+
-				"--remove-plaintext-age-key once you have the key material somewhere "+
-				"you can re-seal from", r.layout.AgeKeyPath)
-		}
-		r.skip("remove plaintext age key", "not requested")
-		return nil
-	}
-	if !r.opts.SealAgeKey {
-		return fmt.Errorf("--remove-plaintext-age-key without --seal-age-key would leave "+
-			"the keeper with no key at all: it reads %s", r.layout.AgeKeyPath)
-	}
-	// The step is irreversible, so it is gated on what the validation step
-	// established rather than on its own absence of complaint.  Validation skips
-	// under --dry-run and on a host with no systemd, and a broker with no store
-	// configured yet passes it trivially: in all three cases the sealed
-	// credential has decrypted nothing, and deleting the only copy of the key
-	// that can decrypt the store would be proving nothing and losing everything.
-	if !r.brokerChecked || r.brokerLoadedRefs == 0 {
-		return fmt.Errorf("refusing to remove %s: nothing has yet decrypted the store "+
-			"from %s. The broker %s. Configure the store, re-run, and pass the flag "+
-			"once the run reports refs loaded",
-			r.layout.AgeKeyPath, r.layout.AgeKeyCred,
-			map[bool]string{
-				true:  "loaded no refs",
-				false: "was never asked, because the services are not running here",
-			}[r.brokerChecked])
-	}
-	changed, err := r.fs.remove(r.layout.AgeKeyPath)
-	if err != nil {
-		return err
-	}
-	r.step("remove plaintext age key", changed, r.layout.AgeKeyPath)
 	return nil
 }

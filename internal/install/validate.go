@@ -139,12 +139,6 @@ func (r *runner) stepValidate() error {
 		r.step("broker ssh agent", false, "holds a usable key")
 	}
 
-	// Through the broker for the same reason: a keeper that starts but cannot
-	// unseal serves nothing, and the broker then holds an empty value set and
-	// redacts nothing.  Only meaningful once a store exists.
-	if r.opts.SealAgeKey && report.Secrets.Count > 0 {
-		r.step("sealed age key", false, "the keeper decrypts from "+r.layout.AgeKeyCred)
-	}
 	return nil
 }
 

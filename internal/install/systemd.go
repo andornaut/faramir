@@ -52,11 +52,10 @@ func (r *runner) stepSystemd() error {
 		return err
 	}
 	// The keeper reads the age key at startup and exits without one, so there
-	// is nothing to start yet.  Not an error: --seal-age-key with the plaintext
-	// already removed is a legitimate way to reach this.
-	if !exists(r.layout.AgeKeyPath) && !exists(r.layout.AgeKeyCred) {
-		r.warn("neither %s nor %s exists, so the services are installed but not "+
-			"started", r.layout.AgeKeyPath, r.layout.AgeKeyCred)
+	// is nothing to start yet.
+	if !exists(r.layout.AgeKeyPath) {
+		r.warn("%s does not exist, so the services are installed but not "+
+			"started", r.layout.AgeKeyPath)
 		r.skip("systemd", "no age key")
 		return nil
 	}

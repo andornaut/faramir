@@ -141,32 +141,21 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	}
 }
 
-// The keeper takes the age key from a file or from a TPM-sealed credential, and
-// never from both: two entries claiming one credential name is a unit systemd
-// refuses to start.
+// One source for the age key, and one name for it: the keeper reads
+// $CREDENTIALS_DIRECTORY/age_key and never learns where systemd got it.
 func TestKeeperCredentialSource(t *testing.T) {
 	layout := testLayout()
-	plain, err := render(units["faramir-keeper.service"], layout)
+	unit, err := render(units["faramir-keeper.service"], layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(plain), "LoadCredential=age_key:"+layout.AgeKeyPath) {
-		t.Error("unsealed keeper does not load the plaintext key")
+	if !strings.Contains(string(unit), "LoadCredential=age_key:"+layout.AgeKeyPath) {
+		t.Error("the keeper does not load the age key")
 	}
-	if strings.Contains(string(plain), "LoadCredentialEncrypted=") {
-		t.Error("unsealed keeper loads an encrypted credential as well")
-	}
-
-	layout.SealAgeKey = true
-	sealed, err := render(units["faramir-keeper.service"], layout)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(sealed), "LoadCredentialEncrypted=age_key:"+layout.AgeKeyCred) {
-		t.Error("sealed keeper does not load the sealed credential")
-	}
-	if strings.Contains(string(sealed), "LoadCredential=age_key:") {
-		t.Error("sealed keeper still reads the plaintext key")
+	// Two entries claiming one credential name is a unit systemd refuses to
+	// start, which is what a second source would have to be.
+	if strings.Contains(string(unit), "LoadCredentialEncrypted=") {
+		t.Error("the keeper loads an encrypted credential as well")
 	}
 }
 
