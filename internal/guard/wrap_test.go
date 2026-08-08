@@ -1,4 +1,4 @@
-package main
+package guard
 
 import (
 	"encoding/json"
@@ -48,7 +48,7 @@ func captureStdout(t *testing.T, fn func()) string {
 func hookOutput(t *testing.T, payload string) map[string]any {
 	t.Helper()
 	stdout := captureStdout(t, func() {
-		withStdin(t, payload, func() { run(nil) })
+		withStdin(t, payload, func() { Run(nil) })
 	})
 	if strings.TrimSpace(stdout) == "" {
 		return nil

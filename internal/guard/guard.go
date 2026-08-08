@@ -1,5 +1,5 @@
-// Command faramir-guard is a PreToolUse hook: it denies Bash commands that
-// would put a secret in the context.
+// Package guard is a PreToolUse hook, run as `faramir guard`: it denies Bash
+// commands that would put a secret in the context.
 //
 // This is an enforcement layer that also teaches.  A deterministic block plus a
 // corrective message that names faramir_run changes behaviour far more reliably
@@ -13,7 +13,7 @@
 // context window that does not fill up with encrypted blobs.
 //
 // Reads the hook payload on stdin, writes a PreToolUse decision on stdout.
-package main
+package guard
 
 import (
 	"encoding/json"
@@ -23,6 +23,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/cli"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -37,9 +38,10 @@ func wrapScript() string {
 	return "/usr/local/libexec/faramir/wrap.sh"
 }
 
-// patternsFile sits next to the hook rather than under /etc/faramir, so it
-// travels with the binary that reads it: a hook installed without its patterns
-// falls back to the list below, which is silently weaker than the shipped one.
+// patternsFile sits in libexec rather than under /etc/faramir because it is
+// rendered per install and belongs to the install, not to the operator's
+// configuration.  A hook that cannot find it falls back to the list below,
+// which is silently weaker than the shipped one.
 func patternsFile() string {
 	if v := os.Getenv("FARAMIR_DENY_PATTERNS"); v != "" {
 		return v
@@ -124,8 +126,8 @@ var fallback = []string{
 	// so that a heredoc writing documentation that mentions one of these paths
 	// is not mistaken for a write to it.
 	`\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*` +
-		`(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|\.sops\.ya?ml|\.vault\b)`,
-	`>\s*\S*(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|\.sops\.ya?ml)`,
+		`(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml|\.vault\b)`,
+	`>\s*\S*(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml)`,
 	// journalctl is deliberately absent: the daemons log ref names and counts,
 	// never values, so refusing it only stops the broker being debugged.
 	// Running the daemon, or running as its account, discloses; managing the
@@ -133,7 +135,7 @@ var fallback = []string{
 	// faramir-keeper", which is what the docs tell an operator to run after
 	// adding a secrets file.  The executable position is what separates them:
 	// sudo's own flags may precede the name, nothing else may.
-	`\bsudo\b(\s+-\S+)*\s+faramir-(broker|keeper|exec)\b`,
+	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Stopping the broker is the exception: the wrapper fails open when it
 	// cannot be reached, so taking it down turns redaction off everywhere
@@ -219,11 +221,14 @@ func commandOf(p *payload) string {
 // "faramir status; printenv" through untouched.  It also leaves the separator
 // in place, so the next command in a chain still starts at one.
 //
-// The whitespace after "faramir" is required, not optional: "faramir\b" also
-// matches the hyphen in "faramir-broker", so it sanctioned every
-// "sudo faramir-keeper ..." and left the deny pattern for the daemons unable
-// to fire.
-var faramirCall = regexp.MustCompile(`(^|[;&|\n])\s*(sudo\s+)?faramir[ \t][^;&|\n]*`)
+// The sanctioned subcommands are named rather than matched by shape.  Matching
+// "faramir<space>anything" would sanction "sudo faramir broker" too, because the
+// daemons are subcommands of this binary: a rule that trusts any subcommand
+// trusts the roles that hold the keys.  Naming them fails the safe way, since a
+// subcommand missing from cli.Operator has its arguments scanned.
+var faramirCall = regexp.MustCompile(
+	`(^|[;&|\n])\s*(sudo\s+)?faramir[ \t]+(` +
+		strings.Join(cli.Operator, "|") + `)\b[^;&|\n]*`)
 
 func decide(command string) (string, bool) {
 	stripped := faramirCall.ReplaceAllString(command, "$1")
@@ -235,15 +240,14 @@ func decide(command string) (string, bool) {
 	return "", false
 }
 
-func main() { os.Exit(run(os.Args[1:])) }
-
-func run(args []string) int {
+// Run is the `faramir guard` subcommand.
+func Run(args []string) int {
 	// Checked before stdin is read: this is a hook, so an operator running it
 	// by hand would otherwise get a process that sits waiting for a payload.
 	hostName := ""
 	for i, arg := range args {
 		if arg == "--version" || arg == "-version" {
-			fmt.Println("faramir-guard " + version.Version)
+			fmt.Println("faramir " + version.Version)
 			return 0
 		}
 		if name, ok := strings.CutPrefix(arg, "--host="); ok {

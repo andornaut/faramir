@@ -98,18 +98,20 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 
 # Changing the broker's own files, rather than reading them.  The store is
 # writable by the agent's uid, and so is anything under a home; the hook's
-# patterns and binary decide what it refuses, so they are named here too.
+# patterns and binary decide what it refuses, so they are named here too.  The
+# binary is named as one path rather than as its directory: refusing everything
+# written into {{.BinDir}} would refuse installing any unrelated tool there.
 #
 # The redirect rule matches the target word only, not the rest of the line, so
 # that a heredoc writing documentation that mentions one of these paths is not
 # mistaken for a write to it.
-\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|\.sops\.ya?ml|\.vault\b)
->\s*\S*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|\.sops\.ya?ml)
+\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|{{.BinDir | regexQuote}}/faramir\b|\.sops\.ya?ml|\.vault\b)
+>\s*\S*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|{{.BinDir | regexQuote}}/faramir\b|\.sops\.ya?ml)
 
 # Trying to reach the broker's private state.  Reading the audit log is covered
 # by the rule above; listing the directory is not, and does not need to be.
 # journalctl is deliberately absent: the daemons log ref names and counts,
 # never values, and blocking it only stops the broker being debugged.
-\bsudo\b(\s+-\S+)*\s+faramir-(broker|keeper|exec)\b
+\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard)\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-

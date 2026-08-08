@@ -1,9 +1,7 @@
-// Command faramir-keeper holds the age key and serves decrypted values.
 package main
 
 import (
 	"encoding/json"
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -16,20 +14,25 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-func main() { os.Exit(run()) }
+// cmdKeeper holds the age key and serves decrypted values.  It runs as a uid of
+// its own that executes nothing but sops, which is what keeps the key out of
+// every process that runs a command.
+func cmdKeeper(args []string) int {
+	fs := newFlagSet("keeper", "keeper [-c PATH] [--check]")
+	configPath := fs.String("config", "", "path to config.toml")
+	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
+	check := fs.Bool("check", false, "decrypt once and exit")
+	showVersion := fs.Bool("version", false, "print the version and exit")
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
 
-func run() int {
-	configPath := flag.String("config", "", "path to config.toml")
-	flag.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
-	check := flag.Bool("check", false, "decrypt once and exit")
-	showVersion := flag.Bool("version", false, "print the version and exit")
-	flag.Parse()
-
+	// See cmdBroker: the global logger is what the internal packages write to.
 	log.SetFlags(0)
 	log.SetPrefix("faramir-keeper: ")
 
 	if *showVersion {
-		fmt.Println("faramir-keeper " + version.Version)
+		fmt.Println("faramir " + version.Version)
 		return 0
 	}
 
@@ -72,10 +75,10 @@ func run() int {
 	}()
 
 	sockutil.NotifyReady()
-	return errCode(k.Serve())
+	return keeperErrCode(k.Serve())
 }
 
-func errCode(err error) int {
+func keeperErrCode(err error) int {
 	if err != nil {
 		log.Printf("%v", err)
 		return 1

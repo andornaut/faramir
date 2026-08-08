@@ -1,4 +1,4 @@
-package main
+package guard
 
 import "testing"
 
@@ -28,7 +28,7 @@ func TestTheRemainingWriteVerbsStillRefuse(t *testing.T) {
 	renderedFile(t)
 
 	for _, cmd := range []string{
-		"cp /bin/true /usr/local/libexec/faramir/faramir-guard",
+		"cp /bin/true /usr/local/libexec/faramir/wrap.sh",
 		"tee /usr/local/libexec/faramir/deny-patterns.txt < /dev/null",
 		"mv /etc/faramir/age.key /tmp/k",
 		"rm -f /etc/faramir/secrets/x.sops.yml",

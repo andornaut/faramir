@@ -1,5 +1,5 @@
-// Command faramir-mcp is an MCP (stdio) server exposing the broker to a coding
-// agent.
+// Package mcp is an MCP (stdio) server exposing the broker to a coding agent,
+// run as `faramir mcp`.
 //
 // A distinct tool is far more discoverable to a model than a convention
 // documented in prose, so the interesting work here is the tool descriptions:
@@ -7,7 +7,7 @@
 // command that needs credentials, and that secrets are named, never pasted.
 //
 // Protocol: JSON-RPC 2.0 over stdio, MCP 2025-06-18.
-package main
+package mcp
 
 import (
 	"bufio"
@@ -318,15 +318,14 @@ func handle(m *message) map[string]any {
 	return map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result}
 }
 
-func main() { os.Exit(run(os.Args[1:])) }
-
-func run(args []string) int {
+// Run is the `faramir mcp` subcommand.
+func Run(args []string) int {
 	// No flags: this is a stdio server, started by the agent, never by hand.
 	// --version is the one exception, because it is how an operator confirms
 	// which build the agent is actually talking to.
 	for _, arg := range args {
 		if arg == "--version" || arg == "-version" {
-			fmt.Println("faramir-mcp " + version.Version)
+			fmt.Println("faramir " + version.Version)
 			return 0
 		}
 	}

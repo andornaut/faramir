@@ -4,8 +4,11 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/cli"
 )
 
 func writeEnvFile(t *testing.T, content string) string {
@@ -208,4 +211,55 @@ func TestOperatorNameResolution(t *testing.T) {
 			}
 		})
 	}
+}
+
+// The guard sanctions the subcommands named in cli.Operator and denies those in
+// cli.Internal, so a subcommand the dispatcher accepts but neither list names
+// would have its arguments scanned: `faramir <it> --env A=secret://a` refused,
+// for a command that is meant to take exactly that.
+func TestEverySubcommandIsNamedForTheGuard(t *testing.T) {
+	named := map[string]bool{}
+	for _, name := range append(append([]string{}, cli.Operator...), cli.Internal...) {
+		named[name] = true
+	}
+	// The dispatcher's own aliases: flags, not subcommands, and not something a
+	// deny rule needs to reason about.
+	for _, alias := range []string{"-h", "--help", "-V", "--version"} {
+		named[alias] = true
+	}
+
+	for _, name := range dispatcherNames(t) {
+		if !named[name] {
+			t.Errorf("%q is a subcommand but is in neither cli.Operator nor cli.Internal", name)
+		}
+	}
+}
+
+// dispatcherNames reads the case labels out of run()'s switch.  Parsing the
+// source rather than calling run() with each name: the provisioning subcommands
+// want root and the daemons want a socket, so invoking them to find out whether
+// they exist would be a test that installs things.
+func dispatcherNames(t *testing.T) []string {
+	t.Helper()
+	src, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, line := range strings.Split(string(src), "\n") {
+		line = strings.TrimSpace(line)
+		rest, ok := strings.CutPrefix(line, "case ")
+		if !ok || !strings.HasSuffix(rest, ":") {
+			continue
+		}
+		for _, label := range strings.Split(strings.TrimSuffix(rest, ":"), ",") {
+			if name, err := strconv.Unquote(strings.TrimSpace(label)); err == nil {
+				names = append(names, name)
+			}
+		}
+	}
+	if len(names) < 10 {
+		t.Fatalf("found only %d case labels in run(); the switch was not parsed", len(names))
+	}
+	return names
 }

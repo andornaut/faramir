@@ -22,6 +22,8 @@ import (
 	"filippo.io/age"
 
 	"github.com/andornaut/faramir/internal/agekey"
+	"github.com/andornaut/faramir/internal/guard"
+	"github.com/andornaut/faramir/internal/mcp"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
@@ -60,6 +62,13 @@ Provisioning (require root; they do not talk to the broker):
   doctor        report whether the install is doing its job
   reload        drop the daemons onto a changed configuration
   uninstall     remove the broker, keeping the key, the store and the log
+
+Run by systemd and by the coding agent, not by you:
+  broker        the secret broker daemon
+  keeper        holds the age key, serves decrypted values
+  exec          the executor daemon (to run a command, see "run" above)
+  mcp           MCP stdio server
+  guard         PreToolUse hook
 
 Run "faramir <command> --help" for that command's own options.
 
@@ -108,6 +117,19 @@ func run(args []string) int {
 		return cmdReload(args[1:])
 	case "uninstall":
 		return cmdUninstall(args[1:])
+	// The roles systemd and the coding agent run.  Each is named for the unit
+	// and the account it belongs to, so a role is spelled one way wherever you
+	// meet it: ExecStart=, User=, ps, and this switch.
+	case "broker":
+		return cmdBroker(args[1:])
+	case "keeper":
+		return cmdKeeper(args[1:])
+	case "exec":
+		return cmdExec(args[1:])
+	case "mcp":
+		return mcp.Run(args[1:])
+	case "guard":
+		return guard.Run(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "faramir: unknown command %q\n", args[0])
 		usage(os.Stderr)

@@ -1,8 +1,6 @@
-// Command faramir-broker is the secret broker daemon.
 package main
 
 import (
-	"flag"
 	"fmt"
 	"log"
 	"os"
@@ -15,29 +13,37 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-func main() { os.Exit(run()) }
-
-func run() int {
-	configPath := flag.String("config", "", "path to config.toml")
-	flag.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
-	check := flag.Bool("check", false, "validate config and exit")
+// cmdBroker is the secret broker daemon: policy, redaction, the audit log and
+// the SSH keys.  systemd runs it as its own uid, which is the boundary; being a
+// subcommand of this binary rather than a binary of its own changes nothing
+// about what it can reach.
+func cmdBroker(args []string) int {
+	fs := newFlagSet("broker", "broker [-c PATH] [--check] [--parse-only]")
+	configPath := fs.String("config", "", "path to config.toml")
+	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
+	check := fs.Bool("check", false, "validate config and exit")
 	// The installers need to know whether a config parses before they write
 	// anything, and they need it judged by the parser that will judge it later:
 	// quoting styles and trailing comments have to be read the same way, or a
 	// perfectly correct config is refused by a check of its own.  Distinct from
 	// --check, which also opens the SSH keys and the secrets files and so needs
 	// a keeper that is running.
-	parseOnly := flag.Bool("parse-only", false, "load the config, report whether it is valid, and exit")
-	showVersion := flag.Bool("version", false, "print the version and exit")
-	flag.Parse()
+	parseOnly := fs.Bool("parse-only", false, "load the config, report whether it is valid, and exit")
+	showVersion := fs.Bool("version", false, "print the version and exit")
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
 
+	// The global logger, deliberately: every internal package logs through it,
+	// so a local one would leave those lines unprefixed.  Safe because systemd
+	// runs one role per process and no subcommand calls another.
 	log.SetFlags(0)
 	log.SetPrefix("faramir-broker: ")
 
 	// Before the config is loaded: --version has to answer on a host whose
 	// config is broken, which is when someone is most likely to ask.
 	if *showVersion {
-		fmt.Println("faramir-broker " + version.Version)
+		fmt.Println("faramir " + version.Version)
 		return 0
 	}
 

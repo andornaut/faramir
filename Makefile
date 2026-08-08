@@ -1,7 +1,8 @@
 BIN := bin
-# faramir-guard is the PreToolUse hook.  It installs to /usr/local/libexec
-# rather than /usr/local/bin, but it is built like everything else.
-CMDS := faramir faramir-broker faramir-keeper faramir-exec faramir-mcp faramir-guard
+# One binary.  The three daemons, the MCP stdio server and the PreToolUse hook
+# are subcommands of it; what separates them is User= in the units, not main().
+# Only the hook's deny list and wrap script go to /usr/local/libexec.
+CMDS := faramir
 LDFLAGS := -s -w
 # CGO_ENABLED=0 is the point of the port: a static binary with no libc and no
 # interpreter runs on a host whose Python is older than 3.11.

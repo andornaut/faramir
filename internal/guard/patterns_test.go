@@ -1,4 +1,4 @@
-package main
+package guard
 
 import (
 	"os"
@@ -33,6 +33,7 @@ func renderShippedBytes() ([]byte, error) {
 	if err := tmpl.Execute(&out, install.Layout{
 		ConfigDir:  install.DefaultConfigDir,
 		SecretsDir: install.DefaultConfigDir + "/secrets",
+		BinDir:     install.DefaultBinDir,
 		LibexecDir: install.DefaultLibexecDir,
 		LogDir:     install.DefaultLogDir,
 	}); err != nil {
@@ -227,13 +228,26 @@ func TestChangingTheBrokersOwnFilesIsDenied(t *testing.T) {
 		"chown op /etc/faramir/age.key",
 		"mv ~/.config/sops/age/keys.txt /tmp/k",
 		`echo "" > /usr/local/libexec/faramir/deny-patterns.txt`,
-		"cp /bin/true /usr/local/libexec/faramir/faramir-guard",
+		"cp /bin/true /usr/local/libexec/faramir/wrap.sh",
+		// The binary itself, which is the hook as well as the CLI now.
+		"cp /bin/true /usr/local/bin/faramir",
 		"sops set ~/.faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'",
 		"sops -e -i secrets.yml",
 		"systemctl edit faramir-broker",
 	} {
 		if _, denied := decide(cmd); !denied {
 			t.Errorf("shipped file did not deny %q", cmd)
+		}
+	}
+
+	// The binary is named as a path, not as its directory: installing an
+	// unrelated tool into the same directory is ordinary work.
+	for _, cmd := range []string{
+		"cp /bin/true /usr/local/bin/jq",
+		"install -m 0755 yq /usr/local/bin/yq",
+	} {
+		if pattern, denied := decide(cmd); denied {
+			t.Errorf("wrongly denied %q (pattern %q)", cmd, pattern)
 		}
 	}
 

@@ -1,4 +1,4 @@
-package main
+package guard
 
 import (
 	"encoding/json"
@@ -23,7 +23,7 @@ func guardOutput(t *testing.T, args []string, payload string) map[string]any {
 	t.Cleanup(func() { os.Stdin, os.Stdout = stdin, stdout })
 
 	go func() { _, _ = inW.WriteString(payload); _ = inW.Close() }()
-	code := run(args)
+	code := Run(args)
 	// Closed before reading: the guard writes far less than a pipe buffer, so
 	// this cannot deadlock, and an open write end would make the read block.
 	_ = outW.Close()
@@ -132,7 +132,7 @@ func TestHostHandlesOnlyItsOwnShellTool(t *testing.T) {
 // An unknown host is refused before stdin is read. Falling back would answer in
 // a dialect the agent ignores, which is a command running unredacted.
 func TestUnknownHostIsRefused(t *testing.T) {
-	if code := run([]string{"--host", "nosuchagent"}); code != 2 {
+	if code := Run([]string{"--host", "nosuchagent"}); code != 2 {
 		t.Errorf("exit = %d, want 2", code)
 	}
 }
