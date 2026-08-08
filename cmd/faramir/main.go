@@ -50,7 +50,7 @@ Commands:
   list-secrets  list secret refs (names only)
   status        show broker status
   keygen        mint an age keypair for the keeper
-  share-tree    make a directory usable by brokered commands (root)
+  share-tree    make a directory usable by brokered commands (requires root)
   version       print the version and exit
 
 Run "faramir <command> --help" for that command's own options.

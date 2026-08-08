@@ -87,7 +87,7 @@ Phase | Does
 `40-agent-config.sh` | `Read` deny rules in your account, and the recipe for enrolling a project
 
 - `CONFIG=<file>` installs a different base config instead of the starter. Installed verbatim; every path in one is absolute.
-- `faramir share-tree <dir>` (root) makes one directory usable by brokered commands: group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, group-executable on every directory down to it so `faramir-exec` can enter. Run it per tree, or not at all. Nothing needs a tree of its own, since a brokered command runs where its caller was and the managed sops files are under `/etc`.
+- `faramir share-tree <dir>` (requires root) makes one directory usable by brokered commands: group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, group-executable on every directory down to it so `faramir-exec` can enter. Run it per tree, or not at all. Nothing needs a tree of its own, since a brokered command runs where its caller was and the managed sops files are read from wherever the install put them, not from the tree.
 - `FARAMIR_BIN=/opt/faramir/bin` lets you build on one machine and install on another.
 - A `CONFIG` that does not parse is refused before anything is written.
 - `install/uninstall.sh` leaves the accounts, `/etc/faramir` and the audit log alone.

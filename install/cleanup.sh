@@ -4,9 +4,9 @@
 #
 # Reports by default and changes nothing.  Pass --apply to act.
 #
-# It never touches /etc/faramir.  The age key and the managed sops files are
-# the one thing a cleanup script must not decide about: deleting the key makes
-# every sops file in every repository unreadable, retroactively.  Removing the
+# It never touches the config directory or the store.  The age key and the
+# managed sops files are the one thing a cleanup script must not decide about:
+# deleting the key makes every sops file unreadable, retroactively.  Removing the
 # broker is install/uninstall.sh, which refuses the same things.
 #
 # Accounts and groups are reported, never removed, unless --remove-accounts is
@@ -17,6 +17,11 @@
 set -euo pipefail
 
 APPLY=0
+
+# Where this install put them, so what is reported names the paths a reader
+# will actually find.  Give these the values the install was given.
+CONFIG_DIR="${CONFIG_DIR:-/etc/faramir}"
+SECRETS_DIR="${SECRETS_DIR:-/etc/faramir/secrets}"
 REMOVE_ACCOUNTS=0
 for arg in "$@"; do
   case "$arg" in
@@ -170,7 +175,7 @@ fi
 # -- the group --------------------------------------------------------------
 #
 # Named rather than removed while anything is still in it.  Membership grants
-# read on /etc/faramir/secrets, so a member nobody recognises is worth a look
+# read on the store, so a member nobody recognises is worth a look
 # even when it is not this project's to delete.
 if getent group "$GROUP" >/dev/null; then
   members="$(getent group "$GROUP" | cut -d: -f4)"
@@ -186,7 +191,7 @@ if getent group "$GROUP" >/dev/null; then
   done
   if [[ -n $outsiders ]]; then
     say "REVIEW: ${GROUP} has members this project did not create: ${outsiders}"
-    note "membership grants read on /etc/faramir/secrets, so a dead account"
+    note "membership grants read on ${SECRETS_DIR}, so a dead account"
     note "here is a standing grant.  Check each one is still in use, then:"
     for m in $outsiders; do note "  gpasswd -d ${m} ${GROUP}"; done
     FOUND=1
@@ -197,7 +202,7 @@ echo
 if [[ $FOUND -eq 0 ]]; then
   say "nothing to clean"
 elif [[ $APPLY -eq 1 ]]; then
-  say "done.  /etc/faramir was not touched."
+  say "done.  ${CONFIG_DIR} and ${SECRETS_DIR} were not touched."
 else
   say "nothing changed.  Re-run with --apply."
 fi
