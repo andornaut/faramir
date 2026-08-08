@@ -254,9 +254,10 @@ type ServerConfig struct {
 }
 
 type ExecConfig struct {
-	// No default: where commands run is a property of the deployment, and a
-	// broker that guesses would run them somewhere the operator never named.
-	DefaultCwd        string
+	// No working directory here.  A brokered command runs where its caller
+	// was, which every shipped caller sends; a directory named in a config
+	// could only relocate a request that named none, and doing that silently
+	// is surprising in exactly the case where it matters.
 	DefaultTimeoutSec int
 	MaxTimeoutSec     int
 	MaxOutputBytes    int
@@ -371,7 +372,7 @@ var (
 		"age_key_credential", "age_key_file"}
 	executorKeys = []string{"socket_path", "socket_mode", "allowed_users",
 		"max_concurrency"}
-	execKeys = []string{"default_cwd", "default_timeout_sec", "max_timeout_sec",
+	execKeys = []string{"default_timeout_sec", "max_timeout_sec",
 		"max_output_bytes", "base_env", "term_cols", "term_rows", "kill_grace_sec"}
 	sshKeys = []string{"keys", "agent_socket", "agent_socket_mode", "exec_group",
 		"ssh_agent", "ssh_add"}
@@ -533,9 +534,6 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 		},
 		TermCols: 120, TermRows: 40, KillGraceSec: 5,
 	}
-	if out.DefaultCwd, err = str(sec["default_cwd"], where, ""); err != nil {
-		return err
-	}
 	// A timeout of 0 is not "no limit": the executor arms a timer with it and
 	// SIGTERMs the child the instant it starts, with no output and no clue why.
 	if out.DefaultTimeoutSec, err = atLeast(sec, "default_timeout_sec", where, out.DefaultTimeoutSec, 1); err != nil {
@@ -563,13 +561,6 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 	}
 	// Optional, and unset is the better setting.  A brokered command runs where
 	// its caller was, the way every other command does: the CLI and the MCP
-	// server both send their own working directory, so this is consulted only
-	// for a request that names none.  Set, it silently relocates such a command
-	// to one checkout named in a config file, which is surprising in exactly
-	// the case where it matters.
-	if out.DefaultCwd != "" && !strings.HasPrefix(out.DefaultCwd, "/") {
-		return errf("%s: [exec] default_cwd must be an absolute path", path)
-	}
 	// Every request is clamped to max_timeout_sec, so a smaller one here does
 	// not cap default_timeout_sec, it replaces it.
 	if out.MaxTimeoutSec < out.DefaultTimeoutSec {

@@ -21,10 +21,13 @@ func run() int {
 	configPath := flag.String("config", "", "path to config.toml")
 	flag.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
 	check := flag.Bool("check", false, "validate config and exit")
-	// The installers need [exec] default_cwd, and they need it read the way the
-	// broker reads it: quoting styles and trailing comments have to agree, or a
-	// perfectly correct config trips the "worktree disagrees" warning.
-	printCwd := flag.Bool("print-default-cwd", false, "print [exec] default_cwd and exit")
+	// The installers need to know whether a config parses before they write
+	// anything, and they need it judged by the parser that will judge it later:
+	// quoting styles and trailing comments have to be read the same way, or a
+	// perfectly correct config is refused by a check of its own.  Distinct from
+	// --check, which also opens the SSH keys and the secrets files and so needs
+	// a keeper that is running.
+	parseOnly := flag.Bool("parse-only", false, "load the config, report whether it is valid, and exit")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	flag.Parse()
 
@@ -45,9 +48,9 @@ func run() int {
 	}
 
 	// Before Reload: this must work without a running keeper, because the
-	// installer calls it before anything has been started.
-	if *printCwd {
-		fmt.Println(cfg.Exec.DefaultCwd)
+	// installer calls it before anything has been started.  Reaching here at
+	// all means the config loaded, so there is nothing left to say.
+	if *parseOnly {
 		return 0
 	}
 

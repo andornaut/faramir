@@ -18,7 +18,7 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 	sock := filepath.Join(dir, "exec.sock")
 	cfg := &config.Config{
 		Exec: config.ExecConfig{
-			DefaultCwd: dir, DefaultTimeoutSec: 15, KillGraceSec: 2,
+			DefaultTimeoutSec: 15, KillGraceSec: 2,
 			TermCols: 120, TermRows: 40,
 		},
 		Executor: config.ExecutorConfig{SocketPath: sock, SocketMode: 0o600, MaxConcurrency: 4},

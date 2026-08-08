@@ -57,7 +57,7 @@ func newServer(t *testing.T, values map[string]string, secretFiles ...string) *S
 		},
 		Keeper: config.KeeperConfig{SocketPath: fakeKeeper(t, values)},
 		Exec: config.ExecConfig{
-			DefaultCwd: dir, DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
+			DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
 			BaseEnv: map[string]string{"PATH": "/usr/bin:/bin"},
 		},
 		Secrets: config.SecretsConfig{

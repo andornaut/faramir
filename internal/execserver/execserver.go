@@ -226,9 +226,11 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	if len(req.Argv) == 0 {
 		return errorResponse("bad_request", "'argv' must be a non-empty list of strings")
 	}
+	// No fallback: the broker refuses a request that names no directory, so
+	// one arriving here without one is a bug rather than a default to fill in.
 	cwd := req.Cwd
 	if cwd == "" {
-		cwd = e.config.Exec.DefaultCwd
+		return errorResponse("bad_request", "'cwd' must name the directory to run in")
 	}
 
 	// There is no allowlist to re-check here any more.  What bounds a brokered

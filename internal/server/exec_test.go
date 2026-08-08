@@ -92,7 +92,19 @@ func execServer(t *testing.T) (*Server, *recorder) {
 	return s, (&recorder{}).install(s)
 }
 
+// A directory is filled in unless the test named one.  The broker refuses a
+// request that carries none, so without this every test here would be
+// exercising that refusal instead of what it is about.
 func exec(t *testing.T, s *Server, request map[string]any) protocol.Response {
+	t.Helper()
+	if _, ok := request["cwd"]; !ok {
+		request["cwd"] = os.TempDir()
+	}
+	return execAsGiven(t, s, request)
+}
+
+// The request verbatim, for the tests that are about the cwd itself.
+func execAsGiven(t *testing.T, s *Server, request map[string]any) protocol.Response {
 	t.Helper()
 	if _, ok := request["op"]; !ok {
 		request["op"] = "exec"
@@ -236,11 +248,17 @@ func TestABadRefStopsTheCommandRunning(t *testing.T) {
 
 // -- cwd --------------------------------------------------------------------
 
-func TestCwdDefaultsToTheConfiguredTree(t *testing.T) {
+// There is nothing to default to.  A brokered command runs where its caller
+// was, and the config names no directory to fall back on, so a request that
+// omits one is refused rather than relocated somewhere nobody asked for.
+func TestARequestWithNoCwdIsRefused(t *testing.T) {
 	s, rec := execServer(t)
-	exec(t, s, map[string]any{"cmd": []any{"true"}})
-	if got := rec.only(t).Cwd; got != s.Config.Exec.DefaultCwd {
-		t.Errorf("cwd = %q, want %q", got, s.Config.Exec.DefaultCwd)
+	r := execAsGiven(t, s, map[string]any{"cmd": []any{"true"}})
+	if code := errorCode(t, r); code != "bad_request" {
+		t.Fatalf("code = %q", code)
+	}
+	if len(rec.requests) != 0 {
+		t.Errorf("the command ran anyway: %+v", rec.requests)
 	}
 }
 

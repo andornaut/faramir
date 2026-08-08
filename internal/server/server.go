@@ -194,10 +194,9 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 
 func (s *Server) opStatus() protocol.Response {
 	body, _ := json.MarshalIndent(map[string]any{
-		"version":     version.Version,
-		"config":      s.Config.Path,
-		"secrets":     s.Store.Describe(),
-		"default_cwd": s.Config.Exec.DefaultCwd,
+		"version": version.Version,
+		"config":  s.Config.Path,
+		"secrets": s.Store.Describe(),
 	}, "", "  ")
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",
@@ -257,16 +256,13 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 
 	cmd, envRefs := request.Cmd, request.EnvRefs
 
+	// No fallback anywhere: a brokered command runs where its caller was, and
+	// nothing else knows where that is.  Every shipped caller sends its own
+	// directory, so a request without one is a client that did not.
 	cwd := request.Cwd
 	if !request.HasCwd || cwd == "" {
-		cwd = execCfg.DefaultCwd
-	}
-	if cwd == "" {
 		return protocol.ErrorResponse("bad_request",
-			"no cwd: name the directory to run in. Every shipped caller sends "+
-				"its own, so this is a client that did not; [exec] default_cwd "+
-				"can name a fallback, but a command is better run where it was "+
-				"asked for.", logID)
+			"no cwd: name the directory to run in.", logID)
 	}
 	// Permission is reported apart from absence.  A caller's own directory is
 	// usually inside a 0700 home, where the broker's uid gets EACCES rather

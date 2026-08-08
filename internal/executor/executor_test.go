@@ -33,7 +33,7 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 	dir := t.TempDir()
 	cfg := &config.Config{
 		Exec: config.ExecConfig{
-			DefaultCwd: dir, DefaultTimeoutSec: 20, MaxTimeoutSec: 30,
+			DefaultTimeoutSec: 20, MaxTimeoutSec: 30,
 			MaxOutputBytes: maxOutputBytes, TermCols: 120, TermRows: 40,
 			KillGraceSec: 1,
 			BaseEnv:      map[string]string{"PATH": "/usr/bin:/bin"},

@@ -33,7 +33,7 @@ than `[server] max_request_bytes` is refused.
 Field | Required | Notes
 --- | --- | ---
 `cmd` | yes | **Array.** A string is rejected with guidance; the broker never runs `sh -c` for you.
-`cwd` | no | Absolute, and must exist. Defaults to `[exec] default_cwd`. A relative `cmd[0]` resolves against it.
+`cwd` | yes | Absolute, and must exist. There is no fallback: a request that names none is refused. A relative `cmd[0]` resolves against it.
 `env_refs` | no | `NAME` → `secret://ref`. Values are impossible to pass; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved.
 `timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`.
 
@@ -53,8 +53,8 @@ injectable; see [redaction.md](redaction.md).
 {"op": "status"}
 ```
 
-Broker version, config path, loaded files, ref count, load errors, and
-`[exec] default_cwd`. Not the refs refused at load: that list names exactly
+Broker version, config path, loaded files, ref count and load errors. Not
+the refs refused at load: that list names exactly
 the secrets that are never tokenized, so it stays operator-side, behind
 `faramir-broker --check`.
 

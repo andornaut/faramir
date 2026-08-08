@@ -58,18 +58,10 @@ allowed_users = ["faramir-broker"]
 max_concurrency = 16
 
 [exec]
-# Required: where a command runs when the request does not say.  This is the
-# agent's own working tree -- the broker runs what is on disk, so an edit is
-# live as soon as it is saved.
-#
-# default_cwd is deliberately unset.  A brokered command runs where its caller
-# was, the way every other command does: both `faramir run` and the MCP server
-# send their own working directory.  Setting it here would relocate any request
-# that named none into one checkout, so "faramir run make" in a second checkout
-# would quietly build the first.  Set it only for a client of your own that
-# cannot send a directory, and give it an absolute path.
-#
-# default_cwd = "/some/absolute/path"
+# There is no key naming where a command runs.  A brokered command runs where
+# its caller was, which both `faramir run` and the MCP server send, and a
+# request that names no directory is refused rather than relocated into one a
+# config file chose.
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576

@@ -18,16 +18,13 @@ func load(t *testing.T, text string) (*Config, error) {
 
 const minimal = `
 [exec]
-default_cwd = "/home/agent/work/repo"
+default_timeout_sec = 600
 `
 
 func TestMinimalConfigLoads(t *testing.T) {
 	cfg, err := load(t, minimal)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if cfg.Exec.DefaultCwd != "/home/agent/work/repo" {
-		t.Errorf("default_cwd = %q", cfg.Exec.DefaultCwd)
 	}
 	// Defaults the file did not set.
 	if cfg.Server.SocketMode != 0o660 {
@@ -38,23 +35,16 @@ func TestMinimalConfigLoads(t *testing.T) {
 	}
 }
 
-// A config without default_cwd is the ordinary case: a brokered command runs
-// where its caller was, and both shipped callers send that.
-func TestDefaultCwdIsOptional(t *testing.T) {
-	cfg, err := load(t, "[server]\nmax_concurrency = 2\n")
-	if err != nil {
-		t.Fatalf("a config with no default_cwd was rejected: %v", err)
-	}
-	if cfg.Exec.DefaultCwd != "" {
-		t.Errorf("DefaultCwd = %q, want empty", cfg.Exec.DefaultCwd)
-	}
-}
-
-// Set, it still has to be a path the executor could chdir to.
-func TestDefaultCwdMustBeAbsolute(t *testing.T) {
-	_, err := load(t, "[exec]\ndefault_cwd = \"relative/path\"\n")
-	if err == nil || !strings.Contains(err.Error(), "absolute") {
+// The key is gone, not optional: a config still setting it names a directory
+// that would be silently ignored, and an ignored setting reads as one that
+// applies.  An unknown key is a hard error, so it is refused by name.
+func TestDefaultCwdIsRefusedAsUnknown(t *testing.T) {
+	_, err := load(t, "[exec]\ndefault_cwd = \"/t\"\n")
+	if err == nil || !strings.Contains(err.Error(), "unknown key") {
 		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "default_cwd") {
+		t.Errorf("the message does not name the key: %v", err)
 	}
 }
 
@@ -63,7 +53,7 @@ func TestDefaultCwdMustBeAbsolute(t *testing.T) {
 func TestUnknownKeysAreRefused(t *testing.T) {
 	cases := map[string]string{
 		"server": minimal + "\n[server]\nsoket_path = \"/x\"\n",
-		"exec":   "[exec]\ndefault_cwd = \"/t\"\nterm_col = 80\n",
+		"exec":   "[exec]\nterm_col = 80\n",
 	}
 	for name, text := range cases {
 		_, err := load(t, text)
@@ -98,12 +88,12 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 		"zero max_concurrency":      minimal + "\n[server]\nmax_concurrency = 0\n",
 		"zero executor concurrency": minimal + "\n[executor]\nmax_concurrency = 0\n",
 		"zero max_request_bytes":    minimal + "\n[server]\nmax_request_bytes = 0\n",
-		"zero default_timeout_sec":  "[exec]\ndefault_cwd = \"/t\"\ndefault_timeout_sec = 0\n",
-		"zero max_timeout_sec":      "[exec]\ndefault_cwd = \"/t\"\nmax_timeout_sec = 0\n",
-		"zero max_output_bytes":     "[exec]\ndefault_cwd = \"/t\"\nmax_output_bytes = 0\n",
-		"negative kill_grace_sec":   "[exec]\ndefault_cwd = \"/t\"\nkill_grace_sec = -1\n",
-		"term_cols past a uint16":   "[exec]\ndefault_cwd = \"/t\"\nterm_cols = 70000\n",
-		"zero term_rows":            "[exec]\ndefault_cwd = \"/t\"\nterm_rows = 0\n",
+		"zero default_timeout_sec":  "[exec]\ndefault_timeout_sec = 0\n",
+		"zero max_timeout_sec":      "[exec]\nmax_timeout_sec = 0\n",
+		"zero max_output_bytes":     "[exec]\nmax_output_bytes = 0\n",
+		"negative kill_grace_sec":   "[exec]\nkill_grace_sec = -1\n",
+		"term_cols past a uint16":   "[exec]\nterm_cols = 70000\n",
+		"zero term_rows":            "[exec]\nterm_rows = 0\n",
 		"negative refresh":          minimal + "\n[secrets]\nrefresh_interval_sec = -1\n",
 		"zero min_length":           minimal + "\n[secrets]\nmin_length = 0\n",
 		"zero min_unique_chars":     minimal + "\n[secrets]\nmin_unique_chars = 0\n",
@@ -120,7 +110,7 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 // A max below the default does not cap it, it replaces it for every command,
 // which makes default_timeout_sec a setting that reads as though it applies.
 func TestMaxTimeoutBelowDefaultIsRefused(t *testing.T) {
-	_, err := load(t, "[exec]\ndefault_cwd = \"/t\"\ndefault_timeout_sec = 600\nmax_timeout_sec = 60\n")
+	_, err := load(t, "[exec]\ndefault_timeout_sec = 600\nmax_timeout_sec = 60\n")
 	if err == nil || !strings.Contains(err.Error(), "max_timeout_sec") {
 		t.Fatalf("err = %v", err)
 	}
@@ -129,7 +119,7 @@ func TestMaxTimeoutBelowDefaultIsRefused(t *testing.T) {
 // The meaningful zeroes stay legal: kill_grace_sec 0 is "SIGKILL at once", and
 // refresh_interval_sec 0 is "check on every request".
 func TestMeaningfulZeroesAreAccepted(t *testing.T) {
-	cfg, err := load(t, "[exec]\ndefault_cwd = \"/t\"\nkill_grace_sec = 0\n"+
+	cfg, err := load(t, "[exec]\nkill_grace_sec = 0\n"+
 		"[secrets]\nrefresh_interval_sec = 0\n")
 	if err != nil {
 		t.Fatal(err)

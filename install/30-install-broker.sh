@@ -62,10 +62,9 @@ install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/faramir/
 install -d -m 0755 -o root -g root /etc/faramir
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
-# The working tree appears in the config more than once -- [exec] default_cwd
-# and [secrets] files -- so the shipped configs write it as @WORKTREE@ and this
-# is one substitution.  It is the only place the path appears now: the units no
-# longer name it.
+# The working tree appears in the config as [secrets] files, written @WORKTREE@
+# so that this is the one substitution.  It is the only place the path appears:
+# the units do not name it, and no config key relocates a command any more.
 #
 # sed's replacement side treats \ and & specially and would also eat the
 # delimiter, and a worktree path is arbitrary, so escape all three rather than
@@ -92,28 +91,15 @@ substitute() {
 }
 
 # Reading a config needs the broker's own parser: quoting styles and trailing
-# comments have to be read the way the broker reads them, or the checks below
-# fire on configs that are perfectly correct.
-configured_cwd() {
-  "$BIN/faramir-broker" -c "$1" --print-default-cwd 2>/dev/null || return 1
-}
-
-# Is $1 inside the tree this install was told about?  A plain prefix test would
-# accept "${WORKTREE}-old" and "${WORKTREE}EVIL", which are different trees;
-# requiring the separator is what distinguishes those from a subdirectory.
-#
-# Empty passes: default_cwd is optional and unset is the recommended setting,
-# because a brokered command runs where its caller was.  Only a config that
-# names a directory has anything to disagree with.
-under_worktree() {
-  [[ -z $1 || $1 == "$WORKTREE" || $1 == "$WORKTREE"/* ]]
+# comments have to be read the way the broker reads them, or a config that is
+# perfectly correct is refused by a check of its own.
+config_parses() {
+  "$BIN/faramir-broker" -c "$1" --parse-only 2>/dev/null
 }
 
 # Before anything is written to the host: a CONFIG that does not parse should
-# abort here, not halfway through.  The flag prints nothing for a config that
-# leaves default_cwd unset, which is the normal case; what is being checked is
-# that the parser accepted the file at all, which is the exit status.
-configured_cwd "$CONFIG" >/dev/null || {
+# abort here, not halfway through.
+config_parses "$CONFIG" || {
   say "cannot read ${CONFIG}: it does not parse as a faramir config"
   exit 1
 }
@@ -122,31 +108,15 @@ if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
   # Substituted, not copied verbatim: the message above invites an operator to
   # move this into place, and a .dist still carrying @WORKTREE@ would start a
-  # broker whose every command fails with "cwd does not exist".
+  # broker that manages no secrets file and therefore redacts nothing.
   substitute "$CONFIG" /etc/faramir/config.toml.dist || exit 1
-  if ! existing="$(configured_cwd /etc/faramir/config.toml)"; then
+  if ! config_parses /etc/faramir/config.toml; then
     say "WARNING: the installed /etc/faramir/config.toml does not parse;"
     say "         the broker will not start until it does"
-  elif ! under_worktree "$existing"; then
-    say "WARNING: [exec] default_cwd is ${existing} but this install names ${WORKTREE}"
-    say "         commands will fail with 'cwd does not exist' until they agree;"
-    say "         edit /etc/faramir/config.toml"
   fi
 else
   say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (worktree ${WORKTREE})"
   substitute "$CONFIG" /etc/faramir/config.toml || exit 1
-  # A CONFIG that names the tree literally rather than through the placeholder
-  # is installed unchanged, and would then run commands somewhere the operator
-  # did not ask for.  Refuse at install time, where it can be said plainly.
-  installed="$(configured_cwd /etc/faramir/config.toml)" || installed=""
-  if ! under_worktree "$installed"; then
-    rm -f /etc/faramir/config.toml
-    say "[exec] default_cwd is ${installed}, which is not inside ${WORKTREE}."
-    say "Write the tree as @WORKTREE@ in ${CONFIG}, or re-run with"
-    say "WORKTREE=${installed}."
-    say "No config was written; the binaries and hook above are already installed."
-    exit 1
-  fi
 fi
 
 say "systemd units"

@@ -67,9 +67,7 @@ else
   die "no /etc/faramir/config.toml.dist to install; run 'sudo make install' first"
 fi
 
-# Only that it parses.  default_cwd is no longer set by the shipped configs: a
-# brokered command runs where its caller was.
-/usr/local/bin/faramir-broker -c /etc/faramir/config.toml --print-default-cwd >/dev/null ||
+/usr/local/bin/faramir-broker -c /etc/faramir/config.toml --parse-only ||
   die "/etc/faramir/config.toml does not parse"
 
 # --------------------------------------------------------------------------

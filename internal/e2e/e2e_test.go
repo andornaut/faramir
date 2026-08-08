@@ -100,7 +100,7 @@ func newHarness(t *testing.T) *harness {
 			MaxConcurrency: 8,
 		},
 		Exec: config.ExecConfig{
-			DefaultCwd: dir, DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
+			DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
 			MaxOutputBytes: 1 << 20,
 			BaseEnv: map[string]string{
 				"PATH": strings.Join(binDirs, ":"), "TERM": "xterm-256color",
@@ -158,8 +158,14 @@ type response struct {
 	} `json:"error"`
 }
 
+// The harness directory is filled in unless the test named one.  The broker
+// refuses a request that carries no cwd, so without this every test here would
+// be exercising that refusal instead of what it is about.
 func (h *harness) call(t *testing.T, request map[string]any) response {
 	t.Helper()
+	if _, ok := request["cwd"]; !ok && request["op"] == "exec" {
+		request["cwd"] = h.dir
+	}
 	conn, err := net.Dial("unix", h.brokerSock)
 	if err != nil {
 		t.Fatal(err)

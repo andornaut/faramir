@@ -16,7 +16,7 @@ import (
 )
 
 func cfgWithPath(path string) config.ExecConfig {
-	return config.ExecConfig{DefaultCwd: "/", BaseEnv: map[string]string{"PATH": path}}
+	return config.ExecConfig{BaseEnv: map[string]string{"PATH": path}}
 }
 
 // -- bare names: looked up on the PATH the child will actually get -----------
@@ -66,7 +66,7 @@ func scriptFixture(t *testing.T) (dir, script string, cfg config.ExecConfig) {
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return dir, script, config.ExecConfig{DefaultCwd: dir}
+	return dir, script, config.ExecConfig{}
 }
 
 // No allowed_bin_dirs any more: a script in the working tree is exactly the
@@ -154,7 +154,7 @@ func TestEmptyIsRefused(t *testing.T) {
 // produce "/cwd/bin/sh"; the absolute path has to win outright, because that
 // is what the child's own exec would do with it.
 func TestAnAbsolutePathIgnoresTheCwd(t *testing.T) {
-	got, err := Program("/bin/sh", "/tmp", config.ExecConfig{DefaultCwd: "/tmp"})
+	got, err := Program("/bin/sh", "/tmp", config.ExecConfig{})
 	if err != nil {
 		t.Fatal(err)
 	}
