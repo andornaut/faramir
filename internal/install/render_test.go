@@ -11,6 +11,7 @@ func testLayout() Layout {
 	opts := Options{
 		Operator:   "operator",
 		Group:      "shared",
+		StoreGroup: "store",
 		BrokerUser: "br",
 		KeeperUser: "kp",
 		ExecUser:   "ex",
@@ -46,10 +47,12 @@ func unitValues() []string {
 	return out
 }
 
-// The shared group is named in the config the sockets check and in the units
-// that reach the working tree.  A rendered pair that disagrees is a broker that
-// installs cleanly and then refuses every connection, which is the failure this
-// whole package exists to make impossible.
+// Two groups with two jobs.  The client group is named in the config the
+// sockets check and in the unit that reaches the working tree; the store group
+// is named only by the daemons that read the ciphertext.  A rendered pair that
+// disagrees on the first is a broker that installs cleanly and then refuses
+// every connection.  A pair that confuses the two is worse: it hands everyone
+// allowed to ask for a value by name the file that value came from.
 func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	layout := testLayout()
 	config, err := render("etc/config.toml.tmpl", layout)
@@ -59,13 +62,29 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	if !strings.Contains(string(config), `allowed_groups = ["shared"]`) {
 		t.Errorf("config does not admit group %q", layout.Group)
 	}
-	for _, name := range []string{"faramir-exec.service", "faramir-keeper.service"} {
+	// The executor reaches the working tree, so it joins the client group.  It
+	// must never join the store group: a brokered command runs as it, and that
+	// is the account an agent's commands arrive on.
+	exec, err := render(units["faramir-exec.service"], layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(exec), "SupplementaryGroups=shared") {
+		t.Errorf("exec does not join client group %q", layout.Group)
+	}
+	if strings.Contains(string(exec), layout.StoreGroup) {
+		t.Errorf("exec names the store group %q; a brokered command runs as it",
+			layout.StoreGroup)
+	}
+	// The keeper decrypts and the broker stats, so both need the store group and
+	// neither needs the client group.
+	for _, name := range []string{"faramir-keeper.service", "faramir-broker.service"} {
 		body, err := render(units[name], layout)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(body), "SupplementaryGroups=shared") {
-			t.Errorf("%s does not join group %q", name, layout.Group)
+		if !strings.Contains(string(body), "SupplementaryGroups=store") {
+			t.Errorf("%s does not join store group %q", name, layout.StoreGroup)
 		}
 	}
 	socket, err := render(units["faramir-broker.socket"], layout)
@@ -89,12 +108,12 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	want := map[string]map[string]string{
 		"faramir-broker.service": {
 			"User": "br", "Group": "br", "StateDirectory": "br",
-			"SupplementaryGroups": "shared ex",
+			"SupplementaryGroups": "store ex",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 		},
 		"faramir-keeper.service": {
 			"User": "kp", "Group": "kp", "StateDirectory": "kp",
-			"SupplementaryGroups": "shared",
+			"SupplementaryGroups": "store",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 		},
 		"faramir-exec.service": {

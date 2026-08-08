@@ -23,6 +23,7 @@ type Options struct {
 	Operator string
 
 	Group      string
+	StoreGroup string
 	BrokerUser string
 	KeeperUser string
 	ExecUser   string
@@ -144,6 +145,7 @@ type runner struct {
 	keeperUID    int
 	execUID      int
 	groupGID     int
+	storeGID     int
 	brokerGID    int
 	keeperGID    int
 	execGID      int
@@ -200,6 +202,9 @@ func (o *Options) applyDefaults() {
 	if o.Group == "" {
 		o.Group = DefaultGroup
 	}
+	if o.StoreGroup == "" {
+		o.StoreGroup = DefaultStoreGroup
+	}
 	if o.BrokerUser == "" {
 		o.BrokerUser = DefaultBrokerUser
 	}
@@ -226,6 +231,7 @@ func (o *Options) applyDefaults() {
 func (o Options) layout() (Layout, error) {
 	layout := Layout{
 		Group:      o.Group,
+		StoreGroup: o.StoreGroup,
 		BrokerUser: o.BrokerUser,
 		KeeperUser: o.KeeperUser,
 		ExecUser:   o.ExecUser,

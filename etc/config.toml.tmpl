@@ -109,8 +109,11 @@ exec_group = "{{.ExecUser}}"
 # The broker stats these to notice edits; only the keeper can decrypt them.
 #
 # Outside a working tree: these are configuration an operator authors and the
-# daemons read at startup.  {{.SecretsDir}} is 2770 with group {{.Group}}, so the
-# operator edits them with sops and the keeper reads them, both without sudo.
+# daemons read at startup.  {{.SecretsDir}} is 2750 with group {{.StoreGroup}},
+# which holds the keeper and the broker and not the operator, so reading or
+# editing one needs sudo.  {{.Group}} below admits a caller to the socket and
+# grants nothing here: asking for a value by name is not permission to read the
+# file it comes from.
 # A store inside a home is not mounted until its owner logs in, and the broker
 # treats an absent store as a load failure, so the daemons refuse rather than
 # come up redacting nothing.

@@ -60,9 +60,12 @@ func (r *runner) serviceAccounts() []serviceAccount {
 
 func (r *runner) stepAccounts() error {
 	changed := false
-	if !groupExists(r.layout.Group) {
+	for _, group := range []string{r.layout.Group, r.layout.StoreGroup} {
+		if groupExists(group) {
+			continue
+		}
 		if !r.opts.DryRun {
-			if _, err := r.command("groupadd", r.layout.Group); err != nil {
+			if _, err := r.command("groupadd", group); err != nil {
 				return err
 			}
 		}
@@ -75,8 +78,38 @@ func (r *runner) stepAccounts() error {
 		}
 		changed = changed || made
 	}
-	r.step("accounts", changed, fmt.Sprintf("group %s, users %s", r.layout.Group,
+	// Only the two that touch the ciphertext: the keeper decrypts the managed
+	// files and the broker stats them to notice an edit.  The executor is left
+	// out on purpose, because a brokered command runs as it, and the operator
+	// is left out because an agent runs as the operator.
+	for _, account := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
+		made, err := r.ensureInGroup(account, r.layout.StoreGroup)
+		if err != nil {
+			return err
+		}
+		changed = changed || made
+	}
+	r.step("accounts", changed, fmt.Sprintf("groups %s and %s, users %s",
+		r.layout.Group, r.layout.StoreGroup,
 		strings.Join([]string{r.layout.BrokerUser, r.layout.KeeperUser, r.layout.ExecUser}, ", ")))
+
+	// The store group is what makes editing a secret need sudo.  A membership
+	// this did not add is somebody else's decision, so it is reported rather
+	// than removed, but it is worth saying loudly: either of these puts the
+	// ciphertext back within reach of a uid that can already ask the broker for
+	// the plaintext by name.
+	for _, who := range []string{r.layout.ExecUser, r.opts.Operator} {
+		if who == "" {
+			continue
+		}
+		in, err := inGroup(who, r.layout.StoreGroup)
+		if err != nil || !in {
+			continue
+		}
+		r.warn("%s is in group %s, so it can read and replace the managed sops "+
+			"files directly; remove it, or the store is only as protected as "+
+			"whatever runs as that account", who, r.layout.StoreGroup)
+	}
 
 	// The executor must not be in the broker's or the keeper's group.  That is
 	// the boundary: a command that could read either holds the audit log or the
@@ -106,6 +139,21 @@ func (r *runner) stepAccounts() error {
 	}
 	r.step("operator umask", umask, "umask 002 for the shared tree")
 	return nil
+}
+
+// ensureInGroup adds an existing account to a supplementary group, and reports
+// whether it had to.
+func (r *runner) ensureInGroup(account, group string) (bool, error) {
+	in, err := inGroup(account, group)
+	if err != nil || in {
+		return false, err
+	}
+	if !r.opts.DryRun {
+		if _, err := r.command("usermod", "-aG", group, account); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
@@ -230,6 +278,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 func (r *runner) resolveIDs() error {
 	r.operatorUID, r.brokerUID, r.keeperUID, r.execUID = keep, keep, keep, keep
 	r.groupGID, r.brokerGID, r.keeperGID, r.execGID = keep, keep, keep, keep
+	r.storeGID = keep
 	lookups := []struct {
 		name string
 		into *int
@@ -240,6 +289,7 @@ func (r *runner) resolveIDs() error {
 		{r.layout.KeeperUser, &r.keeperUID, true},
 		{r.layout.ExecUser, &r.execUID, true},
 		{r.layout.Group, &r.groupGID, false},
+		{r.layout.StoreGroup, &r.storeGID, false},
 		{r.layout.BrokerUser, &r.brokerGID, false},
 		{r.layout.KeeperUser, &r.keeperGID, false},
 		{r.layout.ExecUser, &r.execGID, false},

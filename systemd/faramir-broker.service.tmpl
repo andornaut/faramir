@@ -21,12 +21,12 @@ Type=notify
 NotifyAccess=main
 User={{.BrokerUser}}
 Group={{.BrokerUser}}
-# {{.Group}}: read access to the managed sops files -- the broker stats them to
+# {{.StoreGroup}}: read access to the managed sops files -- the broker stats them to
 # notice edits.
 # {{.ExecUser}}: needed only to hand the ssh-agent socket to the executor's uid,
 # which is a chown this process could not otherwise perform.  It grants the
 # broker nothing it did not already have; the executor gains nothing at all.
-SupplementaryGroups={{.Group}} {{.ExecUser}}
+SupplementaryGroups={{.StoreGroup}} {{.ExecUser}}
 ExecStart={{.BinDir}}/faramir-broker
 Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
@@ -120,7 +120,7 @@ UMask=0077
 #   RestrictAddressFamilies=~AF_UNIX
 #       That is the broker's own listening socket.
 #   SupplementaryGroups=
-#       {{.Group}}, so the broker can stat the managed sops files.
+#       {{.StoreGroup}}, so the broker can stat the managed sops files.
 #   ProtectHome=
 #       Removed.  It hid other users' homes from a process that file modes
 #       already keep out of them, and cost a bind mount whose path had to agree

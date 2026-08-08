@@ -95,6 +95,31 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 	return true, chown(path, uid, gid)
 }
 
+// ensureOwnership fixes an existing file's owner, group and mode without
+// touching its contents.  Used where a file was written under an earlier layout
+// and has to be handed to a different account: rewriting it is not an option
+// when only the account that owns it can read what is inside.
+func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return false, err
+	}
+	wrong, err := wrongOwner(info, uid, gid)
+	if err != nil {
+		return false, err
+	}
+	if info.Mode().Perm() == mode.Perm() && !wrong {
+		return false, nil
+	}
+	if f.dryRun {
+		return true, nil
+	}
+	if err := os.Chmod(path, mode); err != nil {
+		return false, err
+	}
+	return true, chown(path, uid, gid)
+}
+
 // writeFile writes data when the file is absent or its contents differ.
 // Compared by content rather than by mtime so a re-run of an unchanged install
 // reports nothing.

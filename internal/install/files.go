@@ -51,21 +51,52 @@ func (r *runner) stepDirectories() error {
 	// is nothing to create here.  What protects the key is its own 0400 keeper
 	// ownership, not the mode of what it sits in.
 
-	// The store: 2770 root with the shared group, so the operator edits it with
-	// sops and the keeper decrypts it, both through the group and neither
-	// needing sudo.  setgid so a file either of them creates stays readable by
-	// the other.  The ciphertext's own mode is what sops writes; what keeps it
-	// secret is the age key, which is not here.
+	// The store: 2750 root with the store group, which holds the keeper and the
+	// broker and nobody else.  The operator is deliberately not in it, so
+	// reading or editing a managed file needs sudo.  The group that admits a
+	// caller to the broker socket is a different one: asking for a value by
+	// name is what an agent is for, and reading or replacing the file it comes
+	// from is not, so one group cannot grant both.
 	//
-	// Owned by root rather than by the operator: group write is what they need
-	// to edit a file in it, and owning the directory would additionally let them
-	// change its mode, which is the one thing keeping the keeper's access from
-	// being revoked by accident.
-	made, err := r.fs.ensureDir(r.layout.SecretsDir, 0o2770|os.ModeSetgid, 0, r.groupGID, true)
+	// setgid so a file created here belongs to the store group rather than to
+	// whoever ran sudo.  Group read and traverse without write, because the
+	// keeper only decrypts and the broker only stats; nothing that reads these
+	// needs to change them.
+	//
+	// Owned by root rather than by the operator, because owning the directory
+	// is permission to unlink and rename what is in it whatever the files
+	// themselves are, and that is the whole of what an operator-owned parent
+	// would give away.
+	made, err := r.fs.ensureDir(r.layout.SecretsDir, 0o2750|os.ModeSetgid, 0, r.storeGID, true)
 	if err != nil {
 		return err
 	}
 	changed = changed || made
+
+	// The files already in it, handed to the store group along with the
+	// directory.  An install that moved the group without this leaves them
+	// owned by the operator and grouped to the client group, which the keeper
+	// is no longer in: the directory would be right, every managed file would
+	// be unreadable to the account that has to decrypt it, and the broker would
+	// refuse to start rather than come up redacting nothing.
+	//
+	// Ownership only, contents untouched.  These are ciphertext this install
+	// has no key for, and rewriting one would destroy it.
+	entries, err := os.ReadDir(r.layout.SecretsDir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		made, err := r.fs.ensureOwnership(
+			filepath.Join(r.layout.SecretsDir, entry.Name()), 0o640, 0, r.storeGID)
+		if err != nil {
+			return err
+		}
+		changed = changed || made
+	}
 
 	// Created but not re-asserted, like the service homes: LogsDirectory= on the
 	// broker's unit makes systemd apply LogsDirectoryMode here on every start,
@@ -108,13 +139,31 @@ func (r *runner) stepBinaries() error {
 	// worse than none: it falls back to a built-in list that is silently weaker.
 	// wrap.sh is sourced by the shell the hook rewrites into, so it is read,
 	// never executed.
-	for _, asset := range []string{"agent/hooks/deny-patterns.txt", "agent/hooks/wrap.sh"} {
-		made, err := r.writeAsset(asset, filepath.Join(r.layout.LibexecDir, filepath.Base(asset)), 0o644)
-		if err != nil {
-			return err
-		}
-		changed = changed || made
+	// The patterns are rendered rather than copied, because which paths are
+	// worth refusing is a property of this install and not of the source tree:
+	// an operator who moved the config and the store into a home gets rules
+	// naming where they actually are, instead of the compiled defaults.  The
+	// built-in fallback keeps those defaults, so a hook that cannot find this
+	// file still refuses something.
+	patterns, err := render("agent/hooks/deny-patterns.txt", r.layout)
+	if err != nil {
+		return err
 	}
+	made, err = r.fs.writeFile(filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"),
+		patterns, 0o644, 0, 0)
+	if err != nil {
+		return err
+	}
+	changed = changed || made
+
+	// wrap.sh is sourced by the shell the hook rewrites into, so it is read,
+	// never executed, and it names no install path.
+	made, err = r.writeAsset("agent/hooks/wrap.sh",
+		filepath.Join(r.layout.LibexecDir, "wrap.sh"), 0o644)
+	if err != nil {
+		return err
+	}
+	changed = changed || made
 
 	docs, err := r.installDocs()
 	if err != nil {

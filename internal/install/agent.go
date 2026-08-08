@@ -44,7 +44,11 @@ func (r *runner) stepAgentConfig() error {
 		dst = settings + ".dist"
 		detail = fmt.Sprintf("keeping %s; wrote %s beside it to merge", settings, dst)
 	}
-	data, err := readAsset("agent/claude/settings.json")
+	// Rendered, so the denied paths are this install's rather than the compiled
+	// defaults: a config and store moved into a home are what the operator
+	// wants refused, and naming /etc/faramir there protects a directory that
+	// does not exist.
+	data, err := render("agent/claude/settings.json", r.layout)
 	if err != nil {
 		return err
 	}

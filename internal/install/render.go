@@ -4,11 +4,21 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"text/template"
 
 	faramir "github.com/andornaut/faramir"
 )
+
+// renderFuncs are for templates whose output is matched against rather than
+// read: the deny patterns are regexes, so a path interpolated into one has to
+// arrive with its dots and dashes quoted.  An unquoted "/etc/faramir" is a
+// pattern where "." matches any character, which is loose rather than wrong;
+// an unquoted path containing "+" or "(" would not compile at all.
+var renderFuncs = template.FuncMap{
+	"regexQuote": regexp.QuoteMeta,
+}
 
 // units maps each installed file name to its embedded template.  The sockets
 // and the services are one map because they are written, reloaded and removed
@@ -44,7 +54,7 @@ func render(assetPath string, layout Layout) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("embedded asset %s: %w", assetPath, err)
 	}
-	tmpl, err := template.New(filepath.Base(assetPath)).Parse(string(text))
+	tmpl, err := template.New(filepath.Base(assetPath)).Funcs(renderFuncs).Parse(string(text))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", assetPath, err)
 	}

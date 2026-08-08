@@ -19,11 +19,11 @@ Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
-# {{.Group}}, and only for this: the managed sops files are in {{.SecretsDir}},
-# which is 2770 with that group, and sops has to read them to decrypt anything.
+# {{.StoreGroup}}, and only for this: the managed sops files are in {{.SecretsDir}},
+# which is 2750 with that group, and sops has to read them to decrypt anything.
 # It is read access to encrypted files -- the key stays 0400 {{.KeeperUser}}, and
 # no member of the group gains anything from this process being in it.
-SupplementaryGroups={{.Group}}
+SupplementaryGroups={{.StoreGroup}}
 
 # The whole point of this unit.  The key is readable at
 # $CREDENTIALS_DIRECTORY/age_key by this process and by nothing else: the file
@@ -81,7 +81,7 @@ UMask=0077
 
 # The managed sops files must be readable here.  Under ProtectSystem=strict the
 # whole hierarchy is read-only but visible, so {{.SecretsDir}} is readable
-# subject to its own mode, which is 2770 with group {{.Group}} and this uid in it.
+# subject to its own mode, which is 2750 with group {{.StoreGroup}} and this uid in it.
 
 [Install]
 WantedBy=multi-user.target

@@ -83,6 +83,8 @@ func cmdInit(args []string) int {
 		"account the coding agent runs as (default $OPERATOR, then $SUDO_USER)")
 	group := fs.String("group", install.DefaultGroup,
 		"shared group giving the service accounts access to a tree brokered commands run in")
+	storeGroup := fs.String("store-group", install.DefaultStoreGroup,
+		"group owning the managed sops files; the keeper and broker join it, the operator does not")
 	brokerUser := fs.String("broker-user", install.DefaultBrokerUser, "account that holds the SSH keys and the audit log")
 	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
 	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
@@ -109,6 +111,7 @@ func cmdInit(args []string) int {
 	opts := install.Options{
 		Operator:        operatorName(*operator),
 		Group:           *group,
+		StoreGroup:      *storeGroup,
 		BrokerUser:      *brokerUser,
 		KeeperUser:      *keeperUser,
 		ExecUser:        *execUser,

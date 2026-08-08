@@ -149,10 +149,13 @@ creation_rules:
     key_groups:
       - age:
 %s`, recipients.String())
-	// Owned by the operator, not by root: it is edited by hand to add or drop a
-	// recipient, and the operator is who does that.  Group-readable because
+	// Root-owned with the store group, like the directory holding it.  It is
+	// edited by hand to add or drop a recipient, but that edit happens under the
+	// same sudo as editing a managed file, and leaving it operator-owned inside
+	// a root-owned directory would let the recipients be rewritten by the one
+	// account the store group exists to keep out.  Group-readable because
 	// encrypting reads it and the accounts that do that are not the owner.
-	changed, err := r.fs.writeFile(path, []byte(body), 0o640, r.operatorUID, r.groupGID)
+	changed, err := r.fs.writeFile(path, []byte(body), 0o640, 0, r.storeGID)
 	if err != nil {
 		return err
 	}

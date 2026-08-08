@@ -32,6 +32,7 @@ const (
 	DefaultLogDir     = "/var/log/faramir"
 
 	DefaultGroup      = "dev"
+	DefaultStoreGroup = "faramir-secrets"
 	DefaultBrokerUser = "faramir-broker"
 	DefaultKeeperUser = "faramir-keeper"
 	DefaultExecUser   = "faramir-exec"
@@ -41,7 +42,19 @@ const (
 // Built once by Options.layout and passed down, so no step can resolve a path
 // differently from the one that wrote the unit naming it.
 type Layout struct {
+	// Group admits a caller to the broker socket and shares a working tree with
+	// the executor.  The operator is in it, and so is anything running as the
+	// operator, which is the point: asking the broker for a value by name is
+	// what an agent is meant to do.
+	//
+	// StoreGroup is separate because reading the ciphertext is not that.  It
+	// owns the secrets directory and the daemons that decrypt and stat the
+	// managed files are in it; the operator is not, so editing a store needs
+	// sudo.  One group for both would mean every caller allowed to ask for a
+	// value by name could also read and replace the file it comes from, and an
+	// agent that runs as the operator would inherit exactly that.
 	Group      string
+	StoreGroup string
 	BrokerUser string
 	KeeperUser string
 	ExecUser   string
