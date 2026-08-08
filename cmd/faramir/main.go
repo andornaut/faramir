@@ -135,8 +135,6 @@ func cmdShareTree(args []string) int {
 	fs := newFlagSet("share-tree", "share-tree [options] DIR [DIR...]")
 	operator := fs.String("user", "", "account that works in the tree (default $SUDO_USER)")
 	group := fs.String("group", envOr("DEV_GROUP", "dev"), "shared group")
-	users := fs.String("users", "faramir-exec,faramir-broker",
-		"accounts granted traversal, for a tree inside a home")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
@@ -159,8 +157,7 @@ func cmdShareTree(args []string) int {
 	for _, dir := range fs.Args() {
 		err := sharetree.Share(sharetree.Options{
 			Dir: dir, Operator: who, Group: *group,
-			Users: strings.Split(*users, ","),
-			Log:   func(line string) { fmt.Fprintln(os.Stderr, line) },
+			Log: func(line string) { fmt.Fprintln(os.Stderr, line) },
 		})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "faramir: %s: %v\n", dir, err)

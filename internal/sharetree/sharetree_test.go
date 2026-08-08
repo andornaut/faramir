@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"syscall"
 	"testing"
 )
 
@@ -68,23 +69,6 @@ func TestWithinComparesPathElements(t *testing.T) {
 	}
 }
 
-// The read-back that catches a filesystem accepting one ACL and silently
-// dropping later edits. Anything not named in the listing is missing.
-func TestMissingFrom(t *testing.T) {
-	acl := "user::rwx\nuser:faramir-exec:--x\ngroup::---\nmask::--x\nother::---\n"
-	got := MissingFrom(acl, []string{"faramir-exec", "faramir-broker"})
-	if !reflect.DeepEqual(got, []string{"faramir-broker"}) {
-		t.Errorf("MissingFrom = %v, want [faramir-broker]", got)
-	}
-	if got := MissingFrom(acl, []string{"faramir-exec"}); got != nil {
-		t.Errorf("MissingFrom = %v, want none", got)
-	}
-	// A prefix is not a match: faramir-exec must not satisfy faramir-exec2.
-	if got := MissingFrom(acl, []string{"faramir-exec2"}); len(got) != 1 {
-		t.Errorf("MissingFrom matched a prefix: %v", got)
-	}
-}
-
 // The sharing half needs no root, so it is exercised directly: a tree the
 // caller owns, with a file and a subdirectory in it.
 func TestShareTreeAppliesModesThroughout(t *testing.T) {
@@ -122,44 +106,67 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 	}
 }
 
-// An ACL written through an ecryptfs mount is discarded, exit 0 and all, so
-// share-tree writes to the backing directory instead. Only the mount point maps:
-// names below it are encrypted, and no path under the mount corresponds to one
-// underneath without the key.
-func TestLowerDirFindsTheBackingDirectoryOfAnEcryptfsMount(t *testing.T) {
-	home := t.TempDir()
-	lower := filepath.Join(home, "backing")
-	if err := os.Mkdir(lower, 0o700); err != nil {
+// What one directory on the path to the tree needs. Group ownership rather than
+// an ACL: the mode's group slot is the one going spare on a home the operator
+// owns, and it costs none of what the ACL route did.
+func TestTraversalAction(t *testing.T) {
+	dir := t.TempDir()
+	var st syscall.Stat_t
+	if err := syscall.Stat(dir, &st); err != nil {
 		t.Fatal(err)
 	}
-	mounts := "" +
-		"/dev/nvme0n1p2 / ext4 rw,relatime 0 0\n" +
-		lower + " /home/op ecryptfs rw,nosuid,ecryptfs_sig=abc 0 0\n" +
-		"tmpfs /run tmpfs rw 0 0\n"
+	mine := int(st.Gid)
+	other := mine + 1
 
-	got, ok := lowerDirFrom(mounts, "/home/op")
-	if !ok || got != lower {
-		t.Errorf("lowerDirFrom = %q, %v; want %q, true", got, ok, lower)
-	}
-	// Not an ecryptfs mount point: nothing to redirect to.
-	if _, ok := lowerDirFrom(mounts, "/run"); ok {
-		t.Error("a tmpfs mount was treated as ecryptfs")
-	}
-	// A path below the mount is not the mount, and cannot be mapped.
-	if _, ok := lowerDirFrom(mounts, "/home/op/src"); ok {
-		t.Error("a path below the mount was mapped")
+	for _, tc := range []struct {
+		name string
+		mode os.FileMode
+		gid  int
+		want traversal
+	}{
+		// Already open to everyone: nothing to grant, and tightening a directory
+		// the operator left open is not this command's business.
+		{"world-traversable is left alone", 0o755, other, leaveAlone},
+		{"world-traversable even with a foreign group", 0o701, other, leaveAlone},
+		// Right group already: only the bit is missing.
+		{"our group without execute gains it", 0o700, mine, addExecute},
+		{"our group with execute is done", 0o710, mine, leaveAlone},
+		// Wrong group: it has to change, which costs the old group its access.
+		{"a foreign group is taken over", 0o700, other, regroup},
+		{"a foreign group with execute is still taken over", 0o710, other, regroup},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.Chmod(dir, tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			info, err := os.Stat(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := traversalAction(info, tc.gid, dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tc.want {
+				t.Errorf("traversalAction(%v, gid=%d) = %v, want %v", tc.mode, tc.gid, got, tc.want)
+			}
+		})
 	}
 }
 
-// /proc/self/mounts escapes the awkward characters in octal.
-func TestMountFieldsAreUnescaped(t *testing.T) {
-	home := t.TempDir()
-	lower := filepath.Join(home, "backing")
-	if err := os.Mkdir(lower, 0o700); err != nil {
+// Execute only. Read would let these uids list the operator's home rather than
+// pass through it.
+func TestTraversalGrantsExecuteAndNotRead(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	mounts := lower + ` /home/a\040b ecryptfs rw 0 0` + "\n"
-	if _, ok := lowerDirFrom(mounts, "/home/a b"); !ok {
-		t.Error("an escaped space in the mount point was not decoded")
+	info, _ := os.Stat(dir)
+	if err := os.Chmod(dir, info.Mode()|0o010); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.Stat(dir)
+	if got.Mode().Perm() != 0o710 {
+		t.Errorf("mode = %v, want 0710: execute for the group, no read", got.Mode().Perm())
 	}
 }

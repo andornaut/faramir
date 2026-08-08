@@ -6,34 +6,31 @@
 //	           tree is group-owned and setgid, which with umask 002 keeps them
 //	           from fighting over every file either one creates
 //	reachable  a home is 0700, so the executor cannot enter a tree inside one
-//	           until it has execute access on every directory above it
+//	           until every directory above it is group-executable by a group the
+//	           executor is in
 //
 // Nothing in faramir needs a tree of its own: the managed sops files are under
 // /etc and a brokered command runs where its caller was.  This exists for the
 // operator who wants to run commands somewhere their own uid owns.
-//
-// The ACL work shells out to setfacl and getfacl rather than linking libacl,
-// because the shipped binaries are CGO_ENABLED=0 and there is no ACL support in
-// the standard library.
 package sharetree
 
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
-// Options is one run.  Users are the accounts granted traversal, in the order
-// they are written into a single ACL entry.
+// Options is one run.  Group is both what the tree is shared with and what is
+// granted traversal, so the accounts that need to reach a tree are the members
+// of that one group.
 type Options struct {
 	Dir      string
 	Operator string
 	Group    string
-	Users    []string
 	// Log receives one line per step, already formatted.
 	Log func(string)
 }
@@ -76,7 +73,7 @@ func Share(opts Options) error {
 	if owner.HomeDir == "" || !within(owner.HomeDir, dir) {
 		return nil
 	}
-	return grantTraversal(owner.HomeDir, dir, opts)
+	return grantTraversal(owner.HomeDir, dir, opts, gid)
 }
 
 func (o Options) logf(format string, args ...any) {
@@ -152,129 +149,97 @@ func Components(home, dir string) []string {
 	return out
 }
 
-func grantTraversal(home, dir string, opts Options) error {
-	if _, err := exec.LookPath("setfacl"); err != nil {
-		opts.logf("WARNING: %s is inside %s and setfacl is missing.", dir, home)
-		opts.logf("    Install the acl package, or keep the tree outside the home:")
-		opts.logf("    %s cannot reach it as things stand.", opts.Users[0])
-		return nil
-	}
-	spec := make([]string, 0, len(opts.Users))
-	for _, u := range opts.Users {
-		spec = append(spec, "u:"+u+":x")
-	}
-	opts.logf("traversal for %s: %s -> %s", strings.Join(opts.Users, " "), home, dir)
-
+// grantTraversal makes every directory from the home down to the tree enterable
+// by the shared group.
+//
+// Group ownership rather than an ACL.  An ACL names exactly the uids that need
+// it, which is more precise, but the mode has three slots and the group slot is
+// the one going spare: the operator owns the home and nothing else needs the
+// group bits there.  What that precision was costing is the whole of it -- the
+// acl package, a read-back on every component, and on ecryptfs a write the
+// mount discards, redirected to the backing directory and not visible until the
+// next mount.  chgrp passes through the same mount unchanged, ownership being
+// ordinary inode metadata rather than an xattr.
+//
+// Execute only, never read: these uids pass through the home without being able
+// to list it.  Not "chmod o+x", which grants the same to every account on the
+// machine, and with umask 002 in force the files below are 0664, so that opens
+// the home rather than a path through it.
+func grantTraversal(home, dir string, opts Options, gid int) error {
 	for _, component := range Components(home, dir) {
-		// Every account in one call, so a filesystem that takes the write only
-		// partially cannot leave a subset granted.
-		_ = exec.Command("setfacl", "-m", strings.Join(spec, ","), component).Run()
-
-		// Read back rather than trusting the exit status.  Written through an
-		// ecryptfs mount, setfacl exits 0 and the entry lands nowhere at all,
-		// so the status says the opposite of what happened.
-		missing := missingEntries(component, opts.Users)
-		if len(missing) == 0 {
+		info, err := os.Stat(component)
+		if err != nil {
+			return err
+		}
+		action, err := traversalAction(info, gid, component)
+		if err != nil {
+			return err
+		}
+		if action == leaveAlone {
 			continue
 		}
-
-		// An ecryptfs mount discards the write rather than failing it.  The
-		// backing directory takes it, so write there instead and say that the
-		// mounted view will not show it until the next mount.
-		if lower, ok := LowerDir(component); ok {
-			_ = exec.Command("setfacl", "-m", strings.Join(spec, ","), lower).Run()
-			if still := missingEntries(lower, opts.Users); len(still) == 0 {
-				opts.logf("%s is an ecryptfs mount, which discards an ACL written", component)
-				opts.logf("    through it, so the entry went to %s", lower)
-				opts.logf("    instead.  Remount to pick it up:")
-				opts.logf("        ecryptfs-umount-private && ecryptfs-mount-private")
-				opts.logf("    Until then %s reaches nothing below it.", strings.Join(missing, " "))
-				continue
+		if action == regroup {
+			// The previous group loses whatever the group bits gave it: they now
+			// describe a different group.  Said out loud because nothing else
+			// will mention it.
+			opts.logf("%s: group %s -> %s", component, groupName(info), opts.Group)
+			if err := os.Chown(component, -1, gid); err != nil {
+				return err
 			}
 		}
-
-		opts.logf("WARNING: %s did not take an ACL entry for %s.",
-			component, strings.Join(missing, " "))
-		opts.logf("    setfacl reported success and the entry is not there.  Either")
-		opts.logf("    keep the tree outside the home, or give this one directory")
-		opts.logf("    'chmod o+x' and accept that every uid can then traverse it.")
-		opts.logf("    Note that with umask 002 in force the files below are 0664,")
-		opts.logf("    so that opens the home rather than a path through it.")
-		return nil
+		if err := os.Chmod(component, info.Mode()|0o010); err != nil {
+			return err
+		}
+		opts.logf("%s: %s may now traverse it", component, opts.Group)
 	}
 	return nil
 }
 
-// mountsFile is /proc/self/mounts, replaced in tests.
-var mountsFile = "/proc/self/mounts"
+type traversal int
 
-// LowerDir returns the backing directory of an ecryptfs mount at path.
-//
-// Setting an ACL through an ecryptfs mount is discarded: setfacl exits 0 and
-// the entry appears neither on the mount nor underneath it.  Written to the
-// backing directory it applies normally, the lower filesystem being ordinary
-// ext4, and the mounted view picks it up at the next mount: that view is
-// populated when the mount is made and does not track the directory afterwards.
-//
-// Only the mount point itself can be redirected this way.  Names below it are
-// encrypted, so no path under the mount maps to one underneath without the key.
-func LowerDir(path string) (string, bool) {
-	data, err := os.ReadFile(mountsFile)
+const (
+	leaveAlone traversal = iota
+	addExecute
+	regroup
+)
+
+// traversalAction decides what one directory on the path needs.
+func traversalAction(info os.FileInfo, gid int, path string) (traversal, error) {
+	mode := info.Mode().Perm()
+	// Already open to everyone: nothing to grant, and nothing worth taking away
+	// here either.  Tightening a directory the operator chose to leave open is
+	// not this command's business.
+	if mode&0o001 != 0 {
+		return leaveAlone, nil
+	}
+	owned, err := ownedByGroup(path, gid)
 	if err != nil {
-		return "", false
+		return leaveAlone, err
 	}
-	return lowerDirFrom(string(data), path)
+	if owned {
+		if mode&0o010 != 0 {
+			return leaveAlone, nil
+		}
+		return addExecute, nil
+	}
+	return regroup, nil
 }
 
-func lowerDirFrom(mounts, path string) (string, bool) {
-	for _, line := range strings.Split(mounts, "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 3 || fields[2] != "ecryptfs" {
-			continue
-		}
-		// Fields are escaped octal for the awkward characters.
-		if unescapeMount(fields[1]) != path {
-			continue
-		}
-		source := unescapeMount(fields[0])
-		// Recorded when the mount was made, so it may be a symlink, and on this
-		// layout it is one that lives inside the mount it describes.
-		resolved, err := filepath.EvalSymlinks(source)
-		if err != nil {
-			return "", false
-		}
-		if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
-			return "", false
-		}
-		return resolved, true
+func ownedByGroup(path string, gid int) (bool, error) {
+	var st syscall.Stat_t
+	if err := syscall.Stat(path, &st); err != nil {
+		return false, err
 	}
-	return "", false
+	return int(st.Gid) == gid, nil
 }
 
-func unescapeMount(field string) string {
-	for _, pair := range []struct{ from, to string }{
-		{`\040`, " "}, {`\011`, "\t"}, {`\012`, "\n"}, {`\134`, `\`},
-	} {
-		field = strings.ReplaceAll(field, pair.from, pair.to)
+func groupName(info os.FileInfo) string {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "?"
 	}
-	return field
-}
-
-func missingEntries(path string, users []string) []string {
-	out, err := exec.Command("getfacl", "-p", "--omit-header", path).Output()
-	if err != nil {
-		return users
+	if g, err := user.LookupGroupId(strconv.FormatUint(uint64(st.Gid), 10)); err == nil {
+		return g.Name
 	}
-	return MissingFrom(string(out), users)
-}
-
-// MissingFrom returns the users with no entry in a getfacl listing.
-func MissingFrom(acl string, users []string) []string {
-	var missing []string
-	for _, u := range users {
-		if !strings.Contains(acl, "\nuser:"+u+":") && !strings.HasPrefix(acl, "user:"+u+":") {
-			missing = append(missing, u)
-		}
-	}
-	return missing
+	return strconv.FormatUint(uint64(st.Gid), 10)
 }

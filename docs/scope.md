@@ -42,15 +42,13 @@ The operator edits them in place with `sops`, through the group, without sudo. `
 
 ## Where brokered commands run
 
-A brokered command runs where its caller was, so `faramir-exec` must reach that directory: it forks the command there. The broker stats it too, but only to fail early with a clear message, and treats its own permission error as the executor's business. That matters on ecryptfs, where an ACL written through the mount is discarded whatever it says, so a home may end up granting one of them and not the other.
+A brokered command runs where its caller was, so `faramir-exec` must reach that directory: it forks the command there. The broker stats it too, but only to fail early with a clear message, and treats its own permission error as the executor's business. The keeper needs nothing either way: its files are under `/etc` and its unit sets `ProtectHome=true`, so `/home` is empty in its namespace.
 
-A tree outside the homes needs nothing. Inside a `0700` home the executor needs traversal, which `faramir share-tree` grants with an ACL on every component from the home down, the broker alongside it for the error message. Not `chmod o+x`, which would hand traversal to every account on the machine, and with `umask 002` in force that is the whole home rather than a path through it.
+A tree outside the homes needs nothing. Inside a `0700` home the executor needs traversal, which `faramir share-tree` grants by making every directory from the home down group `dev` and group-executable. Execute only, so those uids pass through without listing what they pass, and never `chmod o+x`, which grants the same to every account on the machine: with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it.
 
-On ecryptfs an ACL written through the mount is discarded: `setfacl` exits 0 and the entry lands neither on the mount nor on the directory backing it. The backing directory takes it normally, being ordinary ext4, and the mounted view picks it up at the next mount, that view being populated when the mount is made rather than tracking the directory afterwards. `faramir share-tree` writes there when it finds the mount discarded the entry, and says a remount is needed.
+Group ownership rather than an ACL. An ACL names the uids exactly, which is the more precise instrument, but the mode's group slot is going spare on a home its owner holds outright, and that precision was costing the `acl` package, a read-back on every directory, and on ecryptfs a write the mount discards entirely while reporting success. `chgrp` passes through the same mount unchanged, ownership being ordinary inode metadata rather than an xattr. What it costs instead is that membership of the group is now also a grant to traverse, so keep it to the accounts that need it.
 
-Only the mount point itself can be redirected that way. Names below it are encrypted, so no path under the mount corresponds to one underneath without the key, which is another reason the broker's grant is a convenience rather than a requirement.
-
-An ACL is a permission, not a mount: it holds nothing open, so an encrypted home still unmounts at logout. A brokered command running at the time does hold one open.
+Group membership is a permission, not a mount: it holds nothing open, so an encrypted home still unmounts at logout. A brokered command running at the time does hold one open.
 
 ## Three layers
 

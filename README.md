@@ -87,7 +87,7 @@ Phase | Does
 `40-agent-config.sh` | `Read` deny rules in your account, and the recipe for enrolling a project
 
 - `CONFIG=<file>` installs a different base config instead of the starter. Installed verbatim; every path in one is absolute.
-- `faramir share-tree <dir>` (root) makes one directory usable by brokered commands: group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, execute-only ACLs down to it so `faramir-exec` can enter. Run it per tree, or not at all. Nothing needs a tree of its own, since a brokered command runs where its caller was and the managed sops files are under `/etc`.
+- `faramir share-tree <dir>` (root) makes one directory usable by brokered commands: group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, group-executable on every directory down to it so `faramir-exec` can enter. Run it per tree, or not at all. Nothing needs a tree of its own, since a brokered command runs where its caller was and the managed sops files are under `/etc`.
 - `FARAMIR_BIN=/opt/faramir/bin` lets you build on one machine and install on another.
 - A `CONFIG` that does not parse is refused before anything is written.
 - `install/uninstall.sh` leaves the accounts, `/etc/faramir` and the audit log alone.
@@ -294,9 +294,11 @@ receive `SOPS_AGE_KEY` | nothing puts it there
 
 It **can** write the working tree, which is the point, and reach the broker socket, which buys it nothing: the response is redacted and audited like any other.
 
-A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. `faramir share-tree` grants it with an ACL, never `chmod o+x` (with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it). The broker is granted alongside it so an unreachable directory is reported clearly rather than as a child that failed to start, but it is not required: the broker treats its own permission error on the cwd as the executor's business. The keeper needs nothing, its files being under `/etc` and its unit setting `ProtectHome=true`.
+A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. `faramir share-tree` grants it by group: every directory from the home down becomes group `dev` and group-executable, execute only, so those uids pass through without being able to list what they pass. Never `chmod o+x`, which grants the same to every account on the machine, and with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it.
 
-On ecryptfs an ACL written through the mount is discarded, `setfacl` exiting 0 either way. `faramir share-tree` notices, writes to the directory backing the mount instead, and tells you to remount: the mounted view is populated when the mount is made and does not track that directory afterwards. Only the mount point maps, names below it being encrypted, which is another reason the broker's grant is a convenience rather than a requirement.
+Group ownership rather than an ACL, which would name the uids exactly. The mode has three slots and the group one is the slot going spare on a home its owner holds outright, and the precision was costing the `acl` package, a read-back on every directory, and on ecryptfs a write the mount discards entirely. `chgrp` passes through that same mount unchanged, ownership being ordinary inode metadata rather than an xattr. The cost is that everyone in the group gets it, so keep membership to the accounts that need it.
+
+A directory already traversable by `other` is left alone: tightening one its owner chose to open is not this command's business. One whose group is something else is taken over, which costs that group whatever the group bits gave it, and `share-tree` says so when it does.
 
 ## Redaction
 
