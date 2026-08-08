@@ -6,7 +6,12 @@
 # agent.  It necessarily handles plaintext: the intermediate file is written to
 # /dev/shm with mode 0600 and removed on exit, including on error.
 #
-#   migrate-vault.sh group_vars/all/vault.yml secrets/vault.sops.yml
+#   migrate-vault.sh group_vars/all/vault.yml \
+#       /etc/faramir/secrets/<consumer>.sops.yml
+#
+# The destination belongs in /etc/faramir/secrets, outside every home: a home is
+# not mounted until its owner logs in, so a store inside one leaves the broker
+# with an empty value set at boot and is unreadable to any unattended job.
 #
 # Var names are preserved exactly, so playbooks need no change beyond the
 # lookup mechanism.

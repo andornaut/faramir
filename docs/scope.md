@@ -50,28 +50,40 @@ rewrite their repositories. Bounding that is a credential-scope problem, not a
 uid problem: a `gh` token limited to the repositories it maintains, and branch
 protection so it cannot force-push. Filesystem blast radius is out of scope.
 
-## The working tree
+## Secrets under /etc, not in a tree
 
-The keeper decrypts the sops files there and the executor runs brokered
-commands there, so the tree has to be reachable by two uids that are not the
-operator's. A home is `0700`, so a tree inside one is unreachable until those
-uids are granted traversal; a tree outside the homes needs nothing.
+The managed sops files live in `/etc/faramir/secrets`, `2770 root:dev`. They are
+configuration an operator authors and the daemons read at startup, which is what
+`/etc` is for, and the location decides more than convention:
 
-Both work. Outside (`/srv/faramir/worktree`, the installer's default) is
-simpler. Inside the operator's own checkout means nothing moves, and phase 1
-grants it with an ACL naming exactly the service uids on every component from
-the home down. Not `chmod o+x`, which would hand traversal to every account on
-the machine; the ACL leaves `other` at nothing.
+- **A home is not mounted until its owner logs in.** A value set that depends on
+  one is empty at boot, so the broker comes up redacting nothing. That is a
+  security failure rather than an outage, and it is silent.
+- **Unattended jobs do not have a session.** Anything running from cron as root
+  cannot reach a path inside an encrypted home, whatever its mode says.
+- **The keeper stops needing a home at all**, so its unit sets
+  `ProtectHome=true`. The uid holding the age key is the one worth taking `/home`
+  away from outright.
 
-An ACL is a permission, not a mount: it holds nothing open, so an encrypted
-home still unmounts at logout. What holds one open is a brokered command
-running at the time. Two costs come with the inside-the-home choice, both from
-the mount's lifecycle rather than from permissions:
+The operator still edits them in place with `sops`, through the group, without
+sudo. `.sops.yaml` sits in the same directory because sops resolves creation
+rules by walking up from the file it is encrypting, so a rule that is not an
+ancestor is a rule it never finds.
 
-- between boot and the operator's first login the tree does not exist, so the
-  broker comes up with an empty value set and brokered commands fail until a
-  request after login reloads it
-- a logout during a brokered run cannot unmount
+## Where brokered commands run
+
+A brokered command runs where its caller was, so `faramir-exec` is the only
+service uid that needs to reach a working tree. A home is `0700`, so a tree
+inside one is unreachable until that uid is granted traversal; a tree outside
+the homes needs nothing.
+
+Both work. Phase 1 grants the inside-a-home case with an ACL naming that one
+uid on every component from the home down. Not `chmod o+x`, which would hand
+traversal to every account on the machine; the ACL leaves `other` at nothing.
+
+An ACL is a permission, not a mount: it holds nothing open, so an encrypted home
+still unmounts at logout. What holds one open is a brokered command running at
+the time, which is the one remaining cost of working inside an encrypted home.
 
 ## Three layers
 

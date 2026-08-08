@@ -13,10 +13,10 @@ KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 GROUP="${DEV_GROUP:-dev}"
 KEY=/etc/faramir/age.key
 
-# The working tree, where brokered commands run and where the sops files live.  WORKTREE is what the other three phases call it, and a
-# one-command install passes it to all of them; REPO stays accepted so an
-# existing invocation keeps working.
-REPO="${REPO:-${WORKTREE:-/srv/faramir/worktree}}"
+# Where the managed sops files live, and therefore where .sops.yaml has to sit:
+# sops resolves creation rules by walking up from the file it is encrypting, so
+# a rule that is not an ancestor of that file is a rule it never finds.
+SECRETS_DIR="${SECRETS_DIR:-/etc/faramir/secrets}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -36,6 +36,8 @@ done
 command -v sops >/dev/null || { echo "install sops first (https://github.com/getsops/sops/releases)" >&2; exit 1; }
 
 install -d -m 0755 -o root -g root /etc/faramir
+# Phase 1 creates this; re-asserted here so this phase can be run on its own.
+getent group "$GROUP" >/dev/null && install -d -m 2770 -o root -g "$GROUP" "$SECRETS_DIR"
 
 if [[ -f $KEY ]]; then
   say "keeping existing ${KEY}"
@@ -81,8 +83,8 @@ for extra in ${_extra_recipients//,/ }; do
   say "extra recipient: ${extra}"
 done
 
-if [[ -d $REPO ]]; then
-  SOPS_YAML="${REPO}/.sops.yaml"
+if [[ -d $SECRETS_DIR ]]; then
+  SOPS_YAML="${SECRETS_DIR}/.sops.yaml"
   if [[ -f $SOPS_YAML ]]; then
     say "keeping existing ${SOPS_YAML}"
   else
@@ -99,16 +101,15 @@ creation_rules:
       - age:
 $(printf '          - %s\n' "${RECIPIENTS[@]}")
 EOF
-    # Owned by the operator, not by root.  This file lives in the operator's own
-    # checkout: it is edited by hand to add a recipient, and rewritten by any
-    # git operation that changes it, and a root-owned file in a checkout fails
-    # both.  Group-readable because encrypting reads it and the accounts that
-    # do that are not the owner.
+    # Owned by the operator, not by root: it is edited by hand to add or drop a
+    # recipient, and the operator is who does that.  Group-readable because
+    # encrypting reads it and the accounts that do that are not the owner.
+    #
     # OPERATOR is empty when the phase is run as root directly rather than
     # through sudo, and "chown :group" is a group-only change that GNU chown
     # accepts and reports success for.  Taking that branch would leave the file
-    # root-owned in the operator's checkout without printing the warning below,
-    # which is the outcome this block exists to prevent.
+    # root-owned without printing the warning below, which is the outcome this
+    # block exists to prevent.
     if [[ -n $OPERATOR ]] && chown "$OPERATOR:$GROUP" "$SOPS_YAML" 2>/dev/null; then
       chmod 0640 "$SOPS_YAML"
     elif chgrp "$GROUP" "$SOPS_YAML" 2>/dev/null; then
@@ -123,13 +124,16 @@ fi
 
 cat <<EOF
 
-Public key (also add this to .sops.yaml in the agent's working tree):
+Public key:
   ${PUB}
 
-Next: convert each ansible-vault file with
+Managed secrets live in ${SECRETS_DIR}, alongside the .sops.yaml that governs
+them, and are named by absolute path in [secrets] files.  Name each file after
+what consumes it: every client sees every ref whatever file it came from, so a
+per-operator name would imply an isolation nothing enforces.  Encrypt one with
 
-  install/migrate-vault.sh group_vars/all/vault.yml secrets/vault.sops.yml
+  install/migrate-vault.sh group_vars/all/vault.yml \\
+      ${SECRETS_DIR}/<consumer>.sops.yml
 
-then verify a real playbook run through the broker BEFORE deleting the old
-vault files and the vault password file.
+then verify a real run through the broker BEFORE deleting any original.
 EOF

@@ -47,16 +47,14 @@ CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
 # ProtectSystem=strict makes the whole hierarchy read-only, so every place a
-# brokered command may write has to be named.  Whole trees rather than the
-# working tree itself: its path is the operator's to choose and lives in the
-# config, and naming it here too made two files that had to agree or every
-# command failed with "cwd does not exist".
+# brokered command may write has to be named.  Whole trees rather than one
+# directory: a command runs where its caller was, and no config names that, so
+# there is no single path to grant.
 #
-# Both shipped locations, because the installer defaults the tree to
-# /srv/faramir/worktree while the ansible role points it at a checkout under
-# /home.  Naming only one leaves the other read-only, and a playbook writing a
-# .retry file or a fact cache fails with EROFS rather than anything that names
-# the mount.
+# Both shipped locations, because a caller usually works in a checkout under
+# /home while the installer's own tree default is /srv/faramir.  Naming only one
+# leaves the other read-only, and a playbook writing a .retry file or a fact
+# cache fails with EROFS rather than anything that names the mount.
 #
 # The leading "-" is what lets either be absent.  Neither grants anything on its
 # own: lifting the read-only mount is not permission, and modes still decide.

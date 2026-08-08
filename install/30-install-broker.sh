@@ -9,9 +9,6 @@ BROKER_USER="${BROKER_USER:-faramir-broker}"
 OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
 GROUP="${DEV_GROUP:-dev}"
 BIN="${FARAMIR_BIN:-$REPO/bin}"
-# Outside every home: the keeper and the executor read this tree as system
-# services, before any home is necessarily mounted.  Phase 1 creates it.
-WORKTREE="${WORKTREE:-/srv/faramir/worktree}"
 # Point this at etc/examples/<workload>.toml to install the configuration for a
 # real workload rather than the starter.
 # A relative path resolves against the repo, so the documented invocation works
@@ -62,28 +59,19 @@ install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/faramir/
 install -d -m 0755 -o root -g root /etc/faramir
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
-# The working tree appears in the config as [secrets] files, written @WORKTREE@
-# so that this is the one substitution.  It is the only place the path appears:
-# the units do not name it, and no config key relocates a command any more.
-#
-# sed's replacement side treats \ and & specially and would also eat the
-# delimiter, and a worktree path is arbitrary, so escape all three rather than
-# refusing paths that contain them.
-worktree_escaped="$(printf '%s' "$WORKTREE" | sed 's/[\\&|]/\\&/g')"
-
-substitute() {
-  # Never redirect onto the destination: the shell truncates it before sed
-  # runs, so a failure would leave an empty config behind and every later run
-  # would take the "keeping existing" branch and preserve it forever.
+# Configs are installed verbatim.  Every path in one is absolute: the secrets
+# live under /etc/faramir/secrets and the units name no tree, so there is
+# nothing to substitute and no placeholder that can survive into a running
+# config.
+install_config() {
+  # Written to a temporary file and moved into place, never redirected onto the
+  # destination: a failed copy would otherwise leave an empty config behind,
+  # and every later run would take the "keeping existing" branch and preserve
+  # it forever.
   local src="$1" dst="$2" tmp
   tmp="$(mktemp "${dst}.XXXXXX")"
-  if ! sed "s|@WORKTREE@|${worktree_escaped}|g" "$src" >"$tmp"; then
+  if ! cat "$src" >"$tmp"; then
     rm -f "$tmp"; return 1
-  fi
-  if grep -q '@WORKTREE@' "$tmp"; then
-    rm -f "$tmp"
-    echo "substitution left a @WORKTREE@ placeholder in ${dst}" >&2
-    return 1
   fi
   chown root:root "$tmp"
   chmod 0644 "$tmp"
@@ -106,17 +94,14 @@ config_parses "$CONFIG" || {
 
 if [[ -f /etc/faramir/config.toml ]]; then
   say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
-  # Substituted, not copied verbatim: the message above invites an operator to
-  # move this into place, and a .dist still carrying @WORKTREE@ would start a
-  # broker that manages no secrets file and therefore redacts nothing.
-  substitute "$CONFIG" /etc/faramir/config.toml.dist || exit 1
+  install_config "$CONFIG" /etc/faramir/config.toml.dist || exit 1
   if ! config_parses /etc/faramir/config.toml; then
     say "WARNING: the installed /etc/faramir/config.toml does not parse;"
     say "         the broker will not start until it does"
   fi
 else
-  say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml (worktree ${WORKTREE})"
-  substitute "$CONFIG" /etc/faramir/config.toml || exit 1
+  say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml"
+  install_config "$CONFIG" /etc/faramir/config.toml || exit 1
 fi
 
 say "systemd units"
@@ -131,12 +116,13 @@ done
 # systemd itself gave the sockets in it.  See the file's own comment.
 install -m 0644 "$REPO/systemd/faramir.tmpfiles.conf" /etc/tmpfiles.d/faramir.conf
 
-# No drop-ins.  The units name no working tree: the broker and the keeper only
-# read it, which ProtectSystem=strict already allows, and the executor is
-# granted /home and /srv/faramir, which covers both shipped locations, with
-# modes deciding what it can actually write.  The tree's path lives in the
-# config and nowhere else.  A tree outside both needs a drop-in extending
-# ReadWritePaths= on faramir-exec.service.
+# No drop-ins, and nothing here names a working tree.  The keeper reads the sops
+# files from /etc/faramir/secrets, the broker stats them there, and only the
+# executor touches a tree at all, because a brokered command runs where its
+# caller was.  It is granted /home and /srv/faramir, which covers where callers
+# work and the shipped tree location, with modes deciding what it can write.  A
+# caller working outside both needs a drop-in extending ReadWritePaths= on
+# faramir-exec.service.
 
 # systemd may not be running (container, chroot, image build).  Install the
 # units anyway; just do not pretend to have started anything.

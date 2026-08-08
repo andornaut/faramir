@@ -41,13 +41,14 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# No ProtectHome=: the broker only reads the sops files in the working tree,
-# and ProtectSystem=strict already mounts the whole hierarchy read-only.  There
-# was a tmpfs over /home with one bind mount punched through it, which meant the
-# tree's path had to be repeated in a drop-in here and kept in step with the
-# config.  What it bought over file modes was nothing: a home this uid may not
-# read is one the mode already refuses, and a home it may read is one the agent
-# uid can read directly without going through the broker at all.
+# No ProtectHome=, unlike the keeper, and for one specific reason: the broker
+# stats a request's cwd before accepting it, and a caller's cwd is usually
+# inside a home.  Hiding /home here would turn every such request into "cwd does
+# not exist".  It reads no secret from a home either way, since the managed sops
+# files are under /etc, and ProtectSystem=strict already mounts the whole
+# hierarchy read-only.  What bounds this uid is file modes: a home it may not
+# read is one the mode already refuses, and a home it may read is one the
+# operator's own uid can read directly without going through the broker.
 PrivateTmp=true
 # PrivateDevices would hide /dev/ptmx, and the broker allocates a PTY for every
 # child (see docs/redaction.md).  Narrow the device ACL instead of dropping it.

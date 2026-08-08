@@ -97,8 +97,14 @@ exec_group = "faramir-exec"
 # redaction value set, not just the ones injected into a given command: a
 # managed host can print a credential the broker never injected.
 # The broker stats these to notice edits; only the keeper can decrypt them.
-# They live in the working tree, which is why the keeper is bound to it too.
-files = ["@WORKTREE@/secrets.sops.yml"]
+#
+# Under /etc rather than in a working tree: these are configuration an operator
+# authors, the daemons read them at startup, and a tree inside an encrypted home
+# does not exist until its owner logs in, which would leave the broker holding
+# an empty value set and redacting nothing.  The directory is 2770 root:dev, so
+# the operator edits them with sops and the keeper reads them, both without
+# sudo.
+files = ["/etc/faramir/secrets/secrets.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
 

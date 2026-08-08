@@ -19,17 +19,24 @@ looks up a bare command name.
 
 ## 1. Encrypt the right file, in the right place
 
-Keep the encrypted file **out of `group_vars/` and `host_vars/`**. Ansible
-loads every `.yml` under those directories as a vars file, and a sops file is
-valid YAML: it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and a
-name sorting after `vars.yml` also overwrites the `lookup('env', …)` mapping
-from section 2. Nothing errors. Hosts get configured with the ciphertext of a
-credential in place of the credential.
+The encrypted file belongs in `/etc/faramir/secrets`, which phase 1 creates
+`2770 root:dev`. Not in a checkout, and never in `group_vars/` or `host_vars/`.
 
-This guide uses `secrets/` at the repo root, which Ansible does not auto-load.
-`install/migrate-vault.sh` refuses the bad destination.
+Ansible loads every `.yml` under those two directories as a vars file, and a
+sops file is valid YAML: it binds each var to its `ENC[AES256_GCM,...]`
+ciphertext, and a name sorting after `vars.yml` also overwrites the
+`lookup('env', …)` mapping from section 2. Nothing errors. Hosts get configured
+with the ciphertext of a credential in place of the credential.
+`install/migrate-vault.sh` refuses that destination.
 
-`.sops.yaml` in the repo root (written by `install/20-sops-init.sh`):
+Keeping it out of the checkout entirely matters for a different reason: a
+checkout inside an encrypted home does not exist until its owner logs in, so
+the broker would come up at boot with an empty value set and redact nothing,
+and a cron job would find nothing at all.
+
+`.sops.yaml` sits in the same directory (written by `install/20-sops-init.sh`),
+because sops resolves creation rules by walking up from the file it is
+encrypting:
 
 ```yaml
 creation_rules:

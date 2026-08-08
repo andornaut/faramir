@@ -1,12 +1,10 @@
-# A complete config.toml for running Ansible against a fleet, which is the
-# workload faramir was built for.  Install it in place of the shipped starter:
+# A complete config.toml for running Ansible against managed hosts over SSH,
+# with the broker holding the key.  Install it in place of the shipped starter:
 #
-#   sudo CONFIG=etc/examples/ansible-fleet.toml \
-#        WORKTREE=/srv/faramir/ansible-ctrl make install
+#   sudo CONFIG=etc/examples/ansible-fleet.toml make install
 #
-# WORKTREE names the tree.  It is written below as @WORKTREE@, which the
-# installer substitutes everywhere before binding that one path into the three
-# units, so there is nothing to edit here.
+# Every path below is absolute and installed verbatim, so there is nothing to
+# substitute and nothing to edit here.
 #
 # It differs from etc/config.toml in the Ansible variables in [exec.base_env],
 # the SSH keys that reach managed hosts, the sops file it manages, and the name
@@ -70,7 +68,12 @@ agent_socket_mode = "0660"
 exec_group = "faramir-exec"
 
 [secrets]
-files = ["@WORKTREE@/secrets/vault.sops.yml"]
+# Named after what consumes the values, not after who owns them: every client
+# that reaches the broker sees every ref regardless of which file it came from,
+# so a per-operator name would imply an isolation nothing enforces.  Splitting
+# by consumer or domain is what buys something: a decryption failure is reported
+# per file, and a reload is triggered per file.
+files = ["/etc/faramir/secrets/ansible-ctrl.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
 min_length = 8

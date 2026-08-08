@@ -35,10 +35,13 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# No ProtectHome=: this process reads the sops files in the working tree and
-# nothing else under /home, and ProtectSystem=strict already makes the whole
-# hierarchy read-only.  What guards the key is its mode and LoadCredential=,
-# neither of which a tmpfs over /home has anything to do with.
+# The managed sops files live under /etc, so this process has no reason to open
+# anything under a home.  It is the uid that holds the age key, which makes it
+# the one worth taking /home away from outright rather than leaving it visible
+# and read-only.  A [secrets] file kept in a home does not work under this, and
+# that is deliberate: a home is not mounted until its owner logs in, so a value
+# set that depends on one is empty at boot and redacts nothing.
+ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
 # Somewhere for sops to put ~/.config; it writes nothing that outlives a run.
@@ -62,8 +65,8 @@ RemoveIPC=true
 UMask=0077
 
 # The managed sops files must be readable here.  Under ProtectSystem=strict the
-# whole hierarchy is read-only but visible, so a [secrets] file is readable
-# wherever the operator keeps it, subject to its own mode.
+# whole hierarchy is read-only but visible, so /etc/faramir/secrets is readable
+# subject to its own mode, which is 2770 root:dev with this uid in dev.
 
 [Install]
 WantedBy=multi-user.target

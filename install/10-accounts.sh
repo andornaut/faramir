@@ -14,11 +14,12 @@
 # as that uid can read.  The keeper's key and the broker's audit log and SSH
 # keys each sit behind a boundary the child cannot cross.
 #
-# All three service accounts join dev, because all three need the working
-# tree: the keeper decrypts the sops files in it, the broker stats them, and
-# brokered commands run in it.  That is read/write on files the operator already
-# owns; it is not access to anything the operator could not reach themselves.
-# The boundaries that matter are file modes, not this group.
+# All three service accounts join dev.  The keeper decrypts the sops files in
+# /etc/faramir/secrets and the broker stats them there, both of which the group
+# grants; brokered commands run wherever their caller was, which is what the
+# executor needs it for.  That is access to files the operator already owns; it
+# is not access to anything the operator could not reach themselves.  The
+# boundaries that matter are file modes, not this group.
 set -euo pipefail
 
 OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
@@ -27,11 +28,11 @@ KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 EXEC_USER="${EXEC_USER:-faramir-exec}"
 GROUP="${DEV_GROUP:-dev}"
 
-# Outside every home, and that is not a preference.  The keeper reads the sops
-# files here and the executor runs brokered commands here, and both are system
-# services that start at boot, when no home is necessarily mounted at all: an
-# encrypted home does not exist until its owner logs in.  A worktree inside one
-# is a worktree those services cannot read.
+# Where brokered commands run, and the only thing that still needs a tree: the
+# secrets moved to /etc/faramir/secrets, so neither the keeper nor the broker
+# reads a working tree any more.  A tree inside a home is fine here, because the
+# executor forks a command only after its caller asked for one, by which point
+# the caller has logged in and the home is mounted.
 WORKTREE="${WORKTREE:-/srv/faramir/worktree}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
@@ -125,16 +126,18 @@ chmod -R g+rwX "$WORKTREE"
 # creates stays readable and writable by the other.
 find "$WORKTREE" -type d -exec chmod g+s {} +
 
-# A tree inside the operator's home needs all three service accounts to be able
-# to walk down to it: the keeper decrypts the sops files, the broker stats them
-# to notice an edit, and the executor runs commands there.  Leaving the broker
-# out is not a partial failure: it stats every managed file on every load, so
-# it reports all of them unreadable and holds no values at all.  An ACL naming those two uids rather than "chmod o+x": the
-# mode bit would hand traversal to every account on the machine, including any
-# service or container uid, where the ACL grants it to exactly the two accounts
-# that have to have it and leaves "other" at nothing.
+# A tree inside the operator's home needs the executor to be able to walk down
+# to it, and only the executor: the keeper and the broker read the sops files
+# from /etc/faramir/secrets and never open anything under a home.  The broker
+# does stat a request's cwd, which is why its unit sets no ProtectHome=, but a
+# stat needs traversal on the path it is given, not an ACL of its own here.
 #
-# Traversal only, never read: they pass through the home without being able to
+# An ACL naming that one uid rather than "chmod o+x": the mode bit would hand
+# traversal to every account on the machine, including any service or container
+# uid, where the ACL grants it to exactly the account that has to have it and
+# leaves "other" at nothing.
+#
+# Traversal only, never read: it passes through the home without being able to
 # list it.  Note this is a permission, not a mount: it holds nothing open, so an
 # encrypted home still unmounts at logout.  What does hold one open is a
 # brokered command that is running at the time.
@@ -143,36 +146,33 @@ if [[ -n $OPERATOR_HOME && $WORKTREE == "$OPERATOR_HOME"/* ]]; then
   if ! command -v setfacl >/dev/null 2>&1; then
     say "WARNING: ${WORKTREE} is inside ${OPERATOR_HOME} and setfacl is missing."
     say "         Install the acl package, or move the tree outside the home:"
-    say "         the keeper and the executor cannot reach it as things stand."
+    say "         the executor cannot reach it as things stand."
   else
-    say "traversal for ${KEEPER_USER}, ${BROKER_USER} and ${EXEC_USER}: ${OPERATOR_HOME} -> ${WORKTREE}"
+    say "traversal for ${EXEC_USER}: ${OPERATOR_HOME} -> ${WORKTREE}"
     # Every component from the home down to the tree's parent.  The tree itself
     # is group-owned above, so it needs nothing here.
     component="$OPERATOR_HOME"
     remainder="${WORKTREE#"${OPERATOR_HOME}"/}"
     while :; do
-      setfacl -m "u:${KEEPER_USER}:x" -m "u:${BROKER_USER}:x" \
-              -m "u:${EXEC_USER}:x" "$component" 2>/dev/null || true
+      setfacl -m "u:${EXEC_USER}:x" "$component" 2>/dev/null || true
       # Read it back rather than trusting the exit status.  On ecryptfs setfacl
       # returns 0 and does nothing whenever the directory already carries an
       # ACL: the first write lands, every later one is silently dropped, and
       # even -b does not clear it.  A grant that cannot be corrected, reported
       # as success, is how a service ends up unable to read a file that
       # everything says it should.
-      for account in "$KEEPER_USER" "$BROKER_USER" "$EXEC_USER"; do
-        if ! getfacl -p --omit-header "$component" 2>/dev/null |
-             grep -q "^user:${account}:"; then
-          say "WARNING: ${component} did not take an ACL entry for ${account}."
-          say "         setfacl reported success; the filesystem dropped it."
-          say "         An ecryptfs directory accepts one ACL and no edits, so"
-          say "         this cannot be fixed in place.  Either put the tree"
-          say "         outside the home, or give this one directory"
-          say "         'chmod o+x' and accept that every uid can then traverse"
-          say "         it.  Nothing below is reachable that its own mode does"
-          say "         not already allow."
-          break 2
-        fi
-      done
+      if ! getfacl -p --omit-header "$component" 2>/dev/null |
+           grep -q "^user:${EXEC_USER}:"; then
+        say "WARNING: ${component} did not take an ACL entry for ${EXEC_USER}."
+        say "         setfacl reported success; the filesystem dropped it."
+        say "         An ecryptfs directory accepts one ACL and no edits, so"
+        say "         this cannot be fixed in place.  Either put the tree"
+        say "         outside the home, or give this one directory"
+        say "         'chmod o+x' and accept that every uid can then traverse"
+        say "         it.  Nothing below is reachable that its own mode does"
+        say "         not already allow."
+        break
+      fi
       # Stop at the tree's parent: the tree itself is group-owned above, and
       # every component before it needs traversal or the walk is pointless.
       [[ $remainder == */* ]] || break
@@ -196,6 +196,16 @@ fi
 # the directory cannot belong to any one of them.  What protects the age key is
 # its own mode (0400 ${KEEPER_USER}), not the directory it sits in.
 install -d -m 0755 -o root -g root /etc/faramir
+
+# The managed sops files.  Configuration an operator authors and the daemons
+# read at startup, which is what /etc is for, and outside every home so the
+# broker comes up with a full value set at boot rather than an empty one.
+#
+# 2770 root:${GROUP}: the operator edits these with sops and the keeper decrypts
+# them, both through the group and neither needing sudo.  setgid so a file
+# either of them creates stays readable by the other.  The ciphertext's own mode
+# is 0640; what keeps it secret is the age key, which is not here.
+install -d -m 2770 -o root -g "$GROUP" /etc/faramir/secrets
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
 cat <<EOF
