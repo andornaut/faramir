@@ -126,15 +126,16 @@ chmod -R g+rwX "$WORKTREE"
 # creates stays readable and writable by the other.
 find "$WORKTREE" -type d -exec chmod g+s {} +
 
-# A tree inside the operator's home needs the executor to be able to walk down
-# to it, and only the executor: the keeper and the broker read the sops files
-# from /etc/faramir/secrets and never open anything under a home.  The broker
-# does stat a request's cwd, which is why its unit sets no ProtectHome=, but a
-# stat needs traversal on the path it is given, not an ACL of its own here.
+# A tree inside the operator's home needs the executor and the broker to be able
+# to walk down to it.  The executor forks the command there; the broker stats
+# the requested cwd before accepting the request, and traversal is exactly what
+# a stat on a path inside a 0700 home requires.  The keeper is the one account
+# that needs nothing: it reads the sops files from /etc/faramir/secrets and its
+# unit sets ProtectHome=true.
 #
-# An ACL naming that one uid rather than "chmod o+x": the mode bit would hand
+# An ACL naming those uids rather than "chmod o+x": the mode bit would hand
 # traversal to every account on the machine, including any service or container
-# uid, where the ACL grants it to exactly the account that has to have it and
+# uid, where the ACL grants it to exactly the accounts that have to have it and
 # leaves "other" at nothing.
 #
 # Traversal only, never read: it passes through the home without being able to
@@ -143,27 +144,41 @@ find "$WORKTREE" -type d -exec chmod g+s {} +
 # brokered command that is running at the time.
 OPERATOR_HOME="$(getent passwd "$OPERATOR" | cut -d: -f6)" || OPERATOR_HOME=""
 if [[ -n $OPERATOR_HOME && $WORKTREE == "$OPERATOR_HOME"/* ]]; then
+  # Both accounts, not just the executor.  The executor forks the command
+  # there, and the broker stats the requested cwd as its own uid before
+  # accepting the request at all, so a grant to one of them still refuses every
+  # brokered command from a tree inside the home.  The keeper needs none of it:
+  # its files are under /etc and its unit sets ProtectHome=true.
+  TRAVERSE_USERS=("$EXEC_USER" "$BROKER_USER")
   if ! command -v setfacl >/dev/null 2>&1; then
     say "WARNING: ${WORKTREE} is inside ${OPERATOR_HOME} and setfacl is missing."
     say "         Install the acl package, or move the tree outside the home:"
-    say "         the executor cannot reach it as things stand."
+    say "         the broker and the executor cannot reach it as things stand."
   else
-    say "traversal for ${EXEC_USER}: ${OPERATOR_HOME} -> ${WORKTREE}"
+    say "traversal for ${TRAVERSE_USERS[*]}: ${OPERATOR_HOME} -> ${WORKTREE}"
     # Every component from the home down to the tree's parent.  The tree itself
     # is group-owned above, so it needs nothing here.
     component="$OPERATOR_HOME"
     remainder="${WORKTREE#"${OPERATOR_HOME}"/}"
+    acl_spec=""
+    for u in "${TRAVERSE_USERS[@]}"; do acl_spec+="${acl_spec:+,}u:${u}:x"; done
     while :; do
-      setfacl -m "u:${EXEC_USER}:x" "$component" 2>/dev/null || true
+      # One setfacl call granting both, because on ecryptfs only the first write
+      # against an inode lands: two calls would leave the second account out.
+      setfacl -m "$acl_spec" "$component" 2>/dev/null || true
       # Read it back rather than trusting the exit status.  On ecryptfs setfacl
       # returns 0 and does nothing whenever the directory already carries an
       # ACL: the first write lands, every later one is silently dropped, and
       # even -b does not clear it.  A grant that cannot be corrected, reported
       # as success, is how a service ends up unable to read a file that
       # everything says it should.
-      if ! getfacl -p --omit-header "$component" 2>/dev/null |
-           grep -q "^user:${EXEC_USER}:"; then
-        say "WARNING: ${component} did not take an ACL entry for ${EXEC_USER}."
+      missing=""
+      acl_now="$(getfacl -p --omit-header "$component" 2>/dev/null || true)"
+      for u in "${TRAVERSE_USERS[@]}"; do
+        grep -q "^user:${u}:" <<<"$acl_now" || missing+="${missing:+ }${u}"
+      done
+      if [[ -n $missing ]]; then
+        say "WARNING: ${component} did not take an ACL entry for ${missing}."
         say "         setfacl reported success; the filesystem dropped it."
         say "         An ecryptfs directory accepts one ACL and no edits, so"
         say "         this cannot be fixed in place.  Either put the tree"
