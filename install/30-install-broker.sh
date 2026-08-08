@@ -16,6 +16,15 @@ BIN="${FARAMIR_BIN:-$REPO/bin}"
 # from any directory.
 CONFIG="${CONFIG:-etc/config.toml}"
 [[ $CONFIG = /* ]] || CONFIG="$REPO/$CONFIG"
+# Where the base config and its drop-ins are installed.  /etc by default, which
+# is where a system daemon's configuration belongs and where three uids can read
+# it without any of them owning it.  A consumer that keeps its configuration
+# elsewhere sets this, and the units are given FARAMIR_CONFIG to match: a
+# directory the daemons cannot read at start is a daemon that does not start, so
+# anywhere but /etc has to be readable whenever a socket may be triggered.
+CONFIG_DIR="${CONFIG_DIR:-/etc/faramir}"
+[[ $CONFIG_DIR = /* ]] || { echo "CONFIG_DIR must be absolute: $CONFIG_DIR" >&2; exit 1; }
+CONFIG_FILE="$CONFIG_DIR/config.toml"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 # Before anything is installed: a typo here would otherwise surface as a bare
@@ -57,11 +66,11 @@ install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/faramir/
 
 # Three services read config.toml from here, so the directory belongs to none
 # of them.  The age key is protected by its own mode, not by this one.
-install -d -m 0755 -o root -g root /etc/faramir
+install -d -m 0755 -o root -g root "$CONFIG_DIR"
 # Drop-ins, for the settings that belong to whatever consumes the broker rather
 # than to the broker: which sops files to manage, which SSH key to lend.  World
 # readable like the config beside it, and holding no value either.
-install -d -m 0755 -o root -g root /etc/faramir/config.d
+install -d -m 0755 -o root -g root "$CONFIG_DIR/config.d"
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
 # Configs are installed verbatim.  Every path in one is absolute: the secrets
@@ -97,18 +106,18 @@ config_parses "$CONFIG" || {
   exit 1
 }
 
-if [[ -f /etc/faramir/config.toml ]]; then
-  say "keeping existing /etc/faramir/config.toml (new default at config.toml.dist)"
-  install_config "$CONFIG" /etc/faramir/config.toml.dist || exit 1
-  if ! config_parses /etc/faramir/config.toml; then
+if [[ -f $CONFIG_FILE ]]; then
+  say "keeping existing ${CONFIG_FILE} (new default at config.toml.dist)"
+  install_config "$CONFIG" "$CONFIG_FILE.dist" || exit 1
+  if ! config_parses "$CONFIG_FILE"; then
     say "WARNING: the installed config does not parse; the broker will not"
     say "         start until it does.  The error above names the file, which"
     say "         may be a drop-in under /etc/faramir/config.d rather than"
     say "         config.toml itself."
   fi
 else
-  say "config ${CONFIG#"$REPO"/} -> /etc/faramir/config.toml"
-  install_config "$CONFIG" /etc/faramir/config.toml || exit 1
+  say "config ${CONFIG#"$REPO"/} -> ${CONFIG_FILE}"
+  install_config "$CONFIG" "$CONFIG_FILE" || exit 1
 fi
 
 say "systemd units"
@@ -116,6 +125,27 @@ for unit in faramir-broker.socket faramir-broker.service \
             faramir-keeper.socket faramir-keeper.service \
             faramir-exec.socket faramir-exec.service; do
   install -m 0644 "$REPO/systemd/${unit}" "/etc/systemd/system/${unit}"
+done
+
+# The daemons fall back to the compiled-in /etc/faramir/config.toml when nothing
+# names one, so a CONFIG_DIR elsewhere has to reach them.  Written as a drop-in
+# rather than by rewriting ExecStart: an ExecStart= reset that goes wrong leaves
+# a unit with no command at all, and the config path is the only thing changing.
+# Removed when CONFIG_DIR is the default, so a host that moves back does not keep
+# being pointed at where it used to be.
+for unit in faramir-broker faramir-keeper faramir-exec; do
+  dropin="/etc/systemd/system/${unit}.service.d/config-path.conf"
+  if [[ $CONFIG_DIR = /etc/faramir ]]; then
+    rm -f "$dropin"
+    continue
+  fi
+  install -d -m 0755 -o root -g root "$(dirname "$dropin")"
+  cat > "$dropin" <<EOF
+# Installed by faramir: CONFIG_DIR was ${CONFIG_DIR}.
+[Service]
+Environment=FARAMIR_CONFIG=${CONFIG_FILE}
+EOF
+  chmod 0644 "$dropin"
 done
 
 # /run/faramir belongs to tmpfiles, not to a RuntimeDirectory= on any unit:
@@ -175,8 +205,8 @@ say "validating the installed config as ${BROKER_USER}"
 # would otherwise pass here and leave every brokered command unable to
 # authenticate against any host.
 runuser -u "$BROKER_USER" -- \
-  /usr/local/bin/faramir-broker -c /etc/faramir/config.toml --check || {
-  say "validation FAILED -- fix /etc/faramir/config.toml, or lengthen any secret"
+  /usr/local/bin/faramir-broker -c "$CONFIG_FILE" --check || {
+  say "validation FAILED -- fix ${CONFIG_FILE}, or lengthen any secret"
   say "reported under not_redactable, before enabling the unit"
   exit 1
 }
