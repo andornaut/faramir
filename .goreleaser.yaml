@@ -62,7 +62,7 @@ builds:
 # One archive holding all six binaries: they are a set, and `make install`
 # expects to find every one of them in the directory FARAMIR_BIN names.
 archives:
-  - format: tar.gz
+  - formats: [tar.gz]
     # this name template makes the output compatible with many package managers
     name_template: >-
       {{ .ProjectName }}_

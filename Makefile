@@ -38,9 +38,11 @@ test-unit:
 test-e2e:
 	go test -v ./internal/e2e/
 
-## coverage: the suite with the race detector, then the per-function report
+## coverage: the suite with the race detector, then the per-function report.
+## CGO_ENABLED=1 for this recipe only: -race needs cgo, and the export above
+## turns it off for every other one because the shipped binaries are static.
 coverage:
-	go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+	CGO_ENABLED=1 go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 	go tool cover -func=coverage.txt
 
 ## fmt: apply the import grouping and gofmt rules CI checks
