@@ -24,6 +24,16 @@ type agentTarget struct {
 	// than two named fields.
 	files []agentFile
 
+	// accountFiles are written into the operator's home by `init --agent-config`
+	// rather than into a tree.  They refuse to open key material wherever the
+	// agent is working and take nothing away, so unlike the hook there is no
+	// reason to make a project opt in.
+	//
+	// rendered, because the paths refused are this install's: naming the
+	// compiled defaults would protect a directory that does not exist on a host
+	// whose config and store were moved into a home.
+	accountFiles []agentFile
+
 	// autoApprovesBash records what enrolling costs on this agent, so the
 	// warning a run prints is the truth for the agent it just enrolled.
 	//
@@ -51,6 +61,9 @@ var agentTargets = map[string]*agentTarget{
 			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json", mode: 0o600},
 			{path: ".mcp.json", asset: "agent/claude/mcp.json", mode: 0o644},
 		},
+		accountFiles: []agentFile{
+			{path: ".claude/settings.json", asset: "agent/claude/settings.json", mode: 0o600},
+		},
 		autoApprovesBash: true,
 	},
 	"gemini": {
@@ -58,6 +71,12 @@ var agentTargets = map[string]*agentTarget{
 		files: []agentFile{
 			// Hooks and mcpServers are both top-level keys of this one file.
 			{path: ".gemini/settings.json", asset: "agent/gemini/settings.project.json", mode: 0o600},
+		},
+		// A .toml under policies/ rather than a key in settings.json: Gemini
+		// refuses tool calls through a policy engine, and the settings key that
+		// used to do this is deprecated in favour of it.
+		accountFiles: []agentFile{
+			{path: ".gemini/policies/faramir.toml", asset: "agent/gemini/policies.toml.tmpl", mode: 0o600},
 		},
 		autoApprovesBash: false,
 	},

@@ -1,0 +1,72 @@
+# faramir: refuse to open key material, wherever the agent is working.
+#
+# ".env" is matched as "/\.env", so it is a dotfile rather than any name ending
+# in those four characters: faramir.env holds refs and no values, and is meant
+# to be read.
+#
+# Gemini CLI matches a regex against the tool's arguments serialised as JSON,
+# rather than globs against a path, so this is one rule per file tool with the
+# paths as an alternation. Tolerant of whitespace around the colon: what the
+# serialiser emits is documented as "a stable JSON string" and not as an exact
+# spelling.
+#
+# priority 1000 so an allow rule written later does not quietly outrank these.
+# deny rather than ask_user: these are files no agent has a reason to open, and
+# a prompt is something to click through.
+#
+# This takes nothing away that faramir needs. Values reach a command through the
+# broker, which never puts one in a file the agent could read.
+#
+# The install's own directories are interpolated through regexQuote, because
+# these are regexes: an unquoted dot matches any character, and an unquoted "+"
+# or "(" in a path would not compile at all.
+
+# Reading a single file.
+[[rule]]
+toolName = "read_file"
+argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+decision = "deny"
+priority = 1000
+
+# Reading a directory at once. It takes include globs rather than a single
+# path, so a deny covering only read_file would leave this open.
+[[rule]]
+toolName = "read_many_files"
+argsPattern = '"(include|exclude)"\s*:\s*\[[^]]*(secrets[^"/]*\.ya?ml|\.vault|vault\.yml|\.sops\.(ya?ml|json)|/\.env|\.faramir/|age\.key|sops/age/|\.config/sops/|\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+decision = "deny"
+priority = 1000
+
+# Writing and editing, refused for the same paths. A value the agent cannot read
+# is one it can still destroy, and an age key replaced is every managed file
+# unreadable retroactively.
+[[rule]]
+toolName = "write_file"
+argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+decision = "deny"
+priority = 1000
+
+[[rule]]
+toolName = "replace"
+argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+decision = "deny"
+priority = 1000
+
+# This install's own directories, named rather than pattern-matched, so a config
+# and store moved into a home are the ones refused rather than the defaults.
+[[rule]]
+toolName = "read_file"
+argsPattern = '"file_path"\s*:\s*"({{ regexQuote .ConfigDir }}|{{ regexQuote .SecretsDir }}|{{ regexQuote .LogDir }}|{{ regexQuote .LibexecDir }})/'
+decision = "deny"
+priority = 1000
+
+[[rule]]
+toolName = "write_file"
+argsPattern = '"file_path"\s*:\s*"({{ regexQuote .ConfigDir }}|{{ regexQuote .SecretsDir }}|{{ regexQuote .LogDir }}|{{ regexQuote .LibexecDir }})/'
+decision = "deny"
+priority = 1000
+
+[[rule]]
+toolName = "replace"
+argsPattern = '"file_path"\s*:\s*"({{ regexQuote .ConfigDir }}|{{ regexQuote .SecretsDir }}|{{ regexQuote .LogDir }}|{{ regexQuote .LibexecDir }})/'
+decision = "deny"
+priority = 1000

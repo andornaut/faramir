@@ -44,6 +44,8 @@ Antigravity is declined rather than pending. Its hooks return `{"allow_tool": â€
 
 Enrol with `faramir init-project --agent claude --agent gemini`, repeatable, defaulting to `claude`. The agents are named rather than detected: enrolling costs something on some of them, and a directory left behind by trying one once is not a decision to enrol it. A tree carrying configuration for an agent you did not name is reported instead.
 
+Gemini's deny rules are a `.toml` under `~/.gemini/policies/` rather than a settings key, because it refuses tool calls through a policy engine and the settings key that used to do this is deprecated. They are regexes against the tool's arguments rather than globs against a path, and they have been tested against rendered paths but not against a running Gemini CLI.
+
 `surveyed` means the hook contract was read and the adapter is not written. Each differs in the name of the shell tool, the shape of the hook's reply, and where it is registered, so each is an adapter rather than a config line.
 
 ## What it protects against
@@ -114,7 +116,7 @@ Flag | Does
 `--binaries DIR` | read the built binaries from here instead of the directory `faramir` itself is in, so you can build on one machine and install on another
 `--operator-age-key PATH` | mint an identity for yourself and list it in `.sops.yaml` alongside the keeper's, so you can still read the files you are responsible for
 `--ssh-key PATH` | generate the identity the broker lends to brokered commands. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run
-`--agent-config` | install the `Read` deny rules into your own Claude settings
+`--agent-config` | install the deny rules that refuse key material into your own agent settings. `--agent` names which agent, repeatable, defaulting to `claude`
 `--dry-run` | report what would change and write nothing
 `--json` | print the report as JSON, one entry per step with a `changed` flag, for a configuration manager to read
 

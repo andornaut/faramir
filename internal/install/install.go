@@ -68,6 +68,11 @@ type Options struct {
 	// per project, because registering it auto-approves Bash for that project.
 	AgentConfig bool
 
+	// Agents names which coding agents AgentConfig writes for.  Empty means
+	// Claude Code, so an install written before this existed keeps doing what
+	// it did.  The same names `faramir init-project --agent` takes.
+	Agents []string
+
 	// OverwriteConfig replaces an installed config.toml instead of keeping it
 	// and writing config.toml.dist beside it.  Destructive: edits made on the
 	// host are lost.

@@ -97,7 +97,10 @@ func cmdInit(args []string) int {
 	sshKey := fs.String("ssh-key", "",
 		"identity the broker lends to brokered commands, generated when missing")
 	agentConfig := fs.Bool("agent-config", false,
-		"install the Read deny rules into the operator's Claude settings")
+		"install the deny rules into the operator's own agent settings")
+	var initAgents multiFlag
+	fs.Var(&initAgents, "agent",
+		"agent those rules are written for, repeatable (default claude; also gemini)")
 	overwriteConfig := fs.Bool("overwrite-config", false,
 		"replace an installed config.toml instead of keeping it (destructive)")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
@@ -122,6 +125,7 @@ func cmdInit(args []string) int {
 		OperatorAgeKey:  *operatorAgeKey,
 		SSHKey:          *sshKey,
 		AgentConfig:     *agentConfig,
+		Agents:          initAgents,
 		OverwriteConfig: *overwriteConfig,
 		DryRun:          *dryRun,
 	}
