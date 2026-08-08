@@ -124,6 +124,9 @@ func (r *runner) stepBinaries() error {
 	if err != nil {
 		return err
 	}
+	if changed {
+		r.restartFor("binaries")
+	}
 	r.step("binaries", changed || docs, fmt.Sprintf("%s, hook in %s",
 		r.layout.BinDir, r.layout.LibexecDir))
 	return nil
@@ -201,6 +204,9 @@ func (r *runner) stepConfig() error {
 	if err != nil {
 		return err
 	}
+	if changed {
+		r.restartFor("config")
+	}
 	r.step("config", changed, r.layout.ConfigFile)
 	return nil
 }
@@ -228,6 +234,9 @@ func (r *runner) stepInitDropIn() error {
 		if err != nil {
 			return err
 		}
+		if removed {
+			r.restartFor("config")
+		}
 		r.step("init drop-in", removed, "no --ssh-key, so [ssh] keys stays empty")
 		return nil
 	}
@@ -239,6 +248,9 @@ keys = ["%s"]
 	changed, err := r.fs.writeFile(path, []byte(body), 0o644, 0, 0)
 	if err != nil {
 		return err
+	}
+	if changed {
+		r.restartFor("config")
 	}
 	r.step("init drop-in", changed, path)
 	return nil
@@ -276,6 +288,9 @@ func (r *runner) stepUnits() error {
 	made, err := r.fs.writeFile("/etc/tmpfiles.d/faramir.conf", body, 0o644, 0, 0)
 	if err != nil {
 		return err
+	}
+	if changed || made {
+		r.restartFor("units")
 	}
 	r.step("units", changed || made, strings.Join(unitNames(), ", "))
 	return nil
@@ -316,52 +331,5 @@ func (r *runner) stepReachable() error {
 	// Reported as no change: it re-applies a group and an execute bit that are
 	// already what they should be on every run after the first.
 	r.step("reachable", false, strings.Join(granted, ", "))
-	return nil
-}
-
-// stepShareTrees makes each named directory usable by brokered commands.
-//
-// Per directory because faramir names no tree anywhere: the managed sops files
-// are read from the store and a brokered command runs where its caller was.
-// This exists for the operator who wants to run commands somewhere their own
-// uid owns, which a 0700 home otherwise puts out of the executor's reach.
-//
-// Before the units too, for the same reason as stepReachable: this is what
-// grants the traversal that lets a daemon reach anything under the operator's
-// home, and a daemon started before it cannot read its own config.
-func (r *runner) stepShareTrees() error {
-	if len(r.opts.ShareTrees) == 0 {
-		r.skip("share trees", "none named")
-		return nil
-	}
-	for _, dir := range r.opts.ShareTrees {
-		if !exists(dir) {
-			return fmt.Errorf("no directory at %s. Brokered commands run there, so it "+
-				"must exist before the broker is installed", dir)
-		}
-		// The executor runs under ProtectSystem=strict with /home as its only
-		// writable tree, so a tree outside it gets the group and the setgid bits
-		// and then refuses every write with EROFS.  Sharing it looks like it
-		// worked, which is why this says so rather than leaving it to be found
-		// the first time a playbook writes a .retry file.
-		if homeOf(dir) == "" {
-			r.warn("%s is outside /home, which is the only tree faramir-exec may "+
-				"write. Sharing it grants the group and the setgid bits, but a "+
-				"brokered command still gets EROFS there. Add a drop-in extending "+
-				"ReadWritePaths= on faramir-exec.service, or keep the tree in a home",
-				dir)
-		}
-		if r.opts.DryRun {
-			continue
-		}
-		if err := sharetree.Share(sharetree.Options{
-			Dir: dir, Operator: r.opts.Operator, Group: r.layout.Group,
-		}); err != nil {
-			return fmt.Errorf("%s: %w", dir, err)
-		}
-	}
-	// Reported as no change: share-tree re-applies a group, setgid bits and a
-	// mode that are already what they should be on every run after the first.
-	r.step("share trees", false, strings.Join(r.opts.ShareTrees, ", "))
 	return nil
 }

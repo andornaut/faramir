@@ -40,8 +40,6 @@ func cmdInit(args []string) int {
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	var recipients multiFlag
 	fs.Var(&recipients, "age-recipient", "extra age recipient for .sops.yaml (repeatable)")
-	var shareTrees multiFlag
-	fs.Var(&shareTrees, "share-tree", "directory brokered commands run in (repeatable)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
@@ -60,7 +58,6 @@ func cmdInit(args []string) int {
 		SSHKey:                *sshKey,
 		SealAgeKey:            *sealAgeKey,
 		RemovePlaintextAgeKey: *removePlaintext,
-		ShareTrees:            shareTrees,
 		AgentConfig:           *agentConfig,
 		OverwriteConfig:       *overwriteConfig,
 		DryRun:                *dryRun,
@@ -103,6 +100,71 @@ func reportToOperator(report install.Report) {
 	if report.DryRun {
 		fmt.Fprintln(os.Stderr, "\nDry run: nothing was written.")
 	}
+}
+
+// cmdInitProject enrols one tree.
+//
+// The directory defaults to the working one, which is safe here and is not on
+// init: this command means "enrol this project", so where you are standing is
+// the answer, where init means "provision this host" and would enrol whatever
+// directory it happened to be run from.
+func cmdInitProject(args []string) int {
+	fs := newFlagSet("init-project", "init-project [options] [DIR]")
+	operator := fs.String("operator", "",
+		"account that works in the tree (default $OPERATOR, then $SUDO_USER)")
+	configDir := fs.String("config-dir", install.DefaultConfigDir,
+		"where the installed config is, which is where the shared group is read from")
+	group := fs.String("group", "",
+		"override the shared group instead of reading it from the installed config")
+	hook := fs.Bool("hook", true,
+		"register the PreToolUse hook, which redacts this project's command output "+
+			"and auto-approves Bash here as a consequence")
+	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
+	asJSON := fs.Bool("json", false, "print the report as JSON")
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+	if fs.NArg() > 1 {
+		fmt.Fprintln(os.Stderr, "faramir: init-project takes one directory")
+		return 2
+	}
+
+	opts := install.ProjectOptions{
+		Dir:       fs.Arg(0),
+		Operator:  operatorName(*operator),
+		ConfigDir: *configDir,
+		Group:     *group,
+		Hook:      *hook,
+		DryRun:    *dryRun,
+	}
+	if !*asJSON {
+		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
+	}
+
+	report, err := install.Project(opts)
+	if *asJSON {
+		body, marshalErr := json.MarshalIndent(report, "", "  ")
+		if marshalErr == nil {
+			fmt.Println(string(body))
+		}
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+		return 1
+	}
+	if !*asJSON {
+		for _, warning := range report.Warnings {
+			fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
+		}
+		fmt.Fprintf(os.Stderr, "\nEnrolled %s with group %s.\n", report.Dir, report.Group)
+		fmt.Fprintln(os.Stderr, "Check it from the tree: cd there and run "+
+			"`faramir run -- pwd`. A brokered command runs where its caller was, "+
+			"so that is the whole test.")
+		if report.DryRun {
+			fmt.Fprintln(os.Stderr, "\nDry run: nothing was written.")
+		}
+	}
+	return 0
 }
 
 func cmdDoctor(args []string) int {

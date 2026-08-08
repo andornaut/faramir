@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/version"
@@ -67,10 +68,11 @@ type Options struct {
 	// only way back is sealing the original key again.
 	RemovePlaintextAgeKey bool
 
-	// ShareTrees are directories brokered commands run in, made reachable by
-	// the executor.  Per directory because faramir names no tree anywhere: a
-	// brokered command runs where its caller was.
-	ShareTrees []string
+	// No tree is enrolled here.  A tree is per project and there is no limit to
+	// how many there are, where this runs once per machine; and the working
+	// directory is the obvious default for "enrol this project" and a hazard for
+	// "provision this host", which would enrol whatever directory it was run
+	// from.  See `faramir init-project`.
 
 	// AgentConfig installs the Read deny rules into the operator's own Claude
 	// settings.  They refuse to open key material wherever the agent is working
@@ -140,6 +142,13 @@ type runner struct {
 	// to everyone except the one account that has to decrypt them.
 	keeperRecipient string
 
+	// What has changed that the running daemons would not otherwise pick up.
+	// Neither re-reads its config while running and none of them reloads its own
+	// binary, so those are the changes a restart is for; nothing else is worth
+	// killing the brokered commands in flight over.
+	needsRestart   bool
+	restartReasons []string
+
 	// Resolved after the accounts step.  keep when the account does not exist,
 	// which only happens under DryRun.
 	operatorUID  int
@@ -182,12 +191,11 @@ func Run(opts Options) (Report, error) {
 		run.stepConfig,
 		run.stepInitDropIn,
 		run.stepSealAgeKey,
-		// Both before the units are written and anything is started.  They grant
-		// the traversal that lets a service uid reach a config or a store under
-		// the operator's home, and a daemon started without it exits before it
-		// opens a socket.
+		// Before the units are written and anything is started: it grants the
+		// traversal that lets a service uid reach a config or a store under the
+		// operator's home, and a daemon started without it exits before it opens
+		// a socket.
 		run.stepReachable,
-		run.stepShareTrees,
 		run.stepUnits,
 		run.stepSystemd,
 		run.stepAgentConfig,
@@ -344,6 +352,14 @@ func (r *runner) reportPresence(name, path, wouldCreate string) {
 		r.step(name, false, "keeping "+path)
 	default:
 		r.step(name, true, wouldCreate+" "+path)
+	}
+}
+
+// restartFor records that a running daemon is now behind what is installed.
+func (r *runner) restartFor(what string) {
+	r.needsRestart = true
+	if !slices.Contains(r.restartReasons, what) {
+		r.restartReasons = append(r.restartReasons, what)
 	}
 }
 

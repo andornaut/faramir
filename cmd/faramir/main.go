@@ -22,7 +22,6 @@ import (
 
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/protocol"
-	"github.com/andornaut/faramir/internal/sharetree"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -51,11 +50,11 @@ Commands:
   list-secrets  list secret refs (names only)
   status        show broker status
   keygen        mint an age keypair for the keeper
-  share-tree    make a directory usable by brokered commands (requires root)
   version       print the version and exit
 
 Provisioning (require root; they do not talk to the broker):
   init          install or re-install faramir on this host
+  init-project  enrol one working tree: share it, and configure the agent there
   doctor        report whether the install is doing its job
   reload        restart the daemons onto a changed configuration
   uninstall     remove the broker, keeping the key, the store and the log
@@ -93,12 +92,12 @@ func run(args []string) int {
 		return call("list_secrets", args[1:])
 	case "status":
 		return call("status", args[1:])
-	case "share-tree":
-		return cmdShareTree(args[1:])
 	case "keygen":
 		return cmdKeygen(args[1:])
 	case "init":
 		return cmdInit(args[1:])
+	case "init-project":
+		return cmdInitProject(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
 	case "reload":
@@ -143,48 +142,6 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 	}
 }
 
-// cmdShareTree is the one subcommand that needs root: it changes group
-// ownership and modes on directories the caller does not own.  Local, like
-// keygen, and never touches the broker.
-func cmdShareTree(args []string) int {
-	fs := newFlagSet("share-tree", "share-tree [options] DIR [DIR...]")
-	operator := fs.String("user", "", "account that works in the tree (default $SUDO_USER)")
-	group := fs.String("group", envOr("DEV_GROUP", "dev"), "shared group")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
-	}
-	if fs.NArg() == 0 {
-		fmt.Fprintln(os.Stderr, "faramir: share-tree needs a directory")
-		return 2
-	}
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "faramir: share-tree must run as root: it changes "+
-			"group ownership and modes on directories you do not own")
-		return 1
-	}
-	who := operatorName(*operator)
-	if who == "" {
-		fmt.Fprintln(os.Stderr, "faramir: name the account that works in the tree: "+
-			"pass --user, set OPERATOR, or run through sudo so SUDO_USER carries it")
-		return 1
-	}
-
-	for _, dir := range fs.Args() {
-		err := sharetree.Share(sharetree.Options{
-			Dir: dir, Operator: who, Group: *group,
-			Log: func(line string) { fmt.Fprintln(os.Stderr, line) },
-		})
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir: %s: %v\n", dir, err)
-			return 1
-		}
-	}
-	fmt.Fprintln(os.Stderr, "\nCheck it from the tree: cd there and run "+
-		"`faramir run -- pwd`.  A brokered command runs where its caller was, "+
-		"so that is the whole test.")
-	return 0
-}
-
 // operatorName resolves the account that works in the tree.
 //
 // OPERATOR before SUDO_USER, matching the install scripts: a configuration
@@ -198,13 +155,6 @@ func operatorName(flagValue string) string {
 		}
 	}
 	return ""
-}
-
-func envOr(name, fallback string) string {
-	if v := os.Getenv(name); v != "" {
-		return v
-	}
-	return fallback
 }
 
 // cmdKeygen mints an age keypair.

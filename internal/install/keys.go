@@ -242,6 +242,9 @@ func (r *runner) stepSSHKey() error {
 			changed = true
 		}
 	}
+	if changed {
+		r.restartFor("ssh key")
+	}
 	r.step("broker ssh key", changed, r.opts.SSHKey)
 	return nil
 }
@@ -287,6 +290,7 @@ func (r *runner) stepSealAgeKey() error {
 	if err := os.Chmod(r.layout.AgeKeyCred, 0o400); err != nil {
 		return err
 	}
+	r.restartFor("sealed age key")
 	r.step("seal age key", true, r.layout.AgeKeyCred)
 	return nil
 }

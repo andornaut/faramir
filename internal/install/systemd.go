@@ -63,15 +63,36 @@ func (r *runner) stepSystemd() error {
 	if _, err := r.command("systemctl", append([]string{"enable", "--now"}, sockets...)...); err != nil {
 		return err
 	}
-	// Restart, not just enable --now: an already-active socket keeps whatever
-	// ownership its file was left with, and the services below have to pick up
-	// the new listeners anyway.
-	if _, err := r.command("systemctl", append([]string{"restart"}, sockets...)...); err != nil {
-		return err
+
+	// Only when something the daemons read has actually changed.  A restart
+	// kills every brokered command in flight, so doing it on every run makes
+	// re-running this hostile to the agent it exists to serve, and reporting a
+	// change on every run makes the changed flag mean nothing to whatever reads
+	// it.
+	//
+	// A socket that is not up yet counts: the enable above starts it, but a unit
+	// left inactive by an earlier failure needs saying so.
+	restart := r.needsRestart
+	if !restart {
+		for _, socket := range sockets {
+			out, err := r.command("systemctl", "is-active", socket)
+			if err != nil || strings.TrimSpace(out) != "active" {
+				restart = true
+				break
+			}
+		}
 	}
-	for _, service := range services {
-		if _, err := r.command("systemctl", "restart", service); err != nil {
+	if restart {
+		// Restart, not just enable --now: an already-active socket keeps whatever
+		// ownership its file was left with, and the services below have to pick up
+		// the new listeners anyway.
+		if _, err := r.command("systemctl", append([]string{"restart"}, sockets...)...); err != nil {
 			return err
+		}
+		for _, service := range services {
+			if _, err := r.command("systemctl", "restart", service); err != nil {
+				return err
+			}
 		}
 	}
 	// systemd ignores a directive it does not recognise, logs one line and
@@ -96,7 +117,11 @@ func (r *runner) stepSystemd() error {
 			}
 		}
 	}
-	r.step("systemd", true, strings.Join(sockets, ", "))
+	detail := "already running what is installed"
+	if restart {
+		detail = "restarted onto the new " + strings.Join(r.restartReasons, ", ")
+	}
+	r.step("systemd", restart, detail)
 	return nil
 }
 

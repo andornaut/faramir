@@ -90,7 +90,6 @@ Flag | Does
 `--operator-age-key PATH` | mint an identity for yourself and list it in `.sops.yaml` alongside the keeper's, so you can still read the files you are responsible for
 `--ssh-key PATH` | generate the identity the broker lends to brokered commands. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run
 `--seal-age-key` | take the age key from a TPM-sealed credential. `--remove-plaintext-age-key` then deletes the file, which is irreversible
-`--share-tree DIR` | make one directory usable by brokered commands. Repeatable
 `--agent-config` | install the `Read` deny rules into your own Claude settings
 `--dry-run` | report what would change and write nothing
 `--json` | print the report as JSON, one entry per step with a `changed` flag, for a configuration manager to read
@@ -102,7 +101,8 @@ The units are sandboxed, so where the config and the store go is not a free choi
 - `faramir doctor` answers the question an install cannot: whether what landed is doing its job. A broker serving zero refs, an `ssh-agent` holding no key, and a shared group with members nobody recognises all look like a healthy install until something says otherwise.
 - `faramir reload` restarts the daemons onto a changed `config.d` drop-in, keeper first, which is the order that matters: the keeper decrypts the file list the broker is then served.
 - `faramir uninstall` leaves the accounts, the config, the store, the key and the audit log alone, and says so. Deleting the age key would make every managed sops file unreadable, retroactively.
-- `faramir share-tree <dir>` is the same work `--share-tree` does, available on its own for a tree added later. Group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, group-executable on every directory down to it so the executor can enter. Nothing needs a tree of its own: a brokered command runs where its caller was.
+- `faramir init-project [DIR]` enrols one working tree, and `DIR` defaults to where you are standing. It shares the tree (group-owned and setgid, so you and a brokered command stop fighting over each other's files, and group-executable on every directory down from a `0700` home so the executor can enter), registers the `PreToolUse` hook in that project's own settings, writes `.mcp.json`, and splices the credentials section into its agent instructions. It reads the shared group out of the installed config rather than taking a flag, so a tree cannot end up group-owned by something the sockets do not admit.
+- Enrolling is per project because the hook's cost is: it rewrites every Bash command so the output can be redacted, and a rewritten command matches no permission rule, so Bash is auto-approved in that project and the hook's deny list is what refuses one. Worth it where managed credentials are in play; not worth it everywhere. `--hook=false` shares the tree without it. Nothing needs a tree of its own either way: a brokered command runs where its caller was.
 
 ## Onboarding a project
 
@@ -112,7 +112,7 @@ Step | Do | Why
 2 | Name it in `/etc/faramir/config.d/<project>.toml`, then restart `faramir-keeper` and `faramir-broker`, in that order | This is what puts the values in the redaction set. A drop-in rather than the base config, so the project owns the line naming its own store. A restart because neither daemon re-reads its config; the keeper leads because it decrypts the list the broker is served. Step 1 first: a named file that is not there fails the gate, so the drop-in comes after the store, never before
 3 | Point the project's config at environment variables | It never decrypts anything; it reads `$NAME` however it already does
 4 | Write the refs beside the project, one `NAME=secret://ref` per line | So a run names refs rather than someone remembering them
-5 | Copy [settings.project.json](agent/claude/settings.project.json) to `.claude/settings.json` and [mcp.json](agent/claude/mcp.json) to `.mcp.json` | Redaction and `faramir_run` for that repo. This is what auto-approves Bash there
+5 | `cd <project> && sudo faramir init-project` | Shares the tree so a brokered command can run in it, and writes the project's `.claude/settings.json`, `.mcp.json` and instructions block. This is what auto-approves Bash there, so it is a per-project command rather than something the install does to every tree
 
 Step 2 is worth doing alone: a file in `[secrets]` is redacted out of every command's output from then on, brokered or not.
 
@@ -289,7 +289,7 @@ uid faramir-exec              forks brokered commands; holds nothing
 /etc/faramir/secrets/         2770 root:dev, managed sops files and .sops.yaml
 /etc/faramir/config.toml      0644 root:root, read by all three daemons
 /etc/faramir/config.d/        0644 root:root, per-consumer settings merged over it
-<any tree you share>          2770 <operator>:dev, setgid; faramir share-tree
+<any tree you enrol>          2770 <operator>:dev, setgid; faramir init-project
 /var/log/faramir/audit.log    0600 faramir-broker:faramir-broker
 ```
 
@@ -308,11 +308,11 @@ receive `SOPS_AGE_KEY` | nothing puts it there
 
 It **can** write the working tree, which is the point, and reach the broker socket, which buys it nothing: the response is redacted and audited like any other.
 
-A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. `faramir share-tree` grants it by group: every directory from the home down becomes group `dev` and group-executable, execute only, so those uids pass through without being able to list what they pass. Never `chmod o+x`, which grants the same to every account on the machine, and with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it.
+A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. `faramir init-project` grants it by group: every directory from the home down becomes group `dev` and group-executable, execute only, so those uids pass through without being able to list what they pass. Never `chmod o+x`, which grants the same to every account on the machine, and with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it.
 
 The group slot is the one going spare on a home its owner holds outright, and it costs nothing to use: `chgrp` is ordinary inode metadata, so it passes through an encrypted home unchanged and needs no extra tooling. What it does cost is that everyone in the group gets it, so keep membership to the accounts that need it.
 
-A directory already traversable by `other` is left alone: tightening one its owner chose to open is not this command's business. One whose group is something else is taken over, which costs that group whatever the group bits gave it, and `share-tree` says so when it does.
+A directory already traversable by `other` is left alone: tightening one its owner chose to open is not this command's business. One whose group is something else is taken over, which costs that group whatever the group bits gave it, and `init-project` says so when it does.
 
 ## Redaction
 
