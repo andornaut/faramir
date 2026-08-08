@@ -1,0 +1,23 @@
+{
+  "hooks": {
+    "BeforeTool": [
+      {
+        "matcher": "run_shell_command",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/usr/local/libexec/faramir/faramir-guard --host gemini",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "mcpServers": {
+    "faramir": {
+      "command": "/usr/local/bin/faramir-mcp",
+      "args": [],
+      "env": {}
+    }
+  }
+}

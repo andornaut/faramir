@@ -11,11 +11,11 @@ $ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
 The command ran, the credential reached it, the agent never saw the value.
 
 > [!WARNING]
-> **Enrolling a project auto-approves every Bash command in it.**
+> **Enrolling a project with Claude Code auto-approves every Bash command in it.**
 >
-> The hook rewrites each command into a wrapper so the output can be redacted. A rewritten command matches no Bash permission rule, so the hook approves whatever its [deny list](agent/hooks/deny-patterns.txt) did not refuse. This is forced by the mechanism, not a setting.
+> The hook rewrites each command into a wrapper so the output can be redacted. A rewritten command matches no Bash permission rule, so the hook approves whatever its [deny list](agent/hooks/deny-patterns.txt) did not refuse. This is forced by the mechanism, not a setting. It is not true of every agent: see [Other agents](#other-agents).
 
-What enrolling costs, and what it does not:
+What enrolling with Claude Code costs, and what it does not:
 
 Severity | Cost | Mitigation
 --- | --- | ---
@@ -30,21 +30,21 @@ A `deny` from the hook is honoured in every permission mode, `--dangerously-skip
 
 ### Other agents
 
-**Claude Code is the only agent faramir enrols today.** The rest of this section is what a survey of the others found, not support that exists.
-
 The table above is a Claude Code property rather than a faramir one. Redaction needs a hook that can *rewrite* a command, and what that costs depends on how each agent treats a rewritten one.
 
 Agent | Redaction | Enrolment cost | Status
 --- | --- | --- | ---
 Claude Code | full | 🔴 auto-approves Bash, as above | supported
-[Gemini CLI](https://geminicli.com/docs/hooks/reference/) | full | 🟢 none. There is no allow to return, so a hook that has not denied has not approved either, and every prompt stays as it was | surveyed
+[Gemini CLI](https://geminicli.com/docs/hooks/reference/) | full | 🟢 none. There is no allow to return, so a hook that has not denied has not approved either, and every prompt stays as it was | supported
 [opencode](https://open-code.ai/en/docs/plugins) | full | 🟡 unknown. It has pattern-matched `bash` permission rules, and whether a rewrite defeats them depends on undocumented ordering | surveyed
 [Kilo Code](https://kilo.ai/docs/automate/extending/plugins) | full | 🟡 as opencode: same hook name, same tool name, same mechanism | surveyed
 [Antigravity](https://antigravity.google/docs/hooks) | 🔴 none | n/a | declined
 
 Antigravity is declined rather than pending. Its hooks return `{"allow_tool": …, "deny_reason": …}` and have no field that modifies a tool call, so it can refuse commands and cannot redact any. Hooks also fire only in the `agy` CLI: the IDE and the desktop app run none. A deny list without redaction is the weaker half of the guarantee, and shipping it under the same name would misrepresent what an enrolled project gets.
 
-The others differ in the name of the shell tool, the shape of the hook's reply, and where it is registered, so each is an adapter rather than a config line. Nothing here is a promise of support.
+Enrol with `faramir init-project --agent claude --agent gemini`, repeatable, defaulting to `claude`. The agents are named rather than detected: enrolling costs something on some of them, and a directory left behind by trying one once is not a decision to enrol it. A tree carrying configuration for an agent you did not name is reported instead.
+
+`surveyed` means the hook contract was read and the adapter is not written. Each differs in the name of the shell tool, the shape of the hook's reply, and where it is registered, so each is an adapter rather than a config line.
 
 ## What it protects against
 
@@ -125,7 +125,7 @@ The units are sandboxed, so where the config and the store go is not a free choi
 - `faramir doctor` answers the question an install cannot: whether what landed is doing its job. A broker serving zero refs, an `ssh-agent` holding no key, and a shared group with members nobody recognises all look like a healthy install until something says otherwise. It asks the running broker which config it loaded rather than assuming the default, so it examines the install that is there; `--config-dir` names one itself, which is what to use when the broker is the thing that is wrong.
 - `faramir reload` gets the daemons onto a changed `config.d` drop-in. It stops them rather than restarting them: all three are socket activated, so the next brokered command starts them on the new config, and the order they come up in is the order activation gives them (the broker connects to the keeper, which is what decrypts the file list it is then served).
 - `faramir uninstall` leaves the accounts, the config, the store, the key and the audit log alone, and says so. Deleting the age key would make every managed sops file unreadable, retroactively.
-- `faramir init-project [DIR]` enrols one working tree, and `DIR` defaults to where you are standing. It shares the tree (group-owned and setgid, so you and a brokered command stop fighting over each other's files, and group-executable on every directory down from a `0700` home so the executor can enter), registers the `PreToolUse` hook in that project's own settings, writes `.mcp.json`, and splices the credentials section into its agent instructions. It reads the shared group out of the installed config rather than taking a flag, so a tree cannot end up group-owned by something the sockets do not admit.
+- `faramir init-project [DIR]` enrols one working tree, and `DIR` defaults to where you are standing. It shares the tree (group-owned and setgid, so you and a brokered command stop fighting over each other's files, and group-executable on every directory down from a `0700` home so the executor can enter), registers the hook in each enrolled agent's own settings, writes their MCP registration, and splices the credentials section into its agent instructions. `--agent` names which agents, repeatable, defaulting to `claude`. It reads the shared group out of the installed config rather than taking a flag, so a tree cannot end up group-owned by something the sockets do not admit.
 - Enrolling is per project because the hook's cost is: it rewrites every Bash command so the output can be redacted, and a rewritten command matches no permission rule, so Bash is auto-approved in that project and the hook's deny list is what refuses one. Worth it where managed credentials are in play; not worth it everywhere. `--hook=false` shares the tree without it. Nothing needs a tree of its own either way: a brokered command runs where its caller was.
 
 ## Onboarding a project
@@ -136,7 +136,7 @@ Step | Do | Why
 2 | Name it in `/etc/faramir/config.d/<project>.toml`, then restart `faramir-keeper` and `faramir-broker`, in that order | This is what puts the values in the redaction set. A drop-in rather than the base config, so the project owns the line naming its own store. A restart because neither daemon re-reads its config; the keeper leads because it decrypts the list the broker is served. Step 1 first: a named file that is not there fails the gate, so the drop-in comes after the store, never before
 3 | Point the project's config at environment variables | It never decrypts anything; it reads `$NAME` however it already does
 4 | Write the refs beside the project, one `NAME=secret://ref` per line | So a run names refs rather than someone remembering them
-5 | `cd <project> && sudo faramir init-project` | Shares the tree so a brokered command can run in it, and writes the project's `.claude/settings.json`, `.mcp.json` and instructions block. This is what auto-approves Bash there, so it is a per-project command rather than something the install does to every tree
+5 | `cd <project> && sudo faramir init-project` | Shares the tree so a brokered command can run in it, and writes each enrolled agent's settings and the instructions block. With Claude Code this is what auto-approves Bash there, so it is a per-project command rather than something the install does to every tree. Add `--agent gemini` to enrol Gemini CLI as well, which costs no prompts
 
 Step 2 is worth doing alone: a file in `[secrets]` is redacted out of every command's output from then on, brokered or not.
 

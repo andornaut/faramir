@@ -182,6 +182,9 @@ func cmdInitProject(args []string) int {
 	hook := fs.Bool("hook", true,
 		"register the PreToolUse hook, which redacts this project's command output "+
 			"and auto-approves Bash here as a consequence")
+	var agents multiFlag
+	fs.Var(&agents, "agent",
+		"coding agent to enrol, repeatable (default claude; also gemini)")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	if code, ok := parseFlags(fs, args); !ok {
@@ -198,6 +201,7 @@ func cmdInitProject(args []string) int {
 		ConfigDir: *configDir,
 		Group:     *group,
 		Hook:      *hook,
+		Agents:    agents,
 		DryRun:    *dryRun,
 	}
 	if !*asJSON {

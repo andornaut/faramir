@@ -53,7 +53,14 @@ type ProjectOptions struct {
 	// it auto-approves Bash for the project as a side effect: a rewritten
 	// command matches no permission rule, so the hook's deny list becomes the
 	// only thing that refuses one.
-	Hook   bool
+	Hook bool
+	// Agents names which coding agents to enrol.  Empty means Claude Code, so a
+	// command written before this existed keeps doing what it did.
+	//
+	// Named rather than detected: enrolling costs something on some agents, and
+	// a directory left behind by trying one once is not a decision to enrol it.
+	// What a tree happens to carry is reported instead.
+	Agents []string
 	DryRun bool
 	Log    func(string)
 }
@@ -102,15 +109,18 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		return ProjectReport{}, fmt.Errorf("no directory at %s", dir)
 	}
 
-	run := &project{opts: opts, fs: fsys{dryRun: opts.DryRun}}
+	targets, err := resolveAgents(opts.Agents)
+	if err != nil {
+		return ProjectReport{}, err
+	}
+	run := &project{opts: opts, fs: fsys{dryRun: opts.DryRun}, targets: targets}
 	run.report = ProjectReport{Version: version.Version, Dir: dir, DryRun: opts.DryRun}
 	if err := run.resolveGroup(); err != nil {
 		return run.report, err
 	}
 	for _, step := range []func() error{
 		run.shareTree,
-		run.agentSettings,
-		run.mcpConfig,
+		run.agentConfig,
 		run.instructions,
 	} {
 		if err := step(); err != nil {
@@ -126,6 +136,9 @@ type project struct {
 	report ProjectReport
 	uid    int
 	gid    int
+	// Resolved from opts.Agents before any step runs, so an unknown name stops
+	// the run before the tree's ownership has been changed.
+	targets []*agentTarget
 }
 
 func (p *project) step(name string, changed bool, detail string) {
@@ -219,66 +232,78 @@ func (p *project) shareTree() error {
 	return nil
 }
 
-// agentSettings registers the PreToolUse hook for this project.
+// agentConfig writes each enrolled agent's own configuration into the tree.
 //
-// Per project, never account-wide.  The hook rewrites every Bash command so the
-// output can be redacted, and a rewritten command matches no Bash permission
-// rule, so the hook approves what its deny list did not refuse.  For this
-// project, Bash is auto-approved.  That is worth it where managed credentials
-// are in play and is not worth it everywhere, which is why running this command
-// is the opt-in rather than something init does to every tree.
-func (p *project) agentSettings() error {
+// The hook is what redacts the output of everything the agent runs there, and
+// what it costs differs by agent: on Claude Code a rewritten command matches no
+// permission rule and the hook must approve it, so Bash is auto-approved for
+// the project; on Gemini CLI there is no approval to give, so the prompts stay
+// as they were.  The warning below reports the agent it just enrolled rather
+// than a rule that is only true of one of them.
+func (p *project) agentConfig() error {
 	if !p.opts.Hook {
-		p.step("agent settings", false, "--hook=false, so Bash keeps its prompts "+
-			"here and nothing this agent runs is redacted")
+		p.step("agent config", false, "--hook=false, so nothing this agent runs "+
+			"here is redacted and its prompts are untouched")
 		return nil
 	}
-	dir := filepath.Join(p.opts.Dir, ".claude")
-	if _, err := p.fs.ensureDir(dir, 0o700, p.uid, p.gid, false); err != nil {
-		return err
+	changed := false
+	var written []string
+	for _, target := range p.targets {
+		for _, file := range target.files {
+			path := filepath.Join(p.opts.Dir, file.path)
+			if parent := filepath.Dir(path); parent != p.opts.Dir {
+				if _, err := p.fs.ensureDir(parent, 0o700, p.uid, p.gid, false); err != nil {
+					return err
+				}
+			}
+			// Kept if it exists: a settings file is the project's to edit, and
+			// overwriting one loses hooks and permissions faramir knows nothing
+			// about.  The .dist beside it is what the operator merges.
+			dst := path
+			if exists(path) {
+				dst = path + ".dist"
+			}
+			data, err := readAsset(file.asset)
+			if err != nil {
+				return err
+			}
+			made, err := p.fs.writeFile(dst, data, file.mode, p.uid, p.gid)
+			if err != nil {
+				return err
+			}
+			changed = changed || made
+			written = append(written, dst)
+		}
+		if target.autoApprovesBash && changed {
+			p.warn("Bash is now auto-approved in %s for %s: the hook rewrites every "+
+				"command so its output can be redacted, and a rewritten command "+
+				"matches no permission rule. Its deny list is what refuses one instead",
+				p.opts.Dir, target.name)
+		}
 	}
-	settings := filepath.Join(dir, "settings.json")
-	data, err := readAsset("agent/claude/settings.project.json")
-	if err != nil {
-		return err
-	}
-	// Kept if it exists: a settings file is the project's to edit, and
-	// overwriting one loses hooks and permissions faramir knows nothing about.
-	dst, detail := settings, settings
-	if exists(settings) {
-		dst = settings + ".dist"
-		detail = fmt.Sprintf("keeping %s; wrote %s beside it to merge", settings, dst)
-	}
-	changed, err := p.fs.writeFile(dst, data, 0o600, p.uid, p.gid)
-	if err != nil {
-		return err
-	}
-	if dst == settings && changed {
-		p.warn("Bash is now auto-approved in %s: the hook rewrites every command so "+
-			"its output can be redacted, and a rewritten command matches no "+
-			"permission rule. Its deny list is what refuses one instead", p.opts.Dir)
-	}
-	p.step("agent settings", changed, detail)
-	return nil
-}
+	// Named rather than counted: an operator reading this has to know which
+	// file to merge when one was kept.
+	p.step("agent config", changed, strings.Join(written, ", "))
 
-// mcpConfig points the agent at the broker's MCP server, so it reaches for
-// faramir_run rather than discovering it by accident.
-func (p *project) mcpConfig() error {
-	path := filepath.Join(p.opts.Dir, ".mcp.json")
-	data, err := readAsset("agent/claude/mcp.json")
-	if err != nil {
-		return err
+	// Reported, never acted on.  A directory left behind by trying an agent once
+	// is not a decision to enrol it, and enrolling is not free.
+	var unenrolled []string
+	for _, name := range detectedAgents(p.opts.Dir) {
+		enrolled := false
+		for _, target := range p.targets {
+			if target.name == name {
+				enrolled = true
+			}
+		}
+		if !enrolled {
+			unenrolled = append(unenrolled, name)
+		}
 	}
-	if exists(path) {
-		p.step("mcp config", false, "keeping "+path)
-		return nil
+	if len(unenrolled) > 0 {
+		p.warn("this tree also has configuration for %v, which was not enrolled: "+
+			"nothing those agents run here is redacted. Pass --agent to include one",
+			unenrolled)
 	}
-	changed, err := p.fs.writeFile(path, data, 0o644, p.uid, p.gid)
-	if err != nil {
-		return err
-	}
-	p.step("mcp config", changed, path)
 	return nil
 }
 
