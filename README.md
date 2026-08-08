@@ -91,6 +91,7 @@ Phase | Does
 - `FARAMIR_BIN=/opt/faramir/bin` lets you build on one machine and install on another.
 - A `CONFIG` that does not parse is refused before anything is written.
 - `install/uninstall.sh` leaves the accounts, `/etc/faramir` and the audit log alone.
+- `install/cleanup.sh` removes what earlier layouts left behind: an account-wide hook registration, `.dist` leftovers, an empty default worktree. It reports by default and needs `--apply` to act, never touches `/etc/faramir`, and only removes an account with `--remove-accounts` and an uninstalled broker.
 
 ## Onboarding a project
 
@@ -377,7 +378,7 @@ internal/e2e           end-to-end suite: a real keeper, executor and broker
 systemd/               socket and hardened service units, one pair per daemon
 etc/                   starter config and complete workload examples
 agent/                 deny patterns, settings, the snippet phase 4 installs
-install/               provisioning scripts, one per phase
+install/               provisioning scripts, one per phase, plus cleanup and uninstall
 tests/verify.sh        the verification matrix
 docs/                  redaction, wire protocol, Ansible, scope
 ```
