@@ -1,6 +1,6 @@
 # faramir
 
-faramir is a secret broker for local AI coding agents: it runs commands that need credentials without any plaintext secret entering the agent's context, and therefore without it being transmitted to a model provider
+faramir is a secret broker for local AI coding agents: it runs the commands that need credentials as a uid that holds nothing, and redacts the output of everything else the agent runs, so no plaintext credential enters the agent's context or reaches a model provider
 
 ```console
 $ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
@@ -49,7 +49,7 @@ nobody thought to broker still comes back as a token.
 - [Uid separation, not a container](#architecture) - three service accounts, so what a brokered command cannot reach is a kernel boundary rather than a policy
 - [The master key lives where nothing executes](#architecture) - no brokered command can read the age key, ask for it, or receive it in its environment
 - [Output redaction over the whole value set](#how-redaction-works) - every managed secret, not only the injected ones, so a host that prints its own configuration is covered
-- [No command allowlist](#configuration) - the broker runs what it is asked to, as a uid that holds nothing; argv is an array, never a string handed to a shell
+- [Commands run as a uid that holds nothing](#architecture) - no key, no audit log, no SSH key, and `cmd` is an array rather than a string handed to a shell
 - [Secrets in the environment only](#rules-that-are-not-negotiable) - never substituted into `argv`, which is world-readable in `ps`
 - [An operator-only audit log](#operational-notes) - what ran, by whom, against which refs, and what came back, holding no value at all
 - [MCP tools and a CLI](#usage) - `faramir_run` for the agent, `faramir run` for you
@@ -79,7 +79,7 @@ Failure | Why it is not prevented
 **Network egress control.** No iptables rules, no network namespaces, no proxy allowlist. | The operator decided unrestricted networking is required. Consequence: a secret that does escape redaction is unrecoverable.
 **Filesystem blast radius.** The agent has legitimate write access to the repo; destructive edits are not addressed here. | Separate problem.
 
-**Acceptance invariant:** if `CLAUDE.md` were deleted, no secret could reach the model provider. Every enforcement point is a uid boundary, a file mode, or a hook, never the agent choosing to behave.
+**Acceptance invariant:** if every instruction the agent is given were deleted, no secret could reach the model provider. Every enforcement point is a uid boundary, a file mode, or a hook, never the agent choosing to behave.
 
 **There is no command allowlist**, and the invariant above does not need one. Any rule permitting an interpreter (`bash`, `python`, `env`) reaches past every constraint it expresses, so an allowlist buys a rule to write per program and a denial per mistake, and no security property. See [Architecture](#architecture).
 
@@ -136,7 +136,7 @@ Phase | Does
 `10-accounts.sh` | accounts, group, shared tree, `umask 002`
 `20-sops-init.sh` | age keypair -> `/etc/faramir/age.key`, `.sops.yaml`
 `30-install-broker.sh` | binaries, config, systemd units
-`40-agent-config.sh` | MCP registration, hook, `CLAUDE.md`
+`40-agent-config.sh` | MCP registration, hook, agent instructions
 
 Set `CONFIG` to install the configuration for a real workload instead of the
 starter:
@@ -183,6 +183,109 @@ faramir run --env ROUTER_PW=secret://home/router/admin -- \
 > **Rotate everything that was ever committed.** `git rm` does not remove the vault blobs from history, and the old vault password still opens them. Rotate every credential, or rewrite history with `git filter-repo`, and rotate anyway if the repo was ever pushed anywhere. Without this you have added a second copy rather than migrated.
 
 Delete the vault password file only after a real playbook run succeeds through the broker, then treat the password as burned.
+
+## Onboarding a project
+
+Nothing about a project moves into faramir. Its secrets move into the managed
+store, and the project learns to read them from the environment by name. The
+project keeps its own layout, its own runner and its own credentials-shaped
+config file; what changes is where the values come from.
+
+Five steps, in order. Steps 1 and 2 are what make redaction cover the project at
+all; 3 through 5 are what let a command actually receive a value.
+
+Step | Do | Why it is separate
+--- | --- | ---
+1 | Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them | Not in the checkout: a home is not mounted until its owner logs in, so a value set inside one is empty at boot
+2 | Add that file to `[secrets] files` and `systemctl reload faramir-broker` | This is what puts the values in the redaction set, whether or not anything ever injects them
+3 | Point the project's own config at environment variables | The project never decrypts anything; it reads `$NAME` however it already reads environment
+4 | Write the refs down beside the project, one `NAME=secret://ref` per line | So a run names refs rather than someone remembering them
+5 | Copy [agent/claude/mcp.json](agent/claude/mcp.json) into the repo as `.mcp.json` | The agent gets `faramir_run` in that checkout
+
+Step 2 is the one worth doing even if you stop there. A file listed in
+`[secrets]` is redacted out of every command's output from that point on,
+brokered or not, so a project whose credentials you have not finished moving is
+still covered against printing them by accident.
+
+Step 5 is per-project; the `PreToolUse` hook is not. The hook is installed once
+in your own account by phase 4 and covers every command in every checkout, so
+redaction is already on in a repo that has no `.mcp.json` at all. What the MCP
+registration adds is the agent's ability to *ask for* a credential rather than
+work around not having one.
+
+Check the result the same way each time:
+
+```bash
+faramir list-secrets                    # the refs are there, values are not
+faramir run --env TOKEN=secret://svc/token -- printenv TOKEN
+# -> «SECRET:svc/token»
+```
+
+That single command proves both halves at once: the value reached the child's
+environment, and it came back as a token rather than as itself. Anything else is
+a fault worth stopping on.
+
+### Worked example: an Ansible control repo
+
+This is the shape [ansible-ctrl](https://github.com/andornaut/ansible-ctrl)
+ended up in, and the reason `etc/examples/ansible-fleet.toml` exists.
+
+```text
+/etc/faramir/secrets/ansible-ctrl.sops.yml   the values, outside every checkout
+group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME')
+faramir.env                                  NAME=secret://ref, one per line
+.mcp.json                                    registers faramir-mcp for this repo
+```
+
+The vault file was migrated with `install/migrate-vault.sh`, the broker was
+installed with `CONFIG=etc/examples/ansible-fleet.toml`, and the fleet's SSH key
+moved into `[ssh] keys` so a playbook can authenticate with a key no brokered
+command can read.
+
+Only the mapping file is encrypted-adjacent, and it holds no value:
+
+```yaml
+# group_vars/all/vars.yml -- committed, unencrypted, reviewable
+router_password: "{{ lookup('env', 'ROUTER_PW') }}"
+```
+
+```bash
+faramir run --env-file faramir.env -- ansible-playbook site.yml
+```
+
+Whether the refs file is committed is a judgement call. It discloses no value,
+but it maps the project's variable names onto the store's layout, which is why
+ansible-ctrl gitignores its own. [docs/ansible-sops.md](docs/ansible-sops.md)
+has the full walk-through, including the two ways an encrypted file ends up
+somewhere Ansible auto-loads it and configures hosts with ciphertext.
+
+### Other shapes
+
+Ansible is the worked example, not the boundary. Anything that takes its
+credentials from the environment onboards the same way; the differences are all
+in step 3.
+
+Shape | Step 3 looks like
+--- | ---
+A deploy or release script | It already reads `$REGISTRY_TOKEN`. Nothing to change: `faramir run --env REGISTRY_TOKEN=secret://ci/registry -- ./deploy.sh staging`
+A cloud or infra CLI (`aws`, `gcloud`, `terraform`, `flyctl`) | Each has documented environment variables. Name those, and drop the credentials file the tool would otherwise read
+A database task (`psql`, `pg_dump`, `mysql`) | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv`, the password never does
+A container registry push | `docker login --password-stdin` reads a value the broker put in the environment: `bash -lc 'printf %s "$TOKEN" \| docker login -u me --password-stdin'`
+An HTTP call against a staging API | `curl -H "Authorization: Bearer $TOKEN" …` inside a `bash -lc`, so the shell expands it and `argv` never carries it
+A tool that insists on a credentials *file* | Have the brokered command write it, use it, and remove it. Injection is environment-only by design, so the file exists only inside that one command's lifetime, as a uid that holds nothing else
+Something reached over SSH | Nothing in step 3 at all. List the key in `[ssh] keys` and the child gets `SSH_AUTH_SOCK`; it can authenticate and cannot copy the key
+A command that needs no secret, only redacting | Skip steps 3 through 5. `faramir redact -- ./script.sh`, or `… \| faramir redact` as a plain filter
+
+Two rules bound all of them. A pipeline is requested explicitly as
+`["bash", "-lc", "…"]`, because the broker never hands a string to a shell on
+its own. And a bare command name is looked up on `[exec.base_env] PATH`, so a
+venv, pipx or shim install is reached by putting its directory there rather than
+by widening anything else.
+
+What does *not* onboard: anything that wants to decrypt sops itself. It would
+need the age key, and no process the broker starts ever receives it. Such a tool
+gets named values in its environment instead, which is the same thing it would
+have derived from the key, minus the ability to read every other managed file.
 
 ## Usage
 
@@ -360,7 +463,7 @@ How a program gets its values | Through `env_refs`, read from the environment ho
 Secret store | sops + age, replacing ansible-vault. | Encrypted YAML in the repo, per-key diffs, no network round trip.
 Redaction | Custom. | `op run` and similar mask only the values *they* injected. A managed host can print a credential the broker never injected, so the redactor is built from the whole value set regardless of injection path.
 Agent interface | Unix socket, exposed as an MCP tool (`faramir_run`) plus a thin CLI. | A distinct tool is far more discoverable to a model than a convention documented in prose.
-Enforcement | PreToolUse hook + filesystem permissions. | Instructions in `CLAUDE.md` are ergonomics, not a security boundary.
+Enforcement | PreToolUse hook + filesystem permissions. | Instructions to the agent are ergonomics, not a security boundary.
 
 ### Layout
 
