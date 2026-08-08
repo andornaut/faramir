@@ -11,11 +11,24 @@ import (
 // machine it runs on: a stale installed file passes tests that the repo's own
 // patterns would fail, and CI (which has no installed file, so gets the
 // fallback) disagrees with the developer's box.
+// Rendered first: the shipped file is a template, so the paths it refuses are
+// the ones an install writes into it.  Reading it raw would leave the path
+// rules as unexpanded template text, which matches nothing.
 func TestMain(m *testing.M) {
-	if abs, err := filepath.Abs(shippedPatterns); err == nil {
-		os.Setenv("FARAMIR_DENY_PATTERNS", abs)
+	cleanup := func() {}
+	if data, err := renderShippedBytes(); err == nil {
+		if dir, err := os.MkdirTemp("", "faramir-guard-patterns"); err == nil {
+			cleanup = func() { os.RemoveAll(dir) }
+			path := filepath.Join(dir, "deny-patterns.txt")
+			if os.WriteFile(path, data, 0o644) == nil {
+				os.Setenv("FARAMIR_DENY_PATTERNS", path)
+			}
+		}
 	}
-	os.Exit(m.Run())
+	// Not deferred: os.Exit would skip it, leaving a temp directory per run.
+	code := m.Run()
+	cleanup()
+	os.Exit(code)
 }
 
 func TestDeniedCommands(t *testing.T) {

@@ -53,6 +53,10 @@ func patternsFile() string {
 var fallback = []string{
 	`ansible-vault\s+(view|decrypt|edit|rekey)`,
 	`\bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)`,
+	// Writing the store is the operator's, for the same reason reading it is:
+	// the agent has no value to put in one and no way to check what it
+	// replaced.
+	`\bsops\s+(-e|--encrypt|encrypt|set|unset|rotate|updatekeys)\b`,
 	`\bage\s+(-d|--decrypt)`,
 	// Bare age-keygen prints a private key.  "-o FILE" writes it 0400 and
 	// prints nothing, which is how a throwaway key is minted.
@@ -67,8 +71,10 @@ var fallback = []string{
 	`\bprintenv\b`,
 	// The match ends after the flags, so "env NAME=value cmd" is ordinary
 	// shell rather than a dump.  "env | grep FOO" narrows rather than dumps
-	// and ends the match too.
-	`\benv\b(\s+-\S+)*\s*$`,
+	// and ends the match too.  "env" must sit in command position: "\benv\b"
+	// also matched a filename ending in .env, so naming one at the end of a
+	// line was refused as a dump.
+	`(^|[\s;&|(])env(\s+-\S+)*\s*$`,
 	`\bset\s*$`,
 	`\bdeclare\s+-x\b`,
 	`/proc/\d+/environ`,
@@ -86,9 +92,37 @@ var fallback = []string{
 	//
 	// "[^|]*" not ".*", so the rule stops at the first pipe rather than
 	// refusing "cat notes.md | grep credentials".
-	`\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b[^|]*` +
-		`(vault|secrets?\.|\.env|age\.key|id_(rsa|dsa|ecdsa|ed25519)|\.pem\b|credentials|/etc/faramir|\.faramir/|/var/log/faramir)`,
+	// "sops/age" is the age key an agent can actually reach: faramir's own age
+	// key is keeper-owned 0400 wherever it sits, but the operator's
+	// ~/.config/sops/age/keys.txt decrypts the same store and is readable by the
+	// uid the agent runs as.
+	// It matches none of the other alternatives, because the file is keys.txt
+	// and "age\.key" wants a literal dot.
+	//
+	// The reader list carries interpreters and copiers as well as pagers:
+	// reading a key with python, or copying it somewhere unmatched and reading
+	// it there, is the same disclosure.  "sed" stays out of this rule, because
+	// it edits far more often than it dumps; it appears in the write rule below
+	// instead, where the paths are faramir's own and touching them at all is
+	// wrong.  "grep" stays out so that naming a .env file in a search is not
+	// refused.
+	//
+	// "[\s/=]\.env" rather than "\.env", so a file merely ending in those four
+	// characters (faramir.env, which holds refs and no values) is not a dotenv.
+	`\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac|` +
+		`awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|tar|scp|rsync)\b[^|]*` +
+		`(vault|secrets?\.|[\s/=]\.env|age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.pem\b|credentials|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/var/log/faramir)`,
 	`\bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))`,
+	// Changing the broker's own files, rather than reading them.  The store is
+	// writable by the agent's uid, and so is anything under a home; the hook's
+	// patterns and binary decide what it refuses, so they are named here too.
+	//
+	// The redirect rule matches the target word only, not the rest of the line,
+	// so that a heredoc writing documentation that mentions one of these paths
+	// is not mistaken for a write to it.
+	`\b(rm|shred|truncate|mv|cp|install|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*` +
+		`(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|\.sops\.ya?ml|\.vault\b)`,
+	`>\s*\S*(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|\.sops\.ya?ml)`,
 	// journalctl is deliberately absent: the daemons log ref names and counts,
 	// never values, so refusing it only stops the broker being debugged.
 	// Running the daemon, or running as its account, discloses; managing the
@@ -101,7 +135,7 @@ var fallback = []string{
 	// Stopping the broker is the exception: the wrapper fails open when it
 	// cannot be reached, so taking it down turns redaction off everywhere
 	// rather than breaking anything visibly.
-	`\bsystemctl\b.*\b(stop|disable|mask|kill)\b.*\bfaramir-`,
+	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,
 }
 
 const advice = "Blocked: this command would put a credential (or an encrypted blob) into " +
@@ -203,11 +237,25 @@ func main() { os.Exit(run(os.Args[1:])) }
 func run(args []string) int {
 	// Checked before stdin is read: this is a hook, so an operator running it
 	// by hand would otherwise get a process that sits waiting for a payload.
-	for _, arg := range args {
+	hostName := ""
+	for i, arg := range args {
 		if arg == "--version" || arg == "-version" {
 			fmt.Println("faramir-guard " + version.Version)
 			return 0
 		}
+		if name, ok := strings.CutPrefix(arg, "--host="); ok {
+			hostName = name
+		} else if arg == "--host" && i+1 < len(args) {
+			hostName = args[i+1]
+		}
+	}
+	// Before stdin is read, like --version: an unknown host is a
+	// misregistration, and the operator should see it the first time rather than
+	// have every command silently answered in a dialect the agent ignores.
+	activeHost, err := lookupHost(hostName)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir-guard: %v\n", err)
+		return 2
 	}
 
 	data, err := io.ReadAll(os.Stdin)
@@ -224,7 +272,7 @@ func run(args []string) int {
 	if err := json.Unmarshal(data, &raw); err == nil {
 		p.RawInput = raw.ToolInput
 	}
-	if p.ToolName != "Bash" && p.ToolName != "BashOutput" {
+	if !activeHost.handles(p.ToolName) {
 		return 0
 	}
 	command := commandOf(&p)
@@ -233,11 +281,7 @@ func run(args []string) int {
 	}
 
 	if pattern, denied := decide(command); denied {
-		return emit(map[string]any{
-			"hookEventName":            "PreToolUse",
-			"permissionDecision":       "deny",
-			"permissionDecisionReason": advice + "\n\n(matched deny pattern: " + pattern + ")",
-		})
+		return emit(activeHost.deny(advice + "\n\n(matched deny pattern: " + pattern + ")"))
 	}
 
 	// Everything the deny list does not forbid still runs, and still prints
@@ -249,7 +293,7 @@ func run(args []string) int {
 	// So the command is rewritten to run under the redactor rather than
 	// refused.  The child's exit status and both its streams are preserved; what
 	// changes is that a value the broker knows about comes back as its token.
-	wrapped, ok := wrap(command, &p)
+	wrapped, ok := wrap(activeHost, command, &p)
 	if !ok {
 		return 0
 	}
@@ -276,16 +320,11 @@ func run(args []string) int {
 	// command including ls, showing the rewritten text rather than what was
 	// typed, with no rule able to pre-approve any of it, and it would strand an
 	// unattended run on the first command with nobody to answer.
-	return emit(map[string]any{
-		"hookEventName":            "PreToolUse",
-		"permissionDecision":       "allow",
-		"permissionDecisionReason": "faramir: output redacted; the deny list is what refuses a command",
-		"updatedInput":             updated,
-	})
+	return emit(activeHost.rewrite(updated))
 }
 
-func emit(hookOutput map[string]any) int {
-	out, err := json.Marshal(map[string]any{"hookSpecificOutput": hookOutput})
+func emit(document map[string]any) int {
+	out, err := json.Marshal(document)
 	if err != nil {
 		return 0
 	}
@@ -343,9 +382,9 @@ var backgrounded = regexp.MustCompile(`(^|[^&])&[ \t\r\n]*$`)
 //
 // Not applied to BashOutput, which reads an already-running command's buffer
 // rather than starting one, and not to a command already under the redactor.
-func wrap(command string, p *payload) (string, bool) {
+func wrap(h *host, command string, p *payload) (string, bool) {
 	switch {
-	case p.ToolName != "Bash":
+	case !h.wraps(p.ToolName):
 		return "", false
 	case strings.TrimSpace(command) == "":
 		return "", false

@@ -6,16 +6,64 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"text/template"
+
+	"github.com/andornaut/faramir/internal/install"
 )
 
 const shippedPatterns = "../../agent/hooks/deny-patterns.txt"
 
-func shippedLines(t *testing.T) []string {
-	t.Helper()
+// The shipped file is a template: the paths worth refusing belong to an
+// install, not to the source tree, so an operator who moved the config and the
+// store into a home gets rules naming where they actually are.  Rendering it
+// against the compiled defaults is what the fallback has to match, and is what
+// the other tests here match against.
+func renderShippedBytes() ([]byte, error) {
 	data, err := os.ReadFile(shippedPatterns)
+	if err != nil {
+		return nil, err
+	}
+	tmpl, err := template.New("deny").Funcs(template.FuncMap{
+		"regexQuote": regexp.QuoteMeta,
+	}).Parse(string(data))
+	if err != nil {
+		return nil, err
+	}
+	var out strings.Builder
+	if err := tmpl.Execute(&out, install.Layout{
+		ConfigDir:  install.DefaultConfigDir,
+		SecretsDir: install.DefaultConfigDir + "/secrets",
+		LibexecDir: install.DefaultLibexecDir,
+		LogDir:     install.DefaultLogDir,
+	}); err != nil {
+		return nil, err
+	}
+	return []byte(out.String()), nil
+}
+
+func renderShipped(t *testing.T) string {
+	t.Helper()
+	data, err := renderShippedBytes()
 	if err != nil {
 		t.Fatal(err)
 	}
+	return string(data)
+}
+
+// renderedFile writes the rendered patterns to a temp file and points the guard
+// at it, so the deny tests exercise the same text an install would write.
+func renderedFile(t *testing.T) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "deny-patterns.txt")
+	if err := os.WriteFile(path, []byte(renderShipped(t)), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FARAMIR_DENY_PATTERNS", path)
+}
+
+func shippedLines(t *testing.T) []string {
+	t.Helper()
+	data := []byte(renderShipped(t))
 	var out []string
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -60,11 +108,7 @@ func TestTheFallbackMatchesTheShippedFile(t *testing.T) {
 // The shipped file must actually deny the things it exists to deny, loaded from
 // disk rather than from the fallback.
 func TestTheShippedFileDeniesTheDocumentedCases(t *testing.T) {
-	abs, err := filepath.Abs(shippedPatterns)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("FARAMIR_DENY_PATTERNS", abs)
+	renderedFile(t)
 
 	for _, cmd := range []string{"printenv", "env", "sops -d x.sops.yml", "age-keygen"} {
 		if _, denied := decide(cmd); !denied {
@@ -150,16 +194,94 @@ func TestTheShippedFileDeniesTheDocumentedCases(t *testing.T) {
 	}
 }
 
+// The sops age key is the one an agent can actually reach: /etc/faramir/age.key
+// is root-owned, but ~/.config/sops/age/keys.txt decrypts the same store and is
+// readable by the uid the agent runs as.  It is spelled keys.txt, so every
+// alternative that names a key by extension misses it.
+func TestTheReachableAgeKeyIsDenied(t *testing.T) {
+	renderedFile(t)
+
+	for _, cmd := range []string{
+		"cat /home/op/.config/sops/age/keys.txt",
+		"awk '{print}' ~/.config/sops/age/keys.txt",
+		`python3 -c "print(open('/home/op/.config/sops/age/keys.txt').read())"`,
+		"cp ~/.config/sops/age/keys.txt /tmp/k",
+		"tar cf - ~/.config/sops/age",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("shipped file did not deny %q", cmd)
+		}
+	}
+}
+
+// Writes to the broker's own files.  The store sits under a home and is
+// writable by the agent's uid, and the hook's patterns decide what it refuses,
+// so neutering either is a route to everything else.
+func TestChangingTheBrokersOwnFilesIsDenied(t *testing.T) {
+	renderedFile(t)
+
+	for _, cmd := range []string{
+		"rm -f /etc/faramir/age.key",
+		"rm -f ~/.faramir/secrets/ansible-ctrl.sops.yml",
+		"chmod 0644 /etc/faramir/age.key",
+		"chown op /etc/faramir/age.key",
+		"mv ~/.config/sops/age/keys.txt /tmp/k",
+		`echo "" > /usr/local/libexec/faramir/deny-patterns.txt`,
+		"cp /bin/true /usr/local/libexec/faramir/faramir-guard",
+		"sops set ~/.faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'",
+		"sops -e -i secrets.yml",
+		"systemctl edit faramir-broker",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("shipped file did not deny %q", cmd)
+		}
+	}
+
+	// Writing documentation that mentions a protected path is not a write to
+	// it, which is why the redirect rule matches the target word alone rather
+	// than the rest of the line.  A heredoc fed through "cat" is still refused,
+	// by the reader rule and not this one: that rule cannot tell a command that
+	// would read a path from one that merely names it, which is the limitation
+	// the file's header describes.
+	for _, cmd := range []string{
+		"echo 'see /etc/faramir/config.toml' >> README.md",
+		"printf '%s\\n' 'store lives in ~/.faramir/secrets' >> docs/scope.md",
+	} {
+		if pattern, denied := decide(cmd); denied {
+			t.Errorf("shipped file wrongly denied %q (pattern %q)", cmd, pattern)
+		}
+	}
+}
+
+// A file whose name merely ends in .env is not a dotenv.  faramir.env holds
+// refs and no values, and refusing to grep it taught the agent to reach for a
+// tool the hook does not see instead.
+func TestNamingAnEnvSuffixedFileIsNotADump(t *testing.T) {
+	renderedFile(t)
+
+	for _, cmd := range []string{
+		"grep -n hamcp faramir.env",
+		"cat faramir.env",
+		"wc -l faramir.env",
+	} {
+		if pattern, denied := decide(cmd); denied {
+			t.Errorf("shipped file wrongly denied %q (pattern %q)", cmd, pattern)
+		}
+	}
+	// The dotenv itself still is one.
+	for _, cmd := range []string{"cat .env", "cat ./.env", "cat app/.env.local"} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("shipped file did not deny %q", cmd)
+		}
+	}
+}
+
 // faramir_run's own description tells the model that transformed output
 // (base64, rev, cut) is a policy violation rather than a puzzle.  Denying cat
 // while allowing the encoders makes that claim false and the rule look
 // arbitrary, which is the opposite of what a hook that teaches should do.
 func TestReadingKeyMaterialThroughAnEncoderIsDeniedToo(t *testing.T) {
-	abs, err := filepath.Abs(shippedPatterns)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("FARAMIR_DENY_PATTERNS", abs)
+	renderedFile(t)
 
 	for _, cmd := range []string{
 		"cat /var/lib/faramir-keeper/age.key",

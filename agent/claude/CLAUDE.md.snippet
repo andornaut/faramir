@@ -13,3 +13,28 @@ faramir_run(cmd=["printenv", "ROUTER_PW"],
 broker's configuration. Commands run in this working tree as it is on disk, so
 an edit takes effect as soon as you save it. There is nothing to commit or
 promote first.
+
+## What not to do
+
+- **Do not decrypt anything.** `sops -d`, `ansible-vault view`, `age -d` and
+  their equivalents are operator commands, whether or not a key happens to be
+  reachable. To change a stored value, ask the operator to edit it.
+- **Do not read key material.** Private keys, `age` keys and the sops keys file
+  under `~/.config/sops/` are off limits even when the file permissions allow
+  it. Being able to open a file is not permission to.
+- **Do not route around a refusal.** A different tool, an interpreter, a
+  container, another host, or a copy in a new location are all the same
+  disclosure. Transformed output (base64, `rev`, `cut`) is a policy violation
+  rather than a puzzle.
+- **Do not modify the broker's own files:** the secret store, the age keys, the
+  systemd units, or this hook's patterns and binary.
+- **Work with the reference, never the value.** To learn what exists, read the
+  `secret://` refs in code and config, or call `faramir_list_secrets`.
+
+If a value reaches your context anyway, say so plainly and tell the operator to
+rotate it. Do not carry on as though it were still secret.
+
+The Bash hook that refuses these commands is ergonomics with teeth, not the
+security boundary. It is a fixed list of patterns and it does not enumerate
+every route to a credential, so "the hook allowed it" is not a reason to think
+something is permitted.

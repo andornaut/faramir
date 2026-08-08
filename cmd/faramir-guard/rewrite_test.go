@@ -25,13 +25,13 @@ func TestABackgroundedCommandIsNotWrappedHoweverItEnds(t *testing.T) {
 		"cd /srv\nnpm run dev &\n",
 		"npm run dev &\n\n",
 	} {
-		if _, rewritten := wrap(command, bashInput()); rewritten {
+		if _, rewritten := wrap(hosts["claude"], command, bashInput()); rewritten {
 			t.Errorf("wrapped a backgrounded command: %q", command)
 		}
 	}
 	// "&&" is not backgrounding, and a command ending in one is incomplete
 	// rather than backgrounded, so neither should be mistaken for the other.
-	if _, rewritten := wrap("make build && make test", bashInput()); !rewritten {
+	if _, rewritten := wrap(hosts["claude"], "make build && make test", bashInput()); !rewritten {
 		t.Error("refused to wrap a command containing &&")
 	}
 }
@@ -41,11 +41,11 @@ func TestABackgroundedCommandIsNotWrappedHoweverItEnds(t *testing.T) {
 // agent gets nothing at all.  The emitted form names the wrap script and never
 // names the redactor, so matching only "faramir redact" misses it.
 func TestARewrittenCommandIsNotRewrittenAgain(t *testing.T) {
-	once, rewritten := wrap("echo hello", bashInput())
+	once, rewritten := wrap(hosts["claude"], "echo hello", bashInput())
 	if !rewritten {
 		t.Fatal("refused to wrap an ordinary command")
 	}
-	twice, rewritten := wrap(once, bashInput())
+	twice, rewritten := wrap(hosts["claude"], once, bashInput())
 	if rewritten {
 		t.Errorf("wrapped an already-wrapped command:\n  in:  %q\n  out: %q", once, twice)
 	}
@@ -59,7 +59,7 @@ func TestARewrittenCommandIsNotRewrittenAgain(t *testing.T) {
 // script is indistinguishable from one that sources it, and treating it as
 // wrapped only costs redaction on a command that prints the path.
 func TestWrappingIsSkippedWhenTheScriptIsNamed(t *testing.T) {
-	if _, rewritten := wrap("cat "+wrapScript(), bashInput()); rewritten {
+	if _, rewritten := wrap(hosts["claude"], "cat "+wrapScript(), bashInput()); rewritten {
 		t.Error("wrapped a command that names the wrap script")
 	}
 }

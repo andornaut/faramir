@@ -14,12 +14,37 @@ The command ran, the credential reached it, the agent never saw the value.
 > **Enrolling a project auto-approves every Bash command in it.**
 >
 > The hook rewrites each command into a wrapper so the output can be redacted. A rewritten command matches no Bash permission rule, so the hook approves whatever its [deny list](agent/hooks/deny-patterns.txt) did not refuse. This is forced by the mechanism, not a setting.
->
-> - Prompts on `Write` and `Edit` do not compensate: Bash does the same things (`sed -i`, `cat >`, `rm`) without asking.
-> - Every other tool's permissions are untouched, and faramir adds `Read` deny rules for key material.
-> - Enrolment is per project. An unenrolled repo keeps its prompts and gets no redaction.
-> - **Under `--dangerously-skip-permissions` this costs nothing**: Bash never prompted, and hook decisions are still honoured, a `deny` included. Enrolling an unattended project is purely additive.
-> - `acceptEdits` is not that case. It leaves Bash prompting, so enrolment costs what it costs by default.
+
+What enrolling costs, and what it does not:
+
+Severity | Cost | Mitigation
+--- | --- | ---
+🔴 HIGH | Every Bash command in the project is approved without asking. | Run that project with `--dangerously-skip-permissions`. Bash never prompted there, so **enrolment costs nothing** and only adds redaction and the deny list.
+🔴 HIGH | Nothing else is refusing destructive commands. The shipped deny list names credential disclosure, not `rm -rf`. | Add your own patterns to the deny list. Do not enrol a project where the Bash prompt is the control you were relying on.
+🟡 MEDIUM | Prompts on `Write` and `Edit` do not compensate. Bash does the same things (`sed -i`, `cat >`, `rm`) without asking. | None. This is why the row above matters: no other prompt covers what Bash can do.
+🟡 MEDIUM | `acceptEdits` looks like it should exempt a project, and does not. It auto-accepts `Write` and `Edit` while leaving Bash prompting, so enrolment costs exactly what it costs by default. | Use `--dangerously-skip-permissions` for the cost-free case, or accept the default cost knowingly.
+🟡 MEDIUM | An unenrolled project gets no redaction, and the broker holds every managed value regardless of which project asked. A command there can print one uncaught. | Treat unenrolled as "no redaction", not "safe". Enrol the projects that touch secrets.
+🟢 NONE | Every other tool's permission behaviour. | Untouched. faramir also adds `Read` deny rules for key material, which take nothing away.
+
+A `deny` from the hook is honoured in every permission mode, `--dangerously-skip-permissions` included. Bypassing permissions does not bypass the hook.
+
+### Other agents
+
+**Claude Code is the only agent faramir enrols today.** The rest of this section is what a survey of the others found, not support that exists.
+
+The table above is a Claude Code property rather than a faramir one. Redaction needs a hook that can *rewrite* a command, and what that costs depends on how each agent treats a rewritten one.
+
+Agent | Redaction | Enrolment cost | Status
+--- | --- | --- | ---
+Claude Code | full | 🔴 auto-approves Bash, as above | supported
+[Gemini CLI](https://geminicli.com/docs/hooks/reference/) | full | 🟢 none. There is no allow to return, so a hook that has not denied has not approved either, and every prompt stays as it was | surveyed
+[opencode](https://open-code.ai/en/docs/plugins) | full | 🟡 unknown. It has pattern-matched `bash` permission rules, and whether a rewrite defeats them depends on undocumented ordering | surveyed
+[Kilo Code](https://kilo.ai/docs/automate/extending/plugins) | full | 🟡 as opencode: same hook name, same tool name, same mechanism | surveyed
+[Antigravity](https://antigravity.google/docs/hooks) | 🔴 none | n/a | declined
+
+Antigravity is declined rather than pending. Its hooks return `{"allow_tool": …, "deny_reason": …}` and have no field that modifies a tool call, so it can refuse commands and cannot redact any. Hooks also fire only in the `agy` CLI: the IDE and the desktop app run none. A deny list without redaction is the weaker half of the guarantee, and shipping it under the same name would misrepresent what an enrolled project gets.
+
+The others differ in the name of the shell tool, the shape of the hook's reply, and where it is registered, so each is an adapter rather than a config line. Nothing here is a promise of support.
 
 ## What it protects against
 
