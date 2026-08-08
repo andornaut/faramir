@@ -84,6 +84,21 @@ for p in "$CONFIG_DIR" "$CONFIG_DIR/config.d" "$CONFIG_DIR/config.toml"; do
   check "$(basename "$p") ownership" "root:root" "$(owner_of "$p")"
 done
 
+# Every drop-in too: a root-owned directory stops one being created, and does
+# nothing about writing to one that is already there.
+while IFS= read -r d; do
+  [ -n "$d" ] || continue
+  check "config.d/$(basename "$d") ownership" "root:root" "$(owner_of "$d")"
+done < <(sudo find "$CONFIG_DIR/config.d" -maxdepth 1 -type f -name '*.toml' 2>/dev/null)
+
+# Negative: the file [exec.base_env] lives in must not be writable by the
+# account an agent runs as.
+if [ -w "$CONFIG_DIR/config.toml" ]; then
+  no "$OPERATOR can write config.toml, which is where [exec.base_env] PATH lives"
+else
+  ok "$OPERATOR cannot write config.toml"
+fi
+
 # Negative: a writable config.d is the PATH-injection path into [exec.base_env].
 probe=$CONFIG_DIR/config.d/.write-probe
 if (: >"$probe") 2>/dev/null; then

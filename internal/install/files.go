@@ -56,8 +56,28 @@ func (r *runner) stepDirectories() error {
 	// own=true, unlike before: a directory that is already operator-owned is one
 	// this has to take back, which is the whole point.  Editing config by hand
 	// needs sudo now, the same as editing the store.
-	for _, dir := range []string{r.layout.ConfigDir, filepath.Join(r.layout.ConfigDir, "config.d")} {
+	dropInDir := filepath.Join(r.layout.ConfigDir, "config.d")
+	for _, dir := range []string{r.layout.ConfigDir, dropInDir} {
 		made, err := r.fs.ensureDir(dir, 0o755, 0, 0, true)
+		if err != nil {
+			return err
+		}
+		changed = changed || made
+	}
+
+	// The drop-ins already there, for the same reason.  A root-owned directory
+	// stops one being created or unlinked and does nothing about writing to a
+	// file that is already in it, and every one of these merges into the config
+	// that decides what the executor runs.
+	dropIns, err := os.ReadDir(dropInDir)
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, entry := range dropIns {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".toml") {
+			continue
+		}
+		made, err := r.fs.ensureOwnership(filepath.Join(dropInDir, entry.Name()), 0o644, 0, 0)
 		if err != nil {
 			return err
 		}
@@ -267,6 +287,15 @@ func (r *runner) stepConfig() error {
 		if err != nil {
 			return err
 		}
+		// Kept, but not left in the operator's hands.  Its contents are theirs
+		// to edit; its ownership is not, because a root-owned directory stops a
+		// drop-in being created and does nothing about writing to a file that is
+		// already there, and this is the file [exec.base_env] lives in.
+		owned, err := r.fs.ensureOwnership(r.layout.ConfigFile, 0o644, owner, group)
+		if err != nil {
+			return err
+		}
+		changed = changed || owned
 		r.step("config", changed, fmt.Sprintf("keeping %s; new default at %s.dist",
 			r.layout.ConfigFile, r.layout.ConfigFile))
 		return nil
