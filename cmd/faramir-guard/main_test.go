@@ -1,6 +1,22 @@
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
+
+// Point every test at the shipped file rather than at whatever this host has
+// installed under /usr/local/libexec.  Without this the suite grades the
+// machine it runs on: a stale installed file passes tests that the repo's own
+// patterns would fail, and CI (which has no installed file, so gets the
+// fallback) disagrees with the developer's box.
+func TestMain(m *testing.M) {
+	if abs, err := filepath.Abs(shippedPatterns); err == nil {
+		os.Setenv("FARAMIR_DENY_PATTERNS", abs)
+	}
+	os.Exit(m.Run())
+}
 
 func TestDeniedCommands(t *testing.T) {
 	for _, cmd := range []string{

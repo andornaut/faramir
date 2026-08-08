@@ -26,8 +26,7 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 /proc/self/environ
 
 # Reading key material or encrypted blobs straight into the context window
-\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b.*(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials)
-\b(cat|less|more|head|tail)\b.*/etc/faramir
+\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b.*(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials|/etc/faramir)
 \bfind\b.*-name.*(age\.key|\.env|id_rsa)
 
 # Trying to reach the broker's private state

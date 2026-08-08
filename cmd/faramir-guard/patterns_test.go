@@ -71,6 +71,18 @@ func TestTheShippedFileDeniesTheDocumentedCases(t *testing.T) {
 			t.Errorf("shipped file did not deny %q", cmd)
 		}
 	}
+	// A managed file's own name matches none of the credential-shaped
+	// alternatives: "secrets/" is a directory, so "secrets?\." does not fire,
+	// and the path holds no "vault", ".env" or "credentials" either.  Coverage
+	// comes from /etc/faramir sitting in the same alternation as those, which
+	// is what puts it in front of every encoder rather than only the handful of
+	// tools a narrower rule would name.
+	for _, tool := range []string{"cat", "base64", "xxd", "strings", "rev", "od"} {
+		cmd := tool + " /etc/faramir/secrets/ansible-ctrl.sops.yml"
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("shipped file did not deny %q", cmd)
+		}
+	}
 	if _, denied := decide("env | grep PATH"); denied {
 		t.Error("shipped file denied a piped env")
 	}

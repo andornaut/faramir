@@ -67,9 +67,12 @@ var fallback = []string{
 	`\bdeclare\s+-x\b`,
 	`/proc/\d+/environ`,
 	`/proc/self/environ`,
+	// /etc/faramir belongs in this alternation rather than in a rule of its
+	// own: the store's own filenames (/etc/faramir/secrets/<consumer>.sops.yml)
+	// match none of the other alternatives, and a narrower rule naming only
+	// cat/less/more/head/tail leaves base64 and xxd free to dump a blob.
 	`\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b.*` +
-		`(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials)`,
-	`\b(cat|less|more|head|tail)\b.*/etc/faramir`,
+		`(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials|/etc/faramir)`,
 	`\bfind\b.*-name.*(age\.key|\.env|id_rsa)`,
 	`/var/log/faramir`,
 	`\bjournalctl\b.*faramir`,
