@@ -11,10 +11,12 @@
 # it sets, and the next command runs somewhere else.  Sourcing runs here, and
 # "eval" re-parses the command in this shell, so nothing is lost.
 #
-# One simple command, because the permission matcher refuses to match an allow
-# rule against a compound statement.  An inline "{ ...; } >file" rewrite cannot
-# be allow-listed at all, whatever rule is written for it, so every command
-# would prompt forever.  This form is matched by a single "Bash(source:*)" rule.
+# One simple command, because the permission matcher refuses to match a rule
+# against a compound statement: an inline "{ ...; } >file" rewrite is opaque to
+# it however the rule is written.  This form at least reads as one command.  It
+# does not restore permission matching, and nothing does: the rule an operator
+# wrote names the program, and after the rewrite the program is "source".  That
+# is why the hook approves what its deny list did not refuse; see docs/scope.md.
 #
 # Redacted after the command finishes rather than through a pipe while it runs,
 # because a pipeline puts the command in a subshell (losing the state again) and

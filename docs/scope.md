@@ -2,8 +2,22 @@
 
 ## What this defends
 
-**Keeping sops-managed values out of the model's context, wherever the agent
-runs.** That is the whole of it. Three things it does not defend:
+**Keeping sops-managed values out of the model's context, in the projects
+enrolled to do it.** That is the whole of it.
+
+Enrolment is per project, because the coverage is not free: the hook rewrites
+every Bash command so the output can be redacted, and a rewritten command
+matches no permission rule, so Bash is auto-approved wherever the hook runs.
+That is worth paying where managed credentials are in play and is not worth
+paying everywhere.
+
+The value set, though, is global: the broker holds every managed secret
+regardless of which project asked. So a command in a project that was never
+enrolled can still print a managed value, and nothing will catch it. Enrol
+anything that touches these credentials, and treat an unenrolled project as
+having no redaction rather than as being safe.
+
+Three further things it does not defend:
 
 - **The agent's reach.** Confining what a coding agent can touch is a means, and
   only where it is free. It is not the goal.
@@ -179,11 +193,26 @@ change what they do:
 deny list, which is the trade for an agent that can do the operator's work.
 
 **For Bash, the deny list replaces the permission prompt.** That is forced, not
-chosen: the matcher refuses an allow rule against a compound statement and
-refuses one naming `source` or `eval`, and a wrapper that redacts output has to
-be both. So the hook approves everything the deny list did not refuse, and
-granular Bash permissions are lost; every other tool's permissions are
-untouched. `FARAMIR_WRAP_DECISION=ask` restores the prompt.
+chosen: permission matching runs against the rewritten command, so a rule keyed
+on the program name (`Bash(rm:*)`) no longer matches, and the wrapper itself
+cannot be allow-listed either. The hook therefore approves everything the deny
+list did not refuse. Granular Bash permissions are lost in the enrolled
+project; every other tool's permissions are untouched, there and everywhere.
+
+Returning `allow` is not what removes those rules. The rewrite already stopped
+them matching; the decision only makes that explicit rather than leaving rules
+that appear active and silently never fire.
+
+Note what the shipped deny list is for. It names credential disclosure -- vault
+readers, environment dumps, decryptors, and encoders pointed at key material --
+and nothing destructive. Enrolling a project therefore drops whatever Bash
+prompting stood between the agent and `rm -rf`, and puts nothing in its place on
+that axis. Prompts on `Write` and `Edit` do not cover it, since Bash can write
+and delete without them.
+
+`FARAMIR_WRAP_DECISION=ask` restores the prompt, on every command including
+`ls`: each rewritten command is a distinct string that no rule can pre-approve.
+It is an escape hatch, not a mode.
 
 Rewriting rather than denying is the point. A deny list only covers what
 somebody thought to name, and the command that leaks a credential is usually

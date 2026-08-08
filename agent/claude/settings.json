@@ -15,19 +15,5 @@
       "Read(**/id_rsa)",
       "Read(**/id_ed25519)"
     ]
-  },
-  "hooks": {
-    "PreToolUse": [
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/usr/local/libexec/faramir/faramir-guard",
-            "timeout": 10
-          }
-        ]
-      }
-    ]
   }
 }

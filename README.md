@@ -10,6 +10,15 @@ $ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
 
 The command really ran, the credential really reached it, and the agent never saw the value.
 
+> [!WARNING]
+> **Enrolling a project auto-approves every Bash command in it.**
+>
+> To redact output, the `PreToolUse` hook rewrites each command into a wrapper. A rewritten command matches no Bash permission rule, so the hook approves everything its [deny list](agent/hooks/deny-patterns.txt) did not refuse: in an enrolled project you are never prompted before a shell command runs. That is forced by the mechanism, not a setting.
+>
+> Read this as **Bash is auto-approved here**. Prompts on `Write` and `Edit` do not make up for it, because Bash can do what they do (`sed -i`, `cat >`, `rm`) without asking. They still catch the ordinary case, where an agent doing normal work reaches for the right tool; they stop nothing that means to go around them.
+>
+> What you keep: every other tool's permissions are untouched, and faramir *adds* `Read` deny rules for key material. What you lose is granular Bash control, in that project only. The hook is registered per project, so a repo you have not enrolled keeps its prompts and gets no redaction. Enrol the ones that handle managed credentials; leave the rest alone.
+
 ## What it is for
 
 A coding agent running on your own machine runs real commands, and some of them
@@ -40,9 +49,11 @@ faramir_run(cmd=["./deploy.sh", "staging"],
             env_refs={"REGISTRY_TOKEN": "secret://ci/registry"})
 ```
 
-Commands the agent runs on its own are covered too. A `PreToolUse` hook routes
-their output through the same redactor, so a credential printed by something
-nobody thought to broker still comes back as a token.
+In a project you enrol, commands the agent runs on its own are covered too. A
+`PreToolUse` hook routes their output through the same redactor, so a credential
+printed by something nobody thought to broker still comes back as a token. That
+coverage is what costs the Bash prompts, which is why it is enabled per project
+rather than everywhere.
 
 ## Features
 
@@ -136,7 +147,7 @@ Phase | Does
 `10-accounts.sh` | accounts, group, shared tree, `umask 002`
 `20-sops-init.sh` | age keypair -> `/etc/faramir/age.key`, `.sops.yaml`
 `30-install-broker.sh` | binaries, config, systemd units
-`40-agent-config.sh` | MCP registration, hook, agent instructions
+`40-agent-config.sh` | `Read` deny rules in your account; hook, MCP registration and agent instructions in the project
 
 Set `CONFIG` to install the configuration for a real workload instead of the
 starter:
@@ -212,11 +223,16 @@ Step 2 is the one worth doing even if you stop there. A file listed in
 brokered or not, so a project whose credentials you have not finished moving is
 still covered against printing them by accident.
 
-Step 5 is per-project; the `PreToolUse` hook is not. The hook is installed once
-in your own account by phase 4 and covers every command in every checkout, so
-redaction is already on in a repo that has no `.mcp.json` at all. What the MCP
-registration adds is the agent's ability to *ask for* a credential rather than
-work around not having one.
+Step 5 is two files, and they are one decision. `.mcp.json` gives the agent
+`faramir_run`; `.claude/settings.json` registers the hook that redacts
+everything else it runs. Both are per-project, and enrolling is what
+auto-approves Bash in that repo, per the warning at the top. A project you have not enrolled
+keeps its Bash prompts and gets no redaction, so enrol the ones that handle
+managed credentials.
+
+The `Read` deny rules are the exception: phase 4 puts those in your own account,
+because refusing to open an age key or a `.sops.yml` costs nothing anywhere and
+is worth having in every project.
 
 Check the result the same way each time:
 
@@ -535,13 +551,15 @@ Held by | What | Can you read it?
 `faramir-broker` | decrypted values, the broker's SSH keys, the audit log | no, except through the broker
 `faramir-exec` | nothing; it is where brokered commands run | it cannot read your home
 
-Brokered execution covers the commands the broker runs. It does not cover what an agent reads or executes on its own, and a deny list only covers what somebody thought to name. So the `PreToolUse` hook is installed in your own account and does two things. A command matching the deny list is refused. **Every other command is rewritten** so that its output is redacted: the command itself runs unchanged in your shell, its output goes to a `0600` file on tmpfs, and that file is read back through `faramir redact` and removed.
+Brokered execution covers the commands the broker runs. It does not cover what an agent reads or executes on its own, and a deny list only covers what somebody thought to name. So the `PreToolUse` hook is registered in each enrolled project and does two things. A command matching the deny list is refused. **Every other command is rewritten** so that its output is redacted: the command itself runs unchanged in your shell, its output goes to a `0600` file on tmpfs, and that file is read back through `faramir redact` and removed.
 
 Same command, same exit status, both streams, and `cd`, `export` and shell functions still persist to the next command, because the wrapper is sourced rather than run in a child. A value the broker knows about comes back as `«SECRET:ref»`. `faramir redact` also works as a plain filter (`… | faramir redact`), and it holds no values itself. [docs/scope.md](docs/scope.md) has the exact form and the wrappers it rules out.
 
 If the broker is unreachable the wrapper warns and passes output through unredacted, rather than breaking every command. A wrapper that fails closed is a wrapper that gets removed.
 
-**Two consequences worth knowing before installing.** For `Bash`, faramir's deny list replaces the permission system, not merely the prompt: the hook returns `permissionDecision: "allow"`, which skips permission evaluation entirely, so your own `permissions.deny` entries for `Bash` stop being consulted and faramir's list is the only one that applies. Port any `Bash` deny rules you rely on into `agent/hooks/deny-patterns.txt`. This is forced rather than chosen: a rewritten command cannot be allow-listed by any rule the permission matcher accepts, so without it every command prompts forever. Other tools keep their normal permissions, and `FARAMIR_WRAP_DECISION=ask` restores prompting. And an unattended run with `--dangerously-skip-permissions` can rewrite any repository you can; hooks still fire in that mode, so redaction holds, but bounding what it may *change* is a matter of `gh` token scope and branch protection, not of this project.
+**Two consequences worth knowing before enrolling a project.** For `Bash`, faramir's deny list replaces the permission system, not merely the prompt: the hook returns `permissionDecision: "allow"`, which skips permission evaluation entirely, so your own `permissions.deny` entries for `Bash` stop being consulted and faramir's list is the only one that applies in that project. Port any `Bash` deny rules you rely on into `agent/hooks/deny-patterns.txt`, remembering that the shipped list is about credential disclosure and names nothing destructive. This is forced rather than chosen: a rewritten command cannot be matched by any rule the permission matcher accepts, so the alternatives are approving it here or prompting on every command forever. `FARAMIR_WRAP_DECISION=ask` picks the second, and prompts on `ls` too, because each rewritten command is a distinct string that no rule can pre-approve.
+
+And an unattended run with `--dangerously-skip-permissions` can rewrite any repository you can; hooks still fire in that mode, so redaction holds, but bounding what it may *change* is a matter of `gh` token scope and branch protection, not of this project.
 
 **Wherever you run a brokered command from has to be reachable by both `faramir-exec` and `faramir-broker`.** The executor forks the command there; the broker stats the directory before accepting the request at all, so a grant to one of them still refuses every command. Outside the homes that is free. Inside your own checkout it takes traversal, which phase 1 grants with an ACL naming those two uids rather than `chmod o+x`, so `other` stays at nothing. The keeper needs none of it: its files are under `/etc` and its unit sets `ProtectHome=true`. See [docs/scope.md](docs/scope.md) for what an encrypted home costs here.
 
