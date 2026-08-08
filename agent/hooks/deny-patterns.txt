@@ -6,32 +6,54 @@
 # cannot read the key material regardless.  What it buys is that the agent gets
 # a corrective message naming faramir_run instead of a confusing EACCES, and
 # that encrypted blobs and env dumps stop polluting the context window.
+#
+# It names credential disclosure and nothing destructive.  Enrolling a project
+# auto-approves Bash there, so whatever prompting stood between the agent and
+# rm -rf is gone and this list does not replace it.  See docs/scope.md.
+#
+# Two limits.  A pattern matches the command string, so a command that only
+# mentions the text -- a grep, a heredoc writing documentation about this
+# project -- is refused exactly like one that would run it, and nothing here can
+# tell them apart.  And "[^|]*" rather than ".*" wherever a rule spans
+# arguments, so it stops at the first pipe instead of matching something
+# harmless further along the line.
 
 # Direct decryption of the secret store
 ansible-vault\s+(view|decrypt|edit|rekey)
 \bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)
 \bage\s+(-d|--decrypt)
-\bage-keygen\b
+# Bare age-keygen prints a private key.  "-o FILE" writes it 0400 and prints
+# nothing, which is how a throwaway key is minted, so only the printing form
+# is refused.
+\bage-keygen\b(\s+-\S+)*\s*$
 \bop\s+read\b
 \bpass\s+show\b
 \bgopass\s+show\b
 \bvault\s+(read|kv\s+get)\b
 
-# Wholesale environment dumps
+# Wholesale environment dumps.  "env NAME=value cmd" is ordinary shell rather
+# than a dump, so the match ends after the flags; "env | grep FOO" narrows
+# rather than dumps and ends the match too.  printenv stays broad on purpose:
+# "printenv PATH" is harmless and "printenv ROUTER_PW" is not, and the rule
+# cannot tell which name is a secret.
 \bprintenv\b
-\benv\b[^|]*$
+\benv\b(\s+-\S+)*\s*$
 \bset\s*$
 \bdeclare\s+-x\b
 /proc/\d+/environ
 /proc/self/environ
 
-# Reading key material or encrypted blobs straight into the context window
-\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b.*(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials|/etc/faramir)
-\bfind\b.*-name.*(age\.key|\.env|id_rsa)
+# Reading key material or encrypted blobs straight into the context window.
+# The key names are spelled out: "id_[re]d?sa" looked like it covered SSH keys
+# and matched id_rsa and id_dsa while missing id_ed25519, which is what
+# ssh-keygen has produced by default for years.
+\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b[^|]*(vault|secrets?\.|\.env|age\.key|id_(rsa|dsa|ecdsa|ed25519)|\.pem\b|credentials|/etc/faramir|/var/log/faramir)
+\bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))
 
-# Trying to reach the broker's private state
-/var/log/faramir
-\bjournalctl\b.*faramir
+# Trying to reach the broker's private state.  Reading the audit log is covered
+# by the rule above; listing the directory is not, and does not need to be.
+# journalctl is deliberately absent: the daemons log ref names and counts,
+# never values, and blocking it only stops the broker being debugged.
 \bsudo\b(\s+-\S+)*\s+faramir-(broker|keeper|exec)\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill)\b.*\bfaramir-

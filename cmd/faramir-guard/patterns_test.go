@@ -71,6 +71,44 @@ func TestTheShippedFileDeniesTheDocumentedCases(t *testing.T) {
 			t.Errorf("shipped file did not deny %q", cmd)
 		}
 	}
+	// Every private key name, not the ones a clever character class happened to
+	// reach.  id_ed25519 is what ssh-keygen produces by default and was the one
+	// the earlier pattern missed.
+	for _, name := range []string{"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"} {
+		for _, tool := range []string{"cat", "base64", "strings"} {
+			cmd := tool + " ~/.ssh/" + name
+			if _, denied := decide(cmd); !denied {
+				t.Errorf("shipped file did not deny %q", cmd)
+			}
+		}
+	}
+
+	// Ordinary shell that earlier rules refused.  Each of these was a real
+	// false positive: env with assignments is not a dump, a rule spanning a
+	// pipe matched the wrong side of it, listing a directory reads nothing,
+	// and age-keygen -o writes a key without printing one.
+	for _, cmd := range []string{
+		"env FOO=1 make build",
+		"env DEBIAN_FRONTEND=noninteractive apt-get install -y jq",
+		"cat notes.md | grep credentials",
+		"ls /var/log/faramir",
+		"journalctl -u faramir-broker -n 50",
+		"age-keygen -o /tmp/throwaway.key",
+	} {
+		if pattern, denied := decide(cmd); denied {
+			t.Errorf("shipped file wrongly denied %q (pattern %q)", cmd, pattern)
+		}
+	}
+
+	// The dumps those rules are actually for.
+	for _, cmd := range []string{
+		"env", "env -i", "age-keygen", "cat /var/log/faramir/audit.log",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("shipped file did not deny %q", cmd)
+		}
+	}
+
 	// Managing a unit is an operator action the docs prescribe; running the
 	// daemon, or running as its account, is not.  Stopping the broker is denied
 	// with the second group because the wrapper fails open without it.

@@ -54,28 +54,43 @@ var fallback = []string{
 	`ansible-vault\s+(view|decrypt|edit|rekey)`,
 	`\bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)`,
 	`\bage\s+(-d|--decrypt)`,
-	`\bage-keygen\b`,
+	// Bare age-keygen prints a private key.  "-o FILE" writes it 0400 and
+	// prints nothing, which is how a throwaway key is minted.
+	`\bage-keygen\b(\s+-\S+)*\s*$`,
 	`\bop\s+read\b`,
 	`\bpass\s+show\b`,
 	`\bgopass\s+show\b`,
 	`\bvault\s+(read|kv\s+get)\b`,
+	// printenv stays broad on purpose: "printenv PATH" is harmless and
+	// "printenv ROUTER_PW" is not, and nothing here can tell which name is a
+	// secret.
 	`\bprintenv\b`,
-	// RE2 has no lookahead.  "[^|]*$" is an exact translation of Python's
-	// "(?!.*\|)" here: env with no pipe anywhere after it.
-	`\benv\b[^|]*$`,
+	// The match ends after the flags, so "env NAME=value cmd" is ordinary
+	// shell rather than a dump.  "env | grep FOO" narrows rather than dumps
+	// and ends the match too.
+	`\benv\b(\s+-\S+)*\s*$`,
 	`\bset\s*$`,
 	`\bdeclare\s+-x\b`,
 	`/proc/\d+/environ`,
 	`/proc/self/environ`,
-	// /etc/faramir belongs in this alternation rather than in a rule of its
-	// own: the store's own filenames (/etc/faramir/secrets/<consumer>.sops.yml)
-	// match none of the other alternatives, and a narrower rule naming only
+	// The faramir paths belong in this alternation rather than in rules of
+	// their own: the store's filenames (/etc/faramir/secrets/<x>.sops.yml)
+	// match none of the other alternatives, and a rule naming only
 	// cat/less/more/head/tail leaves base64 and xxd free to dump a blob.
-	`\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b.*` +
-		`(vault|secrets?\.|\.env|age\.key|id_[re]d?sa|\.pem\b|credentials|/etc/faramir)`,
-	`\bfind\b.*-name.*(age\.key|\.env|id_rsa)`,
-	`/var/log/faramir`,
-	`\bjournalctl\b.*faramir`,
+	// Standalone path rules also refused "ls /var/log/faramir", which reads
+	// nothing.
+	//
+	// The key names are spelled out.  "id_[re]d?sa" read as though it covered
+	// SSH keys: it matched id_rsa and id_dsa and missed id_ed25519, which is
+	// what ssh-keygen has produced by default for years.
+	//
+	// "[^|]*" not ".*", so the rule stops at the first pipe rather than
+	// refusing "cat notes.md | grep credentials".
+	`\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b[^|]*` +
+		`(vault|secrets?\.|\.env|age\.key|id_(rsa|dsa|ecdsa|ed25519)|\.pem\b|credentials|/etc/faramir|/var/log/faramir)`,
+	`\bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))`,
+	// journalctl is deliberately absent: the daemons log ref names and counts,
+	// never values, so refusing it only stops the broker being debugged.
 	// Running the daemon, or running as its account, discloses; managing the
 	// unit does not.  One rule covering both denied "systemctl restart
 	// faramir-keeper", which is what the docs tell an operator to run after

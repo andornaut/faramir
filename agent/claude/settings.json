@@ -12,7 +12,12 @@
       "Read(/etc/faramir/**)",
       "Read(/var/log/faramir/**)",
       "Read(**/age.key)",
+      "Read(**/*.key)",
+      "Read(**/*.pem)",
+      "Read(**/credentials)",
       "Read(**/id_rsa)",
+      "Read(**/id_dsa)",
+      "Read(**/id_ecdsa)",
       "Read(**/id_ed25519)"
     ]
   }
