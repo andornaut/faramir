@@ -3,6 +3,11 @@ Description=faramir executor: forks brokered commands, holds no secrets
 Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-exec.socket
 After=faramir-exec.socket network.target
+# Starting repeatedly in a few seconds is ordinary here: the unit is socket
+# activated and an install restarts it.  The default limit of 5 in 10s reads
+# that as a crash loop, and a service that trips it fails its socket with it, so
+# the whole broker stays down until someone runs reset-failed.
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify

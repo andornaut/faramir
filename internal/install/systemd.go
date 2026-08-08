@@ -125,12 +125,11 @@ func (r *runner) stepSystemd() error {
 	return nil
 }
 
-// Reload restarts the daemons onto a changed configuration.
+// Reload drops the daemons onto a changed configuration.
 //
 // Exported because a consumer of the broker writes its own config.d drop-in and
-// then has to get the daemons onto it, and the order is not obvious: neither
-// re-reads its config while running, and the keeper has to lead because it
-// decrypts the file list the broker is served.
+// then has to get the daemons onto it: none of them re-reads its config while
+// running.
 func Reload() error {
 	if !systemdRunning() {
 		return fmt.Errorf("systemd is not running here")
@@ -139,10 +138,21 @@ func Reload() error {
 	if _, err := run.command("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
-	for _, service := range services {
-		if _, err := run.command("systemctl", "restart", service); err != nil {
-			return err
-		}
+	// Stop rather than restart.  All three are socket activated, so stopping
+	// them is the whole of it: the next brokered command activates them on the
+	// new config, whereas a restart also starts each one with no client waiting.
+	// The order the services are started in stops being this function's problem
+	// too, because activation supplies it: what gets connected to is the broker,
+	// and the broker connects to the keeper, which is what decrypts the file
+	// list it is then served.
+	if _, err := run.command("systemctl", append([]string{"stop"}, services...)...); err != nil {
+		return err
+	}
+	// The sockets are what activates them again, so one left inactive by an
+	// earlier failure would make the above a stop with nothing to undo it.
+	// Already listening is a no-op.
+	if _, err := run.command("systemctl", append([]string{"start"}, sockets...)...); err != nil {
+		return err
 	}
 	return nil
 }

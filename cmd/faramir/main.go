@@ -56,7 +56,7 @@ Provisioning (require root; they do not talk to the broker):
   init          install or re-install faramir on this host
   init-project  enrol one working tree: share it, and configure the agent there
   doctor        report whether the install is doing its job
-  reload        restart the daemons onto a changed configuration
+  reload        drop the daemons onto a changed configuration
   uninstall     remove the broker, keeping the key, the store and the log
 
 Run "faramir <command> --help" for that command's own options.

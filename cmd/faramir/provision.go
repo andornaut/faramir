@@ -239,7 +239,7 @@ func cmdReload(args []string) int {
 		return code
 	}
 	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "faramir: reload must run as root: it restarts the units")
+		fmt.Fprintln(os.Stderr, "faramir: reload must run as root: it stops the units")
 		return 1
 	}
 	if err := install.Reload(); err != nil {

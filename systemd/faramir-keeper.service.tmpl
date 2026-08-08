@@ -3,6 +3,11 @@ Description=faramir keeper: holds the age key, serves decrypted values
 Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-keeper.socket
 After=faramir-keeper.socket
+# Starting repeatedly in a few seconds is ordinary here: the unit is socket
+# activated and an install restarts it.  The default limit of 5 in 10s reads
+# that as a crash loop, and a service that trips it fails its socket with it, so
+# the whole broker stays down until someone runs reset-failed.
+StartLimitIntervalSec=0
 
 [Service]
 Type=notify
