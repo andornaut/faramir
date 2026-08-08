@@ -74,7 +74,7 @@ func cmdEdit(args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(resolveConfig(*configPath))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
@@ -128,6 +128,50 @@ func cmdEdit(args []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "wrote %s; the broker picks it up within one refresh interval\n", target)
 	return 0
+}
+
+// brokerUnit records the config the daemons actually loaded.  A variable so a
+// test can point it at a fixture rather than at this host's systemd.
+var brokerUnit = "/etc/systemd/system/faramir-broker.service"
+
+// resolveConfig finds the config this edit has to agree with.
+//
+// An explicit --config wins, then $FARAMIR_CONFIG, then the compiled default,
+// and only then the broker's unit.  That last step is what makes the command
+// usable under sudo on an install that moved its config into a home: sudo
+// clears the environment, so the variable the daemons are given does not
+// survive to here, and the compiled default names a file that does not exist.
+// Editing the wrong store, or reporting that there is none, are both worse than
+// reading one line out of the unit that says which one is live.
+func resolveConfig(requested string) string {
+	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
+		return requested
+	}
+	// Asked of the running broker, the same way the other provisioning commands
+	// ask it, so there is one answer to "which config is live" rather than two.
+	if path := filepath.Join(resolveConfigDir("", socketDefault()), "config.toml"); exists(path) {
+		return path
+	}
+	// The broker checks a caller against [server] allowed_groups, and under sudo
+	// this process is root, which is not in that group: the question above can
+	// go unanswered precisely when this command is the one asking.  The unit is
+	// the same answer written down, and it is readable by the uid that got here.
+	body, err := os.ReadFile(brokerUnit)
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(body), "\n") {
+		if rest, found := strings.CutPrefix(strings.TrimSpace(line),
+			"Environment=FARAMIR_CONFIG="); found {
+			return rest
+		}
+	}
+	return ""
+}
+
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 // resolveManaged maps the argument onto one of the configured files.  A bare

@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/install"
 )
 
 // Only a file the config already manages.  A path argument that resolved to
@@ -94,5 +96,61 @@ func TestTheCandidateEditorsAreRealEditors(t *testing.T) {
 		case "editor", "sensible-editor", "select-editor":
 			t.Errorf("candidate %q resolves through operator-writable configuration", candidate)
 		}
+	}
+}
+
+// An explicit --config wins over everything, including the unit.
+func TestAnExplicitConfigIsUsedAsGiven(t *testing.T) {
+	if got := resolveConfig("/somewhere/config.toml"); got != "/somewhere/config.toml" {
+		t.Errorf("resolveConfig returned %q for an explicit path", got)
+	}
+}
+
+// $FARAMIR_CONFIG is left to config.Load rather than resolved here, so the
+// fallback cannot override a variable the caller deliberately set.
+func TestAnEnvironmentConfigDefersToLoad(t *testing.T) {
+	t.Setenv("FARAMIR_CONFIG", "/from/env/config.toml")
+	if got := resolveConfig(""); got != "" {
+		t.Errorf("resolveConfig returned %q instead of deferring to config.Load", got)
+	}
+}
+
+// withUnit points the fallback at a fixture and restores it afterwards.
+func withUnit(t *testing.T, body string) {
+	t.Helper()
+	unit := filepath.Join(t.TempDir(), "faramir-broker.service")
+	if err := os.WriteFile(unit, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	original := brokerUnit
+	brokerUnit = unit
+	t.Cleanup(func() { brokerUnit = original })
+	t.Setenv("FARAMIR_CONFIG", "")
+	// Pointed at a socket nothing is listening on, so the broker cannot answer
+	// and the unit is what is left.  Without this the test would pass or fail
+	// depending on whether the host running it has a live install.
+	t.Setenv("FARAMIR_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
+	if exists(filepath.Join(install.DefaultConfigDir, "config.toml")) {
+		t.Skip("this host has a config at the compiled default")
+	}
+}
+
+// With nothing else naming a config, the broker's unit says which one is live.
+// This is the path an edit under sudo actually takes on an install whose config
+// moved out of the compiled default.
+func TestTheBrokerUnitNamesTheLiveConfig(t *testing.T) {
+	want := "/home/op/" + ".faramir/config.toml"
+	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+want+"\n")
+	if got := resolveConfig(""); got != want {
+		t.Errorf("resolveConfig(\"\") = %q, want the path the unit names", got)
+	}
+}
+
+// A unit that names no config leaves the decision to config.Load rather than
+// inventing a path.
+func TestAUnitWithoutTheVariableFallsThrough(t *testing.T) {
+	withUnit(t, "[Service]\nUser=faramir-broker\n")
+	if got := resolveConfig(""); got != "" {
+		t.Errorf("resolveConfig invented %q from a unit that names no config", got)
 	}
 }
