@@ -109,12 +109,6 @@ func (s *Server) Close() error {
 	return nil
 }
 
-// Reload re-fetches the value set.  Wired to SIGHUP.
-func (s *Server) Reload() {
-	log.Printf("SIGHUP: reloading secrets")
-	s.Store.Reload()
-}
-
 func (s *Server) serveConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 

@@ -279,8 +279,8 @@ func (k *Keeper) Listen() (net.Listener, error) {
 
 // Serve handles connections until the listener is closed.
 //
-// The keeper answers one client (the broker), rarely: on startup, on SIGHUP,
-// and when a managed file changes on disk.  Serial handling is therefore
+// The keeper answers one client (the broker), rarely: on startup and when a
+// managed file changes on disk.  Serial handling is therefore
 // enough, and it keeps the process that holds the key as small as it can be.
 func (k *Keeper) Serve() error {
 	for {

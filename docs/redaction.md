@@ -16,9 +16,13 @@ injector-based redactor has never seen those values and cannot mask them.
 
 Therefore: **the redactor's value set is every secret the keeper manages**, not
 the subset relevant to the current command. The broker fetches it on startup,
-on `SIGHUP`, when a managed file's mtime changes, and again when the previous
-fetch could not reach the keeper: the files are unchanged in that case, so the
-mtime poll would never notice, and an empty value set redacts nothing.
+when a managed file's mtime changes, and again when the previous fetch could
+not reach the keeper: the files are unchanged in that case, so the mtime poll
+would never notice, and an empty value set redacts nothing.
+
+Which files it watches is fixed at startup. `config.toml` is read once by each
+daemon, so a file added to `[secrets] files` is adopted by restarting the
+keeper and then the broker, not by signalling either of them.
 
 ## Why a PTY and not a pipe
 

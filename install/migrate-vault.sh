@@ -142,7 +142,9 @@ Done: $DST
 
 Before deleting $SRC and the vault password file:
   1. Point [secrets].files in /etc/faramir/config.toml at $DST.
-  2. systemctl reload faramir-broker
+  2. Restart the keeper, then the broker.  Neither re-reads config.toml while
+     running, so a newly listed file is invisible to both until they restart,
+     and the keeper has to lead: it decrypts the list the broker is served.
   3. Run a real playbook end to end through faramir run and confirm it works.
 
 Then, and only then:

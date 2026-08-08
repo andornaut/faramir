@@ -14,9 +14,11 @@
 //     values live in this process's heap, are never written to disk, and are
 //     never placed in an argv.
 //
-// The keeper is a separate process, so this caches: it reloads on start, on
-// SIGHUP, and when a managed file's mtime changes.  Stat-ing the sops files
-// needs no key, so that poll stays on this side.
+// The keeper is a separate process, so this caches: it reloads on start and
+// when a managed file's mtime changes.  Stat-ing the sops files needs no key,
+// so that poll stays on this side.  There is no signal that reloads: the file
+// list comes from config.toml, which both daemons read once at startup, so a
+// change to it is adopted by restarting them rather than by signalling one.
 package secretstore
 
 import (
@@ -54,7 +56,7 @@ type Store struct {
 	// retry is set when the keeper could not be reached.  The mtime poll alone
 	// would never notice: the files have not changed, only our ability to
 	// decrypt them, so without this the value set stays as it was until a file
-	// is edited or SIGHUP arrives.  On a cold start that set is empty, which
+	// is edited.  On a cold start that set is empty, which
 	// means nothing is redacted.
 	retry      bool
 	checkedAt  time.Time
@@ -70,8 +72,7 @@ type Store struct {
 
 	// Held across a refresh-driven reload, not under mu: Reload takes mu
 	// itself, and the point is to keep concurrent requests from each starting
-	// their own keeper round trip.  An explicit Reload (startup, SIGHUP) is
-	// never skipped.
+	// their own keeper round trip.  The startup Reload is never skipped.
 	refreshing atomic.Bool
 }
 
@@ -89,7 +90,8 @@ func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
 	}
 }
 
-// Reload re-fetches every value from the keeper.  On startup and on SIGHUP.
+// Reload re-fetches every value from the keeper.  On startup, and from the
+// mtime poll when a managed file has changed.
 func (s *Store) Reload() {
 	var state []fileState
 	var errors, fatal []string

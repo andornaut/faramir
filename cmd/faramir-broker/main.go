@@ -77,18 +77,16 @@ func run() int {
 	}
 	defer func() { _ = s.Close() }()
 
+	// No SIGHUP.  An edit to a managed file is picked up by the mtime poll
+	// within refresh_interval_sec, and a change to config.toml is not something
+	// a signal could apply: the file list this process started with is the one
+	// the keeper decrypts, so adopting a new one means restarting both.
 	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
 	go func() {
-		for sig := range signals {
-			if sig == syscall.SIGHUP {
-				s.Reload()
-				continue
-			}
-			log.Printf("shutting down")
-			_ = s.Close()
-			return
-		}
+		<-signals
+		log.Printf("shutting down")
+		_ = s.Close()
 	}()
 
 	sockutil.NotifyReady()

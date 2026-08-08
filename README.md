@@ -174,7 +174,12 @@ checkout and somewhere Ansible does not auto-load:
 ```bash
 install/migrate-vault.sh group_vars/all/vault.yml \
     /etc/faramir/secrets/ansible-ctrl.sops.yml
-sudo systemctl reload faramir-broker
+# after adding the file to [secrets] files.  A restart, not a reload:
+# neither daemon re-reads config.toml.  Two commands rather than one,
+# because systemctl does not order the units it is given and the keeper
+# has to lead: it decrypts the list the broker is served.
+sudo systemctl restart faramir-keeper
+sudo systemctl restart faramir-broker
 faramir run --env ROUTER_PW=secret://home/router/admin -- \
     ansible-playbook site.yml --check     # prove it works end to end
 ```
@@ -197,7 +202,7 @@ all; 3 through 5 are what let a command actually receive a value.
 Step | Do | Why it is separate
 --- | --- | ---
 1 | Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them | Not in the checkout: a home is not mounted until its owner logs in, so a value set inside one is empty at boot
-2 | Add that file to `[secrets] files` and `systemctl reload faramir-broker` | This is what puts the values in the redaction set, whether or not anything ever injects them
+2 | Add that file to `[secrets] files`, then restart the keeper and the broker, in that order | This is what puts the values in the redaction set, whether or not anything ever injects them. A restart rather than a reload: both daemons read `config.toml` once at startup, so a newly listed file is invisible to a running one. The keeper leads because it decrypts the list the broker is served
 3 | Point the project's own config at environment variables | The project never decrypts anything; it reads `$NAME` however it already reads environment
 4 | Write the refs down beside the project, one `NAME=secret://ref` per line | So a run names refs rather than someone remembering them
 5 | Copy [agent/claude/mcp.json](agent/claude/mcp.json) into the repo as `.mcp.json` | The agent gets `faramir_run` in that checkout
@@ -544,7 +549,7 @@ If the broker is unreachable the wrapper warns and passes output through unredac
 
 Full detail in [docs/redaction.md](docs/redaction.md). In short:
 
-1. **The value set is every managed secret**, not just the injected ones, fetched from the keeper and refreshed on mtime change and on `SIGHUP`. A managed host can print a credential the broker never injected, which is the case off-the-shelf injectors cannot cover.
+1. **The value set is every managed secret**, not just the injected ones, fetched from the keeper and refreshed when a managed file's mtime changes. A managed host can print a credential the broker never injected, which is the case off-the-shelf injectors cannot cover.
 1. **Children run on a PTY**, not a pipe: programs behave normally, and writes straight to `/dev/tty` (which is how `ssh` and `sudo` prompt) are captured. Consequence: stdout and stderr arrive merged.
 1. **ANSI escapes are stripped before matching**, so a colour code spliced into the middle of a value cannot defeat it.
 1. **An expanded value set is matched**: raw, base64 (padded/unpadded, wrapped/unwrapped), URL-encoded, JSON-escaped, shell single- and double-quoted.
@@ -600,9 +605,10 @@ up, and the concurrency, timeout and output ceilings.
 
 ## Operational notes
 
-- **`systemctl reload faramir-broker`** after editing a sops file it manages, though it also picks up mtime changes within `refresh_interval_sec` and retries there when the previous attempt could not reach the keeper. The broker stats the files and asks the keeper to decrypt, so a reload needs both services running. One refresh-driven reload runs at a time, which is the only thing bounding `refresh_interval_sec = 0` ("check on every request").
+- **Editing a managed sops file needs nothing.** The broker stats the files it was configured with and picks up an edit within `refresh_interval_sec`, retrying there when the previous attempt could not reach the keeper. It asks the keeper to decrypt, so both services have to be running. One refresh-driven reload runs at a time, which is the only thing bounding `refresh_interval_sec = 0` ("check on every request"). There is no `systemctl reload`: nothing a signal could do here, since the next note is the case that needs anything at all.
+- **Changing `config.toml` needs both daemons restarted, the keeper first.** Neither re-reads it while running, so a file added to `[secrets] files` stays invisible until they are restarted, and its values are absent from the redactor until then. The keeper leads because it decrypts the list the broker is served; restarting the broker alone just fetches the old value set again.
 - **The keeper and the executor must both be up.** `faramir-broker.service` requires both sockets. With no executor every command fails with `exec_failed`; with no keeper, see below.
-- **The keeper must be up before the broker is useful.** With no keeper the broker keeps whatever value set it already had and logs the failure; on a cold start that set is empty, which means nothing gets redacted. It retries on the next request after `refresh_interval_sec`, so a keeper that comes back is picked up on its own without a reload. Check `systemctl status faramir-keeper` first when tokens stop appearing.
+- **The keeper must be up before the broker is useful.** With no keeper the broker keeps whatever value set it already had and logs the failure; on a cold start that set is empty, which means nothing gets redacted. It retries on the next request after `refresh_interval_sec`, so a keeper that comes back is picked up on its own. Check `systemctl status faramir-keeper` first when tokens stop appearing.
 - **`[secrets] files` may live anywhere the keeper's uid can read.** `ProtectSystem=strict` leaves the whole hierarchy visible and read-only, so a path outside the working tree needs no unit change; its own mode is what decides.
 - **The broker's home is `/var/lib/faramir-broker`, not `/home/faramir-broker`.** It needs a writable home, because it holds the SSH keys for managed hosts and `ansible-playbook` creates `~/.ansible/tmp` unconditionally, and `StateDirectory=` is what grants it. `install/10-accounts.sh` sets this up; an account created by hand with `useradd -M` will fail with `Unable to create local directories`.
 - **No working tree is named anywhere the broker reads.** The managed sops files are in `/etc/faramir/secrets`, and a brokered command runs where its caller was, so nothing has to agree about a tree's path. The keeper is `ProtectHome=true` because it opens nothing under a home at all. The executor is granted `/home` and `/srv/faramir`, where modes decide what it can write; a caller working outside both needs a drop-in adding that path to its `ReadWritePaths=`.

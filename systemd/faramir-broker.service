@@ -23,7 +23,6 @@ Group=faramir-broker
 # broker nothing it did not already have; the executor gains nothing at all.
 SupplementaryGroups=dev faramir-exec
 ExecStart=/usr/local/bin/faramir-broker
-ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2
 
