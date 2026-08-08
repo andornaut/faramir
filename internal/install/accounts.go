@@ -27,6 +27,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -60,12 +61,34 @@ func (r *runner) serviceAccounts() []serviceAccount {
 
 func (r *runner) stepAccounts() error {
 	changed := false
-	for _, group := range []string{r.layout.Group, r.layout.StoreGroup} {
-		if groupExists(group) {
+	// The two groups are not the same kind of thing and are not allocated the
+	// same way.  The shared group admits people: the operator is in it, and it
+	// group-owns the trees they work in, so it belongs in the range login.defs
+	// reserves for login accounts.  The store group admits the keeper and the
+	// broker and nobody else, both nologin service accounts, so -r puts it in
+	// the system range below GID_MIN with them.
+	//
+	// Without -r, shadow allocates by taking the highest gid already in the
+	// login-account range and adding one.  That lands the store group wherever
+	// the host happens to number its own services from, on a number something
+	// else has already spoken for.
+	for _, group := range []struct {
+		name   string
+		system bool
+	}{
+		{r.layout.Group, false},
+		{r.layout.StoreGroup, true},
+	} {
+		if groupExists(group.name) {
 			continue
 		}
 		if !r.opts.DryRun {
-			if _, err := r.command("groupadd", group); err != nil {
+			args := []string{}
+			if group.system {
+				args = append(args, "-r")
+			}
+			args = append(args, group.name)
+			if _, err := r.command("groupadd", args...); err != nil {
 				return err
 			}
 		}
@@ -92,6 +115,28 @@ func (r *runner) stepAccounts() error {
 	r.step("accounts", changed, fmt.Sprintf("groups %s and %s, users %s",
 		r.layout.Group, r.layout.StoreGroup,
 		strings.Join([]string{r.layout.BrokerUser, r.layout.KeeperUser, r.layout.ExecUser}, ", ")))
+
+	// A store group in the login-account range was allocated without -r, by an
+	// install that came before this one.  Nothing here reads the number, since
+	// the store is group-owned by name, but it now sits in the range a host
+	// numbers its own service accounts from and the next one allocated there
+	// collides with it.
+	//
+	// Reported rather than moved.  groupmod changes the group and leaves every
+	// file owned by the old gid behind, so moving it is two steps that have to
+	// agree, and a group named with --store-group may be one the operator
+	// allocated where they meant to.
+	if gid, err := lookupGroup(r.layout.StoreGroup); err == nil {
+		if first := firstLoginGID(); gid >= first {
+			r.warn("group %s has gid %d, in the range login.defs reserves for "+
+				"login accounts; it holds only service accounts and belongs "+
+				"below %d, where a host's own numbering will not reach it. "+
+				"Move it with `groupdel %s && groupadd -r %s`, then re-run this "+
+				"install: it re-owns the store to the new gid and restarts the "+
+				"daemons onto it",
+				r.layout.StoreGroup, gid, first, r.layout.StoreGroup, r.layout.StoreGroup)
+		}
+	}
 
 	// The store group is what makes editing a secret need sudo.  A membership
 	// this did not add is somebody else's decision, so it is reported rather
@@ -316,6 +361,40 @@ func (r *runner) resolveIDs() error {
 	}
 	r.operatorHome = home
 	return nil
+}
+
+// Where GID_MIN is configured.  A variable so a test can point at one it wrote.
+var loginDefs = "/etc/login.defs"
+
+// firstLoginGID is GID_MIN: the bottom of the range reserved for login
+// accounts, and so one past the top of the system range that `groupadd -r`
+// allocates in.  A group holding nothing but nologin service accounts belongs
+// below it.
+//
+// Debian and Ubuntu ship GID_MIN set and SYS_GID_MIN commented out, so this
+// reads the one that is actually there and treats everything below it as the
+// system range.  A file that is missing, unreadable or says nothing about
+// GID_MIN falls back to the value those distributions ship.
+func firstLoginGID() int {
+	const fallback = 1000
+	data, err := os.ReadFile(loginDefs)
+	if err != nil {
+		return fallback
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		// A commented-out setting keeps its name in the first field, prefixed,
+		// so it does not match and the fallback stands in for it.
+		fields := strings.Fields(line)
+		if len(fields) != 2 || fields[0] != "GID_MIN" {
+			continue
+		}
+		gid, err := strconv.Atoi(fields[1])
+		if err != nil {
+			return fallback
+		}
+		return gid
+	}
+	return fallback
 }
 
 func homeDir(name string) (string, error) {

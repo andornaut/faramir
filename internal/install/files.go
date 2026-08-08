@@ -104,11 +104,11 @@ func (r *runner) stepDirectories() error {
 	// is permission to unlink and rename what is in it whatever the files
 	// themselves are, and that is the whole of what an operator-owned parent
 	// would give away.
-	made, err := r.fs.ensureDir(r.layout.SecretsDir, 0o2750|os.ModeSetgid, 0, r.storeGID, true)
+	storeChanged, err := r.fs.ensureDir(r.layout.SecretsDir, 0o2750|os.ModeSetgid, 0, r.storeGID, true)
 	if err != nil {
 		return err
 	}
-	changed = changed || made
+	changed = changed || storeChanged
 
 	// The files already in it, handed to the store group along with the
 	// directory.  An install that moved the group without this leaves them
@@ -141,14 +141,26 @@ func (r *runner) stepDirectories() error {
 		if err != nil {
 			return err
 		}
+		storeChanged = storeChanged || made
 		changed = changed || made
+	}
+
+	// A process takes its supplementary groups at exec and never re-reads them,
+	// so a store that has just changed group is one the running keeper and
+	// broker still hold the old gid for.  They keep reading it until something
+	// restarts them and then cannot, which is a broker that was healthy at
+	// install time and refuses at the next activation, for a reason by then
+	// several days old.  Moving a store group is otherwise two steps that have
+	// to agree and only one of them is here.
+	if storeChanged {
+		r.restartFor("store ownership")
 	}
 
 	// Created but not re-asserted, like the service homes: LogsDirectory= on the
 	// broker's unit makes systemd apply LogsDirectoryMode here on every start,
 	// so a mode asserted here is undone by the next start and reported as a
 	// change on every run after that.
-	made, err = r.fs.ensureDir(r.layout.LogDir, 0o750, r.brokerUID, r.brokerGID, false)
+	made, err := r.fs.ensureDir(r.layout.LogDir, 0o750, r.brokerUID, r.brokerGID, false)
 	if err != nil {
 		return err
 	}
