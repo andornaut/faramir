@@ -42,11 +42,13 @@ The operator edits them in place with `sops`, through the group, without sudo. `
 
 ## Where brokered commands run
 
-A brokered command runs where its caller was, so `faramir-exec` must reach that directory: it forks the command there. The broker stats it too, but only to fail early with a clear message, and treats its own permission error as the executor's business. That matters on ecryptfs, where an ACL is write-once and a home granted to the executor before the broker existed cannot be extended afterwards.
+A brokered command runs where its caller was, so `faramir-exec` must reach that directory: it forks the command there. The broker stats it too, but only to fail early with a clear message, and treats its own permission error as the executor's business. That matters on ecryptfs, where an ACL written through the mount is discarded whatever it says, so a home may end up granting one of them and not the other.
 
-A tree outside the homes needs nothing. Inside a `0700` home the executor needs traversal, which phase 1 grants with an ACL on every component from the home down, the broker alongside it for the error message. Not `chmod o+x`, which would hand traversal to every account on the machine, and with `umask 002` in force that is the whole home rather than a path through it.
+A tree outside the homes needs nothing. Inside a `0700` home the executor needs traversal, which `faramir share-tree` grants with an ACL on every component from the home down, the broker alongside it for the error message. Not `chmod o+x`, which would hand traversal to every account on the machine, and with `umask 002` in force that is the whole home rather than a path through it.
 
-On ecryptfs only the first ACL write against an inode lands: later edits return success and change nothing, `-b` included. A home already carrying a grant cannot be extended, which is why both uids go in one call, and why the broker's entry is a convenience rather than a requirement.
+On ecryptfs an ACL written through the mount is discarded: `setfacl` exits 0 and the entry lands neither on the mount nor on the directory backing it. The backing directory takes it normally, being ordinary ext4, and the mounted view picks it up at the next mount, that view being populated when the mount is made rather than tracking the directory afterwards. `faramir share-tree` writes there when it finds the mount discarded the entry, and says a remount is needed.
+
+Only the mount point itself can be redirected that way. Names below it are encrypted, so no path under the mount corresponds to one underneath without the key, which is another reason the broker's grant is a convenience rather than a requirement.
 
 An ACL is a permission, not a mount: it holds nothing open, so an encrypted home still unmounts at logout. A brokered command running at the time does hold one open.
 

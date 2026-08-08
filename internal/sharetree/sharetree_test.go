@@ -121,3 +121,45 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 		}
 	}
 }
+
+// An ACL written through an ecryptfs mount is discarded, exit 0 and all, so
+// share-tree writes to the backing directory instead. Only the mount point maps:
+// names below it are encrypted, and no path under the mount corresponds to one
+// underneath without the key.
+func TestLowerDirFindsTheBackingDirectoryOfAnEcryptfsMount(t *testing.T) {
+	home := t.TempDir()
+	lower := filepath.Join(home, "backing")
+	if err := os.Mkdir(lower, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mounts := "" +
+		"/dev/nvme0n1p2 / ext4 rw,relatime 0 0\n" +
+		lower + " /home/op ecryptfs rw,nosuid,ecryptfs_sig=abc 0 0\n" +
+		"tmpfs /run tmpfs rw 0 0\n"
+
+	got, ok := lowerDirFrom(mounts, "/home/op")
+	if !ok || got != lower {
+		t.Errorf("lowerDirFrom = %q, %v; want %q, true", got, ok, lower)
+	}
+	// Not an ecryptfs mount point: nothing to redirect to.
+	if _, ok := lowerDirFrom(mounts, "/run"); ok {
+		t.Error("a tmpfs mount was treated as ecryptfs")
+	}
+	// A path below the mount is not the mount, and cannot be mapped.
+	if _, ok := lowerDirFrom(mounts, "/home/op/src"); ok {
+		t.Error("a path below the mount was mapped")
+	}
+}
+
+// /proc/self/mounts escapes the awkward characters in octal.
+func TestMountFieldsAreUnescaped(t *testing.T) {
+	home := t.TempDir()
+	lower := filepath.Join(home, "backing")
+	if err := os.Mkdir(lower, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mounts := lower + ` /home/a\040b ecryptfs rw 0 0` + "\n"
+	if _, ok := lowerDirFrom(mounts, "/home/a b"); !ok {
+		t.Error("an escaped space in the mount point was not decoded")
+	}
+}

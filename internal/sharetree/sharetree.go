@@ -166,30 +166,98 @@ func grantTraversal(home, dir string, opts Options) error {
 	opts.logf("traversal for %s: %s -> %s", strings.Join(opts.Users, " "), home, dir)
 
 	for _, component := range Components(home, dir) {
-		// One call granting every account.  On ecryptfs only the first write
-		// against an inode lands, so separate calls would drop all but the first
-		// and report success for the rest.
+		// Every account in one call, so a filesystem that takes the write only
+		// partially cannot leave a subset granted.
 		_ = exec.Command("setfacl", "-m", strings.Join(spec, ","), component).Run()
 
-		// Read back rather than trusting the exit status, for the same reason:
-		// that filesystem returns 0 and changes nothing once a directory carries
-		// an ACL.
+		// Read back rather than trusting the exit status.  Written through an
+		// ecryptfs mount, setfacl exits 0 and the entry lands nowhere at all,
+		// so the status says the opposite of what happened.
 		missing := missingEntries(component, opts.Users)
 		if len(missing) == 0 {
 			continue
 		}
+
+		// An ecryptfs mount discards the write rather than failing it.  The
+		// backing directory takes it, so write there instead and say that the
+		// mounted view will not show it until the next mount.
+		if lower, ok := LowerDir(component); ok {
+			_ = exec.Command("setfacl", "-m", strings.Join(spec, ","), lower).Run()
+			if still := missingEntries(lower, opts.Users); len(still) == 0 {
+				opts.logf("%s is an ecryptfs mount, which discards an ACL written", component)
+				opts.logf("    through it, so the entry went to %s", lower)
+				opts.logf("    instead.  Remount to pick it up:")
+				opts.logf("        ecryptfs-umount-private && ecryptfs-mount-private")
+				opts.logf("    Until then %s reaches nothing below it.", strings.Join(missing, " "))
+				continue
+			}
+		}
+
 		opts.logf("WARNING: %s did not take an ACL entry for %s.",
 			component, strings.Join(missing, " "))
-		opts.logf("    setfacl reported success; the filesystem dropped it.  An")
-		opts.logf("    ecryptfs directory accepts one ACL and no edits, so this")
-		opts.logf("    cannot be fixed in place.  Either keep the tree outside the")
-		opts.logf("    home, or give this one directory 'chmod o+x' and accept that")
-		opts.logf("    every uid can then traverse it.  Note that with umask 002 in")
-		opts.logf("    force the files below are 0664, so that opens the home rather")
-		opts.logf("    than a path through it.")
+		opts.logf("    setfacl reported success and the entry is not there.  Either")
+		opts.logf("    keep the tree outside the home, or give this one directory")
+		opts.logf("    'chmod o+x' and accept that every uid can then traverse it.")
+		opts.logf("    Note that with umask 002 in force the files below are 0664,")
+		opts.logf("    so that opens the home rather than a path through it.")
 		return nil
 	}
 	return nil
+}
+
+// mountsFile is /proc/self/mounts, replaced in tests.
+var mountsFile = "/proc/self/mounts"
+
+// LowerDir returns the backing directory of an ecryptfs mount at path.
+//
+// Setting an ACL through an ecryptfs mount is discarded: setfacl exits 0 and
+// the entry appears neither on the mount nor underneath it.  Written to the
+// backing directory it applies normally, the lower filesystem being ordinary
+// ext4, and the mounted view picks it up at the next mount: that view is
+// populated when the mount is made and does not track the directory afterwards.
+//
+// Only the mount point itself can be redirected this way.  Names below it are
+// encrypted, so no path under the mount maps to one underneath without the key.
+func LowerDir(path string) (string, bool) {
+	data, err := os.ReadFile(mountsFile)
+	if err != nil {
+		return "", false
+	}
+	return lowerDirFrom(string(data), path)
+}
+
+func lowerDirFrom(mounts, path string) (string, bool) {
+	for _, line := range strings.Split(mounts, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 || fields[2] != "ecryptfs" {
+			continue
+		}
+		// Fields are escaped octal for the awkward characters.
+		if unescapeMount(fields[1]) != path {
+			continue
+		}
+		source := unescapeMount(fields[0])
+		// Recorded when the mount was made, so it may be a symlink, and on this
+		// layout it is one that lives inside the mount it describes.
+		resolved, err := filepath.EvalSymlinks(source)
+		if err != nil {
+			return "", false
+		}
+		if info, err := os.Stat(resolved); err != nil || !info.IsDir() {
+			return "", false
+		}
+		return resolved, true
+	}
+	return "", false
+}
+
+func unescapeMount(field string) string {
+	for _, pair := range []struct{ from, to string }{
+		{`\040`, " "}, {`\011`, "\t"}, {`\012`, "\n"}, {`\134`, `\`},
+	} {
+		field = strings.ReplaceAll(field, pair.from, pair.to)
+	}
+	return field
 }
 
 func missingEntries(path string, users []string) []string {

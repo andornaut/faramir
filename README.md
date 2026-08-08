@@ -296,7 +296,7 @@ It **can** write the working tree, which is the point, and reach the broker sock
 
 A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. `faramir share-tree` grants it with an ACL, never `chmod o+x` (with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it). The broker is granted alongside it so an unreachable directory is reported clearly rather than as a child that failed to start, but it is not required: the broker treats its own permission error on the cwd as the executor's business. The keeper needs nothing, its files being under `/etc` and its unit setting `ProtectHome=true`.
 
-On ecryptfs an ACL is write-once: the first grant lands and later edits are silently dropped, so both uids go in a single call and a home already carrying one cannot be extended. That is why the broker's grant is a convenience rather than a requirement.
+On ecryptfs an ACL written through the mount is discarded, `setfacl` exiting 0 either way. `faramir share-tree` notices, writes to the directory backing the mount instead, and tells you to remount: the mounted view is populated when the mount is made and does not track that directory afterwards. Only the mount point maps, names below it being encrypted, which is another reason the broker's grant is a convenience rather than a requirement.
 
 ## Redaction
 
