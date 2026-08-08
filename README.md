@@ -428,13 +428,13 @@ cmd/faramir-broker     policy, redaction, audit log, SSH keys
 cmd/faramir-keeper     holds the age key, execs sops, serves values only
 cmd/faramir-exec       forks brokered commands, holds nothing
 cmd/faramir-mcp        MCP stdio server
-cmd/faramir-guard      PreToolUse hook
+cmd/faramir-guard      the pre-execution hook, one per agent dialect
 internal/              implementation; each package doc explains its decisions
 internal/e2e           end-to-end suite: a real keeper, executor and broker
 internal/install       what `faramir init`, `doctor` and `uninstall` do
 systemd/               socket and hardened service unit templates, one pair per daemon
 etc/                   the starter config template; per-consumer settings go in config.d
-agent/                 deny patterns, settings, the snippet to add to a project
+agent/                 deny patterns, and per-agent settings: agent/claude, agent/gemini
 tests/verify.sh        the verification matrix
 docs/                  redaction, wire protocol, Ansible, scope
 ```

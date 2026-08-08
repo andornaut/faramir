@@ -4,7 +4,7 @@
 
 **Keeping sops-managed values out of the model's context, in the projects enrolled to do it.** That is the whole of it.
 
-Enrolment is per project because coverage is not free: the hook rewrites every Bash command so output can be redacted, and a rewritten command matches no permission rule, so Bash is auto-approved wherever the hook runs.
+Enrolment is per project because coverage is not free, though what it costs is the agent's property rather than faramir's. On Claude Code a rewritten command matches no permission rule and the hook must approve it, so Bash is auto-approved wherever the hook runs. On Gemini CLI there is no allow to return, so the prompts are untouched. See [Agents](#agents).
 
 The value set is global. The broker holds every managed secret regardless of which project asked, so a command in an unenrolled project can print a managed value uncaught. **Treat unenrolled as "no redaction", not "safe".**
 
@@ -67,7 +67,7 @@ Group membership is a permission, not a mount: it holds nothing open, so an encr
 
 ## How the rewrite works
 
-A `PreToolUse` hook cannot rewrite a tool's result, but it can rewrite its input. The guard replaces `<command>` with:
+A pre-execution hook cannot rewrite a tool's result, but it can rewrite its input. The guard replaces `<command>` with:
 
 ```bash
 source /usr/local/libexec/faramir/wrap.sh '<command>'
@@ -97,17 +97,34 @@ Left alone rather than rewritten, because buffering would change what they do:
 - one whose last line ends in `\`, `&&`, `||` or `|`
 - a denied command, which is refused instead
 
+## Agents
+
+The guard is one program speaking each agent's hook contract. What varies is the tool that runs a command, the shape of the reply, and where the hook is registered; what does not vary is that the command is rewritten to redact its own output.
+
+Agent | Redaction | Enrolling costs
+--- | --- | ---
+Claude Code | full | every Bash prompt in the project: the hook must approve, or a rewritten command runs nowhere
+Gemini CLI | full | nothing. There is no allow to return, so a hook that has not denied has not approved
+opencode, Kilo Code | full | unknown; their permission rules are pattern-matched and the ordering against the plugin hook is undocumented
+Antigravity | none | not offered. Its hooks decide and cannot rewrite, and they fire only in the CLI
+
+Antigravity is declined rather than pending. A deny list without redaction is the weaker half of this, and shipping it under the same name would say a project is covered when the thing that covers it is absent.
+
+Agents are named with `--agent`, never detected. Enrolling trades something away on some of them, and a directory left behind by trying one once is not a decision.
+
 ## What this gives up
 
 **No kernel boundary around the agent process.** Hooks and the deny list, which is the trade for an agent that can do the operator's work.
 
-**For Bash, the deny list replaces the permission prompt.** Permission matching runs against the rewritten command, so a rule keyed on the program name no longer matches, and the wrapper cannot be allow-listed either. Returning `allow` is not what removes those rules: the rewrite already stopped them matching, and the decision only makes that explicit rather than leaving rules that appear active and never fire.
+**For Bash on Claude Code, the deny list replaces the permission prompt.** Permission matching runs against the rewritten command, so a rule keyed on the program name no longer matches, and the wrapper cannot be allow-listed either. Returning `allow` is not what removes those rules: the rewrite already stopped them matching, and the decision only makes that explicit rather than leaving rules that appear active and never fire.
 
 **The shipped deny list names credential disclosure and nothing destructive.** Enrolling drops whatever Bash prompting stood between the agent and `rm -rf` and puts nothing in its place. Prompts on `Write` and `Edit` do not cover it, since Bash can write and delete without them.
 
 There is no setting that returns `ask` instead. It would prompt on every command including `ls`, show the rewritten text rather than what was typed, offer no rule that could pre-approve any of it, and strand an unattended run on the first command with nobody to answer.
 
-### Cost by permission mode
+### Cost by permission mode, on Claude Code
+
+Permission modes are Claude Code's; the table below is about it alone.
 
 Hook decisions are evaluated independently of the session's permission mode, and the hook's decision applies. Measured with a hook that denies one pattern and rewrites everything else:
 
