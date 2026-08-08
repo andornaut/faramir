@@ -34,9 +34,8 @@ checkout inside an encrypted home does not exist until its owner logs in, so
 the broker would come up at boot with an empty value set and redact nothing,
 and a cron job would find nothing at all.
 
-`.sops.yaml` sits in the same directory (written by `install/20-sops-init.sh`),
-because sops resolves creation rules by walking up from the file it is
-encrypting:
+`.sops.yaml` sits in the same directory, written by
+`install/20-sops-init.sh`:
 
 ```yaml
 creation_rules:
@@ -48,6 +47,21 @@ creation_rules:
 
 The rule matches on the `.sops.yml` suffix rather than on a directory, so
 moving a file does not silently drop it out of encryption.
+
+Which rule applies is matched against the file's path, but **which `.sops.yaml`
+sops reads is resolved from the current working directory upward**, not from the
+file being encrypted. Encrypting into the store from an Ansible checkout
+therefore finds nothing and fails with `config file not found, or has no
+creation rules`. Name it outright:
+
+```bash
+sops --config /etc/faramir/secrets/.sops.yaml \
+    --encrypt --filename-override /etc/faramir/secrets/ansible-ctrl.sops.yml \
+    plain.yml
+```
+
+`install/migrate-vault.sh` passes `--config` for you. Decryption needs none of
+this: creation rules govern encryption only.
 
 Key *names* stay readable, so diffs are per-key and reviewable and the agent
 can see the shape of the file without seeing any value. `faramir_list_secrets`

@@ -35,16 +35,26 @@ command -v ansible-vault >/dev/null || { echo "ansible-vault not found" >&2; exi
 if [[ $DST =~ (^|/)(group_vars|host_vars)/ ]]; then
   echo "refusing to write $DST" >&2
   echo "Ansible auto-loads group_vars/ and host_vars/, and would bind every var" >&2
-  echo "to its ENC[...] ciphertext instead of the injected value.  Use a" >&2
-  echo "directory Ansible does not read, e.g. secrets/$(basename "$DST")." >&2
+  echo "to its ENC[...] ciphertext instead of the injected value.  Write it to" >&2
+  echo "the managed store instead: /etc/faramir/secrets/$(basename "$DST")." >&2
   exit 1
 fi
 
-# sops finds .sops.yaml by walking up from the file it is encrypting, and picks
-# a creation rule by matching that file's path.  The plaintext lives in
-# /dev/shm, which matches nothing, so the destination path has to be named
-# explicitly or sops exits with "no matching creation rules".
-DST_ABS="$(cd "$(dirname "$DST")" && pwd)/$(basename "$DST")"
+# Two separate things sops needs, and only one of them follows from the other.
+#
+# Which creation rule applies is matched against the file's path, and the
+# plaintext lives in /dev/shm, which matches nothing -- hence
+# --filename-override naming the destination.
+#
+# Which .sops.yaml to read is resolved from the CURRENT WORKING DIRECTORY
+# upward, not from the file being encrypted, and --filename-override does not
+# change that.  Run from an Ansible checkout, sops never sees the store's
+# .sops.yaml and exits with "config file not found, or has no creation rules".
+# So name it outright.
+DST_DIR="$(cd "$(dirname "$DST")" && pwd)"
+DST_ABS="${DST_DIR}/$(basename "$DST")"
+SOPS_CONFIG_ARGS=()
+[[ -f ${DST_DIR}/.sops.yaml ]] && SOPS_CONFIG_ARGS=(--config "${DST_DIR}/.sops.yaml")
 
 TMPDIR_SHM="$(mktemp -d /dev/shm/vault-migrate.XXXXXX)"
 chmod 700 "$TMPDIR_SHM"
@@ -64,7 +74,7 @@ echo "==> encrypting to $DST"
 # file behind on failure, and the -e guard above would then block the retry.
 ENCRYPTED="$TMPDIR_SHM/out.sops.yml"
 if sops --help 2>&1 | grep -q -- '--filename-override'; then
-  sops --encrypt --filename-override "$DST_ABS" "$PLAIN" >"$ENCRYPTED"
+  sops "${SOPS_CONFIG_ARGS[@]}" --encrypt --filename-override "$DST_ABS" "$PLAIN" >"$ENCRYPTED"
 elif [[ -n ${AGE_RECIPIENT:-} ]]; then
   sops --encrypt --age "$AGE_RECIPIENT" "$PLAIN" >"$ENCRYPTED"
 else
@@ -72,6 +82,10 @@ else
   exit 1
 fi
 cat "$ENCRYPTED" >"$DST"
+# 0640 explicitly, not whatever the caller's umask happens to be: the store is
+# setgid dev so the group is right either way, but a 077 umask would leave the
+# keeper unable to read it, and a broker that loads no values redacts nothing.
+chmod 0640 "$DST"
 
 echo "==> verifying round trip"
 # Compared as data, not as bytes.  sops re-serialises YAML when it decrypts:

@@ -13,9 +13,10 @@ KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 GROUP="${DEV_GROUP:-dev}"
 KEY=/etc/faramir/age.key
 
-# Where the managed sops files live, and therefore where .sops.yaml has to sit:
-# sops resolves creation rules by walking up from the file it is encrypting, so
-# a rule that is not an ancestor of that file is a rule it never finds.
+# Where the managed sops files live, and therefore where .sops.yaml sits beside
+# them.  sops resolves that file from the current working directory upward, not
+# from the file being encrypted, so anything encrypting into this directory from
+# elsewhere has to name it: install/migrate-vault.sh passes --config.
 SECRETS_DIR="${SECRETS_DIR:-/etc/faramir/secrets}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
@@ -37,7 +38,17 @@ command -v sops >/dev/null || { echo "install sops first (https://github.com/get
 
 install -d -m 0755 -o root -g root /etc/faramir
 # Phase 1 creates this; re-asserted here so this phase can be run on its own.
-getent group "$GROUP" >/dev/null && install -d -m 2770 -o root -g "$GROUP" "$SECRETS_DIR"
+# Created either way: skipping it silently would take the .sops.yaml block below
+# with it and leave this phase exiting 0 having named a directory that does not
+# exist.  Without the group it is root-only until phase 1 runs and fixes it.
+if getent group "$GROUP" >/dev/null; then
+  install -d -m 2770 -o root -g "$GROUP" "$SECRETS_DIR"
+else
+  install -d -m 2770 -o root -g root "$SECRETS_DIR"
+  say "WARNING: group ${GROUP} does not exist yet, so ${SECRETS_DIR} is"
+  say "         root-owned and the keeper cannot read it.  Run"
+  say "         install/10-accounts.sh, which creates the group and fixes this."
+fi
 
 if [[ -f $KEY ]]; then
   say "keeping existing ${KEY}"
