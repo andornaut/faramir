@@ -4,27 +4,27 @@ Playbooks get their credentials the same way every other brokered program
 does: the caller names refs, the broker injects values as environment
 variables, and `group_vars` reads them.
 
+Ansible does **not** decrypt sops itself, and cannot. Doing so needs the age
+private key, and no process the broker starts ever receives it: the keeper
+holds it under its own uid and serves decrypted values only. A playbook can run
+arbitrary tasks, so a playbook holding the master key would mean anything that
+can reach Ansible can obtain the key that decrypts every managed file,
+retroactively, including everything already in git history.
+
 The `[exec.base_env]` variables and sops file paths this guide assumes are in
 [etc/examples/ansible-fleet.toml](../etc/examples/ansible-fleet.toml). If
 `ansible-playbook` is a pipx or venv install, put its directory on the `PATH`
 in `[exec.base_env]`: that is the PATH the child gets, and where the broker
 looks up a bare command name.
 
-Ansible does **not** decrypt sops itself here, and cannot. Doing so needs the
-age private key, and no process the broker starts ever receives it: the keeper
-holds it under its own uid and serves decrypted values only. Since a playbook
-can run arbitrary tasks, a playbook holding the master key would mean anything
-that can reach Ansible can obtain the key that decrypts every managed file,
-retroactively, including everything already in git history.
-
 ## 1. Encrypt the right file, in the right place
 
 Keep the encrypted file **out of `group_vars/` and `host_vars/`**. Ansible
 loads every `.yml` under those directories as a vars file, and a sops file is
-valid YAML: it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and
-`vault.sops.yml` sorts after `vars.yml`, so it also overwrites the
-`lookup('env', …)` mapping from section 3. Nothing errors. Hosts get configured
-with the ciphertext of a credential in place of the credential.
+valid YAML: it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and a
+name sorting after `vars.yml` also overwrites the `lookup('env', …)` mapping
+from section 2. Nothing errors. Hosts get configured with the ciphertext of a
+credential in place of the credential.
 
 This guide uses `secrets/` at the repo root, which Ansible does not auto-load.
 `install/migrate-vault.sh` refuses the bad destination.
@@ -42,43 +42,35 @@ creation_rules:
 The rule matches on the `.sops.yml` suffix rather than on a directory, so
 moving a file does not silently drop it out of encryption.
 
-Keeping key *names* readable means diffs stay per-key and reviewable, and the
-agent can see the shape of the file without seeing any value. The broker's
-`faramir_list_secrets` shows the same names.
-
-## 2. Keep var names unchanged
-
-`install/migrate-vault.sh` preserves the YAML structure exactly, so a var that
-was `vault_router_password` under ansible-vault stays `vault_router_password`.
-Playbooks need no change beyond the lookup mechanism.
-
-Reference them from the broker as `secret://` paths, where nesting maps to `/`:
+Key *names* stay readable, so diffs are per-key and reviewable and the agent
+can see the shape of the file without seeing any value. `faramir_list_secrets`
+shows the same names. Nesting maps to `/` in a ref:
 
 ```yaml
 home:
   router:
     admin: …        # secret://home/router/admin
-vault_router_password: …   # secret://vault_router_password
+api_token: …        # secret://api_token
 ```
 
-## 3. Resolution: read the environment
+## 2. Resolution: read the environment
 
-Add a committed, **unencrypted** vars file that maps each var to the
-environment variable the broker will inject. It contains no secrets, so it is
-readable and reviewable like any other file:
+Add a committed, **unencrypted** vars file mapping each var to the environment
+variable the broker will inject. It contains no secrets, so it is readable and
+reviewable like any other file:
 
 ```yaml
 # group_vars/all/vars.yml
-vault_router_password: "{{ lookup('env', 'ROUTER_PW') }}"
-vault_api_token: "{{ lookup('env', 'API_TOKEN') }}"
+router_password: "{{ lookup('env', 'ROUTER_PW') }}"
+api_token: "{{ lookup('env', 'API_TOKEN') }}"
 ```
 
 The caller names the refs per run:
 
 ```bash
 faramir run \
-    --env ROUTER_PW=secret://vault_router_password \
-    --env API_TOKEN=secret://home/api/token -- \
+    --env ROUTER_PW=secret://home/router/admin \
+    --env API_TOKEN=secret://api_token -- \
     ansible-playbook site.yml --limit routers
 ```
 
@@ -86,59 +78,41 @@ or, from the agent:
 
 ```
 faramir_run(cmd=["ansible-playbook", "site.yml", "--limit", "routers"],
-            env_refs={"ROUTER_PW": "secret://vault_router_password",
-                      "API_TOKEN": "secret://home/api/token"})
+            env_refs={"ROUTER_PW": "secret://home/router/admin",
+                      "API_TOKEN": "secret://api_token"})
 ```
+
+A command needing many credentials takes `--env-file` instead, which holds refs
+and never values and belongs beside the playbook it serves.
 
 Verify:
 
 ```bash
-faramir run --env ROUTER_PW=secret://vault_router_password -- \
-    ansible localhost -m debug -a 'var=vault_router_password'
-# -> «SECRET:vault_router_password»
+faramir run --env ROUTER_PW=secret://home/router/admin -- \
+    ansible localhost -m debug -a 'var=router_password'
+# -> «SECRET:home/router/admin»
 ```
 
 That is worth running once: it proves the var resolved *and* that printing it
-produces a token rather than a value. Anything else is a fault. `ENC[AES256_GCM,...]`
-in particular means the encrypted file is somewhere Ansible auto-loads it, per
-section 1.
+produces a token rather than a value. Anything else is a fault.
+`ENC[AES256_GCM,...]` in particular means the encrypted file is somewhere
+Ansible auto-loads it, per section 1.
 
 A var whose ref was not injected resolves to an empty string, which usually
 surfaces as a task failing further along rather than as a clear error. When a
 playbook behaves as though a credential were blank, check `env_refs` first.
 
-## 4. What this replaces
-
-Earlier versions used the `community.sops` vars plugin, or a
-`lookup('pipe', 'sops -d …')`. Both need `SOPS_AGE_KEY` in the playbook's
-environment, so neither works now, and both fail with a sops error about
-missing key material rather than anything about faramir.
-
-`TestABrokeredCommandCannotDecryptTheStore` in `internal/e2e` runs `sops
---decrypt` as a brokered command and asserts it **fails for want of key
-material**, so a change that quietly hands the key back to a child is caught.
-`lookup('pipe', 'sops -d …')` is that same call with a playbook wrapped around
-it.
+A `community.sops` vars plugin or a `lookup('pipe', 'sops -d …')` cannot work
+here: both need `SOPS_AGE_KEY` in the playbook's environment, and both fail
+with a sops error about missing key material rather than anything naming
+faramir. `internal/e2e` runs `sops --decrypt` as a brokered command and asserts
+it fails for want of key material, so a change that quietly hands the key back
+to a child is caught.
 
 Encrypted files still need to be listed in `[secrets] files` so their values
 land in the redaction set, whether or not any playbook names them.
 
-## 5. Removing ansible-vault
-
-In this order, and not before:
-
-1. Point `[secrets] files` in `/etc/faramir/config.toml` at the new `.sops.yml`
-   files, then `systemctl reload faramir-broker`.
-2. Add the `lookup('env', …)` vars file from section 3 and commit it.
-3. Run a real playbook end to end through `faramir run`, not `--check`, with
-   the refs it needs in `--env`, and confirm it works and prints no plaintext.
-4. `git rm` the old vault files.
-5. Delete the vault password file.
-6. **Rotate every credential that was ever committed**, or rewrite history.
-   See the warning in the README: the plaintext-equivalent blobs are still in
-   git history and the old vault password still opens them.
-
-## 6. SSH keys
+## 3. SSH keys
 
 Brokered commands run as `faramir-exec`, which must be able to *use* the keys
 that reach managed hosts without being able to read them: a password can be
@@ -156,23 +130,21 @@ keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
 The keys must have no passphrase, since nothing is there to type one.
 `faramir-broker --check`, run as the broker's own account, parses each
 configured key and fails on one `ssh-add` would refuse, so a passphrase (or
-`[ssh] keys` naming the `.pub` by mistake) is caught at install time rather than
-as a fleet-wide authentication failure. It reads the file as the uid that runs
-it, so a key left `root:root` passes a root-run check and then fails for the
-broker. At
-runtime the broker logs the error and carries on, since one bad key should not
-stop the others loading. The agent lives
-and dies with the broker, so a restart reloads it and nothing outlives the
-process with keys in memory.
+`[ssh] keys` naming the `.pub` by mistake) is caught at install time rather
+than as a fleet-wide authentication failure. It reads the file as the uid that
+runs it, so a key left `root:root` passes a root-run check and then fails for
+the broker. At runtime the broker logs the error and carries on, since one bad
+key should not stop the others loading. The agent lives and dies with the
+broker, so nothing outlives the process with keys in memory.
 
 Leave `keys` empty and no agent runs. Authentication is then whatever the
-executor's own uid can do on its own, which in practice means keys in
+executor's own uid can do, which in practice means keys in
 `~faramir-exec/.ssh`, readable by every brokered command. It works; it is not
 the arrangement to choose.
 
 Either way the *agent* account cannot read the keys, which is the point, so
 `ssh` connection problems have to be debugged through `faramir run` or from the
-raw log, using the `log_id` the agent reports.
+audit log, using the `log_id` the agent reports.
 
 Keep `ANSIBLE_HOST_KEY_CHECKING=True` in `[exec.base_env]`. Turning it off to
 make a broken host work is how a broker with credentials ends up handing them

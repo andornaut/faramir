@@ -1,9 +1,7 @@
 # How the redactor works
 
-The redactor is the only substantial piece of new code in this project
-([internal/redact](../internal/redact)). Everything else is plumbing around uid
-separation. This document explains why each stage exists, because several of
-them look like over-engineering until you hit the case they exist for.
+[internal/redact](../internal/redact). Each stage below exists for a case that
+is not obvious from the stage itself.
 
 ## Why not an off-the-shelf injector
 
@@ -33,8 +31,8 @@ Two reasons, and the second is the one that matters.
    entirely. `ssh` and `sudo` do exactly this for password prompts. A pipe on
    stdout/stderr never sees those writes. Owning the controlling terminal does.
 
-`TestWritesToDevTtyAreCapturedAndRedacted` in `internal/e2e` pins this down:
-`printenv ROUTER_PW > /dev/tty` is captured and comes back as a token.
+`internal/e2e` pins this down: `printenv ROUTER_PW > /dev/tty` is captured and
+comes back as a token.
 
 The fork happens in `faramir-exec`, but the PTY does not move with it. The
 broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the
@@ -68,8 +66,8 @@ to a model. So escapes and stray control characters are removed *first*, and
 the response contains the stripped text.
 
 Streaming complicates this: an escape sequence can be split across two reads.
-The stripper holds back a trailing partial sequence (up to 64 bytes) and
-prepends it to the next chunk.
+The stripper holds back a bounded trailing partial sequence and prepends it to
+the next chunk.
 
 ### 2. Match an expanded value set
 
@@ -91,7 +89,7 @@ accident.
 
 ### 3. Wrapped base64 needs a second pass
 
-`base64` wraps at 76 columns by default, so the encoded value arrives with
+`base64` wraps its output by default, so the encoded value arrives with
 newlines inside it and matches nothing. The redactor builds a copy of the
 buffer with newlines removed, keeping an index map back to the original
 offsets, matches the base64 variants against that view, and maps the hits back
@@ -99,27 +97,28 @@ to spans in the original text so surrounding output is preserved.
 
 ### 4. Stream with an overlap buffer
 
-The redactor holds back `2 × max(len(variant)) + 16` characters of the tail on
-every `Feed`, releasing them only on `Flush`. The doubling covers base64 line
-wrapping (newlines inserted *inside* a value make its on-the-wire length longer
-than the variant itself).
+The redactor holds back a tail derived from the longest variant on every
+`Feed`, releasing it only on `Flush`. The margin is more than the longest
+variant because base64 line wrapping inserts newlines *inside* a value, making
+its on-the-wire length longer than the variant itself.
 
 Because the retained tail has already been redacted, re-scanning it on the next
 chunk cannot double-count: a token contains no secret.
 
 Everything `Feed` returns is output, including the release triggered by the
 last partial-rune tail at end of stream. Dropping that return would lose the
-final characters of every command whose last write splits a rune;
-`TestOutputEndingMidRuneIsNotTruncated` in `internal/executor` holds that down.
+final characters of every command whose last write splits a rune, which
+`internal/executor` holds down.
 
 ### 5. Minimum length and entropy gate
 
 A short password redacts unrelated output at random. If `cat` is a secret, the
 word "concatenate" gets mangled and the agent is left debugging a phantom.
 
-Defaults: at least 8 characters, at least 4 distinct characters, at least 1.5
-bits/char of Shannon entropy. A value that fails the gate is **refused at
-load**: it is not held, not listed by `faramir_list_secrets`, and not
+`[secrets]` sets a minimum length, a minimum count of distinct characters and a
+minimum Shannon entropy per character; the shipped values are in
+[etc/config.toml](../etc/config.toml). A value that fails the gate is **refused
+at load**: it is not held, not listed by `faramir_list_secrets`, and not
 injectable. Asking for it returns an error naming the reason.
 
 Refusing rather than serving-and-warning means the broker is never the thing
@@ -154,20 +153,14 @@ essentially never occur in tool output, so a token is unambiguous.
 
 ## The age key is not in the value set
 
-It used to be. When Ansible decrypted sops vars itself it received
-`SOPS_AGE_KEY`, and anything that can decrypt can also print the key it
-decrypted with, so the key material was added to the value set under the ref
-`broker/age-key` and a child that printed it got a token.
+No process the broker starts receives the key, can read `/etc/faramir/age.key`
+(owned by `faramir-keeper`, mode 0400), or can open the keeper's socket, so
+"no child prints the age key" holds by construction rather than by the matcher
+catching it on the way out. Redaction is best-effort; a uid boundary is not.
 
-That is gone, and its absence is the stronger arrangement. No process the
-broker starts receives the key, can read `/etc/faramir/age.key` (owned by
-`faramir-keeper`, mode 0400), or can open the keeper's socket. The property
-"no child prints the age key" no longer rests on the matcher catching it on
-the way out. Redaction is best-effort; a uid boundary is not.
-
-Relying on the redactor here was always weaker than it looked: a child holding
-the key could write it to a file or send it somewhere, and redaction only ever
-sees output.
+Covering it in the redactor instead would be weaker than it looks: a child
+holding the key could write it to a file or send it somewhere, and redaction
+only ever sees output.
 
 ## The audit log is redacted too
 
@@ -176,17 +169,16 @@ what reaches disk. Everything else in a record is already value-free: the refs
 are names, and `argv` is redacted on its way in as well, because the broker
 never puts a value there but a caller can.
 
-It used to hold the unredacted stream, justified as the operator's debugging
-copy. The cost was the only plaintext this system writes to disk: unencrypted
-while every sops file beside it is encrypted, unbounded, and in `/var/log`,
-where backups, snapshots and log shippers reach and the `0600 faramir-broker`
-mode does not follow. A stolen disk gave up every secret that had ever appeared
-in output.
+An unredacted log would be the only plaintext this system writes to disk:
+unencrypted while every sops file beside it is encrypted, unbounded, and in
+`/var/log`, where backups, snapshots and log shippers reach and the `0600
+faramir-broker` mode does not follow. A stolen disk would give up every secret
+that had ever appeared in output.
 
 Auditing needs who ran what, when, against which refs, and to what effect, and
 none of that is a value. Confirming that a credential actually arrived is what
-the redaction counts are for, which is the same argument already made for the
-agent in [protocol.md](protocol.md): a count of 1 for `«SECRET:home/router/admin»`
+the redaction counts are for, which is the same argument made for the agent in
+[protocol.md](protocol.md): a count of 1 for `«SECRET:home/router/admin»`
 proves it landed, and a count of 0 when you expected 1 is the real signal.
 
 What this costs: you cannot tell from the log whether the value that arrived

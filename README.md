@@ -10,6 +10,42 @@ $ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
 
 The command really ran, the credential really reached it, and the agent never saw the value.
 
+## What it is for
+
+A coding agent maintaining an Ansible-managed fleet from the operator's own
+workstation. The playbooks need real credentials, and the agent has to run
+them, read the failures and iterate.
+
+Without a broker there are two options. Hand the agent the vault password, and
+every value it touches lands in the transcript on its way to a model provider.
+Withhold it, and every credentialed task goes back to the operator by hand.
+
+With one, the agent names what it needs and never holds it:
+
+```console
+$ faramir run --env-file fleet.env -- ansible-playbook site.yml --limit routers
+
+TASK [router : Configure the admin account] ************************************
+changed: [gw-01]
+
+PLAY RECAP *********************************************************************
+gw-01   : ok=14   changed=2    unreachable=0    failed=0
+[faramir] redacted «SECRET:home/router/admin»×3; log_id=2026-08-08T04:58:17Z-a3f4
+```
+
+The playbook ran with the real password, the agent can read the output and fix
+the next failure, and no plaintext entered its context. The same shape fits any
+command needing a credential the agent should not read: `terraform apply`, a
+`docker login`, a deploy script.
+
+The agent asks through an MCP tool rather than the CLI, which is the same
+broker and the same audit record:
+
+```python
+faramir_run(cmd=["ansible-playbook", "site.yml", "--limit", "routers"],
+            env_refs={"ROUTER_PW": "secret://home/router/admin"})
+```
+
 ## Features
 
 - [Uid separation, not a container](#architecture) - three service accounts, so what a brokered command cannot reach is a kernel boundary rather than a policy
@@ -145,40 +181,33 @@ faramir run --env ROUTER_PW=secret://home/router/admin -- \
 ```
 
 > [!WARNING]
-> **Rotate everything that was ever committed in plaintext.** Moving to sops does not un-leak what is already in the repository. After `git rm`-ing the old vault files, the plaintext-equivalent blobs remain in git history, and anyone with the old vault password can still read them. Rotate every credential that was ever committed, or rewrite history with `git filter-repo` and force-push, and rotate anyway if the repo was ever pushed anywhere. This is not optional cleanup; it is the difference between having migrated and having added a second copy.
+> **Rotate everything that was ever committed.** `git rm` does not remove the vault blobs from history, and the old vault password still opens them. Rotate every credential, or rewrite history with `git filter-repo`, and rotate anyway if the repo was ever pushed anywhere. Without this you have added a second copy rather than migrated.
 
-The same applies to the vault password file: delete it only after a real playbook run succeeds through the broker, then treat the password as burned.
+Delete the vault password file only after a real playbook run succeeds through the broker, then treat the password as burned.
 
 ## Usage
 
-Run `faramir --help` to view the available commands, and `faramir <command> --help` for each one's options:
-
-```text
-usage: faramir <command> [options] [-- program [args...]]
-
-Run a credential-bearing command through the secret broker.
-
-Commands:
-  run           run a command with secrets injected
-  list-secrets  list secret refs (names only)
-  status        show broker status
-  keygen        mint an age keypair for the keeper
-  version       print the version and exit
-
-Run "faramir <command> --help" for that command's own options.
-
-Every command that talks to the broker accepts:
-  --socket PATH   broker socket (default /run/faramir/broker.sock; $FARAMIR_SOCKET)
-  --json          print the raw response instead of the output
-
-Secrets are injected as environment variables only; they are never substituted
-into the command line.
-```
+`faramir --help` lists the commands and `faramir <command> --help` gives each
+one's options. `run` executes a command with secrets injected, `redact` scrubs
+secrets out of text or out of a command's output, `list-secrets` prints ref
+names, `status` reports what the broker loaded, and `keygen` mints an age
+keypair for the keeper. Every command that talks to the broker takes `--socket`
+and `--json`.
 
 ```bash
-faramir list-secrets
+faramir status                       # config path, loaded files, ref count
+faramir list-secrets                 # ref names, never values
+
+# Inject one secret, then many
 faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
+faramir run --env-file fleet.env -- ansible-playbook site.yml
+
+# Quiet the redaction summary, run somewhere else, cap the runtime
 faramir run --quiet -C /srv/faramir/worktree -t 120 -- ansible-playbook site.yml
+
+# Redact without brokering: as a filter, or around a command you run yourself
+kubectl get secret -o yaml | faramir redact
+faramir redact -- ./deploy.sh
 ```
 
 `run` also takes `--quiet` (suppress the redaction summary, which goes to
@@ -361,7 +390,12 @@ Group membership is not enough on its own when the tree sits inside your home, w
 
 On an ecryptfs home that ACL is write-once: the first `setfacl` against an inode applies and every later one is silently ignored, exiting 0 while changing nothing. Phase 1 grants all three uids in one call and reads the result back with `getfacl` for that reason. A tree outside every home (`/srv/faramir/worktree`, the installer's default) needs none of this.
 
-The SSH agent is two sockets for the same reason. OpenSSH's `ssh-agent` calls `getpeereid()` on every connection and closes any whose peer euid is neither root nor its own, so handing its socket to another uid fails at the protocol layer however permissive the mode is: the client connects and the request is dropped, which `ssh-add` reports as `communication with agent failed`. `ssh-agent` therefore binds a private socket that only the broker's uid uses, and the broker serves the public one, relaying bytes between the two. Every upstream connection is then the broker's own, which also means `ssh-agent`'s uid check no longer decides anything: the relay makes the `SO_PEERCRED` check itself, so the public socket's mode is a second boundary rather than the only one. It also reads the agent protocol rather than piping it: the protocol has no read-only mode, so a connection that can sign can also send `REMOVE_ALL_IDENTITIES` or `ADD_IDENTITY`, and a brokered command could empty the broker's agent or load a key of its own into it. Only `REQUEST_IDENTITIES` and `SIGN_REQUEST` are forwarded, and the connection ends on anything else. The child can therefore authenticate and still cannot extract a key, which the protocol does not offer, change what the agent holds, or ptrace it, since it belongs to another uid.
+The SSH agent is two sockets for the same reason. OpenSSH's `ssh-agent` calls `getpeereid()` on every connection and closes any whose peer euid is neither root nor its own, so handing its socket to another uid fails at the protocol layer however permissive the mode is: the client connects, the request is dropped, and `ssh-add` reports `communication with agent failed`. So `ssh-agent` binds a private socket only the broker's uid uses, and the broker serves the public one, relaying between the two. That has two consequences:
+
+- **Every upstream connection is the broker's own**, so `ssh-agent`'s uid check decides nothing. The relay makes the `SO_PEERCRED` check itself, and the public socket's mode is a second boundary rather than the only one.
+- **The relay reads the protocol rather than piping it.** The agent protocol has no read-only mode, so a connection that can sign can also send `REMOVE_ALL_IDENTITIES` or `ADD_IDENTITY`. Only `REQUEST_IDENTITIES` and `SIGN_REQUEST` are forwarded; the connection ends on anything else.
+
+A brokered command can therefore authenticate, and cannot extract a key, change what the agent holds, or ptrace it.
 
 What keeps a brokered command out of everything else is the ordinary file mode, not a mount namespace. `ProtectSystem=strict` makes the whole hierarchy read-only, and the executor names `/home` and `/srv/faramir` as writable, both shipped locations for the tree. The only thing its uid can actually write there is the group-writable tree itself: your home is 0700, and lifting the read-only mount is not permission.
 
@@ -411,7 +445,7 @@ Full detail in [docs/redaction.md](docs/redaction.md). In short:
 1. **ANSI escapes are stripped before matching**, so a colour code spliced into the middle of a value cannot defeat it.
 1. **An expanded value set is matched**: raw, base64 (padded/unpadded, wrapped/unwrapped), URL-encoded, JSON-escaped, shell single- and double-quoted.
 1. **Streaming uses an overlap buffer**, so a value split across two reads is still caught.
-1. **Short or low-entropy values are refused at load**: an 8-character floor plus an entropy gate, because a short password would blank out unrelated output at random if redacted. The broker will not hold or inject one, and names it in the log and in `faramir-broker --check`; the agent is told neither, since a value that is never tokenized is one worth targeting. Lengthen them.
+1. **Short or low-entropy values are refused at load**, because a short password redacted would blank out unrelated output at random. The gate is `[secrets]` minimum length, distinct characters and entropy. The broker will not hold or inject a value that fails it, and names it in the log and in `faramir-broker --check`; the agent is told neither, since a value that is never tokenized is one worth targeting. Lengthen them.
 1. **Tokens are stable**: the same secret always renders as `«SECRET:ref»`, so the model can reason about it across turns.
 
 The age key is *not* in the value set, and does not need to be: no child can obtain it, so the property holds by construction rather than by the matcher catching it on the way out. That is the stronger arrangement, because redaction is best-effort and a uid boundary is not.
@@ -423,70 +457,46 @@ make test          # unit + end-to-end, no privileges required
 sudo make verify   # the matrix below, against the live deployment
 ```
 
-The numbering is `verify.sh`'s own, so a failure reported there is findable here.
+[tests/verify.sh](tests/verify.sh) is the list; it prints a numbered result per
+check, so read it there rather than from a copy here. What it establishes,
+running each check as the uid that matters:
 
-No. | Test | Expected | Covered by
---- | --- | --- | ---
-1 | `cat /etc/faramir/age.key` (as yourself) | Permission denied | `verify.sh`
-1b | `sudo -u faramir-broker cat /etc/faramir/age.key` | Permission denied | `verify.sh`
-1c | mode and owner of `/etc/faramir/age.key` | `0400 faramir-keeper` | `verify.sh`
-1d | `test -w /run/faramir/keeper.sock` (as yourself) | not writable | `verify.sh`
-1e | `faramir run -- bash -lc 'cat /run/credentials/*/age_key'` | no key | `verify.sh`
-1f | `faramir run -- bash -lc 'echo $SOPS_AGE_KEY'` | empty | `internal/e2e`, `verify.sh`
-1g | `faramir run -- bash -lc 'id -un'` | `faramir-exec` | `verify.sh`
-1h | `sudo -u faramir-exec cat /var/log/faramir/audit.log` | Permission denied | `verify.sh`
-1i | `faramir run -- bash -lc 'touch <worktree>/x'` | succeeds; commands run where the agent edits | `verify.sh`
-1i2 | `sudo -u faramir-exec cat /etc/faramir/age.key` | Permission denied; `dev` must not grant this | `verify.sh`
-1j | `sudo -u faramir-exec test -w /run/faramir/keeper.sock` | not writable | `verify.sh`
-1k | `sudo -u faramir-exec test -w /run/faramir/exec.sock` | not writable; no unlogged commands | `verify.sh`
-1l | `faramir run -- bash -lc 'ssh-add -l'` | lists keys it cannot read | `internal/sshagent`, `verify.sh`
-1m | `sudo -u faramir-exec cat ~faramir-broker/.ssh/id_*` | Permission denied | `verify.sh`
-1n | `sudo -u faramir-exec test -w /run/faramir/ssh-agent.sock.private` | not connectable; the keys are reachable only through the relay | `internal/sshagent`, `verify.sh`
-1o | `faramir run -- bash -lc 'ssh-add -D'` | refused; the agent still holds its keys | `internal/sshagent`, `verify.sh`
-2 | `cat /proc/$(pgrep -u faramir-broker faramir-broker)/environ` (as yourself) | No such file | `verify.sh`
-2b | `test -w /run/faramir/broker.sock` (as yourself) | writable; `dev` access works | `verify.sh`
-3 | `faramir run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `internal/e2e`, `verify.sh`
-4 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `internal/e2e`, `verify.sh`
-5 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64 -w0'` | redacted | `internal/e2e`, `verify.sh`
-6 | `faramir run -- ansible-playbook site.yml -vvv` | no plaintext anywhere | `verify.sh`
-7 | playbook containing `debug: var=<secret>` | redacted | `verify.sh`
-8 | `faramir run -- <not-on-PATH>` | refused, and the error names `[exec.base_env] PATH` | `internal/resolve`, `internal/server`, `verify.sh`
-8b | `faramir run -- <worktree>/script.sh` | runs; a program outside the system directories is not special | `internal/resolve`, `internal/e2e`, `verify.sh`
-9a | mode and owner of the audit log | `0600 faramir-broker` | `internal/e2e`, `verify.sh`
-9b | `cat /var/log/faramir/audit.log` (as yourself) | Permission denied | `verify.sh`
-9c | the audit log has content | records what ran, tokenized | `internal/e2e`, `verify.sh`
-9d/9e | grep the audit log for an injected value | **absent**; the log holds tokens, never values | `internal/server`, `internal/e2e`, `verify.sh`
-**10** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **reaches the caller transformed** | demonstrated by `verify.sh`, not asserted
-**11** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **reaches the caller transformed** | demonstrated by `verify.sh`, not asserted
-12a | `echo text \| faramir redact` | ordinary text passes through unchanged | `internal/e2e`, `verify.sh`
-12b | `faramir redact -- bash -lc 'exit 33'` | exits 33; the wrapper keeps the child's status | `internal/e2e`, `verify.sh`
-12c | a `Bash` payload into `faramir-guard` | answered with `updatedInput` naming the redactor | `cmd/faramir-guard`, `verify.sh`
-12d | the operator's `~/.claude/settings.json` | registers `faramir-guard` | `verify.sh`
+- **The age key is unreadable** by anyone but the keeper, the operator and the
+  broker included, and no brokered command can obtain it through its
+  environment, a systemd credential, or the keeper's socket.
+- **The audit log and the fleet SSH keys are unreadable** by the executor, and
+  a brokered command can authenticate through the SSH agent without being able
+  to read a key or change what the agent holds.
+- **Redaction covers the value set**, including through `base64` wrapped and
+  not, a `-vvv` playbook run, a `debug: var=` task, and a write straight to
+  `/dev/tty`.
+- **The audit log holds tokens, never values.**
+- **Command resolution** refuses a program that is not on `[exec.base_env]
+  PATH` and names the setting, while a script in the working tree runs.
+- **The hook is registered and answers**, and `faramir redact` passes ordinary
+  text through unchanged while keeping the child's exit status.
 
-Some properties need no live deployment and are therefore asserted only in the
-Go suite, where they can be exercised on every run:
+Two checks are demonstrations rather than assertions: piping a secret through
+`rev`, or through `cut`, reaches the caller transformed. That is the boundary
+in [What it protects against](#what-it-protects-against), and `verify.sh`
+prints what comes back because operators do not believe it until they watch it
+happen. Nothing pins it: a test that fails when redaction gets *better* is a
+test that has to be deleted to make progress. What is asserted instead is the
+coverage that is claimed, in `internal/redact`.
 
-Property | Expected | Covered by
---- | --- | ---
-Any keeper request other than `get_values` | refused, and the message says no operation returns key material | `internal/keeper`
-`sops --decrypt` run *as* a brokered command | fails for want of key material | `internal/e2e`
-Broker hangs up mid-command | the child's process group is killed | `internal/execserver`
-A write straight to `/dev/tty` | captured and tokenized, which a pipe would never see | `internal/e2e`
-A request over `max_concurrency` | refused as `busy`, not queued, and the slot returns | `internal/server`
-`timeout_sec` above `max_timeout_sec` | clamped, which is what bounds how long a slot is held | `internal/server`
-The environment the broker assembles | `base_env` plus the requested refs and nothing else, with no `HOME`: the executor supplies that under its own uid | `internal/server`
-A child's whole environment | no `AGE-SECRET-KEY` and no `SOPS_AGE_*` under any name | `internal/e2e`
-That environment after the run | wiped, so no plaintext copy outlives the request | `internal/server`
-Output past `max_output_bytes` | cut and said so, while the PTY keeps draining | `internal/executor`
-
-> [!NOTE]
-> **10 and 11 are not defects, and not assertions either.** They are the boundary described in [What it protects against](#what-it-protects-against): an agent that deliberately transforms a value defeats output redaction, and with unrestricted egress that value is gone. `verify.sh` prints what actually comes back, because operators do not believe this until they watch it happen, but nothing pins it: a test that fails when redaction gets *better* is a test that has to be deleted to make progress. What is asserted instead is the coverage that is claimed, in `internal/redact`: base64 padded and unpadded, wrapped and not, URL-encoded, JSON-escaped, shell-quoted, and split across chunk boundaries.
-
-The permission checks in tests 1 through 2b, and 9a/9b, only mean something on a real deployment. `make test` runs everything else in a temp directory, with the keeper, the executor and the broker as separate processes but a single uid: that exercises the protocol, the PTY hand-off and the redactor, not the uid boundary itself.
+The permission checks only mean anything against a real deployment. `make test`
+runs everything else in a temp directory, with the keeper, the executor and the
+broker as separate processes under a single uid: that exercises the protocol,
+the PTY hand-off and the redactor, not the uid boundary itself. Properties
+needing no deployment are asserted in the Go suite alone, so they run on every
+build: the keeper refusing any op but `get_values`, sops failing to decrypt as
+a brokered command, a child's environment carrying no key material under any
+name and being wiped afterwards, the process group dying when the broker hangs
+up, and the concurrency, timeout and output ceilings.
 
 ## Operational notes
 
-- **`systemctl reload faramir-broker`** after editing a sops file it manages; it also picks up mtime changes within `refresh_interval_sec`, and retries within the same interval when the previous attempt could not reach the keeper. The broker stats the files itself and asks the keeper to decrypt, so a reload needs both services running. One refresh-driven reload runs at a time, so concurrent requests do not each start their own; `refresh_interval_sec = 0` means "check on every request" and is bounded only by that.
+- **`systemctl reload faramir-broker`** after editing a sops file it manages, though it also picks up mtime changes within `refresh_interval_sec` and retries there when the previous attempt could not reach the keeper. The broker stats the files and asks the keeper to decrypt, so a reload needs both services running. One refresh-driven reload runs at a time, which is the only thing bounding `refresh_interval_sec = 0` ("check on every request").
 - **The keeper and the executor must both be up.** `faramir-broker.service` requires both sockets. With no executor every command fails with `exec_failed`; with no keeper, see below.
 - **The keeper must be up before the broker is useful.** With no keeper the broker keeps whatever value set it already had and logs the failure; on a cold start that set is empty, which means nothing gets redacted. It retries on the next request after `refresh_interval_sec`, so a keeper that comes back is picked up on its own without a reload. Check `systemctl status faramir-keeper` first when tokens stop appearing.
 - **`[secrets] files` may live anywhere the keeper's uid can read.** `ProtectSystem=strict` leaves the whole hierarchy visible and read-only, so a path outside the working tree needs no unit change; its own mode is what decides.
@@ -494,17 +504,17 @@ The permission checks in tests 1 through 2b, and 9a/9b, only mean something on a
 - **The working tree's path lives in the config and nowhere else.** Moving it means editing `[secrets] files`, or re-running `install/30-install-broker.sh` with a new `WORKTREE`. The units name no tree and the installer writes no drop-ins: the broker and the keeper only read the tree, which `ProtectSystem=strict` already allows, and the executor is granted `/home` and `/srv/faramir`, where modes decide what it can actually write. A tree outside both is the one case needing a drop-in, adding its path to the executor's `ReadWritePaths=`.
 - **Children do not inherit the broker's environment.** The child gets exactly `[exec.base_env]` plus its injected secrets. If a tool works for you but not through the broker, an environment variable is usually the reason. Add it to `base_env` rather than widening anything else.
 - **Interactive prompts fail, they do not hang.** The child owns a PTY for output, but its stdin is `/dev/null`, so a command that waits for input gets EOF immediately. Pass the non-interactive flags.
-- **Output is truncated** at `max_output_bytes` (1 MiB default). The audit log keeps more of it, up to `max_record_bytes` (4 MiB default), tokenized the same way.
+- **Output is truncated** at `[exec] max_output_bytes`. The audit log keeps more of it, up to `[audit] max_record_bytes`, tokenized the same way.
 - **The audit log grows without bound.** Add a logrotate rule; keep the mode at 0600 and the owner as `faramir-broker`.
-- **The audit log holds no secret value.** Output is recorded after redaction, and the command line is redacted too, so a value a caller put in `argv` itself does not reach disk either. What you get is who ran what, when, against which refs, and what came back with the same `«SECRET:ref»` tokens the agent saw. It is still 0600 and still operator-only, because the command lines and the ref names are worth protecting on their own. See [docs/redaction.md](docs/redaction.md) for what this costs and why the counts are enough.
-- **A key the broker cannot use fails `--check`.** Missing, passphrase-protected, or `[ssh] keys` naming the `.pub` by mistake: `ssh-add` refuses all three, and the broker then starts with an agent holding nothing. It logs one warning and carries on, so every socket is active and every playbook fails to authenticate against every host. `--check` reports each key under `ssh.keys` with whether it is readable and usable, as the uid that runs it, so run it as the broker's account. See [The install gate](#the-install-gate).
+- **The audit log holds no secret value.** Output is recorded after redaction, and `argv` is redacted on the way in, so a value a caller put there does not reach disk either. What you get is who ran what, when, against which refs, and what came back, with the tokens the agent saw. It stays 0600 and operator-only, because the command lines and the ref names are worth protecting on their own. See [docs/redaction.md](docs/redaction.md).
+- **A key the broker cannot use fails `--check`.** Missing, passphrase-protected, or naming the `.pub` by mistake: `ssh-add` refuses all three, and the broker then starts with an agent holding nothing, so every socket is active and every playbook fails to authenticate everywhere. See [The install gate](#the-install-gate).
 - **SSH keys belong in `[ssh] keys`, not in the executor's home.** Listed there, the broker loads them into an agent it owns and passes the child only `SSH_AUTH_SOCK`, so a brokered command can authenticate without being able to copy a key that opens the whole fleet. Left empty, the keys must sit in `~faramir-exec/.ssh`, where every brokered command can read them.
 - **There is no blast-radius bound.** A brokered command runs anything the executor's uid can run. That uid holds no key, no audit log and no SSH key, which is the property the design rests on, but it does have write access to the working tree, so a destructive command is destructive. See [What it protects against](#what-it-protects-against).
 
 ## Limits worth stating plainly
 
 - Redaction is best-effort against *accidents*, not against intent. See [What it protects against](#what-it-protects-against).
-- A secret shorter than 8 characters, or with very low entropy, is refused at load: the broker will not inject it. It is also absent from the redactor, so if it reaches the output some other way it arrives in plaintext. The broker tells you which ones; fix them at the source.
+- A value too short or too low-entropy to redact is refused at load: the broker will not inject it. It is also absent from the redactor, so if it reaches the output some other way it arrives in plaintext. The broker names which ones; fix them at the source.
 - A brokered command still receives the values it asked for, in its environment, because that is the point. What it does with them afterwards is the adversarial-exfiltration row in [What it protects against](#what-it-protects-against).
 - The SSH agent lends authentication, not keys, and only while the broker runs. A command can still use it to reach any host those keys open, for as long as it is running. Bound that at the far end with `command=` in `authorized_keys` if it matters.
 - With `[ssh] keys` left empty there is no agent, and the keys have to live where the executor's uid can read them. That is a working setup, not a recommended one.
@@ -531,10 +541,10 @@ Two choices worth naming:
 
 sops itself is executed, not linked. Linking it pulls its whole key-source tree
 (AWS KMS, GCP KMS, Azure Key Vault, Vault, PGP) into the process that holds the
-master key, because `keyservice` imports all seven backends unconditionally and
-Go cannot tree-shake them out; measured, that cost 42 MB and 818 packages in the
-keeper. Executing it keeps that in a separate short-lived process and leaves
-sops upgradable through apt.
+master key, because `keyservice` imports every backend unconditionally and Go
+cannot tree-shake them out. Executing it keeps that in a separate short-lived
+process, well away from the key, and leaves sops upgradable through apt.
+`make sizes` reports the current cost.
 
 Regexes are RE2: no lookahead, no backreferences. A pattern in
 `agent/hooks/deny-patterns.txt` that wants one has to be rewritten without it,
@@ -598,9 +608,8 @@ tests/verify.sh        the verification matrix, against a live deployment
 docs/                  how the redactor works; the wire protocol; wiring Ansible to sops
 ```
 
-All six binaries answer `--version` with the same string: `internal/version`
-holds it, so the CLI, the hook and the MCP server can name it without linking
-the broker.
+Every binary answers `--version` with the same string, from `internal/version`,
+so the CLI, the hook and the MCP server can name it without linking the broker.
 
 - [docs/redaction.md](docs/redaction.md) - what the redactor covers, and what it cannot
 - [docs/protocol.md](docs/protocol.md) - the request and response shapes on the socket
