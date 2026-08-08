@@ -81,6 +81,13 @@ func (r *runner) stepSystemd() error {
 	for _, service := range services {
 		out, _ := r.commandCombined("systemd-analyze", "verify", service)
 		for line := range strings.Lines(out) {
+			// Only lines naming the unit being verified.  verify reports on
+			// everything the unit pulls in transitively, so an unrelated
+			// third-party unit with a misspelled directive would otherwise abort
+			// the install blaming a faramir service.
+			if !strings.Contains(line, service) {
+				continue
+			}
 			if strings.Contains(line, "Unknown key name") {
 				return fmt.Errorf("systemd does not recognise a directive in %s and "+
 					"ignores it rather than failing: %s. A hardening or credential "+

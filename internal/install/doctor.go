@@ -245,15 +245,6 @@ func diagnoseLeftovers(report *DoctorReport, opts DoctorOptions) {
 		report.add("leftovers", StatusWarn, "written beside a file that was kept, "+
 			"and never merged: %s", strings.Join(leftovers, ", "))
 	}
-
-	settings := filepath.Join(home, ".claude", "settings.json")
-	body, err := os.ReadFile(settings)
-	if err == nil && strings.Contains(string(body), "faramir-guard") {
-		report.add("agent hook", StatusWarn, "%s registers faramir-guard for every "+
-			"project, which auto-approves Bash in all of them, including the ones "+
-			"that get no redaction in return. The hook belongs in a project's own "+
-			"settings", settings)
-	}
 }
 
 // groupMembers reads a group's supplementary members.  Primary membership does

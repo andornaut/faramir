@@ -76,6 +76,36 @@ func Share(opts Options) error {
 	return grantTraversal(owner.HomeDir, dir, opts, gid)
 }
 
+// Reachable is Share's second job on its own: every directory from the
+// operator's home down to dir is made enterable by the group, and dir itself is
+// left exactly as it was.
+//
+// For the directories the daemons only read.  A config kept in a home is
+// unreachable to three service uids that a 0700 home excludes, and the symptom
+// is not a permission message but a daemon that exits before it opens a socket.
+// Share is wrong for those: it would make the config group-writable, and a
+// config a brokered command can rewrite is the policy rewriting itself.
+func Reachable(opts Options) error {
+	dir, err := filepath.Abs(opts.Dir)
+	if err != nil {
+		return err
+	}
+	owner, err := user.Lookup(opts.Operator)
+	if err != nil {
+		return fmt.Errorf("no such user %q: %w", opts.Operator, err)
+	}
+	group, err := user.LookupGroup(opts.Group)
+	if err != nil {
+		return fmt.Errorf("no such group %q: %w", opts.Group, err)
+	}
+	gid, _ := strconv.Atoi(group.Gid)
+	// Outside the homes the modes already allow it and there is nothing to grant.
+	if owner.HomeDir == "" || !within(owner.HomeDir, dir) {
+		return nil
+	}
+	return grantTraversal(owner.HomeDir, dir, opts, gid)
+}
+
 func (o Options) logf(format string, args ...any) {
 	if o.Log != nil {
 		o.Log(fmt.Sprintf(format, args...))

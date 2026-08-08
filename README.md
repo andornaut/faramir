@@ -97,6 +97,8 @@ Flag | Does
 
 The units are sandboxed, so where the config and the store go is not a free choice. `init` refuses `/tmp` and `/var/tmp` (each unit gets a private one), refuses whitespace and `%` (systemd splits and expands `Environment=`), refuses two service accounts sharing a name (that is the boundary), and relaxes the keeper's `ProtectHome=` for you when either directory is inside a home, binding back only what it must so the other homes stay invisible.
 
+`init` installs and never migrates. It writes what this version wants and leaves anything an older layout put on the host alone, because a repair compiled into it cannot know when every host has run it and would be carried forever. Reconciling that belongs to whatever provisions the host, in something that can be deleted once the fleet has converged.
+
 - `faramir doctor` answers the question an install cannot: whether what landed is doing its job. A broker serving zero refs, an `ssh-agent` holding no key, and a shared group with members nobody recognises all look like a healthy install until something says otherwise.
 - `faramir reload` restarts the daemons onto a changed `config.d` drop-in, keeper first, which is the order that matters: the keeper decrypts the file list the broker is then served.
 - `faramir uninstall` leaves the accounts, the config, the store, the key and the audit log alone, and says so. Deleting the age key would make every managed sops file unreadable, retroactively.

@@ -31,6 +31,10 @@ func (r *runner) stepAgeKey() error {
 				"credential; without it this run would mint a new identity that "+
 				"decrypts none of the store", r.layout.AgeKeyPath, r.layout.AgeKeyCred)
 		}
+		// keeperRecipient stays empty, which is what stops the sops step below
+		// writing a .sops.yaml that omits the keeper.  The recipient cannot be
+		// recovered from a sealed credential without decrypting it, and nothing
+		// here decrypts one.
 		r.step("age key", false, "removed; the keeper reads "+r.layout.AgeKeyCred)
 		return nil
 	}
@@ -68,6 +72,7 @@ func (r *runner) stepAgeKey() error {
 			changed = true
 		}
 	}
+	r.keeperRecipient = recipient
 	r.addRecipient(recipient)
 	r.step("age key", changed, fmt.Sprintf("%s, 0400 %s", r.layout.AgeKeyPath, r.layout.KeeperUser))
 	return nil
@@ -140,6 +145,16 @@ func (r *runner) stepSopsConfig() error {
 		r.skip("sops config", "no age recipient known yet")
 		return nil
 	}
+	// Never without the keeper's own recipient.  Writing the file is what decides
+	// who can decrypt every value encrypted after it, and a rule listing only the
+	// operator produces a store the keeper cannot read: the broker comes up, and
+	// serves nothing.
+	if r.keeperRecipient == "" {
+		r.skip("sops config", "the keeper's recipient is unknown, because "+
+			r.layout.AgeKeyPath+" has been removed. Copy .sops.yaml from a host "+
+			"that has it, or re-seal from the original key")
+		return nil
+	}
 	var recipients strings.Builder
 	for _, recipient := range r.opts.AgeRecipients {
 		fmt.Fprintf(&recipients, "          - %s\n", recipient)
@@ -195,20 +210,39 @@ func (r *runner) stepSSHKey() error {
 	// key's ownership is: a key placed by hand, or left root-owned by an earlier
 	// arrangement, is one the broker cannot read, and the only symptom is an
 	// agent holding nothing and every brokered command reaching no host.
+	//
+	// A repair counts as a change.  Reporting it as no change tells a
+	// configuration manager the host was already correct when this run is what
+	// made it so.
+	changed := created
 	if !r.opts.DryRun {
 		for path, mode := range map[string]os.FileMode{
 			r.opts.SSHKey:          0o600,
 			r.opts.SSHKey + ".pub": 0o644,
 		} {
+			info, err := os.Stat(path)
+			if err != nil {
+				return fmt.Errorf("%s: %w\nThe broker needs both halves of the key. "+
+					"Regenerate the public half with: ssh-keygen -y -f %s > %s",
+					path, err, r.opts.SSHKey, r.opts.SSHKey+".pub")
+			}
+			wrong, err := wrongOwner(info, r.brokerUID, r.brokerGID)
+			if err != nil {
+				return err
+			}
+			if !wrong && info.Mode().Perm() == mode.Perm() {
+				continue
+			}
 			if err := os.Chown(path, r.brokerUID, r.brokerGID); err != nil {
 				return err
 			}
 			if err := os.Chmod(path, mode); err != nil {
 				return err
 			}
+			changed = true
 		}
 	}
-	r.step("broker ssh key", created, r.opts.SSHKey)
+	r.step("broker ssh key", changed, r.opts.SSHKey)
 	return nil
 }
 

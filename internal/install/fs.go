@@ -43,10 +43,16 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 			return true, nil
 		}
 		// Every directory MkdirAll has to create, not just the leaf.  An
-		// intermediate left root-owned at the leaf's mode is a path its owner
-		// cannot traverse: ~/.config/sops created 0700 root:root puts the
-		// operator's own age identity out of their reach, and sops then reports
-		// only that it found no key.
+		// intermediate left root-owned at 0700 is a path its owner cannot
+		// traverse: ~/.config/sops created that way puts the operator's own age
+		// identity out of their reach, and sops then reports only that it found
+		// no key.
+		//
+		// The ancestors take the ownership but not the mode: 0755, which is
+		// traversal and nothing more.  A store at /srv/faramir/secrets asks for
+		// 2770 with the shared group, and applying that to /srv/faramir as well
+		// would hand the uid every brokered command runs as write and rename on
+		// the store's own parent, which is the store.
 		created := missingAncestors(path)
 		if err := os.MkdirAll(path, mode); err != nil {
 			return false, err
@@ -54,7 +60,11 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 		for _, dir := range created {
 			// MkdirAll applies the umask and ignores setgid, so the mode is set
 			// again explicitly.
-			if err := os.Chmod(dir, mode); err != nil {
+			ancestorMode := os.FileMode(0o755)
+			if dir == path {
+				ancestorMode = mode
+			}
+			if err := os.Chmod(dir, ancestorMode); err != nil {
 				return false, err
 			}
 			if err := chown(dir, uid, gid); err != nil {

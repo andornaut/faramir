@@ -264,19 +264,11 @@ func (r *runner) stepUnits() error {
 		}
 		changed = changed || made
 	}
-	// Removed rather than left: an install upgraded from the arrangement that
-	// used drop-ins would otherwise keep a config-path or credential directive
-	// that the unit now sets itself, and the drop-in wins.
-	// CLEANUP (added 2026-08-08): delete once every host has run this.
-	for _, unit := range []string{"faramir-broker", "faramir-keeper", "faramir-exec"} {
-		for _, stale := range []string{"config-path.conf", "secrets-path.conf", "tpm-credential.conf"} {
-			made, err := r.fs.remove(filepath.Join("/etc/systemd/system", unit+".service.d", stale))
-			if err != nil {
-				return err
-			}
-			changed = changed || made
-		}
-	}
+	// Nothing here removes a drop-in from an earlier arrangement.  init installs;
+	// it does not migrate.  A host carrying state from a previous layout is
+	// reconciled by whatever provisions it, with a task that can be deleted once
+	// every host has run it, which is a thing a version of this command cannot
+	// know and would carry forever.
 	body, err := render("systemd/faramir.tmpfiles.conf.tmpl", r.layout)
 	if err != nil {
 		return err
@@ -289,12 +281,54 @@ func (r *runner) stepUnits() error {
 	return nil
 }
 
+// stepReachable makes the directories the daemons read enterable by them.
+//
+// Before the units are written and long before anything is started.  A home is
+// 0700, so a config kept in one is invisible to all three service uids, and a
+// daemon whose config it cannot open exits 2 before it opens a socket: the
+// restart fails, the run aborts, and a re-run aborts in the same place.
+//
+// Traversal only, never Share: the config and the store are read by the daemons
+// and written by the operator, and a config a brokered command could rewrite is
+// the policy rewriting itself.  The store's own group-write comes from its mode,
+// set where it is created.
+func (r *runner) stepReachable() error {
+	if r.opts.DryRun {
+		r.skip("reachable", "dry run")
+		return nil
+	}
+	var granted []string
+	for _, dir := range []string{r.layout.ConfigDir, r.layout.SecretsDir} {
+		if homeOf(dir) == "" {
+			continue
+		}
+		if err := sharetree.Reachable(sharetree.Options{
+			Dir: dir, Operator: r.opts.Operator, Group: r.layout.Group,
+		}); err != nil {
+			return fmt.Errorf("%s: %w", dir, err)
+		}
+		granted = append(granted, dir)
+	}
+	if len(granted) == 0 {
+		r.skip("reachable", "nothing the daemons read is inside a home")
+		return nil
+	}
+	// Reported as no change: it re-applies a group and an execute bit that are
+	// already what they should be on every run after the first.
+	r.step("reachable", false, strings.Join(granted, ", "))
+	return nil
+}
+
 // stepShareTrees makes each named directory usable by brokered commands.
 //
 // Per directory because faramir names no tree anywhere: the managed sops files
 // are read from the store and a brokered command runs where its caller was.
 // This exists for the operator who wants to run commands somewhere their own
 // uid owns, which a 0700 home otherwise puts out of the executor's reach.
+//
+// Before the units too, for the same reason as stepReachable: this is what
+// grants the traversal that lets a daemon reach anything under the operator's
+// home, and a daemon started before it cannot read its own config.
 func (r *runner) stepShareTrees() error {
 	if len(r.opts.ShareTrees) == 0 {
 		r.skip("share trees", "none named")

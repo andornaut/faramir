@@ -58,18 +58,42 @@ func TestEnsureDirCreatesEveryLevel(t *testing.T) {
 	if !changed {
 		t.Error("creating a directory reported no change")
 	}
-	for _, dir := range []string{
-		filepath.Join(root, "config"),
-		filepath.Join(root, "config", "sops"),
-		leaf,
+	// The ancestors get traversal, the leaf gets what was asked for.  Applying
+	// the leaf's mode all the way up is how a store's 2770 lands on the store's
+	// parent, where the shared group could then rename the store itself.
+	for dir, want := range map[string]os.FileMode{
+		filepath.Join(root, "config"):         0o755,
+		filepath.Join(root, "config", "sops"): 0o755,
+		leaf:                                  0o700,
 	} {
 		info, err := os.Stat(dir)
 		if err != nil {
 			t.Fatalf("%s: %v", dir, err)
 		}
-		if info.Mode().Perm() != 0o700 {
-			t.Errorf("%s is %o, want 700", dir, info.Mode().Perm())
+		if info.Mode().Perm() != want {
+			t.Errorf("%s is %o, want %o", dir, info.Mode().Perm(), want)
 		}
+	}
+}
+
+// A store whose parent does not exist yet must not put the store's own mode on
+// that parent: the shared group would get write and rename on the directory
+// holding every managed credential.
+func TestEnsureDirDoesNotWidenAncestors(t *testing.T) {
+	root := t.TempDir()
+	store := filepath.Join(root, "faramir", "secrets")
+	if _, err := (fsys{}).ensureDir(store, 0o2770|os.ModeSetgid, keep, keep, true); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := os.Stat(filepath.Join(root, "faramir"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parent.Mode().Perm()&0o020 != 0 {
+		t.Errorf("the store's parent is group-writable (%o)", parent.Mode().Perm())
+	}
+	if parent.Mode()&os.ModeSetgid != 0 {
+		t.Error("the store's parent is setgid")
 	}
 }
 

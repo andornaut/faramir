@@ -2,7 +2,9 @@ package install
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -34,17 +36,45 @@ func (r *runner) stepValidate() error {
 		return nil
 	}
 	broker := filepath.Join(r.layout.BinDir, "faramir-broker")
-	out, err := r.command("runuser", "-u", r.layout.BrokerUser, "--",
+	out, checkErr := r.command("runuser", "-u", r.layout.BrokerUser, "--",
 		broker, "-c", r.layout.ConfigFile, "--check")
-	if err != nil {
-		return fmt.Errorf("the installed config does not work for %s: %w\n"+
-			"A [secrets] file named there is one the broker could not load, and a "+
-			"file that is not there counts. A ref reported under not_redactable "+
-			"needs lengthening instead", r.layout.BrokerUser, err)
-	}
+	// The report is printed on stdout whether the gate passed or not, so it is
+	// read before the exit code is judged: what the broker could not load is the
+	// thing that decides whether this is a failure or a host that has not been
+	// given its secrets yet.
 	var report checkReport
-	if err := json.Unmarshal([]byte(out), &report); err != nil {
-		return fmt.Errorf("could not read the --check report: %w", err)
+	if jsonErr := json.Unmarshal([]byte(out), &report); jsonErr != nil {
+		if checkErr != nil {
+			return fmt.Errorf("the installed config does not work for %s: %w",
+				r.layout.BrokerUser, checkErr)
+		}
+		return fmt.Errorf("could not read the --check report: %w", jsonErr)
+	}
+	if checkErr != nil {
+		// A configured file that has not been created yet is the ordinary state
+		// of a host whose store is written after it is provisioned, and it is
+		// what every first install looks like.  The running broker still treats
+		// it as a load failure and refuses to serve, which is the property that
+		// keeps a silent gap in redaction from existing; but failing the install
+		// over it leaves no way to reach a working host, because the next run
+		// fails in the same place.
+		//
+		// Anything else is fatal, including a file that is there and could not be
+		// read or decrypted.
+		if absent := absentFiles(report.Secrets.Files); len(absent) == len(report.Secrets.Files) &&
+			len(absent) > 0 {
+			r.warn("the broker is configured for %s, which %s not been created yet, "+
+				"so it is serving nothing and redacting nothing. Write the store with "+
+				"sops and re-run; until then every brokered command runs unredacted",
+				strings.Join(absent, ", "),
+				map[bool]string{true: "has", false: "have"}[len(absent) == 1])
+			r.step("validate", false, "no store yet")
+			return nil
+		}
+		return fmt.Errorf("the installed config does not work for %s: %w\n"+
+			"A [secrets] file named there is one the broker could not load. A ref "+
+			"reported under not_redactable needs lengthening instead",
+			r.layout.BrokerUser, checkErr)
 	}
 
 	// The keeper decrypts sops and nothing else, so a credential held anywhere
@@ -89,9 +119,18 @@ func (r *runner) stepValidate() error {
 	// a missing or unreadable key leaves every socket active and every playbook
 	// unable to reach a single managed host.
 	if r.opts.SSHKey != "" {
-		out, err := r.command(filepath.Join(r.layout.BinDir, "faramir"),
+		out, agentErr := r.command(filepath.Join(r.layout.BinDir, "faramir"),
 			"run", "--quiet", "--", "ssh-add", "-l")
-		if err != nil || !strings.Contains(out, "SHA256") {
+		// The error carries stderr, which is where the reason is.  Dropping it
+		// reports every way this can fail, including a working agent asked from a
+		// directory the broker cannot stat, as "holds no usable key ()".
+		if agentErr != nil {
+			return fmt.Errorf("could not ask the broker what its agent holds: %w\n"+
+				"A brokered command runs where its caller was, so this also fails "+
+				"when init is run from a directory %s cannot enter",
+				agentErr, r.layout.BrokerUser)
+		}
+		if !strings.Contains(out, "SHA256") {
 			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s). "+
 				"Brokered commands can reach no managed host. Check that [ssh] keys "+
 				"in %s or its config.d names %s, then restart faramir-broker",
@@ -107,6 +146,21 @@ func (r *runner) stepValidate() error {
 		r.step("sealed age key", false, "the keeper decrypts from "+r.layout.AgeKeyCred)
 	}
 	return nil
+}
+
+// absentFiles is the configured store files that are not on disk at all.
+//
+// Checked by stat rather than by matching the broker's error text: "not there
+// yet" and "there and unreadable" are the two cases this has to tell apart, and
+// only one of them is a host waiting for its secrets to be written.
+func absentFiles(files []string) []string {
+	var absent []string
+	for _, file := range files {
+		if _, err := os.Lstat(file); errors.Is(err, os.ErrNotExist) {
+			absent = append(absent, file)
+		}
+	}
+	return absent
 }
 
 func loadErrorDetail(errors []string) string {

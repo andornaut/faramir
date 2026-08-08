@@ -134,6 +134,12 @@ type runner struct {
 	brokerLoadedRefs int
 	brokerChecked    bool
 
+	// The keeper's own age recipient, empty when it could not be read: the
+	// plaintext key has been removed and the sealed credential is not something
+	// this decrypts.  A .sops.yaml written without it encrypts every later value
+	// to everyone except the one account that has to decrypt them.
+	keeperRecipient string
+
 	// Resolved after the accounts step.  keep when the account does not exist,
 	// which only happens under DryRun.
 	operatorUID  int
@@ -176,9 +182,14 @@ func Run(opts Options) (Report, error) {
 		run.stepConfig,
 		run.stepInitDropIn,
 		run.stepSealAgeKey,
+		// Both before the units are written and anything is started.  They grant
+		// the traversal that lets a service uid reach a config or a store under
+		// the operator's home, and a daemon started without it exits before it
+		// opens a socket.
+		run.stepReachable,
+		run.stepShareTrees,
 		run.stepUnits,
 		run.stepSystemd,
-		run.stepShareTrees,
 		run.stepAgentConfig,
 		run.stepValidate,
 		run.stepRemovePlaintextAgeKey,
