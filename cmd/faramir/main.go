@@ -16,6 +16,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"os/user"
 	"strings"
 
 	"filippo.io/age"
@@ -144,12 +145,24 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 
 // operatorName resolves the account that works in the tree.
 //
-// OPERATOR before SUDO_USER, matching the install scripts: a configuration
-// manager escalates without sudo, so SUDO_USER is unset there and the account
-// has to be named some other way.  root is not an answer: the tree belongs to
-// somebody, and "root" here would chown a checkout away from its owner.
+// OPERATOR before SUDO_USER, matching what a configuration manager can set: it
+// escalates without sudo, so SUDO_USER is unset there and the account has to be
+// named some other way.  Whoever is running the command comes last, which is
+// the answer when somebody asks about their own host and names nobody: doctor
+// would otherwise not recognise the operator and report them as an account
+// nothing created, which is a fault it invented rather than one it found.
+//
+// root is not an answer at any position: the tree belongs to somebody, and
+// "root" here would chown a checkout away from its owner.  That rejection is
+// what keeps the fallback honest under sudo, where the caller is root and
+// SUDO_USER above has already carried the name, and run as root with nothing
+// set it leaves no operator named rather than claiming one.
 func operatorName(flagValue string) string {
-	for _, candidate := range []string{flagValue, os.Getenv("OPERATOR"), os.Getenv("SUDO_USER")} {
+	candidates := []string{flagValue, os.Getenv("OPERATOR"), os.Getenv("SUDO_USER")}
+	if current, err := user.Current(); err == nil {
+		candidates = append(candidates, current.Username)
+	}
+	for _, candidate := range candidates {
 		if candidate != "" && candidate != "root" {
 			return candidate
 		}

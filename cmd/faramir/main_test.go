@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -179,16 +180,25 @@ func TestAnEmptySocketEnvVarFallsBackToTheDefault(t *testing.T) {
 	}
 }
 
-// The account that works in the tree, in the order the install scripts resolve
-// it.  A configuration manager escalates without sudo, so SUDO_USER is unset
-// under Ansible and OPERATOR is what carries the name.
+// The account that works in the tree, in the order it is resolved.  A
+// configuration manager escalates without sudo, so SUDO_USER is unset under
+// Ansible and OPERATOR is what carries the name.
 func TestOperatorNameResolution(t *testing.T) {
+	// Whoever is running the tests, which is the last candidate and so the
+	// answer whenever nothing else names one.
+	current, err := user.Current()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, tc := range []struct{ name, flag, operator, sudoUser, want string }{
 		{"the flag wins", "flagged", "env", "sudo", "flagged"},
 		{"OPERATOR before SUDO_USER", "", "env", "sudo", "env"},
 		{"SUDO_USER when that is all there is", "", "", "sudo", "sudo"},
 		{"root is not an answer", "", "root", "sudo", "sudo"},
-		{"nothing at all", "", "", "", ""},
+		// Nobody named: the caller is who this is about.  doctor run by hand is
+		// the case, where not recognising them reports the operator as an
+		// account nothing created.
+		{"nothing at all falls back to the caller", "", "", "", current.Username},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("OPERATOR", tc.operator)
