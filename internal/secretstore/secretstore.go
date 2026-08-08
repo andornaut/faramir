@@ -58,17 +58,17 @@ type Store struct {
 	// decrypt them, so without this the value set stays as it was until a file
 	// is edited.  On a cold start that set is empty, which
 	// means nothing is redacted.
-	retry      bool
-	checkedAt  time.Time
-	LoadErrors []string
+	retry     bool
+	checkedAt time.Time
 
-	// LoadErrors minus the configured files that simply do not exist yet.
-	// That one case is the normal state of an install whose secrets have not
-	// been migrated, and the installer runs --check before they have been, so
-	// it cannot be a failure.  Everything else (unreadable, undecryptable, a
-	// keeper that did not answer) leaves the broker running with values it
-	// should have had and does not, so nothing redacts them.
-	fatalLoadErrors []string
+	// Every way a configured file can fail to load, and all of them are
+	// failures.  A file that is absent, unreadable, undecryptable, or served by
+	// a keeper that did not answer leaves the broker running with values it
+	// should have had and does not, so nothing redacts them.  Absent is not a
+	// lesser case: a store on a filesystem that is not mounted yet looks exactly
+	// like one that was never written, and the safe reading of the two is the
+	// same.
+	loadErrors []string
 
 	// Held across a refresh-driven reload, not under mu: Reload takes mu
 	// itself, and the point is to keep concurrent requests from each starting
@@ -94,21 +94,11 @@ func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
 // mtime poll when a managed file has changed.
 func (s *Store) Reload() {
 	var state []fileState
-	var errors, fatal []string
-	missing := map[string]bool{}
+	var errors []string
 	for _, path := range s.config.Files {
 		info, err := os.Stat(path)
 		if err != nil {
 			errors = append(errors, path+": "+err.Error())
-			// Stat follows symlinks, so a link whose target was moved reports
-			// ENOENT for a path that is really there.  Lstat is what tells the
-			// not-yet-created file apart from the broken link, and only the
-			// first is the not-yet-migrated state.
-			if os.IsNotExist(err) && !lexists(path) {
-				missing[path] = true
-			} else {
-				fatal = append(fatal, path+": "+err.Error())
-			}
 			continue
 		}
 		state = append(state, fileState{path: path, mtime: info.ModTime(), size: info.Size()})
@@ -120,8 +110,7 @@ func (s *Store) Reload() {
 		// set means nothing is redacted, which is the worst possible response
 		// to "the keeper is briefly unreachable".
 		s.mu.Lock()
-		s.LoadErrors = append(append([]string{}, errors...), err.Error())
-		s.fatalLoadErrors = append(append([]string{}, fatal...), err.Error())
+		s.loadErrors = append(append([]string{}, errors...), err.Error())
 		s.state = state
 		s.retry = true
 		s.checkedAt = time.Now()
@@ -131,18 +120,8 @@ func (s *Store) Reload() {
 		return
 	}
 	// A keeper error names a file it could not decrypt, which leaves the broker
-	// serving fewer values than it is configured for: fatal.  The exception is a
-	// file this process just saw was absent, failing for a reason that absence
-	// explains.  The keeper reads through a different uid and reaches the file by
-	// a path it may not be able to traverse, so it reports EACCES for a file that
-	// is not there at all, and a file that does not exist yet is the
-	// not-yet-migrated state.
+	// serving fewer values than it is configured for.
 	errors = append(errors, keeperErrors...)
-	for _, keeperError := range keeperErrors {
-		if !explainedByAMissingFile(missing, keeperError) {
-			fatal = append(fatal, keeperError)
-		}
-	}
 
 	// A value the redactor cannot cover is not loaded at all.  Serving it would
 	// put it in a child's environment with nothing to catch it on the way out,
@@ -163,8 +142,7 @@ func (s *Store) Reload() {
 	s.refused = refused
 	s.state = state
 	s.retry = false
-	s.LoadErrors = errors
-	s.fatalLoadErrors = fatal
+	s.loadErrors = errors
 	s.checkedAt = time.Now()
 	s.mu.Unlock()
 
@@ -185,46 +163,6 @@ func (s *Store) Reload() {
 			len(refused), len(redactable)+len(refused), strings.Join(entries, ", "))
 	}
 	log.Printf("loaded %d secret refs from %d file(s)", len(redactable), len(state))
-}
-
-// lexists reports whether the path itself is there, symlink target or not.
-func lexists(path string) bool {
-	_, err := os.Lstat(path)
-	return err == nil
-}
-
-// reasons the keeper only reports for a file it did read, or for an install
-// that is broken however the file is arranged.  A path prefix alone does not
-// make one of these harmless: the two processes are separately sandboxed and
-// can disagree about whether a path exists (a differing mount namespace, a
-// symlink that resolves elsewhere), and downgrading these would leave the
-// broker running with values missing from the redactor, which is the failure
-// --check exists to catch.
-var reasonsAMissingFileCannotCause = []string{
-	"decrypted output is not JSON",
-	"[secrets] decrypt_command is empty",
-	"running ",
-}
-
-// explainedByAMissingFile reports whether a keeper error is about a file the
-// broker found absent, for a reason that absence explains.  The keeper formats
-// each one as "<path>: <reason>", and matching the prefix rather than splitting
-// on ": " keeps a path that contains one from being misread as a shorter path
-// with a longer reason.
-func explainedByAMissingFile(missing map[string]bool, keeperError string) bool {
-	for path := range missing {
-		if !strings.HasPrefix(keeperError, path+": ") {
-			continue
-		}
-		reason := keeperError[len(path)+len(": "):]
-		for _, proof := range reasonsAMissingFileCannotCause {
-			if strings.HasPrefix(reason, proof) {
-				return false
-			}
-		}
-		return true
-	}
-	return false
 }
 
 // RefreshIfStale is a cheap mtime poll; it reloads when a managed file changed,
@@ -340,14 +278,14 @@ func (s *Store) describeLocked() map[string]any {
 	for _, st := range s.state {
 		files = append(files, st.path)
 	}
-	errs := s.LoadErrors
+	errs := s.loadErrors
 	if errs == nil {
 		errs = []string{}
 	}
 	return map[string]any{
-		"files":     files,
-		"count": len(s.values),
-		"errors":    errs,
+		"files":  files,
+		"count":  len(s.values),
+		"errors": errs,
 	}
 }
 
@@ -372,12 +310,12 @@ func (s *Store) DescribeForOperator() map[string]any {
 	return out
 }
 
-// FatalLoadErrors is the load errors that represent a broken install, as
-// opposed to a configured file that has not been created yet.
-func (s *Store) FatalLoadErrors() []string {
+// LoadErrors is every configured file the broker could not load.  Any entry
+// means the redactor is missing values it is configured to hold.
+func (s *Store) LoadErrors() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]string{}, s.fatalLoadErrors...)
+	return append([]string{}, s.loadErrors...)
 }
 
 func sortedKeys[V any](m map[string]V) []string {

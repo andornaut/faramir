@@ -12,7 +12,7 @@ The encrypted file belongs in `/etc/faramir/secrets`, created `2770 root:dev` by
 
 Ansible loads every `.yml` under those two directories as a vars file. A sops file is valid YAML, so it loads without error and binds each var to its `ENC[AES256_GCM,...]` ciphertext; a name sorting after `vars.yml` also overwrites the `lookup('env', …)` mapping from section 2. Nothing errors. Hosts get configured with ciphertext in place of the credential. `install/migrate-vault.sh` refuses that destination.
 
-Keeping it out of the checkout matters for a second reason: a checkout inside an encrypted home does not exist until its owner logs in, so the broker would come up at boot with an empty value set and redact nothing.
+Keeping it out of the checkout matters for a second reason: a checkout inside an encrypted home does not exist until its owner logs in, so at boot the broker finds the file absent. It treats that as a load failure and refuses rather than coming up with an empty value set, which turns a silent gap in redaction into an outage that names itself.
 
 `.sops.yaml` sits in the same directory, written by `install/20-sops-init.sh`:
 

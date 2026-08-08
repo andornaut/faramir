@@ -51,18 +51,17 @@ ProtectSystem=strict
 # directory: a command runs where its caller was, and no config names that, so
 # there is no single path to grant.
 #
-# Both shipped locations, because a caller usually works in a checkout under
-# /home while the installer's own tree default is /srv/faramir.  Naming only one
-# leaves the other read-only, and a playbook writing a .retry file or a fact
-# cache fails with EROFS rather than anything that names the mount.
+# /home, because a caller works in a checkout there.  Naming nothing leaves the
+# tree read-only, and a playbook writing a .retry file or a fact cache fails with
+# EROFS rather than anything that names the mount.
 #
-# The leading "-" is what lets either be absent.  Neither grants anything on its
-# own: lifting the read-only mount is not permission, and modes still decide.
-# Homes are 0700, so the only thing writable under /home is the dev tree that
-# phase 1 group-writes on purpose.
+# The leading "-" is what lets it be absent.  It grants nothing on its own:
+# lifting the read-only mount is not permission, and modes still decide.  Homes
+# are 0700, so the only thing writable under /home is a tree `faramir share-tree`
+# group-writes on purpose.
 #
-# A working tree somewhere else again needs a drop-in adding its path.
-ReadWritePaths=-/home -/srv/faramir
+# A working tree outside /home needs a drop-in adding its path.
+ReadWritePaths=-/home
 PrivateTmp=true
 # Children run on a PTY, which needs /dev/ptmx and the pts devices.  Narrow the
 # device ACL rather than dropping it.

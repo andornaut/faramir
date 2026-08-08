@@ -24,7 +24,9 @@ EXEC_USER="${EXEC_USER:-faramir-exec}"
 AGE_KEY="${AGE_KEY:-/etc/faramir/age.key}"
 KEEPER_SOCKET="${KEEPER_SOCKET:-/run/faramir/keeper.sock}"
 EXEC_SOCKET="${EXEC_SOCKET:-/run/faramir/exec.sock}"
-WORKTREE="${WORKTREE:-/srv/faramir/worktree}"
+# A brokered command runs where its caller was, so the tree under test is
+# wherever this is run from unless told otherwise.
+TREE="${TREE:-$PWD}"
 SOCKET="${FARAMIR_SOCKET:-/run/faramir/broker.sock}"
 AUDIT_LOG="${AUDIT_LOG:-/var/log/faramir/audit.log}"
 PW_REF="${PW_REF:-secret://home/router/admin}"
@@ -117,12 +119,12 @@ fi
 # Commands run in the agent's tree and are meant to write it: ansible drops
 # .retry files and fact caches there.  What matters is that dev buys the
 # executor that and nothing else, which 1h, 1i2, 1j and 1m check.
-out="$(srun -- bash -lc "touch ${WORKTREE}/.verify-write && echo wrote")"
+out="$(srun -- bash -lc "touch ${TREE}/.verify-write && echo wrote")"
 if grep -q wrote <<<"$out"; then
   ok "1i brokered commands can write the working tree"
-  rm -f "${WORKTREE}/.verify-write"
+  rm -f "${TREE}/.verify-write"
 else
-  no "1i a brokered command cannot write ${WORKTREE}: $out"
+  no "1i a brokered command cannot write ${TREE}: $out"
 fi
 
 # The executor uid is in dev, so it must NOT thereby reach the key.
@@ -235,7 +237,7 @@ if grep -q 'SECRET:' <<<"$out"; then ok "5  unwrapped base64 redacted"; else no 
 
 head_ "6-7  redaction of values the broker never injected"
 
-if [[ -f "${WORKTREE}/${PLAYBOOK}" ]]; then
+if [[ -f "${TREE}/${PLAYBOOK}" ]]; then
   out="$(srun -- ansible-playbook "$PLAYBOOK" -vvv)"
   if grep -q 'SECRET:' <<<"$out" || ! grep -qi 'password\|token' <<<"$out"; then
     ok "6  ansible-playbook -vvv produced no plaintext"
@@ -249,8 +251,8 @@ if [[ -f "${WORKTREE}/${PLAYBOOK}" ]]; then
     skipt "7  no redaction seen -- does $PLAYBOOK print a vault var?"
   fi
 else
-  skipt "6  ${WORKTREE}/${PLAYBOOK} not found"
-  skipt "7  ${WORKTREE}/${PLAYBOOK} not found"
+  skipt "6  ${TREE}/${PLAYBOOK} not found"
+  skipt "7  ${TREE}/${PLAYBOOK} not found"
 fi
 
 head_ "8  what still bounds a command"
@@ -268,7 +270,7 @@ fi
 
 # The flip side, and the reason the allowlist went: a program outside the
 # system directories has to work.  This is the venv/pipx/working-tree case.
-probe="${WORKTREE}/.verify-probe.sh"
+probe="${TREE}/.verify-probe.sh"
 printf '#!/bin/sh\necho PROBE_OK\n' >"$probe" && chmod 0755 "$probe"
 out="$(srun -- "$probe")"
 if grep -q 'PROBE_OK' <<<"$out"; then
@@ -390,7 +392,7 @@ fi
 
 head_ "extra  the acceptance invariant"
 
-if [[ -f ${WORKTREE}/CLAUDE.md ]]; then
+if [[ -f ${TREE}/CLAUDE.md ]]; then
   printf '  \033[33mNOTE\033[0m  CLAUDE.md exists. Delete it and re-run 1, 2 and 8:\n'
   printf '        nothing about what is *reachable* may change.\n'
 fi

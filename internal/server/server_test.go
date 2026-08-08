@@ -337,15 +337,16 @@ func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
 	}
 }
 
-// The installer's gate runs before any store exists, so the file it is
-// configured for does not exist yet.  Failing here would make a first install
-// impossible.
-func TestCheckPassesOnASecretsFileThatDoesNotExistYet(t *testing.T) {
+// A configured file that is not there fails the gate.  The store can sit on a
+// filesystem that is not mounted yet, which looks exactly like one that was
+// never written, so the gate has to refuse both: passing means the broker came
+// up redacting nothing and said it was healthy.
+func TestCheckFailsOnASecretsFileThatIsNotThere(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"},
 		filepath.Join(t.TempDir(), "absent.sops.yml"))
 
-	if _, code := s.CheckOutput(); code != 0 {
-		t.Error("a first install failed the gate")
+	if _, code := s.CheckOutput(); code == 0 {
+		t.Error("a store that is not there passed the gate")
 	}
 }
 

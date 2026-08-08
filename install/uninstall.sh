@@ -4,14 +4,18 @@
 # unreadable, and that is not a decision a teardown script should make for you.
 set -euo pipefail
 
-# Where this install put them, so the note at the end names paths a reader will
-# actually find rather than the defaults.  Give these the values the install was
-# given.
-CONFIG_DIR="${CONFIG_DIR:-/etc/faramir}"
-SECRETS_DIR="${SECRETS_DIR:-/etc/faramir/secrets}"
-
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
+
+# Where this install put things, so the note at the end names paths a reader
+# will actually find rather than the defaults.  Read from the drop-in the
+# installer wrote, because that is the only on-host record of it and the
+# services are torn down below before the note prints.
+INSTALLED_CONFIG="$(sed -n 's/^Environment=FARAMIR_CONFIG=//p' \
+  /etc/systemd/system/faramir-keeper.service.d/config-path.conf 2>/dev/null | tail -1)"
+CONFIG_DIR="${CONFIG_DIR:-${INSTALLED_CONFIG%/config.toml}}"
+CONFIG_DIR="${CONFIG_DIR:-/etc/faramir}"
+SECRETS_DIR="${SECRETS_DIR:-$CONFIG_DIR/secrets}"
 
 say "stopping services"
 systemctl disable --now \

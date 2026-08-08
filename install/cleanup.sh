@@ -125,22 +125,6 @@ for leftover in "${OPERATOR_HOME}/.claude/settings.json.dist" \
   [[ -f $leftover ]] && act "$leftover" rm -f "$leftover"
 done
 
-# -- the old default working tree -------------------------------------------
-#
-# Only when empty.  This used to be created by phase 1 whether or not anyone
-# wanted it, so an empty one is an artefact; a populated one is somebody's work.
-for tree in /srv/faramir/worktree /srv/faramir; do
-  if [[ -d $tree ]]; then
-    if [[ -z $(ls -A "$tree" 2>/dev/null) ]]; then
-      act "empty ${tree}" rmdir "$tree"
-    else
-      say "KEEPING: ${tree} is not empty"
-      note "$(find "$tree" -maxdepth 1 -mindepth 1 | wc -l) entries; remove it yourself if it is dead"
-      FOUND=1
-    fi
-  fi
-done
-
 # -- accounts ---------------------------------------------------------------
 #
 # Reported, and only removed with --remove-accounts and an uninstalled broker.

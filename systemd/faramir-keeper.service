@@ -35,12 +35,16 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# The managed sops files live under /etc, so this process has no reason to open
-# anything under a home.  It is the uid that holds the age key, which makes it
-# the one worth taking /home away from outright rather than leaving it visible
-# and read-only.  A [secrets] file kept in a home does not work under this, and
-# that is deliberate: a home is not mounted until its owner logs in, so a value
-# set that depends on one is empty at boot and redacts nothing.
+# This is the uid that holds the age key, which makes it the one worth taking
+# /home away from outright rather than leaving it visible and read-only.
+#
+# A store kept in a home needs this relaxed, and the installer writes that
+# drop-in when CONFIG_DIR is inside one: ProtectHome=tmpfs, plus a
+# BindReadOnlyPaths= naming only that directory, so the other homes stay hidden.
+# Note what a home costs either way: it is not mounted until its owner logs in,
+# so the store is absent at boot.  The broker treats an absent store as a load
+# failure rather than an empty one, which turns that into a refusal instead of a
+# session that silently redacts nothing.
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true

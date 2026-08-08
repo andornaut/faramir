@@ -87,18 +87,19 @@ Phase | Does
 `40-agent-config.sh` | `Read` deny rules in your account, and the recipe for enrolling a project
 
 - `CONFIG=<file>` installs a different base config instead of the starter. Installed verbatim; every path in one is absolute.
+- `CONFIG_DIR=<dir>` installs the config and its drop-ins somewhere other than `/etc/faramir`, and points the units at it with a `FARAMIR_CONFIG` drop-in. `SECRETS_DIR=<dir>` does the same for the sops store. The units are sandboxed, so where is not a free choice: the installer refuses `/tmp` and `/var/tmp` (each unit gets a private one), refuses whitespace and `%` (systemd splits and expands `Environment=`), and relaxes the keeper's `ProtectHome=` for you when the directory is inside a home.
 - `faramir share-tree <dir>` (requires root) makes one directory usable by brokered commands: group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, group-executable on every directory down to it so `faramir-exec` can enter. Run it per tree, or not at all. Nothing needs a tree of its own, since a brokered command runs where its caller was and the managed sops files are read from wherever the install put them, not from the tree.
 - `FARAMIR_BIN=/opt/faramir/bin` lets you build on one machine and install on another.
 - A `CONFIG` that does not parse is refused before anything is written.
-- `install/uninstall.sh` leaves the accounts, `/etc/faramir` and the audit log alone.
-- `install/cleanup.sh` removes what earlier layouts left behind: an account-wide hook registration, `.dist` leftovers, an empty default worktree. It reports by default and needs `--apply` to act, never touches `/etc/faramir`, and only removes an account with `--remove-accounts` and an uninstalled broker.
+- `install/uninstall.sh` leaves the accounts, the config, the store and the audit log alone. It reads the installed `CONFIG_DIR` back out of the units before removing them, so its closing note names the paths this host actually used.
+- `install/cleanup.sh` reports an account-wide hook registration and `.dist` leftovers. It reports by default and needs `--apply` to act, never touches the config directory, and only removes an account with `--remove-accounts` and an uninstalled broker.
 
 ## Onboarding a project
 
 Step | Do | Why
 --- | --- | ---
-1 | Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them | Not in a checkout: a home is not mounted until login, so a value set inside one is empty at boot
-2 | Name it in `/etc/faramir/config.d/<project>.toml`, then restart `faramir-keeper` and `faramir-broker`, in that order | This is what puts the values in the redaction set. A drop-in rather than the base config, so the project owns the line naming its own store. A restart because neither daemon re-reads its config; the keeper leads because it decrypts the list the broker is served
+1 | Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them | Not in a checkout, so the store is not something a clone or a branch can move. Keeping it under `/etc` also means it is there at boot; a store inside an encrypted home is not, and the broker refuses to start rather than come up redacting nothing
+2 | Name it in `/etc/faramir/config.d/<project>.toml`, then restart `faramir-keeper` and `faramir-broker`, in that order | This is what puts the values in the redaction set. A drop-in rather than the base config, so the project owns the line naming its own store. A restart because neither daemon re-reads its config; the keeper leads because it decrypts the list the broker is served. Step 1 first: a named file that is not there fails the gate, so the drop-in comes after the store, never before
 3 | Point the project's config at environment variables | It never decrypts anything; it reads `$NAME` however it already does
 4 | Write the refs beside the project, one `NAME=secret://ref` per line | So a run names refs rather than someone remembering them
 5 | Copy [settings.project.json](agent/claude/settings.project.json) to `.claude/settings.json` and [mcp.json](agent/claude/mcp.json) to `.mcp.json` | Redaction and `faramir_run` for that repo. This is what auto-approves Bash there
@@ -168,7 +169,7 @@ faramir status                          # config path, sources, ref count
 faramir list-secrets                    # ref names, never values
 faramir run --env NAME=secret://ref -- CMD
 faramir run --env-file deploy.env -- ansible-playbook site.yml
-faramir run --quiet -C /srv/tree -t 120 -- CMD
+faramir run --quiet -C ~/src/project -t 120 -- CMD
 kubectl get secret -o yaml | faramir redact
 faramir redact -- ./deploy.sh
 ```
@@ -230,10 +231,10 @@ Fails on | Because
 An unknown key or `[section]` | A config that reads as though it took effect
 A value out of range | Same
 A ref too short or low-entropy to redact | Refused at load, so covered by nothing
-A `[secrets]` file that exists and did not load | Those values are absent from the redactor
+A `[secrets]` file that did not load, including one that is not there | Those values are absent from the redactor
 A `[ssh] key` missing, passphrase-protected, or the `.pub` | `ssh-add` refuses it, leaving every host unreachable
 
-A `[secrets]` file that does not exist passes; that is the not-yet-migrated state. Empty `[ssh] keys` passes.
+Absent is not a lesser failure than unreadable: a store on a filesystem that is not mounted yet looks exactly like one that was never written, and both leave the broker redacting nothing. Empty `[ssh] keys` passes.
 
 Run it as the broker's own account. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on.
 
@@ -277,9 +278,12 @@ uid faramir-exec              forks brokered commands; holds nothing
 /etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
 /etc/faramir/secrets/         2770 root:dev, managed sops files and .sops.yaml
 /etc/faramir/config.toml      0644 root:root, read by all three daemons
+/etc/faramir/config.d/        0644 root:root, per-consumer settings merged over it
 <any tree you share>          2770 <operator>:dev, setgid; faramir share-tree
 /var/log/faramir/audit.log    0600 faramir-broker:faramir-broker
 ```
+
+`CONFIG_DIR` and `SECRETS_DIR` move the config and the store off `/etc`; the age key and the audit log stay where they are. `faramir status` reports the paths in use.
 
 A brokered command cannot:
 

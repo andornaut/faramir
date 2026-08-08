@@ -19,18 +19,67 @@ CONFIG="${CONFIG:-etc/config.toml}"
 # Where the base config and its drop-ins are installed.  /etc by default, which
 # is where a system daemon's configuration belongs and where three uids can read
 # it without any of them owning it.  A consumer that keeps its configuration
-# elsewhere sets this, and the units are given FARAMIR_CONFIG to match: a
-# directory the daemons cannot read at start is a daemon that does not start, so
-# anywhere but /etc has to be readable whenever a socket may be triggered.
+# elsewhere sets this, and the units are given FARAMIR_CONFIG to match.
+#
+# What the daemons can see decides this, not what the modes say: each unit is
+# sandboxed, so a readable directory can still be invisible inside one.  The
+# checks below reject the placements that do not work and the drop-in further
+# down opens up the one that does.
 CONFIG_DIR="${CONFIG_DIR:-/etc/faramir}"
 [[ $CONFIG_DIR = /* ]] || { echo "CONFIG_DIR must be absolute: $CONFIG_DIR" >&2; exit 1; }
+# systemd word-splits Environment= and expands % specifiers in it, so a path
+# holding either reaches the daemons truncated or not at all.
+[[ $CONFIG_DIR != *[[:space:]]* ]] ||
+  { echo "CONFIG_DIR must not contain whitespace: $CONFIG_DIR" >&2; exit 1; }
+[[ $CONFIG_DIR != *%* ]] ||
+  { echo "CONFIG_DIR must not contain '%': $CONFIG_DIR" >&2; exit 1; }
+# Every unit sets PrivateTmp=true, which gives each its own /tmp and /var/tmp.
+case $CONFIG_DIR in
+  /tmp/*|/var/tmp/*)
+    echo "CONFIG_DIR cannot be under /tmp or /var/tmp: PrivateTmp=true gives" >&2
+    echo "each unit a private one, so nothing there is the file you installed" >&2
+    exit 1
+    ;;
+esac
 CONFIG_FILE="$CONFIG_DIR/config.toml"
+
+# The home CONFIG_DIR sits in, or empty when it sits outside every home.  A
+# config inside one needs the keeper's ProtectHome= relaxed, which is the drop-in
+# written further down.
+home_of() {
+  case "$1" in
+    /root|/root/*) echo /root ;;
+    /home/*) local rest="${1#/home/}"; echo "/home/${rest%%/*}" ;;
+    *) echo "" ;;
+  esac
+}
+CONFIG_HOME="$(home_of "$CONFIG_DIR")"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 # Before anything is installed: a typo here would otherwise surface as a bare
 # "cannot stat" once the binaries and hook are already on the host.
 [[ -f $CONFIG ]] || { echo "no such config: $CONFIG" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
+
+# A mounted filesystem sits on a different device from the directory it covers.
+# stat rather than mountpoint(1), which is not on every host and whose absence
+# would read here as "not mounted".
+is_mounted() {
+  [[ -d $1 ]] && [[ "$(stat -c %d "$1")" != "$(stat -c %d "$1/..")" ]]
+}
+
+# An encrypted home is a different directory before its owner logs in, and
+# writing to it then lands in the unencrypted backing store, where it is
+# shadowed and invisible the moment the home mounts.  The install would look
+# like it worked and the daemons would never see the file again.
+if [[ -n $CONFIG_HOME ]] &&
+   { [[ -d /home/.ecryptfs/${CONFIG_HOME##*/} ]] || [[ -e ${CONFIG_HOME}/.ecryptfs ]]; } &&
+   ! is_mounted "$CONFIG_HOME"; then
+  echo "${CONFIG_HOME} is an encrypted home and is not mounted." >&2
+  echo "Installing into it now would write plaintext to the backing store," >&2
+  echo "where it is hidden once the home mounts.  Log in as its owner first." >&2
+  exit 1
+fi
 
 # The binaries are built ahead of time, so this script needs no toolchain and
 # no interpreter on the target host.  Build them with `make build` first.
@@ -64,19 +113,32 @@ install -d -m 0755 /usr/local/share/doc/faramir
 install -m 0644 "$REPO/README.md" /usr/local/share/doc/faramir/README.md
 install -m 0644 "$REPO"/docs/*.md /usr/local/share/doc/faramir/
 
-# Three services read config.toml from here, so the directory belongs to none
-# of them.  The age key is protected by its own mode, not by this one.
-install -d -m 0755 -o root -g root "$CONFIG_DIR"
-# Drop-ins, for the settings that belong to whatever consumes the broker rather
+# Three services read config.toml from here, so under /etc the directory belongs
+# to none of them.  The age key is protected by its own mode, not by this one.
+# config.d holds the settings belonging to whatever consumes the broker rather
 # than to the broker: which sops files to manage, which SSH key to lend.  World
 # readable like the config beside it, and holding no value either.
-install -d -m 0755 -o root -g root "$CONFIG_DIR/config.d"
+#
+# Created only when absent.  install -d applies -m/-o/-g to a directory that is
+# already there, so an unconditional call would re-mode and re-own one the
+# operator had set up: a CONFIG_DIR inside their own home would come back
+# root-owned and no longer theirs to edit.
+CONFIG_OWNER=root
+CONFIG_GROUP=root
+if [[ -n $CONFIG_HOME ]]; then
+  # Inside a home, its owner keeps it, so they edit their own config without
+  # sudo.  The daemons only ever read it.
+  CONFIG_OWNER="$(stat -c %U "$CONFIG_HOME")"
+  CONFIG_GROUP="$(stat -c %G "$CONFIG_HOME")"
+fi
+for dir in "$CONFIG_DIR" "$CONFIG_DIR/config.d"; do
+  [[ -d $dir ]] || install -d -m 0755 -o "$CONFIG_OWNER" -g "$CONFIG_GROUP" "$dir"
+done
 install -d -m 0750 -o "$BROKER_USER" -g "$BROKER_USER" /var/log/faramir
 
-# Configs are installed verbatim.  Every path in one is absolute: the secrets
-# live under /etc/faramir/secrets and the units name no tree, so there is
-# nothing to substitute and no placeholder that can survive into a running
-# config.
+# Configs are installed verbatim.  Every path in one is absolute and the units
+# name no tree, so there is nothing to substitute and no placeholder that can
+# survive into a running config.
 install_config() {
   # Written to a temporary file and moved into place, never redirected onto the
   # destination: a failed copy would otherwise leave an empty config behind,
@@ -87,7 +149,10 @@ install_config() {
   if ! cat "$src" >"$tmp"; then
     rm -f "$tmp"; return 1
   fi
-  chown root:root "$tmp"
+  # The same owner as the directory it lands in, so a config in a home is the
+  # operator's to edit.  Owning the directory alone is not enough: an editor
+  # that writes in place rather than renaming still needs the file.
+  chown "$CONFIG_OWNER:$CONFIG_GROUP" "$tmp"
   chmod 0644 "$tmp"
   mv "$tmp" "$dst"
 }
@@ -112,7 +177,7 @@ if [[ -f $CONFIG_FILE ]]; then
   if ! config_parses "$CONFIG_FILE"; then
     say "WARNING: the installed config does not parse; the broker will not"
     say "         start until it does.  The error above names the file, which"
-    say "         may be a drop-in under /etc/faramir/config.d rather than"
+    say "         may be a drop-in under ${CONFIG_DIR}/config.d rather than"
     say "         config.toml itself."
   fi
 else
@@ -145,6 +210,20 @@ for unit in faramir-broker faramir-keeper faramir-exec; do
 [Service]
 Environment=FARAMIR_CONFIG=${CONFIG_FILE}
 EOF
+  # The keeper's shipped unit sets ProtectHome=true, so a config inside a home
+  # is not merely unreadable there, it is absent: the unit would start, find
+  # nothing, and hold no values.  tmpfs keeps every other home hidden and binds
+  # back only the directory the config is in.  No leading "-", so a config that
+  # is not there stops the keeper rather than leaving it up holding nothing.
+  #
+  # A [secrets] file outside CONFIG_DIR needs its own BindReadOnlyPaths= line;
+  # this script never reads the config, so it cannot know about one.
+  if [[ $unit = faramir-keeper && -n $CONFIG_HOME ]]; then
+    cat >> "$dropin" <<EOF
+ProtectHome=tmpfs
+BindReadOnlyPaths=${CONFIG_DIR}
+EOF
+  fi
   chmod 0644 "$dropin"
 done
 
@@ -153,12 +232,11 @@ done
 # systemd itself gave the sockets in it.  See the file's own comment.
 install -m 0644 "$REPO/systemd/faramir.tmpfiles.conf" /etc/tmpfiles.d/faramir.conf
 
-# No drop-ins, and nothing here names a working tree.  The keeper reads the sops
-# files from /etc/faramir/secrets, the broker stats them there, and only the
-# executor touches a tree at all, because a brokered command runs where its
-# caller was.  It is granted /home and /srv/faramir, which covers where callers
-# work and the shipped tree location, with modes deciding what it can write.  A
-# caller working outside both needs a drop-in extending ReadWritePaths= on
+# Nothing here names a working tree.  The keeper and the broker read the sops
+# files from wherever the config points, and only the executor touches a tree at
+# all, because a brokered command runs where its caller was.  It is granted
+# /home, which covers where callers work, with modes deciding what it can write.
+# A caller working outside /home needs a drop-in extending ReadWritePaths= on
 # faramir-exec.service.
 
 # systemd may not be running (container, chroot, image build).  Install the
@@ -206,8 +284,10 @@ say "validating the installed config as ${BROKER_USER}"
 # authenticate against any host.
 runuser -u "$BROKER_USER" -- \
   /usr/local/bin/faramir-broker -c "$CONFIG_FILE" --check || {
-  say "validation FAILED -- fix ${CONFIG_FILE}, or lengthen any secret"
-  say "reported under not_redactable, before enabling the unit"
+  say "validation FAILED -- fix ${CONFIG_FILE} before enabling the unit."
+  say "A [secrets] file the gate names is one the broker could not load, and a"
+  say "file that is not there counts: create the store first, then re-run this."
+  say "A ref reported under not_redactable needs lengthening instead."
   exit 1
 }
 

@@ -30,19 +30,28 @@ Held by | What | Reachable by the operator
 
 Bounding what an unattended run may change is a credential-scope problem: a `gh` token limited to the repositories it maintains, plus branch protection. Filesystem blast radius is out of scope.
 
-## Secrets under /etc, not in a tree
+## Secrets in their own directory, not in a tree
 
-Managed sops files live in `/etc/faramir/secrets`, `2770 root:dev`.
+Managed sops files live in `/etc/faramir/secrets`, `2770 root:dev`, and never in a checkout: a store a clone or a branch can move is not a store. The operator edits them in place with `sops`, through the group, without sudo. `.sops.yaml` sits in the same directory, but note that sops resolves it from the **current working directory** upward, not from the file being encrypted: encrypting into the store from elsewhere has to name it with `--config`.
 
-- **A home is not mounted until its owner logs in.** A value set inside one is empty at boot, so the broker comes up redacting nothing. Silent, and a security failure rather than an outage.
-- **Unattended jobs have no session.** Anything running from cron cannot reach a path inside an encrypted home whatever its mode says.
-- **The keeper needs no home**, so its unit sets `ProtectHome=true`.
+`CONFIG_DIR` and `SECRETS_DIR` move both off `/etc`. What the units can see decides where, not the modes:
 
-The operator edits them in place with `sops`, through the group, without sudo. `.sops.yaml` sits in the same directory, but note that sops resolves it from the **current working directory** upward, not from the file being encrypted: encrypting into the store from elsewhere has to name it with `--config`.
+Placement | Result
+--- | ---
+`/etc/faramir` | the default. Present at boot, readable by three uids, owned by none of them
+`/tmp`, `/var/tmp` | refused. `PrivateTmp=true` gives each unit its own, so nothing there is the file that was installed
+inside a home | works, with the costs below. The installer relaxes the keeper's `ProtectHome=` to `tmpfs` and binds back that one directory
+
+A home costs two things, and both are the operator's to accept:
+
+- **It is not mounted until its owner logs in**, so the store is absent at boot and to anything running from cron. A value set that depends on one is empty exactly when nobody is watching.
+- **Absent has to be fatal, then.** The broker treats any configured file it cannot load, including one that is simply not there, as a load failure: `--check` fails and the daemon says so. The alternative is a broker that comes up holding nothing and reports itself healthy, which is a security failure disguised as a working install. An outage that names itself is the cheaper of the two.
+
+The installer also refuses to write into an encrypted home that is not currently mounted, because that lands in the unencrypted backing directory and is shadowed the moment the home mounts.
 
 ## Where brokered commands run
 
-A brokered command runs where its caller was, so `faramir-exec` must reach that directory: it forks the command there. The broker stats it too, but only to fail early with a clear message, and treats its own permission error as the executor's business. The keeper needs nothing either way: its files are under `/etc` and its unit sets `ProtectHome=true`, so `/home` is empty in its namespace.
+A brokered command runs where its caller was, so `faramir-exec` must reach that directory: it forks the command there. The broker stats it too, but only to fail early with a clear message, and treats its own permission error as the executor's business. The keeper needs nothing either way: its unit sets `ProtectHome=true`, so `/home` is empty in its namespace except for a store the installer bound back into it.
 
 A tree outside the homes needs nothing. Inside a `0700` home the executor needs traversal, which `faramir share-tree` grants by making every directory from the home down group `dev` and group-executable. Execute only, so those uids pass through without listing what they pass, and never `chmod o+x`, which grants the same to every account on the machine: with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it.
 

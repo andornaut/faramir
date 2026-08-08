@@ -194,7 +194,7 @@ func (s *Server) opStatus() protocol.Response {
 		// take it. A setting that is not what an operator expects is usually a
 		// drop-in they forgot applies.
 		"configs": s.Config.Sources,
-		"secrets":        s.Store.Describe(),
+		"secrets": s.Store.Describe(),
 	}, "", "  ")
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",
@@ -445,11 +445,12 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		// gate that is supposed to catch it.
 		code = 1
 	}
-	// A configured file that does not exist yet is the not-yet-migrated state
-	// and stays quiet.  A file that exists and did not load, or a keeper that
-	// did not answer, leaves the broker serving fewer values than it is
-	// configured for, and every value it is missing is one it cannot redact.
-	if fatal := s.Store.FatalLoadErrors(); len(fatal) > 0 {
+	// Any configured file the broker could not load leaves it serving fewer
+	// values than it is configured for, and every value it is missing is one it
+	// cannot redact.  A file that is absent counts: the store may sit on a
+	// filesystem that is not mounted yet, which is indistinguishable from one
+	// that was never written and is no safer.
+	if fatal := s.Store.LoadErrors(); len(fatal) > 0 {
 		log.Printf("%d secret load failure(s): %v", len(fatal), fatal)
 		log.Printf("those values are absent from the redactor, so a command " +
 			"that prints one prints it in plaintext")
