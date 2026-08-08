@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -82,8 +83,17 @@ func (r *runner) stepDirectories() error {
 	//
 	// Ownership only, contents untouched.  These are ciphertext this install
 	// has no key for, and rewriting one would destroy it.
+	//
+	// A dry run is the one case that legitimately runs unprivileged, and now
+	// that the store belongs to the store group the operator is not in, it is
+	// also a directory the operator cannot look inside.  Reported as no change
+	// rather than as a failure, so `faramir init --dry-run` still answers for
+	// everything else, exactly as ensureDir does above.
 	entries, err := os.ReadDir(r.layout.SecretsDir)
-	if err != nil && !os.IsNotExist(err) {
+	switch {
+	case r.opts.DryRun && errors.Is(err, os.ErrPermission):
+		entries = nil
+	case err != nil && !os.IsNotExist(err):
 		return err
 	}
 	for _, entry := range entries {
