@@ -13,8 +13,8 @@ ExecStart=/usr/local/bin/faramir-keeper
 Restart=on-failure
 RestartSec=2
 
-# dev, and only for this: the sops files live in the agent's working tree,
-# which is group dev, and sops has to read them to decrypt anything.  It is
+# dev, and only for this: the managed sops files are in /etc/faramir/secrets,
+# which is 2770 root:dev, and sops has to read them to decrypt anything.  It is
 # read access to encrypted files -- the key stays 0400 faramir-keeper, and no
 # dev member gains anything from this process being in the group.
 SupplementaryGroups=dev

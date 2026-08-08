@@ -7,10 +7,9 @@
 # substitute and nothing to edit here.
 #
 # It differs from etc/config.toml in the Ansible variables in [exec.base_env],
-# the SSH keys that reach managed hosts, the sops file it manages, and the name
-# of the working tree.  The paths the installer and the systemd units create
-# (the sockets, the audit log) are the same, so nothing outside this file
-# changes.
+# the SSH keys that reach managed hosts, and the sops file it manages.  The
+# paths the installer and the systemd units create (the sockets, the audit log)
+# are the same, so nothing outside this file changes.
 #
 # If ansible-playbook is a pipx or venv install, put its directory on the PATH
 # in [exec.base_env]: that is the PATH the child gets and where a bare command
