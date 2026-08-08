@@ -176,8 +176,8 @@ func TestStatusDoesNotNameARefusedRef(t *testing.T) {
 	if strings.Contains(body, "not_redactable") {
 		t.Errorf("status carried the refusal list: %q", body)
 	}
-	if !strings.Contains(body, "ref_count") {
-		t.Errorf("status is missing ref_count: %q", body)
+	if !strings.Contains(body, "count") {
+		t.Errorf("status is missing count: %q", body)
 	}
 	// Both removed upstream; status must not still advertise them.
 	for _, gone := range []string{"allow_rules", "sync_enabled"} {

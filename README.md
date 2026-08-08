@@ -218,7 +218,7 @@ What | Rule | Why
 `[secrets] files`, `[ssh] keys` | **accumulate**, duplicates collapsed | Inventories with one entry per owner. Two projects each naming their own store both want theirs managed; replacing would leave the broker holding fewer files than its operator believes, injecting nothing for the loser and redacting nothing either.
 every other list | **refused** when two sources set it, naming both | `allowed_users`, `allowed_groups`, `allowed_uids` and `decrypt_command` are policy. Accumulating would widen what the sockets admit by writing a file that never said so; taking the last would make it depend on filename order.
 
-- Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir-broker --check` both report `config_sources`, which is where to look when a setting is not what you expect.
+- Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir-broker --check` both report `configs`, the base file and every drop-in that contributed in the order they were merged, which is where to look when a setting is not what you expect.
 - Dotfiles are skipped, so an editor's `.#name.toml` lock does not stop the daemons starting.
 
 ### The install gate

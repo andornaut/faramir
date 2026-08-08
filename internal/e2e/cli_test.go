@@ -144,7 +144,7 @@ func TestCLIListSecretsAndStatus(t *testing.T) {
 		t.Errorf("list-secrets: exit=%d stdout=%q", r.code, r.stdout)
 	}
 	if r := runCLI(t, h.brokerSock, "status"); r.code != 0 ||
-		!strings.Contains(r.stdout, "ref_count") {
+		!strings.Contains(r.stdout, "count") {
 		t.Errorf("status: exit=%d stdout=%q", r.code, r.stdout)
 	}
 }

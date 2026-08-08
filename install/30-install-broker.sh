@@ -131,8 +131,8 @@ done
 # names one, so a CONFIG_DIR elsewhere has to reach them.  Written as a drop-in
 # rather than by rewriting ExecStart: an ExecStart= reset that goes wrong leaves
 # a unit with no command at all, and the config path is the only thing changing.
-# Removed when CONFIG_DIR is the default, so a host that moves back does not keep
-# being pointed at where it used to be.
+# Removed when CONFIG_DIR is the default, so the units fall back to their own
+# built-in path and nothing points them anywhere else.
 for unit in faramir-broker faramir-keeper faramir-exec; do
   dropin="/etc/systemd/system/${unit}.service.d/config-path.conf"
   if [[ $CONFIG_DIR = /etc/faramir ]]; then

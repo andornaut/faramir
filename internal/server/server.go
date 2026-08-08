@@ -189,10 +189,11 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 func (s *Server) opStatus() protocol.Response {
 	body, _ := json.MarshalIndent(map[string]any{
 		"version": version.Version,
-		"config":  s.Config.Path,
-		// Every file that contributed, not just the base: a setting that is not
-		// what an operator expects is usually a drop-in they forgot applies.
-		"config_sources": s.Config.Sources,
+		// Every file that contributed, in the order they were merged, so the
+		// base config is the first entry and a reader wanting only that one can
+		// take it. A setting that is not what an operator expects is usually a
+		// drop-in they forgot applies.
+		"configs": s.Config.Sources,
 		"secrets":        s.Store.Describe(),
 	}, "", "  ")
 	return protocol.Response{
@@ -427,8 +428,8 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
 	sshInfo, problems := s.describeSSH()
 	body, _ := json.MarshalIndent(map[string]any{
-		"config_sources": s.Config.Sources,
-		"secrets":        secrets, "ssh": sshInfo,
+		"configs": s.Config.Sources,
+		"secrets": secrets, "ssh": sshInfo,
 	}, "", "  ")
 
 	code := 0

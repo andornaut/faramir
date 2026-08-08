@@ -346,7 +346,7 @@ func (s *Store) describeLocked() map[string]any {
 	}
 	return map[string]any{
 		"files":     files,
-		"ref_count": len(s.values),
+		"count": len(s.values),
 		"errors":    errs,
 	}
 }
