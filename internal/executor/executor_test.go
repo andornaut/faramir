@@ -169,6 +169,22 @@ func TestExitStatusIsReported(t *testing.T) {
 	}
 }
 
+// A child that closes the terminal before it exits still reports its own exit
+// code.  The master reaching EIO says the slave was closed, not that the child
+// is gone, and closing the master hangs the terminal up, which SIGHUPs the
+// child's process group: doing that before the status is collected would turn
+// every such exit into 129.  Closing the descriptors explicitly makes the
+// window the whole run rather than the microseconds an ordinary child spends
+// between its last write and being reaped.
+func TestAChildThatClosesTheTerminalKeepsItsExitCode(t *testing.T) {
+	h := newHarness(t, 1<<20)
+	result, _ := h.run(t, `exec 1>&- 2>&-; sleep 0.3; exit 7`)
+
+	if result.ExitCode != 7 {
+		t.Errorf("exit = %d, want 7", result.ExitCode)
+	}
+}
+
 func tail(s string) string {
 	if len(s) > 200 {
 		return "..." + s[len(s)-200:]

@@ -71,6 +71,13 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	if err != nil {
 		return nil, err
 	}
+	// The master has to outlive the child's exit status.  Closing it hangs the
+	// terminal up, and a hangup delivers SIGHUP to the foreground process
+	// group, which is the child's.  EIO on the master says only that the slave
+	// was closed, and a child closes it on the way out, before the kernel has
+	// settled what it exited with: closing any earlier than the status being
+	// collected replaces the child's own exit code with 128+SIGHUP.
+	defer func() { _ = master.Close() }()
 	ptyutil.SetWinsize(master.Fd(), execCfg.TermRows, execCfg.TermCols)
 	started := time.Now()
 
@@ -80,7 +87,6 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	// reaches EOF when the child exits.
 	_ = slave.Close()
 	if startErr != nil {
-		_ = master.Close()
 		return nil, startErr
 	}
 
@@ -148,7 +154,6 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 		emit(redactor.Feed(string(carry)))
 	}
 	emit(redactor.Flush())
-	_ = master.Close()
 
 	var exitCode int
 	var timedOut bool
