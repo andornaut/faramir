@@ -24,7 +24,7 @@ than `[server] max_request_bytes` is refused.
 {
   "op": "exec",
   "cmd": ["printenv", "ROUTER_PW"],
-  "cwd": "/srv/faramir/worktree",
+  "cwd": "/home/you/src/project",
   "env_refs": { "ROUTER_PW": "secret://home/router/admin" },
   "timeout_sec": 600
 }
@@ -154,7 +154,7 @@ carrying a single file descriptor as ancillary data:
 
 ```json
 {"argv": ["/usr/bin/printenv", "ROUTER_PW"],
- "cwd": "/srv/faramir/worktree",
+ "cwd": "/home/you/src/project",
  "env": {"ROUTER_PW": "…"},
  "timeout_sec": 600,
  "kill_grace_sec": 5}

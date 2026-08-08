@@ -7,7 +7,7 @@ LDFLAGS := -s -w
 # interpreter runs on a host whose Python is older than 3.11.
 export CGO_ENABLED := 0
 
-.PHONY: all build build-debug coverage fmt lint test test-unit test-e2e check install verify sizes clean
+.PHONY: all build coverage fmt lint test test-unit test-e2e install verify sizes clean
 
 all: build
 
@@ -17,11 +17,6 @@ build:
 	@for c in $(CMDS); do \
 		go build -ldflags="$(LDFLAGS)" -trimpath -o $(BIN)/$$c ./cmd/$$c || exit 1; \
 	done
-
-## build-debug: unstripped, for profiling and stack traces
-build-debug:
-	@mkdir -p $(BIN)
-	@for c in $(CMDS); do go build -o $(BIN)/$$c ./cmd/$$c || exit 1; done
 
 ## test: the whole suite.  Needs no sops installed: the round trip runs
 ## through a stand-in built from the sops libraries at test time.
@@ -52,10 +47,6 @@ fmt:
 ## lint: the same golangci-lint run CI does
 lint:
 	golangci-lint run
-
-check:
-	go vet ./...
-	@gofmt -l . | grep . && { echo "gofmt needed on the files above"; exit 1; } || true
 
 ## install: the four phases, in order.  Deliberately NOT dependent on build:
 ## this runs as root, the compiler should not, and the installer is meant to

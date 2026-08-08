@@ -80,13 +80,13 @@ Two commands: the compiler should not run as root, and the installer works on a 
 
 Phase | Does
 --- | ---
-`10-accounts.sh` | accounts, group, shared tree, traversal ACLs, `umask 002`
+`10-accounts.sh` | accounts, group, `umask 002`; a shared tree and traversal ACLs if `WORKTREE` names one
 `20-sops-init.sh` | age keypair to `/etc/faramir/age.key`, `.sops.yaml`
 `30-install-broker.sh` | binaries, config, systemd units
-`40-agent-config.sh` | `Read` deny rules in your account; hook, MCP and instructions in the project
+`40-agent-config.sh` | `Read` deny rules in your account, and the recipe for enrolling a project
 
 - `CONFIG=etc/examples/ansible-fleet.toml` installs a real workload config instead of the starter. Configs install verbatim; every path in one is absolute.
-- `WORKTREE` names the tree phase 1 shares and phase 4 enrols. Default `/srv/faramir/worktree`.
+- `WORKTREE` is optional and unset by default. Name a directory to have it group-shared with the service accounts, and to have traversal granted down to it when it sits inside a home. Nothing needs a tree of its own: a brokered command runs where its caller was.
 - `FARAMIR_BIN=/opt/faramir/bin` lets you build on one machine and install on another.
 - A `CONFIG` that does not parse is refused before anything is written.
 - `install/uninstall.sh` leaves the accounts, `/etc/faramir` and the audit log alone.
@@ -255,7 +255,8 @@ uid faramir-exec              forks brokered commands; holds nothing
 /etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
 /etc/faramir/secrets/         2770 root:dev, managed sops files and .sops.yaml
 /etc/faramir/config.toml      0644 root:root, read by all three daemons
-/srv/faramir/worktree         2770 <operator>:dev
+/srv/faramir/worktree         optional shared tree, 2770 <operator>:dev,
+                              only when WORKTREE names one
 /var/log/faramir/audit.log    0600 faramir-broker:faramir-broker
 ```
 
@@ -328,7 +329,6 @@ make test-e2e        # end-to-end against a real broker in a temp dir
 make lint            # golangci-lint
 make fmt             # apply the import and format rules CI checks
 make coverage        # race-enabled suite plus per-function report
-make check           # go vet plus gofmt
 make sizes           # per-binary size, package count, sops linkage
 ```
 
