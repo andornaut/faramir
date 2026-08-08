@@ -1,204 +1,100 @@
 # How the redactor works
 
-[internal/redact](../internal/redact). Each stage below exists for a case that
-is not obvious from the stage itself.
+[internal/redact](../internal/redact). Each stage exists for a case that is not obvious from the stage itself.
 
 ## Why not an off-the-shelf injector
 
-`op run`, `chamber exec`, `sops exec-env` and friends mask the values *they*
-injected into the child's environment. That is not sufficient here.
+`op run`, `chamber exec`, `sops exec-env` and friends mask the values *they* injected. A credential reaches the output by paths no injector knows about: a managed host printing its own configuration over `ssh` emits the very password in the sops file whether or not that ref was injected, and a grep across a log file finds one written weeks ago.
 
-A credential reaches the output by paths no injector knows about. A managed
-host printing its own configuration over `ssh` emits the very password stored
-in the sops file, whether or not that ref was injected into the command. A
-grep across a log file finds one that was written there weeks ago. An
-injector-based redactor has never seen those values and cannot mask them.
+So **the value set is every secret the keeper manages**, not the subset relevant to the current command. The broker fetches it on startup, when a managed file's mtime changes, and again when the previous fetch could not reach the keeper (the files are unchanged in that case, so the mtime poll would never notice, and an empty value set redacts nothing).
 
-Therefore: **the redactor's value set is every secret the keeper manages**, not
-the subset relevant to the current command. The broker fetches it on startup,
-when a managed file's mtime changes, and again when the previous fetch could
-not reach the keeper: the files are unchanged in that case, so the mtime poll
-would never notice, and an empty value set redacts nothing.
-
-Which files it watches is fixed at startup. `config.toml` is read once by each
-daemon, so a file added to `[secrets] files` is adopted by restarting the
-keeper and then the broker, not by signalling either of them.
+Which files it watches is fixed at startup. `config.toml` is read once per daemon, so a file added to `[secrets] files` is adopted by restarting the keeper and then the broker.
 
 ## Why a PTY and not a pipe
 
-Two reasons, and the second is the one that matters.
+1. Programs behave differently when stdout is not a terminal: colour, progress meters and buffering all change.
+2. **A process can write straight to `/dev/tty`**, bypassing stdout redirection entirely. `ssh` and `sudo` do this for password prompts. A pipe never sees those writes; owning the controlling terminal does.
 
-1. Programs behave differently when stdout is not a terminal: colour
-   disappears, progress meters change, buffering changes. Ansible's output in
-   particular is much less useful through a pipe.
-2. **A process can write straight to `/dev/tty`**, bypassing stdout redirection
-   entirely. `ssh` and `sudo` do exactly this for password prompts. A pipe on
-   stdout/stderr never sees those writes. Owning the controlling terminal does.
+`internal/e2e` pins this: a secret written to `/dev/tty` comes back as a token.
 
-`internal/e2e` pins this down: `printenv ROUTER_PW > /dev/tty` is captured and
-comes back as a token.
+The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the master, so redaction runs where it always did with no extra hop.
 
-The fork happens in `faramir-exec`, but the PTY does not move with it. The
-broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the
-master, so everything below runs exactly where it always did, on the child's
-bytes, with no extra hop for output to take.
-
-Output only: the child's stdin is `/dev/null`. Nothing ever writes to the
-master, so a readable stdin would mean any command that reads it, a password
-prompt or a shell started with no arguments, blocks until its timeout while
-holding a concurrency slot. The controlling terminal is claimed through
-stdout instead, which is what `/dev/tty` writes depend on.
-
-The cost is that stdout and stderr arrive merged, with no way to tell them
-apart. That is accepted.
+Stdin is `/dev/null`. A readable stdin would mean any command that reads it blocks until timeout while holding a concurrency slot. Cost: stdout and stderr arrive merged, with no way to tell them apart. Accepted.
 
 ## The pipeline, in order
 
-Order matters; each stage assumes the previous one has run.
+Each stage assumes the previous one has run.
 
-### 1. Strip ANSI escapes before matching
+### 1. Strip ANSI escapes
 
-A colour code spliced into the middle of a value defeats naive matching:
+A colour code spliced into a value defeats naive matching while rendering identically:
 
 ```
 hunte\x1b[32mr2-correct-horse
 ```
 
-is not `hunter2-correct-horse` to any string matcher, but it renders
-identically on a terminal, and would render identically in a transcript sent
-to a model. So escapes and stray control characters are removed *first*, and
-the response contains the stripped text.
-
-Streaming complicates this: an escape sequence can be split across two reads.
-The stripper holds back a bounded trailing partial sequence and prepends it to
-the next chunk.
+Escapes and stray control characters are removed first, and the response carries the stripped text. An escape can split across two reads, so the stripper holds back a bounded trailing partial sequence.
 
 ### 2. Match an expanded value set
-
-For every secret, these renderings are generated and matched:
 
 Variant | Produced by
 --- | ---
 raw | anything
-base64, padded and unpadded | `\| base64`, `\| base64 -w0`, JSON payloads, `Authorization: Basic`
+base64, padded and unpadded | `\| base64`, JSON payloads, `Authorization: Basic`
 base64 URL-safe | JWTs, signed URLs
-percent-encoded (`quote` and `quote_plus`) | any URL containing a credential
+percent-encoded | any URL carrying a credential
 JSON string-escaped | `-vvv` output, API responses, structured logging
-shell single-quoted body (`'\''`) | `set -x` traces
-shell double-quoted body (`\$`, `` \` ``, `\"`) | `set -x` traces
+shell single-quoted (`'\''`) | `set -x` traces
+shell double-quoted (`\$`, `` \` ``, `\"`) | `set -x` traces
 
-Not exhaustive, and deliberately so: an agent that *wants* to defeat this can
-(see the threat model). These are the encodings ordinary tools produce by
-accident.
+Deliberately not exhaustive: an agent that *wants* to defeat this can. These are the encodings ordinary tools produce by accident.
 
 ### 3. Wrapped base64 needs a second pass
 
-`base64` wraps its output by default, so the encoded value arrives with
-newlines inside it and matches nothing. The redactor builds a copy of the
-buffer with newlines removed, keeping an index map back to the original
-offsets, matches the base64 variants against that view, and maps the hits back
-to spans in the original text so surrounding output is preserved.
+`base64` wraps by default, so the encoded value arrives with newlines inside it and matches nothing. The redactor builds a newline-free view with an index map back to the original offsets, matches against that, and maps hits back to spans in the original.
 
 ### 4. Stream with an overlap buffer
 
-The redactor holds back a tail derived from the longest variant on every
-`Feed`, releasing it only on `Flush`. The margin is more than the longest
-variant because base64 line wrapping inserts newlines *inside* a value, making
-its on-the-wire length longer than the variant itself.
+A tail derived from the longest variant is held back on every `Feed` and released on `Flush`. The margin exceeds the longest variant because base64 wrapping inserts newlines inside a value. The retained tail is already redacted, so re-scanning cannot double-count: a token contains no secret.
 
-Because the retained tail has already been redacted, re-scanning it on the next
-chunk cannot double-count: a token contains no secret.
-
-Everything `Feed` returns is output, including the release triggered by the
-last partial-rune tail at end of stream. Dropping that return would lose the
-final characters of every command whose last write splits a rune, which
-`internal/executor` holds down.
+Everything `Feed` returns is output, including the release triggered by the last partial-rune tail. Dropping that return would lose the final characters of every command whose last write splits a rune.
 
 ### 5. Minimum length and entropy gate
 
-A short password redacts unrelated output at random. If `cat` is a secret, the
-word "concatenate" gets mangled and the agent is left debugging a phantom.
+A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled.
 
-`[secrets]` sets a minimum length, a minimum count of distinct characters and a
-minimum Shannon entropy per character; the shipped values are in
-[etc/config.toml](../etc/config.toml). A value that fails the gate is **refused
-at load**: it is not held, not listed by `faramir_list_secrets`, and not
-injectable. Asking for it returns an error naming the reason.
+`[secrets]` sets a minimum length, distinct-character count and Shannon entropy per character. A value that fails is **refused at load**: not held, not listed, not injectable.
 
-Refusing rather than serving-and-warning means the broker is never the thing
-that hands over a value it cannot cover. It does not make the value safe. A
-refused value is absent from the redactor, so if it reaches the output by
-another route, a managed host printing its own configuration, it arrives in
-plaintext. That is the same leak as before; refusal only closes the injection
-half of it.
+Refusal does not make the value safe. A refused value is absent from the redactor, so if it reaches the output another way it arrives in plaintext. Refusal only closes the injection half.
 
-Which is why the refused list stays operator-side. It names exactly the
-secrets that are never tokenized, which is a repair list for whoever can
-lengthen them and targeting information for anyone else:
+The refused list stays operator-side, because it names exactly the secrets that are never tokenized:
 
-- the broker logs a warning naming each one at load time,
-- `faramir-broker --check` reports them under `secrets.not_redactable`, with
-  the reason, and exits non-zero,
+- the broker logs a warning naming each one at load,
+- `faramir-broker --check` reports them under `secrets.not_redactable` and exits non-zero,
 - `faramir_status` and `faramir_list_secrets` say nothing about them.
 
-The right fix is to lengthen the secret, not to lower the threshold, but the
-thresholds are configurable in `[secrets]` if you have a genuinely short value
-you would rather redact aggressively.
+Lengthen the secret rather than lowering the threshold.
 
 ### 6. Stable tokens
 
-The same secret always becomes `«SECRET:home/router/admin»`, in every response
-and every session. Two refs holding the *same value* share one token: the
-redactor deduplicates by value, so a password stored both as
-`home/router/admin` and as `vault_router_password` renders as a single,
-consistent name rather than alternating unpredictably. The model can then reason about "the router password"
-across turns without ever holding it. Guillemets are used because they
-essentially never occur in tool output, so a token is unambiguous.
+The same secret always becomes `«SECRET:home/router/admin»`, in every response and session. Two refs holding the same value share one token, since the redactor deduplicates by value. Guillemets because they essentially never occur in tool output.
 
 ## The age key is not in the value set
 
-No process the broker starts receives the key, can read `/etc/faramir/age.key`
-(owned by `faramir-keeper`, mode 0400), or can open the keeper's socket, so
-"no child prints the age key" holds by construction rather than by the matcher
-catching it on the way out. Redaction is best-effort; a uid boundary is not.
+No process the broker starts receives the key, can read `/etc/faramir/age.key` (`0400 faramir-keeper`), or can open the keeper's socket. "No child prints the age key" holds by construction rather than by the matcher catching it on the way out.
 
-Covering it in the redactor instead would be weaker than it looks: a child
-holding the key could write it to a file or send it somewhere, and redaction
-only ever sees output.
+Covering it in the redactor would be weaker than it looks: a child holding the key could write it to a file, and redaction only sees output.
 
 ## The audit log is redacted too
 
-The log records output *after* redaction, so the same tokens the agent got are
-what reaches disk. Everything else in a record is already value-free: the refs
-are names, and `argv` is redacted on its way in as well, because the broker
-never puts a value there but a caller can.
+Output is recorded *after* redaction, so the tokens the agent saw are what reaches disk. Refs are names, and `argv` is redacted on the way in because a caller can put a value there even though the broker never does.
 
-An unredacted log would be the only plaintext this system writes to disk:
-unencrypted while every sops file beside it is encrypted, unbounded, and in
-`/var/log`, where backups, snapshots and log shippers reach and the `0600
-faramir-broker` mode does not follow. A stolen disk would give up every secret
-that had ever appeared in output.
+An unredacted log would be the only plaintext this system writes to disk: unencrypted beside encrypted sops files, unbounded, and in `/var/log` where backups and log shippers reach and the `0600` mode does not follow.
 
-Auditing needs who ran what, when, against which refs, and to what effect, and
-none of that is a value. Confirming that a credential actually arrived is what
-the redaction counts are for, which is the same argument made for the agent in
-[protocol.md](protocol.md): a count of 1 for `«SECRET:home/router/admin»`
-proves it landed, and a count of 0 when you expected 1 is the real signal.
+Cost: you cannot tell from the log whether the value that arrived was current or stale. Compare the ref at the source. A value refused at load is absent from the redactor, so if it reaches output another way it lands in the log in plaintext; `--check` names every such ref.
 
-What this costs: you cannot tell from the log whether the value that arrived
-was the one currently in sops or a stale one. Compare the ref at the source
-instead. The one caveat is the same one the response carries, and it is not new
-here: a value refused at load is absent from the redactor, so if it reaches the
-output some other way it lands in the log in plaintext. `faramir-broker --check`
-names every such ref; lengthen them.
+## Deliberately not done
 
-## What is deliberately not done
-
-- **No hashing/fuzzy matching.** Redacting `sha256(secret)` would be easy and
-  would not help: the transformation space is unbounded, and this is the
-  documented boundary of the threat model, not an oversight.
-- **No redaction of the request.** The agent chooses what it sends; the broker
-  has nothing to hide from it there.
-- **No reversal of a token.** There is no lookup from `«SECRET:ref»` back to a
-  value anywhere in the system, including for the operator. Read the sops file
-  if you need one.
+- **No hashing or fuzzy matching.** The transformation space is unbounded. This is the documented boundary of the threat model, not an oversight.
+- **No redaction of the request.** The agent chooses what it sends.
+- **No reversal of a token.** There is no lookup from `«SECRET:ref»` back to a value anywhere, including for the operator.

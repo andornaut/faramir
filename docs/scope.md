@@ -2,265 +2,123 @@
 
 ## What this defends
 
-**Keeping sops-managed values out of the model's context, in the projects
-enrolled to do it.** That is the whole of it.
+**Keeping sops-managed values out of the model's context, in the projects enrolled to do it.** That is the whole of it.
 
-Enrolment is per project, because the coverage is not free: the hook rewrites
-every Bash command so the output can be redacted, and a rewritten command
-matches no permission rule, so Bash is auto-approved wherever the hook runs.
-That is worth paying where managed credentials are in play and is not worth
-paying everywhere.
+Enrolment is per project because coverage is not free: the hook rewrites every Bash command so output can be redacted, and a rewritten command matches no permission rule, so Bash is auto-approved wherever the hook runs.
 
-The value set, though, is global: the broker holds every managed secret
-regardless of which project asked. So a command in a project that was never
-enrolled can still print a managed value, and nothing will catch it. Enrol
-anything that touches these credentials, and treat an unenrolled project as
-having no redaction rather than as being safe.
+The value set is global. The broker holds every managed secret regardless of which project asked, so a command in an unenrolled project can print a managed value uncaught. **Treat unenrolled as "no redaction", not "safe".**
 
-Three further things it does not defend:
+Not defended | Why
+--- | ---
+The agent's reach | Confining it is a means, and only where free. Not the goal.
+The fleet | The account Ansible connects as has passwordless sudo on every managed host. That is the operator's arrangement.
+Personal credentials at rest | `.env`, `~/.npmrc` and the like are read directly by the tools that need them. Scope and rotation are the mitigations.
 
-- **The agent's reach.** Confining what a coding agent can touch is a means, and
-  only where it is free. It is not the goal.
-- **The fleet.** The account Ansible connects as has passwordless sudo on every
-  managed host, so anything that can run a brokered playbook can read anything
-  on those hosts. That is the operator's arrangement, and no design here
-  changes it.
-- **Personal credentials at rest.** `.env` files, `~/.npmrc` and the like are
-  read directly by the tools that need them, and encrypting them breaks those
-  tools. Scope and rotation are the mitigations there, not access control.
-
-**Accidental disclosure over deliberate exfiltration.** Because the fleet is
-already reachable, an agent that is *trying* to leak a credential cannot be
-stopped: it runs a playbook, reads the value on a managed host, and encodes it
-however it likes. What can be stopped is a credential landing in a transcript
-because a command printed it. Machinery whose only benefit is against a
-determined agent is not worth its cost.
+**Accidental disclosure over deliberate exfiltration.** An agent that is trying to leak a credential cannot be stopped: it runs a playbook, reads the value on a managed host, and encodes it however it likes. What can be stopped is a credential landing in a transcript because a command printed it.
 
 ## One mode
 
-The coding agent runs as the operator. There is no account of its own, and no
-boundary around the agent process.
+The agent runs as the operator, with no account of its own and no boundary around the agent process. An agent maintaining the operator's repositories needs their checkouts, their `gh` credential and their commit identity; every route to granting a separate uid that access hands over the same files by another name.
 
-That is what the work requires. An agent maintaining the operator's
-repositories needs their checkouts, their `gh` credential and their commit
-identity, and a separate uid can reach none of those. Every route to granting
-it access hands over the operator's files by another name: relocating the
-trees, punching group traversal through a home, or copying credentials into a
-second account, which turns one credential into two. Unattended runs are no
-different: an unattended maintainer still has to push commits and call GitHub
-as the operator.
+The boundaries are around the secrets, not the agent:
 
-The boundaries that matter are around the secrets, not around the agent:
+Held by | What | Reachable by the operator
+--- | --- | ---
+`faramir-keeper` | the age key | no
+`faramir-broker` | decrypted values, SSH keys, the audit log | no, except through the broker
+`faramir-exec` | nothing; brokered commands run here | it cannot read the operator's home
 
-| Held by | What | Reachable by the operator |
-| --- | --- | --- |
-| `faramir-keeper` | the age key | no |
-| `faramir-broker` | decrypted values, the fleet SSH key, the audit log | no, except through the broker |
-| `faramir-exec` | nothing; brokered commands run here | it cannot read the operator's home |
-
-What is given up is a boundary around the agent *process*: it can read the
-operator's own files, and an unattended run with permissions skipped can
-rewrite their repositories. Bounding that is a credential-scope problem, not a
-uid problem: a `gh` token limited to the repositories it maintains, and branch
-protection so it cannot force-push. Filesystem blast radius is out of scope.
+Bounding what an unattended run may change is a credential-scope problem: a `gh` token limited to the repositories it maintains, plus branch protection. Filesystem blast radius is out of scope.
 
 ## Secrets under /etc, not in a tree
 
-The managed sops files live in `/etc/faramir/secrets`, `2770 root:dev`. They are
-configuration an operator authors and the daemons read at startup, which is what
-`/etc` is for, and the location decides more than convention:
+Managed sops files live in `/etc/faramir/secrets`, `2770 root:dev`.
 
-- **A home is not mounted until its owner logs in.** A value set that depends on
-  one is empty at boot, so the broker comes up redacting nothing. That is a
-  security failure rather than an outage, and it is silent.
-- **Unattended jobs do not have a session.** Anything running from cron as root
-  cannot reach a path inside an encrypted home, whatever its mode says.
-- **The keeper stops needing a home at all**, so its unit sets
-  `ProtectHome=true`. The uid holding the age key is the one worth taking `/home`
-  away from outright.
+- **A home is not mounted until its owner logs in.** A value set inside one is empty at boot, so the broker comes up redacting nothing. Silent, and a security failure rather than an outage.
+- **Unattended jobs have no session.** Anything running from cron cannot reach a path inside an encrypted home whatever its mode says.
+- **The keeper needs no home**, so its unit sets `ProtectHome=true`.
 
-The operator still edits them in place with `sops`, through the group, without
-sudo. `.sops.yaml` sits in the same directory because sops resolves creation
-rules by walking up from the file it is encrypting, so a rule that is not an
-ancestor is a rule it never finds.
+The operator edits them in place with `sops`, through the group, without sudo. `.sops.yaml` sits in the same directory, but note that sops resolves it from the **current working directory** upward, not from the file being encrypted: encrypting into the store from elsewhere has to name it with `--config`.
 
 ## Where brokered commands run
 
-A brokered command runs where its caller was, so `faramir-exec` is the only
-service uid that needs to reach a working tree. A home is `0700`, so a tree
-inside one is unreachable until that uid is granted traversal; a tree outside
-the homes needs nothing.
+A brokered command runs where its caller was. Two uids must reach that directory: `faramir-exec` forks the command there, and `faramir-broker` stats it before accepting the request.
 
-Both work. Phase 1 grants the inside-a-home case with an ACL naming that one
-uid on every component from the home down. Not `chmod o+x`, which would hand
-traversal to every account on the machine; the ACL leaves `other` at nothing.
+A tree outside the homes needs nothing. Inside a `0700` home both uids need traversal, which phase 1 grants with a single ACL on every component from the home down. Not `chmod o+x`, which would hand traversal to every account on the machine. On ecryptfs only the first ACL write against an inode lands, which is why both uids go in one call.
 
-An ACL is a permission, not a mount: it holds nothing open, so an encrypted home
-still unmounts at logout. What holds one open is a brokered command running at
-the time, which is the one remaining cost of working inside an encrypted home.
+An ACL is a permission, not a mount: it holds nothing open, so an encrypted home still unmounts at logout. A brokered command running at the time does hold one open.
 
 ## Three layers
 
-**1. No plaintext where the agent will trip over it.** The defended values are
-sops ciphertext in the tree, and the age key is `0400` under a uid that
-executes nothing but sops. This layer does not extend to personal credentials,
-per the scope above.
-
-**2. Leak-prone commands are refused outright.** The commands that put a
-credential in the context window are a short, predictable list, and
-[agent/hooks/deny-patterns.txt](../agent/hooks/deny-patterns.txt) is it:
-direct decryption (`ansible-vault view`, `sops -d`, `age -d`), wholesale
-environment dumps (`printenv`, `env`, `/proc/<pid>/environ`), reading key
-material or encrypted blobs (`cat` and friends against a vault, a `.env`, an
-age key or an SSH key), and reaching the broker's own state (`/var/log/faramir`,
-`journalctl`, `sudo` as a service account). The `PreToolUse` hook denies those
-and names `faramir run` instead. A denial the agent cannot act on gets worked
-around, so the refusal states the alternative.
-
-This is ergonomics with teeth rather than the boundary: the agent's uid cannot
-read the key material either way.
-
-**3. Redact what still gets through.** The `redact` op takes text and returns
-it with every known value replaced by its token. The caller never receives the
-value set; the broker holds it and answers questions about it, the same shape
-as `list_secrets` returning names and never values. This is what covers
-everything the agent runs itself, rather than only what it routed through the
-broker.
+1. **No plaintext where the agent will trip over it.** Values are sops ciphertext; the age key is `0400` under a uid that executes nothing but sops.
+2. **Leak-prone commands are refused.** [agent/hooks/deny-patterns.txt](../agent/hooks/deny-patterns.txt) names direct decryption, wholesale environment dumps, and readers or encoders pointed at key material. The refusal states the alternative, because a denial the agent cannot act on gets worked around. Ergonomics with teeth, not the boundary: the agent's uid cannot read the key material either way.
+3. **Redact what still gets through.** The `redact` op returns text with every known value replaced by its token. The caller never receives the value set.
 
 ## How the rewrite works
 
-A `PreToolUse` hook cannot rewrite a tool's *result*, but it can rewrite the
-tool's *input*, and for a shell command that is enough. The guard replaces
-`<command>` with:
+A `PreToolUse` hook cannot rewrite a tool's result, but it can rewrite its input. The guard replaces `<command>` with:
 
 ```bash
 source /usr/local/libexec/faramir/wrap.sh '<command>'
 ```
 
-[agent/hooks/wrap.sh](../agent/hooks/wrap.sh) creates a `0600` file on a tmpfs,
-runs the command with both streams redirected into it, reads it back through
-`faramir redact`, removes it, and restores the command's own exit status.
+[wrap.sh](../agent/hooks/wrap.sh) creates a `0600` file on tmpfs, runs the command with both streams redirected into it, reads it back through `faramir redact`, removes it, and restores the exit status.
 
-The shape is decided by one constraint: **the agent's shell persists between
-tool calls.** A `cd` or an `export` in one command has to still be in effect
-for the next, which rules out the obvious wrappers:
+One constraint decides the shape: **the agent's shell persists between tool calls**, so a `cd` or `export` must survive.
 
-| Wrapper | State | Output | Allow-listable |
-| --- | --- | --- | --- |
-| `faramir redact -- bash -lc '<cmd>'` | lost, runs in a grandchild | fine | yes |
-| `{ <cmd>; } 2>&1 \| faramir redact` | lost, a pipeline element is a subshell | fine | no |
-| `{ <cmd>; } > >(faramir redact) 2>&1` | kept | races: the shell moves on while the redactor is still writing | no |
-| an inline `{ <cmd>; } >"$f" 2>&1; …` | kept | complete | no |
-| `source wrap.sh '<cmd>'` | kept | complete | no |
+Wrapper | State | Output | Allow-listable
+--- | --- | --- | ---
+`faramir redact -- bash -lc '<cmd>'` | lost, runs in a grandchild | fine | yes
+`{ <cmd>; } 2>&1 \| faramir redact` | lost, pipeline elements are subshells | fine | no
+`{ <cmd>; } > >(faramir redact) 2>&1` | kept | races the redactor | no
+inline `{ <cmd>; } >"$f" 2>&1` | kept | complete | no
+`source wrap.sh '<cmd>'` | kept | complete | no
 
-Sourcing runs the command in the caller's own shell and `eval` re-parses it
-there, so everything it sets stays set. Redacting the file afterwards rather
-than through a live pipe removes the race at no observable cost, since the tool
-returns a command's output in one piece anyway. Of the two forms that keep
-state, the sourced script is short, testable on its own, and handles an
-incomplete command by failing inside `eval` rather than taking the wrapper's
-syntax down with it.
+Sourcing runs the command in the caller's own shell, so everything it sets stays set. Redacting the file afterwards rather than through a live pipe removes the race at no observable cost.
 
-The temp file is `0600` from `mktemp`, preferring `$XDG_RUNTIME_DIR` and then
-`/dev/shm` so the unredacted text stays in memory rather than on a disk, and
-falling back to `mktemp`'s own default. It is removed as soon as it is read. The
-leading `:;` keeps a comment-only command from forming an empty group, and the
-newline before the closing brace keeps a trailing `# comment` from swallowing
-the redirection.
+Failure modes all fall back to running the command and showing its output, never to running nothing or showing nothing. A temp file that cannot be created falls back to stdout; a `faramir` that cannot redact falls back to `cat`. When the broker is unreachable the wrapper warns and passes output through unredacted, because a wrapper that breaks every command gets removed, and a removed wrapper redacts nothing.
 
-Every failure falls back to running the command and showing its output, never
-to running nothing or showing nothing: a temp file that could not be created
-falls back to stdout, and a `faramir` that cannot redact falls back to `cat`.
-Without the second, a client one version behind turns every command into silent
-success. When the broker cannot be reached the wrapper warns and passes output
-through unredacted, because a wrapper that breaks every command whenever the
-broker is down gets removed, and a removed wrapper redacts nothing.
-
-Commands left alone rather than rewritten, because buffering or appending would
-change what they do:
+Left alone rather than rewritten, because buffering would change what they do:
 
 - one already running under the redactor, so the wrapper is idempotent
-- a `BashOutput` read, which reads a running command's buffer
-- a backgrounded or `run_in_background` command, whose output is wanted while
-  it runs
-- one whose last line ends in `\`, `&&`, `||` or `|`, where the appended
-  newline would be swallowed and the group left unterminated
+- a `BashOutput` read
+- a backgrounded command, whose output is wanted while it runs
+- one whose last line ends in `\`, `&&`, `||` or `|`
 - a denied command, which is refused instead
 
 ## What this gives up
 
-**There is no kernel boundary around the agent process.** It is hooks and the
-deny list, which is the trade for an agent that can do the operator's work.
+**No kernel boundary around the agent process.** Hooks and the deny list, which is the trade for an agent that can do the operator's work.
 
-**For Bash, the deny list replaces the permission prompt.** That is forced, not
-chosen: permission matching runs against the rewritten command, so a rule keyed
-on the program name (`Bash(rm:*)`) no longer matches, and the wrapper itself
-cannot be allow-listed either. The hook therefore approves everything the deny
-list did not refuse. Granular Bash permissions are lost in the enrolled
-project; every other tool's permissions are untouched, there and everywhere.
+**For Bash, the deny list replaces the permission prompt.** Permission matching runs against the rewritten command, so a rule keyed on the program name no longer matches, and the wrapper cannot be allow-listed either. Returning `allow` is not what removes those rules: the rewrite already stopped them matching, and the decision only makes that explicit rather than leaving rules that appear active and never fire.
 
-Returning `allow` is not what removes those rules. The rewrite already stopped
-them matching; the decision only makes that explicit rather than leaving rules
-that appear active and silently never fire.
+**The shipped deny list names credential disclosure and nothing destructive.** Enrolling drops whatever Bash prompting stood between the agent and `rm -rf` and puts nothing in its place. Prompts on `Write` and `Edit` do not cover it, since Bash can write and delete without them.
 
-Note what the shipped deny list is for. It names credential disclosure -- vault
-readers, environment dumps, decryptors, and encoders pointed at key material --
-and nothing destructive. Enrolling a project therefore drops whatever Bash
-prompting stood between the agent and `rm -rf`, and puts nothing in its place on
-that axis. Prompts on `Write` and `Edit` do not cover it, since Bash can write
-and delete without them.
+`FARAMIR_WRAP_DECISION=ask` restores the prompt on every command including `ls`, since each rewritten command is a distinct string no rule can pre-approve. An escape hatch, not a mode.
 
-`FARAMIR_WRAP_DECISION=ask` restores the prompt, on every command including
-`ls`: each rewritten command is a distinct string that no rule can pre-approve.
-It is an escape hatch, not a mode.
+### Cost by permission mode
 
-### What it costs depends on the permission mode
+Hook decisions are evaluated independently of the session's permission mode, and the hook's decision applies. Measured with a hook that denies one pattern and rewrites everything else:
 
-Hook decisions are evaluated independently of the session's permission mode,
-and the hook's decision is the one that applies. Measured against the four
-modes, with a hook that denies one pattern and rewrites everything else:
+Session mode | Hook fires | A `deny` is enforced | The rewrite applies
+--- | --- | --- | ---
+`default` | yes | yes | yes
+`acceptEdits` | yes | yes | yes
+`bypassPermissions` | yes | yes | yes
+`--dangerously-skip-permissions` | yes | yes | yes
 
-| Session mode | Hook fires | A hook `deny` is enforced | The rewrite is applied |
-| --- | --- | --- | --- |
-| `default` | yes | yes | yes |
-| `acceptEdits` | yes | yes | yes |
-| `bypassPermissions` | yes | yes | yes |
-| `--dangerously-skip-permissions` | yes | yes | yes |
+Bypassing permissions skips neither hooks nor a hook-issued refusal. So enrolment does not cost the same everywhere:
 
-Bypassing permissions does not skip hooks, and does not skip a hook-issued
-refusal either. What the deny list refuses is refused in every mode.
+Mode | Cost
+--- | ---
+`default` | Bash would have prompted and now does not. This is what the warning is about.
+`acceptEdits` | Auto-accepts `Write` and `Edit`, leaves Bash prompting. Same cost as default. The mode that looks like it should exempt a project and does not.
+`bypassPermissions` | Bash never prompted, so approving it removes nothing. Redaction and the deny list still apply, making enrolment purely additive.
 
-The consequence is that enrolling a project does not cost the same everywhere:
+Rewriting rather than denying is the point: a deny list only covers what somebody thought to name, and the command that leaks a credential is usually one nobody would have named.
 
-- **`default`**: Bash would have prompted, and now does not. This is the cost
-  the warning is about.
-- **`acceptEdits`**: auto-accepts `Write` and `Edit` and leaves `Bash`
-  prompting normally, so the cost is the same as in `default`. Being in an
-  "auto" mode does not exempt a project; this is the one that looks like it
-  should and does not.
-- **`bypassPermissions`**: Bash never prompted, so approving it here removes
-  nothing. Redaction and the deny list still apply, which makes enrolment
-  purely additive: in an unattended project this is the only thing putting
-  anything back.
+**A `redact` op is an oracle.** Ask about a guessed value and the answer says whether the guess was right. No rate limit, no concurrency slot, not visible. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. If that weighting changes, fix this first.
 
-Rewriting rather than denying is the point. A deny list only covers what
-somebody thought to name, and the command that leaks a credential is usually
-one nobody would have named. The list stays for what must not run at all;
-everything else runs under the redactor.
+**A killed command loses its output.** Output is redacted after the command finishes, so a timeout or interrupt yields nothing where an unwrapped command would have shown partial output. The cost of buffering, which the persistent shell forces.
 
-**A `redact` op is an oracle.** Ask it about a guessed value and the answer
-says whether the guess was right. Nothing bounds that: the op takes no
-concurrency slot and the broker has no rate limit, so guessing is neither
-slowed nor visible. What makes it acceptable is the weighting rather than a
-mitigation: an accident does not guess, and an agent that is guessing has the
-fleet anyway. If that weighting changes, this is the first thing to fix.
-
-**A command that is killed loses its output.** Output is redacted after the
-command finishes, so a command stopped by a timeout or an interrupt never
-reaches the redactor: the caller gets nothing where an unwrapped command would
-have shown what it had printed so far, and the temp file holding the
-unredacted text is left until the tmpfs is cleared. That is the cost of
-buffering, and buffering is what the persistent shell forces.
-
-**The invariant:** no sops-managed value reaches the model except as a token,
-and nothing a session can read decrypts one.
+**The invariant:** no sops-managed value reaches the model except as a token, and nothing a session can read decrypts one.
