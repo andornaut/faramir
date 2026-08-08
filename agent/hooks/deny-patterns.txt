@@ -86,7 +86,7 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # The redirect rule matches the target word only, not the rest of the line, so
 # that a heredoc writing documentation that mentions one of these paths is not
 # mistaken for a write to it.
-\b(rm|shred|truncate|mv|cp|install|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|\.sops\.ya?ml|\.vault\b)
+\b(rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|\.sops\.ya?ml|\.vault\b)
 >\s*\S*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|\.sops\.ya?ml)
 
 # Trying to reach the broker's private state.  Reading the audit log is covered

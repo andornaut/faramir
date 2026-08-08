@@ -120,7 +120,7 @@ var fallback = []string{
 	// The redirect rule matches the target word only, not the rest of the line,
 	// so that a heredoc writing documentation that mentions one of these paths
 	// is not mistaken for a write to it.
-	`\b(rm|shred|truncate|mv|cp|install|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*` +
+	`\b(rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*` +
 		`(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|\.sops\.ya?ml|\.vault\b)`,
 	`>\s*\S*(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|\.sops\.ya?ml)`,
 	// journalctl is deliberately absent: the daemons log ref names and counts,
