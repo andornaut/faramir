@@ -1,0 +1,62 @@
+version: "2"
+run:
+  tests: true
+linters:
+  enable:
+    - bodyclose
+    - copyloopvar
+    - goconst
+    - gocritic
+    - gosec
+    - misspell
+    - revive
+    - unconvert
+    - unparam
+  settings:
+    gosec:
+      excludes:
+        - G109 # strconv.Atoi to int32 - uid and gid values from the passwd database
+        - G115 # integer conversion overflow - uid/gid and fd conversions
+        - G204 # subprocess launched with variable - running commands is the tool's purpose
+        - G301 # directory permissions 0755 are standard and appropriate
+        - G304 # file operations with user paths are the tool's purpose
+        - G703 # path traversal - validating user paths is the tool's purpose
+        - G704 # SSRF taint analysis - the only dials are to unix sockets
+        - G705 # XSS taint analysis - the only writes are to a terminal and to stdio
+        - G706 # log injection - logging environment variables
+    govet:
+      disable:
+        - fieldalignment
+        - shadow # `if err := f(); err != nil` inside a function with an outer err is idiomatic
+      enable-all: true
+    revive:
+      rules:
+        - name: exported
+          disabled: true
+  exclusions:
+    generated: lax
+    rules:
+      # Tests get a shorter leash: cleanup errors, repeated fixture literals and
+      # fixture helpers that return more than one caller needs are all normal.
+      - linters:
+          - errcheck
+          - goconst
+          - gosec
+          - unparam
+        path: _test\.go
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/andornaut/faramir)
+  exclusions:
+    generated: lax

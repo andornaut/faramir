@@ -7,7 +7,7 @@ LDFLAGS := -s -w
 # interpreter runs on a host whose Python is older than 3.11.
 export CGO_ENABLED := 0
 
-.PHONY: all build build-debug test test-unit test-e2e check install verify sizes clean
+.PHONY: all build build-debug coverage fmt lint test test-unit test-e2e check install verify sizes clean
 
 all: build
 
@@ -38,6 +38,19 @@ test-unit:
 test-e2e:
 	go test -v ./internal/e2e/
 
+## coverage: the suite with the race detector, then the per-function report
+coverage:
+	go test -race -coverprofile=coverage.txt -covermode=atomic ./...
+	go tool cover -func=coverage.txt
+
+## fmt: apply the import grouping and gofmt rules CI checks
+fmt:
+	golangci-lint fmt
+
+## lint: the same golangci-lint run CI does
+lint:
+	golangci-lint run
+
 check:
 	go vet ./...
 	@gofmt -l . | grep . && { echo "gofmt needed on the files above"; exit 1; } || true
@@ -67,4 +80,5 @@ sizes: build
 	done
 
 clean:
-	rm -rf $(BIN)
+	rm -rf $(BIN) dist
+	rm -f coverage.txt

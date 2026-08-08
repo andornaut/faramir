@@ -1,0 +1,87 @@
+# This is a GoReleaser configuration for faramir
+version: 2
+
+project_name: faramir
+
+before:
+  hooks:
+    - go mod tidy
+
+# Linux only: the broker reads peer credentials with SO_PEERCRED and the
+# executor allocates PTYs with TIOCGPTN, and the install is a systemd unit set.
+builds:
+  - id: faramir
+    main: ./cmd/faramir
+    binary: faramir
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+  - id: faramir-broker
+    main: ./cmd/faramir-broker
+    binary: faramir-broker
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+  - id: faramir-keeper
+    main: ./cmd/faramir-keeper
+    binary: faramir-keeper
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+  - id: faramir-exec
+    main: ./cmd/faramir-exec
+    binary: faramir-exec
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+  - id: faramir-mcp
+    main: ./cmd/faramir-mcp
+    binary: faramir-mcp
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+  - id: faramir-guard
+    main: ./cmd/faramir-guard
+    binary: faramir-guard
+    env: [CGO_ENABLED=0]
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags: [-s -w]
+
+# One archive holding all six binaries: they are a set, and `make install`
+# expects to find every one of them in the directory FARAMIR_BIN names.
+archives:
+  - format: tar.gz
+    # this name template makes the output compatible with many package managers
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+    files:
+      - README.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
