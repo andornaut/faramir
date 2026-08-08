@@ -36,7 +36,7 @@ func FetchValues(socketPath string) (map[string]string, []string, error) {
 	if err != nil {
 		return nil, nil, errf("keeper socket %s: %v", socketPath, err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := sockutil.Send(conn, request); err != nil {
 		return nil, nil, errf("keeper: %v", err)

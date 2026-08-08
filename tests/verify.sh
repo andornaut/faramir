@@ -90,6 +90,7 @@ else
   no "1e brokered command read something from /run/credentials: $out"
 fi
 
+# shellcheck disable=SC2016  # the brokered shell expands this, not us
 out="$(srun -- bash -lc 'echo "[${SOPS_AGE_KEY:-unset}]"')"
 if grep -q '\[unset\]' <<<"$out"; then
   ok "1f no brokered command receives SOPS_AGE_KEY"

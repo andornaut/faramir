@@ -255,7 +255,7 @@ func (a *Agent) serve(listener net.Listener, private string) {
 // concurrent copy would interleave with it.  The protocol is request/response
 // per connection, so nothing is lost by taking them in turn.
 func (a *Agent) relay(client net.Conn, private string) {
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	if !a.permitted(client) {
 		return
 	}
@@ -264,7 +264,7 @@ func (a *Agent) relay(client net.Conn, private string) {
 		log.Printf("ssh-agent proxy cannot reach %s: %v", private, err)
 		return
 	}
-	defer upstream.Close()
+	defer func() { _ = upstream.Close() }()
 	// Stop closes what it finds here: with the client read below carrying no
 	// deadline of its own, an idle connection would otherwise outlive the agent
 	// it is a relay to.

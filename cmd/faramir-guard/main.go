@@ -263,8 +263,8 @@ func emit(hookOutput map[string]any) int {
 	if err != nil {
 		return 0
 	}
-	os.Stdout.Write(out)
-	os.Stdout.Write([]byte("\n"))
+	_, _ = os.Stdout.Write(out)
+	_, _ = os.Stdout.Write([]byte("\n"))
 	return 0
 }
 

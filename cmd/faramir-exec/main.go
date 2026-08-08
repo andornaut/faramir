@@ -42,7 +42,7 @@ func run() int {
 		log.Printf("%v", err)
 		return 1
 	}
-	defer e.Close()
+	defer func() { _ = e.Close() }()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)

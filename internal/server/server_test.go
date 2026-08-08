@@ -11,10 +11,11 @@ import (
 	"strings"
 	"testing"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
-	"golang.org/x/crypto/ssh"
 )
 
 // fakeKeeper serves a fixed value set, so the agent-facing responses can be

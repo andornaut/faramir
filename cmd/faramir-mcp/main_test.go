@@ -380,7 +380,7 @@ func TestAFailedReadIsNotASuccessfulExit(t *testing.T) {
 	}
 }
 
-type errAfterOneLine struct{ done bool }
+type errAfterOneLine struct{}
 
 func (r errAfterOneLine) Read(p []byte) (int, error) {
 	return 0, errors.New("connection reset")

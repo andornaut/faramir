@@ -84,5 +84,5 @@ func main() {
 		fmt.Fprintf(os.Stderr, "stub: %v\n", err)
 		os.Exit(1)
 	}
-	os.Stdout.Write(out)
+	_, _ = os.Stdout.Write(out)
 }

@@ -300,7 +300,7 @@ func (k *Keeper) Close() error {
 }
 
 func (k *Keeper) serveConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	peer, err := sockutil.PeerCred(conn)
 	if err != nil {
 		log.Printf("SO_PEERCRED unavailable: %v", err)

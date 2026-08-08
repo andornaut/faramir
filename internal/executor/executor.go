@@ -244,7 +244,7 @@ func appendOutput(chunks *strings.Builder, text string, emitted, limit int, trun
 		// cost O(n^2) doing it.
 		chunks.WriteString(cutAtRune(text, room))
 	}
-	chunks.WriteString(fmt.Sprintf("\n[faramir] output truncated at %d bytes\n", limit))
+	_, _ = fmt.Fprintf(chunks, "\n[faramir] output truncated at %d bytes\n", limit)
 	return limit, true
 }
 

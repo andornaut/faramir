@@ -21,6 +21,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/crypto/ssh"
+
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/executor"
@@ -32,8 +34,6 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/sshagent"
 	"github.com/andornaut/faramir/internal/version"
-
-	"golang.org/x/crypto/ssh"
 )
 
 type Server struct {
@@ -116,7 +116,7 @@ func (s *Server) Reload() {
 }
 
 func (s *Server) serveConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	peer, err := s.peer(conn)
 	if err != nil || peer == nil {

@@ -138,7 +138,7 @@ func call(request map[string]any) (*brokerResponse, error) {
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", socketPath(), err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := sockutil.Send(conn, request); err != nil {
 		return nil, err
@@ -305,7 +305,7 @@ func handle(m *message) map[string]any {
 			return nil
 		}
 		return map[string]any{
-			"jsonrpc": "2.0", "id": json.RawMessage(m.ID),
+			"jsonrpc": "2.0", "id": m.ID,
 			"error": map[string]any{
 				"code": -32601, "message": "method not found: " + m.Method,
 			},
@@ -315,7 +315,7 @@ func handle(m *message) map[string]any {
 	if len(m.ID) == 0 || string(m.ID) == "null" {
 		return nil
 	}
-	return map[string]any{"jsonrpc": "2.0", "id": json.RawMessage(m.ID), "result": result}
+	return map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result}
 }
 
 func main() { os.Exit(run(os.Args[1:])) }
@@ -338,7 +338,7 @@ func serve(stdin io.Reader, stdout io.Writer) int {
 	// A tools/call response can carry a whole command's output.
 	in.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
 	out := bufio.NewWriter(stdout)
-	defer out.Flush()
+	defer func() { _ = out.Flush() }()
 
 	for in.Scan() {
 		line := strings.TrimSpace(in.Text())
@@ -372,7 +372,7 @@ func emit(out *bufio.Writer, response map[string]any) {
 	if err != nil {
 		return
 	}
-	out.Write(data)
-	out.WriteByte('\n')
-	out.Flush()
+	_, _ = out.Write(data)
+	_ = out.WriteByte('\n')
+	_ = out.Flush()
 }

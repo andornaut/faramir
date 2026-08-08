@@ -115,7 +115,7 @@ func (e *Executor) Close() error {
 }
 
 func (e *Executor) serveConnection(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	peer, err := sockutil.PeerCred(conn)
 	if err != nil || !sockutil.AllowedUser(peer, e.config.Executor.AllowedUsers) {
@@ -157,7 +157,7 @@ func readRequest(conn net.Conn) (*request, int, error) {
 		return nil, -1, errors.New("not a unix connection")
 	}
 	_ = uc.SetReadDeadline(time.Now().Add(30 * time.Second))
-	defer uc.SetReadDeadline(time.Time{})
+	defer func() { _ = uc.SetReadDeadline(time.Time{}) }()
 
 	buf := make([]byte, 0, 4096)
 	chunk := make([]byte, 65536)
@@ -263,7 +263,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	if err != nil {
 		return errorResponse("exec_failed", err.Error())
 	}
-	defer devnull.Close()
+	defer func() { _ = devnull.Close() }()
 
 	cmd := exec.Command(req.Argv[0], req.Argv[1:]...)
 	cmd.Dir = cwd

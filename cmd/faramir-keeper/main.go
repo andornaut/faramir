@@ -61,7 +61,7 @@ func run() int {
 		log.Printf("%v", err)
 		return 1
 	}
-	defer k.Close()
+	defer func() { _ = k.Close() }()
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, syscall.SIGINT)

@@ -105,7 +105,7 @@ func (l *Log) Write(record map[string]any, output string) {
 		log.Printf("audit write failed: %v", err)
 		return
 	}
-	defer fh.Close()
+	defer func() { _ = fh.Close() }()
 	if _, err := fh.Write(append(line, '\n')); err != nil {
 		log.Printf("audit write failed: %v", err)
 	}

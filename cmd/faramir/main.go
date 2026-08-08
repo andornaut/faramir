@@ -39,7 +39,7 @@ func socketDefault() string {
 func main() { os.Exit(run(os.Args[1:])) }
 
 func usage(w io.Writer) {
-	fmt.Fprintf(w, `usage: faramir <command> [options] [-- program [args...]]
+	_, _ = fmt.Fprintf(w, `usage: faramir <command> [options] [-- program [args...]]
 
 Run a credential-bearing command through the secret broker.
 
@@ -98,7 +98,7 @@ func run(args []string) int {
 func newFlagSet(name, synopsis string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "usage: faramir %s\n\noptions:\n", synopsis)
+		_, _ = fmt.Fprintf(fs.Output(), "usage: faramir %s\n\noptions:\n", synopsis)
 		fs.PrintDefaults()
 	}
 	return fs
@@ -116,7 +116,7 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 	case err == nil:
 		return 0, true
 	case errors.Is(err, flag.ErrHelp):
-		fmt.Fprint(os.Stdout, captured.String())
+		_, _ = fmt.Fprint(os.Stdout, captured.String())
 		return 0, false
 	default:
 		fmt.Fprint(os.Stderr, captured.String())
@@ -484,7 +484,7 @@ func redactOnce(socketPath, text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := sockutil.Send(conn, map[string]any{"op": "redact", "text": text}); err != nil {
 		return "", err
 	}
@@ -540,7 +540,7 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 		fmt.Fprintf(os.Stderr, "faramir: %s: %v\n", socketPath, err)
 		return 69 // EX_UNAVAILABLE
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	if err := sockutil.Send(conn, request); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
