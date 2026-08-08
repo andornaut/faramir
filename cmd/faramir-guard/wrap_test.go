@@ -249,16 +249,17 @@ func TestMentioningTheRedactorDoesNotSkipTheRewrite(t *testing.T) {
 	}
 }
 
-// An operator who would rather answer a prompt per command than delegate that
-// to the deny list can have it.
-func TestTheDecisionIsConfigurable(t *testing.T) {
+// The decision is not configurable.  Returning "ask" would prompt on every
+// command including ls, show the rewritten text rather than what was typed,
+// and strand an unattended run on the first one.
+func TestAnAllowedCommandIsAlwaysAllowed(t *testing.T) {
 	t.Setenv("FARAMIR_WRAP_DECISION", "ask")
 	hook := hookOutput(t, bashPayload("ls -la"))
-	if hook["permissionDecision"] != "ask" {
-		t.Errorf("permissionDecision = %v, want ask", hook["permissionDecision"])
+	if hook["permissionDecision"] != "allow" {
+		t.Errorf("permissionDecision = %v, want allow", hook["permissionDecision"])
 	}
 	if _, rewritten := hook["updatedInput"]; !rewritten {
-		t.Error("asking must still redact: the command was not rewritten")
+		t.Error("the command was not rewritten, so its output is not redacted")
 	}
 }
 

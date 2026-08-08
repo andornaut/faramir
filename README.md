@@ -272,7 +272,9 @@ receive `SOPS_AGE_KEY` | nothing puts it there
 
 It **can** write the working tree, which is the point, and reach the broker socket, which buys it nothing: the response is redacted and audited like any other.
 
-A tree inside a 0700 home needs traversal for `faramir-exec` (which forks the command there) and `faramir-broker` (which stats the cwd before accepting). Phase 1 grants both with one ACL, never `chmod o+x`. The keeper needs none: its files are under `/etc` and its unit sets `ProtectHome=true`. On ecryptfs an ACL is write-once, which is why both uids go in a single call.
+A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. Phase 1 grants it with an ACL, never `chmod o+x`. The broker is granted alongside it so that an unreachable directory is reported clearly rather than as a child that failed to start, but it is not required: the broker treats its own permission error on the cwd as the executor's business. The keeper needs nothing, its files being under `/etc` and its unit setting `ProtectHome=true`.
+
+On ecryptfs an ACL is write-once: the first grant lands and later edits are silently dropped, so both uids go in a single call and a home already carrying one cannot be extended. That is why the broker's grant is a convenience rather than a requirement.
 
 ## Redaction
 

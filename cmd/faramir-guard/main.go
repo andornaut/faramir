@@ -272,15 +272,13 @@ func run(args []string) int {
 	// forbidden command is still refused; what changes is that everything else
 	// is approved by this hook rather than by a rule the operator wrote.
 	//
-	// FARAMIR_WRAP_DECISION=ask restores the prompt for an operator who would
-	// rather answer one per command than delegate that to the deny list.
-	decision := os.Getenv("FARAMIR_WRAP_DECISION")
-	if decision != "ask" && decision != "allow" {
-		decision = "allow"
-	}
+	// There is no setting that returns "ask" instead.  It would prompt on every
+	// command including ls, showing the rewritten text rather than what was
+	// typed, with no rule able to pre-approve any of it, and it would strand an
+	// unattended run on the first command with nobody to answer.
 	return emit(map[string]any{
 		"hookEventName":            "PreToolUse",
-		"permissionDecision":       decision,
+		"permissionDecision":       "allow",
 		"permissionDecisionReason": "faramir: output redacted; the deny list is what refuses a command",
 		"updatedInput":             updated,
 	})

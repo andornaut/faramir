@@ -146,11 +146,12 @@ find "$WORKTREE" -type d -exec chmod g+s {} +
 # brokered command that is running at the time.
 OPERATOR_HOME="$(getent passwd "$OPERATOR" | cut -d: -f6)" || OPERATOR_HOME=""
 if [[ -n $OPERATOR_HOME && $WORKTREE == "$OPERATOR_HOME"/* ]]; then
-  # Both accounts, not just the executor.  The executor forks the command
-  # there, and the broker stats the requested cwd as its own uid before
-  # accepting the request at all, so a grant to one of them still refuses every
-  # brokered command from a tree inside the home.  The keeper needs none of it:
-  # its files are under /etc and its unit sets ProtectHome=true.
+  # The executor is the one that has to be here: it forks the command in this
+  # directory.  The broker is granted alongside it only so that an unreachable
+  # cwd is reported clearly; it treats its own permission error there as the
+  # executor's business, so a home that will not take the second entry still
+  # works.  The keeper needs none of it: its files are under /etc and its unit
+  # sets ProtectHome=true.
   TRAVERSE_USERS=("$EXEC_USER" "$BROKER_USER")
   if ! command -v setfacl >/dev/null 2>&1; then
     say "WARNING: ${WORKTREE} is inside ${OPERATOR_HOME} and setfacl is missing."

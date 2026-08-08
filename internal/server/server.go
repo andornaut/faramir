@@ -258,23 +258,25 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		return protocol.ErrorResponse("bad_request",
 			"no cwd: name the directory to run in.", logID)
 	}
-	// Permission is reported apart from absence.  A caller's own directory is
-	// usually inside a 0700 home, where the broker's uid gets EACCES rather
-	// than ENOENT, and "does not exist" sends the operator looking for a
-	// missing directory instead of at the traversal the executor lacks.
-	if info, err := os.Stat(cwd); err != nil || !info.IsDir() {
-		switch {
-		case os.IsPermission(err):
-			return protocol.ErrorResponse("bad_request",
-				"cwd cannot be reached: "+cwd+". It exists, but the broker's uid "+
-					"cannot traverse every directory above it. Grant the service "+
-					"accounts execute access on each component, or run in a tree "+
-					"outside the home.", logID)
-		case err == nil:
-			return protocol.ErrorResponse("bad_request", "cwd is not a directory: "+cwd, logID)
-		default:
-			return protocol.ErrorResponse("bad_request", "cwd does not exist: "+cwd, logID)
-		}
+	// This stat fails early with a clear message; it enforces nothing.  The uid
+	// that enters the directory is the executor's, and it can hold traversal the
+	// broker does not: an ecryptfs home accepts one ACL and silently drops every
+	// later edit, so a home granted to the executor before the broker needed it
+	// cannot be extended afterwards.  Refusing on the broker's own EACCES would
+	// make that arrangement permanently unusable for a directory the executor
+	// can enter perfectly well.
+	//
+	// So permission is left to the executor, which reports its own failure if it
+	// cannot get there either.  Absence is still refused here, being knowable
+	// from any uid, and worth catching before a child is forked to discover it.
+	info, statErr := os.Stat(cwd)
+	switch {
+	case statErr == nil && !info.IsDir():
+		return protocol.ErrorResponse("bad_request", "cwd is not a directory: "+cwd, logID)
+	case os.IsPermission(statErr):
+		// The executor decides.
+	case statErr != nil:
+		return protocol.ErrorResponse("bad_request", "cwd does not exist: "+cwd, logID)
 	}
 
 	argv0Path, err := resolve.Program(cmd[0], cwd, execCfg)

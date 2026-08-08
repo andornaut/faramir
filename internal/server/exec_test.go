@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -272,6 +273,41 @@ func TestAMissingCwdIsRefusedBeforeAnythingRuns(t *testing.T) {
 	defer rec.mu.Unlock()
 	if len(rec.requests) != 0 {
 		t.Error("the command ran with a cwd that does not exist")
+	}
+}
+
+// A cwd the broker's own uid cannot stat is handed to the executor anyway.
+// The executor is the uid that enters the directory and can hold traversal the
+// broker does not, which is the ordinary state of a tree under an ecryptfs home:
+// that filesystem takes one ACL and silently drops later edits, so an executor
+// grant made before the broker needed one cannot be extended afterwards.
+// Refusing here would make that arrangement permanently unusable.
+func TestACwdTheBrokerCannotStatIsLeftToTheExecutor(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root traverses regardless, so there is no EACCES to produce")
+	}
+	s, rec := execServer(t)
+	// 0000 on the parent: the child path is real, and stat on it is EACCES
+	// rather than ENOENT.
+	sealed := filepath.Join(t.TempDir(), "sealed")
+	inside := filepath.Join(sealed, "tree")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(sealed, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(sealed, 0o755) })
+	if _, err := os.Stat(inside); !os.IsPermission(err) {
+		t.Fatalf("setup did not produce EACCES: %v", err)
+	}
+
+	r := exec(t, s, map[string]any{"cmd": []any{"true"}, "cwd": inside})
+	if _, refused := r["error"]; refused {
+		t.Fatalf("refused a cwd the executor could have reached: %v", r["error"])
+	}
+	if got := rec.only(t).Cwd; got != inside {
+		t.Errorf("cwd = %q, want %q", got, inside)
 	}
 }
 

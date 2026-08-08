@@ -42,9 +42,11 @@ The operator edits them in place with `sops`, through the group, without sudo. `
 
 ## Where brokered commands run
 
-A brokered command runs where its caller was. Two uids must reach that directory: `faramir-exec` forks the command there, and `faramir-broker` stats it before accepting the request.
+A brokered command runs where its caller was, so `faramir-exec` must reach that directory: it forks the command there. The broker stats it too, but only to fail early with a clear message, and treats its own permission error as the executor's business. That matters on ecryptfs, where an ACL is write-once and a home granted to the executor before the broker existed cannot be extended afterwards.
 
-A tree outside the homes needs nothing. Inside a `0700` home both uids need traversal, which phase 1 grants with a single ACL on every component from the home down. Not `chmod o+x`, which would hand traversal to every account on the machine. On ecryptfs only the first ACL write against an inode lands, which is why both uids go in one call.
+A tree outside the homes needs nothing. Inside a `0700` home the executor needs traversal, which phase 1 grants with an ACL on every component from the home down, the broker alongside it for the error message. Not `chmod o+x`, which would hand traversal to every account on the machine, and with `umask 002` in force that is the whole home rather than a path through it.
+
+On ecryptfs only the first ACL write against an inode lands: later edits return success and change nothing, `-b` included. A home already carrying a grant cannot be extended, which is why both uids go in one call, and why the broker's entry is a convenience rather than a requirement.
 
 An ACL is a permission, not a mount: it holds nothing open, so an encrypted home still unmounts at logout. A brokered command running at the time does hold one open.
 
@@ -94,7 +96,7 @@ Left alone rather than rewritten, because buffering would change what they do:
 
 **The shipped deny list names credential disclosure and nothing destructive.** Enrolling drops whatever Bash prompting stood between the agent and `rm -rf` and puts nothing in its place. Prompts on `Write` and `Edit` do not cover it, since Bash can write and delete without them.
 
-`FARAMIR_WRAP_DECISION=ask` restores the prompt on every command including `ls`, since each rewritten command is a distinct string no rule can pre-approve. An escape hatch, not a mode.
+There is no setting that returns `ask` instead. It would prompt on every command including `ls`, show the rewritten text rather than what was typed, offer no rule that could pre-approve any of it, and strand an unattended run on the first command with nobody to answer.
 
 ### Cost by permission mode
 
