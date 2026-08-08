@@ -332,19 +332,39 @@ Use full-disk encryption. LUKS on the root filesystem covers the key, the audit
 log, `/var/lib/faramir-broker` and swap in one move, and is the only measure
 here that survives the drive leaving the building.
 
-Where a TPM and systemd 250 or later are available, the key can be sealed
-individually instead, which needs no disk surgery:
+### Sealing the key to a TPM
+
+Where a TPM and systemd 250 or later are available, the key can be sealed on its
+own, which needs no disk surgery. Check first that `systemd-creds has-tpm2`
+answers `yes`, then seal it, install the drop-in, and restart the keeper:
 
 ```bash
-systemd-creds encrypt --with-key=tpm2 /etc/faramir/age.key /etc/faramir/age.key.cred
-# then in faramir-keeper.service, replacing LoadCredential=:
-#   LoadEncryptedCredential=age_key:/etc/faramir/age.key.cred
+sudo systemd-creds encrypt --name=age_key \
+    /etc/faramir/age.key /etc/faramir/age.key.cred
+sudo chmod 0400 /etc/faramir/age.key.cred
+sudo install -d /etc/systemd/system/faramir-keeper.service.d
+sudo install -m 0644 systemd/tpm-credential.conf \
+    /etc/systemd/system/faramir-keeper.service.d/tpm-credential.conf
+sudo systemctl daemon-reload && sudo systemctl restart faramir-keeper
 ```
 
-The plaintext then exists only in the unit's credential directory, on tmpfs and
-readable by that unit alone. TPM sealing binds to PCRs, so a firmware or
-bootloader update can invalidate it: keep the key material somewhere you can
-re-seal from before relying on this.
+Then run the install gate as the broker's own account, as in
+[The install gate](#the-install-gate), and confirm it still loads every ref.
+
+`--name=age_key` matters: a credential is bound to the name it was encrypted
+under, and the unit asks for `age_key`. The plaintext then exists only in the
+unit's credential directory, on tmpfs, readable by that unit alone.
+
+**The plaintext key is still on disk until you remove it**, and until then this
+has bought nothing. Remove `/etc/faramir/age.key` only once the gate passes
+against the sealed credential and you have the key material somewhere you can
+re-seal from.
+
+That last part is not optional. Sealing binds to PCR 7 by default, which tracks
+Secure Boot policy: change the Secure Boot state or its keys and the blob stops
+decrypting, and the only way back is sealing the original key again. Clearing
+the TPM does the same. `--tpm2-pcrs=""` binds to no PCRs, trading that
+fragility for a blob any boot of this machine can decrypt.
 
 Per-user encryption (ecryptfs, `ecryptfs-setup-private` and friends) does not
 work for this. Those unlock at login through PAM, the keeper starts at boot as a
