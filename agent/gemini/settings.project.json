@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/libexec/faramir/faramir-guard --host gemini",
+            "command": "/usr/local/bin/faramir guard --host gemini",
             "timeout": 10
           }
         ]
@@ -15,8 +15,8 @@
   },
   "mcpServers": {
     "faramir": {
-      "command": "/usr/local/bin/faramir-mcp",
-      "args": [],
+      "command": "/usr/local/bin/faramir",
+      "args": ["mcp"],
       "env": {}
     }
   }

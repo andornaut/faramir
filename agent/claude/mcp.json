@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "faramir": {
-      "command": "/usr/local/bin/faramir-mcp",
-      "args": [],
+      "command": "/usr/local/bin/faramir",
+      "args": ["mcp"],
       "env": {}
     }
   }

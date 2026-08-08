@@ -100,9 +100,15 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 // value.  A default left in one of these is a daemon running as a uid the
 // install never created, or reading a config nobody wrote.
 //
-// Checked per directive rather than by grepping the whole file: the binaries
-// are called faramir-broker and faramir-keeper whatever the accounts are named,
-// and the units refer to each other by unit name in Requires= and After=.
+// Checked per directive rather than by grepping the whole file: the units and
+// the accounts are named independently of each other, and the units refer to
+// each other by unit name in Requires= and After=.
+//
+// ExecStart is here for the same reason. One binary serves all three roles, so
+// the argument is the only thing that says which one a unit starts, and a unit
+// that starts the wrong role would come up healthy on the wrong socket.
+// SyslogIdentifier with it: systemd derives it from the executable's name, which
+// no longer differs between them.
 func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	layout := testLayout()
 	want := map[string]map[string]string{
@@ -110,16 +116,22 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 			"User": "br", "Group": "br", "StateDirectory": "br",
 			"SupplementaryGroups": "store ex",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
+			"ExecStart":           DefaultBinDir + "/faramir broker",
+			"SyslogIdentifier":    "faramir-broker",
 		},
 		"faramir-keeper.service": {
 			"User": "kp", "Group": "kp", "StateDirectory": "kp",
 			"SupplementaryGroups": "store",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
+			"ExecStart":           DefaultBinDir + "/faramir keeper",
+			"SyslogIdentifier":    "faramir-keeper",
 		},
 		"faramir-exec.service": {
 			"User": "ex", "Group": "ex", "StateDirectory": "ex",
 			"SupplementaryGroups": "shared",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
+			"ExecStart":           DefaultBinDir + "/faramir exec",
+			"SyslogIdentifier":    "faramir-exec",
 		},
 		"faramir-broker.socket": {"SocketGroup": "shared"},
 		"faramir-keeper.socket": {"SocketGroup": "br"},

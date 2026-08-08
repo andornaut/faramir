@@ -14,7 +14,8 @@ Type=notify
 NotifyAccess=main
 User={{.KeeperUser}}
 Group={{.KeeperUser}}
-ExecStart={{.BinDir}}/faramir-keeper
+ExecStart={{.BinDir}}/faramir keeper
+SyslogIdentifier=faramir-keeper
 Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2

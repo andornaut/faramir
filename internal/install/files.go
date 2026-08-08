@@ -12,31 +12,18 @@ import (
 	"github.com/andornaut/faramir/internal/sharetree"
 )
 
-// installedBinaries go to BinDir.  faramir-guard is not among them: it is the
-// PreToolUse hook and installs next to its deny list under LibexecDir.
-var installedBinaries = []string{
-	"faramir", "faramir-broker", "faramir-keeper", "faramir-exec", "faramir-mcp",
-}
+// installedBinaries goes to BinDir.  There is one: the daemons, the MCP server
+// and the PreToolUse hook are subcommands of it.  LibexecDir still exists and
+// still holds the hook's deny list and wrap script, but no longer a binary.
+var installedBinaries = []string{"faramir"}
 
-// guardSource is where faramir-guard is read from.  It installs under
-// LibexecDir rather than beside the others in BinDir, so a faramir that is
-// re-installing itself from BinDir finds every sibling except this one, and
-// the preflight refused the whole run over it.
-//
-// The already-installed copy is the fallback, and it is the honest source in
-// that case: re-installing from BinDir re-installs the versions that are
-// already there, and the hook is one of them.  Empty when neither exists, which
-// preflight reports as missing rather than failing at the copy, after the
-// accounts and the age key have been created.
-func (r *runner) guardSource() string {
-	beside := filepath.Join(r.opts.Binaries, "faramir-guard")
-	if exists(beside) {
-		return beside
-	}
-	if installed := filepath.Join(r.layout.LibexecDir, "faramir-guard"); exists(installed) {
-		return installed
-	}
-	return ""
+// legacyBinaries is what the layout before the consolidation installed.  Only
+// uninstall names them: init installs and never migrates, but a teardown's whole
+// job is that nothing this project installed is left behind, including what an
+// older version of it installed.  DefaultLibexecDir is removed wholesale, so the
+// hook that lived there needs no entry.
+var legacyBinaries = []string{
+	"faramir-broker", "faramir-keeper", "faramir-exec", "faramir-mcp",
 }
 
 // stepDirectories creates what everything below writes into.
@@ -185,12 +172,6 @@ func (r *runner) stepBinaries() error {
 	if _, err := r.fs.ensureDir(r.layout.LibexecDir, 0o755, 0, 0, true); err != nil {
 		return err
 	}
-	made, err := r.fs.copyFile(r.guardSource(),
-		filepath.Join(r.layout.LibexecDir, "faramir-guard"), 0o755, 0, 0)
-	if err != nil {
-		return err
-	}
-	changed = changed || made
 
 	// Next to the hook rather than under the config directory, so they travel
 	// with the thing that reads them.  A patterns file the hook cannot find is
@@ -207,7 +188,7 @@ func (r *runner) stepBinaries() error {
 	if err != nil {
 		return err
 	}
-	made, err = r.fs.writeFile(filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"),
+	made, err := r.fs.writeFile(filepath.Join(r.layout.LibexecDir, "deny-patterns.txt"),
 		patterns, 0o644, 0, 0)
 	if err != nil {
 		return err
@@ -230,7 +211,7 @@ func (r *runner) stepBinaries() error {
 	if changed {
 		r.restartFor("binaries")
 	}
-	r.step("binaries", changed || docs, fmt.Sprintf("%s, hook in %s",
+	r.step("binaries", changed || docs, fmt.Sprintf("%s/faramir, hook data in %s",
 		r.layout.BinDir, r.layout.LibexecDir))
 	return nil
 }

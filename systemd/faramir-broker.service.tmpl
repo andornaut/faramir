@@ -27,7 +27,10 @@ Group={{.BrokerUser}}
 # which is a chown this process could not otherwise perform.  It grants the
 # broker nothing it did not already have; the executor gains nothing at all.
 SupplementaryGroups={{.StoreGroup}} {{.ExecUser}}
-ExecStart={{.BinDir}}/faramir-broker
+# One binary, one role per unit.  SyslogIdentifier= because systemd otherwise
+# takes it from the executable's name, which is now the same for all three.
+ExecStart={{.BinDir}}/faramir broker
+SyslogIdentifier=faramir-broker
 Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2

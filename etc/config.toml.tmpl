@@ -28,7 +28,7 @@
 # silently ignored line, and so is a size or count out of range -- a zero
 # max_concurrency or default_timeout_sec would otherwise leave a broker that
 # refuses every request, or kills every command as it starts.
-# Check a config with:  faramir-broker -c FILE --check
+# Check a config with:  faramir broker -c FILE --check
 
 [server]
 socket_path = "{{.RunDir}}/broker.sock"

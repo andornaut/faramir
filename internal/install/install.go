@@ -304,15 +304,9 @@ func (r *runner) preflight() error {
 			missing = append(missing, name)
 		}
 	}
-	// The hook is checked through the same resolver the copy uses, so a
-	// re-install from BinDir is not refused for the one binary that never goes
-	// there.
-	if r.guardSource() == "" {
-		missing = append(missing, "faramir-guard")
-	}
 	if len(missing) > 0 {
 		return fmt.Errorf("not built in %s: %s. Run 'make build', or pass --binaries "+
-			"DIR naming a directory that holds them", r.opts.Binaries, strings.Join(missing, ", "))
+			"DIR naming a directory that holds it", r.opts.Binaries, strings.Join(missing, ", "))
 	}
 	return nil
 }

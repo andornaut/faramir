@@ -35,9 +35,9 @@ func (r *runner) stepValidate() error {
 		r.skip("validate", "systemd is not running, so nothing is serving")
 		return nil
 	}
-	broker := filepath.Join(r.layout.BinDir, "faramir-broker")
+	broker := filepath.Join(r.layout.BinDir, "faramir")
 	out, checkErr := r.command("runuser", "-u", r.layout.BrokerUser, "--",
-		broker, "-c", r.layout.ConfigFile, "--check")
+		broker, "broker", "-c", r.layout.ConfigFile, "--check")
 	// The report is printed on stdout whether the gate passed or not, so it is
 	// read before the exit code is judged: what the broker could not load is the
 	// thing that decides whether this is a failure or a host that has not been

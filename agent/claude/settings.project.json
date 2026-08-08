@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/usr/local/libexec/faramir/faramir-guard",
+            "command": "/usr/local/bin/faramir guard",
             "timeout": 10
           }
         ]

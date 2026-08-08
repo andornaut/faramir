@@ -46,7 +46,7 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
-	for _, name := range installedBinaries {
+	for _, name := range append(append([]string{}, installedBinaries...), legacyBinaries...) {
 		if err := os.Remove(filepath.Join(DefaultBinDir, name)); err != nil && !os.IsNotExist(err) {
 			return nil, err
 		}

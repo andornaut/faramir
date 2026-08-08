@@ -360,7 +360,7 @@ func serve(stdin io.Reader, stdout io.Writer) int {
 	// have the agent's client see the server exit successfully mid-session,
 	// with the last request simply unanswered.
 	if err := in.Err(); err != nil {
-		fmt.Fprintln(os.Stderr, "faramir-mcp: "+err.Error())
+		fmt.Fprintln(os.Stderr, "faramir mcp: "+err.Error())
 		return 1
 	}
 	return 0

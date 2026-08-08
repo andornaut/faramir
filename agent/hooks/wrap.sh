@@ -3,7 +3,7 @@
 #
 #   source /usr/local/libexec/faramir/wrap.sh '<command>'
 #
-# faramir-guard rewrites every Bash tool call into that one line.  Three things
+# The guard rewrites every Bash tool call into that one line.  Three things
 # decide this shape, and each of them rules out something simpler.
 #
 # Sourced, because the agent's shell persists between tool calls.  A wrapper

@@ -261,7 +261,7 @@ func Run(args []string) int {
 	// have every command silently answered in a dialect the agent ignores.
 	activeHost, err := lookupHost(hostName)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir-guard: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir guard: %v\n", err)
 		return 2
 	}
 

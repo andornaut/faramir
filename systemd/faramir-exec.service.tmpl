@@ -14,7 +14,8 @@ Type=notify
 NotifyAccess=main
 User={{.ExecUser}}
 Group={{.ExecUser}}
-ExecStart={{.BinDir}}/faramir-exec
+ExecStart={{.BinDir}}/faramir exec
+SyslogIdentifier=faramir-exec
 Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
