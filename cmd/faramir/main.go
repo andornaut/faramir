@@ -160,8 +160,14 @@ func cmdKeygen(args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
 		return 1
 	}
-	defer fh.Close()
 	if _, err := fh.WriteString(body); err != nil {
+		_ = fh.Close()
+		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+		return 1
+	}
+	// Report a close error rather than exit 0: the key file would be short, and
+	// O_EXCL means the next attempt refuses to overwrite it.
+	if err := fh.Close(); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
 		return 1
 	}
