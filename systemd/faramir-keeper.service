@@ -13,11 +13,11 @@ ExecStart=/usr/local/bin/faramir-keeper
 Restart=on-failure
 RestartSec=2
 
-# devwork, and only for this: the sops files live in the agent's working tree,
-# which is group devwork, and sops has to read them to decrypt anything.  It is
+# dev, and only for this: the sops files live in the agent's working tree,
+# which is group dev, and sops has to read them to decrypt anything.  It is
 # read access to encrypted files -- the key stays 0400 faramir-keeper, and no
-# devwork member gains anything from this process being in the group.
-SupplementaryGroups=devwork
+# dev member gains anything from this process being in the group.
+SupplementaryGroups=dev
 
 # The whole point of this unit.  The key is readable at
 # $CREDENTIALS_DIRECTORY/age_key by this process and by nothing else: the file

@@ -2,7 +2,7 @@
 # workload faramir was built for.  Install it in place of the shipped starter:
 #
 #   sudo CONFIG=etc/examples/ansible-fleet.toml \
-#        WORKTREE=/home/agent/work/ansible-ctrl make install
+#        WORKTREE=/srv/faramir/ansible-ctrl make install
 #
 # WORKTREE names the tree.  It is written below as @WORKTREE@, which the
 # installer substitutes everywhere before binding that one path into the three
@@ -23,7 +23,7 @@ socket_path = "/run/faramir/broker.sock"
 socket_mode = "0660"
 max_concurrency = 4
 max_request_bytes = 262144
-allowed_groups = ["devwork"]
+allowed_groups = ["dev"]
 allowed_uids = []
 
 [keeper]
@@ -39,7 +39,8 @@ allowed_users = ["faramir-broker"]
 max_concurrency = 16
 
 [exec]
-default_cwd = "@WORKTREE@"
+# Unset: a brokered command runs where its caller was, which for a playbook run
+# is the checkout you typed it in.  See etc/config.toml.
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576

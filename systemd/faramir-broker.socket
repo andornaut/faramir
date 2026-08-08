@@ -6,7 +6,7 @@ Documentation=file:///usr/local/share/doc/faramir/README.md
 ListenStream=/run/faramir/broker.sock
 SocketMode=0660
 SocketUser=root
-SocketGroup=devwork
+SocketGroup=dev
 # One service instance handles every connection; it holds the decrypted value
 # set in memory, so per-connection forking would mean re-decrypting each time.
 Accept=no

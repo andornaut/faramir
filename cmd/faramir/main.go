@@ -5,6 +5,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	"os/exec"
 	"strings"
 
 	"filippo.io/age"
@@ -43,6 +45,7 @@ Run a credential-bearing command through the secret broker.
 
 Commands:
   run           run a command with secrets injected
+  redact        scrub secrets out of text, or out of a command's output
   list-secrets  list secret refs (names only)
   status        show broker status
   keygen        mint an age keypair for the keeper
@@ -75,6 +78,8 @@ func run(args []string) int {
 		return 0
 	case "run":
 		return cmdRun(args[1:])
+	case "redact":
+		return cmdRedact(args[1:])
 	case "list-secrets":
 		return call("list_secrets", args[1:])
 	case "status":
@@ -181,7 +186,7 @@ func cmdRun(args []string) int {
 	fs := newFlagSet("run", "run [options] [--] program [args...]")
 	c := addCommon(fs)
 	quiet := fs.Bool("quiet", false, "suppress the redaction summary")
-	cwd := fs.String("cwd", "", "working directory for the command")
+	cwd := fs.String("cwd", "", "working directory for the command (default: the caller's)")
 	fs.StringVar(cwd, "C", "", "working directory for the command (shorthand)")
 	timeout := fs.Int("timeout", 0, "timeout in seconds")
 	fs.IntVar(timeout, "t", 0, "timeout in seconds (shorthand)")
@@ -233,6 +238,15 @@ func cmdRun(args []string) int {
 	request := map[string]any{"op": "exec", "cmd": rest}
 	if len(refs) > 0 {
 		request["env_refs"] = refs
+	}
+	// The caller's own directory unless -C says otherwise.  A command run
+	// through the broker should run where it was typed, the way every other
+	// command does; falling back to a directory named in a config file means
+	// "faramir run make" in one checkout builds a different one.
+	if *cwd == "" {
+		if here, err := os.Getwd(); err == nil {
+			*cwd = here
+		}
 	}
 	if *cwd != "" {
 		request["cwd"] = *cwd
@@ -308,6 +322,192 @@ func readEnvFile(path string) (map[string]string, error) {
 		refs[name] = uri
 	}
 	return refs, nil
+}
+
+// chunkBytes is how much text one redact request carries.
+//
+// Well under the broker's default max_request_bytes (262144) because the limit
+// is on the JSON-encoded line, not on the text: a control byte becomes six
+// characters and a byte that is not valid UTF-8 becomes three, so a chunk this
+// size cannot exceed the limit however badly it encodes.
+const chunkBytes = 32 << 10
+
+// cmdRedact scrubs text that did not come from a brokered command.
+//
+// Two shapes.  As a filter it reads stdin and writes redacted stdout.  Given a
+// command after --, it runs that command and filters what it prints, which is
+// the shape the PreToolUse hook rewrites an agent's shell command into: the
+// child's exit status is preserved, so the caller cannot tell the difference
+// except that secrets come back as tokens.
+func cmdRedact(args []string) int {
+	fs := newFlagSet("redact", "redact [options] [-- command [args...]]")
+	c := addCommon(fs)
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+	if child := fs.Args(); len(child) > 0 {
+		return redactChild(*c.socket, child)
+	}
+	if err := redactStream(*c.socket, os.Stdin, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// redactChild runs the command with both its streams merged and filtered.
+//
+// Merged because the two are interleaved on a terminal anyway and the agent
+// reads them as one transcript; separating them here would reorder the output
+// it sees.  stdin is passed through, so a wrapped command that reads input
+// still works.
+func redactChild(socketPath string, argv []string) int {
+	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd.Stdin = os.Stdin
+	output, err := cmd.StdoutPipe()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
+		return 1
+	}
+	cmd.Stderr = cmd.Stdout
+	if err := cmd.Start(); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
+		return 127
+	}
+	streamErr := redactStream(socketPath, output, os.Stdout)
+	if streamErr != nil {
+		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", streamErr)
+		// Drain, or a child that fills the pipe blocks forever and the Wait
+		// below never returns.
+		_, _ = io.Copy(io.Discard, output)
+	}
+	err = cmd.Wait()
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode()
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
+		return 1
+	}
+	return 0
+}
+
+// redactStream sends the input through the broker a chunk at a time.
+//
+// Chunks break on a newline where they can, so a value is not split across two
+// requests and missed for that reason.  Two cases still split one: a value that
+// itself spans lines (a PEM block), and a line longer than a chunk.  The second
+// is why ReadSlice is used rather than ReadBytes: ReadBytes grows until it
+// finds a newline, so one long line (a -vvv result dict, minified JSON) would
+// arrive as a single request over max_request_bytes and be refused whole.
+//
+// A failed chunk is passed through unredacted and the next chunk is still
+// attempted.  Giving up after the first failure would hand the entire rest of
+// the output over untouched, which is a much larger hole than the chunk that
+// actually failed, and the warning is printed once so a long stream does not
+// bury its own output.
+func redactStream(socketPath string, in io.Reader, out io.Writer) error {
+	reader := bufio.NewReaderSize(in, chunkBytes)
+	buf := make([]byte, 0, chunkBytes)
+	warned := false
+
+	flush := func() error {
+		if len(buf) == 0 {
+			return nil
+		}
+		text := string(buf)
+		buf = buf[:0]
+		redacted, err := redactOnce(socketPath, text)
+		if err != nil {
+			if !warned {
+				warned = true
+				fmt.Fprintf(os.Stderr,
+					"faramir redact: passing output through unredacted: %v\n", err)
+			}
+			_, writeErr := io.WriteString(out, text)
+			return writeErr
+		}
+		_, writeErr := io.WriteString(out, redacted)
+		return writeErr
+	}
+
+	for {
+		line, err := reader.ReadSlice('\n')
+		// Flushed before the append, not after: a partial buffer plus a full
+		// ReadSlice would otherwise make one request of nearly twice
+		// chunkBytes, and chunkBytes is the size that keeps the encoded line
+		// inside max_request_bytes.  Over it the broker refuses the chunk and
+		// the text is passed through unredacted.
+		if len(buf) > 0 && len(buf)+len(line) > chunkBytes {
+			if flushErr := flush(); flushErr != nil {
+				return flushErr
+			}
+		}
+		buf = append(buf, line...)
+		// A line longer than the buffer arrives in pieces, so send what is
+		// there rather than growing without bound.
+		if errors.Is(err, bufio.ErrBufferFull) {
+			if flushErr := flush(); flushErr != nil {
+				return flushErr
+			}
+			continue
+		}
+		if len(buf) >= chunkBytes {
+			if flushErr := flush(); flushErr != nil {
+				return flushErr
+			}
+		}
+		if err != nil {
+			if flushErr := flush(); flushErr != nil {
+				return flushErr
+			}
+			if errors.Is(err, io.EOF) {
+				// A redaction failure was already reported, once, by flush.
+				// Returning it as well would print it twice and turn a pipeline
+				// that did pass its text through into a failure.
+				return nil
+			}
+			return err
+		}
+	}
+}
+
+func redactOnce(socketPath, text string) (string, error) {
+	conn, err := net.Dial("unix", socketPath)
+	if err != nil {
+		return "", err
+	}
+	defer conn.Close()
+	if err := sockutil.Send(conn, map[string]any{"op": "redact", "text": text}); err != nil {
+		return "", err
+	}
+	if uc, ok := conn.(*net.UnixConn); ok {
+		_ = uc.CloseWrite()
+	}
+	line, err := sockutil.ReadLine(conn, 1<<26)
+	if err != nil {
+		// Named, not flattened: a refused oversized request and a reset
+		// connection want different fixes, and reporting both as a silent
+		// hang-up sends the reader after the wrong one.
+		return "", fmt.Errorf("reading the response: %w", err)
+	}
+	if len(line) == 0 {
+		return "", fmt.Errorf("broker closed the connection without responding")
+	}
+	var response struct {
+		Output string `json:"output"`
+		Error  *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(line, &response); err != nil {
+		return "", fmt.Errorf("malformed response: %w", err)
+	}
+	if response.Error != nil {
+		return "", fmt.Errorf("%s", response.Error.Message)
+	}
+	return response.Output, nil
 }
 
 // call runs a subcommand that takes no arguments of its own.

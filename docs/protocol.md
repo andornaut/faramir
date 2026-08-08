@@ -5,7 +5,7 @@ response, one connection, no framing beyond the newline.
 
 Socket | Who may connect | What it does
 --- | --- | ---
-`/run/faramir/broker.sock` | the agent (`0660 root:devwork`) | run commands, list refs
+`/run/faramir/broker.sock` | the agent (`0660 root:dev`) | run commands, list refs
 `/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values
 `/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY
 
@@ -24,7 +24,7 @@ than `[server] max_request_bytes` is refused.
 {
   "op": "exec",
   "cmd": ["printenv", "ROUTER_PW"],
-  "cwd": "/home/agent/work/repo",
+  "cwd": "/srv/faramir/worktree",
   "env_refs": { "ROUTER_PW": "secret://home/router/admin" },
   "timeout_sec": 600
 }
@@ -110,7 +110,7 @@ says so and names the setting.
 
 ## Authentication
 
-The socket is `0660 root:devwork`, and the broker additionally checks
+The socket is `0660 root:dev`, and the broker additionally checks
 `SO_PEERCRED` against `[server] allowed_uids` / `allowed_groups`. The peer's
 uid, gid and pid are recorded in every audit record.
 
@@ -154,7 +154,7 @@ carrying a single file descriptor as ancillary data:
 
 ```json
 {"argv": ["/usr/bin/printenv", "ROUTER_PW"],
- "cwd": "/home/agent/work/repo",
+ "cwd": "/srv/faramir/worktree",
  "env": {"ROUTER_PW": "…"},
  "timeout_sec": 600,
  "kill_grace_sec": 5}

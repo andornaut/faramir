@@ -272,7 +272,7 @@ type ExecConfig struct {
 // broker is the only client; AllowedUsers is what says so.
 //
 // No allowed_groups here.  It admitted every member of a named group, and the
-// only group in play is devwork, which holds the agent's own uid: the one
+// only group in play is dev, which holds the agent's own uid: the one
 // value it could usefully take is the one that must never be set.
 type KeeperConfig struct {
 	SocketPath       string
@@ -426,7 +426,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 		SocketPath:     "/run/faramir/broker.sock",
 		SocketMode:     0o660,
 		MaxConcurrency: 4, MaxRequestBytes: 262144,
-		AllowedGroups: []string{"devwork"},
+		AllowedGroups: []string{"dev"},
 	}
 	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
 		return err
@@ -561,9 +561,14 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 	if out.KillGraceSec, err = atLeast(sec, "kill_grace_sec", where, out.KillGraceSec, 0); err != nil {
 		return err
 	}
-	if out.DefaultCwd == "" {
-		return errf("%s: [exec] default_cwd is required; name the directory "+
-			"brokered commands run in (see etc/config.toml)", path)
+	// Optional, and unset is the better setting.  A brokered command runs where
+	// its caller was, the way every other command does: the CLI and the MCP
+	// server both send their own working directory, so this is consulted only
+	// for a request that names none.  Set, it silently relocates such a command
+	// to one checkout named in a config file, which is surprising in exactly
+	// the case where it matters.
+	if out.DefaultCwd != "" && !strings.HasPrefix(out.DefaultCwd, "/") {
+		return errf("%s: [exec] default_cwd must be an absolute path", path)
 	}
 	// Every request is clamped to max_timeout_sec, so a smaller one here does
 	// not cap default_timeout_sec, it replaces it.

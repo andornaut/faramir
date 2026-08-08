@@ -229,6 +229,15 @@ func callTool(name string, arguments map[string]any) map[string]any {
 				request[key] = v
 			}
 		}
+		// This process runs where the agent's session runs, so its own working
+		// directory is the one the caller means.  Only when the tool call did
+		// not name one: an explicit cwd is the agent being specific, and that
+		// wins.
+		if _, named := request["cwd"]; !named {
+			if here, err := os.Getwd(); err == nil {
+				request["cwd"] = here
+			}
+		}
 	case "faramir_list_secrets":
 		request = map[string]any{"op": "list_secrets"}
 	case "faramir_status":

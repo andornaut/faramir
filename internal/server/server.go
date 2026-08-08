@@ -17,7 +17,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -154,7 +153,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 
 // peer performs the SO_PEERCRED check.
 //
-// The socket mode already restricts this to the devwork group; this is belt
+// The socket mode already restricts this to the dev group; this is belt
 // and braces, and it gives the audit log a real uid.
 func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 	peer, err := sockutil.PeerCred(conn)
@@ -186,6 +185,8 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 		return s.opStatus()
 	case "list_secrets":
 		return s.opListSecrets()
+	case "redact":
+		return s.opRedact(request, peer)
 	default:
 		return s.opExec(request, peer)
 	}
@@ -201,6 +202,38 @@ func (s *Server) opStatus() protocol.Response {
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",
 		"truncated": false, "redactions": []any{}, "log_id": nil,
+	}
+}
+
+// opRedact scrubs text the caller already holds.
+//
+// The value set never leaves this process: the caller sends text and gets it
+// back with every value replaced by its token, which is what lets a session
+// running outside the broker's uid have the same redaction a brokered command
+// gets.  Without it the redactor covers only what the broker itself ran, and
+// everything an agent reads or executes directly is uncovered.
+//
+// It is an oracle, deliberately: a caller can ask about a guessed value and the
+// answer says whether the guess was right.  That is a trade this design accepts
+// -- see docs/scope.md -- because the failure it exists to stop is a credential
+// reaching the transcript by accident, and an accident does not guess.
+// Recorded like every other op, because it is the one an oracle attack would
+// use: a caller probing a guessed value leaves a run of redact calls that hit
+// nothing, and without a record there is no trace of it at all.  The text is
+// not logged, only its size and what was found in it, so the record still holds
+// no value and neither confirms nor denies a guess to anyone reading the log.
+func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+	redactor := s.redactor()
+	output := redactor.RedactText(request.Text)
+	summary := redactor.Summary()
+	logID := audit.NewLogID()
+	s.Audit.Write(map[string]any{
+		"log_id": logID, "op": "redact", "peer": peer,
+		"input_bytes": len(request.Text), "redactions": summary,
+	}, "")
+	return protocol.Response{
+		"exit_code": 0, "output": output, "truncated": false,
+		"redactions": summary, "log_id": logID,
 	}
 }
 
@@ -228,8 +261,30 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	if !request.HasCwd || cwd == "" {
 		cwd = execCfg.DefaultCwd
 	}
+	if cwd == "" {
+		return protocol.ErrorResponse("bad_request",
+			"no cwd: name the directory to run in. Every shipped caller sends "+
+				"its own, so this is a client that did not; [exec] default_cwd "+
+				"can name a fallback, but a command is better run where it was "+
+				"asked for.", logID)
+	}
+	// Permission is reported apart from absence.  A caller's own directory is
+	// usually inside a 0700 home, where the broker's uid gets EACCES rather
+	// than ENOENT, and "does not exist" sends the operator looking for a
+	// missing directory instead of at the traversal the executor lacks.
 	if info, err := os.Stat(cwd); err != nil || !info.IsDir() {
-		return protocol.ErrorResponse("bad_request", "cwd does not exist: "+cwd, logID)
+		switch {
+		case os.IsPermission(err):
+			return protocol.ErrorResponse("bad_request",
+				"cwd cannot be reached: "+cwd+". It exists, but the broker's uid "+
+					"cannot traverse every directory above it. Grant the service "+
+					"accounts execute access on each component, or run in a tree "+
+					"outside the home.", logID)
+		case err == nil:
+			return protocol.ErrorResponse("bad_request", "cwd is not a directory: "+cwd, logID)
+		default:
+			return protocol.ErrorResponse("bad_request", "cwd does not exist: "+cwd, logID)
+		}
 	}
 
 	argv0Path, err := resolve.Program(cmd[0], cwd, execCfg)
@@ -384,12 +439,11 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	code := 0
 	refused, _ := secrets["not_redactable"].(map[string]string)
 	if len(refused) > 0 {
-		keys := make([]string, 0, len(refused))
-		for k := range refused {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		log.Printf("%d secret(s) refused as not redactable: %v", len(keys), keys)
+		// Nothing logged here.  Loading the values already named every refused
+		// secret and said why, and repeating it is most of what makes this
+		// failure a wall of text once ansible has wrapped it.  The JSON body
+		// below carries the same set as not_redactable.
+		//
 		// Non-zero on a refused ref: the config parses, but a command that
 		// injects that ref will fail at runtime, and --check is the install
 		// gate that is supposed to catch it.

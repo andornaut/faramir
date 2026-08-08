@@ -16,12 +16,12 @@ Type=notify
 NotifyAccess=main
 User=faramir-broker
 Group=faramir-broker
-# devwork: read access to the shared working tree, which is where the sops
+# dev: read access to the shared working tree, which is where the sops
 # files live -- the broker stats them to notice edits.
 # faramir-exec: needed only to hand the ssh-agent socket to the executor's uid,
 # which is a chown this process could not otherwise perform.  It grants the
 # broker nothing it did not already have; the executor gains nothing at all.
-SupplementaryGroups=devwork faramir-exec
+SupplementaryGroups=dev faramir-exec
 ExecStart=/usr/local/bin/faramir-broker
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
@@ -61,7 +61,7 @@ ReadWritePaths=/var/log/faramir
 # whenever the directory's owner does not match the unit's User=, and the three
 # activation sockets live in that directory: the chown rewrites their
 # SocketUser=/SocketGroup= on every start, leaving broker.sock 0660
-# faramir-broker:faramir-broker, which no devwork member can reach.  Writable
+# faramir-broker:faramir-broker, which no dev member can reach.  Writable
 # because the broker creates ssh-agent.sock in it.
 #
 # Leading "-": with the directory owned by tmpfiles rather than by this unit, an
@@ -114,7 +114,7 @@ UMask=0077
 #   RestrictAddressFamilies=~AF_UNIX
 #       That is the broker's own listening socket.
 #   SupplementaryGroups=
-#       devwork, so the broker can stat the sops files in the working tree.
+#       dev, so the broker can stat the sops files in the working tree.
 #   ProtectHome=
 #       Removed.  It hid other users' homes from a process that file modes
 #       already keep out of them, and cost a bind mount whose path had to agree

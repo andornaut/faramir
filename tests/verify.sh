@@ -13,14 +13,18 @@
 # easier to believe once seen.
 set -uo pipefail
 
-AGENT_USER="${AGENT_USER:-agent}"
+# The account the coding agent runs as, which is the operator's own: there is no
+# separate uid for it.  The checks below that used to prove what an "agent"
+# account could not reach now prove what the *operator* cannot reach, which is
+# the boundary that survives.
+OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
 BROKER_USER="${BROKER_USER:-faramir-broker}"
 KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
 EXEC_USER="${EXEC_USER:-faramir-exec}"
 AGE_KEY="${AGE_KEY:-/etc/faramir/age.key}"
 KEEPER_SOCKET="${KEEPER_SOCKET:-/run/faramir/keeper.sock}"
 EXEC_SOCKET="${EXEC_SOCKET:-/run/faramir/exec.sock}"
-WORKTREE="${WORKTREE:-/home/${AGENT_USER}/work/repo}"
+WORKTREE="${WORKTREE:-/srv/faramir/worktree}"
 SOCKET="${FARAMIR_SOCKET:-/run/faramir/broker.sock}"
 AUDIT_LOG="${AUDIT_LOG:-/var/log/faramir/audit.log}"
 PW_REF="${PW_REF:-secret://home/router/admin}"
@@ -32,26 +36,26 @@ no()   { printf '  \033[31mFAIL\033[0m  %s\n' "$*"; fail=$((fail+1)); }
 skipt(){ printf '  \033[33mSKIP\033[0m  %s\n' "$*"; skip=$((skip+1)); }
 head_() { printf '\n\033[1m%s\033[0m\n' "$*"; }
 
-as_agent() { sudo -u "$AGENT_USER" "$@" 2>&1; }
+as_operator() { sudo -u "$OPERATOR" "$@" 2>&1; }
 as_broker() { sudo -u "$BROKER_USER" "$@" 2>&1; }
 as_exec() { sudo -u "$EXEC_USER" "$@" 2>&1; }
 # --socket explicitly: sudo does not carry FARAMIR_SOCKET across, so a
 # non-default SOCKET would otherwise be honoured by the checks above and
 # silently ignored by every brokered one.
-srun() { sudo -u "$AGENT_USER" faramir run --socket "$SOCKET" --quiet "$@" 2>&1; }
+srun() { sudo -u "$OPERATOR" faramir run --socket "$SOCKET" --quiet "$@" 2>&1; }
 
 [[ $EUID -eq 0 ]] || { echo "run with sudo" >&2; exit 1; }
-id -u "$AGENT_USER" >/dev/null 2>&1 || { echo "no such user: $AGENT_USER" >&2; exit 1; }
+id -u "$OPERATOR" >/dev/null 2>&1 || { echo "no such user: $OPERATOR" >&2; exit 1; }
 
 head_ "1-2  uid separation"
 
 # Note: capture first, then grep.  With `pipefail`, piping a failing command
 # into a succeeding grep still reports failure, which silently inverts results.
-out="$(as_agent cat "$AGE_KEY")"
+out="$(as_operator cat "$AGE_KEY")"
 if grep -qi 'permission denied' <<<"$out"; then
-  ok "1  agent cannot read ${AGE_KEY}"
+  ok "1  ${OPERATOR} cannot read ${AGE_KEY}"
 else
-  no "1  agent CAN read the age key -- phase 1 is broken, stop here"
+  no "1  ${OPERATOR} CAN read the age key -- phase 1 is broken, stop here"
 fi
 
 # The point of the keeper: the uid that runs every brokered command must not be
@@ -70,11 +74,11 @@ else
   no "1c age key is '${owner}', expected '400 ${KEEPER_USER}'"
 fi
 
-out="$(as_agent test -w "$KEEPER_SOCKET" && echo writable)"
+out="$(as_operator test -w "$KEEPER_SOCKET" && echo writable)"
 if [[ $out == writable ]]; then
-  no "1d agent can reach the keeper socket ${KEEPER_SOCKET}"
+  no "1d ${OPERATOR} can reach the keeper socket ${KEEPER_SOCKET}"
 else
-  ok "1d agent cannot reach the keeper socket"
+  ok "1d ${OPERATOR} cannot reach the keeper socket"
 fi
 
 # The keeper holds the key through LoadCredential=, so the credential
@@ -110,7 +114,7 @@ else
 fi
 
 # Commands run in the agent's tree and are meant to write it: ansible drops
-# .retry files and fact caches there.  What matters is that devwork buys the
+# .retry files and fact caches there.  What matters is that dev buys the
 # executor that and nothing else, which 1h, 1i2, 1j and 1m check.
 out="$(srun -- bash -lc "touch ${WORKTREE}/.verify-write && echo wrote")"
 if grep -q wrote <<<"$out"; then
@@ -120,12 +124,12 @@ else
   no "1i a brokered command cannot write ${WORKTREE}: $out"
 fi
 
-# The executor uid is in devwork, so it must NOT thereby reach the key.
+# The executor uid is in dev, so it must NOT thereby reach the key.
 out="$(as_exec cat "$AGE_KEY")"
 if grep -qi 'permission denied' <<<"$out"; then
   ok "1i2 ${EXEC_USER} cannot read the age key"
 else
-  no "1i2 ${EXEC_USER} CAN read the age key -- devwork must not grant this"
+  no "1i2 ${EXEC_USER} CAN read the age key -- dev must not grant this"
 fi
 
 out="$(as_exec test -w "$KEEPER_SOCKET" && echo writable)"
@@ -199,16 +203,16 @@ BROKER_PID="$(pgrep -u "$BROKER_USER" -f '[f]aramir-broker' | head -1)"
 if [[ -z $BROKER_PID ]]; then
   skipt "2  broker is not running"
 else
-  out="$(as_agent cat "/proc/${BROKER_PID}/environ")"
+  out="$(as_operator cat "/proc/${BROKER_PID}/environ")"
   if grep -qiE 'no such file|permission denied' <<<"$out"; then
-    ok "2  agent cannot read the broker's environ (ProtectProc)"
+    ok "2  ${OPERATOR} cannot read the broker's environ (ProtectProc)"
   else
-    no "2  agent CAN read /proc/${BROKER_PID}/environ -- ProtectProc is not working"
+    no "2  ${OPERATOR} CAN read /proc/${BROKER_PID}/environ -- ProtectProc is not working"
   fi
 fi
 
-if as_agent test -w "$SOCKET"; then
-  ok "2b agent can write to $SOCKET (devwork group access works)"
+if as_operator test -w "$SOCKET"; then
+  ok "2b agent can write to $SOCKET (dev group access works)"
 else
   no "2b agent cannot reach $SOCKET"
 fi
@@ -282,11 +286,11 @@ if [[ -f $AUDIT_LOG ]]; then
   else
     no "9a audit log is '$mode', expected '600 ${BROKER_USER}'"
   fi
-  out="$(as_agent cat "$AUDIT_LOG")"
+  out="$(as_operator cat "$AUDIT_LOG")"
   if grep -qi 'permission denied' <<<"$out"; then
-    ok "9b agent cannot read the audit log"
+    ok "9b ${OPERATOR} cannot read the audit log"
   else
-    no "9b agent CAN read the audit log"
+    no "9b ${OPERATOR} CAN read the audit log"
   fi
   if [[ -s $AUDIT_LOG ]]; then ok "9c audit log has content"; else no "9c audit log is empty"; fi
 
@@ -329,6 +333,59 @@ for transform in rev 'cut -c1-4'; do
   fi
 done
 printf '        Adversarial exfiltration is out of scope. See the README.\n'
+
+head_ "12  the redactor outside a brokered command"
+
+# What covers a session that is not the broker's child: the same value set,
+# reached through the socket, so a caller that holds no values gets the same
+# tokens a brokered command's output gets.
+# As the operator, like every other brokered check: this script runs as root,
+# and root is not in the dev group the broker's socket is restricted to, so the
+# connect fails, the CLI warns on stderr, and 2>&1 folds that warning into the
+# comparison.  A correct deployment would report a failure.
+out="$(printf 'nothing secret here\n' | as_operator faramir redact --socket "$SOCKET")"
+if [[ $out == "nothing secret here" ]]; then
+  ok "12a faramir redact passes ordinary text through unchanged"
+else
+  no "12a faramir redact altered text with no secret in it: $out"
+fi
+
+# The wrapper the hook rewrites a command into.  A wrapper that swallowed the
+# child's status would make every failure read as a success.
+faramir redact --socket "$SOCKET" -- bash -lc 'exit 33' >/dev/null 2>&1
+code=$?
+if [[ $code -eq 33 ]]; then
+  ok "12b faramir redact -- preserves the child's exit code"
+else
+  no "12b faramir redact -- lost the child's exit code"
+fi
+
+# The rewrite itself: the guard has to answer with updatedInput, or every
+# command an agent runs is covered by the deny list alone.
+GUARD="${GUARD:-/usr/local/libexec/faramir/faramir-guard}"
+if [[ -x $GUARD ]]; then
+  out="$(printf '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' | "$GUARD" 2>&1)"
+  if grep -q 'updatedInput' <<<"$out" && grep -q 'redact' <<<"$out"; then
+    ok "12c the hook rewrites an allowed command through the redactor"
+  else
+    no "12c the hook did not rewrite an allowed command: $out"
+  fi
+else
+  skipt "12c ${GUARD} not installed"
+fi
+
+# Operator mode is the session that can read everything, so it is the one where
+# an accidental read is most likely to reach a transcript.
+OPERATOR_HOME="$(getent passwd "$OPERATOR" | cut -d: -f6)" || OPERATOR_HOME=""
+if [[ -n $OPERATOR_HOME && -f ${OPERATOR_HOME}/.claude/settings.json ]]; then
+  if grep -q faramir-guard "${OPERATOR_HOME}/.claude/settings.json"; then
+    ok "12d the operator's own session registers the hook"
+  else
+    no "12d ${OPERATOR_HOME}/.claude/settings.json does not register faramir-guard"
+  fi
+else
+  skipt "12d no settings.json in the operator's home"
+fi
 
 head_ "extra  the acceptance invariant"
 

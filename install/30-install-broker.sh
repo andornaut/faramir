@@ -6,15 +6,12 @@ set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BROKER_USER="${BROKER_USER:-faramir-broker}"
-AGENT_USER="${AGENT_USER:-agent}"
-GROUP="${DEVWORK_GROUP:-devwork}"
+OPERATOR="${OPERATOR:-${SUDO_USER:-$(id -un)}}"
+GROUP="${DEV_GROUP:-dev}"
 BIN="${FARAMIR_BIN:-$REPO/bin}"
-# Derive from the passwd entry when the account exists, so this agrees with
-# 40-agent-config.sh for a home that is not /home/<user>.  getent exits 2 for a
-# missing account, which pipefail would turn into a silent abort before the
-# EUID check below has had a chance to say anything useful.
-AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
-WORKTREE="${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}"
+# Outside every home: the keeper and the executor read this tree as system
+# services, before any home is necessarily mounted.  Phase 1 creates it.
+WORKTREE="${WORKTREE:-/srv/faramir/worktree}"
 # Point this at etc/examples/<workload>.toml to install the configuration for a
 # real workload rather than the starter.
 # A relative path resolves against the repo, so the documented invocation works
@@ -45,7 +42,6 @@ say "binaries -> /usr/local/bin"
 for b in faramir faramir-broker faramir-keeper faramir-exec faramir-mcp; do
   install -m 0755 "$BIN/$b" "/usr/local/bin/$b"
 done
-
 say "hook -> /usr/local/libexec/faramir"
 install -d -m 0755 /usr/local/libexec/faramir
 install -m 0755 "$BIN/faramir-guard" /usr/local/libexec/faramir/faramir-guard
@@ -53,6 +49,8 @@ install -m 0755 "$BIN/faramir-guard" /usr/local/libexec/faramir/faramir-guard
 # that reads it.  A patterns file the hook cannot read is worse than none: it
 # falls back to a built-in list that is silently weaker.
 install -m 0644 "$REPO/agent/hooks/deny-patterns.txt" /usr/local/libexec/faramir/deny-patterns.txt
+# Sourced by the shell the hook rewrites into, so it is read, never executed.
+install -m 0644 "$REPO/agent/hooks/wrap.sh" /usr/local/libexec/faramir/wrap.sh
 
 say "docs -> /usr/local/share/doc/faramir"
 install -d -m 0755 /usr/local/share/doc/faramir
@@ -104,14 +102,17 @@ configured_cwd() {
 # accept "${WORKTREE}-old" and "${WORKTREE}EVIL", which are different trees;
 # requiring the separator is what distinguishes those from a subdirectory.
 #
-# Advisory now rather than load-bearing: a config naming another readable tree
-# works, it is just not the tree the operator asked for.
+# Empty passes: default_cwd is optional and unset is the recommended setting,
+# because a brokered command runs where its caller was.  Only a config that
+# names a directory has anything to disagree with.
 under_worktree() {
-  [[ $1 == "$WORKTREE" || $1 == "$WORKTREE"/* ]]
+  [[ -z $1 || $1 == "$WORKTREE" || $1 == "$WORKTREE"/* ]]
 }
 
 # Before anything is written to the host: a CONFIG that does not parse should
-# abort here, not halfway through.
+# abort here, not halfway through.  The flag prints nothing for a config that
+# leaves default_cwd unset, which is the normal case; what is being checked is
+# that the parser accepted the file at all, which is the exit status.
 configured_cwd "$CONFIG" >/dev/null || {
   say "cannot read ${CONFIG}: it does not parse as a faramir config"
   exit 1
@@ -127,7 +128,7 @@ if [[ -f /etc/faramir/config.toml ]]; then
     say "WARNING: the installed /etc/faramir/config.toml does not parse;"
     say "         the broker will not start until it does"
   elif ! under_worktree "$existing"; then
-    say "WARNING: [exec] default_cwd is ${existing} but this install binds ${WORKTREE}"
+    say "WARNING: [exec] default_cwd is ${existing} but this install names ${WORKTREE}"
     say "         commands will fail with 'cwd does not exist' until they agree;"
     say "         edit /etc/faramir/config.toml"
   fi
@@ -140,7 +141,7 @@ else
   installed="$(configured_cwd /etc/faramir/config.toml)" || installed=""
   if ! under_worktree "$installed"; then
     rm -f /etc/faramir/config.toml
-    say "[exec] default_cwd is ${installed:-unset}, which is not inside ${WORKTREE}."
+    say "[exec] default_cwd is ${installed}, which is not inside ${WORKTREE}."
     say "Write the tree as @WORKTREE@ in ${CONFIG}, or re-run with"
     say "WORKTREE=${installed}."
     say "No config was written; the binaries and hook above are already installed."
@@ -162,8 +163,10 @@ install -m 0644 "$REPO/systemd/faramir.tmpfiles.conf" /etc/tmpfiles.d/faramir.co
 
 # No drop-ins.  The units name no working tree: the broker and the keeper only
 # read it, which ProtectSystem=strict already allows, and the executor is
-# granted /home, where modes decide what it can actually write.  The tree's
-# path lives in the config and nowhere else.
+# granted /home and /srv/faramir, which covers both shipped locations, with
+# modes deciding what it can actually write.  The tree's path lives in the
+# config and nowhere else.  A tree outside both needs a drop-in extending
+# ReadWritePaths= on faramir-exec.service.
 
 # systemd may not be running (container, chroot, image build).  Install the
 # units anyway; just do not pretend to have started anything.
@@ -218,8 +221,8 @@ runuser -u "$BROKER_USER" -- \
 cat <<EOF
 
 Phase 3 acceptance (run these):
-  sudo -u agent cat /proc/\$(pgrep -u ${BROKER_USER} -f faramir-broker | head -1)/environ
+  cat /proc/\$(pgrep -u ${BROKER_USER} -f faramir-broker | head -1)/environ
       -> No such file or directory   (ProtectProc=invisible)
-  sudo -u agent test -w /run/faramir/broker.sock && echo writable
+  test -w /run/faramir/broker.sock && echo writable
       -> writable                    (group ${GROUP} access works)
 EOF

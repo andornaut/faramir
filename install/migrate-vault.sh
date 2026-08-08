@@ -69,7 +69,48 @@ fi
 cat "$ENCRYPTED" >"$DST"
 
 echo "==> verifying round trip"
-if ! diff <(sops --decrypt "$DST") "$PLAIN" >/dev/null; then
+# Compared as data, not as bytes.  sops re-serialises YAML when it decrypts:
+# long scalars are re-wrapped, quoting style can change, the document marker can
+# move.  A byte comparison calls all of that a failure for a file whose values
+# are identical, and then deletes the output, which is the one outcome that
+# loses the work.
+#
+# The byte comparison stays as the fallback where PyYAML is missing.  It is
+# stricter than it needs to be rather than laxer: a false failure leaves the
+# vault in place and says so, where a false pass would migrate a file that
+# quietly lost a key.
+verified=0
+if python3 -c 'import yaml' 2>/dev/null; then
+  python3 - "$DST" "$PLAIN" <<'PYEOF' || verified=1
+import subprocess, sys, yaml
+
+dst, plain = sys.argv[1], sys.argv[2]
+decrypted = subprocess.run(["sops", "--decrypt", dst], capture_output=True, text=True)
+if decrypted.returncode != 0:
+    sys.stderr.write(decrypted.stderr)
+    sys.stderr.write("could not decrypt what was just written\n")
+    sys.exit(1)
+
+before = yaml.safe_load(open(plain)) or {}
+after = yaml.safe_load(decrypted.stdout) or {}
+if before == after:
+    sys.exit(0)
+
+# Names, never values.  This runs on the operator's own terminal, but the names
+# alone say what to look at, and a value printed here is a value in a scrollback.
+missing = sorted(set(before) - set(after))
+unexpected = sorted(set(after) - set(before))
+changed = sorted(k for k in set(before) & set(after) if before[k] != after[k])
+for label, names in (("missing", missing), ("unexpected", unexpected), ("changed", changed)):
+    if names:
+        sys.stderr.write("%s: %s\n" % (label, ", ".join(names)))
+sys.exit(1)
+PYEOF
+else
+  diff <(sops --decrypt "$DST") "$PLAIN" >/dev/null || verified=1
+fi
+
+if [[ $verified -ne 0 ]]; then
   rm -f "$DST"
   echo "round trip FAILED; $DST removed" >&2
   exit 1
@@ -87,9 +128,27 @@ Before deleting $SRC and the vault password file:
 
 Then, and only then:
   git rm $SRC && rm -f "\$VAULT_PASSWORD_FILE"
-
-IMPORTANT: git history still contains the plaintext-equivalent vault blob and
-anyone with the old vault password can read it. Rotate every credential that
-was ever committed, or rewrite history (git filter-repo) and force-push. Do
-not skip this -- moving to sops does not un-leak what is already in the log.
 EOF
+
+# Asked rather than asserted.  A vault that was gitignored from the start is
+# not in the history, and telling its owner to rotate every credential anyway
+# is how a warning gets learned as noise.  Only the repository knows which case
+# this is, so ask it.
+if git -C "$(dirname "$SRC")" rev-parse --git-dir >/dev/null 2>&1 &&
+   [[ -n $(git -C "$(dirname "$SRC")" log --all --oneline -- "$(basename "$SRC")" 2>/dev/null) ]]; then
+  cat <<EOF
+
+IMPORTANT: $SRC is in this repository's history, so the plaintext-equivalent
+blob is still there and anyone with the old vault password can read it.
+Rotate every credential that was ever committed, or rewrite history with
+git filter-repo and force-push. Moving to sops does not un-leak what is
+already in the log.
+EOF
+else
+  cat <<EOF
+
+$SRC was never committed to this repository, so there is no vault blob in the
+history and nothing to rotate on that account. Check any other clone or backup
+that might have one before assuming the same of them.
+EOF
+fi

@@ -7,17 +7,16 @@
 # through systemd's LoadCredential= and serves decrypted values only.
 set -euo pipefail
 
+OPERATOR="${OPERATOR:-${SUDO_USER:-}}"
 BROKER_USER="${BROKER_USER:-faramir-broker}"
 KEEPER_USER="${KEEPER_USER:-faramir-keeper}"
-GROUP="${DEVWORK_GROUP:-devwork}"
+GROUP="${DEV_GROUP:-dev}"
 KEY=/etc/faramir/age.key
-AGENT_USER="${AGENT_USER:-agent}"
-AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
-# The agent's working tree, which is also where brokered commands run and where
-# the sops files live.  WORKTREE is what the other three phases call it, and a
+
+# The working tree, where brokered commands run and where the sops files live.  WORKTREE is what the other three phases call it, and a
 # one-command install passes it to all of them; REPO stays accepted so an
 # existing invocation keeps working.
-REPO="${REPO:-${WORKTREE:-${AGENT_HOME:-/home/${AGENT_USER}}/work/repo}}"
+REPO="${REPO:-${WORKTREE:-/srv/faramir/worktree}}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
@@ -100,11 +99,21 @@ creation_rules:
       - age:
 $(printf '          - %s\n' "${RECIPIENTS[@]}")
 EOF
-    # Both the agent and the broker are non-root and must read this to encrypt,
-    # so 0640 is only safe once the group is actually right.  Fall back to 0644
-    # rather than leave a file only root can read.
-    if chgrp "$GROUP" "$SOPS_YAML" 2>/dev/null; then
+    # Owned by the operator, not by root.  This file lives in the operator's own
+    # checkout: it is edited by hand to add a recipient, and rewritten by any
+    # git operation that changes it, and a root-owned file in a checkout fails
+    # both.  Group-readable because encrypting reads it and the accounts that
+    # do that are not the owner.
+    # OPERATOR is empty when the phase is run as root directly rather than
+    # through sudo, and "chown :group" is a group-only change that GNU chown
+    # accepts and reports success for.  Taking that branch would leave the file
+    # root-owned in the operator's checkout without printing the warning below,
+    # which is the outcome this block exists to prevent.
+    if [[ -n $OPERATOR ]] && chown "$OPERATOR:$GROUP" "$SOPS_YAML" 2>/dev/null; then
       chmod 0640 "$SOPS_YAML"
+    elif chgrp "$GROUP" "$SOPS_YAML" 2>/dev/null; then
+      chmod 0640 "$SOPS_YAML"
+      say "could not give ${SOPS_YAML} to ${OPERATOR}; it stays root-owned"
     else
       say "group ${GROUP} not found; leaving ${SOPS_YAML} world-readable"
       chmod 0644 "$SOPS_YAML"

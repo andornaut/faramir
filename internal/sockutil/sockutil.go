@@ -158,7 +158,7 @@ func Allowed(peer *Peer, uids []int, users, groups []string) bool {
 // AllowedUser is Allowed with neither a uid list nor groups, for the two
 // internal sockets: each has exactly one legitimate client, and names it.
 //
-// No group form.  The only group in play is devwork, which holds the agent's
+// No group form.  The only group in play is dev, which holds the agent's
 // own uid, so on these sockets the one value it could take is the one that
 // must never be set.
 func AllowedUser(peer *Peer, users []string) bool {
@@ -168,7 +168,7 @@ func AllowedUser(peer *Peer, users []string) bool {
 // inAnyGroup checks the peer's primary gid and, failing that, the
 // supplementary member lists.  Checking only the gid would silently ignore
 // every allowed_groups entry that is a secondary group, which is how the
-// devwork group is actually granted.
+// dev group is actually granted.
 func inAnyGroup(peer *Peer, groups []string) bool {
 	name := ""
 	if u, err := user.LookupId(strconv.Itoa(int(peer.UID))); err == nil {

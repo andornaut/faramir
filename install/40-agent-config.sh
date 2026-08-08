@@ -1,50 +1,71 @@
 #!/usr/bin/env bash
-# Phase 4 -- register the broker with the agent account.
+# Phase 4 -- register the broker with the account the coding agent runs as.
 #
-# Installs into ~agent/.claude, owned by agent.  Deliberately NOT a bind mount
-# or symlink of the operator's ~/.claude: a session that can write agent config
-# paths can persist hooks or MCP servers that run under different privileges on
-# the next launch.
+# That account is the operator's own.  The hook it installs is what redacts the
+# output of everything the agent runs, so a session without it is a session
+# where only brokered commands are covered.
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-AGENT_USER="${AGENT_USER:-agent}"
+# The account the coding agent runs as.  SUDO_USER by default: a phase run by
+# hand with sudo is being run by that account.
+OPERATOR="${OPERATOR:-${SUDO_USER:-}}"
 # getent exits 2 for a missing account, and pipefail would abort here before
-# the "no such user" check below could report it.
-AGENT_HOME="$(getent passwd "$AGENT_USER" | cut -d: -f6)" || AGENT_HOME=""
-# The installed config is authoritative: phase 3 wrote [exec] default_cwd to
-# the tree it bound into the three units, and registering the MCP server on a
-# different tree would leave the agent no way to reach the broker from the one
-# its commands actually run in.
-configured_cwd() {
-  /usr/local/bin/faramir-broker -c "$1" --print-default-cwd 2>/dev/null
-}
-if [[ -z ${WORKTREE:-} && -f /etc/faramir/config.toml ]]; then
-  WORKTREE="$(configured_cwd /etc/faramir/config.toml)" || WORKTREE=""
-fi
-WORKTREE="${WORKTREE:-${AGENT_HOME}/work/repo}"
+# the check below could report it.
+OPERATOR_HOME="$(getent passwd "$OPERATOR" | cut -d: -f6)" || OPERATOR_HOME=""
+# WORKTREE is where the MCP registration and the CLAUDE.md snippet go.  It is
+# passed in by the installer; the config no longer names a tree to fall back on,
+# because a brokered command runs where its caller was rather than in one
+# directory a config file chose.
+WORKTREE="${WORKTREE:-/srv/faramir/worktree}"
 
 [[ $EUID -eq 0 ]] || { echo "run as root" >&2; exit 1; }
-[[ -n $AGENT_HOME ]] || { echo "no such user: $AGENT_USER" >&2; exit 1; }
+[[ -n $OPERATOR && $OPERATOR != root ]] || {
+  echo "set OPERATOR to the account the coding agent runs as" >&2; exit 1; }
+[[ -n $OPERATOR_HOME ]] || { echo "no such user: $OPERATOR" >&2; exit 1; }
 say() { printf '\033[1m==>\033[0m %s\n' "$*"; }
 
-say "settings + hook registration -> ${AGENT_HOME}/.claude/settings.json"
-install -d -m 0700 -o "$AGENT_USER" -g "$AGENT_USER" "${AGENT_HOME}/.claude"
-if [[ -f ${AGENT_HOME}/.claude/settings.json ]]; then
-  say "existing settings.json found; writing settings.json.dist instead -- merge by hand"
-  install -m 0600 -o "$AGENT_USER" -g "$AGENT_USER" \
-    "$REPO/agent/claude/settings.json" "${AGENT_HOME}/.claude/settings.json.dist"
-else
-  install -m 0600 -o "$AGENT_USER" -g "$AGENT_USER" \
-    "$REPO/agent/claude/settings.json" "${AGENT_HOME}/.claude/settings.json"
-fi
+# install_settings <home> <owner>
+#
+# Keeps whatever it finds: a settings file is the operator's or the agent's to
+# edit, and overwriting one loses hooks and permissions this project knows
+# nothing about.  What it will not do is stay silent about a home whose settings
+# do not register the hook, because that home is one where the redactor covers
+# nothing the broker did not run itself.
+install_settings() {
+  local home="$1" owner="$2" settings="$1/.claude/settings.json" group
+  # The primary group, which is only the username on distributions that make
+  # per-user groups.  Where it is shared (users, staff), naming the user as the
+  # group fails, and under set -e that aborts the phase.
+  group="$(id -gn "$owner")"
+  # Only created, never re-owned: an existing ~/.claude is the account's own,
+  # and chowning or chmodding it here would rewrite whatever it had.
+  [[ -d ${home}/.claude ]] || install -d -m 0700 -o "$owner" -g "$group" "${home}/.claude"
+  if [[ ! -f $settings ]]; then
+    install -m 0600 -o "$owner" -g "$group" "$REPO/agent/claude/settings.json" "$settings"
+    say "settings + hook -> ${settings}"
+    return
+  fi
+  install -m 0600 -o "$owner" -g "$group" \
+    "$REPO/agent/claude/settings.json" "${settings}.dist"
+  if grep -q faramir-guard "$settings"; then
+    say "${settings} already registers the hook; wrote settings.json.dist beside it"
+  else
+    say "WARNING: ${settings} does not register faramir-guard."
+    say "         Merge the hooks block from ${settings}.dist, or this account's"
+    say "         commands run with nothing redacting their output."
+  fi
+}
+
+say "settings + hook registration"
+install_settings "$OPERATOR_HOME" "$OPERATOR"
 
 if [[ -d $WORKTREE ]]; then
   say "MCP server registration -> ${WORKTREE}/.mcp.json"
   if [[ -f ${WORKTREE}/.mcp.json ]]; then
     say "keeping existing .mcp.json -- add the 'faramir' entry from agent/claude/mcp.json"
   else
-    install -m 0664 -o "$AGENT_USER" -g "${DEVWORK_GROUP:-devwork}" \
+    install -m 0664 -o "$OPERATOR" -g "${DEV_GROUP:-dev}" \
       "$REPO/agent/claude/mcp.json" "${WORKTREE}/.mcp.json"
   fi
 
@@ -53,7 +74,7 @@ if [[ -d $WORKTREE ]]; then
     say "CLAUDE.md already mentions faramir_run; leaving it alone"
   else
     cat "$REPO/agent/claude/CLAUDE.md.snippet" >>"${WORKTREE}/CLAUDE.md"
-    chown "$AGENT_USER:${DEVWORK_GROUP:-devwork}" "${WORKTREE}/CLAUDE.md"
+    chown "$OPERATOR:${DEV_GROUP:-dev}" "${WORKTREE}/CLAUDE.md"
   fi
 else
   say "SKIP ${WORKTREE} (does not exist)"

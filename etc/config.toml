@@ -31,8 +31,8 @@ max_concurrency = 4
 max_request_bytes = 262144
 # Peer credentials are checked against these in addition to the socket mode.
 # Group membership counts whether it is the peer's primary group or a
-# supplementary one, which is how devwork is granted (usermod -aG).
-allowed_groups = ["devwork"]
+# supplementary one, which is how dev is granted (usermod -aG).
+allowed_groups = ["dev"]
 allowed_uids = []
 
 # The process that holds the age key.  It runs as its own uid, execs nothing
@@ -62,10 +62,14 @@ max_concurrency = 16
 # agent's own working tree -- the broker runs what is on disk, so an edit is
 # live as soon as it is saved.
 #
-# The placeholder below is substituted by install/30-install-broker.sh with the
-# WORKTREE it was given, everywhere it appears, and that path is bound into all
-# three units.  An installed /etc/faramir/config.toml has a real path here.
-default_cwd = "@WORKTREE@"
+# default_cwd is deliberately unset.  A brokered command runs where its caller
+# was, the way every other command does: both `faramir run` and the MCP server
+# send their own working directory.  Setting it here would relocate any request
+# that named none into one checkout, so "faramir run make" in a second checkout
+# would quietly build the first.  Set it only for a client of your own that
+# cannot send a directory, and give it an absolute path.
+#
+# default_cwd = "/some/absolute/path"
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576

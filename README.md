@@ -32,7 +32,7 @@ Read this before anything else. Several design choices only make sense against t
 
 Failure | How it is prevented
 --- | ---
-Accidental disclosure: `ansible-vault view`, `cat group_vars/all/vault.yml`, `printenv`, `ansible-playbook -vvv`, a `debug: var=` task | The agent uid cannot read the key material at all; anything run through the broker has its output redacted before the agent sees it
+Accidental disclosure: `ansible-vault view`, `cat group_vars/all/vault.yml`, `printenv`, `ansible-playbook -vvv`, a `debug: var=` task | No account on the host can read the key material, the operator's included; anything the agent runs has its output redacted before it sees it
 Passive discovery: reading the vault password file, an age key, an SSH private key, or another process's `/proc/<pid>/environ` | Unix uid separation plus `ProtectProc=invisible`
 Casual prompt injection: instructions telling the agent to print or exfiltrate credentials | The agent process never holds them; there is nothing to print
 **Loss of the master key.** The age key decrypts every managed file, retroactively, including everything already in git history. | It lives in a third uid that executes nothing. No brokered command can read the file, connect to the keeper's socket, or receive the key in its environment. See [Architecture](#architecture).
@@ -57,7 +57,7 @@ Every boundary is a uid or a file mode, so it holds whether or not the agent coo
 
 uid | Holds | Runs
 --- | --- | ---
-`agent` | nothing secret | the coding agent itself
+you | nothing secret | the coding agent itself
 `faramir-keeper` | the age master key | nothing but sops
 `faramir-broker` | plaintext values in memory, SSH keys | policy, redaction, the audit log
 `faramir-exec` | nothing | the brokered commands themselves
@@ -110,13 +110,13 @@ starter, and `WORKTREE` to the tree it should run in:
 ```bash
 make build
 sudo CONFIG=etc/examples/ansible-fleet.toml \
-     WORKTREE=/home/agent/work/ansible-ctrl make install
+     WORKTREE=/srv/faramir/ansible-ctrl make install
 ```
 
 `WORKTREE` names the working tree: the one the agent edits and the broker runs
 in. The shipped config carries a `@WORKTREE@` placeholder, which the installer
-substitutes everywhere it appears (`[exec] default_cwd` and `[secrets] files`)
-before binding that one path into all three units, so they cannot disagree.
+substitutes everywhere it appears (`[secrets] files`, and `[exec] default_cwd`
+if a config sets it) so that one path is written once, in one place.
 
 `30-install-broker.sh` refuses to run without built binaries and needs no
 toolchain on the target, so building on one machine and copying `bin/` to
@@ -176,7 +176,7 @@ into the command line.
 ```bash
 faramir list-secrets
 faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
-faramir run --quiet -C /home/agent/work/repo -t 120 -- ansible-playbook site.yml
+faramir run --quiet -C /srv/faramir/worktree -t 120 -- ansible-playbook site.yml
 ```
 
 `run` also takes `--quiet` (suppress the redaction summary, which goes to
@@ -239,9 +239,9 @@ Setting | What it does
 the executor's uid | The real one. See [Architecture](#architecture).
 
 `allowed_groups` admits every member of a named group, supplementary
-membership included, because that is how `devwork` is granted in the first
+membership included, because that is how `dev` is granted in the first
 place (`usermod -aG`). That is intended on `[server]`, whose socket is
-`0660 root:devwork` anyway. Leave it empty on `[keeper]` and `[executor]`:
+`0660 root:dev` anyway. Leave it empty on `[keeper]` and `[executor]`:
 their only legitimate client is the broker, they take it by name in
 `allowed_users`, and a peer that reaches the executor socket runs commands
 that are neither redacted nor audited. Both daemons log a warning at startup
@@ -323,7 +323,7 @@ Decision | Choice | Rationale
 Filesystem isolation | None beyond file modes and `ProtectSystem=strict`. | The three units used to put a tmpfs over `/home` and bind the working tree back in. Against this threat model it protected nothing: a home the executor's uid may not read is one the mode already refuses, and a home it may read is one the *agent* uid can read directly, without the broker. What it cost was the tree's path repeated in three drop-ins that had to agree with the config, and a failure mode where an install came up clean and every command died with `cwd does not exist`. The path now appears in one place, the config, and the executor names only `/home` as writable, where modes do the rest.
 Isolation | Unix uid separation + systemd hardening. No Docker, Podman or bubblewrap. | Network isolation was the main thing containers made easy, and it is a non-goal. Everything else comes straight from the kernel and systemd. A sandbox confines what a child *sees*; it cannot make a directory its owner can rewrite from outside hold still, and it is not a substitute for a uid that holds nothing.
 Where commands run | The agent's own working tree, directly. | There used to be a `/srv` checkout, promoted into by a commit-then-`faramir_sync` gate. It was justified as stopping the agent from getting `debug: var=<secret>` executed, which it never did: the agent could commit that and sync it, and verification test 7 shows exactly that content running. What it actually bought was an immutable snapshot (against an agent editing a file mid-run) and a commit sha in the audit log. Both are properties against a *deliberate* agent, which is out of scope, and the cost was a commit per iteration plus a bind-mount/config pair that had to be kept in sync by hand.
-Who executes | The broker, as its own uid. Never the agent. | If the client execs, plaintext lives in a process owned by the agent uid, which the agent can read.
+Who executes | The broker, as its own uid. Never the caller. | If the client execs, plaintext lives in a process the agent already owns, which is the one place it must not be.
 Who holds the key | A separate `faramir-keeper` uid that executes nothing. | A systemd credential is readable by the unit's uid, and every brokered command runs as a broker-adjacent uid. A key the broker can load is a key any command can read.
 Who forks the child | A third `faramir-exec` uid, given the PTY slave over `SCM_RIGHTS`. | Anything the forking uid can reach, the child can reach. Forking from the broker would hand every command the audit log and the SSH keys that open the whole fleet.
 Command allowlist | None. | It never carried a security property. `allowed_bin_dirs` bounded `argv[0]` and the per-rule `args_allow`/`cwd_allow` bounded that rule's arguments, but one rule permitting `bash` made all of it reachable in a single step, and the shipped policies had to permit `bash` for pipelines. What it reliably did instead was refuse every venv, pipx, shim and working-tree script, and cost a rule per program. Removed rather than widened.
@@ -336,14 +336,13 @@ Enforcement | PreToolUse hook + filesystem permissions. | Instructions in `CLAUD
 ### Layout
 
 ```text
-uid <operator>                normal user, holds nothing special
-uid agent                     runs the coding agent; member of group devwork
+uid <operator>                you; runs the coding agent, member of group dev
 uid faramir-keeper            holds the age key; execs nothing but sops
 uid faramir-broker            policy, redaction, audit log, SSH keys
 uid faramir-exec              forks brokered commands; holds nothing
-group devwork                 shared access to the working tree
+group dev                     shared access to the working tree
 
-/run/faramir/broker.sock      socket-activated, 0660 root:devwork
+/run/faramir/broker.sock      socket-activated, 0660 root:dev
 /run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
 /run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
 /run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
@@ -351,34 +350,58 @@ group devwork                 shared access to the working tree
                               what ssh-agent itself binds, 0600 faramir-broker
 /etc/faramir/age.key          0400 faramir-keeper:faramir-keeper
 /etc/faramir/config.toml      0644 root:root, read by all three
-/home/agent                   0710 agent:devwork, and so is every component
-/home/agent/work              below it: pass through, do not list
-/home/agent/work/repo         the working tree: agent edits it, commands run in it
+/srv/faramir/worktree         the working tree, 2770 <operator>:dev:
+                              outside every home, because the keeper and the
+                              executor read it at boot
 /var/log/faramir/audit.log    audit log, 0600 faramir-broker:faramir-broker
 ```
 
-All three service accounts are in `devwork`, because all three need the working tree: the keeper decrypts the sops files in it, the broker stats them to notice edits, and brokered commands run in it. That is access to files the agent already owns; it is not a route to anything the agent could not reach itself.
+All three service accounts are in `dev`, because all three need the working tree: the keeper decrypts the sops files in it, the broker stats them to notice edits, and brokered commands run in it. That is access to files the agent already owns; it is not a route to anything the agent could not reach itself.
 
-Group membership is not enough on its own. The tree sits inside the agent's home, which `useradd` creates 0750 `agent:agent`, and a uid that cannot traverse a directory cannot open anything beneath it. Phase 1 therefore gives `devwork` group-execute on every component from the home down to the tree, and no group-read: they pass through without being able to list the home. Without it the keeper's `open()` fails with `EACCES` rather than `ENOENT`, which reads as a file that exists and would not decrypt.
+Group membership is not enough on its own when the tree sits inside your home, which is 0700, because a uid that cannot traverse a directory cannot open anything beneath it. Phase 1 therefore walks every component from the home down to the tree and grants the keeper, the broker and the executor execute-only access with an ACL, and no read: they pass through without being able to list what they pass. Not `chmod o+x`, which would grant the same thing to every account on the machine. Without it the keeper's `open()` fails with `EACCES` rather than `ENOENT`, which reads as a file that exists and would not decrypt.
+
+On an ecryptfs home that ACL is write-once: the first `setfacl` against an inode applies and every later one is silently ignored, exiting 0 while changing nothing. Phase 1 grants all three uids in one call and reads the result back with `getfacl` for that reason. A tree outside every home (`/srv/faramir/worktree`, the installer's default) needs none of this.
 
 The SSH agent is two sockets for the same reason. OpenSSH's `ssh-agent` calls `getpeereid()` on every connection and closes any whose peer euid is neither root nor its own, so handing its socket to another uid fails at the protocol layer however permissive the mode is: the client connects and the request is dropped, which `ssh-add` reports as `communication with agent failed`. `ssh-agent` therefore binds a private socket that only the broker's uid uses, and the broker serves the public one, relaying bytes between the two. Every upstream connection is then the broker's own, which also means `ssh-agent`'s uid check no longer decides anything: the relay makes the `SO_PEERCRED` check itself, so the public socket's mode is a second boundary rather than the only one. It also reads the agent protocol rather than piping it: the protocol has no read-only mode, so a connection that can sign can also send `REMOVE_ALL_IDENTITIES` or `ADD_IDENTITY`, and a brokered command could empty the broker's agent or load a key of its own into it. Only `REQUEST_IDENTITIES` and `SIGN_REQUEST` are forwarded, and the connection ends on anything else. The child can therefore authenticate and still cannot extract a key, which the protocol does not offer, change what the agent holds, or ptrace it, since it belongs to another uid.
 
-What keeps a brokered command out of everything else is the ordinary file mode, not a mount namespace. `ProtectSystem=strict` makes the whole hierarchy read-only, and the executor names one writable path, `/home`, where the only thing its uid can actually write is the group-writable tree: homes are 0700 apart from the agent's, which grants `devwork` traversal and nothing else, and `~agent/.claude` is 0700 `agent`.
+What keeps a brokered command out of everything else is the ordinary file mode, not a mount namespace. `ProtectSystem=strict` makes the whole hierarchy read-only, and the executor names `/home` and `/srv/faramir` as writable, both shipped locations for the tree. The only thing its uid can actually write there is the group-writable tree itself: your home is 0700, and lifting the read-only mount is not permission.
 
 Three uids, because anything a uid can reach, a command running as that uid can reach. What a brokered command cannot do, and why:
 
 Cannot | Why not
 --- | ---
-read `/etc/faramir/age.key` | 0400 `faramir-keeper`; `devwork` does not appear in that mode
+read `/etc/faramir/age.key` | 0400 `faramir-keeper`; `dev` does not appear in that mode
 open the keeper socket | 0660 `root:faramir-broker`, and it is not in that group
 ask the keeper for the key | there is no such request
 read or truncate the audit log | 0600 `faramir-broker`
 read the SSH keys for managed hosts | 0700 `faramir-broker`; it gets an agent socket instead
 receive `SOPS_AGE_KEY` | nothing puts it there
 
-It **can** write the working tree, which is the point: Ansible drops `.retry` files and fact caches, and a playbook that generates config has to put it somewhere. It can also reach `/run/faramir/broker.sock`, since that is `0660 root:devwork`: a brokered command can call the broker back. That buys it nothing. The response is redacted and audited exactly like the agent's own, and every ref it could name is already listed by `faramir_list_secrets`.
+It **can** write the working tree, which is the point: Ansible drops `.retry` files and fact caches, and a playbook that generates config has to put it somewhere. It can also reach `/run/faramir/broker.sock`, since that is `0660 root:dev`: a brokered command can call the broker back. That buys it nothing. The response is redacted and audited exactly like the agent's own, and every ref it could name is already listed by `faramir_list_secrets`.
 
 The PTY does not move with the fork. The broker creates the pair, sends the slave over `SCM_RIGHTS`, and keeps the master, so redaction, truncation and the audit log stay in the broker and output takes no extra hop.
+
+## Where the agent runs
+
+The coding agent runs as **you**. There is no separate account for it, because the work it is asked to do is yours: your checkouts, your `gh` credential, your commits. A separate uid could reach none of that, and every way of granting it access ends up handing over your files by another name, or copying your credentials into a second account so that one credential becomes two.
+
+What that gives up is a boundary around the agent *process*. What it does not give up is any boundary around the secrets, because those were never the same thing:
+
+Held by | What | Can you read it?
+--- | --- | ---
+`faramir-keeper` | the age key, `0400` | no
+`faramir-broker` | decrypted values, the fleet SSH key, the audit log | no, except through the broker
+`faramir-exec` | nothing; it is where brokered commands run | it cannot read your home
+
+Brokered execution covers the commands the broker runs. It does not cover what an agent reads or executes on its own, and a deny list only covers what somebody thought to name. So the `PreToolUse` hook is installed in your own account and does two things. A command matching the deny list is refused. **Every other command is rewritten** so that its output is redacted: the command itself runs unchanged in your shell, its output goes to a `0600` file on tmpfs, and that file is read back through `faramir redact` and removed.
+
+Same command, same exit status, both streams, and `cd`, `export` and shell functions still persist to the next command, because the wrapper is sourced rather than run in a child. A value the broker knows about comes back as `«SECRET:ref»`. `faramir redact` also works as a plain filter (`… | faramir redact`), and it holds no values itself. [docs/scope.md](docs/scope.md) has the exact form and the wrappers it rules out.
+
+If the broker is unreachable the wrapper warns and passes output through unredacted, rather than breaking every command. A wrapper that fails closed is a wrapper that gets removed.
+
+**Two consequences worth knowing before installing.** For `Bash`, faramir's deny list replaces the permission system, not merely the prompt: the hook returns `permissionDecision: "allow"`, which skips permission evaluation entirely, so your own `permissions.deny` entries for `Bash` stop being consulted and faramir's list is the only one that applies. Port any `Bash` deny rules you rely on into `agent/hooks/deny-patterns.txt`. This is forced rather than chosen: a rewritten command cannot be allow-listed by any rule the permission matcher accepts, so without it every command prompts forever. Other tools keep their normal permissions, and `FARAMIR_WRAP_DECISION=ask` restores prompting. And an unattended run with `--dangerously-skip-permissions` can rewrite any repository you can; hooks still fire in that mode, so redaction holds, but bounding what it may *change* is a matter of `gh` token scope and branch protection, not of this project.
+
+**The working tree has to be reachable by `faramir-keeper` and `faramir-exec`**, which decrypt the sops files and run brokered commands there. Outside the homes (`/srv/faramir/worktree`, the default) that is free. Inside your own checkout it takes traversal, which phase 1 grants with an ACL naming exactly the three service uids rather than `chmod o+x`, so `other` stays at nothing. See [docs/scope.md](docs/scope.md) for what the second choice costs on an encrypted home.
 
 ## How redaction works
 
@@ -405,24 +428,24 @@ The numbering is `verify.sh`'s own, so a failure reported there is findable here
 
 No. | Test | Expected | Covered by
 --- | --- | --- | ---
-1 | `sudo -u agent cat /etc/faramir/age.key` | Permission denied | `verify.sh`
+1 | `cat /etc/faramir/age.key` (as yourself) | Permission denied | `verify.sh`
 1b | `sudo -u faramir-broker cat /etc/faramir/age.key` | Permission denied | `verify.sh`
 1c | mode and owner of `/etc/faramir/age.key` | `0400 faramir-keeper` | `verify.sh`
-1d | `sudo -u agent test -w /run/faramir/keeper.sock` | not writable | `verify.sh`
+1d | `test -w /run/faramir/keeper.sock` (as yourself) | not writable | `verify.sh`
 1e | `faramir run -- bash -lc 'cat /run/credentials/*/age_key'` | no key | `verify.sh`
 1f | `faramir run -- bash -lc 'echo $SOPS_AGE_KEY'` | empty | `internal/e2e`, `verify.sh`
 1g | `faramir run -- bash -lc 'id -un'` | `faramir-exec` | `verify.sh`
 1h | `sudo -u faramir-exec cat /var/log/faramir/audit.log` | Permission denied | `verify.sh`
 1i | `faramir run -- bash -lc 'touch <worktree>/x'` | succeeds; commands run where the agent edits | `verify.sh`
-1i2 | `sudo -u faramir-exec cat /etc/faramir/age.key` | Permission denied; `devwork` must not grant this | `verify.sh`
+1i2 | `sudo -u faramir-exec cat /etc/faramir/age.key` | Permission denied; `dev` must not grant this | `verify.sh`
 1j | `sudo -u faramir-exec test -w /run/faramir/keeper.sock` | not writable | `verify.sh`
 1k | `sudo -u faramir-exec test -w /run/faramir/exec.sock` | not writable; no unlogged commands | `verify.sh`
 1l | `faramir run -- bash -lc 'ssh-add -l'` | lists keys it cannot read | `internal/sshagent`, `verify.sh`
 1m | `sudo -u faramir-exec cat ~faramir-broker/.ssh/id_*` | Permission denied | `verify.sh`
 1n | `sudo -u faramir-exec test -w /run/faramir/ssh-agent.sock.private` | not connectable; the keys are reachable only through the relay | `internal/sshagent`, `verify.sh`
 1o | `faramir run -- bash -lc 'ssh-add -D'` | refused; the agent still holds its keys | `internal/sshagent`, `verify.sh`
-2 | `sudo -u agent cat /proc/$(pgrep -u faramir-broker faramir-broker)/environ` | No such file | `verify.sh`
-2b | `sudo -u agent test -w /run/faramir/broker.sock` | writable; `devwork` access works | `verify.sh`
+2 | `cat /proc/$(pgrep -u faramir-broker faramir-broker)/environ` (as yourself) | No such file | `verify.sh`
+2b | `test -w /run/faramir/broker.sock` (as yourself) | writable; `dev` access works | `verify.sh`
 3 | `faramir run -- printenv ROUTER_PW` (env_ref set) | `«SECRET:home/router/admin»` | `internal/e2e`, `verify.sh`
 4 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64'` | redacted | `internal/e2e`, `verify.sh`
 5 | `faramir run -- bash -lc 'printenv ROUTER_PW \| base64 -w0'` | redacted | `internal/e2e`, `verify.sh`
@@ -431,11 +454,15 @@ No. | Test | Expected | Covered by
 8 | `faramir run -- <not-on-PATH>` | refused, and the error names `[exec.base_env] PATH` | `internal/resolve`, `internal/server`, `verify.sh`
 8b | `faramir run -- <worktree>/script.sh` | runs; a program outside the system directories is not special | `internal/resolve`, `internal/e2e`, `verify.sh`
 9a | mode and owner of the audit log | `0600 faramir-broker` | `internal/e2e`, `verify.sh`
-9b | `sudo -u agent cat /var/log/faramir/audit.log` | Permission denied | `verify.sh`
+9b | `cat /var/log/faramir/audit.log` (as yourself) | Permission denied | `verify.sh`
 9c | the audit log has content | records what ran, tokenized | `internal/e2e`, `verify.sh`
 9d/9e | grep the audit log for an injected value | **absent**; the log holds tokens, never values | `internal/server`, `internal/e2e`, `verify.sh`
 **10** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| rev'`** | **reaches the caller transformed** | demonstrated by `verify.sh`, not asserted
 **11** | **`faramir run -- bash -lc 'printenv ROUTER_PW \| cut -c1-4'`** | **reaches the caller transformed** | demonstrated by `verify.sh`, not asserted
+12a | `echo text \| faramir redact` | ordinary text passes through unchanged | `internal/e2e`, `verify.sh`
+12b | `faramir redact -- bash -lc 'exit 33'` | exits 33; the wrapper keeps the child's status | `internal/e2e`, `verify.sh`
+12c | a `Bash` payload into `faramir-guard` | answered with `updatedInput` naming the redactor | `cmd/faramir-guard`, `verify.sh`
+12d | the operator's `~/.claude/settings.json` | registers `faramir-guard` | `verify.sh`
 
 Some properties need no live deployment and are therefore asserted only in the
 Go suite, where they can be exercised on every run:
@@ -583,3 +610,4 @@ the broker.
 - [docs/redaction.md](docs/redaction.md) - what the redactor covers, and what it cannot
 - [docs/protocol.md](docs/protocol.md) - the request and response shapes on the socket
 - [docs/ansible-sops.md](docs/ansible-sops.md) - pointing `group_vars` at the environment
+- [docs/scope.md](docs/scope.md) - what this defends and what it stops trying to

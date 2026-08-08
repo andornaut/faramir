@@ -38,9 +38,22 @@ func TestMinimalConfigLoads(t *testing.T) {
 	}
 }
 
-func TestDefaultCwdIsRequired(t *testing.T) {
-	_, err := load(t, "[server]\nmax_concurrency = 2\n")
-	if err == nil || !strings.Contains(err.Error(), "default_cwd is required") {
+// A config without default_cwd is the ordinary case: a brokered command runs
+// where its caller was, and both shipped callers send that.
+func TestDefaultCwdIsOptional(t *testing.T) {
+	cfg, err := load(t, "[server]\nmax_concurrency = 2\n")
+	if err != nil {
+		t.Fatalf("a config with no default_cwd was rejected: %v", err)
+	}
+	if cfg.Exec.DefaultCwd != "" {
+		t.Errorf("DefaultCwd = %q, want empty", cfg.Exec.DefaultCwd)
+	}
+}
+
+// Set, it still has to be a path the executor could chdir to.
+func TestDefaultCwdMustBeAbsolute(t *testing.T) {
+	_, err := load(t, "[exec]\ndefault_cwd = \"relative/path\"\n")
+	if err == nil || !strings.Contains(err.Error(), "absolute") {
 		t.Fatalf("err = %v", err)
 	}
 }

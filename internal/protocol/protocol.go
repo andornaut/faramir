@@ -46,7 +46,7 @@ var ReservedEnv = map[string]bool{
 	"SSH_AUTH_SOCK": true, "SSH_AGENT_PID": true,
 }
 
-var ops = []string{"exec", "list_secrets", "status"}
+var ops = []string{"exec", "list_secrets", "redact", "status"}
 
 // Error is a malformed request.
 type Error struct{ Msg string }
@@ -62,6 +62,8 @@ type Request struct {
 	HasCwd     bool
 	EnvRefs    map[string]string
 	TimeoutSec int
+	// Text is what the redact op scrubs.  Only that op reads it.
+	Text string
 }
 
 // Parse validates a decoded request payload.
@@ -102,6 +104,14 @@ func Parse(payload map[string]any) (*Request, error) {
 				req.Cmd = append(req.Cmd, s)
 			}
 		}
+	}
+
+	if req.Op == "redact" {
+		text, isStr := payload["text"].(string)
+		if !isStr {
+			return nil, errf("'text' must be a string")
+		}
+		req.Text = text
 	}
 
 	if raw, ok := payload["cwd"]; ok && raw != nil {

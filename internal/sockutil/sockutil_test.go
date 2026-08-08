@@ -24,7 +24,7 @@ func TestAListedUIDIsAllowed(t *testing.T) {
 	}
 }
 
-// The group a peer is in is usually a *supplementary* one -- devwork is
+// The group a peer is in is usually a *supplementary* one -- dev is
 // granted with usermod -aG, so it is never the primary gid.  Checking only the
 // gid would make every allowed_groups entry silently ineffective.
 func TestSupplementaryGroupMembershipIsHonoured(t *testing.T) {

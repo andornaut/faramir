@@ -34,7 +34,7 @@ Left in place on purpose:
   /etc/faramir/age.key      deleting it makes every sops file unreadable
   /etc/faramir/config.toml
   /var/log/faramir/         the audit log
-  users agent, faramir-broker, faramir-keeper and faramir-exec, group devwork
+  users agent, faramir-broker, faramir-keeper and faramir-exec, group dev
 
 Remove those by hand if you really mean to, and note that the agent account's
 ~/.claude/settings.json still points at the (now missing) PreToolUse hook --

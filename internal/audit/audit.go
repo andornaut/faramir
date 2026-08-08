@@ -63,7 +63,7 @@ func (l *Log) ensure() error {
 	}
 	// OpenFile with an explicit mode rather than umask-plus-touch: the umask is
 	// process-wide, and a child forked by another request during that window
-	// would inherit it and create files the devwork group cannot read.
+	// would inherit it and create files the dev group cannot read.
 	fh, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err

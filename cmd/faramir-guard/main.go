@@ -26,6 +26,17 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
+// wrapScript is the shell fragment the rewrite sources.  An absolute path
+// because the rewritten string is handed back to a shell whose working
+// directory is the agent's, and a source that silently fails to resolve would
+// look exactly like a wrap that worked.
+func wrapScript() string {
+	if v := os.Getenv("FARAMIR_WRAP"); v != "" {
+		return v
+	}
+	return "/usr/local/libexec/faramir/wrap.sh"
+}
+
 // patternsFile sits next to the hook rather than under /etc/faramir, so it
 // travels with the binary that reads it: a hook installed without its patterns
 // falls back to the list below, which is silently weaker than the shipped one.
@@ -109,9 +120,15 @@ func loadPatterns() []compiled {
 type payload struct {
 	ToolName  string `json:"tool_name"`
 	ToolInput struct {
-		Command string `json:"command"`
-		Args    []any  `json:"args"`
+		Command  string `json:"command"`
+		Args     []any  `json:"args"`
+		InBackgd bool   `json:"run_in_background"`
 	} `json:"tool_input"`
+	// The same object again, undecoded.  A rewrite has to hand back every field
+	// it was given, not only the one it changed: updatedInput replaces the tool
+	// input, so a timeout or a description dropped here is a timeout or a
+	// description the tool never sees.
+	RawInput map[string]any `json:"-"`
 }
 
 func commandOf(p *payload) string {
@@ -173,6 +190,12 @@ func run(args []string) int {
 	if err := json.Unmarshal(data, &p); err != nil {
 		return 0 // never block on a payload we do not understand
 	}
+	var raw struct {
+		ToolInput map[string]any `json:"tool_input"`
+	}
+	if err := json.Unmarshal(data, &raw); err == nil {
+		p.RawInput = raw.ToolInput
+	}
 	if p.ToolName != "Bash" && p.ToolName != "BashOutput" {
 		return 0
 	}
@@ -181,22 +204,149 @@ func run(args []string) int {
 		return 0
 	}
 
-	pattern, denied := decide(command)
-	if !denied {
-		return 0
-	}
-
-	out, err := json.Marshal(map[string]any{
-		"hookSpecificOutput": map[string]any{
+	if pattern, denied := decide(command); denied {
+		return emit(map[string]any{
 			"hookEventName":            "PreToolUse",
 			"permissionDecision":       "deny",
 			"permissionDecisionReason": advice + "\n\n(matched deny pattern: " + pattern + ")",
-		},
+		})
+	}
+
+	// Everything the deny list does not forbid still runs, and still prints
+	// whatever it prints.  A deny list only covers what someone thought to name,
+	// so it cannot be the whole defence against a credential reaching the
+	// transcript by accident: the command that leaks one is usually a command
+	// nobody would have thought to deny.
+	//
+	// So the command is rewritten to run under the redactor rather than
+	// refused.  The child's exit status and both its streams are preserved; what
+	// changes is that a value the broker knows about comes back as its token.
+	wrapped, ok := wrap(command, &p)
+	if !ok {
+		return 0
+	}
+	// Every field back, with only "command" changed.
+	updated := map[string]any{}
+	for k, v := range p.RawInput {
+		updated[k] = v
+	}
+	updated["command"] = wrapped
+
+	// A rewritten command cannot be allow-listed, by design.  The permission
+	// matcher refuses an allow rule against a compound statement ("Contains
+	// compound_statement") and refuses one naming source or eval ("'source'
+	// evaluates arguments as shell code) -- and a wrapper that redacts output
+	// has to be one of those.  So a rewrite that claims nothing makes every
+	// command prompt, with no rule that can ever stop it.
+	//
+	// The decision here is therefore explicit rather than incidental: for Bash,
+	// the deny list above replaces the permission prompt.  It runs first, so a
+	// forbidden command is still refused; what changes is that everything else
+	// is approved by this hook rather than by a rule the operator wrote.
+	//
+	// FARAMIR_WRAP_DECISION=ask restores the prompt for an operator who would
+	// rather answer one per command than delegate that to the deny list.
+	decision := os.Getenv("FARAMIR_WRAP_DECISION")
+	if decision != "ask" && decision != "allow" {
+		decision = "allow"
+	}
+	return emit(map[string]any{
+		"hookEventName":            "PreToolUse",
+		"permissionDecision":       decision,
+		"permissionDecisionReason": "faramir: output redacted; the deny list is what refuses a command",
+		"updatedInput":             updated,
 	})
+}
+
+func emit(hookOutput map[string]any) int {
+	out, err := json.Marshal(map[string]any{"hookSpecificOutput": hookOutput})
 	if err != nil {
 		return 0
 	}
 	os.Stdout.Write(out)
 	os.Stdout.Write([]byte("\n"))
 	return 0
+}
+
+// alreadyWrapped keeps the rewrite idempotent, and keeps it off the redactor's
+// own invocation.
+//
+// Anchored at a command position, the way faramirCall is: a bare "\s" would
+// also match the words inside "echo 'run faramir redact next'", and a command
+// that merely mentions the redactor would then be left unredacted.
+var alreadyWrapped = regexp.MustCompile(`(^|[;&|\n])\s*(sudo\s+)?(\S*/)?faramir\s+redact\b`)
+
+// isWrapped reports whether this command is one the rewrite already produced.
+//
+// The emitted form names the wrap script and never the redactor, so matching
+// only alreadyWrapped would rewrite a rewritten command a second time.  Sourced
+// twice in one shell, the inner copy reuses and then clears the outer's state,
+// and the outer neither redacts nor deletes its temporary file.
+func isWrapped(command string) bool {
+	return alreadyWrapped.MatchString(command) ||
+		strings.Contains(command, wrapScript())
+}
+
+// backgrounded matches a command that ends by putting a job in the background.
+// Its output arrives after the group has returned, which is after the wrapper
+// has read and deleted the file, so wrapping it would silently discard exactly
+// the output the caller was waiting for.  A trailing "&&" is not this.
+//
+// Newlines count as trailing space.  Go's $ is end of text rather than end of
+// line, so a multi-line command ending in "&\n" is backgrounded too.
+var backgrounded = regexp.MustCompile(`(^|[^&])&[ \t\r\n]*$`)
+
+// wrap rewrites a shell command so its output is redacted.
+//
+// The command stays in the caller's own shell, inside a brace group rather than
+// a subshell or a pipeline.  That is the whole difficulty: the agent's shell
+// persists between tool calls, so a wrapper that runs the command in a child
+// loses every "cd", "export" and shell function it sets, and the next command
+// runs somewhere else.  A brace group with a redirection changes neither.
+//
+// Output goes to a temporary file and is redacted after the group finishes,
+// rather than through a pipe while it runs.  A pipeline would put the group in
+// a subshell and lose the state again; process substitution keeps the state but
+// races, because the shell moves on to the next command while the redactor is
+// still writing, and whatever it had not written yet is lost.  Reading the file
+// afterwards has neither problem, and the agent sees no difference: the tool
+// returns a command's output in one piece anyway.
+//
+// The file is created 0600 by mktemp, under a tmpfs so the unredacted text is
+// in memory rather than on a disk, and removed as soon as it has been read.
+//
+// Not applied to BashOutput, which reads an already-running command's buffer
+// rather than starting one, and not to a command already under the redactor.
+func wrap(command string, p *payload) (string, bool) {
+	switch {
+	case p.ToolName != "Bash":
+		return "", false
+	case strings.TrimSpace(command) == "":
+		return "", false
+	case isWrapped(command):
+		return "", false
+	// A backgrounded command outlives the group, and a run_in_background call
+	// is polled through BashOutput while it runs.  Both want output as it
+	// arrives, which is the one thing buffering cannot give them.
+	case backgrounded.MatchString(command) || p.ToolInput.InBackgd:
+		return "", false
+	}
+
+	// One simple command, not an inline compound statement.  The permission
+	// matcher refuses to match an allow rule against a compound statement
+	// ("Contains compound_statement"), so a rewrite built out of "{ ...; }" and
+	// ";" cannot be allow-listed at all, whatever rule is written for it: every
+	// command would prompt, forever. This form takes one "Bash(source:*)" rule.
+	//
+	// The shell that runs this is the caller's own, so the command is quoted
+	// for one round trip through the sourced script's eval and no more.  See
+	// agent/hooks/wrap.sh for why the rest of it is shaped the way it is.
+	return "source " + wrapScript() + " " + shellQuote(command), true
+}
+
+// shellQuote renders a string as one single-quoted shell word.  The command is
+// about to be re-parsed by the shell that sources the wrapper, so anything less
+// exact changes what runs.
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

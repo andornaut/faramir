@@ -13,12 +13,12 @@ ExecStart=/usr/local/bin/faramir-exec
 Restart=on-failure
 RestartSec=2
 
-# devwork, because brokered commands run *in* the working tree and write to it:
+# dev, because brokered commands run *in* the working tree and write to it:
 # ansible drops .retry files and fact caches, and a playbook that generates
 # config has to be able to put it somewhere.  The tree is agent-owned and
 # group-writable, so this is the same access the agent already has -- it is not
 # a way into anything the agent could not reach itself.
-SupplementaryGroups=devwork
+SupplementaryGroups=dev
 
 # This uid is the one every brokered command runs as, so the list of things it
 # can reach is the list of things a command can reach:
@@ -28,12 +28,12 @@ SupplementaryGroups=devwork
 #   /run/faramir/exec.sock    no  (0660 root:faramir-broker)
 #   /var/log/faramir/audit.log  no  (0600 faramir-broker)
 #   ~faramir-broker/.ssh      no  (0700 faramir-broker)
-#   the working tree          read and write, via devwork above
+#   the working tree          read and write, via dev above
 #   the rest of /home         whatever the mode allows, which for a 0700 home
 #                             is nothing; read-only regardless, and the one
 #                             writable path below is the agent's own home
 #
-# /run/faramir/broker.sock IS reachable now, because it is 0660 root:devwork:
+# /run/faramir/broker.sock IS reachable now, because it is 0660 root:dev:
 # a brokered command can call the broker back.  That buys it nothing -- the
 # response is redacted and audited exactly like the agent's own,
 # and every ref it could ask for is already listed by faramir_list_secrets.
@@ -46,19 +46,25 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# ProtectSystem=strict makes the whole hierarchy read-only, so the one place a
-# brokered command may write has to be named.  /home rather than the working
-# tree inside it: the tree's path is the operator's to choose and lives in the
+# ProtectSystem=strict makes the whole hierarchy read-only, so every place a
+# brokered command may write has to be named.  Whole trees rather than the
+# working tree itself: its path is the operator's to choose and lives in the
 # config, and naming it here too made two files that had to agree or every
 # command failed with "cwd does not exist".
 #
-# It grants nothing on its own.  Lifting the read-only mount is not permission;
-# modes still decide, and the only thing under /home this uid can write is the
-# devwork tree that phase 1 group-writes on purpose.  Homes are 0700 and
-# ~agent/.claude is 0700 agent, so both stay unwritable.
+# Both shipped locations, because the installer defaults the tree to
+# /srv/faramir/worktree while the ansible role points it at a checkout under
+# /home.  Naming only one leaves the other read-only, and a playbook writing a
+# .retry file or a fact cache fails with EROFS rather than anything that names
+# the mount.
 #
-# A working tree outside /home needs a drop-in adding its path.
-ReadWritePaths=-/home
+# The leading "-" is what lets either be absent.  Neither grants anything on its
+# own: lifting the read-only mount is not permission, and modes still decide.
+# Homes are 0700, so the only thing writable under /home is the dev tree that
+# phase 1 group-writes on purpose.
+#
+# A working tree somewhere else again needs a drop-in adding its path.
+ReadWritePaths=-/home -/srv/faramir
 PrivateTmp=true
 # Children run on a PTY, which needs /dev/ptmx and the pts devices.  Narrow the
 # device ACL rather than dropping it.

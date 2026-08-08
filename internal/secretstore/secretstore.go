@@ -169,12 +169,20 @@ func (s *Store) Reload() {
 	for _, err := range errors {
 		log.Printf("secret load: %s", err)
 	}
-	for _, ref := range sortedKeys(refused) {
-		log.Printf("secret %s was NOT loaded (%s) -- it cannot be redacted, so the "+
-			"broker refuses to inject it; lengthen it", ref, refused[ref])
+	// The reason once, then one entry per secret.  Stated per-secret it is
+	// repeated as many times as there are short values, and the count belongs
+	// here rather than on the summary line below, which would otherwise report
+	// the same refusal a second time.
+	if len(refused) > 0 {
+		entries := make([]string, 0, len(refused))
+		for _, ref := range sortedKeys(refused) {
+			entries = append(entries, ref+" ("+refused[ref]+")")
+		}
+		log.Printf("%d of %d secrets refused as not redactable, so they are never "+
+			"injected; lengthen them: %s",
+			len(refused), len(redactable)+len(refused), strings.Join(entries, ", "))
 	}
-	log.Printf("loaded %d secret refs from %d file(s), %d refused as not redactable",
-		len(redactable), len(state), len(refused))
+	log.Printf("loaded %d secret refs from %d file(s)", len(redactable), len(state))
 }
 
 // lexists reports whether the path itself is there, symlink target or not.
