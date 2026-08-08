@@ -109,9 +109,12 @@ var fallback = []string{
 	//
 	// "[\s/=]\.env" rather than "\.env", so a file merely ending in those four
 	// characters (faramir.env, which holds refs and no values) is not a dotenv.
-	`\b(cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac|` +
+	`\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac|` +
 		`awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|tar|scp|rsync)\b[^|]*` +
-		`(vault|secrets?\.|[\s/=]\.env|age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.pem\b|credentials|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/var/log/faramir)`,
+		`(age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/var/log/faramir)`,
+	`\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b[^|]*` +
+		`(vault\.|secrets?\.(ya?ml|json|toml|env|ini|conf|txt|enc|gpg)\b|credentials\b|\.pem\b|` +
+		`[\s/=]\.env(\.(local|development|production|test|staging))?([\s"']|$))`,
 	`\bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))`,
 	// Changing the broker's own files, rather than reading them.  The store is
 	// writable by the agent's uid, and so is anything under a home; the hook's
@@ -120,7 +123,7 @@ var fallback = []string{
 	// The redirect rule matches the target word only, not the rest of the line,
 	// so that a heredoc writing documentation that mentions one of these paths
 	// is not mistaken for a write to it.
-	`\b(rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*` +
+	`\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*` +
 		`(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|\.sops\.ya?ml|\.vault\b)`,
 	`>\s*\S*(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|\.sops\.ya?ml)`,
 	// journalctl is deliberately absent: the daemons log ref names and counts,
