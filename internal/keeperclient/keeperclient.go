@@ -1,11 +1,10 @@
 // Package keeperclient talks to the keeper socket.
 //
-// It is deliberately separate from the keeper itself.  The keeper links sops,
-// which pulls in every key source sops supports (AWS KMS, GCP KMS, Azure Key
-// Vault, Vault, PGP) and their transitive dependencies.  The broker needs none
-// of that: it asks for values over a socket.  Keeping the client here is what
-// stops that dependency tree being linked into the broker and the executor as
-// well, and it is why only one of the four binaries carries it.
+// It is deliberately separate from the keeper itself, which is the server on
+// the other end of the same socket.  What the split buys is not a smaller
+// binary, since there is one binary and it carries both: it is that the broker
+// reaches values only by asking over a socket, in code that has no access to the
+// key, the sops invocation, or the decrypted set the keeper holds.
 package keeperclient
 
 import (

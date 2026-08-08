@@ -365,26 +365,28 @@ fi
 
 # The rewrite itself: the guard has to answer with updatedInput, or every
 # command an agent runs is covered by the deny list alone.
-GUARD="${GUARD:-/usr/local/libexec/faramir/faramir-guard}"
-if [[ -x $GUARD ]]; then
-  out="$(printf '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' | "$GUARD" 2>&1)"
+GUARD_CMD=("${FARAMIR_CLI:-/usr/local/bin/faramir}" guard)
+if [[ -x ${GUARD_CMD[0]} ]]; then
+  out="$(printf '{"tool_name":"Bash","tool_input":{"command":"ls -la"}}' | "${GUARD_CMD[@]}" 2>&1)"
   if grep -q 'updatedInput' <<<"$out" && grep -q 'redact' <<<"$out"; then
     ok "12c the hook rewrites an allowed command through the redactor"
   else
     no "12c the hook did not rewrite an allowed command: $out"
   fi
 else
-  skipt "12c ${GUARD} not installed"
+  skipt "12c ${GUARD_CMD[0]} not installed"
 fi
 
 # Operator mode is the session that can read everything, so it is the one where
 # an accidental read is most likely to reach a transcript.
 OPERATOR_HOME="$(getent passwd "$OPERATOR" | cut -d: -f6)" || OPERATOR_HOME=""
 if [[ -n $OPERATOR_HOME && -f ${OPERATOR_HOME}/.claude/settings.json ]]; then
-  if grep -q faramir-guard "${OPERATOR_HOME}/.claude/settings.json"; then
+  # Both spellings: a host that has not converged still has the hook registered
+  # at its pre-consolidation path, and that registration still works there.
+  if grep -Eq 'faramir[- ]guard' "${OPERATOR_HOME}/.claude/settings.json"; then
     ok "12d the operator's own session registers the hook"
   else
-    no "12d ${OPERATOR_HOME}/.claude/settings.json does not register faramir-guard"
+    no "12d ${OPERATOR_HOME}/.claude/settings.json does not register the guard"
   fi
 else
   skipt "12d no settings.json in the operator's home"

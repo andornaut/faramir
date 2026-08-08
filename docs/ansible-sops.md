@@ -94,7 +94,7 @@ keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
 The broker keeps the files under its own uid, loads them into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`.
 
 - Keys must have no passphrase, since nothing is there to type one.
-- `faramir-broker --check`, run as the broker's own account, fails on a key `ssh-add` would refuse: a passphrase, or `keys` naming the `.pub` by mistake. Run as root it reads what the broker cannot, so a key left `root:root` passes a root check and then fails for the broker.
+- `faramir broker --check`, run as the broker's own account, fails on a key `ssh-add` would refuse: a passphrase, or `keys` naming the `.pub` by mistake. Run as root it reads what the broker cannot, so a key left `root:root` passes a root check and then fails for the broker.
 - At runtime the broker logs the error and carries on, so one bad key does not stop the others loading.
 - The agent lives and dies with the broker, so nothing outlives the process holding keys in memory.
 - Left empty, no agent runs and authentication is whatever `~faramir-exec/.ssh` allows, readable by every brokered command. It works; it is not the arrangement to choose.

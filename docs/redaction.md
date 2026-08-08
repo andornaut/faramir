@@ -70,7 +70,7 @@ Refusal does not make the value safe. A refused value is absent from the redacto
 The refused list stays operator-side, because it names exactly the secrets that are never tokenized:
 
 - the broker logs a warning naming each one at load,
-- `faramir-broker --check` reports them under `secrets.not_redactable` and exits non-zero,
+- `faramir broker --check` reports them under `secrets.not_redactable` and exits non-zero,
 - `faramir_status` and `faramir_list_secrets` say nothing about them.
 
 Lengthen the secret rather than lowering the threshold.

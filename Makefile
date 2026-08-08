@@ -12,7 +12,7 @@ export CGO_ENABLED := 0
 
 all: build
 
-## build: static binaries, stripped
+## build: a static binary, stripped
 build:
 	@mkdir -p $(BIN)
 	@for c in $(CMDS); do \
@@ -36,7 +36,7 @@ test-e2e:
 
 ## coverage: the suite with the race detector, then the per-function report.
 ## CGO_ENABLED=1 for this recipe only: -race needs cgo, and the export above
-## turns it off for every other one because the shipped binaries are static.
+## turns it off for every other one because the shipped binary is static.
 coverage:
 	CGO_ENABLED=1 go test -race -coverprofile=coverage.txt -covermode=atomic ./...
 	go tool cover -func=coverage.txt
@@ -51,7 +51,7 @@ lint:
 
 ## install: provision this host.  Deliberately NOT dependent on build: this
 ## runs as root, the compiler should not, and init is meant to work on a host
-## with no Go at all (see --binaries).  It refuses to run without the binaries
+## with no Go at all (see --binaries).  It refuses to run without the binary
 ## and says so.
 ##
 ## Pass anything else through INIT_ARGS, e.g. --config-dir or --seal-age-key.

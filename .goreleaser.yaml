@@ -18,49 +18,9 @@ builds:
     goarch: [amd64, arm64]
     flags: [-trimpath]
     ldflags: [-s -w]
-  - id: faramir-broker
-    main: ./cmd/faramir-broker
-    binary: faramir-broker
-    env: [CGO_ENABLED=0]
-    goos: [linux]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags: [-s -w]
-  - id: faramir-keeper
-    main: ./cmd/faramir-keeper
-    binary: faramir-keeper
-    env: [CGO_ENABLED=0]
-    goos: [linux]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags: [-s -w]
-  - id: faramir-exec
-    main: ./cmd/faramir-exec
-    binary: faramir-exec
-    env: [CGO_ENABLED=0]
-    goos: [linux]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags: [-s -w]
-  - id: faramir-mcp
-    main: ./cmd/faramir-mcp
-    binary: faramir-mcp
-    env: [CGO_ENABLED=0]
-    goos: [linux]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags: [-s -w]
-  - id: faramir-guard
-    main: ./cmd/faramir-guard
-    binary: faramir-guard
-    env: [CGO_ENABLED=0]
-    goos: [linux]
-    goarch: [amd64, arm64]
-    flags: [-trimpath]
-    ldflags: [-s -w]
 
-# One archive holding all six binaries: they are a set, and `make install`
-# expects to find every one of them in the directory FARAMIR_BIN names.
+# One archive, holding the one binary and the README.  `faramir init` is given
+# the directory it was unpacked into and copies what it finds there.
 archives:
   - formats: [tar.gz]
     # this name template makes the output compatible with many package managers

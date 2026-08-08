@@ -76,14 +76,16 @@ Failure | Why
 
 ## How it works
 
-uid | Holds | Runs
---- | --- | ---
-you | nothing secret | the coding agent
-`faramir-keeper` | the age master key | nothing but sops
-`faramir-broker` | plaintext values in memory, SSH keys | policy, redaction, the audit log
-`faramir-exec` | nothing | brokered commands
+One binary, `faramir`. Five of its subcommands are not for you: three are the daemons systemd runs, one is the MCP server and one is the PreToolUse hook. What separates the roles is the uid each unit runs its subcommand as, not which file it came from.
 
-The keeper/broker split is the one that matters: the age key decrypts every managed file retroactively, so it lives in a uid that executes nothing.
+uid | Runs | Holds
+--- | --- | ---
+you | the coding agent, and `faramir run` | nothing secret
+`faramir-keeper` | `faramir keeper`, and nothing but sops | the age master key
+`faramir-broker` | `faramir broker` | plaintext values in memory, SSH keys
+`faramir-exec` | `faramir exec` | nothing
+
+The keeper/broker split is the one that matters, and it is a split of uids: the age key decrypts every managed file retroactively, so it lives in a uid that executes nothing. A single binary running as `faramir-exec` can no more read that key than a separate one could, because the mode is `0400 faramir-keeper` either way.
 
 One call, end to end:
 
@@ -97,7 +99,7 @@ One call, end to end:
 
 ## Install
 
-Requires systemd and [sops](https://github.com/getsops/sops); Go to build. Binaries are static, so the host needs no interpreter.
+Requires systemd and [sops](https://github.com/getsops/sops); Go to build. The binary is static, so the host needs no interpreter.
 
 ```bash
 make build
@@ -106,14 +108,14 @@ sudo ./bin/faramir init --operator "$USER"
 
 Two commands: the compiler should not run as root, and `init` works on a host with no Go.
 
-`init` does the whole install and is idempotent, so it is also the upgrade: re-run it after a rebuild and it reports what changed. It creates the accounts and the shared group, mints the age key, installs the binaries, the hook and the docs, renders the config and the systemd units, and starts the sockets. It writes the units and the config from one set of values, which is what keeps the group named in `allowed_groups` and the one in `SupplementaryGroups=` from drifting apart: they cannot, because both come from `--group`.
+`init` does the whole install and is idempotent, so it is also the upgrade: re-run it after a rebuild and it reports what changed. It creates the accounts and the shared group, mints the age key, installs the binary, the hook's deny list and the docs, renders the config and the systemd units, and starts the sockets. It writes the units and the config from one set of values, which is what keeps the group named in `allowed_groups` and the one in `SupplementaryGroups=` from drifting apart: they cannot, because both come from `--group`.
 
 Flag | Does
 --- | ---
 `--operator NAME` | the account the coding agent runs as. Defaults to `$OPERATOR`, then `$SUDO_USER`. Never root
 `--group NAME` | the shared group. Named in the config the sockets check and in the units that reach a working tree
 `--config-dir DIR` | where `config.toml` and `config.d/` go. `--secrets-dir DIR` does the same for the sops store
-`--binaries DIR` | read the built binaries from here instead of the directory `faramir` itself is in, so you can build on one machine and install on another
+`--binaries DIR` | read the built binary from here instead of the directory `faramir` itself is in, so you can build on one machine and install on another
 `--operator-age-key PATH` | mint an identity for yourself and list it in `.sops.yaml` alongside the keeper's, so you can still read the files you are responsible for
 `--ssh-key PATH` | generate the identity the broker lends to brokered commands. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run
 `--agent-config` | install the deny rules that refuse key material into your own agent settings. `--agent` names which agent, repeatable, defaulting to `claude`
@@ -135,7 +137,7 @@ The units are sandboxed, so where the config and the store go is not a free choi
 Step | Do | Why
 --- | --- | ---
 1 | Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them | Not in a checkout, so the store is not something a clone or a branch can move. Keeping it under `/etc` also means it is there at boot; a store inside an encrypted home is not, and the broker refuses to start rather than come up redacting nothing
-2 | Name it in `/etc/faramir/config.d/<project>.toml`, then restart `faramir-keeper` and `faramir-broker`, in that order | This is what puts the values in the redaction set. A drop-in rather than the base config, so the project owns the line naming its own store. A restart because neither daemon re-reads its config; the keeper leads because it decrypts the list the broker is served. Step 1 first: a named file that is not there fails the gate, so the drop-in comes after the store, never before
+2 | Name it in `/etc/faramir/config.d/<project>.toml`, then run `faramir reload`, which restarts the keeper and then the broker | This is what puts the values in the redaction set. A drop-in rather than the base config, so the project owns the line naming its own store. A restart because neither daemon re-reads its config; the keeper leads because it decrypts the list the broker is served. Step 1 first: a named file that is not there fails the gate, so the drop-in comes after the store, never before
 3 | Point the project's config at environment variables | It never decrypts anything; it reads `$NAME` however it already does
 4 | Write the refs beside the project, one `NAME=secret://ref` per line | So a run names refs rather than someone remembering them
 5 | `cd <project> && sudo faramir init-project` | Shares the tree so a brokered command can run in it, and writes each enrolled agent's settings and the instructions block. With Claude Code this is what auto-approves Bash there, so it is a per-project command rather than something the install does to every tree. Add `--agent gemini` to enrol Gemini CLI as well, which costs no prompts
@@ -255,12 +257,12 @@ What | Rule | Why
 `[secrets] files`, `[ssh] keys` | **accumulate**, duplicates collapsed | Inventories with one entry per owner. Two projects each naming their own store both want theirs managed; replacing would leave the broker holding fewer files than its operator believes, injecting nothing for the loser and redacting nothing either.
 every other list | **refused** when two sources set it, naming both | `allowed_users`, `allowed_groups`, `allowed_uids` and `decrypt_command` are policy. Accumulating would widen what the sockets admit by writing a file that never said so; taking the last would make it depend on filename order.
 
-- Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir-broker --check` both report `configs`, the base file and every drop-in that contributed in the order they were merged, which is where to look when a setting is not what you expect.
+- Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir broker --check` both report `configs`, the base file and every drop-in that contributed in the order they were merged, which is where to look when a setting is not what you expect.
 - Dotfiles are skipped, so an editor's `.#name.toml` lock does not stop the daemons starting.
 
 ### The install gate
 
-`faramir-broker --check` exits non-zero on anything that leaves the broker protecting less than it appears to.
+`faramir broker --check` exits non-zero on anything that leaves the broker protecting less than it appears to.
 
 Fails on | Because
 --- | ---
@@ -287,6 +289,7 @@ Run it as the broker's own account. Run as root it reads what the broker cannot,
 Decision | Choice | Rationale
 --- | --- | ---
 Isolation | Uid separation plus systemd hardening. No containers. | Network isolation is a non-goal, and it was the main thing containers made easy. A sandbox confines what a child sees; it is not a substitute for a uid that holds nothing.
+How the roles are separated | `User=` in three units, all starting one binary. | The uid is what the kernel checks against `0400 faramir-keeper` and against a socket's group. Six executables checked nothing extra: the keeper's code being absent from the broker's image is not a boundary, because reaching the key needs the key's mode and reaching the keeper needs its socket, and both are decided by the running uid.
 Filesystem isolation | None beyond file modes and `ProtectSystem=strict`. | A home the executor may not read is one the mode already refuses; one it may read, the agent can read directly.
 Where commands run | The agent's working tree, directly. | A promotion gate buys an immutable snapshot and a commit sha, both properties against a deliberate agent, which is out of scope.
 Who executes | The broker, as its own uid. | If the client execs, plaintext lives in a process the agent owns.
@@ -302,10 +305,13 @@ Enforcement | Hook plus filesystem permissions. | Instructions to the agent are 
 ### Layout
 
 ```text
+/usr/local/bin/faramir        the only binary; every role below is a subcommand
+/usr/local/libexec/faramir/   the hook's deny list and wrap.sh, rendered per install
+
 uid <operator>                you; runs the coding agent, member of group dev
-uid faramir-keeper            holds the age key; execs nothing but sops
-uid faramir-broker            policy, redaction, audit log, SSH keys
-uid faramir-exec              forks brokered commands; holds nothing
+uid faramir-keeper            faramir keeper: holds the age key; execs nothing but sops
+uid faramir-broker            faramir broker: policy, redaction, audit log, SSH keys
+uid faramir-exec              faramir exec: forks brokered commands; holds nothing
 
 /run/faramir/broker.sock      socket-activated, 0660 root:dev
 /run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
@@ -412,39 +418,40 @@ there.
 ## Development
 
 ```bash
-make build           # static binaries into bin/
+make build           # a static binary into bin/
 make test            # whole suite; needs no sops installed
 make test-unit       # everything except end-to-end
 make test-e2e        # end-to-end against a real broker in a temp dir
 make lint            # golangci-lint
 make fmt             # apply the import and format rules CI checks
 make coverage        # race-enabled suite plus per-function report
-make sizes           # per-binary size, package count, sops linkage
+make sizes           # binary size, package count, sops linkage
 ```
 
 ```text
-cmd/faramir            CLI, plus keygen
-cmd/faramir-broker     policy, redaction, audit log, SSH keys
-cmd/faramir-keeper     holds the age key, execs sops, serves values only
-cmd/faramir-exec       forks brokered commands, holds nothing
-cmd/faramir-mcp        MCP stdio server
-cmd/faramir-guard      the pre-execution hook, one per agent dialect
+cmd/faramir            the one binary: CLI, keygen, and the five roles below
+cmd/faramir/broker.go  policy, redaction, audit log, SSH keys
+cmd/faramir/keeper.go  holds the age key, execs sops, serves values only
+cmd/faramir/exec.go    forks brokered commands, holds nothing
+internal/mcp           MCP stdio server
+internal/guard         the pre-execution hook, one per agent dialect
+internal/cli           the subcommand names, shared by the dispatcher and the guard
 internal/              implementation; each package doc explains its decisions
 internal/e2e           end-to-end suite: a real keeper, executor and broker
 internal/install       what `faramir init`, `doctor` and `uninstall` do
-systemd/               socket and hardened service unit templates, one pair per daemon
+systemd/               socket and hardened service unit templates, one pair per role
 etc/                   the starter config template; per-consumer settings go in config.d
 agent/                 deny patterns, and per-agent settings: agent/claude, agent/gemini
 tests/verify.sh        the verification matrix
 docs/                  redaction, wire protocol, Ansible, scope
 ```
 
-- Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binaries by `assets.go`, so `init` installs a host without a checkout. The `.tmpl` files are the shipped files themselves rather than a separate set: what you read to understand the install is what the install writes, and `internal/install` has a test asserting every account-bearing directive carries the layout's value rather than a default.
+- Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout. The `.tmpl` files are the shipped files themselves rather than a separate set: what you read to understand the install is what the install writes, and `internal/install` has a test asserting every account-bearing directive carries the layout's value rather than a default.
 - Tests live where the logic does. Most of what the broker does is decide, and none of that needs a socket or a child process, so `internal/server` substitutes the executor. `internal/executor` uses a real child, because the PTY and the streaming redactor only mean anything against real bytes.
-- The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries. It is imported only from `_test.go`, which keeps sops out of the shipped binaries.
+- The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries. It is imported only from `_test.go`, which keeps sops out of the shipped binary; CI fails the build on a `getsops` import reaching `./cmd/faramir`.
 - sops is executed, not linked: linking pulls its whole key-source tree into the process holding the master key.
-- Regexes are RE2. No lookahead, no backreferences. `cmd/faramir-guard` asserts every shipped pattern compiles and that the file matches the built-in fallback.
-- Every binary answers `--version` from `internal/version`.
+- Regexes are RE2. No lookahead, no backreferences. `internal/guard` asserts every shipped pattern compiles and that the file matches the built-in fallback.
+- Every subcommand answers `--version` from `internal/version`, and they all answer the same thing: one binary, one version.
 
 Doc | Covers
 --- | ---

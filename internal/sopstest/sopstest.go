@@ -2,8 +2,10 @@
 //
 // It is imported only from _test.go files.  That is deliberate and load-
 // bearing: the sops libraries live here and in ./stub, so they are linked into
-// test binaries and never into faramir, faramir-broker, faramir-keeper or
-// faramir-exec.  Run "go list -deps ./cmd/..." to confirm.
+// test binaries and never into the shipped one.  The keeper execs sops rather
+// than linking it, which is what keeps every cloud KMS SDK sops supports out of
+// what installs on a host.  Run "go list -deps ./cmd/faramir | grep getsops" to
+// confirm; CI fails on a hit.
 package sopstest
 
 import (

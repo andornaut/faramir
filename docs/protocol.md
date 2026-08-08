@@ -56,7 +56,7 @@ injectable; see [redaction.md](redaction.md).
 Broker version, `configs` (the base config and every drop-in that contributed, in the order applied, so the base is first), loaded files, the count of secrets loaded, and load errors. Not
 the refs refused at load: that list names exactly
 the secrets that are never tokenized, so it stays operator-side, behind
-`faramir-broker --check`.
+`faramir broker --check`.
 
 ## Responses
 
