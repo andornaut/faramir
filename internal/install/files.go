@@ -28,20 +28,21 @@ var requiredBinaries = append(append([]string{}, installedBinaries...), "faramir
 func (r *runner) stepDirectories() error {
 	changed := false
 
-	// 0755 root:root: the broker, the keeper and the agent all read the config
-	// from here, so the directory cannot belong to any one of them.  An
-	// operator's own home is the exception, where the home's owner keeps it and
-	// edits their config without sudo; the daemons only ever read it.
+	// 0755 root:root, including inside an operator's own home.  The broker, the
+	// keeper and the agent all read the config from here, so the directory
+	// cannot belong to any one of them, and this one is not a matter of taste:
+	// config.d/*.toml merges over config.toml, [exec.base_env] merges key by
+	// key, and PATH there is the only PATH a brokered command's child gets.
+	// Whoever can write a drop-in chooses what the executor runs when a command
+	// names a bare program, and it runs with the requested secret in its
+	// environment.  An agent runs as the operator, so leaving these writable by
+	// the operator hands that choice to the agent.
 	//
-	// own=false on both, so a directory that is already there keeps whatever
-	// the operator set up.  Re-owning one unconditionally is how a config
-	// directory inside a home comes back root-owned and no longer theirs.
-	configUID, configGID := 0, 0
-	if homeOf(r.layout.ConfigDir) != "" {
-		configUID, configGID = r.operatorUID, keep
-	}
+	// own=true, unlike before: a directory that is already operator-owned is one
+	// this has to take back, which is the whole point.  Editing config by hand
+	// needs sudo now, the same as editing the store.
 	for _, dir := range []string{r.layout.ConfigDir, filepath.Join(r.layout.ConfigDir, "config.d")} {
-		made, err := r.fs.ensureDir(dir, 0o755, configUID, configGID, false)
+		made, err := r.fs.ensureDir(dir, 0o755, 0, 0, true)
 		if err != nil {
 			return err
 		}
@@ -242,10 +243,10 @@ func (r *runner) stepConfig() error {
 	if err != nil {
 		return err
 	}
+	// root:root wherever it sits, for the reason stepDirectories gives: this
+	// file and the drop-ins beside it decide what the executor runs, so an
+	// account that can rewrite one can choose what receives a secret.
 	owner, group := 0, 0
-	if homeOf(r.layout.ConfigDir) != "" {
-		owner, group = r.operatorUID, r.groupGID
-	}
 	if exists(r.layout.ConfigFile) && !r.opts.OverwriteConfig {
 		changed, err := r.fs.writeFile(r.layout.ConfigFile+".dist", body, 0o644, owner, group)
 		if err != nil {
