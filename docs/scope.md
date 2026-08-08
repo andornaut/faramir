@@ -214,6 +214,35 @@ and delete without them.
 `ls`: each rewritten command is a distinct string that no rule can pre-approve.
 It is an escape hatch, not a mode.
 
+### What it costs depends on the permission mode
+
+Hook decisions are evaluated independently of the session's permission mode,
+and the hook's decision is the one that applies. Measured against the four
+modes, with a hook that denies one pattern and rewrites everything else:
+
+| Session mode | Hook fires | A hook `deny` is enforced | The rewrite is applied |
+| --- | --- | --- | --- |
+| `default` | yes | yes | yes |
+| `acceptEdits` | yes | yes | yes |
+| `bypassPermissions` | yes | yes | yes |
+| `--dangerously-skip-permissions` | yes | yes | yes |
+
+Bypassing permissions does not skip hooks, and does not skip a hook-issued
+refusal either. What the deny list refuses is refused in every mode.
+
+The consequence is that enrolling a project does not cost the same everywhere:
+
+- **`default`**: Bash would have prompted, and now does not. This is the cost
+  the warning is about.
+- **`acceptEdits`**: auto-accepts `Write` and `Edit` and leaves `Bash`
+  prompting normally, so the cost is the same as in `default`. Being in an
+  "auto" mode does not exempt a project; this is the one that looks like it
+  should and does not.
+- **`bypassPermissions`**: Bash never prompted, so approving it here removes
+  nothing. Redaction and the deny list still apply, which makes enrolment
+  purely additive: in an unattended project this is the only thing putting
+  anything back.
+
 Rewriting rather than denying is the point. A deny list only covers what
 somebody thought to name, and the command that leaks a credential is usually
 one nobody would have named. The list stays for what must not run at all;
