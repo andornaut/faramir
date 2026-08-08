@@ -74,25 +74,33 @@ Requires systemd and [sops](https://github.com/getsops/sops); Go to build. Binar
 
 ```bash
 make build
-sudo make install
+sudo ./bin/faramir init --operator "$USER"
 ```
 
-Two commands: the compiler should not run as root, and the installer works on a host with no Go.
+Two commands: the compiler should not run as root, and `init` works on a host with no Go.
 
-Phase | Does
+`init` does the whole install and is idempotent, so it is also the upgrade: re-run it after a rebuild and it reports what changed. It creates the accounts and the shared group, mints the age key, installs the binaries, the hook and the docs, renders the config and the systemd units, and starts the sockets. It writes the units and the config from one set of values, which is what keeps the group named in `allowed_groups` and the one in `SupplementaryGroups=` from drifting apart: they cannot, because both come from `--group`.
+
+Flag | Does
 --- | ---
-`10-accounts.sh` | accounts, group, `umask 002`
-`20-sops-init.sh` | age keypair to `/etc/faramir/age.key`, `.sops.yaml`
-`30-install-broker.sh` | binaries, config, systemd units
-`40-agent-config.sh` | `Read` deny rules in your account, and the recipe for enrolling a project
+`--operator NAME` | the account the coding agent runs as. Defaults to `$OPERATOR`, then `$SUDO_USER`. Never root
+`--group NAME` | the shared group. Named in the config the sockets check and in the units that reach a working tree
+`--config-dir DIR` | where `config.toml` and `config.d/` go. `--secrets-dir DIR` does the same for the sops store
+`--binaries DIR` | read the built binaries from here instead of the directory `faramir` itself is in, so you can build on one machine and install on another
+`--operator-age-key PATH` | mint an identity for yourself and list it in `.sops.yaml` alongside the keeper's, so you can still read the files you are responsible for
+`--ssh-key PATH` | generate the identity the broker lends to brokered commands. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run
+`--seal-age-key` | take the age key from a TPM-sealed credential. `--remove-plaintext-age-key` then deletes the file, which is irreversible
+`--share-tree DIR` | make one directory usable by brokered commands. Repeatable
+`--agent-config` | install the `Read` deny rules into your own Claude settings
+`--dry-run` | report what would change and write nothing
+`--json` | print the report as JSON, one entry per step with a `changed` flag, for a configuration manager to read
 
-- `CONFIG=<file>` installs a different base config instead of the starter. Installed verbatim; every path in one is absolute.
-- `CONFIG_DIR=<dir>` installs the config and its drop-ins somewhere other than `/etc/faramir`, and points the units at it with a `FARAMIR_CONFIG` drop-in. `SECRETS_DIR=<dir>` does the same for the sops store. The units are sandboxed, so where is not a free choice: the installer refuses `/tmp` and `/var/tmp` (each unit gets a private one), refuses whitespace and `%` (systemd splits and expands `Environment=`), and relaxes the keeper's `ProtectHome=` for you when the directory is inside a home.
-- `faramir share-tree <dir>` (requires root) makes one directory usable by brokered commands: group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, group-executable on every directory down to it so `faramir-exec` can enter. Run it per tree, or not at all. Nothing needs a tree of its own, since a brokered command runs where its caller was and the managed sops files are read from wherever the install put them, not from the tree.
-- `FARAMIR_BIN=/opt/faramir/bin` lets you build on one machine and install on another.
-- A `CONFIG` that does not parse is refused before anything is written.
-- `install/uninstall.sh` leaves the accounts, the config, the store and the audit log alone. It reads the installed `CONFIG_DIR` back out of the units before removing them, so its closing note names the paths this host actually used.
-- `install/cleanup.sh` reports an account-wide hook registration and `.dist` leftovers. It reports by default and needs `--apply` to act, never touches the config directory, and only removes an account with `--remove-accounts` and an uninstalled broker.
+The units are sandboxed, so where the config and the store go is not a free choice. `init` refuses `/tmp` and `/var/tmp` (each unit gets a private one), refuses whitespace and `%` (systemd splits and expands `Environment=`), refuses two service accounts sharing a name (that is the boundary), and relaxes the keeper's `ProtectHome=` for you when either directory is inside a home, binding back only what it must so the other homes stay invisible.
+
+- `faramir doctor` answers the question an install cannot: whether what landed is doing its job. A broker serving zero refs, an `ssh-agent` holding no key, and a shared group with members nobody recognises all look like a healthy install until something says otherwise.
+- `faramir reload` restarts the daemons onto a changed `config.d` drop-in, keeper first, which is the order that matters: the keeper decrypts the file list the broker is then served.
+- `faramir uninstall` leaves the accounts, the config, the store, the key and the audit log alone, and says so. Deleting the age key would make every managed sops file unreadable, retroactively.
+- `faramir share-tree <dir>` is the same work `--share-tree` does, available on its own for a tree added later. Group-owned and setgid so you and a brokered command stop fighting over each other's files, and, for a tree inside a `0700` home, group-executable on every directory down to it so the executor can enter. Nothing needs a tree of its own: a brokered command runs where its caller was.
 
 ## Onboarding a project
 
@@ -360,30 +368,31 @@ here that survives the drive leaving the building.
 ### Sealing the key to a TPM
 
 Where a TPM and systemd 250 or later are available, the key can be sealed on its
-own, which needs no disk surgery. Check first that `systemd-creds has-tpm2`
-answers `yes`, then seal it, install the drop-in, and restart the keeper:
+own, which needs no disk surgery:
 
 ```bash
-sudo systemd-creds encrypt --name=age_key \
-    /etc/faramir/age.key /etc/faramir/age.key.cred
-sudo chmod 0400 /etc/faramir/age.key.cred
-sudo install -d /etc/systemd/system/faramir-keeper.service.d
-sudo install -m 0644 systemd/tpm-credential.conf \
-    /etc/systemd/system/faramir-keeper.service.d/tpm-credential.conf
-sudo systemctl daemon-reload && sudo systemctl restart faramir-keeper
+sudo ./bin/faramir init --operator "$USER" --seal-age-key
 ```
 
-Then run the install gate as the broker's own account, as in
-[The install gate](#the-install-gate), and confirm it still loads every ref.
+`init` refuses rather than skips when the host has no usable TPM. A security
+measure that quietly does not apply is the install that looks healthy and
+protects less than it appears to.
 
-`--name=age_key` matters: a credential is bound to the name it was encrypted
-under, and the unit asks for `age_key`. The plaintext then exists only in the
-unit's credential directory, on tmpfs, readable by that unit alone.
+The keeper's unit then carries `LoadCredentialEncrypted=` in place of
+`LoadCredential=`, and never both: two entries claiming one credential name is a
+unit systemd refuses to start. Reverting is a re-run without the flag, rather
+than a drop-in somebody has to remember to delete.
+
+`--name=age_key` matters and is what `init` seals under: a credential is bound to
+the name it was encrypted under, and the unit asks for `age_key`. The plaintext
+then exists only in the unit's credential directory, on tmpfs, readable by that
+unit alone.
 
 **The plaintext key is still on disk until you remove it**, and until then this
-has bought nothing. Remove `/etc/faramir/age.key` only once the gate passes
-against the sealed credential and you have the key material somewhere you can
-re-seal from.
+has bought nothing. `init` says so on every run that seals without removing it.
+Pass `--remove-plaintext-age-key` only once you have the key material somewhere
+you can re-seal from; it runs last, after the install gate has proved the keeper
+is serving values from the sealed credential.
 
 That last part is not optional. Sealing binds to PCR 7 by default, which tracks
 Secure Boot policy: change the Secure Boot state or its keys and the blob stops
@@ -420,14 +429,15 @@ cmd/faramir-mcp        MCP stdio server
 cmd/faramir-guard      PreToolUse hook
 internal/              implementation; each package doc explains its decisions
 internal/e2e           end-to-end suite: a real keeper, executor and broker
-systemd/               socket and hardened service units, one pair per daemon
-etc/                   the starter config; per-consumer settings go in config.d
-agent/                 deny patterns, settings, the snippet phase 4 installs
-install/               provisioning scripts, one per phase, plus cleanup and uninstall
+internal/install       what `faramir init`, `doctor` and `uninstall` do
+systemd/               socket and hardened service unit templates, one pair per daemon
+etc/                   the starter config template; per-consumer settings go in config.d
+agent/                 deny patterns, settings, the snippet to add to a project
 tests/verify.sh        the verification matrix
 docs/                  redaction, wire protocol, Ansible, scope
 ```
 
+- Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binaries by `assets.go`, so `init` installs a host without a checkout. The `.tmpl` files are the shipped files themselves rather than a separate set: what you read to understand the install is what the install writes, and `internal/install` has a test asserting every account-bearing directive carries the layout's value rather than a default.
 - Tests live where the logic does. Most of what the broker does is decide, and none of that needs a socket or a child process, so `internal/server` substitutes the executor. `internal/executor` uses a real child, because the PTY and the streaming redactor only mean anything against real bytes.
 - The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries. It is imported only from `_test.go`, which keeps sops out of the shipped binaries.
 - sops is executed, not linked: linking pulls its whole key-source tree into the process holding the master key.

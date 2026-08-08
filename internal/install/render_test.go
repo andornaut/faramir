@@ -1,0 +1,300 @@
+package install
+
+import (
+	"strings"
+	"testing"
+)
+
+// testLayout is a layout with everything moved off its default, so a literal
+// left in a template shows up as the default leaking into the output.
+func testLayout() Layout {
+	opts := Options{
+		Operator:   "operator",
+		Group:      "shared",
+		BrokerUser: "br",
+		KeeperUser: "kp",
+		ExecUser:   "ex",
+		ConfigDir:  "/opt/conf",
+		SecretsDir: "/opt/conf/store",
+	}
+	opts.applyDefaults()
+	layout, err := opts.layout()
+	if err != nil {
+		panic(err)
+	}
+	return layout
+}
+
+// Every template renders, which is what catches a field renamed in Layout and
+// not in the file that names it.
+func TestTemplatesRender(t *testing.T) {
+	layout := testLayout()
+	assets := append([]string{"etc/config.toml.tmpl", "systemd/faramir.tmpfiles.conf.tmpl"},
+		unitValues()...)
+	for _, asset := range assets {
+		if _, err := render(asset, layout); err != nil {
+			t.Errorf("%s: %v", asset, err)
+		}
+	}
+}
+
+func unitValues() []string {
+	var out []string
+	for _, name := range unitNames() {
+		out = append(out, units[name])
+	}
+	return out
+}
+
+// The shared group is named in the config the sockets check and in the units
+// that reach the working tree.  A rendered pair that disagrees is a broker that
+// installs cleanly and then refuses every connection, which is the failure this
+// whole package exists to make impossible.
+func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
+	layout := testLayout()
+	config, err := render("etc/config.toml.tmpl", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(config), `allowed_groups = ["shared"]`) {
+		t.Errorf("config does not admit group %q", layout.Group)
+	}
+	for _, name := range []string{"faramir-exec.service", "faramir-keeper.service"} {
+		body, err := render(units[name], layout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(body), "SupplementaryGroups=shared") {
+			t.Errorf("%s does not join group %q", name, layout.Group)
+		}
+	}
+	socket, err := render(units["faramir-broker.socket"], layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(socket), "SocketGroup=shared") {
+		t.Errorf("broker socket does not belong to group %q", layout.Group)
+	}
+}
+
+// Every directive that names an account or the config must carry the layout's
+// value.  A default left in one of these is a daemon running as a uid the
+// install never created, or reading a config nobody wrote.
+//
+// Checked per directive rather than by grepping the whole file: the binaries
+// are called faramir-broker and faramir-keeper whatever the accounts are named,
+// and the units refer to each other by unit name in Requires= and After=.
+func TestAccountDirectivesUseTheLayout(t *testing.T) {
+	layout := testLayout()
+	want := map[string]map[string]string{
+		"faramir-broker.service": {
+			"User": "br", "Group": "br", "StateDirectory": "br",
+			"SupplementaryGroups": "shared ex",
+			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
+		},
+		"faramir-keeper.service": {
+			"User": "kp", "Group": "kp", "StateDirectory": "kp",
+			"SupplementaryGroups": "shared",
+			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
+		},
+		"faramir-exec.service": {
+			"User": "ex", "Group": "ex", "StateDirectory": "ex",
+			"SupplementaryGroups": "shared",
+			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
+		},
+		"faramir-broker.socket": {"SocketGroup": "shared"},
+		"faramir-keeper.socket": {"SocketGroup": "br"},
+		"faramir-exec.socket":   {"SocketGroup": "br"},
+	}
+	for unit, directives := range want {
+		body, err := render(units[unit], layout)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for directive, value := range directives {
+			if !strings.Contains(string(body), directive+"="+value+"\n") {
+				t.Errorf("%s: want %s=%s", unit, directive, value)
+			}
+		}
+	}
+
+	config, err := render("etc/config.toml.tmpl", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		`allowed_groups = ["shared"]`,
+		`allowed_users = ["br"]`,
+		`exec_group = "ex"`,
+	} {
+		if !strings.Contains(string(config), want) {
+			t.Errorf("config: want %s", want)
+		}
+	}
+
+	tmpfiles, err := render("systemd/faramir.tmpfiles.conf.tmpl", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(tmpfiles), "d /run/faramir 0755 br br -") {
+		t.Error("tmpfiles does not give the run directory to the broker's account")
+	}
+}
+
+// The keeper takes the age key from a file or from a TPM-sealed credential, and
+// never from both: two entries claiming one credential name is a unit systemd
+// refuses to start.
+func TestKeeperCredentialSource(t *testing.T) {
+	layout := testLayout()
+	plain, err := render(units["faramir-keeper.service"], layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(plain), "LoadCredential=age_key:"+layout.AgeKeyPath) {
+		t.Error("unsealed keeper does not load the plaintext key")
+	}
+	if strings.Contains(string(plain), "LoadCredentialEncrypted=") {
+		t.Error("unsealed keeper loads an encrypted credential as well")
+	}
+
+	layout.SealAgeKey = true
+	sealed, err := render(units["faramir-keeper.service"], layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(sealed), "LoadCredentialEncrypted=age_key:"+layout.AgeKeyCred) {
+		t.Error("sealed keeper does not load the sealed credential")
+	}
+	if strings.Contains(string(sealed), "LoadCredential=age_key:") {
+		t.Error("sealed keeper still reads the plaintext key")
+	}
+}
+
+// The keeper runs with the homes taken away, so a config or store kept in one
+// has to be bound back or it is not merely unreadable but absent.
+func TestKeeperBinds(t *testing.T) {
+	tests := []struct {
+		name       string
+		configDir  string
+		secretsDir string
+		want       []string
+	}{
+		{
+			name:       "outside every home",
+			configDir:  "/etc/faramir",
+			secretsDir: "/etc/faramir/secrets",
+			want:       nil,
+		},
+		{
+			name:       "store nested in the config dir collapses to one bind",
+			configDir:  "/home/operator/.faramir",
+			secretsDir: "/home/operator/.faramir/secrets",
+			want:       []string{"/home/operator/.faramir"},
+		},
+		{
+			name:       "config outside, store in a home",
+			configDir:  "/etc/faramir",
+			secretsDir: "/home/operator/store",
+			want:       []string{"-/home/operator/store"},
+		},
+		{
+			name:       "both in a home, unrelated paths",
+			configDir:  "/home/operator/.faramir",
+			secretsDir: "/home/operator/store",
+			want:       []string{"/home/operator/.faramir", "-/home/operator/store"},
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			layout := Layout{ConfigDir: test.configDir, SecretsDir: test.secretsDir}
+			got := layout.KeeperBinds()
+			if len(got) != len(test.want) {
+				t.Fatalf("got %v, want %v", got, test.want)
+			}
+			for i := range got {
+				if got[i] != test.want[i] {
+					t.Fatalf("got %v, want %v", got, test.want)
+				}
+			}
+		})
+	}
+}
+
+// A store outside the homes leaves ProtectHome at its strictest.  Relaxing it
+// when nothing needs it would hand the uid holding the age key a view of every
+// home for no reason.
+func TestKeeperProtectHome(t *testing.T) {
+	strict := testLayout()
+	strict.ConfigDir = "/etc/faramir"
+	strict.SecretsDir = "/etc/faramir/secrets"
+	body, err := render(units["faramir-keeper.service"], strict)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "ProtectHome=true") {
+		t.Error("keeper does not hide the homes when nothing needs them")
+	}
+	if strings.Contains(string(body), "BindReadOnlyPaths=") {
+		t.Error("keeper binds a path back for no reason")
+	}
+
+	inHome := strict
+	inHome.ConfigDir = "/home/operator/.faramir"
+	inHome.SecretsDir = "/home/operator/.faramir/secrets"
+	body, err = render(units["faramir-keeper.service"], inHome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), "ProtectHome=tmpfs") {
+		t.Error("keeper does not relax ProtectHome for a store in a home")
+	}
+	if !strings.Contains(string(body), "BindReadOnlyPaths=/home/operator/.faramir") {
+		t.Error("keeper does not bind the store back")
+	}
+}
+
+func TestLayoutValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		opts Options
+		want string
+	}{
+		{
+			name: "relative config dir",
+			opts: Options{ConfigDir: "faramir"},
+			want: "absolute",
+		},
+		{
+			name: "config dir under the private tmp",
+			opts: Options{ConfigDir: "/tmp/faramir"},
+			want: "PrivateTmp",
+		},
+		{
+			name: "config dir systemd would word-split",
+			opts: Options{ConfigDir: "/etc/far amir"},
+			want: "whitespace",
+		},
+		{
+			name: "config dir systemd would expand",
+			opts: Options{ConfigDir: "/etc/%faramir"},
+			want: "'%'",
+		},
+		{
+			name: "two service accounts sharing a uid",
+			opts: Options{ConfigDir: "/etc/faramir", ExecUser: "faramir-broker"},
+			want: "boundary",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			test.opts.applyDefaults()
+			_, err := test.opts.layout()
+			if err == nil {
+				t.Fatal("accepted a layout that does not work")
+			}
+			if !strings.Contains(err.Error(), test.want) {
+				t.Errorf("error %q does not mention %q", err, test.want)
+			}
+		})
+	}
+}

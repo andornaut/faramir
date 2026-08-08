@@ -1,9 +1,9 @@
 [Unit]
 Description=Secret broker for local AI agents
-Documentation=file:///usr/local/share/doc/faramir/README.md
+Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-broker.socket faramir-keeper.socket faramir-exec.socket
 After=faramir-broker.socket faramir-keeper.socket faramir-exec.socket network.target
-# /run/faramir comes from /etc/tmpfiles.d/faramir.conf, so it has to exist, and
+# {{.RunDir}} comes from /etc/tmpfiles.d/faramir.conf, so it has to exist, and
 # be owned by this unit's User=, before the mount namespace ReadWritePaths=
 # builds is set up.  Without Wants=, a manual start of this unit alone gets the
 # directory auto-created root:root as the parent of a ListenStream=, and the
@@ -14,15 +14,16 @@ After=systemd-tmpfiles-setup.service
 [Service]
 Type=notify
 NotifyAccess=main
-User=faramir-broker
-Group=faramir-broker
-# dev: read access to the shared working tree, which is where the sops
-# files live -- the broker stats them to notice edits.
-# faramir-exec: needed only to hand the ssh-agent socket to the executor's uid,
+User={{.BrokerUser}}
+Group={{.BrokerUser}}
+# {{.Group}}: read access to the managed sops files -- the broker stats them to
+# notice edits.
+# {{.ExecUser}}: needed only to hand the ssh-agent socket to the executor's uid,
 # which is a chown this process could not otherwise perform.  It grants the
 # broker nothing it did not already have; the executor gains nothing at all.
-SupplementaryGroups=dev faramir-exec
-ExecStart=/usr/local/bin/faramir-broker
+SupplementaryGroups={{.Group}} {{.ExecUser}}
+ExecStart={{.BinDir}}/faramir-broker
+Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
@@ -55,23 +56,23 @@ PrivateDevices=false
 DevicePolicy=closed
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
-ReadWritePaths=/var/log/faramir
-# /run/faramir is created by /etc/tmpfiles.d/faramir.conf, NOT by
+ReadWritePaths={{.LogDir}}
+# {{.RunDir}} is created by /etc/tmpfiles.d/faramir.conf, NOT by
 # RuntimeDirectory=faramir here.  systemd chowns a RuntimeDirectory recursively
 # whenever the directory's owner does not match the unit's User=, and the three
 # activation sockets live in that directory: the chown rewrites their
 # SocketUser=/SocketGroup= on every start, leaving broker.sock 0660
-# faramir-broker:faramir-broker, which no dev member can reach.  Writable
+# {{.BrokerUser}}:{{.BrokerUser}}, which no {{.Group}} member can reach.  Writable
 # because the broker creates ssh-agent.sock in it.
 #
 # Leading "-": with the directory owned by tmpfiles rather than by this unit, an
-# absent /run/faramir would otherwise fail the unit with a mount-namespace error
+# absent {{.RunDir}} would otherwise fail the unit with a mount-namespace error
 # at startup instead of the broker reporting what is wrong.
-ReadWritePaths=-/run/faramir
+ReadWritePaths=-{{.RunDir}}
 # The broker's home: SSH keys for managed hosts, and ~/.ansible/tmp, which
 # ansible-playbook creates unconditionally.  It lives here rather than under
 # /home because a service account's state belongs there, not in /home.
-StateDirectory=faramir-broker
+StateDirectory={{.BrokerUser}}
 LogsDirectory=faramir
 # Two descriptors per relayed ssh-agent connection, and a playbook authenticates
 # to as many hosts at once as -f allows; the default 1024 is not much headroom
@@ -114,7 +115,7 @@ UMask=0077
 #   RestrictAddressFamilies=~AF_UNIX
 #       That is the broker's own listening socket.
 #   SupplementaryGroups=
-#       dev, so the broker can stat the sops files in the working tree.
+#       {{.Group}}, so the broker can stat the managed sops files.
 #   ProtectHome=
 #       Removed.  It hid other users' homes from a process that file modes
 #       already keep out of them, and cost a bind mount whose path had to agree

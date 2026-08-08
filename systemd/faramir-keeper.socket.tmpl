@@ -3,13 +3,13 @@ Description=faramir keeper socket
 Documentation=file:///usr/local/share/doc/faramir/README.md
 
 [Socket]
-ListenStream=/run/faramir/keeper.sock
+ListenStream={{.RunDir}}/keeper.sock
 # Reachable only by the broker.  This is the boundary: brokered commands run
-# as faramir-exec, which is in neither the owner nor the group here, so no
+# as {{.ExecUser}}, which is in neither the owner nor the group here, so no
 # command the broker runs can ask the keeper for anything.
 SocketMode=0660
 SocketUser=root
-SocketGroup=faramir-broker
+SocketGroup={{.BrokerUser}}
 Accept=no
 
 [Install]

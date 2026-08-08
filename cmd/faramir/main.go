@@ -20,6 +20,7 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sharetree"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -52,6 +53,12 @@ Commands:
   keygen        mint an age keypair for the keeper
   share-tree    make a directory usable by brokered commands (requires root)
   version       print the version and exit
+
+Provisioning (require root; they do not talk to the broker):
+  init          install or re-install faramir on this host
+  doctor        report whether the install is doing its job
+  reload        restart the daemons onto a changed configuration
+  uninstall     remove the broker, keeping the key, the store and the log
 
 Run "faramir <command> --help" for that command's own options.
 
@@ -90,6 +97,14 @@ func run(args []string) int {
 		return cmdShareTree(args[1:])
 	case "keygen":
 		return cmdKeygen(args[1:])
+	case "init":
+		return cmdInit(args[1:])
+	case "doctor":
+		return cmdDoctor(args[1:])
+	case "reload":
+		return cmdReload(args[1:])
+	case "uninstall":
+		return cmdUninstall(args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "faramir: unknown command %q\n", args[0])
 		usage(os.Stderr)
@@ -205,41 +220,34 @@ func cmdKeygen(args []string) int {
 		return code
 	}
 
-	id, err := age.GenerateX25519Identity()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
-		return 1
-	}
-	body := fmt.Sprintf("# public key: %s\n%s\n", id.Recipient(), id)
-
 	if *out == "" {
-		fmt.Print(body)
+		id, err := age.GenerateX25519Identity()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+			return 1
+		}
+		fmt.Print(agekey.Format(id))
 		fmt.Fprintf(os.Stderr, "Public key: %s\n", id.Recipient())
 		return 0
 	}
-	// 0400, and refuse to clobber: overwriting an age key silently destroys
+	// Generate refuses to clobber: overwriting an age key silently destroys
 	// every sops file it was the only recipient for, retroactively.
-	fh, err := os.OpenFile(*out, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o400)
+	recipient, created, err := agekey.Generate(*out)
 	if err != nil {
-		if errors.Is(err, os.ErrExist) {
-			fmt.Fprintf(os.Stderr, "faramir: %s exists; refusing to overwrite an age key\n", *out)
-			return 1
-		}
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
 		return 1
 	}
-	if _, err := fh.WriteString(body); err != nil {
-		_ = fh.Close()
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+	// Non-zero on an existing target, so a caller minting a key can tell a fresh
+	// identity from one that was already there.  Overwriting an age key destroys
+	// every sops file it was the only recipient for, retroactively, so this
+	// refuses rather than reporting success for a key it did not create.
+	if !created {
+		fmt.Fprintf(os.Stderr,
+			"faramir: %s exists; refusing to overwrite an age key\n", *out)
+		fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
 		return 1
 	}
-	// Report a close error rather than exit 0: the key file would be short, and
-	// O_EXCL means the next attempt refuses to overwrite it.
-	if err := fh.Close(); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
-		return 1
-	}
-	fmt.Fprintf(os.Stderr, "Public key: %s\n", id.Recipient())
+	fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
 	return 0
 }
 

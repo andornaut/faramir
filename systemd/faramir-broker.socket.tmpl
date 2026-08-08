@@ -3,10 +3,10 @@ Description=Secret broker socket
 Documentation=file:///usr/local/share/doc/faramir/README.md
 
 [Socket]
-ListenStream=/run/faramir/broker.sock
+ListenStream={{.RunDir}}/broker.sock
 SocketMode=0660
 SocketUser=root
-SocketGroup=dev
+SocketGroup={{.Group}}
 # One service instance handles every connection; it holds the decrypted value
 # set in memory, so per-connection forking would mean re-decrypting each time.
 Accept=no

@@ -48,14 +48,14 @@ fmt:
 lint:
 	golangci-lint run
 
-## install: the four phases, in order.  Deliberately NOT dependent on build:
-## this runs as root, the compiler should not, and the installer is meant to
-## work on a host with no Go at all (see FARAMIR_BIN).  Phase 3 refuses to run
-## without the binaries and says so.
+## install: provision this host.  Deliberately NOT dependent on build: this
+## runs as root, the compiler should not, and init is meant to work on a host
+## with no Go at all (see --binaries).  It refuses to run without the binaries
+## and says so.
+##
+## Pass anything else through INIT_ARGS, e.g. --config-dir or --seal-age-key.
 install:
-	@for phase in install/[0-9][0-9]-*.sh; do \
-		echo "==> $$phase"; "$$phase" || exit 1; \
-	done
+	sudo $(BIN)/faramir init --operator "$$(id -un)" $(INIT_ARGS)
 
 ## verify: the verification matrix, against a live deployment (root)
 verify:

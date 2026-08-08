@@ -1,4 +1,9 @@
-# /etc/faramir/config.toml -- broker configuration.
+# {{.ConfigFile}} -- broker configuration.
+#
+# Written by `faramir init` from a template, so the group and the service uids
+# here are the ones the units were rendered with.  Editing this file by hand is
+# expected; re-running init keeps what it finds and writes the new default to
+# config.toml.dist beside it.
 #
 # There is no command allowlist.  The broker runs what it is asked to run, as a
 # uid that holds no key, no audit log and no SSH key, and redacts the output.
@@ -15,7 +20,7 @@
 #   the executor's uid     see the systemd units
 #
 # Settings that belong to whatever consumes the broker -- which sops files to
-# manage, which SSH key to lend -- go in /etc/faramir/config.d/*.toml rather
+# manage, which SSH key to lend -- go in {{.ConfigDir}}/config.d/*.toml rather
 # than here, so the two have separate owners.  Those merge over this file in
 # lexical order and are held to the same checks.
 #
@@ -26,26 +31,26 @@
 # Check a config with:  faramir-broker -c FILE --check
 
 [server]
-socket_path = "/run/faramir/broker.sock"
+socket_path = "{{.RunDir}}/broker.sock"
 socket_mode = "0660"
 max_concurrency = 4
 max_request_bytes = 262144
 # Peer credentials are checked against these in addition to the socket mode.
 # Group membership counts whether it is the peer's primary group or a
-# supplementary one, which is how dev is granted (usermod -aG).
-allowed_groups = ["dev"]
+# supplementary one, which is how {{.Group}} is granted (usermod -aG).
+allowed_groups = ["{{.Group}}"]
 allowed_uids = []
 
 # The process that holds the age key.  It runs as its own uid, execs nothing
 # but sops, and has no operation that returns key material -- so no command the
 # broker runs can reach the key that decrypts every managed file.
 [keeper]
-socket_path = "/run/faramir/keeper.sock"
+socket_path = "{{.RunDir}}/keeper.sock"
 socket_mode = "0660"
 # The broker is the only legitimate client.  Checked with SO_PEERCRED, on top
 # of the socket mode.
 #
-allowed_users = ["faramir-broker"]
+allowed_users = ["{{.BrokerUser}}"]
 # Name of the systemd LoadCredential= entry in faramir-keeper.service.
 age_key_credential = "age_key"
 
@@ -53,9 +58,9 @@ age_key_credential = "age_key"
 # secret values, no audit log, and no SSH keys.  A child forked by the broker
 # would inherit all four.
 [executor]
-socket_path = "/run/faramir/exec.sock"
+socket_path = "{{.RunDir}}/exec.sock"
 socket_mode = "0660"
-allowed_users = ["faramir-broker"]
+allowed_users = ["{{.BrokerUser}}"]
 max_concurrency = 16
 
 [exec]
@@ -85,13 +90,17 @@ DEBIAN_FRONTEND = "noninteractive"
 # and a leaked key is permanent in a way a leaked password is not.
 #
 # Leave `keys` empty to skip the agent entirely, in which case the keys have to
-# live somewhere the executor's own uid can read (~faramir-exec/.ssh).
+# live somewhere the executor's own uid can read (~{{.ExecUser}}/.ssh).
+#
+# Empty here on purpose, like [secrets] files below.  `faramir init --ssh-key`
+# writes the path into config.d/00-faramir-init.toml instead: this file is kept
+# as init finds it, so a key named here would land on a first install and never
+# be reconciled again.
 [ssh]
 keys = []
-# keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
-agent_socket = "/run/faramir/ssh-agent.sock"
+agent_socket = "{{.RunDir}}/ssh-agent.sock"
 agent_socket_mode = "0660"
-exec_group = "faramir-exec"
+exec_group = "{{.ExecUser}}"
 
 [secrets]
 # Every sops file the keeper manages.  ALL of their values go into the
@@ -99,16 +108,16 @@ exec_group = "faramir-exec"
 # managed host can print a credential the broker never injected.
 # The broker stats these to notice edits; only the keeper can decrypt them.
 #
-# Under /etc rather than in a working tree: these are configuration an operator
-# authors, the daemons read them at startup, and a tree inside an encrypted home
-# does not exist until its owner logs in, which would leave the broker holding
-# an empty value set and redacting nothing.  The directory is 2770 root:dev, so
-# the operator edits them with sops and the keeper reads them, both without
-# sudo.
+# Outside a working tree: these are configuration an operator authors and the
+# daemons read at startup.  {{.SecretsDir}} is 2770 with group {{.Group}}, so the
+# operator edits them with sops and the keeper reads them, both without sudo.
+# A store inside a home is not mounted until its owner logs in, and the broker
+# treats an absent store as a load failure, so the daemons refuse rather than
+# come up redacting nothing.
 # Empty here on purpose.  This list accumulates across config.d, so a name left
 # in the starter would be merged into every install forever and reported as a
 # managed file nobody asked for.  Each consumer names its own store in its own
-# drop-in:  files = ["/etc/faramir/secrets/<consumer>.sops.yml"]
+# drop-in:  files = ["{{.SecretsDir}}/<consumer>.sops.yml"]
 files = []
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 refresh_interval_sec = 5
@@ -121,5 +130,5 @@ min_unique_chars = 4
 min_entropy_bits_per_char = 1.5
 
 [audit]
-log_path = "/var/log/faramir/audit.log"
+log_path = "{{.LogDir}}/audit.log"
 max_record_bytes = 4194304

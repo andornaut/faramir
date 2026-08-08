@@ -57,7 +57,7 @@ out="$(as_operator cat "$AGE_KEY")"
 if grep -qi 'permission denied' <<<"$out"; then
   ok "1  ${OPERATOR} cannot read ${AGE_KEY}"
 else
-  no "1  ${OPERATOR} CAN read the age key -- phase 1 is broken, stop here"
+  no "1  ${OPERATOR} CAN read the age key -- the install is broken, stop here"
 fi
 
 # The point of the keeper: the uid that runs every brokered command must not be

@@ -8,13 +8,13 @@ The variables and paths assumed here are set in a `/etc/faramir/config.d` drop-i
 
 ## 1. Encrypt the right file, in the right place
 
-The encrypted file belongs in `/etc/faramir/secrets`, created `2770 root:dev` by phase 1. Not in a checkout, and never in `group_vars/` or `host_vars/`.
+The encrypted file belongs in the store, `/etc/faramir/secrets` unless `--secrets-dir` moved it, created `2770 root:dev` by `faramir init`. Not in a checkout, and never in `group_vars/` or `host_vars/`.
 
-Ansible loads every `.yml` under those two directories as a vars file. A sops file is valid YAML, so it loads without error and binds each var to its `ENC[AES256_GCM,...]` ciphertext; a name sorting after `vars.yml` also overwrites the `lookup('env', …)` mapping from section 2. Nothing errors. Hosts get configured with ciphertext in place of the credential. `install/migrate-vault.sh` refuses that destination.
+Ansible loads every `.yml` under those two directories as a vars file. A sops file is valid YAML, so it loads without error and binds each var to its `ENC[AES256_GCM,...]` ciphertext; a name sorting after `vars.yml` also overwrites the `lookup('env', …)` mapping from section 2. Nothing errors. Hosts get configured with ciphertext in place of the credential. `faramir init` refuses to finish against a store under either directory, and `faramir doctor` reports one.
 
 Keeping it out of the checkout matters for a second reason: a checkout inside an encrypted home does not exist until its owner logs in, so at boot the broker finds the file absent. It treats that as a load failure and refuses rather than coming up with an empty value set, which turns a silent gap in redaction into an outage that names itself.
 
-`.sops.yaml` sits in the same directory, written by `install/20-sops-init.sh`:
+`.sops.yaml` sits in the same directory, written by `faramir init` and kept as it finds it thereafter: adding or dropping a recipient means re-encrypting every managed value, which is not something a re-run should do behind your back.
 
 ```yaml
 creation_rules:
@@ -34,7 +34,7 @@ sops --config /etc/faramir/secrets/.sops.yaml \
     plain.yml
 ```
 
-`install/migrate-vault.sh` passes `--config` for you. Decryption needs none of this: creation rules govern encryption only.
+Decryption needs none of this: creation rules govern encryption only.
 
 Key *names* stay readable, so diffs are per-key and the agent sees the file's shape without any value. Nesting maps to `/` in a ref:
 

@@ -3,13 +3,13 @@ Description=faramir executor socket
 Documentation=file:///usr/local/share/doc/faramir/README.md
 
 [Socket]
-ListenStream=/run/faramir/exec.sock
+ListenStream={{.RunDir}}/exec.sock
 # root-owned so that the executor's own uid cannot connect: children run as
-# faramir-exec, and a child that could reach this socket could run commands
+# {{.ExecUser}}, and a child that could reach this socket could run commands
 # the broker never authorised and never logged.
 SocketMode=0660
 SocketUser=root
-SocketGroup=faramir-broker
+SocketGroup={{.BrokerUser}}
 Accept=no
 
 [Install]

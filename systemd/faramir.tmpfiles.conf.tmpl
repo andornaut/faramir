@@ -1,6 +1,6 @@
 # Installed as /etc/tmpfiles.d/faramir.conf.
 #
-# /run/faramir holds the three activation sockets systemd creates from the
+# {{.RunDir}} holds the three activation sockets systemd creates from the
 # .socket units, plus the ssh-agent socket the broker creates for brokered
 # commands.
 #
@@ -15,4 +15,4 @@
 # Owner is the broker because it is the only uid that creates anything here.
 # 0755 so the other uids can traverse to the sockets, whose own modes decide
 # who may connect.
-d /run/faramir 0755 faramir-broker faramir-broker -
+d {{.RunDir}} 0755 {{.BrokerUser}} {{.BrokerUser}} -

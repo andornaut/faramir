@@ -1,39 +1,40 @@
 [Unit]
 Description=faramir executor: forks brokered commands, holds no secrets
-Documentation=file:///usr/local/share/doc/faramir/README.md
+Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-exec.socket
 After=faramir-exec.socket network.target
 
 [Service]
 Type=notify
 NotifyAccess=main
-User=faramir-exec
-Group=faramir-exec
-ExecStart=/usr/local/bin/faramir-exec
+User={{.ExecUser}}
+Group={{.ExecUser}}
+ExecStart={{.BinDir}}/faramir-exec
+Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
-# dev, because brokered commands run *in* the working tree and write to it:
+# {{.Group}}, because brokered commands run *in* the working tree and write to it:
 # ansible drops .retry files and fact caches, and a playbook that generates
 # config has to be able to put it somewhere.  The tree is agent-owned and
 # group-writable, so this is the same access the agent already has -- it is not
 # a way into anything the agent could not reach itself.
-SupplementaryGroups=dev
+SupplementaryGroups={{.Group}}
 
 # This uid is the one every brokered command runs as, so the list of things it
 # can reach is the list of things a command can reach:
 #
-#   /etc/faramir/age.key      no  (0400 faramir-keeper)
-#   /run/faramir/keeper.sock  no  (0660 root:faramir-broker)
-#   /run/faramir/exec.sock    no  (0660 root:faramir-broker)
-#   /var/log/faramir/audit.log  no  (0600 faramir-broker)
-#   ~faramir-broker/.ssh      no  (0700 faramir-broker)
-#   the working tree          read and write, via dev above
+#   {{.AgeKeyPath}}      no  (0400 {{.KeeperUser}})
+#   {{.RunDir}}/keeper.sock  no  (0660 root:{{.BrokerUser}})
+#   {{.RunDir}}/exec.sock    no  (0660 root:{{.BrokerUser}})
+#   {{.LogDir}}/audit.log  no  (0600 {{.BrokerUser}})
+#   ~{{.BrokerUser}}/.ssh      no  (0700 {{.BrokerUser}})
+#   the working tree          read and write, via {{.Group}} above
 #   the rest of /home         whatever the mode allows, which for a 0700 home
 #                             is nothing; read-only regardless, and the one
 #                             writable path below is the agent's own home
 #
-# /run/faramir/broker.sock IS reachable now, because it is 0660 root:dev:
+# {{.RunDir}}/broker.sock IS reachable now, because it is 0660 root:{{.Group}}:
 # a brokered command can call the broker back.  That buys it nothing -- the
 # response is redacted and audited exactly like the agent's own,
 # and every ref it could ask for is already listed by faramir_list_secrets.
@@ -70,9 +71,9 @@ DevicePolicy=closed
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
 # Ansible creates ~/.ansible/tmp unconditionally; this is that home.
-StateDirectory=faramir-exec
+StateDirectory={{.ExecUser}}
 # No RuntimeDirectory=faramir: it would recursively chown the activation
-# sockets to this uid (see faramir-broker.service).  /run/faramir comes from
+# sockets to this uid (see faramir-broker.service).  {{.RunDir}} comes from
 # /etc/tmpfiles.d/faramir.conf and stays read-only here; connecting to a socket
 # is not a write the read-only mount can refuse, and the directory's own mode
 # is what keeps this uid from unlinking anything in it.
