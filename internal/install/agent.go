@@ -40,22 +40,23 @@ func (r *runner) stepAgentConfig() error {
 			if _, err := r.fs.ensureDir(filepath.Dir(path), 0o700, r.operatorUID, keep, false); err != nil {
 				return err
 			}
-			// Kept if it exists: these files are the operator's to edit, and
-			// overwriting one loses rules faramir knows nothing about.
-			dst := path
-			if exists(path) {
-				dst = path + ".dist"
-			}
 			data, err := render(file.asset, r.layout)
 			if err != nil {
 				return err
 			}
-			made, err := r.fs.writeFile(dst, data, file.mode, r.operatorUID, keep)
+			// Merged rather than overwritten: this file is the operator's to
+			// edit and holds rules faramir knows nothing about.  Only the keys
+			// faramir writes are touched.
+			write := r.fs.writeFile
+			if file.merge {
+				write = r.fs.mergeFile
+			}
+			made, err := write(path, data, file.mode, r.operatorUID, keep)
 			if err != nil {
 				return err
 			}
 			changed = changed || made
-			written = append(written, dst)
+			written = append(written, path)
 		}
 	}
 	r.step("agent config", changed, strings.Join(written, ", "))

@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -241,26 +240,12 @@ func (p *project) shareTree() error {
 // the project; on Gemini CLI there is no approval to give, so the prompts stay
 // as they were.  The warning below reports the agent it just enrolled rather
 // than a rule that is only true of one of them.
-// CLEANUP (added 2026-08-08): a tree enrolled before the roles became
-// subcommands names /usr/local/libexec/faramir/faramir-guard as its hook and
-// /usr/local/bin/faramir-mcp as its MCP server.  Neither path survives the next
-// install, and this command keeps an existing settings file rather than
-// rewriting it, so without saying so it would leave the tree pointing at a hook
-// that is about to stop existing.  A PreToolUse hook that cannot exec denies
-// nothing and rewrites nothing.  Delete once no tree names the old paths.
-var stalePaths = regexp.MustCompile(`faramir-(guard|mcp)\b`)
-
-func (p *project) warnStalePaths(path string) {
-	body, err := os.ReadFile(path)
-	if err != nil || !stalePaths.Match(body) {
-		return
-	}
-	p.warn("%s names a binary from before the roles became subcommands "+
-		"(faramir-guard, faramir-mcp). Those paths stop existing at the next "+
-		"install: merge the .dist written beside it, which names `faramir guard` "+
-		"and `faramir mcp`", path)
-}
-
+//
+// A tree enrolled by an install whose hook and MCP server were separate
+// binaries is corrected rather than reported: the merge drops the entry naming
+// the old path and writes the current one in its place.  A PreToolUse hook that
+// cannot exec denies nothing, rewrites nothing, and fails every command the
+// agent runs, so leaving one in place to be merged by hand is not an option.
 func (p *project) agentConfig() error {
 	if !p.opts.Hook {
 		p.step("agent config", false, "--hook=false, so nothing this agent runs "+
@@ -277,24 +262,23 @@ func (p *project) agentConfig() error {
 					return err
 				}
 			}
-			// Kept if it exists: a settings file is the project's to edit, and
-			// overwriting one loses hooks and permissions faramir knows nothing
-			// about.  The .dist beside it is what the operator merges.
-			dst := path
-			if exists(path) {
-				dst = path + ".dist"
-				p.warnStalePaths(path)
-			}
 			data, err := readAsset(file.asset)
 			if err != nil {
 				return err
 			}
-			made, err := p.fs.writeFile(dst, data, file.mode, p.uid, p.gid)
+			// Merged rather than overwritten: a settings file is the project's
+			// to edit and holds hooks, servers and permissions faramir knows
+			// nothing about.  Only the keys faramir writes are touched.
+			write := p.fs.writeFile
+			if file.merge {
+				write = p.fs.mergeFile
+			}
+			made, err := write(path, data, file.mode, p.uid, p.gid)
 			if err != nil {
 				return err
 			}
 			changed = changed || made
-			written = append(written, dst)
+			written = append(written, path)
 		}
 		if target.autoApprovesBash && changed {
 			p.warn("Bash is now auto-approved in %s for %s: the hook rewrites every "+

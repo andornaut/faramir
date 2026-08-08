@@ -52,17 +52,26 @@ type agentFile struct {
 	// dirMode creates the parent when the path has one.  Empty parents are the
 	// tree itself, which already exists.
 	mode os.FileMode
+	// merge says faramir's keys are merged into a file that is already there
+	// instead of the file being replaced, and requires the asset to be JSON.
+	//
+	// True for every shared config: these hold hooks, MCP servers and
+	// permission rules that are the project's or the operator's, and faramir
+	// writes a few named keys among them.  False only where the path is
+	// faramir's own, so what is there is a previous version of this same file
+	// and replacing it is the update.
+	merge bool
 }
 
 var agentTargets = map[string]*agentTarget{
 	"claude": {
 		name: "claude",
 		files: []agentFile{
-			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json", mode: 0o600},
-			{path: ".mcp.json", asset: "agent/claude/mcp.json", mode: 0o644},
+			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json", mode: 0o600, merge: true},
+			{path: ".mcp.json", asset: "agent/claude/mcp.json", mode: 0o644, merge: true},
 		},
 		accountFiles: []agentFile{
-			{path: ".claude/settings.json", asset: "agent/claude/settings.json", mode: 0o600},
+			{path: ".claude/settings.json", asset: "agent/claude/settings.json", mode: 0o600, merge: true},
 		},
 		autoApprovesBash: true,
 	},
@@ -70,7 +79,7 @@ var agentTargets = map[string]*agentTarget{
 		name: "gemini",
 		files: []agentFile{
 			// Hooks and mcpServers are both top-level keys of this one file.
-			{path: ".gemini/settings.json", asset: "agent/gemini/settings.project.json", mode: 0o600},
+			{path: ".gemini/settings.json", asset: "agent/gemini/settings.project.json", mode: 0o600, merge: true},
 		},
 		// A .toml under policies/ rather than a key in settings.json: Gemini
 		// refuses tool calls through a policy engine, and the settings key that

@@ -123,6 +123,24 @@ func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool
 // writeFile writes data when the file is absent or its contents differ.
 // Compared by content rather than by mtime so a re-run of an unchanged install
 // reports nothing.
+// mergeFile merges faramir's keys into a JSON file that is already there, and
+// writes data whole when there is none.  Owned, reported and written through a
+// rename exactly as writeFile does, which is what it hands the result to.
+func (f fsys) mergeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
+	current, err := os.ReadFile(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return f.writeFile(path, data, mode, uid, gid)
+	case err != nil:
+		return false, err
+	}
+	merged, err := mergeJSON(current, data)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", path, err)
+	}
+	return f.writeFile(path, merged, mode, uid, gid)
+}
+
 func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
 	current, err := os.ReadFile(path)
 	if err == nil && bytes.Equal(current, data) {
