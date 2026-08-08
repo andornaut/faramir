@@ -263,8 +263,8 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	}
 	// This stat fails early with a clear message; it enforces nothing.  The uid
 	// that enters the directory is the executor's, and it can hold traversal the
-	// broker does not: an ecryptfs home discards an ACL written through the
-	// mount, so one can end up granting the executor and not the broker.
+	// broker does not: a tree shared with a group the executor is in and the
+	// broker is not is reachable by the uid that matters and not by this one.
 	// Refusing on the broker's own EACCES would make that arrangement unusable
 	// for a directory the executor can enter perfectly well.
 	//

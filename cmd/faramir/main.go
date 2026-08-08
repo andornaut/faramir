@@ -128,9 +128,9 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 	}
 }
 
-// cmdShareTree is the one subcommand that needs root: it changes ownership and
-// grants an ACL on directories the caller does not own.  Local, like keygen,
-// and never touches the broker.
+// cmdShareTree is the one subcommand that needs root: it changes group
+// ownership and modes on directories the caller does not own.  Local, like
+// keygen, and never touches the broker.
 func cmdShareTree(args []string) int {
 	fs := newFlagSet("share-tree", "share-tree [options] DIR [DIR...]")
 	operator := fs.String("user", "", "account that works in the tree (default $SUDO_USER)")
@@ -144,7 +144,7 @@ func cmdShareTree(args []string) int {
 	}
 	if os.Geteuid() != 0 {
 		fmt.Fprintln(os.Stderr, "faramir: share-tree must run as root: it changes "+
-			"group ownership and grants an ACL on directories you do not own")
+			"group ownership and modes on directories you do not own")
 		return 1
 	}
 	who := operatorName(*operator)

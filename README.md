@@ -296,7 +296,7 @@ It **can** write the working tree, which is the point, and reach the broker sock
 
 A tree inside a 0700 home needs traversal for `faramir-exec`, which forks the command there. `faramir share-tree` grants it by group: every directory from the home down becomes group `dev` and group-executable, execute only, so those uids pass through without being able to list what they pass. Never `chmod o+x`, which grants the same to every account on the machine, and with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it.
 
-Group ownership rather than an ACL, which would name the uids exactly. The mode has three slots and the group one is the slot going spare on a home its owner holds outright, and the precision was costing the `acl` package, a read-back on every directory, and on ecryptfs a write the mount discards entirely. `chgrp` passes through that same mount unchanged, ownership being ordinary inode metadata rather than an xattr. The cost is that everyone in the group gets it, so keep membership to the accounts that need it.
+The group slot is the one going spare on a home its owner holds outright, and it costs nothing to use: `chgrp` is ordinary inode metadata, so it passes through an encrypted home unchanged and needs no extra tooling. What it does cost is that everyone in the group gets it, so keep membership to the accounts that need it.
 
 A directory already traversable by `other` is left alone: tightening one its owner chose to open is not this command's business. One whose group is something else is taken over, which costs that group whatever the group bits gave it, and `share-tree` says so when it does.
 

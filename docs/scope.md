@@ -46,7 +46,7 @@ A brokered command runs where its caller was, so `faramir-exec` must reach that 
 
 A tree outside the homes needs nothing. Inside a `0700` home the executor needs traversal, which `faramir share-tree` grants by making every directory from the home down group `dev` and group-executable. Execute only, so those uids pass through without listing what they pass, and never `chmod o+x`, which grants the same to every account on the machine: with `umask 002` in force the files below are `0664`, so that opens the home rather than a path through it.
 
-Group ownership rather than an ACL. An ACL names the uids exactly, which is the more precise instrument, but the mode's group slot is going spare on a home its owner holds outright, and that precision was costing the `acl` package, a read-back on every directory, and on ecryptfs a write the mount discards entirely while reporting success. `chgrp` passes through the same mount unchanged, ownership being ordinary inode metadata rather than an xattr. What it costs instead is that membership of the group is now also a grant to traverse, so keep it to the accounts that need it.
+The group slot is the one going spare on a home its owner holds outright, and it costs nothing to use: `chgrp` is ordinary inode metadata, so it passes through an encrypted home unchanged and needs no tooling beyond coreutils. What it costs is that membership of the group is also a grant to traverse the operator's home, so keep it to the accounts that need it. That is an argument for a group of its own rather than one that already means other things.
 
 Group membership is a permission, not a mount: it holds nothing open, so an encrypted home still unmounts at logout. A brokered command running at the time does hold one open.
 

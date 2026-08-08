@@ -152,14 +152,10 @@ func Components(home, dir string) []string {
 // grantTraversal makes every directory from the home down to the tree enterable
 // by the shared group.
 //
-// Group ownership rather than an ACL.  An ACL names exactly the uids that need
-// it, which is more precise, but the mode has three slots and the group slot is
-// the one going spare: the operator owns the home and nothing else needs the
-// group bits there.  What that precision was costing is the whole of it -- the
-// acl package, a read-back on every component, and on ecryptfs a write the
-// mount discards, redirected to the backing directory and not visible until the
-// next mount.  chgrp passes through the same mount unchanged, ownership being
-// ordinary inode metadata rather than an xattr.
+// The mode's group slot is the one going spare: the operator owns the home and
+// nothing else needs the group bits there.  Ownership is ordinary inode
+// metadata, so this passes through an encrypted home unchanged and needs no
+// tooling beyond what coreutils provides.
 //
 // Execute only, never read: these uids pass through the home without being able
 // to list it.  Not "chmod o+x", which grants the same to every account on the
