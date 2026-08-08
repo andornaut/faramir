@@ -174,11 +174,11 @@ func TestReadingKeyMaterialThroughAnEncoderIsDeniedToo(t *testing.T) {
 		}
 	}
 
-	// The migration runbook runs this, and the guard must not block a
-	// documented operator step.  "sed" is deliberately absent from the reader
-	// list: it edits far more often than it dumps.
+	// The guard must not block an ordinary operator step.  "sed" is
+	// deliberately absent from the reader list: it edits far more often than it
+	// dumps.
 	for _, cmd := range []string{
-		`sed -i '/^vault_password_file/d' ansible.cfg`,
+		`sed -i 's/^nocows.*/nocows = True/' ansible.cfg`,
 		"base64 /tmp/screenshot.png",
 		"ansible-playbook site.yml --check",
 	} {

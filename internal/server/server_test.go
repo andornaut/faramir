@@ -337,15 +337,15 @@ func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
 	}
 }
 
-// The installer's gate runs before the secrets have been migrated, so the file
-// it is configured for does not exist yet.  Failing here would make a first
-// install impossible.
+// The installer's gate runs before any store exists, so the file it is
+// configured for does not exist yet.  Failing here would make a first install
+// impossible.
 func TestCheckPassesOnASecretsFileThatDoesNotExistYet(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"},
 		filepath.Join(t.TempDir(), "absent.sops.yml"))
 
 	if _, code := s.CheckOutput(); code != 0 {
-		t.Error("a not-yet-migrated install failed the gate")
+		t.Error("a first install failed the gate")
 	}
 }
 

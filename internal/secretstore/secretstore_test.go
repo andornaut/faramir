@@ -378,11 +378,11 @@ func TestAMissingFileIsReported(t *testing.T) {
 	if _, err := s.Value("a/b"); err != nil {
 		t.Errorf("the value set was lost over a missing file: %v", err)
 	}
-	// The installer runs --check before the secrets have been migrated, so the
-	// one file it is configured for does not exist yet.  Treating that as a
-	// failure would make a first install impossible.
+	// The installer runs --check before any store exists, so the one file it is
+	// configured for does not exist yet.  Treating that as a failure would make
+	// a first install impossible.
 	if fatal := s.FatalLoadErrors(); len(fatal) != 0 {
-		t.Errorf("a not-yet-created file was treated as a broken install: %v", fatal)
+		t.Errorf("an absent file was treated as a broken install: %v", fatal)
 	}
 }
 
@@ -408,7 +408,7 @@ func TestAnUnreadableFileIsFatal(t *testing.T) {
 // The keeper runs as its own uid and may not be able to traverse the path to a
 // managed file, in which case it reports EACCES for a file that does not exist.
 // The broker can stat it, so it is the one that can tell the difference, and a
-// file that is not there yet is the not-yet-migrated state.
+// file that is not there yet is a store nobody has written.
 func TestAKeeperErrorAboutAMissingFileIsNotFatal(t *testing.T) {
 	absent := filepath.Join(t.TempDir(), "absent.sops.yml")
 	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
@@ -462,7 +462,7 @@ func TestAKeeperErrorAMissingFileCannotExplainIsFatal(t *testing.T) {
 
 // Stat follows symlinks, so a managed file whose target was moved reports
 // ENOENT for a path that is really there.  That is a broken install rather than
-// the not-yet-migrated state, and it must not silence the keeper's error.
+// an absent store, and it must not silence the keeper's error.
 func TestADanglingSymlinkIsFatal(t *testing.T) {
 	dir := t.TempDir()
 	managed := filepath.Join(dir, "v.sops.yml")
