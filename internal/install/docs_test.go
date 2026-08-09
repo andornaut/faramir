@@ -17,8 +17,12 @@ func TestTheDocsInstallNestedUnderDocs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := targets["README.md"]; got != "/usr/local/share/doc/faramir/README.md" {
-		t.Errorf("README installs to %q, want it at the top of the doc directory", got)
+	for _, name := range []string{"README.md", "LICENSE"} {
+		want := "/usr/local/share/doc/faramir/" + name
+		if got := targets[name]; got != want {
+			t.Errorf("%s installs to %q, want it at the top of the doc directory as %q",
+				name, got, want)
+		}
 	}
 	entries, err := fs.ReadDir(faramir.Assets, "docs")
 	if err != nil {

@@ -1,5 +1,6 @@
 // Package faramir holds the files `faramir init` writes to a host: the systemd
-// units, the base config, the agent hook and its deny list, and the docs.
+// units, the base config, the agent hook and its deny list, the docs and the
+// licence.
 //
 // They are embedded rather than read from a checkout so that installing needs
 // nothing but the binaries.  A consumer of the broker then has one artifact to
@@ -15,5 +16,5 @@ import "embed"
 // where they disagree: a broker that installs cleanly and then refuses every
 // connection.
 //
-//go:embed etc systemd agent docs README.md
+//go:embed etc systemd agent docs README.md LICENSE
 var Assets embed.FS

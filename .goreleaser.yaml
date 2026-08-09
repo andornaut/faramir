@@ -19,8 +19,9 @@ builds:
     flags: [-trimpath]
     ldflags: [-s -w]
 
-# One archive, holding the one binary and the README.  `faramir init` is given
-# the directory it was unpacked into and copies what it finds there.
+# One archive, holding the one binary, the README and the licence.  `faramir
+# init` is given the directory it was unpacked into and copies what it finds
+# there.
 archives:
   - formats: [tar.gz]
     # this name template makes the output compatible with many package managers
@@ -32,6 +33,7 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
     files:
       - README.md
+      - LICENSE
 
 checksum:
   name_template: 'checksums.txt'

@@ -253,7 +253,12 @@ func (r *runner) installDocs() (bool, error) {
 // here and every one of those references points one directory above the file,
 // on precisely the host that has no checkout to fall back on.
 func docTargets(layout Layout) (map[string]string, error) {
-	targets := map[string]string{"README.md": filepath.Join(layout.DocDir, "README.md")}
+	targets := map[string]string{
+		"README.md": filepath.Join(layout.DocDir, "README.md"),
+		// Beside the README rather than under docs/: nothing cites it, and a
+		// licence is what a doc directory is expected to carry at its top.
+		"LICENSE": filepath.Join(layout.DocDir, "LICENSE"),
+	}
 	entries, err := fs.ReadDir(faramir.Assets, "docs")
 	if err != nil {
 		return nil, err
