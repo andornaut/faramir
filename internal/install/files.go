@@ -17,11 +17,12 @@ import (
 // still holds the hook's deny list and wrap script, but no longer a binary.
 var installedBinaries = []string{"faramir"}
 
-// legacyBinaries is what the layout before the consolidation installed.  Only
-// uninstall names them: init installs and never migrates, but a teardown's whole
-// job is that nothing this project installed is left behind, including what an
-// older version of it installed.  DefaultLibexecDir is removed wholesale, so the
-// hook that lived there needs no entry.
+// legacyBinaries is what the layout before the consolidation installed, when
+// each role was a binary of its own.  Only uninstall names them: init installs
+// and never migrates, but a teardown's whole job is that nothing this project
+// installed is left behind, including what an older version of it installed.
+// DefaultLibexecDir is removed wholesale, so the hook that lived there needs no
+// entry.
 var legacyBinaries = []string{
 	"faramir-broker", "faramir-keeper", "faramir-exec", "faramir-mcp",
 }

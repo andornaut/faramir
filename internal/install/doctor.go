@@ -94,7 +94,6 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseSSHAgent(&report)
 	diagnoseGroup(&report, opts)
 	diagnoseLeftovers(&report, opts)
-	diagnoseStaleBinaries(&report)
 	return report
 }
 
@@ -246,37 +245,6 @@ func diagnoseLeftovers(report *DoctorReport, opts DoctorOptions) {
 		report.add("leftovers", StatusWarn, "written beside a file that was kept, "+
 			"and never merged: %s", strings.Join(leftovers, ", "))
 	}
-}
-
-// CLEANUP (added 2026-08-08): faramir shipped a binary per role until they
-// became subcommands.  init installs and never migrates, so the old ones are
-// still on disk, orphaned: the units start the new binary and nothing execs
-// them.  Delete this check once no host reports it.
-//
-// Worth a check rather than silence because of one of them.  A project enrolled
-// before the change still names the old hook in its .claude/settings.json, and
-// init-project keeps an existing settings file.  Deleting that hook before the
-// file is rewritten leaves a PreToolUse hook that cannot exec, which denies
-// nothing and rewrites nothing: redaction is off and the deny list is gone, with
-// no error anywhere.
-func diagnoseStaleBinaries(report *DoctorReport) {
-	var stale []string
-	for _, name := range legacyBinaries {
-		if path := filepath.Join(DefaultBinDir, name); exists(path) {
-			stale = append(stale, path)
-		}
-	}
-	if path := filepath.Join(DefaultLibexecDir, "faramir-guard"); exists(path) {
-		stale = append(stale, path)
-	}
-	if len(stale) == 0 {
-		return
-	}
-	report.add("stale binaries", StatusWarn, "%s: left by the layout before the "+
-		"roles became subcommands, and nothing runs them now. Remove them, but "+
-		"rewrite every enrolled project's .claude/settings.json to name "+
-		"%s/faramir guard first: a hook that cannot exec fails open",
-		strings.Join(stale, ", "), DefaultBinDir)
 }
 
 // groupMembers reads a group's supplementary members.  Primary membership does
