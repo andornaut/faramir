@@ -44,17 +44,9 @@ type Options struct {
 	// see Layout.SSHKey for why there, and why one is minted whether or not a
 	// host turns out to need it.
 	//
-	// It names a keypair and the broker holds both halves.  There is no
-	// public-key-only form, by analogy with AgeRecipients: SSH authenticates by
-	// signing the host's challenge, so the client is whoever holds the private
-	// half, and the client here is the broker's agent.  The public half is what
-	// goes into authorized_keys on the managed host.  sops is the other way
-	// round -- it encrypts to a recipient, so a public key is the whole of what
-	// AgeRecipients needs.
-	//
-	// Holding neither half would mean relaying SIGN_REQUEST to an agent faramir
-	// does not own, which would be the operator's; the coding agent runs as the
-	// operator and already has that socket, so brokering would protect nothing.
+	// It names a keypair, and the broker holds both halves: the private one
+	// signs the challenge a managed host sends, and the public one is what goes
+	// into that host's authorized_keys.
 	SSHKey string
 
 	// No tree is enrolled here: a tree is per project and this runs once per
