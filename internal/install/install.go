@@ -260,6 +260,17 @@ func (r *runner) preflight() error {
 			"where it is hidden once the home mounts. Log in as its owner first",
 			home, r.layout.ConfigDir)
 	}
+	// The config directory is the one faramir creates whose parent can belong to
+	// the operator.  ensureDir chowns every ancestor it has to create, so an
+	// absent parent comes back root-owned and is no longer its owner's to write:
+	// ~/.config created that way breaks every other tool that keeps state there.
+	// The directories under /usr/local are faramir's own and are created as
+	// usual.
+	if parent := filepath.Dir(r.layout.ConfigDir); !exists(parent) {
+		return fmt.Errorf("%s does not exist, and %s is inside it. Create it with "+
+			"the ownership you want first: creating it here would hand it to root",
+			parent, r.layout.ConfigDir)
+	}
 	// The binaries are built ahead of time.  Checked here rather than at the
 	// install step, which is after the accounts and the age key exist.
 	if r.binaries == "" {
