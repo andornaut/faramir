@@ -148,14 +148,18 @@ func summarise(record map[string]any, paint palette) string {
 	return strings.TrimRight(b.String(), " ")
 }
 
-// detail is the command for an exec, and the size of the text for a redact,
-// which would otherwise be a bare row.
+// detail is the command for an exec, the size of the text for a redact, and the
+// managed file for an edit or a rekey, each of which would otherwise be a bare
+// row naming only the op.
 func detail(record map[string]any) string {
 	if cmd := joinCmd(record); cmd != "" {
 		return cmd
 	}
 	if size, ok := record["input_bytes"].(float64); ok {
 		return humanBytes(int64(size)) + " in"
+	}
+	if file := str(record, "file"); file != "" {
+		return file
 	}
 	if detail := str(record, "error"); detail != "" {
 		return detail
@@ -230,6 +234,14 @@ func printRecord(record map[string]any, paint palette) {
 	}
 	if refs := list(record, "env_refs"); len(refs) > 0 {
 		fmt.Printf("  %s %s\n", paint.key(pad("refs", 10)), paint.ref(strings.Join(refs, ", ")))
+	}
+	// A rekey's recipients, which are the whole of what it changed: who could
+	// read that file before, and who can now.  Public keys, so printing them
+	// discloses nothing the ciphertext does not already carry.
+	for _, field := range []string{"from", "to"} {
+		if recipients := list(record, field); len(recipients) > 0 {
+			fmt.Printf("  %s %s\n", paint.key(pad(field, 10)), paint.ref(strings.Join(recipients, ", ")))
+		}
 	}
 	if counts := redactionCounts(record); counts != "" {
 		fmt.Printf("  %s %s\n", paint.key(pad("redacted", 10)), paint.ref(counts))

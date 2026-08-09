@@ -107,26 +107,39 @@ func ValidateRecipient(s string) error {
 	return nil
 }
 
-// Recipient reads the public half out of an identity file.  The last match, so a
-// file carrying the "# public key:" comment as well yields the identity's.
+// Recipient reads the public half out of an identity file.
+//
+// Derived from the private half wherever there is one: the "# public key:"
+// comment is a comment, absent from a hand-written key and free to disagree
+// with the identity beneath it.  A wrong answer here seals the store to a key
+// the host does not hold.  The comment is the fallback, for a file holding a
+// recipient and no identity; the last of either wins.
 func Recipient(path string) (string, error) {
 	handle, err := os.Open(path)
 	if err != nil {
 		return "", err
 	}
 	defer func() { _ = handle.Close() }()
-	found := ""
+	derived, found := "", ""
 	scanner := bufio.NewScanner(handle)
 	for scanner.Scan() {
-		if match := recipientPattern.FindString(scanner.Text()); match != "" {
+		line := strings.TrimSpace(scanner.Text())
+		if id, err := age.ParseX25519Identity(line); err == nil {
+			derived = id.Recipient().String()
+			continue
+		}
+		if match := recipientPattern.FindString(line); match != "" {
 			found = match
 		}
 	}
 	if err := scanner.Err(); err != nil {
 		return "", err
 	}
+	if derived != "" {
+		return derived, nil
+	}
 	if found == "" {
-		return "", fmt.Errorf("no age recipient in %s", path)
+		return "", fmt.Errorf("no age identity or recipient in %s", path)
 	}
 	return found, nil
 }
