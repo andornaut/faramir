@@ -32,9 +32,8 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 	return e, sock, dir
 }
 
-// runChild runs one command the way the broker would, draining the PTY while
-// the child runs.  Waiting for the exit status first would deadlock as soon as
-// the child fills the terminal buffer.
+// runChild runs one command the way the broker would, draining the PTY as it
+// goes: waiting for the status first deadlocks on a full terminal buffer.
 func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResult, string, error) {
 	t.Helper()
 	master, slave, err := ptyutil.Open()
@@ -54,8 +53,8 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// One deadline for the whole drain rather than one per read: a deadline
-		// reset inside the loop races with the close below.
+		// One deadline for the whole drain; resetting it inside the loop races
+		// with the close below.
 		_ = master.SetReadDeadline(time.Now().Add(30 * time.Second))
 		buf := make([]byte, 4096)
 		for {
@@ -70,28 +69,18 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 	}()
 
 	result, err := client.Result(20 * time.Second)
-	// Drain to EOF before closing the master.  The child's last write can still
-	// be sitting in the terminal buffer when the result arrives, and closing
-	// first discards exactly the output the caller is about to assert on.  Every
-	// slave fd is closed by then (the executor's after fork, ours after Start,
-	// the child's on exit), so the read ends in EIO on its own.
+	// Drain to EOF first: the child's last write can still be in the terminal
+	// buffer when the result arrives.  Every slave fd is closed by then, so the
+	// read ends in EIO.
 	wg.Wait()
 	_ = master.Close()
 	return result, output.String(), err
 }
 
-// TestTheExecutorDoesNotSecondGuessArgv0 pins the absence of a check.
-//
-// It runs what the broker sends, from wherever the broker says.  There used to
-// be an allowed_bin_dirs re-check here, justified as stopping a broker bug
-// becoming "run anything from anywhere as faramir-exec".  It went with the
-// allowlist: it bounded argv[0] only, so any request for bash reached past it
-// in one step, and meanwhile it refused every venv, shim and working-tree
-// script.  What bounds this uid is what it holds (no key, no audit log, no SSH
-// key) plus the mode on its socket, which the executor's own uid cannot open.
-//
-// Asserted the way the documented leaks are: pinned open, so a change that
-// reintroduces a check has to revisit this reasoning first.
+// TestTheExecutorDoesNotSecondGuessArgv0 pins the absence of a check: the
+// executor runs what the broker sends, from wherever the broker says.  What
+// bounds this uid is what it holds -- no key, no audit log, no SSH key -- plus
+// the mode on its socket.
 func TestTheExecutorDoesNotSecondGuessArgv0(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 
@@ -112,9 +101,8 @@ func TestTheExecutorDoesNotSecondGuessArgv0(t *testing.T) {
 	}
 }
 
-// stdin is /dev/null, so a bare interactive shell exits instead of holding a
-// concurrency slot until its timeout.  With no allowlist, that is the only
-// thing standing between the executor and a hung slot.
+// stdin is /dev/null, so a bare interactive shell exits rather than holding a
+// concurrency slot until its timeout.
 func TestABareShellExitsInsteadOfWaiting(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 	sh, err := os.Stat("/bin/bash")
@@ -133,8 +121,8 @@ func TestABareShellExitsInsteadOfWaiting(t *testing.T) {
 	}
 }
 
-// The child owns a terminal, which is what makes progress meters and writes to
-// /dev/tty land on the broker's master.
+// The child owns a terminal, so progress meters and /dev/tty writes land on the
+// broker's master.
 func TestTheChildGetsATerminal(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 	if _, err := os.Stat("/bin/sh"); err != nil {

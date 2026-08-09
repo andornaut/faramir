@@ -10,13 +10,12 @@ import (
 )
 
 // The identity this package writes is the only thing that opens the managed
-// store, and it has no backup that is not the same disk.  So the tests here are
-// about the two ways a run could destroy one: writing over it, and leaving it
-// readable by an account that has no business decrypting.
+// store, so these cover the two ways a run could destroy one: writing over it,
+// and leaving it readable.
 
-// Overwriting an identity revokes access to every value it was a recipient for,
-// retroactively and silently: the ciphertext is still there and no longer
-// opens.  A second run has to report the recipient it found and write nothing.
+// Overwriting revokes access to every value it was a recipient for,
+// retroactively and silently, so a second run reports what it found and writes
+// nothing.
 func TestGenerateNeverClobbersAnExistingIdentity(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "age.key")
 
@@ -51,9 +50,8 @@ func TestGenerateNeverClobbersAnExistingIdentity(t *testing.T) {
 	}
 }
 
-// 0400, set by the open rather than left to the umask: the keeper's uid reads
-// it and nothing ever writes it again, and a mode that came from the umask
-// would depend on the shell the install was run from.
+// 0400 from the open, not the umask, which would depend on the shell the
+// install was run from.
 func TestGenerateWritesTheKeyReadOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "age.key")
 	if _, _, err := Generate(path); err != nil {
@@ -68,10 +66,8 @@ func TestGenerateWritesTheKeyReadOnly(t *testing.T) {
 	}
 }
 
-// A directory that is not there is an error rather than a key written nowhere:
-// init creates the config directory first, and a Generate that reported success
-// against a missing one would leave the keeper with no key and the report
-// saying it had made one.
+// An error rather than a key written nowhere, which would leave the keeper with
+// no key and the report saying one was made.
 func TestGenerateReportsAnUnwritablePath(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "absent", "age.key")
 	if _, created, err := Generate(path); err == nil {
@@ -79,8 +75,8 @@ func TestGenerateReportsAnUnwritablePath(t *testing.T) {
 	}
 }
 
-// What Generate returns is what Recipient reads back, which is the whole
-// contract between minting a key and writing it into the sops creation rule.
+// The contract between minting a key and writing it into the sops creation
+// rule.
 func TestTheRecipientReadsBackFromTheFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "age.key")
 	minted, _, err := Generate(path)
@@ -99,9 +95,8 @@ func TestTheRecipientReadsBackFromTheFile(t *testing.T) {
 	}
 }
 
-// The private half must not come back as the public one.  They sit in the same
-// file, and a pattern that matched the identity line would put key material
-// into the .sops.yaml that install writes and doctor prints.
+// The two halves sit in the same file, and a pattern matching the identity line
+// would put key material into the .sops.yaml install writes.
 func TestRecipientReturnsThePublicHalfOnly(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "age.key")
 	if _, _, err := Generate(path); err != nil {
@@ -116,9 +111,8 @@ func TestRecipientReturnsThePublicHalfOnly(t *testing.T) {
 	}
 }
 
-// The last match wins, so a file that has accumulated more than one entry
-// resolves to one answer deterministically rather than to whichever line
-// happened to come first.
+// The last match wins, so a file with more than one entry resolves
+// deterministically.
 func TestRecipientTakesTheLast(t *testing.T) {
 	first, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -142,9 +136,8 @@ func TestRecipientTakesTheLast(t *testing.T) {
 	}
 }
 
-// A file with nothing in it that looks like a key is named, not reported as an
-// empty recipient: an empty recipient reaches the sops creation rule as a rule
-// addressed to nobody.
+// Named, not reported as an empty recipient, which would reach the creation rule
+// as a rule addressed to nobody.
 func TestRecipientNamesAFileWithNoKeyInIt(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "notes.txt")
 	if err := os.WriteFile(path, []byte("# nothing here\n"), 0o600); err != nil {
@@ -159,10 +152,8 @@ func TestRecipientNamesAFileWithNoKeyInIt(t *testing.T) {
 	}
 }
 
-// What ends up in .sops.yaml is written once and kept, and that file is 0644 by
-// design: it holds public keys and a rule and no value, so checking who can
-// decrypt does not need sudo.  Everything below is a string that must never
-// reach it, or one that must.
+// .sops.yaml is written once, kept, and 0644 by design.  Everything below is a
+// string that must never reach it, or one that must.
 func TestValidateRecipient(t *testing.T) {
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -180,15 +171,13 @@ func TestValidateRecipient(t *testing.T) {
 			recipient: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE7mQ0TawUvfWHLeaoBg0q1So2tY3VIpiGMzBGsDbOZi operator@host",
 		},
 		{
-			// Accepted on its shape: only the plugin binary can parse one, and
-			// requiring it on the host being provisioned would refuse a recipient
-			// sops itself would take.
+			// On its shape: only the plugin binary can parse one, and requiring
+			// it here would refuse a recipient sops would take.
 			name: "an age plugin recipient", ok: true,
 			recipient: "age1yubikey1q2c94wdful8xa9dqe4qy5ldu2s6ct2zkweqhq5c2f3sk6zmr5rqvqm2dxqz",
 		},
 		{
-			// The one that matters.  Both halves sit in the same file, adjacent,
-			// and only one of them is safe to publish.
+			// The one that matters: both halves sit adjacent in one file.
 			name: "the private half", recipient: id.String(),
 			says: "private half",
 		},
@@ -201,8 +190,8 @@ func TestValidateRecipient(t *testing.T) {
 			says: "not an age recipient",
 		},
 		{
-			// A recipient is written as one item of a YAML list, so a line break
-			// in it is whatever follows read as YAML of its own.
+			// One item of a YAML list, so a line break makes what follows YAML
+			// of its own.
 			name:      "a recipient carrying a line break",
 			recipient: id.Recipient().String() + "\n          - " + id.String(),
 			says:      "line break",
@@ -228,9 +217,8 @@ func TestValidateRecipient(t *testing.T) {
 	}
 }
 
-// The message for a private half must not quote it.  Errors are printed, logged
-// and pasted into issues, and a refusal that repeats the key back has published
-// it in every one of those places.
+// Errors are printed, logged and pasted into issues, so a refusal that repeats
+// the key back has published it.
 func TestValidateRecipientDoesNotEchoAPrivateKey(t *testing.T) {
 	id, err := age.GenerateX25519Identity()
 	if err != nil {

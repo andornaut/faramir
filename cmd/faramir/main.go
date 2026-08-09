@@ -31,8 +31,7 @@ import (
 
 const defaultSocket = "/run/faramir/broker.sock"
 
-// socketDefault lets FARAMIR_SOCKET move every subcommand at once, which
-// faramir-mcp already honours.
+// socketDefault lets FARAMIR_SOCKET move every subcommand at once.
 func socketDefault() string {
 	if v := os.Getenv("FARAMIR_SOCKET"); v != "" {
 		return v
@@ -121,9 +120,8 @@ func run(args []string) int {
 		return cmdReload(args[1:])
 	case "uninstall":
 		return cmdUninstall(args[1:])
-	// The roles systemd and the coding agent run.  Each is named for the unit
-	// and the account it belongs to, so a role is spelled one way wherever you
-	// meet it: ExecStart=, User=, ps, and this switch.
+	// The roles systemd and the coding agent run, each named for its unit and
+	// account so a role is spelled one way everywhere.
 	case "broker":
 		return cmdBroker(args[1:])
 	case "keeper":
@@ -142,7 +140,6 @@ func run(args []string) int {
 }
 
 // newFlagSet builds a subcommand's flag set with a usage line of its own.
-// flag's default ("Usage of run:") says nothing about what run takes.
 func newFlagSet(name, synopsis string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.Usage = func() {
@@ -152,9 +149,8 @@ func newFlagSet(name, synopsis string) *flag.FlagSet {
 	return fs
 }
 
-// parseFlags runs a subcommand's flag set.  An explicit --help is a request
-// that succeeded, so it goes to stdout and exits 0; a bad flag goes to stderr
-// and exits 2.  flag writes both through the same handle, so the output is
+// parseFlags runs a subcommand's flag set.  --help is stdout and 0, a bad flag
+// is stderr and 2; flag writes both through one handle, so the output is
 // captured and routed afterwards.
 func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 	var captured bytes.Buffer
@@ -172,24 +168,12 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 	}
 }
 
-// operatorName resolves the account that works in the tree.
+// operatorName resolves the account that works in the tree: --operator, then
+// SUDO_USER so `sudo faramir init` needs no flag, then the caller.
 //
-// SUDO_USER, so `sudo faramir init` needs no flag.  Whoever is running the
-// command comes last, which is the answer when somebody asks about their own
-// host and names nobody: doctor would otherwise not recognise the operator and
-// report them as an account nothing created, which is a fault it invented
-// rather than one it found.
-//
-// Anything escalating by another route, where SUDO_USER is unset and the caller
-// is root, names the account with --operator.  A configuration manager that
-// could set an environment variable here can pass the flag instead, so there is
-// no third way to spell this.
-//
-// root is not an answer at any position: the tree belongs to somebody, and
-// "root" here would chown a checkout away from its owner.  That rejection is
-// what keeps the fallback honest under sudo, where the caller is root and
-// SUDO_USER above has already carried the name, and run as root with nothing
-// set it leaves no operator named rather than claiming one.
+// root is not an answer at any position -- the tree belongs to somebody, and
+// chowning a checkout to root would take it from its owner -- so escalating by
+// another route means passing --operator.
 func operatorName(flagValue string) string {
 	candidates := []string{flagValue, os.Getenv("SUDO_USER")}
 	if current, err := user.Current(); err == nil {
@@ -203,12 +187,8 @@ func operatorName(flagValue string) string {
 	return ""
 }
 
-// cmdKeygen mints an age keypair.
-//
-// This exists so a faramir host needs no age binary: the identity format is
-// age's own, and the library that writes it is the one the keeper reads it
-// with.  It does not replace the sops CLI, which is what an operator edits
-// encrypted files with.
+// cmdKeygen mints an age keypair, so a faramir host needs no age binary.  It
+// does not replace the sops CLI, which is what edits encrypted files.
 func cmdKeygen(args []string) int {
 	fs := newFlagSet("keygen", "keygen [-o FILE]")
 	out := fs.String("o", "", "write the identity to this file instead of stdout")
@@ -226,17 +206,15 @@ func cmdKeygen(args []string) int {
 		fmt.Fprintf(os.Stderr, "Public key: %s\n", id.Recipient())
 		return 0
 	}
-	// Generate refuses to clobber: overwriting an age key silently destroys
-	// every sops file it was the only recipient for, retroactively.
+	// Generate refuses to clobber: overwriting an age key destroys every sops
+	// file it was the only recipient for, retroactively.
 	recipient, created, err := agekey.Generate(*out)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
 		return 1
 	}
-	// Non-zero on an existing target, so a caller minting a key can tell a fresh
-	// identity from one that was already there.  Overwriting an age key destroys
-	// every sops file it was the only recipient for, retroactively, so this
-	// refuses rather than reporting success for a key it did not create.
+	// Non-zero on an existing target, so a caller can tell a fresh identity
+	// from one that was already there.
 	if !created {
 		fmt.Fprintf(os.Stderr,
 			"faramir: %s exists; refusing to overwrite an age key\n", *out)
@@ -277,8 +255,7 @@ func cmdRun(args []string) int {
 	}
 
 	rest := fs.Args()
-	// A leading "--" is the habitual spelling and flag has already stopped
-	// parsing by the time it reaches us; strip it so both forms work.
+	// flag has stopped parsing by the time a leading "--" reaches us.
 	if len(rest) > 0 && rest[0] == "--" {
 		rest = rest[1:]
 	}
@@ -289,8 +266,7 @@ func cmdRun(args []string) int {
 		return 2
 	}
 
-	// Files first, so an explicit --env on the command line overrides the file
-	// rather than the other way round.
+	// Files first, so an explicit --env overrides the file.
 	refs := map[string]string{}
 	for _, path := range envFiles {
 		pairs, err := readEnvFile(path)
@@ -317,10 +293,8 @@ func cmdRun(args []string) int {
 	if len(refs) > 0 {
 		request["env_refs"] = refs
 	}
-	// The caller's own directory unless -C says otherwise.  A command run
-	// through the broker should run where it was typed, the way every other
-	// command does; falling back to a directory named in a config file means
-	// "faramir run make" in one checkout builds a different one.
+	// The caller's own directory unless -C says otherwise: a brokered command
+	// runs where it was typed.
 	if *cwd == "" {
 		if here, err := os.Getwd(); err == nil {
 			*cwd = here
@@ -335,19 +309,13 @@ func cmdRun(args []string) int {
 	return send(*c.socket, request, *c.json, *quiet)
 }
 
-// checkRef validates one NAME=secret://ref pair, for both --env and
-// --env-file, so the two cannot drift apart.
-//
-// The error never quotes the value.  A pasted credential is the mistake this
-// whole mechanism exists to prevent, and an error that echoes one puts it in
-// the terminal and the scrollback, which is the disclosure it was meant to
-// stop.  The name is safe to quote and is what the operator needs to find the
-// line.
+// checkRef validates one NAME=secret://ref pair, for both --env and --env-file.
+// The error names the variable and never quotes the value: a pasted credential
+// is the mistake this exists to prevent, and echoing one puts it in the
+// scrollback.
 func checkRef(name, uri string) error {
 	if !protocol.ValidEnvName(name) {
-		// "export NAME=..." is the habitual spelling for a file of environment
-		// variables, and cutting on "=" turns it into a variable literally
-		// named "export NAME".
+		// Cutting on "=" would name the variable "export NAME".
 		if strings.HasPrefix(name, "export ") {
 			return fmt.Errorf("%q is not a usable environment variable name; "+
 				`drop the "export", this is not a shell script`, name)
@@ -362,12 +330,8 @@ func checkRef(name, uri string) error {
 }
 
 // readEnvFile reads NAME=secret://ref lines, one per line, # for a comment.
-//
-// A command that needs a dozen credentials otherwise needs a dozen --env flags
-// repeated at every call site, which is how one gets quietly dropped.  The file
-// holds refs and never values, so it is ordinary reviewable content that lives
-// beside the playbook it belongs to; the CLI expands it here and the request on
-// the wire is the same either way.
+// The file holds refs and never values, so it lives beside the playbook it
+// belongs to; the request on the wire is the same either way.
 func readEnvFile(path string) (map[string]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -384,15 +348,13 @@ func readEnvFile(path string) (map[string]string, error) {
 			return nil, fmt.Errorf("%s:%d: expected NAME=secret://ref, got %q", path, i+1, line)
 		}
 		name, uri = strings.TrimSpace(name), strings.TrimSpace(uri)
-		// Checked here rather than by the broker so the message can name the
-		// file and the line.
+		// Checked here so the message can name the file and the line.
 		if err := checkRef(name, uri); err != nil {
 			return nil, fmt.Errorf("%s:%d: %w", path, i+1, err)
 		}
-		// Last-wins is the usual env-file rule, but this file names credentials
-		// for a fleet: silently picking one of two is how the wrong credential
-		// reaches a host.  An identical repeat is a merge artefact, not an
-		// ambiguity, so it passes.
+		// Not last-wins: silently picking one of two is how the wrong
+		// credential reaches a host.  An identical repeat is a merge artefact,
+		// so it passes.
 		if existing, seen := refs[name]; seen && existing != uri {
 			return nil, fmt.Errorf("%s:%d: %s is given twice, as %s and %s",
 				path, i+1, name, existing, uri)
@@ -402,21 +364,15 @@ func readEnvFile(path string) (map[string]string, error) {
 	return refs, nil
 }
 
-// chunkBytes is how much text one redact request carries.
-//
-// Well under the broker's default max_request_bytes (262144) because the limit
-// is on the JSON-encoded line, not on the text: a control byte becomes six
-// characters and a byte that is not valid UTF-8 becomes three, so a chunk this
-// size cannot exceed the limit however badly it encodes.
+// chunkBytes is how much text one redact request carries.  Well under the
+// broker's default max_request_bytes, which applies to the JSON-encoded line:
+// a control byte becomes six characters, so this cannot exceed it however badly
+// it encodes.
 const chunkBytes = 32 << 10
 
-// cmdRedact scrubs text that did not come from a brokered command.
-//
-// Two shapes.  As a filter it reads stdin and writes redacted stdout.  Given a
-// command after --, it runs that command and filters what it prints, which is
-// the shape the PreToolUse hook rewrites an agent's shell command into: the
-// child's exit status is preserved, so the caller cannot tell the difference
-// except that secrets come back as tokens.
+// cmdRedact scrubs text that did not come from a brokered command.  As a filter
+// it reads stdin; given a command after --, it runs that command and filters
+// what it prints, preserving its exit status.
 func cmdRedact(args []string) int {
 	fs := newFlagSet("redact", "redact [options] [-- command [args...]]")
 	c := addCommon(fs)
@@ -431,11 +387,9 @@ func cmdRedact(args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
 		return 1
 	}
-	// Non-zero when any of it went through untouched, so a caller that can fail
-	// closed has something to act on: the wrapper the hook installs withholds
-	// the output rather than show what the broker never saw.  The text is
-	// written either way, because a filter in a human's pipeline that swallowed
-	// its input would lose output that no longer exists anywhere else.
+	// Non-zero when any of it went through untouched, so a caller that can
+	// fail closed has something to act on.  The text is written either way: a
+	// filter that swallowed its input would lose it for good.
 	if unredacted {
 		return 1
 	}
@@ -443,11 +397,8 @@ func cmdRedact(args []string) int {
 }
 
 // redactChild runs the command with both its streams merged and filtered.
-//
-// Merged because the two are interleaved on a terminal anyway and the agent
-// reads them as one transcript; separating them here would reorder the output
-// it sees.  stdin is passed through, so a wrapped command that reads input
-// still works.
+// Merged because the agent reads them as one transcript; separating them would
+// reorder what it sees.  stdin is passed through.
 func redactChild(socketPath string, argv []string) int {
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Stdin = os.Stdin
@@ -461,15 +412,13 @@ func redactChild(socketPath string, argv []string) int {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
 		return 127
 	}
-	// The pass-through flag is deliberately dropped here: this shape wraps a
-	// command a caller is running, and the child's own status is what it reads.
-	// Failing closed on an unreachable broker would break the command instead of
-	// the redaction, and a wrapper that breaks commands gets removed.
+	// The pass-through flag is dropped: the child's own status is what the
+	// caller reads, and failing closed here would break the command rather than
+	// the redaction.
 	_, streamErr := redactStream(socketPath, output, os.Stdout)
 	if streamErr != nil {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", streamErr)
-		// Drain, or a child that fills the pipe blocks forever and the Wait
-		// below never returns.
+		// Drain, or a child that fills the pipe blocks the Wait below.
 		_, _ = io.Copy(io.Discard, output)
 	}
 	err = cmd.Wait()
@@ -484,21 +433,15 @@ func redactChild(socketPath string, argv []string) int {
 	return 0
 }
 
-// redactStream sends the input through the broker a chunk at a time.
+// redactStream sends the input through the broker a chunk at a time, breaking
+// on a newline where it can so a value is not split across two requests.  A
+// multi-line value and a line longer than a chunk still split one.  ReadSlice
+// rather than ReadBytes, which would grow one long line past
+// max_request_bytes.
 //
-// Chunks break on a newline where they can, so a value is not split across two
-// requests and missed for that reason.  Two cases still split one: a value that
-// itself spans lines (a PEM block), and a line longer than a chunk.  The second
-// is why ReadSlice is used rather than ReadBytes: ReadBytes grows until it
-// finds a newline, so one long line (a -vvv result dict, minified JSON) would
-// arrive as a single request over max_request_bytes and be refused whole.
-//
-// A failed chunk is passed through unredacted and the next chunk is still
-// attempted.  Giving up after the first failure would hand the entire rest of
-// the output over untouched, which is a much larger hole than the chunk that
-// actually failed, and the warning is printed once so a long stream does not
-// bury its own output.  It reports whether any chunk went through that way, so
-// a caller that would rather show nothing than show something unredacted can.
+// A failed chunk is passed through unredacted and the next is still attempted,
+// with the warning printed once.  Reports whether any chunk went through that
+// way.
 func redactStream(socketPath string, in io.Reader, out io.Writer) (bool, error) {
 	reader := bufio.NewReaderSize(in, chunkBytes)
 	buf := make([]byte, 0, chunkBytes)
@@ -526,19 +469,15 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) (bool, error) 
 
 	for {
 		line, err := reader.ReadSlice('\n')
-		// Flushed before the append, not after: a partial buffer plus a full
-		// ReadSlice would otherwise make one request of nearly twice
-		// chunkBytes, and chunkBytes is the size that keeps the encoded line
-		// inside max_request_bytes.  Over it the broker refuses the chunk and
-		// the text is passed through unredacted.
+		// Flushed before the append: a partial buffer plus a full ReadSlice
+		// would make one request of nearly twice chunkBytes.
 		if len(buf) > 0 && len(buf)+len(line) > chunkBytes {
 			if flushErr := flush(); flushErr != nil {
 				return warned, flushErr
 			}
 		}
 		buf = append(buf, line...)
-		// A line longer than the buffer arrives in pieces, so send what is
-		// there rather than growing without bound.
+		// A long line arrives in pieces; send what is there.
 		if errors.Is(err, bufio.ErrBufferFull) {
 			if flushErr := flush(); flushErr != nil {
 				return warned, flushErr
@@ -555,9 +494,8 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) (bool, error) 
 				return warned, flushErr
 			}
 			if errors.Is(err, io.EOF) {
-				// The failure itself was already reported, once, by flush, and
-				// is carried back as the flag rather than as an error: what a
-				// pipeline reads is text, and it got all of it.
+				// flush reported it once already, and carries it back as the
+				// flag rather than as an error.
 				return warned, nil
 			}
 			return warned, err
@@ -579,9 +517,8 @@ func redactOnce(socketPath, text string) (string, error) {
 	}
 	line, err := sockutil.ReadLine(conn, 1<<26)
 	if err != nil {
-		// Named, not flattened: a refused oversized request and a reset
-		// connection want different fixes, and reporting both as a silent
-		// hang-up sends the reader after the wrong one.
+		// Named, not flattened: an oversized request and a reset connection
+		// want different fixes.
 		return "", fmt.Errorf("reading the response: %w", err)
 	}
 	if len(line) == 0 {
@@ -614,12 +551,12 @@ func call(op string, args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: unexpected argument %q\n", name, rest[0])
 		return 2
 	}
-	// Only run has --quiet; the others never print a summary anyway.
+	// Only run has --quiet.
 	return send(*c.socket, map[string]any{"op": op}, *c.json, true)
 }
 
-// send performs one request/response round trip.  No secret logic lives on
-// this side of the socket: everything it can see has already been redacted.
+// send performs one request/response round trip.  Everything on this side of
+// the socket has already been redacted.
 func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
@@ -662,9 +599,8 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 	}
 
 	if asJSON {
-		// Re-encode rather than echoing the line: indented output is readable
-		// at a terminal, and a round trip through any is still exactly the
-		// values the broker sent.
+		// Re-encoded for readability; a round trip through any changes
+		// nothing.
 		var raw any
 		if err := json.Unmarshal(line, &raw); err == nil {
 			enc := json.NewEncoder(os.Stdout)
@@ -697,8 +633,7 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 			}
 			notes = append(notes, "redacted "+strings.Join(parts, ", "))
 		}
-		// Both of these change what the output means, so they are reported
-		// even when nothing was redacted.
+		// Both change what the output means, so they are always reported.
 		if response.Truncated {
 			notes = append(notes, "output truncated")
 		}

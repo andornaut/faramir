@@ -1,14 +1,7 @@
-// Command stub is a sops stand-in for the test suite.
-//
-// The keeper execs sops and `faramir edit` execs it twice more, so the tests
-// need one on PATH.  Installing the real binary just to run "go test" would put
-// the whole suite behind an apt dependency, so this stub does the same job
-// through the sops libraries: same file format, same age key handling, same
-// output.
-//
-// It is built at test time into a temp directory and never shipped.  Nothing
-// under cmd/ imports it, which is what keeps the sops dependency out of the
-// shipped binary.
+// Command stub is a sops stand-in for the test suite, so "go test" is not behind
+// an apt dependency: same file format, same age key handling, same output,
+// through the sops libraries.  Built at test time and never shipped, and nothing
+// under cmd/ imports it.
 //
 // Usage, matching the two shapes faramir invokes:
 //
@@ -89,9 +82,8 @@ func decrypt(file, outputType string) error {
 	if err != nil {
 		return err
 	}
-	// Reads SOPS_AGE_KEY_FILE from the environment, exactly as real sops does.
-	// That is the behaviour the keeper depends on, so the stub must not
-	// short-circuit it.
+	// SOPS_AGE_KEY_FILE from the environment, as real sops does, which is what
+	// the keeper depends on.
 	key, err := tree.Metadata.GetDataKey()
 	if err != nil {
 		return err
@@ -109,8 +101,7 @@ func decrypt(file, outputType string) error {
 	}
 
 	// Without --output-type the plaintext keeps the file's own format, which is
-	// what `faramir edit` hands to the editor and re-encrypts afterwards.  The
-	// keeper asks for json.
+	// what `faramir edit` edits.  The keeper asks for json.
 	outFormat := inFormat
 	if outputType != "" {
 		outFormat = sopsformats.FormatFromString(outputType)

@@ -11,17 +11,12 @@ import (
 	"github.com/andornaut/faramir/internal/sshkey"
 )
 
-// stepAgeKey mints the keeper's identity.
-//
-// The private key ends up 0400 owned by the keeper, not the broker.  Every
-// brokered command runs as the executor's uid and the broker forks them, so a
-// key either of those could read is a key any command could read.  The keeper
-// takes it through systemd's LoadCredential= and serves decrypted values only.
+// stepAgeKey mints the keeper's identity, 0400 owned by the keeper: a key the
+// broker or the executor could read is one any brokered command could read.
+// The keeper takes it through systemd's LoadCredential=.
 func (r *runner) stepAgeKey() error {
-	// Nothing is opened under a dry run.  The key is 0400 and owned by the
-	// keeper, so an unprivileged report can see that it is there and must not
-	// try to read it; the recipient is left unknown, which the sops step below
-	// reports rather than guesses at.
+	// Nothing is opened under a dry run: the key is 0400 and the keeper's, so
+	// the recipient is left unknown and the sops step reports it as such.
 	if r.opts.DryRun {
 		r.reportPresence("age key", r.layout.AgeKeyPath, "mint")
 		return nil
@@ -30,8 +25,7 @@ func (r *runner) stepAgeKey() error {
 	if err != nil {
 		return err
 	}
-	// Re-asserted every run rather than only on creation, so a key placed by
-	// hand ends up owned by the keeper like a minted one.
+	// Re-asserted every run, so a key placed by hand ends up keeper-owned.
 	changed := created
 	if !r.opts.DryRun {
 		info, err := os.Stat(r.layout.AgeKeyPath)
@@ -58,8 +52,7 @@ func (r *runner) stepAgeKey() error {
 	return nil
 }
 
-// addRecipient records an age recipient for .sops.yaml, keeping the order
-// stable so a re-run does not rewrite the file to say the same thing.
+// addRecipient records an age recipient for .sops.yaml, in a stable order.
 func (r *runner) addRecipient(recipient string) {
 	if recipient == "" || slices.Contains(r.opts.AgeRecipients, recipient) {
 		return
@@ -67,22 +60,14 @@ func (r *runner) addRecipient(recipient string) {
 	r.opts.AgeRecipients = append(r.opts.AgeRecipients, recipient)
 }
 
-// stepSopsConfig writes .sops.yaml into the config directory.
+// stepSopsConfig writes .sops.yaml into the config directory rather than the
+// store: sops resolves it from the working directory upward, so the parent is
+// found from both, and the store is a glob target where filepath.Glob matches
+// dotfiles.
 //
-// There rather than in the store, for two reasons. sops resolves that file from
-// the working directory upward and not from the file being encrypted, so the
-// parent is found from the store as well as from the config directory, while
-// the store is found only from itself. And the store is a drop zone that
-// [secrets] files globs: filepath.Glob matches dotfiles, so a rule file kept
-// among the ciphertext is one glob spelling away from being loaded as a managed
-// file that does not decrypt, which fails the install gate and leaves the broker
-// redacting nothing.
-//
-// Kept if it already exists: adding or dropping a recipient means re-encrypting
-// every managed value, which is an operator action, not something a re-run of
-// the installer should do behind their back.  Kept and read back, though -- see
-// keepSopsConfig -- because keeping it in silence was how --age-recipient came to
-// mean nothing at all on a host that was already installed.
+// Kept if it already exists, adding or dropping a recipient meaning every
+// managed value is re-encrypted.  Kept and read back -- see keepSopsConfig --
+// so --age-recipient does not silently mean nothing.
 func (r *runner) stepSopsConfig() error {
 	path := r.layout.SopsConfigPath()
 	if exists(path) {
@@ -93,19 +78,17 @@ func (r *runner) stepSopsConfig() error {
 		r.skip("sops config", "no age recipient known yet")
 		return nil
 	}
-	// A dry run does not open the age key, so the keeper's recipient is unknown
-	// here for a reason of its own.  Named before the check below, which reaches
-	// the same empty string by the key having been lost rather than by nothing
-	// having looked, and prints a remedy that would be nonsense for this.
+	// A dry run does not open the age key.  Named before the check below, which
+	// reaches the same empty string by the key having been lost and prints a
+	// remedy that would be nonsense here.
 	if r.opts.DryRun {
 		r.skip("sops config", "dry run: the keeper's recipient is not read, so what "+
 			"would be written to "+path+" is not computed")
 		return nil
 	}
-	// Never without the keeper's own recipient.  Writing the file is what decides
-	// who can decrypt every value encrypted after it, and a rule listing only the
-	// operator produces a store the keeper cannot read: the broker comes up, and
-	// serves nothing.
+	// Never without the keeper's own recipient: a rule listing only the operator
+	// produces a store the keeper cannot read, and a broker that serves
+	// nothing.
 	if r.keeperRecipient == "" {
 		r.skip("sops config", "the keeper's recipient is unknown, because "+
 			r.layout.AgeKeyPath+" has been removed. Copy .sops.yaml from a host "+
@@ -126,11 +109,9 @@ creation_rules:
     key_groups:
       - age:
 %s`, recipients.String())
-	// Root-owned like the rest of the config directory: it is edited by hand to
-	// add or drop a recipient, and leaving it writable by anyone else would let
-	// the recipients be rewritten by an account the store group exists to keep
-	// out. World-readable because it holds public keys and a rule and no value,
-	// so checking who can decrypt is not a question that should need sudo.
+	// Root-owned like the rest of the config directory, or the recipients could
+	// be rewritten by an account the store group exists to keep out.
+	// World-readable, holding public keys and a rule and no value.
 	changed, err := r.fs.writeFile(path, []byte(body), 0o644, 0, 0)
 	if err != nil {
 		return err
@@ -141,43 +122,30 @@ creation_rules:
 }
 
 // keepSopsConfig leaves an existing .sops.yaml alone and says what it says.
+// Applying a changed rule means re-encrypting every managed value, which would
+// drop a reader mid-run.
 //
-// Leaving it alone is right: applying a changed rule means re-encrypting every
-// managed value, and doing that from an installer would drop a reader mid-run.
-// What it cost until now was silence in both directions.  --age-recipient on an
-// installed host went into the report and into nothing else, so a key an
-// operator had added, and believed was a way back into the store, opened
-// nothing.  And a keeper key that had been replaced -- restored from a backup,
-// re-minted after the file was unlinked -- left the rule naming the recipient it
-// used to have, so every value encrypted from then on was one the keeper could
-// not read, and the first symptom was a broker that came up healthy and served
-// nothing.
-//
-// So: kept, read back, and every difference between what was asked for and what
-// is in the file reported.  Nothing here fails the run.  Each of these is a host
-// that works today and is wrong about who can read it tomorrow, and failing the
-// install would leave no way to reach the host that has to be fixed.
+// So it is kept, read back, and every difference between what was asked for and
+// what is in the file is reported.  Nothing here fails the run: each is a host
+// that works today and is wrong about who can read it tomorrow.
 func (r *runner) keepSopsConfig(path string) {
 	listed, err := sopsRecipients(path)
 	if err != nil {
-		// The file is the operator's to edit and sops is what has to parse it, so
-		// a shape this does not understand is a warning about a question that went
-		// unasked, not a verdict on the file.
+		// The file is the operator's to edit and sops is what parses it, so a
+		// shape this does not understand is a question that went unasked.
 		r.warn("%s could not be read (%v), so who can decrypt the store went "+
 			"unchecked. sops is what has to parse this file: if it cannot either, "+
 			"encrypting a new value into the store fails", path, err)
 		r.step("sops config", false, "keeping "+path)
 		return
 	}
-	// What the file says, not what was asked for.  This is the answer to "who can
-	// decrypt the managed values", and on every run but the first the request had
-	// no part in it.
+	// What the file says, not what was asked for: on every run but the first the
+	// request had no part in it.
 	r.report.AgeRecipients = listed
 
-	// The keeper's first, and separately: the others are a key that does not open
+	// The keeper's first and separately: the others are a key that does not open
 	// the store, this one is a store the keeper cannot open.  Skipped when the
-	// recipient is unknown, which is a dry run or a key that has been removed,
-	// both of which are already reported where they happen.
+	// recipient is unknown, which is reported where it happens.
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
 		r.warn("%s does not list the keeper's own recipient (%s), so every value "+
 			"encrypted into the store from now on is one %s cannot decrypt: the broker "+
@@ -209,12 +177,10 @@ func (r *runner) keepSopsConfig(path string) {
 	r.step("sops config", false, fmt.Sprintf("keeping %s, %d recipient(s)", path, len(listed)))
 }
 
-// stepSSHKey generates the identity the broker lends to brokered commands.
-//
-// Generating it grants nothing on its own: it opens a host only once its public
-// half is in that host's authorized_keys, which is a step this does not take.
-// An existing key is left alone, because regenerating one silently would lock
-// the broker out of every host its public half is already on.
+// stepSSHKey generates the identity the broker lends to brokered commands.  It
+// opens a host only once its public half is in that host's authorized_keys,
+// which this does not do.  An existing key is left alone, regenerating one
+// locking the broker out of every host it is already on.
 func (r *runner) stepSSHKey() error {
 	if r.opts.SSHKey == "" {
 		r.skip("broker ssh key", "[ssh] keys left empty; keys must then live "+
@@ -235,14 +201,9 @@ func (r *runner) stepSSHKey() error {
 		return err
 	}
 	r.report.BrokerPublicKey = public
-	// Re-asserted every run, not only on creation, for the same reason the age
-	// key's ownership is: a key placed by hand, or left root-owned by an earlier
-	// arrangement, is one the broker cannot read, and the only symptom is an
-	// agent holding nothing and every brokered command reaching no host.
-	//
-	// A repair counts as a change.  Reporting it as no change tells a
-	// configuration manager the host was already correct when this run is what
-	// made it so.
+	// Re-asserted every run, like the age key's: a key placed by hand or left
+	// root-owned is one the broker cannot read, and the only symptom is an agent
+	// holding nothing.  A repair counts as a change.
 	changed := created
 	if !r.opts.DryRun {
 		for path, mode := range map[string]os.FileMode{

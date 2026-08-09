@@ -44,15 +44,13 @@ vault_router_password=secret://vault_router_password
 	}
 }
 
-// The pasted value that must never be echoed back.  A credential in an error
-// message is in the terminal, the scrollback and the agent's context, which is
-// the mistake this file exists to prevent.
+// The pasted value that must never be echoed back: an error message reaches the
+// terminal, the scrollback and the agent's context.
 const pasted = "hunter2-correct-horse-battery"
 
-// Every line readEnvFile refuses, and the part of the message that makes the
-// refusal actionable.  Parsing here rather than letting the broker do it buys
-// exactly one thing: a message that names the file and the line.  A message
-// that does not is no better than the broker's.
+// Every line readEnvFile refuses, and the part of the message that makes it
+// actionable.  Parsing here rather than at the broker buys exactly one thing: a
+// message naming the file and the line.
 func TestRefusedEnvFileLines(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -65,16 +63,13 @@ func TestRefusedEnvFileLines(t *testing.T) {
 		{name: "a literal value", content: "PW=hunter2\n",
 			wants: []string{"secret://"}, why: "the message has to say what was expected"},
 		{name: "a pasted credential", content: "PW=" + pasted + "\n"},
-		// "export NAME=..." is the habitual spelling for a file of environment
-		// variables, and Cut on "=" turns it into a variable literally named
-		// "export NAME".  The broker rejects that too, but by then the message
-		// is about a name the operator never wrote.
+		// Cut on "=" would name the variable "export NAME", and the broker's
+		// refusal would then be about a name the operator never wrote.
 		{name: "an export prefix", content: "export vault_router_password=secret://vault_router_password\n",
 			wants: []string{"«path»"}},
 		{name: "no name at all", content: "=secret://a/b\n"},
-		// Last-wins is the usual env-file rule, but this file names credentials
-		// for a fleet: a duplicate is a copy-paste slip, and silently picking
-		// one of the two is how the wrong credential reaches a host.
+		// A duplicate is a copy-paste slip, and picking one of the two is how
+		// the wrong credential reaches a host.
 		{name: "a duplicate name", content: "PW=secret://a/b\nPW=secret://c/d\n",
 			wants: []string{"PW"}, why: "the message has to name the duplicate"},
 	} {
@@ -89,8 +84,7 @@ func TestRefusedEnvFileLines(t *testing.T) {
 					t.Errorf("message does not carry %q: %v (%s)", want, err, tc.why)
 				}
 			}
-			// Every refusal, not only the one about a pasted value: any of
-			// these lines could hold one.
+			// Any of these lines could hold one.
 			if strings.Contains(err.Error(), pasted) {
 				t.Errorf("the error echoed the pasted value: %v", err)
 			}
@@ -98,8 +92,7 @@ func TestRefusedEnvFileLines(t *testing.T) {
 	}
 }
 
-// Repeating the same line is a merge artefact rather than an ambiguity: there
-// is only one value it could mean.
+// A merge artefact, not an ambiguity: one value it could mean.
 func TestAnIdenticalRepeatIsAllowed(t *testing.T) {
 	if _, err := readEnvFile(writeEnvFile(t, "PW=secret://a/b\nPW=secret://a/b\n")); err != nil {
 		t.Errorf("an identical repeat was rejected: %v", err)
@@ -127,8 +120,7 @@ func TestAnEmptyFileYieldsNoRefs(t *testing.T) {
 	}
 }
 
-// checkRef backs both --env and --env-file, so this invariant covers the two
-// places a credential gets pasted by mistake.
+// checkRef backs both --env and --env-file.
 func TestNoRejectionEverQuotesTheValue(t *testing.T) {
 	for _, name := range []string{"PW", "export PW", "", "1BAD"} {
 		err := checkRef(name, pasted)
@@ -164,12 +156,10 @@ func TestAnEmptySocketEnvVarFallsBackToTheDefault(t *testing.T) {
 	}
 }
 
-// The account that works in the tree, in the order it is resolved.  The flag is
-// the only way to name one where SUDO_USER is unset, which is anything that
-// escalates by a route other than sudo.
+// The account that works in the tree, in resolution order.  The flag is the
+// only way to name one where SUDO_USER is unset.
 func TestOperatorNameResolution(t *testing.T) {
-	// Whoever is running the tests, which is the last candidate and so the
-	// answer whenever nothing else names one.
+	// The last candidate, and so the answer when nothing else names one.
 	current, err := user.Current()
 	if err != nil {
 		t.Fatal(err)
@@ -178,9 +168,8 @@ func TestOperatorNameResolution(t *testing.T) {
 		{"the flag wins", "flagged", "sudo", "flagged"},
 		{"SUDO_USER when that is all there is", "", "sudo", "sudo"},
 		{"root is not an answer", "root", "sudo", "sudo"},
-		// Nobody named: the caller is who this is about.  doctor run by hand is
-		// the case, where not recognising them reports the operator as an
-		// account nothing created.
+		// Nobody named, so the caller is who this is about -- doctor run by
+		// hand would otherwise report them as an account nothing created.
 		{"nothing at all falls back to the caller", "", "", current.Username},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -192,17 +181,14 @@ func TestOperatorNameResolution(t *testing.T) {
 	}
 }
 
-// The guard sanctions the subcommands named in cli.Operator and denies those in
-// cli.Internal, so a subcommand the dispatcher accepts but neither list names
-// would have its arguments scanned: `faramir <it> --env A=secret://a` refused,
-// for a command that is meant to take exactly that.
+// A subcommand the dispatcher accepts but neither cli.Operator nor cli.Internal
+// names would have its arguments scanned.
 func TestEverySubcommandIsNamedForTheGuard(t *testing.T) {
 	named := map[string]bool{}
 	for _, name := range append(append([]string{}, cli.Operator...), cli.Internal...) {
 		named[name] = true
 	}
-	// The dispatcher's own aliases: flags, not subcommands, and not something a
-	// deny rule needs to reason about.
+	// Flags, not subcommands.
 	for _, alias := range []string{"-h", "--help", "-V", "--version"} {
 		named[alias] = true
 	}
@@ -214,10 +200,8 @@ func TestEverySubcommandIsNamedForTheGuard(t *testing.T) {
 	}
 }
 
-// dispatcherNames reads the case labels out of run()'s switch.  Parsing the
-// source rather than calling run() with each name: the provisioning subcommands
-// want root and the daemons want a socket, so invoking them to find out whether
-// they exist would be a test that installs things.
+// dispatcherNames reads the case labels out of run()'s switch.  Parsed from the
+// source, since invoking them would want root and a socket.
 func dispatcherNames(t *testing.T) []string {
 	t.Helper()
 	src, err := os.ReadFile("main.go")

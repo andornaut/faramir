@@ -1,12 +1,10 @@
 // Package keepertest serves the keeper's protocol from a value set a test
-// chooses, so the broker and its store can be exercised without sops, an age
-// key, or a real keeper.
+// chooses, so the broker and its store run without sops, an age key or a real
+// keeper.  Imported only from _test.go files.
 //
-// It is imported only from _test.go files.  One stand-in rather than a copy in
-// each package that needs one: the store's staleness check is set equality over
-// keeper.FileState, so a stand-in that built those differently would pass while
-// production did not, and two copies drift into exactly that.  The fingerprints
-// come from the real keeper.StatAll for the same reason.
+// One stand-in rather than a copy per package: the staleness check is set
+// equality over keeper.FileState, so the fingerprints come from the real
+// keeper.StatAll.
 package keepertest
 
 import (
@@ -25,8 +23,7 @@ import (
 type Keeper struct {
 	// Path is the socket to point a store or a broker at.
 	Path string
-	// Listener is exposed so a test can close it and leave a store with a keeper
-	// it can no longer reach.
+	// Listener is exposed so a test can close it mid-run.
 	Listener net.Listener
 
 	mu     sync.Mutex
@@ -35,12 +32,9 @@ type Keeper struct {
 	files  []string
 }
 
-// New serves values on a socket of its own.
-//
-// files is the managed inventory this keeper reports on.  It is given here
-// rather than read from the store's config because the store no longer stats
-// those files: an absent or unreadable one is the keeper's report, and that
-// report is what the broker's load gate fails on.
+// New serves values on a socket of its own.  files is the managed inventory
+// this keeper reports on, given here because the store no longer stats those
+// files itself.
 func New(t *testing.T, values map[string]string, files ...string) *Keeper {
 	t.Helper()
 	return Serve(t, filepath.Join(t.TempDir(), "keeper.sock"), values, files...)
@@ -66,9 +60,8 @@ func (k *Keeper) accept() {
 		if err != nil {
 			return
 		}
-		// Read the request before answering, as the real keeper does.  Closing
-		// while the client is still writing gives it EPIPE, which surfaces as an
-		// intermittently empty value set.
+		// Read before answering, as the real keeper does: closing mid-write
+		// gives the client EPIPE.
 		line, _ := sockutil.ReadLine(conn, 1<<16)
 		var request struct {
 			Op string `json:"op"`
@@ -104,9 +97,8 @@ func (k *Keeper) SetErrors(errors []string) {
 	k.errors = errors
 }
 
-// SetFiles replaces the managed inventory.  For a caller that configures the
-// store after the keeper is already up: the two are given the same list,
-// because the two disagreeing is not a case a real install can produce.
+// SetFiles replaces the managed inventory, for a caller that configures the
+// store after the keeper is up.  Both get the same list.
 func (k *Keeper) SetFiles(files []string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()

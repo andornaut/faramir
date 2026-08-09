@@ -1,8 +1,7 @@
 package main
 
-// The subcommands that provision and inspect a host, as against the ones that
-// talk to a running broker.  All of them are local; none opens the broker
-// socket except through the checks init runs at the end.
+// The subcommands that provision and inspect a host.  All local; none opens the
+// broker socket except through the checks init runs at the end.
 
 import (
 	"encoding/json"
@@ -20,17 +19,10 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// resolveConfigDir decides which install doctor is examining.
-//
-// The compiled-in default is only right for a host that took it.  Anywhere else
-// doctor would report the config missing and every check that reads it as
-// broken, on a host that is working: the one thing that knows where the config
-// actually is, without being told, is the broker reading it.
-//
-// Asked over the socket rather than read from the unit, because a broker
-// answering at all is what makes the answer worth having.  Falling back to the
-// default when it does not answer is not a guess about the path so much as the
-// only thing left to look at, and a broker that is down is itself the finding.
+// resolveConfigDir decides which install doctor is examining.  The compiled-in
+// default is only right for a host that took it, so the broker is asked over
+// the socket; a broker that does not answer is itself the finding, and the
+// default is then all there is to look at.
 func resolveConfigDir(explicit, socketPath string) string {
 	if explicit != "" {
 		return explicit
@@ -42,9 +34,7 @@ func resolveConfigDir(explicit, socketPath string) string {
 }
 
 // brokerConfigDir asks a running broker which config it loaded, or returns ""
-// when there is nothing listening or it answers with something unexpected.
-// Every failure is the same answer: doctor carries on against the default and
-// reports what it finds there.
+// on any failure, leaving doctor to carry on against the default.
 func brokerConfigDir(socketPath string) string {
 	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
 	if err != nil {
@@ -76,8 +66,7 @@ func brokerConfigDir(socketPath string) string {
 	if err := json.Unmarshal([]byte(response.Output), &body); err != nil || len(body.Configs) == 0 {
 		return ""
 	}
-	// The base config is first by construction; the rest are its drop-ins,
-	// which sit in a subdirectory of the same place.
+	// The base config is first by construction; the rest are its drop-ins.
 	return filepath.Dir(body.Configs[0])
 }
 
@@ -85,9 +74,8 @@ func cmdInit(args []string) int {
 	fs := newFlagSet("init", "init [options]")
 	operator := fs.String("operator", "",
 		"account the coding agent runs as (default $SUDO_USER, then you)")
-	// The two groups, together: one admits a caller to the broker socket and
-	// shares the working tree, the other owns the ciphertext.  Naming them the
-	// same way is the point, because holding one is not holding the other.
+	// One admits a caller to the broker socket and shares the working tree, the
+	// other owns the ciphertext; holding one is not holding the other.
 	clientGroup := fs.String("client-group", install.DefaultGroup,
 		"group admitted to the broker socket, and shared with the executor on a working tree")
 	storeGroup := fs.String("store-group", "",
@@ -125,7 +113,7 @@ func cmdInit(args []string) int {
 		DryRun:        *dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
-	// --json entirely: a caller asking for the report does not want the prose.
+	// --json entirely.
 	if !*asJSON {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
 	}
@@ -147,9 +135,9 @@ func cmdInit(args []string) int {
 	return 0
 }
 
-// reportToOperator prints what a person needs after a run: the things that
-// install cleanly and then do not work, and the public key the fleet has to
-// authorize before any of it reaches a managed host.
+// reportToOperator prints what a person needs after a run: what installs
+// cleanly and then does not work, and the public key the fleet must
+// authorize.
 func reportToOperator(report install.Report) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
@@ -164,12 +152,9 @@ func reportToOperator(report install.Report) {
 	}
 }
 
-// cmdInitProject enrols one tree.
-//
-// The directory defaults to the working one, which is safe here and is not on
-// init: this command means "enrol this project", so the current working
-// directory is the answer, where init means "provision this host" and would
-// enrol whatever directory it happened to be run from.
+// cmdInitProject enrols one tree, defaulting to the working directory.  Safe
+// here and not on init, which means "provision this host" and would otherwise
+// enrol wherever it was run from.
 func cmdInitProject(args []string) int {
 	fs := newFlagSet("init-project", "init-project [options] [DIR]")
 	operator := fs.String("operator", "",
@@ -282,13 +267,10 @@ func cmdDoctor(args []string) int {
 	return 0
 }
 
-// printDiagnosis lays the findings out as a table: status, check, detail.
-//
-// The check is named once per run of findings that share it, so three sockets
-// read as one check with three answers rather than as three checks that happen
-// to have the same name.  The detail wraps under itself: these are sentences
-// naming an account and a path, and one cut off at the terminal edge is one
-// nobody acts on.
+// printDiagnosis lays the findings out as status, check, detail.  The check is
+// named once per run of findings that share it, so three sockets read as one
+// check with three answers, and the detail wraps under itself rather than being
+// cut at the terminal edge.
 func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 	statusWidth := columns(statusColumn(install.StatusFailed)) // the longest
 	name := 0
@@ -305,8 +287,7 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 			label = ""
 		}
 		previous = finding.Name
-		// A finding with no detail is still a line: the status and the name are
-		// the finding, and the detail is what one has to say for itself.
+		// A finding with no detail is still a line.
 		first, rest := "", []string(nil)
 		if lines := wrapText(finding.Detail, terminalWidth()-indent); len(lines) > 0 {
 			first, rest = lines[0], lines[1:]
@@ -328,13 +309,9 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 	_, _ = fmt.Fprintf(w, "\n%s\n", paint.bold(strings.Join(totals, ", ")))
 }
 
-// statusColumn is the glyph and the word, which is what an eye finds before it
-// reads anything: a column of ticks with the one cross in it standing out.
-//
-// Both, not one: the glyph is what makes the column scannable, and the word is
-// what survives a pipe into a log or a grep for "failed".  The glyph is dropped
-// where the locale is not UTF-8, rather than printing a replacement character
-// against every finding.
+// statusColumn is the glyph and the word: the glyph makes the column scannable,
+// the word survives a pipe into a log or a grep for "failed".  The glyph is
+// dropped where the locale is not UTF-8.
 func statusColumn(status install.Status) string {
 	mark := map[install.Status]string{
 		install.StatusOK:     "✓", // check mark
@@ -348,13 +325,11 @@ func statusColumn(status install.Status) string {
 }
 
 // columns is a string's width on screen.  Every glyph above is one column wide,
-// so counting runes is the same answer without a width table, and len would
-// count a check mark as three.
+// so runes are the answer and len would count a check mark as three.
 func columns(text string) int { return utf8.RuneCountInString(text) }
 
-// unicodeLocale reports whether the terminal was told to expect UTF-8.  The
-// first of these that is set decides, which is the order the C library reads
-// them in.
+// unicodeLocale reports whether the terminal was told to expect UTF-8, in the
+// order the C library reads these.
 func unicodeLocale() bool {
 	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
 		if value := os.Getenv(name); value != "" {
@@ -377,9 +352,8 @@ func paintStatus(paint palette, status install.Status) string {
 	}
 }
 
-// wrapText breaks a detail into lines that fit.  Words only: a path is one, and
-// splitting one mid-word makes it uncopyable, so an over-long word takes a line
-// of its own and overflows rather than being cut.
+// wrapText breaks a detail into lines that fit.  Words only, so a path stays
+// copyable: an over-long word overflows rather than being cut.
 func wrapText(text string, width int) []string {
 	if width < 20 {
 		width = 20
@@ -403,8 +377,8 @@ func wrapText(text string, width int) []string {
 	return lines
 }
 
-// terminalWidth is $COLUMNS, then 80.  No dependency for this: the module links
-// golang.org/x/term only indirectly, and a wrong guess costs a wrapped line.
+// terminalWidth is $COLUMNS, then 80.  A wrong guess costs a wrapped line, so
+// this needs no dependency.
 func terminalWidth() int {
 	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 40 {
 		return columns

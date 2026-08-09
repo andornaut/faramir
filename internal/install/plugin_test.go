@@ -9,20 +9,13 @@ import (
 	"testing"
 )
 
-// The plugins opencode and Kilo Code load, run.
-//
-// They are the one piece of shipped logic that is not Go, and the only thing
-// standing between the model's command and a shell on those agents.  A syntax
-// error or a mis-read decision there is not a broken feature: the plugin fails
-// closed, so it is every command in the project refusing to run.
-//
-// Driven through node, which parses and executes the same module a Bun-based
-// agent would.  Skipped where node is absent, like the rest of the suite the
-// tests here do not require anything installed to be useful.
+// The plugins opencode and Kilo Code load, run.  The one piece of shipped logic
+// that is not Go, and it fails closed: a syntax error there is every command in
+// the project refusing to run.  Driven through node, skipped where it is
+// absent.
 
-// driver imports one plugin, calls its tool.execute.before with the payload
-// given, and prints what happened.  The two plugins differ in what a module
-// exports, so which export to call is an argument.
+// driver imports one plugin, calls its tool.execute.before, and prints what
+// happened.  Which export to call is an argument, the two differing.
 const driver = `
 import { pathToFileURL } from "node:url"
 
@@ -53,11 +46,10 @@ type pluginRig struct {
 	modulePath string
 	exportKind string
 	cli        string
-	// payloadFile is what the stand-in wrote its stdin to, so a test can check
-	// that the guard is asked about what the model actually sent.
+	// payloadFile is the stand-in's stdin, so a test can check what the guard
+	// was asked about.
 	payloadFile string
-	// replyFile is what the stand-in prints.  Empty means it prints nothing,
-	// which is how the guard leaves a call alone.
+	// replyFile is what the stand-in prints; empty leaves the call alone.
 	replyFile  string
 	statusFile string
 }
@@ -77,8 +69,8 @@ func newPluginRig(t *testing.T, agent, exportKind string) *pluginRig {
 		replyFile:   filepath.Join(dir, "reply.json"),
 		statusFile:  filepath.Join(dir, "status"),
 	}
-	// .mjs, because a .js is CommonJS to node unless a package.json says
-	// otherwise, and these are modules.  The bytes are the shipped ones.
+	// .mjs: a .js is CommonJS to node without a package.json.  The bytes are
+	// the shipped ones.
 	body, err := readAsset("agent/" + agent + "/plugin.js")
 	if err != nil {
 		t.Fatal(err)
@@ -131,8 +123,7 @@ func (r *pluginRig) answers(t *testing.T, reply string) {
 	write(t, r.replyFile, reply, 0o644)
 }
 
-// Both plugins, because they are separate files: one fixed and the other left
-// behind is the failure this catches.
+// Both plugins, being separate files.
 func eachPlugin(t *testing.T, run func(t *testing.T, rig *pluginRig)) {
 	t.Helper()
 	for agent, exportKind := range map[string]string{
@@ -143,8 +134,8 @@ func eachPlugin(t *testing.T, run func(t *testing.T, rig *pluginRig)) {
 	}
 }
 
-// A rewrite is applied to the arguments the host handed in, all of them, which
-// is how these agents change a call: there is no document to return.
+// Applied to the arguments the host handed in, there being no document to
+// return.
 func TestPluginAppliesARewrite(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
 		rig.answers(t, `{"decision":"rewrite","tool_input":`+
@@ -159,8 +150,7 @@ func TestPluginAppliesARewrite(t *testing.T) {
 		if got.Args["description"] != "look" {
 			t.Errorf("args = %v, want every field back", got.Args)
 		}
-		// The guard decides against what the model sent, so that is what it has
-		// to be given.
+		// The guard decides against what the model sent.
 		payload, err := os.ReadFile(rig.payloadFile)
 		if err != nil {
 			t.Fatal(err)
@@ -178,8 +168,7 @@ func TestPluginAppliesARewrite(t *testing.T) {
 	})
 }
 
-// A refusal reaches the model as the error the tool call failed with, which is
-// the only thing it can act on.
+// A refusal reaches the model as the error the tool call failed with.
 func TestPluginThrowsADenial(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
 		rig.answers(t, `{"decision":"deny","reason":"Blocked: use faramir_run instead"}`)
@@ -193,8 +182,7 @@ func TestPluginThrowsADenial(t *testing.T) {
 	})
 }
 
-// Nothing written is a call the guard left alone: a backgrounded command, or
-// one already under the redactor.  It runs unchanged rather than being refused.
+// Nothing written is a call the guard left alone, which runs unchanged.
 func TestPluginLeavesAnUnansweredCallAlone(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
 		got := rig.call(t, "bash", map[string]any{"command": "tail -f log &"})
@@ -207,9 +195,8 @@ func TestPluginLeavesAnUnansweredCallAlone(t *testing.T) {
 	})
 }
 
-// Every way of not getting a decision fails closed.  A guard that cannot run is
-// an install that is broken or absent, and running the command anyway would
-// print whatever it found into the transcript.
+// Every way of not getting a decision fails closed: running the command anyway
+// would print whatever it found into the transcript.
 func TestPluginFailsClosed(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
 		t.Run("the guard exits non-zero", func(t *testing.T) {
@@ -241,8 +228,7 @@ func TestPluginFailsClosed(t *testing.T) {
 	})
 }
 
-// Every other tool is left alone without asking.  A plugin sees them all, and
-// only a command has output worth redacting.
+// A plugin sees every tool, and only a command has output worth redacting.
 func TestPluginIgnoresEveryOtherTool(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
 		rig.answers(t, `{"decision":"deny","reason":"this should never be asked for"}`)

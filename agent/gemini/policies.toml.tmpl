@@ -1,25 +1,17 @@
-# faramir: refuse to open key material, wherever the agent is working.
+# faramir: refuse to open key material, wherever the agent is working.  This
+# takes nothing away: values reach a command through the broker.
 #
-# ".env" is matched as "/\.env", so it is a dotfile rather than any name ending
-# in those four characters: faramir.env holds refs and no values, and is meant
-# to be read.
+# Gemini CLI matches a regex against the tool's arguments serialised as JSON, so
+# this is one rule per file tool with the paths as an alternation.  Tolerant of
+# whitespace around the colon, the serialiser promising only "a stable JSON
+# string".
 #
-# Gemini CLI matches a regex against the tool's arguments serialised as JSON,
-# rather than globs against a path, so this is one rule per file tool with the
-# paths as an alternation. Tolerant of whitespace around the colon: what the
-# serialiser emits is documented as "a stable JSON string" and not as an exact
-# spelling.
+# ".env" is matched as "/\.env", a dotfile rather than any name ending in those
+# four characters: faramir.env holds refs and is meant to be read.
 #
-# priority 1000 so an allow rule written later does not quietly outrank these.
-# deny rather than ask_user: these are files no agent has a reason to open, and
-# a prompt is something to click through.
-#
-# This takes nothing away that faramir needs. Values reach a command through the
-# broker, which never puts one in a file the agent could read.
-#
-# The install's own directories are interpolated through regexQuote, because
-# these are regexes: an unquoted dot matches any character, and an unquoted "+"
-# or "(" in a path would not compile at all.
+# priority 1000, so an allow rule written later does not outrank these; deny
+# rather than ask_user, a prompt being something to click through.  The
+# install's own directories go through regexQuote, these being regexes.
 
 # Reading a single file.
 [[rule]]

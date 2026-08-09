@@ -2,12 +2,9 @@ package secretref
 
 import "testing"
 
-// What a ref is, and what it is not.
-//
-// A ref must start with an alphanumeric, which is what refuses a leading ".."
-// or an empty first segment.  A ".." in the middle is accepted, deliberately: a
-// ref is a key into the flattened decrypted tree, never a filesystem path, so
-// it resolves to a key that does not exist and comes back as unknown_secret.
+// A ref starts with an alphanumeric, which refuses a leading ".." or an empty
+// first segment.  A ".." in the middle is accepted: a ref is a key into the
+// flattened decrypted tree, never a path, so it comes back as unknown_secret.
 func TestParse(t *testing.T) {
 	for _, tc := range []struct {
 		uri  string

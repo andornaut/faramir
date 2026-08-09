@@ -14,13 +14,12 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// Options is one `faramir init` invocation.  Everything an operator can decide;
-// the paths that follow from those decisions are in Layout.
+// Options is one `faramir init` invocation: everything an operator can decide.
+// The paths that follow are in Layout.
 type Options struct {
-	// Operator is the account the coding agent runs as.  There is no account of
-	// its own: the work it is asked to do is the operator's, and a separate uid
-	// could reach none of it.  What the three service accounts below hold is
-	// what the operator cannot read either.
+	// Operator is the account the coding agent runs as.  It has no account of
+	// its own: the work it does is the operator's, and a separate uid could
+	// reach none of it.
 	Operator string
 
 	Group      string
@@ -30,60 +29,43 @@ type Options struct {
 	ExecUser   string
 
 	// ConfigDir holds config.toml, config.d/, the age key and the store.  One
-	// path rather than several: the key follows the config so that a store in an
-	// encrypted home has the key that opens it in there too, and a store moved
-	// away on its own would leave that key behind.
+	// path, so a store in an encrypted home has the key that opens it there
+	// too.
 	ConfigDir string
 
 	// AgeRecipients are listed in .sops.yaml alongside the keeper's, so an
-	// account that is not the keeper can still read the files it is responsible
-	// for.  Without one, editing a value or rotating a credential has to go
-	// through the broker.
-	//
-	// Public keys only.  No identity is minted for anybody but the keeper: a
-	// second private key is a second way into the store, and it earns that only
-	// where the ciphertext is backed up somewhere the keeper's key is not.
+	// account that is not the keeper can read the files it is responsible for.
+	// Public keys only: a second private key is a second way into the store.
 	AgeRecipients []string
 
-	// SSHKey is the identity the broker lends to brokered commands through an
-	// agent it owns, generated when missing.  A key of the broker's own rather
-	// than the operator's: the executor's uid can authenticate with it without
-	// being able to read it.  Empty leaves [ssh] keys unset, which works but
-	// puts the keys somewhere the executor can read.
+	// SSHKey is the identity the broker lends through an agent it owns,
+	// generated when missing, so the executor can authenticate with it without
+	// reading it.  Empty leaves [ssh] keys unset, which puts the keys somewhere
+	// the executor can read.
 	SSHKey string
 
-	// No tree is enrolled here.  A tree is per project and there is no limit to
-	// how many there are, where this runs once per machine; and the working
-	// directory is the obvious default for "enrol this project" and a hazard for
-	// "provision this host", which would enrol whatever directory it was run
-	// from.  See `faramir init-project`.
+	// No tree is enrolled here: a tree is per project and this runs once per
+	// machine.  See `faramir init-project`.
 
-	// Agents names the coding agents whose own settings get the Read deny
-	// rules, which refuse to open key material wherever the agent is working
-	// and take nothing away.  Naming one is what asks for them: empty writes
-	// nothing, so there is no state where a name is given and ignored.
+	// Agents names the coding agents whose settings get the Read deny rules,
+	// which refuse to open key material wherever the agent is working.  Empty
+	// writes nothing.
 	//
-	// The PreToolUse hook is not installed here: it is per project, because
-	// registering it auto-approves Bash for that project.
-	//
-	// The same names `faramir init-project --agent` takes, which defaults to
-	// Claude Code where this does not: enrolling a tree is the point of that
-	// command and an aside to this one.
+	// The PreToolUse hook is per project, because registering it auto-approves
+	// Bash there.  The same names `faramir init-project --agent` takes, which
+	// unlike this defaults to Claude Code.
 	Agents []string
 
-	// DryRun computes every answer and writes nothing.  Steps that cannot be
-	// evaluated without accounts that do not exist yet are reported as skipped
-	// rather than guessed at.
+	// DryRun computes every answer and writes nothing.  A step needing accounts
+	// that do not exist yet is reported as skipped.
 	DryRun bool
 
-	// Log receives one line per step for a human watching.  The machine-readable
-	// answer is the returned Report.
+	// Log receives one line per step; the machine-readable answer is Report.
 	Log func(string)
 }
 
-// Step is one unit of work and whether it changed anything.  A caller driving
-// this from a configuration manager reads Changed rather than stat-ing the host
-// before and after.
+// Step is one unit of work and whether it changed anything, so a configuration
+// manager reads Changed rather than stat-ing the host.
 type Step struct {
 	Name    string `json:"step"`
 	Changed bool   `json:"changed"`
@@ -97,19 +79,15 @@ type Report struct {
 	Changed bool   `json:"changed"`
 	DryRun  bool   `json:"dry_run,omitempty"`
 	Steps   []Step `json:"steps"`
-	// Warnings are the things that install cleanly and then do not work.  They
-	// are not failures, because each has a legitimate shape, but every one of
-	// them has left somebody with a broker that looked healthy and did nothing.
+	// Warnings are the things that install cleanly and then do not work.  Not
+	// failures, each having a legitimate shape.
 	Warnings []string `json:"warnings,omitempty"`
-	// BrokerPublicKey has to be in authorized_keys on every managed host or
-	// brokered commands authenticate as nobody.  Reported every run, not only
-	// when the key was just generated.
+	// BrokerPublicKey has to be in authorized_keys on every managed host.
+	// Reported every run, not only when it was generated.
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
-	// AgeRecipients is who can decrypt the managed files: what .sops.yaml lists,
-	// read back from the file, and not what --age-recipient asked for.  The two
-	// agree only on the run that creates it, and reporting the request was how a
-	// flag that had been ignored for months still read as applied.  Empty when
-	// the file could not be read or was not reached, rather than guessed at.
+	// AgeRecipients is who can decrypt the managed files, read back from
+	// .sops.yaml rather than taken from --age-recipient: the two agree only on
+	// the run that creates it.  Empty when the file could not be read.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
 }
 
@@ -119,34 +97,28 @@ type runner struct {
 	fs     fsys
 	report Report
 
-	// The directory the running faramir came out of, which is where the binary
-	// installed onto the host is copied from: `sudo ./bin/faramir init` finds
-	// its siblings, an installed one reinstalls itself, and a release unpacked
-	// into a staging directory installs from there.  Nothing names it, so the
-	// binary that provisions the host is always the one that lands on it.
+	// The directory the running faramir came out of, so the binary that
+	// provisions the host is the one that lands on it.  Nothing names it.
 	binaries string
 
-	// What the validation step actually established, as against what it was
-	// asked to check.  It skips entirely under DryRun and on a host with no
-	// systemd, so the irreversible step below cannot read its own absence as
-	// approval.
+	// What the validation step established, not what it was asked to check: it
+	// skips under DryRun and without systemd, so the irreversible step below
+	// cannot read its absence as approval.
 	brokerLoadedRefs int
 	brokerChecked    bool
 
-	// The keeper's own age recipient, empty when it could not be read: the
-	// plaintext key has been removed and the sealed credential is not something
-	// this decrypts.  A .sops.yaml written without it encrypts every later value
-	// to everyone except the one account that has to decrypt them.
+	// The keeper's own age recipient, empty when it could not be read.  A
+	// .sops.yaml written without it encrypts every later value to everyone
+	// except the account that has to decrypt them.
 	keeperRecipient string
 
-	// What has changed that the running daemons would not otherwise pick up.
-	// Neither re-reads its config while running and none of them reloads its own
-	// binary, so those are the changes a restart is for; nothing else is worth
-	// killing the brokered commands in flight over.
+	// What the running daemons would not otherwise pick up.  None re-reads its
+	// config or reloads its binary, and nothing else is worth killing the
+	// commands in flight for.
 	needsRestart   bool
 	restartReasons []string
 
-	// Resolved after the accounts step.  keep when the account does not exist,
+	// Resolved after the accounts step; keep when the account does not exist,
 	// which only happens under DryRun.
 	operatorUID  int
 	operatorHome string
@@ -189,10 +161,8 @@ func Run(opts Options) (Report, error) {
 		run.stepSSHKey,
 		run.stepBinaries,
 		run.stepConfig,
-		// Before the units are written and anything is started: it grants the
-		// traversal that lets a service uid reach a config or a store under the
-		// operator's home, and a daemon started without it exits before it opens
-		// a socket.
+		// Before the units are written: it grants the traversal that lets a
+		// service uid reach a config under the operator's home.
 		run.stepReachable,
 		run.stepUnits,
 		run.stepSystemd,
@@ -204,9 +174,8 @@ func Run(opts Options) (Report, error) {
 			return run.report, err
 		}
 	}
-	// AgeRecipients is set by the sops config step, which is the only thing here
-	// that has read the file.  Not restated from the options: that is the request,
-	// and on every run after the first the request is not what governs.
+	// Set by the sops config step, the only thing here that read the file, not
+	// restated from the options, which are only the request.
 	return run.report, nil
 }
 
@@ -220,10 +189,8 @@ func (o *Options) applyDefaults() {
 	if o.KeeperUser == "" {
 		o.KeeperUser = DefaultKeeperUser
 	}
-	// After KeeperUser, whose primary group this is.  The keeper is the only
-	// account that opens a managed file, so the group that owns the store is
-	// the one the account already has, and there is no membership to keep
-	// accurate.
+	// After KeeperUser, whose primary group this is: the keeper is the only
+	// account that opens a managed file, so there is no membership to keep.
 	if o.StoreGroup == "" {
 		o.StoreGroup = o.KeeperUser
 	}
@@ -252,22 +219,16 @@ func (o Options) layout() (Layout, error) {
 		SSHKey:     o.SSHKey,
 	}
 	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
-	// Beside the config, including when that is inside the operator's own home.
-	// What keeps the operator out of the key is its 0400 keeper ownership, which
-	// holds wherever it sits: owning the directory is permission to unlink the
-	// file, not to read it.  Replacing it is a deliberate act, and a store
-	// encrypted to the key it replaced then decrypts for nobody, so what that
-	// buys an attacker is denial of service rather than disclosure.
-	//
-	// Following the config is what puts the key inside an encrypted home when
-	// the store is already there, so a powered-off disk carries neither.
+	// Beside the config, even inside the operator's home: what keeps the
+	// operator out is the key's 0400 keeper ownership, and owning the directory
+	// is permission to unlink the file, not to read it.  Following the config
+	// puts the key inside an encrypted home when the store is already there.
 	layout.AgeKeyPath = filepath.Join(layout.ConfigDir, "age.key")
 	return layout, layout.validate()
 }
 
-// preflight refuses the run before anything is written.  Each of these
-// otherwise surfaces once the binaries are already on the host, leaving an
-// install half applied.
+// preflight refuses the run before anything is written, each of these otherwise
+// surfacing with the install half applied.
 func (r *runner) preflight() error {
 	if os.Geteuid() != 0 && !r.opts.DryRun {
 		return errors.New("faramir init must run as root: it creates accounts, " +
@@ -281,31 +242,26 @@ func (r *runner) preflight() error {
 	if !userExists(r.opts.Operator) {
 		return fmt.Errorf("no such user: %s", r.opts.Operator)
 	}
-	// Before any account exists and long before .sops.yaml is written, because
-	// that file is written once and then kept: a recipient that is not one lands
-	// in a world-readable rule and stays there, and what it breaks -- every later
-	// encrypt, or the privacy of a private key -- surfaces nowhere near the run
-	// that accepted it.  The keeper's own is added after this and needs no check,
-	// having just been read out of the key.
+	// Before .sops.yaml is written, that file being written once and then kept:
+	// a bad recipient lands in a world-readable rule and breaks every later
+	// encrypt, nowhere near the run that accepted it.  The keeper's own is read
+	// out of the key and needs no check.
 	for _, recipient := range r.opts.AgeRecipients {
 		if err := agekey.ValidateRecipient(recipient); err != nil {
 			return fmt.Errorf("--age-recipient: %w", err)
 		}
 	}
-	// An encrypted home is a different directory before its owner logs in, and
-	// writing to it then lands in the unencrypted backing store, where it is
-	// shadowed the moment the home mounts.  The install would look like it
-	// worked and the daemons would never see the file again.  The config
-	// directory answers for the store and the key as well, both being under it.
+	// An encrypted home is a different directory before its owner logs in, so a
+	// write lands in the backing store and is shadowed the moment it mounts.
+	// The config directory answers for the store and the key too.
 	if home := homeOf(r.layout.ConfigDir); home != "" && looksEncrypted(home) && !homeIsMounted(home) {
 		return fmt.Errorf("%s is an encrypted home and is not mounted, and %s is "+
 			"inside it. Installing now would write plaintext to the backing store, "+
 			"where it is hidden once the home mounts. Log in as its owner first",
 			home, r.layout.ConfigDir)
 	}
-	// The binaries are built ahead of time, so this needs no toolchain on the
-	// target host.  Checked here rather than at the install step, which is
-	// after the accounts and the age key have already been created.
+	// The binaries are built ahead of time.  Checked here rather than at the
+	// install step, which is after the accounts and the age key exist.
 	if r.binaries == "" {
 		return errors.New("cannot find the directory this faramir was run from")
 	}
@@ -342,8 +298,7 @@ func (r *runner) step(name string, changed bool, detail string) {
 	r.opts.Log(line)
 }
 
-// skip records a step that could not be evaluated.  Only reachable under
-// DryRun, where the accounts a step reads may not exist yet.
+// skip records a step that could not be evaluated.  Only under DryRun.
 func (r *runner) skip(name, why string) {
 	r.report.Steps = append(r.report.Steps, Step{Name: name, Skipped: true, Detail: why})
 	if r.opts.Log != nil {
@@ -351,9 +306,8 @@ func (r *runner) skip(name, why string) {
 	}
 }
 
-// reportPresence is the dry-run answer for a step whose only question is
-// whether a file is already there.  Nothing is opened: several of these are key
-// material, and a report is not a reason to read one.
+// reportPresence is the dry-run answer for a step that only asks whether a file
+// is there.  Nothing is opened: several are key material.
 func (r *runner) reportPresence(name, path, wouldCreate string) {
 	present, known := probe(path)
 	switch {
@@ -378,16 +332,10 @@ func (r *runner) warn(format string, args ...any) {
 	r.report.Warnings = append(r.report.Warnings, fmt.Sprintf(format, args...))
 }
 
-// command runs a program and returns its standard output.
-//
-// stdout alone, never combined: the broker prints its --check report on stdout
-// and logs on stderr, and it logs on every load whether or not anything went
-// wrong.  A combined capture puts a log line in front of the JSON and makes
-// every report unparseable, which reads as a broken install on a working host.
-// stderr is carried in the error instead, which is where it is wanted.
-//
-// Nothing here handles a secret: the age key is minted in process and never
-// passed on a command line, and sops is run by the keeper, not by this.
+// command runs a program and returns its standard output.  stdout alone: the
+// broker prints its --check report there and logs on stderr on every load, so a
+// combined capture would make every report unparseable.  stderr is carried in
+// the error.
 func (r *runner) command(name string, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(name, args...)
@@ -401,8 +349,7 @@ func (r *runner) command(name string, args ...string) (string, error) {
 }
 
 // commandCombined is command for the programs whose answer is on stderr.
-// systemd-analyze verify reports what systemd will silently ignore there and
-// exits 0 either way, so the output is the only thing worth reading.
+// systemd-analyze verify reports there and exits 0 either way.
 func (r *runner) commandCombined(name string, args ...string) (string, error) {
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()

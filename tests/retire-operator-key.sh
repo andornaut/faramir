@@ -1,25 +1,22 @@
 #!/usr/bin/env bash
 # Retire the operator's own age identity, once the keeper is the only thing that
-# needs to open the store.
+# needs to open the store.  That key decrypts every managed file and is readable
+# by the account a coding agent runs as, so removing it is what makes the group
+# and ownership work load-bearing.
 #
-# That key decrypts every managed file and lives readable by the account a
-# coding agent runs as, so while it exists the group and ownership work is
-# bypassable: an agent that goes looking can simply use it. Removing it is the
-# step that makes the rest load-bearing.
-#
-# Run as the operator, not under sudo. It sudos where it needs to.
+# Run as the operator, not under sudo.  It sudos where it needs to.
 #
 #   tests/retire-operator-key.sh [--config-dir DIR] [--host HOST]... [--shred]
 #
 # Two modes, chosen by what it finds:
 #
-#   the key is in place    move it aside, re-verify everything without it, and
-#                          restore it immediately if anything fails
+#   the key is in place    move it aside, re-verify without it, restore on any
+#                          failure
 #   already stashed        search only, for the recipients check that decides
 #                          whether the stash is safe to destroy
 #
-# Destroying it is deliberately NOT automatic: pass --shred to be prompted after
-# every check passes, or destroy it yourself once you are satisfied.
+# Destroying it is not automatic: pass --shred to be prompted after every check
+# passes.
 
 set -uo pipefail
 
@@ -92,8 +89,8 @@ offer_shred() {
 say "Preconditions"
 sudo -v || { no "sudo is required"; exit 1; }
 
-# Which mode. A key in place is a retirement; a stash and no key is the search
-# that should happen before the stash is destroyed.
+# A key in place is a retirement; a stash and no key is the search that precedes
+# destroying it.
 MODE=retire
 if [ -r "$KEY" ]; then
   ok "found $KEY"

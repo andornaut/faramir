@@ -7,11 +7,9 @@ import (
 	"testing"
 )
 
-// An existing .sops.yaml is kept, because applying a changed rule means
-// re-encrypting every managed value and an installer doing that would drop a
-// reader mid-run.  Keeping it in silence is the part that was wrong: the run
-// then reported a set of recipients it had not looked at, so --age-recipient on
-// an installed host read as applied for as long as nobody tried the key.
+// An existing .sops.yaml is kept, applying a changed rule meaning every managed
+// value is re-encrypted.  Kept and read back, so --age-recipient on an installed
+// host does not read as applied when it was not.
 func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	const (
 		keeper = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
@@ -19,8 +17,8 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	)
 	for _, tc := range []struct {
 		name string
-		// listed is what the file on disk says; requested is what the run was
-		// asked for, as --age-recipient plus the keeper's own.
+		// listed is the file on disk; requested is --age-recipient plus the
+		// keeper's own.
 		listed    []string
 		requested []string
 		keeper    string
@@ -34,16 +32,16 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 			keeper: keeper, want: []string{keeper, backup}, noWarn: true,
 		},
 		{
-			// The flag that meant nothing.  It has to name the key it did not
-			// add, because the operator's next move is to add it by hand.
+			// Names the key it did not add, the next move being to add it by
+			// hand.
 			name:   "a recipient asked for and not in the file",
 			listed: []string{keeper}, requested: []string{backup, keeper},
 			keeper: keeper, want: []string{keeper},
 			warns: []string{"--age-recipient", backup, "updatekeys"},
 		},
 		{
-			// The severe one: what replacing the age key leaves behind.  Every
-			// value encrypted from now on is one the keeper cannot read.
+			// What replacing the age key leaves behind: every value from now on
+			// is one the keeper cannot read.
 			name:   "the file has drifted off the keeper's key",
 			listed: []string{backup}, requested: []string{keeper},
 			keeper: keeper, want: []string{backup},
@@ -51,8 +49,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 		},
 		{
 			// Nothing read the key, so nothing is claimed about it.  A dry run
-			// and a removed key both land here, and both are reported where they
-			// happen rather than guessed at again.
+			// and a removed key both land here.
 			name:   "the keeper's recipient is unknown",
 			listed: []string{backup}, requested: nil,
 			keeper: "", want: []string{backup}, noWarn: true,
@@ -94,9 +91,8 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	}
 }
 
-// A file sops itself could not parse is one this cannot answer for either, so it
-// reports the question as unasked rather than reporting an empty recipient list,
-// which reads identically to a rule that names nobody.
+// A file sops could not parse is reported as a question unasked, an empty
+// recipient list reading identically to a rule naming nobody.
 func TestKeepSopsConfigDoesNotInventAnAnswerForAnUnreadableFile(t *testing.T) {
 	dir := t.TempDir()
 	run := &runner{
@@ -105,15 +101,12 @@ func TestKeepSopsConfigDoesNotInventAnAnswerForAnUnreadableFile(t *testing.T) {
 		keeperRecipient: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
 	}
 	path := run.layout.SopsConfigPath()
-	// Valid YAML for a rule file and not valid as one: an unclosed flow
-	// sequence, which is what a hand edit in a hurry leaves behind.
+	// An unclosed flow sequence, which is what a hurried hand edit leaves.
 	if err := os.WriteFile(path, []byte("creation_rules:\n  - key_groups: [oh dear\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Never fatal: the file is the operator's to edit, and failing the install
-	// over one this cannot parse leaves no way to reach the host that has to be
-	// fixed.
+	// Never fatal: failing here leaves no way to reach the host to fix it.
 	run.keepSopsConfig(path)
 	if len(run.report.AgeRecipients) != 0 {
 		t.Errorf("reported %q from a file it could not read", run.report.AgeRecipients)

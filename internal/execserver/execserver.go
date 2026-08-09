@@ -1,23 +1,13 @@
-// Package execserver runs brokered commands as a uid that holds nothing.
+// Package execserver runs brokered commands as faramir-exec, a uid that holds
+// no secrets, audit log, age key or SSH keys.  A child forked by the broker
+// would inherit all four.
 //
-// The broker resolves policy, injects secret values, redacts output and writes
-// the audit log.  It does not fork the child: this service does, under
-// faramir-exec, which holds no secrets, cannot read the raw log, cannot read
-// the age key, and cannot read the SSH keys that reach managed hosts.
+// The PTY stays on the broker's side: it creates the pair, sends the slave over
+// SCM_RIGHTS and keeps the master.  This service does the fork, the session
+// setup and the reaping, and reports an exit status.
 //
-// The split is what makes those statements true.  A child forked by the broker
-// shares the broker's uid, and anything that uid can read or write, the child
-// can read or write.
-//
-// The PTY stays on the broker's side.  The broker creates the pair, sends the
-// slave over SCM_RIGHTS, and keeps the master, so redaction, truncation and
-// the audit log run exactly where they always did and the output never makes
-// an extra hop.  This service does the fork, the session setup and the
-// reaping, and reports an exit status.
-//
-// Closing the connection is how the broker says "give up": the child's process
-// group is killed.  That covers the broker dying mid-command, which would
-// otherwise leave an orphan holding a credential in its environment.
+// Closing the connection means "give up", and kills the child's process group,
+// which covers the broker dying mid-command.
 package execserver
 
 import (
@@ -124,8 +114,8 @@ func (e *Executor) serveConnection(conn net.Conn) {
 	}
 
 	payload, slaveFD, err := readRequest(conn)
-	// run takes ownership of slaveFD; every path that does not reach it has to
-	// close the descriptor here or the broker's master never reaches EOF.
+	// run takes ownership of slaveFD; any path that misses it must close the
+	// descriptor here, or the broker's master never reaches EOF.
 	if err != nil || payload == nil {
 		if slaveFD >= 0 {
 			_ = unix.Close(slaveFD)
@@ -189,7 +179,7 @@ func readRequest(conn net.Conn) (*request, int, error) {
 		}
 	}
 
-	// Any fd past the first is a caller bug; close them rather than leak.
+	// Any fd past the first is a caller bug.
 	for _, extra := range fds[min(1, len(fds)):] {
 		_ = unix.Close(extra)
 	}
@@ -226,16 +216,13 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	if len(req.Argv) == 0 {
 		return errorResponse("bad_request", "'argv' must be a non-empty list of strings")
 	}
-	// No fallback: the broker refuses a request that names no directory, so
-	// one arriving here without one is a bug rather than a default to fill in.
+	// No fallback: the broker refuses a request that names no directory.
 	cwd := req.Cwd
 	if cwd == "" {
 		return errorResponse("bad_request", "'cwd' must name the directory to run in")
 	}
 
-	// There is no allowlist to re-check here any more.  What bounds a brokered
-	// command is the uid it runs as, which holds no key, no audit log and no
-	// SSH key, not a list of permitted programs.
+	// No allowlist: what bounds a brokered command is the uid it runs as.
 
 	env := make([]string, 0, len(req.Env)+1)
 	hasHome := false
@@ -245,8 +232,8 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 		}
 		env = append(env, k+"="+v)
 	}
-	// The child's HOME belongs to this uid, not the broker's.  Ansible creates
-	// ~/.ansible/tmp unconditionally and fails if it cannot.
+	// HOME belongs to this uid, not the broker's; ansible creates
+	// ~/.ansible/tmp unconditionally.
 	if !hasHome {
 		env = append(env, "HOME="+ownHome())
 	}
@@ -254,11 +241,9 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	timeoutSec := positive(req.TimeoutSec, e.config.Exec.DefaultTimeoutSec)
 	graceSec := positive(req.KillGraceSec, e.config.Exec.KillGraceSec)
 
-	// Nothing ever writes to the master, so a child reading stdin would block
-	// until its timeout, holding a concurrency slot: bash with no arguments,
-	// or any password prompt, does it.  /dev/null turns that into an immediate
-	// EOF.  stdout and stderr keep the PTY, which is what `test -t 1` and
-	// writes to /dev/tty depend on.
+	// Nothing writes to the master, so a child reading stdin would block until
+	// its timeout; /dev/null makes that an immediate EOF.  stdout and stderr
+	// keep the PTY, which `test -t 1` and /dev/tty writes depend on.
 	devnull, err := os.Open(os.DevNull)
 	if err != nil {
 		return errorResponse("exec_failed", err.Error())
@@ -271,17 +256,15 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	cmd.Stdin = devnull
 	cmd.Stdout = slave
 	cmd.Stderr = slave
-	// Setsid makes the child a session leader, so its pid is its process-group
-	// id and killpg reaches everything it spawns.  Ctty 1 is the slave, which
-	// is how a write to /dev/tty (ssh and sudo prompts) lands on our PTY.
+	// Setsid makes the child a session leader, so killpg reaches everything it
+	// spawns.  Ctty 1 is the slave, so a write to /dev/tty lands on our PTY.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 1}
 
 	started := time.Now()
 	if err := cmd.Start(); err != nil {
 		return errorResponse("exec_failed", fmt.Sprintf("%s: %v", req.Argv[0], err))
 	}
-	// The broker holds the master; our copy of the slave must go now, or the
-	// master never reaches EOF and the broker waits forever.
+	// Our copy of the slave must go, or the master never reaches EOF.
 	closeSlave()
 
 	waitDone := make(chan struct{})
@@ -311,12 +294,11 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 }
 
 // await waits for the child, watching the clock and the broker's connection.
-// done is closed by the caller's cmd.Wait goroutine; waiting twice on the same
-// process would make one of the two calls fail with ECHILD.
+// done is closed by the caller's cmd.Wait goroutine, since waiting twice would
+// fail with ECHILD.
 func (e *Executor) await(cmd *exec.Cmd, conn net.Conn, done <-chan struct{}, timeoutSec, graceSec int) bool {
-	// A readable connection means the broker sent something (it should not) or
-	// hung up.  Either way it is no longer waiting for us, and an orphan
-	// holding a credential in its environment is exactly what must not survive.
+	// A readable connection means the broker sent something or hung up; either
+	// way it is no longer waiting, and the child must not outlive it.
 	hangup := make(chan struct{})
 	go func() {
 		one := make([]byte, 1)
@@ -404,10 +386,8 @@ type ChildResult struct {
 	TimedOut bool
 }
 
-// Client is one brokered command: start it, then collect its exit status.
-//
-// The broker keeps the PTY master and reads it between Start and Result, so
-// this cannot be a single blocking call.
+// Client is one brokered command: start it, then collect its exit status.  Two
+// calls, because the broker reads the PTY master in between.
 type Client struct {
 	socketPath string
 	conn       *net.UnixConn

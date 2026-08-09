@@ -12,7 +12,7 @@ import (
 )
 
 func TestCutAtRuneKeepsWholeRunes(t *testing.T) {
-	// "é" is two bytes, so a limit of 3 lands inside the second one.
+	// "é" is two bytes, so a limit of 3 lands inside the second.
 	if got := cutAtRune("aé", 2); got != "a" {
 		t.Errorf("got %q, want %q", got, "a")
 	}
@@ -24,10 +24,9 @@ func TestCutAtRuneKeepsWholeRunes(t *testing.T) {
 	}
 }
 
-// logrotate renames the log away underneath a running broker, and the file the
-// broker made at startup is not reopened.  Without a fresh open per write,
-// every record between a rotation and the next restart lands in the renamed
-// file, where the reader does not look and the retention policy deletes it.
+// logrotate renames the log away underneath a running broker, so without a fresh
+// open per write every record until the next restart lands in the renamed
+// file.
 func TestARecordAfterARotationOpensANewLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 1 << 16})
@@ -56,9 +55,8 @@ func TestARecordAfterARotationOpensANewLog(t *testing.T) {
 		t.Errorf("the rotated log lost the record that was already in it: %s", rotated)
 	}
 
-	// The mode does not come from the file that was renamed away, so the new one
-	// has to be created with it: the log carries command output, and 0644 here
-	// would hand it to every account on the host.
+	// The new file has to be created with the mode: 0644 would hand the command
+	// output it carries to every account on the host.
 	info, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
@@ -68,9 +66,8 @@ func TestARecordAfterARotationOpensANewLog(t *testing.T) {
 	}
 }
 
-// A child printing binary puts an invalid byte in the middle of the stream.
-// Backing off to the first valid prefix would drop everything after it, and
-// take O(n^2) to do so; only a partial rune at the very end may be trimmed.
+// A child printing binary puts an invalid byte mid-stream.  Only a partial rune
+// at the very end may be trimmed.
 func TestCutAtRuneKeepsOutputAfterAnInteriorInvalidByte(t *testing.T) {
 	raw := "aaaa\xffbbbb"
 	got := cutAtRune(raw, 9)
@@ -79,8 +76,8 @@ func TestCutAtRuneKeepsOutputAfterAnInteriorInvalidByte(t *testing.T) {
 	}
 }
 
-// The same case through the log itself: the record has to hold what the child
-// printed: a record cut back to the first bad byte audits nothing.
+// The same case through the log: a record cut back to the first bad byte audits
+// nothing.
 func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 	dir := t.TempDir()
 	limit := 1 << 16
@@ -88,7 +85,7 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 		LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: limit,
 	})
 
-	// One bad byte halfway through, then a marker just before the cut.
+	// One bad byte halfway through, then a marker before the cut.
 	raw := strings.Repeat("a", limit/2) + "\xff" +
 		strings.Repeat("b", limit/2-16) + "TAIL-MARKER" + strings.Repeat("c", 1000)
 

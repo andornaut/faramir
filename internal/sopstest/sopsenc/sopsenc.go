@@ -1,10 +1,7 @@
-// Package sopsenc encrypts a tree to age recipients, the way sops does.
-//
-// It is shared by the fixture builder in internal/sopstest and by the stub sops
-// that package builds, so a fixture and a re-encrypt cannot drift apart in the
-// data key, the MAC or the metadata.  Like its parent it is test-only: the sops
-// libraries must reach test binaries and never the shipped one, so nothing
-// under cmd/ may import it.  CI fails on a getsops hit in ./cmd/faramir's deps.
+// Package sopsenc encrypts a tree to age recipients the way sops does.  Shared
+// by the fixture builder in internal/sopstest and the stub it builds, so a
+// fixture and a re-encrypt cannot drift apart.  Test-only: nothing under cmd/
+// may import it, and CI fails on a getsops hit in its deps.
 package sopsenc
 
 import (
@@ -21,11 +18,9 @@ import (
 	"github.com/getsops/sops/v3/version"
 )
 
-// Encrypt returns branches as an encrypted file in the given format, readable
-// by every recipient named.
-//
-// Encryption needs only the public recipients, which is why the keeper never
-// does it: nothing here touches a private identity.
+// Encrypt returns branches as an encrypted file in the given format, readable by
+// every recipient named.  Only public recipients are needed; nothing here
+// touches a private identity.
 func Encrypt(format sopsformats.Format, recipients []string, branches sops.TreeBranches) ([]byte, error) {
 	if len(recipients) == 0 {
 		return nil, fmt.Errorf("no age recipients to encrypt to")

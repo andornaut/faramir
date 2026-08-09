@@ -12,8 +12,8 @@ import (
 
 const block = snippetBegin + "\nnew text\n" + snippetEnd + "\n"
 
-// Enrolling a project twice must not leave the instructions in it twice.  The
-// old recipe appended, which is why this is spliced between markers.
+// Enrolling twice must not leave the instructions in twice, which is what the
+// markers are for.
 func TestSpliceBlockIsIdempotent(t *testing.T) {
 	once := spliceBlock(nil, block)
 	twice := spliceBlock(once, block)
@@ -25,8 +25,7 @@ func TestSpliceBlockIsIdempotent(t *testing.T) {
 	}
 }
 
-// The project's own instructions are not this command's to rewrite: only what
-// is between the markers belongs to faramir.
+// Only what is between the markers belongs to faramir.
 func TestSpliceBlockKeepsSurroundingText(t *testing.T) {
 	existing := []byte("# My project\n\nSome rules.\n")
 	out := string(spliceBlock(existing, block))
@@ -37,13 +36,10 @@ func TestSpliceBlockKeepsSurroundingText(t *testing.T) {
 		t.Error("the block was not added")
 	}
 
-	// A later version of the snippet replaces the old one in place, rather than
-	// leaving the project with two sets of instructions that disagree.
+	// Replaced in place, not left as two sets that disagree.
 	updated := strings.Replace(block, "new text", "newer text", 1)
 	out = string(spliceBlock([]byte(out), updated))
-	// Two checks rather than one condition: a splice that added the new text
-	// without removing the old one fails only the first, and a conjunction would
-	// report neither.
+	// Two checks: a splice that added without removing fails only the first.
 	if strings.Contains(out, "new text\n") {
 		t.Errorf("the superseded text survived:\n%s", out)
 	}
@@ -58,11 +54,9 @@ func TestSpliceBlockKeepsSurroundingText(t *testing.T) {
 	}
 }
 
-// Enrolling a tree walks it granting the client group read and write, and
-// faramir-exec is in that group.  For a checkout that is the point; for a home
-// it hands every brokered command ~/.ssh and the age key under ~/.config/sops,
-// and the walk cannot be undone because the modes it replaced are recorded
-// nowhere.
+// Enrolling grants the client group read and write on the whole tree, and
+// faramir-exec is in that group: for a home that is ~/.ssh and the age key
+// under ~/.config/sops.  The walk cannot be undone.
 func TestOversharingIsRefused(t *testing.T) {
 	me, err := user.Current()
 	if err != nil {
@@ -76,7 +70,7 @@ func TestOversharingIsRefused(t *testing.T) {
 		"/root":            true,
 		home:               true,
 		filepath.Dir(home): true,
-		// The ordinary case, and the one the refusals must not reach.
+		// The ordinary case, which the refusals must not reach.
 		filepath.Join(home, "src/project"): false,
 		"/home/someone/src/project":        false,
 		"/srv/project":                     false,
@@ -89,10 +83,9 @@ func TestOversharingIsRefused(t *testing.T) {
 	}
 }
 
-// Chmod and Chown follow a symlink; WalkDir does not.  A symlinked argument
-// therefore rewrites the mode and group of whatever it points at, walks
-// nothing, and reports success, so every check has to be made against the
-// resolved path rather than the one that was typed.
+// Chmod and Chown follow a symlink and WalkDir does not, so a symlinked
+// argument rewrites what it points at, walks nothing, and reports success.
+// Every check is against the resolved path.
 func TestOversharingIsRefusedThroughASymlink(t *testing.T) {
 	me, err := user.Current()
 	if err != nil {
@@ -109,8 +102,7 @@ func TestOversharingIsRefusedThroughASymlink(t *testing.T) {
 	if err := refuseOversharing(resolved, me.Username); err == nil {
 		t.Errorf("a symlink to %s resolved to %s and was not refused", me.HomeDir, resolved)
 	}
-	// And the whole command, which is where the resolution has to happen for the
-	// refusal above to ever see it.
+	// And the whole command, where the resolution has to happen.
 	_, err = Project(ProjectOptions{Dir: link, Operator: me.Username, DryRun: true})
 	if err == nil {
 		t.Error("init-project enrolled a symlink pointing at a home")

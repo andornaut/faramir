@@ -11,11 +11,9 @@ import (
 	"github.com/andornaut/faramir/internal/redact"
 )
 
-// The PTY, the streaming redaction and the truncation are this package's, and
-// they need a real child to exercise: bytes arrive in whatever chunks the
-// kernel hands over, which is the whole difficulty.  They do not need a
-// broker, a keeper, a sops binary or a socket the agent can reach, so this
-// stands up the executor alone.
+// The PTY, the streaming redaction and the truncation need a real child, since
+// bytes arrive in whatever chunks the kernel hands over.  They need no broker,
+// keeper, sops or agent-reachable socket.
 
 const secret = "hunter2-correct-horse-battery"
 
@@ -53,7 +51,7 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 }
 
 // run executes a shell script and returns the result plus what the audit sink
-// received, which is the other half of what this package produces.
+// received.
 func (h *harness) run(t *testing.T, script string) (*Result, string) {
 	t.Helper()
 	r := redact.New([]redact.Secret{{Ref: "a/b", Value: secret}}, redact.DefaultPolicy())
@@ -64,8 +62,7 @@ func (h *harness) run(t *testing.T, script string) (*Result, string) {
 			Cwd:  h.dir,
 			Env: map[string]string{
 				"PATH": "/usr/bin:/bin", "SECRET": secret,
-				// Halves, so a script can emit the value across two writes
-				// without needing a shell that can slice a variable.
+				// Halves, so a script can emit the value in two writes.
 				"HALF_A": secret[:10], "HALF_B": secret[10:],
 			},
 			TimeoutSec: 10,
@@ -87,7 +84,7 @@ func TestOutputIsRedactedAsItStreams(t *testing.T) {
 	if !strings.Contains(result.Output, token) {
 		t.Errorf("output = %q, want the token", result.Output)
 	}
-	// The audit sink gets the redacted text too, not the raw stream.
+	// The sink gets the redacted text, not the raw stream.
 	if strings.Contains(audited, secret) {
 		t.Errorf("PLAINTEXT REACHED THE AUDIT SINK: %q", audited)
 	}
@@ -99,16 +96,14 @@ func TestOutputIsRedactedAsItStreams(t *testing.T) {
 	}
 }
 
-// Output that ends mid-rune is the one case where the read loop has bytes left
-// over after the child exits.  Feeding that tail releases whatever the
-// redactor's overlap buffer no longer needs to hold, and that release is part
-// of the child's output: dropping it loses characters off the end of every
-// command whose last write splits a rune.
+// The one case where the read loop has bytes left after the child exits.
+// Feeding that tail releases what the overlap buffer no longer needs, which is
+// itself output.
 func TestOutputEndingMidRuneIsNotTruncated(t *testing.T) {
 	h := newHarness(t, 1<<20)
 	const width = 500
-	// A lone 0xC3 is the first byte of a two-byte sequence, so the reader
-	// carries it past the end of the stream.
+	// A lone 0xC3 opens a two-byte sequence, so the reader carries it past the
+	// end of the stream.
 	result, _ := h.run(t, `printf 'x%.0s' $(seq 1 500); printf '\303'`)
 
 	if got := strings.Count(result.Output, "x"); got != width {
@@ -116,9 +111,8 @@ func TestOutputEndingMidRuneIsNotTruncated(t *testing.T) {
 	}
 }
 
-// Past max_output_bytes the response is cut and says so, while the PTY keeps
-// being drained: a chatty child that stopped being read would block on a full
-// terminal buffer and never exit.
+// The response is cut and says so, while the PTY keeps being drained: a chatty
+// child that stopped being read would block and never exit.
 func TestOutputIsTruncatedButTheChildStillFinishes(t *testing.T) {
 	h := newHarness(t, 4096)
 	result, audited := h.run(t, `printf 'y%.0s' $(seq 1 40000); echo DONE`)
@@ -132,7 +126,7 @@ func TestOutputIsTruncatedButTheChildStillFinishes(t *testing.T) {
 	if result.ExitCode != 0 {
 		t.Errorf("exit = %d; the child did not finish draining", result.ExitCode)
 	}
-	// The audit sink has its own cap, so it keeps what the response dropped.
+	// The sink has its own cap, so it keeps what the response dropped.
 	if len(audited) <= len(result.Output) {
 		t.Errorf("the audit sink held %d bytes, the response %d; it should hold more",
 			len(audited), len(result.Output))
@@ -142,9 +136,8 @@ func TestOutputIsTruncatedButTheChildStillFinishes(t *testing.T) {
 	}
 }
 
-// A value split across two reads is still caught, which is what the overlap
-// buffer is for.  Writing it a byte at a time with a pause makes the split
-// happen in the kernel rather than in a constructed fixture.
+// What the overlap buffer is for.  Written a byte at a time so the split
+// happens in the kernel rather than in a fixture.
 func TestAValueSplitAcrossReadsIsStillCaught(t *testing.T) {
 	h := newHarness(t, 1<<20)
 	result, _ := h.run(t, `printf '%s' "$HALF_A"; sleep 0.2; printf '%s\n' "$HALF_B"`)
@@ -157,8 +150,7 @@ func TestAValueSplitAcrossReadsIsStillCaught(t *testing.T) {
 	}
 }
 
-// The exit status survives the hop through the executor, and a signalled child
-// is reported as 128+signal rather than as success.
+// The exit status survives the hop, and a signalled child is 128+signal.
 func TestExitStatusIsReported(t *testing.T) {
 	h := newHarness(t, 1<<20)
 	if result, _ := h.run(t, "exit 42"); result.ExitCode != 42 {
@@ -169,13 +161,10 @@ func TestExitStatusIsReported(t *testing.T) {
 	}
 }
 
-// A child that closes the terminal before it exits still reports its own exit
-// code.  The master reaching EIO says the slave was closed, not that the child
-// is gone, and closing the master hangs the terminal up, which SIGHUPs the
-// child's process group: doing that before the status is collected would turn
-// every such exit into 129.  Closing the descriptors explicitly makes the
-// window the whole run rather than the microseconds an ordinary child spends
-// between its last write and being reaped.
+// EIO on the master says the slave was closed, not that the child is gone, and
+// closing the master before the status is collected would turn every such exit
+// into 129.  Closing the descriptors explicitly widens that window to the whole
+// run.
 func TestAChildThatClosesTheTerminalKeepsItsExitCode(t *testing.T) {
 	h := newHarness(t, 1<<20)
 	result, _ := h.run(t, `exec 1>&- 2>&-; sleep 0.3; exit 7`)

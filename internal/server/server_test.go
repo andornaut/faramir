@@ -20,9 +20,8 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// secretFiles has to be set here rather than on the returned server: the store
-// takes a copy of the secrets config at construction, so assigning to
-// s.Config.Secrets afterwards changes nothing the store reads.
+// secretFiles is set here because the store copies the secrets config at
+// construction, so a later assignment to s.Config.Secrets reads nothing.
 func newServer(t *testing.T, values map[string]string, secretFiles ...string) *Server {
 	t.Helper()
 	dir := t.TempDir()
@@ -60,14 +59,9 @@ func output(t *testing.T, r protocol.Response) string {
 
 // -- the request limit ------------------------------------------------------
 
-// The one reply that is produced before a request is parsed, so nothing else in
-// this file reaches it.
-//
-// It has to be its own code rather than a bad_request: `faramir redact` answers
-// a too_large by passing the text through UNREDACTED and saying so, and chooses
-// its chunk size to stay under this limit.  A reply that said something else
-// would leave that fallback unreachable and the caller retrying a request that
-// cannot get smaller.
+// Produced before a request is parsed.  Its own code rather than a bad_request,
+// because `faramir redact` answers a too_large by passing the text through
+// unredacted and saying so.
 func TestARequestOverTheLimitIsRefusedAsTooLarge(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s.Config.Server.MaxRequestBytes = 64
@@ -106,8 +100,7 @@ func TestARequestOverTheLimitIsRefusedAsTooLarge(t *testing.T) {
 	if out.Error.Code != "too_large" {
 		t.Errorf("code = %q, want too_large", out.Error.Code)
 	}
-	// The limit itself, because the caller's only remedy is to send less and it
-	// has no other way to learn how much less.
+	// The limit itself: the caller's only remedy is to send less.
 	if !strings.Contains(out.Error.Message, "64") {
 		t.Errorf("the message does not say what the limit is: %q", out.Error.Message)
 	}
@@ -145,8 +138,7 @@ func TestCheckNamesTheRefusedRefsAndTheReason(t *testing.T) {
 	}
 }
 
-// --check is the install gate: the config parses, but a command injecting that
-// ref will fail at runtime, so it must not report success.
+// The config parses, but a command injecting that ref fails at runtime.
 func TestCheckExitsNonZeroWhenARefWasRefused(t *testing.T) {
 	s := newServer(t, map[string]string{"tiny": "abc"})
 	if _, code := s.CheckOutput(); code == 0 {
@@ -194,8 +186,8 @@ func TestListSecretsIsEmptyWhenNothingLoaded(t *testing.T) {
 	}
 }
 
-// A value that is never tokenized is one worth targeting, so status must not
-// name it, and must not carry the operator-only refusal list.
+// A value that is never tokenized is worth targeting, so status names neither
+// it nor the operator-only refusal list.
 func TestStatusDoesNotNameARefusedRef(t *testing.T) {
 	s := newServer(t, map[string]string{
 		"good": "hunter2-correct-horse", "tiny": "abc",
@@ -226,8 +218,7 @@ func TestStatusNeverCarriesAValue(t *testing.T) {
 	}
 }
 
-// An unexpected error string can have interpolated a secret, so it goes
-// through the redactor like every other agent-visible string.
+// An unexpected error string may have interpolated a value.
 func TestSafeDetailRedactsAValue(t *testing.T) {
 	const secret = "hunter2-correct-horse"
 	s := newServer(t, map[string]string{"a/b": secret})
@@ -242,10 +233,8 @@ func TestSafeDetailRedactsAValue(t *testing.T) {
 
 // -- the SSH keys the broker is configured to lend ---------------------------
 
-// A key named in the config but absent is the other way an install comes up
-// healthy and does nothing: the broker starts, every socket is active, and no
-// brokered command can reach a host that expects that key.  --check is the
-// install gate, so it has to fail on it.
+// A configured but absent key leaves the broker up and unable to reach any host
+// that expects it.
 func TestCheckFailsOnAConfiguredSSHKeyThatIsMissing(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s.Config.Ssh.Keys = []string{filepath.Join(t.TempDir(), "absent_ed25519")}
@@ -316,9 +305,7 @@ func TestCheckPassesOnAKeyTheBrokerCanUse(t *testing.T) {
 }
 
 // ssh-add cannot type a passphrase, so the broker comes up with an agent
-// holding nothing: every socket active, every unit running, and no brokered
-// command able to authenticate against a single managed host.  Checking only
-// that the file is readable reports that install as healthy.
+// holding nothing.  A readability check alone would call that healthy.
 func TestCheckFailsOnAPassphraseProtectedKey(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	key, _ := writeKeyPair(t, "hunter2")
@@ -333,8 +320,7 @@ func TestCheckFailsOnAPassphraseProtectedKey(t *testing.T) {
 	}
 }
 
-// Naming the .pub is the other way to configure this wrong, and it is just as
-// readable as the private key it sits next to.
+// Naming the .pub is the other way to configure this wrong.
 func TestCheckFailsWhenKeysNamesThePublicKey(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	_, pub := writeKeyPair(t, "")
@@ -349,8 +335,7 @@ func TestCheckFailsWhenKeysNamesThePublicKey(t *testing.T) {
 	}
 }
 
-// The report is operator-facing and describes key material, so it must carry
-// none of it.
+// The report describes key material, so it must carry none.
 func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	key, _ := writeKeyPair(t, "hunter2")
@@ -368,10 +353,8 @@ func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
 	}
 }
 
-// A configured file that is not there fails the gate.  The store can sit on a
-// filesystem that is not mounted yet, which looks exactly like one that was
-// never written, so the gate has to refuse both: passing means the broker came
-// up redacting nothing and said it was healthy.
+// An unmounted store looks exactly like one never written, so absence fails the
+// gate too.
 func TestCheckFailsOnASecretsFileThatIsNotThere(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"},
 		filepath.Join(t.TempDir(), "absent.sops.yml"))
@@ -381,10 +364,7 @@ func TestCheckFailsOnASecretsFileThatIsNotThere(t *testing.T) {
 	}
 }
 
-// A file that exists and did not load leaves the broker serving fewer values
-// than it is configured for, and every value it did not load is one that
-// reaches the agent in plaintext.  Reporting that as a healthy install is the
-// failure mode the gate exists to prevent.
+// Every value that did not load is one that reaches the agent in plaintext.
 func TestCheckFailsOnASecretsFileThatCouldNotBeRead(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "regular")
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
@@ -407,10 +387,9 @@ func TestCheckPassesWhenNoSSHKeysAreConfigured(t *testing.T) {
 	}
 }
 
-// The keeper's socket is the age key by another route and the executor's runs a
-// command with no policy, no redaction and no audit record.  Each has one
-// legitimate client, and a config naming a second is one that starts, serves,
-// and protects less than the layout says it does.
+// The keeper's socket is the age key by another route, and the executor's runs
+// a command with no policy, redaction or audit record; each has one legitimate
+// client.
 func TestCheckFailsOnASocketOpenedToAnotherAccount(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("as root the broker cannot tell its own name from any other")
@@ -440,8 +419,7 @@ func TestCheckFailsOnASocketOpenedToAnotherAccount(t *testing.T) {
 	}
 }
 
-// The account the broker runs as is the one name that belongs in either list,
-// and naming it explicitly is what an install writes.
+// The broker's own account is the one name that belongs in either list.
 func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
 	me, err := user.Current()
 	if err != nil {
@@ -456,9 +434,7 @@ func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
 	}
 }
 
-// redact answers whether a piece of text holds a managed value, so a caller
-// that knows part of one can complete it by asking.  The limit does not close
-// that; it stops it being free and invisible.
+// The limit does not close the oracle; it stops it being free and invisible.
 func TestRedactIsRateLimitedPerAccount(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s.Config.Server.MaxRedactsPerMin = 3
@@ -484,8 +460,7 @@ func TestRedactIsRateLimitedPerAccount(t *testing.T) {
 	}
 }
 
-// Zero is the documented way to turn it off, and the loop below is more calls
-// than the default would allow.
+// Zero turns it off; the loop is more calls than the default allows.
 func TestRedactIsUnlimitedAtZero(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s.Config.Server.MaxRedactsPerMin = 0

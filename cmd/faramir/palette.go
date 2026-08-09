@@ -1,15 +1,9 @@
 package main
 
-// Colour for the commands that print a report to a human.
-//
-// Off unless stdout is a terminal, so a redirect, a pipe into grep and a
-// systemd unit capturing output all get plain text.  $NO_COLOR is honoured
-// whatever its value, per https://no-color.org, and --color=always overrides
-// both for the case of piping into a pager that renders escapes.
-//
-// No dependency for this.  golang.org/x/term is in the module graph only
-// indirectly, and a character-device check answers the same question without
-// promoting it: the point of the port was a static binary that links little.
+// Colour for the commands that print a report to a human.  Off unless stdout is
+// a terminal; $NO_COLOR is honoured whatever its value, per
+// https://no-color.org, and --color=always overrides both.  A character-device
+// check rather than golang.org/x/term, which is only an indirect dependency.
 
 import (
 	"fmt"
@@ -56,9 +50,8 @@ func (p palette) warn(text string) string { return p.wrap("33", text) }
 func (p palette) key(text string) string  { return p.wrap("36", text) }
 func (p palette) ref(text string) string  { return p.wrap("35", text) }
 
-// token highlights «SECRET:ref» where it appears in recorded output, which is
-// the thing a reader is looking for: it marks where a credential was used
-// without being a credential.
+// token highlights «SECRET:ref» in recorded output: where a credential was
+// used, without being one.
 func (p palette) token(text string) string {
 	if !p.on {
 		return text

@@ -1,8 +1,5 @@
-// Package ptyutil opens a PTY pair without a third-party dependency.
-//
-// The three syscalls involved (open /dev/ptmx, TIOCSPTLCK to unlock, TIOCGPTN
-// to name the slave) are what any pty library wraps, and doing them here keeps
-// the process that handles secret output free of an extra dependency.
+// Package ptyutil opens a PTY pair without a third-party dependency: the three
+// syscalls involved are what any pty library wraps.
 package ptyutil
 
 import (
@@ -24,7 +21,7 @@ func Open() (master, slave *os.File, err error) {
 		}
 	}()
 
-	// Unlock the slave before naming it; the kernel refuses to open a locked one.
+	// Unlock before naming: the kernel refuses to open a locked slave.
 	if err = unix.IoctlSetPointerInt(int(m.Fd()), unix.TIOCSPTLCK, 0); err != nil {
 		return nil, nil, fmt.Errorf("TIOCSPTLCK: %w", err)
 	}
@@ -40,8 +37,7 @@ func Open() (master, slave *os.File, err error) {
 	return m, s, nil
 }
 
-// SetWinsize sets the terminal dimensions on fd.  Failure is not fatal: a
-// child that cannot learn the window size still runs.
+// SetWinsize sets the terminal dimensions on fd.  Failure is not fatal.
 func SetWinsize(fd uintptr, rows, cols int) {
 	_ = unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, &unix.Winsize{
 		Row: uint16(rows), Col: uint16(cols),

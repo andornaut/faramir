@@ -1,30 +1,16 @@
 // Package secretstore is the broker's view of the secret values, fetched from
 // the keeper.
 //
-// Two things matter here:
+// The value set is every secret the keeper knows, not only the injected ones: a
+// managed host can print a credential no command injected.  The broker holds no
+// age key and cannot decrypt; plaintext lives in this heap, never on disk and
+// never in an argv.
 //
-//  1. The value set is every secret the keeper knows about, not just the ones
-//     injected into the current command.  A secret can reach the output
-//     without having been injected (a managed host printing its own
-//     configuration will do it), and catching that is the accidental-
-//     disclosure guarantee.  So the broker holds the lot, and the redactor is
-//     built from all of it.
-//  2. The broker never holds the age key.  It cannot decrypt anything; it asks
-//     the keeper, which runs as its own uid and serves values only.  Plaintext
-//     values live in this process's heap, are never written to disk, and are
-//     never placed in an argv.
-//
-// The keeper is a separate process, so this caches: it reloads on start and
-// when a managed file's mtime changes.  The keeper reports those fingerprints
-// too, because the store is readable by its group alone and the broker is
-// deliberately not in it: reading the ciphertext and asking for the plaintext
-// by name are different privileges, and this process only ever needed the
-// second.  The cost is that the poll is a socket round trip rather than a stat,
-// which is what refresh_interval_sec bounds.
-//
-// There is no signal that reloads: the file list comes from config.toml, which
-// both daemons read once at startup, so a change to it is adopted by restarting
-// them rather than by signalling one.
+// Cached, and reloaded on start and when a managed file's mtime changes.  The
+// keeper reports those fingerprints too, since the store is readable by its
+// group alone, so the poll is a socket round trip rather than a stat --
+// refresh_interval_sec bounds it.  Nothing reloads on a signal: the file list
+// comes from config.toml, which the daemons read once at startup.
 package secretstore
 
 import (
@@ -52,26 +38,19 @@ type Store struct {
 	values  map[string]string
 	refused map[string]string
 	state   []keeperclient.FileState
-	// retry is set when the keeper could not be reached.  The mtime poll alone
-	// would never notice: the files have not changed, only our ability to
-	// decrypt them, so without this the value set stays as it was until a file
-	// is edited.  On a cold start that set is empty, which
-	// means nothing is redacted.
+	// retry is set when the keeper could not be reached.  The mtime poll would
+	// never notice, since the files have not changed, and on a cold start the
+	// value set is empty -- nothing redacted.
 	retry     bool
 	checkedAt time.Time
 
-	// Every way a configured file can fail to load, and all of them are
-	// failures.  A file that is absent, unreadable, undecryptable, or served by
-	// a keeper that did not answer leaves the broker running with values it
-	// should have had and does not, so nothing redacts them.  Absent is not a
-	// lesser case: a store on a filesystem that is not mounted yet looks exactly
-	// like one that was never written, and the safe reading of the two is the
-	// same.
+	// Every way a configured file can fail to load.  Absent is not a lesser
+	// case: an unmounted store looks exactly like one never written, and both
+	// leave the broker without values it should have.
 	loadErrors []string
 
-	// Held across a refresh-driven reload, not under mu: Reload takes mu
-	// itself, and the point is to keep concurrent requests from each starting
-	// their own keeper round trip.  The startup Reload is never skipped.
+	// Held across a refresh-driven reload, not under mu, which Reload takes
+	// itself.  Keeps concurrent requests from each starting a round trip.
 	refreshing atomic.Bool
 }
 
@@ -89,24 +68,16 @@ func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
 	}
 }
 
-// Reload re-fetches every value from the keeper.  On startup, and from the
-// poll when a managed file has changed.
-//
-// One round trip: the keeper returns the fingerprints of the files it just
-// decrypted alongside the values, so the two cannot describe different moments.
+// Reload re-fetches every value from the keeper, on startup and when the poll
+// sees a managed file change.  One round trip, so the fingerprints and the
+// values cannot describe different moments.
 func (s *Store) Reload() {
-	// errors names each file the keeper could not stat or could not decrypt,
-	// either of which leaves the broker serving fewer values than it is
-	// configured for.  Per-file, so one broken file does not blank the set.
+	// Per-file, so one broken file does not blank the set.
 	values, state, errors, err := keeperclient.FetchValues(s.keeper.SocketPath)
 	if err != nil {
-		// Keep the previous value set rather than dropping to empty.  An empty
-		// set means nothing is redacted, which is the worst possible response
-		// to "the keeper is briefly unreachable".
-		//
-		// The previous state is kept for the same reason: it is the last thing
-		// known to be true, and blanking it would report a file list this
-		// process never stopped holding values for.
+		// Keep the previous set rather than dropping to empty, which would
+		// redact nothing.  The previous state goes with it, being the last
+		// thing known to be true.
 		s.mu.Lock()
 		s.loadErrors = []string{err.Error()}
 		s.retry = true
@@ -116,10 +87,8 @@ func (s *Store) Reload() {
 			"and retrying on the next request: %v", err)
 		return
 	}
-	// A value the redactor cannot cover is not loaded at all.  Serving it would
-	// put it in a child's environment with nothing to catch it on the way out,
-	// and the ref is useless to an attacker who cannot obtain the value, so
-	// there is nothing here to withhold from the agent.
+	// A value the redactor cannot cover is not loaded: serving it would put it
+	// in a child's environment with nothing to catch it on the way out.
 	redactable := map[string]string{}
 	refused := map[string]string{}
 	for ref, value := range values {
@@ -142,10 +111,7 @@ func (s *Store) Reload() {
 	for _, err := range errors {
 		log.Printf("secret load: %s", err)
 	}
-	// The reason once, then one entry per secret.  Stated per-secret it is
-	// repeated as many times as there are short values, and the count belongs
-	// here rather than on the summary line below, which would otherwise report
-	// the same refusal a second time.
+	// The reason once, then one entry per secret.
 	if len(refused) > 0 {
 		entries := make([]string, 0, len(refused))
 		for _, ref := range sortedKeys(refused) {
@@ -159,19 +125,12 @@ func (s *Store) Reload() {
 }
 
 // RefreshIfStale asks the keeper for the managed files' fingerprints, and
-// reloads when one changed or when the last attempt could not reach it.
+// reloads when one changed or the last attempt failed.  A round trip rather
+// than a stat, because the store is readable by the keeper's group alone; the
+// keeper serves it without the key or sops, so it costs a connect.
 //
-// A round trip rather than a stat, because the store is readable by the
-// keeper's group and this process is not in it.  The keeper serves this without
-// touching the key or execing sops, so it stays the cheap half of the pair:
-// what it costs here is a connect, not a decrypt.
-//
-// refresh_interval_sec bounds how often the poll runs at all.  It may be 0,
-// which asks for a check on every request, so the interval alone cannot bound
-// the work: a reload is a keeper round trip plus a sops exec per managed file,
-// and requests arrive concurrently.  One refresh-driven reload runs at a time
-// and the rest return immediately, which also covers the case this has always
-// had -- several requests arriving at once just after a file was edited.
+// refresh_interval_sec may be 0, meaning a check on every request, so one
+// refresh-driven reload runs at a time and the rest return immediately.
 func (s *Store) RefreshIfStale() {
 	s.mu.Lock()
 	interval := time.Duration(s.config.RefreshIntervalSec) * time.Second
@@ -200,11 +159,9 @@ func (s *Store) RefreshIfStale() {
 
 	state, _, err := keeperclient.FetchState(s.keeper.SocketPath)
 	if err != nil {
-		// A keeper that cannot say what the files look like cannot say they are
-		// unchanged either, and "assume unchanged" is a broker serving a stale
-		// set with nothing recording that it might be one.  Reload instead: it
-		// fails the same way, keeps the values, and sets retry, which is exactly
-		// the state this cannot distinguish itself.
+		// A keeper that cannot describe the files cannot call them unchanged.
+		// Reload instead: it fails the same way, keeps the values, and sets
+		// retry.
 		s.Reload()
 		return
 	}
@@ -244,8 +201,7 @@ func (s *Store) Value(ref string) (string, error) {
 	if v, ok := s.values[ref]; ok {
 		return v, nil
 	}
-	// Naming the refusal separately: "unknown ref" would send the operator
-	// looking for a typo in a ref that is spelled right.
+	// Named separately, so a refused ref does not read as a typo.
 	if reason, ok := s.refused[ref]; ok {
 		return "", secretref.Errf("secret %s was refused at load (%s); it cannot be "+
 			"redacted, so it is not injectable. Lengthen the value.", ref, reason)
@@ -253,12 +209,8 @@ func (s *Store) Value(ref string) (string, error) {
 	return "", secretref.Errf("unknown secret ref: %s", ref)
 }
 
-// Pairs is every (ref, value) pair: the input to the redactor's value set.
-//
-// The age key is deliberately absent.  It used to be listed here so that a
-// child which printed it got a token instead of the key; no child can obtain
-// it any more, so that property now holds by construction rather than by the
-// matcher catching it on the way out.
+// Pairs is every (ref, value) pair: the input to the redactor's value set.  The
+// age key is absent, no child being able to obtain it.
 func (s *Store) Pairs() []redact.Secret {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -285,12 +237,9 @@ func (s *Store) describeLocked() map[string]any {
 	if errs == nil {
 		errs = []string{}
 	}
-	// patterns is what was configured, files is what that named on disk.  Both,
-	// because they answer different questions and a glob makes them differ: a
-	// store that has not been written yet has patterns and no files, which is
-	// how a first install is told apart from one whose store went missing.  This
-	// process cannot expand a pattern itself, being outside the store's group,
-	// so it reports the entries as written.
+	// patterns is what was configured, files what it named on disk.  A glob
+	// makes them differ, which is how a first install is told apart from a
+	// store that went missing.  This process cannot expand a pattern itself.
 	patterns := s.config.Files
 	if patterns == nil {
 		patterns = []string{}
@@ -303,17 +252,12 @@ func (s *Store) describeLocked() map[string]any {
 	}
 }
 
-// DescribeForOperator is Describe plus the refs refused at load, and why.
+// DescribeForOperator is Describe plus the refs refused at load, and why.  A
+// refused value is absent from the redactor, so the list names exactly which
+// secrets are never tokenized: a repair list for the operator, targeting
+// information for the agent, and operator-only for that reason.
 //
-// Refusing a value stops the broker injecting it; it does not stop the value
-// reaching the output some other way, and a refused value is absent from the
-// redactor, so it arrives in plaintext when it does.  The list is therefore a
-// shortlist of exactly which secrets are never tokenized, which is targeting
-// information for the agent and a repair list for the operator.  Only the
-// operator gets it.
-//
-// One snapshot: a reload between the counts and the refused refs would
-// otherwise report a set that never existed.
+// One snapshot, or a reload in between would report a set that never existed.
 func (s *Store) DescribeForOperator() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -324,8 +268,8 @@ func (s *Store) DescribeForOperator() map[string]any {
 	return out
 }
 
-// LoadErrors is every configured file the broker could not load.  Any entry
-// means the redactor is missing values it is configured to hold.
+// LoadErrors is every configured file the broker could not load, each one a
+// value the redactor is missing.
 func (s *Store) LoadErrors() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

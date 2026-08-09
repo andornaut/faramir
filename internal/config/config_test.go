@@ -35,9 +35,8 @@ func TestMinimalConfigLoads(t *testing.T) {
 	}
 }
 
-// The key is gone, not optional: a config still setting it names a directory
-// that would be silently ignored, and an ignored setting reads as one that
-// applies.  An unknown key is a hard error, so it is refused by name.
+// The key is gone, not optional, so a config still setting it is refused by
+// name rather than silently ignored.
 func TestDefaultCwdIsRefusedAsUnknown(t *testing.T) {
 	_, err := load(t, "[exec]\ndefault_cwd = \"/t\"\n")
 	if err == nil || !strings.Contains(err.Error(), "unknown key") {
@@ -48,8 +47,7 @@ func TestDefaultCwdIsRefusedAsUnknown(t *testing.T) {
 	}
 }
 
-// A mistyped key must be named, not ignored: silently dropping it leaves the
-// setting at a default the operator thought they had changed.
+// A mistyped key is named, not ignored.
 func TestUnknownKeysAreRefused(t *testing.T) {
 	for _, tc := range []struct{ name, text string }{
 		{"a misspelling in [server]", minimal + "\n[server]\nsoket_path = \"/x\"\n"},
@@ -64,9 +62,8 @@ func TestUnknownKeysAreRefused(t *testing.T) {
 	}
 }
 
-// A mistyped section is as silent as a mistyped key and worse in its effect:
-// [secret] for [secrets] leaves a broker that manages no files and therefore
-// redacts nothing, while reading as though it were configured.
+// [secret] for [secrets] leaves a broker managing no files while reading as
+// though it were configured.
 func TestUnknownSectionsAreRefused(t *testing.T) {
 	_, err := load(t, minimal+"\n[secret]\nfiles = [\"/x.sops.yml\"]\n")
 	if err == nil {
@@ -79,10 +76,8 @@ func TestUnknownSectionsAreRefused(t *testing.T) {
 	}
 }
 
-// Checking key names but not their values leaves the same failure this file
-// exists to prevent.  Each of these has a concrete consequence, named in the
-// loader: a broker that panics on startup, refuses every request as busy, or
-// kills every command the instant it starts.
+// Each of these has a concrete consequence: a broker that panics on startup,
+// refuses every request as busy, or kills every command as it starts.
 func TestOutOfRangeValuesAreRefused(t *testing.T) {
 	for _, tc := range []struct{ name, text string }{
 		{"negative max_concurrency", minimal + "\n[server]\nmax_concurrency = -1\n"},
@@ -100,9 +95,7 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 		{"zero min_unique_chars", minimal + "\n[secrets]\nmin_unique_chars = 0\n"},
 		{"negative min_entropy", minimal + "\n[secrets]\nmin_entropy_bits_per_char = -1.0\n"},
 		{"negative max_record_bytes", minimal + "\n[audit]\nmax_record_bytes = -1\n"},
-		// A malformed pattern matches nothing at every later stage, and "matched
-		// no files" would send the operator looking for a store that is exactly
-		// where they left it.
+		// A malformed pattern matches nothing, reading as a missing store.
 		{"unclosed character class", minimal + "\n[secrets]\nfiles = [\"/s/[a-.sops.yml\"]\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -113,8 +106,8 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 	}
 }
 
-// A max below the default does not cap it, it replaces it for every command,
-// which makes default_timeout_sec a setting that reads as though it applies.
+// A max below the default replaces it for every command rather than capping
+// it.
 func TestMaxTimeoutBelowDefaultIsRefused(t *testing.T) {
 	_, err := load(t, "[exec]\ndefault_timeout_sec = 600\nmax_timeout_sec = 60\n")
 	if err == nil || !strings.Contains(err.Error(), "max_timeout_sec") {
@@ -122,8 +115,7 @@ func TestMaxTimeoutBelowDefaultIsRefused(t *testing.T) {
 	}
 }
 
-// The meaningful zeroes stay legal: kill_grace_sec 0 is "SIGKILL at once", and
-// refresh_interval_sec 0 is "check on every request".
+// The meaningful zeroes stay legal.
 func TestMeaningfulZeroesAreAccepted(t *testing.T) {
 	cfg, err := load(t, "[exec]\nkill_grace_sec = 0\n"+
 		"[secrets]\nrefresh_interval_sec = 0\n")
@@ -146,8 +138,7 @@ func TestOctalModeSpellings(t *testing.T) {
 			t.Errorf("%s -> %o, want 660", spelling, cfg.Server.SocketMode)
 		}
 	}
-	// An unquoted decimal 660 means 0o1224, which is out of range and a
-	// plausible typo for 0o660.
+	// An unquoted decimal 660 means 0o1224.
 	_, err := load(t, minimal+"\n[server]\nsocket_mode = 660\n")
 	if err == nil || !strings.Contains(err.Error(), "out of range") {
 		t.Fatalf("decimal 660 was accepted: %v", err)

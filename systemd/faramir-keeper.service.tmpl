@@ -3,10 +3,8 @@ Description=faramir keeper: holds the age key, serves decrypted values
 Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-keeper.socket
 After=faramir-keeper.socket
-# Starting repeatedly in a few seconds is ordinary here: the unit is socket
-# activated and an install restarts it.  The default limit of 5 in 10s reads
-# that as a crash loop, and a service that trips it fails its socket with it, so
-# the whole broker stays down until someone runs reset-failed.
+# Socket activated and restarted by an install, so repeated starts are ordinary.
+# The default limit reads that as a crash loop and fails the socket with it.
 StartLimitIntervalSec=0
 
 [Service]
@@ -20,26 +18,19 @@ Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
-# {{.StoreGroup}}, and only for this: the managed sops files are in {{.SecretsDir}},
-# which is 2750 with that group, and this process has to read them to decrypt
-# and to fingerprint them.  It is read access to encrypted files -- the key
-# stays 0400 {{.KeeperUser}}, and no member of the group gains anything from this
-# process being in it.
-#
-# Redundant when the store group is this account's own, which is the default;
-# it is rendered anyway because --store-group can name a different one, and a
-# line that is sometimes load-bearing is not one to leave out conditionally.
+# {{.StoreGroup}}, only so this process can read {{.SecretsDir}} (2750, that
+# group) to decrypt and fingerprint.  Read access to ciphertext; the key stays
+# 0400 {{.KeeperUser}}.  Redundant when the store group is this account's own,
+# which is the default, but --store-group can name a different one.
 SupplementaryGroups={{.StoreGroup}}
 
-# The whole point of this unit.  The key is readable at
-# $CREDENTIALS_DIRECTORY/age_key by this process and by nothing else: the file
-# is 0400 {{.KeeperUser}}, and no command the broker runs shares this uid.  The
-# name is what [keeper] age_key_credential in the config refers to.
+# The key is readable at $CREDENTIALS_DIRECTORY/age_key by this process alone;
+# no command the broker runs shares this uid.  The name is what [keeper]
+# age_key_credential refers to.
 LoadCredential=age_key:{{.AgeKeyPath}}
 
-# This process execs sops and nothing else.  It never runs a brokered
-# command, never touches a PTY, and never talks to the network, so it can be
-# locked down considerably harder than the broker.
+# This process execs sops and nothing else: no brokered command, no PTY, no
+# network, so it locks down harder than the broker.
 PrivateNetwork=true
 RestrictAddressFamilies=AF_UNIX
 ProtectProc=invisible
@@ -48,15 +39,12 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# This is the uid that holds the age key, which makes it the one worth taking
-# /home away from outright rather than leaving it visible and read-only.
+# The uid that holds the age key, so /home goes away outright.
 {{if .KeeperBinds -}}
-# The config directory is inside a home, so tmpfs rather than true: every
-# other home stays invisible to the process holding the age key, and only that
-# one directory is bound back in.  Note what a home costs either way: it is not
-# mounted until its owner logs in, so the store is absent at boot.  The broker
-# treats an absent store as a load failure rather than an empty one, which turns
-# that into a refusal instead of a session that silently redacts nothing.
+# The config directory is inside a home, so tmpfs rather than true: every other
+# home stays invisible and only that directory is bound back.  A home is not
+# mounted until its owner logs in, so the store is absent at boot, which the
+# broker treats as a load failure rather than an empty one.
 ProtectHome=tmpfs
 {{range .KeeperBinds}}BindReadOnlyPaths={{.}}
 {{end -}}
@@ -65,7 +53,7 @@ ProtectHome=true
 {{- end}}
 PrivateTmp=true
 PrivateDevices=true
-# Somewhere for sops to put ~/.config; it writes nothing that outlives a run.
+# Somewhere for sops to put ~/.config.
 StateDirectory={{.KeeperUser}}
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources @mount @debug @cpu-emulation @obsolete
@@ -85,9 +73,9 @@ ProtectKernelTunables=true
 RemoveIPC=true
 UMask=0077
 
-# The managed sops files must be readable here.  Under ProtectSystem=strict the
-# whole hierarchy is read-only but visible, so {{.SecretsDir}} is readable
-# subject to its own mode, which is 2750 with group {{.StoreGroup}} and this uid in it.
+# Under ProtectSystem=strict the hierarchy is read-only but visible, so
+# {{.SecretsDir}} is readable subject to its own mode: 2750, group
+# {{.StoreGroup}}, this uid in it.
 
 [Install]
 WantedBy=multi-user.target

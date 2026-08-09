@@ -14,9 +14,8 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// cmdKeeper holds the age key and serves decrypted values.  It runs as a uid of
-// its own that executes nothing but sops, which is what keeps the key out of
-// every process that runs a command.
+// cmdKeeper holds the age key and serves decrypted values, as a uid of its own
+// that executes nothing but sops.
 func cmdKeeper(args []string) int {
 	fs := newFlagSet("keeper", "keeper [-c PATH] [--check]")
 	configPath := fs.String("config", "", "path to config.toml")
@@ -27,7 +26,7 @@ func cmdKeeper(args []string) int {
 		return code
 	}
 
-	// See cmdBroker: the global logger is what the internal packages write to.
+	// See cmdBroker.
 	log.SetFlags(0)
 	log.SetPrefix("faramir-keeper: ")
 
@@ -49,7 +48,7 @@ func cmdKeeper(args []string) int {
 		if errs == nil {
 			errs = []string{}
 		}
-		// Names only.  Even the operator-facing check does not print values.
+		// Names only, even for the operator.
 		out, _ := json.MarshalIndent(map[string]any{
 			"refs": keeper.SortedRefs(values), "errors": errs,
 		}, "", "  ")

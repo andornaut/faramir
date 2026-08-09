@@ -12,11 +12,8 @@ import (
 
 const shippedPatterns = "../../agent/hooks/deny-patterns.txt"
 
-// The shipped file is a template: the paths worth refusing belong to an
-// install, not to the source tree, so an operator who moved the config and the
-// store into a home gets rules naming where they actually are.  Rendering it
-// against the compiled defaults is what the fallback has to match, and is what
-// the other tests here match against.
+// The shipped file is a template, so the paths it refuses are the ones an
+// install writes into it.  Rendered against the compiled defaults.
 func renderShippedBytes() ([]byte, error) {
 	data, err := os.ReadFile(shippedPatterns)
 	if err != nil {
@@ -62,11 +59,8 @@ func shippedLines(t *testing.T) []string {
 	return out
 }
 
-// Every shipped pattern must compile under RE2.  Python's `re` accepts
-// lookahead and backreferences; Go's regexp does not, and a pattern that fails
-// to compile is skipped at load, silently weakening the list.  This is the
-// exact failure mode the port could introduce, so it is asserted rather than
-// assumed.
+// RE2 has no lookahead or backreferences, and a pattern that fails to compile
+// is skipped at load, silently weakening the list.
 func TestEveryShippedPatternCompilesUnderRE2(t *testing.T) {
 	lines := shippedLines(t)
 	if len(lines) == 0 {
@@ -79,8 +73,8 @@ func TestEveryShippedPatternCompilesUnderRE2(t *testing.T) {
 	}
 }
 
-// The shipped file and the built-in fallback have to agree.  A fallback weaker
-// than the shipped list turns an install problem into a silent gap.
+// A fallback weaker than the shipped list turns an install problem into a
+// silent gap.
 func TestTheFallbackMatchesTheShippedFile(t *testing.T) {
 	shipped := shippedLines(t)
 	if len(shipped) != len(fallback) {

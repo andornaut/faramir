@@ -9,9 +9,8 @@ import (
 	"github.com/andornaut/faramir/internal/install"
 )
 
-// Only a file the config already manages.  A path argument that resolved to
-// anything else would write a file the broker never reads, and would take a
-// caller outside the one directory the store group protects.
+// Only a file the config manages: anything else would write a file the broker
+// never reads, outside the directory the store group protects.
 func TestOnlyAManagedFileResolves(t *testing.T) {
 	managed := []string{"/opt/store/ansible-ctrl.sops.yml", "/opt/store/home.sops.yml"}
 
@@ -37,8 +36,7 @@ func TestOnlyAManagedFileResolves(t *testing.T) {
 	}
 }
 
-// An empty inventory is a distinct message rather than "not a managed file",
-// because the fix is different: there is nothing to edit at all.
+// A distinct message, the fix being different: there is nothing to edit.
 func TestNoManagedFilesSaysSo(t *testing.T) {
 	_, err := resolveManaged(nil, "anything.sops.yml")
 	if err == nil {
@@ -49,8 +47,7 @@ func TestNoManagedFilesSaysSo(t *testing.T) {
 	}
 }
 
-// Two managed files with the same base name have to be named in full.  Picking
-// one would be picking which credential the operator meant to change.
+// Picking one would be picking which credential the operator meant to change.
 func TestAnAmbiguousBaseNameIsRefused(t *testing.T) {
 	managed := []string{"/opt/a/store.sops.yml", "/opt/b/store.sops.yml"}
 	if _, err := resolveManaged(managed, "store.sops.yml"); err == nil {
@@ -58,9 +55,7 @@ func TestAnAmbiguousBaseNameIsRefused(t *testing.T) {
 	}
 }
 
-// The editor is a path this process chose.  A relative one would resolve
-// through PATH, which is inherited from whoever invoked sudo, so it is refused
-// rather than looked up.
+// A relative path would resolve through an inherited PATH.
 func TestARelativeEditorIsRefused(t *testing.T) {
 	if _, err := resolveEditor("nano"); err == nil {
 		t.Error("accepted a relative editor path")
@@ -74,9 +69,8 @@ func TestARequestedEditorMustExist(t *testing.T) {
 	if _, err := resolveEditor("/nonexistent/editor"); err == nil {
 		t.Error("accepted an editor that is not there")
 	}
-	// A root-owned program in a root-owned directory, which is what an installed
-	// editor is.  Skipped rather than failed where the host has none of them,
-	// since what is on a machine is not this test's subject.
+	// A root-owned program in a root-owned directory.  Skipped where the host
+	// has none.
 	installed := ""
 	for _, candidate := range append([]string{"/bin/cat", "/usr/bin/cat"}, editors...) {
 		if info, err := os.Stat(candidate); err == nil &&
@@ -95,9 +89,7 @@ func TestARequestedEditorMustExist(t *testing.T) {
 }
 
 // The editor runs as root with the decrypted store open, so a file the operator
-// can write is the operator choosing what runs as root.  Choosing the editor
-// here rather than from $EDITOR is what that was for, and a flag taking any
-// path at all hands it straight back.
+// can write is the operator choosing what runs as root.
 func TestAnEditorTheOperatorCanWriteIsRefused(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("as root every file below would be root-owned")
@@ -110,16 +102,14 @@ func TestAnEditorTheOperatorCanWriteIsRefused(t *testing.T) {
 	if _, err := resolveEditor(own); err == nil {
 		t.Error("accepted an editor owned by the account invoking sudo")
 	}
-	// The directory counts too: write there is permission to unlink what is on
-	// the path and put something else in its place.
+	// The directory counts too: write there is permission to replace it.
 	if _, err := resolveEditor(filepath.Join(dir, "missing")); err == nil {
 		t.Error("accepted an editor in a directory the operator can write")
 	}
 }
 
-// None of the candidates may be a wrapper that reads the environment or a
-// dotfile to decide what to run: sensible-editor and /usr/bin/editor both do,
-// and either would hand the choice back to the account this runs on behalf of.
+// No candidate may be a wrapper that reads the environment or a dotfile to
+// decide what to run, as sensible-editor and /usr/bin/editor do.
 func TestTheCandidateEditorsAreRealEditors(t *testing.T) {
 	for _, candidate := range editors {
 		if !filepath.IsAbs(candidate) {
@@ -139,8 +129,8 @@ func TestAnExplicitConfigIsUsedAsGiven(t *testing.T) {
 	}
 }
 
-// $FARAMIR_CONFIG is left to config.Load rather than resolved here, so the
-// fallback cannot override a variable the caller deliberately set.
+// Left to config.Load, so the fallback cannot override a variable the caller
+// set.
 func TestAnEnvironmentConfigDefersToLoad(t *testing.T) {
 	t.Setenv("FARAMIR_CONFIG", "/from/env/config.toml")
 	if got := resolveConfig(""); got != "" {
@@ -159,18 +149,16 @@ func withUnit(t *testing.T, body string) {
 	brokerUnit = unit
 	t.Cleanup(func() { brokerUnit = original })
 	t.Setenv("FARAMIR_CONFIG", "")
-	// Pointed at a socket nothing is listening on, so the broker cannot answer
-	// and the unit is what is left.  Without this the test would pass or fail
-	// depending on whether the host running it has a live install.
+	// A socket nothing is listening on, so the unit is what is left and a live
+	// install on the host cannot decide this.
 	t.Setenv("FARAMIR_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
 	if exists(filepath.Join(install.DefaultConfigDir, "config.toml")) {
 		t.Skip("this host has a config at the compiled default")
 	}
 }
 
-// With nothing else naming a config, the broker's unit says which one is live.
-// This is the path an edit under sudo actually takes on an install whose config
-// moved out of the compiled default.
+// The path an edit under sudo takes on an install whose config moved out of the
+// compiled default.
 func TestTheBrokerUnitNamesTheLiveConfig(t *testing.T) {
 	want := "/home/op/" + ".faramir/config.toml"
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+want+"\n")
@@ -179,8 +167,7 @@ func TestTheBrokerUnitNamesTheLiveConfig(t *testing.T) {
 	}
 }
 
-// A unit that names no config leaves the decision to config.Load rather than
-// inventing a path.
+// A unit naming no config leaves the decision to config.Load.
 func TestAUnitWithoutTheVariableFallsThrough(t *testing.T) {
 	withUnit(t, "[Service]\nUser=faramir-broker\n")
 	if got := resolveConfig(""); got != "" {

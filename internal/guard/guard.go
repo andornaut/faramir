@@ -1,18 +1,7 @@
 // Package guard is a PreToolUse hook, run as `faramir guard`: it denies Bash
-// commands that would put a secret in the context.
-//
-// This is an enforcement layer that also teaches.  A deterministic block plus a
-// corrective message that names faramir_run changes behaviour far more reliably
-// than prose in a config file, and unlike prose it still works if the model
-// never reads CLAUDE.md.
-//
-// It is *not* the security boundary.  The agent uid cannot read the age key,
-// the SSH keys, or the broker's /proc entries no matter what this hook does; if
-// this binary were deleted, no secret could still reach the model provider.
-// What the hook buys is a useful error instead of a confusing one, and a
-// context window that does not fill up with encrypted blobs.
-//
-// Reads the hook payload on stdin, writes a PreToolUse decision on stdout.
+// commands that would put a secret in the context, and rewrites the rest to run
+// under the redactor.  Reads the hook payload on stdin, writes a decision on
+// stdout.  It is not the security boundary; see docs/design.md.
 package guard
 
 import (
@@ -27,10 +16,8 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// wrapScript is the shell fragment the rewrite sources.  An absolute path
-// because the rewritten string is handed back to a shell whose working
-// directory is the agent's, and a source that silently fails to resolve would
-// look exactly like a wrap that worked.
+// wrapScript is the shell fragment the rewrite sources.  Absolute: the
+// rewritten string runs in the agent's working directory.
 func wrapScript() string {
 	if v := os.Getenv("FARAMIR_WRAP"); v != "" {
 		return v
@@ -38,10 +25,8 @@ func wrapScript() string {
 	return "/usr/local/libexec/faramir/wrap.sh"
 }
 
-// patternsFile sits in libexec rather than under /etc/faramir because it is
-// rendered per install and belongs to the install, not to the operator's
-// configuration.  A hook that cannot find it falls back to the list below,
-// which is silently weaker than the shipped one.
+// patternsFile is rendered per install, so it lives in libexec rather than
+// under /etc/faramir.  Missing, the fallback list below is used.
 func patternsFile() string {
 	if v := os.Getenv("FARAMIR_DENY_PATTERNS"); v != "" {
 		return v
@@ -50,67 +35,31 @@ func patternsFile() string {
 }
 
 // fallback is used if the patterns file is missing, so a broken install still
-// fails closed.  Keep it in step with agent/hooks/deny-patterns.txt: a fallback
-// weaker than the shipped list turns an install problem into a silent gap.
+// fails closed.  Keep it in step with agent/hooks/deny-patterns.txt.
 var fallback = []string{
 	`ansible-vault\s+(view|decrypt|edit|rekey)`,
 	`\bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)`,
-	// Writing the store is the operator's, for the same reason reading it is:
-	// the agent has no value to put in one and no way to check what it
-	// replaced.
 	`\bsops\s+(-e|--encrypt|encrypt|set|unset|rotate|updatekeys)\b`,
 	`\bage\s+(-d|--decrypt)`,
-	// Bare age-keygen prints a private key.  "-o FILE" writes it 0400 and
-	// prints nothing, which is how a throwaway key is minted.
+	// Bare age-keygen prints a private key; "-o FILE" writes it 0400 instead.
 	`\bage-keygen\b(\s+-\S+)*\s*$`,
 	`\bop\s+read\b`,
 	`\bpass\s+show\b`,
 	`\bgopass\s+show\b`,
 	`\bvault\s+(read|kv\s+get)\b`,
-	// printenv stays broad on purpose: "printenv PATH" is harmless and
-	// "printenv ROUTER_PW" is not, and nothing here can tell which name is a
-	// secret.
+	// Broad on purpose: nothing here can tell which name holds a secret.
 	`\bprintenv\b`,
-	// The match ends after the flags, so "env NAME=value cmd" is ordinary
-	// shell rather than a dump.  "env | grep FOO" narrows rather than dumps
-	// and ends the match too.  "env" must sit in command position: "\benv\b"
-	// also matched a filename ending in .env, so naming one at the end of a
-	// line was refused as a dump.
+	// Matches only a bare dump in command position, so "env NAME=v cmd",
+	// "env | grep FOO" and a filename ending in .env are not refused.
 	`(^|[\s;&|(])env(\s+-\S+)*\s*$`,
 	`\bset\s*$`,
 	`\bdeclare\s+-x\b`,
 	`/proc/\d+/environ`,
 	`/proc/self/environ`,
-	// The faramir paths belong in this alternation rather than in rules of
-	// their own: the store's filenames (/etc/faramir/secrets/<x>.sops.yml)
-	// match none of the other alternatives, and a rule naming only
-	// cat/less/more/head/tail leaves base64 and xxd free to dump a blob.
-	// Standalone path rules also refused "ls /var/log/faramir", which reads
-	// nothing.
-	//
-	// The key names are spelled out.  "id_[re]d?sa" read as though it covered
-	// SSH keys: it matched id_rsa and id_dsa and missed id_ed25519, which is
-	// what ssh-keygen has produced by default for years.
-	//
-	// "[^|]*" not ".*", so the rule stops at the first pipe rather than
-	// refusing "cat notes.md | grep credentials".
-	// "sops/age" is the age key an agent can actually reach: faramir's own age
-	// key is keeper-owned 0400 wherever it sits, but the operator's
-	// ~/.config/sops/age/keys.txt decrypts the same store and is readable by the
-	// uid the agent runs as.
-	// It matches none of the other alternatives, because the file is keys.txt
-	// and "age\.key" wants a literal dot.
-	//
-	// The reader list carries interpreters and copiers as well as pagers:
-	// reading a key with python, or copying it somewhere unmatched and reading
-	// it there, is the same disclosure.  "sed" stays out of this rule, because
-	// it edits far more often than it dumps; it appears in the write rule below
-	// instead, where the paths are faramir's own and touching them at all is
-	// wrong.  "grep" stays out so that naming a .env file in a search is not
-	// refused.
-	//
-	// "[\s/=]\.env" rather than "\.env", so a file merely ending in those four
-	// characters (faramir.env, which holds refs and no values) is not a dotenv.
+	// Readers, encoders, interpreters and copiers pointed at key material.
+	// "sops/age" is the operator's ~/.config/sops/age/keys.txt, which opens the
+	// same store and is readable by the agent's uid.  "[^|]*" stops at the
+	// first pipe; "[\s/=]\.env" keeps faramir.env (refs, no values) out.
 	`\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac|` +
 		`awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|tar|scp|rsync)\b[^|]*` +
 		`(age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/var/log/faramir)`,
@@ -118,28 +67,19 @@ var fallback = []string{
 		`(vault\.|secrets?\.(ya?ml|json|toml|env|ini|conf|txt|enc|gpg)\b|credentials\b|\.pem\b|` +
 		`[\s/=]\.env(\.(local|development|production|test|staging))?([\s"']|$))`,
 	`\bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))`,
-	// Changing the broker's own files, rather than reading them.  The store is
-	// writable by the agent's uid, and so is anything under a home; the hook's
-	// patterns and binary decide what it refuses, so they are named here too.
-	//
-	// The redirect rule matches the target word only, not the rest of the line,
-	// so that a heredoc writing documentation that mentions one of these paths
-	// is not mistaken for a write to it.
+	// Writes to faramir's own files.  The redirect rule matches the target word
+	// only, so a heredoc mentioning one of these paths is not a write to it.
 	`\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*` +
 		`(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml|\.vault\b)`,
 	`>\s*\S*(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml)`,
-	// journalctl is deliberately absent: the daemons log ref names and counts,
-	// never values, so refusing it only stops the broker being debugged.
-	// Running the daemon, or running as its account, discloses; managing the
-	// unit does not.  One rule covering both denied "systemctl restart
-	// faramir-keeper", which is what the docs tell an operator to run after
-	// adding a secrets file.  The executable position is what separates them:
-	// sudo's own flags may precede the name, nothing else may.
+	// Running a daemon, or running as its account, discloses; managing the unit
+	// does not, so "systemctl restart faramir-keeper" stays allowed.  Only
+	// sudo's own flags may precede the executable name.  journalctl is absent:
+	// the daemons log ref names and counts, never values.
 	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard)\b`,
 	`\bsudo\b.*-u\s+faramir`,
-	// Stopping the broker is the exception: the wrapper fails open when it
-	// cannot be reached, so taking it down turns redaction off everywhere
-	// rather than breaking anything visibly.
+	// Taking the broker down turns redaction off silently: the wrapper fails
+	// open when it cannot be reached.
 	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,
 }
 
@@ -191,10 +131,8 @@ type payload struct {
 		Args     []any  `json:"args"`
 		InBackgd bool   `json:"run_in_background"`
 	} `json:"tool_input"`
-	// The same object again, undecoded.  A rewrite has to hand back every field
-	// it was given, not only the one it changed: updatedInput replaces the tool
-	// input, so a timeout or a description dropped here is a timeout or a
-	// description the tool never sees.
+	// The same object undecoded: a rewrite replaces the whole tool input, so
+	// every field has to be handed back, not only the one it changed.
 	RawInput map[string]any `json:"-"`
 }
 
@@ -214,18 +152,10 @@ func commandOf(p *payload) string {
 
 // faramirCall matches a sanctioned faramir invocation so its own arguments are
 // not scanned.  RE2 has no lookbehind, so the leading separator is captured and
-// put back by the "$1" replacement instead.
-//
-// It stops at the first separator: anything past it is a separate command that
-// the prefix does not sanction, and consuming it would let
-// "faramir status; printenv" through untouched.  It also leaves the separator
-// in place, so the next command in a chain still starts at one.
-//
-// The sanctioned subcommands are named rather than matched by shape.  Matching
-// "faramir<space>anything" would sanction "sudo faramir broker" too, because the
-// daemons are subcommands of this binary: a rule that trusts any subcommand
-// trusts the roles that hold the keys.  Naming them fails the safe way, since a
-// subcommand missing from cli.Operator has its arguments scanned.
+// put back by "$1".  The match stops at the first separator, so the rest of a
+// chain is still scanned.  Subcommands are named rather than matched by shape,
+// because the daemons are subcommands of this binary too; one missing from
+// cli.Operator merely has its arguments scanned.
 var faramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*(sudo\s+)?faramir[ \t]+(` +
 		strings.Join(cli.Operator, "|") + `)\b[^;&|\n]*`)
@@ -242,8 +172,7 @@ func decide(command string) (string, bool) {
 
 // Run is the `faramir guard` subcommand.
 func Run(args []string) int {
-	// Checked before stdin is read: this is a hook, so an operator running it
-	// by hand would otherwise get a process that sits waiting for a payload.
+	// Before stdin is read, so running this by hand does not hang on a payload.
 	hostName := ""
 	for i, arg := range args {
 		if arg == "--version" || arg == "-version" {
@@ -256,9 +185,8 @@ func Run(args []string) int {
 			hostName = args[i+1]
 		}
 	}
-	// Before stdin is read, like --version: an unknown host is a
-	// misregistration, and the operator should see it the first time rather than
-	// have every command silently answered in a dialect the agent ignores.
+	// Also before stdin: an unknown host is a misregistration, and every command
+	// would otherwise be answered in a dialect the agent ignores.
 	activeHost, err := lookupHost(hostName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir guard: %v\n", err)
@@ -291,15 +219,9 @@ func Run(args []string) int {
 		return emit(activeHost.deny(advice + "\n\n(matched deny pattern: " + pattern + ")"))
 	}
 
-	// Everything the deny list does not forbid still runs, and still prints
-	// whatever it prints.  A deny list only covers what someone thought to name,
-	// so it cannot be the whole defence against a credential reaching the
-	// transcript by accident: the command that leaks one is usually a command
-	// nobody would have thought to deny.
-	//
-	// So the command is rewritten to run under the redactor rather than
-	// refused.  The child's exit status and both its streams are preserved; what
-	// changes is that a value the broker knows about comes back as its token.
+	// A deny list only covers what someone thought to name, so everything else
+	// is rewritten to run under the redactor rather than refused.  Exit status
+	// and both streams are preserved; known values come back as tokens.
 	wrapped, ok := wrap(activeHost, command, &p)
 	if !ok {
 		return 0
@@ -311,22 +233,11 @@ func Run(args []string) int {
 	}
 	updated["command"] = wrapped
 
-	// A rewritten command cannot be allow-listed, by design.  The permission
-	// matcher refuses an allow rule against a compound statement ("Contains
-	// compound_statement") and refuses one naming source or eval ("'source'
-	// evaluates arguments as shell code) -- and a wrapper that redacts output
-	// has to be one of those.  So a rewrite that claims nothing makes every
-	// command prompt, with no rule that can ever stop it.
-	//
-	// The decision here is therefore explicit rather than incidental: for Bash,
-	// the deny list above replaces the permission prompt.  It runs first, so a
-	// forbidden command is still refused; what changes is that everything else
-	// is approved by this hook rather than by a rule the operator wrote.
-	//
-	// There is no setting that returns "ask" instead.  It would prompt on every
-	// command including ls, showing the rewritten text rather than what was
-	// typed, with no rule able to pre-approve any of it, and it would strand an
-	// unattended run on the first command with nobody to answer.
+	// The rewrite approves as well as rewrites: a wrapper that redacts output
+	// cannot be allow-listed (the permission matcher refuses rules naming
+	// source, eval or a compound statement), so returning "ask" would prompt on
+	// every command with no rule able to pre-approve any of it.  For Bash, the
+	// deny list above replaces the permission prompt.
 	return emit(activeHost.rewrite(updated))
 }
 
@@ -341,18 +252,10 @@ func emit(document map[string]any) int {
 }
 
 // isWrapped reports whether this command is one the rewrite already produced.
-//
-// Exactly that, and nothing that merely looks covered.  The test is a prefix of
-// the whole command rather than a match anywhere in it, because a match
-// anywhere leaves everything chained after it running with no rewrite at all:
-// "faramir redact -- true; cat secrets" is one command's output to the tool
-// that reads it.
-//
-// A command piping into the redactor is not treated as covered either, however
-// it is written.  A pipe carries stdout, so whatever the upstream program wrote
-// to stderr goes to the terminal unredacted while the tool reports both streams
-// as one blob.  Wrapping it instead costs one redundant pass, which is
-// idempotent because a token is not a value, and captures both streams.
+// A prefix test, not a match anywhere: a match anywhere would leave whatever is
+// chained after it unwrapped.  A command merely piping into the redactor is not
+// covered either, because a pipe carries stdout and leaves stderr unredacted;
+// wrapping it costs one idempotent extra pass.
 func isWrapped(command string) bool {
 	trimmed := strings.TrimSpace(command)
 	for _, verb := range []string{"source ", ". "} {
@@ -363,36 +266,18 @@ func isWrapped(command string) bool {
 	return false
 }
 
-// backgrounded matches a command that ends by putting a job in the background.
-// Its output arrives after the group has returned, which is after the wrapper
-// has read and deleted the file, so wrapping it would silently discard exactly
-// the output the caller was waiting for.  A trailing "&&" is not this.
-//
-// Newlines count as trailing space.  Go's $ is end of text rather than end of
-// line, so a multi-line command ending in "&\n" is backgrounded too.
+// backgrounded matches a command ending by putting a job in the background,
+// whose output arrives after the wrapper has read and deleted the file.  A
+// trailing "&&" is not this.  Newlines count as trailing space, since Go's $ is
+// end of text rather than end of line.
 var backgrounded = regexp.MustCompile(`(^|[^&])&[ \t\r\n]*$`)
 
-// wrap rewrites a shell command so its output is redacted.
+// wrap rewrites a shell command so its output is redacted.  See docs/design.md
+// for why it sources a script rather than piping: the agent's shell persists
+// between tool calls, so the command must not run in a child.
 //
-// The command stays in the caller's own shell, inside a brace group rather than
-// a subshell or a pipeline.  That is the whole difficulty: the agent's shell
-// persists between tool calls, so a wrapper that runs the command in a child
-// loses every "cd", "export" and shell function it sets, and the next command
-// runs somewhere else.  A brace group with a redirection changes neither.
-//
-// Output goes to a temporary file and is redacted after the group finishes,
-// rather than through a pipe while it runs.  A pipeline would put the group in
-// a subshell and lose the state again; process substitution keeps the state but
-// races, because the shell moves on to the next command while the redactor is
-// still writing, and whatever it had not written yet is lost.  Reading the file
-// afterwards has neither problem, and the agent sees no difference: the tool
-// returns a command's output in one piece anyway.
-//
-// The file is created 0600 by mktemp, under a tmpfs so the unredacted text is
-// in memory rather than on a disk, and removed as soon as it has been read.
-//
-// Not applied to BashOutput, which reads an already-running command's buffer
-// rather than starting one, and not to a command this rewrite already produced.
+// Not applied to BashOutput, which reads a running command's buffer rather than
+// starting one, nor to a command this rewrite already produced.
 func wrap(h *host, command string, p *payload) (string, bool) {
 	switch {
 	case !h.wraps(p.ToolName):
@@ -401,28 +286,19 @@ func wrap(h *host, command string, p *payload) (string, bool) {
 		return "", false
 	case isWrapped(command):
 		return "", false
-	// A backgrounded command outlives the group, and a run_in_background call
-	// is polled through BashOutput while it runs.  Both want output as it
-	// arrives, which is the one thing buffering cannot give them.
+	// Both want output as it arrives, which buffering cannot give them.
 	case backgrounded.MatchString(command) || p.ToolInput.InBackgd:
 		return "", false
 	}
 
-	// One simple command, not an inline compound statement.  The permission
-	// matcher refuses to match an allow rule against a compound statement
-	// ("Contains compound_statement"), so a rewrite built out of "{ ...; }" and
-	// ";" cannot be allow-listed at all, whatever rule is written for it: every
-	// command would prompt, forever. This form takes one "Bash(source:*)" rule.
-	//
-	// The shell that runs this is the caller's own, so the command is quoted
-	// for one round trip through the sourced script's eval and no more.  See
-	// agent/hooks/wrap.sh for why the rest of it is shaped the way it is.
+	// One simple command, so a single "Bash(source:*)" rule can allow-list it;
+	// a rewrite built from "{ ...; }" and ";" cannot be allow-listed at all.
+	// Quoted for exactly one round trip through the sourced script's eval; see
+	// agent/hooks/wrap.sh.
 	return "source " + wrapScript() + " " + shellQuote(command), true
 }
 
-// shellQuote renders a string as one single-quoted shell word.  The command is
-// about to be re-parsed by the shell that sources the wrapper, so anything less
-// exact changes what runs.
+// shellQuote renders a string as one single-quoted shell word.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }

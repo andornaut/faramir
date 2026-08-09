@@ -1,34 +1,16 @@
 // Package sshagent runs an ssh-agent held by the broker, usable by children
-// that cannot read its keys.
+// that cannot read its keys: the broker keeps the key files under its own uid
+// and passes only SSH_AUTH_SOCK to the child.
 //
-// Brokered commands run as faramir-exec.  The SSH keys that reach managed
-// hosts have to be usable from there, and the obvious way to arrange that is
-// to put them in that uid's home, at which point every brokered command can
-// read them, and a leaked fleet key is permanent in a way a leaked password is
-// not.
+// ssh-agent's own socket cannot be handed over, whatever its mode: it calls
+// getpeereid() and drops any peer that is neither root nor itself.  So
+// ssh-agent binds a private socket and the broker relays a second one to the
+// executor's group.  The relayed connection is the broker's own, so ssh-agent
+// no longer decides anything about the peer and the relay does it instead: it
+// makes the SO_PEERCRED check and forwards only the two requests the executor
+// needs.
 //
-// So the broker keeps the key files under its own uid, loads them into an
-// agent it owns, and passes only SSH_AUTH_SOCK to the child.  The child can
-// authenticate to managed hosts for as long as the broker is running.  It
-// cannot read the keys, and it cannot ptrace the agent, which belongs to
-// another uid.
-//
-// Handing the child ssh-agent's own socket does not work, whatever its mode
-// says: OpenSSH's ssh-agent calls getpeereid() on every connection and closes
-// any whose peer euid is neither root nor its own, so the executor connects and
-// then gets dropped mid-request.  ssh-agent therefore binds a private socket
-// only the broker's uid uses, and the broker serves a second socket to the
-// executor's group, relaying bytes between the two.  The relayed connection is
-// the broker's own, so the uid check passes.  That also means ssh-agent no
-// longer decides anything about the peer, so the relay does it instead: it
-// makes the SO_PEERCRED check rather than leaving the socket's mode as the only
-// boundary, and it forwards only the two requests the executor needs, because
-// the same connection would otherwise let a brokered command empty the broker's
-// agent or add a key to it.
-//
-// Entirely optional: with no [ssh] keys configured no agent is started and
-// nothing is injected, and it is up to the operator to arrange authentication
-// (usually by putting the keys in the executor's own home instead).
+// Optional: with no [ssh] keys no agent is started and nothing is injected.
 package sshagent
 
 import (
@@ -54,43 +36,31 @@ import (
 
 const (
 	socketWait = 10 * time.Second
-	// How many executor connections the proxy relays at once.  Each one costs
-	// two descriptors in the broker for as long as it is open, and ssh holds
-	// its agent connection for the whole of userauth, so the cap has to clear
-	// the fork count of a real playbook run: ansible-playbook -f 100 authenticates
-	// to a hundred hosts at once, and the excess would simply fail to authenticate.
-	//
-	// It bounds the broker's descriptor table, not fairness between brokered
-	// commands.  One that opens connections and holds them can take every slot,
-	// and the next command cannot authenticate until they close; that is a
-	// brokered command denying service to itself, in a place the operator can
-	// see in the journal, and it has far cheaper ways to do that.
+	// How many executor connections the proxy relays at once, each costing two
+	// descriptors.  It has to clear a real playbook's fork count, since
+	// ansible-playbook -f 100 authenticates to a hundred hosts at once.  It
+	// bounds the broker's descriptor table, not fairness between commands.
 	maxRelays = 256
-	// How long a connection may sit without making its first request.  After
-	// that it is a descriptor being held rather than an agent being used.  The
-	// deadline is dropped once the first request arrives: an ssh session may
-	// legitimately go hours between signatures.
+	// How long a connection may sit before its first request.  Dropped once one
+	// arrives: an ssh session may go hours between signatures.
 	firstRequestTimeout = 30 * time.Second
 	// ssh-agent's own limit on a single message.
 	maxAgentMessage = 256 * 1024
 )
 
-// The two agent requests the executor may make: list the public halves, and
-// sign with one of them.
+// The two requests the executor may make: list the public halves, and sign.
 const (
 	agentRequestIdentities = 11
 	agentSignRequest       = 13
 )
 
-// SSH_AGENT_FAILURE, framed.  What the protocol says to answer a request the
-// agent will not carry out.
+// SSH_AGENT_FAILURE, framed.
 var agentFailure = []byte{0, 0, 0, 1, 5}
 
 type Agent struct {
 	config config.SshConfig
 	cmd    *exec.Cmd
-	// socket is the one the executor is given; private is the one ssh-agent
-	// binds, which nothing but this process connects to.
+	// socket is the executor's; private is ssh-agent's, reached only here.
 	socket   string
 	private  string
 	listener net.Listener
@@ -139,8 +109,8 @@ func (a *Agent) Start() {
 		}
 	}
 
-	// -D keeps it in the foreground, so it is an ordinary child of this
-	// process and dies with it rather than lingering with the keys loaded.
+	// -D keeps it a child of this process, so it dies with it rather than
+	// lingering with the keys loaded.
 	cmd := exec.Command(a.config.SshAgent, "-D", "-a", private)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	if err := cmd.Start(); err != nil {
@@ -156,8 +126,8 @@ func (a *Agent) Start() {
 	}
 	a.private = private
 
-	// Before the executor can reach the proxy, so a brokered command never
-	// finds an agent that is up and holding nothing.
+	// Before the executor can reach the proxy, so no command finds an agent
+	// that is up and holding nothing.
 	loaded := 0
 	for _, key := range a.config.Keys {
 		if a.add(key, private) {
@@ -174,8 +144,8 @@ func (a *Agent) Start() {
 	a.listener = listener
 	a.grantExecutorAccess(path)
 	a.socket = path
-	// private by value: Stop clears the field, and a connection accepted as it
-	// runs would otherwise read it mid-write and dial "".
+	// private by value: Stop clears the field, and a connection accepted then
+	// would read it mid-write.
 	go a.serve(listener, private)
 
 	log.Printf("ssh-agent on %s with %d/%d key(s)", path, loaded, len(a.config.Keys))
@@ -191,10 +161,9 @@ func removeStale(path string) error {
 	return os.Remove(path)
 }
 
-// listen binds the proxy socket 0600, which grantExecutorAccess then widens to
-// the configured mode and group.  Umask rather than a chmod afterwards: the
-// mode is checked at connect time only, so a connection accepted in the window
-// between bind and chmod would keep working for as long as it stayed open.
+// listen binds the proxy socket 0600, which grantExecutorAccess widens.  Umask
+// rather than a later chmod: the mode is checked only at connect time, so a
+// connection accepted in between would keep working.
 func listen(path string) (net.Listener, error) {
 	previous := syscall.Umask(0o177)
 	defer syscall.Umask(previous)
@@ -209,9 +178,8 @@ func (a *Agent) serve(listener net.Listener, private string) {
 			if a.closing.Load() {
 				return
 			}
-			// Returning here would leave a live socket that accepts nothing:
-			// SSH_AUTH_SOCK still points at it, so a brokered command's connect
-			// sits in the backlog until its own timeout instead of failing.
+			// Returning would leave a live socket accepting nothing, so a
+			// command's connect sits in the backlog until its own timeout.
 			next, retry := sockutil.RetryAccept(err, delay)
 			if !retry {
 				log.Printf("ssh-agent proxy stopped accepting: %v", err)
@@ -230,9 +198,8 @@ func (a *Agent) serve(listener net.Listener, private string) {
 				a.relay(conn, private)
 			}()
 		default:
-			// Refusing beats queueing: a brokered command gets an immediate
-			// authentication failure it can report, rather than the broker
-			// holding descriptors on its behalf until it runs out of them.
+			// Refusing beats queueing: an immediate authentication failure the
+			// command can report.
 			log.Printf("ssh-agent proxy at %d connections; refusing another", maxRelays)
 			_ = conn.Close()
 		}
@@ -240,20 +207,15 @@ func (a *Agent) serve(listener net.Listener, private string) {
 }
 
 // relay carries one executor connection to ssh-agent and back, one exchange at
-// a time in this goroutine.
+// a time.
 //
-// The relay cannot be a blind byte pipe.  Every upstream connection is opened
-// as the broker's uid, so ssh-agent's own getpeereid() no longer decides
-// anything, and the agent protocol has no read-only mode: a connection that can
-// sign can also send REMOVE_ALL_IDENTITIES or ADD_IDENTITY.  A brokered command
-// could then empty the broker's agent, which breaks authentication to every
-// managed host until the broker restarts, or load a key of its own into it.
-// Listing and signing are what the executor needs; nothing else is forwarded.
+// Not a blind byte pipe: the agent protocol has no read-only mode, so a
+// connection that can sign can also send REMOVE_ALL_IDENTITIES or ADD_IDENTITY.
+// Only listing and signing are forwarded.
 //
-// Filtering is why the exchange is serialized rather than two copies running in
-// opposite directions: refusing a request means writing to the client, and a
-// concurrent copy would interleave with it.  The protocol is request/response
-// per connection, so nothing is lost by taking them in turn.
+// Serialized because refusing a request means writing to the client, which a
+// concurrent copy would interleave with.  The protocol is request/response per
+// connection, so nothing is lost.
 func (a *Agent) relay(client net.Conn, private string) {
 	defer func() { _ = client.Close() }()
 	if !a.permitted(client) {
@@ -265,17 +227,15 @@ func (a *Agent) relay(client net.Conn, private string) {
 		return
 	}
 	defer func() { _ = upstream.Close() }()
-	// Stop closes what it finds here: with the client read below carrying no
-	// deadline of its own, an idle connection would otherwise outlive the agent
-	// it is a relay to.
+	// Stop closes what it finds here; otherwise an idle connection outlives the
+	// agent it relays to.
 	a.track(client)
 	defer a.untrack(client)
 
 	deadline := time.Now().Add(firstRequestTimeout)
 	for {
-		// A connection that never makes a request is a descriptor being held,
-		// not an agent being used.  Only the first request is on the clock: an
-		// ssh session may go hours between signatures.
+		// Only the first request is on the clock: an ssh session may go hours
+		// between signatures.
 		_ = client.SetReadDeadline(deadline)
 		request, err := readMessage(client)
 		if err != nil {
@@ -287,9 +247,8 @@ func (a *Agent) relay(client net.Conn, private string) {
 			log.Printf("ssh-agent proxy: refusing agent request type %d; "+
 				"brokered commands may list and sign only", kind)
 			// The protocol's own refusal rather than a dropped connection: ssh
-			// sends session-bind@openssh.com whenever agent forwarding is in
-			// play, and a client that can see one request fail carries on
-			// instead of losing the agent for the rest of the session.
+			// sends session-bind@openssh.com under agent forwarding, and a
+			// client that sees one request fail carries on.
 			if _, err := client.Write(agentFailure); err != nil {
 				return
 			}
@@ -309,16 +268,14 @@ func (a *Agent) relay(client net.Conn, private string) {
 	}
 }
 
-// readMessage reads one length-prefixed agent message, header included, so that
-// what is forwarded is what arrived.
+// readMessage reads one length-prefixed agent message, header included.
 func readMessage(conn net.Conn) ([]byte, error) {
 	var header [4]byte
 	if _, err := io.ReadFull(conn, header[:]); err != nil {
 		return nil, err
 	}
 	length := binary.BigEndian.Uint32(header[:])
-	// Neither is a message the other end could have meant, and forwarding the
-	// second is how ssh-agent gets asked to allocate on demand.
+	// Neither is a message the other end could have meant.
 	if length == 0 || length > maxAgentMessage {
 		return nil, fmt.Errorf("agent message of %d bytes", length)
 	}
@@ -342,8 +299,8 @@ func (a *Agent) untrack(client net.Conn) {
 	delete(a.conns, client)
 }
 
-// closeRelays drops every live executor connection.  Closing them outside the
-// lock: each relay takes it on the way out.
+// closeRelays drops every live executor connection, outside the lock: each
+// relay takes it on the way out.
 func (a *Agent) closeRelays() {
 	a.mu.Lock()
 	live := make([]net.Conn, 0, len(a.conns))
@@ -357,12 +314,10 @@ func (a *Agent) closeRelays() {
 	}
 }
 
-// permitted is the SO_PEERCRED check every other faramir socket makes.
-//
-// The relayed connection is the broker's own, so ssh-agent's getpeereid() now
-// passes whoever reaches this socket: agent_socket_mode is all that stands
-// between an arbitrary uid and the fleet keys, and it is operator-supplied.
-// The uid is therefore checked here, and a rejected connection is logged.
+// permitted is the SO_PEERCRED check every other faramir socket makes.  Since
+// the relayed connection is the broker's own, ssh-agent's getpeereid() passes
+// whoever reaches this socket, leaving agent_socket_mode as the only other
+// boundary.
 func (a *Agent) permitted(client net.Conn) bool {
 	peer, err := sockutil.PeerCred(client)
 	if err != nil {
@@ -390,10 +345,9 @@ func (a *Agent) awaitSocket(path string) bool {
 	return false
 }
 
-// grantExecutorAccess lets the executor's uid connect, and nothing else.
-//
-// listen binds the proxy socket 0600.  The chown needs the broker to be a
-// member of the target group, which the unit arranges with SupplementaryGroups=.
+// grantExecutorAccess lets the executor's uid connect, and nothing else.  The
+// chown needs the broker in the target group, which the unit arranges with
+// SupplementaryGroups=.
 func (a *Agent) grantExecutorAccess(path string) {
 	group := a.config.ExecGroup
 	if group == "" {
@@ -423,8 +377,7 @@ func (a *Agent) add(key, socketPath string) bool {
 		"SSH_AUTH_SOCK=" + socketPath,
 		"PATH=/usr/local/bin:/usr/bin:/bin",
 		"HOME=" + envOr("HOME", "/tmp"),
-		// A key with a passphrase must fail immediately rather than block
-		// startup waiting for input nobody will ever type.
+		// A passphrase-protected key fails rather than blocking startup.
 		"SSH_ASKPASS_REQUIRE=never",
 		"DISPLAY=",
 	}
@@ -439,14 +392,11 @@ func (a *Agent) add(key, socketPath string) bool {
 func (a *Agent) Stop() {
 	a.closing.Store(true)
 	if a.listener != nil {
-		// Closing unlinks the socket, so the executor cannot reach an agent
-		// that is going away.
+		// Closing unlinks the socket.
 		_ = a.listener.Close()
 		a.listener = nil
 	}
-	// The socket being gone says nothing to a connection already established:
-	// close those too, or a brokered command sits waiting on an agent that no
-	// longer exists.
+	// An established connection outlives the socket, so close those too.
 	a.closeRelays()
 	if a.cmd != nil && a.cmd.Process != nil {
 		_ = a.cmd.Process.Signal(os.Interrupt)
@@ -475,8 +425,7 @@ func envOr(name, fallback string) string {
 	return fallback
 }
 
-// lastLine is the most useful part of a failed command's output: the final
-// line, which is where ssh-add puts its reason.
+// lastLine is where ssh-add puts its reason.
 func lastLine(s string) string {
 	s = strings.TrimSpace(s)
 	if s == "" {

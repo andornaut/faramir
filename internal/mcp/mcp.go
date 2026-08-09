@@ -1,10 +1,6 @@
 // Package mcp is an MCP (stdio) server exposing the broker to a coding agent,
-// run as `faramir mcp`.
-//
-// A distinct tool is far more discoverable to a model than a convention
-// documented in prose, so the interesting work here is the tool descriptions:
-// they have to make it obvious that faramir_run is the *only* way to run a
-// command that needs credentials, and that secrets are named, never pasted.
+// run as `faramir mcp`.  The tool descriptions carry the weight: a distinct tool
+// is more discoverable to a model than prose in a config file.
 //
 // Protocol: JSON-RPC 2.0 over stdio, MCP 2025-06-18.
 package mcp
@@ -204,10 +200,8 @@ func callTool(name string, arguments map[string]any) map[string]any {
 	var request map[string]any
 	switch name {
 	case "faramir_run":
-		// Writing cmd as a shell string is the likeliest way to call this
-		// wrong.  Without this the assertion yields nil, the broker is sent a
-		// null argv, and its reply is about a malformed request rather than
-		// about the shell string that caused it.
+		// The likeliest way to call this wrong.  Without it the broker gets a
+		// null argv and answers about a malformed request instead.
 		cmd, ok := arguments["cmd"].([]any)
 		if !ok {
 			return textResult("cmd must be an array of strings, not a shell string. "+
@@ -229,10 +223,8 @@ func callTool(name string, arguments map[string]any) map[string]any {
 				request[key] = v
 			}
 		}
-		// This process runs where the agent's session runs, so its own working
-		// directory is the one the caller means.  Only when the tool call did
-		// not name one: an explicit cwd is the agent being specific, and that
-		// wins.
+		// This process runs where the agent's session does, so its own
+		// directory is the one meant.  An explicit cwd wins.
 		if _, named := request["cwd"]; !named {
 			if here, err := os.Getwd(); err == nil {
 				request["cwd"] = here
@@ -272,9 +264,8 @@ func handle(m *message) map[string]any {
 
 	switch {
 	case m.Method == "initialize":
-		// Echo the client's version only when it is one this server speaks.
-		// Echoing whatever arrived claims support for any version a client
-		// cares to name, and the client then holds the server to it.
+		// Echoed only when this server speaks it; otherwise the client holds
+		// the server to a version it never supported.
 		negotiated := protocolVersion
 		if m.Params.ProtocolVersion == protocolVersion {
 			negotiated = m.Params.ProtocolVersion
@@ -300,7 +291,7 @@ func handle(m *message) map[string]any {
 	case strings.HasPrefix(m.Method, "notifications/"):
 		return nil
 	default:
-		// A notification (no id) gets no reply, even an error one.
+		// A notification (no id) gets no reply, not even an error.
 		if len(m.ID) == 0 || string(m.ID) == "null" {
 			return nil
 		}
@@ -320,9 +311,8 @@ func handle(m *message) map[string]any {
 
 // Run is the `faramir mcp` subcommand.
 func Run(args []string) int {
-	// No flags: this is a stdio server, started by the agent, never by hand.
-	// --version is the one exception, because it is how an operator confirms
-	// which build the agent is actually talking to.
+	// No flags: a stdio server started by the agent.  --version excepted, being
+	// how an operator confirms which build the agent talks to.
 	for _, arg := range args {
 		if arg == "--version" || arg == "-version" {
 			fmt.Println("faramir " + version.Version)
@@ -356,9 +346,8 @@ func serve(stdin io.Reader, stdout io.Writer) int {
 			emit(out, response)
 		}
 	}
-	// A read that failed is not a clean end of input.  Returning 0 here would
-	// have the agent's client see the server exit successfully mid-session,
-	// with the last request simply unanswered.
+	// A failed read is not end of input: 0 would look like a clean exit with
+	// the last request unanswered.
 	if err := in.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "faramir mcp: "+err.Error())
 		return 1

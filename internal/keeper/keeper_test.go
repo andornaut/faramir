@@ -46,7 +46,7 @@ func TestDecryptRoundTrip(t *testing.T) {
 	if got := values["flat"]; got != "s3cr3t-value-here" {
 		t.Errorf("flat = %q", got)
 	}
-	// Booleans are never secret, and "true"/"false" would redact half the output.
+	// "true"/"false" would redact half the output.
 	if _, ok := values["enabled"]; ok {
 		t.Errorf("boolean leaked into the value set: %v", values)
 	}
@@ -57,13 +57,8 @@ func TestDecryptRoundTrip(t *testing.T) {
 	}
 }
 
-// The key material reaches sops as a path, never as a value.  SOPS_AGE_KEY
-// would put the master key in the child's environment block, where
-// /proc/<pid>/environ exposes it for the lifetime of the process.
-//
-// Asserted against a real child's own environment rather than against the
-// keeper's intent: cmd.Env is assembled in one place and the failure would be a
-// line added there, which no amount of decrypting successfully would notice.
+// The key reaches sops as a path, never as a value.  Asserted against a real
+// child's environment rather than against the keeper's intent.
 func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 	dir := t.TempDir()
 	keyPath, _ := sopstest.NewIdentity(t, dir)
@@ -72,8 +67,8 @@ func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// A decrypt_command that dumps what it was handed and answers with an empty
-	// tree, so the run succeeds and the environment is what is left to look at.
+	// Dumps what it was handed and answers with an empty tree, so the run
+	// succeeds and the environment is what is left to look at.
 	dump := filepath.Join(dir, "environ")
 	script := filepath.Join(dir, "decrypt")
 	if err := os.WriteFile(script,
@@ -101,7 +96,7 @@ func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 			t.Error("KEY MATERIAL IN THE CHILD'S ENVIRONMENT: SOPS_AGE_KEY was set")
 		}
 	}
-	// And the material itself, whatever variable might have carried it.
+	// And the material itself, whatever variable carried it.
 	identity, err := os.ReadFile(keyPath)
 	if err != nil {
 		t.Fatal(err)
@@ -115,8 +110,7 @@ func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 	}
 }
 
-// A wrong identity must fail loudly, not return an empty value set: an empty
-// set means nothing is redacted.
+// An empty value set means nothing is redacted, so this fails loudly.
 func TestWrongIdentityFails(t *testing.T) {
 	secrets, _ := fixture(t, sops.TreeBranch{{Key: "token", Value: "value-goes-here"}})
 
@@ -151,8 +145,7 @@ func TestOneBadFileDoesNotBlankTheSet(t *testing.T) {
 	}
 }
 
-// The keeper serves get_values and get_state and nothing else.  Verification
-// matrix test 1f.
+// get_values and get_state, and nothing else.
 func TestKeeperRefusesEveryOtherOp(t *testing.T) {
 	k := &Keeper{config: &config.Config{}, Keys: NewKeyHolder(config.KeeperConfig{})}
 	for _, op := range []string{"get_age_key", "get_key", "", "decrypt", "exec"} {
@@ -170,10 +163,8 @@ func TestKeeperRefusesEveryOtherOp(t *testing.T) {
 	}
 }
 
-// get_state is the poll, so it must answer without the key and without
-// execing sops: a decrypt_command that cannot run at all still has to produce
-// fingerprints, or a broker whose keeper has lost its key stops noticing edits
-// on top of serving nothing.
+// The poll answers without the key and without execing sops, so a keeper that
+// cannot decrypt still reports edits.
 func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "vault.sops.yaml")
@@ -204,9 +195,7 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 	}
 }
 
-// A file that is not there is an error, not a shorter list.  The broker's load
-// gate reads these, and "absent" reaching it as silence is a broker that comes
-// up healthy holding nothing.
+// An error, not a shorter list: the broker's load gate reads these.
 func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.sops.yaml")
 	k := &Keeper{
@@ -224,9 +213,8 @@ func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	}
 }
 
-// The values and the fingerprints come back together, so the broker cannot
-// cache a value set under a fingerprint taken at a different moment and then
-// miss the edit that fell between them.
+// Together, so the broker cannot cache a value set under a fingerprint taken at
+// another moment and miss the edit between them.
 func TestGetValuesCarriesTheFileState(t *testing.T) {
 	secrets, keys := fixture(t, sops.TreeBranch{{Key: "flat", Value: "s3cr3t-value-here"}})
 	k := &Keeper{config: &config.Config{Secrets: secrets}, Keys: keys}
@@ -308,9 +296,8 @@ func TestFlattenSkipsSopsMetadataAndBooleans(t *testing.T) {
 	}
 }
 
-// Every entry is a glob, and a literal path is the case of one with no
-// metacharacters, so both go down the same path and an entry that names nothing
-// is an error either way.
+// One rule for globs and literal paths alike: an entry naming nothing is an
+// error.
 func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 	dir := t.TempDir()
 	for _, name := range []string{"a.sops.yml", "b.sops.yml", "notes.txt"} {
@@ -331,9 +318,7 @@ func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 		{"a pattern", []string{glob},
 			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0},
 		{"a literal", []string{literal}, []string{literal}, 0},
-		// The base config globs the store and a drop-in may name a file in it as
-		// well.  Decrypting it twice would report every ref in it as defined
-		// more than once.
+		// Decrypting twice would report every ref in it as doubly defined.
 		{"a pattern and a literal inside it", []string{glob, literal},
 			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0},
 		{"a literal that is not there", []string{missing}, []string{}, 1},
@@ -360,10 +345,8 @@ func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 	}
 }
 
-// A store that is not mounted looks exactly like one that was never written,
-// and the safe reading of the two is the same: the broker is configured for
-// values it does not have, so nothing redacts them.  Reporting that as an empty
-// list would be a broker that comes up healthy holding nothing.
+// An unmounted store looks exactly like one never written, and both leave the
+// broker configured for values it does not have.
 func TestAPatternThatNamesNothingIsAnError(t *testing.T) {
 	pattern := filepath.Join(t.TempDir(), "*.sops.yml")
 	k := &Keeper{
@@ -381,9 +364,8 @@ func TestAPatternThatNamesNothingIsAnError(t *testing.T) {
 	}
 }
 
-// A file added to the store is picked up with nothing edited and no daemon
-// restarted: that is the whole reason the entry is a directory pattern and the
-// expansion happens per request rather than at config load.
+// Picked up with nothing edited and no daemon restarted, which is why the
+// expansion happens per request.
 func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
 	dir := t.TempDir()
 	first := filepath.Join(dir, "a.sops.yml")

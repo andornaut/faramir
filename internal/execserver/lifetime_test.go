@@ -66,9 +66,8 @@ func waitForFile(t *testing.T, path string, d time.Duration) string {
 
 func alive(pid int) bool { return syscall.Kill(pid, 0) == nil }
 
-// Matrix 1k.  Closing the connection is how the broker says "give up".  An
-// orphan holding a credential in its environment is exactly what must not
-// survive the broker dying mid-command.
+// Closing the connection means "give up": no orphan holding a credential in its
+// environment survives the broker dying mid-command.
 func TestAChildIsKilledWhenTheBrokerHangsUp(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 	sh := shPath(t)
@@ -144,8 +143,8 @@ func TestAKilledChildReportsASignalExitCode(t *testing.T) {
 
 // -- separation -------------------------------------------------------------
 
-// The child's HOME belongs to the executor's uid, not the broker's: ansible
-// creates ~/.ansible/tmp unconditionally and fails if it cannot.
+// HOME belongs to the executor's uid; ansible creates ~/.ansible/tmp
+// unconditionally.
 func TestTheChildHomeIsNotTheBrokers(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 	sh := shPath(t)
@@ -161,8 +160,8 @@ func TestTheChildHomeIsNotTheBrokers(t *testing.T) {
 	}
 }
 
-// The child gets exactly what the broker sent plus HOME.  Inheriting the
-// broker's environment would hand it whatever the broker happens to hold.
+// Exactly what the broker sent plus HOME: inheriting would hand the child
+// whatever the broker holds.
 func TestTheChildDoesNotInheritTheBrokersEnvironment(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 	sh := shPath(t)
@@ -177,8 +176,8 @@ func TestTheChildDoesNotInheritTheBrokersEnvironment(t *testing.T) {
 	}
 }
 
-// A write straight to /dev/tty bypasses stdout redirection entirely, which is
-// how ssh and sudo prompt.  Owning the controlling terminal catches it.
+// A write to /dev/tty bypasses stdout redirection, which is how ssh and sudo
+// prompt; owning the controlling terminal catches it.
 func TestWritesStraightToDevTtyAreStillCaptured(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 	sh := shPath(t)
