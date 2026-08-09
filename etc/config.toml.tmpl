@@ -14,6 +14,12 @@
 # runs as, plus [exec.base_env] PATH, [exec] max_timeout_sec and
 # max_output_bytes.  See README.md and docs/design.md.
 #
+# socket_path and socket_mode are the exception a drop-in may not set.  The
+# .socket units decide what a socket is: the daemons are handed a listening
+# descriptor and never reach the bind path, so these describe it rather than
+# choose it, and init renders both sides together.  Change them with
+# `faramir init`.
+#
 # A mistyped key or [section], or a size out of range, is a hard error naming
 # the alternatives.  Check a config with:  faramir broker -c FILE --check
 
@@ -42,11 +48,14 @@ age_key_credential = "age_key"
 
 # The process that forks brokered commands.  Its uid holds no key, values,
 # audit log or SSH keys; a child forked by the broker would inherit all four.
+#
+# No max_concurrency here.  The broker holds one [server] max_concurrency slot
+# for the whole of each child and is the only client this socket admits, so that
+# cap is the one that binds; the executor keeps a fixed backstop of its own.
 [executor]
 socket_path = "{{.RunDir}}/exec.sock"
 socket_mode = "0660"
 allowed_users = ["{{.BrokerUser}}"]
-max_concurrency = 16
 
 [exec]
 # No key names where a command runs: a brokered command runs where its caller

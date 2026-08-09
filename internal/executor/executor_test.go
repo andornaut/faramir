@@ -38,7 +38,6 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 		},
 		Executor: config.ExecutorConfig{
 			SocketPath: filepath.Join(dir, "exec.sock"), SocketMode: 0o600,
-			MaxConcurrency: 4,
 		},
 	}
 	e := execserver.New(cfg)

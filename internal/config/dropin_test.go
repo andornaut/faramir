@@ -151,6 +151,54 @@ default_timeout_sec = 600
 	}
 }
 
+// The .socket units decide what a socket is, so a drop-in setting one of these
+// moves nothing -- and does not fail silently either, because the broker dials
+// the keeper and the executor at the configured path while systemd keeps
+// listening on the old one. That surfaces as "keeper unreachable", which reads
+// as an outage rather than an edit.
+func TestADropInMayNotSetASocketTheUnitOwns(t *testing.T) {
+	for _, key := range []string{"socket_path = \"/run/x.sock\"", "socket_mode = \"0666\""} {
+		for _, section := range []string{"server", "keeper", "executor"} {
+			t.Run(section+" "+key, func(t *testing.T) {
+				_, err := write(t, minimal, map[string]string{
+					"10-x.toml": "[" + section + "]\n" + key + "\n",
+				})
+				if err == nil {
+					t.Fatal("a drop-in set a socket the unit owns")
+				}
+				// Both the file to edit and what to run instead.
+				if !strings.Contains(err.Error(), "10-x.toml") ||
+					!strings.Contains(err.Error(), "faramir init") {
+					t.Errorf("error names too little to act on: %v", err)
+				}
+			})
+		}
+	}
+}
+
+// The base file is init's to write, and carries every one of them. Refusing
+// them there would refuse the config init just rendered.
+func TestTheBaseFileMaySetTheSocketsItRenders(t *testing.T) {
+	cfg, err := write(t, `
+[server]
+socket_path = "/run/faramir/broker.sock"
+socket_mode = "0660"
+[keeper]
+socket_path = "/run/faramir/keeper.sock"
+[executor]
+socket_path = "/run/faramir/exec.sock"
+`, map[string]string{"10-x.toml": "[secrets]\nmin_length = 12\n"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Keeper.SocketPath != "/run/faramir/keeper.sock" {
+		t.Errorf("keeper socket_path = %q", cfg.Keeper.SocketPath)
+	}
+	if cfg.Secrets.MinLength != 12 {
+		t.Errorf("the drop-in beside it did not apply: min_length = %d", cfg.Secrets.MinLength)
+	}
+}
+
 // Lexical order, so a numeric prefix decides who wins.
 func TestTheLastDropInWins(t *testing.T) {
 	cfg, err := write(t, minimal, map[string]string{

@@ -253,11 +253,14 @@ type KeeperConfig struct {
 // ExecutorConfig describes the process that forks brokered commands.  Its uid
 // holds no age key, values, audit log or SSH keys; a child forked by the broker
 // would inherit all four.
+//
+// No max_concurrency.  The broker is the only client this socket admits and it
+// holds one [server] max_concurrency slot for the whole of each child, so that
+// cap binds first and always; the executor keeps a fixed backstop of its own.
 type ExecutorConfig struct {
-	SocketPath     string
-	SocketMode     os.FileMode
-	AllowedUsers   []string
-	MaxConcurrency int
+	SocketPath   string
+	SocketMode   os.FileMode
+	AllowedUsers []string
 }
 
 // SshConfig is an ssh-agent the broker owns, for keys the executor must not
@@ -340,7 +343,7 @@ func Load(path string) (*Config, error) {
 				return nil, err
 			}
 		}
-		if err := mergeInto(raw, layer, "", source, setBy); err != nil {
+		if err := mergeInto(raw, layer, "", source, i > 0, setBy); err != nil {
 			return nil, err
 		}
 	}
@@ -407,15 +410,47 @@ var inventoryLists = map[string]bool{
 	"ssh.keys":      true,
 }
 
+// systemdOwned are the keys the .socket units decide, which a drop-in may not
+// set.
+//
+// The daemons are handed a listening descriptor and never reach the bind path,
+// so these describe a socket rather than choose it, and init renders both sides
+// together.  They are not uniformly inert, though: the broker dials the keeper
+// and the executor at the path named here, so a drop-in setting [keeper]
+// socket_path moves nothing and breaks the broker's own connection, surfacing
+// as "keeper unreachable".
+//
+// Refused in a drop-in rather than everywhere: the base file is init's to write
+// and has to carry them, and a broker run outside systemd binds them itself.
+var systemdOwned = map[string]bool{
+	"server.socket_path":   true,
+	"server.socket_mode":   true,
+	"keeper.socket_path":   true,
+	"keeper.socket_mode":   true,
+	"executor.socket_path": true,
+	"executor.socket_mode": true,
+}
+
 // mergeInto layers one decoded config over another.  Tables merge key by key
 // and scalars replace.  Lists split by the rule above: an inventory
 // accumulates, and any other list set by two sources is refused, naming both.
 // setBy records which source last set each dotted key, for that error.
-func mergeInto(base, layer map[string]any, prefix, source string, setBy map[string]string) error {
+//
+// dropIn is false for the base file alone, which carries the keys init renders
+// and systemd overrides.
+func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, setBy map[string]string) error {
 	for key, value := range layer {
 		full := key
 		if prefix != "" {
 			full = prefix + "." + key
+		}
+
+		if dropIn && systemdOwned[full] {
+			return errf("%s: %s is set by the .socket unit, not by this file, so "+
+				"setting it here moves nothing. Worse, the broker dials the keeper "+
+				"and the executor at the path named here, so an edit breaks its own "+
+				"connection to a daemon still listening where it was. Change it with "+
+				"`faramir init` and let it rewrite both sides", source, full)
 		}
 
 		if sub, ok := value.(map[string]any); ok {
@@ -429,7 +464,7 @@ func mergeInto(base, layer map[string]any, prefix, source string, setBy map[stri
 				existing = map[string]any{}
 				base[key] = existing
 			}
-			if err := mergeInto(existing, sub, full, source, setBy); err != nil {
+			if err := mergeInto(existing, sub, full, source, dropIn, setBy); err != nil {
 				return err
 			}
 			continue
@@ -479,9 +514,8 @@ var (
 		"max_request_bytes", "allowed_groups", "max_redacts_per_min"}
 	keeperKeys = []string{"socket_path", "socket_mode", "allowed_users",
 		"age_key_credential", "age_key_file"}
-	executorKeys = []string{"socket_path", "socket_mode", "allowed_users",
-		"max_concurrency"}
-	execKeys = []string{"default_timeout_sec", "max_timeout_sec",
+	executorKeys = []string{"socket_path", "socket_mode", "allowed_users"}
+	execKeys     = []string{"default_timeout_sec", "max_timeout_sec",
 		"max_output_bytes", "base_env", "term_cols", "term_rows", "kill_grace_sec"}
 	sshKeys = []string{"keys", "agent_socket", "agent_socket_mode", "exec_group",
 		"ssh_agent", "ssh_add"}
@@ -607,7 +641,7 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 	}
 	*out = ExecutorConfig{
 		SocketPath: "/run/faramir/exec.sock", SocketMode: 0o660,
-		AllowedUsers: []string{"faramir-broker"}, MaxConcurrency: 16,
+		AllowedUsers: []string{"faramir-broker"},
 	}
 	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
 		return err
@@ -618,9 +652,6 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 		}
 	}
 	if out.AllowedUsers, err = stringList(sec["allowed_users"], where, out.AllowedUsers); err != nil {
-		return err
-	}
-	if out.MaxConcurrency, err = atLeast(sec, "max_concurrency", where, out.MaxConcurrency, 1); err != nil {
 		return err
 	}
 	return nil

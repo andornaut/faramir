@@ -60,6 +60,16 @@ func TestAllowedUIDsIsRefusedAsUnknown(t *testing.T) {
 	}
 }
 
+// The executor's own cap is gone, the broker holding a [server] max_concurrency
+// slot for the whole of each child and being the only client this socket
+// admits: a number four times above a ceiling that always binds first.
+func TestExecutorMaxConcurrencyIsRefusedAsUnknown(t *testing.T) {
+	_, err := load(t, minimal+"\n[executor]\nmax_concurrency = 8\n")
+	if err == nil || !strings.Contains(err.Error(), "unknown key") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 // A mistyped key is named, not ignored.
 func TestUnknownKeysAreRefused(t *testing.T) {
 	for _, tc := range []struct{ name, text string }{
@@ -95,7 +105,6 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 	for _, tc := range []struct{ name, text string }{
 		{"negative max_concurrency", minimal + "\n[server]\nmax_concurrency = -1\n"},
 		{"zero max_concurrency", minimal + "\n[server]\nmax_concurrency = 0\n"},
-		{"zero executor concurrency", minimal + "\n[executor]\nmax_concurrency = 0\n"},
 		{"zero max_request_bytes", minimal + "\n[server]\nmax_request_bytes = 0\n"},
 		{"zero default_timeout_sec", "[exec]\ndefault_timeout_sec = 0\n"},
 		{"zero max_timeout_sec", "[exec]\nmax_timeout_sec = 0\n"},

@@ -21,7 +21,7 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 			DefaultTimeoutSec: 15, KillGraceSec: 2,
 			TermCols: 120, TermRows: 40,
 		},
-		Executor: config.ExecutorConfig{SocketPath: sock, SocketMode: 0o600, MaxConcurrency: 4},
+		Executor: config.ExecutorConfig{SocketPath: sock, SocketMode: 0o600},
 	}
 	e := New(cfg)
 	if _, err := e.Listen(); err != nil {
