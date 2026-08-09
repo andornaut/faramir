@@ -128,25 +128,6 @@ func stringList(value any, where string, fallback []string) ([]string, error) {
 	return out, nil
 }
 
-func intList(value any, where string, fallback []int) ([]int, error) {
-	if value == nil {
-		return fallback, nil
-	}
-	list, ok := value.([]any)
-	if !ok {
-		return nil, errf("%s: expected a list of integers, got %T", where, value)
-	}
-	out := make([]int, 0, len(list))
-	for _, v := range list {
-		n, ok := v.(int64)
-		if !ok {
-			return nil, errf("%s: expected an integer, got %T: %v", where, v, v)
-		}
-		out = append(out, int(n))
-	}
-	return out, nil
-}
-
 func stringMap(value any, where string, fallback map[string]string) (map[string]string, error) {
 	if value == nil {
 		return fallback, nil
@@ -230,12 +211,16 @@ func float(value any, where string, fallback float64) (float64, error) {
 // Sections
 // --------------------------------------------------------------------------
 
+// ServerConfig describes the broker's own socket, the one an operator reaches.
+//
+// Callers are named by group rather than by uid.  A uid list was a second
+// spelling of the same answer that stopped being true the moment an account was
+// renumbered, and nothing asked it a question allowed_groups could not.
 type ServerConfig struct {
 	SocketPath      string
 	SocketMode      os.FileMode
 	MaxConcurrency  int
 	MaxRequestBytes int
-	AllowedUIDs     []int
 	AllowedGroups   []string
 	// MaxRedactsPerMin bounds the redact op per calling uid.  Zero is no limit.
 	// It does not close the oracle, only make a probe visible.
@@ -331,7 +316,7 @@ func Load(path string) (*Config, error) {
 	if path == "" {
 		path = DefaultConfigPath
 	}
-	raw, err := readTOML(path)
+	base, err := readTOML(path)
 	if err != nil {
 		return nil, err
 	}
@@ -344,15 +329,18 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	sources := append([]string{path}, dropIns...)
-	// Seeded from the base, which is a source like any other.
+	// The base is merged like any other source rather than merged into, so setBy
+	// records it as the owner of what it set.
+	raw := map[string]any{}
 	setBy := map[string]string{}
-	markTable(raw, "", path, setBy)
-	for _, dropIn := range dropIns {
-		layer, err := readTOML(dropIn)
-		if err != nil {
-			return nil, err
+	for i, source := range sources {
+		layer := base
+		if i > 0 {
+			if layer, err = readTOML(source); err != nil {
+				return nil, err
+			}
 		}
-		if err := mergeInto(raw, layer, "", dropIn, setBy); err != nil {
+		if err := mergeInto(raw, layer, "", source, setBy); err != nil {
 			return nil, err
 		}
 	}
@@ -412,8 +400,8 @@ func dropInPaths(dir string) ([]string, error) {
 
 // inventoryLists name what the broker is to manage, one entry per owner, so
 // they accumulate across sources.  Everything else is policy and replaces:
-// accumulating allowed_users, allowed_groups, allowed_uids or decrypt_command
-// would widen what the sockets admit by writing a file that never said so.
+// accumulating allowed_users, allowed_groups or decrypt_command would widen
+// what the sockets admit by writing a file that never said so.
 var inventoryLists = map[string]bool{
 	"secrets.files": true,
 	"ssh.keys":      true,
@@ -431,14 +419,19 @@ func mergeInto(base, layer map[string]any, prefix, source string, setBy map[stri
 		}
 
 		if sub, ok := value.(map[string]any); ok {
-			if existing, ok := base[key].(map[string]any); ok {
-				if err := mergeInto(existing, sub, full, source, setBy); err != nil {
-					return err
-				}
-				continue
+			// A table always merges into a table, one being created when the
+			// base has none.  Replacing wholesale left every key inside it
+			// unmarked in setBy, so a later drop-in setting a policy list in
+			// there looked unset and overwrote it silently; recursing into an
+			// empty map marks them on the way through instead.
+			existing, ok := base[key].(map[string]any)
+			if !ok {
+				existing = map[string]any{}
+				base[key] = existing
 			}
-			base[key] = value
-			markTable(sub, full, source, setBy)
+			if err := mergeInto(existing, sub, full, source, setBy); err != nil {
+				return err
+			}
 			continue
 		}
 
@@ -462,22 +455,6 @@ func mergeInto(base, layer map[string]any, prefix, source string, setBy map[stri
 	return nil
 }
 
-// markTable records a whole subtree as coming from one source, for a table that
-// replaced rather than merged; otherwise a later drop-in's list looks unset.
-func markTable(sub map[string]any, prefix, source string, setBy map[string]string) {
-	for key, value := range sub {
-		full := key
-		if prefix != "" {
-			full = prefix + "." + key
-		}
-		if nested, ok := value.(map[string]any); ok {
-			markTable(nested, full, source, setBy)
-			continue
-		}
-		setBy[full] = source
-	}
-}
-
 // appendNew adds what is not already there, preserving contribution order.
 func appendNew(existing, incoming []any) []any {
 	seen := make(map[any]bool, len(existing))
@@ -499,8 +476,7 @@ func appendNew(existing, incoming []any) []any {
 var (
 	sections   = []string{"server", "keeper", "executor", "exec", "ssh", "secrets", "audit"}
 	serverKeys = []string{"socket_path", "socket_mode", "max_concurrency",
-		"max_request_bytes", "allowed_uids", "allowed_groups",
-		"max_redacts_per_min"}
+		"max_request_bytes", "allowed_groups", "max_redacts_per_min"}
 	keeperKeys = []string{"socket_path", "socket_mode", "allowed_users",
 		"age_key_credential", "age_key_file"}
 	executorKeys = []string{"socket_path", "socket_mode", "allowed_users",
@@ -574,9 +550,6 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 		return err
 	}
 	if out.MaxRequestBytes, err = atLeast(sec, "max_request_bytes", where, out.MaxRequestBytes, 1); err != nil {
-		return err
-	}
-	if out.AllowedUIDs, err = intList(sec["allowed_uids"], where, nil); err != nil {
 		return err
 	}
 	if out.AllowedGroups, err = stringList(sec["allowed_groups"], where, out.AllowedGroups); err != nil {

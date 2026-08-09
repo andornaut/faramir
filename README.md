@@ -331,7 +331,7 @@ Lists split by what they are:
 What | Rule | Why
 --- | --- | ---
 `[secrets] files`, `[ssh] keys` | **accumulate**, duplicates collapsed | Inventories with one entry per owner. Replacing would leave the broker holding fewer files than its operator believes, injecting and redacting nothing for the loser. `files` entries are glob patterns, deduplicated again after expansion, so a drop-in naming a file the base already globs adds nothing.
-every other list | **refused** when two sources set it, naming both | `allowed_users`, `allowed_groups`, `allowed_uids` and `decrypt_command` are policy. Accumulating would widen what the sockets admit by writing a file that never said so; taking the last would make it depend on filename order.
+every other list | **refused** when two sources set it, naming both | `allowed_users`, `allowed_groups` and `decrypt_command` are policy. Accumulating would widen what the sockets admit by writing a file that never said so; taking the last would make it depend on filename order.
 
 - Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir broker --check` report `configs`: the base file and every drop-in that contributed, in merge order.
 - Dotfiles are skipped, so an editor's `.#name.toml` lock does not stop the daemons starting.

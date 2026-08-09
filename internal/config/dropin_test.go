@@ -131,6 +131,26 @@ func TestAPolicyListSetTwiceIsRefused(t *testing.T) {
 	}
 }
 
+// The section the policy list sits in need not exist in the base file.  A
+// drop-in that introduces one owns everything it put there, so a later drop-in
+// setting a list inside it is refused like any other second owner -- rather
+// than looking unset and overwriting it silently.
+func TestAPolicyListInASectionADropInIntroducedIsStillOwned(t *testing.T) {
+	_, err := write(t, `
+[exec]
+default_timeout_sec = 600
+`, map[string]string{
+		"10-first.toml":  "[secrets]\ndecrypt_command = [\"sops\"]\n",
+		"20-second.toml": "[secrets]\ndecrypt_command = [\"cat\"]\n",
+	})
+	if err == nil {
+		t.Fatal("a policy list in a drop-in-introduced section was overridden silently")
+	}
+	if !strings.Contains(err.Error(), "10-first.toml") || !strings.Contains(err.Error(), "20-second.toml") {
+		t.Errorf("error names too little to act on: %v", err)
+	}
+}
+
 // Lexical order, so a numeric prefix decides who wins.
 func TestTheLastDropInWins(t *testing.T) {
 	cfg, err := write(t, minimal, map[string]string{

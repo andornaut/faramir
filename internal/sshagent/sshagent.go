@@ -328,7 +328,7 @@ func (a *Agent) permitted(client net.Conn) bool {
 	if a.config.ExecGroup != "" {
 		groups = []string{a.config.ExecGroup}
 	}
-	return sockutil.Allowed(peer, nil, nil, groups)
+	return sockutil.Allowed(peer, nil, groups)
 }
 
 func (a *Agent) awaitSocket(path string) bool {

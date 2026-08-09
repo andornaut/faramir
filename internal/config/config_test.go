@@ -47,6 +47,19 @@ func TestDefaultCwdIsRefusedAsUnknown(t *testing.T) {
 	}
 }
 
+// Same again for the numeric spelling of a caller: allowed_uids said what
+// allowed_groups says, in a form that stopped being true once an account was
+// renumbered.
+func TestAllowedUIDsIsRefusedAsUnknown(t *testing.T) {
+	_, err := load(t, minimal+"\n[server]\nallowed_uids = [1000]\n")
+	if err == nil || !strings.Contains(err.Error(), "unknown key") {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "allowed_groups") {
+		t.Errorf("the message does not name the alternative: %v", err)
+	}
+}
+
 // A mistyped key is named, not ignored.
 func TestUnknownKeysAreRefused(t *testing.T) {
 	for _, tc := range []struct{ name, text string }{
