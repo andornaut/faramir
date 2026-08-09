@@ -74,18 +74,22 @@ That proves the var resolved *and* that printing it produces a token. `ENC[AES25
 
 ## 3. SSH keys
 
-Brokered commands run as `faramir-exec`, which must *use* the keys that reach managed hosts without being able to read them: a password can be rotated, a copied fleet key cannot be un-copied.
+Brokered commands run as `faramir-exec`, which must *use* the key that reaches managed hosts without being able to read it: a password can be rotated, a copied fleet key cannot be un-copied.
+
+`faramir init` mints one, `0600 faramir-broker`, beside the age key:
 
 ```toml
 [ssh]
-keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
+keys = ["/etc/faramir/id_ed25519"]
 ```
 
-The broker keeps the files under its own uid, loads them into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`.
+Nothing to write: `init` renders that line and refuses a drop-in that sets it. Put the public half `init` prints into `authorized_keys` on each managed host. `--ssh-key` moves the key, or adopts one you placed yourself.
 
-- At runtime the broker logs a key it could not load and carries on, so one bad key does not stop the others.
-- The agent lives and dies with the broker, so nothing outlives the process holding keys in memory.
+The broker keeps both halves under its own uid, loads the private one into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`.
 
-The agent's own account cannot read the keys either way, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
+- At runtime the broker logs a key it could not load and carries on.
+- The agent lives and dies with the broker, so nothing outlives the process holding the key in memory.
+
+The executor's account cannot read the key, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
 
 Keep `ANSIBLE_HOST_KEY_CHECKING=True` in `[exec.base_env]`. Turning it off to make a broken host work is how a broker with credentials hands them to whatever answers.

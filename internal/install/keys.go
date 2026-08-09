@@ -177,64 +177,93 @@ func (r *runner) keepSopsConfig(path string) {
 	r.step("sops config", false, fmt.Sprintf("keeping %s, %d recipient(s)", path, len(listed)))
 }
 
-// stepSSHKey generates the identity the broker lends to brokered commands.  It
-// opens a host only once its public half is in that host's authorized_keys,
-// which this does not do.  An existing key is left alone, regenerating one
-// locking the broker out of every host it is already on.
+// stepSSHKey mints the identity the broker lends to brokered commands, and
+// asserts that it is one the broker can read.  A key opens a host only once its
+// public half is in that host's authorized_keys, which this does not do.  An
+// existing key at the path is adopted rather than replaced: regenerating one
+// locks the broker out of every host it is already on, and adopting one is how
+// --ssh-key takes a key of the operator's.
+//
+// One is minted every run, whether or not this host turns out to need it, so
+// there is always a public half to put in an authorized_keys without re-running
+// with a flag.  [ssh] keys is init's alone -- a drop-in setting it is refused by
+// the config merge -- so what the broker will load is exactly this path.
+//
+// Runs after stepConfig, so the file naming the key is already written, and
+// before anything starts a daemon, a key the broker cannot read leaving the
+// agent holding nothing.
 func (r *runner) stepSSHKey() error {
-	if r.opts.SSHKey == "" {
-		r.skip("broker ssh key", "[ssh] keys left empty; keys must then live "+
-			"somewhere the executor's own uid can read")
-		return nil
-	}
 	if r.opts.DryRun {
-		r.reportPresence("broker ssh key", r.opts.SSHKey, "generate")
+		r.reportPresence("broker ssh key", r.layout.SSHKey, "mint")
 		return nil
 	}
-	if _, err := r.fs.ensureDir(filepath.Dir(r.opts.SSHKey), 0o700,
-		r.brokerUID, r.brokerGID, true); err != nil {
+	// own=false: the directory may be the config directory, which is root's, or
+	// one the operator made to hold a key of their own.  Neither is this step's
+	// to take over.
+	if _, err := r.fs.ensureDir(filepath.Dir(r.layout.SSHKey), 0o700,
+		r.brokerUID, r.brokerGID, false); err != nil {
 		return err
 	}
 	host, _ := os.Hostname()
-	public, created, err := sshkey.Generate(r.opts.SSHKey, "faramir broker on "+host)
+	public, minted, err := sshkey.Generate(r.layout.SSHKey, "faramir broker on "+host)
 	if err != nil {
 		return err
 	}
 	r.report.BrokerPublicKey = public
-	// Re-asserted every run, like the age key's: a key placed by hand or left
-	// root-owned is one the broker cannot read, and the only symptom is an agent
-	// holding nothing.  A repair counts as a change.
-	changed := created
-	if !r.opts.DryRun {
-		for path, mode := range map[string]os.FileMode{
-			r.opts.SSHKey:          0o600,
-			r.opts.SSHKey + ".pub": 0o644,
-		} {
-			info, err := os.Stat(path)
-			if err != nil {
-				return fmt.Errorf("%s: %w\nThe broker needs both halves of the key. "+
-					"Regenerate the public half with: ssh-keygen -y -f %s > %s",
-					path, err, r.opts.SSHKey, r.opts.SSHKey+".pub")
-			}
-			wrong, err := wrongOwner(info, r.brokerUID, r.brokerGID)
-			if err != nil {
-				return err
-			}
-			if !wrong && info.Mode().Perm() == mode.Perm() {
-				continue
-			}
-			if err := os.Chown(path, r.brokerUID, r.brokerGID); err != nil {
-				return err
-			}
-			if err := os.Chmod(path, mode); err != nil {
-				return err
-			}
-			changed = true
-		}
+	r.sshKey = r.layout.SSHKey
+	// Repaired only when this run wrote it.  A key minted by an earlier run is
+	// already broker-owned and never reaches the refusal; one that is not is a
+	// key the operator brought, and chowning that to the broker would take it
+	// away from them rather than fix an install.
+	repaired, err := r.ownSSHKey(r.sshKey, minted)
+	if err != nil {
+		return err
 	}
-	if changed {
+	if minted || repaired {
 		r.restartFor("ssh key")
 	}
-	r.step("broker ssh key", changed, r.opts.SSHKey)
+	r.step("broker ssh key", minted || repaired, r.sshKey)
 	return nil
+}
+
+// ownSSHKey asserts, every run, that the broker can read both halves of the key:
+// one placed by hand or left root-owned leaves the agent holding nothing, and
+// nothing else says so.  A repair counts as a change.  repair is false for a key
+// this run did not write, which is refused rather than taken over.
+func (r *runner) ownSSHKey(path string, repair bool) (bool, error) {
+	changed := false
+	for _, half := range []struct {
+		path string
+		mode os.FileMode
+	}{{path, 0o600}, {path + ".pub", 0o644}} {
+		info, err := os.Stat(half.path)
+		if err != nil {
+			return false, fmt.Errorf("%s: %w\nThe broker needs both halves of the key. "+
+				"Regenerate the public half with: ssh-keygen -y -f %s > %s",
+				half.path, err, path, path+".pub")
+		}
+		wrong, err := wrongOwner(info, r.brokerUID, r.brokerGID)
+		if err != nil {
+			return false, err
+		}
+		if !wrong && info.Mode().Perm() == half.mode.Perm() {
+			continue
+		}
+		if !repair {
+			return false, fmt.Errorf("%s is %s, and [ssh] keys names it, so %s cannot "+
+				"load it and brokered commands reach no managed host. Hand it over:\n"+
+				"    chown %s %s && chmod %04o %s\n"+
+				"Or drop it from [ssh] keys, if it is not the broker's to hold",
+				half.path, owns(half.path), r.layout.BrokerUser,
+				r.layout.BrokerUser, half.path, half.mode.Perm(), half.path)
+		}
+		if err := os.Chown(half.path, r.brokerUID, r.brokerGID); err != nil {
+			return false, err
+		}
+		if err := os.Chmod(half.path, half.mode); err != nil {
+			return false, err
+		}
+		changed = true
+	}
+	return changed, nil
 }

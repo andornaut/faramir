@@ -1,6 +1,7 @@
 package install
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -212,13 +213,13 @@ func TestKeeperBinds(t *testing.T) {
 		},
 		{
 			name:      "in the operator's home",
-			configDir: "/home/operator/.faramir",
-			want:      []string{"/home/operator/.faramir"},
+			configDir: "/home/operator/.config/faramir",
+			want:      []string{"/home/operator/.config/faramir"},
 		},
 		{
 			name:      "in root's home",
-			configDir: "/root/.faramir",
-			want:      []string{"/root/.faramir"},
+			configDir: "/root/.config/faramir",
+			want:      []string{"/root/.config/faramir"},
 		},
 	}
 	for _, test := range tests {
@@ -254,7 +255,7 @@ func TestKeeperProtectHome(t *testing.T) {
 	}
 
 	inHome := strict
-	inHome.ConfigDir = "/home/operator/.faramir"
+	inHome.ConfigDir = "/home/operator/.config/faramir"
 	body, err = render(units["faramir-keeper.service"], inHome)
 	if err != nil {
 		t.Fatal(err)
@@ -262,7 +263,7 @@ func TestKeeperProtectHome(t *testing.T) {
 	if !strings.Contains(string(body), "ProtectHome=tmpfs") {
 		t.Error("keeper does not relax ProtectHome for a config directory in a home")
 	}
-	if !strings.Contains(string(body), "BindReadOnlyPaths=/home/operator/.faramir") {
+	if !strings.Contains(string(body), "BindReadOnlyPaths=/home/operator/.config/faramir") {
 		t.Error("keeper does not bind the config directory back")
 	}
 }
@@ -308,8 +309,8 @@ func TestLayoutValidation(t *testing.T) {
 	}
 }
 
-// The SSH key renders into the base config.  A key named on the command line
-// and absent from the file leaves the broker with an agent holding nothing.
+// The SSH key renders into the base config.  A key minted and absent from the
+// file leaves the broker with an agent holding nothing.
 func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 	layout := testLayout()
 	layout.SSHKey = "/var/lib/br/.ssh/identity"
@@ -320,14 +321,32 @@ func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 	if want := `keys = ["/var/lib/br/.ssh/identity"]`; !strings.Contains(string(config), want) {
 		t.Errorf("config does not carry the key: want %s", want)
 	}
+}
 
-	// Empty means empty, not a list holding an empty string.
-	layout.SSHKey = ""
-	config, err = render("etc/config.toml.tmpl", layout)
+// One is minted whether or not --ssh-key was passed, so a host always has a
+// public half to put in an authorized_keys.  Beside the age key: the key follows
+// the config, so a config in an encrypted home has the private half in there
+// too.
+func TestTheSSHKeyDefaultsBesideTheAgeKey(t *testing.T) {
+	opts := Options{
+		Operator: "op", Group: DefaultGroup,
+		BrokerUser: DefaultBrokerUser, KeeperUser: DefaultKeeperUser,
+		ExecUser: DefaultExecUser, ConfigDir: "/home/op/.config/faramir",
+	}
+	layout, err := opts.layout()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(config), "keys = []") {
-		t.Error("no --ssh-key should leave keys empty")
+	if want := "/home/op/.config/faramir/id_ed25519"; layout.SSHKey != want {
+		t.Errorf("SSHKey = %q, want %q", layout.SSHKey, want)
+	}
+	if filepath.Dir(layout.SSHKey) != filepath.Dir(layout.AgeKeyPath) {
+		t.Errorf("SSHKey %q is not beside the age key %q", layout.SSHKey, layout.AgeKeyPath)
+	}
+	// Named so that the deny patterns already refuse it by name, wherever a
+	// copy turns up, and not only where ConfigDir was rendered into a rule.
+	if filepath.Base(layout.SSHKey) != "id_ed25519" {
+		t.Errorf("SSHKey is named %q; the deny patterns name id_ed25519",
+			filepath.Base(layout.SSHKey))
 	}
 }

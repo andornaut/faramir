@@ -68,8 +68,24 @@ type Layout struct {
 	// SSHKey is the identity the broker lends to brokered commands.  It renders
 	// into config.toml's [ssh] keys, which is why it is here and not only on
 	// Options: the config is written from this struct on every run, so the flag
-	// and the file cannot drift apart.  Empty leaves the list empty, which is a
-	// working setup with no agent.
+	// and the file cannot drift apart.
+	//
+	// Never empty.  One is minted whether or not a host turns out to need it,
+	// so `init` prints a public half the operator can put in an authorized_keys
+	// whenever they want, without re-running with a flag.  The cost is an
+	// ssh-agent holding a key that may open nothing.
+	//
+	// It defaults into the config directory, beside the age key and for the same
+	// reason: the key follows the config, so a config moved into an encrypted
+	// home takes the private half with it.  A fleet key is the one piece of
+	// material that cannot be rotated out of someone else's hands once copied.
+	// Read-only there, the broker running ProtectSystem=strict with the config
+	// directory outside its ReadWritePaths, so the account that uses the key is
+	// not the account that can replace it.
+	//
+	// Named id_ed25519 because the deny patterns already refuse that name by
+	// name, so a copy of it is refused wherever it turns up, not only where
+	// ConfigDir was rendered into a pattern.
 	SSHKey string
 }
 

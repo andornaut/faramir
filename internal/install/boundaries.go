@@ -404,6 +404,16 @@ func diagnoseSSHKeys(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 				"nothing: a brokered command can take the key itself", opts.ExecUser, key)
 			return
 		}
+		// The operator too, and for the same reason: the coding agent runs as
+		// that account, so a key it can read is one that reaches the model's
+		// context by any route the deny patterns miss.  init asserts the mode;
+		// this is what catches a chmod afterwards.
+		if canRead(opts.Operator, key) {
+			report.add("ssh keys", StatusFailed, "%s can read %s, and the coding agent "+
+				"runs as that account: the key is readable by the thing the agent "+
+				"was meant to keep it from", opts.Operator, key)
+			return
+		}
 	}
 	if private := cfg.Ssh.AgentSocket + ".private"; exists(private) &&
 		canWrite(opts.ExecUser, private) {
@@ -412,8 +422,8 @@ func diagnoseSSHKeys(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 			opts.ExecUser, private)
 		return
 	}
-	report.add("ssh keys", StatusOK, "%s can use the agent and read no key held by it",
-		opts.ExecUser)
+	report.add("ssh keys", StatusOK, "%s and %s can use the agent and read no key "+
+		"held by it", opts.Operator, opts.ExecUser)
 }
 
 // diagnoseProtectProc: a brokered command's value is in the executor's

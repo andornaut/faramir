@@ -115,3 +115,87 @@ func TestKeepSopsConfigDoesNotInventAnAnswerForAnUnreadableFile(t *testing.T) {
 		t.Error("read nothing and said nothing")
 	}
 }
+
+// [ssh] keys accumulates across config.d, so the list holds paths this install
+// did not mint.  Those are checked and refused, never taken over: a drop-in may
+// name a key under the operator's own home.
+func TestOwnSSHKeyRepairsOnlyWhatItMinted(t *testing.T) {
+	newKey := func(t *testing.T) string {
+		t.Helper()
+		path := filepath.Join(t.TempDir(), "id_ed25519")
+		for _, half := range []string{path, path + ".pub"} {
+			if err := os.WriteFile(half, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return path
+	}
+	// The broker's uid is this test's own, so the repair needs no root: what
+	// separates the two cases is the flag, not the privilege.
+	run := &runner{
+		brokerUID: os.Getuid(), brokerGID: os.Getgid(),
+		layout: Layout{BrokerUser: DefaultBrokerUser},
+	}
+
+	t.Run("a key it did not mint is refused", func(t *testing.T) {
+		path := newKey(t)
+
+		changed, err := run.ownSSHKey(path, false)
+
+		if err == nil {
+			t.Fatal("ownSSHKey() = nil, want a refusal: 0644 is not a key the broker can hold")
+		}
+		if !strings.Contains(err.Error(), path) {
+			t.Errorf("ownSSHKey() = %v, want the path named so it can be fixed", err)
+		}
+		if changed {
+			t.Error("reported a change while refusing to make one")
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o644 {
+			t.Errorf("mode = %04o, want 0644 left alone", got)
+		}
+	})
+
+	t.Run("a minted key is repaired, once", func(t *testing.T) {
+		path := newKey(t)
+
+		changed, err := run.ownSSHKey(path, true)
+
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !changed {
+			t.Error("ownSSHKey() reported no change, want the repair counted")
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("mode = %04o, want 0600", got)
+		}
+		// A second run is a no-op, so an install that changed nothing does not
+		// report a restart it does not need.
+		if changed, err = run.ownSSHKey(path, true); err != nil || changed {
+			t.Errorf("ownSSHKey() = %v, %v, want false, nil on an already-correct key",
+				changed, err)
+		}
+	})
+
+	t.Run("a missing public half names both", func(t *testing.T) {
+		path := newKey(t)
+		if err := os.Remove(path + ".pub"); err != nil {
+			t.Fatal(err)
+		}
+
+		_, err := run.ownSSHKey(path, true)
+
+		if err == nil || !strings.Contains(err.Error(), "ssh-keygen -y") {
+			t.Errorf("ownSSHKey() = %v, want the command that regenerates the public half", err)
+		}
+	})
+}
