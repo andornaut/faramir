@@ -152,34 +152,29 @@ func TestADeniedCommandIsStillDenied(t *testing.T) {
 	}
 }
 
-// Wrapping the wrapper would nest a redactor inside a redactor on every run.
-func TestAnAlreadyWrappedCommandIsLeftAlone(t *testing.T) {
-	for _, command := range []string{
-		"/usr/local/bin/faramir redact -- /bin/bash -lc 'echo hi'",
-		"echo hi | faramir redact",
-		"faramir redact",
-		"source " + wrapScript() + " 'ls -la'",
+// Wrapping the wrapper would nest a redactor inside a redactor on every run,
+// so the form the rewrite emits is left alone.  Only that form: everything else
+// below runs some part of itself uncovered when it is mistaken for one.
+func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
+	for command, wantRewritten := range map[string]bool{
+		"source " + wrapScript() + " 'ls -la'": false,
+		". " + wrapScript() + " 'ls -la'":      false,
+		// A pipe carries stdout.  Whatever the upstream program wrote to stderr
+		// reaches the transcript unredacted, and the tool reports both streams
+		// as one blob, so this is not a covered command.
+		"echo hi | faramir redact":                         true,
+		"/usr/local/bin/faramir redact -- /bin/bash -lc x": true,
+		"faramir redact":                                   true,
+		// The redactor covers the element it is part of and nothing chained
+		// after it.
+		"faramir redact -- true; ./leak.sh":     true,
+		"faramir redact -- true && ./leak.sh":   true,
+		"echo hi | faramir redact || ./leak.sh": true,
+		"faramir redact -- true\n./leak.sh":     true,
 	} {
-		if hook := hookOutput(t, bashPayload(command)); hook != nil {
-			t.Errorf("%q produced %v, want no rewrite", command, hook)
-		}
-	}
-}
-
-// The redactor covers the element it is part of, and nothing chained after it.
-// Read as "already wrapped", any of these runs the rest of the line with no
-// rewrite at all, which is a whole command's output reaching the transcript
-// unredacted.
-func TestChainingPastTheRedactorDoesNotSkipTheRewrite(t *testing.T) {
-	for _, command := range []string{
-		"faramir redact -- true; ./leak.sh",
-		"faramir redact -- true && ./leak.sh",
-		"echo hi | faramir redact || ./leak.sh",
-		"faramir redact -- true & ./leak.sh",
-		"faramir redact -- true\n./leak.sh",
-	} {
-		if hook := hookOutput(t, bashPayload(command)); hook == nil {
-			t.Errorf("%q skipped the rewrite by naming the redactor first", command)
+		hook := hookOutput(t, bashPayload(command))
+		if rewritten := hook != nil; rewritten != wantRewritten {
+			t.Errorf("%q rewritten = %v, want %v", command, rewritten, wantRewritten)
 		}
 	}
 }

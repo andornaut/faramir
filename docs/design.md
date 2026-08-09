@@ -63,13 +63,16 @@ Every failure fails closed. No temp file and the command does not run, there bei
 
 Left alone rather than rewritten, because buffering would change what they do:
 
-- one already running under the redactor, so the wrapper is idempotent
+- one this rewrite already produced, so the wrapper is idempotent
 - a read of a running command's output, such as Claude Code's `BashOutput`
 - a backgrounded command, whose output is wanted while it runs
 - one whose last line ends in `\`, `&&`, `||` or `|`
 - a denied command, which is refused instead
 
-Each of those is decided against the whole command, never a substring of it. A command that merely names the wrap script, and one that runs the redactor and then chains something else after it, are rewritten like any other: read as already covered, everything past the first element would run with no rewrite at all, which is the whole command's output reaching the transcript unredacted. Only the form the rewrite itself emits, and a single pipeline whose last element is the redactor, are left alone.
+The first is a prefix test against the whole command, and it is the only thing that counts as already covered. Two forms that look covered and are not:
+
+- **A command that merely names the wrap script.** The path is in this project's documentation and in the wrapper itself, so a match anywhere in the line would leave `echo /usr/local/libexec/faramir/wrap.sh; cat secrets` unrewritten.
+- **A command piping into the redactor.** A pipe carries stdout, so whatever the upstream program wrote to stderr reaches the transcript unredacted while the tool reports both streams as one blob. Chaining past it with `;`, `&&` or `||` runs the rest of the line uncovered as well. Wrapping one of these costs a second redaction pass, which changes nothing because a token is not a value, and captures both streams.
 
 ## Agents
 

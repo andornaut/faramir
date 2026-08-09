@@ -340,24 +340,19 @@ func emit(document map[string]any) int {
 	return 0
 }
 
-// redactorCall matches an invocation of the redactor at the start of the text
-// it is given.  Callers anchor it to a whole pipeline element, so the "(\S*/)?"
-// is what lets an absolute path through and the leading space is what a split
-// on "|" leaves behind.
-var redactorCall = regexp.MustCompile(`^\s*(sudo\s+)?(\S*/)?faramir[ \t]+redact\b`)
-
-// isWrapped reports whether this command is one the rewrite already produced,
-// or one already running under the redactor.
+// isWrapped reports whether this command is one the rewrite already produced.
 //
-// Both tests are against the whole command rather than a substring of it.  A
-// match anywhere leaves everything chained after it unredacted, so
-// "faramir redact -- true; cat secrets" and any command merely naming the wrap
-// script would run with no rewrite at all.
+// Exactly that, and nothing that merely looks covered.  The test is a prefix of
+// the whole command rather than a match anywhere in it, because a match
+// anywhere leaves everything chained after it running with no rewrite at all:
+// "faramir redact -- true; cat secrets" is one command's output to the tool
+// that reads it.
 //
-// The emitted form names the wrap script and never the redactor, so the prefix
-// test is what keeps the rewrite off its own output.  Sourced twice in one
-// shell, the inner copy reuses and then clears the outer's state, and the outer
-// withholds its output rather than printing text it did not redact.
+// A command piping into the redactor is not treated as covered either, however
+// it is written.  A pipe carries stdout, so whatever the upstream program wrote
+// to stderr goes to the terminal unredacted while the tool reports both streams
+// as one blob.  Wrapping it instead costs one redundant pass, which is
+// idempotent because a token is not a value, and captures both streams.
 func isWrapped(command string) bool {
 	trimmed := strings.TrimSpace(command)
 	for _, verb := range []string{"source ", ". "} {
@@ -365,22 +360,7 @@ func isWrapped(command string) bool {
 			return true
 		}
 	}
-	return endsInRedactor(trimmed)
-}
-
-// endsInRedactor reports whether the command is one pipeline whose last element
-// is the redactor, which is the form an operator writes by hand.
-//
-// Chaining of any kind disqualifies it.  With ";", "&", "&&" or "||" in the
-// line the redactor covers one element and the rest of the line runs uncovered,
-// which is the whole command's output either way as far as the tool that reads
-// it is concerned.
-func endsInRedactor(command string) bool {
-	if strings.ContainsAny(command, ";&\n") || strings.Contains(command, "||") {
-		return false
-	}
-	elements := strings.Split(command, "|")
-	return redactorCall.MatchString(elements[len(elements)-1])
+	return false
 }
 
 // backgrounded matches a command that ends by putting a job in the background.
@@ -412,7 +392,7 @@ var backgrounded = regexp.MustCompile(`(^|[^&])&[ \t\r\n]*$`)
 // in memory rather than on a disk, and removed as soon as it has been read.
 //
 // Not applied to BashOutput, which reads an already-running command's buffer
-// rather than starting one, and not to a command already under the redactor.
+// rather than starting one, and not to a command this rewrite already produced.
 func wrap(h *host, command string, p *payload) (string, bool) {
 	switch {
 	case !h.wraps(p.ToolName):
