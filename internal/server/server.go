@@ -16,7 +16,9 @@ import (
 	"maps"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -427,12 +429,19 @@ func redactEach(r *redact.Redactor, in []string) []string {
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
 	sshInfo, problems := s.describeSSH()
+	policy := s.policyProblems()
 	body, _ := json.MarshalIndent(map[string]any{
 		"configs": s.Config.Sources,
-		"secrets": secrets, "ssh": sshInfo,
+		"secrets": secrets, "ssh": sshInfo, "policy": policy,
 	}, "", "  ")
 
 	code := 0
+	if len(policy) > 0 {
+		for _, problem := range policy {
+			log.Printf("socket policy: %s", problem)
+		}
+		code = 1
+	}
 	refused, _ := secrets["not_redactable"].(map[string]string)
 	if len(refused) > 0 {
 		// Nothing logged here.  Loading the values already named every refused
@@ -463,6 +472,71 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		code = 1
 	}
 	return body, code
+}
+
+// policyProblems names the settings that widen what a socket admits.
+//
+// The keeper's socket is the age key by another route and the executor's runs a
+// command with no policy, no redaction and no audit record.  Each has exactly
+// one legitimate client, this process, and allowed_users is where that is
+// written down.  A drop-in adding a second name there is a config that parses,
+// starts, serves, and protects less than the layout says it does, which is what
+// --check exists to refuse.  The socket modes still stand in the way, so this is
+// the second of two locks rather than the only one; a gate that only fails once
+// both are open is a gate that reports the problem after it has been exploited.
+//
+// Identity by uid rather than by name, because the account can be renamed at
+// install time and nothing in this config records what it was called.  That
+// makes running as root the case this cannot decide: --check is documented to
+// run as the broker's own account, and from root every name would compare
+// unequal and every install would fail this. Reported as unchecked instead,
+// which is how doctor handles the questions it cannot ask as itself.
+func (s *Server) policyProblems() []string {
+	problems := []string{}
+	if mode := s.Config.Server.SocketMode; mode&0o007 != 0 {
+		problems = append(problems, fmt.Sprintf(
+			"[server] socket_mode is %04o: every account on this host can reach the "+
+				"broker, whatever allowed_groups says", mode))
+	}
+	if os.Geteuid() == 0 {
+		log.Printf("running as root, so [keeper] and [executor] allowed_users were " +
+			"not checked: run --check as the broker's own account")
+		return problems
+	}
+	for _, socket := range []struct {
+		section string
+		users   []string
+		cost    string
+	}{
+		{"keeper", s.Config.Keeper.AllowedUsers,
+			"asking it for a decrypted value is the age key without reading the file"},
+		{"executor", s.Config.Executor.AllowedUsers,
+			"a command sent there runs unredacted and unlogged"},
+	} {
+		// An empty list is not checked here.  It admits this process anyway, by
+		// uid rather than by name, and on a host where the two are different
+		// accounts it refuses the broker and nothing works at all: loud, and not
+		// the failure this is looking for, which is a list that admits one
+		// account too many.
+		for _, name := range socket.users {
+			if !isSelf(name) {
+				problems = append(problems, fmt.Sprintf(
+					"[%s] allowed_users names %s, which is not the broker: %s",
+					socket.section, name, socket.cost))
+			}
+		}
+	}
+	return problems
+}
+
+// isSelf reports whether name resolves to the uid this process runs as.
+func isSelf(name string) bool {
+	entry, err := user.Lookup(name)
+	if err != nil {
+		return false
+	}
+	uid, err := strconv.Atoi(entry.Uid)
+	return err == nil && uid == os.Geteuid()
 }
 
 // unusableReason names why ssh-add will refuse this key, or "" if it will take

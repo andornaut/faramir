@@ -322,7 +322,7 @@ Setting | Effect
 `[secrets] min_length` and friends | A value too short or low-entropy to redact is refused at load, so it can be injected by nothing.
 the executor's uid | The real bound.
 
-- `allowed_groups` admits every member of a group including supplementary membership. Intended on `[server]`. Leave it empty on `[keeper]` and `[executor]`, whose only legitimate client is the broker, named in `allowed_users`. Both warn at startup when it is not.
+- `allowed_groups` admits every member of a group including supplementary membership, and exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_users`; the group form is not a key there and setting it is a hard error naming the alternatives, because the only group in play is the client group, which holds the agent's own uid.
 - No config names where a command runs. A brokered command runs where its caller was; a request naming no cwd is refused.
 - A mistyped key or `[section]` is a hard error naming the alternatives. Values are range-checked. Zero stays legal where it means something (`kill_grace_sec = 0`, `refresh_interval_sec = 0`).
 - **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order, and are where *everything you set* goes. `config.toml` is faramir's own and `init` rewrites it every run, so an edit there is replaced without warning; `init` never touches a drop-in. Tables merge key by key, so one `[secrets] files` does not discard `min_length` and one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
@@ -348,10 +348,12 @@ A value out of range | Same.
 A ref too short or low-entropy to redact | Refused at load, so covered by nothing.
 A `[secrets] files` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
 A `[ssh] key` missing, passphrase-protected, or the `.pub` | `ssh-add` refuses it, leaving every host unreachable.
+`[keeper]` or `[executor] allowed_users` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route, and the executor's runs a command with no policy, no redaction and no audit record. The socket modes still stand in the way, so this is the second of two locks, and a gate that waits for both to be open reports the problem afterwards.
+`[server] socket_mode` with world bits set | Every account on the host reaches the broker, whatever `allowed_groups` says.
 
 A store on a filesystem that is not mounted yet looks exactly like one that was never written, and both leave the broker redacting nothing. Empty `[ssh] keys` passes.
 
-Run it as the broker's own account. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on.
+Run it as the broker's own account. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on; the `allowed_users` check is skipped there too, since from root every name compares unequal. `faramir doctor` makes the same check knowing the account names.
 
 ### What no setting changes
 

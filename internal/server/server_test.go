@@ -7,6 +7,7 @@ import (
 	"encoding/pem"
 	"net"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -403,5 +404,54 @@ func TestCheckPassesWhenNoSSHKeysAreConfigured(t *testing.T) {
 	s.Config.Ssh.Keys = nil
 	if _, code := s.CheckOutput(); code != 0 {
 		t.Error("an empty [ssh] keys failed the gate")
+	}
+}
+
+// The keeper's socket is the age key by another route and the executor's runs a
+// command with no policy, no redaction and no audit record.  Each has one
+// legitimate client, and a config naming a second is one that starts, serves,
+// and protects less than the layout says it does.
+func TestCheckFailsOnASocketOpenedToAnotherAccount(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root the broker cannot tell its own name from any other")
+	}
+	for _, tc := range []struct {
+		name  string
+		apply func(*config.Config)
+	}{
+		{"the keeper admits the executor", func(c *config.Config) {
+			c.Keeper.AllowedUsers = []string{"root"}
+		}},
+		{"the executor admits somebody else", func(c *config.Config) {
+			c.Executor.AllowedUsers = []string{"root"}
+		}},
+		{"the broker socket is world-reachable", func(c *config.Config) {
+			c.Server.SocketMode = 0o666
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+			s.Config.Ssh.Keys = nil
+			tc.apply(s.Config)
+			if _, code := s.CheckOutput(); code == 0 {
+				t.Error("passed the gate")
+			}
+		})
+	}
+}
+
+// The account the broker runs as is the one name that belongs in either list,
+// and naming it explicitly is what an install writes.
+func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip("no current user to name")
+	}
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	s.Config.Ssh.Keys = nil
+	s.Config.Keeper.AllowedUsers = []string{me.Username}
+	s.Config.Executor.AllowedUsers = []string{me.Username}
+	if _, code := s.CheckOutput(); code != 0 {
+		t.Error("a config naming only the broker failed the gate")
 	}
 }

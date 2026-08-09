@@ -97,6 +97,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	diagnoseDenyPatterns(report, opts)
 	diagnoseAuditLog(report, opts, cfg)
 	diagnoseSockets(report, opts, cfg)
+	diagnoseSocketPolicy(report, opts, cfg)
 	diagnoseSSHKeys(report, opts, cfg)
 	diagnoseProtectProc(report, opts)
 	diagnoseBrokered(report, opts)
@@ -374,6 +375,49 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 			report.add("broker socket", StatusFailed, "%s cannot open %s, so nothing "+
 				"it runs is brokered. Membership of %s is what grants this",
 				opts.Operator, path, opts.Group)
+		}
+	}
+}
+
+// diagnoseSocketPolicy reads what the config says the two internal sockets
+// admit, as against what their modes currently allow.
+//
+// The modes are the first lock and `diagnoseSockets` above checks those.  This
+// is the second: a drop-in naming another account in allowed_users leaves an
+// install one mode change away from a brokered command asking the keeper for
+// every decrypted value.  `faramir broker --check` makes the same check and can
+// only compare uids, so it cannot make it at all when run as root; here the
+// account names are known, which is what lets doctor say which name is wrong.
+func diagnoseSocketPolicy(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
+	if cfg == nil {
+		return
+	}
+	for _, socket := range []struct {
+		name  string
+		users []string
+		cost  string
+	}{
+		{"keeper socket policy", cfg.Keeper.AllowedUsers,
+			"asking it for a decrypted value is the age key without reading the file"},
+		{"executor socket policy", cfg.Executor.AllowedUsers,
+			"a command sent there runs unredacted and unlogged"},
+	} {
+		wrong := []string{}
+		for _, name := range socket.users {
+			if name != opts.BrokerUser {
+				wrong = append(wrong, name)
+			}
+		}
+		switch {
+		case len(wrong) > 0:
+			report.add(socket.name, StatusFailed, "allowed_users names %s rather than "+
+				"only %s: %s", strings.Join(wrong, " and "), opts.BrokerUser, socket.cost)
+		case len(socket.users) == 0:
+			report.add(socket.name, StatusWarn, "allowed_users is empty, so only %s's "+
+				"own uid and root are admitted; name %s so the config says what it "+
+				"allows", opts.BrokerUser, opts.BrokerUser)
+		default:
+			report.add(socket.name, StatusOK, "allowed_users is %s alone", opts.BrokerUser)
 		}
 	}
 }
