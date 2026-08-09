@@ -57,32 +57,61 @@ func TestDecryptRoundTrip(t *testing.T) {
 	}
 }
 
-// The key material must reach sops as a path, never as a value.  Setting
-// SOPS_AGE_KEY would put the master key in a child's environment block.
-func TestKeyMaterialNeverEntersTheEnvironment(t *testing.T) {
-	for _, name := range []string{"SOPS_AGE_KEY", "SOPS_AGE_KEY_FILE"} {
-		if v, ok := os.LookupEnv(name); ok {
-			t.Fatalf("%s is set in the test environment (%q); the test proves nothing", name, v)
-		}
+// The key material reaches sops as a path, never as a value.  SOPS_AGE_KEY
+// would put the master key in the child's environment block, where
+// /proc/<pid>/environ exposes it for the lifetime of the process.
+//
+// Asserted against a real child's own environment rather than against the
+// keeper's intent: cmd.Env is assembled in one place and the failure would be a
+// line added there, which no amount of decrypting successfully would notice.
+func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
+	dir := t.TempDir()
+	keyPath, _ := sopstest.NewIdentity(t, dir)
+	managed := filepath.Join(dir, "vault.sops.yaml")
+	if err := os.WriteFile(managed, []byte("ciphertext"), 0o600); err != nil {
+		t.Fatal(err)
 	}
-	secrets, keys := fixture(t, sops.TreeBranch{
-		{Key: "token", Value: "correct-horse-battery"},
-	})
-	values, errs := DecryptAll(secrets, keys)
+
+	// A decrypt_command that dumps what it was handed and answers with an empty
+	// tree, so the run succeeds and the environment is what is left to look at.
+	dump := filepath.Join(dir, "environ")
+	script := filepath.Join(dir, "decrypt")
+	if err := os.WriteFile(script,
+		[]byte("#!/bin/sh\nprintenv > "+dump+"\necho '{}'\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, errs := DecryptAll(config.SecretsConfig{
+		Files: []string{managed}, DecryptCommand: []string{script, "{file}"},
+	}, NewKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath}))
 	if len(errs) > 0 {
 		t.Fatalf("errors: %v", errs)
 	}
-	if values["token"] != "correct-horse-battery" {
-		t.Errorf("token = %q", values["token"])
-	}
 
-	// The keeper must not have read the key: only its path.
-	raw, err := os.ReadFile(keys.Path())
+	raw, err := os.ReadFile(dump)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(strings.TrimSpace(string(raw)), "AGE-SECRET-KEY") {
-		t.Fatalf("fixture is not an age identity: %q", raw)
+	environ := string(raw)
+	if !strings.Contains(environ, "SOPS_AGE_KEY_FILE="+keyPath) {
+		t.Errorf("the child was not told where the key is:\n%s", environ)
+	}
+	for line := range strings.SplitSeq(environ, "\n") {
+		if strings.HasPrefix(line, "SOPS_AGE_KEY=") {
+			t.Error("KEY MATERIAL IN THE CHILD'S ENVIRONMENT: SOPS_AGE_KEY was set")
+		}
+	}
+	// And the material itself, whatever variable might have carried it.
+	identity, err := os.ReadFile(keyPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := strings.TrimSpace(string(identity))
+	if !strings.HasPrefix(body, "AGE-SECRET-KEY") {
+		t.Fatalf("fixture is not an age identity: %q", body)
+	}
+	if strings.Contains(environ, body) {
+		t.Error("KEY MATERIAL IN THE CHILD'S ENVIRONMENT: the identity itself was passed")
 	}
 }
 

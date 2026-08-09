@@ -154,19 +154,49 @@ func TestTraversalAction(t *testing.T) {
 	}
 }
 
-// Execute only. Read would let these uids list the operator's home rather than
-// pass through it.
-func TestTraversalGrantsExecuteAndNotRead(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o700); err != nil {
+// Execute only, on every directory between the home and the tree. Read would
+// let these uids list the operator's home rather than pass through it.
+//
+// The group is the tree's own, so nothing has to be regrouped and this needs no
+// privilege. The regroup branch is covered by TestTraversalAction, which is the
+// decision; this is what the decision is carried out as.
+func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
+	home := t.TempDir()
+	middle := filepath.Join(home, "src")
+	tree := filepath.Join(middle, "work")
+	if err := os.MkdirAll(tree, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	info, _ := os.Stat(dir)
-	if err := os.Chmod(dir, info.Mode()|0o010); err != nil {
+	var st syscall.Stat_t
+	if err := syscall.Stat(home, &st); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := os.Stat(dir)
-	if got.Mode().Perm() != 0o710 {
-		t.Errorf("mode = %v, want 0710: execute for the group, no read", got.Mode().Perm())
+	for _, dir := range []string{home, middle} {
+		if err := os.Chmod(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if err := grantTraversal(home, tree, Options{Group: "shared"}, int(st.Gid)); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, dir := range []string{home, middle} {
+		info, err := os.Stat(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o710 {
+			t.Errorf("%s is %o, want 0710: execute for the group, no read", dir, got)
+		}
+	}
+	// The tree itself is not on the path to itself. Reachable is documented to
+	// leave it exactly as it was, and Share owns its mode when it owns it at all.
+	info, err := os.Stat(tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf("the tree itself was changed to %o", got)
 	}
 }

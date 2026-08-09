@@ -234,11 +234,10 @@ func TestRedactOpReturnsNoValue(t *testing.T) {
 	if r.Error != nil {
 		t.Fatalf("redact: %s", r.Error.Message)
 	}
+	// Unchanged exactly: anything the redactor appended would be the value set
+	// describing itself in a response about text that never held one.
 	if r.Output != "nothing to see" {
 		t.Errorf("output = %q, want it unchanged", r.Output)
-	}
-	if strings.Contains(r.Output, routerPassword) {
-		t.Error("the value set leaked into a response about text that did not contain it")
 	}
 }
 

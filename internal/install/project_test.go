@@ -36,8 +36,14 @@ func TestSpliceBlockKeepsSurroundingText(t *testing.T) {
 	// leaving the project with two sets of instructions that disagree.
 	updated := strings.Replace(block, "new text", "newer text", 1)
 	out = string(spliceBlock([]byte(out), updated))
-	if strings.Contains(out, "new text\n") && !strings.Contains(out, "newer text") {
-		t.Error("the block was not replaced")
+	// Two checks rather than one condition: a splice that added the new text
+	// without removing the old one fails only the first, and a conjunction would
+	// report neither.
+	if strings.Contains(out, "new text\n") {
+		t.Errorf("the superseded text survived:\n%s", out)
+	}
+	if !strings.Contains(out, "newer text") {
+		t.Errorf("the block was not replaced:\n%s", out)
 	}
 	if strings.Count(out, snippetBegin) != 1 {
 		t.Errorf("the block appears more than once:\n%s", out)
