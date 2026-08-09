@@ -1,0 +1,26 @@
+# Rotation for the audit log.  Without it the file grows for the life of the
+# host: [audit] max_record_bytes bounds one record, not the file, and
+# `faramir uninstall` deliberately leaves the log behind.
+#
+# su is required rather than tidy.  logrotate refuses to act on a directory it
+# does not own unless it is told whose privileges to drop to, and this one
+# belongs to the broker.
+#
+# No copytruncate and no postrotate signal.  The broker opens the log for each
+# record and closes it again, so a rename is safe and the next write reopens by
+# path; the write also passes O_CREATE, so a record between the rename and the
+# create below lands in a new file rather than being dropped.
+#
+# 0600 on create, matching what the broker opens with: a rotated log is the same
+# content as a live one and gets the same mode, and logrotate would otherwise
+# apply the daemon's umask to the replacement.
+{{.LogDir}}/audit.log {
+    su {{.BrokerUser}} {{.BrokerUser}}
+    create 0600 {{.BrokerUser}} {{.BrokerUser}}
+    weekly
+    rotate 8
+    maxsize 16M
+    compress
+    missingok
+    notifempty
+}

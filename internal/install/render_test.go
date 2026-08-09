@@ -30,8 +30,11 @@ func testLayout() Layout {
 // not in the file that names it.
 func TestTemplatesRender(t *testing.T) {
 	layout := testLayout()
-	assets := append([]string{"etc/config.toml.tmpl", "systemd/faramir.tmpfiles.conf.tmpl"},
-		unitValues()...)
+	assets := append([]string{
+		"etc/config.toml.tmpl",
+		"etc/logrotate.conf.tmpl",
+		"systemd/faramir.tmpfiles.conf.tmpl",
+	}, unitValues()...)
 	for _, asset := range assets {
 		if _, err := render(asset, layout); err != nil {
 			t.Errorf("%s: %v", asset, err)

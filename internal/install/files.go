@@ -387,6 +387,25 @@ func (r *runner) stepUnits() error {
 		r.restartFor("units")
 	}
 	r.step("units", changed || made, strings.Join(unitNames(), ", "))
+	return r.stepLogrotate()
+}
+
+// stepLogrotate bounds the audit log.
+//
+// Its own step rather than part of the units: nothing here is a unit, no daemon
+// reads it, and a host managing its logs some other way is one where this is the
+// file to delete. Alongside them because it is the other thing this install
+// writes outside its own directories, and uninstall removes both.
+func (r *runner) stepLogrotate() error {
+	body, err := render("etc/logrotate.conf.tmpl", r.layout)
+	if err != nil {
+		return err
+	}
+	made, err := r.fs.writeFile(logrotateConfig, body, 0o644, 0, 0)
+	if err != nil {
+		return err
+	}
+	r.step("logrotate", made, logrotateConfig)
 	return nil
 }
 

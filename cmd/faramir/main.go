@@ -59,6 +59,7 @@ Provisioning (require root; they do not talk to the broker):
   init          install or re-install faramir on this host
   init-project  enrol one working tree: share it, and configure the agent there
   edit          edit a managed sops file
+  logs          show the audit log: what ran, against which refs, and how it ended
   doctor        report whether the install is doing its job
   reload        drop the daemons onto a changed configuration
   uninstall     remove the broker, keeping the key, the store and the log
@@ -111,6 +112,8 @@ func run(args []string) int {
 		return cmdInitProject(args[1:])
 	case "edit":
 		return cmdEdit(args[1:])
+	case "logs":
+		return cmdLogs(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
 	case "reload":

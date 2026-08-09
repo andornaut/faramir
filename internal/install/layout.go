@@ -31,6 +31,11 @@ const (
 	DefaultRunDir     = "/run/faramir"
 	DefaultLogDir     = "/var/log/faramir"
 
+	// Not derived from a layout field: logrotate reads one directory and the
+	// path is the distribution's, not this install's, however the config and
+	// the log are moved.
+	logrotateConfig = "/etc/logrotate.d/faramir"
+
 	DefaultGroup      = "dev"
 	DefaultStoreGroup = "faramir-secrets"
 	DefaultBrokerUser = "faramir-broker"

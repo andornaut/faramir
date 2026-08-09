@@ -1,6 +1,8 @@
 # faramir
 
-A secret broker for local AI coding agents. It runs the commands that need credentials as a uid that holds nothing, and redacts the output of everything else the agent runs, so no plaintext credential enters the agent's context or reaches a model provider.
+A secrets broker for local AI coding agents: it runs the commands that need credentials, and redacts the output of everything else, so no plaintext credential reaches the agent's context or a model provider.
+
+The commands that need credentials run as a uid that holds nothing.
 
 ```console
 $ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
@@ -127,6 +129,7 @@ The units are sandboxed, so where the config and the store go is not a free choi
 `init` installs and never migrates. It writes what this version wants and leaves anything an older layout put on the host alone, because a repair compiled into it cannot know when every host has run it and would be carried forever. Reconciling that belongs to whatever provisions the host, in something that can be deleted once the fleet has converged.
 
 - `faramir doctor` answers the question an install cannot: whether what landed is doing its job. A broker serving zero refs, an `ssh-agent` holding no key, and a shared group with members nobody recognises all look like a healthy install until something says otherwise. It asks the running broker which config it loaded rather than assuming the default, so it examines the install that is there; `--config-dir` names one itself, which is what to use when the broker is the thing that is wrong.
+- `faramir logs` reads the audit log without your having to remember where it lives, listing the recent records or printing the one a `log_id` names. Root, and deliberately not brokered: the agent's own record of what it ran is on the far side of a uid boundary from the agent, and serving it over the socket would hand it to the shared group. It prints what it finds rather than redacting again, the log holding no value to begin with. Rotated files are not searched.
 - `faramir reload` gets the daemons onto a changed `config.d` drop-in. It stops them rather than restarting them: all three are socket activated, so the next brokered command starts them on the new config, and the order they come up in is the order activation gives them (the broker connects to the keeper, which is what decrypts the file list it is then served).
 - `faramir uninstall` leaves the accounts, the config, the store, the key and the audit log alone, and says so. Deleting the age key would make every managed sops file unreadable, retroactively.
 - `faramir init-project [DIR]` enrols one working tree, and `DIR` defaults to where you are standing. It shares the tree (group-owned and setgid, so you and a brokered command stop fighting over each other's files, and group-executable on every directory down from a `0700` home so the executor can enter), registers the hook in each enrolled agent's own settings, writes their MCP registration, and splices the credentials section into its agent instructions. `--agent` names which agents, repeatable, defaulting to `claude`. It reads the shared group out of the installed config rather than taking a flag, so a tree cannot end up group-owned by something the sockets do not admit.
@@ -282,7 +285,7 @@ Run it as the broker's own account. Run as root it reads what the broker cannot,
 - **Secrets are injected as environment variables only.** Never into `argv`, which is visible in `ps` and `/proc/<pid>/cmdline`.
 - **`cmd` is an array.** Never a string handed to `sh -c`.
 - **The broker runs the working tree as it is on disk.** No promotion step.
-- **`redactions` reports counts, not values.** `log_id` points into the audit log, which records the same tokens.
+- **`redactions` reports counts, not values.** `log_id` points into the audit log, which records the same tokens. `sudo faramir logs <log-id>` prints that record; a bare `sudo faramir logs` lists the recent ones.
 
 ## Architecture
 
@@ -322,7 +325,9 @@ uid faramir-exec              faramir exec: forks brokered commands; holds nothi
 <config-dir>/config.toml      0644 root:root, read by all three daemons
 <config-dir>/config.d/        0644 root:root, per-consumer settings merged over it
 <any tree you enrol>          2770 <operator>:dev, setgid; faramir init-project
-/var/log/faramir/audit.log    0600 faramir-broker:faramir-broker
+/var/log/faramir/          0750 faramir-broker:faramir-broker, LogsDirectoryMode=
+/var/log/faramir/audit.log    0600 faramir-broker:faramir-broker; faramir logs reads it
+/etc/logrotate.d/faramir      0644 root:root, weekly, 8 kept, early at 16MB
 ```
 
 `CONFIG_DIR` and `SECRETS_DIR` move the config and the store off `/etc`; the age key and the audit log stay where they are. `faramir status` reports the paths in use.
@@ -382,7 +387,7 @@ Two checks are demonstrations rather than assertions: piping a secret through `r
 - **Children do not inherit the broker's environment.** They get `[exec.base_env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null`. Pass non-interactive flags.
 - **Output is truncated** at `[exec] max_output_bytes`; the audit log keeps up to `[audit] max_record_bytes`.
-- **The audit log grows without bound.** Add logrotate; keep it 0600 and `faramir-broker`.
+- **The audit log rotates weekly**, 8 kept, compressed, and early at 16MB. `[audit] max_record_bytes` bounds one record, not the file, so without this it grew for the life of the host. Delete `/etc/logrotate.d/faramir` to manage it some other way.
 - **Encrypt the disk.** See below; the age key is a file like any other to someone holding the drive.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
 - **A key the broker cannot use fails `--check`.** Missing, passphrase-protected, or the `.pub`.

@@ -82,6 +82,12 @@ ReadWritePaths=-{{.RunDir}}
 # /home because a service account's state belongs there, not in /home.
 StateDirectory={{.BrokerUser}}
 LogsDirectory=faramir
+# 0750, not the 0755 systemd applies by default.  The log file is 0600 whatever
+# this says, so contents were never exposed, but a world-traversable directory
+# hands every account on the host the log's existence, size and mtime, which is
+# how often the agent ran and roughly how much came back.  systemd reapplies
+# this on every start, so it is the only place the mode can be set and hold.
+LogsDirectoryMode=0750
 # Two descriptors per relayed ssh-agent connection, and a playbook authenticates
 # to as many hosts at once as -f allows; the default 1024 is not much headroom
 # once Ansible's own children are counted.

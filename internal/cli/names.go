@@ -24,6 +24,7 @@ var Operator = []string{
 	"init",
 	"init-project",
 	"edit",
+	"logs",
 	"doctor",
 	"reload",
 	"uninstall",

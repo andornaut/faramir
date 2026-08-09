@@ -99,7 +99,13 @@ func (l *Log) Write(record map[string]any, output string) {
 		log.Printf("cannot open audit log %s: %v", l.config.LogPath, err)
 		return
 	}
-	fh, err := os.OpenFile(l.config.LogPath, os.O_APPEND|os.O_WRONLY, 0o600)
+	// O_CREATE, though ensure() has already made the file: logrotate renames it
+	// away underneath a running broker, and ensure() does not run again once it
+	// has succeeded, so without this every record between a rotation and the
+	// next restart is dropped with nothing but a line in the journal. Opened per
+	// write rather than held, which is what makes a plain rename safe and needs
+	// no copytruncate and no signal.
+	fh, err := os.OpenFile(l.config.LogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		// Never fail a request because logging broke.
 		log.Printf("audit write failed: %v", err)

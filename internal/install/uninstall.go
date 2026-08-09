@@ -35,7 +35,7 @@ func Uninstall(configDir string) ([]string, error) {
 	}
 	// The sockets went with the units above, so the runtime directory holds
 	// nothing.
-	for _, path := range []string{"/etc/tmpfiles.d/faramir.conf", DefaultRunDir} {
+	for _, path := range []string{"/etc/tmpfiles.d/faramir.conf", logrotateConfig, DefaultRunDir} {
 		if err := os.RemoveAll(path); err != nil {
 			return nil, err
 		}
