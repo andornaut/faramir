@@ -12,103 +12,29 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/keeper"
+	"github.com/andornaut/faramir/internal/keepertest"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// fakeKeeper serves whatever value set the test sets, so the load gate can be
-// exercised without sops, an age key, or a real keeper.
-//
-// It fingerprints with the real keeper's StatAll rather than a stand-in: the
-// store's staleness check is set equality over exactly those structs, so a
-// fake that built them differently would pass while production did not.
-type fakeKeeper struct {
-	mu     sync.Mutex
-	values map[string]string
-	errors []string
-	// The managed files, which the store no longer stats for itself.  Set by
-	// newStore from the same list it configures the store with, because the two
-	// disagreeing is not a case the real install can produce.
-	files []string
-	ln    net.Listener
-	path  string
-}
-
-func newFakeKeeper(t *testing.T, values map[string]string) *fakeKeeper {
+// newStore configures a store against a stand-in keeper.  Both are given the
+// same file list, because the two disagreeing is not a case a real install can
+// produce: the store no longer stats those files for itself.
+func newStore(t *testing.T, fake *keepertest.Keeper, files ...string) *Store {
 	t.Helper()
-	return serveFakeKeeper(t, filepath.Join(t.TempDir(), "keeper.sock"), values)
-}
-
-// serveFakeKeeper binds a named socket, so a test can start one *after* the
-// store has already tried and failed to reach it.
-func serveFakeKeeper(t *testing.T, path string, values map[string]string) *fakeKeeper {
-	t.Helper()
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	k := &fakeKeeper{values: values, ln: ln, path: path}
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			// Read the request before answering, as the real keeper does.
-			// Closing while the client is still writing gives it EPIPE, which
-			// surfaces as an intermittently empty value set.
-			line, _ := sockutil.ReadLine(conn, 1<<16)
-			var request struct {
-				Op string `json:"op"`
-			}
-			_ = json.Unmarshal(line, &request)
-
-			k.mu.Lock()
-			state, errors := keeper.StatAll(config.SecretsConfig{Files: k.files})
-			payload := map[string]any{"state": state, "errors": errors}
-			if request.Op != "get_state" {
-				payload["values"] = k.values
-				payload["errors"] = append(errors, k.errors...)
-			}
-			k.mu.Unlock()
-			_ = sockutil.Send(conn, payload)
-			_ = conn.Close()
-		}
-	}()
-	t.Cleanup(func() { ln.Close() })
-	return k
-}
-
-func (k *fakeKeeper) set(values map[string]string) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.values = values
-}
-
-func (k *fakeKeeper) setErrors(errors []string) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
-	k.errors = errors
-}
-
-func newStore(t *testing.T, fake *fakeKeeper, files ...string) *Store {
-	t.Helper()
-	fake.mu.Lock()
-	fake.files = files
-	fake.mu.Unlock()
+	fake.SetFiles(files)
 	return New(
 		config.SecretsConfig{
 			Files: files, RefreshIntervalSec: 0,
 			MinLength: 8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
 		},
-		config.KeeperConfig{SocketPath: fake.path},
+		config.KeeperConfig{SocketPath: fake.Path},
 	)
 }
 
 // -- the load gate ----------------------------------------------------------
 
 func TestARedactableValueIsLoaded(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k)
 	s.Reload()
 
@@ -125,7 +51,7 @@ func TestARedactableValueIsLoaded(t *testing.T) {
 }
 
 func TestAShortValueIsRefused(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{"tiny": "abc"})
+	k := keepertest.New(t, map[string]string{"tiny": "abc"})
 	s := newStore(t, k)
 	s.Reload()
 
@@ -142,7 +68,7 @@ func TestAShortValueIsRefused(t *testing.T) {
 }
 
 func TestALowEntropyValueIsRefused(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{"flat": "abababababababab"})
+	k := keepertest.New(t, map[string]string{"flat": "abababababababab"})
 	s := newStore(t, k)
 	s.Reload()
 	if _, err := s.Value("flat"); err == nil {
@@ -153,7 +79,7 @@ func TestALowEntropyValueIsRefused(t *testing.T) {
 // The refusal and the typo have to read differently, or the operator goes
 // looking for a misspelling in a ref that is spelled right.
 func TestAnUnknownRefIsNotReportedAsRefused(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k)
 	s.Reload()
 
@@ -172,7 +98,7 @@ func TestAnUnknownRefIsNotReportedAsRefused(t *testing.T) {
 // A value that is never tokenized is one worth targeting, so the agent-facing
 // summary must not name it.
 func TestTheAgentFacingSummaryDoesNotNameThem(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{
+	k := keepertest.New(t, map[string]string{
 		"good": "hunter2-correct-horse", "tiny": "abc",
 	})
 	s := newStore(t, k)
@@ -191,7 +117,7 @@ func TestTheAgentFacingSummaryDoesNotNameThem(t *testing.T) {
 }
 
 func TestTheOperatorSummaryNamesThemAndTheReason(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{"tiny": "abc"})
+	k := keepertest.New(t, map[string]string{"tiny": "abc"})
 	s := newStore(t, k)
 	s.Reload()
 
@@ -210,14 +136,14 @@ func TestTheOperatorSummaryNamesThemAndTheReason(t *testing.T) {
 }
 
 func TestARefusalDoesNotSurviveAReloadThatFixesIt(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{"x": "abc"})
+	k := keepertest.New(t, map[string]string{"x": "abc"})
 	s := newStore(t, k)
 	s.Reload()
 	if _, err := s.Value("x"); err == nil {
 		t.Fatal("the short value was injectable")
 	}
 
-	k.set(map[string]string{"x": "hunter2-correct-horse"})
+	k.SetValues(map[string]string{"x": "hunter2-correct-horse"})
 	s.Reload()
 	if _, err := s.Value("x"); err != nil {
 		t.Fatalf("the lengthened value is still refused: %v", err)
@@ -231,11 +157,11 @@ func TestARefusalDoesNotSurviveAReloadThatFixesIt(t *testing.T) {
 // An unreachable keeper must not blank the value set: an empty set means
 // nothing is redacted, which is the worst possible response to a brief outage.
 func TestAnUnreachableKeeperKeepsThePreviousValueSet(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k)
 	s.Reload()
 
-	_ = k.ln.Close()
+	_ = k.Listener.Close()
 	s.Reload()
 
 	if got, err := s.Value("a/b"); err != nil || got != "hunter2-correct-horse" {
@@ -270,7 +196,7 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 		t.Fatalf("refs = %v, want none before the keeper exists", s.Refs())
 	}
 
-	serveFakeKeeper(t, sock, map[string]string{"x": "hunter2-correct-horse"})
+	keepertest.Serve(t, sock, map[string]string{"x": "hunter2-correct-horse"})
 	// No edit, no SIGHUP: only the retry may recover this.
 	s.RefreshIfStale()
 
@@ -367,7 +293,7 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 
 // Pairs is the redactor's input: every managed value, not just injected ones.
 func TestPairsCarriesEveryLoadedValue(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{
+	k := keepertest.New(t, map[string]string{
 		"a": "hunter2-correct-horse", "b": "another-good-value", "tiny": "abc",
 	})
 	s := newStore(t, k)
@@ -389,7 +315,7 @@ func TestPairsCarriesEveryLoadedValue(t *testing.T) {
 // indistinguishable from one that was never written: both leave the broker
 // redacting nothing while looking healthy.
 func TestAMissingFileIsFatal(t *testing.T) {
-	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k, filepath.Join(t.TempDir(), "absent.sops.yml"))
 	s.Reload()
 
@@ -405,7 +331,7 @@ func TestAnUnreadableFileIsFatal(t *testing.T) {
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k, filepath.Join(notADir, "v.sops.yml"))
 	s.Reload()
 
@@ -435,8 +361,8 @@ func TestAKeeperErrorIsFatal(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			k := newFakeKeeper(t, map[string]string{"a/b": "hunter2-correct-horse"})
-			k.setErrors([]string{managed + ": " + tc.failure})
+			k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
+			k.SetErrors([]string{managed + ": " + tc.failure})
 			s := newStore(t, k, managed)
 			s.Reload()
 
@@ -454,11 +380,11 @@ func TestRefreshIfStaleReloadsOnAChangedFile(t *testing.T) {
 	if err := os.WriteFile(managed, []byte("a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	k := newFakeKeeper(t, map[string]string{"x": "hunter2-correct-horse"})
+	k := keepertest.New(t, map[string]string{"x": "hunter2-correct-horse"})
 	s := newStore(t, k, managed)
 	s.Reload()
 
-	k.set(map[string]string{"x": "a-different-good-value"})
+	k.SetValues(map[string]string{"x": "a-different-good-value"})
 	// Same size would leave mtime as the only signal, and some filesystems
 	// have coarse timestamps; change the size too.
 	if err := os.WriteFile(managed, []byte("aa\n"), 0o600); err != nil {

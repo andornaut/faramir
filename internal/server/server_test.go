@@ -14,50 +14,10 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/keeper"
+	"github.com/andornaut/faramir/internal/keepertest"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
-
-// fakeKeeper serves a fixed value set, so the agent-facing responses can be
-// exercised without sops, an age key, or a real keeper.
-//
-// It takes the managed file list because the store no longer stats it: an
-// absent or unreadable file is reported by the keeper now, and that report is
-// what the load gate below fails on.  Fingerprinted with the real StatAll, so
-// the errors are the ones production would produce.
-func fakeKeeper(t *testing.T, values map[string]string, files ...string) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "keeper.sock")
-	ln, err := net.Listen("unix", path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	go func() {
-		for {
-			conn, err := ln.Accept()
-			if err != nil {
-				return
-			}
-			// Read the request before answering, as the real keeper does.
-			// Closing while the client is still writing gives it EPIPE.
-			line, _ := sockutil.ReadLine(conn, 1<<16)
-			var request struct {
-				Op string `json:"op"`
-			}
-			_ = json.Unmarshal(line, &request)
-			state, errors := keeper.StatAll(config.SecretsConfig{Files: files})
-			payload := map[string]any{"state": state, "errors": errors}
-			if request.Op != "get_state" {
-				payload["values"] = values
-			}
-			_ = sockutil.Send(conn, payload)
-			_ = conn.Close()
-		}
-	}()
-	t.Cleanup(func() { ln.Close() })
-	return path
-}
 
 // secretFiles has to be set here rather than on the returned server: the store
 // takes a copy of the secrets config at construction, so assigning to
@@ -71,7 +31,7 @@ func newServer(t *testing.T, values map[string]string, secretFiles ...string) *S
 			SocketPath: filepath.Join(dir, "broker.sock"), SocketMode: 0o660,
 			MaxConcurrency: 2, MaxRequestBytes: 262144,
 		},
-		Keeper: config.KeeperConfig{SocketPath: fakeKeeper(t, values, secretFiles...)},
+		Keeper: config.KeeperConfig{SocketPath: keepertest.New(t, values, secretFiles...).Path},
 		Exec: config.ExecConfig{
 			DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
 			BaseEnv: map[string]string{"PATH": "/usr/bin:/bin"},
@@ -95,6 +55,61 @@ func output(t *testing.T, r protocol.Response) string {
 		t.Fatalf("response has no string output: %v", r)
 	}
 	return out
+}
+
+// -- the request limit ------------------------------------------------------
+
+// The one reply that is produced before a request is parsed, so nothing else in
+// this file reaches it.
+//
+// It has to be its own code rather than a bad_request: `faramir redact` answers
+// a too_large by passing the text through UNREDACTED and saying so, and chooses
+// its chunk size to stay under this limit.  A reply that said something else
+// would leave that fallback unreachable and the caller retrying a request that
+// cannot get smaller.
+func TestARequestOverTheLimitIsRefusedAsTooLarge(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	s.Config.Server.MaxRequestBytes = 64
+	if _, err := s.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	go func() { _ = s.Serve() }()
+	t.Cleanup(func() { _ = s.Close() })
+
+	conn, err := net.Dial("unix", s.Config.Server.SocketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = conn.Close() }()
+	body := `{"op":"redact","text":"` + strings.Repeat("x", 200) + `"}` + "\n"
+	if _, err := conn.Write([]byte(body)); err != nil {
+		t.Fatal(err)
+	}
+
+	line, err := sockutil.ReadLine(conn, 1<<20)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out struct {
+		Error *struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(line, &out); err != nil {
+		t.Fatalf("unmarshal %q: %v", line, err)
+	}
+	if out.Error == nil {
+		t.Fatalf("an oversized request was accepted: %s", line)
+	}
+	if out.Error.Code != "too_large" {
+		t.Errorf("code = %q, want too_large", out.Error.Code)
+	}
+	// The limit itself, because the caller's only remedy is to send less and it
+	// has no other way to learn how much less.
+	if !strings.Contains(out.Error.Message, "64") {
+		t.Errorf("the message does not say what the limit is: %q", out.Error.Message)
+	}
 }
 
 // -- the --check path -------------------------------------------------------
