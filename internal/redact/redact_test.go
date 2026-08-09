@@ -21,7 +21,13 @@ func want() string { return TokenFor("home/router/admin") }
 // through whatever the command printed it as, so each encoding is a separate
 // way for the same secret to escape, and they are worth reading as one list.
 func TestRedactText(t *testing.T) {
-	const specials = "p@ss word/with+specials=x"
+	// A quote and a backslash, so the JSON and shell forms below are something
+	// other than the value spelled again.
+	const specials = `p@ss "wo\rd" with+specials=x`
+	// An apostrophe is what makes the shell-quoted forms unrecognisable: the
+	// plain value is not a substring of either of them.
+	const apostrophe = "it's-a-long-secret-value"
+	const dollars = "pa$$word-that-is-long"
 	long := strings.Repeat(secret, 6)
 
 	for _, tc := range []struct {
@@ -34,18 +40,25 @@ func TestRedactText(t *testing.T) {
 		{name: "plain",
 			text: "password is " + secret + " ok",
 			gone: []string{secret}, want: []string{want()}},
+		// Each of these asserts the token as well as the disappearance: a redactor
+		// that dropped the match rather than substituting for it would leave no
+		// value behind and no sign that anything had been there.
 		{name: "base64 std",
 			text: "blob: " + base64.StdEncoding.EncodeToString([]byte(secret)),
-			gone: []string{base64.StdEncoding.EncodeToString([]byte(secret))}},
+			gone: []string{base64.StdEncoding.EncodeToString([]byte(secret))},
+			want: []string{want()}},
 		{name: "base64 std unpadded",
 			text: "blob: " + unpadded(base64.StdEncoding.EncodeToString([]byte(secret))),
-			gone: []string{unpadded(base64.StdEncoding.EncodeToString([]byte(secret)))}},
+			gone: []string{unpadded(base64.StdEncoding.EncodeToString([]byte(secret)))},
+			want: []string{want()}},
 		{name: "base64 url",
 			text: "blob: " + base64.URLEncoding.EncodeToString([]byte(secret)),
-			gone: []string{base64.URLEncoding.EncodeToString([]byte(secret))}},
+			gone: []string{base64.URLEncoding.EncodeToString([]byte(secret))},
+			want: []string{want()}},
 		{name: "base64 url unpadded",
 			text: "blob: " + unpadded(base64.URLEncoding.EncodeToString([]byte(secret))),
-			gone: []string{unpadded(base64.URLEncoding.EncodeToString([]byte(secret)))}},
+			gone: []string{unpadded(base64.URLEncoding.EncodeToString([]byte(secret)))},
+			want: []string{want()}},
 		// base64 wraps at 76 columns, which splits a value across lines.
 		{name: "base64 wrapped at 76 columns",
 			secrets: []Secret{{Ref: "big", Value: long}},
@@ -61,7 +74,26 @@ func TestRedactText(t *testing.T) {
 			text: "url=" + percentEncode(specials, false) +
 				" plus=" + percentEncode(specials, true) +
 				" json=" + jsonEscape(specials),
-			gone: []string{percentEncode(specials, false), percentEncode(specials, true)}},
+			gone: []string{
+				percentEncode(specials, false), percentEncode(specials, true),
+				jsonEscape(specials),
+			},
+			want: []string{TokenFor("k")}},
+		// A "set -x" trace prints the value the way the shell quotes it, and for a
+		// value holding an apostrophe that form carries the plain one nowhere in
+		// it: matching the value alone would leave the whole trace line intact.
+		// The quoted forms are spelled out rather than built with the package's
+		// own helpers, so this compares against what a shell actually prints.
+		{name: "shell single-quoted, as set -x prints it",
+			secrets: []Secret{{Ref: "k", Value: apostrophe}},
+			text:    `+ curl --user 'it'"'"'s-a-long-secret-value' https://host` + "\n",
+			gone:    []string{`'it'"'"'s-a-long-secret-value'`},
+			want:    []string{TokenFor("k"), "https://host"}},
+		{name: "shell double-quoted, with the escapes the shell adds",
+			secrets: []Secret{{Ref: "k", Value: dollars}},
+			text:    `+ curl --user "pa\$\$word-that-is-long" https://host` + "\n",
+			gone:    []string{`pa\$\$word-that-is-long`},
+			want:    []string{TokenFor("k"), "https://host"}},
 		// Longest first: if one secret contains another, the longer token wins.
 		{name: "one secret inside another",
 			secrets: []Secret{
@@ -124,15 +156,16 @@ func TestValueSplitAcrossChunks(t *testing.T) {
 
 func TestEligibilityRefusals(t *testing.T) {
 	policy := DefaultPolicy()
-	cases := map[string]string{
-		"short":       "abc",
-		"few-unique":  "aaaaaaaaaaaa",
-		"low-entropy": "ababababababab",
-	}
-	for name, value := range cases {
-		if reason := policy.Check(value); reason == "" {
-			t.Errorf("%s (%q) was accepted", name, value)
-		}
+	for _, tc := range []struct{ name, value string }{
+		{"short", "abc"},
+		{"few unique characters", "aaaaaaaaaaaa"},
+		{"low entropy", "ababababababab"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if reason := policy.Check(tc.value); reason == "" {
+				t.Errorf("%q was accepted", tc.value)
+			}
+		})
 	}
 	if reason := policy.Check(secret); reason != "" {
 		t.Errorf("a good value was refused: %s", reason)
@@ -155,16 +188,17 @@ func TestSummaryCountsNotValues(t *testing.T) {
 }
 
 func TestStripANSI(t *testing.T) {
-	cases := map[string]string{
-		"\x1b[31mred\x1b[0m":              "red",
-		"a\x1b]0;title\x07b":              "ab",
-		"line\r\nnext":                    "line\nnext",
-		"\x1b[1;32mbold green\x1b[m done": "bold green done",
-	}
-	for in, want := range cases {
-		if got := StripANSI(in); got != want {
-			t.Errorf("StripANSI(%q) = %q, want %q", in, got, want)
-		}
+	for _, tc := range []struct{ name, in, want string }{
+		{"a colour span", "\x1b[31mred\x1b[0m", "red"},
+		{"an OSC title, terminated by BEL", "a\x1b]0;title\x07b", "ab"},
+		{"a PTY's CRLF becomes a newline", "line\r\nnext", "line\nnext"},
+		{"a reset with no parameter", "\x1b[1;32mbold green\x1b[m done", "bold green done"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := StripANSI(tc.in); got != tc.want {
+				t.Errorf("StripANSI(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+		})
 	}
 }
 
