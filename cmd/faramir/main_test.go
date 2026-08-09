@@ -164,13 +164,19 @@ func TestOperatorNameResolution(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Unless the caller is root, which is refused at every position: run that
+	// way with nothing set, no operator is named rather than one claimed.
+	fallback := current.Username
+	if fallback == "root" {
+		fallback = ""
+	}
 	for _, tc := range []struct{ name, flag, sudoUser, want string }{
 		{"the flag wins", "flagged", "sudo", "flagged"},
 		{"SUDO_USER when that is all there is", "", "sudo", "sudo"},
 		{"root is not an answer", "root", "sudo", "sudo"},
 		// Nobody named, so the caller is who this is about -- doctor run by
 		// hand would otherwise report them as an account nothing created.
-		{"nothing at all falls back to the caller", "", "", current.Username},
+		{"nothing at all falls back to the caller", "", "", fallback},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("SUDO_USER", tc.sudoUser)
