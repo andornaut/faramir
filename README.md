@@ -389,32 +389,13 @@ a config directory in a home is read after login, when the home is there.
 
 ```bash
 make build           # a static binary into bin/
-make test            # whole suite; needs no sops installed
-make test-unit       # everything except end-to-end
-make test-e2e        # end-to-end against a real broker in a temp dir
-make lint            # golangci-lint
-make fmt             # apply the import and format rules CI checks
 make coverage        # race-enabled suite plus per-function report
+make fmt             # apply the import and format rules CI checks
+make lint            # golangci-lint
 make sizes           # binary size, package count, sops linkage
-```
-
-```text
-cmd/faramir            the one binary: CLI, keygen, and the five roles below
-cmd/faramir/broker.go  policy, redaction, audit log, SSH keys
-cmd/faramir/keeper.go  holds the age key, execs sops, serves values only
-cmd/faramir/exec.go    forks brokered commands, holds nothing
-internal/mcp           MCP stdio server
-internal/guard         the pre-execution check, one dialect per agent
-internal/cli           the subcommand names, shared by the dispatcher and the guard
-internal/              implementation; each package doc explains its decisions
-internal/e2e           end-to-end suite: a real keeper, executor and broker
-internal/install       what `faramir init`, `doctor` and `uninstall` do
-systemd/               socket and hardened service unit templates, one pair per role
-etc/                   the config template, rendered on every run; your settings go in config.d
-agent/                 deny patterns, and per-agent settings and plugins:
-                       agent/claude, agent/gemini, agent/opencode, agent/kilocode
-tests/                 operator procedures that are not tests: retiring an age key
-docs/                  redaction, wire protocol, Ansible, scope
+make test            # whole suite; needs no sops installed
+make test-e2e        # end-to-end against a real broker in a temp dir
+make test-unit       # everything except end-to-end
 ```
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout. The `.tmpl` files are the shipped files themselves, so what you read is what the install writes.
