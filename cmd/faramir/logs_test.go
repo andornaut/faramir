@@ -80,29 +80,137 @@ func plain(t *testing.T) palette {
 
 func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
 	records, err := readAuditLog(writeLog(t,
-		`{"log_id":"2026-08-08T20:15:03Z-a91f","op":"exec","peer":"andornaut",`+
-			`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0}`))
+		`{"log_id":"2026-08-08T20:15:03Z-a91f","op":"exec",`+
+			`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0,"duration_sec":1.5,`+
+			`"redactions":[{"token":"«SECRET:a»","count":2}]}`))
 	if err != nil {
 		t.Fatal(err)
 	}
 	line := summarise(records[0], plain(t))
-	for _, want := range []string{"2026-08-08T20:15:03Z-a91f", "exec", "exit 0", "andornaut",
+	for _, want := range []string{"a91f", "exec", "exit 0", "1.50s", "2 redacted",
 		"ansible-playbook msmtp.yml"} {
+		if !strings.Contains(line, want) {
+			t.Errorf("summary is missing %q: %s", want, line)
+		}
+	}
+	// The timestamp is a column of its own, so repeating it in the id would
+	// push what differs off to the right.
+	if strings.Contains(line, "2026-08-08T20:15:03Z") {
+		t.Errorf("summary repeats the timestamp inside the id: %s", line)
+	}
+}
+
+// A redact request runs no command, so it has no exit code and must not be
+// reported as having exited 0. It still has to say something, or the row is
+// blank past the op.
+func TestSummariseSaysSomethingForARedact(t *testing.T) {
+	records, err := readAuditLog(writeLog(t,
+		`{"log_id":"2026-08-08T20:15:03Z-b1c2","op":"redact","input_bytes":1447,`+
+			`"redactions":[{"token":"«SECRET:a»","count":1}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	line := summarise(records[0], plain(t))
+	if strings.Contains(line, "exit") {
+		t.Errorf("a record that ran nothing was given an exit: %s", line)
+	}
+	for _, want := range []string{"1 redacted", "1.4 KiB in"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("summary is missing %q: %s", want, line)
 		}
 	}
 }
 
-// A redact request runs no command, so it has no exit code and must not be
-// reported as having exited 0.
-func TestExitLabelBlankWithoutAnExitCode(t *testing.T) {
-	records, err := readAuditLog(writeLog(t, `{"log_id":"x","op":"redact"}`))
+// A timed-out command has an exit code that says nothing useful, so the
+// timeout is what gets reported.
+func TestOutcomeReportsATimeout(t *testing.T) {
+	records, err := readAuditLog(writeLog(t,
+		`{"log_id":"x","op":"exec","exit_code":0,"timed_out":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := exitLabel(records[0], plain(t)); strings.Contains(got, "exit") {
-		t.Errorf("exitLabel = %q, want no exit for a record that ran nothing", got)
+	label, failed := outcome(records[0])
+	if label != "timed out" || !failed {
+		t.Errorf("outcome = (%q, %v), want (timed out, true)", label, failed)
+	}
+}
+
+// Escapes are bytes that padding would count as width, so a coloured field
+// padded afterwards misaligns every following column by the escape's length.
+func TestPaintOutcomePadsBeforeColouring(t *testing.T) {
+	records, err := readAuditLog(writeLog(t, `{"log_id":"x","op":"exec","exit_code":0}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	coloured, err := newPalette("always")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := paintOutcome(records[0], coloured)
+	if !strings.HasSuffix(got, "\x1b[0m") {
+		t.Fatalf("padding landed outside the colour span: %q", got)
+	}
+	bare := strings.TrimSuffix(strings.TrimPrefix(got, "\x1b[32m"), "\x1b[0m")
+	if len(bare) != len(paintOutcome(records[0], plain(t))) {
+		t.Errorf("coloured field is a different width from the plain one: %q", got)
+	}
+}
+
+// The listing prints the short form, so the short form has to be enough to ask
+// for the record: what is on screen gets pasted back.
+func TestMatchesIDAcceptsBothForms(t *testing.T) {
+	records, err := readAuditLog(writeLog(t, `{"log_id":"2026-08-08T20:15:03Z-a91f"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"2026-08-08T20:15:03Z-a91f", "a91f"} {
+		if !matchesID(records[0], want) {
+			t.Errorf("matchesID rejected %q", want)
+		}
+	}
+	if matchesID(records[0], "beef") {
+		t.Error("matchesID accepted an id that is not this record's")
+	}
+}
+
+// A redact record carries no started_at, and a row with no time cannot be
+// placed in a log that is read by time.
+func TestStartedAtFallsBackToTheLogID(t *testing.T) {
+	records, err := readAuditLog(writeLog(t, `{"log_id":"2026-08-08T20:15:03Z-a91f","op":"redact"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := startedAt(records[0])
+	if at.IsZero() {
+		t.Fatal("no time recovered from the log_id")
+	}
+	if got := at.UTC().Format("2006-01-02T15:04:05Z"); got != "2026-08-08T20:15:03Z" {
+		t.Errorf("startedAt = %s, want the instant in the log_id", got)
+	}
+}
+
+// peer is an object of pid, uid and gid. Reading it as a string is how the
+// caller silently rendered as nothing.
+func TestDescribePeerRendersTheObject(t *testing.T) {
+	records, err := readAuditLog(writeLog(t, `{"log_id":"x","peer":{"pid":4390,"uid":0,"gid":0}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := describePeer(records[0])
+	for _, want := range []string{"root", "uid 0", "pid 4390"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("describePeer = %q, missing %q", got, want)
+		}
+	}
+}
+
+func TestHumanBytes(t *testing.T) {
+	for size, want := range map[int64]string{
+		0: "0 B", 512: "512 B", 1447: "1.4 KiB", 4 << 20: "4.0 MiB",
+	} {
+		if got := humanBytes(size); got != want {
+			t.Errorf("humanBytes(%d) = %q, want %q", size, got, want)
+		}
 	}
 }
 

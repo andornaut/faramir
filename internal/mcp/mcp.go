@@ -248,7 +248,7 @@ func callTool(name string, arguments map[string]any) map[string]any {
 
 	response, err := call(request)
 	if err != nil {
-		return textResult("secret broker unavailable: "+err.Error(), true)
+		return textResult("secrets broker unavailable: "+err.Error(), true)
 	}
 	return format(response)
 }

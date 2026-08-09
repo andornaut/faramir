@@ -21,8 +21,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/andornaut/faramir/internal/config"
 )
@@ -81,7 +83,7 @@ func cmdLogs(args []string) int {
 
 	if id := fs.Arg(0); id != "" {
 		for _, record := range records {
-			if str(record, "log_id") == id {
+			if matchesID(record, id) {
 				printRecord(record, paint)
 				return 0
 			}
@@ -95,7 +97,15 @@ func cmdLogs(args []string) int {
 	if *count < len(records) && *count > 0 {
 		records = records[len(records)-*count:]
 	}
+	// The date once per day rather than on every line.  A log_id carries it and
+	// so does each record, but repeating it twenty times crowds out the columns
+	// that differ, which are the ones being read.
+	day := ""
 	for _, record := range records {
+		if at := startedAt(record); !at.IsZero() && at.Format(dateLayout) != day {
+			day = at.Format(dateLayout)
+			fmt.Println(paint.dim(day))
+		}
 		fmt.Println(summarise(record, paint))
 	}
 	return 0
@@ -137,26 +147,104 @@ func readAuditLog(path string) ([]map[string]any, error) {
 	return records, nil
 }
 
-// summarise is one record on one line: what ran, how it ended, and the id to
-// ask for the rest of it.
+// summarise is one record on one line: when, what, how it ended, how many
+// values it touched, and the id to ask for the rest of it.
+//
+// The id is the trailing hex rather than the whole thing.  A log_id is a
+// timestamp plus four hex characters, and printing the timestamp twice on every
+// line pushes the columns that differ off to the right.  Lookup takes either
+// form, so the short one is enough to act on.
 func summarise(record map[string]any, paint palette) string {
 	var b strings.Builder
-	b.WriteString(paint.dim(str(record, "log_id")))
-	b.WriteString("  ")
-	b.WriteString(paint.bold(pad(str(record, "op"), 6)))
-	b.WriteString(exitLabel(record, paint))
-	if peer := str(record, "peer"); peer != "" {
-		b.WriteString("  " + paint.dim(peer))
-	}
+	b.WriteString(paint.dim(pad(shortID(record), 5)))
+	b.WriteString(" " + clockTime(record) + "  ")
+	b.WriteString(paint.bold(pad(str(record, "op"), 7)))
+	b.WriteString(paintOutcome(record, paint))
+	b.WriteString(paint.ref(pad(redactionTotal(record), 12)))
+	b.WriteString(detail(record))
+	return strings.TrimRight(b.String(), " ")
+}
+
+// detail is what the record is about: the command for an exec, and the size of
+// the text handed over for a redact, which would otherwise print as a bare row
+// saying only that something was redacted.
+func detail(record map[string]any) string {
 	if cmd := joinCmd(record); cmd != "" {
-		b.WriteString("  " + cmd)
+		return cmd
 	}
-	return b.String()
+	if size, ok := record["input_bytes"].(float64); ok {
+		return humanBytes(int64(size)) + " in"
+	}
+	if detail := str(record, "error"); detail != "" {
+		return detail
+	}
+	return ""
+}
+
+// paintOutcome pads before colouring, never after: escapes are bytes that pad()
+// would count as width, so a coloured field padded afterwards misaligns the
+// column by exactly the length of the escape.
+func paintOutcome(record map[string]any, paint palette) string {
+	const width = 16
+	label, failed := outcome(record)
+	padded := pad(label, width)
+	switch {
+	case label == "":
+		return padded
+	case failed:
+		return paint.bad(padded)
+	}
+	return paint.ok(padded)
+}
+
+// outcome is how an exec ended, and whether that counts as failure.  A redact
+// ran no command, so it has neither: reporting one as "exit 0" would claim
+// something that was never true.
+func outcome(record map[string]any) (string, bool) {
+	if timedOut, _ := record["timed_out"].(bool); timedOut {
+		return "timed out", true
+	}
+	code, ok := record["exit_code"].(float64)
+	if !ok {
+		return "", false
+	}
+	label := fmt.Sprintf("exit %d", int(code))
+	if seconds, ok := record["duration_sec"].(float64); ok {
+		label += fmt.Sprintf(" %.2fs", seconds)
+	}
+	return label, code != 0
+}
+
+// redactionTotal is how many values this record stood in for, summed across
+// tokens.  The count is the point of the log: it says a credential was used
+// without saying which value it had.
+func redactionTotal(record map[string]any) string {
+	entries, ok := record["redactions"].([]any)
+	if !ok || len(entries) == 0 {
+		return ""
+	}
+	total := 0
+	for _, entry := range entries {
+		fields, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		count, _ := fields["count"].(float64)
+		total += int(count)
+	}
+	if total == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d redacted", total)
 }
 
 // printRecord is the whole of one record, output included.
 func printRecord(record map[string]any, paint palette) {
 	fmt.Println(summarise(record, paint))
+	fmt.Printf("  %s %s\n", paint.key(pad("id", 10)), str(record, "log_id"))
+	if who := describePeer(record); who != "" {
+		fmt.Printf("  %s %s\n", paint.key(pad("caller", 10)), who)
+	}
 	for _, field := range []string{"cwd", "error"} {
 		if value := str(record, field); value != "" {
 			fmt.Printf("  %s %s\n", paint.key(pad(field, 10)), value)
@@ -181,20 +269,9 @@ func printRecord(record map[string]any, paint palette) {
 	}
 }
 
-// exitLabel is blank for a record that has no exit code, which a redact
-// request does not: it ran no command.
-func exitLabel(record map[string]any, paint palette) string {
-	code, ok := record["exit_code"].(float64)
-	if !ok {
-		return "      "
-	}
-	label := fmt.Sprintf("exit %-2d", int(code))
-	if code == 0 {
-		return paint.ok(label)
-	}
-	return paint.bad(label)
-}
-
+// redactionCounts is per token, for the detail view.  The listing sums them
+// instead: which tokens matter once you are looking at one record, and how many
+// there were is what makes a row worth opening.
 func redactionCounts(record map[string]any) string {
 	entries, ok := record["redactions"].([]any)
 	if !ok {
@@ -214,6 +291,87 @@ func redactionCounts(record map[string]any) string {
 
 func joinCmd(record map[string]any) string {
 	return strings.Join(list(record, "cmd"), " ")
+}
+
+// The zone is part of the header because the times below it are local and the
+// log_id beside them is UTC.  Without it the two disagree by the offset and
+// nothing on screen says why.
+const dateLayout = "2006-01-02 MST"
+
+// startedAt is when the command ran.  From started_at where there is one, and
+// otherwise from the log_id, which carries the same instant: a redact record
+// has no started_at, and a row with no time in a log read by time is a row that
+// cannot be placed.
+func startedAt(record map[string]any) time.Time {
+	if seconds, ok := record["started_at"].(float64); ok {
+		return time.Unix(int64(seconds), 0)
+	}
+	id := str(record, "log_id")
+	if stamp, _, found := strings.Cut(id, "Z-"); found {
+		if at, err := time.Parse("2006-01-02T15:04:05", stamp); err == nil {
+			return at.UTC().Local()
+		}
+	}
+	return time.Time{}
+}
+
+// clockTime is local rather than the log_id's UTC.  The log is read by whoever
+// is on the machine, against what they remember doing, and that memory is in
+// the clock on their wall.
+func clockTime(record map[string]any) string {
+	at := startedAt(record)
+	if at.IsZero() {
+		return "        "
+	}
+	return at.Format("15:04:05")
+}
+
+// shortID is the hex tail of a log_id, which is the only part that is not the
+// timestamp already in the row.
+func shortID(record map[string]any) string {
+	id := str(record, "log_id")
+	if _, tail, found := strings.Cut(id, "Z-"); found {
+		return tail
+	}
+	return id
+}
+
+// matchesID accepts the whole log_id or the short tail printed in the listing,
+// so what is on screen can be pasted back without reconstructing the rest.
+func matchesID(record map[string]any, want string) bool {
+	return str(record, "log_id") == want || shortID(record) == want
+}
+
+// describePeer renders the caller.  It is an object of pid, uid and gid, and
+// the uid is resolved to a name where the account still exists, an audit log
+// being read long after a run and sometimes after an account is gone.
+func describePeer(record map[string]any) string {
+	fields, ok := record["peer"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	uid, _ := fields["uid"].(float64)
+	pid, _ := fields["pid"].(float64)
+	who := fmt.Sprintf("uid %d", int(uid))
+	if account, err := user.LookupId(fmt.Sprint(int(uid))); err == nil {
+		who = fmt.Sprintf("%s (uid %d)", account.Username, int(uid))
+	}
+	return fmt.Sprintf("%s, pid %d", who, int(pid))
+}
+
+// humanBytes keeps a size to three significant figures.  Exact byte counts are
+// what max_record_bytes is expressed in; this column is for judging scale.
+func humanBytes(n int64) string {
+	const unit = 1024
+	if n < unit {
+		return fmt.Sprintf("%d B", n)
+	}
+	value, exponent := float64(n)/unit, 0
+	for value >= unit && exponent < 3 {
+		value /= unit
+		exponent++
+	}
+	return fmt.Sprintf("%.1f %ciB", value, "KMGT"[exponent])
 }
 
 func str(record map[string]any, key string) string {

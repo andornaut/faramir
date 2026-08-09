@@ -13,7 +13,7 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// cmdBroker is the secret broker daemon: policy, redaction, the audit log and
+// cmdBroker is the secrets broker daemon: policy, redaction, the audit log and
 // the SSH keys.  systemd runs it as its own uid, which is the boundary; being a
 // subcommand of this binary rather than a binary of its own changes nothing
 // about what it can reach.

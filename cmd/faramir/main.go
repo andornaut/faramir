@@ -1,4 +1,4 @@
-// Command faramir runs a credential-bearing command through the secret broker.
+// Command faramir runs a credential-bearing command through the secrets broker.
 //
 // Secrets are injected as environment variables only; they are never
 // substituted into the command line.
@@ -45,7 +45,9 @@ func main() { os.Exit(run(os.Args[1:])) }
 func usage(w io.Writer) {
 	_, _ = fmt.Fprintf(w, `usage: faramir <command> [options] [-- program [args...]]
 
-Run a credential-bearing command through the secret broker.
+A secrets broker for local AI coding agents: it runs the commands that need
+credentials, and redacts the output of everything else, so no plaintext
+credential reaches the agent's context or a model provider.
 
 Commands:
   run           run a command with secrets injected
@@ -65,7 +67,7 @@ Provisioning (require root; they do not talk to the broker):
   uninstall     remove the broker, keeping the key, the store and the log
 
 Run by systemd and by the coding agent, not by you:
-  broker        the secret broker daemon
+  broker        the secrets broker daemon
   keeper        holds the age key, serves decrypted values
   exec          the executor daemon (to run a command, see "run" above)
   mcp           MCP stdio server
