@@ -74,6 +74,12 @@ type Layout struct {
 	LogDir     string
 
 	AgeKeyPath string
+	// SSHKey is the identity the broker lends to brokered commands.  It renders
+	// into config.toml's [ssh] keys, which is why it is here and not only on
+	// Options: the config is written from this struct on every run, so the flag
+	// and the file cannot drift apart.  Empty leaves the list empty, which is a
+	// working setup with no agent.
+	SSHKey string
 }
 
 // AgeKeyDir is where the key lives, which is the config directory: the key

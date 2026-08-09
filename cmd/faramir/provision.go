@@ -101,8 +101,6 @@ func cmdInit(args []string) int {
 	var initAgents multiFlag
 	fs.Var(&initAgents, "agent",
 		"agent those rules are written for, repeatable (default claude; also gemini)")
-	overwriteConfig := fs.Bool("overwrite-config", false,
-		"replace an installed config.toml instead of keeping it (destructive)")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	var recipients multiFlag
@@ -112,22 +110,21 @@ func cmdInit(args []string) int {
 	}
 
 	opts := install.Options{
-		Operator:        operatorName(*operator),
-		Group:           *group,
-		StoreGroup:      *storeGroup,
-		BrokerUser:      *brokerUser,
-		KeeperUser:      *keeperUser,
-		ExecUser:        *execUser,
-		ConfigDir:       *configDir,
-		SecretsDir:      *secretsDir,
-		Binaries:        *binaries,
-		AgeRecipients:   recipients,
-		OperatorAgeKey:  *operatorAgeKey,
-		SSHKey:          *sshKey,
-		AgentConfig:     *agentConfig,
-		Agents:          initAgents,
-		OverwriteConfig: *overwriteConfig,
-		DryRun:          *dryRun,
+		Operator:       operatorName(*operator),
+		Group:          *group,
+		StoreGroup:     *storeGroup,
+		BrokerUser:     *brokerUser,
+		KeeperUser:     *keeperUser,
+		ExecUser:       *execUser,
+		ConfigDir:      *configDir,
+		SecretsDir:     *secretsDir,
+		Binaries:       *binaries,
+		AgeRecipients:  recipients,
+		OperatorAgeKey: *operatorAgeKey,
+		SSHKey:         *sshKey,
+		AgentConfig:    *agentConfig,
+		Agents:         initAgents,
+		DryRun:         *dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
 	// --json entirely: a caller asking for the report does not want the prose.

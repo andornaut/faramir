@@ -73,11 +73,6 @@ type Options struct {
 	// it did.  The same names `faramir init-project --agent` takes.
 	Agents []string
 
-	// OverwriteConfig replaces an installed config.toml instead of keeping it
-	// and writing config.toml.dist beside it.  Destructive: edits made on the
-	// host are lost.
-	OverwriteConfig bool
-
 	// DryRun computes every answer and writes nothing.  Steps that cannot be
 	// evaluated without accounts that do not exist yet are reported as skipped
 	// rather than guessed at.
@@ -183,7 +178,6 @@ func Run(opts Options) (Report, error) {
 		run.stepSSHKey,
 		run.stepBinaries,
 		run.stepConfig,
-		run.stepInitDropIn,
 		// Before the units are written and anything is started: it grants the
 		// traversal that lets a service uid reach a config or a store under the
 		// operator's home, and a daemon started without it exits before it opens
@@ -247,6 +241,7 @@ func (o Options) layout() (Layout, error) {
 		DocDir:     DefaultDocDir,
 		RunDir:     DefaultRunDir,
 		LogDir:     DefaultLogDir,
+		SSHKey:     o.SSHKey,
 	}
 	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
 	// Beside the config, including when that is inside the operator's own home.

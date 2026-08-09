@@ -93,7 +93,6 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseBroker(&report, configFile, opts.BrokerUser)
 	diagnoseSSHAgent(&report)
 	diagnoseGroup(&report, opts)
-	diagnoseLeftovers(&report, opts)
 	return report
 }
 
@@ -219,32 +218,6 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 		"Membership grants read on the store, so a dead account here is a standing "+
 		"grant. Drop one with: gpasswd -d <account> %s",
 		opts.Group, strings.Join(outsiders, ", "), opts.Group)
-}
-
-// diagnoseLeftovers reports the files a step wrote beside one it declined to
-// overwrite, and the account-wide hook registration that predates the hook
-// being per project.
-func diagnoseLeftovers(report *DoctorReport, opts DoctorOptions) {
-	if opts.Operator == "" {
-		return
-	}
-	home, err := homeDir(opts.Operator)
-	if err != nil {
-		return
-	}
-	var leftovers []string
-	for _, name := range []string{
-		filepath.Join(opts.ConfigDir, "config.toml.dist"),
-		filepath.Join(home, ".claude", "settings.json.dist"),
-	} {
-		if exists(name) {
-			leftovers = append(leftovers, name)
-		}
-	}
-	if len(leftovers) > 0 {
-		report.add("leftovers", StatusWarn, "written beside a file that was kept, "+
-			"and never merged: %s", strings.Join(leftovers, ", "))
-	}
 }
 
 // groupMembers reads a group's supplementary members.  Primary membership does

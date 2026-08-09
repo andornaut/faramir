@@ -1,6 +1,6 @@
 # faramir
 
-A secrets broker for local AI coding agents: it runs the commands that need credentials, and redacts the output of everything else, so no plaintext credential reaches the agent's context or a model provider.
+A secrets broker for local AI coding agents: it runs the commands that need credentials and keeps the values out of the agent's context.
 
 The commands that need credentials run as a uid that holds nothing.
 
@@ -158,7 +158,7 @@ That proves both halves: the value reached the child, and it came back as a toke
 
 ```text
 /etc/faramir/secrets/ansible-ctrl.sops.yml   the values, outside every checkout
-/etc/faramir/config.d/ansible-ctrl.toml      names that file and the SSH key to lend
+/etc/faramir/config.d/ansible-ctrl.toml      names that file
 group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME')
 faramir.env                                  NAME=secret://ref, one per line
 .claude/settings.json, .mcp.json             hook and MCP for this repo
@@ -168,9 +168,6 @@ faramir.env                                  NAME=secret://ref, one per line
 # /etc/faramir/config.d/ansible-ctrl.toml, the whole of it
 [secrets]
 files = ["/etc/faramir/secrets/ansible-ctrl.sops.yml"]
-
-[ssh]
-keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
 ```
 
 ```yaml
@@ -238,7 +235,7 @@ Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 ## Configuration
 
-[etc/config.toml](etc/config.toml) is the starter. There is no command allowlist. What bounds a brokered command:
+[etc/config.toml.tmpl](etc/config.toml.tmpl) is what `init` renders, on every run. There is no command allowlist. What bounds a brokered command:
 
 Setting | Effect
 --- | ---
@@ -251,7 +248,7 @@ the executor's uid | The real bound
 - `allowed_groups` admits every member of a group including supplementary membership. Intended on `[server]`. Leave it empty on `[keeper]` and `[executor]`, whose only legitimate client is the broker, named in `allowed_users`. Both warn at startup when it is not.
 - No config names where a command runs. A brokered command runs where its caller was; a request naming no cwd is refused.
 - A mistyped key or `[section]` is a hard error naming the alternatives. Values are range-checked. Zero stays legal where it means something (`kill_grace_sec = 0`, `refresh_interval_sec = 0`).
-- **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order, which is where the settings belonging to whatever *consumes* the broker go. Tables merge key by key, so naming one `[secrets] files` does not discard `min_length` and adding one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
+- **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order, and are where *everything you set* goes. `config.toml` is faramir's own and `init` rewrites it on every run, so an edit there is replaced without warning; `init` never reads, writes or removes a drop-in. Tables merge key by key, so naming one `[secrets] files` does not discard `min_length` and adding one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
 
 Lists split by what they are:
 
@@ -322,8 +319,8 @@ uid faramir-exec              faramir exec: forks brokered commands; holds nothi
 /run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
 <config-dir>/age.key          0400 faramir-keeper:faramir-keeper
 <config-dir>/secrets/         2750 root:faramir-secrets, managed sops files and .sops.yaml
-<config-dir>/config.toml      0644 root:root, read by all three daemons
-<config-dir>/config.d/        0644 root:root, per-consumer settings merged over it
+<config-dir>/config.toml      0644 root:root, faramir's own, rewritten every run
+<config-dir>/config.d/        0644 root:root, yours and each consumer's, merged over it
 <any tree you enrol>          2770 <operator>:dev, setgid; faramir init-project
 /var/log/faramir/          0750 faramir-broker:faramir-broker, LogsDirectoryMode=
 /var/log/faramir/audit.log    0600 faramir-broker:faramir-broker; faramir logs reads it
@@ -445,7 +442,7 @@ internal/              implementation; each package doc explains its decisions
 internal/e2e           end-to-end suite: a real keeper, executor and broker
 internal/install       what `faramir init`, `doctor` and `uninstall` do
 systemd/               socket and hardened service unit templates, one pair per role
-etc/                   the starter config template; per-consumer settings go in config.d
+etc/                   the config template, rendered on every run; your settings go in config.d
 agent/                 deny patterns, and per-agent settings: agent/claude, agent/gemini
 tests/verify.sh        the verification matrix
 docs/                  redaction, wire protocol, Ansible, scope

@@ -46,8 +46,7 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprintf(w, `usage: faramir <command> [options] [-- program [args...]]
 
 A secrets broker for local AI coding agents: it runs the commands that need
-credentials, and redacts the output of everything else, so no plaintext
-credential reaches the agent's context or a model provider.
+credentials and keeps the values out of the agent's context.
 
 Commands:
   run           run a command with secrets injected

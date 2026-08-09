@@ -120,9 +120,6 @@ func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool
 	return true, chown(path, uid, gid)
 }
 
-// writeFile writes data when the file is absent or its contents differ.
-// Compared by content rather than by mtime so a re-run of an unchanged install
-// reports nothing.
 // mergeFile merges faramir's keys into a JSON file that is already there, and
 // writes data whole when there is none.  Owned, reported and written through a
 // rename exactly as writeFile does, which is what it hands the result to.
@@ -141,6 +138,9 @@ func (f fsys) mergeFile(path string, data []byte, mode os.FileMode, uid, gid int
 	return f.writeFile(path, merged, mode, uid, gid)
 }
 
+// writeFile writes data when the file is absent or its contents differ.
+// Compared by content rather than by mtime so a re-run of an unchanged install
+// reports nothing.
 func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
 	current, err := os.ReadFile(path)
 	if err == nil && bytes.Equal(current, data) {
@@ -192,19 +192,6 @@ func (f fsys) copyFile(src, dst string, mode os.FileMode, uid, gid int) (bool, e
 		return false, err
 	}
 	return f.writeFile(dst, data, mode, uid, gid)
-}
-
-// remove deletes a path, reporting whether there was anything to delete.
-func (f fsys) remove(path string) (bool, error) {
-	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		return false, nil
-	} else if err != nil {
-		return false, err
-	}
-	if f.dryRun {
-		return true, nil
-	}
-	return true, os.RemoveAll(path)
 }
 
 // missingAncestors lists every directory MkdirAll would have to create, from

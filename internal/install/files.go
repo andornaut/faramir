@@ -261,12 +261,14 @@ func (r *runner) writeAsset(assetPath, dst string, mode os.FileMode) (bool, erro
 	return r.fs.writeFile(dst, data, mode, 0, 0)
 }
 
-// stepConfig installs the base config.
+// stepConfig writes the base config, on every run.
 //
-// An existing one is kept and the new default written to config.toml.dist
-// beside it, because that file is where an operator edits by hand.  Settings
-// belonging to a consumer of the broker go in config.d/*.toml instead, which
-// merge over this and can be reconciled on every run.
+// Rewritten rather than kept, which is the whole of the ownership rule: this
+// file is faramir's, and everything an operator or a consumer sets goes in a
+// drop-in beside it that init never touches.  Keeping it was how a host ended up
+// running a config whose own comments described paths it no longer used, and how
+// a setting init renders -- the SSH key -- could be changed on the command line
+// and silently not take effect.
 func (r *runner) stepConfig() error {
 	body, err := render("etc/config.toml.tmpl", r.layout)
 	if err != nil {
@@ -276,24 +278,6 @@ func (r *runner) stepConfig() error {
 	// file and the drop-ins beside it decide what the executor runs, so an
 	// account that can rewrite one can choose what receives a secret.
 	owner, group := 0, 0
-	if exists(r.layout.ConfigFile) && !r.opts.OverwriteConfig {
-		changed, err := r.fs.writeFile(r.layout.ConfigFile+".dist", body, 0o644, owner, group)
-		if err != nil {
-			return err
-		}
-		// Kept, but not left in the operator's hands.  Its contents are theirs
-		// to edit; its ownership is not, because a root-owned directory stops a
-		// drop-in being created and does nothing about writing to a file that is
-		// already there, and this is the file [exec.base_env] lives in.
-		owned, err := r.fs.ensureOwnership(r.layout.ConfigFile, 0o644, owner, group)
-		if err != nil {
-			return err
-		}
-		changed = changed || owned
-		r.step("config", changed, fmt.Sprintf("keeping %s; new default at %s.dist",
-			r.layout.ConfigFile, r.layout.ConfigFile))
-		return nil
-	}
 	changed, err := r.fs.writeFile(r.layout.ConfigFile, body, 0o644, owner, group)
 	if err != nil {
 		return err
@@ -302,51 +286,6 @@ func (r *runner) stepConfig() error {
 		r.restartFor("config")
 	}
 	r.step("config", changed, r.layout.ConfigFile)
-	return nil
-}
-
-// initDropIn is the drop-in init owns.  Named to sort before a consumer's, so a
-// list it contributes to accumulates in a predictable order.
-const initDropIn = "00-faramir-init.toml"
-
-// stepInitDropIn names the SSH key init generated.
-//
-// A drop-in rather than the base config, for the reason every reconcilable
-// setting is one: init keeps an existing config.toml, so a key named there
-// would land on a first install and never be reconciled again.  Not the base
-// config's [ssh] keys either, which stays empty on purpose.
-//
-// This is init's own, as against a consumer's: generating a key the broker is
-// never told to load leaves an agent holding nothing and every brokered command
-// unable to reach a host, which the validation step then fails the run over.
-// Removed when --ssh-key is not given, so dropping the flag actually drops the
-// key rather than leaving the last run's still configured.
-func (r *runner) stepInitDropIn() error {
-	path := filepath.Join(r.layout.ConfigDir, "config.d", initDropIn)
-	if r.opts.SSHKey == "" {
-		removed, err := r.fs.remove(path)
-		if err != nil {
-			return err
-		}
-		if removed {
-			r.restartFor("config")
-		}
-		r.step("init drop-in", removed, "no --ssh-key, so [ssh] keys stays empty")
-		return nil
-	}
-	body := fmt.Sprintf(`# Written by faramir init. Merged over config.toml, which leaves these empty
-# on purpose so that a re-run can reconcile them and an edit here is not lost.
-[ssh]
-keys = ["%s"]
-`, r.opts.SSHKey)
-	changed, err := r.fs.writeFile(path, []byte(body), 0o644, 0, 0)
-	if err != nil {
-		return err
-	}
-	if changed {
-		r.restartFor("config")
-	}
-	r.step("init drop-in", changed, path)
 	return nil
 }
 
