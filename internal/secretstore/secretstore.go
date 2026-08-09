@@ -202,7 +202,7 @@ func (s *Store) Value(ref string) (string, error) {
 	// Named separately, so a refused ref does not read as a typo.
 	if reason, ok := s.refused[ref]; ok {
 		return "", fmt.Errorf("secret %s was refused at load (%s); it cannot be "+
-			"redacted, so it is not injectable. Lengthen the value.", ref, reason)
+			"redacted, so it is not injectable -- lengthen the value", ref, reason)
 	}
 	return "", fmt.Errorf("unknown secret ref: %s", ref)
 }
