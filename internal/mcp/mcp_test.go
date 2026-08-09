@@ -71,6 +71,23 @@ func resultText(t *testing.T, result map[string]any) string {
 	return text
 }
 
+// wantError asserts the tool call came back as an error carrying each of wants
+// in its text.  An MCP tool reports failure in the result rather than in the
+// transport, so "did it fail" is a field, and forgetting to check it is how a
+// test passes on a call that did nothing.
+func wantError(t *testing.T, result map[string]any, wants ...string) {
+	t.Helper()
+	if isError, _ := result["isError"].(bool); !isError {
+		t.Fatalf("not reported as an error: %v", result)
+	}
+	text := resultText(t, result)
+	for _, want := range wants {
+		if !strings.Contains(text, want) {
+			t.Errorf("message does not say %q: %q", want, text)
+		}
+	}
+}
+
 // -- request shaping --------------------------------------------------------
 
 func TestAnArgvArrayReachesTheBrokerIntact(t *testing.T) {
@@ -90,49 +107,53 @@ func TestAnArgvArrayReachesTheBrokerIntact(t *testing.T) {
 	}
 }
 
-// A model that writes cmd as a shell string is the likeliest way to call this
-// tool wrong.  The type assertion yields nil, so without a check the broker is
-// sent a null argv and answers about a malformed request, saying nothing about
-// the shell string that caused it.
-func TestAShellStringCmdIsRejectedWithAUsableMessage(t *testing.T) {
-	newFakeBroker(t, map[string]any{"exit_code": 0, "output": ""})
-	result := callTool("faramir_run", map[string]any{"cmd": "echo hi"})
-
-	if isError, _ := result["isError"].(bool); !isError {
-		t.Fatal("a shell string for cmd was accepted")
-	}
-	text := resultText(t, result)
-	if !strings.Contains(text, "array") {
-		t.Errorf("the message does not say what was wrong: %q", text)
-	}
-}
-
-func TestAnEmptyCmdIsRejected(t *testing.T) {
-	newFakeBroker(t, map[string]any{"exit_code": 0, "output": ""})
-	result := callTool("faramir_run", map[string]any{"cmd": []any{}})
-
-	if isError, _ := result["isError"].(bool); !isError {
-		t.Error("an empty argv was accepted")
-	}
-}
-
-func TestAnUnknownToolIsAnError(t *testing.T) {
-	result := callTool("faramir_delete_everything", map[string]any{})
-	if isError, _ := result["isError"].(bool); !isError {
-		t.Error("an unknown tool name was not an error")
+// What a tool call has to refuse, and what the agent is told about it.  A
+// message that does not say which of these happened is one the model cannot act
+// on, so every row asserts on the text as well as on the flag.
+func TestRefusedToolCalls(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		reply map[string]any // the broker's canned answer; nil starts no broker
+		tool  string
+		args  map[string]any
+		wants []string
+	}{
+		// A model that writes cmd as a shell string is the likeliest way to
+		// call this tool wrong.  The type assertion yields nil, so without a
+		// check the broker is sent a null argv and answers about a malformed
+		// request, saying nothing about the shell string that caused it.
+		{name: "a shell string for cmd",
+			reply: map[string]any{"exit_code": 0, "output": ""},
+			tool:  "faramir_run", args: map[string]any{"cmd": "echo hi"},
+			wants: []string{"array"}},
+		{name: "an empty argv",
+			reply: map[string]any{"exit_code": 0, "output": ""},
+			tool:  "faramir_run", args: map[string]any{"cmd": []any{}}},
+		{name: "a tool that does not exist",
+			tool: "faramir_delete_everything", args: map[string]any{}},
+		{name: "a command that failed",
+			reply: map[string]any{"exit_code": 2, "output": "nope\n"},
+			tool:  "faramir_run", args: map[string]any{"cmd": []any{"false"}},
+			wants: []string{"exit_code=2"}},
+		{name: "an error from the broker",
+			reply: map[string]any{
+				"error":  map[string]any{"code": "unknown_secret", "message": "unknown secret ref: nope"},
+				"log_id": "2026-01-01T00:00:00Z-abcd"},
+			tool: "faramir_run", args: map[string]any{"cmd": []any{"true"}},
+			wants: []string{"unknown_secret"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.reply != nil {
+				newFakeBroker(t, tc.reply)
+			}
+			wantError(t, callTool(tc.tool, tc.args), tc.wants...)
+		})
 	}
 }
 
 func TestTheBrokerBeingDownIsReportedNotPanicked(t *testing.T) {
 	t.Setenv("FARAMIR_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
-	result := callTool("faramir_list_secrets", map[string]any{})
-
-	if isError, _ := result["isError"].(bool); !isError {
-		t.Error("an unreachable broker was reported as success")
-	}
-	if text := resultText(t, result); !strings.Contains(text, "unavailable") {
-		t.Errorf("unhelpful message: %q", text)
-	}
+	wantError(t, callTool("faramir_list_secrets", map[string]any{}), "unavailable")
 }
 
 // The MCP server builds broker requests by hand, so nothing but this ties its
@@ -195,18 +216,6 @@ func TestEveryToolProducesARequestTheBrokerAccepts(t *testing.T) {
 
 // -- response formatting ----------------------------------------------------
 
-func TestANonZeroExitIsMarkedAsAnError(t *testing.T) {
-	newFakeBroker(t, map[string]any{"exit_code": 2, "output": "nope\n"})
-	result := callTool("faramir_run", map[string]any{"cmd": []any{"false"}})
-
-	if isError, _ := result["isError"].(bool); !isError {
-		t.Error("a failing command was reported as success")
-	}
-	if text := resultText(t, result); !strings.Contains(text, "exit_code=2") {
-		t.Errorf("the exit code is not visible: %q", text)
-	}
-}
-
 func TestRedactionsAndLogIDAreReportedToTheAgent(t *testing.T) {
 	newFakeBroker(t, map[string]any{
 		"exit_code": 0,
@@ -226,21 +235,6 @@ func TestRedactionsAndLogIDAreReportedToTheAgent(t *testing.T) {
 	}
 }
 
-func TestABrokerErrorBecomesAToolError(t *testing.T) {
-	newFakeBroker(t, map[string]any{
-		"error":  map[string]any{"code": "unknown_secret", "message": "unknown secret ref: nope"},
-		"log_id": "2026-01-01T00:00:00Z-abcd",
-	})
-	result := callTool("faramir_run", map[string]any{"cmd": []any{"true"}})
-
-	if isError, _ := result["isError"].(bool); !isError {
-		t.Fatal("a broker error was reported as success")
-	}
-	if text := resultText(t, result); !strings.Contains(text, "unknown_secret") {
-		t.Errorf("the broker's code is not visible: %q", text)
-	}
-}
-
 // -- JSON-RPC ---------------------------------------------------------------
 
 func decodeReply(t *testing.T, raw string) map[string]any {
@@ -252,25 +246,18 @@ func decodeReply(t *testing.T, raw string) map[string]any {
 	return handle(&m)
 }
 
-// The client's requested version must not be echoed back unless the server
-// actually speaks it: echoing an arbitrary string claims support for anything.
-func TestInitializeDoesNotClaimAnUnsupportedProtocolVersion(t *testing.T) {
-	reply := decodeReply(t, `{"jsonrpc":"2.0","id":1,"method":"initialize",
-		"params":{"protocolVersion":"1999-01-01"}}`)
-	result, _ := reply["result"].(map[string]any)
-
-	if got := result["protocolVersion"]; got != protocolVersion {
-		t.Errorf("claimed to speak %v; this server speaks %v", got, protocolVersion)
-	}
-}
-
-func TestInitializeEchoesAVersionItDoesSpeak(t *testing.T) {
-	reply := decodeReply(t, `{"jsonrpc":"2.0","id":1,"method":"initialize",
-		"params":{"protocolVersion":"`+protocolVersion+`"}}`)
-	result, _ := reply["result"].(map[string]any)
-
-	if got := result["protocolVersion"]; got != protocolVersion {
-		t.Errorf("got %v, want %v", got, protocolVersion)
+// initialize answers with the version this server speaks, whatever it was
+// asked for.  Echoing the client's string back would claim support for
+// anything it happened to name.
+func TestInitializeAnswersWithTheVersionItSpeaks(t *testing.T) {
+	for _, asked := range []string{"1999-01-01", protocolVersion} {
+		reply := decodeReply(t, `{"jsonrpc":"2.0","id":1,"method":"initialize",
+			"params":{"protocolVersion":"`+asked+`"}}`)
+		result, _ := reply["result"].(map[string]any)
+		if got := result["protocolVersion"]; got != protocolVersion {
+			t.Errorf("asked for %s, answered %v; this server speaks %v",
+				asked, got, protocolVersion)
+		}
 	}
 }
 

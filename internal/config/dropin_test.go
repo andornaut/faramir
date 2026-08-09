@@ -69,48 +69,47 @@ files = ["/etc/faramir/secrets/consumer.sops.yml"]
 	}
 }
 
-// The failure this rule exists for. Two projects each name their own store, and
-// under replace semantics the loser's values are neither injectable nor in the
-// redaction set, with nothing said about it.
-func TestTwoProjectsEachKeepTheirOwnStore(t *testing.T) {
-	cfg, err := write(t, minimal, map[string]string{
-		"ansible-ctrl.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/ansible-ctrl.sops.yml\"]\n",
-		"webapp.toml":       "[secrets]\nfiles = [\"/etc/faramir/secrets/webapp.sops.yml\"]\n",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Secrets.Files) != 2 {
-		t.Errorf("files = %v, want both projects managed", cfg.Secrets.Files)
-	}
-}
-
-// Same for the keys the broker lends: two consumers, two keys, one agent.
-func TestSshKeysAccumulate(t *testing.T) {
-	cfg, err := write(t, minimal, map[string]string{
-		"10-a.toml": "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/a\"]\n",
-		"20-b.toml": "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/b\"]\n",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Ssh.Keys) != 2 {
-		t.Errorf("keys = %v, want both", cfg.Ssh.Keys)
-	}
-}
-
-// Named twice is managed once, so two owners referring to a shared store does
-// not decrypt it twice or report it twice.
-func TestAnInventoryEntryNamedTwiceAppearsOnce(t *testing.T) {
-	cfg, err := write(t, minimal, map[string]string{
-		"10-a.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
-		"20-b.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(cfg.Secrets.Files) != 1 {
-		t.Errorf("files = %v, want the shared file once", cfg.Secrets.Files)
+// Lists accumulate rather than replace, which is the failure this rule exists
+// for: under replace semantics the loser's values are neither injectable nor in
+// the redaction set, with nothing said about it.
+func TestListsAccumulateAcrossDropIns(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		dropIns map[string]string
+		get     func(*Config) []string
+		want    int
+		why     string
+	}{
+		{name: "two projects, two stores",
+			dropIns: map[string]string{
+				"ansible-ctrl.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/ansible-ctrl.sops.yml\"]\n",
+				"webapp.toml":       "[secrets]\nfiles = [\"/etc/faramir/secrets/webapp.sops.yml\"]\n",
+			},
+			get: func(c *Config) []string { return c.Secrets.Files }, want: 2,
+			why: "both projects have to end up managed"},
+		{name: "two consumers, two keys, one agent",
+			dropIns: map[string]string{
+				"10-a.toml": "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/a\"]\n",
+				"20-b.toml": "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/b\"]\n",
+			},
+			get: func(c *Config) []string { return c.Ssh.Keys }, want: 2},
+		{name: "the same store named twice",
+			dropIns: map[string]string{
+				"10-a.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
+				"20-b.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
+			},
+			get: func(c *Config) []string { return c.Secrets.Files }, want: 1,
+			why: "named twice is managed once, so a shared store is not decrypted or reported twice"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := write(t, minimal, tc.dropIns)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := tc.get(cfg); len(got) != tc.want {
+				t.Errorf("got %v, want %d entries: %s", got, tc.want, tc.why)
+			}
+		})
 	}
 }
 
@@ -173,46 +172,31 @@ PATH = "/usr/bin"
 
 // Validation runs after merging, so a drop-in is held to every rule the base
 // file is.  Checking before would let a drop-in write what the base could not.
+//
+// Every refusal names the drop-in, asserted on each row rather than in a test
+// of its own: "which file said that" is the first question, and the base file
+// is the wrong answer when a drop-in is what set it.
 func TestADropInIsHeldToTheSameChecks(t *testing.T) {
 	for _, tc := range []struct{ name, body, want string }{
 		{"unknown key", "[secrets]\nfile = []\n", "unknown key"},
 		{"unknown section", "[secret]\nfiles = []\n", "unknown section"},
 		{"out of range", "[server]\nmax_concurrency = 0\n", "max_concurrency"},
+		// Refused rather than skipped: a drop-in that should have applied and
+		// did not is a broker managing fewer files than its operator believes.
+		{"not toml at all", "this is not toml\n", ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := write(t, minimal, map[string]string{"10-bad.toml": tc.body})
 			if err == nil {
 				t.Fatal("the drop-in was accepted")
 			}
-			if !strings.Contains(err.Error(), tc.want) {
+			if tc.want != "" && !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error = %v, want it to name %q", err, tc.want)
 			}
+			if !strings.Contains(err.Error(), "10-bad.toml") {
+				t.Errorf("error does not name the drop-in: %v", err)
+			}
 		})
-	}
-}
-
-// Named in the error, because "which file said that" is the first question and
-// the base file is the wrong answer when a drop-in is what set it.
-func TestAnErrorNamesEveryFileThatContributed(t *testing.T) {
-	_, err := write(t, minimal, map[string]string{"10-bad.toml": "[secrets]\nfile = []\n"})
-	if err == nil {
-		t.Fatal("the drop-in was accepted")
-	}
-	if !strings.Contains(err.Error(), "10-bad.toml") {
-		t.Errorf("error does not name the drop-in: %v", err)
-	}
-}
-
-// A file that does not parse is refused rather than skipped.  A drop-in that
-// should have applied and did not is a broker managing fewer files than its
-// operator believes.
-func TestADropInThatDoesNotParseIsRefused(t *testing.T) {
-	_, err := write(t, minimal, map[string]string{"10-bad.toml": "this is not toml\n"})
-	if err == nil {
-		t.Fatal("a malformed drop-in was ignored")
-	}
-	if !strings.Contains(err.Error(), "10-bad.toml") {
-		t.Errorf("error does not name the drop-in: %v", err)
 	}
 }
 

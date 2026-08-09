@@ -14,52 +14,95 @@ func newTestRedactor() *Redactor {
 
 func want() string { return TokenFor("home/router/admin") }
 
-func TestPlainValueIsReplaced(t *testing.T) {
-	r := newTestRedactor()
-	out := r.RedactText("password is " + secret + " ok")
-	if strings.Contains(out, secret) {
-		t.Fatalf("plaintext survived: %q", out)
-	}
-	if !strings.Contains(out, want()) {
-		t.Fatalf("token missing: %q", out)
-	}
-}
-
-func TestBase64VariantsAreReplaced(t *testing.T) {
-	for name, encoded := range map[string]string{
-		"std":          base64.StdEncoding.EncodeToString([]byte(secret)),
-		"std-unpadded": strings.TrimRight(base64.StdEncoding.EncodeToString([]byte(secret)), "="),
-		"url":          base64.URLEncoding.EncodeToString([]byte(secret)),
-		"url-unpadded": strings.TrimRight(base64.URLEncoding.EncodeToString([]byte(secret)), "="),
-	} {
-		r := newTestRedactor()
-		out := r.RedactText("blob: " + encoded)
-		if strings.Contains(out, encoded) {
-			t.Errorf("%s survived: %q", name, out)
-		}
-	}
-}
-
-// base64 wraps at 76 columns, which splits a value across lines.
-func TestWrappedBase64IsReplaced(t *testing.T) {
+// One redactor, one text, and the three questions every one of these asks: is
+// the value gone, is its token there, and did the surrounding output survive.
+//
+// The encodings are the point of the table.  A value reaches a transcript
+// through whatever the command printed it as, so each encoding is a separate
+// way for the same secret to escape, and they are worth reading as one list.
+func TestRedactText(t *testing.T) {
+	const specials = "p@ss word/with+specials=x"
 	long := strings.Repeat(secret, 6)
-	r := New([]Secret{{Ref: "big", Value: long}}, DefaultPolicy())
-	encoded := base64.StdEncoding.EncodeToString([]byte(long))
-	var wrapped strings.Builder
-	for i := 0; i < len(encoded); i += 76 {
-		end := min(i+76, len(encoded))
-		wrapped.WriteString(encoded[i:end] + "\n")
+
+	for _, tc := range []struct {
+		name    string
+		secrets []Secret // nil is the default one-secret redactor
+		text    string
+		gone    []string // must not appear in the output
+		want    []string // must appear
+	}{
+		{name: "plain",
+			text: "password is " + secret + " ok",
+			gone: []string{secret}, want: []string{want()}},
+		{name: "base64 std",
+			text: "blob: " + base64.StdEncoding.EncodeToString([]byte(secret)),
+			gone: []string{base64.StdEncoding.EncodeToString([]byte(secret))}},
+		{name: "base64 std unpadded",
+			text: "blob: " + unpadded(base64.StdEncoding.EncodeToString([]byte(secret))),
+			gone: []string{unpadded(base64.StdEncoding.EncodeToString([]byte(secret)))}},
+		{name: "base64 url",
+			text: "blob: " + base64.URLEncoding.EncodeToString([]byte(secret)),
+			gone: []string{base64.URLEncoding.EncodeToString([]byte(secret))}},
+		{name: "base64 url unpadded",
+			text: "blob: " + unpadded(base64.URLEncoding.EncodeToString([]byte(secret))),
+			gone: []string{unpadded(base64.URLEncoding.EncodeToString([]byte(secret)))}},
+		// base64 wraps at 76 columns, which splits a value across lines.
+		{name: "base64 wrapped at 76 columns",
+			secrets: []Secret{{Ref: "big", Value: long}},
+			text:    "start\n" + wrap76(base64.StdEncoding.EncodeToString([]byte(long))) + "end\n",
+			gone:    []string{base64.StdEncoding.EncodeToString([]byte(long))[:40]},
+			want:    []string{TokenFor("big"), "start", "end"}},
+		// A colour code spliced into the middle must not defeat the match.
+		{name: "ANSI spliced into the middle",
+			text: secret[:len(secret)/2] + "\x1b[31m" + secret[len(secret)/2:],
+			gone: []string{secret[:len(secret)/2]}, want: []string{want()}},
+		{name: "percent and JSON encodings",
+			secrets: []Secret{{Ref: "k", Value: specials}},
+			text: "url=" + percentEncode(specials, false) +
+				" plus=" + percentEncode(specials, true) +
+				" json=" + jsonEscape(specials),
+			gone: []string{percentEncode(specials, false), percentEncode(specials, true)}},
+		// Longest first: if one secret contains another, the longer token wins.
+		{name: "one secret inside another",
+			secrets: []Secret{
+				{Ref: "short", Value: "abcdefgh12"},
+				{Ref: "long", Value: "abcdefgh12-and-more-here"},
+			},
+			text: "value: abcdefgh12-and-more-here",
+			gone: []string{"abcdefgh12"}, want: []string{TokenFor("long")}},
+		// Multi-byte characters must survive chunk boundaries intact.
+		{name: "unicode around the value",
+			text: "héllo wörld ← " + secret + " → done",
+			gone: []string{secret}, want: []string{"héllo wörld ←", "→ done"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			secrets := tc.secrets
+			if secrets == nil {
+				secrets = []Secret{{Ref: "home/router/admin", Value: secret}}
+			}
+			out := New(secrets, DefaultPolicy()).RedactText(tc.text)
+			for _, gone := range tc.gone {
+				if strings.Contains(out, gone) {
+					t.Errorf("survived: %q in %q", gone, out)
+				}
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(out, want) {
+					t.Errorf("missing %q in %q", want, out)
+				}
+			}
+		})
 	}
-	out := r.RedactText("start\n" + wrapped.String() + "end\n")
-	if strings.Contains(out, encoded[:40]) {
-		t.Fatalf("wrapped base64 survived: %q", out)
+}
+
+func unpadded(s string) string { return strings.TrimRight(s, "=") }
+
+func wrap76(s string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); i += 76 {
+		out.WriteString(s[i:min(i+76, len(s))] + "\n")
 	}
-	if !strings.Contains(out, TokenFor("big")) {
-		t.Fatalf("token missing: %q", out)
-	}
-	if !strings.Contains(out, "start") || !strings.Contains(out, "end") {
-		t.Errorf("surrounding output was destroyed: %q", out)
-	}
+	return out.String()
 }
 
 // A value split across two Feed calls must still be caught.
@@ -76,52 +119,6 @@ func TestValueSplitAcrossChunks(t *testing.T) {
 	}
 	if !strings.Contains(got, want()) {
 		t.Fatalf("token missing: %q", got)
-	}
-}
-
-// A colour code spliced into the middle must not defeat the match.
-func TestANSIInsideValueIsStripped(t *testing.T) {
-	r := newTestRedactor()
-	half := len(secret) / 2
-	out := r.RedactText(secret[:half] + "\x1b[31m" + secret[half:])
-	if strings.Contains(out, secret[:half]) {
-		t.Fatalf("ANSI splice defeated the matcher: %q", out)
-	}
-	if !strings.Contains(out, want()) {
-		t.Fatalf("token missing: %q", out)
-	}
-}
-
-func TestURLAndJSONEncodings(t *testing.T) {
-	withSpecials := "p@ss word/with+specials=x"
-	r := New([]Secret{{Ref: "k", Value: withSpecials}}, DefaultPolicy())
-	out := r.RedactText("url=" + percentEncode(withSpecials, false) +
-		" plus=" + percentEncode(withSpecials, true) +
-		" json=" + jsonEscape(withSpecials))
-	for _, enc := range []string{
-		percentEncode(withSpecials, false),
-		percentEncode(withSpecials, true),
-	} {
-		if strings.Contains(out, enc) {
-			t.Errorf("encoding survived: %q in %q", enc, out)
-		}
-	}
-}
-
-// Longest first: if one secret contains another, the longer token must win.
-func TestLongestValueWins(t *testing.T) {
-	short := "abcdefgh12"
-	long := short + "-and-more-here"
-	r := New([]Secret{
-		{Ref: "short", Value: short},
-		{Ref: "long", Value: long},
-	}, DefaultPolicy())
-	out := r.RedactText("value: " + long)
-	if !strings.Contains(out, TokenFor("long")) {
-		t.Fatalf("longer secret did not win: %q", out)
-	}
-	if strings.Contains(out, short) {
-		t.Errorf("fragment of the short secret survived: %q", out)
 	}
 }
 
@@ -168,19 +165,6 @@ func TestStripANSI(t *testing.T) {
 		if got := StripANSI(in); got != want {
 			t.Errorf("StripANSI(%q) = %q, want %q", in, got, want)
 		}
-	}
-}
-
-// Multi-byte characters must survive chunk boundaries intact.
-func TestUnicodeIsPreserved(t *testing.T) {
-	r := newTestRedactor()
-	text := "héllo wörld ← " + secret + " → done"
-	out := r.RedactText(text)
-	if !strings.Contains(out, "héllo wörld ←") || !strings.Contains(out, "→ done") {
-		t.Errorf("unicode mangled: %q", out)
-	}
-	if strings.Contains(out, secret) {
-		t.Errorf("plaintext survived: %q", out)
 	}
 }
 

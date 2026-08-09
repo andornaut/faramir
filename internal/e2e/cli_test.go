@@ -48,12 +48,23 @@ type cliResult struct {
 	code           int
 }
 
-// --socket belongs to the subcommand, not the program: it is registered on
-// every subparser rather than globally, so it goes after the verb.
+// runCLI names the socket on the subcommand rather than on the program:
+// --socket is registered on every subparser rather than globally, so it goes
+// after the verb.
 func runCLI(t *testing.T, sock string, args ...string) cliResult {
 	t.Helper()
-	full := append([]string{args[0], "--socket", sock}, args[1:]...)
-	cmd := exec.Command(faramirCLI(t), full...)
+	return runCLIEnv(t, nil, append([]string{args[0], "--socket", sock}, args[1:]...)...)
+}
+
+// runCLIEnv is the CLI run as a caller would: no socket flag supplied, and the
+// environment named outright.  The tests about --help, about a usage error and
+// about FARAMIR_SOCKET are all about what happens without that flag.
+func runCLIEnv(t *testing.T, env []string, args ...string) cliResult {
+	t.Helper()
+	cmd := exec.Command(faramirCLI(t), args...)
+	if env != nil {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	var out, errBuf strings.Builder
 	cmd.Stdout, cmd.Stderr = &out, &errBuf
 	_ = cmd.Run()
@@ -153,33 +164,27 @@ func TestCLIListSecretsAndStatus(t *testing.T) {
 // makes the CLI unusable from any script with "set -e".
 func TestCLIHelpExitsZeroOnStdout(t *testing.T) {
 	for _, args := range [][]string{{"--help"}, {"run", "--help"}, {"status", "--help"}} {
-		cmd := exec.Command(faramirCLI(t), args...)
-		var out, errBuf strings.Builder
-		cmd.Stdout, cmd.Stderr = &out, &errBuf
-		_ = cmd.Run()
-		if code := cmd.ProcessState.ExitCode(); code != 0 {
-			t.Errorf("%v: exit = %d, want 0", args, code)
+		r := runCLIEnv(t, nil, args...)
+		if r.code != 0 {
+			t.Errorf("%v: exit = %d, want 0", args, r.code)
 		}
-		if out.Len() == 0 {
-			t.Errorf("%v: help went nowhere (stderr=%q)", args, errBuf.String())
+		if r.stdout == "" {
+			t.Errorf("%v: help went nowhere (stderr=%q)", args, r.stderr)
 		}
 	}
 }
 
 // A bad flag is the opposite case: it belongs on stderr, with exit 2.
 func TestCLIBadFlagIsAUsageErrorOnStderr(t *testing.T) {
-	cmd := exec.Command(faramirCLI(t), "run", "--not-a-flag")
-	var out, errBuf strings.Builder
-	cmd.Stdout, cmd.Stderr = &out, &errBuf
-	_ = cmd.Run()
-	if code := cmd.ProcessState.ExitCode(); code != 2 {
-		t.Errorf("exit = %d, want 2", code)
+	r := runCLIEnv(t, nil, "run", "--not-a-flag")
+	if r.code != 2 {
+		t.Errorf("exit = %d, want 2", r.code)
 	}
-	if out.Len() != 0 {
-		t.Errorf("a usage error went to stdout: %q", out.String())
+	if r.stdout != "" {
+		t.Errorf("a usage error went to stdout: %q", r.stdout)
 	}
-	if !strings.Contains(errBuf.String(), "not-a-flag") {
-		t.Errorf("stderr does not name the flag: %q", errBuf.String())
+	if !strings.Contains(r.stderr, "not-a-flag") {
+		t.Errorf("stderr does not name the flag: %q", r.stderr)
 	}
 }
 
@@ -187,16 +192,12 @@ func TestCLIBadFlagIsAUsageErrorOnStderr(t *testing.T) {
 // it and tests/verify.sh sets it, so the CLI has to agree.
 func TestCLIHonoursFaramirSocketEnv(t *testing.T) {
 	h := newHarness(t)
-	cmd := exec.Command(faramirCLI(t), "list-secrets")
-	cmd.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock)
-	var out, errBuf strings.Builder
-	cmd.Stdout, cmd.Stderr = &out, &errBuf
-	_ = cmd.Run()
-	if code := cmd.ProcessState.ExitCode(); code != 0 {
-		t.Fatalf("exit = %d stderr=%q", code, errBuf.String())
+	r := runCLIEnv(t, []string{"FARAMIR_SOCKET=" + h.brokerSock}, "list-secrets")
+	if r.code != 0 {
+		t.Fatalf("exit = %d stderr=%q", r.code, r.stderr)
 	}
-	if !strings.Contains(out.String(), "secret://home/router/admin") {
-		t.Errorf("stdout = %q", out.String())
+	if !strings.Contains(r.stdout, "secret://home/router/admin") {
+		t.Errorf("stdout = %q", r.stdout)
 	}
 }
 

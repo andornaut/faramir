@@ -75,6 +75,17 @@ func (rec *recorder) install(s *Server) *recorder {
 	return rec
 }
 
+// none asserts the executor was never reached, which is what "refused before
+// anything ran" means: a refusal that still forked a child has refused nothing.
+func (rec *recorder) none(t *testing.T) {
+	t.Helper()
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if len(rec.requests) != 0 {
+		t.Errorf("the command ran anyway: %+v", rec.requests)
+	}
+}
+
 func (rec *recorder) only(t *testing.T) executor.Request {
 	t.Helper()
 	rec.mu.Lock()
@@ -240,11 +251,7 @@ func TestABadRefStopsTheCommandRunning(t *testing.T) {
 	exec(t, s, map[string]any{
 		"cmd": []any{"true"}, "env_refs": map[string]any{"X": "secret://nope"},
 	})
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	if len(rec.requests) != 0 {
-		t.Errorf("the command ran anyway: %+v", rec.requests)
-	}
+	rec.none(t)
 }
 
 // -- cwd --------------------------------------------------------------------
@@ -258,9 +265,7 @@ func TestARequestWithNoCwdIsRefused(t *testing.T) {
 	if code := errorCode(t, r); code != "bad_request" {
 		t.Fatalf("code = %q", code)
 	}
-	if len(rec.requests) != 0 {
-		t.Errorf("the command ran anyway: %+v", rec.requests)
-	}
+	rec.none(t)
 }
 
 func TestAMissingCwdIsRefusedBeforeAnythingRuns(t *testing.T) {
@@ -269,11 +274,7 @@ func TestAMissingCwdIsRefusedBeforeAnythingRuns(t *testing.T) {
 	if code := errorCode(t, r); code != "bad_request" {
 		t.Fatalf("code = %q", code)
 	}
-	rec.mu.Lock()
-	defer rec.mu.Unlock()
-	if len(rec.requests) != 0 {
-		t.Error("the command ran with a cwd that does not exist")
-	}
+	rec.none(t)
 }
 
 // A cwd the broker's own uid cannot stat is handed to the executor anyway.
