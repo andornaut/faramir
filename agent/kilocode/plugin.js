@@ -59,7 +59,7 @@ const faramir = async () => ({
     }
 
     // Nothing to say.  A backgrounded command and one already under the
-    // redactor are left exactly as they are; see docs/scope.md for the list.
+    // redactor are left exactly as they are; see docs/design.md for the list.
     const text = (result.stdout || "").trim()
     if (!text) return
 

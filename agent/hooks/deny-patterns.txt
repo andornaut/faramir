@@ -18,7 +18,7 @@
 # broker itself: the store, the age keys, and this hook's own files.  It is not
 # a general destruction guard.  Enrolling a project auto-approves Bash there, so
 # whatever prompting stood between the agent and rm -rf is gone and this list
-# does not replace it.  See docs/scope.md.
+# does not replace it.  See docs/design.md.
 #
 # Two limits.  A pattern matches the command string, so a command that only
 # mentions the text -- a grep, a heredoc writing documentation about this

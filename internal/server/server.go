@@ -212,7 +212,7 @@ func (s *Server) opStatus() protocol.Response {
 //
 // It is an oracle, deliberately: a caller can ask about a guessed value and the
 // answer says whether the guess was right.  That is a trade this design accepts
-// -- see docs/scope.md -- because the failure it exists to stop is a credential
+// -- see docs/design.md -- because the failure it exists to stop is a credential
 // reaching the transcript by accident, and an accident does not guess.
 // Recorded like every other op, because it is the one an oracle attack would
 // use: a caller probing a guessed value leaves a run of redact calls that hit

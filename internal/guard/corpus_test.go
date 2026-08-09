@@ -104,7 +104,7 @@ var corpus = []denyCase{
 	// the line, so writing documentation that mentions a protected path is not
 	// a write to it.
 	{"echo 'see /etc/faramir/config.toml' >> README.md", false, "naming a path is not writing to it"},
-	{"printf '%s\\n' 'store lives in ~/.faramir/secrets' >> docs/scope.md", false, "the same, into a doc"},
+	{"printf '%s\\n' 'store lives in ~/.faramir/secrets' >> docs/design.md", false, "the same, into a doc"},
 	// Words that happen to appear inside ordinary file names must not be read
 	// as the tools they name: "install" is in the write rule, and a script
 	// whose name contains it is not that tool.

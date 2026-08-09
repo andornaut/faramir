@@ -4,8 +4,10 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	faramir "github.com/andornaut/faramir"
@@ -217,30 +219,52 @@ func (r *runner) stepBinaries() error {
 	return nil
 }
 
+// installDocs lays the docs out the way the checkout does: README.md at the
+// top, the rest under docs/.  docTargets says why that matters.
 func (r *runner) installDocs() (bool, error) {
+	targets, err := docTargets(r.layout)
+	if err != nil {
+		return false, err
+	}
 	if _, err := r.fs.ensureDir(r.layout.DocDir, 0o755, 0, 0, true); err != nil {
 		return false, err
 	}
-	changed, err := r.writeAsset("README.md", filepath.Join(r.layout.DocDir, "README.md"), 0o644)
-	if err != nil {
+	if _, err := r.fs.ensureDir(filepath.Join(r.layout.DocDir, "docs"), 0o755, 0, 0, true); err != nil {
 		return false, err
 	}
-	entries, err := fs.ReadDir(faramir.Assets, "docs")
-	if err != nil {
-		return false, err
-	}
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
-			continue
-		}
-		made, err := r.writeAsset("docs/"+entry.Name(),
-			filepath.Join(r.layout.DocDir, entry.Name()), 0o644)
+	changed := false
+	for _, asset := range slices.Sorted(maps.Keys(targets)) {
+		made, err := r.writeAsset(asset, targets[asset], 0o644)
 		if err != nil {
 			return false, err
 		}
 		changed = changed || made
 	}
 	return changed, nil
+}
+
+// docTargets maps each embedded doc to where it is installed: the asset path
+// under the doc directory, unchanged.
+//
+// Unchanged is the whole point, because everything that cites a doc cites it by
+// the checkout's path.  Every unit's Documentation= names the installed README,
+// whose own links are written docs/<name>.md; the deny list, both plugins and
+// the error `faramir edit` prints all say "see docs/<name>.md".  Flatten them
+// here and every one of those references points one directory above the file,
+// on precisely the host that has no checkout to fall back on.
+func docTargets(layout Layout) (map[string]string, error) {
+	targets := map[string]string{"README.md": filepath.Join(layout.DocDir, "README.md")}
+	entries, err := fs.ReadDir(faramir.Assets, "docs")
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		targets["docs/"+entry.Name()] = filepath.Join(layout.DocDir, "docs", entry.Name())
+	}
+	return targets, nil
 }
 
 // readAsset reads one embedded file.

@@ -16,7 +16,7 @@
 # it however the rule is written.  This form at least reads as one command.  It
 # does not restore permission matching, and nothing does: the rule an operator
 # wrote names the program, and after the rewrite the program is "source".  That
-# is why the hook approves what its deny list did not refuse; see docs/scope.md.
+# is why the hook approves what its deny list did not refuse; see docs/design.md.
 #
 # Redacted after the command finishes rather than through a pipe while it runs,
 # because a pipeline puts the command in a subshell (losing the state again) and
