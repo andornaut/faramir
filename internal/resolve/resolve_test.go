@@ -19,146 +19,88 @@ func cfgWithPath(path string) config.ExecConfig {
 	return config.ExecConfig{BaseEnv: map[string]string{"PATH": path}}
 }
 
-// -- bare names: looked up on the PATH the child will actually get -----------
-
-func TestBareNameResolvesOnTheConfiguredPath(t *testing.T) {
-	got, err := Program("sh", "/", cfgWithPath("/usr/bin:/bin"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := realpath("/bin/sh")
-	if got != want {
-		t.Errorf("Program(sh) = %q, want %q", got, want)
-	}
-}
-
-func TestTheBrokersOwnPathIsNotConsulted(t *testing.T) {
-	// The process PATH almost certainly contains /bin; base_env does not.
-	_, err := Program("sh", "/", cfgWithPath("/nonexistent"))
-	if err == nil {
-		t.Fatal("resolved against the broker's own PATH")
-	}
-	if !strings.Contains(err.Error(), "not found on the broker's PATH") {
-		t.Errorf("message = %q", err.Error())
-	}
-}
-
-// The one failure an operator will actually hit, so it has to be
-// self-correcting rather than merely true.
-func TestTheErrorSaysWhereToPutAVenv(t *testing.T) {
-	_, err := Program("ansible-playbook", "/", cfgWithPath("/nonexistent"))
-	if err == nil {
-		t.Fatal("expected a failure")
-	}
-	for _, want := range []string{"base_env", "venv"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("message does not mention %q: %q", want, err.Error())
-		}
-	}
-}
-
-// -- explicit paths ---------------------------------------------------------
-
-func scriptFixture(t *testing.T) (dir, script string, cfg config.ExecConfig) {
+// fixture is a directory holding an executable script, a plain file and a
+// symlink to the script: between them they cover every shape Program has to
+// tell apart.
+func fixture(t *testing.T) (dir, script string) {
 	t.Helper()
 	dir = t.TempDir()
 	script = filepath.Join(dir, "deploy.sh")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return dir, script, config.ExecConfig{}
-}
-
-// No allowed_bin_dirs any more: a script in the working tree is exactly the
-// thing an operator wants to run, and it never lived in /usr/bin.
-func TestAnAbsolutePathAnywhereIsFine(t *testing.T) {
-	dir, script, cfg := scriptFixture(t)
-	got, err := Program(script, dir, cfg)
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hello\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got != realpath(script) {
-		t.Errorf("got %q, want %q", got, realpath(script))
-	}
-}
-
-// Not the broker's own working directory: that would silently execute a
-// different file of the same name.
-func TestARelativePathResolvesAgainstTheRequestCwd(t *testing.T) {
-	dir, script, cfg := scriptFixture(t)
-	got, err := Program("./deploy.sh", dir, cfg)
-	if err != nil {
+	if err := os.Symlink(script, filepath.Join(dir, "link.sh")); err != nil {
 		t.Fatal(err)
 	}
-	if got != realpath(script) {
-		t.Errorf("got %q, want %q", got, realpath(script))
-	}
+	return dir, script
 }
 
-func TestADifferentCwdDoesNotFindIt(t *testing.T) {
-	_, _, cfg := scriptFixture(t)
-	if _, err := Program("./deploy.sh", "/usr", cfg); err == nil {
-		t.Fatal("resolved from the wrong cwd")
-	}
-}
+func TestProgram(t *testing.T) {
+	dir, script := fixture(t)
 
-func TestAMissingProgramIsNamed(t *testing.T) {
-	dir, _, cfg := scriptFixture(t)
-	_, err := Program(filepath.Join(dir, "nope"), dir, cfg)
-	if err == nil {
-		t.Fatal("expected a failure")
-	}
-	if !strings.Contains(err.Error(), "no such program") {
-		t.Errorf("message = %q", err.Error())
-	}
-}
+	for _, tc := range []struct {
+		name  string
+		arg   string
+		cwd   string
+		cfg   config.ExecConfig
+		want  string   // the resolved path; "" means the call must fail
+		wants []string // substrings the failure has to carry
+		why   string
+	}{
+		// -- bare names: looked up on the PATH the child will actually get ---
+		{name: "a bare name resolves on the configured PATH",
+			arg: "sh", cwd: "/", cfg: cfgWithPath("/usr/bin:/bin"), want: realpath("/bin/sh")},
+		{name: "the broker's own PATH is not consulted",
+			arg: "sh", cwd: "/", cfg: cfgWithPath("/nonexistent"),
+			wants: []string{"not found on the broker's PATH"},
+			why:   "the process PATH almost certainly has /bin; base_env does not"},
+		{name: "the error says where to put a venv",
+			arg: "ansible-playbook", cwd: "/", cfg: cfgWithPath("/nonexistent"),
+			wants: []string{"base_env", "venv"},
+			why:   "the one failure an operator will hit, so it has to be self-correcting"},
 
-func TestANonExecutableFileIsRefused(t *testing.T) {
-	dir, _, cfg := scriptFixture(t)
-	plain := filepath.Join(dir, "notes.txt")
-	if err := os.WriteFile(plain, []byte("hello\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	_, err := Program(plain, dir, cfg)
-	if err == nil {
-		t.Fatal("a non-executable file was accepted")
-	}
-	if !strings.Contains(err.Error(), "not executable") {
-		t.Errorf("message = %q", err.Error())
-	}
-}
-
-func TestSymlinksAreResolved(t *testing.T) {
-	dir, script, cfg := scriptFixture(t)
-	link := filepath.Join(dir, "link.sh")
-	if err := os.Symlink(script, link); err != nil {
-		t.Fatal(err)
-	}
-	got, err := Program(link, dir, cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != realpath(script) {
-		t.Errorf("got %q, want %q", got, realpath(script))
-	}
-}
-
-func TestEmptyIsRefused(t *testing.T) {
-	dir, _, cfg := scriptFixture(t)
-	if _, err := Program("", dir, cfg); err == nil {
-		t.Fatal("an empty command was accepted")
-	}
-}
-
-// An absolute cmd[0] must not be joined onto cwd.  Go's filepath.Join would
-// produce "/cwd/bin/sh"; the absolute path has to win outright, because that
-// is what the child's own exec would do with it.
-func TestAnAbsolutePathIgnoresTheCwd(t *testing.T) {
-	got, err := Program("/bin/sh", "/tmp", config.ExecConfig{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got != realpath("/bin/sh") {
-		t.Errorf("got %q, want %q", got, realpath("/bin/sh"))
+		// -- explicit paths --------------------------------------------------
+		{name: "an absolute path anywhere is fine",
+			arg: script, cwd: dir, want: realpath(script),
+			why: "no allowed_bin_dirs any more: a script in the working tree never lived in /usr/bin"},
+		{name: "a relative path resolves against the request cwd",
+			arg: "./deploy.sh", cwd: dir, want: realpath(script),
+			why: "not the broker's own cwd, which would be a different file of the same name"},
+		{name: "a different cwd does not find it",
+			arg: "./deploy.sh", cwd: "/usr"},
+		{name: "a symlink resolves to its target",
+			arg: filepath.Join(dir, "link.sh"), cwd: dir, want: realpath(script)},
+		{name: "an absolute path ignores the cwd",
+			arg: "/bin/sh", cwd: "/tmp", want: realpath("/bin/sh"),
+			why: "filepath.Join would produce /tmp/bin/sh; the child's own exec would not"},
+		{name: "a missing program is named",
+			arg: filepath.Join(dir, "nope"), cwd: dir, wants: []string{"no such program"}},
+		{name: "a non-executable file is refused",
+			arg: filepath.Join(dir, "notes.txt"), cwd: dir, wants: []string{"not executable"}},
+		{name: "an empty command is refused", arg: "", cwd: dir},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := Program(tc.arg, tc.cwd, tc.cfg)
+			if tc.want == "" {
+				if err == nil {
+					t.Fatalf("resolved to %q, want a failure: %s", got, tc.why)
+				}
+				for _, want := range tc.wants {
+					if !strings.Contains(err.Error(), want) {
+						t.Errorf("message does not mention %q: %q", want, err.Error())
+					}
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("%v: %s", err, tc.why)
+			}
+			if got != tc.want {
+				t.Errorf("Program(%q) = %q, want %q", tc.arg, got, tc.want)
+			}
+		})
 	}
 }

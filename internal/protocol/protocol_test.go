@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
-
-	"github.com/andornaut/faramir/internal/secretref"
 )
 
 func parse(t *testing.T, body string) (*Request, error) {
@@ -35,48 +33,49 @@ func TestMinimal(t *testing.T) {
 	}
 }
 
-// A string cmd must be refused with guidance: the broker never invokes a shell.
-func TestShellStringIsRejectedWithGuidance(t *testing.T) {
-	_, err := parse(t, `{"cmd":"printenv ROUTER_PW"}`)
-	if err == nil {
-		t.Fatal("a shell string was accepted")
-	}
-	for _, want := range []string{"must be an array", "bash"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("message does not mention %q: %q", want, err.Error())
-		}
+// Everything the parser refuses, with the part of the message that has to say
+// why.  A refusal an operator cannot act on is the failure mode here, so the
+// message is asserted wherever there is something specific to say.
+func TestRefusedRequests(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		body  string
+		wants []string
+	}{
+		// The broker never invokes a shell, so the message has to name the
+		// spelling that does work.
+		{"a shell string", `{"cmd":"printenv ROUTER_PW"}`, []string{"must be an array", "bash"}},
+		{"an empty cmd", `{"cmd":[]}`, nil},
+		{"a non-string argument", `{"cmd":["printenv",7]}`, nil},
+		{"a relative cwd", `{"cmd":["ls"],"cwd":"relative/path"}`, []string{"absolute"}},
+		{"a timeout of zero", `{"cmd":["ls"],"timeout_sec":0}`, nil},
+		{"a negative timeout", `{"cmd":["ls"],"timeout_sec":-1}`, nil},
+		// Python has to exclude bool explicitly because it is an int subclass.
+		// Go does not, but the wire is JSON either way.
+		{"a boolean timeout", `{"cmd":["ls"],"timeout_sec":true}`, nil},
+		{"the removed sync op", `{"op":"sync"}`, []string{"unknown op"}},
+		{"an env name starting with a digit", `{"cmd":["ls"],"env_refs":{"1BAD":"secret://a/b"}}`, nil},
+		{"an env name with a dash", `{"cmd":["ls"],"env_refs":{"has-dash":"secret://a/b"}}`, nil},
+		{"an env name with a space", `{"cmd":["ls"],"env_refs":{"has space":"secret://a/b"}}`, nil},
+		{"an empty env name", `{"cmd":["ls"],"env_refs":{"":"secret://a/b"}}`, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := parse(t, tc.body)
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			for _, want := range tc.wants {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("message does not mention %q: %q", want, err.Error())
+				}
+			}
+		})
 	}
 }
 
-func TestEmptyCmdRejected(t *testing.T) {
-	if _, err := parse(t, `{"cmd":[]}`); err == nil {
-		t.Fatal("an empty cmd was accepted")
-	}
-}
-
-func TestNonStringArgvRejected(t *testing.T) {
-	if _, err := parse(t, `{"cmd":["printenv",7]}`); err == nil {
-		t.Fatal("a non-string argument was accepted")
-	}
-}
-
-func TestRelativeCwdRejected(t *testing.T) {
-	_, err := parse(t, `{"cmd":["ls"],"cwd":"relative/path"}`)
-	if err == nil || !strings.Contains(err.Error(), "absolute") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-func TestBadEnvNameRejected(t *testing.T) {
-	for _, name := range []string{"1BAD", "has-dash", "has space", ""} {
-		body := `{"cmd":["ls"],"env_refs":{"` + name + `":"secret://a/b"}}`
-		if _, err := parse(t, body); err == nil {
-			t.Errorf("accepted bad env name %q", name)
-		}
-	}
-}
-
-func TestReservedEnvNameRejected(t *testing.T) {
+// The reserved names come from the package itself, so a name added there is
+// covered the day it is added.
+func TestReservedEnvNamesAreRefused(t *testing.T) {
 	for name := range ReservedEnv {
 		body := `{"cmd":["ls"],"env_refs":{"` + name + `":"secret://a/b"}}`
 		_, err := parse(t, body)
@@ -87,32 +86,6 @@ func TestReservedEnvNameRejected(t *testing.T) {
 		if !strings.Contains(err.Error(), "reserved") {
 			t.Errorf("%s: unhelpful message %q", name, err.Error())
 		}
-	}
-}
-
-func TestNegativeTimeoutRejected(t *testing.T) {
-	for _, v := range []string{"-1", "0"} {
-		if _, err := parse(t, `{"cmd":["ls"],"timeout_sec":`+v+`}`); err == nil {
-			t.Errorf("accepted timeout_sec = %s", v)
-		}
-	}
-}
-
-// Python has to exclude bool explicitly because it is an int subclass.  Go does
-// not, but the wire is JSON either way, so the case is worth pinning.
-func TestBoolTimeoutRejected(t *testing.T) {
-	if _, err := parse(t, `{"cmd":["ls"],"timeout_sec":true}`); err == nil {
-		t.Fatal("accepted a boolean timeout")
-	}
-}
-
-func TestUnknownOpRejected(t *testing.T) {
-	_, err := parse(t, `{"op":"sync"}`)
-	if err == nil {
-		t.Fatal("the removed sync op was accepted")
-	}
-	if !strings.Contains(err.Error(), "unknown op") {
-		t.Errorf("message = %q", err.Error())
 	}
 }
 
@@ -129,52 +102,6 @@ func TestOpsWithoutCmd(t *testing.T) {
 		}
 	}
 }
-
-// -- secret URIs ------------------------------------------------------------
-
-func TestValidSecretURI(t *testing.T) {
-	ref, err := secretref.Parse("secret://home/router/admin")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ref != "home/router/admin" {
-		t.Errorf("ref = %q", ref)
-	}
-}
-
-// A literal value where a ref belongs must be refused, not silently injected.
-func TestLiteralValueRejected(t *testing.T) {
-	for _, uri := range []string{"hunter2", "", "http://example.com/x"} {
-		if _, err := secretref.Parse(uri); err == nil {
-			t.Errorf("accepted a literal: %q", uri)
-		}
-	}
-}
-
-// A ref must start with an alphanumeric, which is what refuses a leading ".."
-// or an empty first segment.
-//
-// A ".." in the middle ("secret://a/../b") is accepted, deliberately: a ref is
-// a key into the flattened decrypted tree, never a filesystem path, so it
-// resolves to a key that does not exist and comes back as unknown_secret.
-func TestTraversalRejected(t *testing.T) {
-	for _, uri := range []string{
-		"secret://../../etc/passwd",
-		"secret:///etc/passwd",
-		"secret://.hidden",
-		"secret://-flag",
-	} {
-		if _, err := secretref.Parse(uri); err == nil {
-			t.Errorf("accepted a traversal: %q", uri)
-		}
-	}
-	// Documented as harmless rather than left ambiguous.
-	if _, err := secretref.Parse("secret://a/../b"); err != nil {
-		t.Errorf("a mid-ref .. was refused, which upstream accepts: %v", err)
-	}
-}
-
-// -- inline tokens ----------------------------------------------------------
 
 // -- responses --------------------------------------------------------------
 

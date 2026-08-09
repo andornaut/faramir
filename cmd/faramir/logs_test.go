@@ -68,10 +68,27 @@ func TestReadAuditLogNamesAnAbsentLog(t *testing.T) {
 	}
 }
 
-// Colour off, so the assertions are about content rather than escapes.
-func plain(t *testing.T) palette {
+// rec is one record read back the way the command reads it, which is the
+// preamble every test below shares.
+func rec(t *testing.T, line string) map[string]any {
 	t.Helper()
-	paint, err := newPalette("never")
+	records, err := readAuditLog(writeLog(t, line))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("got %d records, want 1", len(records))
+	}
+	return records[0]
+}
+
+// plain is colour off, so the assertions are about content rather than escapes.
+func plain(t *testing.T) palette  { return mustPalette(t, "never") }
+func always(t *testing.T) palette { return mustPalette(t, "always") }
+
+func mustPalette(t *testing.T, when string) palette {
+	t.Helper()
+	paint, err := newPalette(when)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,14 +96,9 @@ func plain(t *testing.T) palette {
 }
 
 func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
-	records, err := readAuditLog(writeLog(t,
-		`{"log_id":"2026-08-08T20:15:03Z-a91f","op":"exec",`+
-			`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0,"duration_sec":1.5,`+
-			`"redactions":[{"token":"«SECRET:a»","count":2}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	line := summarise(records[0], plain(t))
+	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-a91f","op":"exec",`+
+		`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0,"duration_sec":1.5,`+
+		`"redactions":[{"token":"«SECRET:a»","count":2}]}`), plain(t))
 	for _, want := range []string{"a91f", "exec", "exit 0", "1.50s", "2 redacted",
 		"ansible-playbook msmtp.yml"} {
 		if !strings.Contains(line, want) {
@@ -104,13 +116,8 @@ func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
 // reported as having exited 0. It still has to say something, or the row is
 // blank past the op.
 func TestSummariseSaysSomethingForARedact(t *testing.T) {
-	records, err := readAuditLog(writeLog(t,
-		`{"log_id":"2026-08-08T20:15:03Z-b1c2","op":"redact","input_bytes":1447,`+
-			`"redactions":[{"token":"«SECRET:a»","count":1}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	line := summarise(records[0], plain(t))
+	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-b1c2","op":"redact","input_bytes":1447,`+
+		`"redactions":[{"token":"«SECRET:a»","count":1}]}`), plain(t))
 	if strings.Contains(line, "exit") {
 		t.Errorf("a record that ran nothing was given an exit: %s", line)
 	}
@@ -124,12 +131,7 @@ func TestSummariseSaysSomethingForARedact(t *testing.T) {
 // A timed-out command has an exit code that says nothing useful, so the
 // timeout is what gets reported.
 func TestOutcomeReportsATimeout(t *testing.T) {
-	records, err := readAuditLog(writeLog(t,
-		`{"log_id":"x","op":"exec","exit_code":0,"timed_out":true}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	label, failed := outcome(records[0])
+	label, failed := outcome(rec(t, `{"log_id":"x","op":"exec","exit_code":0,"timed_out":true}`))
 	if label != "timed out" || !failed {
 		t.Errorf("outcome = (%q, %v), want (timed out, true)", label, failed)
 	}
@@ -138,20 +140,13 @@ func TestOutcomeReportsATimeout(t *testing.T) {
 // Escapes are bytes that padding would count as width, so a coloured field
 // padded afterwards misaligns every following column by the escape's length.
 func TestPaintOutcomePadsBeforeColouring(t *testing.T) {
-	records, err := readAuditLog(writeLog(t, `{"log_id":"x","op":"exec","exit_code":0}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	coloured, err := newPalette("always")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := paintOutcome(records[0], coloured)
+	record := rec(t, `{"log_id":"x","op":"exec","exit_code":0}`)
+	got := paintOutcome(record, always(t))
 	if !strings.HasSuffix(got, "\x1b[0m") {
 		t.Fatalf("padding landed outside the colour span: %q", got)
 	}
 	bare := strings.TrimSuffix(strings.TrimPrefix(got, "\x1b[32m"), "\x1b[0m")
-	if len(bare) != len(paintOutcome(records[0], plain(t))) {
+	if len(bare) != len(paintOutcome(record, plain(t))) {
 		t.Errorf("coloured field is a different width from the plain one: %q", got)
 	}
 }
@@ -159,16 +154,13 @@ func TestPaintOutcomePadsBeforeColouring(t *testing.T) {
 // The listing prints the short form, so the short form has to be enough to ask
 // for the record: what is on screen gets pasted back.
 func TestMatchesIDAcceptsBothForms(t *testing.T) {
-	records, err := readAuditLog(writeLog(t, `{"log_id":"2026-08-08T20:15:03Z-a91f"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
+	record := rec(t, `{"log_id":"2026-08-08T20:15:03Z-a91f"}`)
 	for _, want := range []string{"2026-08-08T20:15:03Z-a91f", "a91f"} {
-		if !matchesID(records[0], want) {
+		if !matchesID(record, want) {
 			t.Errorf("matchesID rejected %q", want)
 		}
 	}
-	if matchesID(records[0], "beef") {
+	if matchesID(record, "beef") {
 		t.Error("matchesID accepted an id that is not this record's")
 	}
 }
@@ -176,11 +168,7 @@ func TestMatchesIDAcceptsBothForms(t *testing.T) {
 // A redact record carries no started_at, and a row with no time cannot be
 // placed in a log that is read by time.
 func TestStartedAtFallsBackToTheLogID(t *testing.T) {
-	records, err := readAuditLog(writeLog(t, `{"log_id":"2026-08-08T20:15:03Z-a91f","op":"redact"}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	at := startedAt(records[0])
+	at := startedAt(rec(t, `{"log_id":"2026-08-08T20:15:03Z-a91f","op":"redact"}`))
 	if at.IsZero() {
 		t.Fatal("no time recovered from the log_id")
 	}
@@ -192,11 +180,7 @@ func TestStartedAtFallsBackToTheLogID(t *testing.T) {
 // peer is an object of pid, uid and gid. Reading it as a string is how the
 // caller silently rendered as nothing.
 func TestDescribePeerRendersTheObject(t *testing.T) {
-	records, err := readAuditLog(writeLog(t, `{"log_id":"x","peer":{"pid":4390,"uid":0,"gid":0}}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := describePeer(records[0])
+	got := describePeer(rec(t, `{"log_id":"x","peer":{"pid":4390,"uid":0,"gid":0}}`))
 	for _, want := range []string{"root", "uid 0", "pid 4390"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("describePeer = %q, missing %q", got, want)
@@ -217,12 +201,8 @@ func TestHumanBytes(t *testing.T) {
 // Counts, never values: the log records how often a token stood in, and that
 // is what this has to render.
 func TestRedactionCountsRenderTokensAndCounts(t *testing.T) {
-	records, err := readAuditLog(writeLog(t,
+	got := redactionCounts(rec(t,
 		`{"log_id":"x","redactions":[{"token":"«SECRET:a»","count":2},{"token":"«SECRET:b»","count":1}]}`))
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := redactionCounts(records[0])
 	if got != "«SECRET:a»×2, «SECRET:b»×1" {
 		t.Errorf("redactionCounts = %q", got)
 	}
@@ -238,11 +218,7 @@ func TestNewPaletteRejectsAnUnknownWhen(t *testing.T) {
 // included, so a test that sets it to "1" would not catch reading the value.
 func TestNoColorDisablesColourWhateverItsValue(t *testing.T) {
 	t.Setenv("NO_COLOR", "")
-	paint, err := newPalette("auto")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if paint.on {
+	if mustPalette(t, "auto").on {
 		t.Error("NO_COLOR set to empty did not disable colour")
 	}
 }
@@ -251,10 +227,7 @@ func TestNoColorDisablesColourWhateverItsValue(t *testing.T) {
 // win over the terminal check that would otherwise turn colour off.
 func TestColorAlwaysBeatsTheTerminalCheck(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
-	paint, err := newPalette("always")
-	if err != nil {
-		t.Fatal(err)
-	}
+	paint := always(t)
 	if !paint.on {
 		t.Error("--color=always did not force colour on")
 	}
@@ -264,11 +237,7 @@ func TestColorAlwaysBeatsTheTerminalCheck(t *testing.T) {
 }
 
 func TestTokenHighlightsEverySecretToken(t *testing.T) {
-	paint, err := newPalette("always")
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := paint.token("a «SECRET:one» b «SECRET:two» c")
+	got := always(t).token("a «SECRET:one» b «SECRET:two» c")
 	if strings.Count(got, "\x1b[35m") != 2 {
 		t.Errorf("expected both tokens highlighted: %q", got)
 	}
@@ -283,11 +252,7 @@ func TestTokenHighlightsEverySecretToken(t *testing.T) {
 // An unterminated token is what a record truncated mid-token looks like. It
 // must come back whole rather than being swallowed by the search for the close.
 func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
-	paint, err := newPalette("always")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := paint.token("tail «SECRET:trunc"); got != "tail «SECRET:trunc" {
+	if got := always(t).token("tail «SECRET:trunc"); got != "tail «SECRET:trunc" {
 		t.Errorf("token mangled an unterminated token: %q", got)
 	}
 }

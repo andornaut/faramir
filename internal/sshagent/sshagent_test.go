@@ -16,6 +16,17 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
+// The agent protocol message numbers these tests send and expect, from
+// draft-miller-ssh-agent.  Spelled out rather than left as bare bytes: a raw 9
+// in a test reads as an offset.
+const (
+	msgFailure             = 5
+	msgRemoveAllIdentities = 9
+	msgRequestIdentities   = 11
+	msgIdentitiesAnswer    = 12
+	msgExtension           = 27
+)
+
 func requireSSH(t *testing.T) {
 	t.Helper()
 	for _, bin := range []string{"ssh-agent", "ssh-add", "ssh-keygen"} {
@@ -101,6 +112,49 @@ func startedAgent(t *testing.T) (*Agent, string) {
 	return a, key
 }
 
+// sshAdd runs ssh-add against the proxy, which is the only way anything in
+// these tests is allowed to reach the agent.
+func sshAdd(t *testing.T, a *Agent, args ...string) (string, error) {
+	t.Helper()
+	cmd := exec.Command("ssh-add", args...)
+	cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
+
+// dialProxy opens a connection to the proxy with a deadline, so a relay that
+// never answers fails the test instead of hanging it.
+func dialProxy(t *testing.T, sock string) net.Conn {
+	t.Helper()
+	client, err := net.Dial("unix", sock)
+	if err != nil {
+		t.Fatalf("dial the proxy: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	return client
+}
+
+// request writes one agent message and reads the whole framed reply back.
+func request(t *testing.T, client net.Conn, message ...byte) []byte {
+	t.Helper()
+	frame := append([]byte{0, 0, 0, byte(len(message))}, message...)
+	if _, err := client.Write(frame); err != nil {
+		t.Fatalf("write to the proxy: %v", err)
+	}
+	var header [4]byte
+	if _, err := io.ReadFull(client, header[:]); err != nil {
+		t.Fatalf("read the reply: %v", err)
+	}
+	body := make([]byte, binary.BigEndian.Uint32(header[:]))
+	if _, err := io.ReadFull(client, body); err != nil {
+		t.Fatalf("read the reply: %v", err)
+	}
+	return body
+}
+
 func TestChildrenGetSshAuthSock(t *testing.T) {
 	a, _ := startedAgent(t)
 	env := a.Env()
@@ -119,13 +173,11 @@ func TestChildrenGetSshAuthSock(t *testing.T) {
 // The child can authenticate with the key; it never receives the key.
 func TestTheKeyIsLoadedAndUsableThroughTheAgent(t *testing.T) {
 	a, _ := startedAgent(t)
-	cmd := exec.Command("ssh-add", "-l")
-	cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
-	out, err := cmd.CombinedOutput()
+	out, err := sshAdd(t, a, "-l")
 	if err != nil {
 		t.Fatalf("ssh-add -l: %v: %s", err, out)
 	}
-	if !strings.Contains(string(out), "faramir-test") {
+	if !strings.Contains(out, "faramir-test") {
 		t.Errorf("the key was not loaded: %s", out)
 	}
 }
@@ -153,11 +205,9 @@ func TestThePrivateKeyNeverAppearsInOutput(t *testing.T) {
 	}
 	body := strings.TrimSpace(string(private))
 
-	cmd := exec.Command("ssh-add", "-L")
-	cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
-	out, _ := cmd.CombinedOutput()
+	out, _ := sshAdd(t, a, "-L")
 
-	if strings.Contains(string(out), "PRIVATE KEY") || strings.Contains(string(out), body) {
+	if strings.Contains(out, "PRIVATE KEY") || strings.Contains(out, body) {
 		t.Error("the private key was reachable through the agent socket")
 	}
 }
@@ -211,28 +261,12 @@ func TestTheExecutorIsGivenTheProxyNotTheAgentSocket(t *testing.T) {
 // reply that is not coming until its own timeout, and leaks the connection.
 func TestTheRelayClosesTheClientWhenTheAgentGoesAway(t *testing.T) {
 	a, _ := startedAgent(t)
-	client, err := net.Dial("unix", a.Env()["SSH_AUTH_SOCK"])
-	if err != nil {
-		t.Fatalf("dial the proxy: %v", err)
-	}
-	defer client.Close()
-	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
 
 	// One complete request first, so the relay is established in both
 	// directions before ssh-agent goes away, and nothing of the reply is left
 	// buffered to be mistaken for the connection still being open.
-	if _, err := client.Write([]byte{0, 0, 0, 1, 11}); err != nil { // request identities
-		t.Fatalf("write to the proxy: %v", err)
-	}
-	var header [4]byte
-	if _, err := io.ReadFull(client, header[:]); err != nil {
-		t.Fatalf("read the agent's reply: %v", err)
-	}
-	if _, err := io.ReadFull(client, make([]byte, binary.BigEndian.Uint32(header[:]))); err != nil {
-		t.Fatalf("read the agent's reply: %v", err)
-	}
+	request(t, client, msgRequestIdentities)
 
 	a.Stop()
 
@@ -246,21 +280,16 @@ func TestTheRelayClosesTheClientWhenTheAgentGoesAway(t *testing.T) {
 // to every managed host until the broker restarts, so the relay must refuse it.
 func TestTheExecutorCannotEmptyTheAgent(t *testing.T) {
 	a, _ := startedAgent(t)
-	env := append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
 
-	remove := exec.Command("ssh-add", "-D")
-	remove.Env = env
-	if out, err := remove.CombinedOutput(); err == nil {
+	if out, err := sshAdd(t, a, "-D"); err == nil {
 		t.Errorf("ssh-add -D succeeded through the relay: %s", out)
 	}
 
-	list := exec.Command("ssh-add", "-l")
-	list.Env = env
-	out, err := list.CombinedOutput()
+	out, err := sshAdd(t, a, "-l")
 	if err != nil {
 		t.Fatalf("ssh-add -l after the refused request: %v: %s", err, out)
 	}
-	if !strings.Contains(string(out), "faramir-test") {
+	if !strings.Contains(out, "faramir-test") {
 		t.Errorf("the key did not survive the refused request: %s", out)
 	}
 }
@@ -271,16 +300,12 @@ func TestTheExecutorCannotAddAKeyToTheAgent(t *testing.T) {
 	a, _ := startedAgent(t)
 	theirs := newKey(t, t.TempDir())
 
-	add := exec.Command("ssh-add", theirs)
-	add.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
-	if out, err := add.CombinedOutput(); err == nil {
+	if out, err := sshAdd(t, a, theirs); err == nil {
 		t.Errorf("ssh-add of the executor's own key succeeded: %s", out)
 	}
 
-	list := exec.Command("ssh-add", "-l")
-	list.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
-	out, _ := list.CombinedOutput()
-	if strings.Count(string(out), "faramir-test") != 1 {
+	out, _ := sshAdd(t, a, "-l")
+	if strings.Count(out, "faramir-test") != 1 {
 		t.Errorf("the agent holds more than the broker's own key: %s", out)
 	}
 }
@@ -291,42 +316,16 @@ func TestTheExecutorCannotAddAKeyToTheAgent(t *testing.T) {
 // for the rest of the session.
 func TestARefusedRequestIsAnsweredAndTheConnectionSurvives(t *testing.T) {
 	a, _ := startedAgent(t)
-	client, err := net.Dial("unix", a.Env()["SSH_AUTH_SOCK"])
-	if err != nil {
-		t.Fatalf("dial the proxy: %v", err)
-	}
-	defer client.Close()
-	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
 
-	// SSH_AGENTC_EXTENSION, which the relay does not forward.
-	if _, err := client.Write([]byte{0, 0, 0, 1, 27}); err != nil {
-		t.Fatalf("write to the proxy: %v", err)
-	}
-	reply := make([]byte, 5)
-	if _, err := io.ReadFull(client, reply); err != nil {
-		t.Fatalf("read the refusal: %v", err)
-	}
-	if want := []byte{0, 0, 0, 1, 5}; !bytes.Equal(reply, want) {
-		t.Errorf("reply = %v, want SSH_AGENT_FAILURE %v", reply, want)
+	if reply := request(t, client, msgExtension); !bytes.Equal(reply, []byte{msgFailure}) {
+		t.Errorf("reply = %v, want SSH_AGENT_FAILURE [%d]", reply, msgFailure)
 	}
 
 	// The same connection still lists identities.
-	if _, err := client.Write([]byte{0, 0, 0, 1, 11}); err != nil {
-		t.Fatalf("write to the proxy: %v", err)
-	}
-	var header [4]byte
-	if _, err := io.ReadFull(client, header[:]); err != nil {
-		t.Fatalf("the connection did not survive a refused request: %v", err)
-	}
-	body := make([]byte, binary.BigEndian.Uint32(header[:]))
-	if _, err := io.ReadFull(client, body); err != nil {
-		t.Fatalf("read the identities answer: %v", err)
-	}
-	// SSH_AGENT_IDENTITIES_ANSWER.
-	if body[0] != 12 {
-		t.Errorf("answer type = %d, want 12", body[0])
+	reply := request(t, client, msgRequestIdentities)
+	if reply[0] != msgIdentitiesAnswer {
+		t.Errorf("answer type = %d, want %d", reply[0], msgIdentitiesAnswer)
 	}
 }
 
@@ -338,20 +337,8 @@ func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
 	sock := a.Env()["SSH_AUTH_SOCK"]
 	// More than the cap, so a slot that is never released takes the proxy down.
 	for range maxRelays + 4 {
-		client, err := net.Dial("unix", sock)
-		if err != nil {
-			t.Fatalf("dial the proxy: %v", err)
-		}
-		if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-			t.Fatal(err)
-		}
-		// SSH_AGENTC_REMOVE_ALL_IDENTITIES, which the relay refuses.
-		if _, err := client.Write([]byte{0, 0, 0, 1, 9}); err != nil {
-			t.Fatalf("write to the proxy: %v", err)
-		}
-		if _, err := io.ReadFull(client, make([]byte, 5)); err != nil {
-			t.Fatalf("read the refusal: %v", err)
-		}
+		client := dialProxy(t, sock)
+		request(t, client, msgRemoveAllIdentities) // which the relay refuses
 		_ = client.Close()
 		// The slot is released as the relay goroutine unwinds, which the close
 		// above is what starts.
@@ -366,10 +353,8 @@ func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
 		}
 	}
 
-	cmd := exec.Command("ssh-add", "-l")
-	cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+sock)
-	out, err := cmd.CombinedOutput()
-	if err != nil || !strings.Contains(string(out), "faramir-test") {
+	out, err := sshAdd(t, a, "-l")
+	if err != nil || !strings.Contains(out, "faramir-test") {
 		t.Errorf("the proxy stopped serving after refused requests: %v: %s", err, out)
 	}
 }
@@ -378,14 +363,7 @@ func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
 // meant, and forwarding it is how ssh-agent gets asked to allocate on demand.
 func TestAnOversizedMessageIsRefused(t *testing.T) {
 	a, _ := startedAgent(t)
-	client, err := net.Dial("unix", a.Env()["SSH_AUTH_SOCK"])
-	if err != nil {
-		t.Fatalf("dial the proxy: %v", err)
-	}
-	defer client.Close()
-	if err := client.SetDeadline(time.Now().Add(10 * time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
 
 	var header [4]byte
 	binary.BigEndian.PutUint32(header[:], maxAgentMessage+1)
@@ -402,13 +380,11 @@ func TestAnOversizedMessageIsRefused(t *testing.T) {
 func TestTheProxyServesMoreThanOneConnection(t *testing.T) {
 	a, _ := startedAgent(t)
 	for i := range 3 {
-		cmd := exec.Command("ssh-add", "-l")
-		cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
-		out, err := cmd.CombinedOutput()
+		out, err := sshAdd(t, a, "-l")
 		if err != nil {
 			t.Fatalf("ssh-add -l on connection %d: %v: %s", i+1, err, out)
 		}
-		if !strings.Contains(string(out), "faramir-test") {
+		if !strings.Contains(out, "faramir-test") {
 			t.Fatalf("connection %d did not reach the key: %s", i+1, out)
 		}
 	}
