@@ -51,15 +51,16 @@ func TestDefaultCwdIsRefusedAsUnknown(t *testing.T) {
 // A mistyped key must be named, not ignored: silently dropping it leaves the
 // setting at a default the operator thought they had changed.
 func TestUnknownKeysAreRefused(t *testing.T) {
-	cases := map[string]string{
-		"server": minimal + "\n[server]\nsoket_path = \"/x\"\n",
-		"exec":   "[exec]\nterm_col = 80\n",
-	}
-	for name, text := range cases {
-		_, err := load(t, text)
-		if err == nil || !strings.Contains(err.Error(), "unknown key") {
-			t.Errorf("%s: err = %v", name, err)
-		}
+	for _, tc := range []struct{ name, text string }{
+		{"a misspelling in [server]", minimal + "\n[server]\nsoket_path = \"/x\"\n"},
+		{"a singular where the key is plural", "[exec]\nterm_col = 80\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := load(t, tc.text)
+			if err == nil || !strings.Contains(err.Error(), "unknown key") {
+				t.Errorf("err = %v", err)
+			}
+		})
 	}
 }
 
@@ -83,31 +84,32 @@ func TestUnknownSectionsAreRefused(t *testing.T) {
 // loader: a broker that panics on startup, refuses every request as busy, or
 // kills every command the instant it starts.
 func TestOutOfRangeValuesAreRefused(t *testing.T) {
-	cases := map[string]string{
-		"negative max_concurrency":  minimal + "\n[server]\nmax_concurrency = -1\n",
-		"zero max_concurrency":      minimal + "\n[server]\nmax_concurrency = 0\n",
-		"zero executor concurrency": minimal + "\n[executor]\nmax_concurrency = 0\n",
-		"zero max_request_bytes":    minimal + "\n[server]\nmax_request_bytes = 0\n",
-		"zero default_timeout_sec":  "[exec]\ndefault_timeout_sec = 0\n",
-		"zero max_timeout_sec":      "[exec]\nmax_timeout_sec = 0\n",
-		"zero max_output_bytes":     "[exec]\nmax_output_bytes = 0\n",
-		"negative kill_grace_sec":   "[exec]\nkill_grace_sec = -1\n",
-		"term_cols past a uint16":   "[exec]\nterm_cols = 70000\n",
-		"zero term_rows":            "[exec]\nterm_rows = 0\n",
-		"negative refresh":          minimal + "\n[secrets]\nrefresh_interval_sec = -1\n",
-		"zero min_length":           minimal + "\n[secrets]\nmin_length = 0\n",
-		"zero min_unique_chars":     minimal + "\n[secrets]\nmin_unique_chars = 0\n",
-		"negative min_entropy":      minimal + "\n[secrets]\nmin_entropy_bits_per_char = -1.0\n",
-		"negative max_record_bytes": minimal + "\n[audit]\nmax_record_bytes = -1\n",
+	for _, tc := range []struct{ name, text string }{
+		{"negative max_concurrency", minimal + "\n[server]\nmax_concurrency = -1\n"},
+		{"zero max_concurrency", minimal + "\n[server]\nmax_concurrency = 0\n"},
+		{"zero executor concurrency", minimal + "\n[executor]\nmax_concurrency = 0\n"},
+		{"zero max_request_bytes", minimal + "\n[server]\nmax_request_bytes = 0\n"},
+		{"zero default_timeout_sec", "[exec]\ndefault_timeout_sec = 0\n"},
+		{"zero max_timeout_sec", "[exec]\nmax_timeout_sec = 0\n"},
+		{"zero max_output_bytes", "[exec]\nmax_output_bytes = 0\n"},
+		{"negative kill_grace_sec", "[exec]\nkill_grace_sec = -1\n"},
+		{"term_cols past a uint16", "[exec]\nterm_cols = 70000\n"},
+		{"zero term_rows", "[exec]\nterm_rows = 0\n"},
+		{"negative refresh", minimal + "\n[secrets]\nrefresh_interval_sec = -1\n"},
+		{"zero min_length", minimal + "\n[secrets]\nmin_length = 0\n"},
+		{"zero min_unique_chars", minimal + "\n[secrets]\nmin_unique_chars = 0\n"},
+		{"negative min_entropy", minimal + "\n[secrets]\nmin_entropy_bits_per_char = -1.0\n"},
+		{"negative max_record_bytes", minimal + "\n[audit]\nmax_record_bytes = -1\n"},
 		// A malformed pattern matches nothing at every later stage, and "matched
 		// no files" would send the operator looking for a store that is exactly
 		// where they left it.
-		"unclosed character class": minimal + "\n[secrets]\nfiles = [\"/s/[a-.sops.yml\"]\n",
-	}
-	for name, text := range cases {
-		if _, err := load(t, text); err == nil {
-			t.Errorf("%s was accepted", name)
-		}
+		{"unclosed character class", minimal + "\n[secrets]\nfiles = [\"/s/[a-.sops.yml\"]\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := load(t, tc.text); err == nil {
+				t.Error("accepted")
+			}
+		})
 	}
 }
 

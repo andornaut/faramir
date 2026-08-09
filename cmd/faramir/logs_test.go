@@ -189,11 +189,17 @@ func TestDescribePeerRendersTheObject(t *testing.T) {
 }
 
 func TestHumanBytes(t *testing.T) {
-	for size, want := range map[int64]string{
-		0: "0 B", 512: "512 B", 1447: "1.4 KiB", 4 << 20: "4.0 MiB",
+	for _, tc := range []struct {
+		size int64
+		want string
+	}{
+		{0, "0 B"},
+		{512, "512 B"},
+		{1447, "1.4 KiB"},
+		{4 << 20, "4.0 MiB"},
 	} {
-		if got := humanBytes(size); got != want {
-			t.Errorf("humanBytes(%d) = %q, want %q", size, got, want)
+		if got := humanBytes(tc.size); got != tc.want {
+			t.Errorf("humanBytes(%d) = %q, want %q", tc.size, got, tc.want)
 		}
 	}
 }
