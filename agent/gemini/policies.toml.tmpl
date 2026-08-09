@@ -16,7 +16,7 @@
 # Reading a single file.
 [[rule]]
 toolName = "read_file"
-argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.config/faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
 decision = "deny"
 priority = 1000
 
@@ -24,7 +24,7 @@ priority = 1000
 # path, so a deny covering only read_file would leave this open.
 [[rule]]
 toolName = "read_many_files"
-argsPattern = '"(include|exclude)"\s*:\s*\[[^]]*(secrets[^"/]*\.ya?ml|\.vault|vault\.yml|\.sops\.(ya?ml|json)|/\.env|\.faramir/|age\.key|sops/age/|\.config/sops/|\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+argsPattern = '"(include|exclude)"\s*:\s*\[[^]]*(secrets[^"/]*\.ya?ml|\.vault|vault\.yml|\.sops\.(ya?ml|json)|/\.env|\.config/faramir/|age\.key|sops/age/|\.config/sops/|\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
 decision = "deny"
 priority = 1000
 
@@ -33,13 +33,13 @@ priority = 1000
 # unreadable retroactively.
 [[rule]]
 toolName = "write_file"
-argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.config/faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
 decision = "deny"
 priority = 1000
 
 [[rule]]
 toolName = "replace"
-argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+argsPattern = '"file_path"\s*:\s*"[^"]*(secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.config/faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
 decision = "deny"
 priority = 1000
 

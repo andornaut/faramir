@@ -74,3 +74,42 @@ func TestEveryFallbackPatternCompiles(t *testing.T) {
 		t.Errorf("%d of %d fallback patterns compiled; the rest are RE2-incompatible", got, want)
 	}
 }
+
+// The fallback names /etc/faramir and the documented ~/.config/faramir, so an
+// install placed anywhere else would be refused by neither.  The directory is
+// taken from where the daemons take it, so moving the config moves what the
+// hook refuses instead of silently narrowing it.
+func TestTheFallbackFollowsAMovedConfigDir(t *testing.T) {
+	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
+	const moved = "/srv/elsewhere"
+	command := "cat " + moved + "/config.toml"
+
+	// Nothing else in the list matches this, so what follows is the derived
+	// rule and not a coincidence.
+	if _, denied := decide(command); denied {
+		t.Fatalf("%q is already denied, so this test proves nothing", command)
+	}
+
+	t.Setenv("FARAMIR_CONFIG", moved+"/config.toml")
+
+	if _, denied := decide(command); !denied {
+		t.Errorf("%q is allowed with the config at %s", command, moved)
+	}
+	if _, denied := decide("rm -rf " + moved + "/secrets"); !denied {
+		t.Error("writes to a moved config directory are allowed")
+	}
+}
+
+// The documented per-operator placement, refused by name so that a store found
+// in someone else's home is refused too, not only the one this host installed.
+func TestTheFallbackNamesTheOperatorConvention(t *testing.T) {
+	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
+	for _, command := range []string{
+		"cat ~/.config/faramir/config.toml",
+		"rm -f /home/someone/.config/faramir/secrets/x.sops.yml",
+	} {
+		if _, denied := decide(command); !denied {
+			t.Errorf("%q is allowed", command)
+		}
+	}
+}

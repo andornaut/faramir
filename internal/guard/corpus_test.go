@@ -64,7 +64,7 @@ var corpus = []denyCase{
 
 	// Writes, not reads.
 	{"rm -f /etc/faramir/age.key", true, "deleting the key breaks every value"},
-	{"rm -f ~/.faramir/secrets/ansible-ctrl.sops.yml", true, "deleting a store"},
+	{"rm -f ~/.config/faramir/secrets/ansible-ctrl.sops.yml", true, "deleting a store"},
 	{"chmod 0644 /etc/faramir/age.key", true, "widening the key's mode"},
 	{"chown op /etc/faramir/age.key", true, "handing the key to another uid"},
 	{"mv ~/.config/sops/age/keys.txt /tmp/k", true, "moving it somewhere readable"},
@@ -74,15 +74,15 @@ var corpus = []denyCase{
 	{"tee /usr/local/libexec/faramir/deny-patterns.txt < /dev/null", true, "tee writes where echo would"},
 	{"mv /etc/faramir/age.key /tmp/k", true, "so does mv"},
 	{"rm -f /etc/faramir/secrets/x.sops.yml", true, "so does rm"},
-	{"sops set ~/.faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'", true, "editing a store outside faramir edit"},
+	{"sops set ~/.config/faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'", true, "editing a store outside faramir edit"},
 	{"sops -e -i secrets.yml", true, "re-encrypting in place"},
 	{"systemctl edit faramir-broker", true, "a drop-in changes what the daemon is"},
 	{"cp /bin/true /usr/local/bin/jq", false, "the binary is named as a path, not as its directory"},
 	{"install -m 0755 yq /usr/local/bin/yq", false, "installing an unrelated tool is ordinary work"},
 	{"echo 'see /etc/faramir/config.toml' >> README.md", false, "naming a path is not writing to it"},
-	{"printf '%s\\n' 'store lives in ~/.faramir/secrets' >> docs/design.md", false, "the same, into a doc"},
+	{"printf '%s\\n' 'store lives in ~/.config/faramir/secrets' >> docs/design.md", false, "the same, into a doc"},
 	{"bash -n scripts/install-hooks.sh", false, "a tool name inside a file name is not the tool"},
-	{"bash scripts/install-hooks.sh /home/op/.faramir", false, "even next to a faramir path"},
+	{"bash scripts/install-hooks.sh /home/op/.config/faramir", false, "even next to a faramir path"},
 	{"grep -q pattern /usr/local/libexec/faramir/deny-patterns.txt", false, "reading the deny list is not writing it"},
 	{"ls -l /usr/local/libexec/faramir", false, "listing the install directory"},
 

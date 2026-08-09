@@ -1,6 +1,7 @@
 package install
 
 import (
+	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -16,7 +17,7 @@ func TestPreflightRefusesAConfigDirWhoseParentIsAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if me.Username == "root" {
+	if os.Geteuid() == 0 {
 		t.Skip("preflight refuses root as the operator, so it never reaches this check")
 	}
 	base := t.TempDir()

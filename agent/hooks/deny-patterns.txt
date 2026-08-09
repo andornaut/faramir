@@ -58,7 +58,7 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # the write rule below.  "grep" stays out so a search naming a .env is allowed.
 # The tool lists are "(?-i:...)" so HEAD is not head.  "[\s/=]\.env" rather than
 # "\.env", so faramir.env is not a dotenv.
-\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|tar|scp|rsync)\b[^|]*(age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LogDir | regexQuote}})
+\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|tar|scp|rsync)\b[^|]*(age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.config/faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LogDir | regexQuote}})
 \b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b[^|]*(vault\.|secrets?\.(ya?ml|json|toml|env|ini|conf|txt|enc|gpg)\b|credentials\b|\.pem\b|[\s/=]\.env(\.(local|development|production|test|staging))?([\s"']|$))
 \bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))
 
@@ -68,8 +68,8 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 #
 # The redirect rule matches the target word only, so a heredoc mentioning one of
 # these paths is not a write to it.
-\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|{{.BinDir | regexQuote}}/faramir\b|\.sops\.ya?ml|\.vault\b)
->\s*\S*(age\.key|sops/age|\.faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|{{.BinDir | regexQuote}}/faramir\b|\.sops\.ya?ml)
+\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(age\.key|sops/age|\.config/faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|{{.BinDir | regexQuote}}/faramir\b|\.sops\.ya?ml|\.vault\b)
+>\s*\S*(age\.key|sops/age|\.config/faramir\b|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|{{.BinDir | regexQuote}}/faramir\b|\.sops\.ya?ml)
 
 # Reaching the broker's private state.  Reading the audit log is covered above;
 # listing the directory is not.  journalctl is absent: the daemons log ref names

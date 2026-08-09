@@ -9,10 +9,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/cli"
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -33,6 +36,20 @@ func patternsFile() string {
 	}
 	return "/usr/local/libexec/faramir/deny-patterns.txt"
 }
+
+// The command alternations the path rules share, named so configDirRules can
+// build the same rules for a path known only at run time.  Readers carry
+// interpreters and copiers as well as pagers: reading a key with python, or
+// copying it somewhere unmatched and reading it there, is the same disclosure.
+// "sed" is a writer only, editing far more often than it dumps; "grep" is
+// neither, so naming a .env file in a search is not refused.
+const (
+	readCommands = `\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|` +
+		`hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|` +
+		`tar|scp|rsync)\b`
+	writeCommands = `\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|` +
+		`setfacl|ln)\b`
+)
 
 // fallback is used if the patterns file is missing, so a broken install still
 // fails closed.  Keep it in step with agent/hooks/deny-patterns.txt.
@@ -60,18 +77,17 @@ var fallback = []string{
 	// "sops/age" is the operator's ~/.config/sops/age/keys.txt, which opens the
 	// same store and is readable by the agent's uid.  "[^|]*" stops at the
 	// first pipe; "[\s/=]\.env" keeps faramir.env (refs, no values) out.
-	`\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac|` +
-		`awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|tar|scp|rsync)\b[^|]*` +
-		`(age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/var/log/faramir)`,
+	readCommands + `[^|]*` +
+		`(age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/var/log/faramir)`,
 	`\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b[^|]*` +
 		`(vault\.|secrets?\.(ya?ml|json|toml|env|ini|conf|txt|enc|gpg)\b|credentials\b|\.pem\b|` +
 		`[\s/=]\.env(\.(local|development|production|test|staging))?([\s"']|$))`,
 	`\bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))`,
 	// Writes to faramir's own files.  The redirect rule matches the target word
 	// only, so a heredoc mentioning one of these paths is not a write to it.
-	`\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*` +
-		`(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml|\.vault\b)`,
-	`>\s*\S*(age\.key|sops/age|\.faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml)`,
+	writeCommands + `[^|]*` +
+		`(age\.key|sops/age|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml|\.vault\b)`,
+	`>\s*\S*(age\.key|sops/age|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml)`,
 	// Running a daemon, or running as its account, discloses; managing the unit
 	// does not, so "systemctl restart faramir-keeper" stays allowed.  Only
 	// sudo's own flags may precede the executable name.  journalctl is absent:
@@ -99,8 +115,39 @@ type compiled struct {
 	re     *regexp.Regexp
 }
 
+// configDir is where this host's config, store and keys actually are.  Taken
+// from the same place the daemons take it, so an install moved with
+// --config-dir moves what these rules refuse; a hardcoded convention refused one
+// layout and went silent the moment the config was placed anywhere else, which
+// includes an operator who moved XDG_CONFIG_HOME.
+func configDir() string {
+	path := os.Getenv("FARAMIR_CONFIG")
+	if path == "" {
+		path = config.DefaultConfigPath
+	}
+	return filepath.Dir(path)
+}
+
+// configDirRules refuses reads and writes of one directory, whatever it is
+// called.  The same three shapes the literal rules use, so a moved install is
+// covered the way /etc/faramir is: read it, write it, or redirect into it.
+func configDirRules(dir string) []string {
+	quoted := regexp.QuoteMeta(dir)
+	return []string{
+		readCommands + `[^|]*` + quoted,
+		writeCommands + `[^|]*` + quoted,
+		`>\s*\S*` + quoted,
+	}
+}
+
 func loadPatterns() []compiled {
 	raw := fallback
+	// Only for a directory the literals do not already name: appending a
+	// duplicate of /etc/faramir would compile three more regexps per command
+	// for nothing, and this runs on every Bash call.
+	if dir := configDir(); dir != "" && dir != "/" && dir != filepath.Dir(config.DefaultConfigPath) {
+		raw = append(slices.Clone(raw), configDirRules(dir)...)
+	}
 	if data, err := os.ReadFile(patternsFile()); err == nil {
 		var lines []string
 		for _, line := range strings.Split(string(data), "\n") {
