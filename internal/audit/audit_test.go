@@ -24,6 +24,50 @@ func TestCutAtRuneKeepsWholeRunes(t *testing.T) {
 	}
 }
 
+// logrotate renames the log away underneath a running broker, and the file the
+// broker made at startup is not reopened.  Without a fresh open per write,
+// every record between a rotation and the next restart lands in the renamed
+// file, where the reader does not look and the retention policy deletes it.
+func TestARecordAfterARotationOpensANewLog(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 1 << 16})
+
+	log.Write(map[string]any{"log_id": "before"}, "")
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	log.Write(map[string]any{"log_id": "after"}, "")
+
+	current, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("nothing was written after the rotation: %v", err)
+	}
+	if !strings.Contains(string(current), `"after"`) {
+		t.Errorf("the record after the rotation is not in the new log: %s", current)
+	}
+	if strings.Contains(string(current), `"before"`) {
+		t.Errorf("the new log holds a record from before the rotation: %s", current)
+	}
+	rotated, err := os.ReadFile(path + ".1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(rotated), `"before"`) {
+		t.Errorf("the rotated log lost the record that was already in it: %s", rotated)
+	}
+
+	// The mode does not come from the file that was renamed away, so the new one
+	// has to be created with it: the log carries command output, and 0644 here
+	// would hand it to every account on the host.
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("the log created after the rotation is %o, want 600", got)
+	}
+}
+
 // A child printing binary puts an invalid byte in the middle of the stream.
 // Backing off to the first valid prefix would drop everything after it, and
 // take O(n^2) to do so; only a partial rune at the very end may be trimmed.
