@@ -25,7 +25,6 @@ max_request_bytes = 262144
 # Checked with SO_PEERCRED, on top of the socket mode.  Membership counts
 # whether primary or supplementary, which is how {{.Group}} is granted.
 allowed_groups = ["{{.Group}}"]
-allowed_uids = []
 # The redact op per calling uid, over a sliding minute; 0 is no limit.  Far
 # above what an agent session reaches, the wrapper making one call per Bash
 # command.

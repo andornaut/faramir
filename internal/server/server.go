@@ -184,7 +184,7 @@ func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 		return nil, err
 	}
 	cfg := s.Config.Server
-	if !sockutil.Allowed(peer, cfg.AllowedUIDs, nil, cfg.AllowedGroups) {
+	if !sockutil.Allowed(peer, nil, cfg.AllowedGroups) {
 		return nil, nil
 	}
 	return peer, nil

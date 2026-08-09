@@ -12,7 +12,7 @@ The internal sockets are root-owned so that neither the keeper's nor the executo
 
 ## The broker socket
 
-The mode is one check; the broker also tests `SO_PEERCRED` against `[server] allowed_uids` and `allowed_groups`, and records the peer's uid, gid and pid in every audit record.
+The mode is one check; the broker also tests `SO_PEERCRED` against `[server] allowed_groups`, and records the peer's uid, gid and pid in every audit record.
 
 ```json
 {

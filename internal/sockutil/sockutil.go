@@ -123,15 +123,13 @@ func PeerCred(conn net.Conn) (*Peer, error) {
 }
 
 // Allowed is the authorisation every faramir socket uses: our own uid, root, a
-// uid in uids, a user in users, or membership of a group in groups.
-func Allowed(peer *Peer, uids []int, users, groups []string) bool {
+// user in users, or membership of a group in groups.
+//
+// Accounts are named, never numbered: a uid stops matching once a reinstall
+// renumbers the account.
+func Allowed(peer *Peer, users, groups []string) bool {
 	if peer.UID == 0 || int(peer.UID) == os.Getuid() {
 		return true
-	}
-	for _, uid := range uids {
-		if int32(uid) == peer.UID {
-			return true
-		}
 	}
 	for _, name := range users {
 		if u, err := user.Lookup(name); err == nil {
@@ -147,11 +145,11 @@ func Allowed(peer *Peer, uids []int, users, groups []string) bool {
 	return false
 }
 
-// AllowedUser is Allowed without uids or groups, for the two internal sockets:
-// each has exactly one legitimate client and names it.  No group form, the only
-// group in play holding the agent's own uid.
+// AllowedUser is Allowed without groups, for the two internal sockets: each has
+// exactly one legitimate client and names it.  No group form, the only group in
+// play holding the agent's own uid.
 func AllowedUser(peer *Peer, users []string) bool {
-	return Allowed(peer, nil, users, nil)
+	return Allowed(peer, users, nil)
 }
 
 // inAnyGroup checks the peer's primary gid, then the supplementary member
