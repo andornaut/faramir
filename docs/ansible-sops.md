@@ -10,9 +10,9 @@ Nothing here edits faramir's configuration: `[secrets] files` globs the store, s
 
 The encrypted file belongs in the store: `secrets/` under the config directory, so `/etc/faramir/secrets` unless `--config-dir` moved it, `2750 root:faramir-keeper`. The operator is not in that group, so putting a file there and editing it afterwards both go through `sudo faramir edit`.
 
-Not in a checkout, which is [absent at boot](scope.md) if it sits in an encrypted home, and **never in `group_vars/` or `host_vars/`**. Ansible loads every `.yml` under those as a vars file: a sops file is valid YAML, so it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and a name sorting after `vars.yml` also overwrites the mapping from section 2. Nothing errors; hosts get configured with ciphertext in place of the credential. `faramir init` refuses to finish against a store under either directory, and `faramir doctor` reports one.
+Not in a checkout, which is [absent at boot](design.md) if it sits in an encrypted home, and **never in `group_vars/` or `host_vars/`**. Ansible loads every `.yml` under those as a vars file: a sops file is valid YAML, so it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and a name sorting after `vars.yml` also overwrites the mapping from section 2. Nothing errors; hosts get configured with ciphertext in place of the credential. `faramir init` refuses to finish against a store under either directory, and `faramir doctor` reports one.
 
-`.sops.yaml` sits in the same directory, written by `faramir init` and left as it finds it thereafter: adding or dropping a recipient means re-encrypting every managed value, which is not something a re-run should do behind your back.
+`.sops.yaml` sits in the config directory above the store, `/etc/faramir/.sops.yaml`, written by `faramir init` and left alone thereafter; changing its recipients is [Adding a recipient](../README.md#adding-a-recipient).
 
 ```yaml
 creation_rules:
@@ -27,7 +27,7 @@ The rule matches the suffix rather than a directory, so moving a file does not s
 Creating the first one needs root and two flags. Which rule applies is matched against the file's path, but **which `.sops.yaml` sops reads is resolved from the current working directory upward**, so encrypting into the store from a checkout finds nothing and fails with `config file not found, or has no creation rules`:
 
 ```bash
-sudo sops --config /etc/faramir/secrets/.sops.yaml \
+sudo sops --config /etc/faramir/.sops.yaml \
     --encrypt --filename-override /etc/faramir/secrets/ansible-ctrl.sops.yml \
     plain.yml
 ```
@@ -83,11 +83,8 @@ keys = ["/var/lib/faramir-broker/.ssh/id_ed25519"]
 
 The broker keeps the files under its own uid, loads them into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`.
 
-- Keys must have no passphrase, nothing being there to type one.
-- `faramir broker --check`, run as the broker's own account, fails on a key `ssh-add` would refuse: a passphrase, or `keys` naming the `.pub` by mistake. Run as root it reads what the broker cannot, so a key left `root:root` passes and then fails for the broker.
-- At runtime the broker logs the error and carries on, so one bad key does not stop the others loading.
+- At runtime the broker logs a key it could not load and carries on, so one bad key does not stop the others.
 - The agent lives and dies with the broker, so nothing outlives the process holding keys in memory.
-- Left empty, no agent runs and authentication is whatever `~faramir-exec/.ssh` allows, readable by every brokered command. It works; it is not the arrangement to choose.
 
 The agent's own account cannot read the keys either way, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
 

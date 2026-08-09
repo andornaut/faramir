@@ -14,7 +14,7 @@ The fingerprints come from the keeper rather than a stat, the store being group-
 
 Programs behave differently when stdout is not a terminal: colour, progress meters and buffering all change. More to the point, **a process can write straight to `/dev/tty`**, which no stdout redirection sees and the controlling terminal does; `ssh` and `sudo` do it for password prompts. `internal/e2e` pins it: a secret written to `/dev/tty` comes back as a token.
 
-The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the master, so redaction runs with no extra hop. Stdin is `/dev/null`, or any command reading it blocks until timeout holding a concurrency slot. Cost: stdout and stderr arrive merged. Accepted.
+The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the master, so redaction runs with no extra hop. Stdin is `/dev/null`, or any command reading it blocks until timeout holding a concurrency slot. Cost: stdout and stderr arrive merged.
 
 ## The pipeline, in order
 
@@ -56,6 +56,6 @@ Cost: the log cannot say whether the value that arrived was current or stale. Co
 
 ## Deliberately not done
 
-- **No hashing or fuzzy matching.** The transformation space is unbounded. The documented boundary of the threat model, not an oversight.
+- **No hashing or fuzzy matching.** The transformation space is unbounded; this is the documented boundary of the threat model.
 - **No redaction of the request.** The agent chooses what it sends.
 - **No reversal of a token.** Nothing maps `«SECRET:ref»` back to a value, including for the operator.
