@@ -1,21 +1,14 @@
 // Package executor owns the PTY and streams the child's output through the
 // redactor.
 //
-// Why a PTY and not a pipe:
+// A PTY rather than a pipe, for two reasons: programs format differently when
+// stdout is a terminal, and a process can write straight to /dev/tty, which ssh
+// and sudo do for password prompts.  The cost is that stdout and stderr arrive
+// merged.
 //
-//  1. Programs behave normally when stdout is a terminal: colour, progress
-//     meters, line buffering.  Ansible in particular formats very differently.
-//  2. A process can write straight to /dev/tty, bypassing stdout redirection
-//     entirely; ssh and sudo do exactly this for password prompts.  Owning the
-//     controlling terminal catches those writes.  A pipe does not.
-//
-// The consequence is that stdout and stderr arrive merged.  That is accepted.
-//
-// The fork happens in faramir-exec, under a uid that holds nothing, but the
-// PTY does not move with it: the broker creates the pair, hands the slave over
-// SCM_RIGHTS and keeps the master.  Redaction, truncation and the audit log
-// therefore stay on this side, reading the child's bytes directly, with no
-// extra hop for output to take.
+// The fork happens in faramir-exec, but the PTY does not move with it: the
+// broker creates the pair, hands the slave over SCM_RIGHTS and keeps the
+// master, so redaction, truncation and the audit log stay on this side.
 package executor
 
 import (
@@ -47,8 +40,8 @@ type Result struct {
 	Redactions  []redact.Count
 }
 
-// Request is one command to run: what the broker decided, already resolved.
-// Argv[0] is an absolute path and Env is the child's entire environment.
+// Request is one resolved command: Argv[0] is an absolute path and Env is the
+// child's entire environment.
 type Request struct {
 	Argv       []string
 	Cwd        string
@@ -57,11 +50,8 @@ type Request struct {
 }
 
 // Run executes a request through the executor, returning redacted merged
-// output.
-//
-// auditSink receives the same redacted text, before the response's own
-// truncation, so the operator's log can hold more of a long run than the
-// agent is given without holding anything the agent is not.
+// output.  auditSink receives the same text before the response's truncation,
+// so the log can hold more of a long run without holding anything else.
 func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	redactor *redact.Redactor, auditSink func(string), req Request) (*Result, error) {
 
@@ -71,20 +61,17 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	if err != nil {
 		return nil, err
 	}
-	// The master has to outlive the child's exit status.  Closing it hangs the
-	// terminal up, and a hangup delivers SIGHUP to the foreground process
-	// group, which is the child's.  EIO on the master says only that the slave
-	// was closed, and a child closes it on the way out, before the kernel has
-	// settled what it exited with: closing any earlier than the status being
-	// collected replaces the child's own exit code with 128+SIGHUP.
+	// The master must outlive the exit status: closing it SIGHUPs the child's
+	// process group, and EIO only says the slave was closed, which a child does
+	// on the way out.  Closing early replaces its exit code with 128+SIGHUP.
 	defer func() { _ = master.Close() }()
 	ptyutil.SetWinsize(master.Fd(), execCfg.TermRows, execCfg.TermCols)
 	started := time.Now()
 
 	client := execserver.NewClient(executorCfg.SocketPath)
 	startErr := client.Start(argv, cwd, env, timeoutSec, execCfg.KillGraceSec, slave.Fd())
-	// The executor has its own copy now.  Ours has to go, or the master never
-	// reaches EOF when the child exits.
+	// The executor holds its own copy; ours must go or the master never reaches
+	// EOF.
 	_ = slave.Close()
 	if startErr != nil {
 		return nil, startErr
@@ -94,14 +81,12 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	emitted := 0
 	truncated := false
 	aborted := false
-	// The executor enforces the timeout, because it owns the process group.
-	// This is a backstop for the case where it does not come back at all.
+	// The executor owns the process group and enforces the timeout; this is the
+	// backstop for it not coming back at all.
 	deadline := started.Add(time.Duration(timeoutSec+execCfg.KillGraceSec+backstopMarginSec) * time.Second)
 
-	// Every path that produces output goes through here, so the audit log and
-	// the response cannot drift apart: the log gets the redacted text before
-	// the response's cap is applied, and the truncation marker appendOutput
-	// adds belongs to the response alone.
+	// Every path producing output goes through here, so the log and the
+	// response cannot drift apart.
 	emit := func(safe string) {
 		if safe == "" {
 			return
@@ -112,8 +97,8 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 		emitted, truncated = appendOutput(&chunks, safe, emitted, execCfg.MaxOutputBytes, truncated)
 	}
 
-	// carry holds bytes that end in a partial UTF-8 sequence, so a rune split
-	// across two reads is decoded once rather than replaced twice.
+	// carry holds a trailing partial UTF-8 sequence, so a rune split across two
+	// reads is decoded once.
 	var carry []byte
 	buf := make([]byte, readSize)
 
@@ -149,8 +134,8 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	}
 
 	if len(carry) > 0 {
-		// Feed releases whatever the overlap buffer no longer needs to hold;
-		// dropping it here would drop that much of the child's output.
+		// Feed releases what the overlap buffer no longer needs; dropping it
+		// would drop that much output.
 		emit(redactor.Feed(string(carry)))
 	}
 	emit(redactor.Flush())
@@ -181,11 +166,9 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	}, nil
 }
 
-// cutAtRune returns the first limit bytes of s, backing off only far enough
-// not to end on a partial rune.  Same bounded search as decodeUTF8, and
-// bounded for the same reason: output is raw PTY bytes, so an invalid one can
-// appear anywhere in the middle and must not take the rest of the chunk with
-// it.
+// cutAtRune returns the first limit bytes of s, backing off only far enough not
+// to end on a partial rune.  Bounded like decodeUTF8: raw PTY bytes can be
+// invalid anywhere, and must not take the rest of the chunk with them.
 func cutAtRune(s string, limit int) string {
 	if limit <= 0 {
 		return ""
@@ -210,8 +193,7 @@ func cutAtRune(s string, limit int) string {
 // decodeUTF8 returns the complete prefix of b as a string, plus any trailing
 // bytes that form an incomplete rune.
 func decodeUTF8(b []byte) (string, []byte) {
-	// Only the last UTFMax bytes can hold an incomplete rune, so the search is
-	// bounded and the carry can never grow without limit.
+	// Only the last UTFMax bytes can hold an incomplete rune.
 	for i := 0; i < utf8.UTFMax && i < len(b); i++ {
 		idx := len(b) - 1 - i
 		if !utf8.RuneStart(b[idx]) {
@@ -229,9 +211,8 @@ func isEIO(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "input/output error")
 }
 
-// appendOutput appends output up to limit bytes; the caller keeps draining the
-// PTY after that.  Draining matters: if we stopped reading, a chatty child
-// would block on a full PTY buffer and never exit.
+// appendOutput appends output up to limit bytes.  The caller keeps draining the
+// PTY, or a chatty child blocks on a full buffer and never exits.
 func appendOutput(chunks *strings.Builder, text string, emitted, limit int, truncated bool) (int, bool) {
 	if truncated {
 		return emitted, true
@@ -242,11 +223,8 @@ func appendOutput(chunks *strings.Builder, text string, emitted, limit int, trun
 		return emitted + size, false
 	}
 	if room := limit - emitted; room > 0 {
-		// Cut on a rune boundary so the tail is not a broken character.  The
-		// back-off is bounded by decodeUTF8, which trims at most a partial
-		// rune: scanning back for the first valid prefix would instead drop
-		// everything after any invalid byte a child happened to print, and
-		// cost O(n^2) doing it.
+		// Cut on a rune boundary, bounded by decodeUTF8: scanning back for the
+		// first valid prefix would drop everything after any invalid byte.
 		chunks.WriteString(cutAtRune(text, room))
 	}
 	_, _ = fmt.Fprintf(chunks, "\n[faramir] output truncated at %d bytes\n", limit)

@@ -1,11 +1,8 @@
 // Package sopstest builds encrypted fixtures and a sops stand-in for tests.
-//
-// It is imported only from _test.go files.  That is deliberate and load-
-// bearing: the sops libraries live here and in ./stub, so they are linked into
-// test binaries and never into the shipped one.  The keeper execs sops rather
-// than linking it, which is what keeps every cloud KMS SDK sops supports out of
-// what installs on a host.  Run "go list -deps ./cmd/faramir | grep getsops" to
-// confirm; CI fails on a hit.
+// Imported only from _test.go files, so the sops libraries reach test binaries
+// and never the shipped one -- the keeper execs sops rather than linking it,
+// which keeps every cloud KMS SDK out of what installs on a host.  CI fails on
+// a getsops hit in "go list -deps ./cmd/faramir".
 package sopstest
 
 import (
@@ -54,10 +51,8 @@ var (
 	stubErr  error
 )
 
-// SopsBinary returns a path to a sops-compatible binary for the keeper to exec.
-//
-// The real binary is preferred when it is installed, so a machine that has one
-// tests against it.  Otherwise the stub is built once per run.
+// SopsBinary returns a sops-compatible binary for the keeper to exec: the real
+// one when installed, otherwise the stub, built once per run.
 func SopsBinary(t *testing.T) string {
 	t.Helper()
 	if real, err := exec.LookPath("sops"); err == nil {

@@ -58,17 +58,15 @@ func stubBroker(t *testing.T) (socketPath string, sizes func() []int) {
 	}
 }
 
-// The limit the broker enforces is on the encoded line, not on the text, and
-// chunkBytes is chosen so a chunk cannot exceed it however badly it encodes.
-// A partial buffer plus a full ReadSlice would put nearly twice that on the
-// wire, and the broker answers an oversized request with too_large, which the
-// filter handles by passing the text through UNREDACTED.  So the invariant is
-// about the size of the request, not about the output being correct.
+// The broker's limit is on the encoded line, and chunkBytes is chosen so a
+// chunk cannot exceed it however badly it encodes.  A partial buffer plus a
+// full ReadSlice would put nearly twice that on the wire, and an oversized
+// request comes back as too_large, which passes the text through unredacted.
 func TestNoChunkExceedsTheChunkSize(t *testing.T) {
 	socketPath, sizes := stubBroker(t)
 
-	// Short lines, so many of them accumulate into one chunk and the buffer is
-	// nearly always partial when the next ReadSlice lands.
+	// Short lines, so the buffer is nearly always partial when the next
+	// ReadSlice lands.
 	input := strings.Repeat(strings.Repeat("x", 60)+"\n", 4000)
 
 	var out bytes.Buffer
@@ -90,8 +88,7 @@ func TestNoChunkExceedsTheChunkSize(t *testing.T) {
 	}
 }
 
-// A line longer than the reader's buffer arrives in pieces, and each piece is
-// its own chunk rather than being grown without bound.
+// A long line arrives in pieces, each its own chunk.
 func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 	socketPath, sizes := stubBroker(t)
 
@@ -111,10 +108,9 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 	}
 }
 
-// A broker it cannot reach must not swallow the text it was given, and must say
-// that the text went through untouched.  Both halves matter: the text is all a
-// pipeline has left, and the flag is what lets the wrapper the hook installs
-// withhold output the broker never saw.
+// An unreachable broker must not swallow the text, and must say it went through
+// untouched: the text is all a pipeline has left, and the flag is what lets the
+// wrapper withhold it.
 func TestTextSurvivesABrokerThatIsNotThereAndIsReportedUnredacted(t *testing.T) {
 	var out bytes.Buffer
 	stderr := os.Stderr

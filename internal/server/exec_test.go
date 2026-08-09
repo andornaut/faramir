@@ -16,19 +16,14 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// These cover what the broker decides around a child process, which is the
-// bulk of what it does: the timeout it settles on, the environment it
-// assembles, the record it writes, the limit it enforces.  None of it needs a
-// socket, a PTY or a forked process, and reaching it through those tested the
-// plumbing rather than the decision.
+// These cover what the broker decides around a child process -- the timeout,
+// the environment, the audit record, the concurrency limit -- without a socket,
+// a PTY or a fork.
 
-// recorder stands in for the executor.  It captures the request and returns a
-// canned result, so the assertions are about what the broker handed over.
-//
-// Env is snapshotted, because the broker wipes the map it assembled once the
-// child holds the values: a test that read it afterwards would see an empty
-// one and conclude nothing was injected.  liveEnv keeps the original map so
-// that wiping can be asserted on directly.
+// recorder stands in for the executor: it captures the request and returns a
+// canned result.  Env is snapshotted because the broker wipes the map once the
+// child holds the values; liveEnv keeps the original so the wipe can be
+// asserted on.
 type recorder struct {
 	mu       sync.Mutex
 	requests []executor.Request
@@ -49,11 +44,8 @@ func (rec *recorder) install(s *Server) *recorder {
 		if rec.err != nil {
 			return nil, rec.err
 		}
-		// Through the real redactor, and into both the result and the sink,
-		// because that is what the real executor does: the response and the
-		// audit log are the same redacted text, capped differently.  Feeding
-		// only the sink would leave every assertion about the response body
-		// unable to fail.
+		// Through the real redactor into both the result and the sink, as the
+		// real executor does: same text, capped differently.
 		var emitted strings.Builder
 		if rec.output != "" {
 			if safe := r.Feed(rec.output); safe != "" {
@@ -75,8 +67,7 @@ func (rec *recorder) install(s *Server) *recorder {
 	return rec
 }
 
-// none asserts the executor was never reached, which is what "refused before
-// anything ran" means: a refusal that still forked a child has refused nothing.
+// none asserts the executor was never reached.
 func (rec *recorder) none(t *testing.T) {
 	t.Helper()
 	rec.mu.Lock()
@@ -104,9 +95,8 @@ func execServer(t *testing.T) (*Server, *recorder) {
 	return s, (&recorder{}).install(s)
 }
 
-// A directory is filled in unless the test named one.  The broker refuses a
-// request that carries none, so without this every test here would be
-// exercising that refusal instead of what it is about.
+// A directory is filled in unless the test named one, since the broker refuses
+// a request carrying none.
 func exec(t *testing.T, s *Server, request map[string]any) protocol.Response {
 	t.Helper()
 	if _, ok := request["cwd"]; !ok {
@@ -135,10 +125,9 @@ func errorCode(t *testing.T, r protocol.Response) string {
 
 // -- the timeout ------------------------------------------------------------
 
-// A request that names no timeout gets the configured default, and one that
-// asks for more than max_timeout_sec is clamped rather than refused.  Neither
-// had any coverage: the clamp is the only thing bounding how long a brokered
-// command can hold a concurrency slot.
+// No timeout gets the configured default; more than max_timeout_sec is clamped
+// rather than refused.  The clamp is the only bound on how long a command holds
+// a concurrency slot.
 func TestTimeoutDefaultsAndClamps(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -167,15 +156,11 @@ func TestTimeoutDefaultsAndClamps(t *testing.T) {
 
 // -- the child's environment ------------------------------------------------
 
-// The broker assembles base_env plus exactly the refs that were asked for.
-// HOME is deliberately absent from what it hands over: it belongs to the
-// executor's uid, not the broker's, and the executor supplies it.
+// base_env plus exactly the refs asked for.  HOME is absent: it belongs to the
+// executor's uid, which supplies it.
 //
-// Note the scope.  This is the map the broker builds, not the environment the
-// child ends up with, so it cannot say anything about key material reaching a
-// child: the broker has no key to leak, and asserting that it does not add a
-// variable it has no way to populate would pass whatever the code did.  That
-// property is asserted against a real child in internal/e2e.
+// This is the map the broker builds, not the child's environment; that is
+// asserted against a real child in internal/e2e.
 func TestTheEnvironmentTheBrokerAssembles(t *testing.T) {
 	s, rec := execServer(t)
 	r := exec(t, s, map[string]any{
@@ -196,16 +181,14 @@ func TestTheEnvironmentTheBrokerAssembles(t *testing.T) {
 	if _, ok := env["HOME"]; ok {
 		t.Error("HOME was set by the broker; it belongs to the executor's uid")
 	}
-	// Nothing beyond base_env and the refs: an extra variable here is one the
-	// caller did not ask for and the operator did not configure.
+	// Nothing beyond base_env and the refs.
 	if len(env) != len(s.Config.Exec.BaseEnv)+1 {
 		t.Errorf("environment = %v, want base_env plus ROUTER_PW only", env)
 	}
 }
 
-// The map the values were assembled in is wiped once the child holds them, so
-// a plaintext copy does not outlive the request in the broker's heap.  The
-// store keeps the values, which is where they belong.
+// The assembled map is wiped once the child holds the values, so no plaintext
+// copy outlives the request.
 func TestTheAssembledEnvironmentIsWipedAfterTheRun(t *testing.T) {
 	s, rec := execServer(t)
 	exec(t, s, map[string]any{
@@ -256,9 +239,7 @@ func TestABadRefStopsTheCommandRunning(t *testing.T) {
 
 // -- cwd --------------------------------------------------------------------
 
-// There is nothing to default to.  A brokered command runs where its caller
-// was, and the config names no directory to fall back on, so a request that
-// omits one is refused rather than relocated somewhere nobody asked for.
+// Nothing to default to: a brokered command runs where its caller was.
 func TestARequestWithNoCwdIsRefused(t *testing.T) {
 	s, rec := execServer(t)
 	r := execAsGiven(t, s, map[string]any{"cmd": []any{"true"}})
@@ -277,19 +258,15 @@ func TestAMissingCwdIsRefusedBeforeAnythingRuns(t *testing.T) {
 	rec.none(t)
 }
 
-// A cwd the broker's own uid cannot stat is handed to the executor anyway.
-// The executor is the uid that enters the directory and can hold traversal the
-// broker does not, which is the ordinary state of a tree under an ecryptfs home:
-// that filesystem takes one ACL and silently drops later edits, so an executor
-// grant made before the broker needed one cannot be extended afterwards.
-// Refusing here would make that arrangement permanently unusable.
+// A cwd the broker cannot stat is handed to the executor anyway: the executor's
+// uid enters the directory and can hold traversal the broker does not, which is
+// the ordinary state of a tree under an ecryptfs home.
 func TestACwdTheBrokerCannotStatIsLeftToTheExecutor(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("root traverses regardless, so there is no EACCES to produce")
 	}
 	s, rec := execServer(t)
-	// 0000 on the parent: the child path is real, and stat on it is EACCES
-	// rather than ENOENT.
+	// 0000 on the parent, so stat is EACCES rather than ENOENT.
 	sealed := filepath.Join(t.TempDir(), "sealed")
 	inside := filepath.Join(sealed, "tree")
 	if err := os.MkdirAll(inside, 0o755); err != nil {
@@ -314,9 +291,8 @@ func TestACwdTheBrokerCannotStatIsLeftToTheExecutor(t *testing.T) {
 
 // -- the concurrency limit --------------------------------------------------
 
-// Over the limit the broker refuses with a clear error rather than queueing.
-// max_concurrency is 2 in the test config, so the third request in flight is
-// the one that has to be told.
+// Refused rather than queued.  max_concurrency is 2 in the test config, so the
+// third request in flight is the one told.
 func TestOverTheConcurrencyLimitIsRefusedAsBusy(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": goodValue})
 
@@ -341,9 +317,8 @@ func TestOverTheConcurrencyLimitIsRefusedAsBusy(t *testing.T) {
 		<-entered
 	}
 
-	// On a deadline, because the failure mode is a request that queues rather
-	// than one that returns the wrong code: without this the test would block
-	// here forever and report a timeout instead of a reason.
+	// On a deadline: the failure mode is a request that queues, which would
+	// otherwise block here forever.
 	over := make(chan protocol.Response, 1)
 	go func() { over <- exec(t, s, map[string]any{"cmd": []any{"true"}}) }()
 	select {
@@ -404,14 +379,12 @@ func TestTheAuditRecordNamesEverythingButTheValues(t *testing.T) {
 	if out, _ := record["output"].(string); !strings.Contains(out, token) {
 		t.Errorf("output was not recorded tokenized: %q", out)
 	}
-	// The command line stays legible, which is the point of redacting it
-	// rather than dropping it.
+	// Legible, which is the point of redacting rather than dropping it.
 	cmd, _ := json.Marshal(record["cmd"])
 	if !strings.Contains(string(cmd), "--password="+token) {
 		t.Errorf("the command line was not recorded legibly: %s", cmd)
 	}
-	// env_refs are names, never values, and they are what makes the record
-	// useful without one.
+	// env_refs are names, never values.
 	refs, _ := record["env_refs"].(map[string]any)
 	if refs["ROUTER_PW"] != "a/b" {
 		t.Errorf("env_refs = %v", refs)
@@ -427,8 +400,7 @@ func TestTheAuditRecordNamesEverythingButTheValues(t *testing.T) {
 	}
 }
 
-// A command that never started is still recorded: "it was refused" is the
-// thing an operator most needs the log to say.
+// A command that never started is still recorded.
 func TestAResolveFailureIsRecordedAndReported(t *testing.T) {
 	s, _ := execServer(t)
 	r := exec(t, s, map[string]any{"cmd": []any{"definitely-not-installed-xyzzy"}})
@@ -437,8 +409,7 @@ func TestAResolveFailureIsRecordedAndReported(t *testing.T) {
 		t.Fatalf("code = %q", code)
 	}
 	msg := r["error"].(map[string]string)["message"]
-	// The one failure an operator actually hits, so it has to be
-	// self-correcting rather than merely true.
+	// The failure an operator actually hits, so it says what to do.
 	for _, want := range []string{"not found on the broker's PATH", "base_env"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message does not mention %q: %q", want, msg)
@@ -451,8 +422,7 @@ func TestAResolveFailureIsRecordedAndReported(t *testing.T) {
 
 // -- the response -----------------------------------------------------------
 
-// The counts are how a caller confirms a credential landed without seeing it,
-// so they have to survive the trip out.
+// The counts are how a caller confirms a value landed without seeing it.
 func TestTheResponseReportsRedactionCountsAndTheLogID(t *testing.T) {
 	s, rec := execServer(t)
 	rec.output = goodValue + " and again " + goodValue + "\n"
@@ -475,8 +445,7 @@ func TestTheResponseReportsRedactionCountsAndTheLogID(t *testing.T) {
 	}
 }
 
-// An executor that fails is reported as exec_failed, and its message goes
-// through the redactor: an unexpected error can have interpolated a value.
+// exec_failed, with the message through the redactor.
 func TestAnExecutorFailureIsRedactedBeforeItIsReported(t *testing.T) {
 	s, rec := execServer(t)
 	rec.err = &executorError{"connecting to " + goodValue + " failed"}

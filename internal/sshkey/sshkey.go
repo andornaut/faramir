@@ -1,9 +1,6 @@
 // Package sshkey mints the ed25519 identity the broker lends to brokered
-// commands.
-//
-// Generated in process rather than by shelling out to ssh-keygen, for the same
-// reason the age key is: the host running the broker need not have the tooling
-// installed, and there is no command line for a key to appear on.
+// commands.  In process rather than through ssh-keygen, so the host needs no
+// tooling installed and no key appears on a command line.
 package sshkey
 
 import (
@@ -17,12 +14,9 @@ import (
 )
 
 // Generate writes an ed25519 keypair at path and path+".pub", returning the
-// public key in authorized_keys form.
-//
-// created is false when the private key was already there, in which case the
-// existing public half is returned and nothing is written.  Regenerating a key
-// silently would lock the broker out of every host its public half is already
-// on, so this never clobbers: the file is opened O_EXCL.
+// public key in authorized_keys form.  created is false when the private key was
+// already there and nothing is written: regenerating one would lock the broker
+// out of every host its public half is on, so the file is opened O_EXCL.
 func Generate(path, comment string) (public string, created bool, err error) {
 	handle, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if errors.Is(err, os.ErrExist) {
@@ -55,13 +49,11 @@ func Generate(path, comment string) (public string, created bool, err error) {
 	if err != nil {
 		return "", false, err
 	}
-	// The trailing comment is what identifies the key in an authorized_keys
-	// file somebody else has to audit.
+	// The comment is what identifies the key in an authorized_keys file.
 	line := string(ssh.MarshalAuthorizedKey(signer))
 	line = line[:len(line)-1] + " " + comment + "\n"
-	// 0644 on the public half deliberately: it is what has to be copied into
-	// authorized_keys on every managed host, and hiding it only makes that
-	// step need root for no gain.
+	// 0644: the public half is copied into authorized_keys on every managed
+	// host.
 	if err := os.WriteFile(path+".pub", []byte(line), 0o644); err != nil { //nolint:gosec
 		return "", false, err
 	}

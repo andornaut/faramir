@@ -30,15 +30,11 @@ const (
 	acceptDelayMax = time.Second
 )
 
-// RetryAccept reports whether an Accept error is one to sleep on and retry,
-// and how long to sleep, given the previous delay.
-//
-// A loop that returns on any error leaves the socket bound and accepting
-// nothing: a client's connect lands in the backlog and waits for its own
-// timeout instead of failing, and a unit that returns nil exits 0, which
-// Restart=on-failure does not restart.  Running out of descriptors or memory,
-// and a peer that goes away between its connect and our accept, are all
-// recoverable.  Anything else means the listener itself is gone.
+// RetryAccept reports whether an Accept error is one to sleep on and retry, and
+// for how long.  A loop that returned on any error would leave the socket bound
+// and accepting nothing, and exit 0, which Restart=on-failure does not restart.
+// Descriptor and memory exhaustion, and a peer that goes away before the accept,
+// are recoverable; anything else means the listener is gone.
 func RetryAccept(err error, delay time.Duration) (time.Duration, bool) {
 	for _, errno := range []unix.Errno{
 		unix.EMFILE, unix.ENFILE, unix.ENOBUFS, unix.ENOMEM,
@@ -64,7 +60,7 @@ func Listen(path string, mode os.FileMode) (net.Listener, error) {
 		if err != nil {
 			return nil, fmt.Errorf("socket activation fd %d: %w", listenFDStart, err)
 		}
-		// FileListener dups the descriptor; the original is ours to drop.
+		// FileListener dups the descriptor.
 		_ = f.Close()
 		log.Printf("using socket activation fd %d", listenFDStart)
 		return ln, nil
@@ -78,8 +74,8 @@ func Listen(path string, mode os.FileMode) (net.Listener, error) {
 			return nil, err
 		}
 	}
-	// Bind under a umask that yields the requested mode, then chmod: a socket
-	// created world-writable and narrowed afterwards is reachable in between.
+	// Bind under a umask that yields the requested mode: a socket created
+	// world-writable and narrowed afterwards is reachable in between.
 	previous := unix.Umask(0o777 &^ int(mode))
 	ln, err := net.Listen("unix", path)
 	unix.Umask(previous)
@@ -90,9 +86,8 @@ func Listen(path string, mode os.FileMode) (net.Listener, error) {
 		_ = ln.Close()
 		return nil, err
 	}
-	// Go removes the socket file on Close by default.  That is what we want
-	// for a self-bound socket and wrong for an activated one, which systemd
-	// owns; the activated branch above returns before this.
+	// Go unlinks on Close, which is right for a self-bound socket and wrong for
+	// an activated one; that branch returns above.
 	log.Printf("listening on %s", path)
 	return ln, nil
 }
@@ -127,11 +122,8 @@ func PeerCred(conn net.Conn) (*Peer, error) {
 	return &Peer{PID: cred.Pid, UID: int32(cred.Uid), GID: int32(cred.Gid)}, nil
 }
 
-// Allowed is the authorisation every faramir socket uses.
-//
-// Our own uid covers the single-uid test harness; root is unavoidable.  A uid
-// listed in uids, a user named in users, or membership of a group in groups --
-// primary or supplementary -- is what else passes.
+// Allowed is the authorisation every faramir socket uses: our own uid, root, a
+// uid in uids, a user in users, or membership of a group in groups.
 func Allowed(peer *Peer, uids []int, users, groups []string) bool {
 	if peer.UID == 0 || int(peer.UID) == os.Getuid() {
 		return true
@@ -155,20 +147,15 @@ func Allowed(peer *Peer, uids []int, users, groups []string) bool {
 	return false
 }
 
-// AllowedUser is Allowed with neither a uid list nor groups, for the two
-// internal sockets: each has exactly one legitimate client, and names it.
-//
-// No group form.  The only group in play is dev, which holds the agent's
-// own uid, so on these sockets the one value it could take is the one that
-// must never be set.
+// AllowedUser is Allowed without uids or groups, for the two internal sockets:
+// each has exactly one legitimate client and names it.  No group form, the only
+// group in play holding the agent's own uid.
 func AllowedUser(peer *Peer, users []string) bool {
 	return Allowed(peer, nil, users, nil)
 }
 
-// inAnyGroup checks the peer's primary gid and, failing that, the
-// supplementary member lists.  Checking only the gid would silently ignore
-// every allowed_groups entry that is a secondary group, which is how the
-// dev group is actually granted.
+// inAnyGroup checks the peer's primary gid, then the supplementary member
+// lists, which is how allowed_groups is usually granted.
 func inAnyGroup(peer *Peer, groups []string) bool {
 	name := ""
 	if u, err := user.LookupId(strconv.Itoa(int(peer.UID))); err == nil {
@@ -194,8 +181,8 @@ func inAnyGroup(peer *Peer, groups []string) bool {
 	return false
 }
 
-// groupMembers reads the supplementary member list for a group.  Go's os/user
-// exposes no equivalent of getgrnam()'s gr_mem.
+// groupMembers reads a group's supplementary members; os/user exposes no
+// equivalent of getgrnam()'s gr_mem.
 func groupMembers(name string) []string {
 	data, err := os.ReadFile("/etc/group")
 	if err != nil {

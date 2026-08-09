@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// --env-file is how a command that needs a dozen credentials stops needing a
-// dozen flags at every call site.  The file holds refs, never values.
+// --env-file is how a command needing a dozen credentials stops needing a dozen
+// flags.  The file holds refs, never values.
 func TestCLIEnvFileInjectsTheNamedRefs(t *testing.T) {
 	h := newHarness(t)
 	file := filepath.Join(t.TempDir(), "refs.env")
@@ -29,8 +29,7 @@ func TestCLIEnvFileInjectsTheNamedRefs(t *testing.T) {
 	}
 }
 
-// A literal value in the file is the mistake worth catching by name: it would
-// otherwise be rejected by the broker with no idea which line it came from.
+// Caught by name here, the broker's refusal naming no line.
 func TestCLIEnvFileRejectsALiteralValue(t *testing.T) {
 	h := newHarness(t)
 	file := filepath.Join(t.TempDir(), "refs.env")
@@ -48,8 +47,7 @@ func TestCLIEnvFileRejectsALiteralValue(t *testing.T) {
 	}
 }
 
-// An explicit --env wins, so a wrapper script can override one entry without
-// rewriting the file.
+// An explicit --env wins, so a wrapper can override one entry.
 func TestCLIEnvFlagOverridesTheFile(t *testing.T) {
 	h := newHarness(t)
 	file := filepath.Join(t.TempDir(), "refs.env")

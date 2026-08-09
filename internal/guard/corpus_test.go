@@ -3,18 +3,9 @@ package guard
 import "testing"
 
 // The corpus: every command the shipped deny list has an opinion about, and
-// what that opinion has to be.
-//
-// One table rather than a test per theme, because the two assertions ("this
-// must be refused", "this must not be") are the whole of what any of them do,
-// and a theme that owns its own loop drifts into re-testing rows another theme
-// already covers.  What a row is for lives in the row.
-//
-// Read as a pair: nearly every refusal here has an allowed row beside it that
-// looks similar, and those are the rows that keep a rule from being widened
-// until it refuses the work.  A rule that fires on ordinary shell teaches the
-// agent to reach for a tool the hook does not see, which is worse than the rule
-// not existing.
+// what that opinion has to be.  Most refusals have a similar-looking allowed
+// row beside them, which is what keeps a rule from widening until it refuses
+// ordinary work.
 type denyCase struct {
 	cmd    string
 	denied bool
@@ -32,8 +23,6 @@ var corpus = []denyCase{
 	{"age-keygen -o /tmp/throwaway.key", false, "-o writes a key without printing one"},
 
 	// -- environment dumps --------------------------------------------------
-	// The lookahead Python used is "(?!.*\|)"; RE2 gets "[^|]*$".  Both mean
-	// "env with no pipe after it", so the piped form stays allowed.
 	{"printenv", true, "dumps the whole environment"},
 	{"printenv ROUTER_PW", true, "prints an injected value"},
 	{"env", true, "the same dump by another name"},
@@ -45,11 +34,6 @@ var corpus = []denyCase{
 	{"env DEBIAN_FRONTEND=noninteractive apt-get install -y jq", false, "the same, as an operator writes it"},
 
 	// -- key material, through any tool -------------------------------------
-	// The wide tool list belongs to targets that are only ever key material or
-	// faramir's own install.  ~/.config/sops/age/keys.txt is the one an agent
-	// can actually reach: /etc/faramir/age.key is root-owned, but keys.txt
-	// decrypts the same store and is readable by the uid the agent runs as.  It
-	// is spelled keys.txt, so every rule naming a key by extension misses it.
 	{"cat /home/op/.config/sops/age/keys.txt", true, "the reachable age key"},
 	{"awk '{print}' ~/.config/sops/age/keys.txt", true, "awk prints as well as cat"},
 	{`python3 -c "print(open('/home/op/.config/sops/age/keys.txt').read())"`, true, "an interpreter is a reader"},
@@ -63,9 +47,6 @@ var corpus = []denyCase{
 	{"find / -name age.key", true, "locating the key is the first half of reading it"},
 	{"cat ~/.ssh/id_rsa", true, "an SSH private key is key material too"},
 
-	// Transformed output is a policy violation rather than a puzzle, and the
-	// tool description says so: denying cat while allowing the encoders makes
-	// that claim false and the rule look arbitrary.
 	{"base64 /var/lib/faramir-keeper/age.key", true, "an encoder reads what cat reads"},
 	{"base32 ~/.ssh/id_rsa", true, "a rarer encoder is still an encoder"},
 	{"base64 ~/.ssh/id_ed25519", true, "the default key ssh-keygen writes"},
@@ -81,9 +62,7 @@ var corpus = []denyCase{
 	{"ls /var/log/faramir", false, "listing a directory reads nothing"},
 	{"journalctl -u faramir-broker -n 50", false, "the journal is not the audit log"},
 
-	// Writes, not reads.  The store sits under a home and is writable by the
-	// agent's uid, and the hook's patterns decide what it refuses, so neutering
-	// either is a route to everything else.
+	// Writes, not reads.
 	{"rm -f /etc/faramir/age.key", true, "deleting the key breaks every value"},
 	{"rm -f ~/.faramir/secrets/ansible-ctrl.sops.yml", true, "deleting a store"},
 	{"chmod 0644 /etc/faramir/age.key", true, "widening the key's mode"},
@@ -100,23 +79,14 @@ var corpus = []denyCase{
 	{"systemctl edit faramir-broker", true, "a drop-in changes what the daemon is"},
 	{"cp /bin/true /usr/local/bin/jq", false, "the binary is named as a path, not as its directory"},
 	{"install -m 0755 yq /usr/local/bin/yq", false, "installing an unrelated tool is ordinary work"},
-	// The redirect rule matches the target word alone rather than the rest of
-	// the line, so writing documentation that mentions a protected path is not
-	// a write to it.
 	{"echo 'see /etc/faramir/config.toml' >> README.md", false, "naming a path is not writing to it"},
 	{"printf '%s\\n' 'store lives in ~/.faramir/secrets' >> docs/design.md", false, "the same, into a doc"},
-	// Words that happen to appear inside ordinary file names must not be read
-	// as the tools they name: "install" is in the write rule, and a script
-	// whose name contains it is not that tool.
 	{"bash -n scripts/install-hooks.sh", false, "a tool name inside a file name is not the tool"},
 	{"bash scripts/install-hooks.sh /home/op/.faramir", false, "even next to a faramir path"},
 	{"grep -q pattern /usr/local/libexec/faramir/deny-patterns.txt", false, "reading the deny list is not writing it"},
 	{"ls -l /usr/local/libexec/faramir", false, "listing the install directory"},
 
 	// -- the daemons ---------------------------------------------------------
-	// Managing a unit is an operator action the docs prescribe; running the
-	// daemon, or running as its account, is not.  Stopping the broker is denied
-	// because the wrapper fails open without it.
 	{"sudo faramir-keeper", true, "running a daemon by hand"},
 	{"sudo -E faramir-broker -c /etc/faramir/config.toml", true, "with an environment carried in"},
 	{"sudo -u faramir-exec ls /srv", true, "borrowing a daemon's account"},
@@ -127,9 +97,6 @@ var corpus = []denyCase{
 	{"systemctl show faramir-exec", false, "the same, in machine-readable form"},
 
 	// -- the faramir prefix --------------------------------------------------
-	// faramir is the sanctioned path, so patterns inside its own arguments must
-	// not match.  Stripping stops at the first separator: anything past it is a
-	// separate command the prefix does not sanction.
 	{"faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW", false, "a ref in faramir's arguments is the point of it"},
 	{"sudo faramir status", false, "under sudo as well"},
 	{"faramir list-secrets", false, "an operator subcommand"},
@@ -140,11 +107,9 @@ var corpus = []denyCase{
 	{"sudo faramir status; cat /etc/faramir/config.toml", true, "sudo does not extend the sanction either"},
 
 	// -- generic credential words, on the narrow tool list -------------------
-	// These words occur in ordinary projects, so the tools that reach them are
-	// a short list: a pager pointed at one is refused, a build step that merely
-	// names one is not.  Every allowed row here was refused when these words
-	// were on the wide list, and each is a command an enrolled project runs all
-	// day.
+	// These words occur in ordinary projects, so only a short list of tools
+	// reaches them: a pager pointed at one is refused, a build step naming one
+	// is not.
 	{"cat .env", true, "a dotenv holds values"},
 	{"cat ./.env", true, "however it is spelled"},
 	{"cat app/.env.local", true, "wherever it sits"},
@@ -165,9 +130,7 @@ var corpus = []denyCase{
 	{"grep -n hamcp faramir.env", false, "faramir.env holds refs and no values"},
 	{"cat faramir.env", false, "so reading it discloses nothing"},
 	{"wc -l faramir.env", false, "counting its lines even less"},
-	// Tool names are matched case-sensitively: "head" matched the HEAD in a git
-	// revision, so an ordinary git command was refused by a rule meant for
-	// pagers.
+	// Tool names are matched case-sensitively, so HEAD is not head.
 	{"git show HEAD:config/secrets.yml", false, "HEAD is a revision, not the pager"},
 	{"git diff HEAD -- group_vars/all/vault.yml", false, "the same, with a path filter"},
 	{"git log HEAD~5 -- .env", false, "and with a range"},
@@ -180,9 +143,8 @@ var corpus = []denyCase{
 	{"echo hello", false, ""},
 }
 
-// keyReaders is the cross product that a character class gets wrong: every
-// private key name against every tool that would print one.  id_ed25519 is what
-// ssh-keygen produces by default and is the one an earlier pattern missed.
+// keyReaderCases is the cross product a character class gets wrong: every
+// private key name against every tool that would print one.
 func keyReaderCases() []denyCase {
 	var out []denyCase
 	for _, name := range []string{"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"} {
@@ -193,11 +155,8 @@ func keyReaderCases() []denyCase {
 		}
 	}
 	// A managed file's own name matches none of the credential-shaped
-	// alternatives: "secrets/" is a directory, so "secrets?\." does not fire,
-	// and the path holds no "vault", ".env" or "credentials" either.  Coverage
-	// comes from /etc/faramir sitting in the same alternation as those, which
-	// puts it in front of every encoder rather than the handful of tools a
-	// narrower rule would name.
+	// alternatives; coverage comes from /etc/faramir being in the same
+	// alternation, which puts it in front of every encoder.
 	for _, tool := range []string{"cat", "base64", "xxd", "strings", "rev", "od"} {
 		out = append(out, denyCase{
 			tool + " /etc/faramir/secrets/ansible-ctrl.sops.yml", true,
@@ -207,9 +166,8 @@ func keyReaderCases() []denyCase {
 	return out
 }
 
-// The corpus runs against the rendered shipped file, which TestMain installs
-// for the whole package: the point is what an install actually writes, not what
-// the fallback happens to carry.
+// Runs against the rendered shipped file, which TestMain installs for the whole
+// package, rather than against the fallback list.
 func TestTheShippedPatternsDecideTheCorpus(t *testing.T) {
 	for _, c := range append(corpus, keyReaderCases()...) {
 		t.Run(c.cmd, func(t *testing.T) {

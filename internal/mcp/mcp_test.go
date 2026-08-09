@@ -14,8 +14,7 @@ import (
 )
 
 // fakeBroker answers one canned response per connection and records the
-// requests it was sent, which is how the request-shaping tests assert on what
-// the MCP layer put on the wire rather than on what came back.
+// requests, so the tests below assert on what went onto the wire.
 type fakeBroker struct {
 	requests chan map[string]any
 	reply    map[string]any
@@ -71,10 +70,8 @@ func resultText(t *testing.T, result map[string]any) string {
 	return text
 }
 
-// wantError asserts the tool call came back as an error carrying each of wants
-// in its text.  An MCP tool reports failure in the result rather than in the
-// transport, so "did it fail" is a field, and forgetting to check it is how a
-// test passes on a call that did nothing.
+// wantError asserts the call came back as an error carrying each of wants.  An
+// MCP tool reports failure in the result, so "did it fail" is a field.
 func wantError(t *testing.T, result map[string]any, wants ...string) {
 	t.Helper()
 	if isError, _ := result["isError"].(bool); !isError {
@@ -107,9 +104,8 @@ func TestAnArgvArrayReachesTheBrokerIntact(t *testing.T) {
 	}
 }
 
-// What a tool call has to refuse, and what the agent is told about it.  A
-// message that does not say which of these happened is one the model cannot act
-// on, so every row asserts on the text as well as on the flag.
+// What a tool call refuses, and what the agent is told: every row asserts on the
+// text as well as the flag, the model having only the text to act on.
 func TestRefusedToolCalls(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -118,10 +114,8 @@ func TestRefusedToolCalls(t *testing.T) {
 		args  map[string]any
 		wants []string
 	}{
-		// A model that writes cmd as a shell string is the likeliest way to
-		// call this tool wrong.  The type assertion yields nil, so without a
-		// check the broker is sent a null argv and answers about a malformed
-		// request, saying nothing about the shell string that caused it.
+		// The likeliest way to call this tool wrong: without the check the
+		// broker gets a null argv and answers about a malformed request.
 		{name: "a shell string for cmd",
 			reply: map[string]any{"exit_code": 0, "output": ""},
 			tool:  "faramir_run", args: map[string]any{"cmd": "echo hi"},
@@ -156,9 +150,8 @@ func TestTheBrokerBeingDownIsReportedNotPanicked(t *testing.T) {
 	wantError(t, callTool("faramir_list_secrets", map[string]any{}), "unavailable")
 }
 
-// The MCP server builds broker requests by hand, so nothing but this ties its
-// field names to the parser that reads them.  A rename on either side would
-// otherwise leave every agent tool call failing while the whole suite passed.
+// The MCP server builds broker requests by hand, so nothing else ties its field
+// names to the parser that reads them.
 func TestEveryToolProducesARequestTheBrokerAccepts(t *testing.T) {
 	for _, tc := range []struct {
 		tool string
@@ -246,9 +239,8 @@ func decodeReply(t *testing.T, raw string) map[string]any {
 	return handle(&m)
 }
 
-// initialize answers with the version this server speaks, whatever it was
-// asked for.  Echoing the client's string back would claim support for
-// anything it happened to name.
+// The version this server speaks, whatever was asked for: echoing the client's
+// string would claim support for anything it named.
 func TestInitializeAnswersWithTheVersionItSpeaks(t *testing.T) {
 	for _, asked := range []string{"1999-01-01", protocolVersion} {
 		reply := decodeReply(t, `{"jsonrpc":"2.0","id":1,"method":"initialize",
@@ -261,8 +253,8 @@ func TestInitializeAnswersWithTheVersionItSpeaks(t *testing.T) {
 	}
 }
 
-// A notification has no id and must draw no reply at all: answering one is a
-// protocol violation that some clients treat as a fatal error.
+// A notification has no id and draws no reply; answering one is a protocol
+// violation some clients treat as fatal.
 func TestANotificationDrawsNoReply(t *testing.T) {
 	for _, raw := range []string{
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
@@ -306,9 +298,8 @@ func TestToolsListAdvertisesEveryTool(t *testing.T) {
 
 // -- the stdio loop ---------------------------------------------------------
 
-// Framing is the whole contract with the client: exactly one JSON object per
-// line on stdout, and nothing else on stdout ever, since anything else there
-// is read as a protocol message.
+// Exactly one JSON object per line on stdout, and nothing else there ever:
+// anything else is read as a protocol message.
 func TestEachRequestProducesExactlyOneLineAndNotificationsProduceNone(t *testing.T) {
 	newFakeBroker(t, map[string]any{"exit_code": 0, "output": "hi\n"})
 	in := strings.NewReader(strings.Join([]string{
@@ -358,8 +349,7 @@ func TestUnparseableInputDrawsAParseErrorAndTheLoopContinues(t *testing.T) {
 	}
 }
 
-// A read that fails mid-session must not look like a clean exit: the client
-// would see the server succeed with its last request simply unanswered.
+// A read that fails mid-session must not look like a clean exit.
 func TestAFailedReadIsNotASuccessfulExit(t *testing.T) {
 	var out strings.Builder
 	if code := serve(errAfterOneLine{}, &out); code == 0 {
@@ -373,8 +363,7 @@ func (r errAfterOneLine) Read(p []byte) (int, error) {
 	return 0, errors.New("connection reset")
 }
 
-// The id has to come back exactly as sent: a client matches replies on it, and
-// a string id re-emitted as a number is a reply it will never match.
+// The id comes back exactly as sent: a client matches replies on it.
 func TestTheRequestIDIsEchoedWithItsOriginalType(t *testing.T) {
 	reply := decodeReply(t, `{"jsonrpc":"2.0","id":"abc","method":"ping"}`)
 	raw, err := json.Marshal(reply["id"])

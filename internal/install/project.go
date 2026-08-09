@@ -1,14 +1,8 @@
 package install
 
-// Enrolling one project, as against provisioning the host.
-//
-// The two are different jobs with different lifetimes.  `init` runs once per
-// machine and again to upgrade it; this runs once per tree you want to work in,
-// and there is no limit to how many of those there are.  Keeping them apart is
-// also what makes the working directory safe to default here and unsafe there:
-// this command means "enrol this project", so the current working directory is
-// the answer, while init means "provision this host" and would enrol whatever
-// directory it happened to be run from, including the faramir checkout.
+// Enrolling one project, as against provisioning the host.  `init` runs once
+// per machine; this runs once per tree.  That is also what makes the working
+// directory safe to default to here and unsafe there.
 
 import (
 	"bytes"
@@ -30,36 +24,30 @@ const (
 	snippetEnd   = "<!-- END faramir: credentials -->"
 )
 
-// agentInstructionFiles are the names an agent reads, most specific first.  An
-// existing one is used; when there is none, the first is created.
+// agentInstructionFiles are the names an agent reads, most specific first; the
+// first is created when there is none.
 var agentInstructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 
 // ProjectOptions is one enrolment.
 type ProjectOptions struct {
 	// Dir is the tree to enrol.  Defaults to the working directory.
 	Dir string
-	// Operator owns the tree.  It keeps owning it; what this grants is group
-	// access for the executor's uid.
+	// Operator owns the tree and keeps owning it; this grants group access for
+	// the executor's uid.
 	Operator string
-	// ConfigDir is where the installed config is read from, which is where the
-	// client group is learned.  A --client-group flag here could disagree with
-	// what the sockets actually admit, and a tree shared with the wrong group is
-	// one the executor cannot enter, with nothing to say so.
+	// ConfigDir is where the client group is learned.  A flag could disagree
+	// with what the sockets admit, leaving a tree the executor cannot enter.
 	ConfigDir string
 	// Group overrides the group read from the config.  For a host whose config
 	// is not readable, not for ordinary use.
 	Group string
-	// Hook registers the PreToolUse hook in the project's own agent settings.
-	// That is what redacts the output of everything the agent runs there, and
-	// it auto-approves Bash for the project as a side effect: a rewritten
-	// command matches no permission rule, so the hook's deny list becomes the
-	// only thing that refuses one.
+	// Hook registers the PreToolUse hook in the project's agent settings, which
+	// redacts the output of everything the agent runs there.  It auto-approves
+	// Bash for the project: a rewritten command matches no permission rule, so
+	// the hook's deny list is what refuses one.
 	Hook bool
-	// Agents names which coding agents to enrol.  Empty means Claude Code, so a
-	// command written before this existed keeps doing what it did.
-	//
-	// Named rather than detected: enrolling costs something on some agents, and
-	// a directory left behind by trying one once is not a decision to enrol it.
+	// Agents names which coding agents to enrol; empty means Claude Code.
+	// Named rather than detected, enrolling costing something on some agents.
 	// What a tree happens to carry is reported instead.
 	Agents []string
 	DryRun bool
@@ -92,10 +80,8 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	if err != nil || !info.IsDir() {
 		return ProjectReport{}, fmt.Errorf("no directory at %s", named)
 	}
-	// Symlinks out, before anything is decided about this path or written to
-	// it.  Sharing follows a link with its chmod and chown and does not follow
-	// it with its walk, so the argument and the tree that would actually change
-	// are two different directories; see sharetree.Resolve.
+	// Symlinks out before anything is decided: sharing follows a link with its
+	// chmod and chown and not with its walk.  See sharetree.Resolve.
 	dir, err := sharetree.Resolve(named)
 	if err != nil {
 		return ProjectReport{}, fmt.Errorf("resolving %s: %w", named, err)
@@ -124,8 +110,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	}
 	run := &project{opts: opts, fs: fsys{dryRun: opts.DryRun}, targets: targets}
 	run.report = ProjectReport{Version: version.Version, Dir: dir, DryRun: opts.DryRun}
-	// Said out loud: the tree being changed is not the one that was named, and
-	// every mode and group reported below belongs to the resolved one.
+	// The tree being changed is not the one that was named.
 	if dir != named {
 		run.warn("%s resolves to %s, which is the tree being enrolled", named, dir)
 	}
@@ -145,18 +130,12 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 }
 
 // refuseOversharing stops an enrolment that would share far more than a
-// project.
+// project.  Sharing grants the client group read and write on every file in the
+// tree, and faramir-exec is in that group: for a home that carries ~/.ssh,
+// ~/.config/sops/age/keys.txt, and group write on the shell configuration that
+// decides what the operator's next login runs.
 //
-// Sharing walks the tree granting the client group read and write on every file
-// in it, and faramir-exec is in that group, so the tree becomes readable by
-// every brokered command.  That is the intent for a checkout and a disclosure
-// for a home: ~/.ssh and ~/.config/sops/age/keys.txt go with it, and that key
-// decrypts the same store this install holds a separate uid to protect.  A home
-// is also where the operator's shell configuration lives, and group write on
-// that is a brokered command choosing what the operator's next login runs.
-//
-// Refused rather than warned about, because the walk is not reversible: the
-// modes and groups a tree had before are not recorded anywhere.
+// Refused rather than warned about, the walk not being reversible.
 func refuseOversharing(dir, operator string) error {
 	tooBig := func(what string) error {
 		return fmt.Errorf("refusing to enrol %s: it is %s. Enrolling a tree gives the "+
@@ -173,11 +152,9 @@ func refuseOversharing(dir, operator string) error {
 	if home := homeOf(dir); home == dir {
 		return tooBig("a home directory")
 	}
-	// The account's own home as passwd records it, which is what catches one
-	// outside /home and /root.  Resolved, because dir is: comparing a resolved
-	// tree against an unresolved home is how a symlinked home reads as somewhere
-	// else entirely.  An account that cannot be looked up fails later, in
-	// shareTree, with the error that names it.
+	// The account's own home as passwd records it, which catches one outside
+	// /home and /root.  Resolved, because dir is.  An unknown account fails
+	// later in shareTree, with the error that names it.
 	if entry, err := user.Lookup(operator); err == nil && entry.HomeDir != "" {
 		home, err := sharetree.Resolve(entry.HomeDir)
 		if err != nil {
@@ -193,8 +170,8 @@ func refuseOversharing(dir, operator string) error {
 	return nil
 }
 
-// encloses reports whether child sits inside parent, compared as path elements
-// so that /home/andornaut2 is not inside /home/andornaut.
+// encloses compares path elements, so /home/andornaut2 is not inside
+// /home/andornaut.
 func encloses(parent, child string) bool {
 	rel, err := filepath.Rel(parent, child)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
@@ -206,8 +183,8 @@ type project struct {
 	report ProjectReport
 	uid    int
 	gid    int
-	// Resolved from opts.Agents before any step runs, so an unknown name stops
-	// the run before the tree's ownership has been changed.
+	// Before any step runs, so an unknown name stops the run before the tree's
+	// ownership changes.
 	targets []*agentTarget
 }
 
@@ -235,11 +212,9 @@ func (p *project) warn(format string, args ...any) {
 }
 
 // resolveGroup reads the shared group out of the installed config.
-//
 // allowed_groups is what the broker socket admits, so it is the only value that
-// makes a shared tree usable.  Taking it from a flag instead is how a tree ends
-// up group-owned by something the sockets do not admit: every mode is right,
-// every check passes, and the executor still cannot enter.
+// makes a shared tree usable; a flag would leave every mode right and the
+// executor still unable to enter.
 func (p *project) resolveGroup() error {
 	if p.opts.Group != "" {
 		p.report.Group = p.opts.Group
@@ -256,8 +231,7 @@ func (p *project) resolveGroup() error {
 		return fmt.Errorf("%s admits no group, so a shared tree would reach nothing. "+
 			"Set allowed_groups", configFile)
 	}
-	// The first, when there are several: it is the one a tree can be given, and
-	// a tree has one group.
+	// The first, when there are several: a tree has one group.
 	p.report.Group = cfg.Server.AllowedGroups[0]
 	if len(cfg.Server.AllowedGroups) > 1 {
 		p.warn("%s admits %s; this tree is given %s, which is the first",
@@ -287,35 +261,29 @@ func (p *project) shareTree() error {
 		return fmt.Errorf("%s: %w", p.opts.Dir, err)
 	}
 	// The executor runs under ProtectSystem=strict with /home as its only
-	// writable tree, so a tree outside it gets the group and the setgid bits and
-	// then refuses every write with EROFS.  Sharing it looks like it worked.
+	// writable tree, so a tree outside it takes the group and then refuses every
+	// write with EROFS.
 	if homeOf(p.opts.Dir) == "" {
 		p.warn("%s is outside /home, which is the only tree faramir-exec may write. "+
 			"A brokered command can enter it and still gets EROFS on every write. "+
 			"Add a drop-in extending ReadWritePaths= on faramir-exec.service",
 			p.opts.Dir)
 	}
-	// Reported as no change: it re-applies a group, setgid bits and a mode that
-	// are already what they should be on every run after the first.
+	// Reported as no change: after the first run it re-applies what is already
+	// there.
 	p.step("share tree", false, fmt.Sprintf("%s with group %s",
 		p.opts.Dir, p.report.Group))
 	return nil
 }
 
-// agentConfig writes each enrolled agent's own configuration into the tree.
+// agentConfig writes each enrolled agent's configuration into the tree.  What
+// the hook costs differs by agent -- Claude Code auto-approves Bash, Gemini CLI
+// has no approval to give -- so the warning below reports the agent it just
+// enrolled.
 //
-// The hook is what redacts the output of everything the agent runs there, and
-// what it costs differs by agent: on Claude Code a rewritten command matches no
-// permission rule and the hook must approve it, so Bash is auto-approved for
-// the project; on Gemini CLI there is no approval to give, so the prompts stay
-// as they were.  The warning below reports the agent it just enrolled rather
-// than a rule that is only true of one of them.
-//
-// A tree enrolled by an install whose hook and MCP server were separate
-// binaries is corrected rather than reported: the merge drops the entry naming
-// the old path and writes the current one in its place.  A PreToolUse hook that
-// cannot exec denies nothing, rewrites nothing, and fails every command the
-// agent runs, so leaving one in place to be merged by hand is not an option.
+// An entry naming a path from an earlier layout is corrected rather than
+// reported: a PreToolUse hook that cannot exec fails every command the agent
+// runs.
 func (p *project) agentConfig() error {
 	if !p.opts.Hook {
 		p.step("agent config", false, "--hook=false, so nothing this agent runs "+
@@ -336,9 +304,8 @@ func (p *project) agentConfig() error {
 			if err != nil {
 				return err
 			}
-			// Merged rather than overwritten: a settings file is the project's
-			// to edit and holds hooks, servers and permissions faramir knows
-			// nothing about.  Only the keys faramir writes are touched.
+			// Merged, not overwritten: the file is the project's to edit, and
+			// only the keys faramir writes are touched.
 			write := p.fs.writeFile
 			if file.merge {
 				write = p.fs.mergeFile
@@ -360,12 +327,11 @@ func (p *project) agentConfig() error {
 			p.warn("%s: %s", target.name, target.note)
 		}
 	}
-	// Named rather than counted: an operator reading this has to know which
-	// file to merge when one was kept.
+	// Named rather than counted, so an operator knows which file to merge.
 	p.step("agent config", changed, strings.Join(written, ", "))
 
-	// Reported, never acted on.  A directory left behind by trying an agent once
-	// is not a decision to enrol it, and enrolling is not free.
+	// Reported, never acted on: a directory left behind by trying an agent is
+	// not a decision to enrol it.
 	var unenrolled []string
 	for _, name := range detectedAgents(p.opts.Dir) {
 		enrolled := false
@@ -387,12 +353,9 @@ func (p *project) agentConfig() error {
 }
 
 // instructions writes the credentials section into the project's agent
-// instructions file.
-//
-// Between markers rather than appended, so a second run replaces what the first
-// wrote.  This is documentation, not enforcement: the hook and the filesystem
-// permissions are what bound the agent, and deleting this block must not change
-// what is reachable.
+// instructions file, between markers so a second run replaces it.
+// Documentation, not enforcement: deleting the block changes nothing about what
+// is reachable.
 func (p *project) instructions() error {
 	path := p.instructionsFile()
 	snippet, err := readAsset("agent/claude/CLAUDE.md.snippet")
@@ -413,8 +376,7 @@ func (p *project) instructions() error {
 	return nil
 }
 
-// instructionsFile picks the file an agent will actually read: an existing one,
-// or the first name when the project has none.
+// instructionsFile picks an existing file, or the first name.
 func (p *project) instructionsFile() string {
 	for _, name := range agentInstructionFiles {
 		path := filepath.Join(p.opts.Dir, name)

@@ -1,75 +1,48 @@
 # {{.ConfigFile}} -- broker configuration.
 #
-# Written by `faramir init` and REWRITTEN BY EVERY RUN.  Do not edit it: an edit
-# here is replaced the next time init runs, without warning.
+# Written by `faramir init` and REWRITTEN BY EVERY RUN.  Do not edit it.
 #
 # Your settings go in a drop-in beside it, config.d/*.toml, which init never
-# reads, writes or removes.  Those merge over this file in lexical order, so a
-# drop-in setting max_concurrency wins; the two inventory lists, [secrets] files
-# and [ssh] keys, accumulate instead, one entry per owner.
+# touches.  Those merge over this file in lexical order; the two inventory
+# lists, [secrets] files and [ssh] keys, accumulate instead, one entry per
+# owner.
 #
 #   {{.ConfigDir}}/config.d/50-local.toml     yours
 #   {{.ConfigDir}}/config.d/<consumer>.toml   one per consumer of the broker
 #
-# There is no command allowlist.  The broker runs what it is asked to run, as a
-# uid that holds no key, no audit log and no SSH key, and redacts the output.
-# That is what keeps plaintext out of the agent's context; a list of permitted
-# programs never was, because any rule permitting bash or python reached past
-# every constraint it expressed.
+# There is no command allowlist.  What bounds a brokered command is the uid it
+# runs as, plus [exec.base_env] PATH, [exec] max_timeout_sec and
+# max_output_bytes.  See README.md and docs/design.md.
 #
-# What still bounds a command:
-#
-#   [exec.base_env] PATH   where a bare command name is looked up -- and the
-#                          only PATH the child gets, so a venv or shim
-#                          directory belongs here
-#   [exec] max_timeout_sec, max_output_bytes
-#   the executor's uid     see the systemd units
-#
-# Settings that belong to whatever consumes the broker -- which sops files to
-# manage -- go in a drop-in of its own, so the two have separate owners.  Every
-# drop-in is held to the same checks this file is.
-#
-# A mistyped key or [section] is a hard error naming the alternatives, not a
-# silently ignored line, and so is a size or count out of range -- a zero
-# max_concurrency or default_timeout_sec would otherwise leave a broker that
-# refuses every request, or kills every command as it starts.
-# Check a config with:  faramir broker -c FILE --check
+# A mistyped key or [section], or a size out of range, is a hard error naming
+# the alternatives.  Check a config with:  faramir broker -c FILE --check
 
 [server]
 socket_path = "{{.RunDir}}/broker.sock"
 socket_mode = "0660"
 max_concurrency = 4
 max_request_bytes = 262144
-# Peer credentials are checked against these in addition to the socket mode.
-# Group membership counts whether it is the peer's primary group or a
-# supplementary one, which is how {{.Group}} is granted (usermod -aG).
+# Checked with SO_PEERCRED, on top of the socket mode.  Membership counts
+# whether primary or supplementary, which is how {{.Group}} is granted.
 allowed_groups = ["{{.Group}}"]
 allowed_uids = []
-# The redact op per calling uid, over a sliding minute; 0 is no limit.
-#
-# redact says whether a piece of text holds a managed value, so a caller that
-# already knows part of one can complete it by asking.  Rating it does not close
-# that -- nothing does, short of removing the op -- but it stops the asking being
-# free and invisible.  The wrapper makes one call per Bash command, so this is
-# far above what an agent session reaches; raise it if a tool of yours does not.
+# The redact op per calling uid, over a sliding minute; 0 is no limit.  Far
+# above what an agent session reaches, the wrapper making one call per Bash
+# command.
 max_redacts_per_min = 240
 
-# The process that holds the age key.  It runs as its own uid, execs nothing
-# but sops, and has no operation that returns key material -- so no command the
-# broker runs can reach the key that decrypts every managed file.
+# The process that holds the age key: its own uid, execs nothing but sops, and
+# no operation that returns key material.
 [keeper]
 socket_path = "{{.RunDir}}/keeper.sock"
 socket_mode = "0660"
-# The broker is the only legitimate client.  Checked with SO_PEERCRED, on top
-# of the socket mode.
-#
+# The broker is the only legitimate client.
 allowed_users = ["{{.BrokerUser}}"]
 # Name of the systemd LoadCredential= entry in faramir-keeper.service.
 age_key_credential = "age_key"
 
-# The process that forks brokered commands.  Its uid holds nothing: no key, no
-# secret values, no audit log, and no SSH keys.  A child forked by the broker
-# would inherit all four.
+# The process that forks brokered commands.  Its uid holds no key, values,
+# audit log or SSH keys; a child forked by the broker would inherit all four.
 [executor]
 socket_path = "{{.RunDir}}/exec.sock"
 socket_mode = "0660"
@@ -77,10 +50,8 @@ allowed_users = ["{{.BrokerUser}}"]
 max_concurrency = 16
 
 [exec]
-# There is no key naming where a command runs.  A brokered command runs where
-# its caller was, which both `faramir run` and the MCP server send, and a
-# request that names no directory is refused rather than relocated into one a
-# config file chose.
+# No key names where a command runs: a brokered command runs where its caller
+# was, and a request naming no directory is refused.
 default_timeout_sec = 600
 max_timeout_sec = 3600
 max_output_bytes = 1048576
@@ -88,8 +59,7 @@ term_cols = 120
 term_rows = 40
 kill_grace_sec = 5
 
-# The child's entire environment.  The broker's own environ is never inherited,
-# so a tool that needs a variable needs it named here.
+# The child's entire environment; the broker's own is never inherited.
 [exec.base_env]
 PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 TERM = "xterm-256color"
@@ -97,17 +67,13 @@ LANG = "C.UTF-8"
 LC_ALL = "C.UTF-8"
 DEBIAN_FRONTEND = "noninteractive"
 
-# SSH keys for hosts a brokered command needs to reach.  Listing them here
-# makes the broker load them into an agent it owns and pass only SSH_AUTH_SOCK
-# to the child: the command can authenticate with them but cannot read them,
-# and a leaked key is permanent in a way a leaked password is not.
+# SSH keys for hosts a brokered command needs to reach.  The broker loads them
+# into an agent it owns and passes only SSH_AUTH_SOCK to the child, which can
+# authenticate with them but not read them.
 #
-# Leave `keys` empty to skip the agent entirely, in which case the keys have to
-# live somewhere the executor's own uid can read (~{{.ExecUser}}/.ssh).
-#
-# Written from `faramir init --ssh-key`, and rewritten by every run, so the flag
-# and this list cannot drift apart.  Drop the flag and the list goes back to
-# empty, which is a working setup with no agent.
+# Empty skips the agent, in which case the keys have to live somewhere the
+# executor's uid can read (~{{.ExecUser}}/.ssh).  Written from
+# `faramir init --ssh-key` and rewritten by every run.
 [ssh]
 keys = [{{if .SSHKey}}"{{.SSHKey}}"{{end}}]
 agent_socket = "{{.RunDir}}/ssh-agent.sock"
@@ -115,41 +81,27 @@ agent_socket_mode = "0660"
 exec_group = "{{.ExecUser}}"
 
 [secrets]
-# Every sops file the keeper manages.  ALL of their values go into the
-# redaction value set, not just the ones injected into a given command: a
-# managed host can print a credential the broker never injected.
-# Only the keeper opens these, to decrypt them and to fingerprint them for the
-# broker's staleness check.  The broker never reads them at all.
+# Every sops file the keeper manages.  ALL of their values go into the redaction
+# set, not only the injected ones: a managed host can print a credential the
+# broker never injected.  Only the keeper opens these.
 #
-# Outside a working tree: these are configuration an operator authors and the
-# daemons read at startup.  {{.SecretsDir}} is 2750 with group {{.StoreGroup}},
-# which holds the keeper and not the operator, so reading or editing one needs
-# sudo.  {{.Group}} below admits a caller to the socket and grants nothing here:
-# asking for a value by name is not permission to read the file it comes from.
-# A store inside a home is not mounted until its owner logs in, and the broker
-# treats an absent store as a load failure, so the daemons refuse rather than
-# come up redacting nothing.
-# Every entry is a glob pattern; a literal path is one with no metacharacters.
-# The store is a directory, so this names the directory: a sops file added
-# beside the others is picked up on the next refresh, with nothing to edit here
-# and no daemon to restart.  A consumer that wants its own file named explicitly
-# can still add one in a drop-in, and the two are deduplicated.
+# {{.SecretsDir}} is 2750 with group {{.StoreGroup}}, which holds the keeper and
+# not the operator, so editing one needs sudo.  {{.Group}} admits a caller to
+# the socket and grants nothing here.
 #
-# An entry that matches nothing is a load failure, exactly as a missing literal
-# path is.  That is what makes an unmounted store an outage that names itself
-# rather than a broker that comes up holding nothing and reports itself healthy.
+# Every entry is a glob pattern, so naming the directory picks up a sops file
+# added beside the others on the next refresh.  An entry that matches nothing is
+# a load failure, which is what makes an unmounted store name itself.
 files = ["{{.SecretsDir}}/*.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 
-# How often the broker may ask the keeper whether a managed file changed.  That
-# question is a socket round trip rather than a stat, the store being readable
-# by the keeper's group alone, so 0 (check on every request) costs a connect per
-# command.  The keeper answers it without the key and without execing sops.
+# How often the broker may ask the keeper whether a managed file changed.  A
+# socket round trip rather than a stat, so 0 (every request) costs a connect per
+# command; the keeper answers without the key and without execing sops.
 refresh_interval_sec = 5
 
-# Values below these thresholds cannot be redacted -- a short or low-entropy
-# value would blank out unrelated output at random -- so the broker refuses to
-# load them at all.  It names each one in the log and in --check.
+# A value below these would blank out unrelated output, so the broker refuses to
+# load it and names it in the log and in --check.
 min_length = 8
 min_unique_chars = 4
 min_entropy_bits_per_char = 1.5

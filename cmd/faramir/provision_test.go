@@ -11,8 +11,8 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// statusBroker answers the status op with the given config list, wrapped the way
-// the broker wraps it: the body is JSON carried as a string in output.
+// statusBroker answers the status op with the given config list, the body being
+// JSON carried as a string in output.
 func statusBroker(t *testing.T, configs []string) string {
 	t.Helper()
 	socketPath := filepath.Join(t.TempDir(), "b.sock")
@@ -46,9 +46,8 @@ func statusBroker(t *testing.T, configs []string) string {
 	return socketPath
 }
 
-// The compiled-in default is only right for a host that took it. Anywhere else
-// doctor would report a working install as broken, so it asks the broker, which
-// is the one thing that knows where the config is without being told.
+// The compiled-in default is only right for a host that took it, so the broker
+// is asked instead.
 func TestResolveConfigDirAsksTheBroker(t *testing.T) {
 	socket := statusBroker(t, []string{
 		"/home/op/.faramir/config.toml",
@@ -59,9 +58,8 @@ func TestResolveConfigDirAsksTheBroker(t *testing.T) {
 	}
 }
 
-// An operator who names one is examining that install, whatever a broker says,
-// including the case where they are asking about a host whose broker is the
-// thing that is wrong.
+// An operator who names one is examining that install, whatever a broker
+// says.
 func TestResolveConfigDirPrefersTheFlag(t *testing.T) {
 	socket := statusBroker(t, []string{"/home/op/.faramir/config.toml"})
 	if got := resolveConfigDir("/etc/elsewhere", socket); got != "/etc/elsewhere" {
@@ -69,9 +67,8 @@ func TestResolveConfigDirPrefersTheFlag(t *testing.T) {
 	}
 }
 
-// Nothing listening is the case doctor exists for, so it has to carry on rather
-// than fail: the default is the only place left to look, and a broker that does
-// not answer is itself a finding.
+// Nothing listening is the case doctor exists for, so it carries on against the
+// default.
 func TestResolveConfigDirFallsBackWhenTheBrokerIsSilent(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.sock")
 	if got := resolveConfigDir("", missing); got != install.DefaultConfigDir {

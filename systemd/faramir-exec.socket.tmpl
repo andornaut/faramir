@@ -4,9 +4,8 @@ Documentation=file:///usr/local/share/doc/faramir/README.md
 
 [Socket]
 ListenStream={{.RunDir}}/exec.sock
-# root-owned so that the executor's own uid cannot connect: children run as
-# {{.ExecUser}}, and a child that could reach this socket could run commands
-# the broker never authorised and never logged.
+# root-owned so the executor's own uid cannot connect: a child that could reach
+# this socket could run commands the broker never authorised or logged.
 SocketMode=0660
 SocketUser=root
 SocketGroup={{.BrokerUser}}

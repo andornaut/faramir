@@ -3,17 +3,13 @@ Description=Secret broker for local AI agents
 Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-broker.socket faramir-keeper.socket faramir-exec.socket
 After=faramir-broker.socket faramir-keeper.socket faramir-exec.socket network.target
-# {{.RunDir}} comes from /etc/tmpfiles.d/faramir.conf, so it has to exist, and
-# be owned by this unit's User=, before the mount namespace ReadWritePaths=
-# builds is set up.  Without Wants=, a manual start of this unit alone gets the
-# directory auto-created root:root as the parent of a ListenStream=, and the
-# broker then starts but cannot create ssh-agent.sock in it.
+# {{.RunDir}} comes from /etc/tmpfiles.d/faramir.conf and must exist, owned by
+# this unit's User=, before ReadWritePaths= builds the mount namespace.  Without
+# Wants=, a manual start gets it auto-created root:root.
 Wants=systemd-tmpfiles-setup.service
 After=systemd-tmpfiles-setup.service
-# Starting repeatedly in a few seconds is ordinary here: the unit is socket
-# activated and an install restarts it.  The default limit of 5 in 10s reads
-# that as a crash loop, and a service that trips it fails its socket with it, so
-# the whole broker stays down until someone runs reset-failed.
+# Socket activated and restarted by an install, so repeated starts are ordinary.
+# The default limit reads that as a crash loop and fails the socket with it.
 StartLimitIntervalSec=0
 
 [Service]
@@ -21,31 +17,23 @@ Type=notify
 NotifyAccess=main
 User={{.BrokerUser}}
 Group={{.BrokerUser}}
-# {{.ExecUser}}, and nothing else: needed only to hand the ssh-agent socket to the
-# executor's uid, which is a chown this process could not otherwise perform.  It
-# grants the broker nothing it did not already have; the executor gains nothing
-# at all.
-#
-# {{.StoreGroup}} is deliberately absent.  This process holds every decrypted value
-# already, so read on the ciphertext would add only the ability to copy files it
-# never decrypts, including any the [secrets] list does not name.  It asks the
-# keeper which managed files changed rather than looking for itself.
+# {{.ExecUser}} and nothing else, to chown the ssh-agent socket to the uid that
+# uses it.  {{.StoreGroup}} is absent: this process holds every decrypted value
+# already, so read on the ciphertext would only add files it never decrypts.
 SupplementaryGroups={{.ExecUser}}
-# One binary, one role per unit.  SyslogIdentifier= because systemd otherwise
-# takes it from the executable's name, which is now the same for all three.
+# SyslogIdentifier= because systemd otherwise takes it from the executable's
+# name, which is the same for all three roles.
 ExecStart={{.BinDir}}/faramir broker
 SyslogIdentifier=faramir-broker
 Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
-# No LoadCredential= here, deliberately.  A systemd credential is readable by
-# the unit's uid, and every brokered command runs as that uid, so loading the
-# age key here would hand it to every child, whatever else the config said.
-# faramir-keeper.service holds it instead and serves values only.
+# No LoadCredential= here: a credential is readable by the unit's uid, so the
+# age key would reach every brokered command.  faramir-keeper.service holds it.
 
-# The critical one: without ProtectProc the agent uid can read
-# /proc/<pid>/environ of the broker and of every command it runs.
+# Without this the agent uid can read /proc/<pid>/environ of the broker and of
+# every command it runs.
 ProtectProc=invisible
 ProcSubset=pid
 
@@ -53,50 +41,37 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# No ProtectHome=, unlike the keeper, and for one specific reason: the broker
-# stats a request's cwd before accepting it, and a caller's cwd is usually
-# inside a home.  Hiding /home here would turn every such request into "cwd does
-# not exist".  It reads no secret from a home either way, since the managed sops
-# files are under /etc, and ProtectSystem=strict already mounts the whole
-# hierarchy read-only.  What bounds this uid is file modes: a home it may not
-# read is one the mode already refuses, and a home it may read is one the
-# operator's own uid can read directly without going through the broker.
+# No ProtectHome=, unlike the keeper: the broker stats a request's cwd, which is
+# usually inside a home, and hiding /home would make every such request "cwd
+# does not exist".  What bounds this uid is file modes.
 PrivateTmp=true
-# PrivateDevices would hide /dev/ptmx, and the broker allocates a PTY for every
-# child (see docs/redaction.md).  Narrow the device ACL instead of dropping it.
+# PrivateDevices would hide /dev/ptmx, and every child runs on a PTY.  The
+# device ACL is narrowed instead.
 PrivateDevices=false
 DevicePolicy=closed
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
 ReadWritePaths={{.LogDir}}
-# {{.RunDir}} is created by /etc/tmpfiles.d/faramir.conf, NOT by
-# RuntimeDirectory=faramir here.  systemd chowns a RuntimeDirectory recursively
-# whenever the directory's owner does not match the unit's User=, and the three
-# activation sockets live in that directory: the chown rewrites their
-# SocketUser=/SocketGroup= on every start, leaving broker.sock 0660
-# {{.BrokerUser}}:{{.BrokerUser}}, which no {{.Group}} member can reach.  Writable
-# because the broker creates ssh-agent.sock in it.
+# {{.RunDir}} is created by /etc/tmpfiles.d/faramir.conf, not by
+# RuntimeDirectory= here: systemd chowns a RuntimeDirectory recursively, which
+# would rewrite the three activation sockets' SocketUser=/SocketGroup= on every
+# start.  Writable because the broker creates ssh-agent.sock in it.
 #
-# Leading "-": with the directory owned by tmpfiles rather than by this unit, an
-# absent {{.RunDir}} would otherwise fail the unit with a mount-namespace error
-# at startup instead of the broker reporting what is wrong.
+# Leading "-": an absent {{.RunDir}} would otherwise fail the unit with a
+# mount-namespace error rather than the broker reporting what is wrong.
 ReadWritePaths=-{{.RunDir}}
 # The broker's home: SSH keys for managed hosts, and ~/.ansible/tmp, which
-# ansible-playbook creates unconditionally.  It lives here rather than under
-# /home because a service account's state belongs there, not in /home.
+# ansible-playbook creates unconditionally.
 StateDirectory={{.BrokerUser}}
 LogsDirectory=faramir
-# 0750, not the 0755 systemd applies by default.  The log file is 0600 whatever
-# this says, so contents were never exposed, but a world-traversable directory
-# hands every account on the host the log's existence, size and mtime, which is
-# how often the agent ran and roughly how much came back.  systemd reapplies
-# this on every start, so it is the only place the mode can be set and hold.
+# 0750, not systemd's default 0755: a world-traversable directory hands every
+# account the log's size and mtime.  systemd reapplies this on every start, so
+# it is the only place the mode holds.
 LogsDirectoryMode=0750
 # Two descriptors per relayed ssh-agent connection, and a playbook authenticates
-# to as many hosts at once as -f allows; the default 1024 is not much headroom
-# once Ansible's own children are counted.
+# to as many hosts at once as -f allows.
 LimitNOFILE=8192
-# AF_INET/AF_INET6/AF_NETLINK are required: the broker runs Ansible over SSH.
+# AF_INET/AF_INET6/AF_NETLINK: the broker runs Ansible over SSH.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallFilter=@system-service
 SystemCallArchitectures=native
@@ -113,47 +88,33 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 RemoveIPC=true
-# 0077: this process no longer creates files anything else has to read.  The
-# working tree is written by the agent and by the executor, each under its own
-# umask; the audit log sets an explicit 0600 in internal/audit rather than on
-# this.
+# 0077: this process creates nothing anything else has to read.  The audit log
+# sets an explicit 0600 in internal/audit.
 UMask=0077
 
 # systemd-analyze security faramir-broker.service -> 1.7 OK (systemd 255)
 #
-# Every remaining exposure item, and why it is accepted:
+# Every remaining exposure item, and why it is accepted.  Anything flagged that
+# is NOT on this list is a regression.
 #
-#   PrivateNetwork=, IPAddressDeny=, RestrictAddressFamilies=~AF_(INET|INET6),
-#   RestrictAddressFamilies=~AF_NETLINK
-#       The broker runs Ansible over SSH, so it needs the network and name
-#       resolution.  Egress control is an explicit non-goal of this project.
+#   PrivateNetwork=, IPAddressDeny=, RestrictAddressFamilies=~AF_(INET|INET6|NETLINK)
+#       Ansible over SSH needs the network; egress control is a non-goal.
 #   PrivateDevices=, DeviceAllow=
-#       Every child runs on a PTY, which needs /dev/ptmx and char-pts.  The
-#       device ACL is narrowed to exactly those rather than left open.
+#       Every child runs on a PTY, so /dev/ptmx and char-pts, narrowed to those.
 #   RestrictAddressFamilies=~AF_UNIX
-#       That is the broker's own listening socket.
+#       The broker's own listening socket.
 #   SupplementaryGroups=
-#       {{.ExecUser}}, so the broker can chown the ssh-agent socket to the uid that
-#       uses it.  Not {{.StoreGroup}}: the managed files are the keeper's to open.
+#       {{.ExecUser}}, to chown the ssh-agent socket.  Not {{.StoreGroup}}.
 #   ProtectHome=
-#       Removed.  It hid other users' homes from a process that file modes
-#       already keep out of them, and cost a bind mount whose path had to agree
-#       with the config.  See "Architecture" in the README.
+#       See above: file modes already bound this uid.
 #   SystemCallFilter=~@privileged, ~@resources
-#       Both are inside @system-service.  Ansible's file/user modules call
-#       chown and friends; dropping these breaks ordinary playbooks.
+#       Both inside @system-service; ansible's file and user modules need them.
 #   PrivateUsers=
-#       Would map every other uid to nobody, including the agent uid that owns
-#       the working tree.
+#       Would map the agent uid that owns the working tree to nobody.
 #   MemoryDenyWriteExecute=
-#       Children are arbitrary operator-chosen programs; a broker that refuses to
-#       run the operator's tooling gets switched off, which is worse.
+#       Children are arbitrary operator-chosen programs.
 #   RootDirectory=/RootImage=
-#       Containers were considered and rejected -- see "Architecture" in the
-#       README.
-#
-# Anything flagged here that is NOT on this list is a regression: investigate
-# it before accepting it.
+#       Containers were considered and rejected; see the README.
 
 [Install]
 WantedBy=multi-user.target

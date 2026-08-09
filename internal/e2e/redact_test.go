@@ -17,7 +17,7 @@ func guardRewrite(t *testing.T, cliPath, command string) string {
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": command},
 	})
-	// The hook is `faramir guard`, the same binary the settings file registers.
+	// The same binary the settings file registers.
 	hook := exec.Command(cliPath, "guard")
 	hook.Stdin = strings.NewReader(string(payload))
 	wrap, err := filepath.Abs("../../agent/hooks/wrap.sh")
@@ -45,9 +45,8 @@ func guardRewrite(t *testing.T, cliPath, command string) string {
 	return decoded.Hook.UpdatedInput.Command
 }
 
-// The rewrite has to survive being run for real, in one shell, twice: that is
-// how the agent's Bash tool works, and it is where a wrapper that uses a
-// subshell or a pipeline silently loses the session's state.
+// Run for real, in one shell, twice, as the agent's Bash tool does: a wrapper
+// using a subshell or a pipeline loses the session's state here.
 func TestTheRewrittenCommandRedactsAndKeepsShellState(t *testing.T) {
 	h := newHarness(t)
 	cli := faramirCLI(t)
@@ -70,7 +69,7 @@ func TestTheRewrittenCommandRedactsAndKeepsShellState(t *testing.T) {
 	if !strings.Contains(got, token) {
 		t.Errorf("output = %q, want the %s token", got, token)
 	}
-	// The state the first command set has to reach the second one.
+	// The state the first command set reaches the second.
 	if !strings.Contains(got, "pwd=/var") {
 		t.Errorf("output = %q, want cd to have persisted to the next command", got)
 	}
@@ -79,9 +78,8 @@ func TestTheRewrittenCommandRedactsAndKeepsShellState(t *testing.T) {
 	}
 }
 
-// runWrapped runs a rewritten command the way the agent's shell would, with
-// stdout and stderr kept apart: what the agent reads is stdout, and the whole
-// point of failing closed is that unredacted text never reaches it.
+// runWrapped runs a rewritten command the way the agent's shell would, keeping
+// stdout and stderr apart: the agent reads stdout.
 func runWrapped(t *testing.T, rewritten string, env ...string) (stdout, stderr string, code int) {
 	t.Helper()
 	session := exec.Command("bash", "-c", rewritten)
@@ -100,10 +98,8 @@ func runWrapped(t *testing.T, rewritten string, env ...string) (stdout, stderr s
 	return out.String(), errs.String(), code
 }
 
-// Output that could not be redacted is withheld rather than shown.  A broker
-// that is not there is the ordinary way this happens, and printing the raw
-// output then would put into the agent's context exactly what the wrapper
-// exists to keep out of it.
+// Output that could not be redacted is withheld rather than shown; a broker that
+// is not there is the ordinary way this happens.
 func TestTheWrapperWithholdsOutputItCouldNotRedact(t *testing.T) {
 	cli := faramirCLI(t)
 	rewritten := guardRewrite(t, cli, "echo leaked:"+routerPassword)
@@ -121,22 +117,21 @@ func TestTheWrapperWithholdsOutputItCouldNotRedact(t *testing.T) {
 		t.Errorf("stderr = %q, want it to say the output was withheld", stderr)
 	}
 	// Withholding and reporting success would read as a command that printed
-	// nothing, which is how a broken redactor goes unnoticed.
+	// nothing.
 	if code == 0 {
 		t.Error("a withheld output was reported as a clean success")
 	}
 }
 
-// With nowhere to capture output there is nothing to redact, so the command
-// does not run at all.  Running it would send its output straight through.
+// With nowhere to capture output the command does not run at all, running it
+// being output sent straight through.
 func TestTheWrapperDoesNotRunACommandItCannotCapture(t *testing.T) {
 	h := newHarness(t)
 	cli := faramirCLI(t)
 	marker := filepath.Join(t.TempDir(), "ran")
 	rewritten := guardRewrite(t, cli, "echo "+routerPassword+" > "+marker)
 
-	// mktemp is what the wrapper has to have; shadow it rather than simulate a
-	// full /dev/shm.
+	// Shadow mktemp rather than simulate a full /dev/shm.
 	shim := t.TempDir()
 	if err := os.WriteFile(filepath.Join(shim, "mktemp"),
 		[]byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
@@ -160,8 +155,8 @@ func TestTheWrapperDoesNotRunACommandItCannotCapture(t *testing.T) {
 	}
 }
 
-// A failing command has to keep failing, or every check an agent runs reads as
-// a pass.
+// A failing command keeps failing, or every check an agent runs reads as a
+// pass.
 func TestTheRewrittenCommandKeepsTheExitCode(t *testing.T) {
 	h := newHarness(t)
 	cli := faramirCLI(t)
@@ -182,8 +177,8 @@ func TestTheRewrittenCommandKeepsTheExitCode(t *testing.T) {
 	}
 }
 
-// The temporary file the wrapper writes must not be left behind holding
-// unredacted output.
+// The wrapper's temporary file must not be left behind holding unredacted
+// output.
 func TestTheRewriteLeavesNoTemporaryFile(t *testing.T) {
 	h := newHarness(t)
 	dir := t.TempDir()
@@ -205,8 +200,8 @@ func TestTheRewriteLeavesNoTemporaryFile(t *testing.T) {
 	}
 }
 
-// The redact op is what gives a session outside the broker's uid the same
-// redaction a brokered command gets.  Text in, tokens out.
+// The redact op gives a session outside the broker's uid the same redaction a
+// brokered command gets.
 func TestRedactOpTokenizesAValueTheCallerAlreadyHolds(t *testing.T) {
 	h := newHarness(t)
 	r := h.call(t, map[string]any{
@@ -234,8 +229,8 @@ func TestRedactOpReturnsNoValue(t *testing.T) {
 	if r.Error != nil {
 		t.Fatalf("redact: %s", r.Error.Message)
 	}
-	// Unchanged exactly: anything the redactor appended would be the value set
-	// describing itself in a response about text that never held one.
+	// Unchanged exactly: anything appended would be the value set describing
+	// itself.
 	if r.Output != "nothing to see" {
 		t.Errorf("output = %q, want it unchanged", r.Output)
 	}
@@ -266,9 +261,8 @@ func TestCLIRedactFiltersStdin(t *testing.T) {
 	}
 }
 
-// The wrapper shape: what the PreToolUse hook rewrites a command into.  Both
-// streams are covered, because a command that prints a credential to stderr
-// leaks exactly as far as one that prints it to stdout.
+// The wrapper shape: what the hook rewrites a command into.  Both streams, a
+// credential on stderr leaking as far as one on stdout.
 func TestCLIRedactWrapsACommandAndCoversBothStreams(t *testing.T) {
 	h := newHarness(t)
 	r := runCLI(t, h.brokerSock, "redact", "--",
@@ -281,8 +275,7 @@ func TestCLIRedactWrapsACommandAndCoversBothStreams(t *testing.T) {
 	}
 }
 
-// A wrapper that swallows the child's exit status would make every failure look
-// like a success to whatever reads it.
+// A swallowed exit status makes every failure look like a success.
 func TestCLIRedactPreservesTheChildExitCode(t *testing.T) {
 	h := newHarness(t)
 	if r := runCLI(t, h.brokerSock, "redact", "--", "bash", "-lc", "exit 42"); r.code != 42 {
@@ -293,9 +286,8 @@ func TestCLIRedactPreservesTheChildExitCode(t *testing.T) {
 	}
 }
 
-// An unreachable broker must not break the command it wraps.  A wrapper that
-// fails closed here is a wrapper that gets removed, and a removed wrapper
-// redacts nothing at all.
+// An unreachable broker must not break the command it wraps: a wrapper that
+// fails closed here is one that gets removed.
 func TestCLIRedactPassesOutputThroughWhenTheBrokerIsGone(t *testing.T) {
 	r := runCLI(t, "/nonexistent/broker.sock", "redact", "--", "bash", "-lc", "echo still-ran; exit 7")
 	if !strings.Contains(r.stdout, "still-ran") {
@@ -309,9 +301,8 @@ func TestCLIRedactPassesOutputThroughWhenTheBrokerIsGone(t *testing.T) {
 	}
 }
 
-// One line longer than a chunk must not disable redaction for everything after
-// it.  ansible -vvv result dicts, minified JSON and lockfiles are all one long
-// line, and they are exactly the output most likely to carry a credential.
+// One long line must not disable redaction for everything after it: ansible -vvv
+// result dicts, minified JSON and lockfiles are all one line.
 func TestALineLongerThanAChunkIsStillRedacted(t *testing.T) {
 	h := newHarness(t)
 	long := strings.Repeat("x", 200_000)
@@ -331,8 +322,6 @@ func TestALineLongerThanAChunkIsStillRedacted(t *testing.T) {
 }
 
 // A brokered command runs where its caller was, not where a config file says.
-// Without this the same "faramir run make" builds a different checkout
-// depending on a setting nobody looked at.
 func TestTheCLIRunsInTheCallersDirectory(t *testing.T) {
 	h := newHarness(t)
 	elsewhere := t.TempDir()
@@ -345,14 +334,14 @@ func TestTheCLIRunsInTheCallersDirectory(t *testing.T) {
 		t.Fatalf("faramir run: %v", err)
 	}
 	got := strings.TrimSpace(string(out))
-	// The harness resolves symlinks in its temp dir, so compare what the shell
-	// reports against the same resolution rather than the raw path.
+	// The harness resolves symlinks in its temp dir, so compare against the
+	// same resolution.
 	if !strings.HasSuffix(got, filepath.Base(elsewhere)) {
 		t.Errorf("ran in %q, want the caller's directory %q", got, elsewhere)
 	}
 }
 
-// -C still wins: an explicit directory is the caller being specific.
+// -C wins: an explicit directory is the caller being specific.
 func TestTheCLIHonoursAnExplicitDirectory(t *testing.T) {
 	h := newHarness(t)
 	elsewhere, explicit := t.TempDir(), t.TempDir()

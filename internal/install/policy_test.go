@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-// rulePatterns pulls every argsPattern out of the rendered policy file, keyed
-// by the tool it applies to.  Parsed rather than asserted on as text: a rule
-// that does not compile is a rule Gemini drops, and a deny that was dropped is
-// indistinguishable from one that never matched.
+// rulePatterns pulls every argsPattern out of the rendered policy file, keyed by
+// tool.  Parsed rather than compared as text: a rule that does not compile is
+// one Gemini drops.
 func rulePatterns(t *testing.T) map[string][]*regexp.Regexp {
 	t.Helper()
 	body, err := render("agent/gemini/policies.toml.tmpl", testLayout())
@@ -40,8 +39,8 @@ func rulePatterns(t *testing.T) map[string][]*regexp.Regexp {
 	return out
 }
 
-// matches reports whether any rule for the tool fires on these arguments,
-// serialised the way Gemini serialises them before matching.
+// matches reports whether any rule for the tool fires, serialised the way Gemini
+// serialises before matching.
 func matches(t *testing.T, rules map[string][]*regexp.Regexp, tool string, args map[string]any) bool {
 	t.Helper()
 	body, err := json.Marshal(args)
@@ -56,9 +55,8 @@ func matches(t *testing.T, rules map[string][]*regexp.Regexp, tool string, args 
 	return false
 }
 
-// The paths worth refusing, and the ones that must still open. A rule that
-// refuses everything is as useless as one that refuses nothing: the operator
-// turns it off.
+// The paths worth refusing, and the ones that must still open: a rule that
+// refuses everything gets turned off.
 func TestGeminiPolicyRefusesKeyMaterial(t *testing.T) {
 	rules := rulePatterns(t)
 	for _, tool := range []string{"read_file", "write_file", "replace"} {
@@ -74,8 +72,7 @@ func TestGeminiPolicyRefusesKeyMaterial(t *testing.T) {
 				"/etc/ssl/private/site.pem",
 				"/home/op/creds/credentials",
 				// This install's own directories, which testLayout moves off
-				// their defaults: naming the compiled ones would protect a
-				// directory that does not exist here.
+				// their defaults.
 				"/opt/conf/config.toml",
 				"/opt/conf/store/x.sops.yml",
 			} {
@@ -86,7 +83,7 @@ func TestGeminiPolicyRefusesKeyMaterial(t *testing.T) {
 			for _, path := range []string{
 				"/srv/app/main.go",
 				"/srv/app/README.md",
-				// Holds refs, never values, and is meant to be read.
+				// Refs, never values, and meant to be read.
 				"/srv/app/faramir.env",
 				"/srv/app/docs/keychain.md",
 			} {
@@ -98,8 +95,8 @@ func TestGeminiPolicyRefusesKeyMaterial(t *testing.T) {
 	}
 }
 
-// read_many_files takes include globs rather than a path, so a deny covering
-// only read_file would leave the tool that reads a directory at once.
+// read_many_files takes globs, so a deny covering only read_file would leave
+// the tool that reads a directory at once.
 func TestGeminiPolicyCoversReadManyFiles(t *testing.T) {
 	rules := rulePatterns(t)
 	if len(rules["read_many_files"]) == 0 {

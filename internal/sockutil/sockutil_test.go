@@ -24,10 +24,9 @@ func pipeWriting(t *testing.T, body string) net.Conn {
 	return reader
 }
 
-// The limit is [server] max_request_bytes, and it bounds what an unauthenticated
-// read will allocate.  Reported as ErrTooLarge rather than as a short line: the
-// broker answers this one with too_large, which is a distinct thing for a caller
-// to be told, and a truncated line would instead parse as a malformed request.
+// [server] max_request_bytes bounds what an unauthenticated read allocates.
+// ErrTooLarge rather than a short line: the broker answers with too_large, where
+// a truncated line would parse as a malformed request.
 func TestReadLineRefusesALineOverTheLimit(t *testing.T) {
 	_, err := ReadLine(pipeWriting(t, strings.Repeat("x", 200)+"\n"), 64)
 	if !errors.Is(err, ErrTooLarge) {
@@ -40,16 +39,14 @@ func TestReadLineReturnsALineInsideTheLimit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The first line only, and without its newline: the rest of the connection
-	// is not this request.
+	// The first line only, without its newline.
 	if string(line) != `{"op":"status"}` {
 		t.Errorf("line = %q", line)
 	}
 }
 
-// A request that ends without a newline is still a request.  The CLI closes its
-// write half rather than terminating the line, so refusing this would refuse
-// every call it makes.
+// The CLI closes its write half rather than terminating the line, so refusing
+// this would refuse every call it makes.
 func TestReadLineAcceptsALineEndedByEOF(t *testing.T) {
 	line, err := ReadLine(pipeWriting(t, `{"op":"status"}`), 64)
 	if err != nil {
@@ -79,9 +76,8 @@ func TestAListedUIDIsAllowed(t *testing.T) {
 	}
 }
 
-// The group a peer is in is usually a *supplementary* one -- dev is
-// granted with usermod -aG, so it is never the primary gid.  Checking only the
-// gid would make every allowed_groups entry silently ineffective.
+// The group is usually a supplementary one, granted with usermod -aG, so
+// checking the gid alone would make allowed_groups ineffective.
 func TestSupplementaryGroupMembershipIsHonoured(t *testing.T) {
 	self, err := user.Current()
 	if err != nil {
@@ -99,8 +95,7 @@ func TestSupplementaryGroupMembershipIsHonoured(t *testing.T) {
 			continue
 		}
 		if g, err := user.LookupGroupId(gid); err == nil {
-			// Only a group we are in by name in /etc/group proves the point;
-			// the gid path is already covered by the primary-gid check.
+			// A group we are in by name; the gid path is covered above.
 			for _, member := range groupMembers(g.Name) {
 				if member == self.Username {
 					group = g.Name
@@ -112,12 +107,11 @@ func TestSupplementaryGroupMembershipIsHonoured(t *testing.T) {
 		t.Skip("this user has no supplementary group listed in /etc/group")
 	}
 
-	// A gid that is deliberately not ours, so only the member list can match.
+	// Not our gid, so only the member list can match.
 	uid, _ := strconv.Atoi(self.Uid)
 	peer := &Peer{UID: int32(uid), GID: 65500}
 	if os.Getuid() == uid {
-		// Allowed short-circuits on our own uid, so exercise the group check
-		// directly rather than through it.
+		// Allowed short-circuits on our own uid.
 		if !inAnyGroup(peer, []string{group}) {
 			t.Errorf("supplementary membership of %s was not honoured", group)
 		}
@@ -128,8 +122,8 @@ func TestSupplementaryGroupMembershipIsHonoured(t *testing.T) {
 	}
 }
 
-// unusedUID returns a uid that is neither root nor ours, so the
-// short-circuits in Allowed do not decide the test for us.
+// unusedUID is neither root nor ours, so Allowed's short-circuits do not decide
+// the test.
 func unusedUID(t *testing.T) int32 {
 	t.Helper()
 	for uid := int32(60000); uid < 60100; uid++ {

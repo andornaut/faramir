@@ -9,8 +9,7 @@ import (
 	"testing"
 )
 
-// Naming no agent enrols Claude Code, so a command written before --agent
-// existed keeps doing what it did.
+// Naming no agent enrols Claude Code.
 func TestAgentsDefaultToClaude(t *testing.T) {
 	got, err := resolveAgents(nil)
 	if err != nil {
@@ -21,17 +20,16 @@ func TestAgentsDefaultToClaude(t *testing.T) {
 	}
 }
 
-// An unknown name stops the run rather than being skipped. A run that enrolled
-// nothing and mentioned it in a line nobody read leaves an operator believing a
-// project is covered when it is not.
+// An unknown name stops the run rather than being skipped, which would leave a
+// project the operator believes is covered.
 func TestUnknownAgentIsRefused(t *testing.T) {
 	if _, err := resolveAgents([]string{"claude", "nosuchagent"}); err == nil {
 		t.Error("an unknown agent was accepted")
 	}
 }
 
-// Repeats collapse: enrolling the same agent twice writes its files twice and
-// reports the second as unchanged, which reads as a failure to write.
+// Repeats collapse: writing twice reports the second as unchanged, which reads
+// as a failure to write.
 func TestAgentsDeduplicate(t *testing.T) {
 	got, err := resolveAgents([]string{"gemini", "claude", "gemini"})
 	if err != nil {
@@ -46,10 +44,8 @@ func TestAgentsDeduplicate(t *testing.T) {
 	}
 }
 
-// What enrolling costs differs by agent, and the warning a run prints has to be
-// the truth for the agent it just enrolled. On Claude Code a rewritten command
-// matches no permission rule and the hook must approve it; on Gemini CLI there
-// is no approval to give, so the prompts are untouched.
+// What enrolling costs differs by agent: Claude Code's hook must approve a
+// rewritten command, Gemini CLI has no approval to give.
 func TestOnlyClaudeAutoApprovesBash(t *testing.T) {
 	if !agentTargets["claude"].autoApprovesBash {
 		t.Error("claude does not record that it auto-approves Bash")
@@ -59,8 +55,8 @@ func TestOnlyClaudeAutoApprovesBash(t *testing.T) {
 	}
 }
 
-// Every descriptor names assets that exist. A typo here is an enrolment that
-// fails after the tree's ownership has already been changed.
+// A typo here is an enrolment that fails after the tree's ownership has already
+// changed.
 func TestAgentAssetsExist(t *testing.T) {
 	for name, target := range agentTargets {
 		if len(target.files) == 0 {
@@ -77,9 +73,8 @@ func TestAgentAssetsExist(t *testing.T) {
 	}
 }
 
-// Every file faramir merges into has to be JSON, since that is what the merge
-// parses. A .tmpl among them is rendered first: an interpolated path holding a
-// quote or a backslash would be a file the agent cannot load.
+// Every merged file has to be JSON.  A .tmpl is rendered first, an interpolated
+// path holding a quote or backslash being a file the agent cannot load.
 func TestMergedAgentAssetsAreJSON(t *testing.T) {
 	layout := testLayout()
 	for name, target := range agentTargets {
@@ -99,10 +94,8 @@ func TestMergedAgentAssetsAreJSON(t *testing.T) {
 	}
 }
 
-// The plugin agents are told which dialect to ask for, in a file that ships
-// beside the guard rather than being generated from it. A name that does not
-// match the target is a plugin the guard refuses to answer, and by failing
-// closed that is every command in the project.
+// The plugin ships beside the guard rather than being generated from it, so a
+// name that does not match the target fails closed on every command.
 func TestPluginAssetsNameTheirOwnHost(t *testing.T) {
 	for name, target := range agentTargets {
 		for _, file := range target.files {
@@ -120,9 +113,8 @@ func TestPluginAssetsNameTheirOwnHost(t *testing.T) {
 	}
 }
 
-// The account-level rules refuse this install's own directories, not the
-// compiled defaults: a host whose config and store were moved into a home would
-// otherwise have a rule protecting a directory that does not exist.
+// This install's own directories, not the compiled defaults, which on a moved
+// config would protect a directory that does not exist.
 func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
 	layout := testLayout()
 	for _, name := range []string{"opencode", "kilocode"} {
@@ -136,8 +128,8 @@ func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
 					t.Errorf("%s: %s does not refuse %s", name, file.asset, dir)
 				}
 			}
-			// A refs file is meant to be read: it names secrets and holds none.
-			// The dotenv rules are anchored on the dot for that reason.
+			// A refs file names secrets and holds none, which is why the dotenv
+			// rules are anchored on the dot.
 			if strings.Contains(string(body), `"*.env`) {
 				t.Errorf("%s: %s refuses any name ending in .env, which includes faramir.env",
 					name, file.asset)
@@ -146,10 +138,8 @@ func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
 	}
 }
 
-// The account-level rules are keys inside a config the operator owns, not a
-// file of faramir's, and on these agents they are an object of patterns rather
-// than a list. A merge that dropped a sibling key would take away a permission
-// rule, an MCP server or a model the operator configured.
+// Keys inside a config the operator owns, as an object of patterns: a merge
+// that dropped a sibling would take away a rule, a server or a model.
 func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
 	ours, err := render("agent/opencode/permissions.json.tmpl", testLayout())
 	if err != nil {
@@ -173,24 +163,21 @@ func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
 		t.Errorf("the operator's bash rules were lost: %s", merged)
 	}
 	read := permission["read"].(map[string]any)
-	// Their catch-all survives, and faramir writes none of its own: a default
-	// this is not entitled to loosen or tighten.
+	// Their catch-all survives, and faramir writes none of its own.
 	if read["*"] != "allow" {
 		t.Errorf("the operator's catch-all was lost: %s", merged)
 	}
 	if read["*age.key"] != "deny" {
 		t.Errorf("faramir's rules were not added: %s", merged)
 	}
-	// Where the two name the same pattern faramir's wins, and everything else
-	// of theirs is carried through.
+	// faramir's wins on a shared pattern; the rest is carried through.
 	if read["src/*.key"] != "allow" {
 		t.Errorf("an unrelated rule of the operator's was changed: %s", merged)
 	}
 }
 
-// Detection reports a tree that is configured for an agent, which is not the
-// same as one faramir has already written to: an opencode project has its own
-// directory long before it has the plugin file this installs.
+// Configured for an agent is not the same as written to by faramir: an opencode
+// project has its directory long before the plugin file.
 func TestDetectionFindsAnAgentsOwnConfiguration(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte("{}\n"), 0o644); err != nil {
@@ -204,9 +191,8 @@ func TestDetectionFindsAnAgentsOwnConfiguration(t *testing.T) {
 	}
 }
 
-// Detection reports and never enrols. A directory left behind by trying an
-// agent once is not a decision to enrol it, and on some agents enrolling trades
-// away every Bash prompt in the project.
+// Detection reports and never enrols: a directory left behind by trying an
+// agent is not a decision to enrol it.
 func TestDetectionFindsAgentDirectoriesWithoutEnrolling(t *testing.T) {
 	dir := t.TempDir()
 	if got := detectedAgents(dir); len(got) != 0 {
@@ -218,8 +204,7 @@ func TestDetectionFindsAgentDirectoriesWithoutEnrolling(t *testing.T) {
 	if got := detectedAgents(dir); !reflect.DeepEqual(got, []string{"gemini"}) {
 		t.Errorf("detectedAgents = %v, want [gemini]", got)
 	}
-	// Still not enrolled: detection feeds a report, and resolveAgents is what
-	// decides, from what the operator asked for.
+	// Detection feeds a report; resolveAgents decides.
 	targets, err := resolveAgents(nil)
 	if err != nil {
 		t.Fatal(err)

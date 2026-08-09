@@ -12,17 +12,15 @@ import (
 )
 
 // renderFuncs are for templates whose output is matched against rather than
-// read: the deny patterns are regexes, so a path interpolated into one has to
-// arrive with its dots and dashes quoted.  An unquoted "/etc/faramir" is a
-// pattern where "." matches any character, which is loose rather than wrong;
-// an unquoted path containing "+" or "(" would not compile at all.
+// read: the deny patterns are regexes, so an interpolated path arrives quoted.
+// Unquoted, "." matches any character and a path containing "+" or "(" would
+// not compile.
 var renderFuncs = template.FuncMap{
 	"regexQuote": regexp.QuoteMeta,
 }
 
-// units maps each installed file name to its embedded template.  The sockets
-// and the services are one map because they are written, reloaded and removed
-// together; nothing reads one without the other.
+// units maps each installed file name to its embedded template.  One map,
+// sockets and services being written, reloaded and removed together.
 var units = map[string]string{
 	"faramir-broker.service": "systemd/faramir-broker.service.tmpl",
 	"faramir-broker.socket":  "systemd/faramir-broker.socket.tmpl",
@@ -32,8 +30,7 @@ var units = map[string]string{
 	"faramir-exec.socket":    "systemd/faramir-exec.socket.tmpl",
 }
 
-// unitNames is units' keys in a fixed order, so a run's output and its steps do
-// not reshuffle between invocations.
+// unitNames is units' keys in a fixed order.
 func unitNames() []string {
 	names := make([]string, 0, len(units))
 	for name := range units {
@@ -43,12 +40,9 @@ func unitNames() []string {
 	return names
 }
 
-// render executes one embedded template against a layout.
-//
-// The templates are the shipped files themselves rather than a separate set,
-// so what is read to understand the install is what the install writes.  A
-// field named in one and absent from Layout is a build-time failure in the
-// tests below, not a directive systemd silently ignores at runtime.
+// render executes one embedded template against a layout.  The templates are
+// the shipped files themselves, and a field named in one and absent from Layout
+// fails in the tests below rather than being ignored at runtime.
 func render(assetPath string, layout Layout) ([]byte, error) {
 	text, err := faramir.Assets.ReadFile(assetPath)
 	if err != nil {

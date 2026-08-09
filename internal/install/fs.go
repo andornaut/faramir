@@ -15,51 +15,37 @@ import (
 const keep = -1
 
 // fsys is the filesystem side of an install.  Every method reports whether it
-// changed anything, which is what makes a run's output usable by a
-// configuration manager: the scripts this replaces printed prose, so the caller
-// had to stat the host before and after and guess.
-//
-// With dryRun set each method computes the same answer and writes nothing.
+// changed anything, so a configuration manager need not stat the host before and
+// after.  With dryRun set each computes the same answer and writes nothing.
 type fsys struct{ dryRun bool }
 
 // ensureDir creates a directory if it is absent and asserts its mode and
-// ownership if it is not.
-//
-// own=false leaves an existing directory's mode and ownership alone.  That is
-// for the ones the operator may have set up themselves: a config directory
-// inside their own home comes back root-owned and no longer theirs to edit if
-// this re-applies to it unconditionally.
+// ownership if it is not.  own=false leaves an existing one alone, for the
+// directories the operator may have set up themselves.
 func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (bool, error) {
 	info, err := os.Stat(path)
 	switch {
-	// A dry run is the one case that legitimately runs unprivileged, and a
-	// directory it cannot look inside is one it cannot answer for.  Reported as
-	// no change rather than as a failure, so the rest of the report still gets
-	// produced.
+	// A dry run runs unprivileged and cannot answer for a directory it cannot
+	// look inside.  Reported as no change, so the rest still gets produced.
 	case f.dryRun && errors.Is(err, os.ErrPermission):
 		return false, nil
 	case errors.Is(err, os.ErrNotExist):
 		if f.dryRun {
 			return true, nil
 		}
-		// Every directory MkdirAll has to create, not just the leaf.  An
-		// intermediate left root-owned at 0700 is a path its owner cannot
-		// traverse: ~/.config/sops created that way puts the operator's own age
-		// identity out of their reach, and sops then reports only that it found
-		// no key.
+		// Every directory MkdirAll creates, not just the leaf: an intermediate
+		// left root-owned at 0700 is one its owner cannot traverse.
 		//
-		// The ancestors take the ownership but not the mode: 0755, which is
-		// traversal and nothing more.  A store at /srv/faramir/secrets asks for
-		// 2770 with the shared group, and applying that to /srv/faramir as well
-		// would hand the uid every brokered command runs as write and rename on
-		// the store's own parent, which is the store.
+		// The ancestors take the ownership but not the mode, 0755 being
+		// traversal and nothing more: a store's 2770 applied to its parent
+		// would hand write and rename on the store to every brokered
+		// command.
 		created := missingAncestors(path)
 		if err := os.MkdirAll(path, mode); err != nil {
 			return false, err
 		}
 		for _, dir := range created {
-			// MkdirAll applies the umask and ignores setgid, so the mode is set
-			// again explicitly.
+			// MkdirAll applies the umask and ignores setgid.
 			ancestorMode := os.FileMode(0o755)
 			if dir == path {
 				ancestorMode = mode
@@ -96,9 +82,7 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 }
 
 // ensureOwnership fixes an existing file's owner, group and mode without
-// touching its contents.  Used where a file was written under an earlier layout
-// and has to be handed to a different account: rewriting it is not an option
-// when only the account that owns it can read what is inside.
+// touching its contents, for a file only its owner can read.
 func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -120,9 +104,8 @@ func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool
 	return true, chown(path, uid, gid)
 }
 
-// mergeFile merges faramir's keys into a JSON file that is already there, and
-// writes data whole when there is none.  Owned, reported and written through a
-// rename exactly as writeFile does, which is what it hands the result to.
+// mergeFile merges faramir's keys into an existing JSON file, or writes data
+// whole.  Handed to writeFile, so it is owned and renamed the same way.
 func (f fsys) mergeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
 	current, err := os.ReadFile(path)
 	switch {
@@ -138,9 +121,8 @@ func (f fsys) mergeFile(path string, data []byte, mode os.FileMode, uid, gid int
 	return f.writeFile(path, merged, mode, uid, gid)
 }
 
-// writeFile writes data when the file is absent or its contents differ.
-// Compared by content rather than by mtime so a re-run of an unchanged install
-// reports nothing.
+// writeFile writes data when the file is absent or differs.  Compared by
+// content, so an unchanged re-run reports nothing.
 func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
 	current, err := os.ReadFile(path)
 	if err == nil && bytes.Equal(current, data) {
@@ -161,9 +143,8 @@ func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int
 	if f.dryRun {
 		return true, nil
 	}
-	// Written to a temporary file and renamed, never truncated in place: a
-	// failed write would otherwise leave an empty config behind, and a caller
-	// that keeps whatever it finds would preserve it forever.
+	// Written and renamed, never truncated in place: a failed write would leave
+	// an empty config that a caller keeping what it finds preserves forever.
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
 	if err != nil {
 		return false, err
@@ -216,11 +197,10 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// probe is exists with a third answer.  known is false when the question cannot
-// be settled without more privilege than the caller has, which happens only
-// under a dry run: the real thing runs as root and can stat anything.  Reporting
-// "not there" for a key sitting behind a 0700 directory would tell an operator
-// their key is about to be regenerated when it is not.
+// probe is exists with a third answer: known is false when the question needs
+// more privilege than the caller has, which only happens under a dry run.
+// "not there" for a key behind a 0700 directory would read as a key about to be
+// regenerated.
 func probe(path string) (present, known bool) {
 	switch _, err := os.Stat(path); {
 	case err == nil:
@@ -258,9 +238,8 @@ func deviceOf(info os.FileInfo) uint64 {
 	return stat.Dev
 }
 
-// lookupUser and lookupGroup resolve a name to an id.  Separated from the steps
-// that use them so a missing account is reported as the account it is rather
-// than as whatever the next syscall returned.
+// lookupUser and lookupGroup resolve a name to an id, so a missing account is
+// reported as itself rather than as whatever the next syscall returned.
 func lookupUser(name string) (int, error) {
 	entry, err := user.Lookup(name)
 	if err != nil {
@@ -278,7 +257,7 @@ func lookupGroup(name string) (int, error) {
 }
 
 // userExists and groupExists answer without turning a missing entry into an
-// error, which is what the account step needs to decide whether to create one.
+// error.
 func userExists(name string) bool {
 	_, err := user.Lookup(name)
 	return err == nil

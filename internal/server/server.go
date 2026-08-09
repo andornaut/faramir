@@ -1,11 +1,6 @@
-// Package server is the broker daemon.
-//
-// Socket-activated by systemd (LISTEN_FDS); falls back to binding the socket
-// itself when run standalone, which is how the test harness drives it.
-//
-// Concurrency is bounded ([server] max_concurrency) because each brokered
-// command may be a full Ansible run.  Requests over the limit are refused with
-// a clear error rather than queued indefinitely.
+// Package server is the broker daemon.  Socket-activated by systemd
+// (LISTEN_FDS), falling back to binding the socket itself when run standalone.
+// Requests over [server] max_concurrency are refused rather than queued.
 package server
 
 import (
@@ -44,13 +39,9 @@ type Server struct {
 	Audit  *audit.Log
 	Ssh    *sshagent.Agent
 
-	// exec runs one command.  A field rather than a direct call to
-	// executor.Run because everything opExec decides around the child -- the
-	// timeout it settles on, the environment it assembles, the record it
-	// writes, the concurrency limit it enforces -- is broker policy, and
-	// reaching it through a socket, a PTY and a forked process tests the
-	// plumbing instead.  New wires in the real executor; a test substitutes
-	// one that records what it was handed.
+	// exec runs one command.  A field so a test can substitute one that records
+	// what it was handed, rather than reaching broker policy through a socket, a
+	// PTY and a forked process.
 	exec func(*redact.Redactor, func(string), executor.Request) (*executor.Result, error)
 
 	slots chan struct{}
@@ -65,12 +56,9 @@ type Server struct {
 }
 
 // allowRedact reports whether this peer may run one more redact, and records
-// it.  A sliding window rather than a token bucket: what matters is the count
-// over a minute, and a bucket would let a burst through after any quiet spell,
-// which is the shape a probe has.
-//
-// Keyed by uid, not by connection: each request is its own connection, so
-// anything per-connection would count to one every time.
+// it.  A sliding window rather than a token bucket, which would let a burst
+// through after a quiet spell.  Keyed by uid, since each request is its own
+// connection.
 func (s *Server) allowRedact(peer *sockutil.Peer) bool {
 	limit := s.Config.Server.MaxRedactsPerMin
 	if limit <= 0 || peer == nil {
@@ -187,10 +175,8 @@ func (s *Server) serveConnection(conn net.Conn) {
 	_ = sockutil.Send(conn, s.Handle(payload, peer))
 }
 
-// peer performs the SO_PEERCRED check.
-//
-// The socket mode already restricts this to the dev group; this is belt
-// and braces, and it gives the audit log a real uid.
+// peer performs the SO_PEERCRED check.  The socket mode already restricts this
+// to the dev group; this also gives the audit log a real uid.
 func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 	peer, err := sockutil.PeerCred(conn)
 	if err != nil {
@@ -231,10 +217,7 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 func (s *Server) opStatus() protocol.Response {
 	body, _ := json.MarshalIndent(map[string]any{
 		"version": version.Version,
-		// Every file that contributed, in the order they were merged, so the
-		// base config is the first entry and a reader wanting only that one can
-		// take it. A setting that is not what an operator expects is usually a
-		// drop-in they forgot applies.
+		// Every file that contributed, in merge order.
 		"configs": s.Config.Sources,
 		"secrets": s.Store.Describe(),
 	}, "", "  ")
@@ -244,31 +227,16 @@ func (s *Server) opStatus() protocol.Response {
 	}
 }
 
-// opRedact scrubs text the caller already holds.
+// opRedact scrubs text the caller already holds, so a session outside the
+// broker's uid gets the same redaction a brokered command does.  The value set
+// never leaves this process.
 //
-// The value set never leaves this process: the caller sends text and gets it
-// back with every value replaced by its token, which is what lets a session
-// running outside the broker's uid have the same redaction a brokered command
-// gets.  Without it the redactor covers only what the broker itself ran, and
-// everything an agent reads or executes directly is uncovered.
-//
-// It is an oracle, deliberately: a caller can ask about a guessed value and the
-// answer says whether the guess was right.  That is a trade this design accepts
-// -- see docs/design.md -- because the failure it exists to stop is a credential
-// reaching the transcript by accident, and an accident does not guess.
-// [server] max_redacts_per_min bounds how fast one account may ask.  It does
-// not close the oracle, and nothing short of removing the op would; what it
-// buys is that completing a partly-known value stops being free and invisible,
-// at a ceiling the wrapper's one call per Bash command never approaches.
-// Recorded like every other op, because it is the one an oracle attack would
-// use: a caller probing a guessed value leaves a run of redact calls that hit
-// nothing, and without a record there is no trace of it at all.  The text is
-// not logged, only its size and what was found in it, so the record still holds
-// no value and neither confirms nor denies a guess to anyone reading the log.
+// It is a deliberate oracle, bounded by [server] max_redacts_per_min and
+// recorded like every other op; see docs/design.md.  Only the input size and
+// what was found are logged, never the text.
 func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	// Refused rather than delayed.  The wrapper fails closed on an error, so a
-	// caller that trips this gets its output withheld and says so, where a wait
-	// would stall the agent's shell with no explanation.
+	// Refused rather than delayed: a wait would stall the agent's shell with no
+	// explanation.
 	if !s.allowRedact(peer) {
 		logID := audit.NewLogID()
 		log.Printf("%s uid %d is over [server] max_redacts_per_min (%d); refusing",
@@ -297,8 +265,8 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protoc
 }
 
 func (s *Server) opListSecrets() protocol.Response {
-	// Names only, and only refs that were actually loaded: a value the redactor
-	// cannot cover is refused at load and never listed here.
+	// Names only, and only refs that loaded: a value the redactor cannot cover
+	// is refused at load.
 	refs := s.Store.Refs()
 	var output strings.Builder
 	for _, ref := range refs {
@@ -316,24 +284,16 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 
 	cmd, envRefs := request.Cmd, request.EnvRefs
 
-	// No fallback anywhere: a brokered command runs where its caller was, and
-	// nothing else knows where that is.  Every shipped caller sends its own
-	// directory, so a request without one is a client that did not.
+	// No fallback: a brokered command runs where its caller was, and nothing
+	// else knows where that is.
 	cwd := request.Cwd
 	if !request.HasCwd || cwd == "" {
 		return protocol.ErrorResponse("bad_request",
 			"no cwd: name the directory to run in.", logID)
 	}
-	// This stat fails early with a clear message; it enforces nothing.  The uid
-	// that enters the directory is the executor's, and it can hold traversal the
-	// broker does not: a tree shared with a group the executor is in and the
-	// broker is not is reachable by the uid that matters and not by this one.
-	// Refusing on the broker's own EACCES would make that arrangement unusable
-	// for a directory the executor can enter perfectly well.
-	//
-	// So permission is left to the executor, which reports its own failure if it
-	// cannot get there either.  Absence is still refused here, being knowable
-	// from any uid, and worth catching before a child is forked to discover it.
+	// Fails early with a clear message; it enforces nothing.  Permission is left
+	// to the executor, whose uid may hold traversal the broker does not.
+	// Absence is refused here, being knowable from any uid.
 	info, statErr := os.Stat(cwd)
 	switch {
 	case statErr == nil && !info.IsDir():
@@ -346,9 +306,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 
 	argv0Path, err := resolve.Program(cmd[0], cwd, execCfg)
 	if err != nil {
-		// Redacted like every other agent-visible string, and like the output
-		// this log records: "the audit log holds no value" is worth more as a
-		// property with no exceptions than as one with a footnote.
+		// Redacted like every other agent-visible string.
 		record := s.redactor()
 		detail := record.RedactText(err.Error())
 		s.Audit.Write(map[string]any{
@@ -359,15 +317,11 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
 
-	// Resolve secret values.  This is the only place plaintext is touched
-	// outside the store, and it goes straight into the child's environ.  The
-	// age key is not among them: the keeper holds it, and nothing the broker
-	// executes can obtain it.
-	// HOME is left to the executor: the child runs as its uid, not ours.
+	// The only place plaintext is touched outside the store, and it goes
+	// straight into the child's environ.  HOME is left to the executor.
 	env := make(map[string]string, len(execCfg.BaseEnv)+1)
 	maps.Copy(env, execCfg.BaseEnv)
-	// SSH_AUTH_SOCK, when the broker holds the keys in an agent.  The child can
-	// authenticate with them; it cannot read them.
+	// SSH_AUTH_SOCK: the child can authenticate with the keys, not read them.
 	maps.Copy(env, s.Ssh.Env())
 	injected := map[string]string{}
 	for name, uri := range envRefs {
@@ -400,9 +354,8 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 			s.Config.Server.MaxConcurrency), logID)
 	}
 
-	// The value set is every known secret, not only the injected ones: a
-	// managed host can print a credential the broker never injected, and
-	// catching that is the accidental-disclosure guarantee.
+	// Every known secret, not only the injected ones: a managed host can print
+	// one the broker never injected.
 	redactor := redact.New(s.Store.Pairs(), s.Store.Policy)
 	collector := audit.NewCollector(s.Config.Audit.MaxRecordBytes)
 	started := time.Now()
@@ -413,9 +366,8 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		Env:        env,
 		TimeoutSec: timeout,
 	})
-	// Drop the plaintext from this map as soon as the child has it.  The
-	// values live on in the store, which is where they belong; a stale copy
-	// here would outlive the request for no reason.
+	// Drop the plaintext as soon as the child has it; the store keeps the
+	// values.
 	for k := range env {
 		delete(env, k)
 	}
@@ -450,27 +402,20 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 }
 
 // redactor builds a fresh matcher over the whole value set.  Fresh because a
-// Redactor carries per-stream state and per-stream counts; the one the child's
-// output goes through must not be shared with anything else.
+// Redactor carries per-stream state and counts.
 func (s *Server) redactor() *redact.Redactor {
 	return redact.New(s.Store.Pairs(), s.Store.Policy)
 }
 
-// safeDetail is an error message the agent may see.
-//
-// An unexpected error can have interpolated a secret into its message, so it
-// goes through the redactor like every other agent-visible string.
+// safeDetail is an error message the agent may see, so it goes through the
+// redactor: an unexpected error may have interpolated a value into it.
 func (s *Server) safeDetail(detail string) string {
 	return s.redactor().RedactText(detail)
 }
 
-// redactEach covers the command line an audit record carries.
-//
-// The broker never substitutes a value into argv, which is why a value cannot
-// reach ps or /proc/<pid>/cmdline through it.  A caller can still put one there
-// itself, and unlike argv this record is written to disk, so it gets the same
-// treatment as the output: what ran stays legible as
-// "mysql -p«SECRET:db/root»", and the value does not land in the file.
+// redactEach covers the command line an audit record carries.  The broker never
+// substitutes a value into argv, but a caller can, and this record goes to
+// disk: what ran stays legible as "mysql -p«SECRET:db/root»".
 func redactEach(r *redact.Redactor, in []string) []string {
 	out := make([]string, len(in))
 	for i, s := range in {
@@ -479,13 +424,10 @@ func redactEach(r *redact.Redactor, in []string) []string {
 	return out
 }
 
-// CheckOutput is the operator-facing --check report.  It names the refs that
-// were refused at load, which the agent-facing status op never does, and the
-// state of the SSH keys the broker is configured to lend.
-//
-// Both are the same shape of problem: a broker that starts, serves, and cannot
-// do the job it was installed for.  --check is the install gate, so both are
-// reported and both are non-zero.
+// CheckOutput is the operator-facing --check report: the refs refused at load,
+// which the agent-facing status op never names, and the state of the configured
+// SSH keys.  Both are non-zero, being a broker that serves without doing the job
+// it was installed for.
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
 	sshInfo, problems := s.describeSSH()
@@ -504,21 +446,12 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	}
 	refused, _ := secrets["not_redactable"].(map[string]string)
 	if len(refused) > 0 {
-		// Nothing logged here.  Loading the values already named every refused
-		// secret and said why, and repeating it is most of what makes this
-		// failure a wall of text once ansible has wrapped it.  The JSON body
-		// below carries the same set as not_redactable.
-		//
-		// Non-zero on a refused ref: the config parses, but a command that
-		// injects that ref will fail at runtime, and --check is the install
-		// gate that is supposed to catch it.
+		// Nothing logged: loading already named every refused secret, and the
+		// JSON body carries the same set as not_redactable.
 		code = 1
 	}
-	// Any configured file the broker could not load leaves it serving fewer
-	// values than it is configured for, and every value it is missing is one it
-	// cannot redact.  A file that is absent counts: the store may sit on a
-	// filesystem that is not mounted yet, which is indistinguishable from one
-	// that was never written and is no safer.
+	// Every value the broker failed to load is one it cannot redact.  Absent
+	// counts: an unmounted store is indistinguishable from one never written.
 	if fatal := s.Store.LoadErrors(); len(fatal) > 0 {
 		log.Printf("%d secret load failure(s): %v", len(fatal), fatal)
 		log.Printf("those values are absent from the redactor, so a command " +
@@ -534,23 +467,14 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	return body, code
 }
 
-// policyProblems names the settings that widen what a socket admits.
+// policyProblems names the settings that widen what a socket admits.  The
+// keeper's socket is the age key by another route, and the executor's runs a
+// command with no policy, redaction or audit record; each has exactly one
+// legitimate client, this process.
 //
-// The keeper's socket is the age key by another route and the executor's runs a
-// command with no policy, no redaction and no audit record.  Each has exactly
-// one legitimate client, this process, and allowed_users is where that is
-// written down.  A drop-in adding a second name there is a config that parses,
-// starts, serves, and protects less than the layout says it does, which is what
-// --check exists to refuse.  The socket modes still stand in the way, so this is
-// the second of two locks rather than the only one; a gate that only fails once
-// both are open is a gate that reports the problem after it has been exploited.
-//
-// Identity by uid rather than by name, because the account can be renamed at
-// install time and nothing in this config records what it was called.  That
-// makes running as root the case this cannot decide: --check is documented to
-// run as the broker's own account, and from root every name would compare
-// unequal and every install would fail this. Reported as unchecked instead,
-// which is how doctor handles the questions it cannot ask as itself.
+// Identity by uid rather than name, since the accounts can be renamed at
+// install time.  From root every name compares unequal, so those checks are
+// reported as unchecked instead.
 func (s *Server) policyProblems() []string {
 	problems := []string{}
 	if mode := s.Config.Server.SocketMode; mode&0o007 != 0 {
@@ -573,11 +497,8 @@ func (s *Server) policyProblems() []string {
 		{"executor", s.Config.Executor.AllowedUsers,
 			"a command sent there runs unredacted and unlogged"},
 	} {
-		// An empty list is not checked here.  It admits this process anyway, by
-		// uid rather than by name, and on a host where the two are different
-		// accounts it refuses the broker and nothing works at all: loud, and not
-		// the failure this is looking for, which is a list that admits one
-		// account too many.
+		// An empty list is not checked: it fails loudly on its own, and the
+		// failure looked for here is a list admitting one account too many.
 		for _, name := range socket.users {
 			if !isSelf(name) {
 				problems = append(problems, fmt.Sprintf(
@@ -600,14 +521,9 @@ func isSelf(name string) bool {
 }
 
 // unusableReason names why ssh-add will refuse this key, or "" if it will take
-// it.  The two cases that happen in practice are a key with a passphrase
-// (nothing is there to type one) and [ssh] keys pointing at the .pub by
-// mistake.  Both leave the broker up with an agent holding nothing, so every
-// brokered command fails to authenticate against the entire fleet while every
-// socket is active and every unit is running.
-//
-// The parse is what ssh-add itself would do, rather than a guess from the file
-// name, and its error is reported without any of the key material in it.
+// it.  In practice: a passphrase-protected key, or [ssh] keys pointing at the
+// .pub.  Either leaves the broker up with an agent holding nothing.  The parse
+// is what ssh-add would do, and its error carries no key material.
 func unusableReason(data []byte) string {
 	_, err := ssh.ParseRawPrivateKey(data)
 	if err == nil {
@@ -624,14 +540,10 @@ func unusableReason(data []byte) string {
 	return "not a usable private key"
 }
 
-// describeSSH reports which of the configured keys the broker can actually
-// read and use, and returns one line per key that is neither.
-//
-// The agent is not started here, so this is the file check rather than the
-// loaded-key count: --check runs before Ssh.Start, and starting a second agent
-// would replace a running broker's socket.  A key that is present and readable
-// is the part an install can get wrong; ssh-add failing on a passphrase is
-// visible in the journal at startup.
+// describeSSH reports which configured keys the broker can read and use, and
+// one line per key that is neither.  A file check rather than a loaded-key
+// count: --check runs before Ssh.Start, and starting a second agent would
+// replace a running broker's socket.
 func (s *Server) describeSSH() (map[string]any, []string) {
 	keys := make([]map[string]any, 0, len(s.Config.Ssh.Keys))
 	var problems []string
@@ -655,8 +567,8 @@ func (s *Server) describeSSH() (map[string]any, []string) {
 	}
 	return map[string]any{
 		"agent_socket": s.Config.Ssh.AgentSocket,
-		// Empty is a deliberate configuration, not a fault: the keys then live
-		// where the executor's own uid can read them.
+		// Empty is deliberate: the keys then live where the executor can read
+		// them.
 		"keys": keys,
 	}, problems
 }

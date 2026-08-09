@@ -15,18 +15,15 @@ func newTestRedactor() *Redactor {
 
 func want() string { return TokenFor("home/router/admin") }
 
-// One redactor, one text, and the three questions every one of these asks: is
-// the value gone, is its token there, and did the surrounding output survive.
-//
-// The encodings are the point of the table.  A value reaches a transcript
-// through whatever the command printed it as, so each encoding is a separate
-// way for the same secret to escape, and they are worth reading as one list.
+// One redactor, one text, and three questions: is the value gone, is its token
+// there, did the surrounding output survive.  Each encoding is a separate way
+// for the same secret to escape.
 func TestRedactText(t *testing.T) {
-	// A quote and a backslash, so the JSON and shell forms below are something
-	// other than the value spelled again.
+	// A quote and a backslash, so the JSON and shell forms differ from the
+	// value.
 	const specials = `p@ss "wo\rd" with+specials=x`
-	// An apostrophe is what makes the shell-quoted forms unrecognisable: the
-	// plain value is not a substring of either of them.
+	// An apostrophe, so the plain value is not a substring of the shell-quoted
+	// forms.
 	const apostrophe = "it's-a-long-secret-value"
 	const dollars = "pa$$word-that-is-long"
 	long := strings.Repeat(secret, 6)
@@ -41,9 +38,8 @@ func TestRedactText(t *testing.T) {
 		{name: "plain",
 			text: "password is " + secret + " ok",
 			gone: []string{secret}, want: []string{want()}},
-		// Each of these asserts the token as well as the disappearance: a redactor
-		// that dropped the match rather than substituting for it would leave no
-		// value behind and no sign that anything had been there.
+		// The token as well as the disappearance: a redactor that dropped the
+		// match would leave no sign anything had been there.
 		{name: "base64 std",
 			text: "blob: " + base64.StdEncoding.EncodeToString([]byte(secret)),
 			gone: []string{base64.StdEncoding.EncodeToString([]byte(secret))},
@@ -66,7 +62,7 @@ func TestRedactText(t *testing.T) {
 			text:    "start\n" + wrap76(base64.StdEncoding.EncodeToString([]byte(long))) + "end\n",
 			gone:    []string{base64.StdEncoding.EncodeToString([]byte(long))[:40]},
 			want:    []string{TokenFor("big"), "start", "end"}},
-		// A colour code spliced into the middle must not defeat the match.
+		// A colour code spliced into the middle.
 		{name: "ANSI spliced into the middle",
 			text: secret[:len(secret)/2] + "\x1b[31m" + secret[len(secret)/2:],
 			gone: []string{secret[:len(secret)/2]}, want: []string{want()}},
@@ -80,11 +76,10 @@ func TestRedactText(t *testing.T) {
 				jsonEscape(specials),
 			},
 			want: []string{TokenFor("k")}},
-		// A "set -x" trace prints the value the way the shell quotes it, and for a
-		// value holding an apostrophe that form carries the plain one nowhere in
-		// it: matching the value alone would leave the whole trace line intact.
-		// The quoted forms are spelled out rather than built with the package's
-		// own helpers, so this compares against what a shell actually prints.
+		// A "set -x" trace prints the shell-quoted form, which for a value
+		// holding an apostrophe carries the plain one nowhere.  Spelled out
+		// rather than built with the package's helpers, so this compares
+		// against what a shell prints.
 		{name: "shell single-quoted, as set -x prints it",
 			secrets: []Secret{{Ref: "k", Value: apostrophe}},
 			text:    `+ curl --user 'it'"'"'s-a-long-secret-value' https://host` + "\n",
@@ -95,7 +90,7 @@ func TestRedactText(t *testing.T) {
 			text:    `+ curl --user "pa\$\$word-that-is-long" https://host` + "\n",
 			gone:    []string{`pa\$\$word-that-is-long`},
 			want:    []string{TokenFor("k"), "https://host"}},
-		// Longest first: if one secret contains another, the longer token wins.
+		// Longest first, so a secret containing another wins.
 		{name: "one secret inside another",
 			secrets: []Secret{
 				{Ref: "short", Value: "abcdefgh12"},
@@ -103,7 +98,7 @@ func TestRedactText(t *testing.T) {
 			},
 			text: "value: abcdefgh12-and-more-here",
 			gone: []string{"abcdefgh12"}, want: []string{TokenFor("long")}},
-		// Multi-byte characters must survive chunk boundaries intact.
+		// Multi-byte characters across a chunk boundary.
 		{name: "unicode around the value",
 			text: "héllo wörld ← " + secret + " → done",
 			gone: []string{secret}, want: []string{"héllo wörld ←", "→ done"}},
@@ -211,10 +206,9 @@ func TestEmptyRedactorPassesTextThrough(t *testing.T) {
 	}
 }
 
-// The broker builds a redactor per request and two more per exec, each one
-// compiling roughly ten patterns per secret, and then runs every entry over
-// every chunk of a child's output.  Both costs scale with the size of the
-// store, which is the number nobody notices growing.
+// The broker builds a redactor per request and two more per exec, each compiling
+// roughly ten patterns per secret, then runs every entry over every chunk.  Both
+// costs scale with the size of the store.
 //
 //	go test ./internal/redact/ -bench Redactor -benchmem
 func manySecrets(n int) []Secret {
@@ -244,8 +238,8 @@ func BenchmarkRedactorFeed(b *testing.B) {
 	for _, n := range []int{10, 50, 200} {
 		b.Run(fmt.Sprintf("secrets=%d", n), func(b *testing.B) {
 			secrets := manySecrets(n)
-			// A chunk the size of the executor's own read buffer, holding one
-			// value so the replacing path is measured and not only the scan.
+			// The size of the executor's read buffer, holding one value so the
+			// replacing path is measured too.
 			chunk := strings.Repeat("ordinary build output line\n", 2400) +
 				secrets[n/2].Value + "\n"
 			b.SetBytes(int64(len(chunk)))

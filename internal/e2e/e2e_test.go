@@ -1,9 +1,7 @@
 // Package e2e drives a real keeper, executor and broker over real sockets.
-//
-// Everything runs under one uid, which exercises the protocol, the PTY
-// hand-off and the redactor, but not the uid boundary itself.  A permission
-// case only means something on a real deployment, so those are `faramir
-// doctor`, which asks each of them as the account it is about.
+// Everything runs under one uid, so this exercises the protocol, the PTY
+// hand-off and the redactor but not the uid boundary; `faramir doctor` asks
+// those on a real deployment, as the account each is about.
 package e2e
 
 import (
@@ -64,11 +62,11 @@ func newHarness(t *testing.T) *harness {
 				{Key: "admin", Value: routerPassword},
 			}},
 		}},
-		// A value the policy must refuse: too short to redact safely.
+		// Too short to redact safely, so the policy refuses it.
 		{Key: "tiny", Value: "abc"},
 	})
 
-	// Collect the directories the test's programs actually live in.
+	// The directories the test's programs live in.
 	dirs := map[string]bool{}
 	for _, name := range []string{"bash", "printenv", "base64", "rev", "cut", "cat", "echo", "true"} {
 		dirs[binDir(t, name)] = true
@@ -79,8 +77,8 @@ func newHarness(t *testing.T) *harness {
 	}
 
 	auditLog := filepath.Join(dir, "audit.log")
-	// A HOME of its own, so a sops the child runs cannot find the developer's
-	// own ~/.config/sops/age/keys.txt and quietly succeed.
+	// A HOME of its own, so a child's sops cannot find the developer's
+	// ~/.config/sops/age/keys.txt and quietly succeed.
 	childHome := filepath.Join(dir, "child-home")
 	if err := os.MkdirAll(childHome, 0o700); err != nil {
 		t.Fatal(err)
@@ -158,9 +156,8 @@ type response struct {
 	} `json:"error"`
 }
 
-// The harness directory is filled in unless the test named one.  The broker
-// refuses a request that carries no cwd, so without this every test here would
-// be exercising that refusal instead of what it is about.
+// Filled in unless the test named one, the broker refusing a request that
+// carries no cwd.
 func (h *harness) call(t *testing.T, request map[string]any) response {
 	t.Helper()
 	if _, ok := request["cwd"]; !ok && request["op"] == "exec" {
@@ -222,17 +219,13 @@ func TestExecInjectsAndRedacts(t *testing.T) {
 	}
 }
 
-// Matrix 1e/1f: no child ever receives the age key, by any name.
-//
-// The named variables are the obvious route.  The full dump is the one that
+// No child ever receives the age key, by any name.  The full dump is what
 // matters: it catches key material arriving under a name nobody thought to
-// check, which is the only way this could realistically regress.  It has to be
-// asserted against a real child, because the broker assembling no such
-// variable proves nothing about what the executor adds on the way.
+// check, and it has to be a real child, the broker assembling no such variable
+// proving nothing about what the executor adds.
 //
-// The age key is deliberately absent from the redactor's value set, so if it
-// ever reached a child it would show up here in plaintext rather than as a
-// token.  That is what makes the assertion meaningful rather than circular.
+// The age key is absent from the redactor's value set, so it would show up here
+// in plaintext rather than as a token.
 func TestNoAgeKeyInChildEnvironment(t *testing.T) {
 	h := newHarness(t)
 
@@ -244,7 +237,7 @@ func TestNoAgeKeyInChildEnvironment(t *testing.T) {
 		t.Errorf("age key variables were set in the child: %q", r.Output)
 	}
 
-	// Bare printenv dumps the child's entire environment.
+	// The child's entire environment.
 	dump := h.call(t, map[string]any{"op": "exec", "cmd": []any{"printenv"}})
 	if dump.Error != nil {
 		t.Fatalf("error: %v", dump.Error)
@@ -260,7 +253,7 @@ func TestNoAgeKeyInChildEnvironment(t *testing.T) {
 	}
 }
 
-// Matrix 4 and 5: base64, wrapped and unwrapped, is still caught.
+// base64, wrapped and unwrapped, is still caught.
 func TestBase64IsRedacted(t *testing.T) {
 	h := newHarness(t)
 	for _, script := range []string{
@@ -280,9 +273,8 @@ func TestBase64IsRedacted(t *testing.T) {
 	}
 }
 
-// Matrix 8b: a program outside the system directories runs.  There is no
-// allowed_bin_dirs any more, and a script in the working tree is exactly the
-// thing an operator wants to run.
+// A program outside the system directories runs: there is no allowlist, and a
+// script in the working tree is what an operator wants to run.
 func TestAProgramOutsideTheSystemDirectoriesRuns(t *testing.T) {
 	h := newHarness(t)
 	script := filepath.Join(h.dir, "deploy.sh")
@@ -297,8 +289,7 @@ func TestAProgramOutsideTheSystemDirectoriesRuns(t *testing.T) {
 		t.Errorf("output = %q", r.Output)
 	}
 
-	// And by a relative path, resolved against the request's cwd rather than
-	// the broker's own working directory, which would be a different file.
+	// And by a relative path, resolved against the request's cwd.
 	r = h.call(t, map[string]any{"op": "exec", "cmd": []any{"./deploy.sh"}, "cwd": h.dir})
 	if r.Error != nil {
 		t.Fatalf("a relative path was refused: %v", r.Error)
@@ -308,11 +299,8 @@ func TestAProgramOutsideTheSystemDirectoriesRuns(t *testing.T) {
 	}
 }
 
-// Matrix 9: the operator's log records the invocation, and holds no value.
-//
-// This is the only plaintext the design would ever write to disk, so it is
-// asserted at the strongest point: the exact value that was injected into this
-// very command must not appear anywhere in the file.
+// The log records the invocation and holds no value: the exact value injected
+// into this command must not appear anywhere in the file.
 func TestAuditLogRecordsTheRunWithoutTheValue(t *testing.T) {
 	h := newHarness(t)
 	r := h.call(t, map[string]any{
@@ -332,7 +320,7 @@ func TestAuditLogRecordsTheRunWithoutTheValue(t *testing.T) {
 	if strings.Contains(body, routerPassword) {
 		t.Error("PLAINTEXT IN THE AUDIT LOG: the value reached disk unredacted")
 	}
-	// Present, not merely absent of secrets: an empty log audits nothing.
+	// Present, not merely free of secrets: an empty log audits nothing.
 	if !strings.Contains(body, token) {
 		t.Errorf("the output was not recorded at all: %q", body)
 	}
@@ -353,9 +341,8 @@ func TestAuditLogRecordsTheRunWithoutTheValue(t *testing.T) {
 	}
 }
 
-// Matrix 7b: a brokered command cannot decrypt the secret store itself.  This
-// is the property that lets Ansible be one consumer of the broker rather than
-// a holder of the master key: the child gets named values or nothing.
+// A brokered command cannot decrypt the store itself, which is what lets ansible
+// be a consumer of the broker rather than a holder of the master key.
 func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
 	h := newHarness(t)
 	r := h.call(t, map[string]any{
@@ -371,16 +358,14 @@ func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
 	if strings.Contains(r.Output, routerPassword) {
 		t.Errorf("PLAINTEXT LEAKED: %q", r.Output)
 	}
-	// It has to fail for want of key material, not because sops was missing or
-	// mis-invoked, or this passes for the wrong reason forever.
+	// For want of key material, not because sops was missing or mis-invoked.
 	if !strings.Contains(r.Output, "data key") && !strings.Contains(r.Output, "master key") {
 		t.Errorf("sops failed for some other reason than a missing key: %q", r.Output)
 	}
 }
 
-// The reason for the PTY: ssh and sudo write their prompts straight to
-// /dev/tty, which no pipe on stdout or stderr would ever see.  Captured is
-// half of it; redacted is the half that matters.
+// The reason for the PTY: ssh and sudo write prompts straight to /dev/tty, which
+// no pipe would see.  Captured is half of it, redacted the other.
 func TestWritesToDevTtyAreCapturedAndRedacted(t *testing.T) {
 	h := newHarness(t)
 	r := h.runBash(t, `printenv ROUTER_PW > /dev/tty`)

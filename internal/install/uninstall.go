@@ -6,11 +6,9 @@ import (
 	"path/filepath"
 )
 
-// Uninstall removes the broker and returns what it deliberately left behind.
-//
-// It leaves the accounts, the config, the store and the audit log alone.
-// Deleting the age key would make every managed sops file unreadable,
-// retroactively, and that is not a decision a teardown should make for you.
+// Uninstall removes the broker and returns what it left behind: the accounts,
+// the config, the store and the audit log.  Deleting the age key would make
+// every managed sops file unreadable, retroactively.
 func Uninstall(configDir string) ([]string, error) {
 	if configDir == "" {
 		configDir = DefaultConfigDir
@@ -18,8 +16,7 @@ func Uninstall(configDir string) ([]string, error) {
 	if systemdRunning() {
 		run := &runner{}
 		units := append(append([]string{"disable", "--now"}, sockets...), services...)
-		// Not fatal: a unit that is already gone, or a system where one never
-		// started, is exactly the state this is trying to reach.
+		// Not fatal: a unit already gone is the state this is reaching for.
 		_, _ = run.command("systemctl", units...)
 	}
 	for _, name := range unitNames() {
@@ -33,8 +30,7 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
-	// The sockets went with the units above, so the runtime directory holds
-	// nothing.
+	// The sockets went with the units above.
 	for _, path := range []string{"/etc/tmpfiles.d/faramir.conf", logrotateConfig, DefaultRunDir} {
 		if err := os.RemoveAll(path); err != nil {
 			return nil, err

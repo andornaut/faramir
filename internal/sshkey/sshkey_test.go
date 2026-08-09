@@ -7,10 +7,9 @@ import (
 	"testing"
 )
 
-// Regenerating a key silently locks the broker out of every host its public
-// half is already on, and the symptom is every brokered command failing to
-// authenticate at once, with a key file that looks perfectly healthy.  A second
-// run has to report the public half it found and write nothing.
+// Regenerating a key locks the broker out of every host its public half is on,
+// with a key file that looks healthy, so a second run reports what it found and
+// writes nothing.
 func TestGenerateNeverClobbersAnExistingKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519")
 
@@ -45,10 +44,9 @@ func TestGenerateNeverClobbersAnExistingKey(t *testing.T) {
 	}
 }
 
-// Two halves, two modes, both set by the write rather than by the umask.  0600
-// on the private half is the only thing keeping it to the broker's uid; 0644 on
-// the public half is deliberate, because it has to be copied into
-// authorized_keys on every managed host and hiding it only makes that need root.
+// Two halves, two modes, both from the write rather than the umask.  0600 keeps
+// the private half to the broker's uid; 0644 on the public half is deliberate,
+// it being copied into authorized_keys on every managed host.
 func TestGenerateWritesBothModes(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519")
 	if _, _, err := Generate(path, "faramir-broker@host"); err != nil {
@@ -74,8 +72,7 @@ func TestGenerateWritesBothModes(t *testing.T) {
 	}
 }
 
-// The private key never appears in what the caller is handed, which is printed
-// by init and pasted into a ticket.
+// What the caller is handed is printed by init and pasted into a ticket.
 func TestTheReturnedLineCarriesNoPrivateKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519")
 	public, _, err := Generate(path, "faramir-broker@host")
@@ -96,10 +93,8 @@ func TestTheReturnedLineCarriesNoPrivateKey(t *testing.T) {
 	}
 }
 
-// The trailing comment identifies the key in an authorized_keys file somebody
-// else has to audit, and the returned line is what gets pasted there, so it has
-// to be one authorized_keys line: a type, a key, a comment, and no newline for
-// the operator to lose in the paste.
+// The returned line is what gets pasted into authorized_keys, so it has to be
+// one line: a type, a key, a comment, and no newline to lose in the paste.
 func TestTheAuthorizedKeyLineIsCompleteAndCarriesTheComment(t *testing.T) {
 	const comment = "faramir-broker@host"
 	path := filepath.Join(t.TempDir(), "id_ed25519")
@@ -122,8 +117,7 @@ func TestTheAuthorizedKeyLineIsCompleteAndCarriesTheComment(t *testing.T) {
 		t.Errorf("comment = %q, want %q", fields[2], comment)
 	}
 
-	// The file holds the same line, since that is the copy an operator reaches
-	// for when the run that printed it has scrolled away.
+	// The same line, being the copy an operator reaches for later.
 	onDisk, err := os.ReadFile(path + ".pub")
 	if err != nil {
 		t.Fatal(err)
@@ -133,7 +127,7 @@ func TestTheAuthorizedKeyLineIsCompleteAndCarriesTheComment(t *testing.T) {
 	}
 }
 
-// Public reads the line back, which is the path a second run takes.
+// Public reads the line back, which is what a second run does.
 func TestPublicReadsTheLineBack(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519")
 	public, _, err := Generate(path, "faramir-broker@host")
@@ -149,8 +143,7 @@ func TestPublicReadsTheLineBack(t *testing.T) {
 	}
 }
 
-// A .pub that is not an authorized_keys line is an error rather than a line the
-// operator would paste into one.
+// An error rather than a line the operator would paste into authorized_keys.
 func TestPublicRefusesSomethingElse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "id_ed25519.pub")
 	if err := os.WriteFile(path, []byte("not a key\n"), 0o644); err != nil {

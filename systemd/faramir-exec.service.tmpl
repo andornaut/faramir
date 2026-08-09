@@ -3,10 +3,8 @@ Description=faramir executor: forks brokered commands, holds no secrets
 Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-exec.socket
 After=faramir-exec.socket network.target
-# Starting repeatedly in a few seconds is ordinary here: the unit is socket
-# activated and an install restarts it.  The default limit of 5 in 10s reads
-# that as a crash loop, and a service that trips it fails its socket with it, so
-# the whole broker stays down until someone runs reset-failed.
+# Socket activated and restarted by an install, so repeated starts are ordinary.
+# The default limit reads that as a crash loop and fails the socket with it.
 StartLimitIntervalSec=0
 
 [Service]
@@ -20,15 +18,13 @@ Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
-# {{.Group}}, because brokered commands run *in* the working tree and write to it:
-# ansible drops .retry files and fact caches, and a playbook that generates
-# config has to be able to put it somewhere.  The tree is agent-owned and
-# group-writable, so this is the same access the agent already has -- it is not
-# a way into anything the agent could not reach itself.
+# {{.Group}}, because brokered commands run in the working tree and write to it:
+# ansible drops .retry files and fact caches.  The tree is agent-owned and
+# group-writable, so this is the access the agent already has.
 SupplementaryGroups={{.Group}}
 
-# This uid is the one every brokered command runs as, so the list of things it
-# can reach is the list of things a command can reach:
+# Every brokered command runs as this uid, so what it can reach is what a
+# command can reach:
 #
 #   {{.AgeKeyPath}}      no  (0400 {{.KeeperUser}})
 #   {{.RunDir}}/keeper.sock  no  (0660 root:{{.BrokerUser}})
@@ -36,16 +32,13 @@ SupplementaryGroups={{.Group}}
 #   {{.LogDir}}/audit.log  no  (0600 {{.BrokerUser}})
 #   ~{{.BrokerUser}}/.ssh      no  (0700 {{.BrokerUser}})
 #   the working tree          read and write, via {{.Group}} above
-#   the rest of /home         whatever the mode allows, which for a 0700 home
-#                             is nothing; read-only regardless, and the one
-#                             writable path below is the agent's own home
+#   the rest of /home         whatever the mode allows, read-only
 #
-# {{.RunDir}}/broker.sock IS reachable now, because it is 0660 root:{{.Group}}:
-# a brokered command can call the broker back.  That buys it nothing -- the
-# response is redacted and audited exactly like the agent's own,
-# and every ref it could ask for is already listed by faramir_list_secrets.
+# {{.RunDir}}/broker.sock is reachable, being 0660 root:{{.Group}}, so a brokered
+# command can call the broker back.  That buys it nothing: the response is
+# redacted and audited like the agent's own.
 #
-# No LoadCredential=, and nothing writable except the working tree, its own
+# No LoadCredential=, and nothing writable but the working tree, this account's
 # state directory and PrivateTmp.
 ProtectProc=invisible
 ProcSubset=pid
@@ -53,36 +46,25 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# ProtectSystem=strict makes the whole hierarchy read-only, so every place a
-# brokered command may write has to be named.  Whole trees rather than one
-# directory: a command runs where its caller was, and no config names that, so
-# there is no single path to grant.
+# ProtectSystem=strict makes the hierarchy read-only, so every writable place
+# has to be named.  A whole tree rather than one directory: a command runs where
+# its caller was, and no config names that.
 #
-# /home, because a caller works in a checkout there.  Naming nothing leaves the
-# tree read-only, and a playbook writing a .retry file or a fact cache fails with
-# EROFS rather than anything that names the mount.
-#
-# The leading "-" is what lets it be absent.  It grants nothing on its own:
-# lifting the read-only mount is not permission, and modes still decide.  Homes
-# are 0700, so the only thing writable under /home is a tree `faramir share-tree`
-# group-writes on purpose.
-#
-# A working tree outside /home needs a drop-in adding its path.
+# Lifting the read-only mount grants nothing on its own; modes still decide, and
+# homes are 0700.  The leading "-" lets /home be absent.  A working tree outside
+# it needs a drop-in adding its path.
 ReadWritePaths=-/home
 PrivateTmp=true
-# Children run on a PTY, which needs /dev/ptmx and the pts devices.  Narrow the
-# device ACL rather than dropping it.
+# Children run on a PTY, so the device ACL is narrowed rather than dropped.
 PrivateDevices=false
 DevicePolicy=closed
 DeviceAllow=/dev/ptmx rw
 DeviceAllow=char-pts rw
 # Ansible creates ~/.ansible/tmp unconditionally; this is that home.
 StateDirectory={{.ExecUser}}
-# No RuntimeDirectory=faramir: it would recursively chown the activation
-# sockets to this uid (see faramir-broker.service).  {{.RunDir}} comes from
-# /etc/tmpfiles.d/faramir.conf and stays read-only here; connecting to a socket
-# is not a write the read-only mount can refuse, and the directory's own mode
-# is what keeps this uid from unlinking anything in it.
+# No RuntimeDirectory=faramir: it would recursively chown the activation sockets
+# to this uid.  {{.RunDir}} comes from /etc/tmpfiles.d/faramir.conf and stays
+# read-only here; connecting to a socket is not a write.
 # Ansible reaches managed hosts over SSH, so the network stays.
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallFilter=@system-service
@@ -99,19 +81,17 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 RemoveIPC=true
-# 0007 rather than the 0077 the other two use: children of this uid write into
-# the operator's working tree, and a file the operator cannot open is not a
-# shared tree.  With the setgid directory supplying the group, a brokered
-# command's files land 0660 {{.ExecUser}}:{{.Group}}, which is what
-# internal/sharetree would rewrite them to on the next init-project anyway.
-# The executor itself creates no files; its sockets set their own umask at bind.
+# 0007 rather than the other two's 0077: children write into the operator's
+# working tree, and a file the operator cannot open is not a shared tree.  With
+# the setgid directory supplying the group, their files land 0660
+# {{.ExecUser}}:{{.Group}}.  The executor itself creates no files.
 UMask=0007
 
-# Every remaining exposure item, and why it is accepted:
+# Every remaining exposure item, and why it is accepted.  Anything flagged that
+# is NOT on this list is a regression.
 #
 #   PrivateNetwork=, IPAddressDeny=
-#       Brokered commands reach managed hosts.  Egress control is a non-goal;
-#       see "What it protects against" in the README.
+#       Brokered commands reach managed hosts; egress control is a non-goal.
 #   MemoryDenyWriteExecute=
 #       Children are arbitrary operator-chosen programs, some of them JITs.
 #   SystemCallFilter=~@privileged, ~@resources
@@ -119,11 +99,7 @@ UMask=0007
 #   PrivateDevices=, DeviceAllow=
 #       Every child runs on a PTY.
 #   SupplementaryGroups=, ReadWritePaths=
-#       Commands run in the working tree and write to it.  See above: this is
-#       the agent's own access, not a new one.
-#
-# Anything flagged that is NOT on this list is a regression: investigate it
-# before accepting it.
+#       Commands run in the working tree and write to it.
 
 [Install]
 WantedBy=multi-user.target

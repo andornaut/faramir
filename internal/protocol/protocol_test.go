@@ -33,25 +33,23 @@ func TestMinimal(t *testing.T) {
 	}
 }
 
-// Everything the parser refuses, with the part of the message that has to say
-// why.  A refusal an operator cannot act on is the failure mode here, so the
-// message is asserted wherever there is something specific to say.
+// Everything the parser refuses, with the part of the message that says why: a
+// refusal an operator cannot act on is the failure mode.
 func TestRefusedRequests(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
 		body  string
 		wants []string
 	}{
-		// The broker never invokes a shell, so the message has to name the
-		// spelling that does work.
+		// The broker never invokes a shell, so the message names what does
+		// work.
 		{"a shell string", `{"cmd":"printenv ROUTER_PW"}`, []string{"must be an array", "bash"}},
 		{"an empty cmd", `{"cmd":[]}`, nil},
 		{"a non-string argument", `{"cmd":["printenv",7]}`, nil},
 		{"a relative cwd", `{"cmd":["ls"],"cwd":"relative/path"}`, []string{"absolute"}},
 		{"a timeout of zero", `{"cmd":["ls"],"timeout_sec":0}`, nil},
 		{"a negative timeout", `{"cmd":["ls"],"timeout_sec":-1}`, nil},
-		// Python has to exclude bool explicitly because it is an int subclass.
-		// Go does not, but the wire is JSON either way.
+		// JSON either way.
 		{"a boolean timeout", `{"cmd":["ls"],"timeout_sec":true}`, nil},
 		{"the removed sync op", `{"op":"sync"}`, []string{"unknown op"}},
 		{"an env name starting with a digit", `{"cmd":["ls"],"env_refs":{"1BAD":"secret://a/b"}}`, nil},
@@ -73,8 +71,7 @@ func TestRefusedRequests(t *testing.T) {
 	}
 }
 
-// The reserved names come from the package itself, so a name added there is
-// covered the day it is added.
+// From the package itself, so a name added there is covered that day.
 func TestReservedEnvNamesAreRefused(t *testing.T) {
 	for name := range ReservedEnv {
 		body := `{"cmd":["ls"],"env_refs":{"` + name + `":"secret://a/b"}}`
@@ -89,7 +86,7 @@ func TestReservedEnvNamesAreRefused(t *testing.T) {
 	}
 }
 
-// status and list_secrets carry no cmd, and must not be required to.
+// status and list_secrets carry no cmd.
 func TestOpsWithoutCmd(t *testing.T) {
 	for _, op := range []string{"status", "list_secrets"} {
 		req, err := parse(t, `{"op":"`+op+`"}`)

@@ -1,20 +1,13 @@
 // Package faramir holds the files `faramir init` writes to a host: the systemd
 // units, the base config, the agent hook and its deny list, the docs and the
-// licence.
-//
-// They are embedded rather than read from a checkout so that installing needs
-// nothing but the binaries.  A consumer of the broker then has one artifact to
-// get onto a host instead of a source tree whose layout it has to know.
+// licence.  Embedded, so installing needs nothing but the binary.
 package faramir
 
 import "embed"
 
 // Assets is every file init installs.  The units and the base config are
-// text/templates, because the shared group and the three service uids are named
-// in both the config the sockets check and the units that reach the working
-// tree.  Rendering the two from one set of values is what removes the failure
-// where they disagree: a broker that installs cleanly and then refuses every
-// connection.
+// text/templates: the shared group and the service uids are named in both, and
+// rendering them from one set of values is what keeps them from disagreeing.
 //
 //go:embed etc systemd agent docs README.md LICENSE
 var Assets embed.FS

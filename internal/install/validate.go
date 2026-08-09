@@ -7,28 +7,23 @@ import (
 	"strings"
 )
 
-// checkReport is the part of `faramir-broker --check` this reads back.  Only
-// the fields it acts on: the rest is passed through to the operator as the
-// command's own output.
+// checkReport is the part of `faramir-broker --check` this acts on; the rest is
+// passed through as the command's own output.
 type checkReport struct {
 	Secrets struct {
 		Count int `json:"count"`
-		// Patterns is [secrets] files as configured, Files is what that named on
-		// disk.  A glob makes them differ, and the difference is the whole
-		// question this step asks: entries that name nothing are a host waiting
-		// for its store, entries that name files which did not load are a fault.
+		// Patterns is [secrets] files as configured, Files what it named on
+		// disk.  Entries naming nothing are a host waiting for its store;
+		// entries naming files that did not load are a fault.
 		Patterns []string `json:"patterns"`
 		Files    []string `json:"files"`
 		Errors   []string `json:"errors"`
 	} `json:"secrets"`
 }
 
-// stepValidate asks the broker what it can actually do with what was installed.
-//
-// Run as the broker's own uid, not as root: --check opens the SSH keys and the
-// secrets files itself, and root reads what the broker cannot.  A key left
-// root-owned would otherwise pass here and leave every brokered command unable
-// to authenticate against any host.
+// stepValidate asks the broker what it can do with what was installed.  As the
+// broker's own uid, not root: --check opens the SSH keys and the secrets files
+// itself, and root reads what the broker cannot.
 func (r *runner) stepValidate() error {
 	if r.opts.DryRun {
 		r.skip("validate", "dry run")
@@ -41,10 +36,8 @@ func (r *runner) stepValidate() error {
 	broker := filepath.Join(r.layout.BinDir, "faramir")
 	out, checkErr := r.command("runuser", "-u", r.layout.BrokerUser, "--",
 		broker, "broker", "-c", r.layout.ConfigFile, "--check")
-	// The report is printed on stdout whether the gate passed or not, so it is
-	// read before the exit code is judged: what the broker could not load is the
-	// thing that decides whether this is a failure or a host that has not been
-	// given its secrets yet.
+	// Read before the exit code is judged: what the broker could not load
+	// decides whether this is a failure or a host without its secrets yet.
 	var report checkReport
 	if jsonErr := json.Unmarshal([]byte(out), &report); jsonErr != nil {
 		if checkErr != nil {
@@ -54,16 +47,10 @@ func (r *runner) stepValidate() error {
 		return fmt.Errorf("could not read the --check report: %w", jsonErr)
 	}
 	if checkErr != nil {
-		// A configured file that has not been created yet is the ordinary state
-		// of a host whose store is written after it is provisioned, and it is
-		// what every first install looks like.  The running broker still treats
-		// it as a load failure and refuses to serve, which is the property that
-		// keeps a silent gap in redaction from existing; but failing the install
-		// over it leaves no way to reach a working host, because the next run
-		// fails in the same place.
-		//
-		// Anything else is fatal, including a file that is there and could not be
-		// read or decrypted.
+		// A configured file not yet created is what every first install looks
+		// like.  The running broker still refuses to serve, but failing the
+		// install over it leaves no way to reach a working host.  Anything
+		// else, including a file that is there and did not load, is fatal.
 		if absent := unresolved(report.Secrets.Patterns); len(absent) == len(report.Secrets.Patterns) &&
 			len(absent) > 0 {
 			r.warn("the broker is configured for %s, which %s named no file yet, "+
@@ -80,15 +67,10 @@ func (r *runner) stepValidate() error {
 			r.layout.BrokerUser, checkErr)
 	}
 
-	// The keeper decrypts sops and nothing else, so a credential held anywhere
-	// else is absent from the value set, and a value absent from the set is
-	// neither injectable nor redacted.  Zero refs from a store that exists is
-	// therefore a broker that is running and protecting nothing, which is
-	// indistinguishable from a healthy install unless something says so.
-	//
-	// Guarded rather than unconditional, and on the resolved files rather than
-	// the patterns: no files at all is what a first install looks like, its
-	// store directory created and still empty.
+	// A value absent from the set is neither injectable nor redacted, so zero
+	// refs from a store that exists is a broker protecting nothing while looking
+	// healthy.  Guarded on the resolved files rather than the patterns, no files
+	// at all being what a first install looks like.
 	if len(report.Secrets.Files) > 0 && report.Secrets.Count == 0 {
 		return fmt.Errorf("the broker read %s and loaded no refs. Nothing is "+
 			"injectable and nothing is redacted: a command that prints a credential "+
@@ -97,11 +79,9 @@ func (r *runner) stepValidate() error {
 	}
 
 	// Ansible loads every .yml under group_vars/ and host_vars/ as a vars file,
-	// and a sops file is valid YAML: it binds each var to its ENC[...]
-	// ciphertext, and a name sorting after vars.yml also overwrites the
-	// environment lookup the broker's injection relies on.  Nothing errors and
-	// no task fails; hosts get configured with the ciphertext of a credential in
-	// place of the credential.
+	// and a sops file is valid YAML: each var binds to its ENC[...] ciphertext,
+	// and a name sorting after vars.yml overwrites the environment lookup the
+	// injection relies on.  Nothing errors.
 	for _, file := range report.Secrets.Files {
 		if strings.Contains(file, "/group_vars/") || strings.Contains(file, "/host_vars/") {
 			return fmt.Errorf("%s is under group_vars/ or host_vars/, which Ansible "+
@@ -116,18 +96,15 @@ func (r *runner) stepValidate() error {
 	r.step("validate", false, fmt.Sprintf("%d ref(s) from %d file(s)",
 		report.Secrets.Count, len(report.Secrets.Files)))
 
-	// Asked through the broker rather than read off disk, because what matters
-	// is what a brokered command gets: the executor's uid can use the agent but
-	// cannot read the key, so this is the only place the answer is visible.  The
-	// broker loads its keys at startup and only warns when none of them load, so
-	// a missing or unreadable key leaves every socket active and every playbook
-	// unable to reach a single managed host.
+	// Asked through the broker rather than read off disk, what matters being
+	// what a brokered command gets.  The broker only warns when no key loads, so
+	// a missing one leaves every socket active and every playbook unable to
+	// reach a host.
 	if r.opts.SSHKey != "" {
 		out, agentErr := r.command(filepath.Join(r.layout.BinDir, "faramir"),
 			"run", "--quiet", "--", "ssh-add", "-l")
-		// The error carries stderr, which is where the reason is.  Dropping it
-		// reports every way this can fail, including a working agent asked from a
-		// directory the broker cannot stat, as "holds no usable key ()".
+		// The error carries stderr, where the reason is; dropping it reports
+		// every failure as "holds no usable key ()".
 		if agentErr != nil {
 			return fmt.Errorf("could not ask the broker what its agent holds: %w\n"+
 				"A brokered command runs where its caller was, so this also fails "+
@@ -146,16 +123,11 @@ func (r *runner) stepValidate() error {
 	return nil
 }
 
-// unresolved is the configured entries that name no file on disk.
-//
-// Expanded here rather than read out of the broker's error text: "named nothing
-// yet" and "named a file that would not load" are the two cases this has to
-// tell apart, and only the first is a host waiting for its secrets to be
-// written.  This runs as root, which the broker does not, so it can expand a
-// pattern the broker could only report as written.
-//
-// A missing literal path is the same case: Glob finds nothing for it either, so
-// one rule covers both and a host provisioned before its store still installs.
+// unresolved is the configured entries that name no file on disk.  Expanded
+// here rather than read out of the broker's error text, "named nothing yet" and
+// "named a file that would not load" being the two cases to tell apart; this
+// runs as root, so it can expand a pattern the broker could only report as
+// written.  A missing literal path is the same case.
 func unresolved(patterns []string) []string {
 	var absent []string
 	for _, pattern := range patterns {

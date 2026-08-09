@@ -6,8 +6,7 @@ import (
 	"testing"
 )
 
-// decode is what the assertions read: comparing parsed values rather than bytes,
-// so a test says what the merge has to preserve and not how it is indented.
+// decode compares parsed values rather than bytes.
 func decode(t *testing.T, data []byte) map[string]any {
 	t.Helper()
 	var out map[string]any
@@ -17,8 +16,8 @@ func decode(t *testing.T, data []byte) map[string]any {
 	return out
 }
 
-// The whole reason for merging: an MCP registration faramir knows nothing about
-// has to survive being enrolled.
+// The reason for merging: a registration faramir knows nothing about survives
+// enrolment.
 func TestMergeJSONKeepsOtherServers(t *testing.T) {
 	existing := []byte(`{
 	  "mcpServers": {
@@ -43,9 +42,8 @@ func TestMergeJSONKeepsOtherServers(t *testing.T) {
 	}
 }
 
-// A hook entry naming a binary that no longer exists denies nothing and fails
-// every command the agent runs, so it is replaced rather than left beside the
-// new one.
+// A hook naming a binary that no longer exists fails every command, so it is
+// replaced rather than left beside the new one.
 func TestMergeJSONReplacesStaleFaramirHook(t *testing.T) {
 	existing := []byte(`{
 	  "hooks": {
@@ -71,8 +69,7 @@ func TestMergeJSONReplacesStaleFaramirHook(t *testing.T) {
 	}
 }
 
-// A hook of the operator's own is not faramir's to remove, even under the same
-// matcher.  Both run.
+// The operator's own hook is not faramir's to remove.  Both run.
 func TestMergeJSONKeepsForeignHook(t *testing.T) {
 	existing := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":` +
 		`[{"type":"command","command":"/usr/local/bin/audit-log"}]}]}}`)
@@ -92,8 +89,7 @@ func TestMergeJSONKeepsForeignHook(t *testing.T) {
 	}
 }
 
-// Deny rules are strings, so they carry their own identity and union.  A rule
-// the operator added stays, and one of faramir's already there is not doubled.
+// Strings carry their own identity and union.
 func TestMergeJSONUnionsDenyRules(t *testing.T) {
 	existing := []byte(`{"permissions":{"deny":["Read(**/*.sops.yml)","Read(/srv/private/**)"]}}`)
 	ours := []byte(`{"permissions":{"deny":["Read(**/*.sops.yml)","Read(**/age.key)"]}}`)
@@ -118,8 +114,7 @@ func TestMergeJSONUnionsDenyRules(t *testing.T) {
 	}
 }
 
-// A second run must produce the same bytes, or every install reports a change
-// and the file churns.
+// The same bytes, or every install reports a change and the file churns.
 func TestMergeJSONIsIdempotent(t *testing.T) {
 	ours := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":` +
 		`[{"type":"command","command":"/usr/local/bin/faramir guard"}]}]},` +
@@ -142,8 +137,7 @@ func TestMergeJSONIsIdempotent(t *testing.T) {
 	}
 }
 
-// An empty file is one an agent wrote and never populated, so there is nothing
-// to preserve and faramir's own content stands.
+// An empty file has nothing to preserve.
 func TestMergeJSONAcceptsEmptyFile(t *testing.T) {
 	ours := []byte(`{"mcpServers":{"faramir":{"command":"/usr/local/bin/faramir"}}}`)
 	merged, err := mergeJSON([]byte("  \n"), ours)
@@ -155,8 +149,8 @@ func TestMergeJSONAcceptsEmptyFile(t *testing.T) {
 	}
 }
 
-// Unparseable is refused rather than overwritten.  Replacing it would lose the
-// operator's whole agent configuration to a stray comma.
+// Refused rather than overwritten: replacing it would lose the operator's whole
+// configuration to a stray comma.
 func TestMergeJSONRefusesUnparseableFile(t *testing.T) {
 	_, err := mergeJSON([]byte(`{"hooks": [},`), []byte(`{"a":1}`))
 	if err == nil {

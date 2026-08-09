@@ -18,22 +18,18 @@ type DoctorOptions struct {
 	ConfigDir string
 	Operator  string
 	Group     string
-	// The three service accounts, so the group audit below recognises the ones
-	// this install created.  Left at the defaults they would report every
-	// account of a non-default install as an intruder and tell the operator to
-	// remove the broker from its own group.
+	// The three service accounts, so the group audit recognises the ones this
+	// install created rather than reporting them as intruders.
 	BrokerUser string
 	KeeperUser string
 	ExecUser   string
-	// StoreGroup owns the managed sops files.  Defaults to the keeper's own
-	// group, which is what install leaves it as: the keeper is the only account
-	// that opens one of those files.
+	// StoreGroup owns the managed sops files, defaulting to the keeper's own
+	// group as install leaves it.
 	StoreGroup string
 }
 
-// Status is a finding's verdict.  Three levels rather than pass/fail, because
-// the interesting cases here are neither: a broker that is running and holding
-// nothing passes every test that asks whether it started.
+// Status is a finding's verdict.  Three levels, because a broker that is
+// running and holding nothing is neither a pass nor a fail.
 type Status string
 
 const (
@@ -49,8 +45,8 @@ type Finding struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// DoctorReport is the whole examination.  Failed is true when any finding is,
-// which is the exit code a caller reads.
+// DoctorReport is the whole examination; Failed is the exit code a caller
+// reads.
 type DoctorReport struct {
 	Failed   bool      `json:"failed"`
 	Findings []Finding `json:"findings"`
@@ -65,11 +61,9 @@ func (d *DoctorReport) add(name string, status Status, format string, args ...an
 	}
 }
 
-// Diagnose reports whether an install is doing its job.
-//
-// It answers the questions the install steps cannot: those check what they
-// wrote, and every failure worth catching here is one where everything was
-// written correctly and the result still protects nothing.
+// Diagnose reports whether an install is doing its job -- the questions the
+// install steps cannot answer, everything having been written correctly and the
+// result still protecting nothing.
 func Diagnose(opts DoctorOptions) DoctorReport {
 	if opts.ConfigDir == "" {
 		opts.ConfigDir = DefaultConfigDir
@@ -99,9 +93,8 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	}
 	report.add("config", StatusOK, "%s", configFile)
 
-	// Loaded for the paths the checks below ask about, which are the daemons'
-	// own rather than the defaults: a host whose store and sockets were moved
-	// would otherwise be examined at addresses nothing uses.
+	// The daemons' own paths rather than the defaults, or a host whose store
+	// and sockets moved is examined at addresses nothing uses.
 	cfg, err := config.Load(configFile)
 	if err != nil {
 		report.add("config", StatusFailed, "%s does not load: %v", configFile, err)
@@ -117,17 +110,13 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	return report
 }
 
-// diagnoseSopsConfig reports a creation rule left inside the store.
+// diagnoseSopsConfig reports a creation rule left inside the store.  sops takes
+// the first .sops.yaml it finds walking up from the working directory, so a copy
+// in the store shadows the one above it and new values encrypt to different
+// recipients depending on where the operator was standing.
 //
-// sops resolves .sops.yaml by walking up from the working directory and takes
-// the first it finds, so a copy in the store shadows the one in the config
-// directory for anything run from in there.  Two rules that have drifted apart
-// encrypt new values to different recipients depending on where the operator
-// was standing, and neither reports the other.
-//
-// Reported rather than moved: which of the two is current is a question about
-// the recipients in them, and answering it wrongly writes values nothing can
-// decrypt.
+// Reported rather than moved: answering which is current wrongly writes values
+// nothing can decrypt.
 func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 	layout := Layout{ConfigDir: opts.ConfigDir}
 	current, stale := layout.SopsConfigPath(), layout.StaleSopsConfigPath()
@@ -150,17 +139,11 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 
 // diagnoseSopsRecipients answers who can decrypt what the store will hold next.
 //
-// One finding rather than two, folded into the check that says the rule is where
-// it belongs, because a rule in the right place listing the wrong recipients is
-// not a healthier state than one in the wrong place.
-//
-// The keeper's own recipient is the one that has to be there.  Every other
-// difference is a backup key that turns out to open nothing, which is bad on the
-// day it is needed; a rule that has stopped naming the keeper is a store whose
-// next value the broker cannot read, and that broker starts, reports healthy, and
-// serves nothing.  init only ever writes this file once, so nothing else notices:
-// a key restored from a backup or re-minted after the file was unlinked leaves
-// the rule naming the recipient it used to have.
+// The keeper's own recipient is the one that has to be there: without it the
+// broker cannot read the next value, and it starts and reports healthy anyway.
+// Every other difference is a backup key that turns out to open nothing.  init
+// writes this file once, so a key restored or re-minted leaves the rule naming
+// the recipient it used to have.
 func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path string) {
 	listed, err := sopsRecipients(path)
 	if err != nil {
@@ -173,9 +156,8 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 			"encrypts a new file in the store to nobody and refuses", path)
 		return
 	}
-	// Read as whoever is running: the key is 0400 and the keeper's, so this
-	// answers only under sudo.  Reported as unchecked rather than as a pass,
-	// which is the rule the boundary checks follow for the same reason.
+	// The key is 0400 and the keeper's, so this answers only under sudo, and is
+	// reported as unchecked rather than as a pass.
 	keyPath := filepath.Join(opts.ConfigDir, "age.key")
 	keeper, err := agekey.Recipient(keyPath)
 	if err != nil {
@@ -184,9 +166,8 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 			keyPath, err)
 		return
 	}
-	// Warn rather than failed, like every other finding here: the values already
-	// in the store still decrypt, so this is a host that works today and cannot
-	// take a new value tomorrow, and a failed verdict would exit non-zero on it.
+	// Warn, not failed: the values already in the store still decrypt, so this
+	// is a host that works today and cannot take a new value tomorrow.
 	if !slices.Contains(listed, keeper) {
 		report.add("sops config", StatusWarn, "%s lists %s, none of which is the "+
 			"recipient of %s (%s). Every value encrypted into the store from now on is "+
@@ -200,8 +181,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 }
 
 // diagnoseUnits reports the sockets, not the services: all three are socket
-// activated, so an inactive service is ordinary and an inactive socket is the
-// install not listening at all.
+// activated, so an inactive service is ordinary.
 func diagnoseUnits(report *DoctorReport) {
 	if !systemdRunning() {
 		report.add("sockets", StatusWarn, "systemd is not running here")
@@ -220,18 +200,13 @@ func diagnoseUnits(report *DoctorReport) {
 	}
 }
 
-// diagnoseBroker asks the broker what it can actually do.
+// diagnoseBroker asks the broker what it can do.  A value absent from the set
+// is neither injectable nor redacted, so a broker serving zero refs from a
+// store that exists is protecting nothing and looks healthy.
 //
-// The keeper decrypts sops and nothing else, so a credential held anywhere else
-// is absent from the value set, and a value absent from the set is neither
-// injectable nor redacted.  A broker serving zero refs from a store that exists
-// is running and protecting nothing, and looks exactly like a healthy install.
-//
-// Run as the broker's own uid, which is why this needs root.  --check opens the
-// keeper socket, the SSH keys and the secrets files itself, and both root and an
-// ordinary account get a different answer from the one the broker gets: root
-// reads what the broker cannot, and an ordinary account cannot reach the keeper
-// at all.
+// Run as the broker's own uid, which is why this needs root: --check opens the
+// keeper socket, the SSH keys and the secrets files itself, and root and an
+// ordinary account each get a different answer.
 func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) {
 	if os.Geteuid() != 0 {
 		report.add("broker", StatusWarn, "run doctor as root to ask this: --check "+
@@ -270,18 +245,12 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) {
 }
 
 // diagnoseSSHAgent is the other way an install comes up healthy and does
-// nothing: the broker loads its keys at startup and only warns when none of
-// them load, so a missing or unreadable key leaves every socket active and every
-// playbook unable to reach a single managed host.
+// nothing: the broker only warns when no key loads, so a missing one leaves
+// every socket active and every playbook unable to reach a host.
 //
-// Asked through the broker rather than read off disk, because what matters is
-// what a brokered command gets: the executor can use the agent but cannot read
-// the key, so this is the only place the answer is visible.
-//
-// Asked as the operator, because the broker checks the peer's credentials
-// against the shared group and root is not in it: this command runs as root for
-// everything else, and asking as ourselves would report a broken agent on a
-// working install.
+// Asked through the broker rather than read off disk, what matters being what a
+// brokered command gets, and asked as the operator, root not being in the
+// shared group the broker checks against.
 func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions) {
 	out, err := asOperator(opts, filepath.Join(DefaultBinDir, "faramir"),
 		"run", "--quiet", "--", "ssh-add", "-l")
@@ -297,10 +266,8 @@ func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions) {
 }
 
 // diagnoseGroup lists members of the shared group that this did not create.
-//
-// Membership grants read on the store, so an account nobody recognises is a
-// standing grant.  Reported rather than removed: it is not this command's to
-// decide whose grant that is.
+// Reported rather than removed: whose grant that is, is not this command's to
+// decide.
 func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 	group, err := user.LookupGroup(opts.Group)
 	if err != nil {
@@ -330,8 +297,8 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 		opts.Group, strings.Join(outsiders, ", "), opts.Group)
 }
 
-// groupMembers reads a group's supplementary members.  Primary membership does
-// not appear there, which is why the accounts are looked up by name elsewhere.
+// groupMembers reads a group's supplementary members; primary membership does
+// not appear there.
 func groupMembers(name string) ([]string, error) {
 	body, err := os.ReadFile("/etc/group")
 	if err != nil {

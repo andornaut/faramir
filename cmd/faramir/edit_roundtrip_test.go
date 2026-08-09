@@ -11,9 +11,8 @@ import (
 	"github.com/andornaut/faramir/internal/sopstest"
 )
 
-// useSops points the edit path at a sops to exec: the host's own when it has
-// one, the stand-in otherwise.  A full decrypt, edit and re-encrypt either way,
-// so the round trip is exercised on a machine with no sops installed.
+// useSops points the edit path at the host's sops, or the stand-in.  A full
+// decrypt, edit and re-encrypt either way.
 func useSops(t *testing.T) {
 	t.Helper()
 	previous := sopsBinary
@@ -21,8 +20,7 @@ func useSops(t *testing.T) {
 	t.Cleanup(func() { sopsBinary = previous })
 }
 
-// editorScript writes a shell script standing in for the editor.  It is handed
-// the plaintext path exactly as a real editor would be.
+// editorScript writes a shell script standing in for the editor.
 func editorScript(t *testing.T, body string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "editor")
@@ -86,9 +84,8 @@ func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
 	}
 }
 
-// An editor that changes nothing must leave the file alone rather than
-// re-encrypting it.  Re-encrypting rewrites the data key on every save, which
-// would make every no-op edit look like a change to anything watching the file.
+// Re-encrypting rewrites the data key, so a no-op edit would look like a change
+// to anything watching the file.
 func TestAnUnchangedEditRewritesNothing(t *testing.T) {
 	useSops(t)
 	store, keyPath := encryptedFixture(t)
@@ -113,8 +110,8 @@ func TestAnUnchangedEditRewritesNothing(t *testing.T) {
 	}
 }
 
-// A failing editor must not touch the store.  Writing back what an editor
-// abandoned would replace a good file with a partial one.
+// Writing back what an editor abandoned would replace a good file with a
+// partial one.
 func TestAFailedEditorLeavesTheStoreAlone(t *testing.T) {
 	useSops(t)
 	store, keyPath := encryptedFixture(t)
@@ -135,9 +132,8 @@ func TestAFailedEditorLeavesTheStoreAlone(t *testing.T) {
 	}
 }
 
-// The mode the file had is the mode it keeps.  An install hands the store to
-// the store group, and an edit that reset it to whatever the umask said would
-// undo that quietly.
+// The mode the file had is the mode it keeps: an install hands the store to the
+// store group, and the umask must not undo that.
 func TestTheReplacementKeepsTheOriginalMode(t *testing.T) {
 	useSops(t)
 	store, keyPath := encryptedFixture(t)
