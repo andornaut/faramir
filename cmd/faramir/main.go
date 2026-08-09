@@ -422,8 +422,17 @@ func cmdRedact(args []string) int {
 	if child := fs.Args(); len(child) > 0 {
 		return redactChild(*c.socket, child)
 	}
-	if err := redactStream(*c.socket, os.Stdin, os.Stdout); err != nil {
+	unredacted, err := redactStream(*c.socket, os.Stdin, os.Stdout)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
+		return 1
+	}
+	// Non-zero when any of it went through untouched, so a caller that can fail
+	// closed has something to act on: the wrapper the hook installs withholds
+	// the output rather than show what the broker never saw.  The text is
+	// written either way, because a filter in a human's pipeline that swallowed
+	// its input would lose output that no longer exists anywhere else.
+	if unredacted {
 		return 1
 	}
 	return 0
@@ -448,7 +457,11 @@ func redactChild(socketPath string, argv []string) int {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
 		return 127
 	}
-	streamErr := redactStream(socketPath, output, os.Stdout)
+	// The pass-through flag is deliberately dropped here: this shape wraps a
+	// command a caller is running, and the child's own status is what it reads.
+	// Failing closed on an unreachable broker would break the command instead of
+	// the redaction, and a wrapper that breaks commands gets removed.
+	_, streamErr := redactStream(socketPath, output, os.Stdout)
 	if streamErr != nil {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", streamErr)
 		// Drain, or a child that fills the pipe blocks forever and the Wait
@@ -480,8 +493,9 @@ func redactChild(socketPath string, argv []string) int {
 // attempted.  Giving up after the first failure would hand the entire rest of
 // the output over untouched, which is a much larger hole than the chunk that
 // actually failed, and the warning is printed once so a long stream does not
-// bury its own output.
-func redactStream(socketPath string, in io.Reader, out io.Writer) error {
+// bury its own output.  It reports whether any chunk went through that way, so
+// a caller that would rather show nothing than show something unredacted can.
+func redactStream(socketPath string, in io.Reader, out io.Writer) (bool, error) {
 	reader := bufio.NewReaderSize(in, chunkBytes)
 	buf := make([]byte, 0, chunkBytes)
 	warned := false
@@ -515,7 +529,7 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 		// the text is passed through unredacted.
 		if len(buf) > 0 && len(buf)+len(line) > chunkBytes {
 			if flushErr := flush(); flushErr != nil {
-				return flushErr
+				return warned, flushErr
 			}
 		}
 		buf = append(buf, line...)
@@ -523,26 +537,26 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 		// there rather than growing without bound.
 		if errors.Is(err, bufio.ErrBufferFull) {
 			if flushErr := flush(); flushErr != nil {
-				return flushErr
+				return warned, flushErr
 			}
 			continue
 		}
 		if len(buf) >= chunkBytes {
 			if flushErr := flush(); flushErr != nil {
-				return flushErr
+				return warned, flushErr
 			}
 		}
 		if err != nil {
 			if flushErr := flush(); flushErr != nil {
-				return flushErr
+				return warned, flushErr
 			}
 			if errors.Is(err, io.EOF) {
-				// A redaction failure was already reported, once, by flush.
-				// Returning it as well would print it twice and turn a pipeline
-				// that did pass its text through into a failure.
-				return nil
+				// The failure itself was already reported, once, by flush, and
+				// is carried back as the flag rather than as an error: what a
+				// pipeline reads is text, and it got all of it.
+				return warned, nil
 			}
-			return err
+			return warned, err
 		}
 	}
 }

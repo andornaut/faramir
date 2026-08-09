@@ -87,7 +87,9 @@ inline `{ <cmd>; } >"$f" 2>&1` | kept | complete | no
 
 Sourcing runs the command in the caller's own shell, so everything it sets stays set. Redacting the file afterwards rather than through a live pipe removes the race at no observable cost.
 
-Failure modes all fall back to running the command and showing its output, never to running nothing or showing nothing. A temp file that cannot be created falls back to stdout; a `faramir` that cannot redact falls back to `cat`. When the broker is unreachable the wrapper warns and passes output through unredacted, because a wrapper that breaks every command gets removed, and a removed wrapper redacts nothing.
+Failure modes all fail closed: output that could not be redacted is never shown. A temp file that cannot be created means the command does not run, because there would be nowhere to capture what it printed. Output that was captured but could not be redacted (no `faramir`, one too old to have `redact`, an unreachable broker) is withheld, and since the command itself already ran, everything it set in the shell is still set. Both say so on stderr and return non-zero, so a withheld output cannot read as a command that printed nothing.
+
+The `faramir redact -- <cmd>` shape does the opposite and passes output through unredacted when the broker is gone. It wraps a command its caller is running rather than one an agent will read, so breaking that command would be the larger failure.
 
 Left alone rather than rewritten, because buffering would change what they do:
 

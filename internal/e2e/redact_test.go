@@ -79,6 +79,87 @@ func TestTheRewrittenCommandRedactsAndKeepsShellState(t *testing.T) {
 	}
 }
 
+// runWrapped runs a rewritten command the way the agent's shell would, with
+// stdout and stderr kept apart: what the agent reads is stdout, and the whole
+// point of failing closed is that unredacted text never reaches it.
+func runWrapped(t *testing.T, rewritten string, env ...string) (stdout, stderr string, code int) {
+	t.Helper()
+	session := exec.Command("bash", "-c", rewritten)
+	session.Env = append(os.Environ(), env...)
+	var out, errs strings.Builder
+	session.Stdout, session.Stderr = &out, &errs
+	err := session.Run()
+	var exitErr *exec.ExitError
+	switch {
+	case err == nil:
+	case errors.As(err, &exitErr):
+		code = exitErr.ExitCode()
+	default:
+		t.Fatalf("running the rewritten command: %v", err)
+	}
+	return out.String(), errs.String(), code
+}
+
+// Output that could not be redacted is withheld rather than shown.  A broker
+// that is not there is the ordinary way this happens, and printing the raw
+// output then would put into the agent's context exactly what the wrapper
+// exists to keep out of it.
+func TestTheWrapperWithholdsOutputItCouldNotRedact(t *testing.T) {
+	cli := faramirCLI(t)
+	rewritten := guardRewrite(t, cli, "echo leaked:"+routerPassword)
+
+	stdout, stderr, code := runWrapped(t, rewritten,
+		"FARAMIR_SOCKET="+filepath.Join(t.TempDir(), "absent.sock"), "FARAMIR_CLI="+cli)
+
+	if strings.Contains(stdout, routerPassword) {
+		t.Errorf("the value reached the agent unredacted: %q", stdout)
+	}
+	if strings.Contains(stdout, "leaked:") {
+		t.Errorf("stdout = %q, want the output withheld entirely", stdout)
+	}
+	if !strings.Contains(stderr, "withheld") {
+		t.Errorf("stderr = %q, want it to say the output was withheld", stderr)
+	}
+	// Withholding and reporting success would read as a command that printed
+	// nothing, which is how a broken redactor goes unnoticed.
+	if code == 0 {
+		t.Error("a withheld output was reported as a clean success")
+	}
+}
+
+// With nowhere to capture output there is nothing to redact, so the command
+// does not run at all.  Running it would send its output straight through.
+func TestTheWrapperDoesNotRunACommandItCannotCapture(t *testing.T) {
+	h := newHarness(t)
+	cli := faramirCLI(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	rewritten := guardRewrite(t, cli, "echo "+routerPassword+" > "+marker)
+
+	// mktemp is what the wrapper has to have; shadow it rather than simulate a
+	// full /dev/shm.
+	shim := t.TempDir()
+	if err := os.WriteFile(filepath.Join(shim, "mktemp"),
+		[]byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr, code := runWrapped(t, rewritten, "PATH="+shim+":"+os.Getenv("PATH"),
+		"FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli)
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("the command ran even though its output could not be captured")
+	}
+	if strings.Contains(stdout, routerPassword) {
+		t.Errorf("the value reached the agent unredacted: %q", stdout)
+	}
+	if !strings.Contains(stderr, "not run") {
+		t.Errorf("stderr = %q, want it to say the command was not run", stderr)
+	}
+	if code == 0 {
+		t.Error("a command that never ran was reported as a clean success")
+	}
+}
+
 // A failing command has to keep failing, or every check an agent runs reads as
 // a pass.
 func TestTheRewrittenCommandKeepsTheExitCode(t *testing.T) {

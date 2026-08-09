@@ -23,9 +23,11 @@
 # process substitution races: the shell moves on while the redactor is still
 # writing, and whatever it had not written yet is lost.
 #
-# Every failure falls back to running the command and showing its output, never
-# to running nothing or showing nothing.  A wrapper that breaks commands is a
-# wrapper that gets removed, and a removed wrapper redacts nothing at all.
+# Every failure fails closed: output that could not be redacted is never shown.
+# With nowhere to capture output the command does not run at all, and output
+# that was captured but not redacted is withheld.  Both say so on stderr and
+# return non-zero, so the caller reads a refusal rather than a silent success.
+# The command's own status is what comes back when redaction worked.
 
 # /dev/shm before mktemp's own default: the file holds the command's output
 # before redaction, so it belongs in memory rather than on a disk.  0600 either
@@ -33,29 +35,36 @@
 __frf=$(mktemp "${XDG_RUNTIME_DIR:-/dev/shm}/faramir.XXXXXX" 2>/dev/null ||
   mktemp /dev/shm/faramir.XXXXXX 2>/dev/null || mktemp)
 
-# ":;" keeps a comment-only command from forming an empty group.
-# "${__frf:-/dev/stdout}" keeps an unwritable temp file from meaning the command
-# does not run at all: redirecting to "" is an error the shell refuses.
-{ :; eval "$1"
-} >"${__frf:-/dev/stdout}" 2>&1
-__frc=$?
+if [ -z "$__frf" ]; then
+  # Nothing to capture into means nothing to redact, so the command does not
+  # run.  Letting it run here would print whatever it found straight through.
+  echo "faramir: no file to capture output into, so the command was not run" >&2
+  __frc=1
+else
+  # ":;" keeps a comment-only command from forming an empty group.
+  { :; eval "$1"
+  } >"$__frf" 2>&1
+  __frc=$?
 
-# Redacted into a second file rather than straight to stdout, so that the
-# fallback below can never append the unredacted copy to a partial redacted one.
-# The fallback is what an install one version behind needs: a faramir without
-# the redact subcommand prints usage and exits non-zero, and without it the
-# command's real output would be discarded and every call would look like a
-# silent success.  That second file holds redacted text, so /dev/shm again.
-[ -n "$__frf" ] && {
+  # Redacted into a second file rather than straight to stdout, so a redaction
+  # that fails part way through cannot have already printed the part it did not
+  # redact.  Neither file outlives this block, and both hold text that has not
+  # been shown, so /dev/shm again.
   if "${FARAMIR_CLI:-/usr/local/bin/faramir}" redact <"$__frf" >"${__frf}.out"; then
     cat "${__frf}.out"
   else
-    cat "$__frf"
+    # The command ran, so everything it set in this shell is intact; only its
+    # output is withheld.  A faramir too old to have "redact", one that is not
+    # installed, and a broker that could not be reached all land here.
+    echo "faramir: the output was withheld because it could not be redacted" >&2
+    # A withheld output must not read as a clean success.
+    [ "$__frc" -eq 0 ] && __frc=1
   fi
   rm -f "$__frf" "${__frf}.out"
-}
+fi
 
-# Restores the command's own status, which is what the caller reads.
+# Restores the status the caller reads, the command's own whenever redaction
+# worked.
 #
 # Cleared in the same breath: this runs in the caller's shell, so a variable
 # left defined here stays defined in it.  The status is expanded into the eval

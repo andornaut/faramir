@@ -72,7 +72,7 @@ func TestNoChunkExceedsTheChunkSize(t *testing.T) {
 	input := strings.Repeat(strings.Repeat("x", 60)+"\n", 4000)
 
 	var out bytes.Buffer
-	if err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
+	if _, err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != input {
@@ -97,7 +97,7 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 
 	input := strings.Repeat("y", 5*chunkBytes) + "\n"
 	var out bytes.Buffer
-	if err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
+	if _, err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != input {
@@ -111,21 +111,26 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 	}
 }
 
-// The filter is fail-open by design: a broker it cannot reach must not swallow
-// the text it was given.
-func TestTextSurvivesABrokerThatIsNotThere(t *testing.T) {
+// A broker it cannot reach must not swallow the text it was given, and must say
+// that the text went through untouched.  Both halves matter: the text is all a
+// pipeline has left, and the flag is what lets the wrapper the hook installs
+// withhold output the broker never saw.
+func TestTextSurvivesABrokerThatIsNotThereAndIsReportedUnredacted(t *testing.T) {
 	var out bytes.Buffer
 	stderr := os.Stderr
 	devNull, _ := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	os.Stderr = devNull
 	defer func() { os.Stderr = stderr; devNull.Close() }()
 
-	err := redactStream(filepath.Join(t.TempDir(), "absent.sock"),
+	unredacted, err := redactStream(filepath.Join(t.TempDir(), "absent.sock"),
 		strings.NewReader("keep me\n"), &out)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != "keep me\n" {
 		t.Errorf("output = %q", out.String())
+	}
+	if !unredacted {
+		t.Error("text went through untouched and was not reported as unredacted")
 	}
 }
