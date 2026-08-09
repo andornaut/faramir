@@ -376,6 +376,10 @@ const chunkBytes = 32 << 10
 // cmdRedact scrubs text that did not come from a brokered command.  As a filter
 // it reads stdin; given a command after --, it runs that command and filters
 // what it prints, preserving its exit status.
+//
+// One failure policy across both shapes, decided by what redaction could do and
+// not by which shape asked: text that could not be redacted is never written,
+// and the exit status is non-zero.
 func cmdRedact(args []string) int {
 	fs := newFlagSet("redact", "redact [options] [-- command [args...]]")
 	c := addCommon(fs)
@@ -385,15 +389,8 @@ func cmdRedact(args []string) int {
 	if child := fs.Args(); len(child) > 0 {
 		return redactChild(*c.socket, child)
 	}
-	unredacted, err := redactStream(*c.socket, os.Stdin, os.Stdout)
-	if err != nil {
+	if err := redactStream(*c.socket, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
-		return 1
-	}
-	// Non-zero when any of it went through untouched, so a caller that can
-	// fail closed has something to act on.  The text is written either way: a
-	// filter that swallowed its input would lose it for good.
-	if unredacted {
 		return 1
 	}
 	return 0
@@ -415,25 +412,34 @@ func redactChild(socketPath string, argv []string) int {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
 		return 127
 	}
-	// The pass-through flag is dropped: the child's own status is what the
-	// caller reads, and failing closed here would break the command rather than
-	// the redaction.
-	_, streamErr := redactStream(socketPath, output, os.Stdout)
+	streamErr := redactStream(socketPath, output, os.Stdout)
 	if streamErr != nil {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", streamErr)
 		// Drain, or a child that fills the pipe blocks the Wait below.
+		// Discarded rather than written: this is the text that could not be
+		// redacted, and the rest of a stream that stopped.
 		_, _ = io.Copy(io.Discard, output)
 	}
 	err = cmd.Wait()
+
+	code := 0
 	var exitErr *exec.ExitError
-	if errors.As(err, &exitErr) {
-		return exitErr.ExitCode()
-	}
-	if err != nil {
+	switch {
+	case errors.As(err, &exitErr):
+		code = exitErr.ExitCode()
+	case err != nil:
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
-		return 1
+		code = 1
 	}
-	return 0
+	// The command still ran, and whatever it changed is changed; what is missing
+	// is the part of its output that could not be redacted.  So its own status
+	// is kept when it failed, and a success is turned into a failure, because
+	// withheld output must not read as a command that printed nothing.  This is
+	// what wrap.sh does with the same situation, and now for the same reason.
+	if streamErr != nil && code == 0 {
+		code = 1
+	}
+	return code
 }
 
 // redactStream sends the input through the broker a chunk at a time, breaking
@@ -442,13 +448,16 @@ func redactChild(socketPath string, argv []string) int {
 // rather than ReadBytes, which would grow one long line past
 // max_request_bytes.
 //
-// A failed chunk is passed through unredacted and the next is still attempted,
-// with the warning printed once.  Reports whether any chunk went through that
-// way.
-func redactStream(socketPath string, in io.Reader, out io.Writer) (bool, error) {
+// A chunk that cannot be redacted is never written, and neither is anything
+// after it: the stream stops there and the error says so.  Chunks already
+// written were redacted successfully, so they stay -- holding them back would
+// protect nothing, and buffering to be able to would mean an unbounded buffer
+// and no incremental output.  So a failure shows as output that stops early,
+// not output that is empty; with the broker down, which fails on the first
+// chunk, those are the same thing.
+func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 	reader := bufio.NewReaderSize(in, chunkBytes)
 	buf := make([]byte, 0, chunkBytes)
-	warned := false
 
 	flush := func() error {
 		if len(buf) == 0 {
@@ -458,13 +467,8 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) (bool, error) 
 		buf = buf[:0]
 		redacted, err := redactOnce(socketPath, text)
 		if err != nil {
-			if !warned {
-				warned = true
-				fmt.Fprintf(os.Stderr,
-					"faramir redact: passing output through unredacted: %v\n", err)
-			}
-			_, writeErr := io.WriteString(out, text)
-			return writeErr
+			return fmt.Errorf("withheld %d byte(s) that could not be redacted, "+
+				"and stopped there: %w", len(text), err)
 		}
 		_, writeErr := io.WriteString(out, redacted)
 		return writeErr
@@ -473,35 +477,34 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) (bool, error) 
 	for {
 		line, err := reader.ReadSlice('\n')
 		// Flushed before the append: a partial buffer plus a full ReadSlice
-		// would make one request of nearly twice chunkBytes.
+		// would make one request of nearly twice chunkBytes, and a chunk the
+		// broker refuses is now a refused stream.
 		if len(buf) > 0 && len(buf)+len(line) > chunkBytes {
 			if flushErr := flush(); flushErr != nil {
-				return warned, flushErr
+				return flushErr
 			}
 		}
 		buf = append(buf, line...)
 		// A long line arrives in pieces; send what is there.
 		if errors.Is(err, bufio.ErrBufferFull) {
 			if flushErr := flush(); flushErr != nil {
-				return warned, flushErr
+				return flushErr
 			}
 			continue
 		}
 		if len(buf) >= chunkBytes {
 			if flushErr := flush(); flushErr != nil {
-				return warned, flushErr
+				return flushErr
 			}
 		}
 		if err != nil {
 			if flushErr := flush(); flushErr != nil {
-				return warned, flushErr
+				return flushErr
 			}
 			if errors.Is(err, io.EOF) {
-				// flush reported it once already, and carries it back as the
-				// flag rather than as an error.
-				return warned, nil
+				return nil
 			}
-			return warned, err
+			return err
 		}
 	}
 }

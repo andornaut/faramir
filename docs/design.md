@@ -59,7 +59,11 @@ Wrapper | State | Output | Allow-listable
 inline `{ <cmd>; } >"$f" 2>&1` | kept | complete | no
 `source wrap.sh '<cmd>'` | kept | complete | no
 
-Every failure fails closed. No temp file and the command does not run, there being nowhere to capture what it would print; output captured but not redacted is withheld. Both say so on stderr and return non-zero, so a withheld output cannot read as a command that printed nothing. `faramir redact -- <cmd>` does the opposite and passes output through when the broker is gone: it wraps a command its caller is running rather than one an agent will read.
+Every failure fails closed. No temp file and the command does not run, there being nowhere to capture what it would print; output captured but not redacted is withheld. Both say so on stderr and return non-zero, so a withheld output cannot read as a command that printed nothing.
+
+`faramir redact` does the same, in both its shapes and for the same reason. A chunk it cannot redact is never written, nothing after it is written, and the exit status is non-zero — which is what the wrapper above is reading when it withholds. The command form keeps the child's own status when the child failed and turns a success into a failure otherwise, because the command still ran and only its output is missing.
+
+What is *not* withheld is the part of a stream that was already redacted, on a broker that dies part way through. Those chunks came back covered, so holding them protects nothing, and buffering the whole stream to be able to hold them would cost an unbounded buffer and every byte of incremental output for a guarantee that is already met: no unredacted byte is written. A failure therefore truncates the output rather than emptying it, and on the usual failure — a broker that is not running, which fails on the first chunk — those are the same thing.
 
 Left alone rather than rewritten, because buffering would change what they do:
 
