@@ -2,6 +2,9 @@ bin/
 dist/
 coverage.txt
 
+# `go build ./cmd/faramir` by hand writes here.  make build writes to bin/.
+/faramir
+
 # opencode.json is a common entry in a personal ignore file, where it means the
 # opencode config of whatever tree you are in.  Here it is an installed asset,
 # named by internal/install/agents.go and embedded from this directory, so an
