@@ -1,6 +1,8 @@
 package install
 
 import (
+	"os/user"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -50,5 +52,36 @@ func TestSpliceBlockKeepsSurroundingText(t *testing.T) {
 	}
 	if !strings.HasPrefix(out, "# My project\n\nSome rules.\n") {
 		t.Errorf("the project's own text was disturbed:\n%s", out)
+	}
+}
+
+// Enrolling a tree walks it granting the client group read and write, and
+// faramir-exec is in that group.  For a checkout that is the point; for a home
+// it hands every brokered command ~/.ssh and the age key under ~/.config/sops,
+// and the walk cannot be undone because the modes it replaced are recorded
+// nowhere.
+func TestOversharingIsRefused(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip("no current user to take a home from")
+	}
+	home := filepath.Clean(me.HomeDir)
+	for dir, wantRefused := range map[string]bool{
+		"/":                true,
+		"/home":            true,
+		"/home/someone":    true,
+		"/root":            true,
+		home:               true,
+		filepath.Dir(home): true,
+		// The ordinary case, and the one the refusals must not reach.
+		filepath.Join(home, "src/project"): false,
+		"/home/someone/src/project":        false,
+		"/srv/project":                     false,
+	} {
+		err := refuseOversharing(dir, me.Username)
+		if refused := err != nil; refused != wantRefused {
+			t.Errorf("refuseOversharing(%q) refused = %v (%v), want %v",
+				dir, refused, err, wantRefused)
+		}
 	}
 }

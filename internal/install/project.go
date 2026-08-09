@@ -14,6 +14,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 
@@ -108,6 +109,9 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	if err != nil || !info.IsDir() {
 		return ProjectReport{}, fmt.Errorf("no directory at %s", dir)
 	}
+	if err := refuseOversharing(dir, opts.Operator); err != nil {
+		return ProjectReport{}, err
+	}
 
 	targets, err := resolveAgents(opts.Agents)
 	if err != nil {
@@ -128,6 +132,57 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		}
 	}
 	return run.report, nil
+}
+
+// refuseOversharing stops an enrolment that would share far more than a
+// project.
+//
+// Sharing walks the tree granting the client group read and write on every file
+// in it, and faramir-exec is in that group, so the tree becomes readable by
+// every brokered command.  That is the intent for a checkout and a disclosure
+// for a home: ~/.ssh and ~/.config/sops/age/keys.txt go with it, and that key
+// decrypts the same store this install holds a separate uid to protect.  A home
+// is also where the operator's shell configuration lives, and group write on
+// that is a brokered command choosing what the operator's next login runs.
+//
+// Refused rather than warned about, because the walk is not reversible: the
+// modes and groups a tree had before are not recorded anywhere.
+func refuseOversharing(dir, operator string) error {
+	tooBig := func(what string) error {
+		return fmt.Errorf("refusing to enrol %s: it is %s. Enrolling a tree gives the "+
+			"client group read and write on every file in it, and a home carries "+
+			"~/.ssh and the age key under ~/.config/sops, which decrypts the same "+
+			"store. Name the project directory instead", dir, what)
+	}
+	switch dir {
+	case "/":
+		return tooBig("the root of the filesystem")
+	case "/home":
+		return tooBig("every home on this host")
+	}
+	if home := homeOf(dir); home == dir {
+		return tooBig("a home directory")
+	}
+	// The account's own home as passwd records it, which is what catches one
+	// outside /home and /root.  An account that cannot be looked up fails later,
+	// in shareTree, with the error that names it.
+	if entry, err := user.Lookup(operator); err == nil && entry.HomeDir != "" {
+		home := filepath.Clean(entry.HomeDir)
+		if home == dir {
+			return tooBig(operator + "'s home directory")
+		}
+		if encloses(dir, home) {
+			return tooBig("above " + operator + "'s home directory")
+		}
+	}
+	return nil
+}
+
+// encloses reports whether child sits inside parent, compared as path elements
+// so that /home/andornaut2 is not inside /home/andornaut.
+func encloses(parent, child string) bool {
+	rel, err := filepath.Rel(parent, child)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
 type project struct {

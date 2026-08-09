@@ -90,6 +90,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		return
 	}
 	diagnoseAgeKey(report, opts, cfg)
+	diagnoseOperatorKeys(report, opts)
 	diagnoseStore(report, opts, cfg)
 	diagnoseConfigWritable(report, opts)
 	diagnoseInstalledFiles(report, opts)
@@ -249,6 +250,56 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 		}
 	}
 	report.add("age key", StatusOK, "%s, and only %s can read it", want, opts.KeeperUser)
+}
+
+// diagnoseOperatorKeys checks what enrolling a tree granted.
+//
+// init-project makes every directory from the home down to the tree traversable
+// by the client group, and faramir-exec is in that group.  Traversal is execute
+// without read, so the home stays unlistable and only the enrolled tree below it
+// is shared.  A home that was itself enrolled is group-readable and
+// group-writable throughout, and what comes with it is the operator's own SSH
+// keys and the age key under ~/.config/sops, which decrypts the same store the
+// keeper exists to keep away from brokered commands.
+//
+// The age key check above cannot see this: faramir's own key is untouched and
+// still 0400.  This is a second copy of the same authority, in a file that
+// belongs to the operator.
+func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
+	entry, err := user.Lookup(opts.Operator)
+	if err != nil || entry.HomeDir == "" {
+		report.add("operator keys", StatusWarn, "cannot locate %s's home, so what a "+
+			"brokered command can read in it was not checked", opts.Operator)
+		return
+	}
+	home := filepath.Clean(entry.HomeDir)
+	if !exists(home) {
+		report.add("operator keys", StatusWarn, "%s does not exist, so what a brokered "+
+			"command can read in it was not checked", home)
+		return
+	}
+	if canRead(opts.ExecUser, home) {
+		report.add("operator keys", StatusFailed, "%s can list %s: the home was enrolled "+
+			"rather than a project inside it, so every credential in it is group-shared. "+
+			"init-project grants traversal, not read", opts.ExecUser, home)
+		return
+	}
+	// Named individually, because traversal makes the home passable while its
+	// own mode still refuses a listing: a directory below it can be shared
+	// without the check above noticing.
+	for _, relative := range []string{".ssh", ".config/sops", ".gnupg"} {
+		path := filepath.Join(home, relative)
+		if !exists(path) {
+			continue
+		}
+		if canRead(opts.ExecUser, path) {
+			report.add("operator keys", StatusFailed, "%s can read %s, so a brokered "+
+				"command holds whatever is in it", opts.ExecUser, path)
+			return
+		}
+	}
+	report.add("operator keys", StatusOK, "%s can traverse %s and read nothing in it",
+		opts.ExecUser, home)
 }
 
 // diagnoseAuditLog checks the record of what ran, which is the operator's
