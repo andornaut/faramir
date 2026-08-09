@@ -6,8 +6,8 @@ package install
 // machine and again to upgrade it; this runs once per tree you want to work in,
 // and there is no limit to how many of those there are.  Keeping them apart is
 // also what makes the working directory safe to default here and unsafe there:
-// this command means "enrol this project", so where you are standing is the
-// answer, while init means "provision this host" and would enrol whatever
+// this command means "enrol this project", so the current working directory is
+// the answer, while init means "provision this host" and would enrol whatever
 // directory it happened to be run from, including the faramir checkout.
 
 import (

@@ -207,7 +207,7 @@ Flag | Effect
 
 Command | Does
 --- | ---
-`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to where you are standing. Shares the tree (group-owned and setgid, so you and a brokered command stop overwriting each other's ownership, and group-executable down from a `0700` home so the executor can enter), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config.
+`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. Shares the tree (group-owned and setgid, so you and a brokered command stop overwriting each other's ownership, and group-executable down from a `0700` home so the executor can enter), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config.
 `sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the store is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
 `sudo faramir logs` | Recent audit records, or the one a short id names: id, local time, op, outcome, duration, how many values it stood in for, and the command; a redact reports the text's size instead. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched.
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed `config.d` drop-in. All three are socket activated.
@@ -372,6 +372,6 @@ make test-unit       # everything except end-to-end
 Doc | Covers
 --- | ---
 [docs/ansible-sops.md](docs/ansible-sops.md) | Pointing `group_vars` at the environment
+[docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what enrolment costs
 [docs/protocol.md](docs/protocol.md) | Request and response shapes on the socket
 [docs/redaction.md](docs/redaction.md) | What the redactor covers, and what it cannot
-[docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what enrolment costs

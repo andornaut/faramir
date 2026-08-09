@@ -167,9 +167,9 @@ func reportToOperator(report install.Report) {
 // cmdInitProject enrols one tree.
 //
 // The directory defaults to the working one, which is safe here and is not on
-// init: this command means "enrol this project", so where you are standing is
-// the answer, where init means "provision this host" and would enrol whatever
-// directory it happened to be run from.
+// init: this command means "enrol this project", so the current working
+// directory is the answer, where init means "provision this host" and would
+// enrol whatever directory it happened to be run from.
 func cmdInitProject(args []string) int {
 	fs := newFlagSet("init-project", "init-project [options] [DIR]")
 	operator := fs.String("operator", "",
