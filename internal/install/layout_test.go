@@ -11,7 +11,7 @@ import (
 func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 	for _, tc := range []struct{ name, configDir, wantKey, wantDir string }{
 		{"the default", DefaultConfigDir, DefaultConfigDir + "/age.key", DefaultConfigDir},
-		{"an operator's home", "/home/op/.faramir", "/home/op/.faramir/age.key", "/home/op/.faramir"},
+		{"an operator's home", "/home/op/.config/faramir", "/home/op/.config/faramir/age.key", "/home/op/.config/faramir"},
 		{"a trailing slash is cleaned", "/srv/f/", "/srv/f/age.key", "/srv/f"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -160,7 +160,7 @@ func withUnit(t *testing.T, body string) {
 // The path an edit under sudo takes on an install whose config moved out of the
 // compiled default.
 func TestTheBrokerUnitNamesTheLiveConfig(t *testing.T) {
-	want := "/home/op/" + ".faramir/config.toml"
+	want := "/home/op/" + ".config/faramir/config.toml"
 	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+want+"\n")
 	if got := resolveConfig(""); got != want {
 		t.Errorf("resolveConfig(\"\") = %q, want the path the unit names", got)

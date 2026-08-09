@@ -20,7 +20,7 @@
 
 set -uo pipefail
 
-CONFIG_DIR=$HOME/.faramir
+CONFIG_DIR=$HOME/.config/faramir
 KEY=$HOME/.config/sops/age/keys.txt
 STASH=/root/faramir-operator-key.retired
 SHRED=0

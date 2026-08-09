@@ -50,18 +50,18 @@ func statusBroker(t *testing.T, configs []string) string {
 // is asked instead.
 func TestResolveConfigDirAsksTheBroker(t *testing.T) {
 	socket := statusBroker(t, []string{
-		"/home/op/.faramir/config.toml",
-		"/home/op/.faramir/config.d/a.toml",
+		"/home/op/.config/faramir/config.toml",
+		"/home/op/.config/faramir/config.d/a.toml",
 	})
-	if got := resolveConfigDir("", socket); got != "/home/op/.faramir" {
-		t.Errorf("resolveConfigDir = %q, want /home/op/.faramir", got)
+	if got := resolveConfigDir("", socket); got != "/home/op/.config/faramir" {
+		t.Errorf("resolveConfigDir = %q, want /home/op/.config/faramir", got)
 	}
 }
 
 // An operator who names one is examining that install, whatever a broker
 // says.
 func TestResolveConfigDirPrefersTheFlag(t *testing.T) {
-	socket := statusBroker(t, []string{"/home/op/.faramir/config.toml"})
+	socket := statusBroker(t, []string{"/home/op/.config/faramir/config.toml"})
 	if got := resolveConfigDir("/etc/elsewhere", socket); got != "/etc/elsewhere" {
 		t.Errorf("resolveConfigDir = %q, want the flag to win", got)
 	}

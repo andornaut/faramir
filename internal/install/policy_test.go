@@ -63,8 +63,8 @@ func TestGeminiPolicyRefusesKeyMaterial(t *testing.T) {
 		t.Run(tool, func(t *testing.T) {
 			for _, path := range []string{
 				"/home/op/.config/sops/age/keys.txt",
-				"/home/op/.faramir/age.key",
-				"/home/op/.faramir/secrets/x.sops.yml",
+				"/home/op/.config/faramir/age.key",
+				"/home/op/.config/faramir/secrets/x.sops.yml",
 				"/srv/app/secrets.yml",
 				"/srv/app/group_vars/vault.yml",
 				"/home/op/.ssh/id_ed25519",
