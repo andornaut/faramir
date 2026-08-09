@@ -286,18 +286,33 @@ func TestCLIRedactPreservesTheChildExitCode(t *testing.T) {
 	}
 }
 
-// An unreachable broker must not break the command it wraps: a wrapper that
-// fails closed here is one that gets removed.
-func TestCLIRedactPassesOutputThroughWhenTheBrokerIsGone(t *testing.T) {
+// An unreachable broker means text nobody checked, so none of it is written.
+// The command still ran and whatever it changed is changed; what is missing is
+// the output, and the status says so rather than letting silence read as a
+// command that printed nothing.
+func TestCLIRedactWithholdsTheOutputWhenTheBrokerIsGone(t *testing.T) {
 	r := runCLI(t, "/nonexistent/broker.sock", "redact", "--", "bash", "-lc", "echo still-ran; exit 7")
-	if !strings.Contains(r.stdout, "still-ran") {
-		t.Errorf("stdout = %q, want the command's own output", r.stdout)
+	if strings.Contains(r.stdout, "still-ran") {
+		t.Errorf("stdout = %q, want nothing the broker never saw", r.stdout)
 	}
+	// The child's own failure, kept: only its output was withheld.
 	if r.code != 7 {
 		t.Errorf("exit = %d, want the child's 7", r.code)
 	}
-	if !strings.Contains(r.stderr, "unredacted") {
-		t.Errorf("stderr = %q, want it to say the output was not redacted", r.stderr)
+	if !strings.Contains(r.stderr, "withheld") {
+		t.Errorf("stderr = %q, want it to say the output was withheld", r.stderr)
+	}
+}
+
+// A child that succeeded still fails the run when its output was withheld,
+// there being no way to tell that from a command that printed nothing.
+func TestCLIRedactFailsAZeroExitWhenTheOutputWasWithheld(t *testing.T) {
+	r := runCLI(t, "/nonexistent/broker.sock", "redact", "--", "bash", "-lc", "echo hi; exit 0")
+	if r.code == 0 {
+		t.Errorf("exit = 0 with the output withheld; stderr = %q", r.stderr)
+	}
+	if strings.Contains(r.stdout, "hi") {
+		t.Errorf("stdout = %q, want nothing the broker never saw", r.stdout)
 	}
 }
 
