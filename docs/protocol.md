@@ -1,7 +1,6 @@
 # Wire protocol
 
-Two sockets, the same shape on both: newline-delimited JSON, one request, one
-response, one connection, no framing beyond the newline.
+Three sockets, the same shape on each: newline-delimited JSON, one request, one response, one connection, no framing beyond the newline. A request over `[server] max_request_bytes` is refused.
 
 Socket | Who may connect | What it does
 --- | --- | ---
@@ -9,16 +8,11 @@ Socket | Who may connect | What it does
 `/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values
 `/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY
 
-The internal sockets are root-owned so that neither the keeper's nor the
-executor's own uid can connect to them: a child that could reach the executor
-socket would run commands the broker never authorised and never logged.
+The internal sockets are root-owned so that neither the keeper's nor the executor's own uid can connect: a child reaching the executor socket would run commands the broker never authorised and never logged.
 
-The broker's protocol is below; the internal ones are at the end. A request larger
-than `[server] max_request_bytes` is refused.
+## The broker socket
 
-## Requests
-
-### `exec` (default)
+The mode is one check; the broker also tests `SO_PEERCRED` against `[server] allowed_uids` and `allowed_groups`, and records the peer's uid, gid and pid in every audit record.
 
 ```json
 {
@@ -33,32 +27,13 @@ than `[server] max_request_bytes` is refused.
 Field | Required | Notes
 --- | --- | ---
 `cmd` | yes | **Array.** A string is rejected with guidance; the broker never runs `sh -c` for you.
-`cwd` | yes | Absolute, and must exist. There is no fallback: a request that names none is refused. A relative `cmd[0]` resolves against it.
-`env_refs` | no | `NAME` → `secret://ref`. Values are impossible to pass; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved.
+`cwd` | yes | Absolute, and must exist. No fallback: a request naming none is refused. A relative `cmd[0]` resolves against it.
+`env_refs` | no | `NAME` → `secret://ref`. Values cannot be passed; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved.
 `timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`.
 
-### `list_secrets`
+`{"op": "list_secrets"}` returns ref names only. `{"op": "status"}` returns the broker version, `configs` (the base config and every drop-in that contributed, in merge order), loaded files, the count of secrets loaded, and load errors. Neither reports the refs refused at load: that list names exactly the secrets that are never tokenized, so it stays behind `faramir broker --check`. See [redaction.md](redaction.md).
 
-```json
-{"op": "list_secrets"}
-```
-
-Returns ref names only, never values. A ref whose value is too short or too
-low-entropy to redact is refused at load, so it does not appear here and is not
-injectable; see [redaction.md](redaction.md).
-
-### `status`
-
-```json
-{"op": "status"}
-```
-
-Broker version, `configs` (the base config and every drop-in that contributed, in the order applied, so the base is first), loaded files, the count of secrets loaded, and load errors. Not
-the refs refused at load: that list names exactly
-the secrets that are never tokenized, so it stays operator-side, behind
-`faramir broker --check`.
-
-## Responses
+### Responses
 
 ```json
 {
@@ -72,94 +47,52 @@ the secrets that are never tokenized, so it stays operator-side, behind
 }
 ```
 
-`redactions` reports **counts, not values**, so the caller can confirm a secret
-reached the right place without seeing it. A count of 0 for a secret it
-expected is a genuine signal that something is misconfigured.
+`redactions` reports **counts, not values**, so the caller can confirm a secret reached the right place without seeing it; a count of 0 where one was expected is a real signal that something is misconfigured. `log_id` points into `/var/log/faramir/audit.log`, which the agent cannot read, so it can say "see log 2026-08-05T14:22:01Z-a91f" to the operator.
 
-`log_id` points into `/var/log/faramir/audit.log`, which the agent cannot read.
-It is there so the agent can say "see log 2026-08-05T14:22:01Z-a91f" to the
-operator.
-
-### Errors
+An error nulls `exit_code` and adds `error`:
 
 ```json
-{
-  "exit_code": null,
-  "output": "",
-  "truncated": false,
-  "redactions": [],
-  "log_id": "2026-08-05T14:22:01Z-a91f",
-  "error": { "code": "exec_failed", "message": "ansible-playbook: not found on the broker's PATH (…)" }
-}
+{"error": {"code": "exec_failed",
+           "message": "ansible-playbook: not found on the broker's PATH (…)"}}
 ```
 
 Code | Meaning
 --- | ---
-`bad_request` | Malformed request, bad env var name, reserved env var name, a `secret://` reference that is not well formed, `cwd` that does not exist
-`unknown_secret` | The ref does not exist in any managed file, or was refused at load as not redactable
+`bad_request` | Malformed request, bad or reserved env var name, a malformed `secret://` reference, `cwd` that does not exist
+`unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `busy` | At `[server] max_concurrency`; retry
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`)
 `too_large` | Request exceeded `[server] max_request_bytes`
 `timeout` | The connection was opened but no request arrived within 30s
 
-There is no command allowlist, so there is no `denied`. Errors are deliberately
-specific about what failed and where to fix it, so the agent can correct itself
-in one turn instead of guessing. A program that is not on `[exec.base_env] PATH`
-says so and names the setting.
-
-## Authentication
-
-The socket is `0660 root:dev`, and the broker additionally checks
-`SO_PEERCRED` against `[server] allowed_uids` / `allowed_groups`. The peer's
-uid, gid and pid are recorded in every audit record.
+There is no command allowlist, so there is no `denied`. Messages name what failed and where to fix it, so the agent can correct itself in one turn: a program off `[exec.base_env] PATH` says so and names the setting.
 
 ## The keeper socket
 
-Internal, between the broker and the process that holds the age key. Two
-operations:
+Peer uid is checked against `[keeper] allowed_users` on top of the mode. There is no group form, the only group in play holding the agent's own uid.
 
 ```json
 {"op": "get_values"}
-```
-
-```json
 {"values": {"home/router/admin": "…"},
  "state": [{"path": "/etc/faramir/secrets/x.sops.yml",
             "mtime_unix_nano": 1743160000000000000, "size": 812}],
  "errors": []}
 ```
 
-Every managed value, never a subset: the redactor is built from the whole value
-set, because a managed host can print a credential no command injected.
-
-The `state` is the fingerprint of each file this decrypt read, returned with the
-values rather than fetched separately so the two describe the same moment. A
-fingerprint taken in its own call could be of a file edited after the decrypt,
-and that edit would then never be noticed.
+Every managed value, never a subset: the redactor is built from the whole value set, because a managed host can print a credential no command injected. The `state` is the fingerprint of each file this decrypt read, returned with the values so the two describe the same moment. Fetched separately it could fingerprint a file edited after the decrypt, and that edit would then never be noticed.
 
 ```json
 {"op": "get_state"}
-```
-
-```json
-{"state": [{"path": "/etc/faramir/secrets/x.sops.yml",
-            "mtime_unix_nano": 1743160000000000000, "size": 812}],
+{"state": [{"path": "…", "mtime_unix_nano": 1743160000000000000, "size": 812}],
  "errors": []}
 ```
 
-The staleness poll. The broker cannot stat the managed files itself: the store
-is `2750 root:faramir-keeper` and the broker is not in that group, because
-holding the plaintext is not a reason to be able to read the ciphertext. This
-answers without the key and without execing sops, so it stays cheap enough to
-serve on every request when `refresh_interval_sec` is 0.
+The staleness poll, and where `[secrets] files` globs are expanded, so a file added to the store appears without a restart. The broker cannot stat those files itself: the store is `2750 root:faramir-keeper` and the broker is not in that group. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `refresh_interval_sec` is 0.
 
-A file that could not be stat-ed or could not be decrypted comes back in
-`errors` rather than as an error response, so one broken file does not blank the
-whole value set. Key material is stripped from those strings before they cross
-the socket.
+A file that could not be stat-ed or decrypted comes back in `errors` rather than as an error response, so one broken file does not blank the whole value set. Key material is stripped from those strings before they cross the socket.
 
-Anything else is refused:
+Anything else is refused, and **there is no operation that returns the age key**; adding one would defeat the reason the keeper is a separate service.
 
 ```json
 {"error": {"code": "unsupported",
@@ -168,14 +101,9 @@ Anything else is refused:
                        that returns key material"}}
 ```
 
-**There is no operation that returns the age key, and adding one would defeat
-the reason the keeper is a separate service.** Peer uid is checked against
-`[keeper] allowed_users` on top of the socket mode. There is no group form: the only group in play holds the agent's own uid.
-
 ## The executor socket
 
-Internal, between the broker and the uid that forks commands. One request,
-carrying a single file descriptor as ancillary data:
+One request, carrying a single file descriptor as ancillary data:
 
 ```json
 {"argv": ["/usr/bin/printenv", "ROUTER_PW"],
@@ -183,23 +111,12 @@ carrying a single file descriptor as ancillary data:
  "env": {"ROUTER_PW": "…"},
  "timeout_sec": 600,
  "kill_grace_sec": 5}
-```
 
-```json
 {"exit_code": 0, "timed_out": false, "duration_sec": 12.4}
 ```
 
-The descriptor is the **slave** end of a PTY the broker created. The broker
-keeps the master, so redaction and the audit log read the child's bytes
-directly rather than through a second hop. Both sides close their copy of the
-slave once the child holds it, or the master never reaches EOF.
+The descriptor is the **slave** end of a PTY the broker created. The broker keeps the master, so redaction and the audit log read the child's bytes directly. Both sides close their copy of the slave once the child holds it, or the master never reaches EOF.
 
-`argv[0]` arrives already resolved to an absolute path; the executor checks
-nothing about it. What bounds a brokered command is the uid it runs as (no age
-key, no audit log, no SSH key) and the mode on this socket, which the executor's
-own uid cannot open.
+`argv[0]` arrives already resolved to an absolute path and the executor checks nothing about it. What bounds a brokered command is the uid it runs as (no age key, no audit log, no SSH key) and the mode on this socket, which the executor's own uid cannot open.
 
-The executor owns the timeout, because it owns the process group. **Closing
-the connection is how the broker says "give up"**, and the child's process
-group is killed. That covers the broker dying mid-command, which would
-otherwise leave an orphan holding a credential in its environment.
+The executor owns the timeout, because it owns the process group. **Closing the connection is how the broker says "give up"**, and the child's process group is killed. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.

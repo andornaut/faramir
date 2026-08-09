@@ -7,11 +7,14 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -81,7 +84,7 @@ func brokerConfigDir(socketPath string) string {
 func cmdInit(args []string) int {
 	fs := newFlagSet("init", "init [options]")
 	operator := fs.String("operator", "",
-		"account the coding agent runs as (default $OPERATOR, then $SUDO_USER)")
+		"account the coding agent runs as (default $SUDO_USER, then you)")
 	group := fs.String("group", install.DefaultGroup,
 		"shared group giving the service accounts access to a tree brokered commands run in")
 	storeGroup := fs.String("store-group", "",
@@ -89,10 +92,8 @@ func cmdInit(args []string) int {
 	brokerUser := fs.String("broker-user", install.DefaultBrokerUser, "account that holds the SSH keys and the audit log")
 	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
 	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
-	configDir := fs.String("config-dir", install.DefaultConfigDir, "where config.toml and config.d/ are installed")
-	secretsDir := fs.String("secrets-dir", "", "where the managed sops files live (default CONFIG_DIR/secrets)")
-	binaries := fs.String("binaries", "",
-		"directory holding the built binaries (default: the directory this one is in)")
+	configDir := fs.String("config-dir", install.DefaultConfigDir,
+		"where config.toml, config.d/, the age key and the managed sops files are installed")
 	operatorAgeKey := fs.String("operator-age-key", "",
 		"mint an age identity here and list it alongside the keeper's, so the operator can read the files they own")
 	sshKey := fs.String("ssh-key", "",
@@ -117,8 +118,6 @@ func cmdInit(args []string) int {
 		KeeperUser:     *keeperUser,
 		ExecUser:       *execUser,
 		ConfigDir:      *configDir,
-		SecretsDir:     *secretsDir,
-		Binaries:       *binaries,
 		AgeRecipients:  recipients,
 		OperatorAgeKey: *operatorAgeKey,
 		SSHKey:         *sshKey,
@@ -174,7 +173,7 @@ func reportToOperator(report install.Report) {
 func cmdInitProject(args []string) int {
 	fs := newFlagSet("init-project", "init-project [options] [DIR]")
 	operator := fs.String("operator", "",
-		"account that works in the tree (default $OPERATOR, then $SUDO_USER)")
+		"account that works in the tree (default $SUDO_USER, then you)")
 	configDir := fs.String("config-dir", install.DefaultConfigDir,
 		"where the installed config is, which is where the shared group is read from")
 	group := fs.String("group", "",
@@ -245,9 +244,17 @@ func cmdDoctor(args []string) int {
 		"account the broker runs as, which --check has to be asked as")
 	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
 	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
+	storeGroup := fs.String("store-group", "",
+		"group owning the managed sops files (default: the keeper's own)")
 	asJSON := fs.Bool("json", false, "print the findings as JSON")
+	when := fs.String("color", "auto", "colourise: auto, always or never")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
+	}
+	paint, err := newPalette(*when)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		return 2
 	}
 	report := install.Diagnose(install.DoctorOptions{
 		ConfigDir:  resolveConfigDir(*configDir, *socket),
@@ -256,6 +263,7 @@ func cmdDoctor(args []string) int {
 		BrokerUser: *brokerUser,
 		KeeperUser: *keeperUser,
 		ExecUser:   *execUser,
+		StoreGroup: *storeGroup,
 	})
 	if *asJSON {
 		body, err := json.MarshalIndent(report, "", "  ")
@@ -265,17 +273,142 @@ func cmdDoctor(args []string) int {
 		}
 		fmt.Println(string(body))
 	} else {
-		for _, finding := range report.Findings {
-			fmt.Printf("%-8s %s\n", finding.Status, finding.Name)
-			if finding.Detail != "" {
-				fmt.Printf("         %s\n", finding.Detail)
-			}
-		}
+		printDiagnosis(os.Stdout, paint, report)
 	}
 	if report.Failed {
 		return 1
 	}
 	return 0
+}
+
+// printDiagnosis lays the findings out as a table: status, check, detail.
+//
+// The check is named once per run of findings that share it, so three sockets
+// read as one check with three answers rather than as three checks that happen
+// to have the same name.  The detail wraps under itself: these are sentences
+// naming an account and a path, and one cut off at the terminal edge is one
+// nobody acts on.
+func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
+	statusWidth := columns(statusColumn(install.StatusFailed)) // the longest
+	name := 0
+	for _, finding := range report.Findings {
+		name = max(name, len(finding.Name))
+	}
+	indent := statusWidth + 2 + name + 2
+	counts := map[install.Status]int{}
+	previous := ""
+	for _, finding := range report.Findings {
+		counts[finding.Status]++
+		label := finding.Name
+		if label == previous {
+			label = ""
+		}
+		previous = finding.Name
+		// A finding with no detail is still a line: the status and the name are
+		// the finding, and the detail is what one has to say for itself.
+		first, rest := "", []string(nil)
+		if lines := wrapText(finding.Detail, terminalWidth()-indent); len(lines) > 0 {
+			first, rest = lines[0], lines[1:]
+		}
+		fmt.Fprintf(w, "%s  %-*s  %s\n", paintStatus(paint, finding.Status), name, label, first)
+		for _, line := range rest {
+			fmt.Fprintf(w, "%*s%s\n", indent, "", line)
+		}
+	}
+	if len(report.Findings) == 0 {
+		return
+	}
+	var totals []string
+	for _, status := range []install.Status{install.StatusOK, install.StatusWarn, install.StatusFailed} {
+		if counts[status] > 0 {
+			totals = append(totals, fmt.Sprintf("%d %s", counts[status], status))
+		}
+	}
+	fmt.Fprintf(w, "\n%s\n", paint.bold(strings.Join(totals, ", ")))
+}
+
+// statusColumn is the glyph and the word, which is what an eye finds before it
+// reads anything: a column of ticks with the one cross in it standing out.
+//
+// Both, not one: the glyph is what makes the column scannable, and the word is
+// what survives a pipe into a log or a grep for "failed".  The glyph is dropped
+// where the locale is not UTF-8, rather than printing a replacement character
+// against every finding.
+func statusColumn(status install.Status) string {
+	mark := map[install.Status]string{
+		install.StatusOK:     "✓", // check mark
+		install.StatusWarn:   "!",
+		install.StatusFailed: "✗", // ballot X
+	}[status]
+	if mark == "" || !unicodeLocale() {
+		return fmt.Sprintf("%-6s", status)
+	}
+	return fmt.Sprintf("%s %-6s", mark, status)
+}
+
+// columns is a string's width on screen.  Every glyph above is one column wide,
+// so counting runes is the same answer without a width table, and len would
+// count a check mark as three.
+func columns(text string) int { return utf8.RuneCountInString(text) }
+
+// unicodeLocale reports whether the terminal was told to expect UTF-8.  The
+// first of these that is set decides, which is the order the C library reads
+// them in.
+func unicodeLocale() bool {
+	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		if value := os.Getenv(name); value != "" {
+			return strings.Contains(strings.ToUpper(value), "UTF-8") ||
+				strings.Contains(strings.ToUpper(value), "UTF8")
+		}
+	}
+	return false
+}
+
+func paintStatus(paint palette, status install.Status) string {
+	text := statusColumn(status)
+	switch status {
+	case install.StatusOK:
+		return paint.ok(text)
+	case install.StatusWarn:
+		return paint.warn(text)
+	default:
+		return paint.bad(text)
+	}
+}
+
+// wrapText breaks a detail into lines that fit.  Words only: a path is one, and
+// splitting one mid-word makes it uncopyable, so an over-long word takes a line
+// of its own and overflows rather than being cut.
+func wrapText(text string, width int) []string {
+	if width < 20 {
+		width = 20
+	}
+	var lines []string
+	line := ""
+	for word := range strings.FieldsSeq(text) {
+		switch {
+		case line == "":
+			line = word
+		case len(line)+1+len(word) <= width:
+			line += " " + word
+		default:
+			lines = append(lines, line)
+			line = word
+		}
+	}
+	if line != "" {
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// terminalWidth is $COLUMNS, then 80.  No dependency for this: the module links
+// golang.org/x/term only indirectly, and a wrong guess costs a wrapped line.
+func terminalWidth() int {
+	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 40 {
+		return columns
+	}
+	return 80
 }
 
 func cmdUninstall(args []string) int {

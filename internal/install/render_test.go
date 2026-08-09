@@ -16,7 +16,6 @@ func testLayout() Layout {
 		KeeperUser: "kp",
 		ExecUser:   "ex",
 		ConfigDir:  "/opt/conf",
-		SecretsDir: "/opt/conf/store",
 	}
 	opts.applyDefaults()
 	layout, err := opts.layout()
@@ -211,43 +210,34 @@ func TestKeeperCredentialSource(t *testing.T) {
 	}
 }
 
-// The keeper runs with the homes taken away, so a config or store kept in one
-// has to be bound back or it is not merely unreadable but absent.
+// The keeper runs with the homes taken away, so a config directory kept in one
+// has to be bound back or it is not merely unreadable but absent.  The store
+// and the key are inside it, so one bind covers all three.
 func TestKeeperBinds(t *testing.T) {
 	tests := []struct {
-		name       string
-		configDir  string
-		secretsDir string
-		want       []string
+		name      string
+		configDir string
+		want      []string
 	}{
 		{
-			name:       "outside every home",
-			configDir:  "/etc/faramir",
-			secretsDir: "/etc/faramir/secrets",
-			want:       nil,
+			name:      "outside every home",
+			configDir: "/etc/faramir",
+			want:      nil,
 		},
 		{
-			name:       "store nested in the config dir collapses to one bind",
-			configDir:  "/home/operator/.faramir",
-			secretsDir: "/home/operator/.faramir/secrets",
-			want:       []string{"/home/operator/.faramir"},
+			name:      "in the operator's home",
+			configDir: "/home/operator/.faramir",
+			want:      []string{"/home/operator/.faramir"},
 		},
 		{
-			name:       "config outside, store in a home",
-			configDir:  "/etc/faramir",
-			secretsDir: "/home/operator/store",
-			want:       []string{"-/home/operator/store"},
-		},
-		{
-			name:       "both in a home, unrelated paths",
-			configDir:  "/home/operator/.faramir",
-			secretsDir: "/home/operator/store",
-			want:       []string{"/home/operator/.faramir", "-/home/operator/store"},
+			name:      "in root's home",
+			configDir: "/root/.faramir",
+			want:      []string{"/root/.faramir"},
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			layout := Layout{ConfigDir: test.configDir, SecretsDir: test.secretsDir}
+			layout := Layout{ConfigDir: test.configDir}
 			got := layout.KeeperBinds()
 			if len(got) != len(test.want) {
 				t.Fatalf("got %v, want %v", got, test.want)
@@ -261,13 +251,12 @@ func TestKeeperBinds(t *testing.T) {
 	}
 }
 
-// A store outside the homes leaves ProtectHome at its strictest.  Relaxing it
-// when nothing needs it would hand the uid holding the age key a view of every
-// home for no reason.
+// A config directory outside the homes leaves ProtectHome at its strictest.
+// Relaxing it when nothing needs it would hand the uid holding the age key a
+// view of every home for no reason.
 func TestKeeperProtectHome(t *testing.T) {
 	strict := testLayout()
 	strict.ConfigDir = "/etc/faramir"
-	strict.SecretsDir = "/etc/faramir/secrets"
 	body, err := render(units["faramir-keeper.service"], strict)
 	if err != nil {
 		t.Fatal(err)
@@ -281,16 +270,15 @@ func TestKeeperProtectHome(t *testing.T) {
 
 	inHome := strict
 	inHome.ConfigDir = "/home/operator/.faramir"
-	inHome.SecretsDir = "/home/operator/.faramir/secrets"
 	body, err = render(units["faramir-keeper.service"], inHome)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(body), "ProtectHome=tmpfs") {
-		t.Error("keeper does not relax ProtectHome for a store in a home")
+		t.Error("keeper does not relax ProtectHome for a config directory in a home")
 	}
 	if !strings.Contains(string(body), "BindReadOnlyPaths=/home/operator/.faramir") {
-		t.Error("keeper does not bind the store back")
+		t.Error("keeper does not bind the config directory back")
 	}
 }
 
@@ -304,11 +292,6 @@ func TestLayoutValidation(t *testing.T) {
 			name: "relative config dir",
 			opts: Options{ConfigDir: "faramir"},
 			want: "absolute",
-		},
-		{
-			name: "config dir under the private tmp",
-			opts: Options{ConfigDir: "/tmp/faramir"},
-			want: "PrivateTmp",
 		},
 		{
 			name: "config dir systemd would word-split",

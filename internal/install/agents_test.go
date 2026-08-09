@@ -131,7 +131,7 @@ func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, dir := range []string{layout.ConfigDir, layout.SecretsDir, layout.LibexecDir} {
+			for _, dir := range []string{layout.ConfigDir, layout.SecretsDir(), layout.LibexecDir} {
 				if !strings.Contains(string(body), dir+"/*") {
 					t.Errorf("%s: %s does not refuse %s", name, file.asset, dir)
 				}

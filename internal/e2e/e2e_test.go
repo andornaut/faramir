@@ -1,9 +1,9 @@
 // Package e2e drives a real keeper, executor and broker over real sockets.
 //
 // Everything runs under one uid, which exercises the protocol, the PTY
-// hand-off and the redactor, but not the uid boundary itself.  The permission
-// cases in the verification matrix only mean something on a real deployment,
-// so they live in tests/verify.sh.
+// hand-off and the redactor, but not the uid boundary itself.  A permission
+// case only means something on a real deployment, so those are `faramir
+// doctor`, which asks each of them as the account it is about.
 package e2e
 
 import (

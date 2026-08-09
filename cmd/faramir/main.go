@@ -31,8 +31,8 @@ import (
 
 const defaultSocket = "/run/faramir/broker.sock"
 
-// socketDefault lets FARAMIR_SOCKET move every subcommand at once.  faramir-mcp
-// already honours it, and tests/verify.sh sets it.
+// socketDefault lets FARAMIR_SOCKET move every subcommand at once, which
+// faramir-mcp already honours.
 func socketDefault() string {
 	if v := os.Getenv("FARAMIR_SOCKET"); v != "" {
 		return v
@@ -174,12 +174,16 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 
 // operatorName resolves the account that works in the tree.
 //
-// OPERATOR before SUDO_USER, matching what a configuration manager can set: it
-// escalates without sudo, so SUDO_USER is unset there and the account has to be
-// named some other way.  Whoever is running the command comes last, which is
-// the answer when somebody asks about their own host and names nobody: doctor
-// would otherwise not recognise the operator and report them as an account
-// nothing created, which is a fault it invented rather than one it found.
+// SUDO_USER, so `sudo faramir init` needs no flag.  Whoever is running the
+// command comes last, which is the answer when somebody asks about their own
+// host and names nobody: doctor would otherwise not recognise the operator and
+// report them as an account nothing created, which is a fault it invented
+// rather than one it found.
+//
+// Anything escalating by another route, where SUDO_USER is unset and the caller
+// is root, names the account with --operator.  A configuration manager that
+// could set an environment variable here can pass the flag instead, so there is
+// no third way to spell this.
 //
 // root is not an answer at any position: the tree belongs to somebody, and
 // "root" here would chown a checkout away from its owner.  That rejection is
@@ -187,7 +191,7 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 // SUDO_USER above has already carried the name, and run as root with nothing
 // set it leaves no operator named rather than claiming one.
 func operatorName(flagValue string) string {
-	candidates := []string{flagValue, os.Getenv("OPERATOR"), os.Getenv("SUDO_USER")}
+	candidates := []string{flagValue, os.Getenv("SUDO_USER")}
 	if current, err := user.Current(); err == nil {
 		candidates = append(candidates, current.Username)
 	}

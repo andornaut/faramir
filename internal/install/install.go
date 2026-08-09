@@ -28,13 +28,11 @@ type Options struct {
 	KeeperUser string
 	ExecUser   string
 
-	ConfigDir  string
-	SecretsDir string
-
-	// Binaries is the directory the built binaries are read from.  Defaults to
-	// the directory holding the running faramir, so `sudo ./bin/faramir init`
-	// finds its siblings and an installed one reinstalls itself.
-	Binaries string
+	// ConfigDir holds config.toml, config.d/, the age key and the store.  One
+	// path rather than several: the key follows the config so that a store in an
+	// encrypted home has the key that opens it in there too, and a store moved
+	// away on its own would leave that key behind.
+	ConfigDir string
 
 	// AgeRecipients are listed in .sops.yaml alongside the keeper's, so an
 	// account that is not the keeper can still read the files it is responsible
@@ -119,6 +117,13 @@ type runner struct {
 	fs     fsys
 	report Report
 
+	// The directory the running faramir came out of, which is where the binary
+	// installed onto the host is copied from: `sudo ./bin/faramir init` finds
+	// its siblings, an installed one reinstalls itself, and a release unpacked
+	// into a staging directory installs from there.  Nothing names it, so the
+	// binary that provisions the host is always the one that lands on it.
+	binaries string
+
 	// What the validation step actually established, as against what it was
 	// asked to check.  It skips entirely under DryRun and on a host with no
 	// systemd, so the irreversible step below cannot read its own absence as
@@ -166,6 +171,9 @@ func Run(opts Options) (Report, error) {
 		layout: layout,
 		fs:     fsys{dryRun: opts.DryRun},
 		report: Report{Version: version.Version, DryRun: opts.DryRun},
+	}
+	if self, err := os.Executable(); err == nil {
+		run.binaries = filepath.Dir(self)
 	}
 	if err := run.preflight(); err != nil {
 		return run.report, err
@@ -222,14 +230,6 @@ func (o *Options) applyDefaults() {
 	if o.ConfigDir == "" {
 		o.ConfigDir = DefaultConfigDir
 	}
-	if o.SecretsDir == "" {
-		o.SecretsDir = filepath.Join(o.ConfigDir, "secrets")
-	}
-	if o.Binaries == "" {
-		if self, err := os.Executable(); err == nil {
-			o.Binaries = filepath.Dir(self)
-		}
-	}
 }
 
 // layout derives the paths from the options and checks them.
@@ -241,7 +241,6 @@ func (o Options) layout() (Layout, error) {
 		KeeperUser: o.KeeperUser,
 		ExecUser:   o.ExecUser,
 		ConfigDir:  filepath.Clean(o.ConfigDir),
-		SecretsDir: filepath.Clean(o.SecretsDir),
 		BinDir:     DefaultBinDir,
 		LibexecDir: DefaultLibexecDir,
 		DocDir:     DefaultDocDir,
@@ -273,8 +272,8 @@ func (r *runner) preflight() error {
 	}
 	if r.opts.Operator == "" || r.opts.Operator == "root" {
 		return errors.New("name the account the coding agent runs as: pass --operator, " +
-			"set OPERATOR, or run through sudo so SUDO_USER carries it. It must not " +
-			"be root: the operator owns the checkouts a brokered command runs in")
+			"or run through sudo so SUDO_USER carries it. It must not be root: " +
+			"the operator owns the checkouts a brokered command runs in")
 	}
 	if !userExists(r.opts.Operator) {
 		return fmt.Errorf("no such user: %s", r.opts.Operator)
@@ -282,32 +281,29 @@ func (r *runner) preflight() error {
 	// An encrypted home is a different directory before its owner logs in, and
 	// writing to it then lands in the unencrypted backing store, where it is
 	// shadowed the moment the home mounts.  The install would look like it
-	// worked and the daemons would never see the file again.
-	for _, dir := range []string{r.layout.ConfigDir, r.layout.SecretsDir} {
-		home := homeOf(dir)
-		if home == "" || !looksEncrypted(home) || homeIsMounted(home) {
-			continue
-		}
+	// worked and the daemons would never see the file again.  The config
+	// directory answers for the store and the key as well, both being under it.
+	if home := homeOf(r.layout.ConfigDir); home != "" && looksEncrypted(home) && !homeIsMounted(home) {
 		return fmt.Errorf("%s is an encrypted home and is not mounted, and %s is "+
 			"inside it. Installing now would write plaintext to the backing store, "+
 			"where it is hidden once the home mounts. Log in as its owner first",
-			home, dir)
+			home, r.layout.ConfigDir)
 	}
 	// The binaries are built ahead of time, so this needs no toolchain on the
 	// target host.  Checked here rather than at the install step, which is
 	// after the accounts and the age key have already been created.
-	if r.opts.Binaries == "" {
-		return errors.New("cannot find the built binaries: pass --binaries DIR")
+	if r.binaries == "" {
+		return errors.New("cannot find the directory this faramir was run from")
 	}
 	var missing []string
 	for _, name := range installedBinaries {
-		if !exists(filepath.Join(r.opts.Binaries, name)) {
+		if !exists(filepath.Join(r.binaries, name)) {
 			missing = append(missing, name)
 		}
 	}
 	if len(missing) > 0 {
-		return fmt.Errorf("not built in %s: %s. Run 'make build', or pass --binaries "+
-			"DIR naming a directory that holds it", r.opts.Binaries, strings.Join(missing, ", "))
+		return fmt.Errorf("not built in %s: %s. Run 'make build', then run the "+
+			"faramir it built", r.binaries, strings.Join(missing, ", "))
 	}
 	return nil
 }

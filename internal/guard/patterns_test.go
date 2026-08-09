@@ -31,7 +31,6 @@ func renderShippedBytes() ([]byte, error) {
 	var out strings.Builder
 	if err := tmpl.Execute(&out, install.Layout{
 		ConfigDir:  install.DefaultConfigDir,
-		SecretsDir: install.DefaultConfigDir + "/secrets",
 		BinDir:     install.DefaultBinDir,
 		LibexecDir: install.DefaultLibexecDir,
 		LogDir:     install.DefaultLogDir,

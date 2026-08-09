@@ -17,9 +17,9 @@ var (
 )
 
 // faramirCLI builds the real CLI once per run.  The flag surface is a contract
-// with tests/verify.sh, which drives the deployed binary, so it is exercised
-// here rather than assumed: a missing flag makes the whole verification matrix
-// exit 2 on its first brokered check.
+// with `faramir doctor`, which drives the deployed binary as another uid, so it
+// is exercised here rather than assumed: a missing flag turns every boundary
+// finding into "could not run one".
 func faramirCLI(t *testing.T) string {
 	t.Helper()
 	cliOnce.Do(func() {
@@ -71,8 +71,8 @@ func runCLIEnv(t *testing.T, env []string, args ...string) cliResult {
 	return cliResult{stdout: out.String(), stderr: errBuf.String(), code: cmd.ProcessState.ExitCode()}
 }
 
-// The exact invocation tests/verify.sh:36 uses for every brokered check.
-func TestCLIAcceptsVerifyShInvocation(t *testing.T) {
+// The exact invocation doctor uses for every brokered check.
+func TestCLIAcceptsTheDoctorInvocation(t *testing.T) {
 	h := newHarness(t)
 	r := runCLI(t, h.brokerSock, "run", "--quiet",
 		"--env", "ROUTER_PW=secret://home/router/admin", "--", "printenv", "ROUTER_PW")
@@ -85,8 +85,8 @@ func TestCLIAcceptsVerifyShInvocation(t *testing.T) {
 	if strings.Contains(r.stdout, routerPassword) {
 		t.Errorf("PLAINTEXT LEAKED: %q", r.stdout)
 	}
-	// --quiet suppresses the summary, which is why verify.sh passes it: the
-	// checks match on the command's own output.
+	// --quiet suppresses the summary, which is why doctor passes it: the
+	// findings match on the command's own output.
 	if strings.Contains(r.stderr, "redacted") {
 		t.Errorf("--quiet did not suppress the summary: %q", r.stderr)
 	}
@@ -189,7 +189,7 @@ func TestCLIBadFlagIsAUsageErrorOnStderr(t *testing.T) {
 }
 
 // FARAMIR_SOCKET moves every subcommand at once.  faramir-mcp already honours
-// it and tests/verify.sh sets it, so the CLI has to agree.
+// it, so the CLI has to agree.
 func TestCLIHonoursFaramirSocketEnv(t *testing.T) {
 	h := newHarness(t)
 	r := runCLIEnv(t, []string{"FARAMIR_SOCKET=" + h.brokerSock}, "list-secrets")

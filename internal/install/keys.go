@@ -116,7 +116,7 @@ func (r *runner) addRecipient(recipient string) {
 // every managed value, which is an operator action, not something a re-run of
 // the installer should do behind their back.
 func (r *runner) stepSopsConfig() error {
-	path := filepath.Join(r.layout.SecretsDir, ".sops.yaml")
+	path := filepath.Join(r.layout.SecretsDir(), ".sops.yaml")
 	if exists(path) {
 		r.step("sops config", false, "keeping "+path)
 		return nil

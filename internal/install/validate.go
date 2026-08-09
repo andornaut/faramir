@@ -107,7 +107,7 @@ func (r *runner) stepValidate() error {
 			return fmt.Errorf("%s is under group_vars/ or host_vars/, which Ansible "+
 				"auto-loads. Every var would resolve to its ENC[...] ciphertext "+
 				"instead of the injected value, silently. Move it to %s",
-				file, r.layout.SecretsDir)
+				file, r.layout.SecretsDir())
 		}
 	}
 

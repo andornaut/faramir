@@ -17,7 +17,7 @@ func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 				Operator: "op", Group: DefaultGroup,
 				BrokerUser: DefaultBrokerUser, KeeperUser: DefaultKeeperUser,
 				ExecUser:  DefaultExecUser,
-				ConfigDir: tc.configDir, SecretsDir: tc.configDir + "/secrets",
+				ConfigDir: tc.configDir,
 			}
 			layout, err := opts.layout()
 			if err != nil {

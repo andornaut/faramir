@@ -58,9 +58,10 @@ lint:
 install:
 	sudo $(BIN)/faramir init --operator "$$(id -un)" $(INIT_ARGS)
 
-## verify: the verification matrix, against a live deployment (root)
+## verify: examine a live deployment (root).  Asks each account what it can
+## reach, which is a question only root can put to another uid.
 verify:
-	tests/verify.sh
+	sudo faramir doctor
 
 ## sizes: per-binary size and the package count each one links.  sops is a
 ## test-only dependency; no shipped binary links it.

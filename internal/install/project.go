@@ -96,9 +96,9 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	}
 	if opts.Operator == "" || opts.Operator == "root" {
 		return ProjectReport{}, fmt.Errorf("name the account that works in %s: pass "+
-			"--operator, set OPERATOR, or run through sudo so SUDO_USER carries it. "+
-			"The tree belongs to somebody, and root here would chown a checkout away "+
-			"from its owner", dir)
+			"--operator, or run through sudo so SUDO_USER carries it. The tree "+
+			"belongs to somebody, and root here would chown a checkout away from "+
+			"its owner", dir)
 	}
 	if os.Geteuid() != 0 && !opts.DryRun {
 		return ProjectReport{}, fmt.Errorf("faramir init-project must run as root: it " +

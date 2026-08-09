@@ -52,6 +52,7 @@ func (p palette) dim(text string) string  { return p.wrap("2", text) }
 func (p palette) bold(text string) string { return p.wrap("1", text) }
 func (p palette) ok(text string) string   { return p.wrap("32", text) }
 func (p palette) bad(text string) string  { return p.wrap("31", text) }
+func (p palette) warn(text string) string { return p.wrap("33", text) }
 func (p palette) key(text string) string  { return p.wrap("36", text) }
 func (p palette) ref(text string) string  { return p.wrap("35", text) }
 

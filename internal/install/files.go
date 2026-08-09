@@ -92,7 +92,7 @@ func (r *runner) stepDirectories() error {
 	// is permission to unlink and rename what is in it whatever the files
 	// themselves are, and that is the whole of what an operator-owned parent
 	// would give away.
-	storeChanged, err := r.fs.ensureDir(r.layout.SecretsDir, 0o2750|os.ModeSetgid, 0, r.storeGID, true)
+	storeChanged, err := r.fs.ensureDir(r.layout.SecretsDir(), 0o2750|os.ModeSetgid, 0, r.storeGID, true)
 	if err != nil {
 		return err
 	}
@@ -113,7 +113,7 @@ func (r *runner) stepDirectories() error {
 	// also a directory the operator cannot look inside.  Reported as no change
 	// rather than as a failure, so `faramir init --dry-run` still answers for
 	// everything else, exactly as ensureDir does above.
-	entries, err := os.ReadDir(r.layout.SecretsDir)
+	entries, err := os.ReadDir(r.layout.SecretsDir())
 	switch {
 	case r.opts.DryRun && errors.Is(err, os.ErrPermission):
 		entries = nil
@@ -125,7 +125,7 @@ func (r *runner) stepDirectories() error {
 			continue
 		}
 		made, err := r.fs.ensureOwnership(
-			filepath.Join(r.layout.SecretsDir, entry.Name()), 0o640, 0, r.storeGID)
+			filepath.Join(r.layout.SecretsDir(), entry.Name()), 0o640, 0, r.storeGID)
 		if err != nil {
 			return err
 		}
@@ -155,7 +155,7 @@ func (r *runner) stepDirectories() error {
 	changed = changed || made
 
 	r.step("directories", changed, fmt.Sprintf("%s, %s, %s",
-		r.layout.ConfigDir, r.layout.SecretsDir, r.layout.LogDir))
+		r.layout.ConfigDir, r.layout.SecretsDir(), r.layout.LogDir))
 	return nil
 }
 
@@ -163,7 +163,7 @@ func (r *runner) stepDirectories() error {
 func (r *runner) stepBinaries() error {
 	changed := false
 	for _, name := range installedBinaries {
-		made, err := r.fs.copyFile(filepath.Join(r.opts.Binaries, name),
+		made, err := r.fs.copyFile(filepath.Join(r.binaries, name),
 			filepath.Join(r.layout.BinDir, name), 0o755, 0, 0)
 		if err != nil {
 			return err
@@ -181,7 +181,7 @@ func (r *runner) stepBinaries() error {
 	// never executed.
 	// The patterns are rendered rather than copied, because which paths are
 	// worth refusing is a property of this install and not of the source tree:
-	// an operator who moved the config and the store into a home gets rules
+	// an operator who moved the config directory into a home gets rules
 	// naming where they actually are, instead of the compiled defaults.  The
 	// built-in fallback keeps those defaults, so a hook that cannot find this
 	// file still refuses something.
@@ -348,12 +348,15 @@ func (r *runner) stepLogrotate() error {
 	return nil
 }
 
-// stepReachable makes the directories the daemons read enterable by them.
+// stepReachable makes the config directory the daemons read enterable by them.
 //
 // Before the units are written and long before anything is started.  A home is
 // 0700, so a config kept in one is invisible to all three service uids, and a
 // daemon whose config it cannot open exits 2 before it opens a socket: the
 // restart fails, the run aborts, and a re-run aborts in the same place.
+//
+// The config directory alone: it is 0755, so granting traversal down to it is
+// what the store and the key inside it need too.
 //
 // Traversal only, never Share: the config and the store are read by the daemons
 // and written by the operator, and a config a brokered command could rewrite is
@@ -364,24 +367,18 @@ func (r *runner) stepReachable() error {
 		r.skip("reachable", "dry run")
 		return nil
 	}
-	var granted []string
-	for _, dir := range []string{r.layout.ConfigDir, r.layout.SecretsDir} {
-		if homeOf(dir) == "" {
-			continue
-		}
-		if err := sharetree.Reachable(sharetree.Options{
-			Dir: dir, Operator: r.opts.Operator, Group: r.layout.Group,
-		}); err != nil {
-			return fmt.Errorf("%s: %w", dir, err)
-		}
-		granted = append(granted, dir)
-	}
-	if len(granted) == 0 {
+	dir := r.layout.ConfigDir
+	if homeOf(dir) == "" {
 		r.skip("reachable", "nothing the daemons read is inside a home")
 		return nil
 	}
+	if err := sharetree.Reachable(sharetree.Options{
+		Dir: dir, Operator: r.opts.Operator, Group: r.layout.Group,
+	}); err != nil {
+		return fmt.Errorf("%s: %w", dir, err)
+	}
 	// Reported as no change: it re-applies a group and an execute bit that are
 	// already what they should be on every run after the first.
-	r.step("reachable", false, strings.Join(granted, ", "))
+	r.step("reachable", false, dir)
 	return nil
 }

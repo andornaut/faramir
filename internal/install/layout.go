@@ -16,13 +16,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 )
 
-// Default paths.  Only ConfigDir and SecretsDir are meant to be moved; the rest
-// are where a system daemon's files belong and are here so the templates have
-// one source for them rather than a literal each.
+// Default paths.  Only ConfigDir is meant to be moved; the rest are where a
+// system daemon's files belong and are here so the templates have one source
+// for them rather than a literal each.
 const (
 	DefaultConfigDir  = "/etc/faramir"
 	DefaultBinDir     = "/usr/local/bin"
@@ -81,7 +80,6 @@ type Layout struct {
 
 	ConfigDir  string
 	ConfigFile string
-	SecretsDir string
 	BinDir     string
 	LibexecDir string
 	DocDir     string
@@ -102,6 +100,14 @@ type Layout struct {
 // opens it in there too.
 func (l Layout) AgeKeyDir() string { return filepath.Dir(l.AgeKeyPath) }
 
+// SecretsDir is where the managed sops files live, always under the config
+// directory rather than anywhere an operator names.  The age key follows the
+// config, so a store placed away from it is ciphertext in one place and the key
+// that opens it in another: moving the store into an encrypted home while the
+// config stays in /etc leaves the key on the unencrypted disk, which is the
+// arrangement moving it was for.
+func (l Layout) SecretsDir() string { return filepath.Join(l.ConfigDir, "secrets") }
+
 // BrokerHome, KeeperHome and ExecHome are the service accounts' homes.  Derived
 // from the account names so that renaming one does not leave it living in a
 // directory named after the old one, which is also what StateDirectory= in each
@@ -114,60 +120,18 @@ func (l Layout) ExecHome() string   { return "/var/lib/" + l.ExecUser }
 // already formatted as BindReadOnlyPaths= values.
 //
 // The keeper is the uid that holds the age key, so it runs with the homes taken
-// away entirely.  A config or a store kept in one is then not merely unreadable
-// but absent, so ProtectHome drops to tmpfs and only those directories are bound
-// back: every other home stays invisible.
+// away entirely.  A config directory kept in one is then not merely unreadable
+// but absent, so ProtectHome drops to tmpfs and that one directory is bound
+// back: every other home stays invisible.  One entry at most, the store and the
+// key both being inside it.
 //
-// Empty when both sit outside the homes, which is the case ProtectHome=true
-// covers and the one to prefer.
+// Empty when the config sits outside the homes, which is the case
+// ProtectHome=true covers and the one to prefer.
 func (l Layout) KeeperBinds() []string {
-	var inHomes []string
-	for _, dir := range []string{l.ConfigDir, l.SecretsDir} {
-		if homeOf(dir) != "" {
-			inHomes = append(inHomes, dir)
-		}
+	if homeOf(l.ConfigDir) == "" {
+		return nil
 	}
-	var out []string
-	for _, dir := range minimal(inHomes) {
-		// A leading "-" on the store only.  An encrypted home is not mounted
-		// until its owner logs in, and a required bind on an absent path fails
-		// the unit with a mount-namespace error; optional leaves the keeper up
-		// to report which file it could not load.  The config is not optional:
-		// a keeper without one exits before it opens a socket either way, and
-		// the mount error at least names the path.
-		if dir == l.SecretsDir && dir != l.ConfigDir {
-			out = append(out, "-"+dir)
-			continue
-		}
-		out = append(out, dir)
-	}
-	return out
-}
-
-// minimal drops any path contained in another, so a store inside the config
-// directory produces one bind rather than two nested ones.
-func minimal(paths []string) []string {
-	var out []string
-	for _, path := range paths {
-		covered := false
-		for _, other := range paths {
-			if other != path && within(other, path) {
-				covered = true
-				break
-			}
-		}
-		if !covered && !slices.Contains(out, path) {
-			out = append(out, path)
-		}
-	}
-	return out
-}
-
-// within reports whether path is at or under root.  Compared as path elements,
-// so /home/operator2 is not inside /home/operator.
-func within(root, path string) bool {
-	rel, err := filepath.Rel(root, path)
-	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	return []string{l.ConfigDir}
 }
 
 // homeOf returns the home directory a path sits in, or empty when it sits
@@ -193,27 +157,19 @@ func homeOf(path string) string {
 // Checked before anything is written, so a bad value stops the run rather than
 // surfacing as a mount error once the binaries are already on the host.
 func (l Layout) validate() error {
-	for name, dir := range map[string]string{
-		"config dir":  l.ConfigDir,
-		"secrets dir": l.SecretsDir,
-	} {
-		if !filepath.IsAbs(dir) {
-			return fmt.Errorf("%s must be an absolute path: %s", name, dir)
-		}
-		// systemd word-splits Environment= and expands % specifiers in it, so a
-		// path holding either reaches the daemons truncated or not at all.
-		if strings.ContainsAny(dir, " \t") {
-			return fmt.Errorf("%s must not contain whitespace: %s", name, dir)
-		}
-		if strings.Contains(dir, "%") {
-			return fmt.Errorf("%s must not contain '%%': %s", name, dir)
-		}
-		// Every unit sets PrivateTmp=true, which gives each its own /tmp and
-		// /var/tmp, so nothing installed there is the file the daemons open.
-		if within("/tmp", dir) || within("/var/tmp", dir) {
-			return fmt.Errorf("%s cannot be under /tmp or /var/tmp: every unit sets "+
-				"PrivateTmp=true, so nothing there is the file you installed", name)
-		}
+	// The store and the key are under it, so checking the config directory
+	// checks every path an operator can move.
+	dir := l.ConfigDir
+	if !filepath.IsAbs(dir) {
+		return fmt.Errorf("config dir must be an absolute path: %s", dir)
+	}
+	// systemd word-splits Environment= and expands % specifiers in it, so a
+	// path holding either reaches the daemons truncated or not at all.
+	if strings.ContainsAny(dir, " \t") {
+		return fmt.Errorf("config dir must not contain whitespace: %s", dir)
+	}
+	if strings.Contains(dir, "%") {
+		return fmt.Errorf("config dir must not contain '%%': %s", dir)
 	}
 	for name, account := range map[string]string{
 		"group":       l.Group,

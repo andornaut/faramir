@@ -106,10 +106,10 @@ var corpus = []denyCase{
 	{"echo 'see /etc/faramir/config.toml' >> README.md", false, "naming a path is not writing to it"},
 	{"printf '%s\\n' 'store lives in ~/.faramir/secrets' >> docs/scope.md", false, "the same, into a doc"},
 	// Words that happen to appear inside ordinary file names must not be read
-	// as the tools they name: "install" was in the write rule and matched
-	// verify-install.sh.
-	{"bash -n tests/verify-install.sh", false, "a tool name inside a file name is not the tool"},
-	{"bash tests/verify-install.sh /home/op/.faramir", false, "even next to a faramir path"},
+	// as the tools they name: "install" is in the write rule, and a script
+	// whose name contains it is not that tool.
+	{"bash -n scripts/install-hooks.sh", false, "a tool name inside a file name is not the tool"},
+	{"bash scripts/install-hooks.sh /home/op/.faramir", false, "even next to a faramir path"},
 	{"grep -q pattern /usr/local/libexec/faramir/deny-patterns.txt", false, "reading the deny list is not writing it"},
 	{"ls -l /usr/local/libexec/faramir", false, "listing the install directory"},
 

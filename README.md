@@ -10,14 +10,6 @@ $ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
 [faramir] redacted «SECRET:home/router/admin»×1; log_id=2026-08-05T14:22:01Z-a91f
 ```
 
-The command ran, the credential reached it, the agent never saw the value.
-
-> [!WARNING]
-> **Enrolling a project with Claude Code auto-approves every Bash command in it**, leaving its
-> [deny list](agent/hooks/deny-patterns.txt) the only thing refusing one.
-
-Redaction rewrites each command, so what enrolling costs depends on how the agent treats a rewritten one.
-
 Agent | Redaction | Registration | Enrolment cost | Mitigation
 --- | --- | --- | --- | ---
 Claude Code | Full | `PreToolUse` in `.claude/settings.json`, MCP server in `.mcp.json`, account-wide keys in `~/.claude/settings.json` | ⚠️ Every Bash command is approved without asking, except what the deny list refuses. Every other tool prompts as before. | Run in [auto mode](https://code.claude.com/docs/en/permission-modes), where a classifier model reviews the command before it runs: it reads the rewritten text rather than matching a rule against it, so the rewrite does not blind it. Extend the deny list.
@@ -48,10 +40,10 @@ Failure | How
 Failure | Why
 --- | ---
 **Adversarial exfiltration.** Transforming a value (`\| rev`, `\| sha256sum`) defeats redaction. | The child chooses the encoding of its own output, so the matcher cannot be completed.
-**Blast radius.** A brokered command runs anything the executor's uid can. | Out of scope.
-**Network egress.** No iptables, namespaces or proxy allowlist. | Out of scope.
-**Anything at rest.** Nothing here encrypts the disk. | The uid boundaries hold while the machine runs and mean nothing once someone has the drive. See [Encryption at rest](#encryption-at-rest).
-**Unenrolled projects.** The value set is global. | A command in a project you never enrolled can print a managed value uncaught. Treat unenrolled as "no redaction".
+**Blast radius.** A brokered command runs anything the executor's uid can. | |
+**Network egress.** No iptables, namespaces or proxy allowlist. | |
+**Anything at rest.** Nothing here encrypts the disk. | The uid boundaries only hold while the machine is running. See [Encryption at rest](#encryption-at-rest).
+**Unenrolled projects.** The value set is global. | A command in a project you never enrolled can print a managed value uncaught.
 
 **Acceptance invariant:** if every instruction the agent is given were deleted, no secret could reach the model provider. Every enforcement point is a uid boundary, a file mode, or a hook.
 
@@ -89,19 +81,19 @@ sudo ./bin/faramir init --operator "$USER"
 
 `init` does the whole install and is idempotent, so it is also the upgrade: re-run it after a rebuild and it reports what changed. It creates the accounts and the shared group, mints the age key, installs the binary, the hook's deny list and the docs, renders the config and the systemd units, and starts the sockets.
 
-Flag | Does
---- | ---
-`--operator NAME` | the account the coding agent runs as. Defaults to `$OPERATOR`, then `$SUDO_USER`. Never root.
-`--group NAME` | the shared group. Named in the config the sockets check and in the units that reach a working tree.
-`--config-dir DIR` | where `config.toml` and `config.d/` go. `--secrets-dir DIR` does the same for the sops store.
-`--binaries DIR` | read the built binary from here rather than from beside `faramir` itself, so you can build on one machine and install on another.
-`--operator-age-key PATH` | mint an identity for yourself and list it in `.sops.yaml` alongside the keeper's, so you can still read the files you are responsible for.
-`--ssh-key PATH` | generate the identity the broker lends to brokered commands. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run.
-`--agent NAME` | install the deny rules that refuse key material into that agent's own settings. Repeatable; naming none installs none.
-`--dry-run` | report what would change and write nothing.
-`--json` | print the report as JSON, one entry per step with a `changed` flag, for a configuration manager to read.
+Flag | Default | What to give it
+--- | --- | ---
+`--operator NAME` | `$SUDO_USER`, then you | An existing login account, the one your coding agent runs as. It owns the checkouts brokered commands run in, so root is refused. Anything escalating without sudo has to pass this.
+`--group NAME` | `dev` | A group name, created if missing. The service accounts join it; `init-project` group-owns a tree with it so `faramir-exec` can reach one.
+`--config-dir DIR` | `/etc/faramir` | An absolute path for `config.toml`, `config.d/`, the age key and the managed sops files, which is one path so that the key cannot end up somewhere the store it opens is not. Inside a home works, with [the costs](docs/scope.md); under `/tmp` or `/var/tmp` does not, the units setting `PrivateTmp=true`.
+`--broker-user`, `--keeper-user`, `--exec-user` NAME | `faramir-broker`, `faramir-keeper`, `faramir-exec` | Service account names, created if missing. Rename them freely; no two may share a name. `--store-group NAME` names the group owning the store, defaulting to the keeper's own.
+`--operator-age-key PATH` | none | A path for your own age identity, minted if missing and listed in `.sops.yaml` beside the keeper's, so you can still read the files you are responsible for. `~/.config/sops/age/keys.txt` is where sops looks. `--age-recipient KEY` adds a public key instead, repeatable, minting nothing.
+`--ssh-key PATH` | none | A path for the identity the broker lends to brokered commands, generated if missing. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run.
+`--agent NAME` | none | `claude`, `gemini`, `opencode` or `kilocode`, repeatable. Installs that agent's deny rules into your own settings. Naming none installs none.
+`--dry-run` | off | Nothing: a switch. Reports what would change and writes nothing.
+`--json` | off | Nothing: a switch. Prints the report as JSON, one entry per step with a `changed` flag, for a configuration manager to read.
 
-The units are sandboxed, so where the config and the store go is not a free choice. `init` refuses `/tmp` and `/var/tmp` (each unit gets a private one), whitespace and `%` (systemd splits and expands `Environment=`), and two service accounts sharing a name. It relaxes the keeper's `ProtectHome=` when either directory is inside a home, binding back only what it must so the other homes stay invisible.
+The units are sandboxed, so where the config directory goes is not a free choice. `init` refuses whitespace and `%`, which systemd splits and expands in `Environment=`; `/tmp` and `/var/tmp` it writes into, but each unit gets a private one, so the daemons find nothing and say so. It relaxes the keeper's `ProtectHome=` when the directory is inside a home, binding back that one directory so the other homes stay invisible.
 
 `init` installs and never migrates: it writes what this version wants and leaves an older layout's leftovers alone. Reconciling those belongs to whatever provisions the host.
 
@@ -301,7 +293,7 @@ uid faramir-exec              faramir exec: forks brokered commands; holds nothi
 /etc/logrotate.d/faramir      0644 root:root, weekly, 8 kept, early at 16MB
 ```
 
-`CONFIG_DIR` and `SECRETS_DIR` move the config and the store off `/etc`; the age key and the audit log stay where they are. `faramir status` reports the paths in use.
+`--config-dir` moves the config, the store and the age key off `/etc` together; the audit log stays where it is. `faramir status` reports the paths in use.
 
 A brokered command cannot:
 
@@ -338,13 +330,15 @@ The age key is not in the value set: no child can obtain it.
 ## Verification
 
 ```bash
-make test          # unit plus end-to-end, no privileges
-sudo make verify   # the matrix, against a live deployment
+make test            # unit plus end-to-end, no privileges
+sudo faramir doctor  # a live deployment, as the uid each claim is about
 ```
 
-[tests/verify.sh](tests/verify.sh) is the list. It establishes, as the uid that matters, that the age key is unreadable by everyone but the keeper; that the audit log and SSH keys are unreadable by the executor while it can still authenticate; that redaction covers the value set through base64, `-vvv` and `/dev/tty`; that the audit log holds tokens only; and that command resolution refuses a program off `PATH`.
+`doctor` is what checks the boundaries, because they only exist once the install is on a host: it establishes that the age key is unreadable by every account but the keeper, that the store group is the keeper's alone, that the operator cannot write the config `[exec.base_env]` comes from, that the keeper and executor sockets are closed to the accounts that must not open them while the broker's is open to the operator, that the audit log and the SSH keys are unreadable by the executor while it can still authenticate, that `ProtectProc` hides the broker's environment, and that a managed value injected into a real command comes back as its token.
 
-Two checks demonstrate rather than assert: piping a secret through `rev` or `cut` reaches the caller transformed, and nothing pins that.
+It asks each of those as the account it is about, which is why it needs root: root bypasses file modes, so the same question asked from root answers itself. Run without it, the boundary findings are reported as unchecked rather than as passing.
+
+Adversarial exfiltration is not among them and is not meant to be: a value piped through `rev` reaches the caller transformed, which is documented above rather than asserted anywhere.
 
 `make test` runs everything else in a temp directory under a single uid, which exercises the protocol, the PTY hand-off and the redactor, not the uid boundary.
 
@@ -419,7 +413,7 @@ systemd/               socket and hardened service unit templates, one pair per 
 etc/                   the config template, rendered on every run; your settings go in config.d
 agent/                 deny patterns, and per-agent settings and plugins:
                        agent/claude, agent/gemini, agent/opencode, agent/kilocode
-tests/verify.sh        the verification matrix
+tests/                 operator procedures that are not tests: retiring an age key
 docs/                  redaction, wire protocol, Ansible, scope
 ```
 

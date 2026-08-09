@@ -8,6 +8,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // DoctorOptions is what Diagnose needs to find an install it did not perform.
@@ -22,6 +24,10 @@ type DoctorOptions struct {
 	BrokerUser string
 	KeeperUser string
 	ExecUser   string
+	// StoreGroup owns the managed sops files.  Defaults to the keeper's own
+	// group, which is what install leaves it as: the keeper is the only account
+	// that opens one of those files.
+	StoreGroup string
 }
 
 // Status is a finding's verdict.  Three levels rather than pass/fail, because
@@ -79,6 +85,9 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	if opts.ExecUser == "" {
 		opts.ExecUser = DefaultExecUser
 	}
+	if opts.StoreGroup == "" {
+		opts.StoreGroup = opts.KeeperUser
+	}
 	var report DoctorReport
 	configFile := filepath.Join(opts.ConfigDir, "config.toml")
 
@@ -89,10 +98,20 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	}
 	report.add("config", StatusOK, "%s", configFile)
 
+	// Loaded for the paths the checks below ask about, which are the daemons'
+	// own rather than the defaults: a host whose store and sockets were moved
+	// would otherwise be examined at addresses nothing uses.
+	cfg, err := config.Load(configFile)
+	if err != nil {
+		report.add("config", StatusFailed, "%s does not load: %v", configFile, err)
+		return report
+	}
+
 	diagnoseUnits(&report)
 	diagnoseBroker(&report, configFile, opts.BrokerUser)
-	diagnoseSSHAgent(&report)
+	diagnoseSSHAgent(&report, opts)
 	diagnoseGroup(&report, opts)
+	diagnoseBoundaries(&report, opts, cfg)
 	return report
 }
 
@@ -173,12 +192,14 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) {
 //
 // Asked through the broker rather than read off disk, because what matters is
 // what a brokered command gets: the executor can use the agent but cannot read
-// the key, so this is the only place the answer is visible.  It needs no root,
-// only membership of the group the broker socket admits, which is the same
-// access the agent itself has.
-func diagnoseSSHAgent(report *DoctorReport) {
-	run := &runner{}
-	out, err := run.command(filepath.Join(DefaultBinDir, "faramir"),
+// the key, so this is the only place the answer is visible.
+//
+// Asked as the operator, because the broker checks the peer's credentials
+// against the shared group and root is not in it: this command runs as root for
+// everything else, and asking as ourselves would report a broken agent on a
+// working install.
+func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions) {
+	out, err := asOperator(opts, filepath.Join(DefaultBinDir, "faramir"),
 		"run", "--quiet", "--", "ssh-add", "-l")
 	switch {
 	case err != nil:

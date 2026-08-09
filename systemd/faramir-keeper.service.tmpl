@@ -51,9 +51,9 @@ ProtectSystem=strict
 # This is the uid that holds the age key, which makes it the one worth taking
 # /home away from outright rather than leaving it visible and read-only.
 {{if .KeeperBinds -}}
-# The config or the store is inside a home, so tmpfs rather than true: every
-# other home stays invisible to the process holding the age key, and only what
-# it reads is bound back in.  Note what a home costs either way: it is not
+# The config directory is inside a home, so tmpfs rather than true: every
+# other home stays invisible to the process holding the age key, and only that
+# one directory is bound back in.  Note what a home costs either way: it is not
 # mounted until its owner logs in, so the store is absent at boot.  The broker
 # treats an absent store as a load failure rather than an empty one, which turns
 # that into a refusal instead of a session that silently redacts nothing.
