@@ -155,7 +155,11 @@ func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
 		"faramir redact -- true; ./leak.sh":     true,
 		"faramir redact -- true && ./leak.sh":   true,
 		"echo hi | faramir redact || ./leak.sh": true,
+		"faramir redact -- true & ./leak.sh":    true,
 		"faramir redact -- true\n./leak.sh":     true,
+		// Merely naming it, which is what documentation and a grep do.
+		`echo "run faramir redact next"`: true,
+		"grep -r 'faramir redact' docs/": true,
 	} {
 		hook := hookOutput(t, bashPayload(command))
 		if rewritten := hook != nil; rewritten != wantRewritten {
@@ -196,8 +200,10 @@ func TestTheRewritePreservesTheOtherInputFields(t *testing.T) {
 	}
 }
 
-// Buffering is wrong for a command whose output is read while it runs.
-func TestBackgroundCommandsAreNotRewritten(t *testing.T) {
+// run_in_background is the tool's own flag rather than shell syntax, so it is
+// the one backgrounding case the rewrite cannot see in the command text.  The
+// trailing-"&" forms are TestABackgroundedCommandIsNotWrappedHoweverItEnds.
+func TestARunInBackgroundCallIsNotRewritten(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Bash",
 		"tool_input": map[string]any{
@@ -207,13 +213,6 @@ func TestBackgroundCommandsAreNotRewritten(t *testing.T) {
 	})
 	if hook := hookOutput(t, string(payload)); hook != nil {
 		t.Errorf("a run_in_background command was rewritten: %v", hook)
-	}
-	if hook := hookOutput(t, bashPayload("npm run dev &")); hook != nil {
-		t.Errorf("a backgrounded command was rewritten: %v", hook)
-	}
-	// "&&" at the end is not backgrounding, it is an unterminated command.
-	if hook := hookOutput(t, bashPayload("make build &")); hook != nil {
-		t.Errorf("a backgrounded command was rewritten: %v", hook)
 	}
 }
 
@@ -229,18 +228,6 @@ func TestAnIncompleteCommandIsStillWrappedSafely(t *testing.T) {
 		wrapped := hook["updatedInput"].(map[string]any)["command"].(string)
 		if !strings.HasPrefix(wrapped, "source ") {
 			t.Errorf("%q produced %q", command, wrapped)
-		}
-	}
-}
-
-// Mentioning the redactor is not using it.
-func TestMentioningTheRedactorDoesNotSkipTheRewrite(t *testing.T) {
-	for _, command := range []string{
-		`echo "run faramir redact next"`,
-		"grep -r 'faramir redact' docs/",
-	} {
-		if hook := hookOutput(t, bashPayload(command)); hook == nil {
-			t.Errorf("%q skipped the rewrite by merely mentioning the redactor", command)
 		}
 	}
 }

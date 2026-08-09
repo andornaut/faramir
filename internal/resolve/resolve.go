@@ -21,13 +21,6 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// Error means cmd[0] does not name a program the broker can start.
-type Error struct{ Msg string }
-
-func (e *Error) Error() string { return e.Msg }
-
-func errf(format string, args ...any) error { return &Error{Msg: fmt.Sprintf(format, args...)} }
-
 // realpath resolves symlinks, leaving a component that does not exist in
 // place.
 func realpath(path string) string {
@@ -55,7 +48,7 @@ func executable(path string) bool { return unix.Access(path, unix.X_OK) == nil }
 // Program returns the absolute, symlink-resolved path for argv0.
 func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 	if argv0 == "" {
-		return "", errf("empty command")
+		return "", fmt.Errorf("empty command")
 	}
 
 	if strings.Contains(argv0, "/") {
@@ -64,7 +57,7 @@ func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 		// the broker does not, and it reports its own failure.  Absence is the
 		// same answer from any uid.
 		if !isFile(resolved) {
-			return "", errf("%s: no such program (resolved to %s)", argv0, resolved)
+			return "", fmt.Errorf("%s: no such program (resolved to %s)", argv0, resolved)
 		}
 		return resolved, nil
 	}
@@ -83,7 +76,7 @@ func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 		}
 	}
 	if found == "" {
-		return "", errf("%s: not found on the broker's PATH (%s). A program "+
+		return "", fmt.Errorf("%s: not found on the broker's PATH (%s). A program "+
 			"installed elsewhere -- a venv, pipx, a version-manager shim -- "+
 			"needs its directory on [exec.base_env] PATH, or an absolute "+
 			"path in cmd[0].", argv0, path)

@@ -59,22 +59,14 @@ func shippedLines(t *testing.T) []string {
 	return out
 }
 
-// RE2 has no lookahead or backreferences, and a pattern that fails to compile
-// is skipped at load, silently weakening the list.
-func TestEveryShippedPatternCompilesUnderRE2(t *testing.T) {
-	lines := shippedLines(t)
-	if len(lines) == 0 {
-		t.Fatal("no patterns in the shipped file")
-	}
-	for _, pattern := range lines {
-		if _, err := regexp.Compile("(?i)" + pattern); err != nil {
-			t.Errorf("shipped pattern does not compile under RE2: %q: %v", pattern, err)
-		}
-	}
-}
-
 // A fallback weaker than the shipped list turns an install problem into a
 // silent gap.
+//
+// Byte equality is also what makes one compile check enough for both.  RE2 has
+// no lookahead or backreferences, and a pattern that fails to compile is
+// skipped at load rather than reported -- but TestEveryFallbackPatternCompiles
+// asserts that none of the fallback is skipped, and equality carries that to
+// the shipped file.
 func TestTheFallbackMatchesTheShippedFile(t *testing.T) {
 	shipped := shippedLines(t)
 	if len(shipped) != len(fallback) {

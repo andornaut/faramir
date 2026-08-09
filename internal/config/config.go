@@ -23,13 +23,6 @@ const (
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
-// Error is a malformed or unsafe configuration.
-type Error struct{ msg string }
-
-func (e *Error) Error() string { return e.msg }
-
-func errf(format string, args ...any) error { return &Error{msg: fmt.Sprintf(format, args...)} }
-
 // --------------------------------------------------------------------------
 // Helpers
 // --------------------------------------------------------------------------
@@ -61,7 +54,7 @@ func rejectUnknown(raw map[string]any, known []string, where, noun string) error
 	sort.Strings(unknown)
 	sorted := append([]string(nil), known...)
 	sort.Strings(sorted)
-	return errf("%s: unknown %s(s): %s; known %ss: %s",
+	return fmt.Errorf("%s: unknown %s(s): %s; known %ss: %s",
 		where, noun, strings.Join(unknown, ", "), noun, strings.Join(sorted, ", "))
 }
 
@@ -73,7 +66,7 @@ func table(raw map[string]any, key, where string) (map[string]any, error) {
 	}
 	m, ok := value.(map[string]any)
 	if !ok {
-		return nil, errf("%s: expected a [%s] table, got %T", where, key, value)
+		return nil, fmt.Errorf("%s: expected a [%s] table, got %T", where, key, value)
 	}
 	out := make(map[string]any, len(m))
 	maps.Copy(out, m)
@@ -88,19 +81,19 @@ func octalMode(value any, where string) (os.FileMode, error) {
 	case string:
 		n, err := strconv.ParseInt(v, 8, 32)
 		if err != nil {
-			return 0, errf("%s: %q is not octal", where, v)
+			return 0, fmt.Errorf("%s: %q is not octal", where, v)
 		}
 		return rangeCheckMode(n, where)
 	case int64:
 		return rangeCheckMode(v, where)
 	default:
-		return 0, errf("%s: expected an octal string or integer", where)
+		return 0, fmt.Errorf("%s: expected an octal string or integer", where)
 	}
 }
 
 func rangeCheckMode(n int64, where string) (os.FileMode, error) {
 	if n < 0 || n > 0o777 {
-		return 0, errf("%s: out of range, expected 0 to 0o777; write the mode in "+
+		return 0, fmt.Errorf("%s: out of range, expected 0 to 0o777; write the mode in "+
 			`octal, as "0660" or 0o660`, where)
 	}
 	return os.FileMode(n), nil
@@ -111,17 +104,17 @@ func stringList(value any, where string, fallback []string) ([]string, error) {
 		return fallback, nil
 	}
 	if s, ok := value.(string); ok {
-		return nil, errf("%s: expected a list of strings, got string (write it as [%q])", where, s)
+		return nil, fmt.Errorf("%s: expected a list of strings, got string (write it as [%q])", where, s)
 	}
 	list, ok := value.([]any)
 	if !ok {
-		return nil, errf("%s: expected a list of strings, got %T", where, value)
+		return nil, fmt.Errorf("%s: expected a list of strings, got %T", where, value)
 	}
 	out := make([]string, 0, len(list))
 	for _, v := range list {
 		s, ok := v.(string)
 		if !ok {
-			return nil, errf("%s: expected a string, got %T: %v", where, v, v)
+			return nil, fmt.Errorf("%s: expected a string, got %T: %v", where, v, v)
 		}
 		out = append(out, s)
 	}
@@ -134,13 +127,13 @@ func stringMap(value any, where string, fallback map[string]string) (map[string]
 	}
 	m, ok := value.(map[string]any)
 	if !ok {
-		return nil, errf("%s: expected a table of strings, got %T", where, value)
+		return nil, fmt.Errorf("%s: expected a table of strings, got %T", where, value)
 	}
 	out := make(map[string]string, len(m))
 	for k, v := range m {
 		s, ok := v.(string)
 		if !ok {
-			return nil, errf("%s: %s: expected a string, got %T", where, k, v)
+			return nil, fmt.Errorf("%s: %s: expected a string, got %T", where, k, v)
 		}
 		out[k] = s
 	}
@@ -153,7 +146,7 @@ func str(value any, where string, fallback string) (string, error) {
 	}
 	s, ok := value.(string)
 	if !ok {
-		return "", errf("%s: expected a string, got %T", where, value)
+		return "", fmt.Errorf("%s: expected a string, got %T", where, value)
 	}
 	return s, nil
 }
@@ -164,7 +157,7 @@ func integer(value any, where string, fallback int) (int, error) {
 	}
 	n, ok := value.(int64)
 	if !ok {
-		return 0, errf("%s: expected an integer, got %T", where, value)
+		return 0, fmt.Errorf("%s: expected an integer, got %T", where, value)
 	}
 	return int(n), nil
 }
@@ -179,9 +172,9 @@ func intInRange(sec map[string]any, key, where string, fallback, low, high int) 
 	}
 	if n < low || n > high {
 		if high == maxInt {
-			return 0, errf("%s: %s must be at least %d, got %d", where, key, low, n)
+			return 0, fmt.Errorf("%s: %s must be at least %d, got %d", where, key, low, n)
 		}
-		return 0, errf("%s: %s must be between %d and %d, got %d", where, key, low, high, n)
+		return 0, fmt.Errorf("%s: %s must be between %d and %d, got %d", where, key, low, high, n)
 	}
 	return n, nil
 }
@@ -333,7 +326,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	// After merging, so a drop-in faces the same checks the base file does.
-	cfg, err := FromMap(raw, strings.Join(sources, ", "))
+	cfg, err := fromMap(raw, strings.Join(sources, ", "))
 	if err != nil {
 		return nil, err
 	}
@@ -348,13 +341,13 @@ func readTOML(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, errf("config not found: %s", path)
+			return nil, fmt.Errorf("config not found: %s", path)
 		}
-		return nil, errf("%s: %v", path, err)
+		return nil, fmt.Errorf("%s: %v", path, err)
 	}
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
-		return nil, errf("%s: %v", path, err)
+		return nil, fmt.Errorf("%s: %v", path, err)
 	}
 	return raw, nil
 }
@@ -369,7 +362,7 @@ func dropInPaths(dir string) ([]string, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, errf("%s: %v", dir, err)
+		return nil, fmt.Errorf("%s: %v", dir, err)
 	}
 	var paths []string
 	for _, entry := range entries {
@@ -430,7 +423,7 @@ func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, s
 		}
 
 		if dropIn && systemdOwned[full] {
-			return errf("%s: %s is set by the .socket unit, not by this file, so "+
+			return fmt.Errorf("%s: %s is set by the .socket unit, not by this file, so "+
 				"setting it here moves nothing. Worse, the broker dials the keeper "+
 				"and the executor at the path named here, so an edit breaks its own "+
 				"connection to a daemon still listening where it was. Change it with "+
@@ -462,7 +455,7 @@ func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, s
 				continue
 			}
 			if prior, seen := setBy[full]; seen {
-				return errf("%s: %s is set by both %s and %s. That list is policy "+
+				return fmt.Errorf("%s: %s is set by both %s and %s. That list is policy "+
 					"rather than an inventory, so it has one owner: name it in one "+
 					"of them and not the other", source, full, prior, source)
 			}
@@ -508,7 +501,7 @@ var (
 	auditKeys = []string{"log_path", "max_record_bytes"}
 )
 
-func FromMap(raw map[string]any, path string) (*Config, error) {
+func fromMap(raw map[string]any, path string) (*Config, error) {
 	cfg := &Config{Path: path}
 
 	// [secret] for [secrets] leaves a broker managing no files.
@@ -685,7 +678,7 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 	// Every request is clamped to max_timeout_sec, so a smaller one here would
 	// replace default_timeout_sec rather than cap it.
 	if out.MaxTimeoutSec < out.DefaultTimeoutSec {
-		return errf("%s: [exec] max_timeout_sec (%d) is below default_timeout_sec "+
+		return fmt.Errorf("%s: [exec] max_timeout_sec (%d) is below default_timeout_sec "+
 			"(%d), which would silently override it for every command",
 			path, out.MaxTimeoutSec, out.DefaultTimeoutSec)
 	}
@@ -713,7 +706,7 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	// touches no filesystem and reports only ErrBadPattern.
 	for _, pattern := range out.Files {
 		if _, err := filepath.Match(pattern, ""); err != nil {
-			return errf("%s: files entry %q is not a valid glob pattern: %v",
+			return fmt.Errorf("%s: files entry %q is not a valid glob pattern: %v",
 				where, pattern, err)
 		}
 	}

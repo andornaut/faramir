@@ -35,9 +35,9 @@ var ansiRE = regexp.MustCompile(strings.Join([]string{
 // How far back an incomplete escape sequence may reasonably start, in runes.
 const maxEscapeLen = 64
 
-// StripANSI removes escape sequences and normalises CRLF.  Not stream-safe on
+// stripANSI removes escape sequences and normalises CRLF.  Not stream-safe on
 // its own; see stripANSIStream.
-func StripANSI(text string) string {
+func stripANSI(text string) string {
 	return strings.ReplaceAll(ansiRE.ReplaceAllString(text, ""), "\r\n", "\n")
 }
 
@@ -63,16 +63,16 @@ func stripANSIStream(buf []rune) (clean string, carry []rune) {
 	if carryStart == len(buf) && len(buf) > 0 && buf[len(buf)-1] == '\r' {
 		carryStart = len(buf) - 1
 	}
-	return StripANSI(string(buf[:carryStart])), buf[carryStart:]
+	return stripANSI(string(buf[:carryStart])), buf[carryStart:]
 }
 
 // --------------------------------------------------------------------------
 // Stage 2: the expanded value set
 // --------------------------------------------------------------------------
 
-// Base64Variants returns the base64 encodings of value: standard and URL-safe,
+// base64Variants returns the base64 encodings of value: standard and URL-safe,
 // padded and not.
-func Base64Variants(value string) map[string]bool {
+func base64Variants(value string) map[string]bool {
 	raw := []byte(value)
 	out := map[string]bool{}
 	for _, enc := range []string{
@@ -135,12 +135,12 @@ func jsonEscape(value string) string {
 	return s
 }
 
-// Variants returns every rendering of value the redactor recognises.  Not
+// variants returns every rendering of value the redactor recognises.  Not
 // exhaustive by design -- see docs/redaction.md -- but the encodings ordinary
 // tools produce by accident.
-func Variants(value string) map[string]bool {
+func variants(value string) map[string]bool {
 	out := map[string]bool{value: true}
-	for v := range Base64Variants(value) {
+	for v := range base64Variants(value) {
 		out[v] = true
 	}
 	out[percentEncode(value, false)] = true
@@ -279,14 +279,14 @@ func alternation(vs []string) *regexp.Regexp {
 
 func compile(ref, value string) entry {
 	var vs []string
-	for v := range Variants(value) {
+	for v := range variants(value) {
 		vs = append(vs, v)
 	}
 	sort.Strings(vs) // deterministic before the length sort
 	pattern := alternation(vs)
 
 	var b64 []string
-	for v := range Base64Variants(value) {
+	for v := range base64Variants(value) {
 		b64 = append(b64, v)
 	}
 	sort.Strings(b64)
@@ -323,7 +323,7 @@ func (r *Redactor) Feed(text string) string {
 
 // Flush releases everything held back.  Call once, at end of stream.
 func (r *Redactor) Flush() string {
-	tail := StripANSI(string(r.ansiCarry))
+	tail := stripANSI(string(r.ansiCarry))
 	r.ansiCarry = nil
 	out := r.redact(string(r.buf) + tail)
 	r.buf = nil

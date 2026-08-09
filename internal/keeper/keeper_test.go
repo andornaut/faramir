@@ -24,7 +24,7 @@ func fixture(t *testing.T, branch sops.TreeBranch) (config.SecretsConfig, *KeyHo
 			Files:          []string{secretPath},
 			DecryptCommand: sopstest.DecryptCommand(t),
 		},
-		NewKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath})
+		newKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath})
 }
 
 func TestDecryptRoundTrip(t *testing.T) {
@@ -78,7 +78,7 @@ func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 
 	_, errs := DecryptAll(config.SecretsConfig{
 		Files: []string{managed}, DecryptCommand: []string{script, "{file}"},
-	}, NewKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath}))
+	}, newKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath}))
 	if len(errs) > 0 {
 		t.Fatalf("errors: %v", errs)
 	}
@@ -116,7 +116,7 @@ func TestWrongIdentityFails(t *testing.T) {
 
 	other := t.TempDir()
 	wrongKey, _ := sopstest.NewIdentity(t, other)
-	keys := NewKeyHolder(config.KeeperConfig{AgeKeyFile: wrongKey})
+	keys := newKeyHolder(config.KeeperConfig{AgeKeyFile: wrongKey})
 
 	values, errs := DecryptAll(secrets, keys)
 	if len(errs) == 0 {
@@ -147,7 +147,7 @@ func TestOneBadFileDoesNotBlankTheSet(t *testing.T) {
 
 // get_values and get_state, and nothing else.
 func TestKeeperRefusesEveryOtherOp(t *testing.T) {
-	k := &Keeper{config: &config.Config{}, Keys: NewKeyHolder(config.KeeperConfig{})}
+	k := &Keeper{config: &config.Config{}, Keys: newKeyHolder(config.KeeperConfig{})}
 	for _, op := range []string{"get_age_key", "get_key", "", "decrypt", "exec"} {
 		resp := k.Handle(map[string]any{"op": op})
 		errObj, ok := resp["error"].(map[string]string)
@@ -176,7 +176,7 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 			Files:          []string{path},
 			DecryptCommand: []string{"/nonexistent/sops", "{file}"},
 		}},
-		Keys: NewKeyHolder(config.KeeperConfig{}),
+		Keys: newKeyHolder(config.KeeperConfig{}),
 	}
 
 	resp := k.Handle(map[string]any{"op": "get_state"})
@@ -200,7 +200,7 @@ func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.sops.yaml")
 	k := &Keeper{
 		config: &config.Config{Secrets: config.SecretsConfig{Files: []string{missing}}},
-		Keys:   NewKeyHolder(config.KeeperConfig{}),
+		Keys:   newKeyHolder(config.KeeperConfig{}),
 	}
 
 	resp := k.Handle(map[string]any{"op": "get_state"})
@@ -251,7 +251,7 @@ func TestScrubRemovesKeyMaterial(t *testing.T) {
 		t.Fatal("no identity in the fixture")
 	}
 
-	keys := NewKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath})
+	keys := newKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath})
 	scrubbed := keys.Scrub("sops said: " + identity + " <- oops")
 	if strings.Contains(scrubbed, "AGE-SECRET-KEY") {
 		t.Errorf("key material survived Scrub: %q", scrubbed)
@@ -351,7 +351,7 @@ func TestAPatternThatNamesNothingIsAnError(t *testing.T) {
 	pattern := filepath.Join(t.TempDir(), "*.sops.yml")
 	k := &Keeper{
 		config: &config.Config{Secrets: config.SecretsConfig{Files: []string{pattern}}},
-		Keys:   NewKeyHolder(config.KeeperConfig{}),
+		Keys:   newKeyHolder(config.KeeperConfig{}),
 	}
 
 	resp := k.Handle(map[string]any{"op": "get_state"})
@@ -376,7 +376,7 @@ func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
 		config: &config.Config{Secrets: config.SecretsConfig{
 			Files: []string{filepath.Join(dir, "*.sops.yml")},
 		}},
-		Keys: NewKeyHolder(config.KeeperConfig{}),
+		Keys: newKeyHolder(config.KeeperConfig{}),
 	}
 
 	if state := k.Handle(map[string]any{"op": "get_state"})["state"].([]FileState); len(state) != 1 {

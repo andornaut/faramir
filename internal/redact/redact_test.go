@@ -201,8 +201,8 @@ func TestStripANSI(t *testing.T) {
 		{"a reset with no parameter", "\x1b[1;32mbold green\x1b[m done", "bold green done"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := StripANSI(tc.in); got != tc.want {
-				t.Errorf("StripANSI(%q) = %q, want %q", tc.in, got, tc.want)
+			if got := stripANSI(tc.in); got != tc.want {
+				t.Errorf("stripANSI(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 		})
 	}

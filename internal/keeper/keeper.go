@@ -115,7 +115,7 @@ type KeyHolder struct {
 	path   string
 }
 
-func NewKeyHolder(cfg config.KeeperConfig) *KeyHolder { return &KeyHolder{config: cfg} }
+func newKeyHolder(cfg config.KeeperConfig) *KeyHolder { return &KeyHolder{config: cfg} }
 
 // Path returns the age key file to hand sops, or "" if none is available.
 func (k *KeyHolder) Path() string {
@@ -336,7 +336,7 @@ type Keeper struct {
 }
 
 func New(cfg *config.Config) *Keeper {
-	return &Keeper{config: cfg, Keys: NewKeyHolder(cfg.Keeper)}
+	return &Keeper{config: cfg, Keys: newKeyHolder(cfg.Keeper)}
 }
 
 func (k *Keeper) Listen() (net.Listener, error) {
