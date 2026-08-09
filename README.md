@@ -152,7 +152,7 @@ Flag | Default | What to give it
 `--store-group NAME` | `faramir-keeper` | A group name, created if missing. It owns the managed sops files, and the keeper is the only account in it, so asking for a value by name and reading the file it came from stay different privileges. The default is the keeper's own group, so it follows `--keeper-user`.
 `--config-dir DIR` | `/etc/faramir` | An absolute path for `config.toml`, `config.d/`, the age key and the managed sops files. It has to be mounted before the daemons read it.
 `--broker-user`, `--exec-user`, `--keeper-user` NAME | `faramir-broker`, `faramir-exec`, `faramir-keeper` | Service account names, created if missing. Rename them freely; no two may share a name.
-`--age-recipient KEY` | none | An age public key, repeatable, listed in `.sops.yaml` beside the keeper's so a backup of the ciphertext opens without the keeper's key. No identity is minted: the private half is yours to hold, and it opens a backup only if it outlives whatever took the keeper's key.
+`--age-recipient KEY` | none | An age public key, repeatable, listed in `.sops.yaml` beside the keeper's so a backup of the ciphertext opens without the keeper's key. No identity is minted: the private half is yours to hold, and it opens a backup only if it outlives whatever took the keeper's key. The **public** half, checked before anything is written: `.sops.yaml` is world-readable, so an identity pasted here would hand the key that opens the store to every account on the host. Only read at the install that creates the file — see [Adding a recipient](#adding-a-recipient).
 `--ssh-key PATH` | none | A path for the identity the broker lends to brokered commands, generated if missing. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run.
 `--agent NAME` | none | `claude`, `gemini`, `opencode` or `kilocode`, repeatable. Installs that agent's deny rules into your own settings. Naming none installs none.
 `--dry-run` | off | A switch. Reports what would change and writes nothing.
@@ -164,7 +164,9 @@ The units are sandboxed, so the config directory is not a free choice. `init` re
 
 ### Adding a recipient
 
-`--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host changes nothing, silently: adding or dropping a recipient means re-encrypting every managed value.
+`--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which is not something a re-run of the installer should do behind your back.
+
+It no longer does it in silence, which was the trap. A run that keeps the file reads it back, reports the recipients it actually lists as `age_recipients`, and warns naming any key you asked for that is not in there. `doctor` answers the same question about a host nobody is installing.
 
 `faramir edit` re-encrypts to the recipients the file already carries, so it does not apply a changed `.sops.yaml` either. That is what `sops updatekeys` is for, in two steps, both as root:
 
@@ -177,6 +179,7 @@ sudo SOPS_AGE_KEY_FILE=/etc/faramir/age.key \
 The first decides who can read files sops creates from then on. The second re-keys one existing file, and needs a private key that can already decrypt it, hence the keeper's. Repeat per file: nothing walks the store.
 
 - **Check the ownership afterwards.** `sops updatekeys` rewrites in place with no regard for it, and a managed file that stops being readable by the store group is one the keeper cannot open.
+- **The keeper's own recipient has to stay in the file.** Replace `age.key` — restored from a backup, re-minted after the file was unlinked — and the rule still names the recipient it used to have, so every value encrypted from then on is one the keeper cannot read. The broker starts, loads nothing and redacts nothing, and the store it already holds keeps decrypting, so nothing looks wrong. `init` and `doctor` both check for it now; the remedy is the same two steps.
 - **Dropping a recipient is the same two steps**, and reaches no copy of the ciphertext that somebody already holds. Treat what that key could read as read.
 - **With the keeper's key as the only recipient there is nothing to keep in step.** `edit` decrypts and re-encrypts with `<config-dir>/age.key` every time, and `updatekeys` never needs running. The cost is that the key is the only way in: losing it loses every managed value, retroactively, and a second recipient is the backup that avoids it.
 
@@ -186,7 +189,7 @@ The first decides who can read files sops creates from then on. The second re-ke
 sudo faramir doctor
 ```
 
-A broker serving zero refs, an `ssh-agent` holding no key and a client group with members nobody recognises all look healthy otherwise. `doctor` checks what exists only once the install is on a host: the age key unreadable by every account but the keeper, the operator's own `~/.ssh` and `~/.config/sops` unreadable by the executor, the store group the keeper's alone, the config `[exec.base_env]` comes from unwritable by the operator, the binary and the deny list unwritable by it too, the keeper and executor sockets closed to the accounts that must not open them while the broker's is open to the operator, the audit log and the SSH keys unreadable by the executor while it can still authenticate, `ProtectProc` hiding the broker's environment, and a managed value injected into a real command coming back as its token.
+A broker serving zero refs, an `ssh-agent` holding no key and a client group with members nobody recognises all look healthy otherwise. `doctor` checks what exists only once the install is on a host: the age key unreadable by every account but the keeper, the operator's own `~/.ssh` and `~/.config/sops` unreadable by the executor, the store group the keeper's alone, the config `[exec.base_env]` comes from unwritable by the operator, the binary and the deny list unwritable by it too, the keeper and executor sockets closed to the accounts that must not open them while the broker's is open to the operator, the audit log and the SSH keys unreadable by the executor while it can still authenticate, `ProtectProc` hiding the broker's environment, the `.sops.yaml` creation rule listing the keeper's own recipient rather than one it used to have, and a managed value injected into a real command coming back as its token.
 
 Two checks need another uid: the broker's own `--check`, and asking each account what it can reach. Each is asked as the account it is about, root bypassing file modes so the same question from root answers itself. Without sudo those two report as unchecked rather than as passing.
 

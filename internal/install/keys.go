@@ -80,15 +80,26 @@ func (r *runner) addRecipient(recipient string) {
 //
 // Kept if it already exists: adding or dropping a recipient means re-encrypting
 // every managed value, which is an operator action, not something a re-run of
-// the installer should do behind their back.
+// the installer should do behind their back.  Kept and read back, though -- see
+// keepSopsConfig -- because keeping it in silence was how --age-recipient came to
+// mean nothing at all on a host that was already installed.
 func (r *runner) stepSopsConfig() error {
 	path := r.layout.SopsConfigPath()
 	if exists(path) {
-		r.step("sops config", false, "keeping "+path)
+		r.keepSopsConfig(path)
 		return nil
 	}
 	if len(r.opts.AgeRecipients) == 0 {
 		r.skip("sops config", "no age recipient known yet")
+		return nil
+	}
+	// A dry run does not open the age key, so the keeper's recipient is unknown
+	// here for a reason of its own.  Named before the check below, which reaches
+	// the same empty string by the key having been lost rather than by nothing
+	// having looked, and prints a remedy that would be nonsense for this.
+	if r.opts.DryRun {
+		r.skip("sops config", "dry run: the keeper's recipient is not read, so what "+
+			"would be written to "+path+" is not computed")
 		return nil
 	}
 	// Never without the keeper's own recipient.  Writing the file is what decides
@@ -124,8 +135,78 @@ creation_rules:
 	if err != nil {
 		return err
 	}
+	r.report.AgeRecipients = slices.Clone(r.opts.AgeRecipients)
 	r.step("sops config", changed, fmt.Sprintf("%s, %d recipient(s)", path, len(r.opts.AgeRecipients)))
 	return nil
+}
+
+// keepSopsConfig leaves an existing .sops.yaml alone and says what it says.
+//
+// Leaving it alone is right: applying a changed rule means re-encrypting every
+// managed value, and doing that from an installer would drop a reader mid-run.
+// What it cost until now was silence in both directions.  --age-recipient on an
+// installed host went into the report and into nothing else, so a key an
+// operator had added, and believed was a way back into the store, opened
+// nothing.  And a keeper key that had been replaced -- restored from a backup,
+// re-minted after the file was unlinked -- left the rule naming the recipient it
+// used to have, so every value encrypted from then on was one the keeper could
+// not read, and the first symptom was a broker that came up healthy and served
+// nothing.
+//
+// So: kept, read back, and every difference between what was asked for and what
+// is in the file reported.  Nothing here fails the run.  Each of these is a host
+// that works today and is wrong about who can read it tomorrow, and failing the
+// install would leave no way to reach the host that has to be fixed.
+func (r *runner) keepSopsConfig(path string) {
+	listed, err := sopsRecipients(path)
+	if err != nil {
+		// The file is the operator's to edit and sops is what has to parse it, so
+		// a shape this does not understand is a warning about a question that went
+		// unasked, not a verdict on the file.
+		r.warn("%s could not be read (%v), so who can decrypt the store went "+
+			"unchecked. sops is what has to parse this file: if it cannot either, "+
+			"encrypting a new value into the store fails", path, err)
+		r.step("sops config", false, "keeping "+path)
+		return
+	}
+	// What the file says, not what was asked for.  This is the answer to "who can
+	// decrypt the managed values", and on every run but the first the request had
+	// no part in it.
+	r.report.AgeRecipients = listed
+
+	// The keeper's first, and separately: the others are a key that does not open
+	// the store, this one is a store the keeper cannot open.  Skipped when the
+	// recipient is unknown, which is a dry run or a key that has been removed,
+	// both of which are already reported where they happen.
+	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
+		r.warn("%s does not list the keeper's own recipient (%s), so every value "+
+			"encrypted into the store from now on is one %s cannot decrypt: the broker "+
+			"starts, loads nothing, and redacts nothing. This is what replacing %s "+
+			"leaves behind. Add it under `- age:` and re-key the existing files:\n"+
+			"  sudoedit %s\n"+
+			"  sudo SOPS_AGE_KEY_FILE=%s sops updatekeys %s/NAME.sops.yml",
+			path, r.keeperRecipient, r.layout.KeeperUser, r.layout.AgeKeyPath,
+			path, r.layout.AgeKeyPath, r.layout.SecretsDir())
+	}
+
+	var missing []string
+	for _, want := range r.opts.AgeRecipients {
+		if want != r.keeperRecipient && !slices.Contains(listed, want) {
+			missing = append(missing, want)
+		}
+	}
+	if len(missing) > 0 {
+		r.warn("--age-recipient named %s, and %s already exists and is kept, so "+
+			"nothing was added: that key decrypts no managed value. Applying it means "+
+			"re-encrypting each file, which is two steps as root:\n"+
+			"  sudoedit %s\n"+
+			"  sudo SOPS_AGE_KEY_FILE=%s sops updatekeys %s/NAME.sops.yml\n"+
+			"Repeat the second per file; nothing walks the store.",
+			strings.Join(missing, ", "), path,
+			path, r.layout.AgeKeyPath, r.layout.SecretsDir())
+	}
+
+	r.step("sops config", false, fmt.Sprintf("keeping %s, %d recipient(s)", path, len(listed)))
 }
 
 // stepSSHKey generates the identity the broker lends to brokered commands.
