@@ -74,13 +74,46 @@ func TestARequestedEditorMustExist(t *testing.T) {
 	if _, err := resolveEditor("/nonexistent/editor"); err == nil {
 		t.Error("accepted an editor that is not there")
 	}
-	real := filepath.Join(t.TempDir(), "ed")
-	if err := os.WriteFile(real, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	// A root-owned program in a root-owned directory, which is what an installed
+	// editor is.  Skipped rather than failed where the host has none of them,
+	// since what is on a machine is not this test's subject.
+	installed := ""
+	for _, candidate := range append([]string{"/bin/cat", "/usr/bin/cat"}, editors...) {
+		if info, err := os.Stat(candidate); err == nil &&
+			unsafeToRunAsRoot(candidate, info) == "" {
+			installed = candidate
+			break
+		}
+	}
+	if installed == "" {
+		t.Skip("no root-owned editor on this host to accept")
+	}
+	got, err := resolveEditor(installed)
+	if err != nil || got != installed {
+		t.Errorf("resolveEditor(%q) = %q, %v", installed, got, err)
+	}
+}
+
+// The editor runs as root with the decrypted store open, so a file the operator
+// can write is the operator choosing what runs as root.  Choosing the editor
+// here rather than from $EDITOR is what that was for, and a flag taking any
+// path at all hands it straight back.
+func TestAnEditorTheOperatorCanWriteIsRefused(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("as root every file below would be root-owned")
+	}
+	dir := t.TempDir()
+	own := filepath.Join(dir, "ed")
+	if err := os.WriteFile(own, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got, err := resolveEditor(real)
-	if err != nil || got != real {
-		t.Errorf("resolveEditor(%q) = %q, %v", real, got, err)
+	if _, err := resolveEditor(own); err == nil {
+		t.Error("accepted an editor owned by the account invoking sudo")
+	}
+	// The directory counts too: write there is permission to unlink what is on
+	// the path and put something else in its place.
+	if _, err := resolveEditor(filepath.Join(dir, "missing")); err == nil {
+		t.Error("accepted an editor in a directory the operator can write")
 	}
 }
 

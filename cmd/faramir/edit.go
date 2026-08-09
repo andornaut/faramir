@@ -224,8 +224,12 @@ func resolveEditor(requested string) (string, error) {
 		if !filepath.IsAbs(requested) {
 			return "", fmt.Errorf("editor %q must be an absolute path", requested)
 		}
-		if _, err := os.Stat(requested); err != nil {
+		info, err := os.Stat(requested)
+		if err != nil {
 			return "", fmt.Errorf("editor %s: %w", requested, err)
+		}
+		if reason := unsafeToRunAsRoot(requested, info); reason != "" {
+			return "", fmt.Errorf("editor %s: %s", requested, reason)
 		}
 		return requested, nil
 	}
@@ -236,6 +240,47 @@ func resolveEditor(requested string) (string, error) {
 	}
 	return "", fmt.Errorf("no editor found; install one of %s or pass -editor",
 		strings.Join(editors, ", "))
+}
+
+// unsafeToRunAsRoot names why this file must not be the editor, or "" if it may
+// be.
+//
+// The editor runs as root with the decrypted store open, so a file the operator
+// can write is the operator choosing what runs as root, which is the thing
+// picking the editor here rather than from $EDITOR was for.  An account that can
+// already write /usr/bin has that anyway; what this refuses is the ordinary
+// case, a build in a home or a script in a group-writable directory.
+//
+// The directory holding it counts as much as the file: write there is
+// permission to unlink what is on the path and put something else in its place.
+func unsafeToRunAsRoot(path string, info os.FileInfo) string {
+	if !info.Mode().IsRegular() {
+		return "not a regular file"
+	}
+	for _, at := range []string{path, filepath.Dir(path)} {
+		stat, ok := mustStat(at)
+		if !ok {
+			return "cannot read the owner of " + at
+		}
+		if stat.Uid != 0 {
+			return fmt.Sprintf("%s belongs to uid %d rather than root, which is the "+
+				"account that would then choose what runs as root", at, stat.Uid)
+		}
+		if mode := os.FileMode(stat.Mode).Perm(); mode&0o022 != 0 {
+			return fmt.Sprintf("%s is %04o: an account that is not root can replace "+
+				"what runs here", at, mode)
+		}
+	}
+	return ""
+}
+
+func mustStat(path string) (*syscall.Stat_t, bool) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, false
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return stat, ok
 }
 
 // editManaged decrypts, edits and re-encrypts one file in place, and reports
