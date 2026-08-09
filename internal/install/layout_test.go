@@ -1,6 +1,10 @@
 package install
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // The key follows the config directory rather than sitting at a fixed path.
 // That is what puts it inside an encrypted home when the store is already
@@ -58,6 +62,38 @@ func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 				t.Errorf("StoreGroup = %q, want %q", opts.StoreGroup, tc.want)
 			}
 		})
+	}
+}
+
+// The creation rule sits in the config directory, not in the store.
+//
+// sops walks up from the working directory, so the config directory is found
+// from the store as well as from itself, and the store stays a directory
+// holding nothing but ciphertext.  That second half is load bearing: [secrets]
+// files globs the store and filepath.Glob matches dotfiles, so a rule file in
+// there is swept up by a glob spelt .sops.yaml and fails to load as a managed
+// file.
+func TestSopsConfigSitsAboveTheStore(t *testing.T) {
+	layout := Layout{ConfigDir: "/etc/faramir"}
+	if got, want := layout.SopsConfigPath(), "/etc/faramir/.sops.yaml"; got != want {
+		t.Errorf("SopsConfigPath = %q, want %q", got, want)
+	}
+	if dir := filepath.Dir(layout.SopsConfigPath()); dir != layout.ConfigDir {
+		t.Errorf("rule file is in %q, not the config directory %q", dir, layout.ConfigDir)
+	}
+	if filepath.Dir(layout.SopsConfigPath()) == layout.SecretsDir() {
+		t.Error("the rule file is in the store, where the [secrets] glob reaches it")
+	}
+	// The upward search reaches it from the store, which is the other half of
+	// why it can live outside one.
+	if !strings.HasPrefix(layout.SecretsDir(), layout.ConfigDir+string(filepath.Separator)) {
+		t.Errorf("store %q is not under the config directory %q, so the upward "+
+			"search would not reach the rule", layout.SecretsDir(), layout.ConfigDir)
+	}
+	// Named so doctor can report a copy an earlier layout left behind, which
+	// would shadow this one for anything run from the store.
+	if got, want := layout.StaleSopsConfigPath(), "/etc/faramir/secrets/.sops.yaml"; got != want {
+		t.Errorf("StaleSopsConfigPath = %q, want %q", got, want)
 	}
 }
 

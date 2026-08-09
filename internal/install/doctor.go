@@ -111,8 +111,40 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseBroker(&report, configFile, opts.BrokerUser)
 	diagnoseSSHAgent(&report, opts)
 	diagnoseGroup(&report, opts)
+	diagnoseSopsConfig(&report, opts)
 	diagnoseBoundaries(&report, opts, cfg)
 	return report
+}
+
+// diagnoseSopsConfig reports a creation rule left inside the store.
+//
+// sops resolves .sops.yaml by walking up from the working directory and takes
+// the first it finds, so a copy in the store shadows the one in the config
+// directory for anything run from in there.  Two rules that have drifted apart
+// encrypt new values to different recipients depending on where the operator
+// was standing, and neither reports the other.
+//
+// Reported rather than moved: which of the two is current is a question about
+// the recipients in them, and answering it wrongly writes values nothing can
+// decrypt.
+func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
+	layout := Layout{ConfigDir: opts.ConfigDir}
+	current, stale := layout.SopsConfigPath(), layout.StaleSopsConfigPath()
+	switch {
+	case exists(stale) && exists(current):
+		report.add("sops config", StatusWarn, "%s shadows %s for anything run from "+
+			"the store, sops taking the nearest one walking up. Compare the recipients, "+
+			"then: sudo rm %s", stale, current, stale)
+	case exists(stale):
+		report.add("sops config", StatusWarn, "%s is where earlier installs put it, "+
+			"and the store is globbed by [secrets] files. Move it: sudo mv %s %s",
+			stale, stale, current)
+	case exists(current):
+		report.add("sops config", StatusOK, "%s", current)
+	default:
+		report.add("sops config", StatusWarn, "no %s, so sops has no creation rule "+
+			"and refuses to encrypt a new file in the store", current)
+	}
 }
 
 // diagnoseUnits reports the sockets, not the services: all three are socket

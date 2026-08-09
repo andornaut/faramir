@@ -108,6 +108,17 @@ func (l Layout) AgeKeyDir() string { return filepath.Dir(l.AgeKeyPath) }
 // arrangement moving it was for.
 func (l Layout) SecretsDir() string { return filepath.Join(l.ConfigDir, "secrets") }
 
+// SopsConfigPath is where the creation rule lives: the config directory, beside
+// the other files that decide how the store is treated, rather than inside the
+// store it governs.  See stepSopsConfig for why not the store.
+func (l Layout) SopsConfigPath() string { return filepath.Join(l.ConfigDir, ".sops.yaml") }
+
+// StaleSopsConfigPath is where earlier installs put the creation rule.  Named
+// so doctor can report one left behind: sops takes the nearest walking up from
+// the working directory, so a copy inside the store shadows the current one for
+// anything run from in there.
+func (l Layout) StaleSopsConfigPath() string { return filepath.Join(l.SecretsDir(), ".sops.yaml") }
+
 // BrokerHome, KeeperHome and ExecHome are the service accounts' homes.  Derived
 // from the account names so that renaming one does not leave it living in a
 // directory named after the old one, which is also what StateDirectory= in each

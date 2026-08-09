@@ -67,17 +67,22 @@ func (r *runner) addRecipient(recipient string) {
 	r.opts.AgeRecipients = append(r.opts.AgeRecipients, recipient)
 }
 
-// stepSopsConfig writes .sops.yaml beside the store.
+// stepSopsConfig writes .sops.yaml into the config directory.
 //
-// Beside it because sops resolves that file from the working directory upward,
-// not from the file being encrypted, so a rule kept anywhere else is one that
-// reports "no matching creation rules found" for a store edited from elsewhere.
+// There rather than in the store, for two reasons. sops resolves that file from
+// the working directory upward and not from the file being encrypted, so the
+// parent is found from the store as well as from the config directory, while
+// the store is found only from itself. And the store is a drop zone that
+// [secrets] files globs: filepath.Glob matches dotfiles, so a rule file kept
+// among the ciphertext is one glob spelling away from being loaded as a managed
+// file that does not decrypt, which fails the install gate and leaves the broker
+// redacting nothing.
 //
 // Kept if it already exists: adding or dropping a recipient means re-encrypting
 // every managed value, which is an operator action, not something a re-run of
 // the installer should do behind their back.
 func (r *runner) stepSopsConfig() error {
-	path := filepath.Join(r.layout.SecretsDir(), ".sops.yaml")
+	path := r.layout.SopsConfigPath()
 	if exists(path) {
 		r.step("sops config", false, "keeping "+path)
 		return nil
@@ -110,13 +115,12 @@ creation_rules:
     key_groups:
       - age:
 %s`, recipients.String())
-	// Root-owned with the store group, like the directory holding it.  It is
-	// edited by hand to add or drop a recipient, but that edit happens under the
-	// same sudo as editing a managed file, and leaving it operator-owned inside
-	// a root-owned directory would let the recipients be rewritten by the one
-	// account the store group exists to keep out.  Group-readable because
-	// encrypting reads it and the accounts that do that are not the owner.
-	changed, err := r.fs.writeFile(path, []byte(body), 0o640, 0, r.storeGID)
+	// Root-owned like the rest of the config directory: it is edited by hand to
+	// add or drop a recipient, and leaving it writable by anyone else would let
+	// the recipients be rewritten by an account the store group exists to keep
+	// out. World-readable because it holds public keys and a rule and no value,
+	// so checking who can decrypt is not a question that should need sudo.
+	changed, err := r.fs.writeFile(path, []byte(body), 0o644, 0, 0)
 	if err != nil {
 		return err
 	}
