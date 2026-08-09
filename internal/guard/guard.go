@@ -78,8 +78,9 @@ var fallback = []string{
 	// the daemons log ref names and counts, never values.
 	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard)\b`,
 	`\bsudo\b.*-u\s+faramir`,
-	// Taking the broker down turns redaction off silently: the wrapper fails
-	// open when it cannot be reached.
+	// Refused for what it costs, not because it hides anything: the wrapper
+	// fails closed, so a stopped broker withholds every command's output in
+	// every enrolled tree at once, and undoing it needs the operator.
 	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,
 }
 
