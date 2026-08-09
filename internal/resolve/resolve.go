@@ -79,7 +79,7 @@ func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 		return "", fmt.Errorf("%s: not found on the broker's PATH (%s). A program "+
 			"installed elsewhere -- a venv, pipx, a version-manager shim -- "+
 			"needs its directory on [exec.base_env] PATH, or an absolute "+
-			"path in cmd[0].", argv0, path)
+			"path in cmd[0]", argv0, path)
 	}
 	return realpath(found), nil
 }

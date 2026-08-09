@@ -141,7 +141,7 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 	if !strings.Contains(string(plain), "the-original-value-long-enough") {
 		t.Errorf("the value did not survive the rekey: %s", plain)
 	}
-	if strings.Contains(string(got[0]), "AGE-SECRET-KEY") {
+	if strings.Contains(got[0], "AGE-SECRET-KEY") {
 		t.Error("KEY MATERIAL RETURNED AS A RECIPIENT")
 	}
 	// The store belongs to the store group after an install, and a rekey that
