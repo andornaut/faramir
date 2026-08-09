@@ -168,20 +168,23 @@ The units are sandboxed, so the config directory is not a free choice. `init` re
 
 It no longer does it in silence, which was the trap. A run that keeps the file reads it back, reports the recipients it actually lists as `age_recipients`, and warns naming any key you asked for that is not in there. `doctor` answers the same question about a host nobody is installing.
 
-`faramir edit` re-encrypts to the recipients the file already carries, so it does not apply a changed `.sops.yaml` either. That is what `sops updatekeys` is for, in two steps, both as root:
+`faramir edit` does not apply a changed rule either, and for the same reason: it re-encrypts to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
+
+Applying one is two steps, both as root:
 
 ```bash
-sudoedit /etc/faramir/.sops.yaml             # add the key under `- age:`
-sudo SOPS_AGE_KEY_FILE=/etc/faramir/age.key \
-    sops updatekeys /etc/faramir/secrets/NAME.sops.yml
+sudoedit /etc/faramir/.sops.yaml   # add the key under `- age:`
+sudo faramir rekey                 # re-encrypt the store to what it now says
 ```
 
-The first decides who can read files sops creates from then on. The second re-keys one existing file, and needs a private key that can already decrypt it, hence the keeper's. Repeat per file: nothing walks the store.
+The first decides who can read files sops creates from then on. The second brings the files that already exist into line, decrypting each with the keeper's key and re-sealing it to the rule. Name files to do only some; `--dry-run` reports what would change and writes nothing.
 
-- **Check the ownership afterwards.** `sops updatekeys` rewrites in place with no regard for it, and a managed file that stops being readable by the store group is one the keeper cannot open.
-- **The keeper's own recipient has to stay in the file.** Replace `age.key` — restored from a backup, re-minted after the file was unlinked — and the rule still names the recipient it used to have, so every value encrypted from then on is one the keeper cannot read. The broker starts, loads nothing and redacts nothing, and the store it already holds keeps decrypting, so nothing looks wrong. `init` and `doctor` both check for it now; the remedy is the same two steps.
+- **The ownership and mode are preserved.** This is why `rekey` exists rather than a loop over `sops updatekeys`, which rewrites in place with no regard for either: a managed file that stops being readable by the store group is one the keeper cannot open.
+- **A rule that drops the keeper's own key is refused**, before anything is decrypted. Re-encrypting to it would leave a store nothing on the host can open, and re-running cannot undo that. This is the same drift `init` and `doctor` warn about: replace `age.key` — restored from a backup, re-minted after the file was unlinked — and the rule still names the recipient it used to have, so every value encrypted from then on is one the keeper cannot read.
+- **Files already sealed to the rule are skipped.** Re-encrypting rewrites the data key even when the recipients are identical, so a rekey that did not compare first would make every file look changed.
 - **Dropping a recipient is the same two steps**, and reaches no copy of the ciphertext that somebody already holds. Treat what that key could read as read.
-- **With the keeper's key as the only recipient there is nothing to keep in step.** `edit` decrypts and re-encrypts with `<config-dir>/age.key` every time, and `updatekeys` never needs running. The cost is that the key is the only way in: losing it loses every managed value, retroactively, and a second recipient is the backup that avoids it.
+- **A hand-written `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. Use `sops updatekeys` per file, or `--sops-config` to name a single-rule file.
+- **With the keeper's key as the only recipient there is nothing to keep in step.** `edit` decrypts and re-encrypts with `<config-dir>/age.key` every time, and `rekey` never needs running. The cost is that the key is the only way in: losing it loses every managed value, retroactively, and a second recipient is the backup that avoids it.
 
 ### Checking an install
 
@@ -279,7 +282,8 @@ Command | Does
 `sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. Shares the tree (group-owned and setgid, so you and a brokered command stop overwriting each other's ownership, and group-executable down from a `0700` home so the executor can enter), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config. A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` and `~/.config/sops/age/keys.txt` to every brokered command, and the walk is not reversible. `faramir doctor` re-checks it.
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](#checking-an-install).
 `sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the store is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
-`sudo faramir logs` | Recent audit records, or the one a short id names: id, local time, op, outcome, duration, how many values it stood in for, and the command; a redact reports the text's size instead. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched.
+`sudo faramir rekey [FILE...]` | Re-encrypts managed sops files to the recipients `<config-dir>/.sops.yaml` names now, which is how a changed creation rule reaches values encrypted before it changed. Every managed file unless some are named. Preserves each file's owner and mode, skips one already sealed to the rule, and refuses a rule that leaves out the keeper's own key. `--dry-run` writes nothing. See [Adding a recipient](#adding-a-recipient).
+`sudo faramir logs` | Recent audit records, or the one a short id names: id, local time, op, outcome, duration, how many values it stood in for, and the command; a redact reports the text's size instead, and an edit or a rekey the managed file, a rekey also naming the recipients on each side. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched.
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed `config.d` drop-in. All three are socket activated.
 `sudo faramir uninstall` | Removes the broker. Leaves the accounts, the config, the store, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively.
 

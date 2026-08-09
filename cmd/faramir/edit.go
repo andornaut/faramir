@@ -98,8 +98,11 @@ func cmdEdit(args []string) int {
 
 	changed, err := editManaged(target, keyPath, editorPath)
 	record := map[string]any{
-		"op":     "edit",
-		"id":     audit.NewLogID(),
+		"op": "edit",
+		// "log_id", the spelling the broker writes and the only one `faramir
+		// logs` reads: under any other key the record has no id to look up and
+		// no timestamp to sort by, both of which it derives from this one.
+		"log_id": audit.NewLogID(),
 		"file":   target,
 		"editor": editorPath,
 		"uid":    os.Getuid(),
@@ -162,14 +165,18 @@ func exists(path string) bool {
 	return err == nil
 }
 
+// errNoManagedFiles is what edit and rekey both report when the store is empty:
+// neither has anything to open, and the fix is the same for both.
+var errNoManagedFiles = errors.New("no managed sops files: [secrets] files named " +
+	"none, so there is nothing to open. Create the first one with sops, which " +
+	"needs --config and --filename-override; see docs/ansible-sops.md")
+
 // resolveManaged maps the argument onto one of the configured files, matching a
 // bare name against each base name.  Anything unmanaged is refused, an edit
 // outside the list being a file the broker never reads.
 func resolveManaged(managed []string, arg string) (string, error) {
 	if len(managed) == 0 {
-		return "", errors.New("no managed sops files: [secrets] files named none, " +
-			"so there is nothing to edit. Create the first one with sops, which " +
-			"needs --config and --filename-override; see docs/ansible-sops.md")
+		return "", errNoManagedFiles
 	}
 	var matches []string
 	wanted := filepath.Clean(arg)
@@ -295,7 +302,7 @@ func editManaged(target, keyPath, editorPath string) (bool, error) {
 	// The recipients the file already had, named explicitly: sops resolves
 	// .sops.yaml by walking up from the file, which here is in a tmpfs, and an
 	// edit should preserve who could read the file -- applying a changed
-	// .sops.yaml is what `sops updatekeys` is for.
+	// .sops.yaml is what `faramir rekey` is for.
 	recipients, err := recipientsOf(target)
 	if err != nil {
 		return false, err

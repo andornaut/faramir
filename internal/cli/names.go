@@ -19,6 +19,7 @@ var Operator = []string{
 	"init",
 	"init-project",
 	"edit",
+	"rekey",
 	"logs",
 	"doctor",
 	"reload",
