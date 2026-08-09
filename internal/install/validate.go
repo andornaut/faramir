@@ -100,7 +100,9 @@ func (r *runner) stepValidate() error {
 	// what a brokered command gets.  The broker only warns when no key loads, so
 	// a missing one leaves every socket active and every playbook unable to
 	// reach a host.
-	if r.opts.SSHKey != "" {
+	// Gated on the key that reached disk rather than on --ssh-key, which is a
+	// relocation and empty on most runs.
+	if r.sshKey != "" {
 		out, agentErr := r.command(filepath.Join(r.layout.BinDir, "faramir"),
 			"run", "--quiet", "--", "ssh-add", "-l")
 		// The error carries stderr, where the reason is; dropping it reports
@@ -112,10 +114,11 @@ func (r *runner) stepValidate() error {
 				agentErr, r.layout.BrokerUser)
 		}
 		if !strings.Contains(out, "SHA256") {
-			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s). "+
-				"Brokered commands can reach no managed host. Check that [ssh] keys "+
-				"in %s or its config.d names %s, then restart faramir-broker",
-				strings.TrimSpace(out), r.layout.ConfigFile, r.opts.SSHKey)
+			return fmt.Errorf("the broker's ssh-agent holds no usable key (%s), "+
+				"though [ssh] keys names %s. Brokered commands can reach no managed "+
+				"host. Check that %s can read it and that it is not "+
+				"passphrase-protected, then restart faramir-broker",
+				strings.TrimSpace(out), r.sshKey, r.layout.BrokerUser)
 		}
 		r.step("broker ssh agent", false, "holds a usable key")
 	}

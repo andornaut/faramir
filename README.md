@@ -113,6 +113,7 @@ Enforcement | Hook plus filesystem permissions. | Instructions to the agent are 
 /run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
 /run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
 <config-dir>/age.key          0400 faramir-keeper:faramir-keeper
+<config-dir>/id_ed25519       0600 faramir-broker:faramir-broker, the key it lends; .pub 0644
 <config-dir>/secrets/         2750 root:faramir-keeper, the managed sops files
 <config-dir>/.sops.yaml       0644 root:root, the creation rule; above the store, not in it
 <config-dir>/config.toml      0644 root:root, faramir's own, rewritten every run
@@ -153,7 +154,7 @@ Flag | Default | What to give it
 `--config-dir DIR` | `/etc/faramir` | An absolute path for `config.toml`, `config.d/`, the age key and the managed sops files. It has to be mounted before the daemons read it, and its parent has to exist: this is the one directory faramir creates whose parent can be yours, and creating one would hand it to root.
 `--broker-user`, `--exec-user`, `--keeper-user` NAME | `faramir-broker`, `faramir-exec`, `faramir-keeper` | Service account names, created if missing. Rename them freely; no two may share a name.
 `--age-recipient KEY` | none | An age public key, repeatable, listed in `.sops.yaml` beside the keeper's so a backup of the ciphertext opens without the keeper's key. No identity is minted: the private half is yours to hold, and it opens a backup only if it outlives whatever took the keeper's key. The **public** half, checked before anything is written: `.sops.yaml` is world-readable, so an identity pasted here would hand the key that opens the store to every account on the host. Only read at the install that creates the file — see [Adding a recipient](#adding-a-recipient).
-`--ssh-key PATH` | none | A path for the identity the broker lends to brokered commands, generated if missing. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run.
+`--ssh-key PATH` | `<config-dir>/id_ed25519` | Where the identity the broker lends to brokered commands lives. One is minted either way, so this relocates rather than enables. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run. An existing key at the path is adopted, not replaced, which is how you bring your own; it must already be `faramir-broker`-owned `0600` or `init` refuses it rather than chowning a key that may be yours.
 `--agent NAME` | none | `claude`, `gemini`, `opencode` or `kilocode`, repeatable. Installs that agent's deny rules into your own settings. Naming none installs none.
 `--dry-run` | off | A switch. Reports what would change and writes nothing.
 `--json` | off | A switch. Prints the report as JSON, one entry per step with a `changed` flag.
@@ -309,7 +310,7 @@ Wire protocol: [docs/protocol.md](docs/protocol.md).
 - **Output is truncated** at `[exec] max_output_bytes`; the audit log keeps up to `[audit] max_record_bytes`.
 - **The audit log rotates weekly**, 8 kept, compressed, and early at 16MB. `[audit] max_record_bytes` bounds one record, not the file. Delete `/etc/logrotate.d/faramir` to manage it some other way.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
-- **SSH keys belong in `[ssh] keys`.** Left empty, they must sit in `~faramir-exec/.ssh` where every brokered command can read them.
+- **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does, and `ProtectSystem=strict` leaves that directory read-only to the broker that uses it. A drop-in setting `[ssh] keys` is refused; `--ssh-key` is what moves or adopts one.
 - **The broker's home is `/var/lib/faramir-broker`**, granted by `StateDirectory=`.
 - **Encrypt the disk.** LUKS on the root filesystem covers the age key, the store, the audit log and swap in one move.
 
@@ -336,7 +337,8 @@ Lists split by what they are:
 
 What | Rule | Why
 --- | --- | ---
-`[secrets] files`, `[ssh] keys` | **accumulate**, duplicates collapsed | Inventories with one entry per owner. Replacing would leave the broker holding fewer files than its operator believes, injecting and redacting nothing for the loser. `files` entries are glob patterns, deduplicated again after expansion, so a drop-in naming a file the base already globs adds nothing.
+`[secrets] files` | **accumulates**, duplicates collapsed | An inventory with one entry per owner. Replacing would leave the broker holding fewer files than its operator believes, injecting and redacting nothing for the loser. Entries are glob patterns, deduplicated again after expansion, so a drop-in naming a file the base already globs adds nothing.
+`[ssh] keys` | **refused in a drop-in** | Policy, not an inventory. `init` mints the key, holds both halves and renders the path, so the list has one owner. A second identity reaches the same hosts and is one no account can vouch for; use `faramir init --ssh-key` to move or adopt one.
 every other list | **refused** when two sources set it, naming both | `allowed_users`, `allowed_groups` and `decrypt_command` are policy. Accumulating would widen what the sockets admit by writing a file that never said so; taking the last would make it depend on filename order.
 
 - Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir broker --check` report `configs`: the base file and every drop-in that contributed, in merge order.
@@ -352,11 +354,11 @@ An unknown key or `[section]` | A config that reads as though it took effect.
 A value out of range | Same.
 A ref too short to redact | Refused at load, so covered by nothing.
 A `[secrets] files` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
-A `[ssh] key` missing, passphrase-protected, or the `.pub` | `ssh-add` refuses it, leaving every host unreachable.
+A `[ssh] key` passphrase-protected | `ssh-add` refuses it, leaving every host unreachable. `init` catches one missing, unreadable by the broker, or without its `.pub`.
 `[keeper]` or `[executor] allowed_users` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route, and the executor's runs a command with no policy, no redaction and no audit record. The socket modes still stand in the way, so this is the second of two locks, and a gate that waits for both to be open reports the problem afterwards.
 `[server] socket_mode` with world bits set | Every account on the host reaches the broker, whatever `allowed_groups` says.
 
-A store on a filesystem that is not mounted yet looks exactly like one that was never written, and both leave the broker redacting nothing. Empty `[ssh] keys` passes.
+A store on a filesystem that is not mounted yet looks exactly like one that was never written, and both leave the broker redacting nothing.
 
 Run it as the broker's own account. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on; the `allowed_users` check is skipped there too, since from root every name compares unequal. `faramir doctor` makes the same check knowing the account names.
 

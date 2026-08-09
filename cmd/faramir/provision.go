@@ -86,7 +86,8 @@ func cmdInit(args []string) int {
 	configDir := fs.String("config-dir", install.DefaultConfigDir,
 		"where config.toml, config.d/, the age key and the managed sops files are installed")
 	sshKey := fs.String("ssh-key", "",
-		"identity the broker lends to brokered commands, generated when missing")
+		"where the identity the broker lends to brokered commands lives "+
+			"(default: id_ed25519 beside the age key; one is minted either way)")
 	var initAgents multiFlag
 	fs.Var(&initAgents, "agent",
 		"install the deny rules into this agent's own settings, repeatable "+

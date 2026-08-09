@@ -215,11 +215,23 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 }
 
 func (s *Server) opStatus() protocol.Response {
+	// Counts, not paths.  Any member of the client group can ask, which includes
+	// the coding agent, so what goes here lands in a model's context by default.
+	// The count is also the answer: a configured key that did not load looks
+	// identical to a working one from the config's side, and that difference is
+	// the only thing anyone debugs here.
+	configured, usable := s.Config.Ssh.Keys, 0
+	for _, path := range configured {
+		if data, err := os.ReadFile(path); err == nil && unusableReason(data) == "" {
+			usable++
+		}
+	}
 	body, _ := json.MarshalIndent(map[string]any{
 		"version": version.Version,
 		// Every file that contributed, in merge order.
 		"configs": s.Config.Sources,
 		"secrets": s.Store.Describe(),
+		"ssh":     map[string]any{"configured": len(configured), "usable": usable},
 	}, "", "  ")
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",

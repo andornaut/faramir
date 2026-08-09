@@ -382,9 +382,14 @@ func dropInPaths(dir string) ([]string, error) {
 // they accumulate across sources.  Everything else is policy and replaces:
 // accumulating allowed_users, allowed_groups or decrypt_command would widen
 // what the sockets admit by writing a file that never said so.
+//
+// ssh.keys is not one of them.  init mints one key, holds both halves and
+// renders the path here, so the list has one owner and a drop-in naming another
+// key is refused like any other policy list.  Two identities reach the same
+// hosts and only one of them is a key no other account has ever held; a key of
+// your own goes to `faramir init --ssh-key`, which adopts it and says so.
 var inventoryLists = map[string]bool{
 	"secrets.files": true,
-	"ssh.keys":      true,
 }
 
 // systemdOwned are the keys the .socket units decide, which a drop-in may not

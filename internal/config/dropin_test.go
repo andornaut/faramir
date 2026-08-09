@@ -85,12 +85,8 @@ func TestListsAccumulateAcrossDropIns(t *testing.T) {
 			},
 			get: func(c *Config) []string { return c.Secrets.Files }, want: 2,
 			why: "both projects have to end up managed"},
-		{name: "two consumers, two keys, one agent",
-			dropIns: map[string]string{
-				"10-a.toml": "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/a\"]\n",
-				"20-b.toml": "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/b\"]\n",
-			},
-			get: func(c *Config) []string { return c.Ssh.Keys }, want: 2},
+		// [ssh] keys is deliberately absent from this table: it is policy rather
+		// than an inventory, and TestAPolicyListSetTwiceIsRefused covers it.
 		{name: "the same store named twice",
 			dropIns: map[string]string{
 				"10-a.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
@@ -117,6 +113,12 @@ func TestAPolicyListSetTwiceIsRefused(t *testing.T) {
 	for _, tc := range []struct{ name, base, dropIn string }{
 		{"base and drop-in", "[server]\nallowed_groups = [\"dev\"]\n", "[server]\nallowed_groups = [\"wheel\"]\n"},
 		{"decrypt_command", "[secrets]\ndecrypt_command = [\"sops\"]\n", "[secrets]\ndecrypt_command = [\"cat\"]\n"},
+		// init mints the key, holds both halves and renders the path, so the
+		// list has one owner.  A second identity reaching the same hosts is one
+		// no account can vouch for, and the way to use a key of your own is
+		// `faramir init --ssh-key`, which adopts it and asserts its mode.
+		{"ssh keys", "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/a\"]\n",
+			"[ssh]\nkeys = [\"/home/op/.ssh/id_ed25519\"]\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := write(t, minimal+tc.base, map[string]string{"10-x.toml": tc.dropIn})

@@ -38,10 +38,11 @@ type Options struct {
 	// Public keys only: a second private key is a second way into the store.
 	AgeRecipients []string
 
-	// SSHKey is the identity the broker lends through an agent it owns,
-	// generated when missing, so the executor can authenticate with it without
-	// reading it.  Empty leaves [ssh] keys unset, which puts the keys somewhere
-	// the executor can read.
+	// SSHKey relocates the identity the broker lends through an agent it owns,
+	// so the executor can authenticate with it without reading it.  Empty takes
+	// the default beside the age key rather than leaving the broker without one:
+	// see Layout.SSHKey for why there, and why one is minted whether or not a
+	// host turns out to need it.
 	SSHKey string
 
 	// No tree is enrolled here: a tree is per project and this runs once per
@@ -107,6 +108,11 @@ type runner struct {
 	brokerLoadedRefs int
 	brokerChecked    bool
 
+	// The key the broker will load, set once it is on disk with the ownership
+	// the broker needs.  Empty under a dry run, so the validation step knows not
+	// to ask a broker that was never given one.
+	sshKey string
+
 	// The keeper's own age recipient, empty when it could not be read.  A
 	// .sops.yaml written without it encrypts every later value to everyone
 	// except the account that has to decrypt them.
@@ -158,9 +164,12 @@ func Run(opts Options) (Report, error) {
 		run.stepDirectories,
 		run.stepAgeKey,
 		run.stepSopsConfig,
-		run.stepSSHKey,
 		run.stepBinaries,
 		run.stepConfig,
+		// After the config: it reads [ssh] keys merged across config.d.  Before
+		// any daemon starts: a key the broker cannot read leaves the agent
+		// holding nothing.
+		run.stepSSHKey,
 		// Before the units are written: it grants the traversal that lets a
 		// service uid reach a config under the operator's home.
 		run.stepReachable,
@@ -224,6 +233,9 @@ func (o Options) layout() (Layout, error) {
 	// is permission to unlink the file, not to read it.  Following the config
 	// puts the key inside an encrypted home when the store is already there.
 	layout.AgeKeyPath = filepath.Join(layout.ConfigDir, "age.key")
+	if layout.SSHKey == "" {
+		layout.SSHKey = filepath.Join(layout.ConfigDir, "id_ed25519")
+	}
 	return layout, layout.validate()
 }
 
