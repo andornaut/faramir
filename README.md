@@ -46,7 +46,6 @@ Failure | Why
 **Network egress.** No iptables, namespaces or proxy allowlist. | Out of scope.
 **Anything at rest.** Nothing here encrypts the disk. | The uid boundaries only hold while the machine is running. Full-disk encryption is the measure; the age key is a file like any other to someone holding the drive.
 **Unenrolled projects.** The value set is global. | A command in a project you never enrolled can print a managed value uncaught.
-**Other enrolled trees.** A brokered command started in one reaches every other. | The client group both admits a caller to the socket and group-owns each enrolled tree, and `faramir-exec` is in it. See [Layout](#layout).
 
 ## How it works
 
@@ -133,11 +132,7 @@ A brokered command can write the working tree and reach the broker socket, its o
 
 A tree inside a 0700 home needs traversal for `faramir-exec`. `faramir init-project` grants it by group: every directory from the home down becomes the client group and group-executable, execute only, so those uids pass through without listing what they pass. Never `chmod o+x`, which grants the same to every account on the machine. Everyone in the group gets that traversal, so keep membership to the accounts that need it. A directory already traversable by `other` is left alone; one whose group is something else is taken over, costing that group whatever the group bits gave it, and `init-project` says so. Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
 
-The tree itself gets more than traversal: `2770` and group-readable and group-writable throughout, because a brokered command runs in it and writes to it. One group does both jobs, so what that grants is worth stating plainly:
-
-- **Every enrolled tree is reachable from every other.** A brokered command started in one project can read and write the next, both being group-owned by the group the executor is in. Enrol the projects where managed credentials are in play, not every tree.
-- **Everything in an enrolled tree is shared, not only the code.** A `.env`, a `.pem` or a `kubeconfig` sitting in the checkout is readable by every brokered command once the tree is enrolled. Move those out, or accept that the executor's uid holds them.
-- **A home is not a project.** `init-project` refuses one, and refuses `/` and any directory above a home: sharing a home hands over `~/.ssh` and `~/.config/sops/age/keys.txt`, and that key decrypts the same store. `faramir doctor` re-checks it, since the walk is not reversible.
+The tree itself gets more than traversal: `2770` and group-readable and group-writable throughout, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code.
 
 ## Installation
 
@@ -278,7 +273,7 @@ faramir redact -- ./deploy.sh
 
 Command | Does
 --- | ---
-`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. Shares the tree (group-owned and setgid, so you and a brokered command stop overwriting each other's ownership, and group-executable down from a `0700` home so the executor can enter), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config. A home directory, `/`, and anything above a home are refused: see [Layout](#layout).
+`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. Shares the tree (group-owned and setgid, so you and a brokered command stop overwriting each other's ownership, and group-executable down from a `0700` home so the executor can enter), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config. A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` and `~/.config/sops/age/keys.txt` to every brokered command, and the walk is not reversible. `faramir doctor` re-checks it.
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](#checking-an-install).
 `sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the store is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
 `sudo faramir logs` | Recent audit records, or the one a short id names: id, local time, op, outcome, duration, how many values it stood in for, and the command; a redact reports the text's size instead. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched.
