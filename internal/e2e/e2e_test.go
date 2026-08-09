@@ -108,7 +108,7 @@ func newHarness(t *testing.T) *harness {
 		Secrets: config.SecretsConfig{
 			Files: []string{secretPath}, DecryptCommand: sopstest.DecryptCommand(t),
 			RefreshIntervalSec: 0,
-			MinLength:          8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
+			MinLength:          8,
 		},
 		Audit: config.AuditConfig{LogPath: auditLog, MaxRecordBytes: 1 << 22},
 	}

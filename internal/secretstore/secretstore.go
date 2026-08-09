@@ -59,9 +59,7 @@ func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
 		config: secrets,
 		keeper: kc,
 		Policy: redact.EligibilityPolicy{
-			MinLength:             secrets.MinLength,
-			MinUniqueChars:        secrets.MinUniqueChars,
-			MinEntropyBitsPerChar: secrets.MinEntropyBitsPerChar,
+			MinLength: secrets.MinLength,
 		},
 		values:  map[string]string{},
 		refused: map[string]string{},

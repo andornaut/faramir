@@ -193,20 +193,6 @@ func atLeast(sec map[string]any, key, where string, fallback, low int) (int, err
 
 const maxInt = int(^uint(0) >> 1)
 
-func float(value any, where string, fallback float64) (float64, error) {
-	if value == nil {
-		return fallback, nil
-	}
-	switch v := value.(type) {
-	case float64:
-		return v, nil
-	case int64:
-		return float64(v), nil
-	default:
-		return 0, errf("%s: expected a number, got %T", where, value)
-	}
-}
-
 // --------------------------------------------------------------------------
 // Sections
 // --------------------------------------------------------------------------
@@ -280,11 +266,9 @@ type SecretsConfig struct {
 	// How the keeper invokes sops; "{file}" is each managed path.  Executed
 	// rather than linked, which would pull every key source sops supports into
 	// the process holding the master key.
-	DecryptCommand        []string
-	RefreshIntervalSec    int
-	MinLength             int
-	MinUniqueChars        int
-	MinEntropyBitsPerChar float64
+	DecryptCommand     []string
+	RefreshIntervalSec int
+	MinLength          int
 }
 
 // AuditConfig is the operator-only record of what the broker ran.  Output is
@@ -520,7 +504,7 @@ var (
 	sshKeys = []string{"keys", "agent_socket", "agent_socket_mode", "exec_group",
 		"ssh_agent", "ssh_add"}
 	secretsKeys = []string{"files", "decrypt_command", "refresh_interval_sec",
-		"min_length", "min_unique_chars", "min_entropy_bits_per_char"}
+		"min_length"}
 	auditKeys = []string{"log_path", "max_record_bytes"}
 )
 
@@ -719,8 +703,7 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	}
 	*out = SecretsConfig{
 		DecryptCommand:     []string{"sops", "--output-type", "json", "--decrypt", "{file}"},
-		RefreshIntervalSec: 5, MinLength: 8, MinUniqueChars: 4,
-		MinEntropyBitsPerChar: 1.5,
+		RefreshIntervalSec: 5, MinLength: 8,
 	}
 	if out.Files, err = stringList(sec["files"], where, nil); err != nil {
 		return err
@@ -745,16 +728,6 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	// string and rewrite unrelated output.
 	if out.MinLength, err = atLeast(sec, "min_length", where, out.MinLength, 1); err != nil {
 		return err
-	}
-	if out.MinUniqueChars, err = atLeast(sec, "min_unique_chars", where, out.MinUniqueChars, 1); err != nil {
-		return err
-	}
-	if out.MinEntropyBitsPerChar, err = float(sec["min_entropy_bits_per_char"], where, out.MinEntropyBitsPerChar); err != nil {
-		return err
-	}
-	if out.MinEntropyBitsPerChar < 0 {
-		return errf("%s: min_entropy_bits_per_char must not be negative, got %v",
-			where, out.MinEntropyBitsPerChar)
 	}
 	return nil
 }

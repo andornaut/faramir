@@ -108,11 +108,13 @@ decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 # command; the keeper answers without the key and without execing sops.
 refresh_interval_sec = 5
 
-# A value below these would blank out unrelated output, so the broker refuses to
-# load it and names it in the log and in --check.
+# A value shorter than this would match inside ordinary words and blank out
+# unrelated output, so the broker refuses to load it and names it in the log and
+# in --check.
+#
+# Length, and nothing else.  How strong a credential is belongs to whoever chose
+# it: this bounds what the redactor can search for, and judges nothing.
 min_length = 8
-min_unique_chars = 4
-min_entropy_bits_per_char = 1.5
 
 [audit]
 log_path = "{{.LogDir}}/audit.log"
