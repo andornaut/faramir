@@ -34,13 +34,6 @@ import (
 
 const maxRequestBytes = 1 << 20
 
-// Error means the executor refused the request, or could not be reached.
-type Error struct{ Msg string }
-
-func (e *Error) Error() string { return e.Msg }
-
-func errf(format string, args ...any) error { return &Error{Msg: fmt.Sprintf(format, args...)} }
-
 type request struct {
 	Argv         []string          `json:"argv"`
 	Cwd          string            `json:"cwd"`
@@ -410,11 +403,11 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	timeoutSec, killGraceSec int, slaveFD uintptr) error {
 	addr, err := net.ResolveUnixAddr("unix", c.socketPath)
 	if err != nil {
-		return errf("executor socket %s: %v", c.socketPath, err)
+		return fmt.Errorf("executor socket %s: %v", c.socketPath, err)
 	}
 	conn, err := net.DialUnix("unix", nil, addr)
 	if err != nil {
-		return errf("executor socket %s: %v", c.socketPath, err)
+		return fmt.Errorf("executor socket %s: %v", c.socketPath, err)
 	}
 	c.conn = conn
 
@@ -424,14 +417,14 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	})
 	if err != nil {
 		c.Close()
-		return errf("executor: %v", err)
+		return fmt.Errorf("executor: %v", err)
 	}
 	line = append(line, '\n')
 
 	rights := unix.UnixRights(int(slaveFD))
 	if _, _, err := conn.WriteMsgUnix(line, rights, nil); err != nil {
 		c.Close()
-		return errf("executor: %v", err)
+		return fmt.Errorf("executor: %v", err)
 	}
 	return nil
 }
@@ -441,7 +434,7 @@ func (c *Client) Abort() { c.Close() }
 
 func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 	if c.conn == nil {
-		return nil, errf("executor: no command in flight")
+		return nil, fmt.Errorf("executor: no command in flight")
 	}
 	defer c.Close()
 	_ = c.conn.SetReadDeadline(time.Now().Add(timeout))
@@ -457,14 +450,14 @@ func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, errf("executor: %v", err)
+			return nil, fmt.Errorf("executor: %v", err)
 		}
 	}
 	if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
 		buf = buf[:idx]
 	}
 	if len(buf) == 0 {
-		return nil, errf("executor closed the connection without responding")
+		return nil, fmt.Errorf("executor closed the connection without responding")
 	}
 
 	var response struct {
@@ -476,13 +469,13 @@ func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(buf, &response); err != nil {
-		return nil, errf("malformed response from executor: %v", err)
+		return nil, fmt.Errorf("malformed response from executor: %v", err)
 	}
 	if response.Error != nil {
-		return nil, errf("%s: %s", response.Error.Code, response.Error.Message)
+		return nil, fmt.Errorf("%s: %s", response.Error.Code, response.Error.Message)
 	}
 	if response.ExitCode == nil {
-		return nil, errf("executor response has no exit_code")
+		return nil, fmt.Errorf("executor response has no exit_code")
 	}
 	return &ChildResult{ExitCode: *response.ExitCode, TimedOut: response.TimedOut}, nil
 }

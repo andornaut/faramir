@@ -11,13 +11,6 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// Error means the keeper could not be reached, or refused the request.
-type Error struct{ Msg string }
-
-func (e *Error) Error() string { return e.Msg }
-
-func errf(format string, args ...any) error { return &Error{Msg: fmt.Sprintf(format, args...)} }
-
 // FileState is one managed file's fingerprint.  Comparable, since the staleness
 // check is set equality over these, and it carries no contents.
 type FileState struct {
@@ -42,30 +35,30 @@ type response struct {
 func call(socketPath, op string) (*response, error) {
 	conn, err := net.Dial("unix", socketPath)
 	if err != nil {
-		return nil, errf("keeper socket %s: %v", socketPath, err)
+		return nil, fmt.Errorf("keeper socket %s: %v", socketPath, err)
 	}
 	defer func() { _ = conn.Close() }()
 
 	if err := sockutil.Send(conn, map[string]any{"op": op}); err != nil {
-		return nil, errf("keeper: %v", err)
+		return nil, fmt.Errorf("keeper: %v", err)
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
 		_ = uc.CloseWrite()
 	}
 	line, err := sockutil.ReadLine(conn, 1<<24)
 	if err != nil {
-		return nil, errf("keeper: %v", err)
+		return nil, fmt.Errorf("keeper: %v", err)
 	}
 	if len(line) == 0 {
-		return nil, errf("keeper closed the connection without responding")
+		return nil, fmt.Errorf("keeper closed the connection without responding")
 	}
 
 	var out response
 	if err := json.Unmarshal(line, &out); err != nil {
-		return nil, errf("malformed response from keeper: %v", err)
+		return nil, fmt.Errorf("malformed response from keeper: %v", err)
 	}
 	if out.Error != nil {
-		return nil, errf("keeper: %s: %s", out.Error.Code, out.Error.Message)
+		return nil, fmt.Errorf("keeper: %s: %s", out.Error.Code, out.Error.Message)
 	}
 	return &out, nil
 }
@@ -81,7 +74,7 @@ func FetchValues(socketPath string) (map[string]string, []FileState, []string, e
 		return nil, nil, nil, err
 	}
 	if out.Values == nil {
-		return nil, nil, nil, errf("keeper response has no 'values' object")
+		return nil, nil, nil, fmt.Errorf("keeper response has no 'values' object")
 	}
 	return out.Values, out.State, out.Errors, nil
 }

@@ -38,13 +38,6 @@ var ReservedEnv = map[string]bool{
 
 var ops = []string{"exec", "list_secrets", "redact", "status"}
 
-// Error is a malformed request.
-type Error struct{ Msg string }
-
-func (e *Error) Error() string { return e.Msg }
-
-func errf(format string, args ...any) error { return &Error{Msg: fmt.Sprintf(format, args...)} }
-
 type Request struct {
 	Op         string
 	Cmd        []string
@@ -63,28 +56,28 @@ func Parse(payload map[string]any) (*Request, error) {
 	if raw, ok := payload["op"]; ok && raw != nil {
 		op, isStr := raw.(string)
 		if !isStr {
-			return nil, errf("unknown op %v; expected one of %s", raw, strings.Join(ops, ", "))
+			return nil, fmt.Errorf("unknown op %v; expected one of %s", raw, strings.Join(ops, ", "))
 		}
 		req.Op = op
 	}
 	if !slices.Contains(ops, req.Op) {
-		return nil, errf("unknown op %q; expected one of %s", req.Op, strings.Join(ops, ", "))
+		return nil, fmt.Errorf("unknown op %q; expected one of %s", req.Op, strings.Join(ops, ", "))
 	}
 
 	rawCmd, hasCmd := payload["cmd"]
 	if req.Op == "exec" {
 		if _, isStr := rawCmd.(string); isStr {
-			return nil, errf("'cmd' must be an array, not a string; the broker never " +
+			return nil, fmt.Errorf("'cmd' must be an array, not a string; the broker never " +
 				"invokes a shell for you -- send ['bash', '-lc', '…']")
 		}
 		list, isList := rawCmd.([]any)
 		if !hasCmd || !isList || len(list) == 0 {
-			return nil, errf("'cmd' must be a non-empty array of strings")
+			return nil, fmt.Errorf("'cmd' must be a non-empty array of strings")
 		}
 		for _, a := range list {
 			s, isStr := a.(string)
 			if !isStr {
-				return nil, errf("'cmd' must contain only strings")
+				return nil, fmt.Errorf("'cmd' must contain only strings")
 			}
 			req.Cmd = append(req.Cmd, s)
 		}
@@ -99,7 +92,7 @@ func Parse(payload map[string]any) (*Request, error) {
 	if req.Op == "redact" {
 		text, isStr := payload["text"].(string)
 		if !isStr {
-			return nil, errf("'text' must be a string")
+			return nil, fmt.Errorf("'text' must be a string")
 		}
 		req.Text = text
 	}
@@ -107,7 +100,7 @@ func Parse(payload map[string]any) (*Request, error) {
 	if raw, ok := payload["cwd"]; ok && raw != nil {
 		cwd, isStr := raw.(string)
 		if !isStr || !strings.HasPrefix(cwd, "/") {
-			return nil, errf("'cwd' must be an absolute path")
+			return nil, fmt.Errorf("'cwd' must be an absolute path")
 		}
 		req.Cwd, req.HasCwd = cwd, true
 	}
@@ -115,23 +108,23 @@ func Parse(payload map[string]any) (*Request, error) {
 	if raw, ok := payload["env_refs"]; ok && raw != nil {
 		m, isMap := raw.(map[string]any)
 		if !isMap {
-			return nil, errf("'env_refs' must be an object of NAME -> secret:// URI")
+			return nil, fmt.Errorf("'env_refs' must be an object of NAME -> secret:// URI")
 		}
 		for name, uri := range m {
 			if !envNameRe.MatchString(name) {
-				return nil, errf("invalid environment variable name: %q", name)
+				return nil, fmt.Errorf("invalid environment variable name: %q", name)
 			}
 			if ReservedEnv[name] {
-				return nil, errf("%s is reserved and cannot be overwritten", name)
+				return nil, fmt.Errorf("%s is reserved and cannot be overwritten", name)
 			}
 			s, isStr := uri.(string)
 			if !isStr {
-				return nil, errf("env_refs[%s] must be a secret:// URI string", name)
+				return nil, fmt.Errorf("env_refs[%s] must be a secret:// URI string", name)
 			}
 			// Shape, not existence: a well-formed ref naming nothing is
 			// unknown_secret.
 			if _, err := secretref.Parse(s); err != nil {
-				return nil, errf("env_refs[%s]: %v", name, err)
+				return nil, fmt.Errorf("env_refs[%s]: %v", name, err)
 			}
 			req.EnvRefs[name] = s
 		}
@@ -140,7 +133,7 @@ func Parse(payload map[string]any) (*Request, error) {
 	if raw, ok := payload["timeout_sec"]; ok && raw != nil {
 		n, isNum := toInt(raw)
 		if !isNum || n <= 0 {
-			return nil, errf("'timeout_sec' must be a positive integer")
+			return nil, fmt.Errorf("'timeout_sec' must be a positive integer")
 		}
 		req.TimeoutSec = n
 	}

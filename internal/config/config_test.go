@@ -13,7 +13,7 @@ func load(t *testing.T, text string) (*Config, error) {
 	if err := toml.Unmarshal([]byte(text), &raw); err != nil {
 		t.Fatalf("toml: %v", err)
 	}
-	return FromMap(raw, "<test>")
+	return fromMap(raw, "<test>")
 }
 
 const minimal = `

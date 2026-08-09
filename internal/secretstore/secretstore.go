@@ -14,6 +14,7 @@
 package secretstore
 
 import (
+	"fmt"
 	"log"
 	"maps"
 	"sort"
@@ -25,7 +26,6 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeperclient"
 	"github.com/andornaut/faramir/internal/redact"
-	"github.com/andornaut/faramir/internal/secretref"
 )
 
 // Store is a concurrency-safe, mtime-refreshed view of every managed secret.
@@ -192,7 +192,7 @@ func (s *Store) Refs() []string {
 	return sortedKeys(s.values)
 }
 
-// Value returns one secret, or a *secretref.Error.
+// Value returns one secret.
 func (s *Store) Value(ref string) (string, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -201,10 +201,10 @@ func (s *Store) Value(ref string) (string, error) {
 	}
 	// Named separately, so a refused ref does not read as a typo.
 	if reason, ok := s.refused[ref]; ok {
-		return "", secretref.Errf("secret %s was refused at load (%s); it cannot be "+
+		return "", fmt.Errorf("secret %s was refused at load (%s); it cannot be "+
 			"redacted, so it is not injectable. Lengthen the value.", ref, reason)
 	}
-	return "", secretref.Errf("unknown secret ref: %s", ref)
+	return "", fmt.Errorf("unknown secret ref: %s", ref)
 }
 
 // Pairs is every (ref, value) pair: the input to the redactor's value set.  The

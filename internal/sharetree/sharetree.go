@@ -158,17 +158,17 @@ func shareTree(root string, gid int) error {
 		if err := os.Lchown(path, -1, gid); err != nil {
 			return err
 		}
-		return os.Chmod(path, GroupShared(info.Mode()))
+		return os.Chmod(path, groupShared(info.Mode()))
 	})
 }
 
-// GroupShared is "chmod g+rwX", plus setgid on a directory.  The X is why this
+// groupShared is "chmod g+rwX", plus setgid on a directory.  The X is why this
 // is not a constant: a directory needs group execute to be entered, a file only
 // when it was already executable for somebody.
 //
 // setgid is what makes it hold: a file either party creates inherits the group
 // rather than the creator's own.
-func GroupShared(mode os.FileMode) os.FileMode {
+func groupShared(mode os.FileMode) os.FileMode {
 	out := mode | 0o060
 	switch {
 	case mode.IsDir():
@@ -179,9 +179,9 @@ func GroupShared(mode os.FileMode) os.FileMode {
 	return out
 }
 
-// Components lists every directory from home down to dir's parent, the tree
+// components lists every directory from home down to dir's parent, the tree
 // itself being group-owned above.
-func Components(home, dir string) []string {
+func components(home, dir string) []string {
 	rel, err := filepath.Rel(home, dir)
 	if err != nil || rel == "." {
 		return nil
@@ -204,7 +204,7 @@ func Components(home, dir string) []string {
 // Execute only, never read, so these uids pass through without listing.  Not
 // "chmod o+x", which grants the same to every account on the machine.
 func grantTraversal(home, dir string, opts Options, gid int) error {
-	for _, component := range Components(home, dir) {
+	for _, component := range components(home, dir) {
 		info, err := os.Stat(component)
 		if err != nil {
 			return err

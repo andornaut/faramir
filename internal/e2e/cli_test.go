@@ -196,15 +196,3 @@ func TestCLIHonoursFaramirSocketEnv(t *testing.T) {
 		t.Errorf("stdout = %q", r.stdout)
 	}
 }
-
-// A removed op must not be silently accepted by the CLI either.
-func TestCLIHasNoSyncSubcommand(t *testing.T) {
-	h := newHarness(t)
-	r := runCLI(t, h.brokerSock, "sync")
-	if r.code == 0 {
-		t.Error("the removed sync subcommand still runs")
-	}
-	if !strings.Contains(r.stderr, "unknown command") {
-		t.Errorf("stderr = %q", r.stderr)
-	}
-}

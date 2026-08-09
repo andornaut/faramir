@@ -24,8 +24,8 @@ func TestGroupShared(t *testing.T) {
 		{"already shared is unchanged", 0o664, 0o664},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := GroupShared(tc.in); got != tc.want {
-				t.Errorf("GroupShared(%v) = %v, want %v", tc.in, got, tc.want)
+			if got := groupShared(tc.in); got != tc.want {
+				t.Errorf("groupShared(%v) = %v, want %v", tc.in, got, tc.want)
 			}
 		})
 	}
@@ -35,18 +35,18 @@ func TestGroupShared(t *testing.T) {
 // than traversed.
 func TestComponents(t *testing.T) {
 	home := "/home/op"
-	got := Components(home, "/home/op/src/github.com/x/repo")
+	got := components(home, "/home/op/src/github.com/x/repo")
 	want := []string{"/home/op", "/home/op/src", "/home/op/src/github.com", "/home/op/src/github.com/x"}
 	if !reflect.DeepEqual(got, want) {
-		t.Errorf("Components = %v, want %v", got, want)
+		t.Errorf("components = %v, want %v", got, want)
 	}
 	// A tree that is the home needs nothing walked.
-	if got := Components(home, home); len(got) != 0 {
-		t.Errorf("Components(home, home) = %v, want none", got)
+	if got := components(home, home); len(got) != 0 {
+		t.Errorf("components(home, home) = %v, want none", got)
 	}
 	// One level down is just the home.
-	if got := Components(home, "/home/op/tree"); !reflect.DeepEqual(got, []string{home}) {
-		t.Errorf("Components = %v, want [%s]", got, home)
+	if got := components(home, "/home/op/tree"); !reflect.DeepEqual(got, []string{home}) {
+		t.Errorf("components = %v, want [%s]", got, home)
 	}
 }
 
