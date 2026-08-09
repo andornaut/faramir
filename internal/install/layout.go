@@ -39,11 +39,6 @@ const (
 	DefaultBrokerUser = "faramir-broker"
 	DefaultKeeperUser = "faramir-keeper"
 	DefaultExecUser   = "faramir-exec"
-
-	// The group the store used to be owned by, when the broker was in it too.
-	// Named only so an install can say that it is now unused; nothing is
-	// created with it and nothing is looked up by it.
-	legacyStoreGroup = "faramir-secrets"
 )
 
 // There is no DefaultStoreGroup.  The store group defaults to the keeper's own

@@ -126,21 +126,6 @@ func (r *runner) stepAccounts() error {
 	}
 	changed = changed || made
 
-	// CLEANUP (added 2026-08-08): remove once every host has run an install
-	// carrying it.  The only membership here that is taken away rather than
-	// reported, because this installer is what granted it.
-	//
-	// Skipped when the store group is the broker's own, which --store-group can
-	// ask for: gpasswd cannot remove an account from its primary group, and an
-	// operator who named it meant it.
-	if r.layout.StoreGroup != r.layout.BrokerUser {
-		dropped, err := r.removeFromGroup(r.layout.BrokerUser, r.layout.StoreGroup)
-		if err != nil {
-			return err
-		}
-		changed = changed || dropped
-	}
-
 	r.step("accounts", changed, fmt.Sprintf("groups %s and %s, users %s",
 		r.layout.Group, r.layout.StoreGroup,
 		strings.Join([]string{r.layout.BrokerUser, r.layout.KeeperUser, r.layout.ExecUser}, ", ")))
@@ -165,18 +150,6 @@ func (r *runner) stepAccounts() error {
 				"daemons onto it",
 				r.layout.StoreGroup, gid, first, r.layout.StoreGroup, r.layout.StoreGroup)
 		}
-	}
-
-	// CLEANUP (added 2026-08-08): remove once every host has run an install
-	// carrying it.  This run re-owned the store to the store group, so the group
-	// named here owns nothing on this host, and a gid nothing uses is one the
-	// host will eventually hand to something else.  Reported rather than
-	// removed: groupdel is not this installer's call to make about a group it
-	// cannot prove nothing else wants.
-	if r.layout.StoreGroup != legacyStoreGroup && groupExists(legacyStoreGroup) {
-		r.warn("group %s is not this install's store group (%s) and owns nothing "+
-			"here; remove it with `groupdel %s`",
-			legacyStoreGroup, r.layout.StoreGroup, legacyStoreGroup)
 	}
 
 	// The store group is what makes editing a secret need sudo.  A membership
@@ -226,27 +199,6 @@ func (r *runner) stepAccounts() error {
 	}
 	r.step("operator umask", umask, "umask 002 for the shared tree")
 	return nil
-}
-
-// removeFromGroup takes a supplementary group away from an account, and reports
-// whether it had to.
-//
-// Used for exactly one membership: the broker's in the store group.  The broker
-// holds every decrypted value already, so read on the ciphertext adds no
-// capability and extends its reach to files no [secrets] list names.
-func (r *runner) removeFromGroup(account, group string) (bool, error) {
-	in, err := inGroup(account, group)
-	if err != nil || !in {
-		// An account that does not exist is not in the group either, and on a
-		// dry run against a fresh host neither exists yet.
-		return false, nil
-	}
-	if !r.opts.DryRun {
-		if _, err := r.command("gpasswd", "-d", account, group); err != nil {
-			return false, err
-		}
-	}
-	return true, nil
 }
 
 // ensureInGroup adds an existing account to a supplementary group, and reports
