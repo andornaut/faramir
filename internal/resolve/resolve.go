@@ -71,33 +71,42 @@ func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 		return "", errf("empty command")
 	}
 
-	var resolved string
 	if strings.Contains(argv0, "/") {
-		resolved = realpath(join(cwd, argv0))
+		resolved := realpath(join(cwd, argv0))
+		// Existence, not executability.  The uid that execs this is the
+		// executor's, which can hold permissions the broker does not, and
+		// answering access(2) here would refuse a program that runs perfectly
+		// well for the account that will run it.  The executor reports its own
+		// failure; absence is refused here because it is the same answer from
+		// any uid and is worth catching before a child is forked to find it.
 		if !isFile(resolved) {
 			return "", errf("%s: no such program (resolved to %s)", argv0, resolved)
 		}
-	} else {
-		path := execCfg.BaseEnv["PATH"]
-		found := ""
-		for _, dir := range strings.Split(path, ":") {
-			candidate := filepath.Join(dir, argv0)
-			if isFile(candidate) && executable(candidate) {
-				found = candidate
-				break
-			}
-		}
-		if found == "" {
-			return "", errf("%s: not found on the broker's PATH (%s). A program "+
-				"installed elsewhere -- a venv, pipx, a version-manager shim -- "+
-				"needs its directory on [exec.base_env] PATH, or an absolute "+
-				"path in cmd[0].", argv0, path)
-		}
-		resolved = realpath(found)
+		return resolved, nil
 	}
 
-	if !executable(resolved) {
-		return "", errf("%s: %s is not executable by the broker", argv0, resolved)
+	// A bare name is a PATH search, and skipping what cannot be executed is what
+	// a PATH search does: a non-executable file called "ls" in an early
+	// directory is not the program the caller meant.  The bit is read as the
+	// broker, which is the one uid available here and not the one that will run
+	// it, so a program executable only by the executor reports as not found.
+	// Both accounts are service accounts on the same host and program
+	// directories are world-executable, so the two views differ only on a
+	// deliberately narrowed one; an absolute path in cmd[0] is the way past it.
+	path := execCfg.BaseEnv["PATH"]
+	found := ""
+	for dir := range strings.SplitSeq(path, ":") {
+		candidate := filepath.Join(dir, argv0)
+		if isFile(candidate) && executable(candidate) {
+			found = candidate
+			break
+		}
 	}
-	return resolved, nil
+	if found == "" {
+		return "", errf("%s: not found on the broker's PATH (%s). A program "+
+			"installed elsewhere -- a venv, pipx, a version-manager shim -- "+
+			"needs its directory on [exec.base_env] PATH, or an absolute "+
+			"path in cmd[0].", argv0, path)
+	}
+	return realpath(found), nil
 }

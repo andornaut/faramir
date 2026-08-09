@@ -78,8 +78,13 @@ func TestProgram(t *testing.T) {
 			why: "filepath.Join would produce /tmp/bin/sh; the child's own exec would not"},
 		{name: "a missing program is named",
 			arg: filepath.Join(dir, "nope"), cwd: dir, wants: []string{"no such program"}},
-		{name: "a non-executable file is refused",
-			arg: filepath.Join(dir, "notes.txt"), cwd: dir, wants: []string{"not executable"}},
+		// The uid that execs it is the executor's, which can hold permissions
+		// the broker does not, so the bit is not read here: an EACCES from the
+		// account that will run the program is the honest answer, and refusing
+		// on the broker's view would turn a working arrangement into a failure.
+		{name: "a non-executable file is left to the executor",
+			arg: filepath.Join(dir, "notes.txt"), cwd: dir,
+			want: realpath(filepath.Join(dir, "notes.txt"))},
 		{name: "an empty command is refused", arg: "", cwd: dir},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
