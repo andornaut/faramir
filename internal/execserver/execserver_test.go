@@ -54,9 +54,11 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		// One deadline for the whole drain rather than one per read: a deadline
+		// reset inside the loop races with the close below.
+		_ = master.SetReadDeadline(time.Now().Add(30 * time.Second))
 		buf := make([]byte, 4096)
 		for {
-			_ = master.SetReadDeadline(time.Now().Add(10 * time.Second))
 			n, err := master.Read(buf)
 			if n > 0 {
 				output.Write(buf[:n])
@@ -68,8 +70,13 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 	}()
 
 	result, err := client.Result(20 * time.Second)
-	_ = master.Close()
+	// Drain to EOF before closing the master.  The child's last write can still
+	// be sitting in the terminal buffer when the result arrives, and closing
+	// first discards exactly the output the caller is about to assert on.  Every
+	// slave fd is closed by then (the executor's after fork, ours after Start,
+	// the child's on exit), so the read ends in EIO on its own.
 	wg.Wait()
+	_ = master.Close()
 	return result, output.String(), err
 }
 

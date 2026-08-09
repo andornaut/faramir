@@ -13,17 +13,12 @@ import (
 // guardRewrite returns what the hook would replace a Bash command with.
 func guardRewrite(t *testing.T, cliPath, command string) string {
 	t.Helper()
-	guard := filepath.Join(t.TempDir(), "faramir-guard")
-	build := exec.Command("go", "build", "-o", guard, "github.com/andornaut/faramir/cmd/faramir-guard")
-	if out, err := build.CombinedOutput(); err != nil {
-		t.Skipf("could not build the guard: %v: %s", err, out)
-	}
-
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": command},
 	})
-	hook := exec.Command(guard)
+	// The hook is `faramir guard`, the same binary the settings file registers.
+	hook := exec.Command(cliPath, "guard")
 	hook.Stdin = strings.NewReader(string(payload))
 	wrap, err := filepath.Abs("../../agent/hooks/wrap.sh")
 	if err != nil {
