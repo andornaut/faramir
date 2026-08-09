@@ -6,10 +6,11 @@
 #   {{.ConfigDir}}/config.d/50-local.toml     yours
 #   {{.ConfigDir}}/config.d/<consumer>.toml   one per consumer of the broker
 #
-# Drop-ins merge over this file in lexical order, except [secrets] files and
-# [ssh] keys, which accumulate.  socket_path and socket_mode are the one pair a
-# drop-in may not set: the .socket units decide those and init renders both
-# sides together.  Change them with `faramir init`.
+# Drop-ins merge over this file in lexical order.  [secrets] files accumulates
+# rather than replacing; the policy lists (allowed_groups, decrypt_command,
+# [ssh] keys) are refused if a drop-in sets one again.  socket_path and
+# socket_mode are init's alone, rendered alongside the .socket units.  Change
+# those with `faramir init`.
 #
 # Check a config with:  faramir broker -c FILE --check
 # See README.md and docs/design.md.
