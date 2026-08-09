@@ -318,7 +318,7 @@ uid faramir-exec              faramir exec: forks brokered commands; holds nothi
 /run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
 /run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
 <config-dir>/age.key          0400 faramir-keeper:faramir-keeper
-<config-dir>/secrets/         2770 root:dev, managed sops files and .sops.yaml
+<config-dir>/secrets/         2750 root:faramir-secrets, managed sops files and .sops.yaml
 <config-dir>/config.toml      0644 root:root, read by all three daemons
 <config-dir>/config.d/        0644 root:root, per-consumer settings merged over it
 <any tree you enrol>          2770 <operator>:dev, setgid; faramir init-project

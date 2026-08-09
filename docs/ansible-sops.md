@@ -8,7 +8,7 @@ The variables and paths assumed here are set in a `/etc/faramir/config.d` drop-i
 
 ## 1. Encrypt the right file, in the right place
 
-The encrypted file belongs in the store, `/etc/faramir/secrets` unless `--secrets-dir` moved it, created `2770 root:dev` by `faramir init`. Not in a checkout, and never in `group_vars/` or `host_vars/`.
+The encrypted file belongs in the store, `/etc/faramir/secrets` unless `--secrets-dir` moved it, created `2750 root:faramir-secrets` by `faramir init`. Not in a checkout, and never in `group_vars/` or `host_vars/`. The operator is not in that group, so putting a file there and editing one afterwards both go through `sudo faramir edit`.
 
 Ansible loads every `.yml` under those two directories as a vars file. A sops file is valid YAML, so it loads without error and binds each var to its `ENC[AES256_GCM,...]` ciphertext; a name sorting after `vars.yml` also overwrites the `lookup('env', …)` mapping from section 2. Nothing errors. Hosts get configured with ciphertext in place of the credential. `faramir init` refuses to finish against a store under either directory, and `faramir doctor` reports one.
 
@@ -26,13 +26,15 @@ creation_rules:
 
 The rule matches on the `.sops.yml` suffix rather than a directory, so moving a file does not silently drop it out of encryption.
 
-Which rule applies is matched against the file's path, but **which `.sops.yaml` sops reads is resolved from the current working directory upward**, not from the file being encrypted. Encrypting into the store from a checkout finds nothing and fails with `config file not found, or has no creation rules`. Name it:
+Creating the first one needs root, the store's group holding no human, and two flags. Which rule applies is matched against the file's path, but **which `.sops.yaml` sops reads is resolved from the current working directory upward**, not from the file being encrypted, so encrypting into the store from a checkout finds nothing and fails with `config file not found, or has no creation rules`:
 
 ```bash
-sops --config /etc/faramir/secrets/.sops.yaml \
+sudo sops --config /etc/faramir/secrets/.sops.yaml \
     --encrypt --filename-override /etc/faramir/secrets/ansible-ctrl.sops.yml \
     plain.yml
 ```
+
+Every edit after that is `sudo faramir edit /etc/faramir/secrets/ansible-ctrl.sops.yml`, which resolves neither: it re-encrypts to the recipients the file already had.
 
 Decryption needs none of this: creation rules govern encryption only.
 

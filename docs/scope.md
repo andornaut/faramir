@@ -32,7 +32,7 @@ Bounding what an unattended run may change is a credential-scope problem: a `gh`
 
 ## Secrets in their own directory, not in a tree
 
-Managed sops files live in `/etc/faramir/secrets`, `2770 root:dev`, and never in a checkout: a store a clone or a branch can move is not a store. The operator edits them in place with `sops`, through the group, without sudo. `.sops.yaml` sits in the same directory, but note that sops resolves it from the **current working directory** upward, not from the file being encrypted: encrypting into the store from elsewhere has to name it with `--config`.
+Managed sops files live in `/etc/faramir/secrets`, `2750 root:faramir-secrets`, and never in a checkout: a store a clone or a branch can move is not a store. That group holds the keeper and the broker and no human, so editing a value is `sudo faramir edit`. Admitting a caller to the broker socket is a different group, because asking for a value by name and reading the file it comes from are different privileges, and an agent runs as an account holding the first. `.sops.yaml` sits in the same directory, but note that sops resolves it from the **current working directory** upward, not from the file being encrypted: encrypting into the store from elsewhere has to name it with `--config`.
 
 `CONFIG_DIR` and `SECRETS_DIR` move both off `/etc`. What the units can see decides where, not the modes:
 
