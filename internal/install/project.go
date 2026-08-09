@@ -87,9 +87,18 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		}
 		opts.Dir = cwd
 	}
-	dir, err := filepath.Abs(opts.Dir)
+	named := opts.Dir
+	info, err := os.Stat(named)
+	if err != nil || !info.IsDir() {
+		return ProjectReport{}, fmt.Errorf("no directory at %s", named)
+	}
+	// Symlinks out, before anything is decided about this path or written to
+	// it.  Sharing follows a link with its chmod and chown and does not follow
+	// it with its walk, so the argument and the tree that would actually change
+	// are two different directories; see sharetree.Resolve.
+	dir, err := sharetree.Resolve(named)
 	if err != nil {
-		return ProjectReport{}, err
+		return ProjectReport{}, fmt.Errorf("resolving %s: %w", named, err)
 	}
 	opts.Dir = dir
 	if opts.ConfigDir == "" {
@@ -105,10 +114,6 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		return ProjectReport{}, fmt.Errorf("faramir init-project must run as root: it " +
 			"changes group ownership and modes on directories you do not own")
 	}
-	info, err := os.Stat(dir)
-	if err != nil || !info.IsDir() {
-		return ProjectReport{}, fmt.Errorf("no directory at %s", dir)
-	}
 	if err := refuseOversharing(dir, opts.Operator); err != nil {
 		return ProjectReport{}, err
 	}
@@ -119,6 +124,11 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	}
 	run := &project{opts: opts, fs: fsys{dryRun: opts.DryRun}, targets: targets}
 	run.report = ProjectReport{Version: version.Version, Dir: dir, DryRun: opts.DryRun}
+	// Said out loud: the tree being changed is not the one that was named, and
+	// every mode and group reported below belongs to the resolved one.
+	if dir != named {
+		run.warn("%s resolves to %s, which is the tree being enrolled", named, dir)
+	}
 	if err := run.resolveGroup(); err != nil {
 		return run.report, err
 	}
@@ -164,10 +174,15 @@ func refuseOversharing(dir, operator string) error {
 		return tooBig("a home directory")
 	}
 	// The account's own home as passwd records it, which is what catches one
-	// outside /home and /root.  An account that cannot be looked up fails later,
-	// in shareTree, with the error that names it.
+	// outside /home and /root.  Resolved, because dir is: comparing a resolved
+	// tree against an unresolved home is how a symlinked home reads as somewhere
+	// else entirely.  An account that cannot be looked up fails later, in
+	// shareTree, with the error that names it.
 	if entry, err := user.Lookup(operator); err == nil && entry.HomeDir != "" {
-		home := filepath.Clean(entry.HomeDir)
+		home, err := sharetree.Resolve(entry.HomeDir)
+		if err != nil {
+			home = filepath.Clean(entry.HomeDir)
+		}
 		if home == dir {
 			return tooBig(operator + "'s home directory")
 		}

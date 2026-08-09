@@ -1,10 +1,13 @@
 package install
 
 import (
+	"os"
 	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/sharetree"
 )
 
 const block = snippetBegin + "\nnew text\n" + snippetEnd + "\n"
@@ -83,5 +86,33 @@ func TestOversharingIsRefused(t *testing.T) {
 			t.Errorf("refuseOversharing(%q) refused = %v (%v), want %v",
 				dir, refused, err, wantRefused)
 		}
+	}
+}
+
+// Chmod and Chown follow a symlink; WalkDir does not.  A symlinked argument
+// therefore rewrites the mode and group of whatever it points at, walks
+// nothing, and reports success, so every check has to be made against the
+// resolved path rather than the one that was typed.
+func TestOversharingIsRefusedThroughASymlink(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip("no current user to take a home from")
+	}
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(me.HomeDir, link); err != nil {
+		t.Skip("cannot create a symlink here")
+	}
+	resolved, err := sharetree.Resolve(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := refuseOversharing(resolved, me.Username); err == nil {
+		t.Errorf("a symlink to %s resolved to %s and was not refused", me.HomeDir, resolved)
+	}
+	// And the whole command, which is where the resolution has to happen for the
+	// refusal above to ever see it.
+	_, err = Project(ProjectOptions{Dir: link, Operator: me.Username, DryRun: true})
+	if err == nil {
+		t.Error("init-project enrolled a symlink pointing at a home")
 	}
 }

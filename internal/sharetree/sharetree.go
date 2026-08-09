@@ -35,9 +35,34 @@ type Options struct {
 	Log func(string)
 }
 
+// Resolve is the absolute, symlink-free path of a directory to share.
+//
+// Resolving is not tidiness here, it is the difference between sharing a tree
+// and sharing something else.  Chmod and Chown follow a symlink and land on the
+// target, while WalkDir does not: it lstats its root, finds a link, and
+// descends into nothing.  A symlinked argument therefore rewrites the mode and
+// group of whatever it points at, shares none of the files under it, and
+// reports success.  Pointed at a home, that is the home group-writable with no
+// walk to notice; pointed at a checkout, it is an enrolment that looks done and
+// leaves every file in the tree unreachable to the executor.
+//
+// It is also what any refusal has to be applied to.  A check against the
+// argument answers a question about the link rather than about the directory.
+func Resolve(dir string) (string, error) {
+	absolute, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil {
+		return "", err
+	}
+	return resolved, nil
+}
+
 // Share applies both jobs to one directory.
 func Share(opts Options) error {
-	dir, err := filepath.Abs(opts.Dir)
+	dir, err := Resolve(opts.Dir)
 	if err != nil {
 		return err
 	}
@@ -70,10 +95,11 @@ func Share(opts Options) error {
 
 	// Only for a tree inside the operator's home.  Outside the homes the modes
 	// already allow it and there is nothing to grant.
-	if owner.HomeDir == "" || !within(owner.HomeDir, dir) {
+	home := resolvedHome(owner)
+	if home == "" || !within(home, dir) {
 		return nil
 	}
-	return grantTraversal(owner.HomeDir, dir, opts, gid)
+	return grantTraversal(home, dir, opts, gid)
 }
 
 // Reachable is Share's second job on its own: every directory from the
@@ -86,7 +112,7 @@ func Share(opts Options) error {
 // Share is wrong for those: it would make the config group-writable, and a
 // config a brokered command can rewrite is the policy rewriting itself.
 func Reachable(opts Options) error {
-	dir, err := filepath.Abs(opts.Dir)
+	dir, err := Resolve(opts.Dir)
 	if err != nil {
 		return err
 	}
@@ -100,16 +126,35 @@ func Reachable(opts Options) error {
 	}
 	gid, _ := strconv.Atoi(group.Gid)
 	// Outside the homes the modes already allow it and there is nothing to grant.
-	if owner.HomeDir == "" || !within(owner.HomeDir, dir) {
+	home := resolvedHome(owner)
+	if home == "" || !within(home, dir) {
 		return nil
 	}
-	return grantTraversal(owner.HomeDir, dir, opts, gid)
+	return grantTraversal(home, dir, opts, gid)
 }
 
 func (o Options) logf(format string, args ...any) {
 	if o.Log != nil {
 		o.Log(fmt.Sprintf(format, args...))
 	}
+}
+
+// resolvedHome is the account's home with symlinks taken out, so that it can be
+// compared against a tree that has had the same done to it.  Resolving one and
+// not the other is how a tree inside a symlinked home reads as being outside
+// every home, and then never gets the traversal it needs.
+//
+// Empty when passwd names no home, or names one that is not there: an account
+// whose home cannot be resolved has no path to grant traversal along.
+func resolvedHome(owner *user.User) string {
+	if owner.HomeDir == "" {
+		return ""
+	}
+	home, err := Resolve(owner.HomeDir)
+	if err != nil {
+		return ""
+	}
+	return home
 }
 
 // within reports whether dir is under home.  Compared as path elements, so
