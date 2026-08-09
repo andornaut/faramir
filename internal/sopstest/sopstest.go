@@ -14,17 +14,12 @@ import (
 	"path/filepath"
 	"sync"
 	"testing"
-	"time"
 
 	"filippo.io/age"
 	sops "github.com/getsops/sops/v3"
-	sopsaes "github.com/getsops/sops/v3/aes"
-	sopsage "github.com/getsops/sops/v3/age"
-	"github.com/getsops/sops/v3/cmd/sops/common"
 	sopsformats "github.com/getsops/sops/v3/cmd/sops/formats"
-	sopsconfig "github.com/getsops/sops/v3/config"
-	"github.com/getsops/sops/v3/keyservice"
-	"github.com/getsops/sops/v3/version"
+
+	"github.com/andornaut/faramir/internal/sopstest/sopsenc"
 )
 
 // NewIdentity mints an age keypair and writes the identity into dir.
@@ -42,42 +37,9 @@ func NewIdentity(t *testing.T, dir string) (keyPath, recipient string) {
 }
 
 // WriteEncrypted builds a sops-encrypted YAML file addressed to recipient.
-//
-// Encryption needs only the public recipient, which is why the keeper never
-// does it: nothing here touches a private identity.
 func WriteEncrypted(t *testing.T, path, recipient string, branch sops.TreeBranch) {
 	t.Helper()
-	mk, err := sopsage.MasterKeyFromRecipient(recipient)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tree := sops.Tree{
-		Branches: sops.TreeBranches{branch},
-		Metadata: sops.Metadata{
-			KeyGroups:         []sops.KeyGroup{{mk}},
-			Version:           version.Version,
-			LastModified:      time.Now().UTC(),
-			UnencryptedSuffix: sops.DefaultUnencryptedSuffix,
-		},
-	}
-	dataKey, errs := tree.GenerateDataKeyWithKeyServices(
-		[]keyservice.KeyServiceClient{keyservice.NewLocalClient()})
-	if len(errs) > 0 {
-		t.Fatal(errs)
-	}
-	cipher := sopsaes.NewCipher()
-	mac, err := tree.Encrypt(dataKey, cipher)
-	if err != nil {
-		t.Fatal(err)
-	}
-	encMac, err := cipher.Encrypt(mac, dataKey, tree.Metadata.LastModified.Format(time.RFC3339))
-	if err != nil {
-		t.Fatal(err)
-	}
-	tree.Metadata.MessageAuthenticationCode = encMac
-
-	store := common.StoreForFormat(sopsformats.Yaml, sopsconfig.NewStoresConfig())
-	out, err := store.EmitEncryptedFile(tree)
+	out, err := sopsenc.Encrypt(sopsformats.Yaml, []string{recipient}, sops.TreeBranches{branch})
 	if err != nil {
 		t.Fatal(err)
 	}

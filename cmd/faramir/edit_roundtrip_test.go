@@ -2,7 +2,6 @@ package main
 
 import (
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,15 +11,14 @@ import (
 	"github.com/andornaut/faramir/internal/sopstest"
 )
 
-// A real decrypt, edit and re-encrypt.  The stub sops in internal/sopstest only
-// implements --decrypt, so this needs the real one and skips without it: a
-// half-exercised round trip would report success for a path that never
-// re-encrypted anything.
-func realSops(t *testing.T) {
+// useSops points the edit path at a sops to exec: the host's own when it has
+// one, the stand-in otherwise.  A full decrypt, edit and re-encrypt either way,
+// so the round trip is exercised on a machine with no sops installed.
+func useSops(t *testing.T) {
 	t.Helper()
-	if _, err := exec.LookPath("sops"); err != nil {
-		t.Skip("sops is not installed; the stub cannot encrypt")
-	}
+	previous := sopsBinary
+	sopsBinary = sopstest.SopsBinary(t)
+	t.Cleanup(func() { sopsBinary = previous })
 }
 
 // editorScript writes a shell script standing in for the editor.  It is handed
@@ -46,7 +44,7 @@ func encryptedFixture(t *testing.T) (store, keyPath string) {
 }
 
 func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
-	realSops(t)
+	useSops(t)
 	store, keyPath := encryptedFixture(t)
 
 	before, err := os.ReadFile(store)
@@ -92,7 +90,7 @@ func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
 // re-encrypting it.  Re-encrypting rewrites the data key on every save, which
 // would make every no-op edit look like a change to anything watching the file.
 func TestAnUnchangedEditRewritesNothing(t *testing.T) {
-	realSops(t)
+	useSops(t)
 	store, keyPath := encryptedFixture(t)
 
 	before, err := os.ReadFile(store)
@@ -118,7 +116,7 @@ func TestAnUnchangedEditRewritesNothing(t *testing.T) {
 // A failing editor must not touch the store.  Writing back what an editor
 // abandoned would replace a good file with a partial one.
 func TestAFailedEditorLeavesTheStoreAlone(t *testing.T) {
-	realSops(t)
+	useSops(t)
 	store, keyPath := encryptedFixture(t)
 
 	before, err := os.ReadFile(store)
@@ -141,7 +139,7 @@ func TestAFailedEditorLeavesTheStoreAlone(t *testing.T) {
 // the store group, and an edit that reset it to whatever the umask said would
 // undo that quietly.
 func TestTheReplacementKeepsTheOriginalMode(t *testing.T) {
-	realSops(t)
+	useSops(t)
 	store, keyPath := encryptedFixture(t)
 	if err := os.Chmod(store, 0o640); err != nil {
 		t.Fatal(err)
@@ -163,7 +161,7 @@ func TestTheReplacementKeepsTheOriginalMode(t *testing.T) {
 // The plaintext lives in a tmpfs directory nothing else can enter, and is gone
 // once the edit returns.
 func TestThePlaintextIsRemovedAndWasNotOnDisk(t *testing.T) {
-	realSops(t)
+	useSops(t)
 	store, keyPath := encryptedFixture(t)
 
 	recorded := filepath.Join(t.TempDir(), "where")
