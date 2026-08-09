@@ -340,23 +340,47 @@ func emit(document map[string]any) int {
 	return 0
 }
 
-// alreadyWrapped keeps the rewrite idempotent, and keeps it off the redactor's
-// own invocation.
-//
-// Anchored at a command position, the way faramirCall is: a bare "\s" would
-// also match the words inside "echo 'run faramir redact next'", and a command
-// that merely mentions the redactor would then be left unredacted.
-var alreadyWrapped = regexp.MustCompile(`(^|[;&|\n])\s*(sudo\s+)?(\S*/)?faramir\s+redact\b`)
+// redactorCall matches an invocation of the redactor at the start of the text
+// it is given.  Callers anchor it to a whole pipeline element, so the "(\S*/)?"
+// is what lets an absolute path through and the leading space is what a split
+// on "|" leaves behind.
+var redactorCall = regexp.MustCompile(`^\s*(sudo\s+)?(\S*/)?faramir[ \t]+redact\b`)
 
-// isWrapped reports whether this command is one the rewrite already produced.
+// isWrapped reports whether this command is one the rewrite already produced,
+// or one already running under the redactor.
 //
-// The emitted form names the wrap script and never the redactor, so matching
-// only alreadyWrapped would rewrite a rewritten command a second time.  Sourced
-// twice in one shell, the inner copy reuses and then clears the outer's state,
-// and the outer neither redacts nor deletes its temporary file.
+// Both tests are against the whole command rather than a substring of it.  A
+// match anywhere leaves everything chained after it unredacted, so
+// "faramir redact -- true; cat secrets" and any command merely naming the wrap
+// script would run with no rewrite at all.
+//
+// The emitted form names the wrap script and never the redactor, so the prefix
+// test is what keeps the rewrite off its own output.  Sourced twice in one
+// shell, the inner copy reuses and then clears the outer's state, and the outer
+// withholds its output rather than printing text it did not redact.
 func isWrapped(command string) bool {
-	return alreadyWrapped.MatchString(command) ||
-		strings.Contains(command, wrapScript())
+	trimmed := strings.TrimSpace(command)
+	for _, verb := range []string{"source ", ". "} {
+		if strings.HasPrefix(trimmed, verb+wrapScript()+" ") {
+			return true
+		}
+	}
+	return endsInRedactor(trimmed)
+}
+
+// endsInRedactor reports whether the command is one pipeline whose last element
+// is the redactor, which is the form an operator writes by hand.
+//
+// Chaining of any kind disqualifies it.  With ";", "&", "&&" or "||" in the
+// line the redactor covers one element and the rest of the line runs uncovered,
+// which is the whole command's output either way as far as the tool that reads
+// it is concerned.
+func endsInRedactor(command string) bool {
+	if strings.ContainsAny(command, ";&\n") || strings.Contains(command, "||") {
+		return false
+	}
+	elements := strings.Split(command, "|")
+	return redactorCall.MatchString(elements[len(elements)-1])
 }
 
 // backgrounded matches a command that ends by putting a job in the background.

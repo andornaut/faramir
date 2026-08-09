@@ -55,11 +55,21 @@ func TestARewrittenCommandIsNotRewrittenAgain(t *testing.T) {
 	}
 }
 
-// Mentioning the wrapper is not using it, but a command that merely names the
-// script is indistinguishable from one that sources it, and treating it as
-// wrapped only costs redaction on a command that prints the path.
-func TestWrappingIsSkippedWhenTheScriptIsNamed(t *testing.T) {
-	if _, rewritten := wrap(hosts["claude"], "cat "+wrapScript(), bashInput()); rewritten {
-		t.Error("wrapped a command that names the wrap script")
+// Naming the wrapper is not using it.  The script's path appears in this
+// project's own documentation and in the wrapper itself, and a command that
+// merely mentions it prints whatever else it printed: read as already wrapped,
+// that output reaches the transcript unredacted.  Only the form the rewrite
+// emits is left alone.
+func TestOnlySourcingTheScriptCountsAsWrapped(t *testing.T) {
+	for command, wantRewritten := range map[string]bool{
+		"cat " + wrapScript():                      true,
+		"echo " + wrapScript() + "; ./leak.sh":     true,
+		"cd /tmp && source " + wrapScript() + " x": true,
+		"source " + wrapScript() + " 'ls -la'":     false,
+		". " + wrapScript() + " 'ls -la'":          false,
+	} {
+		if _, rewritten := wrap(hosts["claude"], command, bashInput()); rewritten != wantRewritten {
+			t.Errorf("wrap(%q) rewritten = %v, want %v", command, rewritten, wantRewritten)
+		}
 	}
 }

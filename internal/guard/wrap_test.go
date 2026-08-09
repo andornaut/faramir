@@ -157,9 +157,29 @@ func TestAnAlreadyWrappedCommandIsLeftAlone(t *testing.T) {
 	for _, command := range []string{
 		"/usr/local/bin/faramir redact -- /bin/bash -lc 'echo hi'",
 		"echo hi | faramir redact",
+		"faramir redact",
+		"source " + wrapScript() + " 'ls -la'",
 	} {
 		if hook := hookOutput(t, bashPayload(command)); hook != nil {
 			t.Errorf("%q produced %v, want no rewrite", command, hook)
+		}
+	}
+}
+
+// The redactor covers the element it is part of, and nothing chained after it.
+// Read as "already wrapped", any of these runs the rest of the line with no
+// rewrite at all, which is a whole command's output reaching the transcript
+// unredacted.
+func TestChainingPastTheRedactorDoesNotSkipTheRewrite(t *testing.T) {
+	for _, command := range []string{
+		"faramir redact -- true; ./leak.sh",
+		"faramir redact -- true && ./leak.sh",
+		"echo hi | faramir redact || ./leak.sh",
+		"faramir redact -- true & ./leak.sh",
+		"faramir redact -- true\n./leak.sh",
+	} {
+		if hook := hookOutput(t, bashPayload(command)); hook == nil {
+			t.Errorf("%q skipped the rewrite by naming the redactor first", command)
 		}
 	}
 }

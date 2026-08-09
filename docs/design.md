@@ -69,6 +69,8 @@ Left alone rather than rewritten, because buffering would change what they do:
 - one whose last line ends in `\`, `&&`, `||` or `|`
 - a denied command, which is refused instead
 
+Each of those is decided against the whole command, never a substring of it. A command that merely names the wrap script, and one that runs the redactor and then chains something else after it, are rewritten like any other: read as already covered, everything past the first element would run with no rewrite at all, which is the whole command's output reaching the transcript unredacted. Only the form the rewrite itself emits, and a single pipeline whose last element is the redactor, are left alone.
+
 ## Agents
 
 The guard is one program speaking each agent's contract. What varies is the tool that runs a command, the shape of the reply and where it is registered; what does not is that the command is rewritten to redact its own output. Which agents, and what enrolling each costs, is the table in the [README](../README.md). They are named with `--agent`, never detected.
