@@ -15,16 +15,21 @@
 //     never placed in an argv.
 //
 // The keeper is a separate process, so this caches: it reloads on start and
-// when a managed file's mtime changes.  Stat-ing the sops files needs no key,
-// so that poll stays on this side.  There is no signal that reloads: the file
-// list comes from config.toml, which both daemons read once at startup, so a
-// change to it is adopted by restarting them rather than by signalling one.
+// when a managed file's mtime changes.  The keeper reports those fingerprints
+// too, because the store is readable by its group alone and the broker is
+// deliberately not in it: reading the ciphertext and asking for the plaintext
+// by name are different privileges, and this process only ever needed the
+// second.  The cost is that the poll is a socket round trip rather than a stat,
+// which is what refresh_interval_sec bounds.
+//
+// There is no signal that reloads: the file list comes from config.toml, which
+// both daemons read once at startup, so a change to it is adopted by restarting
+// them rather than by signalling one.
 package secretstore
 
 import (
 	"log"
 	"maps"
-	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -37,12 +42,6 @@ import (
 	"github.com/andornaut/faramir/internal/secretref"
 )
 
-type fileState struct {
-	path  string
-	mtime time.Time
-	size  int64
-}
-
 // Store is a concurrency-safe, mtime-refreshed view of every managed secret.
 type Store struct {
 	config config.SecretsConfig
@@ -52,7 +51,7 @@ type Store struct {
 	mu      sync.RWMutex
 	values  map[string]string
 	refused map[string]string
-	state   []fileState
+	state   []keeperclient.FileState
 	// retry is set when the keeper could not be reached.  The mtime poll alone
 	// would never notice: the files have not changed, only our ability to
 	// decrypt them, so without this the value set stays as it was until a file
@@ -91,27 +90,25 @@ func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
 }
 
 // Reload re-fetches every value from the keeper.  On startup, and from the
-// mtime poll when a managed file has changed.
+// poll when a managed file has changed.
+//
+// One round trip: the keeper returns the fingerprints of the files it just
+// decrypted alongside the values, so the two cannot describe different moments.
 func (s *Store) Reload() {
-	var state []fileState
-	var errors []string
-	for _, path := range s.config.Files {
-		info, err := os.Stat(path)
-		if err != nil {
-			errors = append(errors, path+": "+err.Error())
-			continue
-		}
-		state = append(state, fileState{path: path, mtime: info.ModTime(), size: info.Size()})
-	}
-
-	values, keeperErrors, err := keeperclient.FetchValues(s.keeper.SocketPath)
+	// errors names each file the keeper could not stat or could not decrypt,
+	// either of which leaves the broker serving fewer values than it is
+	// configured for.  Per-file, so one broken file does not blank the set.
+	values, state, errors, err := keeperclient.FetchValues(s.keeper.SocketPath)
 	if err != nil {
 		// Keep the previous value set rather than dropping to empty.  An empty
 		// set means nothing is redacted, which is the worst possible response
 		// to "the keeper is briefly unreachable".
+		//
+		// The previous state is kept for the same reason: it is the last thing
+		// known to be true, and blanking it would report a file list this
+		// process never stopped holding values for.
 		s.mu.Lock()
-		s.loadErrors = append(append([]string{}, errors...), err.Error())
-		s.state = state
+		s.loadErrors = []string{err.Error()}
 		s.retry = true
 		s.checkedAt = time.Now()
 		s.mu.Unlock()
@@ -119,10 +116,6 @@ func (s *Store) Reload() {
 			"and retrying on the next request: %v", err)
 		return
 	}
-	// A keeper error names a file it could not decrypt, which leaves the broker
-	// serving fewer values than it is configured for.
-	errors = append(errors, keeperErrors...)
-
 	// A value the redactor cannot cover is not loaded at all.  Serving it would
 	// put it in a child's environment with nothing to catch it on the way out,
 	// and the ref is useless to an attacker who cannot obtain the value, so
@@ -165,8 +158,13 @@ func (s *Store) Reload() {
 	log.Printf("loaded %d secret refs from %d file(s)", len(redactable), len(state))
 }
 
-// RefreshIfStale is a cheap mtime poll; it reloads when a managed file changed,
-// or when the last attempt could not reach the keeper.
+// RefreshIfStale asks the keeper for the managed files' fingerprints, and
+// reloads when one changed or when the last attempt could not reach it.
+//
+// A round trip rather than a stat, because the store is readable by the
+// keeper's group and this process is not in it.  The keeper serves this without
+// touching the key or execing sops, so it stays the cheap half of the pair:
+// what it costs here is a connect, not a decrypt.
 //
 // refresh_interval_sec bounds how often the poll runs at all.  It may be 0,
 // which asks for a check on every request, so the interval alone cannot bound
@@ -183,11 +181,10 @@ func (s *Store) RefreshIfStale() {
 	}
 	s.checkedAt = time.Now()
 	retry := s.retry
-	previous := make(map[fileState]bool, len(s.state))
+	previous := make(map[keeperclient.FileState]bool, len(s.state))
 	for _, st := range s.state {
 		previous[st] = true
 	}
-	paths := append([]string{}, s.config.Files...)
 	s.mu.Unlock()
 
 	if !s.refreshing.CompareAndSwap(false, true) {
@@ -201,13 +198,19 @@ func (s *Store) RefreshIfStale() {
 		return
 	}
 
-	current := map[fileState]bool{}
-	for _, path := range paths {
-		info, err := os.Stat(path)
-		if err != nil {
-			continue
-		}
-		current[fileState{path: path, mtime: info.ModTime(), size: info.Size()}] = true
+	state, _, err := keeperclient.FetchState(s.keeper.SocketPath)
+	if err != nil {
+		// A keeper that cannot say what the files look like cannot say they are
+		// unchanged either, and "assume unchanged" is a broker serving a stale
+		// set with nothing recording that it might be one.  Reload instead: it
+		// fails the same way, keeps the values, and sets retry, which is exactly
+		// the state this cannot distinguish itself.
+		s.Reload()
+		return
+	}
+	current := make(map[keeperclient.FileState]bool, len(state))
+	for _, st := range state {
+		current[st] = true
 	}
 	if !sameSet(previous, current) {
 		log.Printf("managed secret file changed on disk; reloading")
@@ -215,7 +218,7 @@ func (s *Store) RefreshIfStale() {
 	}
 }
 
-func sameSet(a, b map[fileState]bool) bool {
+func sameSet(a, b map[keeperclient.FileState]bool) bool {
 	if len(a) != len(b) {
 		return false
 	}
@@ -276,16 +279,27 @@ func (s *Store) Describe() map[string]any {
 func (s *Store) describeLocked() map[string]any {
 	files := make([]string, 0, len(s.state))
 	for _, st := range s.state {
-		files = append(files, st.path)
+		files = append(files, st.Path)
 	}
 	errs := s.loadErrors
 	if errs == nil {
 		errs = []string{}
 	}
+	// patterns is what was configured, files is what that named on disk.  Both,
+	// because they answer different questions and a glob makes them differ: a
+	// store that has not been written yet has patterns and no files, which is
+	// how a first install is told apart from one whose store went missing.  This
+	// process cannot expand a pattern itself, being outside the store's group,
+	// so it reports the entries as written.
+	patterns := s.config.Files
+	if patterns == nil {
+		patterns = []string{}
+	}
 	return map[string]any{
-		"files":  files,
-		"count":  len(s.values),
-		"errors": errs,
+		"patterns": patterns,
+		"files":    files,
+		"count":    len(s.values),
+		"errors":   errs,
 	}
 }
 

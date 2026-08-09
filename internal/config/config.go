@@ -769,6 +769,17 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	if out.Files, err = stringList(sec["files"], where, nil); err != nil {
 		return err
 	}
+	// Each entry is a glob pattern, a literal path being one with no
+	// metacharacters.  Checked here because a malformed pattern matches nothing
+	// at every later stage, and "matched no files" would send the operator
+	// looking for a store that is exactly where they left it.  Match against the
+	// empty string touches no filesystem and reports only ErrBadPattern.
+	for _, pattern := range out.Files {
+		if _, err := filepath.Match(pattern, ""); err != nil {
+			return errf("%s: files entry %q is not a valid glob pattern: %v",
+				where, pattern, err)
+		}
+	}
 	if out.DecryptCommand, err = stringList(sec["decrypt_command"], where, out.DecryptCommand); err != nil {
 		return err
 	}

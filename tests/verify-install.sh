@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Verify a faramir install after the store-group migration.
+# Verify a faramir install: the accounts, the modes, and the boundaries they
+# are there to enforce.
 #
 # Run as the operator, not under sudo: several checks are negative ones that
 # only mean something from an unprivileged shell. It sudos for the few reads
@@ -14,7 +15,7 @@ set -uo pipefail
 
 CONFIG_DIR=${1:-$HOME/.faramir}
 SECRETS_DIR=$CONFIG_DIR/secrets
-STORE_GROUP=faramir-secrets
+STORE_GROUP=faramir-keeper
 CLIENT_GROUP=dev
 OPERATOR=$(id -un)
 
@@ -34,26 +35,39 @@ check() {
 owner_of() { sudo stat -c '%U:%G' "$1" 2>/dev/null; }
 mode_of() { sudo stat -c '%a' "$1" 2>/dev/null; }
 
+# Membership through id, not the group file: the store group is the keeper's
+# primary group, and a primary membership is on the passwd entry rather than in
+# the member list getent prints.
+in_group() { id -nG "$1" 2>/dev/null | tr ' ' '\n' | grep -qx "$2"; }
+
 section "Groups"
 if getent group "$STORE_GROUP" >/dev/null; then
   ok "$STORE_GROUP exists"
-  members=$(getent group "$STORE_GROUP" | cut -d: -f4)
-  for who in faramir-broker faramir-keeper; do
-    case ",$members," in
-      *",$who,"*) ok "$who is in $STORE_GROUP" ;;
-      *) no "$who is NOT in $STORE_GROUP; the broker or keeper cannot read the store" ;;
-    esac
-  done
-  # The whole point: neither the operator nor the account brokered commands run
-  # as may reach the ciphertext.
-  for who in "$OPERATOR" faramir-exec; do
-    case ",$members," in
-      *",$who,"*) no "$who IS in $STORE_GROUP; it can read and replace the store" ;;
-      *) ok "$who is not in $STORE_GROUP" ;;
-    esac
+  if in_group faramir-keeper "$STORE_GROUP"; then
+    ok "faramir-keeper is in $STORE_GROUP"
+  else
+    no "faramir-keeper is NOT in $STORE_GROUP; it cannot decrypt or fingerprint the store"
+  fi
+  # The whole point: nothing that holds plaintext, runs a brokered command, or
+  # belongs to a human may reach the ciphertext.  The broker is in this list
+  # because it holds every decrypted value already, so read here would only
+  # extend it to files no [secrets] list names.
+  for who in "$OPERATOR" faramir-exec faramir-broker; do
+    if in_group "$who" "$STORE_GROUP"; then
+      no "$who IS in $STORE_GROUP; it can read and replace the store"
+    else
+      ok "$who is not in $STORE_GROUP"
+    fi
   done
 else
-  no "$STORE_GROUP does not exist; the migration has not run"
+  no "$STORE_GROUP does not exist; faramir init has not run on this host"
+fi
+
+# An install that predates the store group moving onto the keeper leaves this
+# behind, owning nothing.  A gid nobody uses is one a host will hand to
+# something else.
+if [ "$STORE_GROUP" != faramir-secrets ] && getent group faramir-secrets >/dev/null; then
+  note "faramir-secrets still exists and now owns nothing; remove it with 'sudo groupdel faramir-secrets'"
 fi
 
 if id -nG "$OPERATOR" | tr ' ' '\n' | grep -qx "$CLIENT_GROUP"; then

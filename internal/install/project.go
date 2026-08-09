@@ -286,6 +286,9 @@ func (p *project) agentConfig() error {
 				"matches no permission rule. Its deny list is what refuses one instead",
 				p.opts.Dir, target.name)
 		}
+		if target.note != "" && changed {
+			p.warn("%s: %s", target.name, target.note)
+		}
 	}
 	// Named rather than counted: an operator reading this has to know which
 	// file to merge when one was kept.

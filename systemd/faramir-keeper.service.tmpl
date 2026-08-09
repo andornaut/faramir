@@ -21,9 +21,14 @@ Restart=on-failure
 RestartSec=2
 
 # {{.StoreGroup}}, and only for this: the managed sops files are in {{.SecretsDir}},
-# which is 2750 with that group, and sops has to read them to decrypt anything.
-# It is read access to encrypted files -- the key stays 0400 {{.KeeperUser}}, and
-# no member of the group gains anything from this process being in it.
+# which is 2750 with that group, and this process has to read them to decrypt
+# and to fingerprint them.  It is read access to encrypted files -- the key
+# stays 0400 {{.KeeperUser}}, and no member of the group gains anything from this
+# process being in it.
+#
+# Redundant when the store group is this account's own, which is the default;
+# it is rendered anyway because --store-group can name a different one, and a
+# line that is sometimes load-bearing is not one to leave out conditionally.
 SupplementaryGroups={{.StoreGroup}}
 
 # The whole point of this unit.  The key is readable at

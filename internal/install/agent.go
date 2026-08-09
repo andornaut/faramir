@@ -22,8 +22,8 @@ import (
 // it where managed credentials are in play and is not worth it everywhere,
 // which is why it is a per-project decision.
 func (r *runner) stepAgentConfig() error {
-	if !r.opts.AgentConfig {
-		r.skip("agent config", "not requested")
+	if len(r.opts.Agents) == 0 {
+		r.skip("agent config", "no --agent named")
 		return nil
 	}
 	targets, err := resolveAgents(r.opts.Agents)

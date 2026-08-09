@@ -21,12 +21,16 @@ Type=notify
 NotifyAccess=main
 User={{.BrokerUser}}
 Group={{.BrokerUser}}
-# {{.StoreGroup}}: read access to the managed sops files -- the broker stats them to
-# notice edits.
-# {{.ExecUser}}: needed only to hand the ssh-agent socket to the executor's uid,
-# which is a chown this process could not otherwise perform.  It grants the
-# broker nothing it did not already have; the executor gains nothing at all.
-SupplementaryGroups={{.StoreGroup}} {{.ExecUser}}
+# {{.ExecUser}}, and nothing else: needed only to hand the ssh-agent socket to the
+# executor's uid, which is a chown this process could not otherwise perform.  It
+# grants the broker nothing it did not already have; the executor gains nothing
+# at all.
+#
+# {{.StoreGroup}} is deliberately absent.  This process holds every decrypted value
+# already, so read on the ciphertext would add only the ability to copy files it
+# never decrypts, including any the [secrets] list does not name.  It asks the
+# keeper which managed files changed rather than looking for itself.
+SupplementaryGroups={{.ExecUser}}
 # One binary, one role per unit.  SyslogIdentifier= because systemd otherwise
 # takes it from the executable's name, which is now the same for all three.
 ExecStart={{.BinDir}}/faramir broker
@@ -129,7 +133,8 @@ UMask=0077
 #   RestrictAddressFamilies=~AF_UNIX
 #       That is the broker's own listening socket.
 #   SupplementaryGroups=
-#       {{.StoreGroup}}, so the broker can stat the managed sops files.
+#       {{.ExecUser}}, so the broker can chown the ssh-agent socket to the uid that
+#       uses it.  Not {{.StoreGroup}}: the managed files are the keeper's to open.
 #   ProtectHome=
 #       Removed.  It hid other users' homes from a process that file modes
 #       already keep out of them, and cost a bind mount whose path had to agree

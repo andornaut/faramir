@@ -1,0 +1,47 @@
+{
+  "permission": {
+    "read": {
+      "*secrets*.yml": "deny",
+      "*secrets*.yaml": "deny",
+      "*.vault": "deny",
+      "*vault.yml": "deny",
+      "*.sops.yml": "deny",
+      "*.sops.yaml": "deny",
+      "*.sops.json": "deny",
+      ".env*": "deny",
+      "*/.env*": "deny",
+      "{{.ConfigDir}}/*": "deny",
+      "{{.SecretsDir}}/*": "deny",
+      "{{.LogDir}}/*": "deny",
+      "*/.faramir/*": "deny",
+      "*age.key": "deny",
+      "*sops/age/*": "deny",
+      "*/.config/sops/*": "deny",
+      "*.key": "deny",
+      "*.pem": "deny",
+      "*credentials": "deny",
+      "*id_rsa": "deny",
+      "*id_dsa": "deny",
+      "*id_ecdsa": "deny",
+      "*id_ed25519": "deny"
+    },
+    "edit": {
+      "*secrets*.yml": "deny",
+      "*secrets*.yaml": "deny",
+      "*.vault": "deny",
+      "*vault.yml": "deny",
+      "*.sops.yml": "deny",
+      "*.sops.yaml": "deny",
+      "*.sops.json": "deny",
+      "{{.ConfigDir}}/*": "deny",
+      "{{.SecretsDir}}/*": "deny",
+      "{{.LibexecDir}}/*": "deny",
+      "*/.faramir/*": "deny",
+      "*age.key": "deny",
+      "*sops/age/*": "deny",
+      "*/.config/sops/*": "deny",
+      "*.key": "deny",
+      "*.pem": "deny"
+    }
+  }
+}

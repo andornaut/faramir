@@ -6,10 +6,16 @@
 // age key means every managed sops file, retroactively, including every
 // encrypted blob already in git history.
 //
-// So it runs as its own uid, execs nothing but sops, and serves exactly one
-// operation: return the decrypted ref/value map.  There is deliberately no
-// operation that returns the key.  Adding one would defeat the only reason
-// this process exists as a separate service.
+// So it runs as its own uid, execs nothing but sops, and serves two operations:
+// return the decrypted ref/value map, and fingerprint the managed files without
+// opening them.  There is deliberately no operation that returns the key.
+// Adding one would defeat the only reason this process exists as a separate
+// service.
+//
+// Fingerprinting is here rather than on the broker because the store is
+// group-readable by this uid alone.  The broker asks what changed instead of
+// looking, which is what keeps it out of a group that would let it read the
+// ciphertext it never decrypts.
 //
 // sops is executed, not linked.  Linking it would pull every key source sops
 // supports (AWS KMS, GCP KMS, Azure Key Vault, Vault, PGP) and their
@@ -25,11 +31,17 @@
 // broker socket.
 //
 //	-> {"op": "get_values"}
-//	<- {"values": {ref: value, ...}, "errors": [...]}
+//	<- {"values": {ref: value, ...}, "state": [...], "errors": [...]}
+//	-> {"op": "get_state"}
+//	<- {"state": [{"path": ..., "mtime_unix_nano": ..., "size": ...}], "errors": [...]}
 //	<- {"error": {"code": ..., "message": ...}}
 //
 // Every managed value, never a subset: the broker builds its redactor from the
 // whole set, because a managed host can print a credential no command injected.
+//
+// get_values carries the state as well, so a reload is one round trip rather
+// than a fingerprint call followed by a decrypt call that could disagree with
+// it.
 package keeper
 
 import (
@@ -171,6 +183,113 @@ func (k *KeyHolder) Scrub(text string) string {
 }
 
 // --------------------------------------------------------------------------
+// File state
+// --------------------------------------------------------------------------
+
+// FileState is one managed file's identity on disk: enough to notice an edit,
+// and nothing whatever about its contents.
+//
+// Nanoseconds rather than a formatted time, because this is compared for
+// equality and never displayed, and a serialization that rounds turns an edit
+// made within the same second into no change at all.
+type FileState struct {
+	Path  string `json:"path"`
+	MTime int64  `json:"mtime_unix_nano"`
+	Size  int64  `json:"size"`
+}
+
+// Resolve expands each [secrets] files entry against the filesystem.
+//
+// Every entry is a glob pattern, and a literal path is the case of one with no
+// metacharacters, so there is a single rule rather than two: an entry that names
+// no file on disk is an error. That covers a store directory that is not mounted
+// yet and a file deleted out from under the config with the same sentence, which
+// is what the broker needs, since both leave it holding values it is configured
+// for and does not have.
+//
+// Resolving here rather than at config load is what makes a store a directory
+// instead of a list: a sops file added beside the others changes the state the
+// broker polls, so it is picked up on the next refresh with nothing to edit and
+// no daemon to restart.
+//
+// It is also the only place that *can* resolve. Expanding a pattern reads the
+// store directory, which is group-readable by this uid alone; the broker is
+// outside that group and learns the resolved paths from the state it is served.
+//
+// Deduplicated, because the base config globs the store and a drop-in may name
+// a file in it as well. Without this the file is decrypted twice and every ref
+// in it reports as defined more than once.
+func Resolve(files []string) ([]string, []string) {
+	paths := []string{}
+	errors := []string{}
+	seen := map[string]bool{}
+	for _, entry := range files {
+		matches, err := filepath.Glob(entry)
+		if err != nil {
+			// Only ErrBadPattern; config rejects those at load, so reaching this
+			// means the pattern came from somewhere that did not go through it.
+			errors = append(errors, entry+": "+err.Error())
+			continue
+		}
+		if len(matches) == 0 {
+			errors = append(errors, entry+": "+unresolvedReason(entry))
+			continue
+		}
+		for _, match := range matches {
+			if seen[match] {
+				continue
+			}
+			seen[match] = true
+			paths = append(paths, match)
+		}
+	}
+	return paths, errors
+}
+
+// unresolvedReason says why an entry named nothing, in the terms the operator
+// has to act on.
+//
+// A literal path gets its stat error, which distinguishes "not written yet"
+// from "the directory above it is not readable"; those need different repairs
+// and the second is invisible in a match count.
+func unresolvedReason(entry string) string {
+	if isPattern(entry) {
+		return "matched no files"
+	}
+	if _, err := os.Stat(entry); err != nil {
+		return err.Error()
+	}
+	// Stat succeeded where Glob found nothing, which is a symlink to a missing
+	// target: Glob uses Lstat and finds it, os.Stat follows it and does not.
+	return "no such file"
+}
+
+// isPattern reports whether an entry has glob metacharacters.  The set filepath
+// treats as meta on this platform; a backslash escapes on Unix, so it counts.
+func isPattern(entry string) bool { return strings.ContainsAny(entry, `*?[\`) }
+
+// StatAll fingerprints every managed file.  No key, no sops, no contents: this
+// is the operation the broker calls on a poll, so it has to stay a stat.
+//
+// A file that cannot be stat-ed is an error rather than a missing entry.
+// Absent, unreadable and undecryptable are the same thing to the broker: it is
+// configured for values it does not have, so nothing redacts them.
+func StatAll(secrets config.SecretsConfig) ([]FileState, []string) {
+	state := []FileState{}
+	paths, errors := Resolve(secrets.Files)
+	for _, path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			errors = append(errors, path+": "+err.Error())
+			continue
+		}
+		state = append(state, FileState{
+			Path: path, MTime: info.ModTime().UnixNano(), Size: info.Size()})
+	}
+	return state, errors
+}
+
+// --------------------------------------------------------------------------
 // Decryption
 // --------------------------------------------------------------------------
 
@@ -178,7 +297,7 @@ func (k *KeyHolder) Scrub(text string) string {
 // errors rather than aborting, so one broken file does not blank the value set.
 func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]string, []string) {
 	values := map[string]string{}
-	var errors []string
+	paths, errors := Resolve(secrets.Files)
 
 	env := []string{
 		"PATH=" + envOr("PATH", "/usr/local/bin:/usr/bin:/bin"),
@@ -192,7 +311,7 @@ func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]strin
 		env = append(env, "SOPS_AGE_KEY_FILE="+path)
 	}
 
-	for _, path := range secrets.Files {
+	for _, path := range paths {
 		argv := make([]string, 0, len(secrets.DecryptCommand))
 		for _, a := range secrets.DecryptCommand {
 			argv = append(argv, strings.ReplaceAll(a, "{file}", path))
@@ -279,9 +398,14 @@ func (k *Keeper) Listen() (net.Listener, error) {
 
 // Serve handles connections until the listener is closed.
 //
-// The keeper answers one client (the broker), rarely: on startup and when a
-// managed file changes on disk.  Serial handling is therefore
-// enough, and it keeps the process that holds the key as small as it can be.
+// The keeper answers one client, the broker, which never has two requests in
+// flight: it holds a single-flight latch across a refresh.  Serial handling is
+// therefore enough, and it keeps the process that holds the key as small as it
+// can be.
+//
+// That latch is what makes serial safe now that get_state is on the request
+// path: without it a poll could queue behind a get_values that is 60 seconds
+// into a sops exec.
 func (k *Keeper) Serve() error {
 	for {
 		conn, err := k.ln.Accept()
@@ -322,27 +446,39 @@ func (k *Keeper) serveConnection(conn net.Conn) {
 	_ = sockutil.Send(conn, k.Handle(payload))
 }
 
-// Handle dispatches one request.  get_values is the only operation.
+// Handle dispatches one request.
 func (k *Keeper) Handle(payload map[string]any) map[string]any {
 	if payload == nil {
 		return errorResponse("bad_request", "request must be a JSON object")
 	}
 	op, _ := payload["op"].(string)
-	if op != "get_values" {
+	switch op {
+	case "get_state":
+		// The poll.  Served without touching the key or execing sops, which is
+		// what lets the broker call it on every request when the refresh
+		// interval is 0.  Unlogged for the same reason: at that setting it runs
+		// as often as commands arrive.
+		state, errs := StatAll(k.config.Secrets)
+		return map[string]any{"state": state, "errors": errs}
+	case "get_values":
+		// Stat first, so the state describes the files this decrypt read rather
+		// than whatever they became while sops was running.  An edit landing in
+		// between leaves the fingerprint older than the values, which makes the
+		// next poll reload once too often; the other order would leave it newer,
+		// and the edit would never be picked up at all.
+		state, errs := StatAll(k.config.Secrets)
+		values, decryptErrs := DecryptAll(k.config.Secrets, k.Keys)
+		errs = append(errs, decryptErrs...)
+		log.Printf("served %d value(s), %d error(s)", len(values), len(errs))
+		return map[string]any{"values": values, "state": state, "errors": errs}
+	default:
 		// Named explicitly rather than "unknown op": someone reading this error
 		// should learn that the key is not obtainable here, not go looking for
 		// the operation that returns it.
 		return errorResponse("unsupported", fmt.Sprintf(
-			"unsupported op %q; the keeper serves 'get_values' only and has no "+
-				"operation that returns key material", op))
+			"unsupported op %q; the keeper serves 'get_values' and 'get_state' "+
+				"only and has no operation that returns key material", op))
 	}
-
-	values, errs := DecryptAll(k.config.Secrets, k.Keys)
-	log.Printf("served %d value(s), %d error(s)", len(values), len(errs))
-	if errs == nil {
-		errs = []string{}
-	}
-	return map[string]any{"values": values, "errors": errs}
 }
 
 func errorResponse(code, message string) map[string]any {

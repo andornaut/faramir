@@ -9,10 +9,16 @@ package install
 //	uid broker        holds the SSH keys and the audit log; policy and redaction
 //	uid exec          forks brokered commands; holds nothing
 //	group <shared>    access to a tree brokered commands run in
+//	group <store>     read on the ciphertext; the keeper's own group by default
 //
 // Three uids rather than one because anything a uid can read, a command running
 // as that uid can read.  The keeper's key and the broker's audit log and SSH
 // keys each sit behind a boundary the child cannot cross.
+//
+// Two groups rather than one because being admitted to the broker socket and
+// being able to read the file a value comes from are different privileges.  The
+// store group holds the keeper alone, that being the only account which opens a
+// managed file, so it needs no membership list of its own.
 //
 // There is no account for the coding agent.  It runs as the operator, because
 // the work it is asked to do is the operator's: their checkouts, their gh
@@ -61,34 +67,17 @@ func (r *runner) serviceAccounts() []serviceAccount {
 
 func (r *runner) stepAccounts() error {
 	changed := false
-	// The two groups are not the same kind of thing and are not allocated the
-	// same way.  The shared group admits people: the operator is in it, and it
-	// group-owns the trees they work in, so it belongs in the range login.defs
-	// reserves for login accounts.  The store group admits the keeper and the
-	// broker and nobody else, both nologin service accounts, so -r puts it in
-	// the system range below GID_MIN with them.
+	// The shared group admits people: the operator is in it, and it group-owns
+	// the trees they work in, so it belongs in the range login.defs reserves for
+	// login accounts, which is what groupadd allocates in without -r.
 	//
-	// Without -r, shadow allocates by taking the highest gid already in the
-	// login-account range and adding one.  That lands the store group wherever
-	// the host happens to number its own services from, on a number something
-	// else has already spoken for.
-	for _, group := range []struct {
-		name   string
-		system bool
-	}{
-		{r.layout.Group, false},
-		{r.layout.StoreGroup, true},
-	} {
-		if groupExists(group.name) {
-			continue
-		}
+	// The store group is not created here.  It defaults to the keeper's primary
+	// group, which useradd creates below, and pre-creating it would make that
+	// useradd fail: shadow refuses to create an account whose group name is
+	// already taken.
+	if !groupExists(r.layout.Group) {
 		if !r.opts.DryRun {
-			args := []string{}
-			if group.system {
-				args = append(args, "-r")
-			}
-			args = append(args, group.name)
-			if _, err := r.command("groupadd", args...); err != nil {
+			if _, err := r.command("groupadd", r.layout.Group); err != nil {
 				return err
 			}
 		}
@@ -101,26 +90,58 @@ func (r *runner) stepAccounts() error {
 		}
 		changed = changed || made
 	}
-	// Only the two that touch the ciphertext: the keeper decrypts the managed
-	// files and the broker stats them to notice an edit.  The executor is left
-	// out on purpose, because a brokered command runs as it, and the operator
-	// is left out because an agent runs as the operator.
-	for _, account := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
-		made, err := r.ensureInGroup(account, r.layout.StoreGroup)
+	// A store group named with --store-group, or a keeper whose primary group
+	// was not named after it.  -r because it holds nologin service accounts and
+	// belongs in the system range below GID_MIN: without it shadow takes the
+	// highest gid in the login-account range and adds one, which lands the group
+	// wherever the host numbers its own services from, on a number something
+	// else has already spoken for.
+	if !groupExists(r.layout.StoreGroup) {
+		if !r.opts.DryRun {
+			if _, err := r.command("groupadd", "-r", r.layout.StoreGroup); err != nil {
+				return err
+			}
+		}
+		changed = true
+	}
+	// The one account that opens a managed file: it decrypts them, and it
+	// fingerprints them for the broker's staleness check.  A no-op when the
+	// store group is the keeper's own, which is the default.
+	//
+	// The broker is deliberately absent.  It holds the plaintext already, so
+	// what group membership would add is the ability to read and copy ciphertext
+	// it never decrypts, including files no [secrets] list names.  It asks the
+	// keeper what changed instead.
+	made, err := r.ensureInGroup(r.layout.KeeperUser, r.layout.StoreGroup)
+	if err != nil {
+		return err
+	}
+	changed = changed || made
+
+	// CLEANUP (added 2026-08-08): remove once every host has run an install
+	// carrying it.  The only membership here that is taken away rather than
+	// reported, because this installer is what granted it.
+	//
+	// Skipped when the store group is the broker's own, which --store-group can
+	// ask for: gpasswd cannot remove an account from its primary group, and an
+	// operator who named it meant it.
+	if r.layout.StoreGroup != r.layout.BrokerUser {
+		dropped, err := r.removeFromGroup(r.layout.BrokerUser, r.layout.StoreGroup)
 		if err != nil {
 			return err
 		}
-		changed = changed || made
+		changed = changed || dropped
 	}
+
 	r.step("accounts", changed, fmt.Sprintf("groups %s and %s, users %s",
 		r.layout.Group, r.layout.StoreGroup,
 		strings.Join([]string{r.layout.BrokerUser, r.layout.KeeperUser, r.layout.ExecUser}, ", ")))
 
 	// A store group in the login-account range was allocated without -r, by an
-	// install that came before this one.  Nothing here reads the number, since
-	// the store is group-owned by name, but it now sits in the range a host
-	// numbers its own service accounts from and the next one allocated there
-	// collides with it.
+	// install that came before this one or by hand.  Nothing here reads the
+	// number, since the store is group-owned by name, but it now sits in the
+	// range a host numbers its own service accounts from and the next one
+	// allocated there collides with it.
 	//
 	// Reported rather than moved.  groupmod changes the group and leaves every
 	// file owned by the old gid behind, so moving it is two steps that have to
@@ -138,11 +159,24 @@ func (r *runner) stepAccounts() error {
 		}
 	}
 
+	// CLEANUP (added 2026-08-08): remove once every host has run an install
+	// carrying it.  This run re-owned the store to the store group, so the group
+	// named here owns nothing on this host, and a gid nothing uses is one the
+	// host will eventually hand to something else.  Reported rather than
+	// removed: groupdel is not this installer's call to make about a group it
+	// cannot prove nothing else wants.
+	if r.layout.StoreGroup != legacyStoreGroup && groupExists(legacyStoreGroup) {
+		r.warn("group %s is not this install's store group (%s) and owns nothing "+
+			"here; remove it with `groupdel %s`",
+			legacyStoreGroup, r.layout.StoreGroup, legacyStoreGroup)
+	}
+
 	// The store group is what makes editing a secret need sudo.  A membership
 	// this did not add is somebody else's decision, so it is reported rather
 	// than removed, but it is worth saying loudly: either of these puts the
 	// ciphertext back within reach of a uid that can already ask the broker for
-	// the plaintext by name.
+	// the plaintext by name.  The broker is handled above, being a membership
+	// this installer once added itself.
 	for _, who := range []string{r.layout.ExecUser, r.opts.Operator} {
 		if who == "" {
 			continue
@@ -184,6 +218,27 @@ func (r *runner) stepAccounts() error {
 	}
 	r.step("operator umask", umask, "umask 002 for the shared tree")
 	return nil
+}
+
+// removeFromGroup takes a supplementary group away from an account, and reports
+// whether it had to.
+//
+// Used for exactly one membership: the broker's in the store group.  The broker
+// holds every decrypted value already, so read on the ciphertext adds no
+// capability and extends its reach to files no [secrets] list names.
+func (r *runner) removeFromGroup(account, group string) (bool, error) {
+	in, err := inGroup(account, group)
+	if err != nil || !in {
+		// An account that does not exist is not in the group either, and on a
+		// dry run against a fresh host neither exists yet.
+		return false, nil
+	}
+	if !r.opts.DryRun {
+		if _, err := r.command("gpasswd", "-d", account, group); err != nil {
+			return false, err
+		}
+	}
+	return true, nil
 }
 
 // ensureInGroup adds an existing account to a supplementary group, and reports

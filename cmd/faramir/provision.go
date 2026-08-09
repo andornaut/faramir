@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/andornaut/faramir/internal/install"
@@ -83,8 +84,8 @@ func cmdInit(args []string) int {
 		"account the coding agent runs as (default $OPERATOR, then $SUDO_USER)")
 	group := fs.String("group", install.DefaultGroup,
 		"shared group giving the service accounts access to a tree brokered commands run in")
-	storeGroup := fs.String("store-group", install.DefaultStoreGroup,
-		"group owning the managed sops files; the keeper and broker join it, the operator does not")
+	storeGroup := fs.String("store-group", "",
+		"group owning the managed sops files (default: the keeper's own group, which is the only account that opens one)")
 	brokerUser := fs.String("broker-user", install.DefaultBrokerUser, "account that holds the SSH keys and the audit log")
 	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
 	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
@@ -96,11 +97,10 @@ func cmdInit(args []string) int {
 		"mint an age identity here and list it alongside the keeper's, so the operator can read the files they own")
 	sshKey := fs.String("ssh-key", "",
 		"identity the broker lends to brokered commands, generated when missing")
-	agentConfig := fs.Bool("agent-config", false,
-		"install the deny rules into the operator's own agent settings")
 	var initAgents multiFlag
 	fs.Var(&initAgents, "agent",
-		"agent those rules are written for, repeatable (default claude; also gemini)")
+		"install the deny rules into this agent's own settings, repeatable "+
+			"(none by default; known: "+strings.Join(install.KnownAgents(), ", ")+")")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	var recipients multiFlag
@@ -122,7 +122,6 @@ func cmdInit(args []string) int {
 		AgeRecipients:  recipients,
 		OperatorAgeKey: *operatorAgeKey,
 		SSHKey:         *sshKey,
-		AgentConfig:    *agentConfig,
 		Agents:         initAgents,
 		DryRun:         *dryRun,
 	}
@@ -185,7 +184,8 @@ func cmdInitProject(args []string) int {
 			"and auto-approves Bash here as a consequence")
 	var agents multiFlag
 	fs.Var(&agents, "agent",
-		"coding agent to enrol, repeatable (default claude; also gemini)")
+		"coding agent to enrol, repeatable (default claude; known: "+
+			strings.Join(install.KnownAgents(), ", ")+")")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	if code, ok := parseFlags(fs, args); !ok {

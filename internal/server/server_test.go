@@ -14,13 +14,19 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
 // fakeKeeper serves a fixed value set, so the agent-facing responses can be
 // exercised without sops, an age key, or a real keeper.
-func fakeKeeper(t *testing.T, values map[string]string) string {
+//
+// It takes the managed file list because the store no longer stats it: an
+// absent or unreadable file is reported by the keeper now, and that report is
+// what the load gate below fails on.  Fingerprinted with the real StatAll, so
+// the errors are the ones production would produce.
+func fakeKeeper(t *testing.T, values map[string]string, files ...string) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "keeper.sock")
 	ln, err := net.Listen("unix", path)
@@ -35,8 +41,17 @@ func fakeKeeper(t *testing.T, values map[string]string) string {
 			}
 			// Read the request before answering, as the real keeper does.
 			// Closing while the client is still writing gives it EPIPE.
-			_, _ = sockutil.ReadLine(conn, 1<<16)
-			_ = sockutil.Send(conn, map[string]any{"values": values, "errors": []string{}})
+			line, _ := sockutil.ReadLine(conn, 1<<16)
+			var request struct {
+				Op string `json:"op"`
+			}
+			_ = json.Unmarshal(line, &request)
+			state, errors := keeper.StatAll(config.SecretsConfig{Files: files})
+			payload := map[string]any{"state": state, "errors": errors}
+			if request.Op != "get_state" {
+				payload["values"] = values
+			}
+			_ = sockutil.Send(conn, payload)
 			_ = conn.Close()
 		}
 	}()
@@ -56,7 +71,7 @@ func newServer(t *testing.T, values map[string]string, secretFiles ...string) *S
 			SocketPath: filepath.Join(dir, "broker.sock"), SocketMode: 0o660,
 			MaxConcurrency: 2, MaxRequestBytes: 262144,
 		},
-		Keeper: config.KeeperConfig{SocketPath: fakeKeeper(t, values)},
+		Keeper: config.KeeperConfig{SocketPath: fakeKeeper(t, values, secretFiles...)},
 		Exec: config.ExecConfig{
 			DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
 			BaseEnv: map[string]string{"PATH": "/usr/bin:/bin"},

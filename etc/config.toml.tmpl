@@ -110,23 +110,33 @@ exec_group = "{{.ExecUser}}"
 # Every sops file the keeper manages.  ALL of their values go into the
 # redaction value set, not just the ones injected into a given command: a
 # managed host can print a credential the broker never injected.
-# The broker stats these to notice edits; only the keeper can decrypt them.
+# Only the keeper opens these, to decrypt them and to fingerprint them for the
+# broker's staleness check.  The broker never reads them at all.
 #
 # Outside a working tree: these are configuration an operator authors and the
 # daemons read at startup.  {{.SecretsDir}} is 2750 with group {{.StoreGroup}},
-# which holds the keeper and the broker and not the operator, so reading or
-# editing one needs sudo.  {{.Group}} below admits a caller to the socket and
-# grants nothing here: asking for a value by name is not permission to read the
-# file it comes from.
+# which holds the keeper and not the operator, so reading or editing one needs
+# sudo.  {{.Group}} below admits a caller to the socket and grants nothing here:
+# asking for a value by name is not permission to read the file it comes from.
 # A store inside a home is not mounted until its owner logs in, and the broker
 # treats an absent store as a load failure, so the daemons refuse rather than
 # come up redacting nothing.
-# Empty here on purpose.  This list accumulates across config.d, so a name left
-# in the starter would be merged into every install forever and reported as a
-# managed file nobody asked for.  Each consumer names its own store in its own
-# drop-in:  files = ["{{.SecretsDir}}/<consumer>.sops.yml"]
-files = []
+# Every entry is a glob pattern; a literal path is one with no metacharacters.
+# The store is a directory, so this names the directory: a sops file added
+# beside the others is picked up on the next refresh, with nothing to edit here
+# and no daemon to restart.  A consumer that wants its own file named explicitly
+# can still add one in a drop-in, and the two are deduplicated.
+#
+# An entry that matches nothing is a load failure, exactly as a missing literal
+# path is.  That is what makes an unmounted store an outage that names itself
+# rather than a broker that comes up holding nothing and reports itself healthy.
+files = ["{{.SecretsDir}}/*.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
+
+# How often the broker may ask the keeper whether a managed file changed.  That
+# question is a socket round trip rather than a stat, the store being readable
+# by the keeper's group alone, so 0 (check on every request) costs a connect per
+# command.  The keeper answers it without the key and without execing sops.
 refresh_interval_sec = 5
 
 # Values below these thresholds cannot be redacted -- a short or low-entropy

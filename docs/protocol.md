@@ -116,31 +116,56 @@ uid, gid and pid are recorded in every audit record.
 
 ## The keeper socket
 
-Internal, between the broker and the process that holds the age key. One
-operation:
+Internal, between the broker and the process that holds the age key. Two
+operations:
 
 ```json
 {"op": "get_values"}
 ```
 
 ```json
-{"values": {"home/router/admin": "…"}, "errors": []}
+{"values": {"home/router/admin": "…"},
+ "state": [{"path": "/etc/faramir/secrets/x.sops.yml",
+            "mtime_unix_nano": 1743160000000000000, "size": 812}],
+ "errors": []}
 ```
 
 Every managed value, never a subset: the redactor is built from the whole value
 set, because a managed host can print a credential no command injected.
 
-A per-file decryption failure comes back in `errors` rather than as an error
-response, so one broken file does not blank the whole value set. Key material
-is stripped from those strings before they cross the socket.
+The `state` is the fingerprint of each file this decrypt read, returned with the
+values rather than fetched separately so the two describe the same moment. A
+fingerprint taken in its own call could be of a file edited after the decrypt,
+and that edit would then never be noticed.
 
-Anything other than `get_values` is refused:
+```json
+{"op": "get_state"}
+```
+
+```json
+{"state": [{"path": "/etc/faramir/secrets/x.sops.yml",
+            "mtime_unix_nano": 1743160000000000000, "size": 812}],
+ "errors": []}
+```
+
+The staleness poll. The broker cannot stat the managed files itself: the store
+is `2750 root:faramir-keeper` and the broker is not in that group, because
+holding the plaintext is not a reason to be able to read the ciphertext. This
+answers without the key and without execing sops, so it stays cheap enough to
+serve on every request when `refresh_interval_sec` is 0.
+
+A file that could not be stat-ed or could not be decrypted comes back in
+`errors` rather than as an error response, so one broken file does not blank the
+whole value set. Key material is stripped from those strings before they cross
+the socket.
+
+Anything else is refused:
 
 ```json
 {"error": {"code": "unsupported",
            "message": "unsupported op 'get_age_key'; the keeper serves
-                       'get_values' only and has no operation that returns
-                       key material"}}
+                       'get_values' and 'get_state' only and has no operation
+                       that returns key material"}}
 ```
 
 **There is no operation that returns the age key, and adding one would defeat

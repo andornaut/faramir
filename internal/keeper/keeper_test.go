@@ -122,7 +122,8 @@ func TestOneBadFileDoesNotBlankTheSet(t *testing.T) {
 	}
 }
 
-// The keeper serves get_values and nothing else.  Verification matrix test 1f.
+// The keeper serves get_values and get_state and nothing else.  Verification
+// matrix test 1f.
 func TestKeeperRefusesEveryOtherOp(t *testing.T) {
 	k := &Keeper{config: &config.Config{}, Keys: NewKeyHolder(config.KeeperConfig{})}
 	for _, op := range []string{"get_age_key", "get_key", "", "decrypt", "exec"} {
@@ -137,6 +138,81 @@ func TestKeeperRefusesEveryOtherOp(t *testing.T) {
 		if _, leaked := resp["values"]; leaked {
 			t.Errorf("op %q returned values", op)
 		}
+	}
+}
+
+// get_state is the poll, so it must answer without the key and without
+// execing sops: a decrypt_command that cannot run at all still has to produce
+// fingerprints, or a broker whose keeper has lost its key stops noticing edits
+// on top of serving nothing.
+func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "vault.sops.yaml")
+	if err := os.WriteFile(path, []byte("ciphertext"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k := &Keeper{
+		config: &config.Config{Secrets: config.SecretsConfig{
+			Files:          []string{path},
+			DecryptCommand: []string{"/nonexistent/sops", "{file}"},
+		}},
+		Keys: NewKeyHolder(config.KeeperConfig{}),
+	}
+
+	resp := k.Handle(map[string]any{"op": "get_state"})
+	if _, leaked := resp["values"]; leaked {
+		t.Error("get_state returned values")
+	}
+	state, ok := resp["state"].([]FileState)
+	if !ok || len(state) != 1 {
+		t.Fatalf("state = %v", resp["state"])
+	}
+	if state[0].Path != path || state[0].Size != int64(len("ciphertext")) || state[0].MTime == 0 {
+		t.Errorf("state = %+v", state[0])
+	}
+	if errs := resp["errors"].([]string); len(errs) != 0 {
+		t.Errorf("errors = %v, want none: nothing was decrypted", errs)
+	}
+}
+
+// A file that is not there is an error, not a shorter list.  The broker's load
+// gate reads these, and "absent" reaching it as silence is a broker that comes
+// up healthy holding nothing.
+func TestGetStateReportsAFileItCannotStat(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "absent.sops.yaml")
+	k := &Keeper{
+		config: &config.Config{Secrets: config.SecretsConfig{Files: []string{missing}}},
+		Keys:   NewKeyHolder(config.KeeperConfig{}),
+	}
+
+	resp := k.Handle(map[string]any{"op": "get_state"})
+	if state := resp["state"].([]FileState); len(state) != 0 {
+		t.Errorf("state = %v, want empty", state)
+	}
+	errs := resp["errors"].([]string)
+	if len(errs) != 1 || !strings.Contains(errs[0], missing) {
+		t.Errorf("errors = %v, want one naming %s", errs, missing)
+	}
+}
+
+// The values and the fingerprints come back together, so the broker cannot
+// cache a value set under a fingerprint taken at a different moment and then
+// miss the edit that fell between them.
+func TestGetValuesCarriesTheFileState(t *testing.T) {
+	secrets, keys := fixture(t, sops.TreeBranch{{Key: "flat", Value: "s3cr3t-value-here"}})
+	k := &Keeper{config: &config.Config{Secrets: secrets}, Keys: keys}
+
+	resp := k.Handle(map[string]any{"op": "get_values"})
+	values, ok := resp["values"].(map[string]string)
+	if !ok || values["flat"] != "s3cr3t-value-here" {
+		t.Fatalf("values = %v", resp["values"])
+	}
+	state, ok := resp["state"].([]FileState)
+	if !ok || len(state) != len(secrets.Files) {
+		t.Fatalf("state = %v, want one per managed file", resp["state"])
+	}
+	if state[0].Path != secrets.Files[0] {
+		t.Errorf("state names %q, want %q", state[0].Path, secrets.Files[0])
 	}
 }
 
@@ -200,5 +276,106 @@ func TestFlattenSkipsSopsMetadataAndBooleans(t *testing.T) {
 	}
 	if len(got) != len(want) {
 		t.Errorf("unexpected refs: %v", got)
+	}
+}
+
+// Every entry is a glob, and a literal path is the case of one with no
+// metacharacters, so both go down the same path and an entry that names nothing
+// is an error either way.
+func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"a.sops.yml", "b.sops.yml", "notes.txt"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	glob := filepath.Join(dir, "*.sops.yml")
+	literal := filepath.Join(dir, "a.sops.yml")
+	missing := filepath.Join(dir, "gone.sops.yml")
+
+	for _, tc := range []struct {
+		name      string
+		entries   []string
+		wantPaths []string
+		wantErrs  int
+	}{
+		{"a pattern", []string{glob},
+			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0},
+		{"a literal", []string{literal}, []string{literal}, 0},
+		// The base config globs the store and a drop-in may name a file in it as
+		// well.  Decrypting it twice would report every ref in it as defined
+		// more than once.
+		{"a pattern and a literal inside it", []string{glob, literal},
+			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0},
+		{"a literal that is not there", []string{missing}, []string{}, 1},
+		{"a pattern that matches nothing",
+			[]string{filepath.Join(dir, "*.sops.yaml")}, []string{}, 1},
+		{"a directory that is not there",
+			[]string{filepath.Join(dir, "absent", "*.sops.yml")}, []string{}, 1},
+		{"nothing configured", nil, []string{}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			paths, errs := Resolve(tc.entries)
+			if len(paths) != len(tc.wantPaths) {
+				t.Fatalf("paths = %v, want %v", paths, tc.wantPaths)
+			}
+			for i, want := range tc.wantPaths {
+				if paths[i] != want {
+					t.Errorf("paths[%d] = %q, want %q", i, paths[i], want)
+				}
+			}
+			if len(errs) != tc.wantErrs {
+				t.Errorf("errors = %v, want %d", errs, tc.wantErrs)
+			}
+		})
+	}
+}
+
+// A store that is not mounted looks exactly like one that was never written,
+// and the safe reading of the two is the same: the broker is configured for
+// values it does not have, so nothing redacts them.  Reporting that as an empty
+// list would be a broker that comes up healthy holding nothing.
+func TestAPatternThatNamesNothingIsAnError(t *testing.T) {
+	pattern := filepath.Join(t.TempDir(), "*.sops.yml")
+	k := &Keeper{
+		config: &config.Config{Secrets: config.SecretsConfig{Files: []string{pattern}}},
+		Keys:   NewKeyHolder(config.KeeperConfig{}),
+	}
+
+	resp := k.Handle(map[string]any{"op": "get_state"})
+	if state := resp["state"].([]FileState); len(state) != 0 {
+		t.Errorf("state = %v, want empty", state)
+	}
+	errs := resp["errors"].([]string)
+	if len(errs) != 1 || !strings.Contains(errs[0], "matched no files") {
+		t.Errorf("errors = %v, want one saying the pattern matched no files", errs)
+	}
+}
+
+// A file added to the store is picked up with nothing edited and no daemon
+// restarted: that is the whole reason the entry is a directory pattern and the
+// expansion happens per request rather than at config load.
+func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
+	dir := t.TempDir()
+	first := filepath.Join(dir, "a.sops.yml")
+	if err := os.WriteFile(first, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	k := &Keeper{
+		config: &config.Config{Secrets: config.SecretsConfig{
+			Files: []string{filepath.Join(dir, "*.sops.yml")},
+		}},
+		Keys: NewKeyHolder(config.KeeperConfig{}),
+	}
+
+	if state := k.Handle(map[string]any{"op": "get_state"})["state"].([]FileState); len(state) != 1 {
+		t.Fatalf("state = %v, want the one file", state)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.sops.yml"), []byte("y"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	state := k.Handle(map[string]any{"op": "get_state"})["state"].([]FileState)
+	if len(state) != 2 {
+		t.Errorf("state = %v, want both files without a reload of the config", state)
 	}
 }

@@ -99,6 +99,10 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 		"zero min_unique_chars":     minimal + "\n[secrets]\nmin_unique_chars = 0\n",
 		"negative min_entropy":      minimal + "\n[secrets]\nmin_entropy_bits_per_char = -1.0\n",
 		"negative max_record_bytes": minimal + "\n[audit]\nmax_record_bytes = -1\n",
+		// A malformed pattern matches nothing at every later stage, and "matched
+		// no files" would send the operator looking for a store that is exactly
+		// where they left it.
+		"unclosed character class": minimal + "\n[secrets]\nfiles = [\"/s/[a-.sops.yml\"]\n",
 	}
 	for name, text := range cases {
 		if _, err := load(t, text); err == nil {

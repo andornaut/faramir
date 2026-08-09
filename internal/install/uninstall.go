@@ -66,6 +66,7 @@ func Uninstall(configDir string) ([]string, error) {
 		fmt.Sprintf("users %s, %s and %s, and the shared group",
 			DefaultBrokerUser, DefaultKeeperUser, DefaultExecUser),
 		"a shared tree's group and setgid bits, and the traversal granted to reach it",
-		"a project's .claude/settings.json naming the hook, and its .mcp.json",
+		"each enrolled agent's configuration in a project: the settings naming the " +
+			"hook, the plugin that calls it, and the MCP registration",
 	}, nil
 }

@@ -4,11 +4,11 @@ Playbooks get credentials the same way every brokered program does: the caller n
 
 Ansible does **not** decrypt sops and cannot. That needs the age private key, and no process the broker starts receives it. A playbook can run arbitrary tasks, so a playbook holding the master key means anything that can reach Ansible obtains the key to every managed file, retroactively.
 
-The variables and paths assumed here are set in a `/etc/faramir/config.d` drop-in rather than in the base config, so the broker's own configuration is not edited to name an Ansible checkout's secrets file.
+Nothing here edits faramir's configuration. `[secrets] files` globs the store directory, so an encrypted file put there is managed by being there; a store kept somewhere else is what a `/etc/faramir/config.d` drop-in is for.
 
 ## 1. Encrypt the right file, in the right place
 
-The encrypted file belongs in the store, `/etc/faramir/secrets` unless `--secrets-dir` moved it, created `2750 root:faramir-secrets` by `faramir init`. Not in a checkout, and never in `group_vars/` or `host_vars/`. The operator is not in that group, so putting a file there and editing one afterwards both go through `sudo faramir edit`.
+The encrypted file belongs in the store, `/etc/faramir/secrets` unless `--secrets-dir` moved it, created `2750 root:faramir-keeper` by `faramir init`. Not in a checkout, and never in `group_vars/` or `host_vars/`. The operator is not in that group, so putting a file there and editing one afterwards both go through `sudo faramir edit`.
 
 Ansible loads every `.yml` under those two directories as a vars file. A sops file is valid YAML, so it loads without error and binds each var to its `ENC[AES256_GCM,...]` ciphertext; a name sorting after `vars.yml` also overwrites the `lookup('env', …)` mapping from section 2. Nothing errors. Hosts get configured with ciphertext in place of the credential. `faramir init` refuses to finish against a store under either directory, and `faramir doctor` reports one.
 
@@ -82,7 +82,7 @@ A var whose ref was not injected resolves to an empty string, which usually surf
 
 A `community.sops` vars plugin or `lookup('pipe', 'sops -d …')` cannot work here: both need the age key in the playbook's environment. `internal/e2e` runs `sops --decrypt` as a brokered command and asserts it fails for want of key material.
 
-Encrypted files still need listing in `[secrets] files` so their values land in the redaction set, whether or not any playbook names them.
+Encrypted files still need to be reached by `[secrets] files` so their values land in the redaction set, whether or not any playbook names them. One in the store is, by the base config's glob; one kept elsewhere needs a drop-in naming it.
 
 ## 3. SSH keys
 

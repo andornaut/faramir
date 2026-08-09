@@ -76,17 +76,17 @@ func (r *runner) stepDirectories() error {
 	// is nothing to create here.  What protects the key is its own 0400 keeper
 	// ownership, not the mode of what it sits in.
 
-	// The store: 2750 root with the store group, which holds the keeper and the
-	// broker and nobody else.  The operator is deliberately not in it, so
-	// reading or editing a managed file needs sudo.  The group that admits a
-	// caller to the broker socket is a different one: asking for a value by
-	// name is what an agent is for, and reading or replacing the file it comes
-	// from is not, so one group cannot grant both.
+	// The store: 2750 root with the store group, which is the keeper's own and
+	// so holds the one account that opens a managed file.  The operator is
+	// deliberately not in it, so reading or editing one needs sudo.  The group
+	// that admits a caller to the broker socket is a different one: asking for a
+	// value by name is what an agent is for, and reading or replacing the file
+	// it comes from is not, so one group cannot grant both.
 	//
 	// setgid so a file created here belongs to the store group rather than to
 	// whoever ran sudo.  Group read and traverse without write, because the
-	// keeper only decrypts and the broker only stats; nothing that reads these
-	// needs to change them.
+	// keeper only decrypts and fingerprints; nothing that reads these needs to
+	// change them.
 	//
 	// Owned by root rather than by the operator, because owning the directory
 	// is permission to unlink and rename what is in it whatever the files

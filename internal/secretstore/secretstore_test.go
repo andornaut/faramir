@@ -12,17 +12,26 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
 // fakeKeeper serves whatever value set the test sets, so the load gate can be
 // exercised without sops, an age key, or a real keeper.
+//
+// It fingerprints with the real keeper's StatAll rather than a stand-in: the
+// store's staleness check is set equality over exactly those structs, so a
+// fake that built them differently would pass while production did not.
 type fakeKeeper struct {
 	mu     sync.Mutex
 	values map[string]string
 	errors []string
-	ln     net.Listener
-	path   string
+	// The managed files, which the store no longer stats for itself.  Set by
+	// newStore from the same list it configures the store with, because the two
+	// disagreeing is not a case the real install can produce.
+	files []string
+	ln    net.Listener
+	path  string
 }
 
 func newFakeKeeper(t *testing.T, values map[string]string) *fakeKeeper {
@@ -48,13 +57,19 @@ func serveFakeKeeper(t *testing.T, path string, values map[string]string) *fakeK
 			// Read the request before answering, as the real keeper does.
 			// Closing while the client is still writing gives it EPIPE, which
 			// surfaces as an intermittently empty value set.
-			_, _ = sockutil.ReadLine(conn, 1<<16)
-			k.mu.Lock()
-			errors := k.errors
-			if errors == nil {
-				errors = []string{}
+			line, _ := sockutil.ReadLine(conn, 1<<16)
+			var request struct {
+				Op string `json:"op"`
 			}
-			payload := map[string]any{"values": k.values, "errors": errors}
+			_ = json.Unmarshal(line, &request)
+
+			k.mu.Lock()
+			state, errors := keeper.StatAll(config.SecretsConfig{Files: k.files})
+			payload := map[string]any{"state": state, "errors": errors}
+			if request.Op != "get_state" {
+				payload["values"] = k.values
+				payload["errors"] = append(errors, k.errors...)
+			}
 			k.mu.Unlock()
 			_ = sockutil.Send(conn, payload)
 			_ = conn.Close()
@@ -76,14 +91,17 @@ func (k *fakeKeeper) setErrors(errors []string) {
 	k.errors = errors
 }
 
-func newStore(t *testing.T, keeper *fakeKeeper, files ...string) *Store {
+func newStore(t *testing.T, fake *fakeKeeper, files ...string) *Store {
 	t.Helper()
+	fake.mu.Lock()
+	fake.files = files
+	fake.mu.Unlock()
 	return New(
 		config.SecretsConfig{
 			Files: files, RefreshIntervalSec: 0,
 			MinLength: 8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
 		},
-		config.KeeperConfig{SocketPath: keeper.path},
+		config.KeeperConfig{SocketPath: fake.path},
 	)
 }
 

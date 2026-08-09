@@ -37,11 +37,20 @@ const (
 	logrotateConfig = "/etc/logrotate.d/faramir"
 
 	DefaultGroup      = "dev"
-	DefaultStoreGroup = "faramir-secrets"
 	DefaultBrokerUser = "faramir-broker"
 	DefaultKeeperUser = "faramir-keeper"
 	DefaultExecUser   = "faramir-exec"
+
+	// The group the store used to be owned by, when the broker was in it too.
+	// Named only so an install can say that it is now unused; nothing is
+	// created with it and nothing is looked up by it.
+	legacyStoreGroup = "faramir-secrets"
 )
+
+// There is no DefaultStoreGroup.  The store group defaults to the keeper's own
+// primary group, which the account already has, so the set of accounts that can
+// read the ciphertext is the one account that decrypts it, by construction
+// rather than by a membership list that has to be kept accurate.
 
 // Layout is everything the templates and the install steps need to agree on.
 // Built once by Options.layout and passed down, so no step can resolve a path
@@ -53,11 +62,17 @@ type Layout struct {
 	// what an agent is meant to do.
 	//
 	// StoreGroup is separate because reading the ciphertext is not that.  It
-	// owns the secrets directory and the daemons that decrypt and stat the
-	// managed files are in it; the operator is not, so editing a store needs
-	// sudo.  One group for both would mean every caller allowed to ask for a
-	// value by name could also read and replace the file it comes from, and an
-	// agent that runs as the operator would inherit exactly that.
+	// owns the secrets directory, and the only account in it is the keeper,
+	// which is the only one that opens a managed file: it decrypts them, and it
+	// fingerprints them for the broker's staleness check.  The operator is not
+	// in it, so editing a store needs sudo.  One group for both would mean
+	// every caller allowed to ask for a value by name could also read and
+	// replace the file it comes from, and an agent that runs as the operator
+	// would inherit exactly that.
+	//
+	// It defaults to KeeperUser, the keeper's own primary group.  Naming a
+	// different one still works and is what --store-group is for; what it buys
+	// is a second reader, which nothing here needs.
 	Group      string
 	StoreGroup string
 	BrokerUser string

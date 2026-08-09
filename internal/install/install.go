@@ -62,15 +62,17 @@ type Options struct {
 	// "provision this host", which would enrol whatever directory it was run
 	// from.  See `faramir init-project`.
 
-	// AgentConfig installs the Read deny rules into the operator's own Claude
-	// settings.  They refuse to open key material wherever the agent is working
-	// and take nothing away.  The PreToolUse hook is not installed here: it is
-	// per project, because registering it auto-approves Bash for that project.
-	AgentConfig bool
-
-	// Agents names which coding agents AgentConfig writes for.  Empty means
-	// Claude Code, so an install written before this existed keeps doing what
-	// it did.  The same names `faramir init-project --agent` takes.
+	// Agents names the coding agents whose own settings get the Read deny
+	// rules, which refuse to open key material wherever the agent is working
+	// and take nothing away.  Naming one is what asks for them: empty writes
+	// nothing, so there is no state where a name is given and ignored.
+	//
+	// The PreToolUse hook is not installed here: it is per project, because
+	// registering it auto-approves Bash for that project.
+	//
+	// The same names `faramir init-project --agent` takes, which defaults to
+	// Claude Code where this does not: enrolling a tree is the point of that
+	// command and an aside to this one.
 	Agents []string
 
 	// DryRun computes every answer and writes nothing.  Steps that cannot be
@@ -201,14 +203,18 @@ func (o *Options) applyDefaults() {
 	if o.Group == "" {
 		o.Group = DefaultGroup
 	}
-	if o.StoreGroup == "" {
-		o.StoreGroup = DefaultStoreGroup
-	}
 	if o.BrokerUser == "" {
 		o.BrokerUser = DefaultBrokerUser
 	}
 	if o.KeeperUser == "" {
 		o.KeeperUser = DefaultKeeperUser
+	}
+	// After KeeperUser, whose primary group this is.  The keeper is the only
+	// account that opens a managed file, so the group that owns the store is
+	// the one the account already has, and there is no membership to keep
+	// accurate.
+	if o.StoreGroup == "" {
+		o.StoreGroup = o.KeeperUser
 	}
 	if o.ExecUser == "" {
 		o.ExecUser = DefaultExecUser

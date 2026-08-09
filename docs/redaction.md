@@ -6,7 +6,9 @@
 
 `op run`, `chamber exec`, `sops exec-env` and friends mask the values *they* injected. A credential reaches the output by paths no injector knows about: a managed host printing its own configuration over `ssh` emits the very password in the sops file whether or not that ref was injected, and a grep across a log file finds one written weeks ago.
 
-So **the value set is every secret the keeper manages**, not the subset relevant to the current command. The broker fetches it on startup, when a managed file's mtime changes, and again when the previous fetch could not reach the keeper (the files are unchanged in that case, so the mtime poll would never notice, and an empty value set redacts nothing).
+So **the value set is every secret the keeper manages**, not the subset relevant to the current command. The broker fetches it on startup, when a managed file's mtime changes, and again when the previous fetch could not reach the keeper (the files are unchanged in that case, so the poll would never notice, and an empty value set redacts nothing).
+
+The broker asks the keeper for those mtimes rather than reading them: the store is group-readable by the keeper alone, holding the plaintext being no reason to be able to read the ciphertext. A keeper that cannot answer the poll is treated as a keeper that cannot be reached, which reloads and keeps the previous value set, rather than as files that have not changed.
 
 Which files it watches is fixed at startup. `config.toml` is read once per daemon, so a file added to `[secrets] files` is adopted by restarting the keeper and then the broker.
 

@@ -38,3 +38,36 @@ func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 		})
 	}
 }
+
+// The store group is the keeper's own, so the set of accounts that can read the
+// ciphertext is the one account that decrypts it, without a membership list to
+// keep accurate.  A default that named a group of its own would be one more
+// thing that can be right in the units and wrong in /etc/group.
+func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
+	for _, tc := range []struct{ name, keeperUser, storeGroup, want string }{
+		{"the default", "", "", DefaultKeeperUser},
+		{"a renamed keeper takes its group with it", "vault", "", "vault"},
+		{"an explicit group is honoured", "", "faramir-secrets", "faramir-secrets"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := Options{
+				Operator: "op", KeeperUser: tc.keeperUser, StoreGroup: tc.storeGroup,
+			}
+			opts.applyDefaults()
+			if opts.StoreGroup != tc.want {
+				t.Errorf("StoreGroup = %q, want %q", opts.StoreGroup, tc.want)
+			}
+		})
+	}
+}
+
+// The store group is never the group that admits a caller to the broker socket.
+// Asking for a value by name and reading the file it comes from are different
+// privileges, and the agent runs as an account holding the first.
+func TestStoreGroupIsNotTheClientGroup(t *testing.T) {
+	opts := Options{Operator: "op"}
+	opts.applyDefaults()
+	if opts.StoreGroup == opts.Group {
+		t.Errorf("store group and client group are both %q", opts.Group)
+	}
+}

@@ -24,7 +24,7 @@ type agentTarget struct {
 	// than two named fields.
 	files []agentFile
 
-	// accountFiles are written into the operator's home by `init --agent-config`
+	// accountFiles are written into the operator's home by `init --agent`
 	// rather than into a tree.  They refuse to open key material wherever the
 	// agent is working and take nothing away, so unlike the hook there is no
 	// reason to make a project opt in.
@@ -34,6 +34,16 @@ type agentTarget struct {
 	// whose config and store were moved into a home.
 	accountFiles []agentFile
 
+	// detect names the paths that mean this tree is already configured for this
+	// agent, relative to it.  Reported, never acted on.
+	//
+	// Named rather than derived from files, which are the paths faramir writes:
+	// an opencode project has a .opencode long before it has the plugin
+	// directory faramir puts a file in, and a tree carrying an agent's
+	// configuration is the thing worth reporting.  Generic names stay out: a
+	// .mcp.json is not a decision to use any particular agent.
+	detect []string
+
 	// autoApprovesBash records what enrolling costs on this agent, so the
 	// warning a run prints is the truth for the agent it just enrolled.
 	//
@@ -42,6 +52,10 @@ type agentTarget struct {
 	// project is gone.  Gemini CLI: there is no allow to return, so a hook that
 	// has not denied has not approved either and the prompts are untouched.
 	autoApprovesBash bool
+
+	// note is warned about on enrolment when this agent has something to say
+	// that is not the Bash trade.  Empty on the agents that do not.
+	note string
 }
 
 type agentFile struct {
@@ -73,6 +87,7 @@ var agentTargets = map[string]*agentTarget{
 		accountFiles: []agentFile{
 			{path: ".claude/settings.json", asset: "agent/claude/settings.json", mode: 0o600, merge: true},
 		},
+		detect:           []string{".claude"},
 		autoApprovesBash: true,
 	},
 	"gemini": {
@@ -87,14 +102,94 @@ var agentTargets = map[string]*agentTarget{
 		accountFiles: []agentFile{
 			{path: ".gemini/policies/faramir.toml", asset: "agent/gemini/policies.toml.tmpl", mode: 0o600},
 		},
+		detect:           []string{".gemini"},
 		autoApprovesBash: false,
 	},
+
+	// opencode and Kilo Code extend through plugins loaded into the agent's own
+	// process rather than through a hook that runs a program, so what is
+	// installed here is a JavaScript file that calls `faramir guard` and applies
+	// what it answers.  The deny list and the rewrite stay in the binary; the
+	// plugin is the translation and nothing else.
+	//
+	// A plugin directory needs no registration: both agents load what they find
+	// in it at startup.  What the config file carries is the MCP server, which
+	// is how the agent reaches the broker at all.
+	"opencode": {
+		name: "opencode",
+		files: []agentFile{
+			// faramir's own file, so it is replaced rather than merged: what is
+			// there is a previous version of this same plugin, and replacing it
+			// is how a rewritten one takes effect.
+			{path: ".opencode/plugins/faramir.js", asset: "agent/opencode/plugin.js", mode: 0o644},
+			{path: "opencode.json", asset: "agent/opencode/opencode.json", mode: 0o644, merge: true},
+		},
+		// Deny rules only, and no catch-all.  These are wildcard patterns where
+		// the last matching rule wins, and the merge re-serialises the file with
+		// its keys sorted, so a rule of the operator's that sorts after one of
+		// these and matches the same path is the one that takes effect.  Sorting
+		// puts a catch-all first, which is the order the agent's own docs
+		// recommend; writing one here would replace the operator's default with
+		// faramir's, and there is no default this is entitled to loosen.
+		accountFiles: []agentFile{
+			{path: ".config/opencode/opencode.json", asset: "agent/opencode/permissions.json.tmpl", mode: 0o600, merge: true},
+		},
+		detect: []string{".opencode", "opencode.json", "opencode.jsonc"},
+		// No approval is given and none is asked for: a plugin that has not
+		// thrown has not approved anything, so whatever the agent would have
+		// prompted about, it still does.  What the rewrite does to the rules
+		// those prompts come from is the note below, which is a different
+		// question from this one.
+		autoApprovesBash: false,
+		note:             pluginNote("opencode"),
+	},
+
+	"kilocode": {
+		name: "kilocode",
+		files: []agentFile{
+			{path: ".kilo/plugin/faramir.js", asset: "agent/kilocode/plugin.js", mode: 0o644},
+			// kilo.json rather than kilo.jsonc, which is the name the docs
+			// prefer: this file is merged, and a merge cannot preserve the
+			// comments a .jsonc is kept for.  Both are read.
+			{path: "kilo.json", asset: "agent/kilocode/kilo.json", mode: 0o644, merge: true},
+		},
+		// Deny rules only, and no catch-all, for the reason given on opencode's.
+		accountFiles: []agentFile{
+			{path: ".config/kilo/kilo.json", asset: "agent/kilocode/permissions.json.tmpl", mode: 0o600, merge: true},
+		},
+		// .kilocode is the legacy directory, still read.  A tree carrying one is
+		// a tree configured for this agent, which is what detection reports.
+		detect:           []string{".kilo", ".kilocode", "kilo.json", "kilo.jsonc"},
+		autoApprovesBash: false,
+		note:             pluginNote("Kilo Code"),
+	},
+}
+
+// pluginNote is what an enrolment says about an agent that matches its bash
+// permission rules against the command text.
+//
+// The rewrite is what those rules now see, if they run after it, and whether
+// they do is documented by neither agent.  Stated as the symptom rather than as
+// a claim about the ordering: a command prompting as the wrapper rather than as
+// itself is what an operator will actually see, and it answers the question in
+// one run.
+func pluginNote(agent string) string {
+	const wrapper = "source /usr/local/libexec/faramir/wrap.sh"
+	return agent + " matches its bash permission rules against the command text, and the " +
+		"guard rewrites every command into `" + wrapper + " '<command>'`. Whether those " +
+		"rules see the command or the rewrite is not documented: if commands start " +
+		"prompting as the wrapper rather than as themselves, they see the rewrite, and a " +
+		"rule naming `" + wrapper + " *` is what decides them from then on"
 }
 
 // defaultAgents is what an enrolment that names none writes.  Claude Code, so
 // that a command with no --agent keeps doing what it did before the flag
 // existed.
 var defaultAgents = []string{"claude"}
+
+// KnownAgents lists the agents this can enrol, sorted.  Exported so the flag
+// that takes one names them rather than carrying a copy that goes stale.
+func KnownAgents() []string { return knownAgents() }
 
 // knownAgents lists the agents this can enrol, sorted so the error naming them
 // reads the same every time.
@@ -131,17 +226,14 @@ func resolveAgents(names []string) ([]*agentTarget, error) {
 	return out, nil
 }
 
-// detected reports which known agents this tree already carries a directory
-// for, so a run can say what it did not enrol.  Reported, never acted on.
+// detectedAgents reports which known agents this tree already carries
+// configuration for, so a run can say what it did not enrol.  Reported, never
+// acted on.
 func detectedAgents(dir string) []string {
 	var out []string
 	for _, name := range knownAgents() {
-		for _, file := range agentTargets[name].files {
-			parent := filepath.Dir(file.path)
-			if parent == "." {
-				continue
-			}
-			if exists(filepath.Join(dir, parent)) {
+		for _, path := range agentTargets[name].detect {
+			if exists(filepath.Join(dir, path)) {
 				out = append(out, name)
 				break
 			}

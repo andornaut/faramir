@@ -32,7 +32,11 @@ Bounding what an unattended run may change is a credential-scope problem: a `gh`
 
 ## Secrets in their own directory, not in a tree
 
-Managed sops files live in `/etc/faramir/secrets`, `2750 root:faramir-secrets`, and never in a checkout: a store a clone or a branch can move is not a store. That group holds the keeper and the broker and no human, so editing a value is `sudo faramir edit`. Admitting a caller to the broker socket is a different group, because asking for a value by name and reading the file it comes from are different privileges, and an agent runs as an account holding the first. `.sops.yaml` sits in the same directory, but note that sops resolves it from the **current working directory** upward, not from the file being encrypted: encrypting into the store from elsewhere has to name it with `--config`.
+Managed sops files live in `/etc/faramir/secrets`, `2750 root:faramir-keeper`, and never in a checkout: a store a clone or a branch can move is not a store. That is the keeper's own group, and the keeper is the only account that opens one of these files: it decrypts them, and it fingerprints them so the broker can tell when one changed. Editing a value is therefore `sudo faramir edit`, for the operator and the broker alike. Admitting a caller to the broker socket is a different group, because asking for a value by name and reading the file it comes from are different privileges, and an agent runs as an account holding the first.
+
+The broker is deliberately outside it. It holds every decrypted value already, so read on the ciphertext would buy it no capability it lacks and would extend its reach to files no `[secrets]` list names, plus any backup copy sitting in the same directory. What it needs instead is to know when a managed file changed, and it asks the keeper that: `get_state` returns paths, mtimes and sizes, and touches neither the key nor sops.
+
+`.sops.yaml` sits in the same directory, but note that sops resolves it from the **current working directory** upward, not from the file being encrypted: encrypting into the store from elsewhere has to name it with `--config`.
 
 `CONFIG_DIR` and `SECRETS_DIR` move both off `/etc`. What the units can see decides where, not the modes:
 
@@ -107,8 +111,19 @@ Agent | Redaction | Enrolling costs
 --- | --- | ---
 Claude Code | full | every Bash prompt in the project: the hook must approve, or a rewritten command runs nowhere
 Gemini CLI | full | nothing. There is no allow to return, so a hook that has not denied has not approved
-opencode, Kilo Code | full | unknown; their permission rules are pattern-matched and the ordering against the plugin hook is undocumented
-Antigravity | none | not offered. Its hooks decide and cannot rewrite, and they fire only in the CLI
+opencode, Kilo Code | full | nothing is approved: a plugin that has not thrown has not approved either. Their `bash` rules are matched against the command text, and whether that is the command or the rewrite is undocumented, so a rule keyed on a program name may stop firing
+Antigravity | none | not offered. Its hooks decide and cannot rewrite
+
+opencode and Kilo Code have no hook that runs a program. They load a plugin into the agent's own process, which blocks a call by throwing and changes one by mutating its arguments, so the plugin faramir installs asks the guard and applies the answer rather than returning a document. The answer is faramir's own shape, the plugin that reads it shipping with the guard:
+
+```json
+{"decision": "deny", "reason": "<what the model is told>"}
+{"decision": "rewrite", "tool_input": {"command": "source .../wrap.sh '<command>'"}}
+```
+
+Nothing written at all is a call left alone, which is the list above.
+
+It fails closed: a guard that cannot be run, one that exits non-zero, an answer that is not JSON, and a decision the plugin does not know all refuse the command. That is the one direction the hook-based agents cannot manage, where a reply they do not understand is a command that runs unredacted. It also decides version skew: a binary too old to know `--host opencode` refuses every command in the project rather than running it unredacted, so `faramir init` belongs before the enrolment rather than after it.
 
 Antigravity is declined rather than pending. A deny list without redaction is the weaker half of this, and shipping it under the same name would say a project is covered when the thing that covers it is absent.
 

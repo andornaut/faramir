@@ -1,6 +1,10 @@
 package guard
 
-import "fmt"
+import (
+	"fmt"
+	"sort"
+	"strings"
+)
 
 // A host is the agent whose hook contract this run speaks.
 //
@@ -30,7 +34,7 @@ type host struct {
 	wrapTool   string
 
 	// deny refuses the command.  The reason reaches the model rather than the
-	// operator on both hosts, which is why its wording matters: it is the only
+	// operator on every host, which is why its wording matters: it is the only
 	// thing the agent can act on.
 	deny func(reason string) map[string]any
 
@@ -91,6 +95,57 @@ var hosts = map[string]*host{
 			}}
 		},
 	},
+
+	// opencode and Kilo Code have no hook that runs a program.  They extend
+	// through plugins loaded into the agent's own process, which block a call by
+	// throwing and change one by mutating its arguments in place, so neither has
+	// a document to read: the plugin faramir installs applies the decision
+	// itself.
+	//
+	// Two names for one contract, because they are two products that agree
+	// today.  A shared name would mean a plugin registered for one and answered
+	// in the other's dialect, which is the failure --host exists to make
+	// visible, and it leaves the divergence somewhere to go.
+	"opencode": pluginHost("opencode"),
+	"kilocode": pluginHost("kilocode"),
+}
+
+// pluginHost is the dialect spoken to a plugin rather than to an agent.
+//
+// The reply is faramir's own shape on both sides -- the plugin that reads it
+// ships with this -- so it is the smallest thing that says what happened:
+// "deny" with the reason the model is given, "rewrite" with the tool input to
+// put back, and nothing written at all for a call left alone.
+//
+// It is not the agent's document, and nothing here is guessing at one.  A
+// decision the plugin does not recognise fails closed, so an answer in the
+// wrong dialect refuses the command rather than running it unredacted, which is
+// the way round the other two hosts cannot manage.
+func pluginHost(name string) *host {
+	return &host{
+		name: name,
+		// One tool on both, and the same name.  A plugin sees every tool call,
+		// so the guard is asked about a shell command and nothing else.
+		shellTools: []string{"bash"},
+		wrapTool:   "bash",
+		deny: func(reason string) map[string]any {
+			return map[string]any{"decision": "deny", "reason": reason}
+		},
+		rewrite: func(updated map[string]any) map[string]any {
+			return map[string]any{"decision": "rewrite", "tool_input": updated}
+		},
+	}
+}
+
+// knownHosts names the dialects, sorted, so the error listing them reads the
+// same every time and cannot fall behind the map.
+func knownHosts() []string {
+	out := make([]string, 0, len(hosts))
+	for name := range hosts {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // defaultHost is what an invocation that names none speaks.  Claude Code,
@@ -106,7 +161,8 @@ func lookupHost(name string) (*host, error) {
 	}
 	h, ok := hosts[name]
 	if !ok {
-		return nil, fmt.Errorf("unknown --host %q; known hosts are claude and gemini", name)
+		return nil, fmt.Errorf("unknown --host %q; known hosts are %s",
+			name, strings.Join(knownHosts(), ", "))
 	}
 	return h, nil
 }

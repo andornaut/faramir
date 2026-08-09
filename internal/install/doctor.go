@@ -149,9 +149,14 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) {
 		return
 	}
 	switch {
-	case len(check.Secrets.Files) == 0:
+	case len(check.Secrets.Patterns) == 0:
 		report.add("secrets", StatusWarn, "no managed sops files are configured, so "+
 			"nothing is injectable and nothing is redacted")
+	case len(check.Secrets.Files) == 0:
+		report.add("secrets", StatusWarn, "%s named no file, so nothing is "+
+			"injectable and nothing is redacted. Either the store has not been "+
+			"written yet, or it is on a filesystem that is not mounted",
+			strings.Join(check.Secrets.Patterns, ", "))
 	case check.Secrets.Count == 0:
 		report.add("secrets", StatusFailed, "read %s and loaded no refs. %s",
 			strings.Join(check.Secrets.Files, ", "), loadErrorDetail(check.Secrets.Errors))

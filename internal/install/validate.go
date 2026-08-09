@@ -2,9 +2,7 @@ package install
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 )
@@ -14,9 +12,14 @@ import (
 // command's own output.
 type checkReport struct {
 	Secrets struct {
-		Count  int      `json:"count"`
-		Files  []string `json:"files"`
-		Errors []string `json:"errors"`
+		Count int `json:"count"`
+		// Patterns is [secrets] files as configured, Files is what that named on
+		// disk.  A glob makes them differ, and the difference is the whole
+		// question this step asks: entries that name nothing are a host waiting
+		// for its store, entries that name files which did not load are a fault.
+		Patterns []string `json:"patterns"`
+		Files    []string `json:"files"`
+		Errors   []string `json:"errors"`
 	} `json:"secrets"`
 }
 
@@ -61,9 +64,9 @@ func (r *runner) stepValidate() error {
 		//
 		// Anything else is fatal, including a file that is there and could not be
 		// read or decrypted.
-		if absent := absentFiles(report.Secrets.Files); len(absent) == len(report.Secrets.Files) &&
+		if absent := unresolved(report.Secrets.Patterns); len(absent) == len(report.Secrets.Patterns) &&
 			len(absent) > 0 {
-			r.warn("the broker is configured for %s, which %s not been created yet, "+
+			r.warn("the broker is configured for %s, which %s named no file yet, "+
 				"so it is serving nothing and redacting nothing. Write the store with "+
 				"sops and re-run; until then every brokered command runs unredacted",
 				strings.Join(absent, ", "),
@@ -83,8 +86,9 @@ func (r *runner) stepValidate() error {
 	// therefore a broker that is running and protecting nothing, which is
 	// indistinguishable from a healthy install unless something says so.
 	//
-	// Guarded rather than unconditional: no files at all is what a first install
-	// looks like, before a consumer has written its config.d drop-in.
+	// Guarded rather than unconditional, and on the resolved files rather than
+	// the patterns: no files at all is what a first install looks like, its
+	// store directory created and still empty.
 	if len(report.Secrets.Files) > 0 && report.Secrets.Count == 0 {
 		return fmt.Errorf("the broker read %s and loaded no refs. Nothing is "+
 			"injectable and nothing is redacted: a command that prints a credential "+
@@ -142,16 +146,22 @@ func (r *runner) stepValidate() error {
 	return nil
 }
 
-// absentFiles is the configured store files that are not on disk at all.
+// unresolved is the configured entries that name no file on disk.
 //
-// Checked by stat rather than by matching the broker's error text: "not there
-// yet" and "there and unreadable" are the two cases this has to tell apart, and
-// only one of them is a host waiting for its secrets to be written.
-func absentFiles(files []string) []string {
+// Expanded here rather than read out of the broker's error text: "named nothing
+// yet" and "named a file that would not load" are the two cases this has to
+// tell apart, and only the first is a host waiting for its secrets to be
+// written.  This runs as root, which the broker does not, so it can expand a
+// pattern the broker could only report as written.
+//
+// A missing literal path is the same case: Glob finds nothing for it either, so
+// one rule covers both and a host provisioned before its store still installs.
+func unresolved(patterns []string) []string {
 	var absent []string
-	for _, file := range files {
-		if _, err := os.Lstat(file); errors.Is(err, os.ErrNotExist) {
-			absent = append(absent, file)
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(pattern)
+		if err != nil || len(matches) == 0 {
+			absent = append(absent, pattern)
 		}
 	}
 	return absent

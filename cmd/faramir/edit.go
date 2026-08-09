@@ -3,9 +3,10 @@ package main
 // `faramir edit` is how a managed sops file is changed once the store belongs
 // to the store group and the operator is not in it.
 //
-// It does not go through the broker or the keeper.  The keeper serves one
-// operation and has none that returns key material, and adding one would defeat
-// the reason it is a separate service.  Under sudo this process is already root,
+// It does not go through the broker or the keeper.  The keeper serves values
+// and fingerprints and has no operation that returns key material, and adding
+// one would defeat the reason it is a separate service.  Under sudo this
+// process is already root,
 // which can read the age key directly, so mediating the edit would add a
 // protocol surface without moving a boundary.
 //
@@ -34,6 +35,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/keeper"
 )
 
 // sopsBinary is resolved through PATH like any other command.  A variable so a
@@ -80,9 +82,19 @@ func cmdEdit(args []string) int {
 		return 1
 	}
 
-	target, err := resolveManaged(cfg.Secrets.Files, fs.Arg(0))
+	// Expanded, because [secrets] files holds glob patterns and what can be
+	// edited is the files they name.  This process is root, so it can read the
+	// store directory; the broker cannot, which is why this does not ask it.
+	//
+	// The upshot is that a sops file dropped into the store is editable at once,
+	// with no config to change first, the same way the keeper picks it up.
+	managed, unresolvable := keeper.Resolve(cfg.Secrets.Files)
+	target, err := resolveManaged(managed, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
+		for _, reason := range unresolvable {
+			fmt.Fprintf(os.Stderr, "  %s\n", reason)
+		}
 		return 1
 	}
 
@@ -181,8 +193,9 @@ func exists(path string) bool {
 // the broker never reads.
 func resolveManaged(managed []string, arg string) (string, error) {
 	if len(managed) == 0 {
-		return "", errors.New("no managed sops files: [secrets] files is empty, " +
-			"so there is nothing to edit")
+		return "", errors.New("no managed sops files: [secrets] files named none, " +
+			"so there is nothing to edit. Create the first one with sops, which " +
+			"needs --config and --filename-override; see docs/ansible-sops.md")
 	}
 	var matches []string
 	wanted := filepath.Clean(arg)

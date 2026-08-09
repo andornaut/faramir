@@ -18,21 +18,16 @@ The command ran, the credential reached it, the agent never saw the value.
 
 Redaction rewrites each command, so what enrolling costs depends on how the agent treats a rewritten one.
 
-Agent | Redaction | Enrolment cost | Mitigation
---- | --- | --- | ---
-Claude Code, supported | full | ⚠️ every Bash command in the project is approved without asking, and the deny list is the only thing refusing one. Every other tool prompts as before | run the project with `--dangerously-skip-permissions`, where Bash never prompted anyway. Otherwise extend the deny list. `acceptEdits` does not exempt a project: it leaves Bash prompting
-[Gemini CLI](https://geminicli.com/docs/hooks/reference/), supported | full | none. A hook that has not denied has not approved either | n/a
-[opencode](https://open-code.ai/en/docs/plugins), surveyed | full | ⚠️ unknown: it has pattern-matched `bash` rules, and whether a rewrite defeats them depends on undocumented ordering | adapter not written
-[Kilo Code](https://kilo.ai/docs/automate/extending/plugins), surveyed | full | ⚠️ unknown: same mechanism as opencode | adapter not written
-[Antigravity](https://antigravity.google/docs/hooks), declined | ⚠️ none | n/a | n/a
+Agent | Redaction | Registration | Enrolment cost | Mitigation
+--- | --- | --- | --- | ---
+Claude Code | Full | `PreToolUse` in `.claude/settings.json`, MCP server in `.mcp.json`, account-wide keys in `~/.claude/settings.json` | ⚠️ Every Bash command is approved without asking, except what the deny list refuses. Every other tool prompts as before. | Run in [auto mode](https://code.claude.com/docs/en/permission-modes), where a classifier model reviews the command before it runs: it reads the rewritten text rather than matching a rule against it, so the rewrite does not blind it. Extend the deny list.
+[Gemini CLI](https://geminicli.com/docs/hooks/reference/) | Full | Hooks and `mcpServers` are both keys of `.gemini/settings.json`. Deny rules are a `.toml` under `~/.gemini/policies/`, the settings key that used to do this being deprecated: regexes against the tool's arguments, tested against rendered paths but not a running Gemini CLI. | None: there is no allow to return, so a hook that has not denied has not approved. | n/a
+[opencode](https://open-code.ai/en/docs/plugins) | Full | `tool.execute.before` plugin, JS, under `.opencode/plugins/`, mutating `output.args`. MCP server in `opencode.json`, account-wide `permission` deny patterns in `~/.config/opencode/opencode.json`. | None: a plugin that has not thrown has not approved either. ⚠️ Its `bash` rules match the command text, and whether they see the command or the rewrite is undocumented. | If commands start prompting as the wrapper rather than as themselves, the rules see the rewrite: a rule naming `source /usr/local/libexec/faramir/wrap.sh *` is what decides them from then on.
+[Kilo Code](https://kilo.ai/docs/automate/extending/plugins) | Full | Same plugin API under `.kilo/plugin/`, loaded by both the CLI and the VS Code extension. MCP server in `kilo.json`, deny patterns in `~/.config/kilo/kilo.json`. | Same as opencode. | Same as opencode.
 
-A `deny` from the hook is honoured in every permission mode, `--dangerously-skip-permissions` included. The shipped deny list names credential disclosure, not `rm -rf`: do not enrol a project where the Bash prompt was the control you relied on.
+Enrol with `faramir init-project --agent claude --agent gemini`, repeatable, defaulting to `claude`. The names are `claude`, `gemini`, `opencode` and `kilocode`.
 
-Antigravity is declined rather than pending: its hooks can refuse a tool call and have no field that modifies one, so it can deny and cannot redact. They also fire only in the `agy` CLI, not the IDE or the desktop app. `surveyed` means the hook contract was read and the adapter is not: each differs in the shell tool's name, the reply's shape and where it is registered.
-
-Enrol with `faramir init-project --agent claude --agent gemini`, repeatable, defaulting to `claude`. Agents are named rather than detected: a directory left behind by trying one once is not a decision to enrol it. A tree carrying configuration for an agent you did not name is reported instead.
-
-Gemini's deny rules are a `.toml` under `~/.gemini/policies/`, the settings key that used to do this being deprecated. They are regexes against the tool's arguments, tested against rendered paths but not a running Gemini CLI.
+n.b. Antigravity is not supported because its hooks decide and cannot rewrite.
 
 ## What it protects against
 
@@ -43,26 +38,26 @@ Gemini's deny rules are a `.toml` under `~/.gemini/policies/`, the settings key 
 
 Failure | How
 --- | ---
-Accidental disclosure: `printenv`, a vault read, `-vvv`, a `debug: var=` task | No account can read the key material, yours included; output is redacted before the agent sees it
-Passive discovery: reading an age key, an SSH key, another process's `/proc/<pid>/environ` | Uid separation plus `ProtectProc=invisible`
-Casual prompt injection: instructions to print or exfiltrate credentials | The agent process never holds them
-Loss of the master key, which decrypts every managed file retroactively | It lives in a uid that executes nothing; no brokered command can read it, reach the keeper's socket, or receive it in its environment
+**Accidental disclosure.** `printenv`, a vault read, `-vvv`, a `debug: var=` task. | No account can read the key material, yours included; output is redacted before the agent sees it.
+**Passive discovery.** Reading an age key, an SSH key, another process's `/proc/<pid>/environ`. | Uid separation plus `ProtectProc=invisible`.
+**Casual prompt injection.** Instructions to print or exfiltrate credentials. | The agent process never holds them.
+**Master key loss.** The master key decrypts every managed file retroactively. | It lives in a uid that executes nothing; no brokered command can read it, reach the keeper's socket, or receive it in its environment.
 
 ### Not prevented
 
 Failure | Why
 --- | ---
-**Adversarial exfiltration.** Transforming a value (`\| rev`, `\| sha256sum`) defeats redaction. | The child chooses the encoding of its own output, so the matcher cannot be completed. Demonstrated in `verify.sh`.
-**Blast radius.** A brokered command runs anything the executor's uid can. | Out of scope, and compounded by Bash auto-approval in enrolled projects.
-**Network egress.** No iptables, namespaces or proxy allowlist. | Deliberate. A secret that escapes redaction is unrecoverable.
+**Adversarial exfiltration.** Transforming a value (`\| rev`, `\| sha256sum`) defeats redaction. | The child chooses the encoding of its own output, so the matcher cannot be completed.
+**Blast radius.** A brokered command runs anything the executor's uid can. | Out of scope.
+**Network egress.** No iptables, namespaces or proxy allowlist. | Out of scope.
 **Anything at rest.** Nothing here encrypts the disk. | The uid boundaries hold while the machine runs and mean nothing once someone has the drive. See [Encryption at rest](#encryption-at-rest).
-**Unenrolled projects.** The value set is global. | A command in a project you never enrolled can print a managed value uncaught. Treat unenrolled as "no redaction", not "safe".
+**Unenrolled projects.** The value set is global. | A command in a project you never enrolled can print a managed value uncaught. Treat unenrolled as "no redaction".
 
 **Acceptance invariant:** if every instruction the agent is given were deleted, no secret could reach the model provider. Every enforcement point is a uid boundary, a file mode, or a hook.
 
 ## How it works
 
-One binary, `faramir`. Five of its subcommands are not for you: three daemons, the MCP server and the PreToolUse hook. The roles are separated by the uid each unit runs as.
+One binary, `faramir` and an MCP server.
 
 uid | Runs | Holds
 --- | --- | ---
@@ -77,7 +72,7 @@ One call, end to end:
 
 1. The request reaches `/run/faramir/broker.sock` carrying a ref, never a value. `cmd` is an array; there is no allowlist.
 2. The broker asks the keeper over a socket only it can open. The keeper execs sops and returns values; the key stays in that uid.
-3. The executor forks the command as `faramir-exec` on a PTY the broker created, value in the environment, never in `argv`.
+3. The broker creates a PTY, hands the slave to the executor over `/run/faramir/exec.sock`, and the executor forks the command as `faramir-exec`: value in the environment, never in `argv`.
 4. Output returns through the broker's end of the PTY. Every managed secret becomes `«SECRET:ref»` before the agent sees a byte.
 5. The audit log records what ran, against which refs, and what came back. Tokens only, operator-readable only.
 
@@ -96,15 +91,15 @@ sudo ./bin/faramir init --operator "$USER"
 
 Flag | Does
 --- | ---
-`--operator NAME` | the account the coding agent runs as. Defaults to `$OPERATOR`, then `$SUDO_USER`. Never root
-`--group NAME` | the shared group. Named in the config the sockets check and in the units that reach a working tree
-`--config-dir DIR` | where `config.toml` and `config.d/` go. `--secrets-dir DIR` does the same for the sops store
-`--binaries DIR` | read the built binary from here rather than from beside `faramir` itself, so you can build on one machine and install on another
-`--operator-age-key PATH` | mint an identity for yourself and list it in `.sops.yaml` alongside the keeper's, so you can still read the files you are responsible for
-`--ssh-key PATH` | generate the identity the broker lends to brokered commands. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run
-`--agent-config` | install the deny rules that refuse key material into your own agent settings. `--agent` names which agent, repeatable, defaulting to `claude`
-`--dry-run` | report what would change and write nothing
-`--json` | print the report as JSON, one entry per step with a `changed` flag, for a configuration manager to read
+`--operator NAME` | the account the coding agent runs as. Defaults to `$OPERATOR`, then `$SUDO_USER`. Never root.
+`--group NAME` | the shared group. Named in the config the sockets check and in the units that reach a working tree.
+`--config-dir DIR` | where `config.toml` and `config.d/` go. `--secrets-dir DIR` does the same for the sops store.
+`--binaries DIR` | read the built binary from here rather than from beside `faramir` itself, so you can build on one machine and install on another.
+`--operator-age-key PATH` | mint an identity for yourself and list it in `.sops.yaml` alongside the keeper's, so you can still read the files you are responsible for.
+`--ssh-key PATH` | generate the identity the broker lends to brokered commands. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run.
+`--agent NAME` | install the deny rules that refuse key material into that agent's own settings. Repeatable; naming none installs none.
+`--dry-run` | report what would change and write nothing.
+`--json` | print the report as JSON, one entry per step with a `changed` flag, for a configuration manager to read.
 
 The units are sandboxed, so where the config and the store go is not a free choice. `init` refuses `/tmp` and `/var/tmp` (each unit gets a private one), whitespace and `%` (systemd splits and expands `Environment=`), and two service accounts sharing a name. It relaxes the keeper's `ProtectHome=` when either directory is inside a home, binding back only what it must so the other homes stay invisible.
 
@@ -121,13 +116,14 @@ The units are sandboxed, so where the config and the store go is not a free choi
 
 Step | Do | Why
 --- | --- | ---
-1 | Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them | Not in a checkout, so a clone or a branch cannot move the store. Under `/etc` it is there at boot; one inside an encrypted home is not, and the broker refuses to start rather than come up redacting nothing
-2 | Name it in `/etc/faramir/config.d/<project>.toml`, then run `faramir reload`, which restarts the keeper and then the broker | This is what puts the values in the redaction set. A drop-in, so the project owns the line naming its own store. A restart because neither daemon re-reads its config, keeper first because it decrypts the list the broker is served. A named file that is not there fails the gate, so the store comes first
-3 | Point the project's config at environment variables | It never decrypts anything; it reads `$NAME` however it already does
-4 | Write the refs beside the project, one `NAME=secret://ref` per line | So a run names refs rather than someone remembering them
-5 | `cd <project> && sudo faramir init-project` | Shares the tree so a brokered command can run in it, and writes each enrolled agent's settings and the instructions block. With Claude Code this is what auto-approves Bash there, which is why it is per project. Add `--agent gemini` to enrol Gemini CLI too
+1 | Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them. | Not in a checkout, so a clone or a branch cannot move the store. Under `/etc` it is there at boot; one inside an encrypted home is not, and the broker refuses to start rather than come up redacting nothing. `[secrets] files` globs that directory, so dropping the file in is the whole of naming it: the keeper picks it up on the next refresh, with no config to edit and no daemon to restart.
+2 | Point the project's config at environment variables. | It never decrypts anything; it reads `$NAME` however it already does.
+3 | Write the refs beside the project, one `NAME=secret://ref` per line. | So a run names refs rather than someone remembering them.
+4 | `cd <project> && sudo faramir init-project` | Shares the tree so a brokered command can run in it, and writes each enrolled agent's settings and the instructions block. With Claude Code this is what auto-approves Bash there, which is why it is per project. Add `--agent gemini`, `--agent opencode` or `--agent kilocode` to enrol another agent too.
 
-Step 2 is worth doing alone: a file in `[secrets]` is redacted out of every command's output from then on, brokered or not.
+Step 1 is worth doing alone: a file in the store is redacted out of every command's output from then on, brokered or not.
+
+A store somewhere the glob does not reach still needs naming, in a drop-in of its own: `files = ["/srv/other/x.sops.yml"]`. Entries accumulate across `config.d` and are deduplicated after expansion, so naming a file the base already globs costs nothing.
 
 ```bash
 faramir list-secrets
@@ -140,17 +136,13 @@ That proves both halves: the value reached the child, and it came back as a toke
 
 ```text
 /etc/faramir/secrets/ansible-ctrl.sops.yml   the values, outside every checkout
-/etc/faramir/config.d/ansible-ctrl.toml      names that file
 group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME')
 faramir.env                                  NAME=secret://ref, one per line
 .claude/settings.json, .mcp.json             hook and MCP for this repo
 ```
 
-```toml
-# /etc/faramir/config.d/ansible-ctrl.toml, the whole of it
-[secrets]
-files = ["/etc/faramir/secrets/ansible-ctrl.sops.yml"]
-```
+There is no drop-in: the base config globs `/etc/faramir/secrets/*.sops.yml`, so
+the store file is managed by being in the store.
 
 ```yaml
 # group_vars/all/vars.yml, committed, unencrypted, holds no value
@@ -169,14 +161,14 @@ Only step 3 differs.
 
 Shape | Step 3
 --- | ---
-A deploy or release script | Already reads `$TOKEN`. Nothing to change
-A cloud or infra CLI (`aws`, `terraform`, `flyctl`) | Name its documented environment variables; drop the credentials file
-A database task | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv`, the password never does
+A deploy or release script | Already reads `$TOKEN`. Nothing to change.
+A cloud or infra CLI (`aws`, `terraform`, `flyctl`) | Name its documented environment variables; drop the credentials file.
+A database task | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv`, the password never does.
 A registry push | `bash -lc 'printf %s "$TOKEN" \| docker login -u me --password-stdin'`
-An HTTP call | `curl -H "Authorization: Bearer $TOKEN"` inside `bash -lc`, so the shell expands it
-A tool needing a credentials *file* | Have the command write it, use it, remove it. Injection is environment-only
-Something over SSH | Nothing. List the key in `[ssh] keys`; the child gets `SSH_AUTH_SOCK`
-Redaction only, no secret | Skip steps 3 to 5. `faramir redact -- ./script.sh`, or use it as a filter
+An HTTP call | `curl -H "Authorization: Bearer $TOKEN"` inside `bash -lc`, so the shell expands it.
+A tool needing a credentials *file* | Have the command write it, use it, remove it. Injection is environment-only.
+Something over SSH | Nothing. List the key in `[ssh] keys`; the child gets `SSH_AUTH_SOCK`.
+Redaction only, no secret | Skip steps 3 to 5. `faramir redact -- ./script.sh`, or use it as a filter.
 
 - A pipeline is requested explicitly as `["bash", "-lc", "…"]`; the broker never hands a string to a shell.
 - A bare command name is looked up on `[exec.base_env] PATH`. Venv, pipx and shim directories belong there.
@@ -196,11 +188,11 @@ faramir redact -- ./deploy.sh
 
 Flag | Effect
 --- | ---
-`--env NAME=secret://ref` | Once per secret
-`--env-file FILE` | `NAME=secret://ref` per line, `#` comments
-`--quiet` | Suppress the redaction summary on stderr
-`--cwd`/`-C`, `--timeout`/`-t` | Working directory, runtime ceiling
-`--socket`, `--json` | On every broker-facing command
+`--env NAME=secret://ref` | Once per secret.
+`--env-file FILE` | `NAME=secret://ref` per line, `#` comments.
+`--quiet` | Suppress the redaction summary on stderr.
+`--cwd`/`-C`, `--timeout`/`-t` | Working directory, runtime ceiling.
+`--socket`, `--json` | On every broker-facing command.
 
 - The child's exit code is faramir's own. A broker that is not running exits 69 (`EX_UNAVAILABLE`).
 - Both `--env` and `--env-file` refuse a literal value and a name that cannot be an environment variable.
@@ -209,9 +201,9 @@ Flag | Effect
 
 Tool | Description
 --- | ---
-`faramir_run(cmd, env_refs, cwd, timeout_sec)` | Run a command with secrets bound to environment variables
-`faramir_list_secrets()` | Ref names only
-`faramir_status()` | Config path, loaded files, ref count
+`faramir_run(cmd, env_refs, cwd, timeout_sec)` | Run a command with secrets bound to environment variables.
+`faramir_list_secrets()` | Ref names only.
+`faramir_status()` | Config path, loaded files, ref count.
 
 Wire protocol: [docs/protocol.md](docs/protocol.md).
 
@@ -221,11 +213,11 @@ Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 Setting | Effect
 --- | ---
-`[exec.base_env] PATH` | Where a bare name is looked up, and the only `PATH` the child gets
-`[exec] max_timeout_sec` | How long a command may run
-`[exec] max_output_bytes` | What comes back; the audit log keeps up to `[audit] max_record_bytes`
-`[secrets] min_length` and friends | A value too short or low-entropy to redact is refused at load, so it can be injected by nothing
-the executor's uid | The real bound
+`[exec.base_env] PATH` | Where a bare name is looked up, and the only `PATH` the child gets.
+`[exec] max_timeout_sec` | How long a command may run.
+`[exec] max_output_bytes` | What comes back; the audit log keeps up to `[audit] max_record_bytes`.
+`[secrets] min_length` and friends | A value too short or low-entropy to redact is refused at load, so it can be injected by nothing.
+the executor's uid | The real bound.
 
 - `allowed_groups` admits every member of a group including supplementary membership. Intended on `[server]`. Leave it empty on `[keeper]` and `[executor]`, whose only legitimate client is the broker, named in `allowed_users`. Both warn at startup when it is not.
 - No config names where a command runs. A brokered command runs where its caller was; a request naming no cwd is refused.
@@ -236,7 +228,7 @@ Lists split by what they are:
 
 What | Rule | Why
 --- | --- | ---
-`[secrets] files`, `[ssh] keys` | **accumulate**, duplicates collapsed | Inventories with one entry per owner. Replacing would leave the broker holding fewer files than its operator believes, injecting and redacting nothing for the loser.
+`[secrets] files`, `[ssh] keys` | **accumulate**, duplicates collapsed | Inventories with one entry per owner. Replacing would leave the broker holding fewer files than its operator believes, injecting and redacting nothing for the loser. `files` entries are glob patterns, deduplicated again after expansion, so a drop-in naming a file the base already globs adds nothing rather than decrypting it twice.
 every other list | **refused** when two sources set it, naming both | `allowed_users`, `allowed_groups`, `allowed_uids` and `decrypt_command` are policy. Accumulating would widen what the sockets admit by writing a file that never said so; taking the last would make it depend on filename order.
 
 - Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir broker --check` report `configs`: the base file and every drop-in that contributed, in merge order.
@@ -248,11 +240,11 @@ every other list | **refused** when two sources set it, naming both | `allowed_u
 
 Fails on | Because
 --- | ---
-An unknown key or `[section]` | A config that reads as though it took effect
-A value out of range | Same
-A ref too short or low-entropy to redact | Refused at load, so covered by nothing
-A `[secrets]` file that did not load, including one that is not there | Those values are absent from the redactor
-A `[ssh] key` missing, passphrase-protected, or the `.pub` | `ssh-add` refuses it, leaving every host unreachable
+An unknown key or `[section]` | A config that reads as though it took effect.
+A value out of range | Same.
+A ref too short or low-entropy to redact | Refused at load, so covered by nothing.
+A `[secrets] files` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
+A `[ssh] key` missing, passphrase-protected, or the `.pub` | `ssh-add` refuses it, leaving every host unreachable.
 
 A store on a filesystem that is not mounted yet looks exactly like one that was never written, and both leave the broker redacting nothing. Empty `[ssh] keys` passes.
 
@@ -288,7 +280,7 @@ Enforcement | Hook plus filesystem permissions. | Instructions to the agent are 
 
 ```text
 /usr/local/bin/faramir        the only binary; every role below is a subcommand
-/usr/local/libexec/faramir/   the hook's deny list and wrap.sh, rendered per install
+/usr/local/libexec/faramir/   the deny list and wrap.sh, rendered per install
 
 uid <operator>                you; runs the coding agent, member of group dev
 uid faramir-keeper            faramir keeper: holds the age key; execs nothing but sops
@@ -315,13 +307,13 @@ A brokered command cannot:
 
 Cannot | Why
 --- | ---
-read the age key | 0400 `faramir-keeper`; `dev` is not in that mode
-read the managed sops files | 2750 `root:faramir-keeper`; nothing but the keeper is in that group, the broker included
-open the keeper socket | 0660 `root:faramir-broker`, and it is not in that group
-ask the keeper for the key | there is no such request
-read or truncate the audit log | 0600 `faramir-broker`
-read the SSH keys | 0700 `faramir-broker`; it gets an agent socket
-receive `SOPS_AGE_KEY` | nothing puts it there
+read the age key | 0400 `faramir-keeper`; `dev` is not in that mode.
+read the managed sops files | 2750 `root:faramir-keeper`; nothing but the keeper is in that group, the broker included.
+open the keeper socket | 0660 `root:faramir-broker`, and it is not in that group.
+ask the keeper for the key | there is no such request.
+read or truncate the audit log | 0600 `faramir-broker`.
+read the SSH keys | 0700 `faramir-broker`; it gets an agent socket.
+receive `SOPS_AGE_KEY` | nothing puts it there.
 
 It **can** write the working tree, and reach the broker socket: the response is redacted and audited like any other.
 
@@ -356,11 +348,14 @@ Two checks demonstrate rather than assert: piping a secret through `rev` or `cut
 
 `make test` runs everything else in a temp directory under a single uid, which exercises the protocol, the PTY hand-off and the redactor, not the uid boundary.
 
+The opencode and Kilo Code plugins are the only shipped logic that is not Go, so they are run rather than read: node drives the shipped file against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed. Skipped where node is absent. What no test covers is a running opencode or Kilo Code, or Bun, which is the runtime both load a plugin under.
+
 ## Operations
 
-- **Editing a managed sops file needs nothing.** The broker picks it up within `refresh_interval_sec`, asking the keeper to decrypt, so both must be running.
+- **Editing a managed sops file needs nothing, and so does adding one.** `[secrets] files` globs the store, and the keeper expands it per request, so a file dropped in changes the state the broker polls and is picked up within `refresh_interval_sec`. Both daemons must be running.
 - **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.
 - **The keeper must be up before the broker is useful.** With no keeper the broker keeps its previous value set; on a cold start that set is empty and nothing is redacted.
+- **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so an installed binary too old to know the agent refuses every command in that project rather than running it unredacted.
 - **`[secrets] files` belongs under `/etc`, not a checkout.** A home is not mounted until login.
 - **Children do not inherit the broker's environment.** They get `[exec.base_env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null`. Pass non-interactive flags.
@@ -379,8 +374,8 @@ Where you put them is what decides the powered-off case:
 
 `--config-dir` | Powered off, with the drive
 --- | ---
-`/etc/faramir` (default) | the key and the store are both on the root filesystem. Use full-disk encryption
-inside an encrypted home | the disk carries neither, and unlocking is the login that already gates the store
+`/etc/faramir` (default) | the key and the store are both on the root filesystem. Use full-disk encryption.
+inside an encrypted home | the disk carries neither, and unlocking is the login that already gates the store.
 
 LUKS on the root filesystem is the measure that does not depend on where
 anything ended up, and it covers the audit log, `/var/lib/faramir-broker` and
@@ -415,14 +410,15 @@ cmd/faramir/broker.go  policy, redaction, audit log, SSH keys
 cmd/faramir/keeper.go  holds the age key, execs sops, serves values only
 cmd/faramir/exec.go    forks brokered commands, holds nothing
 internal/mcp           MCP stdio server
-internal/guard         the pre-execution hook, one per agent dialect
+internal/guard         the pre-execution check, one dialect per agent
 internal/cli           the subcommand names, shared by the dispatcher and the guard
 internal/              implementation; each package doc explains its decisions
 internal/e2e           end-to-end suite: a real keeper, executor and broker
 internal/install       what `faramir init`, `doctor` and `uninstall` do
 systemd/               socket and hardened service unit templates, one pair per role
 etc/                   the config template, rendered on every run; your settings go in config.d
-agent/                 deny patterns, and per-agent settings: agent/claude, agent/gemini
+agent/                 deny patterns, and per-agent settings and plugins:
+                       agent/claude, agent/gemini, agent/opencode, agent/kilocode
 tests/verify.sh        the verification matrix
 docs/                  redaction, wire protocol, Ansible, scope
 ```

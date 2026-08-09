@@ -50,9 +50,30 @@ func unitValues() []string {
 	return out
 }
 
+// supplementaryGroups is the value of a rendered unit's SupplementaryGroups=,
+// or "" when it has none.
+//
+// Parsed rather than grepped for, because every unit that does not join a group
+// says so in a comment naming it, and a substring match cannot tell the
+// directive from the explanation of why it is absent.
+func supplementaryGroups(t *testing.T, unit string, layout Layout) string {
+	t.Helper()
+	body, err := render(units[unit], layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	const directive = "SupplementaryGroups="
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if after, found := strings.CutPrefix(line, directive); found {
+			return after
+		}
+	}
+	return ""
+}
+
 // Two groups with two jobs.  The client group is named in the config the
 // sockets check and in the unit that reaches the working tree; the store group
-// is named only by the daemons that read the ciphertext.  A rendered pair that
+// is named by the one daemon that opens the ciphertext.  A rendered pair that
 // disagrees on the first is a broker that installs cleanly and then refuses
 // every connection.  A pair that confuses the two is worse: it hands everyone
 // allowed to ask for a value by name the file that value came from.
@@ -65,30 +86,24 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	if !strings.Contains(string(config), `allowed_groups = ["shared"]`) {
 		t.Errorf("config does not admit group %q", layout.Group)
 	}
-	// The executor reaches the working tree, so it joins the client group.  It
-	// must never join the store group: a brokered command runs as it, and that
-	// is the account an agent's commands arrive on.
-	exec, err := render(units["faramir-exec.service"], layout)
-	if err != nil {
-		t.Fatal(err)
+	// The executor reaches the working tree, so it joins the client group and
+	// only that.  It must never join the store group: a brokered command runs
+	// as it, and that is the account an agent's commands arrive on.
+	if got := supplementaryGroups(t, "faramir-exec.service", layout); got != layout.Group {
+		t.Errorf("exec joins %q, want the client group %q", got, layout.Group)
 	}
-	if !strings.Contains(string(exec), "SupplementaryGroups=shared") {
-		t.Errorf("exec does not join client group %q", layout.Group)
+	// The keeper decrypts and fingerprints, so it is the one that needs the
+	// store group, and it does not need the client group.
+	if got := supplementaryGroups(t, "faramir-keeper.service", layout); got != layout.StoreGroup {
+		t.Errorf("keeper joins %q, want the store group %q", got, layout.StoreGroup)
 	}
-	if strings.Contains(string(exec), layout.StoreGroup) {
-		t.Errorf("exec names the store group %q; a brokered command runs as it",
-			layout.StoreGroup)
-	}
-	// The keeper decrypts and the broker stats, so both need the store group and
-	// neither needs the client group.
-	for _, name := range []string{"faramir-keeper.service", "faramir-broker.service"} {
-		body, err := render(units[name], layout)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(body), "SupplementaryGroups=store") {
-			t.Errorf("%s does not join store group %q", name, layout.StoreGroup)
-		}
+	// The broker joins the executor's group to chown the ssh-agent socket, and
+	// nothing else.  It already holds every decrypted value, so read on the
+	// ciphertext would let it copy files it never decrypts and buy no capability
+	// it lacks; it asks the keeper what changed instead.
+	if got := supplementaryGroups(t, "faramir-broker.service", layout); got != layout.ExecUser {
+		t.Errorf("broker joins %q, want the executor's group %q alone",
+			got, layout.ExecUser)
 	}
 	socket, err := render(units["faramir-broker.socket"], layout)
 	if err != nil {
@@ -117,7 +132,10 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	want := map[string]map[string]string{
 		"faramir-broker.service": {
 			"User": "br", "Group": "br", "StateDirectory": "br",
-			"SupplementaryGroups": "store ex",
+			// The executor's group and nothing else.  Not the store group: the
+			// broker holds the plaintext and asks the keeper what changed, so
+			// read on the ciphertext would add reach without adding a capability.
+			"SupplementaryGroups": "ex",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir broker",
 			"SyslogIdentifier":    "faramir-broker",
