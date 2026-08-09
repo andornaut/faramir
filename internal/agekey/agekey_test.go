@@ -158,3 +158,89 @@ func TestRecipientNamesAFileWithNoKeyInIt(t *testing.T) {
 		t.Errorf("the error does not name the file: %v", err)
 	}
 }
+
+// What ends up in .sops.yaml is written once and kept, and that file is 0644 by
+// design: it holds public keys and a rule and no value, so checking who can
+// decrypt does not need sudo.  Everything below is a string that must never
+// reach it, or one that must.
+func TestValidateRecipient(t *testing.T) {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name      string
+		recipient string
+		ok        bool
+		says      string
+	}{
+		{name: "a minted recipient", recipient: id.Recipient().String(), ok: true},
+		{
+			name: "an ssh public key", ok: true,
+			recipient: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIE7mQ0TawUvfWHLeaoBg0q1So2tY3VIpiGMzBGsDbOZi operator@host",
+		},
+		{
+			// Accepted on its shape: only the plugin binary can parse one, and
+			// requiring it on the host being provisioned would refuse a recipient
+			// sops itself would take.
+			name: "an age plugin recipient", ok: true,
+			recipient: "age1yubikey1q2c94wdful8xa9dqe4qy5ldu2s6ct2zkweqhq5c2f3sk6zmr5rqvqm2dxqz",
+		},
+		{
+			// The one that matters.  Both halves sit in the same file, adjacent,
+			// and only one of them is safe to publish.
+			name: "the private half", recipient: id.String(),
+			says: "private half",
+		},
+		{
+			name: "a path to a key file", recipient: "/home/operator/.age/key.txt",
+			says: "unknown recipient type",
+		},
+		{
+			name: "a mistyped recipient", recipient: id.Recipient().String() + "x",
+			says: "not an age recipient",
+		},
+		{
+			// A recipient is written as one item of a YAML list, so a line break
+			// in it is whatever follows read as YAML of its own.
+			name:      "a recipient carrying a line break",
+			recipient: id.Recipient().String() + "\n          - " + id.String(),
+			says:      "line break",
+		},
+		{name: "nothing at all", recipient: "", says: "empty"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateRecipient(tc.recipient)
+			if tc.ok {
+				if err != nil {
+					t.Fatalf("ValidateRecipient(%q) = %v, want it accepted", tc.recipient, err)
+				}
+				return
+			}
+			if err == nil {
+				t.Fatalf("ValidateRecipient(%q) = nil: it would be written to a "+
+					"world-readable file and kept there", tc.recipient)
+			}
+			if !strings.Contains(err.Error(), tc.says) {
+				t.Errorf("error does not say %q: %v", tc.says, err)
+			}
+		})
+	}
+}
+
+// The message for a private half must not quote it.  Errors are printed, logged
+// and pasted into issues, and a refusal that repeats the key back has published
+// it in every one of those places.
+func TestValidateRecipientDoesNotEchoAPrivateKey(t *testing.T) {
+	id, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = ValidateRecipient(id.String())
+	if err == nil {
+		t.Fatal("a private key was accepted as a recipient")
+	}
+	if strings.Contains(err.Error(), "AGE-SECRET-KEY") {
+		t.Errorf("KEY MATERIAL IN THE ERROR: %v", err)
+	}
+}

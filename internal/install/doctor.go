@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/config"
 )
 
@@ -140,11 +141,62 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 			"and the store is globbed by [secrets] files. Move it: sudo mv %s %s",
 			stale, stale, current)
 	case exists(current):
-		report.add("sops config", StatusOK, "%s", current)
+		diagnoseSopsRecipients(report, opts, current)
 	default:
 		report.add("sops config", StatusWarn, "no %s, so sops has no creation rule "+
 			"and refuses to encrypt a new file in the store", current)
 	}
+}
+
+// diagnoseSopsRecipients answers who can decrypt what the store will hold next.
+//
+// One finding rather than two, folded into the check that says the rule is where
+// it belongs, because a rule in the right place listing the wrong recipients is
+// not a healthier state than one in the wrong place.
+//
+// The keeper's own recipient is the one that has to be there.  Every other
+// difference is a backup key that turns out to open nothing, which is bad on the
+// day it is needed; a rule that has stopped naming the keeper is a store whose
+// next value the broker cannot read, and that broker starts, reports healthy, and
+// serves nothing.  init only ever writes this file once, so nothing else notices:
+// a key restored from a backup or re-minted after the file was unlinked leaves
+// the rule naming the recipient it used to have.
+func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path string) {
+	listed, err := sopsRecipients(path)
+	if err != nil {
+		report.add("sops config", StatusWarn, "%s does not parse (%v), so who can "+
+			"decrypt the store is unknown here. sops has to read this file too", path, err)
+		return
+	}
+	if len(listed) == 0 {
+		report.add("sops config", StatusWarn, "%s lists no age recipient, so sops "+
+			"encrypts a new file in the store to nobody and refuses", path)
+		return
+	}
+	// Read as whoever is running: the key is 0400 and the keeper's, so this
+	// answers only under sudo.  Reported as unchecked rather than as a pass,
+	// which is the rule the boundary checks follow for the same reason.
+	keyPath := filepath.Join(opts.ConfigDir, "age.key")
+	keeper, err := agekey.Recipient(keyPath)
+	if err != nil {
+		report.add("sops config", StatusWarn, "%s lists %s, and whether %s is among "+
+			"them went unchecked: %v. Re-run as root", path, strings.Join(listed, ", "),
+			keyPath, err)
+		return
+	}
+	// Warn rather than failed, like every other finding here: the values already
+	// in the store still decrypt, so this is a host that works today and cannot
+	// take a new value tomorrow, and a failed verdict would exit non-zero on it.
+	if !slices.Contains(listed, keeper) {
+		report.add("sops config", StatusWarn, "%s lists %s, none of which is the "+
+			"recipient of %s (%s). Every value encrypted into the store from now on is "+
+			"one %s cannot decrypt, and a broker that loads nothing still starts. Add it "+
+			"under `- age:`, then re-key each existing file with sops updatekeys",
+			path, strings.Join(listed, ", "), keyPath, keeper, opts.KeeperUser)
+		return
+	}
+	report.add("sops config", StatusOK, "%s, %d recipient(s) including %s's",
+		path, len(listed), opts.KeeperUser)
 }
 
 // diagnoseUnits reports the sockets, not the services: all three are socket

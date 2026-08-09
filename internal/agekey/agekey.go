@@ -12,8 +12,10 @@ import (
 	"fmt"
 	"os"
 	"regexp"
+	"strings"
 
 	"filippo.io/age"
+	"filippo.io/age/agessh"
 )
 
 // recipientPattern matches the public half.  The identity file holds both, and
@@ -56,6 +58,68 @@ func Generate(path string) (recipient string, created bool, err error) {
 		return "", false, err
 	}
 	return id.Recipient().String(), true, nil
+}
+
+// ValidateRecipient reports whether s is something sops will accept where a
+// creation rule lists its age recipients.
+//
+// Checked before it is written rather than when sops next runs, for two
+// reasons.  .sops.yaml is world-readable by design, holding public keys and a
+// rule and no value, so a private half pasted in place of a public one is the
+// key that opens the store handed to every account on the host, the executor's
+// included.  And that file is written once and kept, so a recipient sops cannot
+// parse is not a run that fails but every later encrypt failing, long after the
+// flag that caused it and on a host where nothing still says which flag it was.
+//
+// The shapes are sops' own, from parseRecipient in its age key source: a bech32
+// X25519 or post-quantum hybrid recipient, an age plugin recipient, or an ssh
+// public key.  A plugin recipient is taken on its shape alone, the plugin binary
+// being the only thing that can parse one and not something a host has to have
+// installed to be provisioned.
+func ValidateRecipient(s string) error {
+	if s == "" {
+		return errors.New("empty age recipient")
+	}
+	// A line break would close the list item this lands in and let what follows
+	// be read as YAML of its own, which makes the creation rule only as narrow
+	// as the strings put into it.  Refused rather than escaped: no recipient
+	// sops accepts carries one.
+	if strings.ContainsAny(s, "\n\r") {
+		return fmt.Errorf("age recipient contains a line break: %q", s)
+	}
+	// Named before the shapes below, because both are prefixes no recipient has
+	// and both are what somebody reaches for by mistake: the two halves sit in
+	// the same file, adjacent, and only one of them is safe to publish.
+	if strings.HasPrefix(s, "AGE-SECRET-KEY-") || strings.HasPrefix(s, "AGE-PLUGIN-") {
+		return errors.New("that is an age identity, the private half, not a recipient. " +
+			".sops.yaml is world-readable, so writing it there hands the key that opens " +
+			"the store to every account on this host. Pass the public half instead: the " +
+			"age1... line, which is also the '# public key:' comment above the identity")
+	}
+	switch {
+	case strings.HasPrefix(s, "age1pq1"):
+		if _, err := age.ParseHybridRecipient(s); err != nil {
+			return fmt.Errorf("not a post-quantum age recipient: %w", err)
+		}
+	// bech32 spells its data part without a '1', so a second one separates a
+	// plugin name (age1yubikey1...) rather than being part of the key.  sops
+	// tells the two apart this way and so does this.
+	case strings.HasPrefix(s, "age1") && strings.Count(s, "1") > 1:
+		return nil
+	case strings.HasPrefix(s, "age1"):
+		if _, err := age.ParseX25519Recipient(s); err != nil {
+			return fmt.Errorf("not an age recipient: %w", err)
+		}
+	case strings.HasPrefix(s, "ssh-"):
+		if _, err := agessh.ParseRecipient(s); err != nil {
+			return fmt.Errorf("not an ssh public key: %w", err)
+		}
+	default:
+		return fmt.Errorf("unknown recipient type: %q. sops takes an age recipient "+
+			"(age1...) or an ssh public key (ssh-ed25519 ..., ssh-rsa ...), not a path "+
+			"to one and not an identity file", s)
+	}
+	return nil
 }
 
 // Recipient reads the public half out of an identity file.  The last match, so

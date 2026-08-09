@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -104,7 +105,11 @@ type Report struct {
 	// brokered commands authenticate as nobody.  Reported every run, not only
 	// when the key was just generated.
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
-	// AgeRecipients is who can decrypt the managed files.
+	// AgeRecipients is who can decrypt the managed files: what .sops.yaml lists,
+	// read back from the file, and not what --age-recipient asked for.  The two
+	// agree only on the run that creates it, and reporting the request was how a
+	// flag that had been ignored for months still read as applied.  Empty when
+	// the file could not be read or was not reached, rather than guessed at.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
 }
 
@@ -199,7 +204,9 @@ func Run(opts Options) (Report, error) {
 			return run.report, err
 		}
 	}
-	run.report.AgeRecipients = run.opts.AgeRecipients
+	// AgeRecipients is set by the sops config step, which is the only thing here
+	// that has read the file.  Not restated from the options: that is the request,
+	// and on every run after the first the request is not what governs.
 	return run.report, nil
 }
 
@@ -273,6 +280,17 @@ func (r *runner) preflight() error {
 	}
 	if !userExists(r.opts.Operator) {
 		return fmt.Errorf("no such user: %s", r.opts.Operator)
+	}
+	// Before any account exists and long before .sops.yaml is written, because
+	// that file is written once and then kept: a recipient that is not one lands
+	// in a world-readable rule and stays there, and what it breaks -- every later
+	// encrypt, or the privacy of a private key -- surfaces nowhere near the run
+	// that accepted it.  The keeper's own is added after this and needs no check,
+	// having just been read out of the key.
+	for _, recipient := range r.opts.AgeRecipients {
+		if err := agekey.ValidateRecipient(recipient); err != nil {
+			return fmt.Errorf("--age-recipient: %w", err)
+		}
 	}
 	// An encrypted home is a different directory before its owner logs in, and
 	// writing to it then lands in the unencrypted backing store, where it is
