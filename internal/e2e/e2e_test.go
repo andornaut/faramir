@@ -95,7 +95,6 @@ func newHarness(t *testing.T) *harness {
 		},
 		Executor: config.ExecutorConfig{
 			SocketPath: filepath.Join(runDir, "exec.sock"), SocketMode: 0o660,
-			MaxConcurrency: 8,
 		},
 		Exec: config.ExecConfig{
 			DefaultTimeoutSec: 30, MaxTimeoutSec: 60,

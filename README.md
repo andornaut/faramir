@@ -301,7 +301,7 @@ Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
 - **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.
-- **The keeper must be up before the broker is useful.** With no keeper the broker keeps its previous value set; on a cold start that set is empty and nothing is redacted.
+- **The keeper must be up before the broker is.** On a cold start there is no previous value set, so a keeper it cannot reach means nothing to redact with, and the broker exits rather than serving that. Its unit `Requires=` the keeper socket and restarts on failure, so activation normally supplies this. A keeper lost *later* does not stop a running broker: it keeps the set it already has and retries.
 - **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so an installed binary too old to know the agent refuses every command in that project rather than running it unredacted.
 - **Children do not inherit the broker's environment.** They get `[exec.base_env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null`. Pass non-interactive flags.
@@ -328,6 +328,7 @@ the executor's uid | The real bound.
 - `allowed_groups` admits every member of a group including supplementary membership, and exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_users`; the group form is not a key there and setting it is a hard error naming the alternatives, because the only group in play is the client group, which holds the agent's own uid.
 - No config names where a command runs. A brokered command runs where its caller was; a request naming no cwd is refused.
 - A mistyped key or `[section]` is a hard error naming the alternatives. Values are range-checked. Zero stays legal where it means something (`kill_grace_sec = 0`, `refresh_interval_sec = 0`).
+- **The sockets belong to their units.** Under socket activation the daemons are handed a listening descriptor and never reach the bind path, so `ListenStream=` and `SocketMode=` are what a socket is; `socket_path` and `socket_mode` only describe it. `init` renders both sides together. A drop-in setting either is refused, because it would move nothing and still break something: the broker *dials* the keeper and the executor at the configured path, and `doctor` inspects the mode of the file named there, so an edit disconnects the broker from a daemon still listening where it always was. Change them with `faramir init`.
 - **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order, and are where *everything you set* goes. `config.toml` is faramir's own and `init` rewrites it every run, so an edit there is replaced without warning; `init` never touches a drop-in. Tables merge key by key, so one `[secrets] files` does not discard `min_length` and one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
 
 Lists split by what they are:
@@ -340,7 +341,7 @@ every other list | **refused** when two sources set it, naming both | `allowed_u
 - Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir broker --check` report `configs`: the base file and every drop-in that contributed, in merge order.
 - Dotfiles are skipped, so an editor's `.#name.toml` lock does not stop the daemons starting.
 
-### The install gate
+### The install gate, and the same gate at startup
 
 `faramir broker --check` exits non-zero on anything that leaves the broker protecting less than it appears to.
 
@@ -357,6 +358,8 @@ A `[ssh] key` missing, passphrase-protected, or the `.pub` | `ssh-add` refuses i
 A store on a filesystem that is not mounted yet looks exactly like one that was never written, and both leave the broker redacting nothing. Empty `[ssh] keys` passes.
 
 Run it as the broker's own account. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on; the `allowed_users` check is skipped there too, since from root every name compares unequal. `faramir doctor` makes the same check knowing the account names.
+
+**The fourth row is also checked every time the broker starts.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time. The daemon now applies the same rule to itself: a configured file it cannot load, including a keeper it cannot reach on a cold start, and it logs what failed and exits rather than binding its socket. The unit restarts on failure, which is what recovers the cases that resolve themselves — a volume that mounts a moment later, a keeper still starting. Later failures do not stop a running broker: it keeps the last value set it knew to be true, which is the better answer once there is one.
 
 ### What no setting changes
 

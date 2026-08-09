@@ -60,8 +60,19 @@ type Executor struct {
 	wg     sync.WaitGroup
 }
 
+// maxConcurrent is a backstop, not a knob.
+//
+// The broker is the executor's only permitted client and gates every child
+// behind [server] max_concurrency, holding a slot for the whole run, so that
+// number is the one that binds and this one is never reached. It was a config
+// key set four times higher than the cap above it: an operator could raise or
+// lower it and watch nothing change. What it still buys is that a broker with a
+// bug cannot fork without limit here, which is a reason to keep the check and
+// no reason to let anyone tune it.
+const maxConcurrent = 16
+
 func New(cfg *config.Config) *Executor {
-	return &Executor{config: cfg, slots: make(chan struct{}, cfg.Executor.MaxConcurrency)}
+	return &Executor{config: cfg, slots: make(chan struct{}, maxConcurrent)}
 }
 
 func (e *Executor) Listen() (net.Listener, error) {
