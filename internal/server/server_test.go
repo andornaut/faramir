@@ -455,3 +455,44 @@ func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
 		t.Error("a config naming only the broker failed the gate")
 	}
 }
+
+// redact answers whether a piece of text holds a managed value, so a caller
+// that knows part of one can complete it by asking.  The limit does not close
+// that; it stops it being free and invisible.
+func TestRedactIsRateLimitedPerAccount(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	s.Config.Server.MaxRedactsPerMin = 3
+	peer := &sockutil.Peer{UID: 1000}
+	other := &sockutil.Peer{UID: 1001}
+
+	for i := range 3 {
+		if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
+			t.Fatalf("call %d was refused under the limit: %v", i+1, got["error"])
+		}
+	}
+	refused := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer)
+	if refused["error"] == nil {
+		t.Error("a fourth call passed a limit of three")
+	}
+	// Per account, so one caller's probing does not withhold another's output.
+	if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, other); got["error"] != nil {
+		t.Errorf("a different uid was refused: %v", got["error"])
+	}
+	// Nothing else is limited: exec and the read-only ops are not the oracle.
+	if got := s.Handle(map[string]any{"op": "list_secrets"}, peer); got["error"] != nil {
+		t.Errorf("list_secrets was rate limited: %v", got["error"])
+	}
+}
+
+// Zero is the documented way to turn it off, and the loop below is more calls
+// than the default would allow.
+func TestRedactIsUnlimitedAtZero(t *testing.T) {
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	s.Config.Server.MaxRedactsPerMin = 0
+	peer := &sockutil.Peer{UID: 1000}
+	for i := range 300 {
+		if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
+			t.Fatalf("call %d was refused with no limit set: %v", i+1, got["error"])
+		}
+	}
+}

@@ -45,6 +45,14 @@ max_request_bytes = 262144
 # supplementary one, which is how {{.Group}} is granted (usermod -aG).
 allowed_groups = ["{{.Group}}"]
 allowed_uids = []
+# The redact op per calling uid, over a sliding minute; 0 is no limit.
+#
+# redact says whether a piece of text holds a managed value, so a caller that
+# already knows part of one can complete it by asking.  Rating it does not close
+# that -- nothing does, short of removing the op -- but it stops the asking being
+# free and invisible.  The wrapper makes one call per Bash command, so this is
+# far above what an agent session reaches; raise it if a tool of yours does not.
+max_redacts_per_min = 240
 
 # The process that holds the age key.  It runs as its own uid, execs nothing
 # but sops, and has no operation that returns key material -- so no command the

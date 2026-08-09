@@ -252,6 +252,14 @@ type ServerConfig struct {
 	MaxRequestBytes int
 	AllowedUIDs     []int
 	AllowedGroups   []string
+	// MaxRedactsPerMin bounds the redact op per calling uid.  Zero is no limit.
+	//
+	// redact answers whether a piece of text holds a managed value, which makes
+	// it an oracle: a caller that already knows part of a value can complete it
+	// by asking.  Rating it does not close that -- nothing does, short of
+	// removing the op -- but it turns an unmetered probe into one the operator
+	// can see, at a ceiling no honest session reaches.
+	MaxRedactsPerMin int
 }
 
 type ExecConfig struct {
@@ -548,7 +556,8 @@ func appendNew(existing, incoming []any) []any {
 var (
 	sections   = []string{"server", "keeper", "executor", "exec", "ssh", "secrets", "audit"}
 	serverKeys = []string{"socket_path", "socket_mode", "max_concurrency",
-		"max_request_bytes", "allowed_uids", "allowed_groups"}
+		"max_request_bytes", "allowed_uids", "allowed_groups",
+		"max_redacts_per_min"}
 	keeperKeys = []string{"socket_path", "socket_mode", "allowed_users",
 		"age_key_credential", "age_key_file"}
 	executorKeys = []string{"socket_path", "socket_mode", "allowed_users",
@@ -608,7 +617,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 		SocketPath:     "/run/faramir/broker.sock",
 		SocketMode:     0o660,
 		MaxConcurrency: 4, MaxRequestBytes: 262144,
-		AllowedGroups: []string{"dev"},
+		AllowedGroups: []string{"dev"}, MaxRedactsPerMin: 240,
 	}
 	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
 		return err
@@ -630,6 +639,11 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 		return err
 	}
 	if out.AllowedGroups, err = stringList(sec["allowed_groups"], where, out.AllowedGroups); err != nil {
+		return err
+	}
+	// Zero is legal and means no limit, so atLeast(0) rather than atLeast(1).
+	if out.MaxRedactsPerMin, err = atLeast(sec, "max_redacts_per_min", where,
+		out.MaxRedactsPerMin, 0); err != nil {
 		return err
 	}
 	return nil

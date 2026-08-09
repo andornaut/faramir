@@ -107,6 +107,8 @@ Mode | Cost
 
 Rewriting rather than denying is the point: a deny list covers what somebody thought to name, and the command that leaks a credential is usually one nobody would have.
 
-**A `redact` op is an oracle.** A guessed value comes back confirmed or not, unmetered and invisible. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. If that weighting changes, fix this first.
+**A `redact` op is an oracle.** A guessed value comes back confirmed or not. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. If that weighting changes, fix this first.
+
+`[server] max_redacts_per_min` bounds how fast one account may ask, per calling uid over a sliding minute, 240 by default. It does not close the oracle and nothing short of removing the op would: what it removes is the "unmetered and invisible" half, so completing a partly known value costs time and leaves a run of refusals in the journal and the audit log. The ceiling is far above the one call per Bash command the wrapper makes. A guess shorter than `[secrets] min_length` was never an oracle in the first place, every value below that length being refused at load and absent from the matcher.
 
 **A killed command loses its output.** Redaction happens after the command finishes, so a timeout or interrupt yields nothing where an unwrapped command would have shown partial output. The cost of buffering, which the persistent shell forces.

@@ -320,6 +320,7 @@ Setting | Effect
 `[exec] max_timeout_sec` | How long a command may run.
 `[exec] max_output_bytes` | What comes back; the audit log keeps up to `[audit] max_record_bytes`.
 `[secrets] min_length` and friends | A value too short or low-entropy to redact is refused at load, so it can be injected by nothing.
+`[server] max_redacts_per_min` | How often one account may ask whether a piece of text holds a managed value. 240 by default, 0 for no limit. The wrapper makes one call per Bash command, so raise it only for a tool of yours that does more.
 the executor's uid | The real bound.
 
 - `allowed_groups` admits every member of a group including supplementary membership, and exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_users`; the group form is not a key there and setting it is a hard error naming the alternatives, because the only group in play is the client group, which holds the agent's own uid.

@@ -56,6 +56,46 @@ type Server struct {
 	slots chan struct{}
 	ln    net.Listener
 	wg    sync.WaitGroup
+
+	// redacts counts the redact op per calling uid over a sliding minute.
+	redacts struct {
+		sync.Mutex
+		at map[int32][]time.Time
+	}
+}
+
+// allowRedact reports whether this peer may run one more redact, and records
+// it.  A sliding window rather than a token bucket: what matters is the count
+// over a minute, and a bucket would let a burst through after any quiet spell,
+// which is the shape a probe has.
+//
+// Keyed by uid, not by connection: each request is its own connection, so
+// anything per-connection would count to one every time.
+func (s *Server) allowRedact(peer *sockutil.Peer) bool {
+	limit := s.Config.Server.MaxRedactsPerMin
+	if limit <= 0 || peer == nil {
+		return true
+	}
+	now := time.Now()
+	cutoff := now.Add(-time.Minute)
+
+	s.redacts.Lock()
+	defer s.redacts.Unlock()
+	if s.redacts.at == nil {
+		s.redacts.at = map[int32][]time.Time{}
+	}
+	kept := s.redacts.at[peer.UID][:0]
+	for _, at := range s.redacts.at[peer.UID] {
+		if at.After(cutoff) {
+			kept = append(kept, at)
+		}
+	}
+	if len(kept) >= limit {
+		s.redacts.at[peer.UID] = kept
+		return false
+	}
+	s.redacts.at[peer.UID] = append(kept, now)
+	return true
 }
 
 func New(cfg *config.Config) *Server {
@@ -216,12 +256,32 @@ func (s *Server) opStatus() protocol.Response {
 // answer says whether the guess was right.  That is a trade this design accepts
 // -- see docs/design.md -- because the failure it exists to stop is a credential
 // reaching the transcript by accident, and an accident does not guess.
+// [server] max_redacts_per_min bounds how fast one account may ask.  It does
+// not close the oracle, and nothing short of removing the op would; what it
+// buys is that completing a partly-known value stops being free and invisible,
+// at a ceiling the wrapper's one call per Bash command never approaches.
 // Recorded like every other op, because it is the one an oracle attack would
 // use: a caller probing a guessed value leaves a run of redact calls that hit
 // nothing, and without a record there is no trace of it at all.  The text is
 // not logged, only its size and what was found in it, so the record still holds
 // no value and neither confirms nor denies a guess to anyone reading the log.
 func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+	// Refused rather than delayed.  The wrapper fails closed on an error, so a
+	// caller that trips this gets its output withheld and says so, where a wait
+	// would stall the agent's shell with no explanation.
+	if !s.allowRedact(peer) {
+		logID := audit.NewLogID()
+		log.Printf("%s uid %d is over [server] max_redacts_per_min (%d); refusing",
+			logID, peer.UID, s.Config.Server.MaxRedactsPerMin)
+		s.Audit.Write(map[string]any{
+			"log_id": logID, "op": "redact", "peer": peer,
+			"input_bytes": len(request.Text), "refused": "rate_limited",
+		}, "")
+		return protocol.ErrorResponse("rate_limited", fmt.Sprintf(
+			"more than %d redact calls in a minute from this account; "+
+				"raise [server] max_redacts_per_min if this is ordinary use",
+			s.Config.Server.MaxRedactsPerMin), logID)
+	}
 	redactor := s.redactor()
 	output := redactor.RedactText(request.Text)
 	summary := redactor.Summary()
