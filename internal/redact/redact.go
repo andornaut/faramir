@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 // --------------------------------------------------------------------------
@@ -379,67 +380,111 @@ func (r *Redactor) redact(text string) string {
 	if text == "" {
 		return text
 	}
+	// Built at most once per distinct text rather than once per secret.  Every
+	// entry needs the same newline-free view of the same haystack, and building
+	// it is linear in the chunk: doing that per entry made the whole pass
+	// quadratic in the size of the store, which is the number that grows without
+	// anyone watching it.
+	//
+	// Invalidated only when an entry actually replaced something, which is why
+	// the plain pass below keeps the old string when it matched nothing.  Most
+	// secrets appear in no given chunk, so in practice this is built once.
+	var view *collapsedView
 	for i := range r.entries {
 		e := &r.entries[i]
-		if e.wrapped != nil && (strings.ContainsAny(text, "\n\r")) {
-			text = r.subWrapped(text, e)
+		if e.wrapped != nil {
+			if view == nil {
+				view = newCollapsedView(text)
+			}
+			if out, changed := r.subWrapped(view, e); changed {
+				text = out
+				view = nil
+			}
 		}
 		n := 0
-		text = e.pattern.ReplaceAllStringFunc(text, func(string) string {
+		replaced := e.pattern.ReplaceAllStringFunc(text, func(string) string {
 			n++
 			return e.token
 		})
+		// Assigned only on a hit.  ReplaceAllStringFunc allocates a copy even
+		// when it matched nothing, and taking that copy would throw the view
+		// away on every entry, which is the cost this is avoiding.
 		if n > 0 {
+			text = replaced
 			r.counts[e.token] += n
+			view = nil
 		}
 	}
 	return text
 }
 
-// subWrapped catches base64 that has been line-wrapped (the base64 tool wraps
-// at 76 columns).  Matching happens on a copy of the haystack with newlines
-// removed; hits are mapped back to spans in the original text so the
-// surrounding output is preserved.
-func (r *Redactor) subWrapped(text string, e *entry) string {
-	runes := []rune(text)
-	keep := make([]rune, 0, len(runes))
-	index := make([]int, 0, len(runes))
-	for i, ch := range runes {
-		if ch != '\n' && ch != '\r' {
-			keep = append(keep, ch)
-			index = append(index, i)
-		}
-	}
-	if len(keep) == len(runes) {
-		return text // no newlines to collapse; the plain pass handles it
-	}
-	view := string(keep)
+// collapsedView is one haystack with its line breaks taken out, plus what is
+// needed to map a match in it back onto the original.
+//
+// base64 output is wrapped at 76 columns, so a value that was encoded and
+// printed arrives with newlines inside it and matches nothing as written.
+// Matching happens against view; the span that gets replaced is in the original,
+// so the surrounding output survives.
+type collapsedView struct {
+	// runes is the original, indexed the way the spans below are.
+	runes []rune
+	view  string
+	// byteStart maps a byte offset in view to the index in runes of the rune
+	// that begins there, with one extra entry for the end.  A slice rather than
+	// a map keyed on the same thing: it is filled once, read at most twice per
+	// match, and a map of one entry per byte was most of what this cost.
+	byteStart []int
+	// collapsed is false when there were no line breaks to take out, in which
+	// case the plain pass already covers everything this would find.
+	collapsed bool
+}
 
-	// Map byte offsets from the match back to rune offsets in view.
-	viewRunes := []rune(view)
-	byteToRune := make(map[int]int, len(viewRunes)+1)
-	off := 0
-	for i, ch := range viewRunes {
-		byteToRune[off] = i
-		off += len(string(ch))
+func newCollapsedView(text string) *collapsedView {
+	v := &collapsedView{}
+	if !strings.ContainsAny(text, "\n\r") {
+		return v
 	}
-	byteToRune[off] = len(viewRunes)
-
-	type span struct{ start, end int }
-	var spans []span
-	for _, loc := range e.wrapped.FindAllStringIndex(view, -1) {
-		rs, ok1 := byteToRune[loc[0]]
-		re, ok2 := byteToRune[loc[1]]
-		if !ok1 || !ok2 || re == 0 {
+	v.collapsed = true
+	v.runes = []rune(text)
+	var b strings.Builder
+	b.Grow(len(text))
+	v.byteStart = make([]int, 0, len(text)+1)
+	for i, ch := range v.runes {
+		if ch == '\n' || ch == '\r' {
 			continue
 		}
-		start, end := index[rs], index[re-1]+1
-		if strings.ContainsAny(string(runes[start:end]), "\n\r") {
+		for range utf8.RuneLen(ch) {
+			v.byteStart = append(v.byteStart, i)
+		}
+		b.WriteRune(ch)
+	}
+	v.byteStart = append(v.byteStart, len(v.runes))
+	v.view = b.String()
+	return v
+}
+
+// subWrapped replaces every line-wrapped rendering of one secret, and reports
+// whether it changed anything.
+func (r *Redactor) subWrapped(v *collapsedView, e *entry) (string, bool) {
+	if !v.collapsed {
+		return "", false
+	}
+	type span struct{ start, end int }
+	var spans []span
+	for _, loc := range e.wrapped.FindAllStringIndex(v.view, -1) {
+		if loc[1] <= loc[0] {
+			continue
+		}
+		// The first rune of the match, and one past the last: byteStart is
+		// indexed by byte, so the end comes from the last byte of the match
+		// rather than from the offset after it.
+		start, end := v.byteStart[loc[0]], v.byteStart[loc[1]-1]+1
+		if strings.ContainsAny(string(v.runes[start:end]), "\n\r") {
 			spans = append(spans, span{start, end})
 		}
 	}
 	if len(spans) == 0 {
-		return text
+		return "", false
 	}
 
 	var b strings.Builder
@@ -448,11 +493,11 @@ func (r *Redactor) subWrapped(text string, e *entry) string {
 		if s.start < cursor { // overlapping match, already covered
 			continue
 		}
-		b.WriteString(string(runes[cursor:s.start]))
+		b.WriteString(string(v.runes[cursor:s.start]))
 		b.WriteString(e.token)
 		r.counts[e.token]++
 		cursor = s.end
 	}
-	b.WriteString(string(runes[cursor:]))
-	return b.String()
+	b.WriteString(string(v.runes[cursor:]))
+	return b.String(), true
 }

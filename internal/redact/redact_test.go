@@ -2,6 +2,7 @@ package redact
 
 import (
 	"encoding/base64"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -207,5 +208,53 @@ func TestEmptyRedactorPassesTextThrough(t *testing.T) {
 	const text = "nothing to redact here"
 	if out := r.RedactText(text); out != text {
 		t.Errorf("got %q, want %q", out, text)
+	}
+}
+
+// The broker builds a redactor per request and two more per exec, each one
+// compiling roughly ten patterns per secret, and then runs every entry over
+// every chunk of a child's output.  Both costs scale with the size of the
+// store, which is the number nobody notices growing.
+//
+//	go test ./internal/redact/ -bench Redactor -benchmem
+func manySecrets(n int) []Secret {
+	out := make([]Secret, n)
+	for i := range out {
+		out[i] = Secret{
+			Ref:   fmt.Sprintf("svc%03d/token", i),
+			Value: fmt.Sprintf("s3cret-%03d-%s", i, strings.Repeat("xKq7", 6)),
+		}
+	}
+	return out
+}
+
+func BenchmarkRedactorNew(b *testing.B) {
+	for _, n := range []int{10, 50, 200} {
+		b.Run(fmt.Sprintf("secrets=%d", n), func(b *testing.B) {
+			secrets := manySecrets(n)
+			b.ReportAllocs()
+			for b.Loop() {
+				New(secrets, DefaultPolicy())
+			}
+		})
+	}
+}
+
+func BenchmarkRedactorFeed(b *testing.B) {
+	for _, n := range []int{10, 50, 200} {
+		b.Run(fmt.Sprintf("secrets=%d", n), func(b *testing.B) {
+			secrets := manySecrets(n)
+			// A chunk the size of the executor's own read buffer, holding one
+			// value so the replacing path is measured and not only the scan.
+			chunk := strings.Repeat("ordinary build output line\n", 2400) +
+				secrets[n/2].Value + "\n"
+			b.SetBytes(int64(len(chunk)))
+			b.ReportAllocs()
+			for b.Loop() {
+				r := New(secrets, DefaultPolicy())
+				r.Feed(chunk)
+				r.Flush()
+			}
+		})
 	}
 }
