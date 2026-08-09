@@ -337,11 +337,28 @@ func writeBack(target string, data []byte) error {
 // runSops execs sops with the key supplied as a path.  The key reaches sops the
 // same way the keeper supplies it, as SOPS_AGE_KEY_FILE, so it is absent from
 // the environment block of anything that could be read from /proc.
+//
+// A fixed environment, like the editor's and like the keeper's: this runs as
+// root, and sops reads several variables that name a key or a key source
+// (SOPS_AGE_KEY among them).  Inheriting them would let the account that
+// invoked sudo choose what the decryption uses.
 func runSops(keyPath string, args ...string) ([]byte, error) {
 	cmd := exec.Command(sopsBinary, args...)
-	cmd.Env = append(os.Environ(), "SOPS_AGE_KEY_FILE="+keyPath)
+	cmd.Env = []string{
+		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		"HOME=" + envOr("HOME", "/tmp"),
+		"LANG=C.UTF-8",
+		"SOPS_AGE_KEY_FILE=" + keyPath,
+	}
 	cmd.Stderr = os.Stderr
 	return cmd.Output()
+}
+
+func envOr(name, fallback string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return fallback
 }
 
 // chownLike gives the replacement the owner and group the original had, so a
