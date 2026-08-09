@@ -92,6 +92,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	diagnoseAgeKey(report, opts, cfg)
 	diagnoseStore(report, opts, cfg)
 	diagnoseConfigWritable(report, opts)
+	diagnoseInstalledFiles(report, opts)
 	diagnoseDenyPatterns(report, opts)
 	diagnoseAuditLog(report, opts, cfg)
 	diagnoseSockets(report, opts, cfg)
@@ -163,6 +164,39 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 	}
 	report.add("config ownership", StatusOK, "%s cannot write the config or its drop-ins",
 		opts.Operator)
+}
+
+// diagnoseInstalledFiles checks what the deny list is there to protect.
+//
+// The binary is the hook as well as the CLI, and the two files beside it are
+// what the hook reads to decide and to redact.  An account that can write any
+// of them does not need to defeat a rule: it replaces the thing enforcing one.
+// The shipped patterns refuse exactly these writes, so a mode that allows one
+// is a deny list defending a boundary that is not there.
+func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
+	enforcers := []string{
+		filepath.Join(DefaultBinDir, "faramir"),
+		DefaultLibexecDir,
+		filepath.Join(DefaultLibexecDir, "deny-patterns.txt"),
+		filepath.Join(DefaultLibexecDir, "wrap.sh"),
+	}
+	for _, path := range enforcers {
+		if !exists(path) {
+			report.add("installed files", StatusFailed, "%s is missing", path)
+			return
+		}
+		// The directory as well as the files in it: write there is permission to
+		// unlink what is there and put something else in its place, whatever the
+		// files themselves are.
+		if canWrite(opts.Operator, path) {
+			report.add("installed files", StatusFailed, "%s can write %s, so it can "+
+				"replace what enforces the deny list rather than having to get past it",
+				opts.Operator, path)
+			return
+		}
+	}
+	report.add("installed files", StatusOK, "%s cannot write the binary, the deny list "+
+		"or the wrapper", opts.Operator)
 }
 
 // diagnoseDenyPatterns checks that the shipped deny list was rendered for this

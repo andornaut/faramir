@@ -25,7 +25,7 @@ package install
 // credential, their commits.  What that gives up is a kernel boundary around the
 // agent process, and what replaces it is not a weaker version of the same thing:
 // the secrets this project exists to protect are behind the keeper and the
-// broker, which the operator's uid cannot read either.  See docs/scope.md.
+// broker, which the operator's uid cannot read either.  See docs/design.md.
 
 import (
 	"fmt"
@@ -45,6 +45,9 @@ type serviceAccount struct {
 	// the identity it lends; the executor's is where keys would have to live if
 	// [ssh] keys were left empty, which is the arrangement to avoid.
 	sshDir bool
+	// clientGroup joins the account to the group that grants traversal into the
+	// operator's home.  Only the two uids that must reach a working tree get it.
+	clientGroup bool
 }
 
 func (r *runner) serviceAccounts() []serviceAccount {
@@ -54,14 +57,19 @@ func (r *runner) serviceAccounts() []serviceAccount {
 		// /var/lib rather than /home because that is where a service account's
 		// state belongs, and because the unit grants itself that path with
 		// StateDirectory=.
-		{name: r.layout.BrokerUser, home: r.layout.BrokerHome(), sshDir: true},
+		// In the client group because it stats a request's cwd before accepting
+		// it, and a cwd inside a 0700 home is reachable only by that group.
+		{name: r.layout.BrokerUser, home: r.layout.BrokerHome(), sshDir: true, clientGroup: true},
 		// The keeper holds the age key and nothing else.  A home only because
 		// sops writes ~/.config.  It must not share a uid with anything that
-		// executes a command.
+		// executes a command, and it is out of the client group: it opens no
+		// path under a home, so membership would be a standing grant to traverse
+		// the operator's home held by the one uid that can decrypt every
+		// managed file.
 		{name: r.layout.KeeperUser, home: r.layout.KeeperHome()},
 		// The uid every brokered command runs as.  A home because Ansible
 		// creates ~/.ansible/tmp unconditionally.
-		{name: r.layout.ExecUser, home: r.layout.ExecHome(), sshDir: true},
+		{name: r.layout.ExecUser, home: r.layout.ExecHome(), sshDir: true, clientGroup: true},
 	}
 }
 
@@ -260,25 +268,31 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 	changed := false
 	switch {
 	case !userExists(account.name):
+		argv := []string{"useradd", "-r", "-m", "-d", account.home}
+		if account.clientGroup {
+			argv = append(argv, "-G", r.layout.Group)
+		}
+		argv = append(argv, "-s", "/usr/sbin/nologin", account.name)
 		if !r.opts.DryRun {
-			if _, err := r.command("useradd", "-r", "-m", "-d", account.home,
-				"-G", r.layout.Group, "-s", "/usr/sbin/nologin", account.name); err != nil {
+			if _, err := r.command(argv[0], argv[1:]...); err != nil {
 				return false, err
 			}
 		}
 		changed = true
 	default:
-		in, err := inGroup(account.name, r.layout.Group)
-		if err != nil {
-			return false, err
-		}
-		if !in {
-			if !r.opts.DryRun {
-				if _, err := r.command("usermod", "-aG", r.layout.Group, account.name); err != nil {
-					return false, err
-				}
+		if account.clientGroup {
+			in, err := inGroup(account.name, r.layout.Group)
+			if err != nil {
+				return false, err
 			}
-			changed = true
+			if !in {
+				if !r.opts.DryRun {
+					if _, err := r.command("usermod", "-aG", r.layout.Group, account.name); err != nil {
+						return false, err
+					}
+				}
+				changed = true
+			}
 		}
 		// An account whose home moved keeps working but writes to the old path,
 		// which is then the one holding the SSH keys while the unit's
