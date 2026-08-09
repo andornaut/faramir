@@ -150,21 +150,31 @@ func TestValueSplitAcrossChunks(t *testing.T) {
 	}
 }
 
-func TestEligibilityRefusals(t *testing.T) {
+// Length is the whole of the test.  A short value matches inside ordinary
+// words, so redacting it would blank unrelated output at random; that is about
+// what this program does with a value rather than about the value.
+func TestATooShortValueIsRefused(t *testing.T) {
 	policy := DefaultPolicy()
-	for _, tc := range []struct{ name, value string }{
-		{"short", "abc"},
-		{"few unique characters", "aaaaaaaaaaaa"},
-		{"low entropy", "ababababababab"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if reason := policy.Check(tc.value); reason == "" {
-				t.Errorf("%q was accepted", tc.value)
-			}
-		})
+	for _, value := range []string{"", "abc", "1234567"} {
+		if reason := policy.Check(value); reason == "" {
+			t.Errorf("%q was accepted", value)
+		}
 	}
 	if reason := policy.Check(secret); reason != "" {
 		t.Errorf("a good value was refused: %s", reason)
+	}
+}
+
+// How strong a credential is belongs to whoever chose it.  The distinct-character
+// and Shannon-entropy tests that used to sit here graded the operator's secrets
+// and refused to carry the ones they disliked -- and never were the strength
+// check they read as, "password" having cleared all three.
+func TestAWeakButLongValueIsCarried(t *testing.T) {
+	policy := DefaultPolicy()
+	for _, value := range []string{"password", "aaaaaaaaaaaa", "ababababababab"} {
+		if reason := policy.Check(value); reason != "" {
+			t.Errorf("%q was refused as %q; strength is the operator's call", value, reason)
+		}
 	}
 }
 

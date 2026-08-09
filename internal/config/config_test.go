@@ -70,6 +70,23 @@ func TestExecutorMaxConcurrencyIsRefusedAsUnknown(t *testing.T) {
 	}
 }
 
+// The broker no longer grades a secret's strength, so the two keys that did are
+// refused rather than quietly ignored: a config still setting one is asking for
+// a check that is not made, and reading as though it were.
+func TestTheStrengthThresholdsAreRefusedAsUnknown(t *testing.T) {
+	for _, key := range []string{"min_unique_chars = 4", "min_entropy_bits_per_char = 1.5"} {
+		t.Run(key, func(t *testing.T) {
+			_, err := load(t, minimal+"\n[secrets]\n"+key+"\n")
+			if err == nil || !strings.Contains(err.Error(), "unknown key") {
+				t.Fatalf("err = %v", err)
+			}
+			if !strings.Contains(err.Error(), "min_length") {
+				t.Errorf("the message does not name what is left: %v", err)
+			}
+		})
+	}
+}
+
 // A mistyped key is named, not ignored.
 func TestUnknownKeysAreRefused(t *testing.T) {
 	for _, tc := range []struct{ name, text string }{
@@ -114,8 +131,6 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 		{"zero term_rows", "[exec]\nterm_rows = 0\n"},
 		{"negative refresh", minimal + "\n[secrets]\nrefresh_interval_sec = -1\n"},
 		{"zero min_length", minimal + "\n[secrets]\nmin_length = 0\n"},
-		{"zero min_unique_chars", minimal + "\n[secrets]\nmin_unique_chars = 0\n"},
-		{"negative min_entropy", minimal + "\n[secrets]\nmin_entropy_bits_per_char = -1.0\n"},
 		{"negative max_record_bytes", minimal + "\n[audit]\nmax_record_bytes = -1\n"},
 		// A malformed pattern matches nothing, reading as a missing store.
 		{"unclosed character class", minimal + "\n[secrets]\nfiles = [\"/s/[a-.sops.yml\"]\n"},

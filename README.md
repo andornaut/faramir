@@ -79,7 +79,7 @@ Detail in [docs/redaction.md](docs/redaction.md).
 3. **ANSI escapes are stripped before matching.**
 4. **An expanded value set is matched**: raw, base64, URL-encoded, JSON-escaped, shell-quoted.
 5. **Streaming uses an overlap buffer**, so a value split across reads is still caught.
-6. **Short or low-entropy values are refused at load.** The broker names them; the agent is told nothing.
+6. **Values too short to redact are refused at load.** Length only: a short value matches inside ordinary words, and blanking those at random is a fault in this program rather than in the secret. How strong a credential is stays the operator's call. The broker names each refusal; the agent is told nothing.
 7. **Tokens are stable**, so the model can reason about a secret across turns.
 
 The age key is not in the value set: no child can obtain it.
@@ -321,7 +321,7 @@ Setting | Effect
 `[exec.base_env] PATH` | Where a bare name is looked up, and the only `PATH` the child gets.
 `[exec] max_timeout_sec` | How long a command may run.
 `[exec] max_output_bytes` | What comes back; the audit log keeps up to `[audit] max_record_bytes`.
-`[secrets] min_length` and friends | A value too short or low-entropy to redact is refused at load, so it can be injected by nothing.
+`[secrets] min_length` | A value too short to redact is refused at load, so it can be injected by nothing.
 `[server] max_redacts_per_min` | How often one account may ask whether a piece of text holds a managed value. 240 by default, 0 for no limit. The wrapper makes one call per Bash command, so raise it only for a tool of yours that does more.
 the executor's uid | The real bound.
 
@@ -349,7 +349,7 @@ Fails on | Because
 --- | ---
 An unknown key or `[section]` | A config that reads as though it took effect.
 A value out of range | Same.
-A ref too short or low-entropy to redact | Refused at load, so covered by nothing.
+A ref too short to redact | Refused at load, so covered by nothing.
 A `[secrets] files` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
 A `[ssh] key` missing, passphrase-protected, or the `.pub` | `ssh-add` refuses it, leaving every host unreachable.
 `[keeper]` or `[executor] allowed_users` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route, and the executor's runs a command with no policy, no redaction and no audit record. The socket modes still stand in the way, so this is the second of two locks, and a gate that waits for both to be open reports the problem afterwards.

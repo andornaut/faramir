@@ -38,8 +38,7 @@ func newServer(t *testing.T, values map[string]string, secretFiles ...string) *S
 		},
 		Secrets: config.SecretsConfig{
 			Files:              secretFiles,
-			RefreshIntervalSec: 0, MinLength: 8, MinUniqueChars: 4,
-			MinEntropyBitsPerChar: 1.5,
+			RefreshIntervalSec: 0, MinLength: 8,
 		},
 		Audit: config.AuditConfig{LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: 1 << 20},
 	}

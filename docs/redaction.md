@@ -38,7 +38,9 @@ shell double-quoted (`\$`, `` \` ``, `\"`) | `set -x` traces
 
 **4. Stream with an overlap buffer.** A tail longer than the longest variant is held back on every `Feed` and released on `Flush`, the margin exceeding that variant because base64 wrapping inserts newlines inside a value. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is output, including the release triggered by the last partial-rune tail, or every command whose last write splits a rune loses its final characters.
 
-**5. Minimum length and entropy gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. `[secrets]` sets a minimum length, distinct-character count and entropy per character, and a value that fails is **refused at load**: not held, not listed, not injectable.
+**5. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. `[secrets] min_length` is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
+
+Length is the whole of the test. A distinct-character count and a Shannon-entropy floor used to sit beside it, and both were removed: how strong a credential is belongs to whoever chose it, and neither was the strength check it read as — `password` cleared all three. What length does is different in kind, being a bound on what the redactor can search for without eating the output. The residue that entropy caught, a long value like `aaaaaaaa` matching any run of eight, is noise in the operator's own output rather than a value that escapes.
 
 Refusal closes the injection half only. A refused value is absent from the redactor, so reaching the output another way it arrives in plaintext, which is why the list stays operator-side: the broker logs each one at load and `faramir broker --check` reports them under `secrets.not_redactable` and exits non-zero, while `faramir_status` and `faramir_list_secrets` say nothing. Lengthen the secret rather than lowering the threshold.
 

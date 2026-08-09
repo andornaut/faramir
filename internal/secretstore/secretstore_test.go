@@ -24,7 +24,7 @@ func newStore(t *testing.T, fake *keepertest.Keeper, files ...string) *Store {
 	return New(
 		config.SecretsConfig{
 			Files: files, RefreshIntervalSec: 0,
-			MinLength: 8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
+			MinLength: 8,
 		},
 		config.KeeperConfig{SocketPath: fake.Path},
 	)
@@ -66,12 +66,16 @@ func TestAShortValueIsRefused(t *testing.T) {
 	}
 }
 
-func TestALowEntropyValueIsRefused(t *testing.T) {
+// A value long enough to redact is carried whatever it looks like.  The store
+// refuses what it cannot cover, not what it disapproves of: a weak credential
+// is the operator's to fix, and refusing to serve one would leave a project
+// with no value where it expected one and nothing this end could do about it.
+func TestALowEntropyValueIsCarried(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"flat": "abababababababab"})
 	s := newStore(t, k)
 	s.Reload()
-	if _, err := s.Value("flat"); err == nil {
-		t.Fatal("a low-entropy value was injectable")
+	if _, err := s.Value("flat"); err != nil {
+		t.Fatalf("a long but low-entropy value was refused: %v", err)
 	}
 }
 
@@ -182,7 +186,7 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	s := New(
 		config.SecretsConfig{
 			Files: []string{managed}, RefreshIntervalSec: 0,
-			MinLength: 8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
+			MinLength: 8,
 		},
 		config.KeeperConfig{SocketPath: sock},
 	)
@@ -208,7 +212,7 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 	s := New(
 		config.SecretsConfig{
 			RefreshIntervalSec: 0,
-			MinLength:          8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5,
+			MinLength:          8,
 		},
 		config.KeeperConfig{SocketPath: sock},
 	)

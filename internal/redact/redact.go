@@ -13,7 +13,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math"
 	"regexp"
 	"sort"
 	"strings"
@@ -165,50 +164,33 @@ func Variants(value string) map[string]bool {
 // Stage 3: eligibility -- refuse to redact values that would eat the output
 // --------------------------------------------------------------------------
 
-// ShannonEntropy returns entropy in bits per character.
-func ShannonEntropy(value string) float64 {
-	runes := []rune(value)
-	if len(runes) == 0 {
-		return 0
-	}
-	counts := map[rune]int{}
-	for _, r := range runes {
-		counts[r]++
-	}
-	n := float64(len(runes))
-	total := 0.0
-	for _, c := range counts {
-		p := float64(c) / n
-		total -= p * math.Log2(p)
-	}
-	return total
-}
-
+// EligibilityPolicy is the one property of a value this decides: whether it is
+// long enough to search output for.
+//
+// Length only.  There were two more tests here, on distinct characters and on
+// Shannon entropy, and neither was this program's business.  How strong a
+// credential is belongs to whoever chose it: "password" cleared all three, so
+// they never were the strength check they read as, and a broker that grades its
+// operator's secrets is answering a question nobody asked it.
+//
+// What the length test does is different in kind. A short value matches inside
+// ordinary words, so redacting it blanks unrelated output at random, which is
+// about this program's own behaviour rather than about the secret. That is the
+// one worth keeping, and the residue the other two covered -- a value like
+// "aaaaaaaa", long enough and matching any run of eight -- is noise in the
+// operator's output rather than a value that escapes.
 type EligibilityPolicy struct {
-	MinLength             int
-	MinUniqueChars        int
-	MinEntropyBitsPerChar float64
+	MinLength int
 }
 
 func DefaultPolicy() EligibilityPolicy {
-	return EligibilityPolicy{MinLength: 8, MinUniqueChars: 4, MinEntropyBitsPerChar: 1.5}
+	return EligibilityPolicy{MinLength: 8}
 }
 
 // Check returns "" if the value may be redacted, else the reason it may not.
 func (p EligibilityPolicy) Check(value string) string {
-	runes := []rune(value)
-	if len(runes) < p.MinLength {
+	if len([]rune(value)) < p.MinLength {
 		return fmt.Sprintf("shorter than %d characters", p.MinLength)
-	}
-	unique := map[rune]bool{}
-	for _, r := range runes {
-		unique[r] = true
-	}
-	if len(unique) < p.MinUniqueChars {
-		return fmt.Sprintf("fewer than %d distinct characters", p.MinUniqueChars)
-	}
-	if e := ShannonEntropy(value); e < p.MinEntropyBitsPerChar {
-		return fmt.Sprintf("low entropy (%.2f bits/char)", e)
 	}
 	return ""
 }
