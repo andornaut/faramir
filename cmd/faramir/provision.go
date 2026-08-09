@@ -85,17 +85,18 @@ func cmdInit(args []string) int {
 	fs := newFlagSet("init", "init [options]")
 	operator := fs.String("operator", "",
 		"account the coding agent runs as (default $SUDO_USER, then you)")
-	group := fs.String("group", install.DefaultGroup,
-		"shared group giving the service accounts access to a tree brokered commands run in")
+	// The two groups, together: one admits a caller to the broker socket and
+	// shares the working tree, the other owns the ciphertext.  Naming them the
+	// same way is the point, because holding one is not holding the other.
+	clientGroup := fs.String("client-group", install.DefaultGroup,
+		"group admitted to the broker socket, and shared with the executor on a working tree")
 	storeGroup := fs.String("store-group", "",
-		"group owning the managed sops files (default: the keeper's own group, which is the only account that opens one)")
+		"group owning the managed sops files (default: the keeper's own, which is the only account that opens one)")
 	brokerUser := fs.String("broker-user", install.DefaultBrokerUser, "account that holds the SSH keys and the audit log")
 	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
 	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
 	configDir := fs.String("config-dir", install.DefaultConfigDir,
 		"where config.toml, config.d/, the age key and the managed sops files are installed")
-	operatorAgeKey := fs.String("operator-age-key", "",
-		"mint an age identity here and list it alongside the keeper's, so the operator can read the files they own")
 	sshKey := fs.String("ssh-key", "",
 		"identity the broker lends to brokered commands, generated when missing")
 	var initAgents multiFlag
@@ -111,18 +112,17 @@ func cmdInit(args []string) int {
 	}
 
 	opts := install.Options{
-		Operator:       operatorName(*operator),
-		Group:          *group,
-		StoreGroup:     *storeGroup,
-		BrokerUser:     *brokerUser,
-		KeeperUser:     *keeperUser,
-		ExecUser:       *execUser,
-		ConfigDir:      *configDir,
-		AgeRecipients:  recipients,
-		OperatorAgeKey: *operatorAgeKey,
-		SSHKey:         *sshKey,
-		Agents:         initAgents,
-		DryRun:         *dryRun,
+		Operator:      operatorName(*operator),
+		Group:         *clientGroup,
+		StoreGroup:    *storeGroup,
+		BrokerUser:    *brokerUser,
+		KeeperUser:    *keeperUser,
+		ExecUser:      *execUser,
+		ConfigDir:     *configDir,
+		AgeRecipients: recipients,
+		SSHKey:        *sshKey,
+		Agents:        initAgents,
+		DryRun:        *dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
 	// --json entirely: a caller asking for the report does not want the prose.
@@ -175,9 +175,9 @@ func cmdInitProject(args []string) int {
 	operator := fs.String("operator", "",
 		"account that works in the tree (default $SUDO_USER, then you)")
 	configDir := fs.String("config-dir", install.DefaultConfigDir,
-		"where the installed config is, which is where the shared group is read from")
-	group := fs.String("group", "",
-		"override the shared group instead of reading it from the installed config")
+		"where the installed config is, which is where the client group is read from")
+	clientGroup := fs.String("client-group", "",
+		"override the client group instead of reading it from the installed config")
 	hook := fs.Bool("hook", true,
 		"register the PreToolUse hook, which redacts this project's command output "+
 			"and auto-approves Bash here as a consequence")
@@ -199,7 +199,7 @@ func cmdInitProject(args []string) int {
 		Dir:       fs.Arg(0),
 		Operator:  operatorName(*operator),
 		ConfigDir: *configDir,
-		Group:     *group,
+		Group:     *clientGroup,
 		Hook:      *hook,
 		Agents:    agents,
 		DryRun:    *dryRun,
@@ -239,13 +239,14 @@ func cmdDoctor(args []string) int {
 	configDir := fs.String("config-dir", "", "where config.toml was installed (default: ask the broker)")
 	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	operator := fs.String("operator", "", "account the coding agent runs as")
-	group := fs.String("group", install.DefaultGroup, "shared group")
+	clientGroup := fs.String("client-group", install.DefaultGroup,
+		"group admitted to the broker socket")
+	storeGroup := fs.String("store-group", "",
+		"group owning the managed sops files (default: the keeper's own)")
 	brokerUser := fs.String("broker-user", install.DefaultBrokerUser,
 		"account the broker runs as, which --check has to be asked as")
 	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
 	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
-	storeGroup := fs.String("store-group", "",
-		"group owning the managed sops files (default: the keeper's own)")
 	asJSON := fs.Bool("json", false, "print the findings as JSON")
 	when := fs.String("color", "auto", "colourise: auto, always or never")
 	if code, ok := parseFlags(fs, args); !ok {
@@ -259,7 +260,7 @@ func cmdDoctor(args []string) int {
 	report := install.Diagnose(install.DoctorOptions{
 		ConfigDir:  resolveConfigDir(*configDir, *socket),
 		Operator:   operatorName(*operator),
-		Group:      *group,
+		Group:      *clientGroup,
 		BrokerUser: *brokerUser,
 		KeeperUser: *keeperUser,
 		ExecUser:   *execUser,
@@ -310,9 +311,9 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 		if lines := wrapText(finding.Detail, terminalWidth()-indent); len(lines) > 0 {
 			first, rest = lines[0], lines[1:]
 		}
-		fmt.Fprintf(w, "%s  %-*s  %s\n", paintStatus(paint, finding.Status), name, label, first)
+		_, _ = fmt.Fprintf(w, "%s  %-*s  %s\n", paintStatus(paint, finding.Status), name, label, first)
 		for _, line := range rest {
-			fmt.Fprintf(w, "%*s%s\n", indent, "", line)
+			_, _ = fmt.Fprintf(w, "%*s%s\n", indent, "", line)
 		}
 	}
 	if len(report.Findings) == 0 {
@@ -324,7 +325,7 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 			totals = append(totals, fmt.Sprintf("%d %s", counts[status], status))
 		}
 	}
-	fmt.Fprintf(w, "\n%s\n", paint.bold(strings.Join(totals, ", ")))
+	_, _ = fmt.Fprintf(w, "\n%s\n", paint.bold(strings.Join(totals, ", ")))
 }
 
 // statusColumn is the glyph and the word, which is what an eye finds before it

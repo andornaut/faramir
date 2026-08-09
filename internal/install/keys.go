@@ -58,45 +58,6 @@ func (r *runner) stepAgeKey() error {
 	return nil
 }
 
-// stepOperatorAgeKey mints an identity for the operator and lists it alongside
-// the keeper's.
-//
-// The keeper is otherwise the only recipient, which means the account
-// responsible for these secrets cannot read them: editing a value, rotating a
-// credential or reading one back all have to go through the broker.
-//
-// Written as root and given to the operator immediately.  Left root-owned it is
-// an identity the operator cannot read, listed in .sops.yaml as a recipient,
-// which is the same failure as having no second recipient at all except that
-// nothing reports it.
-func (r *runner) stepOperatorAgeKey() error {
-	if r.opts.OperatorAgeKey == "" {
-		r.skip("operator age key", "not requested; the keeper stays the only recipient")
-		return nil
-	}
-	if r.opts.DryRun {
-		r.reportPresence("operator age key", r.opts.OperatorAgeKey, "mint")
-		return nil
-	}
-	changed, err := r.fs.ensureDir(filepath.Dir(r.opts.OperatorAgeKey), 0o700,
-		r.operatorUID, keep, true)
-	if err != nil {
-		return err
-	}
-	recipient, created, err := agekey.Generate(r.opts.OperatorAgeKey)
-	if err != nil {
-		return err
-	}
-	if !r.opts.DryRun {
-		if err := os.Lchown(r.opts.OperatorAgeKey, r.operatorUID, keep); err != nil {
-			return err
-		}
-	}
-	r.addRecipient(recipient)
-	r.step("operator age key", changed || created, r.opts.OperatorAgeKey)
-	return nil
-}
-
 // addRecipient records an age recipient for .sops.yaml, keeping the order
 // stable so a re-run does not rewrite the file to say the same thing.
 func (r *runner) addRecipient(recipient string) {

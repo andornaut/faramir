@@ -41,9 +41,9 @@ type ProjectOptions struct {
 	// access for the executor's uid.
 	Operator string
 	// ConfigDir is where the installed config is read from, which is where the
-	// shared group is learned.  A --group flag here could disagree with what
-	// the sockets actually admit, and a tree shared with the wrong group is one
-	// the executor cannot enter, with nothing to say so.
+	// client group is learned.  A --client-group flag here could disagree with
+	// what the sockets actually admit, and a tree shared with the wrong group is
+	// one the executor cannot enter, with nothing to say so.
 	ConfigDir string
 	// Group overrides the group read from the config.  For a host whose config
 	// is not readable, not for ordinary use.
@@ -178,9 +178,9 @@ func (p *project) resolveGroup() error {
 	configFile := filepath.Join(p.opts.ConfigDir, "config.toml")
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		return fmt.Errorf("cannot read the shared group from %s: %w\n"+
+		return fmt.Errorf("cannot read the client group from %s: %w\n"+
 			"Run faramir init first, pass --config-dir if the config is elsewhere, "+
-			"or pass --group to name it directly", configFile, err)
+			"or pass --client-group to name it directly", configFile, err)
 	}
 	if len(cfg.Server.AllowedGroups) == 0 {
 		return fmt.Errorf("%s admits no group, so a shared tree would reach nothing. "+

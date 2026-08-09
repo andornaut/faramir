@@ -38,14 +38,11 @@ type Options struct {
 	// account that is not the keeper can still read the files it is responsible
 	// for.  Without one, editing a value or rotating a credential has to go
 	// through the broker.
+	//
+	// Public keys only.  No identity is minted for anybody but the keeper: a
+	// second private key is a second way into the store, and it earns that only
+	// where the ciphertext is backed up somewhere the keeper's key is not.
 	AgeRecipients []string
-
-	// OperatorAgeKey is minted if absent and added to AgeRecipients.  It is the
-	// ordinary way to get the entry above, and it is not a boundary: the coding
-	// agent runs as this account, so it can read this identity and decrypt the
-	// store directly.  The broker keeps values out of the agent's context and
-	// redacts what comes back; it does not stop an agent that goes looking.
-	OperatorAgeKey string
 
 	// SSHKey is the identity the broker lends to brokered commands through an
 	// agent it owns, generated when missing.  A key of the broker's own rather
@@ -183,7 +180,6 @@ func Run(opts Options) (Report, error) {
 		run.resolveIDs,
 		run.stepDirectories,
 		run.stepAgeKey,
-		run.stepOperatorAgeKey,
 		run.stepSopsConfig,
 		run.stepSSHKey,
 		run.stepBinaries,
