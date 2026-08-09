@@ -17,9 +17,8 @@ var (
 )
 
 // faramirCLI builds the real CLI once per run.  The flag surface is a contract
-// with `faramir doctor`, which drives the deployed binary as another uid, so it
-// is exercised here rather than assumed: a missing flag turns every boundary
-// finding into "could not run one".
+// with `faramir doctor`, which drives the deployed binary as another uid, so a
+// missing flag turns every boundary finding into "could not run one".
 func faramirCLI(t *testing.T) string {
 	t.Helper()
 	cliOnce.Do(func() {
@@ -48,17 +47,15 @@ type cliResult struct {
 	code           int
 }
 
-// runCLI names the socket on the subcommand rather than on the program:
-// --socket is registered on every subparser rather than globally, so it goes
-// after the verb.
+// runCLI names the socket after the verb: --socket is registered per
+// subcommand, not globally.
 func runCLI(t *testing.T, sock string, args ...string) cliResult {
 	t.Helper()
 	return runCLIEnv(t, nil, append([]string{args[0], "--socket", sock}, args[1:]...)...)
 }
 
-// runCLIEnv is the CLI run as a caller would: no socket flag supplied, and the
-// environment named outright.  The tests about --help, about a usage error and
-// about FARAMIR_SOCKET are all about what happens without that flag.
+// runCLIEnv is the CLI run without a socket flag, the environment named
+// outright.
 func runCLIEnv(t *testing.T, env []string, args ...string) cliResult {
 	t.Helper()
 	cmd := exec.Command(faramirCLI(t), args...)
@@ -85,15 +82,15 @@ func TestCLIAcceptsTheDoctorInvocation(t *testing.T) {
 	if strings.Contains(r.stdout, routerPassword) {
 		t.Errorf("PLAINTEXT LEAKED: %q", r.stdout)
 	}
-	// --quiet suppresses the summary, which is why doctor passes it: the
-	// findings match on the command's own output.
+	// --quiet suppresses the summary, the findings matching on the command's
+	// own output.
 	if strings.Contains(r.stderr, "redacted") {
 		t.Errorf("--quiet did not suppress the summary: %q", r.stderr)
 	}
 }
 
-// Without --quiet the summary goes to stderr, and log_id is reported even when
-// nothing was redacted: it is how the agent points the operator at a log.
+// The summary goes to stderr, with log_id even when nothing was redacted: it is
+// how the agent points the operator at a log.
 func TestCLISummaryReportsLogIDWithoutRedactions(t *testing.T) {
 	h := newHarness(t)
 	r := runCLI(t, h.brokerSock, "run", "--", "printenv", "PATH")
@@ -126,8 +123,8 @@ func TestCLIJSONPrintsTheRawResponse(t *testing.T) {
 	}
 }
 
-// A broker that is not there is EX_UNAVAILABLE, not a generic failure, so a
-// caller can tell "not running" from "the command failed".
+// EX_UNAVAILABLE, so a caller can tell "not running" from "the command
+// failed".
 func TestCLIUnavailableBrokerIsEX_UNAVAILABLE(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.sock")
 	r := runCLI(t, missing, "status")
@@ -160,8 +157,8 @@ func TestCLIListSecretsAndStatus(t *testing.T) {
 	}
 }
 
-// Asking for help is a request that succeeded.  Exiting non-zero on --help
-// makes the CLI unusable from any script with "set -e".
+// --help is a request that succeeded; non-zero makes the CLI unusable under
+// "set -e".
 func TestCLIHelpExitsZeroOnStdout(t *testing.T) {
 	for _, args := range [][]string{{"--help"}, {"run", "--help"}, {"status", "--help"}} {
 		r := runCLIEnv(t, nil, args...)
@@ -174,7 +171,7 @@ func TestCLIHelpExitsZeroOnStdout(t *testing.T) {
 	}
 }
 
-// A bad flag is the opposite case: it belongs on stderr, with exit 2.
+// A bad flag belongs on stderr, with exit 2.
 func TestCLIBadFlagIsAUsageErrorOnStderr(t *testing.T) {
 	r := runCLIEnv(t, nil, "run", "--not-a-flag")
 	if r.code != 2 {
@@ -188,8 +185,7 @@ func TestCLIBadFlagIsAUsageErrorOnStderr(t *testing.T) {
 	}
 }
 
-// FARAMIR_SOCKET moves every subcommand at once.  faramir-mcp already honours
-// it, so the CLI has to agree.
+// FARAMIR_SOCKET moves every subcommand at once.
 func TestCLIHonoursFaramirSocketEnv(t *testing.T) {
 	h := newHarness(t)
 	r := runCLIEnv(t, []string{"FARAMIR_SOCKET=" + h.brokerSock}, "list-secrets")

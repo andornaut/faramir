@@ -2,19 +2,12 @@ package main
 
 // faramir logs: read the audit log without having to remember where it is.
 //
-// Root only, and deliberately not brokered.  The log is 0600 faramir-broker, so
-// the writer and root are the only accounts that can open it, and that is the
-// point: the agent's own record of what it ran sits on the far side of a uid
-// boundary from the agent.  Serving it over the broker socket would hand it to
-// the shared group, which is the account the agent runs as.
+// Root only, and not brokered: the log is 0600 faramir-broker, and serving it
+// over the broker socket would hand it to the group the agent runs as.
 //
-// It holds no secret value, so this prints what it finds rather than redacting
-// again.  Output was recorded after redaction, the refs are names, and argv
-// never carries a value because nothing is substituted into it.
-//
-// Rotated files are not read.  They are the same records older than the live
-// file and mostly compressed; naming one to zless is clearer than a flag that
-// silently widens what a count of records covers.
+// It holds no secret value -- output was recorded after redaction, refs are
+// names, and nothing is substituted into argv -- so this prints what it finds.
+// Rotated files are not read; name one to zless.
 
 import (
 	"bufio"
@@ -29,9 +22,8 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// How many records a bare `faramir logs` lists.  A screenful: this is the
-// "what has the agent been doing" view, and a specific record is asked for by
-// the log_id that a response already reported.
+// How many records a bare `faramir logs` lists.  A screenful; a specific record
+// is asked for by log_id.
 const defaultLogCount = 20
 
 func cmdLogs(args []string) int {
@@ -53,8 +45,8 @@ func cmdLogs(args []string) int {
 		return 2
 	}
 
-	// Refused rather than attempted: as any other account this fails with a
-	// bare permission error on a path the caller did not name and cannot see.
+	// Refused rather than attempted: otherwise a bare permission error on a
+	// path the caller did not name.
 	if os.Geteuid() != 0 {
 		fmt.Fprintln(os.Stderr, "faramir logs must run as root, because the audit log is "+
 			"readable only by the broker and by root: try 'sudo faramir logs'")
@@ -97,9 +89,8 @@ func cmdLogs(args []string) int {
 	if *count < len(records) && *count > 0 {
 		records = records[len(records)-*count:]
 	}
-	// The date once per day rather than on every line.  A log_id carries it and
-	// so does each record, but repeating it twenty times crowds out the columns
-	// that differ, which are the ones being read.
+	// Once per day rather than on every line, which would crowd out the columns
+	// that differ.
 	day := ""
 	for _, record := range records {
 		if at := startedAt(record); !at.IsZero() && at.Format(dateLayout) != day {
@@ -111,12 +102,9 @@ func cmdLogs(args []string) int {
 	return 0
 }
 
-// readAuditLog parses the log as JSONL.
-//
-// A line that does not parse is skipped rather than fatal.  The log is appended
-// to by a long-lived daemon and read here: a torn final line is what a read
-// concurrent with a write looks like, and it must not hide the records before
-// it.
+// readAuditLog parses the log as JSONL, skipping a line that does not parse: a
+// read concurrent with the daemon's append gives a torn final line, which must
+// not hide the records before it.
 func readAuditLog(path string) ([]map[string]any, error) {
 	fh, err := os.Open(path)
 	if err != nil {
@@ -131,8 +119,7 @@ func readAuditLog(path string) ([]map[string]any, error) {
 	var records []map[string]any
 	scanner := bufio.NewScanner(fh)
 	// A record carries its command's output, bounded by [audit]
-	// max_record_bytes, whose default is 4MiB.  bufio's own default is 64KiB
-	// and would stop at the first record larger than that.
+	// max_record_bytes (4MiB by default); bufio's own default is 64KiB.
 	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
 	for scanner.Scan() {
 		var record map[string]any
@@ -148,12 +135,8 @@ func readAuditLog(path string) ([]map[string]any, error) {
 }
 
 // summarise is one record on one line: when, what, how it ended, how many
-// values it touched, and the id to ask for the rest of it.
-//
-// The id is the trailing hex rather than the whole thing.  A log_id is a
-// timestamp plus four hex characters, and printing the timestamp twice on every
-// line pushes the columns that differ off to the right.  Lookup takes either
-// form, so the short one is enough to act on.
+// values it touched, and the id to ask for the rest.  The id is the trailing
+// hex, the timestamp being in the row already; lookup takes either form.
 func summarise(record map[string]any, paint palette) string {
 	var b strings.Builder
 	b.WriteString(paint.dim(pad(shortID(record), 5)))
@@ -165,9 +148,8 @@ func summarise(record map[string]any, paint palette) string {
 	return strings.TrimRight(b.String(), " ")
 }
 
-// detail is what the record is about: the command for an exec, and the size of
-// the text handed over for a redact, which would otherwise print as a bare row
-// saying only that something was redacted.
+// detail is the command for an exec, and the size of the text for a redact,
+// which would otherwise be a bare row.
 func detail(record map[string]any) string {
 	if cmd := joinCmd(record); cmd != "" {
 		return cmd
@@ -181,9 +163,7 @@ func detail(record map[string]any) string {
 	return ""
 }
 
-// paintOutcome pads before colouring, never after: escapes are bytes that pad()
-// would count as width, so a coloured field padded afterwards misaligns the
-// column by exactly the length of the escape.
+// paintOutcome pads before colouring: pad() counts escape bytes as width.
 func paintOutcome(record map[string]any, paint palette) string {
 	const width = 16
 	label, failed := outcome(record)
@@ -197,9 +177,8 @@ func paintOutcome(record map[string]any, paint palette) string {
 	return paint.ok(padded)
 }
 
-// outcome is how an exec ended, and whether that counts as failure.  A redact
-// ran no command, so it has neither: reporting one as "exit 0" would claim
-// something that was never true.
+// outcome is how an exec ended, and whether that is a failure.  A redact ran no
+// command, so it has neither.
 func outcome(record map[string]any) (string, bool) {
 	if timedOut, _ := record["timed_out"].(bool); timedOut {
 		return "timed out", true
@@ -216,8 +195,7 @@ func outcome(record map[string]any) (string, bool) {
 }
 
 // redactionTotal is how many values this record stood in for, summed across
-// tokens.  The count is the point of the log: it says a credential was used
-// without saying which value it had.
+// tokens: a credential was used, without saying which value it had.
 func redactionTotal(record map[string]any) string {
 	entries, ok := record["redactions"].([]any)
 	if !ok || len(entries) == 0 {
@@ -269,9 +247,7 @@ func printRecord(record map[string]any, paint palette) {
 	}
 }
 
-// redactionCounts is per token, for the detail view.  The listing sums them
-// instead: which tokens matter once you are looking at one record, and how many
-// there were is what makes a row worth opening.
+// redactionCounts is per token, for the detail view; the listing sums them.
 func redactionCounts(record map[string]any) string {
 	entries, ok := record["redactions"].([]any)
 	if !ok {
@@ -293,15 +269,13 @@ func joinCmd(record map[string]any) string {
 	return strings.Join(list(record, "cmd"), " ")
 }
 
-// The zone is part of the header because the times below it are local and the
-// log_id beside them is UTC.  Without it the two disagree by the offset and
-// nothing on screen says why.
+// The zone is in the header because the times below are local and the log_id
+// beside them is UTC.
 const dateLayout = "2006-01-02 MST"
 
-// startedAt is when the command ran.  From started_at where there is one, and
-// otherwise from the log_id, which carries the same instant: a redact record
-// has no started_at, and a row with no time in a log read by time is a row that
-// cannot be placed.
+// startedAt is when the command ran: started_at where there is one, otherwise
+// the log_id, which carries the same instant.  A redact record has no
+// started_at.
 func startedAt(record map[string]any) time.Time {
 	if seconds, ok := record["started_at"].(float64); ok {
 		return time.Unix(int64(seconds), 0)
@@ -315,9 +289,8 @@ func startedAt(record map[string]any) time.Time {
 	return time.Time{}
 }
 
-// clockTime is local rather than the log_id's UTC.  The log is read by whoever
-// is on the machine, against what they remember doing, and that memory is in
-// the clock on their wall.
+// clockTime is local rather than the log_id's UTC, the log being read against
+// what somebody remembers doing.
 func clockTime(record map[string]any) string {
 	at := startedAt(record)
 	if at.IsZero() {
@@ -326,8 +299,8 @@ func clockTime(record map[string]any) string {
 	return at.Format("15:04:05")
 }
 
-// shortID is the hex tail of a log_id, which is the only part that is not the
-// timestamp already in the row.
+// shortID is the hex tail of a log_id, the rest being the timestamp already in
+// the row.
 func shortID(record map[string]any) string {
 	id := str(record, "log_id")
 	if _, tail, found := strings.Cut(id, "Z-"); found {
@@ -336,15 +309,14 @@ func shortID(record map[string]any) string {
 	return id
 }
 
-// matchesID accepts the whole log_id or the short tail printed in the listing,
-// so what is on screen can be pasted back without reconstructing the rest.
+// matchesID accepts the whole log_id or the short tail, so what is on screen
+// can be pasted back.
 func matchesID(record map[string]any, want string) bool {
 	return str(record, "log_id") == want || shortID(record) == want
 }
 
-// describePeer renders the caller.  It is an object of pid, uid and gid, and
-// the uid is resolved to a name where the account still exists, an audit log
-// being read long after a run and sometimes after an account is gone.
+// describePeer renders the caller from pid, uid and gid, resolving the uid to a
+// name where the account still exists.
 func describePeer(record map[string]any) string {
 	fields, ok := record["peer"].(map[string]any)
 	if !ok {
@@ -359,8 +331,8 @@ func describePeer(record map[string]any) string {
 	return fmt.Sprintf("%s, pid %d", who, int(pid))
 }
 
-// humanBytes keeps a size to three significant figures.  Exact byte counts are
-// what max_record_bytes is expressed in; this column is for judging scale.
+// humanBytes keeps a size to three significant figures; this column is for
+// judging scale.
 func humanBytes(n int64) string {
 	const unit = 1024
 	if n < unit {

@@ -1,7 +1,6 @@
-// Package secretref parses the secret:// reference syntax.
-//
-// It is separate from the store so that the protocol layer can validate a
-// reference without depending on anything that holds a value.
+// Package secretref parses the secret:// reference syntax, separately from the
+// store so the protocol layer can validate one without depending on anything
+// that holds a value.
 package secretref
 
 import (

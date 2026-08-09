@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// The key follows the config directory rather than sitting at a fixed path.
-// That is what puts it inside an encrypted home when the store is already
-// there, so a powered-off disk carries neither the ciphertext nor the key that
-// opens it.
+// The key follows the config directory, so an encrypted home holding the store
+// holds the key too and a powered-off disk carries neither.
 func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 	for _, tc := range []struct{ name, configDir, wantKey, wantDir string }{
 		{"the default", DefaultConfigDir, DefaultConfigDir + "/age.key", DefaultConfigDir},
@@ -30,8 +28,7 @@ func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 			if layout.AgeKeyPath != tc.wantKey {
 				t.Errorf("AgeKeyPath = %q, want %q", layout.AgeKeyPath, tc.wantKey)
 			}
-			// The directory is the config directory, which is created for the
-			// config anyway, so nothing has to make one for the key.
+			// The config directory, created for the config anyway.
 			if got := layout.AgeKeyDir(); got != tc.wantDir {
 				t.Errorf("AgeKeyDir = %q, want %q", got, tc.wantDir)
 			}
@@ -43,10 +40,8 @@ func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 	}
 }
 
-// The store group is the keeper's own, so the set of accounts that can read the
-// ciphertext is the one account that decrypts it, without a membership list to
-// keep accurate.  A default that named a group of its own would be one more
-// thing that can be right in the units and wrong in /etc/group.
+// The store group is the keeper's own, so the accounts that can read the
+// ciphertext are the one that decrypts it, with no membership list to keep.
 func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 	for _, tc := range []struct{ name, keeperUser, storeGroup, want string }{
 		{"the default", "", "", DefaultKeeperUser},
@@ -65,14 +60,10 @@ func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 	}
 }
 
-// The creation rule sits in the config directory, not in the store.
-//
-// sops walks up from the working directory, so the config directory is found
-// from the store as well as from itself, and the store stays a directory
-// holding nothing but ciphertext.  That second half is load bearing: [secrets]
-// files globs the store and filepath.Glob matches dotfiles, so a rule file in
-// there is swept up by a glob spelt .sops.yaml and fails to load as a managed
-// file.
+// The creation rule sits in the config directory, not the store.  sops walks up
+// from the working directory, so it is found from both, and the store stays
+// nothing but ciphertext: [secrets] files globs it and filepath.Glob matches
+// dotfiles.
 func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 	layout := Layout{ConfigDir: "/etc/faramir"}
 	if got, want := layout.SopsConfigPath(), "/etc/faramir/.sops.yaml"; got != want {
@@ -84,22 +75,19 @@ func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 	if filepath.Dir(layout.SopsConfigPath()) == layout.SecretsDir() {
 		t.Error("the rule file is in the store, where the [secrets] glob reaches it")
 	}
-	// The upward search reaches it from the store, which is the other half of
-	// why it can live outside one.
+	// The upward search reaches it from the store.
 	if !strings.HasPrefix(layout.SecretsDir(), layout.ConfigDir+string(filepath.Separator)) {
 		t.Errorf("store %q is not under the config directory %q, so the upward "+
 			"search would not reach the rule", layout.SecretsDir(), layout.ConfigDir)
 	}
-	// Named so doctor can report a copy an earlier layout left behind, which
-	// would shadow this one for anything run from the store.
+	// Named so doctor can report a copy that would shadow this one.
 	if got, want := layout.StaleSopsConfigPath(), "/etc/faramir/secrets/.sops.yaml"; got != want {
 		t.Errorf("StaleSopsConfigPath = %q, want %q", got, want)
 	}
 }
 
-// The store group is never the group that admits a caller to the broker socket.
 // Asking for a value by name and reading the file it comes from are different
-// privileges, and the agent runs as an account holding the first.
+// privileges, and the agent's account holds the first.
 func TestStoreGroupIsNotTheClientGroup(t *testing.T) {
 	opts := Options{Operator: "op"}
 	opts.applyDefaults()

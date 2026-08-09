@@ -1,9 +1,6 @@
-// Turning cmd[0] into the path the executor runs.
-//
-// There is no allowlist left to test.  What is left is the part that has to be
-// right for correctness rather than for policy: resolving a name to the file
-// the child would itself have run, since getting that wrong means running a
-// different file rather than refusing one.
+// Turning cmd[0] into the path the executor runs.  There is no allowlist; what
+// matters is resolving a name to the file the child would itself have run, since
+// getting it wrong runs a different file.
 package resolve
 
 import (
@@ -19,9 +16,8 @@ func cfgWithPath(path string) config.ExecConfig {
 	return config.ExecConfig{BaseEnv: map[string]string{"PATH": path}}
 }
 
-// fixture is a directory holding an executable script, a plain file and a
-// symlink to the script: between them they cover every shape Program has to
-// tell apart.
+// fixture holds an executable script, a plain file and a symlink to the script:
+// every shape Program tells apart.
 func fixture(t *testing.T) (dir, script string) {
 	t.Helper()
 	dir = t.TempDir()
@@ -78,10 +74,8 @@ func TestProgram(t *testing.T) {
 			why: "filepath.Join would produce /tmp/bin/sh; the child's own exec would not"},
 		{name: "a missing program is named",
 			arg: filepath.Join(dir, "nope"), cwd: dir, wants: []string{"no such program"}},
-		// The uid that execs it is the executor's, which can hold permissions
-		// the broker does not, so the bit is not read here: an EACCES from the
-		// account that will run the program is the honest answer, and refusing
-		// on the broker's view would turn a working arrangement into a failure.
+		// The executor's uid can hold permissions the broker does not, so the
+		// bit is not read here: its own EACCES is the honest answer.
 		{name: "a non-executable file is left to the executor",
 			arg: filepath.Join(dir, "notes.txt"), cwd: dir,
 			want: realpath(filepath.Join(dir, "notes.txt"))},

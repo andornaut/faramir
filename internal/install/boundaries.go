@@ -13,21 +13,14 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// The boundary checks: what each account can and cannot reach once the install
-// is on a real host.
+// The boundary checks: what each account can and cannot reach on a real host.
+// The install steps can only check what they wrote, and a mode on a filesystem
+// that ignores it, a socket regrouped afterwards, or an account added to the
+// shared group by hand all leave the written answer intact.
 //
-// Every claim here is one the install steps cannot make.  They check what they
-// wrote, and a mode written correctly onto a filesystem that ignores it, a
-// socket whose group was replaced afterwards, or an account added to the shared
-// group by hand all leave the written answer intact and the boundary gone.
-//
-// Asked as the uid the claim is about, which is the only way to ask it: root
-// bypasses file modes, so the same question from here answers itself.  That is
-// what makes root a requirement rather than a convenience.
-//
-// Negative checks only, plus the few positives whose absence means the install
-// does nothing: a boundary that holds is invisible, so nothing else would
-// notice it going.
+// Asked as the uid the claim is about, root bypassing file modes, which is what
+// makes root a requirement here.  Negative checks only, plus the few positives
+// whose absence means the install does nothing.
 
 // asUser runs a command as another account and reports its output.
 func asUser(account string, args ...string) (string, error) {
@@ -35,9 +28,9 @@ func asUser(account string, args ...string) (string, error) {
 	return run.command("runuser", append([]string{"-u", account, "--"}, args...)...)
 }
 
-// asOperator runs a command as the account the coding agent runs as, which is
-// what the broker's socket admits and root is not.  Directly when this already
-// is them: doctor is run both ways and runuser needs root.
+// asOperator runs a command as the account the broker's socket admits, root not
+// being in that group.  Directly when this already is them, runuser needing
+// root.
 func asOperator(opts DoctorOptions, args ...string) (string, error) {
 	if os.Geteuid() != 0 || opts.Operator == "" {
 		run := &runner{}
@@ -46,9 +39,8 @@ func asOperator(opts DoctorOptions, args ...string) (string, error) {
 	return asUser(opts.Operator, args...)
 }
 
-// canRead and canWrite answer access(2) as that account.  Write, not read, is
-// what connecting to a unix socket needs, so a socket left 0620 passes a read
-// check and is still reachable.
+// canRead and canWrite answer access(2) as that account.  Connecting to a unix
+// socket needs write, so a socket left 0620 passes a read check.
 func canRead(account, path string) bool {
 	_, err := asUser(account, "test", "-r", path)
 	return err == nil
@@ -59,8 +51,7 @@ func canWrite(account, path string) bool {
 	return err == nil
 }
 
-// owns reports a file's mode and owner as "%04o account", which is the form the
-// findings compare against.  Missing files report "missing".
+// owns reports a file's mode and owner as "%04o account", or "missing".
 func owns(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -78,11 +69,9 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 			"another", opts.Operator, opts.BrokerUser, opts.ExecUser)
 		return
 	}
-	// The probe itself, before anything is concluded from what it answers.
-	// Every check below reads a refusal as a boundary, so a runuser that cannot
-	// run at all would report every one of them as holding, which is the one
-	// failure mode worse than not checking.  Every account can read /, so a
-	// refusal here is the mechanism rather than the answer.
+	// The probe itself: every check below reads a refusal as a boundary, so a
+	// runuser that cannot run would report all of them as holding.  Every
+	// account can read /, so a refusal here is the mechanism.
 	if !canRead(opts.KeeperUser, "/") {
 		report.add("boundaries", StatusWarn, "cannot ask %s what it can reach, so none "+
 			"of these were checked: runuser has to be installed for this",
@@ -103,13 +92,10 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	diagnoseBrokered(report, opts)
 }
 
-// diagnoseStore checks who can reach the ciphertext.
-//
-// Membership of the store group is read on every managed file, so the accounts
-// that must not hold it are every account that is not the keeper: the operator
-// because that is the whole split, the executor because it runs whatever an
-// agent asks for, and the broker because it holds the decrypted values already
-// and read here would only extend it to files no [secrets] list names.
+// diagnoseStore checks who can reach the ciphertext.  Every account but the
+// keeper must be out of the store group: the operator because that is the
+// split, the executor because it runs whatever an agent asks for, the broker
+// because read here would only add files no [secrets] list names.
 func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if !holds(opts.KeeperUser, opts.StoreGroup) {
 		report.add("store", StatusFailed, "%s is not in %s, so it can neither decrypt "+
@@ -124,8 +110,8 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 			return
 		}
 	}
-	// The directory itself, because the group is only half of it: a store left
-	// world-readable is reachable by accounts no group names.
+	// The group is half of it: a world-readable store is reachable by accounts
+	// no group names.
 	dir := filepath.Join(opts.ConfigDir, "secrets")
 	if cfg != nil && len(cfg.Secrets.Files) > 0 {
 		dir = filepath.Dir(cfg.Secrets.Files[0])
@@ -146,9 +132,8 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 }
 
 // diagnoseConfigWritable checks the file that decides what a brokered command
-// runs.  [exec.base_env] PATH is in it, so an account that can write it or drop
-// a file in config.d/ chooses the programs the executor resolves, which is the
-// one edit that turns the executor into whatever the writer wants.
+// runs: [exec.base_env] PATH is in it, so writing it or dropping a file in
+// config.d/ chooses the programs the executor resolves.
 func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 	for _, path := range []string{
 		filepath.Join(opts.ConfigDir, "config.toml"),
@@ -168,13 +153,10 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 		opts.Operator)
 }
 
-// diagnoseInstalledFiles checks what the deny list is there to protect.
-//
-// The binary is the hook as well as the CLI, and the two files beside it are
-// what the hook reads to decide and to redact.  An account that can write any
-// of them does not need to defeat a rule: it replaces the thing enforcing one.
-// The shipped patterns refuse exactly these writes, so a mode that allows one
-// is a deny list defending a boundary that is not there.
+// diagnoseInstalledFiles checks what the deny list protects.  The binary is the
+// hook as well as the CLI, and the two files beside it are what the hook reads;
+// an account that can write any of them replaces the thing enforcing a rule
+// rather than defeating one.
 func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 	enforcers := []string{
 		filepath.Join(DefaultBinDir, "faramir"),
@@ -187,9 +169,8 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 			report.add("installed files", StatusFailed, "%s is missing", path)
 			return
 		}
-		// The directory as well as the files in it: write there is permission to
-		// unlink what is there and put something else in its place, whatever the
-		// files themselves are.
+		// The directory too: write there is permission to replace what is in
+		// it.
 		if canWrite(opts.Operator, path) {
 			report.add("installed files", StatusFailed, "%s can write %s, so it can "+
 				"replace what enforces the deny list rather than having to get past it",
@@ -201,10 +182,9 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 		"or the wrapper", opts.Operator)
 }
 
-// diagnoseDenyPatterns checks that the shipped deny list was rendered for this
-// install rather than copied from another.  The paths in it are this host's, so
-// a list naming a directory nothing uses refuses reads of a store that is not
-// there and passes every read of the one that is.
+// diagnoseDenyPatterns checks the shipped deny list was rendered for this
+// install: a list naming a directory nothing uses refuses reads of a store that
+// is not there and passes every read of the one that is.
 func diagnoseDenyPatterns(report *DoctorReport, opts DoctorOptions) {
 	path := filepath.Join(DefaultLibexecDir, "deny-patterns.txt")
 	body, err := os.ReadFile(path)
@@ -213,8 +193,8 @@ func diagnoseDenyPatterns(report *DoctorReport, opts DoctorOptions) {
 			"nothing: %v", path, err)
 		return
 	}
-	// The paths are interpolated through regexQuote, so a literal dot arrives
-	// escaped and the comparison has to be made against that form.
+	// Interpolated through regexQuote, so the comparison is against that
+	// form.
 	if !strings.Contains(string(body), regexp.QuoteMeta(opts.ConfigDir)) {
 		report.add("deny patterns", StatusFailed, "%s does not name %s, so it was copied "+
 			"from another install rather than rendered for this one", path, opts.ConfigDir)
@@ -223,16 +203,15 @@ func diagnoseDenyPatterns(report *DoctorReport, opts DoctorOptions) {
 	report.add("deny patterns", StatusOK, "%s names this install's directories", path)
 }
 
-// holds is inGroup with the error folded in: an account that cannot be looked
-// up is in no group, which is what every caller here does with the error.
+// holds is inGroup with the error folded in: an unknown account is in no
+// group.
 func holds(account, group string) bool {
 	member, err := inGroup(account, group)
 	return err == nil && member
 }
 
-// diagnoseAgeKey is the one that stops the examination being worth finishing.
-// The key decrypts every managed file retroactively, so an account that can
-// read it needs nothing else this protects.
+// diagnoseAgeKey: the key decrypts every managed file retroactively, so an
+// account that can read it needs nothing else here.
 func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	path := filepath.Join(opts.ConfigDir, "age.key")
 	if cfg != nil && cfg.Keeper.AgeKeyFile != "" {
@@ -253,19 +232,13 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	report.add("age key", StatusOK, "%s, and only %s can read it", want, opts.KeeperUser)
 }
 
-// diagnoseOperatorKeys checks what enrolling a tree granted.
-//
-// init-project makes every directory from the home down to the tree traversable
-// by the client group, and faramir-exec is in that group.  Traversal is execute
-// without read, so the home stays unlistable and only the enrolled tree below it
-// is shared.  A home that was itself enrolled is group-readable and
-// group-writable throughout, and what comes with it is the operator's own SSH
-// keys and the age key under ~/.config/sops, which decrypts the same store the
-// keeper exists to keep away from brokered commands.
-//
-// The age key check above cannot see this: faramir's own key is untouched and
-// still 0400.  This is a second copy of the same authority, in a file that
-// belongs to the operator.
+// diagnoseOperatorKeys checks what enrolling a tree granted.  init-project
+// makes every directory from the home down to the tree traversable by the
+// client group, which faramir-exec is in; traversal is execute without read, so
+// only the enrolled tree is shared.  A home that was itself enrolled is
+// group-readable throughout, which carries the operator's SSH keys and the age
+// key under ~/.config/sops -- a second copy of the same authority, which the
+// check above cannot see.
 func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	entry, err := user.Lookup(opts.Operator)
 	if err != nil || entry.HomeDir == "" {
@@ -285,9 +258,8 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 			"init-project grants traversal, not read", opts.ExecUser, home)
 		return
 	}
-	// Named individually, because traversal makes the home passable while its
-	// own mode still refuses a listing: a directory below it can be shared
-	// without the check above noticing.
+	// Named individually: traversal makes the home passable while its own mode
+	// still refuses a listing.
 	for _, relative := range []string{".ssh", ".config/sops", ".gnupg"} {
 		path := filepath.Join(home, relative)
 		if !exists(path) {
@@ -303,8 +275,8 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 		opts.ExecUser, home)
 }
 
-// diagnoseAuditLog checks the record of what ran, which is the operator's
-// evidence and therefore worth nothing if the accounts it records can edit it.
+// diagnoseAuditLog: the record is worth nothing if the accounts it records can
+// edit it.
 func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Audit.LogPath == "" {
 		return
@@ -330,12 +302,9 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 	report.add("audit log", StatusOK, "%s, readable by nobody else", want)
 }
 
-// diagnoseSockets asks who can open each one.
-//
-// The keeper's is the age key by another route, and the executor's is a command
-// that runs with no policy, no redaction and no audit record.  The broker's is
-// the one that has to be reachable: an install nothing can talk to protects
-// everything and does nothing.
+// diagnoseSockets asks who can open each one.  The keeper's is the age key by
+// another route and the executor's runs a command with no policy, redaction or
+// audit record; the broker's is the one that has to be reachable.
 func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil {
 		return
@@ -380,14 +349,11 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 }
 
 // diagnoseSocketPolicy reads what the config says the two internal sockets
-// admit, as against what their modes currently allow.
-//
-// The modes are the first lock and `diagnoseSockets` above checks those.  This
-// is the second: a drop-in naming another account in allowed_users leaves an
-// install one mode change away from a brokered command asking the keeper for
-// every decrypted value.  `faramir broker --check` makes the same check and can
-// only compare uids, so it cannot make it at all when run as root; here the
-// account names are known, which is what lets doctor say which name is wrong.
+// admit, the second lock after the modes diagnoseSockets checks: a drop-in
+// naming another account in allowed_users leaves the install one mode change
+// away from a brokered command asking the keeper for every value.  `faramir
+// broker --check` can only compare uids, so it cannot make this check as
+// root.
 func diagnoseSocketPolicy(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil {
 		return
@@ -422,10 +388,9 @@ func diagnoseSocketPolicy(report *DoctorReport, opts DoctorOptions, cfg *config.
 	}
 }
 
-// diagnoseSSHKeys covers what the agent is for: the executor authenticates to
-// managed hosts and never holds a key.  Both halves matter, and the private
-// socket is the one that would hand it the whole agent protocol rather than the
-// list and sign the relay forwards.
+// diagnoseSSHKeys covers what the agent is for: the executor authenticates and
+// never holds a key.  The private socket would hand it the whole agent protocol
+// rather than the list and sign the relay forwards.
 func diagnoseSSHKeys(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || len(cfg.Ssh.Keys) == 0 {
 		return
@@ -451,10 +416,9 @@ func diagnoseSSHKeys(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 		opts.ExecUser)
 }
 
-// diagnoseProtectProc checks the setting that keeps a value out of the one place
-// a running daemon still shows it.  A brokered command's value is in the
-// executor's environment for as long as it runs, and /proc is where another
-// account would read it.
+// diagnoseProtectProc: a brokered command's value is in the executor's
+// environment while it runs, and /proc is where another account would read
+// it.
 func diagnoseProtectProc(report *DoctorReport, opts DoctorOptions) {
 	pid := mainPID("faramir-broker.service")
 	if pid == "" {
@@ -472,8 +436,7 @@ func diagnoseProtectProc(report *DoctorReport, opts DoctorOptions) {
 	report.add("protectproc", StatusOK, "%s cannot read the broker's environ", opts.Operator)
 }
 
-// mainPID asks systemd rather than matching a process name, which is the same
-// question without the guesswork about what the binary is called.
+// mainPID asks systemd rather than matching a process name.
 func mainPID(unit string) string {
 	if !systemdRunning() {
 		return ""
@@ -490,13 +453,9 @@ func mainPID(unit string) string {
 	return pid
 }
 
-// diagnoseBrokered asks the broker to run something and looks at what came
-// back.  Everything above is about what an account can reach; this is the one
-// place the answer is what a brokered command actually gets.
-//
-// As the operator, because the broker checks the peer's credentials: root is
-// not in the shared group either, so asking as ourselves would report a broken
-// install on a working one.
+// diagnoseBrokered asks the broker to run something: the one place the answer
+// is what a brokered command actually gets.  As the operator, the broker
+// checking the peer's credentials and root not being in the shared group.
 func diagnoseBrokered(report *DoctorReport, opts DoctorOptions) {
 	faramir := filepath.Join(DefaultBinDir, "faramir")
 	brokered := func(args ...string) (string, error) {
@@ -513,9 +472,9 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions) {
 			"holding whatever that account can reach", got, opts.ExecUser)
 		return
 	}
-	// The keeper is handed the key through LoadCredential=, so the credential
-	// directory and the environment are the two places a child might still find
-	// it.  Both are asked through a shell, being a glob and an expansion.
+	// The key arrives through LoadCredential=, so the credential directory and
+	// the environment are where a child might find it.  Both go through a
+	// shell, being a glob and an expansion.
 	leaks := []struct{ name, script, want string }{
 		{"the environment", `echo "[${SOPS_AGE_KEY:-unset}]"`, "[unset]"},
 		{"a systemd credential", `cat /run/credentials/*/age_key 2>&1 | head -1`, ""},
@@ -528,8 +487,7 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions) {
 			report.add("brokered command", StatusFailed, "the age key reaches a child "+
 				"through %s", leak.name)
 			return
-		// Reported without the output: whatever was read is the thing this is
-		// checking for, and a finding that quotes it has published it.
+		// Without the output: a finding that quotes it has published it.
 		case leak.want == "" && got != "" && !strings.Contains(strings.ToLower(got), "no such file") &&
 			!strings.Contains(strings.ToLower(got), "permission denied"):
 			report.add("brokered command", StatusFailed, "a child read something from "+
@@ -542,13 +500,10 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions) {
 	diagnoseRedaction(report, opts)
 }
 
-// diagnoseRedaction is the end-to-end claim: a managed value, injected into a
-// real command on this host, comes back as its token.  Everything else here is
-// about reachability; this is the one check that fails when redaction itself
-// has stopped working.
-//
-// The value is never in a finding, on any path.  A failure means the plaintext
-// is in that output, so what gets reported is that no token appeared.
+// diagnoseRedaction is the end-to-end claim: a managed value injected into a
+// real command comes back as its token.  The value is never in a finding on any
+// path -- a failure means the plaintext is in that output, so what is reported
+// is that no token appeared.
 func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
 	faramir := filepath.Join(DefaultBinDir, "faramir")
 	out, err := asOperator(opts, faramir, "list-secrets")
@@ -577,8 +532,7 @@ func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
 	report.add("redaction", StatusOK, "an injected value comes back as its token")
 }
 
-// ownerName is the account a file belongs to, falling back to the numeric uid
-// for one nothing on this host names.
+// ownerName is the account a file belongs to, or the numeric uid.
 func ownerName(info os.FileInfo) string {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {

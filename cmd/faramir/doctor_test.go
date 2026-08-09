@@ -9,9 +9,7 @@ import (
 	"github.com/andornaut/faramir/internal/install"
 )
 
-// The report is read by a person looking for the one line that is not "ok", so
-// what the layout has to do is put the status where the eye lands and keep a
-// sentence readable at the width it is being read in.
+// The report is read by someone looking for the one line that is not "ok".
 
 func TestTheStatusColumnIsFixedAndTheDetailAligns(t *testing.T) {
 	var out bytes.Buffer
@@ -23,8 +21,7 @@ func TestTheStatusColumnIsFixedAndTheDetailAligns(t *testing.T) {
 	if len(lines) < 2 {
 		t.Fatalf("expected a line per finding:\n%s", out.String())
 	}
-	// The detail starts at the same column on both, which is what makes a
-	// column of statuses scannable rather than a ragged list.
+	// The detail starts at the same column on both.
 	first := strings.Index(lines[0], "/etc/faramir")
 	second := strings.Index(lines[1], "readable")
 	if first != second {
@@ -41,8 +38,7 @@ func TestARepeatedCheckIsNamedOnce(t *testing.T) {
 	if got := strings.Count(out.String(), "sockets"); got != 1 {
 		t.Errorf("named the check %d times, want 1:\n%s", got, out.String())
 	}
-	// Named once, but still one line each: the second answer is its own finding
-	// and hiding it would lose which socket is which.
+	// Named once, but still one line each.
 	if got := strings.Count(out.String(), "is listening"); got != 2 {
 		t.Errorf("printed %d answers, want 2:\n%s", got, out.String())
 	}
@@ -73,8 +69,7 @@ func TestALongDetailWrapsUnderItself(t *testing.T) {
 			t.Errorf("line is %d columns wide:\n%s", width, line)
 		}
 	}
-	// Every continuation is indented to where the detail started, so the
-	// leftmost column stays nothing but statuses.
+	// Continuations indent to where the detail started.
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	start := strings.Index(lines[0], "word")
 	for _, line := range lines[1 : len(lines)-2] {
@@ -84,8 +79,7 @@ func TestALongDetailWrapsUnderItself(t *testing.T) {
 	}
 }
 
-// A path is one word and has to stay copyable, so an over-long one overflows
-// rather than being broken across two lines.
+// A path has to stay copyable, so an over-long one overflows.
 func TestAnOverlongWordIsNotSplit(t *testing.T) {
 	path := "/very/" + strings.Repeat("long/", 30) + "config.toml"
 	if lines := wrapText(path, 40); len(lines) != 1 || lines[0] != path {
@@ -93,8 +87,7 @@ func TestAnOverlongWordIsNotSplit(t *testing.T) {
 	}
 }
 
-// The glyph is what makes the column scannable; the word is what survives a
-// pipe into a log.  Both, and neither instead of the other.
+// The glyph makes the column scannable, the word survives a pipe into a log.
 func TestTheStatusCarriesAGlyphAndTheWord(t *testing.T) {
 	t.Setenv("LC_ALL", "C.UTF-8")
 	var out bytes.Buffer
@@ -109,8 +102,7 @@ func TestTheStatusCarriesAGlyphAndTheWord(t *testing.T) {
 	}
 }
 
-// A terminal that was not told to expect UTF-8 gets the word alone rather than
-// a replacement character against every finding.
+// A non-UTF-8 terminal gets the word alone.
 func TestWithoutAUnicodeLocaleTheWordStandsAlone(t *testing.T) {
 	t.Setenv("LC_ALL", "C")
 	t.Setenv("LC_CTYPE", "")

@@ -16,9 +16,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// The agent protocol message numbers these tests send and expect, from
-// draft-miller-ssh-agent.  Spelled out rather than left as bare bytes: a raw 9
-// in a test reads as an offset.
+// Agent protocol message numbers, from draft-miller-ssh-agent.
 const (
 	msgFailure             = 5
 	msgRemoveAllIdentities = 9
@@ -58,8 +56,7 @@ func baseConfig(dir string) config.SshConfig {
 
 // -- disabled by default ----------------------------------------------------
 
-// With no keys, no agent is started and nothing is injected: SSH then
-// authenticates however the operator arranged it for the executor's uid.
+// With no keys, no agent is started and nothing is injected.
 func TestNoKeysMeansNoAgentAndNoInjection(t *testing.T) {
 	dir := t.TempDir()
 	a := New(baseConfig(dir))
@@ -77,7 +74,7 @@ func TestNoKeysMeansNoAgentAndNoInjection(t *testing.T) {
 	}
 }
 
-// A missing ssh-agent binary must be logged, not panic: SSH is optional.
+// SSH is optional, so a missing binary is logged rather than fatal.
 func TestAMissingBinaryDoesNotRaise(t *testing.T) {
 	dir := t.TempDir()
 	cfg := baseConfig(dir)
@@ -112,8 +109,7 @@ func startedAgent(t *testing.T) (*Agent, string) {
 	return a, key
 }
 
-// sshAdd runs ssh-add against the proxy, which is the only way anything in
-// these tests is allowed to reach the agent.
+// sshAdd runs ssh-add against the proxy, the only route to the agent here.
 func sshAdd(t *testing.T, a *Agent, args ...string) (string, error) {
 	t.Helper()
 	cmd := exec.Command("ssh-add", args...)
@@ -122,8 +118,7 @@ func sshAdd(t *testing.T, a *Agent, args ...string) (string, error) {
 	return string(out), err
 }
 
-// dialProxy opens a connection to the proxy with a deadline, so a relay that
-// never answers fails the test instead of hanging it.
+// dialProxy dials with a deadline, so a stuck relay fails rather than hangs.
 func dialProxy(t *testing.T, sock string) net.Conn {
 	t.Helper()
 	client, err := net.Dial("unix", sock)
@@ -182,8 +177,7 @@ func TestTheKeyIsLoadedAndUsableThroughTheAgent(t *testing.T) {
 	}
 }
 
-// ssh-agent creates its socket 0600; whatever the mode ends up as, it must
-// never be world-accessible.
+// Whatever the mode ends up as, it must never be world-accessible.
 func TestTheAgentSocketIsNotWorldAccessible(t *testing.T) {
 	a, _ := startedAgent(t)
 	info, err := os.Stat(a.Env()["SSH_AUTH_SOCK"])
@@ -195,8 +189,8 @@ func TestTheAgentSocketIsNotWorldAccessible(t *testing.T) {
 	}
 }
 
-// The agent lends authentication, not keys.  ssh-add -L prints public keys
-// only, and the private half must never be reachable through the socket.
+// The agent lends authentication, not keys: the private half is never
+// reachable through the socket.
 func TestThePrivateKeyNeverAppearsInOutput(t *testing.T) {
 	a, key := startedAgent(t)
 	private, err := os.ReadFile(key)
@@ -212,8 +206,7 @@ func TestThePrivateKeyNeverAppearsInOutput(t *testing.T) {
 	}
 }
 
-// -D keeps the agent in the foreground, so it is an ordinary child that dies
-// with the broker rather than lingering with the fleet keys loaded.
+// -D keeps the agent a child of the broker, so it dies with it.
 func TestTheAgentDiesWithTheBroker(t *testing.T) {
 	a, _ := startedAgent(t)
 	sock := a.Env()["SSH_AUTH_SOCK"]
@@ -234,9 +227,8 @@ func TestTheAgentDiesWithTheBroker(t *testing.T) {
 
 // -- the proxy --------------------------------------------------------------
 
-// ssh-agent's own socket is never handed out: OpenSSH closes any connection
-// whose peer euid is not its own, so the executor has to arrive over a
-// connection the broker opened.
+// OpenSSH closes any connection whose peer euid is not its own, so the executor
+// arrives over one the broker opened.
 func TestTheExecutorIsGivenTheProxyNotTheAgentSocket(t *testing.T) {
 	a, _ := startedAgent(t)
 
@@ -250,22 +242,20 @@ func TestTheExecutorIsGivenTheProxyNotTheAgentSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Only the broker's uid connects here, so nothing else needs any access.
+	// Only the broker's uid connects here.
 	if perm := info.Mode().Perm(); perm&0o077 != 0 {
 		t.Errorf("ssh-agent's own socket is %o; it is reachable beyond the broker", perm)
 	}
 }
 
-// When ssh-agent hangs up first, the relay has to close the executor's end.
-// Waiting on the other copy direction instead leaves the child blocked on a
-// reply that is not coming until its own timeout, and leaks the connection.
+// When ssh-agent hangs up first, the relay closes the executor's end rather
+// than leaving the child blocked on a reply that is not coming.
 func TestTheRelayClosesTheClientWhenTheAgentGoesAway(t *testing.T) {
 	a, _ := startedAgent(t)
 	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
 
-	// One complete request first, so the relay is established in both
-	// directions before ssh-agent goes away, and nothing of the reply is left
-	// buffered to be mistaken for the connection still being open.
+	// One complete request first, so the relay is established both ways and
+	// nothing of the reply is left buffered.
 	request(t, client, msgRequestIdentities)
 
 	a.Stop()
@@ -275,9 +265,8 @@ func TestTheRelayClosesTheClientWhenTheAgentGoesAway(t *testing.T) {
 	}
 }
 
-// The agent protocol has no read-only mode: the same connection that signs can
-// also empty the agent.  A brokered command that does it breaks authentication
-// to every managed host until the broker restarts, so the relay must refuse it.
+// The protocol has no read-only mode: the connection that signs can also empty
+// the agent, breaking authentication to every host until the broker restarts.
 func TestTheExecutorCannotEmptyTheAgent(t *testing.T) {
 	a, _ := startedAgent(t)
 
@@ -294,8 +283,7 @@ func TestTheExecutorCannotEmptyTheAgent(t *testing.T) {
 	}
 }
 
-// The other half of the same problem: a key the executor chose must not end up
-// in the broker's agent, where every later brokered command would use it.
+// A key the executor chose must not end up in the broker's agent.
 func TestTheExecutorCannotAddAKeyToTheAgent(t *testing.T) {
 	a, _ := startedAgent(t)
 	theirs := newKey(t, t.TempDir())
@@ -310,10 +298,8 @@ func TestTheExecutorCannotAddAKeyToTheAgent(t *testing.T) {
 	}
 }
 
-// A refused request is answered, not thrown.  ssh sends
-// session-bind@openssh.com whenever agent forwarding is in play, and a
-// connection torn down over one unsupported request costs the client its agent
-// for the rest of the session.
+// Answered, not thrown: ssh sends session-bind@openssh.com under agent
+// forwarding, and a teardown would cost the client its agent for the session.
 func TestARefusedRequestIsAnsweredAndTheConnectionSurvives(t *testing.T) {
 	a, _ := startedAgent(t)
 	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
@@ -330,8 +316,7 @@ func TestARefusedRequestIsAnsweredAndTheConnectionSurvives(t *testing.T) {
 }
 
 // A relay that does not unwind holds its slot for good, and enough of them
-// leave the proxy with none: the same denial the filter exists to prevent,
-// reached through the requests it refuses.
+// leave the proxy with none.
 func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
 	a, _ := startedAgent(t)
 	sock := a.Env()["SSH_AUTH_SOCK"]
@@ -340,8 +325,7 @@ func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
 		client := dialProxy(t, sock)
 		request(t, client, msgRemoveAllIdentities) // which the relay refuses
 		_ = client.Close()
-		// The slot is released as the relay goroutine unwinds, which the close
-		// above is what starts.
+		// The close above starts the unwind that releases the slot.
 		for range 100 {
 			if len(a.slots) == 0 {
 				break
@@ -359,8 +343,8 @@ func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
 	}
 }
 
-// An unframed or oversized message is not a request the executor could have
-// meant, and forwarding it is how ssh-agent gets asked to allocate on demand.
+// Not a request the executor could have meant, and forwarding it asks ssh-agent
+// to allocate on demand.
 func TestAnOversizedMessageIsRefused(t *testing.T) {
 	a, _ := startedAgent(t)
 	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
@@ -375,8 +359,7 @@ func TestAnOversizedMessageIsRefused(t *testing.T) {
 	}
 }
 
-// A relay that works once and then wedges would pass every check the installer
-// makes and fail on the second brokered command.
+// A relay that works once and then wedges passes every install check.
 func TestTheProxyServesMoreThanOneConnection(t *testing.T) {
 	a, _ := startedAgent(t)
 	for i := range 3 {

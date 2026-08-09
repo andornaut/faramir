@@ -5,18 +5,16 @@ import (
 	"testing"
 )
 
-// The rewrite is exercised directly rather than through the hook's JSON, so
-// that a failure names the command that broke rather than a payload.
+// Exercised directly rather than through the hook's JSON, so a failure names
+// the command that broke.
 func bashInput() *payload { return &payload{ToolName: "Bash"} }
 
 // Each of these covers a way the rewrite silently loses a command's output,
-// which is worse than refusing it: the agent sees an empty result and reads it
-// as success.
+// which the agent reads as success.
 
 // A backgrounded job outlives the brace group, so the wrapper reads and deletes
-// the file before the job has written anything.  Go's $ is end of text rather
-// than end of line, so the trailing newline a multi-line Bash tool call carries
-// has to be treated as trailing space.
+// the file before it writes.  Go's $ is end of text, so a trailing newline
+// counts as trailing space.
 func TestABackgroundedCommandIsNotWrappedHoweverItEnds(t *testing.T) {
 	for _, command := range []string{
 		"npm run dev &",
@@ -29,17 +27,15 @@ func TestABackgroundedCommandIsNotWrappedHoweverItEnds(t *testing.T) {
 			t.Errorf("wrapped a backgrounded command: %q", command)
 		}
 	}
-	// "&&" is not backgrounding, and a command ending in one is incomplete
-	// rather than backgrounded, so neither should be mistaken for the other.
+	// "&&" is an incomplete command, not backgrounding.
 	if _, rewritten := wrap(hosts["claude"], "make build && make test", bashInput()); !rewritten {
 		t.Error("refused to wrap a command containing &&")
 	}
 }
 
-// Sourced twice in one shell, the inner copy reuses and then clears the outer's
-// state: the outer then neither redacts nor removes its temporary file, and the
-// agent gets nothing at all.  The emitted form names the wrap script and never
-// names the redactor, so matching only "faramir redact" misses it.
+// Sourced twice in one shell, the inner copy clears the outer's state and the
+// agent gets nothing.  The emitted form names the wrap script, never the
+// redactor, so matching only "faramir redact" misses it.
 func TestARewrittenCommandIsNotRewrittenAgain(t *testing.T) {
 	once, rewritten := wrap(hosts["claude"], "echo hello", bashInput())
 	if !rewritten {
@@ -55,11 +51,8 @@ func TestARewrittenCommandIsNotRewrittenAgain(t *testing.T) {
 	}
 }
 
-// Naming the wrapper is not using it.  The script's path appears in this
-// project's own documentation and in the wrapper itself, and a command that
-// merely mentions it prints whatever else it printed: read as already wrapped,
-// that output reaches the transcript unredacted.  Only the form the rewrite
-// emits is left alone.
+// Naming the wrapper is not using it: read as already wrapped, such a command's
+// output reaches the transcript unredacted.
 func TestOnlySourcingTheScriptCountsAsWrapped(t *testing.T) {
 	for command, wantRewritten := range map[string]bool{
 		"cat " + wrapScript():                      true,

@@ -3,41 +3,26 @@
 #
 #   source /usr/local/libexec/faramir/wrap.sh '<command>'
 #
-# The guard rewrites every Bash tool call into that one line.  Three things
-# decide this shape, and each of them rules out something simpler.
+# The guard rewrites every Bash tool call into that line.  Three things decide
+# the shape; see docs/design.md.
 #
-# Sourced, because the agent's shell persists between tool calls.  A wrapper
-# that runs the command in a child loses every "cd", "export" and shell function
-# it sets, and the next command runs somewhere else.  Sourcing runs here, and
-# "eval" re-parses the command in this shell, so nothing is lost.
+# Sourced, because the agent's shell persists between tool calls: a child would
+# lose every "cd", "export" and shell function the command sets.  One simple
+# command, because the permission matcher refuses a rule against a compound
+# statement.  Redacted after the command finishes, a pipeline putting it in a
+# subshell and process substitution racing the shell.
 #
-# One simple command, because the permission matcher refuses to match a rule
-# against a compound statement: an inline "{ ...; } >file" rewrite is opaque to
-# it however the rule is written.  This form at least reads as one command.  It
-# does not restore permission matching, and nothing does: the rule an operator
-# wrote names the program, and after the rewrite the program is "source".  That
-# is why the hook approves what its deny list did not refuse; see docs/design.md.
-#
-# Redacted after the command finishes rather than through a pipe while it runs,
-# because a pipeline puts the command in a subshell (losing the state again) and
-# process substitution races: the shell moves on while the redactor is still
-# writing, and whatever it had not written yet is lost.
-#
-# Every failure fails closed: output that could not be redacted is never shown.
-# With nowhere to capture output the command does not run at all, and output
-# that was captured but not redacted is withheld.  Both say so on stderr and
-# return non-zero, so the caller reads a refusal rather than a silent success.
-# The command's own status is what comes back when redaction worked.
+# Every failure fails closed: output that could not be redacted is never
+# shown.
 
-# /dev/shm before mktemp's own default: the file holds the command's output
-# before redaction, so it belongs in memory rather than on a disk.  0600 either
-# way, and removed as soon as it has been read.
+# /dev/shm before mktemp's default: the file holds unredacted output, so it
+# belongs in memory.  0600 either way, and removed once read.
 __frf=$(mktemp "${XDG_RUNTIME_DIR:-/dev/shm}/faramir.XXXXXX" 2>/dev/null ||
   mktemp /dev/shm/faramir.XXXXXX 2>/dev/null || mktemp)
 
 if [ -z "$__frf" ]; then
-  # Nothing to capture into means nothing to redact, so the command does not
-  # run.  Letting it run here would print whatever it found straight through.
+  # Nothing to capture into, so the command does not run: it would print
+  # whatever it found straight through.
   echo "faramir: no file to capture output into, so the command was not run" >&2
   __frc=1
 else
@@ -46,16 +31,13 @@ else
   } >"$__frf" 2>&1
   __frc=$?
 
-  # Redacted into a second file rather than straight to stdout, so a redaction
-  # that fails part way through cannot have already printed the part it did not
-  # redact.  Neither file outlives this block, and both hold text that has not
-  # been shown, so /dev/shm again.
+  # A second file rather than stdout, so a redaction that fails part way
+  # through cannot have printed what it did not redact.
   if "${FARAMIR_CLI:-/usr/local/bin/faramir}" redact <"$__frf" >"${__frf}.out"; then
     cat "${__frf}.out"
   else
-    # The command ran, so everything it set in this shell is intact; only its
-    # output is withheld.  A faramir too old to have "redact", one that is not
-    # installed, and a broker that could not be reached all land here.
+    # The command ran, so what it set in this shell is intact; only the output
+    # is withheld.  A missing or too-old faramir lands here too.
     echo "faramir: the output was withheld because it could not be redacted" >&2
     # A withheld output must not read as a clean success.
     [ "$__frc" -eq 0 ] && __frc=1
@@ -63,10 +45,7 @@ else
   rm -f "$__frf" "${__frf}.out"
 fi
 
-# Restores the status the caller reads, the command's own whenever redaction
-# worked.
-#
-# Cleared in the same breath: this runs in the caller's shell, so a variable
-# left defined here stays defined in it.  The status is expanded into the eval
-# string before unset runs, so clearing it first costs nothing.
+# Restores the status the caller reads, and clears the variables: this runs in
+# the caller's shell.  The status is expanded into the eval string before unset
+# runs.
 eval "unset __frf __frc; ( exit $__frc )"

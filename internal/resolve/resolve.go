@@ -1,25 +1,13 @@
-// Package resolve turns the caller's cmd[0] into the absolute path the
-// executor will run.
+// Package resolve turns the caller's cmd[0] into the absolute path the executor
+// will run.  There is no allowlist: what keeps plaintext out of the agent's
+// context is the uid split and the redactor.
 //
-// This is all that is left of what used to be a default-deny allowlist.  The
-// allowlist was removed because it never carried a security property: what
-// keeps plaintext out of the agent's context is the uid split and the
-// redactor, and a rule permitting any interpreter (bash, python, env) reached
-// straight past every constraint it expressed.  It cost an operator a rule per
-// program and cost the agent a denial per mistake, in exchange for tidiness.
+// Two rules, both about agreeing with the child's view of the world:
 //
-// What remains is genuinely needed: the broker sends the executor an absolute
-// path, so somebody has to work out which file a name refers to, and doing
-// that wrong means running a *different* file.
-//
-// Two rules, both about agreeing with the child's own view of the world:
-//
-//   - A bare name is looked up on [exec.base_env] PATH, the PATH the child will
-//     actually get, so a tool in a venv or a pipx install is reached by putting
-//     it there.
-//   - A relative path is resolved against the request's cwd, because that is
-//     where the child runs.  Resolving it against the broker's own working
-//     directory would silently execute a different file of the same name.
+//   - A bare name is looked up on [exec.base_env] PATH, the PATH the child gets.
+//   - A relative path is resolved against the request's cwd, where the child
+//     runs; the broker's own directory could hold a different file of the same
+//     name.
 package resolve
 
 import (
@@ -40,8 +28,8 @@ func (e *Error) Error() string { return e.Msg }
 
 func errf(format string, args ...any) error { return &Error{Msg: fmt.Sprintf(format, args...)} }
 
-// realpath resolves symlinks the way Python's os.path.realpath does: a
-// component that does not exist is not an error, it is left in place.
+// realpath resolves symlinks, leaving a component that does not exist in
+// place.
 func realpath(path string) string {
 	if resolved, err := filepath.EvalSymlinks(path); err == nil {
 		return resolved
@@ -49,8 +37,7 @@ func realpath(path string) string {
 	return filepath.Clean(path)
 }
 
-// join mirrors Python's os.path.join: an absolute second argument wins
-// outright, rather than being appended to the first.
+// join lets an absolute second argument win outright.
 func join(cwd, path string) string {
 	if filepath.IsAbs(path) {
 		return path
@@ -73,26 +60,19 @@ func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 
 	if strings.Contains(argv0, "/") {
 		resolved := realpath(join(cwd, argv0))
-		// Existence, not executability.  The uid that execs this is the
-		// executor's, which can hold permissions the broker does not, and
-		// answering access(2) here would refuse a program that runs perfectly
-		// well for the account that will run it.  The executor reports its own
-		// failure; absence is refused here because it is the same answer from
-		// any uid and is worth catching before a child is forked to find it.
+		// Existence, not executability: the executor's uid can hold permissions
+		// the broker does not, and it reports its own failure.  Absence is the
+		// same answer from any uid.
 		if !isFile(resolved) {
 			return "", errf("%s: no such program (resolved to %s)", argv0, resolved)
 		}
 		return resolved, nil
 	}
 
-	// A bare name is a PATH search, and skipping what cannot be executed is what
-	// a PATH search does: a non-executable file called "ls" in an early
-	// directory is not the program the caller meant.  The bit is read as the
-	// broker, which is the one uid available here and not the one that will run
-	// it, so a program executable only by the executor reports as not found.
-	// Both accounts are service accounts on the same host and program
-	// directories are world-executable, so the two views differ only on a
-	// deliberately narrowed one; an absolute path in cmd[0] is the way past it.
+	// A PATH search skips what cannot be executed.  The bit is read as the
+	// broker, not the uid that will run it, so a program executable only by the
+	// executor reports as not found; an absolute path in cmd[0] is the way past
+	// that.
 	path := execCfg.BaseEnv["PATH"]
 	found := ""
 	for dir := range strings.SplitSeq(path, ":") {

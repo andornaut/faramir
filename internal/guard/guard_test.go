@@ -8,14 +8,9 @@ import (
 	"github.com/andornaut/faramir/internal/cli"
 )
 
-// Point every test at the shipped file rather than at whatever this host has
-// installed under /usr/local/libexec.  Without this the suite grades the
-// machine it runs on: a stale installed file passes tests that the repo's own
-// patterns would fail, and CI (which has no installed file, so gets the
-// fallback) disagrees with the developer's box.
-// Rendered first: the shipped file is a template, so the paths it refuses are
-// the ones an install writes into it.  Reading it raw would leave the path
-// rules as unexpanded template text, which matches nothing.
+// Point every test at the repo's own patterns rather than at whatever is
+// installed under /usr/local/libexec.  Rendered first, because the shipped file
+// is a template whose path rules match nothing unexpanded.
 func TestMain(m *testing.M) {
 	cleanup := func() {}
 	if data, err := renderShippedBytes(); err == nil {
@@ -27,15 +22,15 @@ func TestMain(m *testing.M) {
 			}
 		}
 	}
-	// Not deferred: os.Exit would skip it, leaving a temp directory per run.
+	// Not deferred: os.Exit would skip it.
 	code := m.Run()
 	cleanup()
 	os.Exit(code)
 }
 
 // The prefix sanctions the operator's subcommands, not the roles systemd runs.
-// Both spellings are checked: the daemons are subcommands of the one binary now,
-// and a host that has not converged still has the old per-role binaries on disk.
+// Both spellings, since an unconverged host still has the old per-role
+// binaries.
 func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
 	var cmds []string
 	for _, role := range cli.Internal {
@@ -51,9 +46,8 @@ func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
 	}
 }
 
-// The other half of the rule above: naming the sanctioned subcommands is only
-// safe if every one of them is actually named.  A subcommand left out has its
-// arguments scanned, so `faramir run --env A=secret://a` would be refused.
+// Naming the sanctioned subcommands is only safe if every one is named: one
+// left out has its arguments scanned.
 func TestEveryOperatorSubcommandIsSanctioned(t *testing.T) {
 	for _, name := range cli.Operator {
 		// A ref in the arguments is the thing an unsanctioned call trips on.
@@ -72,8 +66,8 @@ func TestFallbackIsUsedWhenThePatternsFileIsMissing(t *testing.T) {
 	}
 }
 
-// Every fallback pattern must compile under RE2.  A pattern that does not is
-// skipped at load, which would silently weaken the list.
+// A pattern that fails to compile is skipped at load, silently weakening the
+// list.
 func TestEveryFallbackPatternCompiles(t *testing.T) {
 	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
 	if got, want := len(loadPatterns()), len(fallback); got != want {

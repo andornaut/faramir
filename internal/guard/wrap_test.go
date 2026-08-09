@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// The hook's contract is a JSON payload on stdin and a JSON object on stdout,
-// so the tests below drive it through those rather than calling decide().
+// These drive the hook through its real contract -- a JSON payload on stdin, a
+// JSON object on stdout -- rather than calling decide() directly.
 
 func withStdin(t *testing.T, input string, fn func()) {
 	t.Helper()
@@ -43,8 +43,7 @@ func captureStdout(t *testing.T, fn func()) string {
 	return <-done
 }
 
-// hookOutput runs the guard the way the harness does: a payload on stdin, one
-// JSON object on stdout.
+// hookOutput runs the guard the way the harness does.
 func hookOutput(t *testing.T, payload string) map[string]any {
 	t.Helper()
 	stdout := captureStdout(t, func() {
@@ -70,16 +69,12 @@ func bashPayload(command string) string {
 	return string(b)
 }
 
-// A command the deny list does not forbid still runs, but under the redactor:
-// the deny list only covers what someone thought to name, and the command that
-// leaks a credential is usually one nobody would have named.
 func TestAnAllowedCommandIsRewrittenThroughTheRedactor(t *testing.T) {
 	hook := hookOutput(t, bashPayload("ansible-playbook site.yml -vvv"))
 	if hook == nil {
 		t.Fatal("no hook output; the command was neither denied nor wrapped")
 	}
-	// A rewritten command cannot be allow-listed by any rule, so the hook has
-	// to decide: claiming nothing would make every command prompt forever.
+	// A rewritten command matches no allow rule, so the hook has to decide.
 	if hook["permissionDecision"] != "allow" {
 		t.Errorf("permissionDecision = %v, want allow", hook["permissionDecision"])
 	}
@@ -94,9 +89,8 @@ func TestAnAllowedCommandIsRewrittenThroughTheRedactor(t *testing.T) {
 	if !strings.Contains(command, "ansible-playbook site.yml -vvv") {
 		t.Errorf("command = %q, want the original preserved inside", command)
 	}
-	// One simple command: the permission matcher will not match an allow rule
-	// against a compound statement, so a rewrite containing one can never be
-	// allow-listed and every command prompts forever.
+	// The permission matcher will not match an allow rule against a compound
+	// statement, so a rewrite containing one can never be allow-listed.
 	for _, compound := range []string{";", "{", "&&", "\n"} {
 		if strings.Contains(command, compound) {
 			t.Errorf("command = %q contains %q, which makes it un-allow-listable", command, compound)
@@ -104,15 +98,12 @@ func TestAnAllowedCommandIsRewrittenThroughTheRedactor(t *testing.T) {
 	}
 }
 
-// The command goes in verbatim: it runs in the agent's own shell, so there is
-// no second parser to quote for, and quoting it would change what runs.
 func TestTheCommandIsEmbeddedVerbatim(t *testing.T) {
 	original := `echo "it's" $HOME 'and' a\ space  # trailing comment`
 	hook := hookOutput(t, bashPayload(original))
 	command := hook["updatedInput"].(map[string]any)["command"].(string)
 
-	// Undo the shell's single-quote rule and compare with what went in: the
-	// wrapper's eval re-parses this, so anything less exact changes what runs.
+	// Undo the shell's single-quote rule and compare with what went in.
 	i := strings.Index(command, "'")
 	if i < 0 || !strings.HasSuffix(command, "'") {
 		t.Fatalf("command = %q, want the original as one single-quoted word", command)
@@ -123,8 +114,8 @@ func TestTheCommandIsEmbeddedVerbatim(t *testing.T) {
 	}
 }
 
-// The reason for the whole shape: the agent's shell persists between calls, so
-// a wrapper that runs the command in a subshell loses every cd and export.
+// The agent's shell persists between calls, so a subshell would lose every cd
+// and export.
 func TestTheCommandRunsInTheCallersOwnShell(t *testing.T) {
 	command := hookOutput(t, bashPayload("cd /var"))["updatedInput"].(map[string]any)["command"].(string)
 	for _, forbidden := range []string{"bash -lc", "bash -c", "| " + "faramir"} {
@@ -137,8 +128,6 @@ func TestTheCommandRunsInTheCallersOwnShell(t *testing.T) {
 	}
 }
 
-// A denied command stays denied: the rewrite is for what the deny list lets
-// through, not a replacement for it.
 func TestADeniedCommandIsStillDenied(t *testing.T) {
 	hook := hookOutput(t, bashPayload("sops -d secrets/vault.sops.yml"))
 	if hook == nil {
@@ -152,21 +141,17 @@ func TestADeniedCommandIsStillDenied(t *testing.T) {
 	}
 }
 
-// Wrapping the wrapper would nest a redactor inside a redactor on every run,
-// so the form the rewrite emits is left alone.  Only that form: everything else
-// below runs some part of itself uncovered when it is mistaken for one.
+// Only the form the rewrite emits is left alone; everything else below runs
+// some part of itself uncovered if mistaken for one.
 func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
 	for command, wantRewritten := range map[string]bool{
 		"source " + wrapScript() + " 'ls -la'": false,
 		". " + wrapScript() + " 'ls -la'":      false,
-		// A pipe carries stdout.  Whatever the upstream program wrote to stderr
-		// reaches the transcript unredacted, and the tool reports both streams
-		// as one blob, so this is not a covered command.
+		// A pipe carries stdout, leaving stderr unredacted.
 		"echo hi | faramir redact":                         true,
 		"/usr/local/bin/faramir redact -- /bin/bash -lc x": true,
 		"faramir redact":                                   true,
-		// The redactor covers the element it is part of and nothing chained
-		// after it.
+		// The redactor covers its own element, not what is chained after it.
 		"faramir redact -- true; ./leak.sh":     true,
 		"faramir redact -- true && ./leak.sh":   true,
 		"echo hi | faramir redact || ./leak.sh": true,
@@ -179,8 +164,8 @@ func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
 	}
 }
 
-// BashOutput reads the buffer of a command that is already running, so there is
-// nothing to wrap and a rewrite would only corrupt the request.
+// BashOutput reads an already-running command's buffer, so there is nothing to
+// wrap.
 func TestBashOutputIsNotRewritten(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name":  "BashOutput",
@@ -191,9 +176,8 @@ func TestBashOutputIsNotRewritten(t *testing.T) {
 	}
 }
 
-// A rewrite replaces the tool input, so a field it does not hand back is a
-// field the tool never sees: a dropped timeout or run_in_background changes how
-// the command runs, not just how it reads.
+// A rewrite replaces the tool input, so a field it does not hand back is one
+// the tool never sees.
 func TestTheRewritePreservesTheOtherInputFields(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Bash",
@@ -212,8 +196,7 @@ func TestTheRewritePreservesTheOtherInputFields(t *testing.T) {
 	}
 }
 
-// Buffering output until the command ends is exactly wrong for a command whose
-// output is read while it runs.
+// Buffering is wrong for a command whose output is read while it runs.
 func TestBackgroundCommandsAreNotRewritten(t *testing.T) {
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Bash",
@@ -234,9 +217,8 @@ func TestBackgroundCommandsAreNotRewritten(t *testing.T) {
 	}
 }
 
-// An incomplete command is quoted and handed to eval, which re-parses it in
-// isolation: it fails the way it would have failed unwrapped, rather than
-// taking the wrapper's own syntax down with it.
+// eval re-parses the quoted command in isolation, so it fails the way it would
+// have failed unwrapped rather than breaking the wrapper's own syntax.
 func TestAnIncompleteCommandIsStillWrappedSafely(t *testing.T) {
 	for _, command := range []string{`echo hi \\`, "make build &&", "ls |", "echo hi;"} {
 		hook := hookOutput(t, bashPayload(command))
@@ -251,8 +233,7 @@ func TestAnIncompleteCommandIsStillWrappedSafely(t *testing.T) {
 	}
 }
 
-// Mentioning the redactor is not using it.  Matching a bare space would let any
-// command that merely names it skip redaction entirely.
+// Mentioning the redactor is not using it.
 func TestMentioningTheRedactorDoesNotSkipTheRewrite(t *testing.T) {
 	for _, command := range []string{
 		`echo "run faramir redact next"`,
@@ -264,9 +245,8 @@ func TestMentioningTheRedactorDoesNotSkipTheRewrite(t *testing.T) {
 	}
 }
 
-// The decision is not configurable.  Returning "ask" would prompt on every
-// command including ls, show the rewritten text rather than what was typed,
-// and strand an unattended run on the first one.
+// The decision is not configurable: "ask" would prompt on every command with
+// no rule able to pre-approve one.
 func TestAnAllowedCommandIsAlwaysAllowed(t *testing.T) {
 	t.Setenv("FARAMIR_WRAP_DECISION", "ask")
 	hook := hookOutput(t, bashPayload("ls -la"))
@@ -278,8 +258,6 @@ func TestAnAllowedCommandIsAlwaysAllowed(t *testing.T) {
 	}
 }
 
-// The deny list runs first, so delegating the prompt to it does not widen what
-// is reachable.
 func TestADeniedCommandIsNeverAllowed(t *testing.T) {
 	hook := hookOutput(t, bashPayload("cat ~/.ssh/id_rsa"))
 	if hook["permissionDecision"] != "deny" {

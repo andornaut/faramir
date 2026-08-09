@@ -24,8 +24,7 @@ func guardOutput(t *testing.T, args []string, payload string) map[string]any {
 
 	go func() { _, _ = inW.WriteString(payload); _ = inW.Close() }()
 	code := Run(args)
-	// Closed before reading: the guard writes far less than a pipe buffer, so
-	// this cannot deadlock, and an open write end would make the read block.
+	// Closed before reading; the guard writes far less than a pipe buffer.
 	_ = outW.Close()
 	buf := make([]byte, 1<<16)
 	n, _ := outR.Read(buf)
@@ -43,9 +42,8 @@ func guardOutput(t *testing.T, args []string, payload string) map[string]any {
 	return got
 }
 
-// The hosts disagree about where a refusal goes and what an approval is.
-// Answering in the wrong dialect fails open, because a document the agent does
-// not understand is a command it runs unredacted, so each shape is pinned.
+// The hosts disagree about where a refusal goes and what an approval is, and
+// the wrong dialect fails open, so each shape is pinned.
 func TestHostDialects(t *testing.T) {
 	t.Run("claude rewrites through updatedInput and approves explicitly", func(t *testing.T) {
 		got := guardOutput(t, nil,
@@ -64,8 +62,7 @@ func TestHostDialects(t *testing.T) {
 		if !strings.Contains(updated["command"].(string), "wrap.sh") {
 			t.Errorf("command was not wrapped: %v", updated["command"])
 		}
-		// Every field the payload carried comes back: updatedInput replaces the
-		// tool input, so one dropped here is one the tool never sees.
+		// updatedInput replaces the tool input, so every field comes back.
 		if updated["timeout"] == nil {
 			t.Error("timeout was dropped from updatedInput")
 		}
@@ -88,17 +85,14 @@ func TestHostDialects(t *testing.T) {
 		if !strings.Contains(updated["command"].(string), "wrap.sh") {
 			t.Errorf("command was not wrapped: %v", updated["command"])
 		}
-		// There is no allow to return, so claiming one would be inventing a
-		// field the host does not read.
+		// There is no allow to return on this host.
 		if _, wrong := out["permissionDecision"]; wrong {
 			t.Error("gemini was sent a permissionDecision")
 		}
 	})
 
-	// The plugin hosts read no document of the agent's: the plugin faramir
-	// installs applies the decision itself, by throwing or by assigning into the
-	// arguments. So the reply is faramir's own, and both halves of it are named
-	// here because the plugin that reads them is a separate file.
+	// The plugin applies the decision itself, so the reply is faramir's own
+	// shape; both halves are pinned because the plugin is a separate file.
 	t.Run("the plugin hosts are answered in faramir's own shape", func(t *testing.T) {
 		for _, host := range []string{"opencode", "kilocode"} {
 			got := guardOutput(t, []string{"--host", host},
@@ -113,13 +107,11 @@ func TestHostDialects(t *testing.T) {
 			if !strings.Contains(updated["command"].(string), "wrap.sh") {
 				t.Errorf("%s: command was not wrapped: %v", host, updated["command"])
 			}
-			// The plugin assigns these over the arguments the model sent, so a
-			// field dropped here is one the tool never sees.
+			// Assigned over the arguments the model sent.
 			if updated["description"] != "greet" {
 				t.Errorf("%s: description was dropped: %v", host, updated)
 			}
-			// Neither agent reads a hook document, so a field named for one is
-			// a field nothing acts on.
+			// Neither agent reads a hook document.
 			if _, wrong := got["hookSpecificOutput"]; wrong {
 				t.Errorf("%s: was sent a hook document", host)
 			}
@@ -150,8 +142,7 @@ func TestHostDialects(t *testing.T) {
 			if plugin["decision"] != "deny" {
 				t.Errorf("%s: decision = %v, want deny", host, plugin["decision"])
 			}
-			// The plugin throws this text, and it is the whole of what the model
-			// is told, so an empty one refuses the command and explains nothing.
+			// The plugin throws this text, and it is all the model is told.
 			if reason, _ := plugin["reason"].(string); !strings.Contains(reason, "faramir_run") {
 				t.Errorf("%s: deny does not name the tool to use instead: %v", host, plugin["reason"])
 			}
@@ -160,8 +151,7 @@ func TestHostDialects(t *testing.T) {
 }
 
 // A tool that does not run a shell command has no output to redact, and the
-// name differs per host: Claude's Bash payload reaching a Gemini-registered
-// guard is a misregistration, not something to rewrite.
+// name differs per host.
 func TestHostHandlesOnlyItsOwnShellTool(t *testing.T) {
 	if got := guardOutput(t, []string{"--host", "gemini"},
 		`{"tool_name":"Bash","tool_input":{"command":"echo hi"}}`); got != nil {
@@ -171,16 +161,15 @@ func TestHostHandlesOnlyItsOwnShellTool(t *testing.T) {
 		`{"tool_name":"run_shell_command","tool_input":{"command":"echo hi"}}`); got != nil {
 		t.Errorf("claude guard acted on Gemini's tool name: %v", got)
 	}
-	// A plugin sees every tool call, not only a shell one, so this is the case
-	// that arises on every read and edit rather than only on a misregistration.
+	// A plugin sees every tool call, so this arises on every read and edit.
 	if got := guardOutput(t, []string{"--host", "opencode"},
 		`{"tool_name":"read","tool_input":{"filePath":"/etc/hosts"}}`); got != nil {
 		t.Errorf("opencode guard acted on a tool that runs nothing: %v", got)
 	}
 }
 
-// An unknown host is refused before stdin is read. Falling back would answer in
-// a dialect the agent ignores, which is a command running unredacted.
+// Refused before stdin is read; a fallback would answer in a dialect the agent
+// ignores.
 func TestUnknownHostIsRefused(t *testing.T) {
 	if code := Run([]string{"--host", "nosuchagent"}); code != 2 {
 		t.Errorf("exit = %d, want 2", code)

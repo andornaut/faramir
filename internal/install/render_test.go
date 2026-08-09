@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// testLayout is a layout with everything moved off its default, so a literal
-// left in a template shows up as the default leaking into the output.
+// testLayout moves everything off its default, so a literal left in a template
+// shows up in the output.
 func testLayout() Layout {
 	opts := Options{
 		Operator:   "operator",
@@ -25,8 +25,7 @@ func testLayout() Layout {
 	return layout
 }
 
-// Every template renders, which is what catches a field renamed in Layout and
-// not in the file that names it.
+// Catches a field renamed in Layout and not in the file that names it.
 func TestTemplatesRender(t *testing.T) {
 	layout := testLayout()
 	assets := append([]string{
@@ -49,12 +48,9 @@ func unitValues() []string {
 	return out
 }
 
-// supplementaryGroups is the value of a rendered unit's SupplementaryGroups=,
-// or "" when it has none.
-//
-// Parsed rather than grepped for, because every unit that does not join a group
-// says so in a comment naming it, and a substring match cannot tell the
-// directive from the explanation of why it is absent.
+// supplementaryGroups is a rendered unit's SupplementaryGroups=, or "".  Parsed
+// rather than grepped: a unit that joins no group says so in a comment naming
+// one.
 func supplementaryGroups(t *testing.T, unit string, layout Layout) string {
 	t.Helper()
 	body, err := render(units[unit], layout)
@@ -70,12 +66,10 @@ func supplementaryGroups(t *testing.T, unit string, layout Layout) string {
 	return ""
 }
 
-// Two groups with two jobs.  The client group is named in the config the
-// sockets check and in the unit that reaches the working tree; the store group
-// is named by the one daemon that opens the ciphertext.  A rendered pair that
-// disagrees on the first is a broker that installs cleanly and then refuses
-// every connection.  A pair that confuses the two is worse: it hands everyone
-// allowed to ask for a value by name the file that value came from.
+// Two groups with two jobs: the client group in the config the sockets check
+// and the unit that reaches the working tree, the store group on the one daemon
+// that opens the ciphertext.  Disagreeing on the first refuses every connection;
+// confusing the two hands the file to everyone who can ask for its value.
 func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	layout := testLayout()
 	config, err := render("etc/config.toml.tmpl", layout)
@@ -85,21 +79,19 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	if !strings.Contains(string(config), `allowed_groups = ["shared"]`) {
 		t.Errorf("config does not admit group %q", layout.Group)
 	}
-	// The executor reaches the working tree, so it joins the client group and
-	// only that.  It must never join the store group: a brokered command runs
-	// as it, and that is the account an agent's commands arrive on.
+	// The executor reaches the working tree, so the client group and only that:
+	// a brokered command runs as it.
 	if got := supplementaryGroups(t, "faramir-exec.service", layout); got != layout.Group {
 		t.Errorf("exec joins %q, want the client group %q", got, layout.Group)
 	}
-	// The keeper decrypts and fingerprints, so it is the one that needs the
-	// store group, and it does not need the client group.
+	// The keeper decrypts and fingerprints, so the store group and not the
+	// client group.
 	if got := supplementaryGroups(t, "faramir-keeper.service", layout); got != layout.StoreGroup {
 		t.Errorf("keeper joins %q, want the store group %q", got, layout.StoreGroup)
 	}
 	// The broker joins the executor's group to chown the ssh-agent socket, and
-	// nothing else.  It already holds every decrypted value, so read on the
-	// ciphertext would let it copy files it never decrypts and buy no capability
-	// it lacks; it asks the keeper what changed instead.
+	// nothing else: it holds every decrypted value already, so read on the
+	// ciphertext would only add files it never decrypts.
 	if got := supplementaryGroups(t, "faramir-broker.service", layout); got != layout.ExecUser {
 		t.Errorf("broker joins %q, want the executor's group %q alone",
 			got, layout.ExecUser)
@@ -113,27 +105,21 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	}
 }
 
-// Every directive that names an account or the config must carry the layout's
-// value.  A default left in one of these is a daemon running as a uid the
-// install never created, or reading a config nobody wrote.
+// Every directive naming an account or the config carries the layout's value; a
+// default left in one is a daemon running as a uid nothing created.  Checked per
+// directive, the units referring to each other by unit name in Requires= and
+// After=.
 //
-// Checked per directive rather than by grepping the whole file: the units and
-// the accounts are named independently of each other, and the units refer to
-// each other by unit name in Requires= and After=.
-//
-// ExecStart is here for the same reason. One binary serves all three roles, so
-// the argument is the only thing that says which one a unit starts, and a unit
-// that starts the wrong role would come up healthy on the wrong socket.
-// SyslogIdentifier with it: systemd derives it from the executable's name, which
-// no longer differs between them.
+// ExecStart too: one binary serves all three roles, so its argument is the only
+// thing that says which a unit starts.  SyslogIdentifier with it, systemd
+// deriving that from the executable's name.
 func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	layout := testLayout()
 	want := map[string]map[string]string{
 		"faramir-broker.service": {
 			"User": "br", "Group": "br", "StateDirectory": "br",
-			// The executor's group and nothing else.  Not the store group: the
-			// broker holds the plaintext and asks the keeper what changed, so
-			// read on the ciphertext would add reach without adding a capability.
+			// The executor's group and nothing else: the broker holds the
+			// plaintext and asks the keeper what changed.
 			"SupplementaryGroups": "ex",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir broker",
@@ -192,8 +178,8 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	}
 }
 
-// One source for the age key, and one name for it: the keeper reads
-// $CREDENTIALS_DIRECTORY/age_key and never learns where systemd got it.
+// One source and one name: the keeper reads $CREDENTIALS_DIRECTORY/age_key and
+// never learns where systemd got it.
 func TestKeeperCredentialSource(t *testing.T) {
 	layout := testLayout()
 	unit, err := render(units["faramir-keeper.service"], layout)
@@ -204,15 +190,15 @@ func TestKeeperCredentialSource(t *testing.T) {
 		t.Error("the keeper does not load the age key")
 	}
 	// Two entries claiming one credential name is a unit systemd refuses to
-	// start, which is what a second source would have to be.
+	// start.
 	if strings.Contains(string(unit), "LoadCredentialEncrypted=") {
 		t.Error("the keeper loads an encrypted credential as well")
 	}
 }
 
-// The keeper runs with the homes taken away, so a config directory kept in one
-// has to be bound back or it is not merely unreadable but absent.  The store
-// and the key are inside it, so one bind covers all three.
+// The keeper runs with the homes taken away, so a config directory in one is
+// absent rather than unreadable unless it is bound back.  One bind covers the
+// store and the key too.
 func TestKeeperBinds(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -251,9 +237,8 @@ func TestKeeperBinds(t *testing.T) {
 	}
 }
 
-// A config directory outside the homes leaves ProtectHome at its strictest.
-// Relaxing it when nothing needs it would hand the uid holding the age key a
-// view of every home for no reason.
+// Relaxing ProtectHome when nothing needs it would give the uid holding the age
+// key a view of every home.
 func TestKeeperProtectHome(t *testing.T) {
 	strict := testLayout()
 	strict.ConfigDir = "/etc/faramir"
@@ -323,10 +308,8 @@ func TestLayoutValidation(t *testing.T) {
 	}
 }
 
-// The SSH key renders into the base config, which is what replaced the drop-in
-// init used to write.  A key named on the command line and absent from the file
-// leaves the broker with an agent holding nothing, and every brokered command
-// unable to reach a managed host.
+// The SSH key renders into the base config.  A key named on the command line
+// and absent from the file leaves the broker with an agent holding nothing.
 func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 	layout := testLayout()
 	layout.SSHKey = "/var/lib/br/.ssh/identity"
@@ -338,8 +321,7 @@ func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 		t.Errorf("config does not carry the key: want %s", want)
 	}
 
-	// And empty means empty, rather than a list holding an empty string, which
-	// is a path the broker would try to load.
+	// Empty means empty, not a list holding an empty string.
 	layout.SSHKey = ""
 	config, err = render("etc/config.toml.tmpl", layout)
 	if err != nil {

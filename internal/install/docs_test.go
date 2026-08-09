@@ -9,9 +9,9 @@ import (
 	faramir "github.com/andornaut/faramir"
 )
 
-// The installed docs sit the way the checkout does, because everything that
-// cites one cites it by the checkout's path.  Asserted against the mapping
-// rather than a real install, which writes root-owned files.
+// The installed docs sit the way the checkout does, everything citing one by
+// the checkout's path.  Against the mapping, a real install writing root-owned
+// files.
 func TestTheDocsInstallNestedUnderDocs(t *testing.T) {
 	targets, err := docTargets(Layout{DocDir: "/usr/local/share/doc/faramir"})
 	if err != nil {
@@ -44,8 +44,8 @@ func TestTheDocsInstallNestedUnderDocs(t *testing.T) {
 	}
 }
 
-// Every link the shipped README makes to a shipped doc resolves from where the
-// README lands, that file being the one every unit's Documentation= names.
+// Every link the shipped README makes resolves from where it lands, that being
+// what every unit's Documentation= names.
 func TestTheInstalledReadmeLinksResolve(t *testing.T) {
 	layout := Layout{DocDir: "/usr/local/share/doc/faramir"}
 	targets, err := docTargets(layout)
@@ -56,9 +56,8 @@ func TestTheInstalledReadmeLinksResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The links are written (docs/name.md), so what follows "](docs/" up to the
-	// closing paren is the relative path.  Only those: a URL or an anchor is not
-	// this test's business.
+	// What follows "](docs/" up to the closing paren.  Only those: a URL or an
+	// anchor is not this test's business.
 	checked := 0
 	for _, part := range strings.Split(string(body), "](docs/")[1:] {
 		link, _, found := strings.Cut(part, ")")

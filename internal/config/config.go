@@ -1,14 +1,9 @@
-// Package config loads /etc/faramir/config.toml.
+// Package config loads /etc/faramir/config.toml.  There is no command
+// allowlist: the broker runs what it is asked to, as a uid that holds nothing,
+// and redacts the output.
 //
-// Everything the broker will do is described there.  There is no command
-// allowlist: the broker runs what it is asked to run, as a uid that holds
-// nothing, and redacts the output.  See internal/resolve for why the allowlist
-// was removed rather than merely widened.
-//
-// The file is decoded into a raw map and then hand-validated rather than
-// unmarshalled straight into structs.  A mistyped key that is merely ignored
-// leaves the config reading as though it had taken effect, so every section
-// checks its key set and names the alternatives.
+// Decoded into a raw map and hand-validated rather than unmarshalled into
+// structs, so a mistyped key is named rather than ignored.
 package config
 
 import (
@@ -44,8 +39,7 @@ func rejectUnknownKeys(raw map[string]any, known []string, where string) error {
 	return rejectUnknown(raw, known, where, "key")
 }
 
-// rejectUnknownSections is the same check one level up, where the entries are
-// [tables] rather than keys inside one.
+// rejectUnknownSections is the same check one level up, over [tables].
 func rejectUnknownSections(raw map[string]any, known []string, where string) error {
 	return rejectUnknown(raw, known, where, "section")
 }
@@ -86,14 +80,9 @@ func table(raw map[string]any, key, where string) (map[string]any, error) {
 	return out, nil
 }
 
-// octalMode accepts both "0660" and TOML's own 0o660.
-//
-// TOML parses 0o660 to the int 432, which is already the mode, so it is taken
-// as-is; running it through a base-8 parse would reinterpret it as 0o432 --
-// write for others, no read for the group -- without any error.
-//
-// The range check is what catches an unquoted decimal 660, a plausible typo
-// for 0o660 that would otherwise mean 0o1224.  Every real mode fits in 0o777.
+// octalMode accepts both "0660" and TOML's own 0o660.  An int is already the
+// mode, so a base-8 parse would reinterpret it silently.  The range check
+// catches an unquoted decimal 660, which would mean 0o1224.
 func octalMode(value any, where string) (os.FileMode, error) {
 	switch v := value.(type) {
 	case string:
@@ -199,13 +188,9 @@ func integer(value any, where string, fallback int) (int, error) {
 	return int(n), nil
 }
 
-// intInRange is the value check the sizes and counts need.
-//
-// Checking key names but not their values leaves the same failure this file
-// exists to prevent: a config that reads as though it had taken effect.  The
-// out-of-range cases are not theoretical -- max_concurrency = -1 panics the
-// broker on startup, max_concurrency = 0 refuses every request as busy, and
-// default_timeout_sec = 0 kills every command the instant it starts.
+// intInRange is the value check the sizes and counts need: max_concurrency = -1
+// panics on startup, 0 refuses every request as busy, and
+// default_timeout_sec = 0 kills every command as it starts.
 func intInRange(sec map[string]any, key, where string, fallback, low, high int) (int, error) {
 	n, err := integer(sec[key], where, fallback)
 	if err != nil {
@@ -253,20 +238,12 @@ type ServerConfig struct {
 	AllowedUIDs     []int
 	AllowedGroups   []string
 	// MaxRedactsPerMin bounds the redact op per calling uid.  Zero is no limit.
-	//
-	// redact answers whether a piece of text holds a managed value, which makes
-	// it an oracle: a caller that already knows part of a value can complete it
-	// by asking.  Rating it does not close that -- nothing does, short of
-	// removing the op -- but it turns an unmetered probe into one the operator
-	// can see, at a ceiling no honest session reaches.
+	// It does not close the oracle, only make a probe visible.
 	MaxRedactsPerMin int
 }
 
 type ExecConfig struct {
-	// No working directory here.  A brokered command runs where its caller
-	// was, which every shipped caller sends; a directory named in a config
-	// could only relocate a request that named none, and doing that silently
-	// is surprising in exactly the case where it matters.
+	// No working directory here: a brokered command runs where its caller was.
 	DefaultTimeoutSec int
 	MaxTimeoutSec     int
 	MaxOutputBytes    int
@@ -276,14 +253,10 @@ type ExecConfig struct {
 	KillGraceSec      int
 }
 
-// KeeperConfig describes the process that holds the age key.
-//
-// Separate uid, separate socket, and no operation that returns the key.  The
-// broker is the only client; AllowedUsers is what says so.
-//
-// No allowed_groups here.  It admitted every member of a named group, and the
-// only group in play is dev, which holds the agent's own uid: the one
-// value it could usefully take is the one that must never be set.
+// KeeperConfig describes the process that holds the age key: separate uid,
+// separate socket, no operation that returns the key.  The broker is the only
+// client, which AllowedUsers says.  No allowed_groups, because the only group
+// in play holds the agent's own uid.
 type KeeperConfig struct {
 	SocketPath       string
 	SocketMode       os.FileMode
@@ -292,10 +265,9 @@ type KeeperConfig struct {
 	AgeKeyFile       string
 }
 
-// ExecutorConfig describes the process that forks brokered commands.
-//
-// Its uid holds nothing: no age key, no secret values, no audit log, no SSH
-// keys.  A child forked by the broker instead would inherit all four.
+// ExecutorConfig describes the process that forks brokered commands.  Its uid
+// holds no age key, values, audit log or SSH keys; a child forked by the broker
+// would inherit all four.
 type ExecutorConfig struct {
 	SocketPath     string
 	SocketMode     os.FileMode
@@ -303,10 +275,9 @@ type ExecutorConfig struct {
 	MaxConcurrency int
 }
 
-// SshConfig is an ssh-agent the broker owns, for keys the executor must not read.
-//
-// With no Keys no agent is started and nothing is injected; SSH then
-// authenticates however the operator has arranged it for the executor's uid.
+// SshConfig is an ssh-agent the broker owns, for keys the executor must not
+// read.  With no Keys no agent is started, and SSH authenticates however the
+// operator arranged it for the executor's uid.
 type SshConfig struct {
 	Keys            []string
 	AgentSocket     string
@@ -318,9 +289,9 @@ type SshConfig struct {
 
 type SecretsConfig struct {
 	Files []string
-	// How the keeper invokes sops.  "{file}" is replaced with each managed
-	// path.  sops is executed rather than linked: linking it would pull every
-	// key source it supports into the process that holds the master key.
+	// How the keeper invokes sops; "{file}" is each managed path.  Executed
+	// rather than linked, which would pull every key source sops supports into
+	// the process holding the master key.
 	DecryptCommand        []string
 	RefreshIntervalSec    int
 	MinLength             int
@@ -328,10 +299,8 @@ type SecretsConfig struct {
 	MinEntropyBitsPerChar float64
 }
 
-// AuditConfig is the operator-only record of what the broker ran.
-//
-// It holds no secret value: output is recorded after redaction.  See
-// internal/audit for why the unredacted copy went.
+// AuditConfig is the operator-only record of what the broker ran.  Output is
+// recorded after redaction, so it holds no value.
 type AuditConfig struct {
 	LogPath        string
 	MaxRecordBytes int
@@ -339,10 +308,8 @@ type AuditConfig struct {
 
 type Config struct {
 	Path string
-	// Every file that contributed, base first, then each drop-in in the order
-	// it was applied.  Reported by status and --check: "which files made this
-	// config" is the first question when one does not say what an operator
-	// expects.
+	// Every file that contributed, base first then each drop-in in order.
+	// Reported by status and --check.
 	Sources  []string
 	Server   ServerConfig
 	Keeper   KeeperConfig
@@ -369,17 +336,15 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Drop-ins carry the settings that belong to whatever consumes the broker
-	// rather than to the broker: which sops files to manage, which SSH key to
-	// lend.  Keeping those out of the base file means the two have separate
-	// owners and neither has to be merged by hand.
+	// Drop-ins carry what belongs to whatever consumes the broker -- which sops
+	// files to manage, which SSH key to lend -- so the two have separate
+	// owners.
 	dropIns, err := dropInPaths(filepath.Join(filepath.Dir(path), dropInDirName))
 	if err != nil {
 		return nil, err
 	}
 	sources := append([]string{path}, dropIns...)
-	// Seeded from the base so a drop-in overriding a policy list is refused the
-	// same way two drop-ins are: the base is a source like any other.
+	// Seeded from the base, which is a source like any other.
 	setBy := map[string]string{}
 	markTable(raw, "", path, setBy)
 	for _, dropIn := range dropIns {
@@ -392,9 +357,7 @@ func Load(path string) (*Config, error) {
 		}
 	}
 
-	// Validated after merging, never before: a drop-in that sets
-	// max_concurrency to 0 has to fail the same range check the base file
-	// would, and an unknown key has to be refused wherever it was written.
+	// After merging, so a drop-in faces the same checks the base file does.
 	cfg, err := FromMap(raw, strings.Join(sources, ", "))
 	if err != nil {
 		return nil, err
@@ -421,13 +384,10 @@ func readTOML(path string) (map[string]any, error) {
 	return raw, nil
 }
 
-// dropInPaths lists *.toml in dir, in lexical order so a numeric prefix orders
-// them.  A missing directory is the ordinary case and yields nothing.
-//
-// A directory that exists and cannot be read is an error rather than an empty
-// list: a drop-in that should have applied and silently did not is a broker
-// managing fewer files than its operator believes, which is the failure this
-// package exists to make loud.
+// dropInPaths lists *.toml in dir, lexically, so a numeric prefix orders them.
+// A missing directory yields nothing; one that cannot be read is an error,
+// since a drop-in that silently did not apply is a broker managing fewer files
+// than its operator believes.
 func dropInPaths(dir string) ([]string, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -439,9 +399,8 @@ func dropInPaths(dir string) ([]string, error) {
 	var paths []string
 	for _, entry := range entries {
 		name := entry.Name()
-		// Dotfiles are skipped, not read: an editor writes its lock beside the
-		// file as .#name.toml, a dangling symlink, and refusing that would stop
-		// all three daemons starting for as long as a drop-in is open.
+		// Skipped, not read: an editor's lock is a dangling .#name.toml symlink,
+		// and refusing it would stop the daemons while a drop-in is open.
 		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".toml") {
 			continue
 		}
@@ -452,32 +411,18 @@ func dropInPaths(dir string) ([]string, error) {
 }
 
 // inventoryLists name what the broker is to manage, one entry per owner, so
-// they accumulate across sources.  Everything else is policy.
-//
-// The distinction is the whole of the merge rule and it is not cosmetic.  These
-// two grow: two projects each naming their own sops file both want theirs
-// managed, and replacing would leave the broker holding fewer files than its
-// operator believes, injecting nothing for the loser and redacting nothing
-// either.  allowed_users, allowed_groups, allowed_uids and decrypt_command are
-// the opposite: accumulating those would widen what the sockets admit, or what
-// runs to decrypt, by writing a file that never said so.
+// they accumulate across sources.  Everything else is policy and replaces:
+// accumulating allowed_users, allowed_groups, allowed_uids or decrypt_command
+// would widen what the sockets admit by writing a file that never said so.
 var inventoryLists = map[string]bool{
 	"secrets.files": true,
 	"ssh.keys":      true,
 }
 
-// mergeInto layers one decoded config over another.
-//
-// Tables merge key by key, so a drop-in naming one [secrets] file does not
-// discard min_length, and one adding a variable to [exec.base_env] does not
-// have to restate PATH.  Scalars replace, which is what setting one means.
-//
-// Lists split by the rule above: an inventory accumulates, and any other list
-// set by two sources is refused outright, naming both.  Silently taking the
-// last would make a policy list depend on filename order.
-//
-// setBy records which source last set each dotted key, seeded from the base
-// config, so the error can name the file an operator has to go and look at.
+// mergeInto layers one decoded config over another.  Tables merge key by key
+// and scalars replace.  Lists split by the rule above: an inventory
+// accumulates, and any other list set by two sources is refused, naming both.
+// setBy records which source last set each dotted key, for that error.
 func mergeInto(base, layer map[string]any, prefix, source string, setBy map[string]string) error {
 	for key, value := range layer {
 		full := key
@@ -517,9 +462,8 @@ func mergeInto(base, layer map[string]any, prefix, source string, setBy map[stri
 	return nil
 }
 
-// markTable records a whole subtree as having come from one source, for a table
-// that replaced rather than merged.  Without it a later drop-in setting a list
-// inside that table would look unset and overwrite it silently.
+// markTable records a whole subtree as coming from one source, for a table that
+// replaced rather than merged; otherwise a later drop-in's list looks unset.
 func markTable(sub map[string]any, prefix, source string, setBy map[string]string) {
 	for key, value := range sub {
 		full := key
@@ -534,8 +478,7 @@ func markTable(sub map[string]any, prefix, source string, setBy map[string]strin
 	}
 }
 
-// appendNew adds what is not already there, so two owners naming the same file
-// manage it once and the order stays the order it was contributed in.
+// appendNew adds what is not already there, preserving contribution order.
 func appendNew(existing, incoming []any) []any {
 	seen := make(map[any]bool, len(existing))
 	out := make([]any, 0, len(existing)+len(incoming))
@@ -574,8 +517,7 @@ var (
 func FromMap(raw map[string]any, path string) (*Config, error) {
 	cfg := &Config{Path: path}
 
-	// A mistyped section is as silent as a mistyped key, and worse: [secret]
-	// for [secrets] leaves a broker that manages no files and redacts nothing.
+	// [secret] for [secrets] leaves a broker managing no files.
 	if err := rejectUnknownSections(raw, sections, path); err != nil {
 		return nil, err
 	}
@@ -627,8 +569,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 			return err
 		}
 	}
-	// 1, not 0: make(chan, 0) is unbuffered, so the non-blocking slot grab in
-	// the broker always falls through and every request is refused as busy.
+	// 1, not 0: an unbuffered channel refuses every request as busy.
 	if out.MaxConcurrency, err = atLeast(sec, "max_concurrency", where, out.MaxConcurrency, 1); err != nil {
 		return err
 	}
@@ -641,7 +582,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 	if out.AllowedGroups, err = stringList(sec["allowed_groups"], where, out.AllowedGroups); err != nil {
 		return err
 	}
-	// Zero is legal and means no limit, so atLeast(0) rather than atLeast(1).
+	// Zero means no limit.
 	if out.MaxRedactsPerMin, err = atLeast(sec, "max_redacts_per_min", where,
 		out.MaxRedactsPerMin, 0); err != nil {
 		return err
@@ -729,8 +670,7 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 		},
 		TermCols: 120, TermRows: 40, KillGraceSec: 5,
 	}
-	// A timeout of 0 is not "no limit": the executor arms a timer with it and
-	// SIGTERMs the child the instant it starts, with no output and no clue why.
+	// 0 is not "no limit": it SIGTERMs the child the instant it starts.
 	if out.DefaultTimeoutSec, err = atLeast(sec, "default_timeout_sec", where, out.DefaultTimeoutSec, 1); err != nil {
 		return err
 	}
@@ -743,21 +683,19 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 	if out.BaseEnv, err = stringMap(sec["base_env"], where, out.BaseEnv); err != nil {
 		return err
 	}
-	// The winsize ioctl takes uint16s, so a larger value wraps silently.
+	// The winsize ioctl takes uint16s, so more wraps silently.
 	if out.TermCols, err = intInRange(sec, "term_cols", where, out.TermCols, 1, 65535); err != nil {
 		return err
 	}
 	if out.TermRows, err = intInRange(sec, "term_rows", where, out.TermRows, 1, 65535); err != nil {
 		return err
 	}
-	// 0 is meaningful here: SIGKILL immediately after SIGTERM.
+	// 0 means SIGKILL immediately after SIGTERM.
 	if out.KillGraceSec, err = atLeast(sec, "kill_grace_sec", where, out.KillGraceSec, 0); err != nil {
 		return err
 	}
-	// Optional, and unset is the better setting.  A brokered command runs where
-	// its caller was, the way every other command does: the CLI and the MCP
-	// Every request is clamped to max_timeout_sec, so a smaller one here does
-	// not cap default_timeout_sec, it replaces it.
+	// Every request is clamped to max_timeout_sec, so a smaller one here would
+	// replace default_timeout_sec rather than cap it.
 	if out.MaxTimeoutSec < out.DefaultTimeoutSec {
 		return errf("%s: [exec] max_timeout_sec (%d) is below default_timeout_sec "+
 			"(%d), which would silently override it for every command",
@@ -783,11 +721,9 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	if out.Files, err = stringList(sec["files"], where, nil); err != nil {
 		return err
 	}
-	// Each entry is a glob pattern, a literal path being one with no
-	// metacharacters.  Checked here because a malformed pattern matches nothing
-	// at every later stage, and "matched no files" would send the operator
-	// looking for a store that is exactly where they left it.  Match against the
-	// empty string touches no filesystem and reports only ErrBadPattern.
+	// Each entry is a glob pattern; a malformed one matches nothing at every
+	// later stage, reading as a missing store.  Matching the empty string
+	// touches no filesystem and reports only ErrBadPattern.
 	for _, pattern := range out.Files {
 		if _, err := filepath.Match(pattern, ""); err != nil {
 			return errf("%s: files entry %q is not a valid glob pattern: %v",
@@ -797,12 +733,12 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	if out.DecryptCommand, err = stringList(sec["decrypt_command"], where, out.DecryptCommand); err != nil {
 		return err
 	}
-	// 0 is meaningful: check on every request.
+	// 0 means check on every request.
 	if out.RefreshIntervalSec, err = atLeast(sec, "refresh_interval_sec", where, out.RefreshIntervalSec, 0); err != nil {
 		return err
 	}
-	// 1, not 0: a zero-length value passes the gate and compiles to a matcher
-	// for the empty string's quoted form, which would rewrite unrelated output.
+	// 1, not 0: a zero-length value would compile to a matcher for the empty
+	// string and rewrite unrelated output.
 	if out.MinLength, err = atLeast(sec, "min_length", where, out.MinLength, 1); err != nil {
 		return err
 	}

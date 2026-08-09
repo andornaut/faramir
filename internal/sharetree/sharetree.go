@@ -1,17 +1,12 @@
 // Package sharetree makes one directory usable by brokered commands.
 //
-// Two jobs, and only the second is conditional:
+//	shared     group-owned and setgid, so the operator and a brokered command
+//	           do not fight over every file either creates (with umask 002)
+//	reachable  a home is 0700, so every directory above the tree has to be
+//	           group-executable by a group the executor is in
 //
-//	shared     the operator and a brokered command both write there, so the
-//	           tree is group-owned and setgid, which with umask 002 keeps them
-//	           from fighting over every file either one creates
-//	reachable  a home is 0700, so the executor cannot enter a tree inside one
-//	           until every directory above it is group-executable by a group the
-//	           executor is in
-//
-// Nothing in faramir needs a tree of its own: the managed sops files are under
-// /etc and a brokered command runs where its caller was.  This exists for the
-// operator who wants to run commands somewhere their own uid owns.
+// Nothing in faramir needs a tree of its own; this is for the operator who
+// wants to run commands somewhere their own uid owns.
 package sharetree
 
 import (
@@ -25,8 +20,7 @@ import (
 )
 
 // Options is one run.  Group is both what the tree is shared with and what is
-// granted traversal, so the accounts that need to reach a tree are the members
-// of that one group.
+// granted traversal.
 type Options struct {
 	Dir      string
 	Operator string
@@ -35,19 +29,11 @@ type Options struct {
 	Log func(string)
 }
 
-// Resolve is the absolute, symlink-free path of a directory to share.
-//
-// Resolving is not tidiness here, it is the difference between sharing a tree
-// and sharing something else.  Chmod and Chown follow a symlink and land on the
-// target, while WalkDir does not: it lstats its root, finds a link, and
-// descends into nothing.  A symlinked argument therefore rewrites the mode and
-// group of whatever it points at, shares none of the files under it, and
-// reports success.  Pointed at a home, that is the home group-writable with no
-// walk to notice; pointed at a checkout, it is an enrolment that looks done and
-// leaves every file in the tree unreachable to the executor.
-//
-// It is also what any refusal has to be applied to.  A check against the
-// argument answers a question about the link rather than about the directory.
+// Resolve is the absolute, symlink-free path of a directory to share.  Chmod
+// and Chown follow a symlink while WalkDir does not, so a symlinked argument
+// rewrites the mode and group of whatever it points at, shares none of the
+// files under it, and reports success.  Refusals compare against this too, a
+// check on the argument answering a question about the link.
 func Resolve(dir string) (string, error) {
 	absolute, err := filepath.Abs(dir)
 	if err != nil {
@@ -83,8 +69,8 @@ func Share(opts Options) error {
 	if err := os.Chown(dir, uid, gid); err != nil {
 		return err
 	}
-	// MkdirAll applies the umask, and an existing directory keeps whatever mode
-	// it had, so the setgid bit is set explicitly either way.
+	// MkdirAll applies the umask and an existing directory keeps its mode, so
+	// setgid is set explicitly.
 	if err := os.Chmod(dir, 0o2770|os.ModeSetgid); err != nil {
 		return err
 	}
@@ -93,8 +79,7 @@ func Share(opts Options) error {
 	}
 	opts.logf("shared %s with %s", dir, opts.Group)
 
-	// Only for a tree inside the operator's home.  Outside the homes the modes
-	// already allow it and there is nothing to grant.
+	// Only inside the operator's home; outside, the modes already allow it.
 	home := resolvedHome(owner)
 	if home == "" || !within(home, dir) {
 		return nil
@@ -102,14 +87,10 @@ func Share(opts Options) error {
 	return grantTraversal(home, dir, opts, gid)
 }
 
-// Reachable is Share's second job on its own: every directory from the
-// operator's home down to dir is made enterable by the group, and dir itself is
-// left exactly as it was.
+// Reachable is Share's second job alone: every directory from the operator's
+// home down to dir is made enterable by the group, and dir is left as it was.
 //
-// For the directories the daemons only read.  A config kept in a home is
-// unreachable to three service uids that a 0700 home excludes, and the symptom
-// is not a permission message but a daemon that exits before it opens a socket.
-// Share is wrong for those: it would make the config group-writable, and a
+// For the directories the daemons only read.  Share is wrong for those: a
 // config a brokered command can rewrite is the policy rewriting itself.
 func Reachable(opts Options) error {
 	dir, err := Resolve(opts.Dir)
@@ -125,7 +106,7 @@ func Reachable(opts Options) error {
 		return fmt.Errorf("no such group %q: %w", opts.Group, err)
 	}
 	gid, _ := strconv.Atoi(group.Gid)
-	// Outside the homes the modes already allow it and there is nothing to grant.
+	// Outside the homes the modes already allow it.
 	home := resolvedHome(owner)
 	if home == "" || !within(home, dir) {
 		return nil
@@ -139,13 +120,10 @@ func (o Options) logf(format string, args ...any) {
 	}
 }
 
-// resolvedHome is the account's home with symlinks taken out, so that it can be
-// compared against a tree that has had the same done to it.  Resolving one and
-// not the other is how a tree inside a symlinked home reads as being outside
-// every home, and then never gets the traversal it needs.
-//
-// Empty when passwd names no home, or names one that is not there: an account
-// whose home cannot be resolved has no path to grant traversal along.
+// resolvedHome is the account's home with symlinks taken out, to compare
+// against a tree resolved the same way: otherwise a tree inside a symlinked
+// home reads as outside every home.  Empty when passwd names no home, or one
+// that is not there.
 func resolvedHome(owner *user.User) string {
 	if owner.HomeDir == "" {
 		return ""
@@ -157,8 +135,8 @@ func resolvedHome(owner *user.User) string {
 	return home
 }
 
-// within reports whether dir is under home.  Compared as path elements, so
-// /home/andornaut2 is not inside /home/andornaut.
+// within compares path elements, so /home/andornaut2 is not inside
+// /home/andornaut.
 func within(home, dir string) bool {
 	rel, err := filepath.Rel(home, dir)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
@@ -173,8 +151,7 @@ func shareTree(root string, gid int) error {
 		if err != nil {
 			return err
 		}
-		// Symlinks carry no useful mode and chowning one would follow it out of
-		// the tree.
+		// Chowning a symlink would follow it out of the tree.
 		if info.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
@@ -185,16 +162,12 @@ func shareTree(root string, gid int) error {
 	})
 }
 
-// GroupShared is "chmod g+rwX", plus setgid on a directory.
+// GroupShared is "chmod g+rwX", plus setgid on a directory.  The X is why this
+// is not a constant: a directory needs group execute to be entered, a file only
+// when it was already executable for somebody.
 //
-// The X is the whole reason this is not a constant: group execute is added to a
-// directory, which needs it to be entered, and to a file only when the file was
-// already executable for somebody.  Granting it unconditionally would mark every
-// ordinary file in the tree executable.
-//
-// setgid on the directories is what makes the arrangement hold: a file either
-// the operator or a brokered command creates inherits the group rather than the
-// creator's own, so the other one can still write it.
+// setgid is what makes it hold: a file either party creates inherits the group
+// rather than the creator's own.
 func GroupShared(mode os.FileMode) os.FileMode {
 	out := mode | 0o060
 	switch {
@@ -206,9 +179,8 @@ func GroupShared(mode os.FileMode) os.FileMode {
 	return out
 }
 
-// Components lists every directory from home down to dir's parent, which are
-// the ones needing traversal.  The tree itself is group-owned above, so it is
-// not included.
+// Components lists every directory from home down to dir's parent, the tree
+// itself being group-owned above.
 func Components(home, dir string) []string {
 	rel, err := filepath.Rel(home, dir)
 	if err != nil || rel == "." {
@@ -225,17 +197,12 @@ func Components(home, dir string) []string {
 }
 
 // grantTraversal makes every directory from the home down to the tree enterable
-// by the shared group.
+// by the shared group.  The group slot is the one going spare, the operator
+// owning the home, and ownership is ordinary inode metadata that survives an
+// encrypted home.
 //
-// The mode's group slot is the one going spare: the operator owns the home and
-// nothing else needs the group bits there.  Ownership is ordinary inode
-// metadata, so this passes through an encrypted home unchanged and needs no
-// tooling beyond what coreutils provides.
-//
-// Execute only, never read: these uids pass through the home without being able
-// to list it.  Not "chmod o+x", which grants the same to every account on the
-// machine, and with umask 002 in force the files below are 0664, so that opens
-// the home rather than a path through it.
+// Execute only, never read, so these uids pass through without listing.  Not
+// "chmod o+x", which grants the same to every account on the machine.
 func grantTraversal(home, dir string, opts Options, gid int) error {
 	for _, component := range Components(home, dir) {
 		info, err := os.Stat(component)
@@ -250,9 +217,7 @@ func grantTraversal(home, dir string, opts Options, gid int) error {
 			continue
 		}
 		if action == regroup {
-			// The previous group loses whatever the group bits gave it: they now
-			// describe a different group.  Said out loud because nothing else
-			// will mention it.
+			// The previous group loses whatever the group bits gave it.
 			opts.logf("%s: group %s -> %s", component, groupName(info), opts.Group)
 			if err := os.Chown(component, -1, gid); err != nil {
 				return err
@@ -277,9 +242,8 @@ const (
 // traversalAction decides what one directory on the path needs.
 func traversalAction(info os.FileInfo, gid int, path string) (traversal, error) {
 	mode := info.Mode().Perm()
-	// Already open to everyone: nothing to grant, and nothing worth taking away
-	// here either.  Tightening a directory the operator chose to leave open is
-	// not this command's business.
+	// Already open to everyone.  Tightening a directory the operator left open
+	// is not this command's business.
 	if mode&0o001 != 0 {
 		return leaveAlone, nil
 	}

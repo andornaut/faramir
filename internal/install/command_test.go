@@ -8,10 +8,8 @@ import (
 	"testing"
 )
 
-// The broker prints its --check report on stdout and logs on stderr, and it
-// logs on every load whether or not anything went wrong.  A combined capture
-// puts a log line in front of the JSON, so every report fails to parse and a
-// working host reports itself broken.
+// The broker prints its --check report on stdout and logs on stderr on every
+// load, so a combined capture makes every report unparseable.
 func TestCommandReturnsStdoutOnly(t *testing.T) {
 	run := &runner{}
 	out, err := run.command("sh", "-c", `echo "loaded 3 secret refs" >&2; echo '{"ok":true}'`)
@@ -44,10 +42,8 @@ func TestCommandErrorCarriesStderr(t *testing.T) {
 	}
 }
 
-// Creating a directory has to give every level it created to the owner, not
-// just the leaf.  An intermediate left root-owned at the leaf's mode is a path
-// its owner cannot traverse, and the only symptom is sops reporting that it
-// found no key.
+// Every level created goes to the owner, not just the leaf: an intermediate
+// left root-owned is a path its owner cannot traverse.
 func TestEnsureDirCreatesEveryLevel(t *testing.T) {
 	root := t.TempDir()
 	leaf := filepath.Join(root, "config", "sops", "age")
@@ -58,9 +54,8 @@ func TestEnsureDirCreatesEveryLevel(t *testing.T) {
 	if !changed {
 		t.Error("creating a directory reported no change")
 	}
-	// The ancestors get traversal, the leaf gets what was asked for.  Applying
-	// the leaf's mode all the way up is how a store's 2770 lands on the store's
-	// parent, where the shared group could then rename the store itself.
+	// Ancestors get traversal, the leaf what was asked for: a store's 2770 on
+	// its parent would let the shared group rename the store.
 	for dir, want := range map[string]os.FileMode{
 		filepath.Join(root, "config"):         0o755,
 		filepath.Join(root, "config", "sops"): 0o755,
@@ -76,9 +71,8 @@ func TestEnsureDirCreatesEveryLevel(t *testing.T) {
 	}
 }
 
-// A store whose parent does not exist yet must not put the store's own mode on
-// that parent: the shared group would get write and rename on the directory
-// holding every managed credential.
+// The store's mode must not land on its parent, which would give the shared
+// group rename on the directory holding every managed credential.
 func TestEnsureDirDoesNotWidenAncestors(t *testing.T) {
 	root := t.TempDir()
 	store := filepath.Join(root, "faramir", "secrets")
@@ -115,8 +109,7 @@ func TestMissingAncestors(t *testing.T) {
 	}
 }
 
-// A second run must report nothing, which is the whole reason the report has a
-// changed flag: a configuration manager reads it rather than stat-ing the host.
+// A second run reports nothing, which is what the changed flag is for.
 func TestEnsureDirIsIdempotent(t *testing.T) {
 	leaf := filepath.Join(t.TempDir(), "store")
 	if _, err := (fsys{}).ensureDir(leaf, 0o2770|os.ModeSetgid, keep, keep, true); err != nil {

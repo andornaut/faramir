@@ -6,52 +6,34 @@ import (
 	"strings"
 )
 
-// A host is the agent whose hook contract this run speaks.
+// A host is the agent whose hook dialect this run speaks.  Only the tool names
+// and the shape of the reply differ between agents.
 //
-// The guard reads one payload and writes one document.  What the payload means
-// is the same everywhere -- a shell command about to run -- so everything
-// between reading and writing is shared.  What differs is the name of the tool
-// that runs a command, and the shape of the document that refuses or rewrites
-// it.
-//
-// Named by --host rather than sniffed from the payload.  Which agent invoked
-// the guard is a property of how it was enrolled, and enrolling is an explicit
-// act; a guard that guessed would answer in the wrong dialect the first time
-// two payloads looked alike, and answering in the wrong dialect fails open:
-// a document the host does not understand is a command it runs unredacted.
+// Named by --host rather than sniffed: the wrong dialect fails open, because a
+// document the host does not understand is a command it runs unredacted.
 type host struct {
 	name string
 
-	// shellTools name the tools this host runs commands through.  Anything else
-	// is left alone, because only a command has output worth redacting.
-	//
-	// wrapTool is the one whose input is actually rewritten.  Claude Code has a
-	// second tool that reads a running command's output, which is watched so the
-	// guard can leave it alone deliberately rather than by not recognising it:
-	// buffering output that is wanted while it streams would change what it
-	// does.
+	// shellTools name the tools this host runs commands through; anything else
+	// is left alone.  wrapTool is the one whose input is rewritten -- Claude
+	// Code's second tool reads a running command's buffer, which is recognised
+	// so it can be skipped deliberately.
 	shellTools []string
 	wrapTool   string
 
-	// deny refuses the command.  The reason reaches the model rather than the
-	// operator on every host, which is why its wording matters: it is the only
-	// thing the agent can act on.
+	// deny refuses the command.  The reason reaches the model, not the operator.
 	deny func(reason string) map[string]any
 
-	// rewrite replaces the tool input with one that redacts its own output.
-	// It is handed every field the payload carried, not only the command, so a
-	// timeout or a description the host sent is one it gets back.
+	// rewrite replaces the tool input, and is handed every field the payload
+	// carried rather than only the command.
 	rewrite func(updated map[string]any) map[string]any
 }
 
 const rewriteReason = "faramir: output redacted; the deny list is what refuses a command"
 
 var hosts = map[string]*host{
-	// Claude Code states the decision in both directions, and the allow is
-	// load-bearing rather than polite: a rewritten command matches no
-	// permission rule, so without it every command would prompt and no rule
-	// the operator could write would ever pre-approve one.  That is what makes
-	// enrolling a project here cost its Bash prompts.
+	// The allow is load-bearing: a rewritten command matches no permission rule,
+	// so without it every command would prompt with nothing able to pre-approve.
 	"claude": {
 		name:       "claude",
 		shellTools: []string{"Bash", "BashOutput"},
@@ -73,15 +55,9 @@ var hosts = map[string]*host{
 		},
 	},
 
-	// Gemini CLI puts the refusal at the top level and requires the reason with
-	// it.  There is no allow to return: a hook that has not denied has not
-	// approved either, so whatever the agent would have asked the operator, it
-	// still asks.  Enrolling here removes no prompts, which also means it costs
-	// none -- the trade Claude Code forces does not arise.
-	//
-	// tool_input merges with and overrides the model's arguments rather than
-	// replacing them, so sending every field back is harmless here and required
-	// on Claude.  One shape serves both.
+	// Gemini CLI puts the refusal at the top level and has no allow to return,
+	// so its own prompts are unaffected.  tool_input merges over the model's
+	// arguments rather than replacing them, so one shape serves both hosts.
 	"gemini": {
 		name:       "gemini",
 		shellTools: []string{"run_shell_command"},
@@ -96,36 +72,20 @@ var hosts = map[string]*host{
 		},
 	},
 
-	// opencode and Kilo Code have no hook that runs a program.  They extend
-	// through plugins loaded into the agent's own process, which block a call by
-	// throwing and change one by mutating its arguments in place, so neither has
-	// a document to read: the plugin faramir installs applies the decision
-	// itself.
-	//
-	// Two names for one contract, because they are two products that agree
-	// today.  A shared name would mean a plugin registered for one and answered
-	// in the other's dialect, which is the failure --host exists to make
-	// visible, and it leaves the divergence somewhere to go.
+	// opencode and Kilo Code extend through in-process plugins rather than a
+	// hook that runs a program, so the plugin faramir installs applies the
+	// decision itself.  Two names for one contract today, so a divergence has
+	// somewhere to go.
 	"opencode": pluginHost("opencode"),
 	"kilocode": pluginHost("kilocode"),
 }
 
-// pluginHost is the dialect spoken to a plugin rather than to an agent.
-//
-// The reply is faramir's own shape on both sides -- the plugin that reads it
-// ships with this -- so it is the smallest thing that says what happened:
-// "deny" with the reason the model is given, "rewrite" with the tool input to
-// put back, and nothing written at all for a call left alone.
-//
-// It is not the agent's document, and nothing here is guessing at one.  A
-// decision the plugin does not recognise fails closed, so an answer in the
-// wrong dialect refuses the command rather than running it unredacted, which is
-// the way round the other two hosts cannot manage.
+// pluginHost is the dialect spoken to faramir's own plugin: "deny" with the
+// reason, "rewrite" with the tool input, nothing at all for a call left alone.
+// An unrecognised decision fails closed.
 func pluginHost(name string) *host {
 	return &host{
-		name: name,
-		// One tool on both, and the same name.  A plugin sees every tool call,
-		// so the guard is asked about a shell command and nothing else.
+		name:       name,
 		shellTools: []string{"bash"},
 		wrapTool:   "bash",
 		deny: func(reason string) map[string]any {
@@ -137,8 +97,7 @@ func pluginHost(name string) *host {
 	}
 }
 
-// knownHosts names the dialects, sorted, so the error listing them reads the
-// same every time and cannot fall behind the map.
+// knownHosts names the dialects, sorted, for a stable error message.
 func knownHosts() []string {
 	out := make([]string, 0, len(hosts))
 	for name := range hosts {
@@ -148,13 +107,12 @@ func knownHosts() []string {
 	return out
 }
 
-// defaultHost is what an invocation that names none speaks.  Claude Code,
-// because every guard installed before --host existed is registered without it.
+// defaultHost is what an invocation naming none speaks, since guards installed
+// before --host existed are registered without it.
 const defaultHost = "claude"
 
 // lookupHost resolves --host.  An unknown name is an error rather than a
-// fallback: the wrong dialect fails open, so guessing is worse than refusing to
-// start, which an operator sees the first time they run it.
+// fallback, because the wrong dialect fails open.
 func lookupHost(name string) (*host, error) {
 	if name == "" {
 		name = defaultHost

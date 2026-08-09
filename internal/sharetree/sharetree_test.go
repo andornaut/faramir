@@ -8,9 +8,8 @@ import (
 	"testing"
 )
 
-// "g+rwX", where the X is the part worth pinning: a directory needs group
-// execute to be entered, and a file gets it only if it was executable already.
-// Granting it unconditionally would mark every ordinary file in a tree runnable.
+// "g+rwX": a directory needs group execute to be entered, a file gets it only if
+// it was executable already.
 func TestGroupShared(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -32,8 +31,8 @@ func TestGroupShared(t *testing.T) {
 	}
 }
 
-// Every directory from the home down to the tree's parent, and not the tree
-// itself: that one is group-owned rather than traversed.
+// From the home down to the tree's parent; the tree itself is group-owned rather
+// than traversed.
 func TestComponents(t *testing.T) {
 	home := "/home/op"
 	got := Components(home, "/home/op/src/github.com/x/repo")
@@ -41,7 +40,7 @@ func TestComponents(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("Components = %v, want %v", got, want)
 	}
-	// A tree that is the home itself needs nothing walked.
+	// A tree that is the home needs nothing walked.
 	if got := Components(home, home); len(got) != 0 {
 		t.Errorf("Components(home, home) = %v, want none", got)
 	}
@@ -51,8 +50,7 @@ func TestComponents(t *testing.T) {
 	}
 }
 
-// A sibling whose name starts with the home's is not inside it. Comparing as
-// strings would put /home/op2 under /home/op and walk the wrong directories.
+// A string comparison would put /home/op2 under /home/op.
 func TestWithinComparesPathElements(t *testing.T) {
 	for _, tc := range []struct {
 		home, dir string
@@ -69,8 +67,7 @@ func TestWithinComparesPathElements(t *testing.T) {
 	}
 }
 
-// The sharing half needs no root, so it is exercised directly: a tree the
-// caller owns, with a file and a subdirectory in it.
+// The sharing half needs no root: a tree the caller owns.
 func TestShareTreeAppliesModesThroughout(t *testing.T) {
 	root := t.TempDir()
 	sub := filepath.Join(root, "sub")
@@ -86,7 +83,7 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// -1 keeps the group, so this needs no privilege.
+	// -1 keeps the group, so no privilege is needed.
 	if err := shareTree(root, -1); err != nil {
 		t.Fatal(err)
 	}
@@ -106,9 +103,8 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 	}
 }
 
-// What one directory on the path to the tree needs. Group ownership rather than
-// an ACL: the mode's group slot is the one going spare on a home the operator
-// owns, and it costs none of what the ACL route did.
+// What one directory on the path needs.  Group ownership rather than an ACL, the
+// group slot being the one going spare on a home the operator owns.
 func TestTraversalAction(t *testing.T) {
 	dir := t.TempDir()
 	var st syscall.Stat_t
@@ -124,14 +120,14 @@ func TestTraversalAction(t *testing.T) {
 		gid  int
 		want traversal
 	}{
-		// Already open to everyone: nothing to grant, and tightening a directory
-		// the operator left open is not this command's business.
+		// Already open to everyone, and tightening it is not this command's
+		// business.
 		{"world-traversable is left alone", 0o755, other, leaveAlone},
 		{"world-traversable even with a foreign group", 0o701, other, leaveAlone},
-		// Right group already: only the bit is missing.
+		// Right group, only the bit missing.
 		{"our group without execute gains it", 0o700, mine, addExecute},
 		{"our group with execute is done", 0o710, mine, leaveAlone},
-		// Wrong group: it has to change, which costs the old group its access.
+		// Wrong group, which costs the old group its access.
 		{"a foreign group is taken over", 0o700, other, regroup},
 		{"a foreign group with execute is still taken over", 0o710, other, regroup},
 	} {
@@ -154,12 +150,9 @@ func TestTraversalAction(t *testing.T) {
 	}
 }
 
-// Execute only, on every directory between the home and the tree. Read would
-// let these uids list the operator's home rather than pass through it.
-//
-// The group is the tree's own, so nothing has to be regrouped and this needs no
-// privilege. The regroup branch is covered by TestTraversalAction, which is the
-// decision; this is what the decision is carried out as.
+// Execute only: read would let these uids list the operator's home rather than
+// pass through it.  The group is the tree's own, so nothing is regrouped and no
+// privilege is needed; TestTraversalAction covers that branch.
 func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
 	home := t.TempDir()
 	middle := filepath.Join(home, "src")
@@ -190,8 +183,7 @@ func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
 			t.Errorf("%s is %o, want 0710: execute for the group, no read", dir, got)
 		}
 	}
-	// The tree itself is not on the path to itself. Reachable is documented to
-	// leave it exactly as it was, and Share owns its mode when it owns it at all.
+	// The tree is not on the path to itself: Reachable leaves it as it was.
 	info, err := os.Stat(tree)
 	if err != nil {
 		t.Fatal(err)

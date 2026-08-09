@@ -9,15 +9,10 @@ import (
 	"github.com/andornaut/faramir/internal/agekey"
 )
 
-// sops takes the first .sops.yaml it finds walking up from the working
-// directory, so a copy in the store shadows the one in the config directory for
-// anything run from in there.  Which of the four states an install is in decides
-// what an operator has to do about it, so each has to read differently: the
-// remedy for a shadowing copy is to compare the recipients and delete one, and
-// the remedy for a stale one alone is to move it.
-//
-// This is one check the whole of doctor can be tested without: no systemd, no
-// accounts, no root.
+// sops takes the first .sops.yaml walking up from the working directory, so a
+// copy in the store shadows the one above it.  Each of the four states reads
+// differently, the remedies being different: compare recipients and delete one,
+// or move it.  No systemd, accounts or root needed.
 func TestDiagnoseSopsConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -39,8 +34,7 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 			want: StatusWarn, says: []string{"mv "},
 		},
 		{
-			// Not an error: an install with no creation rule still runs, it just
-			// cannot encrypt a new file into the store.
+			// Not an error: it just cannot encrypt a new file into the store.
 			name: "no rule at all",
 			want: StatusWarn, says: []string{"no ", "refuses to encrypt"},
 		},
@@ -48,9 +42,8 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := t.TempDir()
 			layout := Layout{ConfigDir: dir}
-			// Both rules name the keeper's own recipient, so which of the four
-			// states the install is in is the only thing that varies here.  What
-			// happens when one does not is TestDiagnoseSopsRecipients.
+			// Both rules name the keeper's recipient, so only the state varies;
+			// TestDiagnoseSopsRecipients covers the rest.
 			keeper := mintKey(t, dir)
 			if tc.current {
 				writeRule(t, layout.SopsConfigPath(), keeper)
@@ -77,8 +70,7 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 					t.Errorf("detail does not say %q: %s", want, finding.Detail)
 				}
 			}
-			// Warn, never failed: none of these stops the broker serving, and a
-			// failed here would make doctor exit non-zero on a working install.
+			// Warn, never failed: none of these stops the broker serving.
 			if report.Failed {
 				t.Errorf("a sops rule finding failed the whole report: %s", finding.Detail)
 			}
@@ -86,9 +78,9 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 	}
 }
 
-// writeRule writes a creation rule listing the given recipients.  A real one,
-// with recipients in it: a rule listing none encrypts to nobody, so a fixture
-// spelt that way tests the empty case wherever it is used and nothing else.
+// writeRule writes a creation rule listing the given recipients.  A real one: a
+// rule listing none encrypts to nobody, and would test the empty case
+// everywhere it is used.
 func writeRule(t *testing.T, path string, recipients ...string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -103,8 +95,8 @@ func writeRule(t *testing.T, path string, recipients ...string) {
 	}
 }
 
-// mintKey puts an age key where diagnoseSopsConfig looks for it and returns its
-// recipient, which is the one a healthy rule has to list.
+// mintKey puts an age key where diagnoseSopsConfig looks and returns the
+// recipient a healthy rule has to list.
 func mintKey(t *testing.T, configDir string) string {
 	t.Helper()
 	recipient, _, err := agekey.Generate(filepath.Join(configDir, "age.key"))
@@ -114,17 +106,14 @@ func mintKey(t *testing.T, configDir string) string {
 	return recipient
 }
 
-// A rule in the right place can still name the wrong people, and that is the
-// state nothing else reports: init writes .sops.yaml once and keeps it
-// thereafter, so a keeper key restored from a backup or re-minted after the file
-// was unlinked leaves the rule naming a recipient nobody holds.  Every value
-// encrypted from then on is one the keeper cannot read, and a broker that loads
-// nothing still starts and still reports healthy.
+// A rule in the right place can still name the wrong people, which nothing else
+// reports: init writes .sops.yaml once, so a keeper key restored or re-minted
+// leaves it naming a recipient nobody holds, and the broker that loads nothing
+// still reports healthy.
 func TestDiagnoseSopsRecipients(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		// rule is what .sops.yaml lists.  "keeper" stands for the recipient of
-		// the key minted in the config directory; anything else is written
+		// "keeper" stands for the minted key's recipient; anything else is
 		// verbatim.
 		rule    []string
 		noKey   bool
@@ -142,8 +131,8 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 			want: StatusOK, says: []string{"2 recipient"},
 		},
 		{
-			// The whole point.  The rule is well-formed, in the right place, and
-			// names a key the keeper does not hold.
+			// Well-formed, in the right place, naming a key the keeper does not
+			// hold.
 			name: "the rule has drifted off the keeper's key",
 			rule: []string{"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"},
 			want: StatusWarn, says: []string{"none of which", "cannot decrypt", "updatekeys"},
@@ -153,8 +142,7 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 			want: StatusWarn, says: []string{"no age recipient", "refuses"},
 		},
 		{
-			// Without the key there is no question to answer, and reporting OK
-			// would be the check passing itself.
+			// Without the key there is no question to answer.
 			name: "the key cannot be read", rule: []string{"keeper"}, noKey: true,
 			want: StatusWarn, says: []string{"unchecked", "root"},
 			saysNot: []string{"none of which"},
@@ -198,9 +186,7 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 					t.Errorf("detail says %q, which it cannot know: %s", unwanted, finding.Detail)
 				}
 			}
-			// Warn at worst, like every other finding here: the values already in
-			// the store still decrypt, so a failed verdict would exit non-zero on
-			// a host that works today.
+			// Warn at worst: the values already in the store still decrypt.
 			if report.Failed {
 				t.Errorf("a sops rule finding failed the whole report: %s", finding.Detail)
 			}
@@ -208,15 +194,12 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 	}
 }
 
-// Both spellings sops accepts have to read back, because the file is edited by
-// hand: a recipient an operator added the short way is as real as one written
-// the long way, and missing it would report a key that is present as absent and
-// send somebody re-keying a store that needs nothing.
+// Both spellings sops accepts read back, the file being edited by hand: missing
+// one reports a present key as absent.
 func TestSopsRecipientsReadsWhatTheRuleLists(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, ".sops.yaml")
-	// Both spellings sops accepts, in one file: the key_groups form this writes
-	// and the comma-separated shorthand a hand-edited file often becomes.
+	// The key_groups form this writes and the comma-separated shorthand.
 	body := `creation_rules:
   - path_regex: \.sops\.ya?ml$
     key_groups:

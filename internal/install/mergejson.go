@@ -1,15 +1,10 @@
 package install
 
 // Merging faramir's keys into an agent's config rather than replacing the file.
-//
-// These files belong to the project or to the operator and hold hooks, MCP
-// servers and permission rules faramir knows nothing about.  Writing the whole
-// file would lose them, and writing a .dist beside it converges on nothing: it
-// is rewritten every run, the merge is done by hand or not at all, and the copy
-// stays as a second version that disagrees with the live one.
-//
-// Only the keys faramir puts in are touched.  Everything else in the file is
-// carried through, including keys inside an object faramir also writes to.
+// These files belong to the project or the operator and hold hooks, MCP servers
+// and permission rules faramir knows nothing about; a .dist beside them
+// converges on nothing.  Only the keys faramir writes are touched, including
+// inside an object it also writes to.
 
 import (
 	"bytes"
@@ -18,10 +13,9 @@ import (
 	"strings"
 )
 
-// mergeJSON returns ours merged into existing.  An unparseable or empty
-// existing file is an error rather than something to overwrite: it is the
-// operator's, and losing an agent's whole configuration to a stray comma is not
-// a repair this is entitled to make.
+// mergeJSON returns ours merged into existing.  An unparseable or empty file is
+// an error rather than something to overwrite, losing an agent's configuration
+// to a stray comma not being a repair this is entitled to make.
 func mergeJSON(existing, ours []byte) ([]byte, error) {
 	if len(bytes.TrimSpace(existing)) == 0 {
 		return ours, nil
@@ -37,10 +31,8 @@ func mergeJSON(existing, ours []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Two-space indent and a trailing newline, matching the assets, so a file
-	// this has already merged compares equal on the next run and reports no
-	// change.  Key order is whatever encoding/json emits, which is sorted and
-	// therefore stable.
+	// Two-space indent and a trailing newline, matching the assets, so an
+	// already-merged file compares equal next run.  encoding/json sorts keys.
 	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return nil, err
@@ -76,25 +68,16 @@ func mergeValue(into, from any) (any, error) {
 		return mergeList(intoList, fromList)
 	}
 
-	// A scalar, or the two disagree about the shape.  faramir's value wins:
-	// where it writes a key at all it writes the value that key has to have,
-	// and a file holding a string where a hook list belongs is one an agent
-	// cannot load anyway.
+	// A scalar, or the shapes disagree.  faramir's value wins: a file holding a
+	// string where a hook list belongs is one an agent cannot load.
 	return from, nil
 }
 
-// mergeList merges by element kind, because the two kinds in these files carry
-// identity differently.
-//
-// Strings are their own identity, so they union: a deny rule the operator added
-// is kept, and one of faramir's that is already there is not added twice.
-//
-// Objects are hook and server entries, whose identity is what they invoke.  An
-// existing one that names faramir is dropped and re-added from what faramir
-// writes now, so a run that changes the command it registers replaces the entry
-// rather than leaving a second one beside it.  That is what makes a renamed or
-// relocated binary self-correcting instead of a hook pointing at a path that no
-// longer exists, which fails every command the agent runs.
+// mergeList merges by element kind.  Strings are their own identity and union.
+// Objects are hook and server entries, identified by what they invoke: an
+// existing one naming faramir is dropped and re-added, so a relocated binary is
+// self-correcting rather than a hook pointing at a path that no longer
+// exists.
 func mergeList(into, from []any) ([]any, error) {
 	out := make([]any, 0, len(into)+len(from))
 	for _, element := range into {
@@ -126,11 +109,9 @@ func containsValue(list []any, want any) bool {
 	return false
 }
 
-// mentionsFaramir reports whether an element names this project anywhere inside
-// it, at any depth: the command a hook runs, the key an MCP server is under, or
-// an argument to either.  Matched on the serialised element rather than on a
-// known path, so an entry left by an install whose binary lived somewhere else
-// is still recognised as the one being replaced.
+// mentionsFaramir reports whether an element names this project at any depth.
+// Matched on the serialised element rather than a known path, so an entry from
+// an install whose binary lived elsewhere is still recognised.
 func mentionsFaramir(element any) (bool, error) {
 	encoded, err := json.Marshal(element)
 	if err != nil {

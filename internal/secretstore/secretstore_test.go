@@ -16,9 +16,8 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// newStore configures a store against a stand-in keeper.  Both are given the
-// same file list, because the two disagreeing is not a case a real install can
-// produce: the store no longer stats those files for itself.
+// newStore configures a store against a stand-in keeper, both given the same
+// file list: the store no longer stats those files itself.
 func newStore(t *testing.T, fake *keepertest.Keeper, files ...string) *Store {
 	t.Helper()
 	fake.SetFiles(files)
@@ -76,8 +75,7 @@ func TestALowEntropyValueIsRefused(t *testing.T) {
 	}
 }
 
-// The refusal and the typo have to read differently, or the operator goes
-// looking for a misspelling in a ref that is spelled right.
+// A refused ref must not read as a typo.
 func TestAnUnknownRefIsNotReportedAsRefused(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k)
@@ -95,8 +93,8 @@ func TestAnUnknownRefIsNotReportedAsRefused(t *testing.T) {
 	}
 }
 
-// A value that is never tokenized is one worth targeting, so the agent-facing
-// summary must not name it.
+// A value that is never tokenized is worth targeting, so the agent-facing
+// summary does not name it.
 func TestTheAgentFacingSummaryDoesNotNameThem(t *testing.T) {
 	k := keepertest.New(t, map[string]string{
 		"good": "hunter2-correct-horse", "tiny": "abc",
@@ -154,8 +152,7 @@ func TestARefusalDoesNotSurviveAReloadThatFixesIt(t *testing.T) {
 	}
 }
 
-// An unreachable keeper must not blank the value set: an empty set means
-// nothing is redacted, which is the worst possible response to a brief outage.
+// An empty value set redacts nothing, so a brief outage keeps the old one.
 func TestAnUnreachableKeeperKeepsThePreviousValueSet(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k)
@@ -172,17 +169,15 @@ func TestAnUnreachableKeeperKeepsThePreviousValueSet(t *testing.T) {
 	}
 }
 
-// And it must recover on its own once the keeper is back.  The files have not
-// changed, only our ability to decrypt them, so the mtime poll alone would
-// never notice: on a cold start that leaves an empty value set, and an empty
-// value set redacts nothing.
+// And recovers on its own: the files have not changed, only the ability to
+// decrypt them, so the mtime poll would never notice.
 func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	dir := t.TempDir()
 	managed := filepath.Join(dir, "v.sops.yml")
 	if err := os.WriteFile(managed, []byte("a\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// Cold start: nothing is listening yet, so the first load fails outright.
+	// Cold start: nothing is listening, so the first load fails.
 	sock := filepath.Join(dir, "keeper.sock")
 	s := New(
 		config.SecretsConfig{
@@ -197,7 +192,7 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	}
 
 	keepertest.Serve(t, sock, map[string]string{"x": "hunter2-correct-horse"})
-	// No edit, no SIGHUP: only the retry may recover this.
+	// No edit, no SIGHUP: only the retry recovers this.
 	s.RefreshIfStale()
 
 	if got, err := s.Value("x"); err != nil || got != "hunter2-correct-horse" {
@@ -205,9 +200,8 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	}
 }
 
-// refresh_interval_sec may be 0, which asks for a check on every request, so
-// the interval alone cannot bound the work.  Concurrent requests must not each
-// start their own keeper round trip and sops exec.
+// refresh_interval_sec may be 0, so concurrent requests must not each start a
+// keeper round trip and sops exec.
 func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "keeper.sock")
@@ -222,9 +216,8 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 
 	var served atomic.Int32
 	// serving closes once a reload is inside the keeper call; release holds it
-	// there.  Sequencing it rather than sleeping is what keeps this from
-	// passing on a loaded machine simply because the other callers arrived
-	// after the first one had already finished.
+	// there.  Sequenced rather than slept, so a loaded machine cannot pass this
+	// by arriving late.
 	serving := make(chan struct{})
 	release := make(chan struct{})
 
@@ -239,8 +232,8 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 			if err != nil {
 				return
 			}
-			// Read the request before answering, as the real keeper does.
-			// Closing while the client is still writing gives it EPIPE.
+			// Read before answering: closing mid-write gives the client
+			// EPIPE.
 			_, _ = sockutil.ReadLine(conn, 1<<16)
 			if served.Add(1) == 1 {
 				close(serving)
@@ -270,8 +263,8 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 			s.RefreshIfStale()
 		}()
 	}
-	// These must all return while the winner is still blocked.  If any of them
-	// dialled the keeper instead, it would block on release and time this out.
+	// All must return while the winner is still blocked; one that dialled the
+	// keeper would block on release.
 	done := make(chan struct{})
 	go func() { others.Wait(); close(done) }()
 	select {
@@ -310,10 +303,8 @@ func TestPairsCarriesEveryLoadedValue(t *testing.T) {
 	}
 }
 
-// A configured file that is not there is a failure, not a lesser state.  The
-// store can sit on a filesystem that is not mounted yet, which is
-// indistinguishable from one that was never written: both leave the broker
-// redacting nothing while looking healthy.
+// An unmounted store is indistinguishable from one never written, and both
+// leave the broker redacting nothing while looking healthy.
 func TestAMissingFileIsFatal(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k, filepath.Join(t.TempDir(), "absent.sops.yml"))
@@ -340,10 +331,8 @@ func TestAnUnreadableFileIsFatal(t *testing.T) {
 	}
 }
 
-// A keeper error names a file it could not decrypt, whatever the broker's own
-// stat of that file said.  The two processes are separately sandboxed and can
-// disagree about whether a path exists, so the keeper's report stands on its
-// own.
+// The two processes are separately sandboxed and can disagree about whether a
+// path exists, so the keeper's report stands on its own.
 func TestAKeeperErrorIsFatal(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -385,8 +374,7 @@ func TestRefreshIfStaleReloadsOnAChangedFile(t *testing.T) {
 	s.Reload()
 
 	k.SetValues(map[string]string{"x": "a-different-good-value"})
-	// Same size would leave mtime as the only signal, and some filesystems
-	// have coarse timestamps; change the size too.
+	// Some filesystems have coarse timestamps, so change the size too.
 	if err := os.WriteFile(managed, []byte("aa\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

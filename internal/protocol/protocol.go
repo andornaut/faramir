@@ -1,20 +1,13 @@
 // Package protocol implements the wire protocol: newline-delimited JSON, one
-// request, one response.
+// request, one response.  See docs/protocol.md.
 //
-// Two rules that are not negotiable:
+// Two rules:
 //
-//   - Secrets are injected as environment variables only.  There is no way to
-//     ask for a value to be substituted into argv: a value in argv shows up in
-//     ps output, in /proc/<pid>/cmdline, and in the child's own error messages.
-//   - cmd is an array.  The broker never passes a string to "sh -c".  A caller
-//     who wants a pipeline sends ["bash", "-lc", "..."] explicitly, so what is
-//     being run is visible in the audit log rather than buried in a string the
-//     broker handed to a shell.
-//
-// A secret is named in env_refs and nowhere else.  There was a {{SECRET:ref}}
-// form rewritten into a shell variable reference inside argv; nothing surfaced
-// it, neither the MCP tool descriptions nor the CLI, so no caller could
-// discover it.
+//   - Secrets are injected as environment variables only.  A value in argv
+//     shows up in ps, /proc/<pid>/cmdline and the child's error messages.
+//   - cmd is an array; the broker never hands a string to "sh -c".  A caller
+//     wanting a pipeline sends ["bash", "-lc", "..."], so the audit log shows
+//     what ran.
 package protocol
 
 import (
@@ -29,16 +22,13 @@ import (
 
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// ValidEnvName reports whether name can be an environment variable.  Exported
-// so the CLI rejects a bad name where it can still name the file and line it
-// came from, using the same rule the broker will apply.
+// ValidEnvName reports whether name can be an environment variable.  Exported so
+// the CLI can refuse one where it can still name the file and line.
 func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
-//
-// SSH_AUTH_SOCK is here for the same reason as PATH: the broker points it at
-// an agent holding keys the child must not be able to read, and a caller that
-// could rebind it would decide what the child authenticates against.
+// SSH_AUTH_SOCK is here because rebinding it would decide what the child
+// authenticates against.
 var ReservedEnv = map[string]bool{
 	"PATH": true, "HOME": true, "LD_PRELOAD": true, "LD_LIBRARY_PATH": true,
 	"IFS": true, "BASH_ENV": true, "ENV": true, "SOPS_AGE_KEY": true,
@@ -138,8 +128,8 @@ func Parse(payload map[string]any) (*Request, error) {
 			if !isStr {
 				return nil, errf("env_refs[%s] must be a secret:// URI string", name)
 			}
-			// Shape, not existence: a malformed reference is a bad request,
-			// where a well-formed one naming nothing is unknown_secret.
+			// Shape, not existence: a well-formed ref naming nothing is
+			// unknown_secret.
 			if _, err := secretref.Parse(s); err != nil {
 				return nil, errf("env_refs[%s]: %v", name, err)
 			}
@@ -158,8 +148,7 @@ func Parse(payload map[string]any) (*Request, error) {
 	return req, nil
 }
 
-// toInt accepts a JSON number that is integral.  A bool is not a number here,
-// unlike in Python where bool is an int subclass and has to be excluded.
+// toInt accepts an integral JSON number.
 func toInt(raw any) (int, bool) {
 	switch v := raw.(type) {
 	case float64:

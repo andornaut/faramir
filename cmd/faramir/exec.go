@@ -14,9 +14,8 @@ import (
 )
 
 // cmdExec is the executor daemon, which forks brokered commands and holds
-// nothing.  It is not how you run one: that is `faramir run`, which asks the
-// broker, which asks this.  Named for the account and unit it belongs to
-// (faramir-exec), so a role is spelled one way wherever you meet it.
+// nothing.  To run one, use `faramir run`, which asks the broker, which asks
+// this.  Named for its account and unit (faramir-exec).
 func cmdExec(args []string) int {
 	fs := newFlagSet("exec", "exec [-c PATH]")
 	fs.Usage = func() {
@@ -33,7 +32,7 @@ func cmdExec(args []string) int {
 		return code
 	}
 
-	// See cmdBroker: the global logger is what the internal packages write to.
+	// See cmdBroker.
 	log.SetFlags(0)
 	log.SetPrefix("faramir-exec: ")
 

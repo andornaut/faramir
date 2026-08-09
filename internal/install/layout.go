@@ -1,15 +1,10 @@
 // Package install provisions a host: accounts, directories, the age key, the
 // binaries, the systemd units, and the checks that say whether what landed
-// actually works.
+// works.
 //
-// It exists as a package rather than a set of shell scripts because the same
-// values have to reach several files that must agree.  The shared group is
-// named in the config the sockets check and in the units that reach the working
-// tree; the service uids are named in both as well.  A script per phase makes
-// each of those an environment variable a caller can get wrong in one place and
-// not another, and the symptom is a broker that installs cleanly, starts, and
-// refuses every connection.  Rendering all of them from one Layout removes the
-// question.
+// A package rather than shell scripts because the same values -- the shared
+// group, the service uids -- have to reach several files that must agree.  All
+// of them render from one Layout.
 package install
 
 import (
@@ -19,9 +14,8 @@ import (
 	"strings"
 )
 
-// Default paths.  Only ConfigDir is meant to be moved; the rest are where a
-// system daemon's files belong and are here so the templates have one source
-// for them rather than a literal each.
+// Default paths.  Only ConfigDir is meant to be moved; the rest are here so the
+// templates have one source for them.
 const (
 	DefaultConfigDir  = "/etc/faramir"
 	DefaultBinDir     = "/usr/local/bin"
@@ -30,9 +24,7 @@ const (
 	DefaultRunDir     = "/run/faramir"
 	DefaultLogDir     = "/var/log/faramir"
 
-	// Not derived from a layout field: logrotate reads one directory and the
-	// path is the distribution's, not this install's, however the config and
-	// the log are moved.
+	// Not derived from a layout field: the path is the distribution's.
 	logrotateConfig = "/etc/logrotate.d/faramir"
 
 	DefaultGroup      = "dev"
@@ -41,32 +33,23 @@ const (
 	DefaultExecUser   = "faramir-exec"
 )
 
-// There is no DefaultStoreGroup.  The store group defaults to the keeper's own
-// primary group, which the account already has, so the set of accounts that can
-// read the ciphertext is the one account that decrypts it, by construction
-// rather than by a membership list that has to be kept accurate.
+// There is no DefaultStoreGroup: it defaults to the keeper's own primary group,
+// so the accounts that can read the ciphertext are the one that decrypts it, by
+// construction rather than by a membership list.
 
-// Layout is everything the templates and the install steps need to agree on.
-// Built once by Options.layout and passed down, so no step can resolve a path
-// differently from the one that wrote the unit naming it.
+// Layout is everything the templates and the install steps must agree on.
+// Built once by Options.layout and passed down.
 type Layout struct {
 	// Group admits a caller to the broker socket and shares a working tree with
 	// the executor.  The operator is in it, and so is anything running as the
-	// operator, which is the point: asking the broker for a value by name is
-	// what an agent is meant to do.
+	// operator.
 	//
-	// StoreGroup is separate because reading the ciphertext is not that.  It
-	// owns the secrets directory, and the only account in it is the keeper,
-	// which is the only one that opens a managed file: it decrypts them, and it
-	// fingerprints them for the broker's staleness check.  The operator is not
-	// in it, so editing a store needs sudo.  One group for both would mean
-	// every caller allowed to ask for a value by name could also read and
-	// replace the file it comes from, and an agent that runs as the operator
-	// would inherit exactly that.
-	//
-	// It defaults to KeeperUser, the keeper's own primary group.  Naming a
-	// different one still works and is what --store-group is for; what it buys
-	// is a second reader, which nothing here needs.
+	// StoreGroup owns the secrets directory and holds the keeper alone, that
+	// being the only account that opens a managed file; the operator is not in
+	// it, so editing a store needs sudo.  One group for both would let every
+	// caller that can ask for a value by name read and replace the file it
+	// comes from.  Defaults to KeeperUser; --store-group names another, which
+	// buys a second reader.
 	Group      string
 	StoreGroup string
 	BrokerUser string

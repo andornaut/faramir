@@ -1,14 +1,12 @@
 // Package redact provides streaming, encoding-aware redaction of secret values.
+// See docs/redaction.md.
 //
-// The redactor sits between the child process's PTY and the response that goes
-// back to the agent.  It has to work on a stream (output arrives in arbitrary
-// chunks) and it has to catch a value even when the program that printed it
-// mangled the bytes on the way out: colour codes spliced into the middle,
-// base64 with line wrapping, URL escaping, shell quoting.
+// It works on a stream, output arriving in arbitrary chunks, and has to catch a
+// value the printing program mangled on the way out: colour codes spliced in,
+// base64 line wrapping, URL escaping, shell quoting.
 //
-// Everything index-sensitive works on []rune rather than bytes.  A multi-byte
-// character inside a value would otherwise let a byte-offset slice cut a rune
-// in half, and the halves would not match anything.
+// Everything index-sensitive works on []rune, a byte-offset slice being able to
+// cut a multi-byte character in half.
 package redact
 
 import (
@@ -45,9 +43,8 @@ func StripANSI(text string) string {
 }
 
 // stripANSIStream strips escapes from buf, holding back a possibly-incomplete
-// tail.  The returned carry must be prepended to the next chunk because it may
-// be the beginning of an escape sequence (or a lone "\r" that could turn out to
-// be the first half of a CRLF).
+// tail.  The carry must be prepended to the next chunk: it may open an escape
+// sequence, or be the first half of a CRLF.
 func stripANSIStream(buf []rune) (clean string, carry []rune) {
 	carryStart := len(buf)
 	esc := -1
@@ -58,7 +55,7 @@ func stripANSIStream(buf []rune) (clean string, carry []rune) {
 		}
 	}
 	if esc != -1 && len(buf)-esc <= maxEscapeLen {
-		// Only hold back if the sequence is not obviously already terminated.
+		// Only hold back a sequence that is not obviously terminated.
 		tail := string(buf[esc:])
 		if loc := ansiRE.FindStringIndex(tail); loc == nil || loc[0] != 0 {
 			carryStart = esc
@@ -124,8 +121,8 @@ func shlexQuote(value string) string {
 
 // jsonEscape returns the JSON string encoding of value without the quotes.
 func jsonEscape(value string) string {
-	// SetEscapeHTML(false) keeps <, > and & literal, matching Python's
-	// json.dumps, so the variant we match is the one ordinary tools print.
+	// SetEscapeHTML(false) keeps <, > and & literal, which is what ordinary
+	// tools print.
 	var b strings.Builder
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
@@ -139,12 +136,9 @@ func jsonEscape(value string) string {
 	return s
 }
 
-// Variants returns every rendering of value the redactor knows how to
-// recognise.
-//
-// Deliberately not exhaustive: an agent that wants to defeat this can (see the
-// threat model).  These are the encodings ordinary tools produce by accident:
-// JSON output, URLs, "set -x" traces, base64 dumps.
+// Variants returns every rendering of value the redactor recognises.  Not
+// exhaustive by design -- see docs/redaction.md -- but the encodings ordinary
+// tools produce by accident.
 func Variants(value string) map[string]bool {
 	out := map[string]bool{value: true}
 	for v := range Base64Variants(value) {
@@ -219,9 +213,8 @@ func (p EligibilityPolicy) Check(value string) string {
 	return ""
 }
 
-// TokenFor is the stable placeholder a secret is replaced with.  Stable across
-// turns and across processes so the model can reason about "the router
-// password" without ever seeing it.
+// TokenFor is the placeholder a secret is replaced with, stable across turns and
+// processes so the model can reason about a value without seeing it.
 func TokenFor(ref string) string { return "«SECRET:" + ref + "»" }
 
 // --------------------------------------------------------------------------
@@ -242,10 +235,9 @@ type Count struct {
 	Count int    `json:"count"`
 }
 
-// Redactor replaces every known secret rendering with a stable token.
-//
-// Feed withholds a tail of the stream so a value split across two reads is
-// still caught; Flush releases it.
+// Redactor replaces every known secret rendering with a stable token.  Feed
+// withholds a tail so a value split across two reads is still caught; Flush
+// releases it.
 type Redactor struct {
 	Policy  EligibilityPolicy
 	Overlap int
@@ -263,8 +255,7 @@ type Secret struct {
 }
 
 // New builds a redactor over the given secrets.  A value the policy refuses is
-// not matched; naming it is the store's job, which is where the operator-facing
-// refusal list comes from.
+// not matched; naming it is the store's job.
 func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 	r := &Redactor{Policy: policy, counts: map[string]int{}}
 	seen := map[string]bool{}
@@ -278,8 +269,7 @@ func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 		seen[s.Value] = true
 		r.entries = append(r.entries, compile(s.Ref, s.Value))
 	}
-	// Longest value first: if one secret is a substring of another, the longer
-	// token must win.
+	// Longest first, so a secret that contains another wins.
 	sort.SliceStable(r.entries, func(i, j int) bool {
 		return r.entries[i].longest > r.entries[j].longest
 	})
@@ -289,15 +279,13 @@ func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 			longest = e.longest
 		}
 	}
-	// x2 covers base64 line wrapping (newlines inserted inside a value), +16
-	// covers quoting expansion at a chunk boundary.
+	// x2 for base64 line wrapping, +16 for quoting expansion at a boundary.
 	r.Overlap = longest*2 + 16
 	return r
 }
 
-// alternation builds a pattern matching any of vs, longest first.  Go's
-// regexp uses leftmost-first alternation, so ordering by length descending is
-// what makes the longest rendering win.
+// alternation builds a pattern matching any of vs, longest first: Go's regexp
+// is leftmost-first, so that is what makes the longest rendering win.
 func alternation(vs []string) *regexp.Regexp {
 	sort.SliceStable(vs, func(i, j int) bool { return len(vs[i]) > len(vs[j]) })
 	quoted := make([]string, len(vs))
@@ -363,8 +351,8 @@ func (r *Redactor) Flush() string {
 // RedactText is a one-shot convenience for text that is already complete.
 func (r *Redactor) RedactText(text string) string { return r.Feed(text) + r.Flush() }
 
-// Summary is the "redactions" field of the wire response: tokens and counts,
-// never values.
+// Summary is the wire response's "redactions": tokens and counts, never
+// values.
 func (r *Redactor) Summary() []Count {
 	out := []Count{}
 	for token, count := range r.counts {
@@ -380,15 +368,11 @@ func (r *Redactor) redact(text string) string {
 	if text == "" {
 		return text
 	}
-	// Built at most once per distinct text rather than once per secret.  Every
-	// entry needs the same newline-free view of the same haystack, and building
-	// it is linear in the chunk: doing that per entry made the whole pass
-	// quadratic in the size of the store, which is the number that grows without
-	// anyone watching it.
-	//
-	// Invalidated only when an entry actually replaced something, which is why
-	// the plain pass below keeps the old string when it matched nothing.  Most
-	// secrets appear in no given chunk, so in practice this is built once.
+	// Built at most once per distinct text, not once per secret: every entry
+	// needs the same newline-free view, and building it per entry makes the
+	// pass quadratic in the size of the store.  Invalidated only when an entry
+	// replaced something, which is why the plain pass below keeps the old
+	// string on a miss.
 	var view *collapsedView
 	for i := range r.entries {
 		e := &r.entries[i]
@@ -406,9 +390,8 @@ func (r *Redactor) redact(text string) string {
 			n++
 			return e.token
 		})
-		// Assigned only on a hit.  ReplaceAllStringFunc allocates a copy even
-		// when it matched nothing, and taking that copy would throw the view
-		// away on every entry, which is the cost this is avoiding.
+		// Assigned only on a hit: ReplaceAllStringFunc allocates a copy even
+		// when it matched nothing, and taking it would throw the view away.
 		if n > 0 {
 			text = replaced
 			r.counts[e.token] += n
@@ -418,24 +401,20 @@ func (r *Redactor) redact(text string) string {
 	return text
 }
 
-// collapsedView is one haystack with its line breaks taken out, plus what is
-// needed to map a match in it back onto the original.
-//
-// base64 output is wrapped at 76 columns, so a value that was encoded and
-// printed arrives with newlines inside it and matches nothing as written.
-// Matching happens against view; the span that gets replaced is in the original,
-// so the surrounding output survives.
+// collapsedView is one haystack with its line breaks taken out, plus what maps
+// a match back onto the original.  base64 output wraps at 76 columns, so an
+// encoded value arrives with newlines inside it; matching happens against view
+// and the replaced span is in the original.
 type collapsedView struct {
 	// runes is the original, indexed the way the spans below are.
 	runes []rune
 	view  string
 	// byteStart maps a byte offset in view to the index in runes of the rune
-	// that begins there, with one extra entry for the end.  A slice rather than
-	// a map keyed on the same thing: it is filled once, read at most twice per
-	// match, and a map of one entry per byte was most of what this cost.
+	// beginning there, plus one entry for the end.  A slice, a map of one entry
+	// per byte being most of what this cost.
 	byteStart []int
-	// collapsed is false when there were no line breaks to take out, in which
-	// case the plain pass already covers everything this would find.
+	// collapsed is false when there were no line breaks, in which case the
+	// plain pass covers everything this would find.
 	collapsed bool
 }
 
@@ -475,9 +454,8 @@ func (r *Redactor) subWrapped(v *collapsedView, e *entry) (string, bool) {
 		if loc[1] <= loc[0] {
 			continue
 		}
-		// The first rune of the match, and one past the last: byteStart is
-		// indexed by byte, so the end comes from the last byte of the match
-		// rather than from the offset after it.
+		// byteStart is indexed by byte, so the end comes from the match's last
+		// byte rather than the offset after it.
 		start, end := v.byteStart[loc[0]], v.byteStart[loc[1]-1]+1
 		if strings.ContainsAny(string(v.runes[start:end]), "\n\r") {
 			spans = append(spans, span{start, end})
