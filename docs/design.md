@@ -31,7 +31,7 @@ Placement | Result
 `/tmp`, `/var/tmp` | installs, then finds nothing: `PrivateTmp=true` gives each unit its own, so the daemons open an empty one and fail to load
 inside a home | works, at the cost below. `init` drops the keeper's `ProtectHome=` to `tmpfs` and binds that one directory back
 
-A home is not mounted until its owner logs in, so the store is absent at boot and to cron. Absent is therefore fatal: a configured file the broker cannot load fails `--check` and stops the daemon rather than coming up redacting nothing. `init` also refuses to write into an unmounted encrypted home, which lands in the backing directory and is shadowed the moment the home mounts.
+A home is not mounted until its owner logs in, so the store is absent at boot and to cron. Absent is therefore fatal: a configured file the broker cannot load fails `--check`, and fails the daemon's own startup, so it exits rather than coming up redacting nothing. That second half is what makes this placement survivable at all — `--check` runs from `init` and `doctor`, neither of which is around at boot, which is exactly when an unmounted home is absent. `init` also refuses to write into an unmounted encrypted home, which lands in the backing directory and is shadowed the moment the home mounts.
 
 ## Three layers
 

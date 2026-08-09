@@ -63,6 +63,36 @@ func cmdBroker(args []string) int {
 		return code
 	}
 
+	// The same gate --check applies, applied where it decides something.
+	//
+	// --check is the install gate: init runs it, and so does doctor. Neither
+	// runs at boot, so until now the claim that a file the broker cannot load
+	// "stops the daemon rather than coming up redacting nothing" held only for
+	// the state of the host at install time. A store on a filesystem that is
+	// not mounted yet, a managed file replaced with one that does not decrypt,
+	// a keeper that will not start: each of those left this process binding its
+	// socket and serving with a value set that was short or, on a cold start,
+	// empty. Nothing was redacted and every unit reported itself active.
+	//
+	// So it is fatal here too. The unit restarts on failure, which is the right
+	// answer for the cases that resolve themselves -- a volume that mounts a
+	// moment later, a keeper still starting -- and for the rest it is a broker
+	// that is visibly down instead of one that is quietly not redacting.
+	//
+	// A keeper that cannot be reached counts, this being a cold start with no
+	// previous value set to fall back on. The unit already Requires= its socket,
+	// so activation supplies it; failing here is what makes the difference
+	// between "not up yet" and "up, holding nothing" visible.
+	//
+	// Startup only. The same failure later keeps the last set the broker knew
+	// to be true, which is the better answer once there is one.
+	if failures := s.Store.LoadErrors(); len(failures) > 0 {
+		log.Printf("%d secret load failure(s): %v", len(failures), failures)
+		log.Printf("refusing to start: those values are absent from the redactor, " +
+			"so a command that printed one would print it in plaintext")
+		return 1
+	}
+
 	s.Ssh.Start()
 	// Covers Listen: a failed bind must not leave an agent holding the fleet
 	// keys on a reachable socket.
