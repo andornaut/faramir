@@ -70,7 +70,7 @@ func TestNoChunkExceedsTheChunkSize(t *testing.T) {
 	input := strings.Repeat(strings.Repeat("x", 60)+"\n", 4000)
 
 	var out bytes.Buffer
-	if _, err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
+	if err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != input {
@@ -94,7 +94,7 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 
 	input := strings.Repeat("y", 5*chunkBytes) + "\n"
 	var out bytes.Buffer
-	if _, err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
+	if err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != input {
@@ -108,25 +108,67 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 	}
 }
 
-// An unreachable broker must not swallow the text, and must say it went through
-// untouched: the text is all a pipeline has left, and the flag is what lets the
-// wrapper withhold it.
-func TestTextSurvivesABrokerThatIsNotThereAndIsReportedUnredacted(t *testing.T) {
+// A broker it cannot reach must not hand the text over: text that reached no
+// redactor is text nobody checked.
+func TestABrokerThatIsNotThereWithholdsTheText(t *testing.T) {
 	var out bytes.Buffer
-	stderr := os.Stderr
-	devNull, _ := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	os.Stderr = devNull
-	defer func() { os.Stderr = stderr; devNull.Close() }()
-
-	unredacted, err := redactStream(filepath.Join(t.TempDir(), "absent.sock"),
+	err := redactStream(filepath.Join(t.TempDir(), "absent.sock"),
 		strings.NewReader("keep me\n"), &out)
-	if err != nil {
-		t.Fatal(err)
+	if err == nil {
+		t.Fatal("an unreachable broker was reported as a successful redaction")
 	}
-	if out.String() != "keep me\n" {
-		t.Errorf("output = %q", out.String())
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want nothing written", out.String())
 	}
-	if !unredacted {
-		t.Error("text went through untouched and was not reported as unredacted")
+}
+
+// A stream that fails part way keeps what was already redacted and stops.
+//
+// Those chunks went through the redactor and came back covered, so withholding
+// them protects nothing; buffering the whole stream to be able to withhold them
+// would cost an unbounded buffer and every byte of incremental output. What
+// must not appear is the chunk that failed, or anything after it.
+func TestAFailurePartWayThroughKeepsWhatWasRedactedAndStops(t *testing.T) {
+	socketPath, _ := stubBroker(t)
+
+	// Two chunks' worth, with the broker taken away after the first: long lines
+	// so the first chunk flushes before the reader reaches the end.
+	first := strings.Repeat("a", chunkBytes) + "\n"
+	rest := strings.Repeat("SENSITIVE\n", 100)
+
+	var out bytes.Buffer
+	err := redactStream(socketPath, &breakAfter{
+		reader: strings.NewReader(first + rest),
+		at:     len(first),
+		onHalf: func() { os.Remove(socketPath) },
+	}, &out)
+	if err == nil {
+		t.Fatal("a broker that went away mid-stream was reported as a success")
 	}
+	if strings.Contains(out.String(), "SENSITIVE") {
+		t.Error("text the broker never saw was written")
+	}
+	if out.Len() == 0 {
+		t.Error("chunks that were redacted successfully were withheld too")
+	}
+}
+
+// breakAfter runs onHalf once, as soon as at bytes have been read, so the
+// broker can be removed between one chunk and the next.
+type breakAfter struct {
+	reader *strings.Reader
+	at     int
+	read   int
+	onHalf func()
+	fired  bool
+}
+
+func (b *breakAfter) Read(p []byte) (int, error) {
+	n, err := b.reader.Read(p)
+	b.read += n
+	if !b.fired && b.read >= b.at {
+		b.fired = true
+		b.onHalf()
+	}
+	return n, err
 }

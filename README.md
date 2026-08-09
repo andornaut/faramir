@@ -271,6 +271,7 @@ faramir redact -- ./deploy.sh
 `--socket`, `--json` | On every broker-facing command.
 
 - The child's exit code is faramir's own. A broker that is not running exits 69 (`EX_UNAVAILABLE`).
+- **`faramir redact` writes nothing it could not redact**, in either shape. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero — for `-- CMD` that is the child's own status when it failed, and 1 when it succeeded, because the command ran and only its output is missing. Chunks already redacted are kept, so a broker lost mid-stream truncates the output rather than emptying it; a broker that was never up fails on the first chunk and writes nothing at all.
 - Both `--env` and `--env-file` refuse a literal value and a name that cannot be an environment variable.
 - One file refuses a name given twice with different refs. Across sources, a later `--env-file` wins over an earlier one, and `--env` wins over both.
 - A bad line is reported with file and line. The offending value never appears.
