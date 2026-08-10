@@ -176,16 +176,15 @@ type FileState struct {
 //
 // Per request rather than at config load, so a file added beside the others is
 // picked up on the next refresh.  It is also the only place that can resolve:
-// the store directory is group-readable by this uid alone.
+// the secrets directory is group-readable by this uid alone.
 //
-// Deduplicated, since the base config globs the store and a drop-in may name a
-// file in it as well.
-// Two kinds of not-there, returned separately because they mean opposite
-// things to a daemon.  An entry that named nothing is a store not written yet,
-// which is what every first install looks like; a file that is there and will
-// not open is a value the redactor is missing without knowing it.  Only the
-// second is an error.  Both fail `--check`, which is the operator's audit
-// rather than the daemon's gate.
+// Deduplicated, since the base config globs that directory and a drop-in may
+// name a file in it as well.
+//
+// The two kinds of not-there are returned separately because they mean opposite
+// things to a daemon.  An entry that named nothing is a secrets directory not
+// written yet; a file that is there and will not open is a value the redactor
+// is missing without knowing it.  Only the second is an error.
 func Resolve(files []string) (paths, errors, unresolved []string) {
 	paths = []string{}
 	errors = []string{}

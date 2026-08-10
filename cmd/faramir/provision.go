@@ -1,7 +1,8 @@
 package main
 
-// The subcommands that provision and inspect a host.  All local; none opens the
-// broker socket except through the checks init runs at the end.
+// The subcommands that provision and inspect a host.  They act on files rather
+// than through the broker, but they ask a running one where the install is: see
+// askBroker.  init also runs its own checks through it at the end.
 
 import (
 	"encoding/json"
@@ -19,55 +20,123 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// resolveConfigDir decides which install doctor is examining.  The compiled-in
-// default is only right for a host that took it, so the broker is asked over
-// the socket; a broker that does not answer is itself the finding, and the
-// default is then all there is to look at.
-func resolveConfigDir(explicit, socketPath string) string {
-	if explicit != "" {
-		return explicit
-	}
-	if dir := brokerConfigDir(socketPath); dir != "" {
-		return dir
-	}
-	return install.DefaultConfigDir
+// brokerUnit records the config the daemons loaded.  A variable so a test can
+// point it at a fixture.
+var brokerUnit = "/etc/systemd/system/faramir-broker.service"
+
+// status is what a running broker says about itself: where its config is, and
+// which build is answering.
+type status struct {
+	configDir string
+	version   string
 }
 
-// brokerConfigDir asks a running broker which config it loaded, or returns ""
-// on any failure, leaving doctor to carry on against the default.
-func brokerConfigDir(socketPath string) string {
+// askBroker asks a running broker about itself in one round trip, and returns a
+// zero status on any failure, every caller having something to fall back on.
+func askBroker(socketPath string) status {
 	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
 	if err != nil {
-		return ""
+		return status{}
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
 	if err := sockutil.Send(conn, map[string]any{"op": "status"}); err != nil {
-		return ""
+		return status{}
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
 		_ = uc.CloseWrite()
 	}
 	line, err := sockutil.ReadLine(conn, 1<<20)
 	if err != nil {
-		return ""
+		return status{}
 	}
 	// The status body is itself JSON, carried as the response's output string.
 	var response struct {
 		Output string `json:"output"`
 	}
 	if err := json.Unmarshal(line, &response); err != nil {
-		return ""
+		return status{}
 	}
 	var body struct {
 		Configs []string `json:"configs"`
+		Version string   `json:"version"`
 	}
-	if err := json.Unmarshal([]byte(response.Output), &body); err != nil || len(body.Configs) == 0 {
+	if err := json.Unmarshal([]byte(response.Output), &body); err != nil {
+		return status{}
+	}
+	out := status{version: body.Version}
+	if len(body.Configs) > 0 {
+		// The base config is first by construction; the rest are its drop-ins.
+		out.configDir = filepath.Dir(body.Configs[0])
+	}
+	return out
+}
+
+// unitConfigFile reads the config path out of the broker's unit, or "" when the
+// unit is unreadable or names none.  What the broker was installed to load,
+// which is the answer left when the broker itself is not running.
+func unitConfigFile() string {
+	body, err := os.ReadFile(brokerUnit)
+	if err != nil {
 		return ""
 	}
-	// The base config is first by construction; the rest are its drop-ins.
-	return filepath.Dir(body.Configs[0])
+	for _, line := range strings.Split(string(body), "\n") {
+		if rest, found := strings.CutPrefix(strings.TrimSpace(line),
+			"Environment=FARAMIR_CONFIG="); found {
+			return rest
+		}
+	}
+	return ""
+}
+
+// discoverConfigFile finds the config.toml this host's install actually uses:
+// the running broker's own answer, then the path its unit names.  Empty when
+// neither answers, which is a host with no install rather than one whose
+// install moved.
+//
+// One ladder for every command that has to find an install it did not perform.
+// The compiled-in default is not in it: that is a guess to fall back on, and
+// which of the two a caller wants differs, so each decides for itself.
+func discoverConfigFile(st status) string {
+	if st.configDir != "" {
+		if path := filepath.Join(st.configDir, "config.toml"); exists(path) {
+			return path
+		}
+	}
+	return unitConfigFile()
+}
+
+// configDirFrom picks the install to act on, given an answer already asked for.
+// A flag wins, so a host whose install is not the one on this machine can still
+// be named; the compiled-in default is last, being right only for a host that
+// took it.
+//
+// A broker that answered is running against what it names, so that answer is
+// taken as it stands.  Unlike discoverConfigFile, this does not have to name a
+// file that opens: the caller is about to report on the directory, or to remove
+// it, and one that is not there is the finding.
+func configDirFrom(explicit string, st status) string {
+	if explicit != "" {
+		return explicit
+	}
+	if st.configDir != "" {
+		return st.configDir
+	}
+	if path := unitConfigFile(); path != "" {
+		return filepath.Dir(path)
+	}
+	return install.DefaultConfigDir
+}
+
+// resolveConfigDir is configDirFrom for a caller with no other use for the
+// broker's answer.  The flag is tested here as well, so naming one costs no
+// round trip.
+func resolveConfigDir(explicit, socketPath string) string {
+	if explicit != "" {
+		return explicit
+	}
+	return configDirFrom(explicit, askBroker(socketPath))
 }
 
 func cmdInit(args []string) int {
@@ -160,8 +229,10 @@ func cmdInitProject(args []string) int {
 	fs := newFlagSet("init-project", "init-project [options] [DIR]")
 	operatorUser := fs.String("operator-user", "",
 		"account that works in the tree (default $SUDO_USER, then you)")
-	configDir := fs.String("config-dir", install.DefaultConfigDir,
-		"where the installed config is, which is where the client group is read from")
+	configDir := fs.String("config-dir", "",
+		"where the installed config is, which is where the client group is read from "+
+			"(default: ask the broker, then read its unit)")
+	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	clientGroup := fs.String("client-group", "",
 		"override the client group instead of reading it from the installed config")
 	hook := fs.Bool("hook", true,
@@ -184,7 +255,7 @@ func cmdInitProject(args []string) int {
 	opts := install.ProjectOptions{
 		Dir:          fs.Arg(0),
 		OperatorUser: operatorName(*operatorUser),
-		ConfigDir:    *configDir,
+		ConfigDir:    resolveConfigDir(*configDir, *socket),
 		ClientGroup:  *clientGroup,
 		Hook:         *hook,
 		Agents:       agents,
@@ -250,14 +321,18 @@ func cmdDoctor(args []string) int {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 2
 	}
+	// One round trip: the same answer decides which install this is and whether
+	// the daemons are running the code that was installed.
+	broker := askBroker(*socket)
 	report := install.Diagnose(install.DoctorOptions{
-		ConfigDir:    resolveConfigDir(*configDir, *socket),
-		OperatorUser: operatorName(*operatorUser),
-		ClientGroup:  *clientGroup,
-		BrokerUser:   *brokerUser,
-		KeeperUser:   *keeperUser,
-		ExecUser:     *execUser,
-		SecretsGroup: *secretsGroup,
+		ConfigDir:     configDirFrom(*configDir, broker),
+		BrokerVersion: broker.version,
+		OperatorUser:  operatorName(*operatorUser),
+		ClientGroup:   *clientGroup,
+		BrokerUser:    *brokerUser,
+		KeeperUser:    *keeperUser,
+		ExecUser:      *execUser,
+		SecretsGroup:  *secretsGroup,
 	})
 	if *asJSON {
 		body, err := json.MarshalIndent(report, "", "  ")
@@ -396,7 +471,9 @@ func terminalWidth() int {
 
 func cmdUninstall(args []string) int {
 	fs := newFlagSet("uninstall", "uninstall [options]")
-	configDir := fs.String("config-dir", install.DefaultConfigDir, "where config.toml was installed")
+	configDir := fs.String("config-dir", "",
+		"where config.toml was installed (default: ask the broker, then read its unit)")
+	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
@@ -404,7 +481,7 @@ func cmdUninstall(args []string) int {
 		fmt.Fprintln(os.Stderr, "faramir: uninstall must run as root")
 		return 1
 	}
-	left, err := install.Uninstall(*configDir)
+	left, err := install.Uninstall(resolveConfigDir(*configDir, *socket))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
 		return 1

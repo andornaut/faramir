@@ -121,7 +121,7 @@ var corpus = []denyCase{
 	{"cp .env.example .env", false, "creating a dotenv from its example writes nothing out"},
 	{"cat .env.example", false, "the example holds no values"},
 	{"python3 manage.py --credentials ./creds.json", false, "a flag named credentials is not a read of one"},
-	{"jq . tests/fixtures/secrets.json", false, "a fixture is not the store"},
+	{"jq . tests/fixtures/secrets.json", false, "a fixture is not a managed file"},
 	{"tar czf backup.tgz vault/", false, "a directory called vault is not ansible-vault"},
 	{"cat docs/secrets.md", false, "documentation about secrets holds none"},
 	{"cp testdata/server.pem /tmp/", false, "test data, not a key"},

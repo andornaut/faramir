@@ -218,7 +218,7 @@ func TestEmptyRedactorPassesTextThrough(t *testing.T) {
 
 // The broker builds a redactor per request and two more per exec, each compiling
 // roughly ten patterns per secret, then runs every entry over every chunk.  Both
-// costs scale with the size of the store.
+// costs scale with the size of the value set.
 //
 //	go test ./internal/redact/ -bench Redactor -benchmem
 func manySecrets(n int) []Secret {

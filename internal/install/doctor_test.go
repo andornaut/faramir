@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/agekey"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // sops takes the first .sops.yaml walking up from the working directory, so a
@@ -260,6 +261,37 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 			report.Secrets.Count = tc.count
 			if got := report.serves(); got != tc.want {
 				t.Errorf("serves() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// An upgrade that installed the binary without restarting the daemons leaves
+// every other finding describing the build that is not running.
+func TestVersionSkewIsAFindingOfItsOwn(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		running string
+		want    Status
+	}{
+		{name: "the broker runs what is installed", running: version.Version, want: StatusOK},
+		{name: "the daemons were never restarted", running: "0.0.1", want: StatusFailed},
+		{name: "no broker answered", running: "", want: StatusWarn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var report DoctorReport
+			diagnoseVersion(&report, DoctorOptions{BrokerVersion: tc.running})
+			if len(report.Findings) != 1 {
+				t.Fatalf("got %d findings, want 1", len(report.Findings))
+			}
+			if got := report.Findings[0].Status; got != tc.want {
+				t.Errorf("status = %q, want %q (detail: %s)",
+					got, tc.want, report.Findings[0].Detail)
+			}
+			// Only a fail is an exit code, so a broker that did not answer must not
+			// become one: doctor is run against a stopped install on purpose.
+			if wantFailed := tc.want == StatusFailed; report.Failed != wantFailed {
+				t.Errorf("report.Failed = %v, want %v", report.Failed, wantFailed)
 			}
 		})
 	}

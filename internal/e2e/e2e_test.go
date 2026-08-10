@@ -341,7 +341,7 @@ func TestAuditLogRecordsTheRunWithoutTheValue(t *testing.T) {
 	}
 }
 
-// A brokered command cannot decrypt the store itself, which is what lets
+// A brokered command cannot decrypt a managed file itself, which is what lets
 // ansible be a consumer of the broker rather than a holder of the master key.
 func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
 	h := newHarness(t)
@@ -353,7 +353,7 @@ func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
 		t.Fatalf("sops did not even start: %v", r.Error)
 	}
 	if r.ExitCode == nil || *r.ExitCode == 0 {
-		t.Fatalf("a child decrypted the store: exit=%v output=%q", r.ExitCode, r.Output)
+		t.Fatalf("a child decrypted a managed file: exit=%v output=%q", r.ExitCode, r.Output)
 	}
 	if strings.Contains(r.Output, routerPassword) {
 		t.Errorf("PLAINTEXT LEAKED: %q", r.Output)
