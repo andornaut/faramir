@@ -47,7 +47,7 @@ func TestAdversarialE2E(t *testing.T) {
 			kind:       "ACCIDENTAL",
 			script:     `s="$ROUTER_PW"; for ((i=0;i<${#s};i++)); do printf '%02x' "'${s:$i:1}"; done; echo`,
 			needle:     recoverableHexLower(routerPassword),
-			wantRedact: false,
+			wantRedact: true,
 		},
 		{
 			name:       "raw value line-wrapped every 8 cols (fold/fmt/openssl -text)",
@@ -55,7 +55,7 @@ func TestAdversarialE2E(t *testing.T) {
 			script:     `s="$ROUTER_PW"; for ((i=0;i<${#s};i+=8)); do printf '%s\n' "${s:$i:8}"; done`,
 			needle:     routerPassword, // present once newlines are removed
 			rejoinNL:   true,
-			wantRedact: false,
+			wantRedact: true,
 		},
 		{
 			name:       "rev (documented Not-prevented)",

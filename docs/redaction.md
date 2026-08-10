@@ -29,14 +29,19 @@ Variant | Produced by
 raw | anything
 base64, padded and unpadded | `\| base64`, JSON payloads, `Authorization: Basic`
 base64 URL-safe | JWTs, signed URLs
+base32, padded and unpadded | TOTP seeds, `otpauth://` URIs, some token formats
+hex, lower and upper case | `xxd -p`, `od -An -tx1`, `hexdump`, `openssl`, hex BLOB columns
 percent-encoded | any URL carrying a credential
-JSON string-escaped | `-vvv` output, API responses, structured logging
+JSON string-escaped, and with `\/` | `-vvv` output, API responses, PHP `json_encode`
+HTML/XML entity-escaped | a token reflected into an HTML page, fetched with `curl`
 shell single-quoted (`'\''`) | `set -x` traces
 shell double-quoted (`\$`, `` \` ``, `\"`) | `set -x` traces
 
-**3. Wrapped base64 needs a second pass.** `base64` wraps by default, so the encoded value arrives with newlines inside it and matches nothing. The redactor matches against a newline-free view and maps hits back to spans in the original.
+The set is still not exhaustive: `printf %q`'s backslash re-quoting, and any deliberate transform (`\| rev`, `\| tr a-z A-Z`, a hash), are outside it and always will be, because the child chooses its own output encoding. `set -x` itself is covered -- bash quotes its xtrace with single quotes, which the raw and single-quoted variants already catch.
 
-**4. Stream with an overlap buffer.** A tail longer than the longest variant is held back on every `Feed` and released on `Flush`, the margin exceeding that variant because base64 wrapping inserts newlines inside a value. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is output, including the release triggered by the last partial-rune tail, or every command whose last write splits a rune loses its final characters.
+**3. A wrapped rendering needs a second pass.** `base64` wraps at 76 columns by default, and `fold`, `fmt`, `openssl x509 -text` and any width-aware pretty-printer wrap the raw value and every other variant across lines too, so the rendering arrives with newlines inside it and matches nothing on a line-by-line view. The redactor matches the **whole** variant set against a newline-free view and maps hits back to spans in the original; a guard keeps this pass to matches that genuinely straddle a line break, so the plain pass still owns everything on one line. Cost: a low-entropy value split across a line break can be redacted where its two halves were unrelated words -- the same fail-toward-redaction tradeoff the minimum-length gate makes, never a leak.
+
+**4. Stream with an overlap buffer.** A tail longer than the longest variant is held back on every `Feed` and released on `Flush`, the margin exceeding that variant because wrapping inserts newlines inside a value. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is output, including the release triggered by the last partial-rune tail, or every command whose last write splits a rune loses its final characters.
 
 **5. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. `[secrets] min_length` is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
 
