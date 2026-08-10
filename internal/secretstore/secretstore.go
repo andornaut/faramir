@@ -306,31 +306,49 @@ func (s *Store) Count() int {
 	return len(s.values)
 }
 
-// Incomplete reports why the set is not everything the config asked for, or ""
-// when it is.  One condition rather than three, and checked per request rather
-// than once at startup: a reload can shrink the set at any time, and a broker
-// that keeps serving a set it knows is short redacts less than its operator
-// believes with nothing to say so.
+// Unreadable reports why the broker cannot promise redaction, or "" when it
+// can.  The gate on both exec and redact: a brokered command's output is
+// redacted against this same set, so what makes one unsafe makes the other
+// unsafe.
+//
+// The risk is output holding a managed secret the redactor does not have, so
+// what matters is whether a managed file exists whose contents went unread.
+// How many secrets came out of the files that were read does not: a file that
+// is there and empty holds nothing to miss, and an install whose operator has
+// not written a secret yet is configured correctly and serves.  A ref no file
+// defines is answered by unknown_secret, which says the true thing where this
+// would say a vague one.
+//
+// At least one file has to have matched.  Nothing configured, and an entry that
+// named none, are refused alike rather than told apart: the file may be absent
+// because it was never written, or because the filesystem holding it is not
+// mounted, and only the second is dangerous.  Refusing both costs a fresh
+// install every wrapped command until one file exists, which is loud and says
+// why.
+//
+// Checked per request rather than once at startup, since a reload can lose a
+// file at any time and a broker that kept serving would redact less than its
+// operator believes with nothing to say so.
 //
 // A keeper that could not be reached is the exception.  The set kept then is
-// the last one known to be true, so it is unconfirmed rather than known short,
-// and refusing on it would turn a keeper hiccup into refused commands.  A cold
-// start needs no exception: there is no previous set, so the count is zero and
-// the first condition catches it.
-func (s *Store) Incomplete() string {
+// the last one known to be true, so it is unconfirmed rather than short, and
+// refusing on it would turn a keeper hiccup into refused commands.  A cold
+// start needs no exception, holding no files either.
+func (s *Store) Unreadable() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	switch {
-	case len(s.values) == 0:
-		return "it holds no managed values"
 	case s.retry:
 		return ""
 	case len(s.loadErrors) > 0:
-		return "a configured file did not load: " + strings.Join(s.loadErrors, "; ")
-	case len(s.unresolved) > 0:
-		return "a configured entry named no file: " + strings.Join(s.unresolved, "; ")
+		return "a managed file did not load, so what is in it went unread: " +
+			strings.Join(s.loadErrors, "; ")
+	case len(s.state) > 0:
+		return ""
+	case len(s.config.Files) == 0:
+		return "no [secrets] files are configured"
 	}
-	return ""
+	return "no managed file was found: " + strings.Join(s.unresolved, "; ")
 }
 
 func sortedKeys[V any](m map[string]V) []string {

@@ -215,7 +215,7 @@ func (s *Server) opStatus() protocol.Response {
 // open by design, and cost a lock on the hot path, the wrapper calling redact
 // once per Bash command.
 func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	if refused := s.refuseWhileIncomplete("a redact", audit.NewLogID()); refused != nil {
+	if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID()); refused != nil {
 		return *refused
 	}
 	redactor := s.redactor()
@@ -246,37 +246,51 @@ func (s *Server) opListSecrets() protocol.Response {
 	}
 }
 
-// refuseWhileIncomplete is the gate on the two ops whose safety depends on the
-// value set: served only while the broker holds everything the config asked
-// for.  Short of that, the redactor covers less than its operator believes and
-// the caller cannot tell the difference from a command with nothing to hide.
+// refuseUnreadable is the gate on the two ops whose output is redacted against
+// the value set.  One question for both, because both risk the same thing: see
+// Store.Unreadable.
 //
-// One rule rather than three, and here rather than at startup.  Startup was the
-// wrong place twice over: it only ever judged the host as it was at boot, so a
-// reload that shrank the set afterwards went unremarked, and exiting takes the
-// daemon down just when `faramir status` and `doctor` are what would explain
-// why.  status and list_secrets stay available for that reason: neither
-// produces output that depends on the set.
-func (s *Server) refuseWhileIncomplete(op, logID string) *protocol.Response {
-	reason := s.Store.Incomplete()
+// Here rather than at startup.  Startup was the wrong place twice over: it only
+// ever judged the host as it was at boot, so a reload that shrank the set
+// afterwards went unremarked, and exiting takes the daemon down just when
+// `faramir status` and `doctor` are what would explain why.  status and
+// list_secrets stay available for that reason: neither produces output that
+// depends on the set.
+// secretsDir is where a first file goes, taken from the configured pattern
+// rather than a default: --config-dir moves it, and naming the wrong directory
+// in the one actionable line here would send the operator somewhere the broker
+// does not read.
+func (s *Server) secretsDir() string {
+	if patterns := s.Config.Secrets.Files; len(patterns) > 0 {
+		return filepath.Dir(patterns[0])
+	}
+	return "the directory [secrets] files names"
+}
+
+func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
+	reason := s.Store.Unreadable()
 	if reason == "" {
 		return nil
 	}
-	if patterns := s.Config.Secrets.Files; len(patterns) == 0 {
-		reason = "no [secrets] files are configured"
-	}
-	log.Printf("%s refusing %s: %s", logID, op, reason)
+	log.Printf("%s refusing %s: %s", logID, phrase, reason)
+	// Recorded like a served call.  A refusal is what the operator is looking for
+	// when they ask why nothing ran, and the audit log is where every other op
+	// answers that.
+	s.Audit.Write(map[string]any{
+		"log_id": logID, "op": op, "refused": "no_secrets", "reason": reason,
+	}, "")
 	out := protocol.ErrorResponse("no_secrets", fmt.Sprintf(
 		"the broker does not hold every managed value, so %s would run with "+
-			"redaction covering less than the config asks for: %s. Fix that, or write "+
-			"a first secret with `sudo faramir edit`, then retry", op, reason), logID)
+			"redaction covering less than the config asks for: %s. Encrypt a first "+
+			"file into %s with sops, or `sudo faramir edit` once one is there, then "+
+			"retry", phrase, reason, s.secretsDir()), logID)
 	return &out
 }
 
 func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	execCfg := s.Config.Exec
 	logID := audit.NewLogID()
-	if refused := s.refuseWhileIncomplete("this command", logID); refused != nil {
+	if refused := s.refuseUnreadable("exec", "this command", logID); refused != nil {
 		return *refused
 	}
 

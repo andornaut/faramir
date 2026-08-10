@@ -20,11 +20,35 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
+// managedFile is a file for [secrets] files to name, so the store reports one
+// as present.  Contents are the keeper double's business, not this file's.
+func managedFile(t *testing.T) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "managed.sops.yml")
+	if err := os.WriteFile(path, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // secretFiles is set here because the store copies the secrets config at
 // construction, so a later assignment to s.Config.Secrets reads nothing.
+// newServer is a healthy install: one managed file, present and read, which is
+// what the exec and redact gate asks for.  A test that wants the store
+// unconfigured calls newUnconfiguredServer.
 func newServer(t *testing.T, values map[string]string, secretFiles ...string) *Server {
 	t.Helper()
+	if len(secretFiles) == 0 {
+		secretFiles = []string{managedFile(t)}
+	}
 	return serverWith(t, keepertest.New(t, values, secretFiles...), secretFiles...)
+}
+
+// newUnconfiguredServer names no [secrets] files, which is a broker that cannot
+// promise redaction and refuses exec and redact.
+func newUnconfiguredServer(t *testing.T, values map[string]string) *Server {
+	t.Helper()
+	return serverWith(t, keepertest.New(t, values))
 }
 
 // serverWith is newServer against a keeper the caller already has, for a test
@@ -186,7 +210,7 @@ func TestListSecretsEndsEveryLine(t *testing.T) {
 }
 
 func TestListSecretsIsEmptyWhenNothingLoaded(t *testing.T) {
-	s := newServer(t, map[string]string{})
+	s := newUnconfiguredServer(t, map[string]string{})
 	if body := output(t, s.opListSecrets()); body != "" {
 		t.Errorf("output = %q, want empty", body)
 	}
@@ -454,8 +478,8 @@ func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
 // Holding nothing, the redactor is a no-op, so a command that printed a
 // credential it got from anywhere would print it in plaintext.  Refused here
 // rather than by refusing to start, so the daemon stays diagnosable.
-func TestExecAndRedactAreRefusedWhileTheValueSetIsEmpty(t *testing.T) {
-	s := newServer(t, map[string]string{})
+func TestExecAndRedactAreRefusedWhileNoManagedFileWasRead(t *testing.T) {
+	s := newUnconfiguredServer(t, map[string]string{})
 	peer := &sockutil.Peer{UID: 1000}
 	for _, op := range []map[string]any{
 		{"op": "redact", "text": "anything"},
@@ -476,13 +500,15 @@ func TestExecAndRedactAreRefusedWhileTheValueSetIsEmpty(t *testing.T) {
 	}
 }
 
-// A file that did not load leaves a set that is short rather than empty, so an
-// empty-set check would serve it: the values that did load cover their own
+// A file that did not load leaves a set that is short rather than empty, so a
+// value-count check would serve it: the values that did load cover their own
 // output and the rest is missing with nothing to say so.
 func TestExecIsRefusedWhenOneFileDidNotLoad(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	file := managedFile(t)
+	k.SetFiles([]string{file})
 	k.SetErrors([]string{"/etc/faramir/secrets/other.sops.yml: could not decrypt"})
-	s := serverWith(t, k)
+	s := serverWith(t, k, file)
 	s.Store.Reload()
 	if s.Store.Count() == 0 {
 		t.Fatal("this case is only interesting while some values did load")
@@ -510,15 +536,56 @@ func TestExecIsServedWhileTheKeeperIsUnreachable(t *testing.T) {
 	if len(s.Store.LoadErrors()) == 0 {
 		t.Fatal("closing the keeper did not produce a load error")
 	}
-	if reason := s.Store.Incomplete(); reason != "" {
-		t.Errorf("Incomplete = %q, want servable on the previous set", reason)
+	if reason := s.Store.Unreadable(); reason != "" {
+		t.Errorf("Unreadable = %q, want servable on the previous set", reason)
+	}
+}
+
+// An install whose operator has not written a secret yet is configured
+// correctly: the file is there and was read, so nothing is missing.  Both ops
+// serve, and a ref no file defines is answered by unknown_secret rather than by
+// this gate.
+func TestBothOpsAreServedWhenEveryManagedFileLoadedAndHeldNothing(t *testing.T) {
+	k := keepertest.New(t, map[string]string{})
+	file := managedFile(t)
+	k.SetFiles([]string{file})
+	s := serverWith(t, k, file)
+	s.Store.Reload()
+
+	if reason := s.Store.Unreadable(); reason != "" {
+		t.Errorf("Unreadable = %q, want served: the file is there and was read", reason)
+	}
+	peer := &sockutil.Peer{UID: 1000}
+	if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
+		t.Errorf("redact was refused: %v", got["error"])
+	}
+	got := s.Handle(map[string]any{
+		"op": "exec", "cmd": []any{"true"}, "cwd": t.TempDir(),
+	}, peer)
+	if failure, ok := got["error"].(map[string]string); ok && failure["code"] == "no_secrets" {
+		t.Errorf("exec was refused: %v", failure)
+	}
+}
+
+// A file that did not load may hold anything, so its contents went unread and
+// redaction cannot be promised.
+func TestRedactIsRefusedWhenAManagedFileDidNotLoad(t *testing.T) {
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	file := managedFile(t)
+	k.SetFiles([]string{file})
+	k.SetErrors([]string{file + ": could not decrypt"})
+	s := serverWith(t, k, file)
+	s.Store.Reload()
+
+	if s.Store.Unreadable() == "" {
+		t.Error("Unreadable = served, want refused: a file went unread")
 	}
 }
 
 // The two that do not produce output depending on the set stay available, being
 // what diagnosing a missing store needs.
-func TestStatusAndListStayAvailableWhileTheValueSetIsEmpty(t *testing.T) {
-	s := newServer(t, map[string]string{})
+func TestStatusAndListStayAvailableWhileNoManagedFileWasRead(t *testing.T) {
+	s := newUnconfiguredServer(t, map[string]string{})
 	peer := &sockutil.Peer{UID: 1000}
 	for _, op := range []string{"status", "list_secrets"} {
 		if got := s.Handle(map[string]any{"op": op}, peer); got["error"] != nil {
@@ -530,7 +597,7 @@ func TestStatusAndListStayAvailableWhileTheValueSetIsEmpty(t *testing.T) {
 // An operator asking is asking to be told, so the audit is stricter than the
 // daemon's own gate.
 func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
-	s := newServer(t, map[string]string{})
+	s := newUnconfiguredServer(t, map[string]string{})
 	s.Config.Ssh.Key = ""
 	if _, code := s.CheckOutput(); code == 0 {
 		t.Error("a broker holding no values passed the audit")
@@ -541,7 +608,7 @@ func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
 // same check, so a caller who could probe can instead name every ref and be
 // handed every value.  A throttle here would only slow the path nobody needs.
 func TestRedactIsNotRateLimited(t *testing.T) {
-	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"}, managedFile(t))
 	peer := &sockutil.Peer{UID: 1000}
 	for i := range 300 {
 		if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
