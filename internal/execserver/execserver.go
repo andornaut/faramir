@@ -52,8 +52,16 @@ type Executor struct {
 	slots  chan struct{}
 	wg     sync.WaitGroup
 	// cgroupBase is the cgroup v2 directory each run is confined under, or "" where
-	// confinement is unavailable and the executor refuses to run.  Set once at New.
+	// no delegated cgroup is available.  Set once at New.
 	cgroupBase string
+	// requireCgroup is set on an elevating host, where confinement is mandatory:
+	// the serialization an approval rests on needs no run's process to outlive it,
+	// so a run that cannot be confined is refused rather than reaped by process
+	// group (which a setsid child escapes).  Elsewhere confinement is used when
+	// available and the process-group kill covers the rest -- there is no approval
+	// to protect, and requiring a delegated cgroup would refuse every command on a
+	// host or container that has none.
+	requireCgroup bool
 }
 
 // maxConcurrent is a backstop, not a knob.
@@ -69,14 +77,16 @@ const maxConcurrent = 16
 
 func New(cfg *config.Config) *Executor {
 	e := &Executor{config: cfg, slots: make(chan struct{}, maxConcurrent)}
-	// Every run is confined to its own cgroup, elevation or not, and that cgroup is
-	// how a run is ended -- the one mechanism, no process-group fallback.  Probed
-	// once here; a host that cannot confine refuses to run rather than run a command
-	// it cannot reliably reap.
-	if e.cgroupBase = cgroupBase(); e.cgroupBase == "" {
-		log.Printf("this executor has no usable cgroup, so brokered commands will be " +
-			"refused: it needs cgroup v2, a unit that sets Delegate=, and a kernel with " +
-			"cgroup.kill (>= 5.14). Reinstall on such a host")
+	// Probed once.  Every run is confined to its own cgroup when one is available,
+	// elevation or not -- that is the reaper that a setsid child cannot escape.
+	// Where an elevation can be granted it is mandatory (see requireCgroup): a run
+	// that cannot be confined is refused rather than reaped by process group.
+	e.requireCgroup = cfg.Elevate.ExecUser != ""
+	e.cgroupBase = cgroupBase()
+	if e.requireCgroup && e.cgroupBase == "" {
+		log.Printf("elevation is configured but this executor has no delegated cgroup, " +
+			"so brokered commands will be refused: it needs cgroup v2, a unit that sets " +
+			"Delegate=, and a kernel with cgroup.kill (>= 5.14). Reinstall on such a host")
 	}
 	return e
 }
@@ -275,31 +285,40 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	cmd.Stderr = slave
 	// Setsid makes the child a session leader so it can take the PTY as its
 	// controlling terminal; Ctty 1 is the slave, so a write to /dev/tty lands on
-	// our PTY.  It is not how the run is killed -- the cgroup is.
+	// our PTY.  It also gives the process-group kill something to reach where a
+	// cgroup is not available.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 1}
 
-	// Confinement is mandatory for every run: the child is spawned directly into
-	// its own cgroup, so a descendant that calls setsid -- which a process-group
-	// kill would miss -- is still reaped when the cgroup is torn down.  A host that
-	// cannot confine refuses the run rather than running it unreaped; this needs
-	// cgroup v2, a unit with Delegate=, and a kernel >= 5.14 (cgroup.kill), and old
-	// kernels are not supported -- they fail closed.
-	if e.cgroupBase == "" {
-		return errorResponse("exec_failed", "this host has no usable cgroup (needs "+
-			"cgroup v2, a unit with Delegate=, and a kernel with cgroup.kill >= 5.14); "+
-			"refusing to run a command that cannot be confined and reaped")
+	// Confine the run to its own cgroup when one is available, so a descendant that
+	// calls setsid -- which a process-group kill would miss -- is still reaped when
+	// the cgroup is torn down.  On an elevating host this is mandatory: the
+	// serialization an approval rests on needs the run to leave no straggler, so a
+	// run that cannot be confined is refused rather than reaped by process group.
+	// Elsewhere confinement is a hardening used when present, and the process-group
+	// kill covers the rest.
+	var rcg *runCgroup
+	if e.cgroupBase != "" {
+		c, err := newRunCgroup(e.cgroupBase)
+		switch {
+		case err == nil:
+			rcg = c
+			cmd.SysProcAttr.UseCgroupFD = true
+			cmd.SysProcAttr.CgroupFD = rcg.fd
+			// Closed after the run on every path, a normal exit included: it kills
+			// whatever is still in the cgroup -- a setsid grandchild can outlive a zero
+			// exit -- waits for it to empty, and removes it.
+			defer rcg.close()
+		case e.requireCgroup:
+			return errorResponse("exec_failed", fmt.Sprintf("could not confine this run "+
+				"to a cgroup (%v); refusing to run it, elevation being configured", err))
+		default:
+			log.Printf("no cgroup for this run (%v); reaping by process group", err)
+		}
+	} else if e.requireCgroup {
+		return errorResponse("exec_failed", "elevation is configured but this host has no "+
+			"delegated cgroup (needs cgroup v2, a unit with Delegate=, and a kernel with "+
+			"cgroup.kill >= 5.14); refusing to run a command it cannot confine and reap")
 	}
-	rcg, err := newRunCgroup(e.cgroupBase)
-	if err != nil {
-		return errorResponse("exec_failed", fmt.Sprintf("could not confine this run to "+
-			"a cgroup (%v); refusing to run it", err))
-	}
-	cmd.SysProcAttr.UseCgroupFD = true
-	cmd.SysProcAttr.CgroupFD = rcg.fd
-	// Closed after the run on every path, a normal exit included: it kills whatever
-	// is still in the cgroup -- a setsid grandchild can outlive a zero exit -- waits
-	// for it to empty, and removes it.
-	defer rcg.close()
 
 	started := time.Now()
 	if err := cmd.Start(); err != nil {
@@ -336,8 +355,9 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 
 // await waits for the child, watching the clock and the broker's connection.
 // done is closed by the caller's cmd.Wait goroutine, since waiting twice would
-// fail with ECHILD.  A timeout or a hangup ends the run's whole cgroup, not just
-// the child, so a setsid descendant goes with it.
+// fail with ECHILD.  A timeout or a hangup ends the whole run: the cgroup where
+// there is one, so a setsid descendant goes with it, and otherwise the process
+// group.
 func (e *Executor) await(rcg *runCgroup, cmd *exec.Cmd, conn net.Conn, done <-chan struct{}, timeoutSec, graceSec int) bool {
 	// A readable connection means the broker sent something or hung up; either way
 	// it is no longer waiting, and the child must not outlive it.
@@ -361,17 +381,49 @@ func (e *Executor) await(rcg *runCgroup, cmd *exec.Cmd, conn net.Conn, done <-ch
 	timer := time.NewTimer(time.Duration(timeoutSec) * time.Second)
 	defer timer.Stop()
 
+	end := func() {
+		if rcg != nil {
+			rcg.terminate(graceSec)
+		} else {
+			terminate(cmd, graceSec)
+		}
+	}
+
 	select {
 	case <-done:
 		return false
 	case <-timer.C:
-		log.Printf("pid %d exceeded %ds; killing its cgroup", cmd.Process.Pid, timeoutSec)
-		rcg.terminate(graceSec)
+		log.Printf("pid %d exceeded %ds; killing it", cmd.Process.Pid, timeoutSec)
+		end()
 		return true
 	case <-hangup:
-		log.Printf("broker hung up; killing pid %d's cgroup", cmd.Process.Pid)
-		rcg.terminate(graceSec)
+		log.Printf("broker hung up; killing pid %d", cmd.Process.Pid)
+		end()
 		return false
+	}
+}
+
+// terminate ends a run that has no cgroup: SIGTERM the whole process group, then
+// SIGKILL what is left.  A child that calls setsid escapes this -- which is why
+// an elevating host requires a cgroup, where reaping cannot be escaped.
+func terminate(cmd *exec.Cmd, graceSec int) {
+	pid := cmd.Process.Pid
+	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
+		if err := syscall.Kill(-pid, sig); err != nil {
+			_ = cmd.Process.Signal(sig)
+		}
+		wait := time.Duration(graceSec) * time.Second
+		if sig == syscall.SIGKILL {
+			wait = 5 * time.Second
+		}
+		deadline := time.Now().Add(wait)
+		for time.Now().Before(deadline) {
+			if err := syscall.Kill(pid, 0); err != nil {
+				return // gone
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		log.Printf("pid %d survived %v", pid, sig)
 	}
 }
 

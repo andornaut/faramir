@@ -206,17 +206,21 @@ func running(pid int) bool {
 	return len(fields) > 0 && fields[0] != "Z"
 }
 
-// Every run is confined, elevation or not, and a host that cannot confine refuses
-// to run rather than run a command it cannot reliably reap.  Forced here by
-// clearing the discovered base, so the refusal is exercised even on a host that
-// does have a usable cgroup.
-func TestTheExecutorRefusesToRunWithoutACgroup(t *testing.T) {
+// An elevating host requires confinement: with no usable cgroup it refuses to
+// run, rather than reap by process group, which a setsid child escapes.  Forced
+// by clearing the discovered base, so the refusal is exercised even where a
+// cgroup is in fact available.
+func TestAnElevatingExecutorRefusesWithoutACgroup(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "exec.sock")
 	e := New(&config.Config{
 		Exec:     config.ExecConfig{DefaultTimeoutSec: 15, KillGraceSec: 2, TermCols: 80, TermRows: 24},
 		Executor: config.ExecutorConfig{SocketPath: sock},
+		Elevate:  config.ElevateConfig{ExecUser: "faramir-exec"},
 	})
+	if !e.requireCgroup {
+		t.Fatal("an elevating executor does not require confinement")
+	}
 	e.cgroupBase = "" // as on a host without cgroup v2, Delegate=, or cgroup.kill
 	if _, err := e.Listen(); err != nil {
 		t.Fatal(err)
@@ -224,11 +228,37 @@ func TestTheExecutorRefusesToRunWithoutACgroup(t *testing.T) {
 	go e.Serve()
 	t.Cleanup(func() { e.Close() })
 
-	_, _, err := runChild(t, sock, []string{"/bin/sh", "-c", "true"}, dir)
-	if err == nil {
-		t.Fatal("a command ran on a host with no usable cgroup")
+	if _, _, err := runChild(t, sock, []string{"/bin/sh", "-c", "true"}, dir); err == nil ||
+		!strings.Contains(err.Error(), "cgroup") {
+		t.Errorf("err = %v, want a refusal naming the missing cgroup", err)
 	}
-	if !strings.Contains(err.Error(), "cgroup") {
-		t.Errorf("err = %v, want it to name the missing cgroup", err)
+}
+
+// A non-elevating host has no approval to protect, so with no usable cgroup it
+// runs the command anyway and reaps it by process group -- requiring a delegated
+// cgroup there would refuse every command on a host or container that has none.
+func TestANonElevatingExecutorRunsWithoutACgroup(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "exec.sock")
+	e := New(&config.Config{
+		Exec:     config.ExecConfig{DefaultTimeoutSec: 15, KillGraceSec: 2, TermCols: 120, TermRows: 40},
+		Executor: config.ExecutorConfig{SocketPath: sock},
+	})
+	if e.requireCgroup {
+		t.Fatal("a non-elevating executor requires confinement")
+	}
+	e.cgroupBase = "" // the host cannot confine
+	if _, err := e.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	go e.Serve()
+	t.Cleanup(func() { e.Close() })
+
+	result, output, err := runChild(t, sock, []string{"/bin/sh", "-c", "echo ran"}, dir)
+	if err != nil {
+		t.Fatalf("a non-elevating command was refused with no cgroup: %v", err)
+	}
+	if result.ExitCode != 0 || !strings.Contains(output, "ran") {
+		t.Errorf("exit=%d output=%q, want the command to have run", result.ExitCode, output)
 	}
 }

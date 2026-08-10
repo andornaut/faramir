@@ -526,24 +526,32 @@ func diagnoseElevation(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 		opts.ExecUser, pamFile)
 }
 
-// diagnoseCgroupDelegation checks what every run depends on, elevation or not:
-// the executor confines each brokered command to a cgroup of its own and reaps
-// the whole cgroup when the run ends, so a setsid child cannot outlive it.  That
-// needs Delegate= on the unit; without it the executor cannot make the cgroups
-// and refuses to run, so this is where "every command fails" is explained.
-func diagnoseCgroupDelegation(report *DoctorReport, _ DoctorOptions, _ *config.Config) {
+// diagnoseCgroupDelegation checks the reaper each run depends on: the executor
+// confines a brokered command to a cgroup of its own and tears the whole cgroup
+// down when the run ends, so a setsid child cannot outlive it.  That needs
+// Delegate= on the unit, which `init` renders on every install.  How much its
+// absence costs depends on elevation: an elevating host requires the cgroup, so
+// without it every command is refused; elsewhere the process-group kill reaps the
+// tree (a setsid escapee excepted), so its absence is a weakened, not a broken,
+// host.
+func diagnoseCgroupDelegation(report *DoctorReport, _ DoctorOptions, cfg *config.Config) {
 	delegates, known := execUnitDelegates()
+	elevating := cfg != nil && cfg.Elevate.ExecUser != ""
 	switch {
 	case !known:
 		// systemd not reachable, or the unit not installed: the socket and broker
 		// checks already speak to that, and this cannot add to it.
 		return
-	case !delegates:
+	case !delegates && elevating:
 		report.add("cgroup delegation", StatusFailed, "the executor unit does not set "+
-			"Delegate=, so a run cannot be confined to its own cgroup and the executor "+
-			"refuses to run it: every brokered command on this host fails until this is "+
-			"fixed. Reinstall with `faramir init` on a host running cgroup v2 (kernel "+
-			">= 5.14)")
+			"Delegate=, so an elevating host cannot confine a run and the executor refuses "+
+			"to run it: every brokered command fails until this is fixed. Reinstall with "+
+			"`faramir init --elevate` on a host running cgroup v2 (kernel >= 5.14)")
+	case !delegates:
+		report.add("cgroup delegation", StatusWarn, "the executor unit does not set "+
+			"Delegate=, so a run is reaped by process group rather than confined to a "+
+			"cgroup: a command that calls setsid could leave a process behind. Reinstall "+
+			"with `faramir init` on a host running cgroup v2 to close that")
 	default:
 		report.add("cgroup delegation", StatusOK, "the executor unit is delegated a "+
 			"cgroup subtree, so each run is confined and reaped and a setsid child "+
