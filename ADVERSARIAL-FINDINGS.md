@@ -31,6 +31,38 @@ disclaims: `printf %q` re-quoting, `| rev`, `| tr a-z A-Z`, hashing. Those are
 unbounded and out of scope by design. `set -x` was checked and was already
 covered. The rest of this document is the original assessment, for the record.
 
+## Round 2: the streaming machine, stage-1 stripping, and the abort path
+
+A second pass, aimed away from the encoding set and at the machinery around it.
+Reproducers: `internal/redact/streaming_adversarial_test.go` and
+`TestAdversarialTimeoutFlush` in `internal/e2e/adversarial_test.go`. All hold:
+
+- **Overlap sufficiency.** Even the longest variant (percent-encoding, ~3×),
+  wrapped with a newline after *every character*, dribbled in one rune per
+  `Feed`, is still reassembled and redacted. `Overlap = 2·longest + 16` provably
+  exceeds the worst wrapped form of the longest variant, and the test pins it now
+  that the variant set is larger.
+- **Colour-code splice is stripped**, as the doc claims — SGR mid-value, an OSC
+  title sequence, and an escape spliced between *every* character, both one-shot
+  and streamed rune-by-rune.
+- **The abort path flushes.** A command that prints the secret (raw and hex) and
+  then hangs past its timeout is killed, but what it printed first comes back as
+  a token — no raw or hex bytes escape. The executor runs `redactor.Flush()` on
+  every exit path, and truncation/audit operate on already-redacted text, so
+  there is no path where buffered raw output bypasses redaction.
+
+**Where stage-1 stops.** The one thing that gets past the stripper is a
+*deliberately* spliced zero-width / format character — U+200B ZERO WIDTH SPACE,
+U+200D ZWJ, U+2060 WORD JOINER, U+00AD SOFT HYPHEN — between each character of
+the value. `ansiRE` strips ANSI escapes and ASCII control bytes but not these,
+so the value is split in the matched text while a terminal renders it intact.
+This is the same deliberate class as `| rev`: an ordinary tool never emits it,
+so it sits outside the accidental line the project draws. Stripping Unicode `Cf`
+would close it and matches stage-1's own "renders identically" rationale, but it
+has a real cost — it would mangle multi-part emoji (ZWJ) and RTL text in output —
+so it is left as a maintainer call, not shipped. Noted, not fixed, on purpose:
+unlike round 1's encodings, this one is not accidental.
+
 ## 1. The hard boundary holds
 
 I could not find a path from a brokered command back to the master key or to
