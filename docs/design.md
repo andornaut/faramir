@@ -11,6 +11,8 @@ Personal credentials at rest | `.env`, `~/.npmrc` and the like are read by the t
 
 ## The decisions
 
+What was chosen, and what it cost. The sections after this one take up the choices that cost the most.
+
 Decision | Choice | Rationale
 --- | --- | ---
 Isolation | Uid separation plus systemd hardening. No containers. | Network isolation is a non-goal, and it was the main thing containers made easy. A sandbox confines what a child sees; it is not a substitute for a uid that holds nothing.

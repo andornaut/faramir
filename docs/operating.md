@@ -37,7 +37,7 @@ Two checks run a brokered command rather than reading a mode: the SSH agent prob
 
 The three daemon entry points, `broker`, `keeper` and `exec`, follow the same chain without asking a running broker: each is a process that may be about to bind that socket, and connecting to it would socket-activate the installed daemon and leave the two contending for the path. The unit answers the same question, being where a running broker's config came from. Under systemd none of this is reached, the units setting `FARAMIR_CONFIG` themselves; it is what makes `faramir broker --check` work from a shell on an install that is not at the default path.
 
-## Notes
+## Rules a command does not state
 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
 - **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.

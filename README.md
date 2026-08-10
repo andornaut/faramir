@@ -84,13 +84,9 @@ Detail in [docs/redaction.md](docs/redaction.md).
 
 The age key is not in the value set: no child can obtain it.
 
-### Design decisions
+### Design and layout
 
-The table of what was chosen and what each choice costs is in [docs/design.md](docs/design.md), with the reasoning behind the ones that cost something.
-
-### Layout
-
-Every path the install creates, with its mode and owner, is in [docs/layout.md](docs/layout.md): what `--config-dir` moves, what a brokered command can and cannot reach, and what enrolling a working tree changes.
+[docs/design.md](docs/design.md) has the table of what was chosen and what each choice costs, with the reasoning behind the ones that cost the most. [docs/layout.md](docs/layout.md) has every path the install creates with its mode and owner, what `--config-dir` moves, what a brokered command can and cannot reach, and what enrolling a working tree changes.
 
 ## Installation
 
@@ -241,7 +237,7 @@ Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 ### Notes
 
-The operational rules that are not obvious from a command's own output, from restart order to what a brokered `ssh` logs in as: [docs/operating.md#notes](docs/operating.md#notes).
+The operational rules that are not obvious from a command's own output, from restart order to what a brokered `ssh` logs in as: [docs/operating.md](docs/operating.md#rules-a-command-does-not-state).
 
 ## Configuration
 
@@ -265,4 +261,4 @@ Doc | Covers
 
 ## Developing
 
-Build, test and coverage: [CONTRIBUTING.md](CONTRIBUTING.md).
+Build, test and coverage: [DEVELOPMENT.md](DEVELOPMENT.md).
