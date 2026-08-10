@@ -237,7 +237,7 @@ type Secret struct {
 }
 
 // New builds a redactor over the given secrets.  A value the policy refuses is
-// not matched; naming it is the store's job.
+// not matched; naming it is the secret store's job.
 func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 	r := &Redactor{Policy: policy, counts: map[string]int{}}
 	seen := map[string]bool{}

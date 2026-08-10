@@ -64,10 +64,10 @@ func (r *runner) stepDirectories() error {
 	// The age key sits in the config directory, made above.  What protects it is
 	// its own 0400 keeper ownership.
 
-	// The store: 2750 root with the secrets group, the keeper's own, which holds
-	// the one account that opens a managed file.  The operator is not in it, so
-	// editing one needs sudo, and the group admitting a caller to the broker
-	// socket is a different one.
+	// The secrets directory: 2750 root with the secrets group, the keeper's own,
+	// which holds the one account that opens a managed file.  The operator is not
+	// in it, so editing one needs sudo, and the group admitting a caller to the
+	// broker socket is a different one.
 	//
 	// setgid, so a file created here belongs to the secrets group rather than to
 	// whoever ran sudo.  Group read and traverse without write, the keeper only
@@ -112,7 +112,7 @@ func (r *runner) stepDirectories() error {
 	// otherwise a broker healthy at install time refuses at the next activation,
 	// days later.
 	if storeChanged {
-		r.restartFor("store ownership")
+		r.restartFor("secrets ownership")
 	}
 
 	// Created but not re-asserted: LogsDirectory= on the broker's unit applies

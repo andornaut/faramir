@@ -6,9 +6,8 @@
 // getpeereid() and drops any peer that is neither root nor itself.  So
 // ssh-agent binds a private socket and the broker relays a second one to the
 // executor's group.  The relayed connection is the broker's own, so ssh-agent
-// no longer decides anything about the peer and the relay does it instead: it
-// makes the SO_PEERCRED check and forwards only the two requests the executor
-// needs.
+// decides nothing about the peer and the relay decides instead: it makes the
+// SO_PEERCRED check and forwards only the two requests the executor needs.
 //
 // Optional: with no [ssh] key no agent is started and nothing is injected.
 package sshagent

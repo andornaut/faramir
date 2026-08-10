@@ -63,11 +63,9 @@ func cmdBroker(args []string) int {
 		return code
 	}
 
-	// No gate here.  What a short value set costs is paid by exec and redact, and
-	// the broker refuses those while it holds less than the config asks for, on
-	// every request rather than once at boot.  Exiting instead would take down
-	// the process `faramir status` and `doctor` ask, which is the process that
-	// explains why the secrets are missing.
+	// No gate here: exec and redact refuse per request instead.  Exiting would
+	// take down the process `faramir status` and `doctor` ask, which is the
+	// process that explains why the secrets are missing.
 	if reason := s.Store.Unreadable(); reason != "" {
 		log.Printf("refusing exec and redact: %s", reason)
 		log.Printf("every command the agent hook wraps has its output withheld " +
@@ -80,16 +78,11 @@ func cmdBroker(args []string) int {
 	// Covers Listen: a failed bind must not leave an agent holding the fleet keys
 	// on a reachable socket.
 	defer s.Ssh.Stop()
-	// Logged, not fatal, and the difference from a short value set is what each
-	// failure endangers. A set the broker does not fully hold endangers the
-	// output of every command, so those are refused. A key the agent does not
-	// hold breaks only commands that reach a managed host, and those fail on
-	// their own, at the point of use, with ssh's own error. Taking the daemon
-	// down over it would stop the commands that never touch SSH and remove the
-	// process status and doctor ask what went wrong.
-	//
-	// `faramir broker --check` and `faramir doctor` both fail on it, which is
-	// where an operator finds out without waiting for a playbook to.
+	// Logged, not fatal: a key the agent does not hold breaks only commands that
+	// reach a managed host, and those fail at the point of use with ssh's own
+	// error.  Taking the daemon down over it would stop the commands that never
+	// touch SSH and remove the process status and doctor ask.  `--check` and
+	// `doctor` both fail on it.
 	//
 	// An unset [ssh] key is not this: Start reports no error, and the host
 	// authenticates however the operator arranged it.

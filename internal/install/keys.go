@@ -61,7 +61,7 @@ func (r *runner) addRecipient(recipient string) {
 }
 
 // stepSopsConfig writes .sops.yaml into the config directory rather than the
-// store: sops resolves it from the working directory upward, so the parent is
+// secrets: sops resolves it from the working directory upward, so the parent is
 // found from both, and the secrets directory is a glob target where
 // filepath.Glob matches dotfiles.
 //

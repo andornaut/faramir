@@ -46,7 +46,7 @@ var tools = []tool{
 		Name: "faramir_run",
 		Description: "Run a command that needs credentials. This is the ONLY way to run such " +
 			"a command: the credentials do not exist in your environment, and reading " +
-			"or decrypting the secret store directly is blocked.\n\n" +
+			"or decrypting the managed secrets directly is blocked.\n\n" +
 			"The command runs as a separate uid that holds the keys. Output comes back " +
 			"with every known secret value replaced by a stable «SECRET:ref» token, so " +
 			"you can confirm a credential reached the right place without ever seeing " +

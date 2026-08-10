@@ -210,7 +210,7 @@ func diagnoseUnits(report *DoctorReport) {
 
 // diagnoseBroker asks the broker what it can do.  A value absent from the set
 // is neither injectable nor redacted, so a broker serving zero refs from a
-// store that exists is protecting nothing and looks healthy.
+// secrets directory that exists is protecting nothing and looks healthy.
 //
 // Run as the broker's own uid, which is why this needs root: --check opens the
 // keeper socket, the SSH keys and the secrets files itself, and root and an
@@ -270,10 +270,9 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) (serves
 		report.add("broker", StatusFailed, "--check failed as %s for a reason not "+
 			"reported above: %v", brokerUser, checkErr)
 	}
-	// The broker refuses every brokered command while it holds nothing, so a
-	// probe that runs one would report the empty store as whatever it was
-	// probing for.
-	return check.Secrets.Count > 0
+	// A probe that ran a brokered command against a refusing broker would report
+	// the refusal as whatever it was probing for.
+	return check.serves()
 }
 
 // diagnoseSSHAgent asks what a brokered command would actually get, rather than

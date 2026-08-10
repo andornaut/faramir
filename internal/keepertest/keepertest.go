@@ -33,15 +33,15 @@ type Keeper struct {
 }
 
 // New serves values on a socket of its own.  files is the managed inventory
-// this keeper reports on, given here because the store no longer stats those
-// files itself.
+// this keeper reports on, given here because the broker stats no managed file
+// itself.
 func New(t *testing.T, values map[string]string, files ...string) *Keeper {
 	t.Helper()
 	return Serve(t, filepath.Join(t.TempDir(), "keeper.sock"), values, files...)
 }
 
-// Serve binds a named socket, so a test can start one after the store has
-// already tried and failed to reach it.
+// Serve binds a named socket, so a test can start one after the broker's store
+// has already tried and failed to reach it.
 func Serve(t *testing.T, path string, values map[string]string, files ...string) *Keeper {
 	t.Helper()
 	ln, err := net.Listen("unix", path)
@@ -82,7 +82,7 @@ func (k *Keeper) accept() {
 }
 
 // SetValues replaces what the next get_values answers with, which is how an
-// edit to the store is simulated.
+// edit to a managed file is simulated.
 func (k *Keeper) SetValues(values map[string]string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
@@ -98,7 +98,7 @@ func (k *Keeper) SetErrors(errors []string) {
 }
 
 // SetFiles replaces the managed inventory, for a caller that configures the
-// store after the keeper is up.  Both get the same list.
+// secrets after the keeper is up.  Both get the same list.
 func (k *Keeper) SetFiles(files []string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
