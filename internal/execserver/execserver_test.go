@@ -21,7 +21,7 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 			DefaultTimeoutSec: 15, KillGraceSec: 2,
 			TermCols: 120, TermRows: 40,
 		},
-		Executor: config.ExecutorConfig{SocketPath: sock, SocketMode: 0o600},
+		Executor: config.ExecutorConfig{SocketPath: sock},
 	}
 	e := New(cfg)
 	if _, err := e.Listen(); err != nil {
@@ -53,8 +53,8 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		// One deadline for the whole drain; resetting it inside the loop races
-		// with the close below.
+		// One deadline for the whole drain; resetting it inside the loop races with
+		// the close below.
 		_ = master.SetReadDeadline(time.Now().Add(30 * time.Second))
 		buf := make([]byte, 4096)
 		for {

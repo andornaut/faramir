@@ -7,39 +7,38 @@
 #   {{.ConfigDir}}/config.d/<consumer>.toml   one per consumer of the broker
 #
 # Drop-ins merge over this file in lexical order.  [secrets] files accumulates
-# rather than replacing; the policy lists (allowed_groups, decrypt_command,
-# [ssh] keys) are refused if a drop-in sets one again.  socket_path and
-# socket_mode are init's alone, rendered alongside the .socket units.  Change
-# those with `faramir init`.
+# rather than replacing, and decrypt_command is refused if a drop-in sets it
+# again.  Every value init derives from a flag or from the install is refused
+# outright: the socket paths, allowed_group, allowed_user, [ssh] key,
+# exec_group, agent_socket and the audit log_path.  Re-running `faramir init`
+# is what changes the ones a flag reaches; the rest come from paths fixed at
+# build time.  What is left is a default, and yours to set.
 #
 # Check a config with:  faramir broker -c FILE --check
 # See README.md and docs/design.md.
 
 [server]
 socket_path = "{{.RunDir}}/broker.sock"
-socket_mode = "0660"
 max_concurrency = 4
 max_request_bytes = 262144
 # Checked with SO_PEERCRED, on top of the socket mode.  Primary or supplementary.
-allowed_groups = ["{{.Group}}"]
-# redact ops per calling uid over a sliding minute; 0 is no limit.
-max_redacts_per_min = 240
+allowed_group = "{{.ClientGroup}}"
 
 # Holds the age key: its own uid, execs nothing but sops.
 [keeper]
 socket_path = "{{.RunDir}}/keeper.sock"
-socket_mode = "0660"
-allowed_users = ["{{.BrokerUser}}"]
+allowed_user = "{{.BrokerUser}}"
 # Name of the systemd LoadCredential= entry in faramir-keeper.service.
 age_key_credential = "age_key"
+# Where the keeper reads the key when there is no systemd credential.
+age_key_file = "{{.AgeKeyPath}}"
 
 # Forks brokered commands.  Its uid holds no key, values, audit log or SSH keys.
 # No max_concurrency: the broker holds one [server] slot for the whole of each
 # child and is this socket's only client.
 [executor]
 socket_path = "{{.RunDir}}/exec.sock"
-socket_mode = "0660"
-allowed_users = ["{{.BrokerUser}}"]
+allowed_user = "{{.BrokerUser}}"
 
 [exec]
 default_timeout_sec = 600
@@ -59,14 +58,16 @@ DEBIAN_FRONTEND = "noninteractive"
 
 # Loaded into an agent the broker owns; the child gets SSH_AUTH_SOCK only.
 # One key, minted by init, which holds both halves and prints the public one
-# every run to put in a managed host's authorized_keys.  init owns this list, so
+# every run to put in a managed host's authorized_keys.  init owns this value, so
 # a drop-in setting it is refused: move the key, or adopt one of your own, with
 # `faramir init --ssh-key`.
 [ssh]
-keys = ["{{.SSHKey}}"]
+key = "{{.SSHKey}}"
 agent_socket = "{{.RunDir}}/ssh-agent.sock"
-agent_socket_mode = "0660"
-exec_group = "{{.ExecUser}}"
+exec_group = "{{.ExecGroup}}"
+# Resolved on PATH by init; the broker execs these as its own uid.
+ssh_agent = "{{.SshAgent}}"
+ssh_add = "{{.SshAdd}}"
 
 [secrets]
 # Every sops file the keeper manages.  ALL of their values are redacted, not

@@ -10,7 +10,7 @@ import (
 )
 
 // Only a file the config manages: anything else would write a file the broker
-// never reads, outside the directory the store group protects.
+// never reads, outside the directory the secrets group protects.
 func TestOnlyAManagedFileResolves(t *testing.T) {
 	managed := []string{"/opt/store/ansible-ctrl.sops.yml", "/opt/store/home.sops.yml"}
 
@@ -69,8 +69,8 @@ func TestARequestedEditorMustExist(t *testing.T) {
 	if _, err := resolveEditor("/nonexistent/editor"); err == nil {
 		t.Error("accepted an editor that is not there")
 	}
-	// A root-owned program in a root-owned directory.  Skipped where the host
-	// has none.
+	// A root-owned program in a root-owned directory.  Skipped where the host has
+	// none.
 	installed := ""
 	for _, candidate := range append([]string{"/bin/cat", "/usr/bin/cat"}, editors...) {
 		if info, err := os.Stat(candidate); err == nil &&

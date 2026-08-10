@@ -309,18 +309,26 @@ func TestPairsCarriesEveryLoadedValue(t *testing.T) {
 
 // An unmounted store is indistinguishable from one never written, and both
 // leave the broker redacting nothing while looking healthy.
-func TestAMissingFileIsFatal(t *testing.T) {
+func TestAMissingFileIsUnresolvedRatherThanALoadError(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s := newStore(t, k, filepath.Join(t.TempDir(), "absent.sops.yml"))
 	s.Reload()
 
-	if len(s.LoadErrors()) == 0 {
+	// Not a load error: the daemon starts on this, a store not written yet being
+	// what a first install looks like.
+	if errs := s.LoadErrors(); len(errs) != 0 {
+		t.Errorf("LoadErrors = %v, want none", errs)
+	}
+	// Reported instead.  What the empty value set then refuses is a server
+	// concern, tested there; this double serves its values whatever the file
+	// list says.
+	if len(s.Unresolved()) == 0 {
 		t.Error("a missing file was reported as a healthy install")
 	}
 }
 
 // Every other way the stat can fail is the same failure.
-func TestAnUnreadableFileIsFatal(t *testing.T) {
+func TestAnUnreadableFileIsUnresolvedToo(t *testing.T) {
 	dir := t.TempDir()
 	notADir := filepath.Join(dir, "regular")
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
@@ -330,7 +338,7 @@ func TestAnUnreadableFileIsFatal(t *testing.T) {
 	s := newStore(t, k, filepath.Join(notADir, "v.sops.yml"))
 	s.Reload()
 
-	if len(s.LoadErrors()) == 0 {
+	if len(s.Unresolved()) == 0 {
 		t.Error("a file that could not be stat'd was reported as a healthy install")
 	}
 }

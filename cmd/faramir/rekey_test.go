@@ -43,7 +43,8 @@ func TestTheRuleRecipientsAreReadInOrder(t *testing.T) {
 
 // Two rules mean the recipients depend on which path_regex a file matches, and
 // reading the whole file cannot answer that.  Refused rather than guessed: a
-// guess re-encrypts part of the store to a set that never governed it.
+// guess re-encrypts part of the secrets directory to a set that never governed
+// it.
 func TestASecondCreationRuleIsRefused(t *testing.T) {
 	dir := t.TempDir()
 	body := `creation_rules:
@@ -69,9 +70,9 @@ func TestASecondCreationRuleIsRefused(t *testing.T) {
 	}
 }
 
-// Re-encrypting to a rule the host's own key is not in produces a store nothing
-// on the machine can open, and re-running cannot undo it.  Checked before the
-// first file is decrypted.
+// Re-encrypting to a rule the host's own key is not in produces a secrets
+// directory nothing on the machine can open, and re-running cannot undo it.
+// Checked before the first file is decrypted.
 func TestARuleWithoutTheKeepersKeyIsRefusedBeforeAnythingIsWritten(t *testing.T) {
 	dir := t.TempDir()
 	keyPath, recipient := sopstest.NewIdentity(t, dir)
@@ -108,8 +109,8 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 	useSops(t)
 	dir := t.TempDir()
 	keyPath, keeper := sopstest.NewIdentity(t, dir)
-	// A second reader, which is what an operator adds to .sops.yaml so a backup
-	// of the ciphertext opens without the keeper's key.
+	// A second reader, which is what an operator adds to .sops.yaml so a backup of
+	// the ciphertext opens without the keeper's key.
 	backup, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatal(err)
@@ -144,9 +145,9 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 	if strings.Contains(got[0], "AGE-SECRET-KEY") {
 		t.Error("KEY MATERIAL RETURNED AS A RECIPIENT")
 	}
-	// The store belongs to the store group after an install, and a rekey that
-	// reset the mode would hand it back to whatever the umask said -- which is
-	// the failure `sops updatekeys` has and this command exists to avoid.
+	// The secrets belong to the secrets group after an install, and a rekey that
+	// reset the mode would hand it back to whatever the umask said -- which is the
+	// failure `sops updatekeys` has and this command exists to avoid.
 	info, err := os.Stat(store)
 	if err != nil {
 		t.Fatal(err)
@@ -158,8 +159,8 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 
 // A file already sealed to the rule is skipped, and the skip is worth having:
 // re-encrypting rewrites the data key even when the recipients are identical,
-// so a rekey that did not compare first would make every file in the store look
-// changed to anything watching it.
+// so a rekey that did not compare first would make every file in the secrets
+// directory look changed to anything watching it.
 func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 	useSops(t)
 	dir := t.TempDir()
@@ -198,7 +199,7 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 
 // Naming no file is every managed file, which is the case the command exists
 // for; naming one that is not managed is refused, so a rekey cannot walk out of
-// the store.
+// the secrets directory.
 func TestRekeyTargets(t *testing.T) {
 	managed := []string{"/etc/faramir/secrets/a.sops.yml", "/etc/faramir/secrets/b.sops.yml"}
 
@@ -219,7 +220,7 @@ func TestRekeyTargets(t *testing.T) {
 	}
 
 	if _, err := rekeyTargets(managed, []string{"/tmp/elsewhere.sops.yml"}); err == nil {
-		t.Error("a path outside the store was accepted")
+		t.Error("a path outside the secrets directory was accepted")
 	}
 	if _, err := rekeyTargets(nil, nil); err == nil {
 		t.Error("an empty store was accepted as something to re-key")

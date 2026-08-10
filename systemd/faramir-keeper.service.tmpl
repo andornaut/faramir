@@ -18,11 +18,11 @@ Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
-# {{.StoreGroup}}, only so this process can read {{.SecretsDir}} (2750, that
+# {{.SecretsGroup}}, only so this process can read {{.SecretsDir}} (2750, that
 # group) to decrypt and fingerprint.  Read access to ciphertext; the key stays
-# 0400 {{.KeeperUser}}.  Redundant when the store group is this account's own,
-# which is the default, but --store-group can name a different one.
-SupplementaryGroups={{.StoreGroup}}
+# 0400 {{.KeeperUser}}.  Redundant when the secrets group is this account's own,
+# which is the default, but --secrets-group can name a different one.
+SupplementaryGroups={{.SecretsGroup}}
 
 # The key is readable at $CREDENTIALS_DIRECTORY/age_key by this process alone;
 # no command the broker runs shares this uid.  The name is what [keeper]
@@ -43,7 +43,7 @@ ProtectSystem=strict
 {{if .KeeperBinds -}}
 # The config directory is inside a home, so tmpfs rather than true: every other
 # home stays invisible and only that directory is bound back.  A home is not
-# mounted until its owner logs in, so the store is absent at boot, which the
+# mounted until its owner logs in, so the secrets are absent at boot, which the
 # broker treats as a load failure rather than an empty one.
 ProtectHome=tmpfs
 {{range .KeeperBinds}}BindReadOnlyPaths={{.}}
@@ -75,7 +75,7 @@ UMask=0077
 
 # Under ProtectSystem=strict the hierarchy is read-only but visible, so
 # {{.SecretsDir}} is readable subject to its own mode: 2750, group
-# {{.StoreGroup}}, this uid in it.
+# {{.SecretsGroup}}, this uid in it.
 
 [Install]
 WantedBy=multi-user.target

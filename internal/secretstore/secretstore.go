@@ -44,10 +44,15 @@ type Store struct {
 	retry     bool
 	checkedAt time.Time
 
-	// Every way a configured file can fail to load.  Absent is not a lesser
-	// case: an unmounted store looks exactly like one never written, and both
-	// leave the broker without values it should have.
+	// A configured file that is there and did not load.  Fatal at startup: the
+	// redactor is missing a value it should have and nothing else says so.
 	loadErrors []string
+
+	// A configured entry that named no file.  Not fatal at startup, being what a
+	// first install looks like, and reported everywhere it matters instead: the
+	// daemon logs it, exec and redact refuse while the value set is empty, and
+	// `--check` and `doctor` fail.
+	unresolved []string
 
 	// Held across a refresh-driven reload, not under mu, which Reload takes
 	// itself.  Keeps concurrent requests from each starting a round trip.
@@ -71,13 +76,14 @@ func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
 // values cannot describe different moments.
 func (s *Store) Reload() {
 	// Per-file, so one broken file does not blank the set.
-	values, state, errors, err := keeperclient.FetchValues(s.keeper.SocketPath)
+	values, state, errors, unresolved, err := keeperclient.FetchValues(s.keeper.SocketPath)
 	if err != nil {
 		// Keep the previous set rather than dropping to empty, which would
 		// redact nothing.  The previous state goes with it, being the last
 		// thing known to be true.
 		s.mu.Lock()
 		s.loadErrors = []string{err.Error()}
+		s.unresolved = nil
 		s.retry = true
 		s.checkedAt = time.Now()
 		s.mu.Unlock()
@@ -103,11 +109,15 @@ func (s *Store) Reload() {
 	s.state = state
 	s.retry = false
 	s.loadErrors = errors
+	s.unresolved = unresolved
 	s.checkedAt = time.Now()
 	s.mu.Unlock()
 
 	for _, err := range errors {
 		log.Printf("secret load: %s", err)
+	}
+	for _, entry := range unresolved {
+		log.Printf("secret entry named nothing: %s", entry)
 	}
 	// The reason once, then one entry per secret.
 	if len(refused) > 0 {
@@ -242,11 +252,16 @@ func (s *Store) describeLocked() map[string]any {
 	if patterns == nil {
 		patterns = []string{}
 	}
+	absent := s.unresolved
+	if absent == nil {
+		absent = []string{}
+	}
 	return map[string]any{
-		"patterns": patterns,
-		"files":    files,
-		"count":    len(s.values),
-		"errors":   errs,
+		"patterns":   patterns,
+		"files":      files,
+		"count":      len(s.values),
+		"errors":     errs,
+		"unresolved": absent,
 	}
 }
 
@@ -272,6 +287,50 @@ func (s *Store) LoadErrors() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return append([]string{}, s.loadErrors...)
+}
+
+// Unresolved is the configured entries that named no file.  Apart from
+// LoadErrors because it is what a first install looks like: the daemon starts
+// and says so, while `--check` and `doctor` fail on it.
+func (s *Store) Unresolved() []string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return append([]string{}, s.unresolved...)
+}
+
+// Count is how many values the redactor holds.  Zero means nothing is injected
+// and nothing is redacted, whatever the reason.
+func (s *Store) Count() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.values)
+}
+
+// Incomplete reports why the set is not everything the config asked for, or ""
+// when it is.  One condition rather than three, and checked per request rather
+// than once at startup: a reload can shrink the set at any time, and a broker
+// that keeps serving a set it knows is short redacts less than its operator
+// believes with nothing to say so.
+//
+// A keeper that could not be reached is the exception.  The set kept then is
+// the last one known to be true, so it is unconfirmed rather than known short,
+// and refusing on it would turn a keeper hiccup into refused commands.  A cold
+// start needs no exception: there is no previous set, so the count is zero and
+// the first condition catches it.
+func (s *Store) Incomplete() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	switch {
+	case len(s.values) == 0:
+		return "it holds no managed values"
+	case s.retry:
+		return ""
+	case len(s.loadErrors) > 0:
+		return "a configured file did not load: " + strings.Join(s.loadErrors, "; ")
+	case len(s.unresolved) > 0:
+		return "a configured entry named no file: " + strings.Join(s.unresolved, "; ")
+	}
+	return ""
 }
 
 func sortedKeys[V any](m map[string]V) []string {

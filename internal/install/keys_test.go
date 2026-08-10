@@ -8,8 +8,8 @@ import (
 )
 
 // An existing .sops.yaml is kept, applying a changed rule meaning every managed
-// value is re-encrypted.  Kept and read back, so --age-recipient on an installed
-// host does not read as applied when it was not.
+// value is re-encrypted.  Kept and read back, so --age-recipient on an
+// installed host does not read as applied when it was not.
 func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	const (
 		keeper = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
@@ -17,8 +17,8 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	)
 	for _, tc := range []struct {
 		name string
-		// listed is the file on disk; requested is --age-recipient plus the
-		// keeper's own.
+		// listed is the file on disk; requested is --age-recipient plus the keeper's
+		// own.
 		listed    []string
 		requested []string
 		keeper    string
@@ -32,24 +32,23 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 			keeper: keeper, want: []string{keeper, backup}, noWarn: true,
 		},
 		{
-			// Names the key it did not add, the next move being to add it by
-			// hand.
+			// Names the key it did not add, the next move being to add it by hand.
 			name:   "a recipient asked for and not in the file",
 			listed: []string{keeper}, requested: []string{backup, keeper},
 			keeper: keeper, want: []string{keeper},
 			warns: []string{"--age-recipient", backup, "updatekeys"},
 		},
 		{
-			// What replacing the age key leaves behind: every value from now on
-			// is one the keeper cannot read.
+			// What replacing the age key leaves behind: every value from now on is one
+			// the keeper cannot read.
 			name:   "the file has drifted off the keeper's key",
 			listed: []string{backup}, requested: []string{keeper},
 			keeper: keeper, want: []string{backup},
 			warns: []string{"does not list the keeper", keeper, "redacts nothing"},
 		},
 		{
-			// Nothing read the key, so nothing is claimed about it.  A dry run
-			// and a removed key both land here.
+			// Nothing read the key, so nothing is claimed about it.  A dry run and a
+			// removed key both land here.
 			name:   "the keeper's recipient is unknown",
 			listed: []string{backup}, requested: nil,
 			keeper: "", want: []string{backup}, noWarn: true,
@@ -116,9 +115,9 @@ func TestKeepSopsConfigDoesNotInventAnAnswerForAnUnreadableFile(t *testing.T) {
 	}
 }
 
-// [ssh] keys accumulates across config.d, so the list holds paths this install
-// did not mint.  Those are checked and refused, never taken over: a drop-in may
-// name a key under the operator's own home.
+// --ssh-key can name a key the operator already had, which this install did not
+// mint.  That one is checked and refused, never taken over: it may sit under
+// the operator's own home and be theirs to hold.
 func TestOwnSSHKeyRepairsOnlyWhatItMinted(t *testing.T) {
 	newKey := func(t *testing.T) string {
 		t.Helper()
@@ -178,8 +177,8 @@ func TestOwnSSHKeyRepairsOnlyWhatItMinted(t *testing.T) {
 		if got := info.Mode().Perm(); got != 0o600 {
 			t.Errorf("mode = %04o, want 0600", got)
 		}
-		// A second run is a no-op, so an install that changed nothing does not
-		// report a restart it does not need.
+		// A second run is a no-op, so an install that changed nothing does not report
+		// a restart it does not need.
 		if changed, err = run.ownSSHKey(path, true); err != nil || changed {
 			t.Errorf("ownSSHKey() = %v, %v, want false, nil on an already-correct key",
 				changed, err)

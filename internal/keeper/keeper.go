@@ -1,6 +1,6 @@
 // Package keeper holds the age key.  It decrypts on request, and never hands
-// the key out: no process that executes a command can reach the master key.
-// See docs/design.md.
+// the key out: no process that executes a command can reach the master key. See
+// docs/design.md.
 //
 // It runs as its own uid and execs nothing but sops.  Executed rather than
 // linked, which would pull every key source sops supports into the address
@@ -8,15 +8,15 @@
 // (SOPS_AGE_KEY_FILE), never as a value, so it is absent from
 // /proc/<pid>/environ on both sides.
 //
-// Fingerprinting lives here because the store is group-readable by this uid
+// Fingerprinting lives here because the secrets are group-readable by this uid
 // alone; the broker asks what changed rather than looking.
 //
 // Protocol: one line of JSON in, one out, same shape as the broker socket.
 //
 //	-> {"op": "get_values"}
-//	<- {"values": {ref: value, ...}, "state": [...], "errors": [...]}
+//	<- {"values": {ref: value, ...}, "state": [...], "errors": [...], "unresolved": [...]}
 //	-> {"op": "get_state"}
-//	<- {"state": [{"path": ..., "mtime_unix_nano": ..., "size": ...}], "errors": [...]}
+//	<- {"state": [{"path": ..., "mtime_unix_nano": ..., "size": ...}], "errors": [...], "unresolved": [...]}
 //	<- {"error": {"code": ..., "message": ...}}
 //
 // get_values returns every managed value, never a subset, and carries the state
@@ -64,9 +64,9 @@ func flattenNode(node any, prefix string, out map[string]string) {
 	switch v := node.(type) {
 	case map[string]any:
 		for key, value := range v {
-			// Exactly the top-level "sops" key, sops' own metadata block.  A
-			// prefix match at any depth would drop real secrets
-			// (sops_backup_token, home/sopsuser) from the value set.
+			// Exactly the top-level "sops" key, sops' own metadata block.  A prefix
+			// match at any depth would drop real secrets (sops_backup_token,
+			// home/sopsuser) from the value set.
 			if prefix == "" && key == "sops" {
 				continue
 			}
@@ -180,9 +180,16 @@ type FileState struct {
 //
 // Deduplicated, since the base config globs the store and a drop-in may name a
 // file in it as well.
-func Resolve(files []string) ([]string, []string) {
-	paths := []string{}
-	errors := []string{}
+// Two kinds of not-there, returned separately because they mean opposite
+// things to a daemon.  An entry that named nothing is a store not written yet,
+// which is what every first install looks like; a file that is there and will
+// not open is a value the redactor is missing without knowing it.  Only the
+// second is an error.  Both fail `--check`, which is the operator's audit
+// rather than the daemon's gate.
+func Resolve(files []string) (paths, errors, unresolved []string) {
+	paths = []string{}
+	errors = []string{}
+	unresolved = []string{}
 	seen := map[string]bool{}
 	for _, entry := range files {
 		matches, err := filepath.Glob(entry)
@@ -192,7 +199,7 @@ func Resolve(files []string) ([]string, []string) {
 			continue
 		}
 		if len(matches) == 0 {
-			errors = append(errors, entry+": "+unresolvedReason(entry))
+			unresolved = append(unresolved, entry+": "+unresolvedReason(entry))
 			continue
 		}
 		for _, match := range matches {
@@ -203,7 +210,7 @@ func Resolve(files []string) ([]string, []string) {
 			paths = append(paths, match)
 		}
 	}
-	return paths, errors
+	return paths, errors, unresolved
 }
 
 // unresolvedReason says why an entry named nothing.  A literal path gets its
@@ -227,9 +234,9 @@ func isPattern(entry string) bool { return strings.ContainsAny(entry, `*?[\`) }
 // StatAll fingerprints every managed file: no key, no sops, no contents, since
 // the broker calls this on every poll.  A file that cannot be stat-ed is an
 // error rather than a missing entry.
-func StatAll(secrets config.SecretsConfig) ([]FileState, []string) {
+func StatAll(secrets config.SecretsConfig) ([]FileState, []string, []string) {
 	state := []FileState{}
-	paths, errors := Resolve(secrets.Files)
+	paths, errors, unresolved := Resolve(secrets.Files)
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -239,7 +246,7 @@ func StatAll(secrets config.SecretsConfig) ([]FileState, []string) {
 		state = append(state, FileState{
 			Path: path, MTime: info.ModTime().UnixNano(), Size: info.Size()})
 	}
-	return state, errors
+	return state, errors, unresolved
 }
 
 // --------------------------------------------------------------------------
@@ -250,15 +257,15 @@ func StatAll(secrets config.SecretsConfig) ([]FileState, []string) {
 // errors rather than aborting, so one broken file does not blank the value set.
 func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]string, []string) {
 	values := map[string]string{}
-	paths, errors := Resolve(secrets.Files)
+	paths, errors, _ := Resolve(secrets.Files)
 
 	env := []string{
 		"PATH=" + envOr("PATH", "/usr/local/bin:/usr/bin:/bin"),
 		"HOME=" + envOr("HOME", "/tmp"),
 		"LANG=C.UTF-8",
 	}
-	// The path, never the material: SOPS_AGE_KEY would put the key in the
-	// child's environment block, visible in /proc/<pid>/environ.
+	// The path, never the material: SOPS_AGE_KEY would put the key in the child's
+	// environment block, visible in /proc/<pid>/environ.
 	if path := keys.Path(); path != "" {
 		env = append(env, "SOPS_AGE_KEY_FILE="+path)
 	}
@@ -340,7 +347,7 @@ func New(cfg *config.Config) *Keeper {
 }
 
 func (k *Keeper) Listen() (net.Listener, error) {
-	ln, err := sockutil.Listen(k.config.Keeper.SocketPath, k.config.Keeper.SocketMode)
+	ln, err := sockutil.Listen(k.config.Keeper.SocketPath)
 	if err != nil {
 		return nil, err
 	}
@@ -376,7 +383,7 @@ func (k *Keeper) serveConnection(conn net.Conn) {
 		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
 		return
 	}
-	if !sockutil.AllowedUser(peer, k.config.Keeper.AllowedUsers) {
+	if !sockutil.AllowedUser(peer, k.config.Keeper.AllowedUser) {
 		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
 		return
 	}
@@ -399,19 +406,21 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 	op, _ := payload["op"].(string)
 	switch op {
 	case "get_state":
-		// The poll: no key, no sops, and unlogged, since with a refresh
-		// interval of 0 it runs as often as commands arrive.
-		state, errs := StatAll(k.config.Secrets)
-		return map[string]any{"state": state, "errors": errs}
+		// The poll: no key, no sops, and unlogged, since with a refresh interval of 0
+		// it runs as often as commands arrive.
+		state, errs, unresolved := StatAll(k.config.Secrets)
+		return map[string]any{"state": state, "errors": errs, "unresolved": unresolved}
 	case "get_values":
-		// Stat first, so an edit during the decrypt leaves the fingerprint
-		// older than the values and reloads once too often.  The other order
-		// would never pick the edit up.
-		state, errs := StatAll(k.config.Secrets)
+		// Stat first, so an edit during the decrypt leaves the fingerprint older than
+		// the values and reloads once too often.  The other order would never pick
+		// the edit up.
+		state, errs, unresolved := StatAll(k.config.Secrets)
 		values, decryptErrs := DecryptAll(k.config.Secrets, k.Keys)
 		errs = append(errs, decryptErrs...)
-		log.Printf("served %d value(s), %d error(s)", len(values), len(errs))
-		return map[string]any{"values": values, "state": state, "errors": errs}
+		log.Printf("served %d value(s), %d error(s), %d entry(ies) naming nothing",
+			len(values), len(errs), len(unresolved))
+		return map[string]any{"values": values, "state": state, "errors": errs,
+			"unresolved": unresolved}
 	default:
 		// Named explicitly, so the error says the key is not obtainable here.
 		return errorResponse("unsupported", fmt.Sprintf(

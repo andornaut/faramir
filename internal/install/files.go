@@ -19,9 +19,9 @@ import (
 // and wrap script.
 var installedBinaries = []string{"faramir"}
 
-// legacyBinaries is what an earlier layout installed, one binary per role.
-// Only uninstall names them: init installs and never migrates, but a teardown
-// has to leave nothing behind.  DefaultLibexecDir is removed wholesale.
+// legacyBinaries is what an earlier layout installed, one binary per role. Only
+// uninstall names them: init installs and never migrates, but a teardown has to
+// leave nothing behind.  DefaultLibexecDir is removed wholesale.
 var legacyBinaries = []string{
 	"faramir-broker", "faramir-keeper", "faramir-exec", "faramir-mcp",
 }
@@ -30,12 +30,11 @@ var legacyBinaries = []string{
 func (r *runner) stepDirectories() error {
 	changed := false
 
-	// 0755 root:root, including inside an operator's own home: whoever can
-	// write a drop-in chooses what the executor runs when a command names a
-	// bare program, and it runs with the requested secret in its environment.
-	// An agent runs as the operator, so operator-writable hands that choice to
-	// the agent.  own=true, so a directory already operator-owned is taken
-	// back.
+	// 0755 root:root, including inside an operator's own home: whoever can write a
+	// drop-in chooses what the executor runs when a command names a bare program,
+	// and it runs with the requested secret in its environment. An agent runs as
+	// the operator, so operator-writable hands that choice to the agent. own=true,
+	// so a directory already operator-owned is taken back.
 	dropInDir := filepath.Join(r.layout.ConfigDir, "config.d")
 	for _, dir := range []string{r.layout.ConfigDir, dropInDir} {
 		made, err := r.fs.ensureDir(dir, 0o755, 0, 0, true)
@@ -45,8 +44,8 @@ func (r *runner) stepDirectories() error {
 		changed = changed || made
 	}
 
-	// The drop-ins already there: a root-owned directory stops one being
-	// created or unlinked, not one being written to.
+	// The drop-ins already there: a root-owned directory stops one being created
+	// or unlinked, not one being written to.
 	dropIns, err := os.ReadDir(dropInDir)
 	if err != nil && !os.IsNotExist(err) {
 		return err
@@ -62,33 +61,32 @@ func (r *runner) stepDirectories() error {
 		changed = changed || made
 	}
 
-	// The age key sits in the config directory, made above.  What protects it
-	// is its own 0400 keeper ownership.
+	// The age key sits in the config directory, made above.  What protects it is
+	// its own 0400 keeper ownership.
 
-	// The store: 2750 root with the store group, the keeper's own, which holds
+	// The store: 2750 root with the secrets group, the keeper's own, which holds
 	// the one account that opens a managed file.  The operator is not in it, so
 	// editing one needs sudo, and the group admitting a caller to the broker
 	// socket is a different one.
 	//
-	// setgid, so a file created here belongs to the store group rather than to
+	// setgid, so a file created here belongs to the secrets group rather than to
 	// whoever ran sudo.  Group read and traverse without write, the keeper only
-	// decrypting and fingerprinting.  Owned by root, since owning the directory
-	// is permission to unlink and rename what is in it.
-	storeChanged, err := r.fs.ensureDir(r.layout.SecretsDir(), 0o2750|os.ModeSetgid, 0, r.storeGID, true)
+	// decrypting and fingerprinting.  Owned by root, since owning the directory is
+	// permission to unlink and rename what is in it.
+	storeChanged, err := r.fs.ensureDir(r.layout.SecretsDir(), 0o2750|os.ModeSetgid, 0, r.secretsGID, true)
 	if err != nil {
 		return err
 	}
 	changed = changed || storeChanged
 
-	// The files already in it, handed to the store group with the directory:
-	// without this they stay grouped to the client group, which the keeper is
-	// not in, and every managed file is unreadable to the account that decrypts
-	// it.
+	// The files already in it, handed to the secrets group with the directory:
+	// without this they stay grouped to the client group, which the keeper is not
+	// in, and every managed file is unreadable to the account that decrypts it.
 	//
 	// Ownership only.  These are ciphertext this install has no key for.
 	//
-	// A dry run runs unprivileged and cannot look inside, so it reports no
-	// change rather than a failure, as ensureDir does above.
+	// A dry run runs unprivileged and cannot look inside, so it reports no change
+	// rather than a failure, as ensureDir does above.
 	entries, err := os.ReadDir(r.layout.SecretsDir())
 	switch {
 	case r.opts.DryRun && errors.Is(err, os.ErrPermission):
@@ -101,7 +99,7 @@ func (r *runner) stepDirectories() error {
 			continue
 		}
 		made, err := r.fs.ensureOwnership(
-			filepath.Join(r.layout.SecretsDir(), entry.Name()), 0o640, 0, r.storeGID)
+			filepath.Join(r.layout.SecretsDir(), entry.Name()), 0o640, 0, r.secretsGID)
 		if err != nil {
 			return err
 		}
@@ -111,8 +109,8 @@ func (r *runner) stepDirectories() error {
 
 	// Supplementary groups are taken at exec and never re-read, so a running
 	// keeper and broker hold the old gid until something restarts them --
-	// otherwise a broker healthy at install time refuses at the next
-	// activation, days later.
+	// otherwise a broker healthy at install time refuses at the next activation,
+	// days later.
 	if storeChanged {
 		r.restartFor("store ownership")
 	}
@@ -146,11 +144,11 @@ func (r *runner) stepBinaries() error {
 		return err
 	}
 
-	// Beside the hook rather than under the config directory, so they travel
-	// with what reads them.  The patterns are rendered rather than copied,
-	// since which paths are worth refusing belongs to this install: an operator
-	// who moved the config directory gets rules naming where it is.  A hook
-	// that cannot find the file falls back to the compiled defaults.
+	// Beside the hook rather than under the config directory, so they travel with
+	// what reads them.  The patterns are rendered rather than copied, since which
+	// paths are worth refusing belongs to this install: an operator who moved the
+	// config directory gets rules naming where it is.  A hook that cannot find the
+	// file falls back to the compiled defaults.
 	patterns, err := render("agent/hooks/deny-patterns.txt", r.layout)
 	if err != nil {
 		return err
@@ -162,8 +160,8 @@ func (r *runner) stepBinaries() error {
 	}
 	changed = changed || made
 
-	// Sourced by the shell the hook rewrites into, so read and never executed,
-	// and it names no install path.
+	// Sourced by the shell the hook rewrites into, so read and never executed, and
+	// it names no install path.
 	made, err = r.writeAsset("agent/hooks/wrap.sh",
 		filepath.Join(r.layout.LibexecDir, "wrap.sh"), 0o644)
 	if err != nil {
@@ -214,8 +212,7 @@ func (r *runner) installDocs() (bool, error) {
 func docTargets(layout Layout) (map[string]string, error) {
 	targets := map[string]string{
 		"README.md": filepath.Join(layout.DocDir, "README.md"),
-		// Beside the README: nothing cites it, and that is where a licence
-		// belongs.
+		// Beside the README: nothing cites it, and that is where a licence belongs.
 		"LICENSE": filepath.Join(layout.DocDir, "LICENSE"),
 	}
 	entries, err := fs.ReadDir(faramir.Assets, "docs")
@@ -257,8 +254,8 @@ func (r *runner) stepConfig() error {
 	if err != nil {
 		return err
 	}
-	// root:root wherever it sits: this file and the drop-ins beside it decide
-	// what the executor runs.
+	// root:root wherever it sits: this file and the drop-ins beside it decide what
+	// the executor runs.
 	owner, group := 0, 0
 	changed, err := r.fs.writeFile(r.layout.ConfigFile, body, 0o644, owner, group)
 	if err != nil {
@@ -288,8 +285,8 @@ func (r *runner) stepUnits() error {
 		}
 		changed = changed || made
 	}
-	// Nothing here removes a drop-in from an earlier arrangement: init
-	// installs, it does not migrate.
+	// Nothing here removes a drop-in from an earlier arrangement: init installs,
+	// it does not migrate.
 	body, err := render("systemd/faramir.tmpfiles.conf.tmpl", r.layout)
 	if err != nil {
 		return err
@@ -326,9 +323,9 @@ func (r *runner) stepLogrotate() error {
 // invisible to all three service uids and every daemon exits 2 before opening a
 // socket.
 //
-// The config directory alone, being 0755, which covers the store and the key
-// inside it.  Traversal only, never Share: a config a brokered command could
-// rewrite is the policy rewriting itself.
+// The config directory alone, being 0755, which covers the secrets directory
+// and the key inside it.  Traversal only, never Share: a config a brokered
+// command could rewrite is the policy rewriting itself.
 func (r *runner) stepReachable() error {
 	if r.opts.DryRun {
 		r.skip("reachable", "dry run")
@@ -340,7 +337,7 @@ func (r *runner) stepReachable() error {
 		return nil
 	}
 	if err := sharetree.Reachable(sharetree.Options{
-		Dir: dir, Operator: r.opts.Operator, Group: r.layout.Group,
+		Dir: dir, Operator: r.opts.OperatorUser, Group: r.layout.ClientGroup,
 	}); err != nil {
 		return fmt.Errorf("%s: %w", dir, err)
 	}

@@ -1,6 +1,6 @@
-// Package sockutil holds the socket plumbing the three daemons share:
-// systemd activation, SO_PEERCRED authorisation, sd_notify, and the
-// newline-delimited JSON framing.
+// Package sockutil holds the socket plumbing the three daemons share: systemd
+// activation, SO_PEERCRED authorisation, sd_notify, and the newline-delimited
+// JSON framing.
 package sockutil
 
 import (
@@ -33,8 +33,8 @@ const (
 // RetryAccept reports whether an Accept error is one to sleep on and retry, and
 // for how long.  A loop that returned on any error would leave the socket bound
 // and accepting nothing, and exit 0, which Restart=on-failure does not restart.
-// Descriptor and memory exhaustion, and a peer that goes away before the accept,
-// are recoverable; anything else means the listener is gone.
+// Descriptor and memory exhaustion, and a peer that goes away before the
+// accept, are recoverable; anything else means the listener is gone.
 func RetryAccept(err error, delay time.Duration) (time.Duration, bool) {
 	for _, errno := range []unix.Errno{
 		unix.EMFILE, unix.ENFILE, unix.ENOBUFS, unix.ENOMEM,
@@ -47,8 +47,14 @@ func RetryAccept(err error, delay time.Duration) (time.Duration, bool) {
 	return 0, false
 }
 
+// bindMode is the mode a self-bound socket gets.  Not configurable: under
+// systemd the .socket unit's SocketMode= decides and this path is never
+// reached, so a config key for it described a socket rather than choosing one,
+// and `--check` reading that key tested a value systemd had already overruled.
+const bindMode = 0o660
+
 // Listen uses the systemd-passed socket if present, else binds its own.
-func Listen(path string, mode os.FileMode) (net.Listener, error) {
+func Listen(path string) (net.Listener, error) {
 	fds, _ := strconv.Atoi(os.Getenv("LISTEN_FDS"))
 	listenPID, _ := strconv.Atoi(os.Getenv("LISTEN_PID"))
 	if fds > 0 && listenPID == os.Getpid() {
@@ -74,20 +80,20 @@ func Listen(path string, mode os.FileMode) (net.Listener, error) {
 			return nil, err
 		}
 	}
-	// Bind under a umask that yields the requested mode: a socket created
-	// world-writable and narrowed afterwards is reachable in between.
-	previous := unix.Umask(0o777 &^ int(mode))
+	// Bind under a umask that yields bindMode: a socket created world-writable and
+	// narrowed afterwards is reachable in between.
+	previous := unix.Umask(0o777 &^ int(bindMode))
 	ln, err := net.Listen("unix", path)
 	unix.Umask(previous)
 	if err != nil {
 		return nil, err
 	}
-	if err := os.Chmod(path, mode); err != nil {
+	if err := os.Chmod(path, bindMode); err != nil {
 		_ = ln.Close()
 		return nil, err
 	}
-	// Go unlinks on Close, which is right for a self-bound socket and wrong for
-	// an activated one; that branch returns above.
+	// Go unlinks on Close, which is right for a self-bound socket and wrong for an
+	// activated one; that branch returns above.
 	log.Printf("listening on %s", path)
 	return ln, nil
 }
@@ -122,58 +128,60 @@ func PeerCred(conn net.Conn) (*Peer, error) {
 	return &Peer{PID: cred.Pid, UID: int32(cred.Uid), GID: int32(cred.Gid)}, nil
 }
 
-// Allowed is the authorisation every faramir socket uses: our own uid, root, a
-// user in users, or membership of a group in groups.
+// Allowed is the authorisation every faramir socket uses: our own uid, root,
+// the named account, or membership of the named group.  Either name may be
+// empty, which is a check that does not apply rather than one that passes.
+//
+// One of each, not a list of each: every socket here admits one account or one
+// group, and init derives both from a flag.
 //
 // Accounts are named, never numbered: a uid stops matching once a reinstall
 // renumbers the account.
-func Allowed(peer *Peer, users, groups []string) bool {
+func Allowed(peer *Peer, account, group string) bool {
 	if peer.UID == 0 || int(peer.UID) == os.Getuid() {
 		return true
 	}
-	for _, name := range users {
-		if u, err := user.Lookup(name); err == nil {
+	if account != "" {
+		if u, err := user.Lookup(account); err == nil {
 			if uid, err := strconv.Atoi(u.Uid); err == nil && int32(uid) == peer.UID {
 				return true
 			}
 		}
 	}
-	if len(groups) > 0 && inAnyGroup(peer, groups) {
+	if group != "" && inGroup(peer, group) {
 		return true
 	}
 	log.Printf("rejected connection from uid=%d gid=%d pid=%d", peer.UID, peer.GID, peer.PID)
 	return false
 }
 
-// AllowedUser is Allowed without groups, for the two internal sockets: each has
-// exactly one legitimate client and names it.  No group form, the only group in
-// play holding the agent's own uid.
-func AllowedUser(peer *Peer, users []string) bool {
-	return Allowed(peer, users, nil)
+// AllowedUser is Allowed without a group, for the two internal sockets: each
+// has exactly one legitimate client and names it.  No group form, the only
+// group in play holding the agent's own uid.
+func AllowedUser(peer *Peer, account string) bool {
+	return Allowed(peer, account, "")
 }
 
-// inAnyGroup checks the peer's primary gid, then the supplementary member
-// lists, which is how allowed_groups is usually granted.
-func inAnyGroup(peer *Peer, groups []string) bool {
+// inGroup checks the peer's primary gid, then the supplementary member list,
+// which is how allowed_group is usually granted.
+func inGroup(peer *Peer, group string) bool {
+	g, err := user.LookupGroup(group)
+	if err != nil {
+		return false
+	}
+	if gid, err := strconv.Atoi(g.Gid); err == nil && int32(gid) == peer.GID {
+		return true
+	}
 	name := ""
 	if u, err := user.LookupId(strconv.Itoa(int(peer.UID))); err == nil {
 		name = u.Username
 	}
-	for _, group := range groups {
-		g, err := user.LookupGroup(group)
-		if err != nil {
-			continue
-		}
-		if gid, err := strconv.Atoi(g.Gid); err == nil && int32(gid) == peer.GID {
+	if name == "" {
+		return false
+	}
+	for _, member := range groupMembers(group) {
+		if member == name {
 			return true
-		}
-		if name == "" {
-			continue
-		}
-		for _, member := range groupMembers(group) {
-			if member == name {
-				return true
-			}
 		}
 	}
 	return false
@@ -195,8 +203,8 @@ func groupMembers(name string) []string {
 	return nil
 }
 
-// ReadLine reads one newline-terminated JSON payload, up to limit bytes.
-// It returns nil with no error when the peer sent nothing usable.
+// ReadLine reads one newline-terminated JSON payload, up to limit bytes. It
+// returns nil with no error when the peer sent nothing usable.
 func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 	buf := make([]byte, 0, 4096)
 	chunk := make([]byte, 65536)

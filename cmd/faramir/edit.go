@@ -1,9 +1,9 @@
 package main
 
-// `faramir edit` changes a managed sops file once the store belongs to the
-// store group and the operator does not.  It runs sops itself rather than
-// asking the keeper, which has no operation that returns key material; under
-// sudo this process is already root.
+// `faramir edit` changes a managed sops file once the secrets directory belongs
+// to the secrets group and the operator does not.  It runs sops itself rather
+// than asking the keeper, which has no operation that returns key material;
+// under sudo this process is already root.
 //
 // Over running sops by hand it buys: plaintext that is 0600 root in a tmpfs
 // rather than readable by the uid the agent runs as; an editor this process
@@ -17,6 +17,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -30,8 +31,7 @@ import (
 var sopsBinary = "sops"
 
 // editors are tried in order when none is given.  Absolute paths only:
-// "sensible-editor" and "editor" resolve through files the operator can
-// write.
+// "sensible-editor" and "editor" resolve through files the operator can write.
 var editors = []string{
 	"/usr/bin/nano",
 	"/bin/nano",
@@ -54,8 +54,8 @@ func cmdEdit(args []string) int {
 		return 2
 	}
 
-	// Refused rather than attempted: the bare permission error on the age key
-	// does not say what to do.
+	// Refused rather than attempted: the bare permission error on the age key does
+	// not say what to do.
 	if os.Geteuid() != 0 {
 		fmt.Fprintln(os.Stderr, "faramir edit must run as root, because the age key is "+
 			"readable only by the keeper and by root: try 'sudo faramir edit'")
@@ -69,9 +69,12 @@ func cmdEdit(args []string) int {
 	}
 
 	// Expanded here, since [secrets] files holds globs and this process is root
-	// where the broker cannot read the store directory.  So a sops file dropped
-	// into the store is editable at once.
-	managed, unresolvable := keeper.Resolve(cfg.Secrets.Files)
+	// where the broker cannot read the secrets directory.  So a sops
+	// file dropped into the secrets directory is editable at once.
+	// Both kinds together: this is a diagnostic printed when the named file is
+	// not among the managed ones, and the operator wants every reason.
+	managed, failures, absent := keeper.Resolve(cfg.Secrets.Files)
+	unresolvable := slices.Concat(failures, absent)
 	target, err := resolveManaged(managed, fs.Arg(0))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -99,9 +102,9 @@ func cmdEdit(args []string) int {
 	changed, err := editManaged(target, keyPath, editorPath)
 	record := map[string]any{
 		"op": "edit",
-		// "log_id", the spelling the broker writes and the only one `faramir
-		// logs` reads: under any other key the record has no id to look up and
-		// no timestamp to sort by, both of which it derives from this one.
+		// "log_id", the spelling the broker writes and the only one `faramir logs`
+		// reads: under any other key the record has no id to look up and no timestamp
+		// to sort by, both of which it derives from this one.
 		"log_id": audit.NewLogID(),
 		"file":   target,
 		"editor": editorPath,
@@ -144,7 +147,7 @@ func resolveConfig(requested string) string {
 	if path := filepath.Join(resolveConfigDir("", socketDefault()), "config.toml"); exists(path) {
 		return path
 	}
-	// Under sudo this process is root, which [server] allowed_groups does not
+	// Under sudo this process is root, which [server] allowed_group does not
 	// admit, so the question above can go unanswered exactly here.  The unit is
 	// the same answer written down.
 	body, err := os.ReadFile(brokerUnit)
@@ -165,8 +168,9 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// errNoManagedFiles is what edit and rekey both report when the store is empty:
-// neither has anything to open, and the fix is the same for both.
+// errNoManagedFiles is what edit and rekey both report when the secrets
+// directory is empty: neither has anything to open, and the fix is the same for
+// both.
 var errNoManagedFiles = errors.New("no managed sops files: [secrets] files named " +
 	"none, so there is nothing to open. Create the first one with sops, which " +
 	"needs --config and --filename-override; see docs/ansible-sops.md")
@@ -269,8 +273,8 @@ func editManaged(target, keyPath, editorPath string) (bool, error) {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 
-	// The target's own name: .sops.yaml creation rules select by path_regex,
-	// and anything else would match no rule and encrypt to no recipient.
+	// The target's own name: .sops.yaml creation rules select by path_regex, and
+	// anything else would match no rule and encrypt to no recipient.
 	plain := filepath.Join(dir, filepath.Base(target))
 
 	decrypted, err := runSops(keyPath, "--decrypt", target)
@@ -283,8 +287,8 @@ func editManaged(target, keyPath, editorPath string) (bool, error) {
 
 	cmd := exec.Command(editorPath, plain)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-	// Fixed: the editor runs as root, and the operator can set every variable
-	// one reads for configuration.
+	// Fixed: the editor runs as root, and the operator can set every variable one
+	// reads for configuration.
 	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"TERM=" + os.Getenv("TERM"), "LANG=C.UTF-8", "HOME=" + dir}
 	if err := cmd.Run(); err != nil {
@@ -315,8 +319,7 @@ func editManaged(target, keyPath, editorPath string) (bool, error) {
 }
 
 // writeBack replaces the managed file without changing who owns it, written
-// beside the target and renamed so a partial failure leaves no truncated
-// store.
+// beside the target and renamed so a partial failure leaves no truncated store.
 func writeBack(target string, data []byte) error {
 	info, err := os.Stat(target)
 	if err != nil {
@@ -366,7 +369,7 @@ func envOr(name, fallback string) string {
 }
 
 // chownLike gives the replacement the original's owner and group, so an edit
-// does not hand the store back to root.
+// does not hand the secrets directory back to root.
 func chownLike(path string, info os.FileInfo) error {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {

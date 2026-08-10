@@ -37,7 +37,7 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 			BaseEnv:      map[string]string{"PATH": "/usr/bin:/bin"},
 		},
 		Executor: config.ExecutorConfig{
-			SocketPath: filepath.Join(dir, "exec.sock"), SocketMode: 0o600,
+			SocketPath: filepath.Join(dir, "exec.sock"),
 		},
 	}
 	e := execserver.New(cfg)
@@ -101,8 +101,8 @@ func TestOutputIsRedactedAsItStreams(t *testing.T) {
 func TestOutputEndingMidRuneIsNotTruncated(t *testing.T) {
 	h := newHarness(t, 1<<20)
 	const width = 500
-	// A lone 0xC3 opens a two-byte sequence, so the reader carries it past the
-	// end of the stream.
+	// A lone 0xC3 opens a two-byte sequence, so the reader carries it past the end
+	// of the stream.
 	result, _ := h.run(t, `printf 'x%.0s' $(seq 1 500); printf '\303'`)
 
 	if got := strings.Count(result.Output, "x"); got != width {

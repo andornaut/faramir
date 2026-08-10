@@ -7,8 +7,8 @@ import (
 )
 
 // Uninstall removes the broker and returns what it left behind: the accounts,
-// the config, the store and the audit log.  Deleting the age key would make
-// every managed sops file unreadable, retroactively.
+// the config, the secrets directory and the audit log.  Deleting the age key
+// would make every managed sops file unreadable, retroactively.
 func Uninstall(configDir string) ([]string, error) {
 	if configDir == "" {
 		configDir = DefaultConfigDir

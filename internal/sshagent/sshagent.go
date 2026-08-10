@@ -10,7 +10,7 @@
 // makes the SO_PEERCRED check and forwards only the two requests the executor
 // needs.
 //
-// Optional: with no [ssh] keys no agent is started and nothing is injected.
+// Optional: with no [ssh] key no agent is started and nothing is injected.
 package sshagent
 
 import (
@@ -38,14 +38,19 @@ const (
 	socketWait = 10 * time.Second
 	// How many executor connections the proxy relays at once, each costing two
 	// descriptors.  It has to clear a real playbook's fork count, since
-	// ansible-playbook -f 100 authenticates to a hundred hosts at once.  It
-	// bounds the broker's descriptor table, not fairness between commands.
+	// ansible-playbook -f 100 authenticates to a hundred hosts at once.  It bounds
+	// the broker's descriptor table, not fairness between commands.
 	maxRelays = 256
 	// How long a connection may sit before its first request.  Dropped once one
 	// arrives: an ssh session may go hours between signatures.
 	firstRequestTimeout = 30 * time.Second
 	// ssh-agent's own limit on a single message.
 	maxAgentMessage = 256 * 1024
+	// The mode the proxy socket ends up with once its group is the executor's.
+	// Not configurable: it is one half of a boundary whose other half is
+	// exec_group, which init derives, and widening it here would admit accounts
+	// no group names.
+	socketMode = 0o660
 )
 
 // The two requests the executor may make: list the public halves, and sign.
@@ -80,7 +85,7 @@ func New(cfg config.SshConfig) *Agent {
 	}
 }
 
-func (a *Agent) Enabled() bool { return len(a.config.Keys) > 0 }
+func (a *Agent) Enabled() bool { return a.config.Key != "" }
 
 // Env is what to add to a child's environment.  Empty unless the agent runs.
 func (a *Agent) Env() map[string]string {
@@ -90,56 +95,56 @@ func (a *Agent) Env() map[string]string {
 	return map[string]string{"SSH_AUTH_SOCK": a.socket}
 }
 
-func (a *Agent) Start() {
+// Start brings the agent up and loads the configured key.  Failure is returned
+// rather than logged, so the caller decides: the broker logs it and comes up,
+// letting SSH fail where it is used, while `--check` and `doctor` fail on it.
+//
+// No key is not a failure.  That is the host where SSH is arranged for the
+// executor's uid some other way.
+func (a *Agent) Start() error {
 	if !a.Enabled() {
-		log.Printf("no [ssh] keys configured; not starting an agent")
-		return
+		log.Printf("no [ssh] key configured; not starting an agent")
+		return nil
 	}
 	a.closing.Store(false)
 	path := a.config.AgentSocket
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		log.Printf("cannot prepare %s: %v", path, err)
-		return
+		return fmt.Errorf("cannot prepare %s: %w", path, err)
 	}
 	private := path + ".private"
 	for _, stale := range []string{path, private} {
 		if err := removeStale(stale); err != nil {
-			log.Printf("cannot prepare %s: %v", stale, err)
-			return
+			return fmt.Errorf("cannot prepare %s: %w", stale, err)
 		}
 	}
 
 	// -D keeps it a child of this process, so it dies with it rather than
-	// lingering with the keys loaded.
+	// lingering with the key loaded.
 	cmd := exec.Command(a.config.SshAgent, "-D", "-a", private)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	if err := cmd.Start(); err != nil {
-		log.Printf("cannot start %s: %v", a.config.SshAgent, err)
-		return
+		return fmt.Errorf("cannot start %s: %w", a.config.SshAgent, err)
 	}
 	a.cmd = cmd
 
 	if !a.awaitSocket(private) {
-		log.Printf("ssh-agent did not create %s; SSH keys will be unavailable", private)
 		a.Stop()
-		return
+		return fmt.Errorf("%s did not create %s", a.config.SshAgent, private)
 	}
 	a.private = private
 
-	// Before the executor can reach the proxy, so no command finds an agent
-	// that is up and holding nothing.
-	loaded := 0
-	for _, key := range a.config.Keys {
-		if a.add(key, private) {
-			loaded++
-		}
+	// Before the socket is bound, so there is no window in which a command reaches
+	// an agent holding nothing.  ssh-add has already logged why.
+	if !a.add(a.config.Key, private) {
+		a.Stop()
+		return fmt.Errorf("the agent did not load %s, which [ssh] key names",
+			a.config.Key)
 	}
 
 	listener, err := listen(path)
 	if err != nil {
-		log.Printf("cannot serve %s: %v; SSH keys will be unavailable", path, err)
 		a.Stop()
-		return
+		return fmt.Errorf("cannot serve %s: %w", path, err)
 	}
 	a.listener = listener
 	a.grantExecutorAccess(path)
@@ -148,10 +153,8 @@ func (a *Agent) Start() {
 	// would read it mid-write.
 	go a.serve(listener, private)
 
-	log.Printf("ssh-agent on %s with %d/%d key(s)", path, loaded, len(a.config.Keys))
-	if loaded == 0 {
-		log.Printf("no SSH keys loaded; commands needing SSH will fail to authenticate")
-	}
+	log.Printf("ssh-agent on %s holding %s", path, a.config.Key)
+	return nil
 }
 
 func removeStale(path string) error {
@@ -178,8 +181,8 @@ func (a *Agent) serve(listener net.Listener, private string) {
 			if a.closing.Load() {
 				return
 			}
-			// Returning would leave a live socket accepting nothing, so a
-			// command's connect sits in the backlog until its own timeout.
+			// Returning would leave a live socket accepting nothing, so a command's
+			// connect sits in the backlog until its own timeout.
 			next, retry := sockutil.RetryAccept(err, delay)
 			if !retry {
 				log.Printf("ssh-agent proxy stopped accepting: %v", err)
@@ -198,8 +201,8 @@ func (a *Agent) serve(listener net.Listener, private string) {
 				a.relay(conn, private)
 			}()
 		default:
-			// Refusing beats queueing: an immediate authentication failure the
-			// command can report.
+			// Refusing beats queueing: an immediate authentication failure the command
+			// can report.
 			log.Printf("ssh-agent proxy at %d connections; refusing another", maxRelays)
 			_ = conn.Close()
 		}
@@ -234,8 +237,8 @@ func (a *Agent) relay(client net.Conn, private string) {
 
 	deadline := time.Now().Add(firstRequestTimeout)
 	for {
-		// Only the first request is on the clock: an ssh session may go hours
-		// between signatures.
+		// Only the first request is on the clock: an ssh session may go hours between
+		// signatures.
 		_ = client.SetReadDeadline(deadline)
 		request, err := readMessage(client)
 		if err != nil {
@@ -246,9 +249,9 @@ func (a *Agent) relay(client net.Conn, private string) {
 		if kind := request[4]; kind != agentRequestIdentities && kind != agentSignRequest {
 			log.Printf("ssh-agent proxy: refusing agent request type %d; "+
 				"brokered commands may list and sign only", kind)
-			// The protocol's own refusal rather than a dropped connection: ssh
-			// sends session-bind@openssh.com under agent forwarding, and a
-			// client that sees one request fail carries on.
+			// The protocol's own refusal rather than a dropped connection: ssh sends
+			// session-bind@openssh.com under agent forwarding, and a client that sees
+			// one request fail carries on.
 			if _, err := client.Write(agentFailure); err != nil {
 				return
 			}
@@ -316,19 +319,15 @@ func (a *Agent) closeRelays() {
 
 // permitted is the SO_PEERCRED check every other faramir socket makes.  Since
 // the relayed connection is the broker's own, ssh-agent's getpeereid() passes
-// whoever reaches this socket, leaving agent_socket_mode as the only other
-// boundary.
+// whoever reaches this socket, leaving socketMode and the socket's group as
+// the only other boundary.
 func (a *Agent) permitted(client net.Conn) bool {
 	peer, err := sockutil.PeerCred(client)
 	if err != nil {
 		log.Printf("ssh-agent proxy: SO_PEERCRED unavailable: %v", err)
 		return false
 	}
-	var groups []string
-	if a.config.ExecGroup != "" {
-		groups = []string{a.config.ExecGroup}
-	}
-	return sockutil.Allowed(peer, nil, groups)
+	return sockutil.Allowed(peer, "", a.config.ExecGroup)
 }
 
 func (a *Agent) awaitSocket(path string) bool {
@@ -366,7 +365,7 @@ func (a *Agent) grantExecutorAccess(path string) {
 		log.Printf("cannot hand %s to group %s (%v); is the broker a member of it?", path, group, err)
 		return
 	}
-	if err := os.Chmod(path, a.config.AgentSocketMode); err != nil {
+	if err := os.Chmod(path, socketMode); err != nil {
 		log.Printf("cannot set mode on %s: %v", path, err)
 	}
 }

@@ -25,7 +25,11 @@ type response struct {
 	Values map[string]string `json:"values"`
 	State  []FileState       `json:"state"`
 	Errors []string          `json:"errors"`
-	Error  *struct {
+	// Unresolved is the entries that named nothing, kept apart from Errors: a
+	// store not written yet is what a first install looks like, and a file that
+	// is there and will not open is a value the redactor is missing.
+	Unresolved []string `json:"unresolved"`
+	Error      *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
@@ -68,15 +72,15 @@ func call(socketPath, op string) (*response, error) {
 // back with them so the two describe the same moment.  A per-file failure is in
 // the errors slice rather than an error, so one broken file does not blank the
 // set.
-func FetchValues(socketPath string) (map[string]string, []FileState, []string, error) {
+func FetchValues(socketPath string) (map[string]string, []FileState, []string, []string, error) {
 	out, err := call(socketPath, "get_values")
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	if out.Values == nil {
-		return nil, nil, nil, fmt.Errorf("keeper response has no 'values' object")
+		return nil, nil, nil, nil, fmt.Errorf("keeper response has no 'values' object")
 	}
-	return out.Values, out.State, out.Errors, nil
+	return out.Values, out.State, out.Errors, out.Unresolved, nil
 }
 
 // FetchState asks the keeper which managed files exist and when they changed:

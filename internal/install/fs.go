@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -15,8 +16,8 @@ import (
 const keep = -1
 
 // fsys is the filesystem side of an install.  Every method reports whether it
-// changed anything, so a configuration manager need not stat the host before and
-// after.  With dryRun set each computes the same answer and writes nothing.
+// changed anything, so a configuration manager need not stat the host before
+// and after.  With dryRun set each computes the same answer and writes nothing.
 type fsys struct{ dryRun bool }
 
 // ensureDir creates a directory if it is absent and asserts its mode and
@@ -25,21 +26,20 @@ type fsys struct{ dryRun bool }
 func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (bool, error) {
 	info, err := os.Stat(path)
 	switch {
-	// A dry run runs unprivileged and cannot answer for a directory it cannot
-	// look inside.  Reported as no change, so the rest still gets produced.
+	// A dry run runs unprivileged and cannot answer for a directory it cannot look
+	// inside.  Reported as no change, so the rest still gets produced.
 	case f.dryRun && errors.Is(err, os.ErrPermission):
 		return false, nil
 	case errors.Is(err, os.ErrNotExist):
 		if f.dryRun {
 			return true, nil
 		}
-		// Every directory MkdirAll creates, not just the leaf: an intermediate
-		// left root-owned at 0700 is one its owner cannot traverse.
+		// Every directory MkdirAll creates, not just the leaf: an intermediate left
+		// root-owned at 0700 is one its owner cannot traverse.
 		//
-		// The ancestors take the ownership but not the mode, 0755 being
-		// traversal and nothing more: a store's 2770 applied to its parent
-		// would hand write and rename on the store to every brokered
-		// command.
+		// The ancestors take the ownership but not the mode, 0755 being traversal and
+		// nothing more: the secrets directory's 2770 applied to its parent would hand
+		// write and rename on the secrets directory to every brokered command.
 		created := missingAncestors(path)
 		if err := os.MkdirAll(path, mode); err != nil {
 			return false, err
@@ -143,8 +143,8 @@ func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int
 	if f.dryRun {
 		return true, nil
 	}
-	// Written and renamed, never truncated in place: a failed write would leave
-	// an empty config that a caller keeping what it finds preserves forever.
+	// Written and renamed, never truncated in place: a failed write would leave an
+	// empty config that a caller keeping what it finds preserves forever.
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
 	if err != nil {
 		return false, err
@@ -198,8 +198,8 @@ func exists(path string) bool {
 }
 
 // probe is exists with a third answer: known is false when the question needs
-// more privilege than the caller has, which only happens under a dry run.
-// "not there" for a key behind a 0700 directory would read as a key about to be
+// more privilege than the caller has, which only happens under a dry run. "not
+// there" for a key behind a 0700 directory would read as a key about to be
 // regenerated.
 func probe(path string) (present, known bool) {
 	switch _, err := os.Stat(path); {
@@ -246,6 +246,36 @@ func lookupUser(name string) (int, error) {
 		return 0, fmt.Errorf("no such user %q: %w", name, err)
 	}
 	return strconv.Atoi(entry.Uid)
+}
+
+// lookPathOr resolves a program on PATH, falling back to a conventional path so
+// a host that has it somewhere unusual still gets an absolute path, and one
+// that lacks it gets a config naming where it should be.  The broker refuses to
+// start when the binary is not there, which is where that is reported.
+func lookPathOr(program, fallback string) string {
+	if path, err := exec.LookPath(program); err == nil {
+		return path
+	}
+	return fallback
+}
+
+// primaryGroup resolves an account's own group, returning both the gid and the
+// name.  Two lookups rather than one on the account name, which would find a
+// group that merely shares the name.
+func primaryGroup(account string) (int, string, error) {
+	entry, err := user.Lookup(account)
+	if err != nil {
+		return 0, "", fmt.Errorf("no such user %q: %w", account, err)
+	}
+	gid, err := strconv.Atoi(entry.Gid)
+	if err != nil {
+		return 0, "", err
+	}
+	group, err := user.LookupGroupId(entry.Gid)
+	if err != nil {
+		return 0, "", fmt.Errorf("%s has no group %s: %w", account, entry.Gid, err)
+	}
+	return gid, group.Name, nil
 }
 
 func lookupGroup(name string) (int, error) {

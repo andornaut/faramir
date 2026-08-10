@@ -195,7 +195,8 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 	}
 }
 
-// An error, not a shorter list: the broker's load gate reads these.
+// Reported, not silently a shorter list: the broker cannot see this directory
+// and has no other way to learn the entry named nothing.
 func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.sops.yaml")
 	k := &Keeper{
@@ -207,9 +208,9 @@ func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	if state := resp["state"].([]FileState); len(state) != 0 {
 		t.Errorf("state = %v, want empty", state)
 	}
-	errs := resp["errors"].([]string)
-	if len(errs) != 1 || !strings.Contains(errs[0], missing) {
-		t.Errorf("errors = %v, want one naming %s", errs, missing)
+	absent := resp["unresolved"].([]string)
+	if len(absent) != 1 || !strings.Contains(absent[0], missing) {
+		t.Errorf("unresolved = %v, want one naming %s", absent, missing)
 	}
 }
 
@@ -310,26 +311,30 @@ func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 	missing := filepath.Join(dir, "gone.sops.yml")
 
 	for _, tc := range []struct {
-		name      string
-		entries   []string
-		wantPaths []string
-		wantErrs  int
+		name           string
+		entries        []string
+		wantPaths      []string
+		wantErrs       int
+		wantUnresolved int
 	}{
 		{"a pattern", []string{glob},
-			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0},
-		{"a literal", []string{literal}, []string{literal}, 0},
+			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0, 0},
+		{"a literal", []string{literal}, []string{literal}, 0, 0},
 		// Decrypting twice would report every ref in it as doubly defined.
 		{"a pattern and a literal inside it", []string{glob, literal},
-			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0},
-		{"a literal that is not there", []string{missing}, []string{}, 1},
+			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0, 0},
+		// Named nothing rather than failed: a store not written yet is what every
+		// first install looks like.  What makes it safe is that the value set is
+		// then empty, and exec and redact are refused while it is.
+		{"a literal that is not there", []string{missing}, []string{}, 0, 1},
 		{"a pattern that matches nothing",
-			[]string{filepath.Join(dir, "*.sops.yaml")}, []string{}, 1},
+			[]string{filepath.Join(dir, "*.sops.yaml")}, []string{}, 0, 1},
 		{"a directory that is not there",
-			[]string{filepath.Join(dir, "absent", "*.sops.yml")}, []string{}, 1},
-		{"nothing configured", nil, []string{}, 0},
+			[]string{filepath.Join(dir, "absent", "*.sops.yml")}, []string{}, 0, 1},
+		{"nothing configured", nil, []string{}, 0, 0},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			paths, errs := Resolve(tc.entries)
+			paths, errs, unresolvedEntries := Resolve(tc.entries)
 			if len(paths) != len(tc.wantPaths) {
 				t.Fatalf("paths = %v, want %v", paths, tc.wantPaths)
 			}
@@ -341,13 +346,17 @@ func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 			if len(errs) != tc.wantErrs {
 				t.Errorf("errors = %v, want %d", errs, tc.wantErrs)
 			}
+			if len(unresolvedEntries) != tc.wantUnresolved {
+				t.Errorf("unresolved = %v, want %d", unresolvedEntries, tc.wantUnresolved)
+			}
 		})
 	}
 }
 
-// An unmounted store looks exactly like one never written, and both leave the
-// broker configured for values it does not have.
-func TestAPatternThatNamesNothingIsAnError(t *testing.T) {
+// Reported apart from the errors, an entry naming nothing being what a first
+// install looks like.  The broker starts on it and refuses exec and redact
+// while the value set is empty, and `--check` and `doctor` fail on it.
+func TestAPatternThatNamesNothingIsReportedAsUnresolved(t *testing.T) {
 	pattern := filepath.Join(t.TempDir(), "*.sops.yml")
 	k := &Keeper{
 		config: &config.Config{Secrets: config.SecretsConfig{Files: []string{pattern}}},
@@ -358,9 +367,12 @@ func TestAPatternThatNamesNothingIsAnError(t *testing.T) {
 	if state := resp["state"].([]FileState); len(state) != 0 {
 		t.Errorf("state = %v, want empty", state)
 	}
-	errs := resp["errors"].([]string)
-	if len(errs) != 1 || !strings.Contains(errs[0], "matched no files") {
-		t.Errorf("errors = %v, want one saying the pattern matched no files", errs)
+	if errs := resp["errors"].([]string); len(errs) != 0 {
+		t.Errorf("errors = %v, want none: naming nothing is not a load failure", errs)
+	}
+	absent := resp["unresolved"].([]string)
+	if len(absent) != 1 || !strings.Contains(absent[0], "matched no files") {
+		t.Errorf("unresolved = %v, want one saying the pattern matched no files", absent)
 	}
 }
 

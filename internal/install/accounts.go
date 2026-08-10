@@ -2,17 +2,17 @@ package install
 
 // Accounts and the shared group, which is what actually protects the secrets.
 //
-//	uid <operator>    runs the coding agent; member of the shared group
+//	uid <operator>    runs the coding agent; member of the client group
 //	uid keeper        holds the age key; execs nothing but sops
 //	uid broker        holds the SSH keys and the audit log; policy and redaction
 //	uid exec          forks brokered commands; holds nothing
-//	group <shared>    access to a tree brokered commands run in
-//	group <store>     read on the ciphertext; the keeper's own group by default
+//	group <client>    access to a tree brokered commands run in
+//	group <secrets>   read on the ciphertext; the keeper's own group by default
 //
 // Three uids because anything a uid can read, a command running as that uid can
 // read.  Two groups because being admitted to the broker socket and being able
-// to read the file a value comes from are different privileges; the store group
-// holds the keeper alone, so it needs no membership list.
+// to read the file a value comes from are different privileges; the secrets
+// group holds the keeper alone, so it needs no membership list.
 //
 // The coding agent has no account: it runs as the operator, whose uid cannot
 // read what the keeper and broker hold either.  See docs/design.md.
@@ -32,11 +32,13 @@ type serviceAccount struct {
 	name string
 	home string
 	// sshDir is created for the accounts that keep keys: the broker's holds the
-	// identity it lends, the executor's is where keys would live with [ssh]
-	// keys empty.
+	// identity it lends, the executor's is where keys would live with [ssh] keys
+	// empty.
 	sshDir bool
-	// clientGroup grants traversal into the operator's home, for the two uids
-	// that must reach a working tree.
+	// clientGroup joins Layout.ClientGroup, which for a service account is for the
+	// tree rather than for the socket: the broker stats a request's cwd and the
+	// executor runs there.  Being admitted to the broker socket comes with it, one
+	// group doing both jobs.
 	clientGroup bool
 }
 
@@ -44,16 +46,15 @@ func (r *runner) serviceAccounts() []serviceAccount {
 	return []serviceAccount{
 		// A real, writable home: it holds the SSH keys and ansible creates
 		// ~/.ansible/tmp.  Under /var/lib, which the unit grants itself with
-		// StateDirectory=.  In the client group because it stats a request's
-		// cwd, which may sit inside a 0700 home.
+		// StateDirectory=.  In the client group because it stats a request's cwd,
+		// which may sit inside a 0700 home.
 		{name: r.layout.BrokerUser, home: r.layout.BrokerHome(), sshDir: true, clientGroup: true},
-		// The keeper holds the age key and nothing else; a home only because
-		// sops writes ~/.config.  Out of the client group: it opens no path
-		// under a home, and it is the one uid that can decrypt every managed
-		// file.
+		// The keeper holds the age key and nothing else; a home only because sops
+		// writes ~/.config.  Out of the client group: it opens no path under a home,
+		// and it is the one uid that can decrypt every managed file.
 		{name: r.layout.KeeperUser, home: r.layout.KeeperHome()},
-		// The uid every brokered command runs as; a home because ansible
-		// creates ~/.ansible/tmp unconditionally.
+		// The uid every brokered command runs as; a home because ansible creates
+		// ~/.ansible/tmp unconditionally.
 		{name: r.layout.ExecUser, home: r.layout.ExecHome(), sshDir: true, clientGroup: true},
 	}
 }
@@ -63,12 +64,12 @@ func (r *runner) stepAccounts() error {
 	// The shared group admits people, so it belongs in the login-account range
 	// groupadd allocates in without -r.
 	//
-	// The store group is not created here: it defaults to the keeper's primary
-	// group, which useradd creates below, and shadow refuses to create an
-	// account whose group name is taken.
-	if !groupExists(r.layout.Group) {
+	// The secrets group is not created here: it defaults to the keeper's primary
+	// group, which useradd creates below, and shadow refuses to create an account
+	// whose group name is taken.
+	if !groupExists(r.layout.ClientGroup) {
 		if !r.opts.DryRun {
-			if _, err := r.command("groupadd", r.layout.Group); err != nil {
+			if _, err := r.command("groupadd", r.layout.ClientGroup); err != nil {
 				return err
 			}
 		}
@@ -81,67 +82,66 @@ func (r *runner) stepAccounts() error {
 		}
 		changed = changed || made
 	}
-	// A store group named with --store-group, or a keeper whose primary group
+	// A secrets group named with --secrets-group, or a keeper whose primary group
 	// was not named after it.  -r puts it in the system range below GID_MIN;
 	// without it shadow allocates in the login-account range.
-	if !groupExists(r.layout.StoreGroup) {
+	if !groupExists(r.layout.SecretsGroup) {
 		if !r.opts.DryRun {
-			if _, err := r.command("groupadd", "-r", r.layout.StoreGroup); err != nil {
+			if _, err := r.command("groupadd", "-r", r.layout.SecretsGroup); err != nil {
 				return err
 			}
 		}
 		changed = true
 	}
 	// The one account that opens a managed file, decrypting and fingerprinting
-	// them.  A no-op when the store group is the keeper's own.
+	// them.  A no-op when the secrets group is the keeper's own.
 	//
 	// The broker is absent: it holds the plaintext already, so membership would
 	// only add ciphertext it never decrypts, including files no [secrets] list
 	// names.
-	made, err := r.ensureInGroup(r.layout.KeeperUser, r.layout.StoreGroup)
+	made, err := r.ensureInGroup(r.layout.KeeperUser, r.layout.SecretsGroup)
 	if err != nil {
 		return err
 	}
 	changed = changed || made
 
 	r.step("accounts", changed, fmt.Sprintf("groups %s and %s, users %s",
-		r.layout.Group, r.layout.StoreGroup,
+		r.layout.ClientGroup, r.layout.SecretsGroup,
 		strings.Join([]string{r.layout.BrokerUser, r.layout.KeeperUser, r.layout.ExecUser}, ", ")))
 
-	// A store group allocated without -r sits in the login-account range, where
-	// the next allocation collides with it.  Reported rather than moved:
-	// groupmod leaves every file owned by the old gid behind, and the operator
-	// may have put it there deliberately.
-	if gid, err := lookupGroup(r.layout.StoreGroup); err == nil {
+	// A secrets group allocated without -r sits in the login-account range, where
+	// the next allocation collides with it.  Reported rather than moved: groupmod
+	// leaves every file owned by the old gid behind, and the operator may have put
+	// it there deliberately.
+	if gid, err := lookupGroup(r.layout.SecretsGroup); err == nil {
 		if first := firstLoginGID(); gid >= first {
 			r.warn("group %s has gid %d, in the range login.defs reserves for "+
 				"login accounts; it holds only service accounts and belongs "+
 				"below %d, where a host's own numbering will not reach it. "+
 				"Move it with `groupdel %s && groupadd -r %s`, then re-run this "+
-				"install: it re-owns the store to the new gid and restarts the "+
+				"install: it re-owns the secrets directory to the new gid and restarts the "+
 				"daemons onto it",
-				r.layout.StoreGroup, gid, first, r.layout.StoreGroup, r.layout.StoreGroup)
+				r.layout.SecretsGroup, gid, first, r.layout.SecretsGroup, r.layout.SecretsGroup)
 		}
 	}
 
-	// The store group is what makes editing a secret need sudo.  Reported
-	// rather than removed, a membership this did not add being somebody else's
-	// decision.
-	for _, who := range []string{r.layout.ExecUser, r.opts.Operator} {
+	// The secrets group is what makes editing a secret need sudo.  Reported rather
+	// than removed, a membership this did not add being somebody else's decision.
+	for _, who := range []string{r.layout.ExecUser, r.opts.OperatorUser} {
 		if who == "" {
 			continue
 		}
-		in, err := inGroup(who, r.layout.StoreGroup)
+		in, err := inGroup(who, r.layout.SecretsGroup)
 		if err != nil || !in {
 			continue
 		}
 		r.warn("%s is in group %s, so it can read and replace the managed sops "+
-			"files directly; remove it, or the store is only as protected as "+
-			"whatever runs as that account", who, r.layout.StoreGroup)
+			"files directly; remove it, or the secrets directory is only as protected as "+
+			"whatever runs as that account", who, r.layout.SecretsGroup)
 	}
 
-	// A command that could read the broker's or the keeper's group holds the
-	// audit log or the age key.  Warned rather than fixed.
+	// A command that could read the broker's or the keeper's group holds the audit
+	// log or the age key.  Warned rather than fixed.
 	for _, forbidden := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
 		in, err := inGroup(r.layout.ExecUser, forbidden)
 		if err != nil {
@@ -158,7 +158,7 @@ func (r *runner) stepAccounts() error {
 	if err != nil {
 		return err
 	}
-	r.step("operator group", joined, fmt.Sprintf("%s in %s", r.opts.Operator, r.layout.Group))
+	r.step("operator group", joined, fmt.Sprintf("%s in %s", r.opts.OperatorUser, r.layout.ClientGroup))
 
 	umask, err := r.ensureOperatorUmask()
 	if err != nil {
@@ -189,7 +189,7 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 	case !userExists(account.name):
 		argv := []string{"useradd", "-r", "-m", "-d", account.home}
 		if account.clientGroup {
-			argv = append(argv, "-G", r.layout.Group)
+			argv = append(argv, "-G", r.layout.ClientGroup)
 		}
 		argv = append(argv, "-s", "/usr/sbin/nologin", account.name)
 		if !r.opts.DryRun {
@@ -200,21 +200,21 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 		changed = true
 	default:
 		if account.clientGroup {
-			in, err := inGroup(account.name, r.layout.Group)
+			in, err := inGroup(account.name, r.layout.ClientGroup)
 			if err != nil {
 				return false, err
 			}
 			if !in {
 				if !r.opts.DryRun {
-					if _, err := r.command("usermod", "-aG", r.layout.Group, account.name); err != nil {
+					if _, err := r.command("usermod", "-aG", r.layout.ClientGroup, account.name); err != nil {
 						return false, err
 					}
 				}
 				changed = true
 			}
 		}
-		// An account whose home moved keeps writing to the old path, which then
-		// holds the SSH keys while StateDirectory= names the new one.
+		// An account whose home moved keeps writing to the old path, which then holds
+		// the SSH keys while StateDirectory= names the new one.
 		if current, err := homeDir(account.name); err == nil && current != account.home {
 			if !r.opts.DryRun {
 				if _, err := r.command("usermod", "-d", account.home, account.name); err != nil {
@@ -249,19 +249,19 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 }
 
 func (r *runner) joinOperatorToGroup() (bool, error) {
-	in, err := inGroup(r.opts.Operator, r.layout.Group)
+	in, err := inGroup(r.opts.OperatorUser, r.layout.ClientGroup)
 	if err != nil || in {
 		return false, err
 	}
 	if r.opts.DryRun {
 		return true, nil
 	}
-	if _, err := r.command("usermod", "-aG", r.layout.Group, r.opts.Operator); err != nil {
+	if _, err := r.command("usermod", "-aG", r.layout.ClientGroup, r.opts.OperatorUser); err != nil {
 		return false, err
 	}
 	// New group membership does not reach a session that is already open.
 	r.warn("%s must log out and back in for membership of %s to take effect",
-		r.opts.Operator, r.layout.Group)
+		r.opts.OperatorUser, r.layout.ClientGroup)
 	return true, nil
 }
 
@@ -269,7 +269,7 @@ func (r *runner) joinOperatorToGroup() (bool, error) {
 // which the operator and a brokered command fight over every new file in a
 // shared tree.  Here rather than in share-tree, belonging to the account.
 func (r *runner) ensureOperatorUmask() (bool, error) {
-	home, err := homeDir(r.opts.Operator)
+	home, err := homeDir(r.opts.OperatorUser)
 	if err != nil {
 		return false, err
 	}
@@ -304,21 +304,20 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 func (r *runner) resolveIDs() error {
 	r.operatorUID, r.brokerUID, r.keeperUID, r.execUID = keep, keep, keep, keep
 	r.groupGID, r.brokerGID, r.keeperGID, r.execGID = keep, keep, keep, keep
-	r.storeGID = keep
+	r.secretsGID = keep
 	lookups := []struct {
 		name string
 		into *int
 		user bool
 	}{
-		{r.opts.Operator, &r.operatorUID, true},
+		{r.opts.OperatorUser, &r.operatorUID, true},
 		{r.layout.BrokerUser, &r.brokerUID, true},
 		{r.layout.KeeperUser, &r.keeperUID, true},
 		{r.layout.ExecUser, &r.execUID, true},
-		{r.layout.Group, &r.groupGID, false},
-		{r.layout.StoreGroup, &r.storeGID, false},
+		{r.layout.ClientGroup, &r.groupGID, false},
+		{r.layout.SecretsGroup, &r.secretsGID, false},
 		{r.layout.BrokerUser, &r.brokerGID, false},
 		{r.layout.KeeperUser, &r.keeperGID, false},
-		{r.layout.ExecUser, &r.execGID, false},
 	}
 	for _, lookup := range lookups {
 		var id int
@@ -336,7 +335,16 @@ func (r *runner) resolveIDs() error {
 		}
 		*lookup.into = id
 	}
-	home, err := homeDir(r.opts.Operator)
+	// The exec account's primary group by name, rather than assuming a group
+	// exists called what the account is.  It is what [ssh] exec_group renders to
+	// and what the agent socket is handed to, so a name that resolves to some
+	// other group would admit an account the relay exists to keep out.
+	if gid, name, err := primaryGroup(r.layout.ExecUser); err == nil {
+		r.execGID, r.layout.ExecGroup = gid, name
+	} else if !r.opts.DryRun {
+		return err
+	}
+	home, err := homeDir(r.opts.OperatorUser)
 	if err != nil {
 		return err
 	}
@@ -358,8 +366,7 @@ func firstLoginGID() int {
 		return fallback
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		// A commented-out setting keeps its name prefixed, so it never
-		// matches.
+		// A commented-out setting keeps its name prefixed, so it never matches.
 		fields := strings.Fields(line)
 		if len(fields) != 2 || fields[0] != "GID_MIN" {
 			continue
@@ -387,8 +394,7 @@ func inGroup(name, group string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	// A group that does not exist is one nobody is in, which is the dry-run
-	// case.
+	// A group that does not exist is one nobody is in, which is the dry-run case.
 	target, err := user.LookupGroup(group)
 	if err != nil {
 		return false, nil

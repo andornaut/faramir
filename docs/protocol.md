@@ -12,7 +12,7 @@ The internal sockets are root-owned so that neither the keeper's nor the executo
 
 ## The broker socket
 
-The mode is one check; the broker also tests `SO_PEERCRED` against `[server] allowed_groups`, and records the peer's uid, gid and pid in every audit record.
+The mode is one check; the broker also tests `SO_PEERCRED` against `[server] allowed_group`, and records the peer's uid, gid and pid in every audit record.
 
 ```json
 {
@@ -61,6 +61,7 @@ Code | Meaning
 `bad_request` | Malformed request, bad or reserved env var name, a malformed `secret://` reference, `cwd` that does not exist
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `busy` | At `[server] max_concurrency`; retry
+`no_secrets` | The broker holds no managed values, so `exec` and `redact` are refused: redaction would do nothing and the caller could not tell that from a command with nothing to hide. `status` and `list_secrets` still answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`)
 `too_large` | Request exceeded `[server] max_request_bytes`
@@ -70,14 +71,14 @@ There is no command allowlist, so there is no `denied`. Messages name what faile
 
 ## The keeper socket
 
-Peer uid is checked against `[keeper] allowed_users` on top of the mode. There is no group form, the only group in play holding the agent's own uid.
+Peer uid is checked against `[keeper] allowed_user` on top of the mode. There is no group form, the only group in play holding the agent's own uid.
 
 ```json
 {"op": "get_values"}
 {"values": {"home/router/admin": "…"},
  "state": [{"path": "/etc/faramir/secrets/x.sops.yml",
             "mtime_unix_nano": 1743160000000000000, "size": 812}],
- "errors": []}
+ "errors": [], "unresolved": []}
 ```
 
 Every managed value, never a subset: the redactor is built from the whole value set, because a managed host can print a credential no command injected. The `state` is the fingerprint of each file this decrypt read, returned with the values so the two describe the same moment. Fetched separately it could fingerprint a file edited after the decrypt, and that edit would then never be noticed.
@@ -85,12 +86,14 @@ Every managed value, never a subset: the redactor is built from the whole value 
 ```json
 {"op": "get_state"}
 {"state": [{"path": "…", "mtime_unix_nano": 1743160000000000000, "size": 812}],
- "errors": []}
+ "errors": [], "unresolved": []}
 ```
 
-The staleness poll, and where `[secrets] files` globs are expanded, so a file added to the store appears without a restart. The broker cannot stat those files itself: the store is `2750 root:faramir-keeper` and the broker is not in that group. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `refresh_interval_sec` is 0.
+The staleness poll, and where `[secrets] files` globs are expanded, so a file added to the secrets directory appears without a restart. The broker cannot stat those files itself: it is `2750 root:faramir-keeper` and the broker is not in that group. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `refresh_interval_sec` is 0.
 
 A file that could not be stat-ed or decrypted comes back in `errors` rather than as an error response, so one broken file does not blank the whole value set. Key material is stripped from those strings before they cross the socket.
+
+`unresolved` is separate, and the separation is the point: an entry that named no file is a store not written yet, which is what every first install looks like, while a file that is there and will not open is a value the redactor is missing without knowing it. Only the second stops the daemon. The first lets it start and be diagnosed, with `exec` and `redact` refused while the value set is empty. Both fail `faramir broker --check` and `faramir doctor`, which are the operator's audit rather than the daemon's gate. The broker cannot work this out for itself: expanding a glob means listing the secrets directory, and that is the keeper's alone.
 
 Anything else is refused, and **there is no operation that returns the age key**; adding one would defeat the reason the keeper is a separate service.
 

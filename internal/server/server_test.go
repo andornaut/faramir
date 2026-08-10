@@ -24,14 +24,21 @@ import (
 // construction, so a later assignment to s.Config.Secrets reads nothing.
 func newServer(t *testing.T, values map[string]string, secretFiles ...string) *Server {
 	t.Helper()
+	return serverWith(t, keepertest.New(t, values, secretFiles...), secretFiles...)
+}
+
+// serverWith is newServer against a keeper the caller already has, for a test
+// that has to reach into it.
+func serverWith(t *testing.T, k *keepertest.Keeper, secretFiles ...string) *Server {
+	t.Helper()
 	dir := t.TempDir()
 	cfg := &config.Config{
 		Path: "<test>",
 		Server: config.ServerConfig{
-			SocketPath: filepath.Join(dir, "broker.sock"), SocketMode: 0o660,
+			SocketPath:     filepath.Join(dir, "broker.sock"),
 			MaxConcurrency: 2, MaxRequestBytes: 262144,
 		},
-		Keeper: config.KeeperConfig{SocketPath: keepertest.New(t, values, secretFiles...).Path},
+		Keeper: config.KeeperConfig{SocketPath: k.Path},
 		Exec: config.ExecConfig{
 			DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
 			BaseEnv: map[string]string{"PATH": "/usr/bin:/bin"},
@@ -230,13 +237,13 @@ func TestSafeDetailRedactsAValue(t *testing.T) {
 	}
 }
 
-// -- the SSH keys the broker is configured to lend ---------------------------
+// -- the SSH key the broker is configured to lend ----------------------------
 
 // A configured but absent key leaves the broker up and unable to reach any host
 // that expects it.
 func TestCheckFailsOnAConfiguredSSHKeyThatIsMissing(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	s.Config.Ssh.Keys = []string{filepath.Join(t.TempDir(), "absent_ed25519")}
+	s.Config.Ssh.Key = filepath.Join(t.TempDir(), "absent_ed25519")
 
 	body, code := s.CheckOutput()
 	if code == 0 {
@@ -244,17 +251,17 @@ func TestCheckFailsOnAConfiguredSSHKeyThatIsMissing(t *testing.T) {
 	}
 	var report struct {
 		Ssh struct {
-			Keys []struct {
+			Key struct {
 				Path     string `json:"path"`
 				Readable bool   `json:"readable"`
-			} `json:"keys"`
+			} `json:"key"`
 		} `json:"ssh"`
 	}
 	if err := json.Unmarshal(body, &report); err != nil {
 		t.Fatal(err)
 	}
-	if len(report.Ssh.Keys) != 1 || report.Ssh.Keys[0].Readable {
-		t.Errorf("report does not name the unreadable key: %+v", report.Ssh.Keys)
+	if report.Ssh.Key.Path != s.Config.Ssh.Key || report.Ssh.Key.Readable {
+		t.Errorf("report does not name the unreadable key: %+v", report.Ssh.Key)
 	}
 }
 
@@ -296,7 +303,7 @@ func writeKeyPair(t *testing.T, passphrase string) (private, public string) {
 func TestCheckPassesOnAKeyTheBrokerCanUse(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	key, _ := writeKeyPair(t, "")
-	s.Config.Ssh.Keys = []string{key}
+	s.Config.Ssh.Key = key
 
 	if _, code := s.CheckOutput(); code != 0 {
 		t.Error("a usable key failed the gate")
@@ -308,7 +315,7 @@ func TestCheckPassesOnAKeyTheBrokerCanUse(t *testing.T) {
 func TestCheckFailsOnAPassphraseProtectedKey(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	key, _ := writeKeyPair(t, "hunter2")
-	s.Config.Ssh.Keys = []string{key}
+	s.Config.Ssh.Key = key
 
 	body, code := s.CheckOutput()
 	if code == 0 {
@@ -320,10 +327,10 @@ func TestCheckFailsOnAPassphraseProtectedKey(t *testing.T) {
 }
 
 // Naming the .pub is the other way to configure this wrong.
-func TestCheckFailsWhenKeysNamesThePublicKey(t *testing.T) {
+func TestCheckFailsWhenKeyNamesThePublicKey(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	_, pub := writeKeyPair(t, "")
-	s.Config.Ssh.Keys = []string{pub}
+	s.Config.Ssh.Key = pub
 
 	body, code := s.CheckOutput()
 	if code == 0 {
@@ -338,7 +345,7 @@ func TestCheckFailsWhenKeysNamesThePublicKey(t *testing.T) {
 func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	key, _ := writeKeyPair(t, "hunter2")
-	s.Config.Ssh.Keys = []string{key}
+	s.Config.Ssh.Key = key
 
 	data, err := os.ReadFile(key)
 	if err != nil {
@@ -377,12 +384,12 @@ func TestCheckFailsOnASecretsFileThatCouldNotBeRead(t *testing.T) {
 	}
 }
 
-// Empty is a deliberate configuration, not a fault.
-func TestCheckPassesWhenNoSSHKeysAreConfigured(t *testing.T) {
+// Unset is a deliberate configuration, not a fault.
+func TestCheckPassesWhenNoSSHKeyIsConfigured(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	s.Config.Ssh.Keys = nil
+	s.Config.Ssh.Key = ""
 	if _, code := s.CheckOutput(); code != 0 {
-		t.Error("an empty [ssh] keys failed the gate")
+		t.Error("an unset [ssh] key failed the gate")
 	}
 }
 
@@ -395,22 +402,31 @@ func TestCheckFailsOnASocketOpenedToAnotherAccount(t *testing.T) {
 	}
 	for _, tc := range []struct {
 		name  string
-		apply func(*config.Config)
+		apply func(*testing.T, *config.Config)
 	}{
-		{"the keeper admits the executor", func(c *config.Config) {
-			c.Keeper.AllowedUsers = []string{"root"}
+		{"the keeper admits the executor", func(_ *testing.T, c *config.Config) {
+			c.Keeper.AllowedUser = "root"
 		}},
-		{"the executor admits somebody else", func(c *config.Config) {
-			c.Executor.AllowedUsers = []string{"root"}
+		{"the executor admits somebody else", func(_ *testing.T, c *config.Config) {
+			c.Executor.AllowedUser = "root"
 		}},
-		{"the broker socket is world-reachable", func(c *config.Config) {
-			c.Server.SocketMode = 0o666
+		// The bound socket, not a config key describing it: systemd's SocketMode= is
+		// what the mode ends up as under activation.
+		{"the broker socket is world-reachable", func(t *testing.T, c *config.Config) {
+			ln, err := net.Listen("unix", c.Server.SocketPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = ln.Close() })
+			if err := os.Chmod(c.Server.SocketPath, 0o666); err != nil {
+				t.Fatal(err)
+			}
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-			s.Config.Ssh.Keys = nil
-			tc.apply(s.Config)
+			s.Config.Ssh.Key = ""
+			tc.apply(t, s.Config)
 			if _, code := s.CheckOutput(); code == 0 {
 				t.Error("passed the gate")
 			}
@@ -418,55 +434,118 @@ func TestCheckFailsOnASocketOpenedToAnotherAccount(t *testing.T) {
 	}
 }
 
-// The broker's own account is the one name that belongs in either list.
+// The broker's own account is the one name that belongs in either.
 func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
 	me, err := user.Current()
 	if err != nil {
 		t.Skip("no current user to name")
 	}
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	s.Config.Ssh.Keys = nil
-	s.Config.Keeper.AllowedUsers = []string{me.Username}
-	s.Config.Executor.AllowedUsers = []string{me.Username}
+	s.Config.Ssh.Key = ""
+	s.Config.Keeper.AllowedUser = me.Username
+	s.Config.Executor.AllowedUser = me.Username
 	if _, code := s.CheckOutput(); code != 0 {
 		t.Error("a config naming only the broker failed the gate")
 	}
 }
 
-// The limit does not close the oracle; it stops it being free and invisible.
-func TestRedactIsRateLimitedPerAccount(t *testing.T) {
-	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	s.Config.Server.MaxRedactsPerMin = 3
-	peer := &sockutil.Peer{UID: 1000}
-	other := &sockutil.Peer{UID: 1001}
+// -- the gate on an empty value set -----------------------------------------
 
-	for i := range 3 {
-		if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
-			t.Fatalf("call %d was refused under the limit: %v", i+1, got["error"])
+// Holding nothing, the redactor is a no-op, so a command that printed a
+// credential it got from anywhere would print it in plaintext.  Refused here
+// rather than by refusing to start, so the daemon stays diagnosable.
+func TestExecAndRedactAreRefusedWhileTheValueSetIsEmpty(t *testing.T) {
+	s := newServer(t, map[string]string{})
+	peer := &sockutil.Peer{UID: 1000}
+	for _, op := range []map[string]any{
+		{"op": "redact", "text": "anything"},
+		{"op": "exec", "cmd": []any{"true"}, "cwd": t.TempDir()},
+	} {
+		got := s.Handle(op, peer)
+		failure, ok := got["error"].(map[string]string)
+		if !ok {
+			t.Fatalf("%v was served with an empty value set: %v", op["op"], got)
 		}
-	}
-	refused := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer)
-	if refused["error"] == nil {
-		t.Error("a fourth call passed a limit of three")
-	}
-	// Per account, so one caller's probing does not withhold another's output.
-	if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, other); got["error"] != nil {
-		t.Errorf("a different uid was refused: %v", got["error"])
-	}
-	// Nothing else is limited: exec and the read-only ops are not the oracle.
-	if got := s.Handle(map[string]any{"op": "list_secrets"}, peer); got["error"] != nil {
-		t.Errorf("list_secrets was rate limited: %v", got["error"])
+		if failure["code"] != "no_secrets" {
+			t.Errorf("code = %q, want no_secrets", failure["code"])
+		}
+		// The caller has to be able to act on it.
+		if !strings.Contains(failure["message"], "faramir edit") {
+			t.Errorf("message does not say what to do: %q", failure["message"])
+		}
 	}
 }
 
-// Zero turns it off; the loop is more calls than the default allows.
-func TestRedactIsUnlimitedAtZero(t *testing.T) {
+// A file that did not load leaves a set that is short rather than empty, so an
+// empty-set check would serve it: the values that did load cover their own
+// output and the rest is missing with nothing to say so.
+func TestExecIsRefusedWhenOneFileDidNotLoad(t *testing.T) {
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	k.SetErrors([]string{"/etc/faramir/secrets/other.sops.yml: could not decrypt"})
+	s := serverWith(t, k)
+	s.Store.Reload()
+	if s.Store.Count() == 0 {
+		t.Fatal("this case is only interesting while some values did load")
+	}
+
+	got := s.Handle(map[string]any{
+		"op": "exec", "cmd": []any{"true"}, "cwd": t.TempDir(),
+	}, &sockutil.Peer{UID: 1000})
+	failure, ok := got["error"].(map[string]string)
+	if !ok || failure["code"] != "no_secrets" {
+		t.Errorf("a short value set was served: %v", got)
+	}
+}
+
+// The set kept when the keeper cannot be reached is the last one known to be
+// true, so it is unconfirmed rather than short.  Refusing on it would turn a
+// keeper hiccup into refused commands.
+func TestExecIsServedWhileTheKeeperIsUnreachable(t *testing.T) {
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
+	s := serverWith(t, k)
+	s.Store.Reload()
+	_ = k.Listener.Close()
+	s.Store.Reload()
+
+	if len(s.Store.LoadErrors()) == 0 {
+		t.Fatal("closing the keeper did not produce a load error")
+	}
+	if reason := s.Store.Incomplete(); reason != "" {
+		t.Errorf("Incomplete = %q, want servable on the previous set", reason)
+	}
+}
+
+// The two that do not produce output depending on the set stay available, being
+// what diagnosing a missing store needs.
+func TestStatusAndListStayAvailableWhileTheValueSetIsEmpty(t *testing.T) {
+	s := newServer(t, map[string]string{})
+	peer := &sockutil.Peer{UID: 1000}
+	for _, op := range []string{"status", "list_secrets"} {
+		if got := s.Handle(map[string]any{"op": op}, peer); got["error"] != nil {
+			t.Errorf("%s was refused: %v", op, got["error"])
+		}
+	}
+}
+
+// An operator asking is asking to be told, so the audit is stricter than the
+// daemon's own gate.
+func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
+	s := newServer(t, map[string]string{})
+	s.Config.Ssh.Key = ""
+	if _, code := s.CheckOutput(); code == 0 {
+		t.Error("a broker holding no values passed the audit")
+	}
+}
+
+// Deliberately unbounded: list_secrets and run are on this socket behind the
+// same check, so a caller who could probe can instead name every ref and be
+// handed every value.  A throttle here would only slow the path nobody needs.
+func TestRedactIsNotRateLimited(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	s.Config.Server.MaxRedactsPerMin = 0
 	peer := &sockutil.Peer{UID: 1000}
 	for i := range 300 {
 		if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
-			t.Fatalf("call %d was refused with no limit set: %v", i+1, got["error"])
+			t.Fatalf("call %d was refused: %v", i+1, got["error"])
 		}
 	}
 }
