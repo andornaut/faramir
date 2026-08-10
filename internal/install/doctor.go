@@ -82,6 +82,14 @@ const refusedCode = "no_secrets"
 const sshAgentRefused = "not asked: the broker holds no managed values, so it " +
 	"refuses the brokered command this probe runs"
 
+// sshAgentUnanswered is the other reason the probe cannot be put: it sends a
+// brokered command, so a broker that answered nothing when the install was
+// looked up answers this no better.  Reported here as unasked rather than as a
+// fault of the agent, the outage being the sockets and version checks' to
+// report.
+const sshAgentUnanswered = "not asked: the broker did not answer, so the " +
+	"brokered command this probe runs cannot be sent"
+
 // Finding is one check.
 type Finding struct {
 	Name   string `json:"check"`
@@ -369,28 +377,62 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 // the executor's uid some other way, and `ssh-add -l` there exits non-zero
 // because no agent is running, which is not a fault to report.
 //
-// Skipped when the broker is known to serve no commands, the probe being one:
-// the refusal is about the value set and is reported as that.  Not skipped for
-// want of root, the probe running as the caller's own account then, and not
-// skipped on an unasked broker probe: that says nothing about the value set,
-// and the refusal is recognised below if it comes.
+// Skipped when the probe cannot be put at all, for the reasons skipSSHProbe
+// gives.  Not skipped for want of root, the probe running as the caller's own
+// account then, and not skipped on an unasked broker probe: that says nothing
+// about the value set, and the refusal is recognised below if it comes.
 func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
 	if cfg == nil || cfg.Ssh.Key == "" {
 		report.add("ssh agent", StatusOK, "no [ssh] key configured, so no agent runs "+
 			"and none is expected")
 		return
 	}
-	if serves == servesNothing {
+	if reason := skipSSHProbe(serves, opts.BrokerVersion); reason != "" {
 		report.NotAsked++
-		report.add("ssh agent", StatusWarn, "%s", sshAgentRefused)
+		report.add("ssh agent", StatusWarn, "%s", reason)
 		return
 	}
 	out, err := asOperator(opts, filepath.Join(DefaultBinDir, "faramir"),
 		"run", "--quiet", "--", "ssh-add", "-l")
+	reportSSHProbe(report, cfg, serves, out, err)
+}
+
+// skipSSHProbe reports why the probe cannot be put, empty when it can.  Apart
+// from running it, so what decides a skip can be tested without a broker.
+//
+// The established refusal first: it is what --check answered about the value
+// set, and it names the fault to fix.  A broker that did not answer is the
+// second, and it covers the state doctor is run in on purpose: a stopped
+// install, where a probe that sends a brokered command would report the outage
+// as an SSH agent that could not be reached.
+func skipSSHProbe(serves brokerServes, brokerVersion string) string {
+	switch {
+	case serves == servesNothing:
+		return sshAgentRefused
+	case brokerVersion == "":
+		return sshAgentUnanswered
+	}
+	return ""
+}
+
+// reportSSHProbe turns the probe's answer into a finding, apart from running it
+// for the reason given on skipSSHProbe.
+//
+// A refusal from a broker --check found holding values is the one answer that
+// is neither the agent's nor a skip: the two disagree, which is the running
+// daemon having started before the values were written.
+func reportSSHProbe(report *DoctorReport, cfg *config.Config, serves brokerServes, out string, err error) {
 	switch classifySSHProbe(out, err) {
 	case sshProbeHasKey:
 		report.add("ssh agent", StatusOK, "holds a usable key")
 	case sshProbeRefused:
+		if serves == servesValues {
+			report.add("ssh agent", StatusFailed, "the broker refuses brokered commands "+
+				"though --check read every managed file as the broker: the running daemon "+
+				"came up before the values were there and has not read them since. "+
+				"Restart faramir-broker")
+			return
+		}
 		report.NotAsked++
 		report.add("ssh agent", StatusWarn, "%s", sshAgentRefused)
 	case sshProbeEmpty:
