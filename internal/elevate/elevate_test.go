@@ -265,6 +265,38 @@ func TestAnApprovalHoldsEveryOtherCommand(t *testing.T) {
 	}
 }
 
+// The two halves must be decided against the same instant.  Register admits a
+// run while no approval is live; Answer approves while no other run is
+// registered.  A gap between Answer's sole-occupancy check and its marking the
+// run approved is a window a second run starts in and then rides the approval --
+// so run many concurrent rounds and assert the two never both happen.  This is
+// the regression guard for that race; under -race the unguarded version trips.
+func TestAnApprovalAndASecondRunNeverCoexist(t *testing.T) {
+	for range 400 {
+		s := New(baseConfig())
+		first := mustRegister(s, run())
+		go s.Ask(first)
+		id := waitForQuestion(t, s)
+
+		var wg sync.WaitGroup
+		var approveErr error
+		var secondHeld bool
+		wg.Add(2)
+		go func() { defer wg.Done(); approveErr = s.Answer(id, true, "operator") }()
+		go func() {
+			defer wg.Done()
+			_, secondHeld = s.Register(Run{Argv: []string{"curl", "evil"}, Cwd: "/tmp"})
+		}()
+		wg.Wait()
+
+		if approveErr == nil && !secondHeld {
+			t.Fatalf("the first run was approved while a second was admitted: the " +
+				"second shares the executor uid and can ride the approval")
+		}
+		s.Stop()
+	}
+}
+
 // The other half: a run is not approved while any other brokered command is
 // running, because that other command could ride the approval.  Refused without
 // answering the question, so the run keeps waiting and the operator retries once

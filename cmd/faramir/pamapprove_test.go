@@ -80,12 +80,16 @@ func TestAnUnreachableBrokerRefuses(t *testing.T) {
 	}
 }
 
-// A usage error authenticates nothing either: PAM reads the status, and the
-// flag parser's own exit code has to be one sudo refuses.
-func TestAUsageErrorAuthenticatesNothing(t *testing.T) {
+// Neither a usage error nor a help flag authenticates anything: PAM reads the
+// status, so both have to be non-zero.  The help flag is the trap -- the flag
+// parser returns 0 for it, which is success for an ordinary command and an auth
+// pass here, so this helper forces it non-zero.
+func TestNoFlagPathAuthenticates(t *testing.T) {
 	t.Setenv("PAM_TYPE", "auth")
-	if code := cmdPamApprove([]string{"--no-such-flag"}); code == 0 {
-		t.Error("a usage error authenticated a sudo")
+	for _, args := range [][]string{{"--no-such-flag"}, {"--help"}, {"-h"}} {
+		if code := cmdPamApprove(args); code == 0 {
+			t.Errorf("cmdPamApprove(%v) returned 0: a flag-parsing exit authenticated a sudo", args)
+		}
 	}
 }
 

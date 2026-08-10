@@ -28,16 +28,20 @@ func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
 // SSH_AUTH_SOCK is here because rebinding it would decide what the child
-// authenticates against.  SUDO_ASKPASS and the two beside it are here for the
-// same reason one step further on: they decide what answers sudo, and a caller
-// that could point them elsewhere could answer its own prompt.
+// authenticates against.  FARAMIR_ELEVATE_TOKEN is here for the same reason one
+// step on: it names the run an elevation is decided about, so a caller
+// overwriting it decides which run its sudo asks the broker about (in practice
+// only breaking its own, the value being an opaque stored secret rather than
+// another run's token -- but the broker owns it and no caller sets it).
+// SUDO_ASKPASS stays reserved defensively: our PAM service does not consult it,
+// but a child pointing sudo's askpass at a helper of its own has no business
+// doing so through an injected value.
 var ReservedEnv = map[string]bool{
 	"PATH": true, "HOME": true, "LD_PRELOAD": true, "LD_LIBRARY_PATH": true,
 	"IFS": true, "BASH_ENV": true, "ENV": true, "SOPS_AGE_KEY": true,
 	"SOPS_AGE_KEY_FILE": true, "CREDENTIALS_DIRECTORY": true,
 	"SSH_AUTH_SOCK": true, "SSH_AGENT_PID": true,
-	"SUDO_ASKPASS": true, "FARAMIR_ASKPASS_SOCKET": true,
-	"FARAMIR_ASKPASS_TOKEN": true,
+	"SUDO_ASKPASS": true, "FARAMIR_ELEVATE_TOKEN": true,
 }
 
 // approvals and approve are the elevation channel, and the only ops the broker

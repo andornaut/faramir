@@ -36,7 +36,15 @@ func cmdPamApprove(args []string) int {
 	socket := fs.String("socket", socketDefault(), "broker socket to ask")
 	account := fs.String("account", "", "the account this PAM service is for")
 	if code, ok := parseFlags(fs, args); !ok {
-		// A usage error authenticates nothing: PAM reads the status, and 2 is not 0.
+		// Neither a usage error nor a help flag authenticates anything: PAM reads the
+		// status, so this is forced non-zero.  parseFlags returns 0 for --help (it is
+		// success for an ordinary command), and 0 here would be an auth pass -- the one
+		// exit-zero-without-approval path in a helper whose whole contract is the
+		// opposite.  Not reachable through the installed stack, whose argv is fixed,
+		// but closed anyway.
+		if code == 0 {
+			code = 2
+		}
 		return code
 	}
 

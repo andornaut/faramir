@@ -320,9 +320,13 @@ func (s *Server) pend(token string, run Run) (*approval, bool) {
 	return pending, true
 }
 
-// finish answers a question once, releasing every request waiting on it.  An
-// approval is carried to the run, which is what makes it one question per
-// command rather than per sudo.
+// finish answers a question once, releasing every request waiting on it.
+//
+// It does not set the run's approved flag: Answer does that under the same lock
+// as its sole-occupancy check, because a gap between the two is a window a second
+// run could start in and ride the approval.  finish only carries the answer to
+// the sudos blocked on this question.  (expire and Stop reach here too, always
+// with approved=false, which touches no run.)
 func (s *Server) finish(pending *approval, approved bool, reason string) {
 	pending.once.Do(func() {
 		s.mu.Lock()
@@ -331,12 +335,6 @@ func (s *Server) finish(pending *approval, approved bool, reason string) {
 		// released and re-registered would otherwise lose its own.
 		if s.waiting[pending.token] == pending {
 			delete(s.waiting, pending.token)
-		}
-		if approved {
-			if run, ok := s.runs[pending.token]; ok {
-				run.approved = true
-				s.runs[pending.token] = run
-			}
 		}
 		s.wakeLocked()
 		s.mu.Unlock()
@@ -518,12 +516,23 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// Refused without answering the question, so the run keeps waiting and the
 	// operator retries once the others drain -- rather than this sudo failing now
 	// and the run having to ask again.  A refusal (no) needs no such quiet.
+	//
+	// The check and the flag it stands on are set under one lock hold, on purpose:
+	// Register admits a new run whenever no approval is live, so a gap between "no
+	// other run is registered" and "this run is marked approved" is a window in
+	// which a second command starts and then rides this approval.  Marking it here,
+	// still holding mu, is what closes that window -- finish only carries the
+	// answer to the waiters.
 	if approve {
 		if other := s.otherRunLocked(pending.token); other != "" {
 			s.mu.Unlock()
 			return fmt.Errorf("not approving %s while another brokered command runs "+
 				"(%s): it shares the executor's uid and could ride the approval. Retry "+
 				"once the host is quiet", id, other)
+		}
+		if run, ok := s.runs[pending.token]; ok {
+			run.approved = true
+			s.runs[pending.token] = run
 		}
 	}
 	s.mu.Unlock()
