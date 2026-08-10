@@ -348,8 +348,8 @@ func TestTheSSHProbeTellsARefusalFromAnAnswer(t *testing.T) {
 
 // A broker probe that never ran says nothing about the value set, so the ssh
 // agent check has to run rather than report a broker holding values as one
-// holding none.  A broker that answered nothing is the other way round: the
-// probe sends a brokered command, so it cannot be put at all, and reporting it
+// holding none.  A broker that answered nothing is the opposite: the probe
+// sends a brokered command, so there is no answer to be had, and reporting it
 // as an agent that could not be reached fails a stopped install over a check
 // about something else.
 func TestWhatSkipsTheSSHAgentProbe(t *testing.T) {
@@ -404,9 +404,9 @@ func TestWhatSkipsTheSSHAgentProbe(t *testing.T) {
 }
 
 // The brokered command check runs a command rather than reading a mode, so
-// every state where the command cannot be sent has to be a skip.  Run as a
-// check it fails a stopped install over an outage the sockets and version
-// checks already report.
+// every state where the command cannot be sent has to be a skip.  Run anyway it
+// reports a broker that is refusing or not running as a boundary that does not
+// hold.
 func TestTheBrokeredCommandIsSkippedWhenItCannotBeSent(t *testing.T) {
 	const running = "1.2.3"
 	for _, tc := range []struct {
@@ -434,10 +434,9 @@ func TestTheBrokeredCommandIsSkippedWhenItCannotBeSent(t *testing.T) {
 	}
 }
 
-// A refusal answers the probe against a broker holding nothing and contradicts
-// --check against one holding values.  Reported as a skip in the second case it
-// repeats a claim --check just disproved, and says nothing about the daemon
-// that is actually refusing.
+// A refusal is the answer against a broker holding nothing and a contradiction
+// against one --check found holding values.  Reported as a skip in the second
+// case it repeats a claim --check disproved and names no fault to fix.
 func TestARefusalFromABrokerHoldingValuesIsAFailure(t *testing.T) {
 	cfg := &config.Config{}
 	cfg.Ssh.Key = "/etc/faramir/id_ed25519"
