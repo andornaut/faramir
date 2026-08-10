@@ -131,9 +131,14 @@ A brokered command can write the working tree and reach the broker socket, its o
 
 `0400 faramir-keeper` keeps the operator out of the key wherever it sits: owning the directory is permission to unlink the file, not to read it, so replacing the key buys denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; its unit is triggered only by its socket.
 
-A tree inside a 0700 home needs traversal for `faramir-exec`. `faramir init-project` grants it by group: every directory from the home down becomes the client group and group-executable, execute only, so those uids pass through without listing what they pass. Never `chmod o+x`, which grants the same to every account on the machine. Everyone in the group gets that traversal, so keep membership to the accounts that need it. A directory already traversable by `other` is left alone; one whose group is something else is taken over, costing that group whatever the group bits gave it, and `init-project` says so. Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
+A tree inside a 0700 home needs traversal for `faramir-exec`, which `faramir init-project` grants by group:
 
-The tree itself gets more than traversal: `2770` and group-readable and group-writable throughout, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code.
+- Every directory from the home down becomes the client group and group-executable, execute only, so those uids pass through without listing what they pass.
+- Never `chmod o+x`, which grants the same to every account on the machine.
+- Everyone in the group gets that traversal, so keep membership to the accounts that need it.
+- A directory already traversable by `other` is left alone. One whose group is something else is taken over, costing that group whatever the group bits gave it, and `init-project` says so.
+- Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
+- The tree itself gets more than traversal: `2770`, group-readable and group-writable throughout, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code.
 
 ## Installation
 
@@ -146,7 +151,15 @@ sudo ./bin/faramir init
 
 `init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. Idempotent, so it is also the upgrade: re-run it after a rebuild and it reports what changed.
 
-**A re-run keeps what the install already uses.** `config.toml` is rendered from this run's values and a drop-in may not set the install-owned ones, so a flag left out is taken from the install rather than from the compiled-in default: the service accounts from each unit's `User=`, the client group and the SSH key from the installed config, the secrets group from the directory it owns. `init` reports what it adopted before writing with it, and a flag still outranks it. A `config.toml` that is there and will not parse stops the run whatever flags it was given, no daemon being able to load it either: fix it, or remove it for a fresh install.
+**A re-run keeps what the install already uses.** `config.toml` is rendered from this run's values and a drop-in may not set the install-owned ones, so a flag left out is taken from the install rather than from the compiled-in default:
+
+Flag left out | Taken from
+--- | ---
+`--broker-user`, `--keeper-user`, `--exec-user` | each unit's `User=`
+`--client-group`, `--ssh-key` | the installed `config.toml`
+`--secrets-group` | the group owning `<config-dir>/secrets`
+
+`init` reports what it adopted before writing with it, and a flag still outranks it. A `config.toml` that is there and will not parse stops the run whatever flags it was given, no daemon being able to load it either: fix it, or remove it for a fresh install.
 
 Flag | Default | What to give it
 --- | --- | ---
@@ -211,9 +224,15 @@ A broker serving zero refs and a client group with members nobody recognises bot
 
 It also compares the version the broker reports against its own. They differ when a new binary was installed and the daemons were never restarted onto it, which makes every other finding a report on the build that is not running, so this fails rather than warns and the fix is to re-run `init`. A broker that does not answer at all is a warning instead, `doctor` being for a stopped install as much as a running one.
 
-Most of the examination needs another uid: the broker's own `--check`, the comparison of the `.sops.yaml` recipients against the keeper's `0400` age key, and the checks that ask what each account can reach. Each is asked as the account it is about, root bypassing file modes so the same question from root answers itself. Without sudo these report as unchecked rather than as passing, grouped at the end. A skipped check is one warn line whatever it stood for, so a line under the totals counts them: the totals alone would read the same on a host examined in full and on one where most of the questions were never put.
+Most of the examination needs another uid: the broker's own `--check`, the comparison of the `.sops.yaml` recipients against the keeper's `0400` age key, and the checks that ask what each account can reach. Each is asked as the account it is about, root bypassing file modes so the same question from root answers itself.
 
-Two checks run a brokered command rather than reading a mode: the SSH agent probe and the brokered command check. Both skip against a broker known to hold no values and against one that answered nothing when the install was looked up, since neither will run the command; the refusal and the outage are reported by the secrets and socket checks instead. They differ on a broker that was never asked. The brokered command check needs root, so an unestablished value set there is `--check` not having reported. The SSH agent probe runs as the caller's own account, so it is answered without sudo and a refusal is recognised as one. A refusal from a broker whose `--check` read every managed file fails rather than skips: `--check` reads those files itself, so a daemon refusing what they cover came up before they were written.
+Without sudo those report as unchecked rather than as passing, grouped at the end. A skipped check is one warn line whatever it stood for, so a line under the totals counts them: the totals alone would read the same on a host examined in full and on one where most of the questions were never put.
+
+Two checks run a brokered command rather than reading a mode: the SSH agent probe and the brokered command check.
+
+- Both skip against a broker known to hold no values, and against one that answered nothing when the install was looked up: neither will run the command, and the refusal and the outage are reported by the secrets and socket checks instead.
+- They differ on a broker that was never asked. The brokered command check needs root, so an unestablished value set there is `--check` not having reported. The SSH agent probe runs as the caller's own account, so it is answered without sudo and a refusal is recognised as one.
+- A refusal from a broker whose `--check` read every managed file fails rather than skips: `--check` reads those files itself, so a daemon refusing what they cover came up before they were written.
 
 **Finding the install.** `doctor`, `init-project`, `uninstall`, `edit`, `rekey` and `logs` all act on an install they did not perform, and each finds it the same way: `--config-dir` (or `--config`) if you name one, then the running broker's own answer, then the `FARAMIR_CONFIG=` its unit names, then the compiled-in default. The unit is what covers a host whose config moved and whose broker is down. `init` finds it the same way and prints what it settled on before writing anything. Naming `--config-dir` is still what puts an install somewhere new.
 
@@ -301,7 +320,7 @@ faramir redact -- ./deploy.sh
 
 Command | Does
 --- | ---
-`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. Shares the tree (group-owned and setgid, so you and a brokered command stop overwriting each other's ownership, and group-executable down from a `0700` home so the executor can enter), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config, [found the usual way](#checking-an-install). A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` and `~/.config/sops/age/keys.txt` to every brokered command, and the walk is not reversible. `faramir doctor` re-checks it.
+`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. [Shares the tree](#layout), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config, [found the usual way](#checking-an-install). A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` and `~/.config/sops/age/keys.txt` to every brokered command, and the walk is not reversible. `faramir doctor` re-checks it.
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](#checking-an-install).
 `sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the secrets directory is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
 `sudo faramir rekey [FILE...]` | Re-encrypts managed sops files to the recipients `<config-dir>/.sops.yaml` names now, which is how a changed creation rule reaches values encrypted before it changed. Every managed file unless some are named. Preserves each file's owner and mode, skips one already sealed to the rule, and refuses a rule that leaves out the keeper's own key. `--dry-run` writes nothing. See [Adding a recipient](#adding-a-recipient).
