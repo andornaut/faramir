@@ -90,14 +90,11 @@ func unitConfigFile() string {
 	return ""
 }
 
-// discoverConfigFile finds the config.toml this host's install actually uses:
-// the running broker's own answer, then the path its unit names.  Empty when
+// discoverConfigFile finds the config.toml this host's install uses: the
+// running broker's own answer, then the path its unit names.  Empty when
 // neither answers, which is a host with no install rather than one whose
-// install moved.
-//
-// One ladder for every command that has to find an install it did not perform.
-// The compiled-in default is not in it: that is a guess to fall back on, and
-// which of the two a caller wants differs, so each decides for itself.
+// install moved.  The compiled-in default is not a step here, being a guess
+// each caller decides for itself.
 func discoverConfigFile(st status) string {
 	if st.configDir != "" {
 		if path := filepath.Join(st.configDir, "config.toml"); exists(path) {
@@ -107,15 +104,14 @@ func discoverConfigFile(st status) string {
 	return unitConfigFile()
 }
 
-// configDirFrom picks the install to act on, given an answer already asked for.
-// A flag wins, so a host whose install is not the one on this machine can still
-// be named; the compiled-in default is last, being right only for a host that
-// took it.
+// configDirFrom picks the install to act on, given an answer already asked
+// for: a flag first, so a host whose install is not the one on this machine can
+// still be named, and the compiled-in default last.
 //
-// A broker that answered is running against what it names, so that answer is
-// taken as it stands.  Unlike discoverConfigFile, this does not have to name a
-// file that opens: the caller is about to report on the directory, or to remove
-// it, and one that is not there is the finding.
+// The broker's answer is taken as it stands rather than required to hold a
+// file, which is where this differs from discoverConfigFile: the caller is
+// about to report on the directory or remove it, and one that is not there is
+// the finding.
 func configDirFrom(explicit string, st status) string {
 	if explicit != "" {
 		return explicit

@@ -31,6 +31,8 @@ Field | Required | Notes
 `env_refs` | no | `NAME` → `secret://ref`. Values cannot be passed; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved.
 `timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`.
 
+`{"op": "redact", "text": "…"}` scrubs text the caller already holds, so a session outside the broker's uid gets the same redaction a brokered command does. `text` is required, must be a string, and is the only field this op reads. The response is the ordinary shape, `output` carrying the scrubbed text and `exit_code` always 0, no command having run. This is what `faramir redact` and the wrapper send, once per Bash command. It is an oracle by design, and is audited like every other op: the input's size and what was found, never the text.
+
 `{"op": "list_secrets"}` returns ref names only. `{"op": "status"}` returns the broker version, `configs` (the base config and every drop-in that contributed, in merge order), loaded files, the count of secrets loaded, and load errors. Neither reports the refs refused at load: that list names exactly the secrets that are never tokenized, so it stays behind `faramir broker --check`. See [redaction.md](redaction.md).
 
 ### Responses

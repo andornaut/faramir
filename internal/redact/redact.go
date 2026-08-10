@@ -167,18 +167,15 @@ func variants(value string) map[string]bool {
 // EligibilityPolicy is the one property of a value this decides: whether it is
 // long enough to search output for.
 //
-// Length only.  There were two more tests here, on distinct characters and on
-// Shannon entropy, and neither was this program's business.  How strong a
-// credential is belongs to whoever chose it: "password" cleared all three, so
-// they never were the strength check they read as, and a broker that grades its
-// operator's secrets is answering a question nobody asked it.
+// Length only: no distinct-character count and no entropy floor.  Neither is
+// the strength check it reads as ("password" clears both), and how strong a
+// credential is belongs to whoever chose it.
 //
-// What the length test does is different in kind. A short value matches inside
-// ordinary words, so redacting it blanks unrelated output at random, which is
-// about this program's own behaviour rather than about the secret. That is the
-// one worth keeping, and the residue the other two covered -- a value like
-// "aaaaaaaa", long enough and matching any run of eight -- is noise in the
-// operator's output rather than a value that escapes.
+// Length is different in kind.  A short value matches inside ordinary words, so
+// redacting it blanks unrelated output at random, which is this program's own
+// behaviour rather than a property of the secret.  A long low-entropy value
+// such as "aaaaaaaa" matches any run of eight, but that mangles the operator's
+// output rather than letting a value escape.
 type EligibilityPolicy struct {
 	MinLength int
 }
