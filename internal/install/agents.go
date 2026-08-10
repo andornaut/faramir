@@ -65,6 +65,9 @@ var agentTargets = map[string]*agentTarget{
 			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json", mode: 0o600, merge: true},
 			{path: ".mcp.json", asset: "agent/claude/mcp.json", mode: 0o644, merge: true},
 		},
+		// Read and Edit rules only.  Claude Code matches file permission checks
+		// against Edit(path), which covers every file-editing tool; a Write(path)
+		// rule matches nothing and is warned about at startup.
 		accountFiles: []agentFile{
 			{path: ".claude/settings.json", asset: "agent/claude/settings.json", mode: 0o600, merge: true},
 		},

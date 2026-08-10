@@ -11,7 +11,6 @@
       "Read(**/*.sops.json)",
       "Read(**/.env*)",
       "Read({{.ConfigDir}}/**)",
-      "Read({{.SecretsDir}}/**)",
       "Read({{.LogDir}}/**)",
       "Read(**/.config/faramir/**)",
       "Read(**/age.key)",
@@ -33,31 +32,13 @@
       "Edit(**/*.sops.yaml)",
       "Edit(**/*.sops.json)",
       "Edit({{.ConfigDir}}/**)",
-      "Edit({{.SecretsDir}}/**)",
       "Edit(**/.config/faramir/**)",
       "Edit(**/age.key)",
       "Edit(**/sops/age/**)",
       "Edit(**/.config/sops/**)",
       "Edit(**/*.key)",
       "Edit(**/*.pem)",
-      "Edit({{.LibexecDir}}/**)",
-
-      "Write(**/secrets*.yml)",
-      "Write(**/secrets*.yaml)",
-      "Write(**/*.vault)",
-      "Write(**/vault.yml)",
-      "Write(**/*.sops.yml)",
-      "Write(**/*.sops.yaml)",
-      "Write(**/*.sops.json)",
-      "Write({{.ConfigDir}}/**)",
-      "Write({{.SecretsDir}}/**)",
-      "Write(**/.config/faramir/**)",
-      "Write(**/age.key)",
-      "Write(**/sops/age/**)",
-      "Write(**/.config/sops/**)",
-      "Write(**/*.key)",
-      "Write(**/*.pem)",
-      "Write({{.LibexecDir}}/**)"
+      "Edit({{.LibexecDir}}/**)"
     ]
   }
 }
