@@ -30,24 +30,22 @@ files = [` + secretsFiles + `]
 	return path
 }
 
-// The gate --check applies, applied where it decides something.
-//
-// --check runs from init and from doctor, neither of which runs at boot, so a
-// store that becomes unloadable after the install used to leave the broker
-// bound and serving with a value set that was short or empty. Every unit
-// reported itself active and nothing was redacted.
-func TestTheBrokerRefusesToStartWhenTheStoreWillNotLoad(t *testing.T) {
+// The daemon starts on a store it cannot load and refuses the two ops that
+// would be unsafe, which is tested at the server.  What has to hold here is
+// that --check still fails on it: init and doctor read that exit code, and an
+// operator asking is asking to be told.
+func TestCheckFailsWhenTheStoreWillNotLoad(t *testing.T) {
 	// No keeper is listening on that socket, which is the cold-start case: no
 	// previous value set to fall back on, so there is nothing to serve.
 	config := brokerConfig(t, `"`+filepath.Join(t.TempDir(), "*.sops.yml")+`"`)
-	if code := run([]string{"broker", "-c", config}); code == 0 {
-		t.Error("the broker started with a store it could not load")
+	if code := run([]string{"broker", "-c", config, "--check"}); code == 0 {
+		t.Error("--check passed with a secrets directory it could not load")
 	}
 }
 
-// The config still has to be judged before the store is reached: --parse-only
-// is what the installers call before anything is running, so it must not start
-// answering "no keeper" to a question about syntax.
+// The config still has to be judged before the secrets directory is reached:
+// --parse-only is what the installers call before anything is running, so it
+// must not start answering "no keeper" to a question about syntax.
 func TestParseOnlyDoesNotNeedAStoreThatLoads(t *testing.T) {
 	config := brokerConfig(t, `"`+filepath.Join(t.TempDir(), "*.sops.yml")+`"`)
 	if code := run([]string{"broker", "-c", config, "--parse-only"}); code != 0 {

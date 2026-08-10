@@ -65,7 +65,7 @@ func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
 	}
 	// Still ciphertext, and not the bytes it started as.
 	if string(after) == string(before) {
-		t.Error("the store was not rewritten")
+		t.Error("the secrets directory was not rewritten")
 	}
 	if strings.Contains(string(after), "a-replacement-value-long-enough") {
 		t.Fatal("the new value is in the file as plaintext")
@@ -106,7 +106,7 @@ func TestAnUnchangedEditRewritesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(after) != string(before) {
-		t.Error("the store was rewritten by an edit that changed nothing")
+		t.Error("the secrets directory was rewritten by an edit that changed nothing")
 	}
 }
 
@@ -128,12 +128,12 @@ func TestAFailedEditorLeavesTheStoreAlone(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(after) != string(before) {
-		t.Error("the store changed after the editor failed")
+		t.Error("the secrets directory changed after the editor failed")
 	}
 }
 
-// The mode the file had is the mode it keeps: an install hands the store to the
-// store group, and the umask must not undo that.
+// The mode the file had is the mode it keeps: an install hands the secrets
+// directory to the secrets group, and the umask must not undo that.
 func TestTheReplacementKeepsTheOriginalMode(t *testing.T) {
 	useSops(t)
 	store, keyPath := encryptedFixture(t)

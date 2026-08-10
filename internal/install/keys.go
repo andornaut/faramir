@@ -12,11 +12,11 @@ import (
 )
 
 // stepAgeKey mints the keeper's identity, 0400 owned by the keeper: a key the
-// broker or the executor could read is one any brokered command could read.
-// The keeper takes it through systemd's LoadCredential=.
+// broker or the executor could read is one any brokered command could read. The
+// keeper takes it through systemd's LoadCredential=.
 func (r *runner) stepAgeKey() error {
-	// Nothing is opened under a dry run: the key is 0400 and the keeper's, so
-	// the recipient is left unknown and the sops step reports it as such.
+	// Nothing is opened under a dry run: the key is 0400 and the keeper's, so the
+	// recipient is left unknown and the sops step reports it as such.
 	if r.opts.DryRun {
 		r.reportPresence("age key", r.layout.AgeKeyPath, "mint")
 		return nil
@@ -62,8 +62,8 @@ func (r *runner) addRecipient(recipient string) {
 
 // stepSopsConfig writes .sops.yaml into the config directory rather than the
 // store: sops resolves it from the working directory upward, so the parent is
-// found from both, and the store is a glob target where filepath.Glob matches
-// dotfiles.
+// found from both, and the secrets directory is a glob target where
+// filepath.Glob matches dotfiles.
 //
 // Kept if it already exists, adding or dropping a recipient meaning every
 // managed value is re-encrypted.  Kept and read back -- see keepSopsConfig --
@@ -87,8 +87,8 @@ func (r *runner) stepSopsConfig() error {
 		return nil
 	}
 	// Never without the keeper's own recipient: a rule listing only the operator
-	// produces a store the keeper cannot read, and a broker that serves
-	// nothing.
+	// produces a secrets directory the keeper cannot read, and a broker that
+	// serves nothing.
 	if r.keeperRecipient == "" {
 		r.skip("sops config", "the keeper's recipient is unknown, because "+
 			r.layout.AgeKeyPath+" has been removed. Copy .sops.yaml from a host "+
@@ -109,8 +109,8 @@ creation_rules:
     key_groups:
       - age:
 %s`, recipients.String())
-	// Root-owned like the rest of the config directory, or the recipients could
-	// be rewritten by an account the store group exists to keep out.
+	// Root-owned like the rest of the config directory, or the recipients could be
+	// rewritten by an account the secrets group exists to keep out.
 	// World-readable, holding public keys and a rule and no value.
 	changed, err := r.fs.writeFile(path, []byte(body), 0o644, 0, 0)
 	if err != nil {
@@ -131,11 +131,11 @@ creation_rules:
 func (r *runner) keepSopsConfig(path string) {
 	listed, err := sopsRecipients(path)
 	if err != nil {
-		// The file is the operator's to edit and sops is what parses it, so a
-		// shape this does not understand is a question that went unasked.
-		r.warn("%s could not be read (%v), so who can decrypt the store went "+
+		// The file is the operator's to edit and sops is what parses it, so a shape
+		// this does not understand is a question that went unasked.
+		r.warn("%s could not be read (%v), so who can decrypt the secrets directory went "+
 			"unchecked. sops is what has to parse this file: if it cannot either, "+
-			"encrypting a new value into the store fails", path, err)
+			"encrypting a new value into the secrets directory fails", path, err)
 		r.step("sops config", false, "keeping "+path)
 		return
 	}
@@ -144,11 +144,12 @@ func (r *runner) keepSopsConfig(path string) {
 	r.report.AgeRecipients = listed
 
 	// The keeper's first and separately: the others are a key that does not open
-	// the store, this one is a store the keeper cannot open.  Skipped when the
-	// recipient is unknown, which is reported where it happens.
+	// the secrets directory, this one is a secrets directory the keeper cannot
+	// open.  Skipped when the recipient is unknown, which is reported where it
+	// happens.
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
 		r.warn("%s does not list the keeper's own recipient (%s), so every value "+
-			"encrypted into the store from now on is one %s cannot decrypt: the broker "+
+			"encrypted into the secrets directory from now on is one %s cannot decrypt: the broker "+
 			"starts, loads nothing, and redacts nothing. This is what replacing %s "+
 			"leaves behind. Add it under `- age:` and re-key the existing files:\n"+
 			"  sudoedit %s\n"+
@@ -169,7 +170,7 @@ func (r *runner) keepSopsConfig(path string) {
 			"re-encrypting each file, which is two steps as root:\n"+
 			"  sudoedit %s\n"+
 			"  sudo SOPS_AGE_KEY_FILE=%s sops updatekeys %s/NAME.sops.yml\n"+
-			"Repeat the second per file; nothing walks the store.",
+			"Repeat the second per file; nothing walks the secrets directory.",
 			strings.Join(missing, ", "), path,
 			path, r.layout.AgeKeyPath, r.layout.SecretsDir())
 	}
@@ -186,7 +187,7 @@ func (r *runner) keepSopsConfig(path string) {
 //
 // One is minted every run, whether or not this host turns out to need it, so
 // there is always a public half to put in an authorized_keys without re-running
-// with a flag.  [ssh] keys is init's alone -- a drop-in setting it is refused by
+// with a flag.  [ssh] key is init's alone -- a drop-in setting it is refused by
 // the config merge -- so what the broker will load is exactly this path.
 //
 // Runs after stepConfig, so the file naming the key is already written, and
@@ -198,8 +199,8 @@ func (r *runner) stepSSHKey() error {
 		return nil
 	}
 	// own=false: the directory may be the config directory, which is root's, or
-	// one the operator made to hold a key of their own.  Neither is this step's
-	// to take over.
+	// one the operator made to hold a key of their own.  Neither is this step's to
+	// take over.
 	if _, err := r.fs.ensureDir(filepath.Dir(r.layout.SSHKey), 0o700,
 		r.brokerUID, r.brokerGID, false); err != nil {
 		return err
@@ -212,9 +213,9 @@ func (r *runner) stepSSHKey() error {
 	r.report.BrokerPublicKey = public
 	r.sshKey = r.layout.SSHKey
 	// Repaired only when this run wrote it.  A key minted by an earlier run is
-	// already broker-owned and never reaches the refusal; one that is not is a
-	// key the operator brought, and chowning that to the broker would take it
-	// away from them rather than fix an install.
+	// already broker-owned and never reaches the refusal; one that is not is a key
+	// the operator brought, and chowning that to the broker would take it away
+	// from them rather than fix an install.
 	repaired, err := r.ownSSHKey(r.sshKey, minted)
 	if err != nil {
 		return err
@@ -226,10 +227,10 @@ func (r *runner) stepSSHKey() error {
 	return nil
 }
 
-// ownSSHKey asserts, every run, that the broker can read both halves of the key:
-// one placed by hand or left root-owned leaves the agent holding nothing, and
-// nothing else says so.  A repair counts as a change.  repair is false for a key
-// this run did not write, which is refused rather than taken over.
+// ownSSHKey asserts, every run, that the broker can read both halves of the
+// key: one placed by hand or left root-owned leaves the agent holding nothing,
+// and nothing else says so.  A repair counts as a change.  repair is false for
+// a key this run did not write, which is refused rather than taken over.
 func (r *runner) ownSSHKey(path string, repair bool) (bool, error) {
 	changed := false
 	for _, half := range []struct {
@@ -250,10 +251,10 @@ func (r *runner) ownSSHKey(path string, repair bool) (bool, error) {
 			continue
 		}
 		if !repair {
-			return false, fmt.Errorf("%s is %s, and [ssh] keys names it, so %s cannot "+
+			return false, fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot "+
 				"load it and brokered commands reach no managed host. Hand it over:\n"+
 				"    chown %s %s && chmod %04o %s\n"+
-				"Or drop it from [ssh] keys, if it is not the broker's to hold",
+				"Or unset [ssh] key, if it is not the broker's to hold",
 				half.path, owns(half.path), r.layout.BrokerUser,
 				r.layout.BrokerUser, half.path, half.mode.Perm(), half.path)
 		}

@@ -18,7 +18,7 @@ NotifyAccess=main
 User={{.BrokerUser}}
 Group={{.BrokerUser}}
 # {{.ExecUser}} and nothing else, to chown the ssh-agent socket to the uid that
-# uses it.  {{.StoreGroup}} is absent: this process holds every decrypted value
+# uses it.  {{.SecretsGroup}} is absent: this process holds every decrypted value
 # already, so read on the ciphertext would only add files it never decrypts.
 SupplementaryGroups={{.ExecUser}}
 # SyslogIdentifier= because systemd otherwise takes it from the executable's
@@ -104,7 +104,7 @@ UMask=0077
 #   RestrictAddressFamilies=~AF_UNIX
 #       The broker's own listening socket.
 #   SupplementaryGroups=
-#       {{.ExecUser}}, to chown the ssh-agent socket.  Not {{.StoreGroup}}.
+#       {{.ExecUser}}, to chown the ssh-agent socket.  Not {{.SecretsGroup}}.
 #   ProtectHome=
 #       See above: file modes already bound this uid.
 #   SystemCallFilter=~@privileged, ~@resources

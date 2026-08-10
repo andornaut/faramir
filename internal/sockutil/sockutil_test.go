@@ -25,8 +25,8 @@ func pipeWriting(t *testing.T, body string) net.Conn {
 }
 
 // [server] max_request_bytes bounds what an unauthenticated read allocates.
-// ErrTooLarge rather than a short line: the broker answers with too_large, where
-// a truncated line would parse as a malformed request.
+// ErrTooLarge rather than a short line: the broker answers with too_large,
+// where a truncated line would parse as a malformed request.
 func TestReadLineRefusesALineOverTheLimit(t *testing.T) {
 	_, err := ReadLine(pipeWriting(t, strings.Repeat("x", 200)+"\n"), 64)
 	if !errors.Is(err, ErrTooLarge) {
@@ -61,25 +61,25 @@ func TestReadLineAcceptsALineEndedByEOF(t *testing.T) {
 
 func TestAnUnlistedPeerIsRejected(t *testing.T) {
 	peer := &Peer{UID: unusedUID(t), GID: 65500}
-	if Allowed(peer, nil, nil) {
+	if Allowed(peer, "", "") {
 		t.Error("an unlisted peer was allowed")
 	}
-	if Allowed(peer, []string{"nosuchuser"}, []string{"nosuchgroup"}) {
-		t.Error("a peer matching none of the lists was allowed")
+	if Allowed(peer, "nosuchuser", "nosuchgroup") {
+		t.Error("a peer matching neither name was allowed")
 	}
 }
 
-// allowed_users names an account, and the uid is looked up from the name.  This
+// allowed_user names an account, and the uid is looked up from the name.  This
 // is the only spelling left: allowed_uids said the same thing in numbers, which
 // stopped being true the moment an account was renumbered.
 func TestAListedUserIsAllowed(t *testing.T) {
 	name, uid := otherAccount(t)
-	if !Allowed(&Peer{UID: uid, GID: 65500}, []string{name}, nil) {
-		t.Errorf("%s, on allowed_users, was rejected", name)
+	if !Allowed(&Peer{UID: uid, GID: 65500}, name, "") {
+		t.Errorf("%s, on allowed_user, was rejected", name)
 	}
-	// The name is not a password: a peer that is not the account it names is
-	// still refused, so the lookup has to be what decides.
-	if Allowed(&Peer{UID: unusedUID(t), GID: 65500}, []string{name}, nil) {
+	// The name is not a password: a peer that is not the account it names is still
+	// refused, so the lookup has to be what decides.
+	if Allowed(&Peer{UID: unusedUID(t), GID: 65500}, name, "") {
 		t.Errorf("a peer whose uid is not %s's was allowed", name)
 	}
 }
@@ -101,8 +101,8 @@ func otherAccount(t *testing.T) (string, int32) {
 		if err != nil || uid == 0 || uid == os.Getuid() {
 			continue
 		}
-		// Looked up by name, because that is the call Allowed makes: an entry
-		// this process cannot resolve would fail the test for the wrong reason.
+		// Looked up by name, because that is the call Allowed makes: an entry this
+		// process cannot resolve would fail the test for the wrong reason.
 		if _, err := user.Lookup(fields[0]); err == nil {
 			return fields[0], int32(uid)
 		}
@@ -112,7 +112,7 @@ func otherAccount(t *testing.T) (string, int32) {
 }
 
 // The group is usually a supplementary one, granted with usermod -aG, so
-// checking the gid alone would make allowed_groups ineffective.
+// checking the gid alone would make allowed_group ineffective.
 func TestSupplementaryGroupMembershipIsHonoured(t *testing.T) {
 	self, err := user.Current()
 	if err != nil {
@@ -147,12 +147,12 @@ func TestSupplementaryGroupMembershipIsHonoured(t *testing.T) {
 	peer := &Peer{UID: int32(uid), GID: 65500}
 	if os.Getuid() == uid {
 		// Allowed short-circuits on our own uid.
-		if !inAnyGroup(peer, []string{group}) {
+		if !inGroup(peer, group) {
 			t.Errorf("supplementary membership of %s was not honoured", group)
 		}
 		return
 	}
-	if !Allowed(peer, nil, []string{group}) {
+	if !Allowed(peer, "", group) {
 		t.Errorf("supplementary membership of %s was not honoured", group)
 	}
 }

@@ -27,8 +27,8 @@ func TestMinimalConfigLoads(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Defaults the file did not set.
-	if cfg.Server.SocketMode != 0o660 {
-		t.Errorf("socket_mode = %o", cfg.Server.SocketMode)
+	if cfg.Ssh.AgentSocket != "/run/faramir/ssh-agent.sock" {
+		t.Errorf("agent_socket = %q", cfg.Ssh.AgentSocket)
 	}
 	if cfg.Exec.MaxTimeoutSec != 3600 {
 		t.Errorf("max_timeout_sec = %d", cfg.Exec.MaxTimeoutSec)
@@ -48,14 +48,14 @@ func TestDefaultCwdIsRefusedAsUnknown(t *testing.T) {
 }
 
 // Same again for the numeric spelling of a caller: allowed_uids said what
-// allowed_groups says, in a form that stopped being true once an account was
+// allowed_group says, in a form that stopped being true once an account was
 // renumbered.
 func TestAllowedUIDsIsRefusedAsUnknown(t *testing.T) {
 	_, err := load(t, minimal+"\n[server]\nallowed_uids = [1000]\n")
 	if err == nil || !strings.Contains(err.Error(), "unknown key") {
 		t.Fatalf("err = %v", err)
 	}
-	if !strings.Contains(err.Error(), "allowed_groups") {
+	if !strings.Contains(err.Error(), "allowed_group") {
 		t.Errorf("the message does not name the alternative: %v", err)
 	}
 }
@@ -143,8 +143,7 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 	}
 }
 
-// A max below the default replaces it for every command rather than capping
-// it.
+// A max below the default replaces it for every command rather than capping it.
 func TestMaxTimeoutBelowDefaultIsRefused(t *testing.T) {
 	_, err := load(t, "[exec]\ndefault_timeout_sec = 600\nmax_timeout_sec = 60\n")
 	if err == nil || !strings.Contains(err.Error(), "max_timeout_sec") {
@@ -162,23 +161,6 @@ func TestMeaningfulZeroesAreAccepted(t *testing.T) {
 	if cfg.Exec.KillGraceSec != 0 || cfg.Secrets.RefreshIntervalSec != 0 {
 		t.Errorf("kill_grace_sec = %d, refresh_interval_sec = %d",
 			cfg.Exec.KillGraceSec, cfg.Secrets.RefreshIntervalSec)
-	}
-}
-
-func TestOctalModeSpellings(t *testing.T) {
-	for _, spelling := range []string{`"0660"`, `0o660`} {
-		cfg, err := load(t, minimal+"\n[server]\nsocket_mode = "+spelling+"\n")
-		if err != nil {
-			t.Fatalf("%s: %v", spelling, err)
-		}
-		if cfg.Server.SocketMode != 0o660 {
-			t.Errorf("%s -> %o, want 660", spelling, cfg.Server.SocketMode)
-		}
-	}
-	// An unquoted decimal 660 means 0o1224.
-	_, err := load(t, minimal+"\n[server]\nsocket_mode = 660\n")
-	if err == nil || !strings.Contains(err.Error(), "out of range") {
-		t.Fatalf("decimal 660 was accepted: %v", err)
 	}
 }
 

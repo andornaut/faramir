@@ -10,9 +10,9 @@ import (
 )
 
 // sops takes the first .sops.yaml walking up from the working directory, so a
-// copy in the store shadows the one above it.  Each of the four states reads
-// differently, the remedies being different: compare recipients and delete one,
-// or move it.  No systemd, accounts or root needed.
+// copy in the secrets directory shadows the one above it.  Each of the four
+// states reads differently, the remedies being different: compare recipients
+// and delete one, or move it.  No systemd, accounts or root needed.
 func TestDiagnoseSopsConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -26,7 +26,7 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 			want: StatusOK, says: []string{"/.sops.yaml"},
 		},
 		{
-			name: "a copy in the store shadows it", current: true, stale: true,
+			name: "a copy in the secrets directory shadows it", current: true, stale: true,
 			want: StatusWarn, says: []string{"shadows", "recipients", "rm "},
 		},
 		{
@@ -34,7 +34,8 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 			want: StatusWarn, says: []string{"mv "},
 		},
 		{
-			// Not an error: it just cannot encrypt a new file into the store.
+			// Not an error: it just cannot encrypt a new file into the secrets
+			// directory.
 			name: "no rule at all",
 			want: StatusWarn, says: []string{"no ", "refuses to encrypt"},
 		},
@@ -113,8 +114,7 @@ func mintKey(t *testing.T, configDir string) string {
 func TestDiagnoseSopsRecipients(t *testing.T) {
 	for _, tc := range []struct {
 		name string
-		// "keeper" stands for the minted key's recipient; anything else is
-		// verbatim.
+		// "keeper" stands for the minted key's recipient; anything else is verbatim.
 		rule    []string
 		noKey   bool
 		want    Status
@@ -131,8 +131,7 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 			want: StatusOK, says: []string{"2 recipient"},
 		},
 		{
-			// Well-formed, in the right place, naming a key the keeper does not
-			// hold.
+			// Well-formed, in the right place, naming a key the keeper does not hold.
 			name: "the rule has drifted off the keeper's key",
 			rule: []string{"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"},
 			want: StatusWarn, says: []string{"none of which", "cannot decrypt", "updatekeys"},
@@ -186,7 +185,7 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 					t.Errorf("detail says %q, which it cannot know: %s", unwanted, finding.Detail)
 				}
 			}
-			// Warn at worst: the values already in the store still decrypt.
+			// Warn at worst: the values already in the secrets directory still decrypt.
 			if report.Failed {
 				t.Errorf("a sops rule finding failed the whole report: %s", finding.Detail)
 			}

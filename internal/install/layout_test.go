@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// The key follows the config directory, so an encrypted home holding the store
-// holds the key too and a powered-off disk carries neither.
+// The key follows the config directory, so an encrypted home holding the
+// secrets directory holds the key too and a powered-off disk carries neither.
 func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 	for _, tc := range []struct{ name, configDir, wantKey, wantDir string }{
 		{"the default", DefaultConfigDir, DefaultConfigDir + "/age.key", DefaultConfigDir},
@@ -16,7 +16,7 @@ func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := Options{
-				Operator: "op", Group: DefaultGroup,
+				OperatorUser: "op", ClientGroup: DefaultClientGroup,
 				BrokerUser: DefaultBrokerUser, KeeperUser: DefaultKeeperUser,
 				ExecUser:  DefaultExecUser,
 				ConfigDir: tc.configDir,
@@ -40,7 +40,7 @@ func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 	}
 }
 
-// The store group is the keeper's own, so the accounts that can read the
+// The secrets group is the keeper's own, so the accounts that can read the
 // ciphertext are the one that decrypts it, with no membership list to keep.
 func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 	for _, tc := range []struct{ name, keeperUser, storeGroup, want string }{
@@ -50,20 +50,20 @@ func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := Options{
-				Operator: "op", KeeperUser: tc.keeperUser, StoreGroup: tc.storeGroup,
+				OperatorUser: "op", KeeperUser: tc.keeperUser, SecretsGroup: tc.storeGroup,
 			}
 			opts.applyDefaults()
-			if opts.StoreGroup != tc.want {
-				t.Errorf("StoreGroup = %q, want %q", opts.StoreGroup, tc.want)
+			if opts.SecretsGroup != tc.want {
+				t.Errorf("SecretsGroup = %q, want %q", opts.SecretsGroup, tc.want)
 			}
 		})
 	}
 }
 
-// The creation rule sits in the config directory, not the store.  sops walks up
-// from the working directory, so it is found from both, and the store stays
-// nothing but ciphertext: [secrets] files globs it and filepath.Glob matches
-// dotfiles.
+// The creation rule sits in the config directory, not the secrets directory.
+// sops walks up from the working directory, so it is found from both, and the
+// secrets directory stays nothing but ciphertext: [secrets] files globs it and
+// filepath.Glob matches dotfiles.
 func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 	layout := Layout{ConfigDir: "/etc/faramir"}
 	if got, want := layout.SopsConfigPath(), "/etc/faramir/.sops.yaml"; got != want {
@@ -73,9 +73,9 @@ func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 		t.Errorf("rule file is in %q, not the config directory %q", dir, layout.ConfigDir)
 	}
 	if filepath.Dir(layout.SopsConfigPath()) == layout.SecretsDir() {
-		t.Error("the rule file is in the store, where the [secrets] glob reaches it")
+		t.Error("the rule file is in the secrets directory, where the [secrets] glob reaches it")
 	}
-	// The upward search reaches it from the store.
+	// The upward search reaches it from the secrets directory.
 	if !strings.HasPrefix(layout.SecretsDir(), layout.ConfigDir+string(filepath.Separator)) {
 		t.Errorf("store %q is not under the config directory %q, so the upward "+
 			"search would not reach the rule", layout.SecretsDir(), layout.ConfigDir)
@@ -89,9 +89,9 @@ func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 // Asking for a value by name and reading the file it comes from are different
 // privileges, and the agent's account holds the first.
 func TestStoreGroupIsNotTheClientGroup(t *testing.T) {
-	opts := Options{Operator: "op"}
+	opts := Options{OperatorUser: "op"}
 	opts.applyDefaults()
-	if opts.StoreGroup == opts.Group {
-		t.Errorf("store group and client group are both %q", opts.Group)
+	if opts.SecretsGroup == opts.ClientGroup {
+		t.Errorf("secrets group and client group are both %q", opts.ClientGroup)
 	}
 }

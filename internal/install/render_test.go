@@ -1,22 +1,25 @@
 package install
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // testLayout moves everything off its default, so a literal left in a template
 // shows up in the output.
 func testLayout() Layout {
 	opts := Options{
-		Operator:   "operator",
-		Group:      "shared",
-		StoreGroup: "store",
-		BrokerUser: "br",
-		KeeperUser: "kp",
-		ExecUser:   "ex",
-		ConfigDir:  "/opt/conf",
+		OperatorUser: "operator",
+		ClientGroup:  "shared",
+		SecretsGroup: "store",
+		BrokerUser:   "br",
+		KeeperUser:   "kp",
+		ExecUser:     "ex",
+		ConfigDir:    "/opt/conf",
 	}
 	opts.applyDefaults()
 	layout, err := opts.layout()
@@ -68,27 +71,28 @@ func supplementaryGroups(t *testing.T, unit string, layout Layout) string {
 }
 
 // Two groups with two jobs: the client group in the config the sockets check
-// and the unit that reaches the working tree, the store group on the one daemon
-// that opens the ciphertext.  Disagreeing on the first refuses every connection;
-// confusing the two hands the file to everyone who can ask for its value.
+// and the unit that reaches the working tree, the secrets group on the one
+// daemon that opens the ciphertext.  Disagreeing on the first refuses every
+// connection; confusing the two hands the file to everyone who can ask for its
+// value.
 func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	layout := testLayout()
 	config, err := render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(config), `allowed_groups = ["shared"]`) {
-		t.Errorf("config does not admit group %q", layout.Group)
+	if !strings.Contains(string(config), "\nallowed_group = \"shared\"\n") {
+		t.Errorf("config does not admit group %q", layout.ClientGroup)
 	}
-	// The executor reaches the working tree, so the client group and only that:
-	// a brokered command runs as it.
-	if got := supplementaryGroups(t, "faramir-exec.service", layout); got != layout.Group {
-		t.Errorf("exec joins %q, want the client group %q", got, layout.Group)
+	// The executor reaches the working tree, so the client group and only that: a
+	// brokered command runs as it.
+	if got := supplementaryGroups(t, "faramir-exec.service", layout); got != layout.ClientGroup {
+		t.Errorf("exec joins %q, want the client group %q", got, layout.ClientGroup)
 	}
-	// The keeper decrypts and fingerprints, so the store group and not the
+	// The keeper decrypts and fingerprints, so the secrets group and not the
 	// client group.
-	if got := supplementaryGroups(t, "faramir-keeper.service", layout); got != layout.StoreGroup {
-		t.Errorf("keeper joins %q, want the store group %q", got, layout.StoreGroup)
+	if got := supplementaryGroups(t, "faramir-keeper.service", layout); got != layout.SecretsGroup {
+		t.Errorf("keeper joins %q, want the secrets group %q", got, layout.SecretsGroup)
 	}
 	// The broker joins the executor's group to chown the ssh-agent socket, and
 	// nothing else: it holds every decrypted value already, so read on the
@@ -102,14 +106,14 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(socket), "SocketGroup=shared") {
-		t.Errorf("broker socket does not belong to group %q", layout.Group)
+		t.Errorf("broker socket does not belong to group %q", layout.ClientGroup)
 	}
 }
 
 // Every directive naming an account or the config carries the layout's value; a
-// default left in one is a daemon running as a uid nothing created.  Checked per
-// directive, the units referring to each other by unit name in Requires= and
-// After=.
+// default left in one is a daemon running as a uid nothing created.  Checked
+// per directive, the units referring to each other by unit name in Requires=
+// and After=.
 //
 // ExecStart too: one binary serves all three roles, so its argument is the only
 // thing that says which a unit starts.  SyslogIdentifier with it, systemd
@@ -119,8 +123,8 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	want := map[string]map[string]string{
 		"faramir-broker.service": {
 			"User": "br", "Group": "br", "StateDirectory": "br",
-			// The executor's group and nothing else: the broker holds the
-			// plaintext and asks the keeper what changed.
+			// The executor's group and nothing else: the broker holds the plaintext and
+			// asks the keeper what changed.
 			"SupplementaryGroups": "ex",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir broker",
@@ -161,9 +165,9 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		`allowed_groups = ["shared"]`,
-		`allowed_users = ["br"]`,
-		`exec_group = "ex"`,
+		"\nallowed_group = \"shared\"\n",
+		"\nallowed_user = \"br\"\n",
+		"\nexec_group = \"ex\"\n",
 	} {
 		if !strings.Contains(string(config), want) {
 			t.Errorf("config: want %s", want)
@@ -190,8 +194,7 @@ func TestKeeperCredentialSource(t *testing.T) {
 	if !strings.Contains(string(unit), "LoadCredential=age_key:"+layout.AgeKeyPath) {
 		t.Error("the keeper does not load the age key")
 	}
-	// Two entries claiming one credential name is a unit systemd refuses to
-	// start.
+	// Two entries claiming one credential name is a unit systemd refuses to start.
 	if strings.Contains(string(unit), "LoadCredentialEncrypted=") {
 		t.Error("the keeper loads an encrypted credential as well")
 	}
@@ -318,18 +321,18 @@ func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := `keys = ["/var/lib/br/.ssh/identity"]`; !strings.Contains(string(config), want) {
+	if want := "\nkey = \"/var/lib/br/.ssh/identity\"\n"; !strings.Contains(string(config), want) {
 		t.Errorf("config does not carry the key: want %s", want)
 	}
 }
 
 // One is minted whether or not --ssh-key was passed, so a host always has a
-// public half to put in an authorized_keys.  Beside the age key: the key follows
-// the config, so a config in an encrypted home has the private half in there
-// too.
+// public half to put in an authorized_keys.  Beside the age key: the key
+// follows the config, so a config in an encrypted home has the private half in
+// there too.
 func TestTheSSHKeyDefaultsBesideTheAgeKey(t *testing.T) {
 	opts := Options{
-		Operator: "op", Group: DefaultGroup,
+		OperatorUser: "op", ClientGroup: DefaultClientGroup,
 		BrokerUser: DefaultBrokerUser, KeeperUser: DefaultKeeperUser,
 		ExecUser: DefaultExecUser, ConfigDir: "/home/op/.config/faramir",
 	}
@@ -343,10 +346,27 @@ func TestTheSSHKeyDefaultsBesideTheAgeKey(t *testing.T) {
 	if filepath.Dir(layout.SSHKey) != filepath.Dir(layout.AgeKeyPath) {
 		t.Errorf("SSHKey %q is not beside the age key %q", layout.SSHKey, layout.AgeKeyPath)
 	}
-	// Named so that the deny patterns already refuse it by name, wherever a
-	// copy turns up, and not only where ConfigDir was rendered into a rule.
+	// Named so that the deny patterns already refuse it by name, wherever a copy
+	// turns up, and not only where ConfigDir was rendered into a rule.
 	if filepath.Base(layout.SSHKey) != "id_ed25519" {
 		t.Errorf("SSHKey is named %q; the deny patterns name id_ed25519",
 			filepath.Base(layout.SSHKey))
+	}
+}
+
+// The rendered base config has to load with the parser the daemons use: init
+// writes it and then runs `broker --check`, so a key the parser does not know
+// aborts an install that has already created accounts and written units.
+func TestTheRenderedConfigLoads(t *testing.T) {
+	body, err := render("etc/config.toml.tmpl", testLayout())
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(path); err != nil {
+		t.Fatalf("the config init writes does not load: %v\n%s", err, body)
 	}
 }

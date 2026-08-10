@@ -115,7 +115,7 @@ Enforcement | Hook plus filesystem permissions. | Instructions to the agent are 
 <config-dir>/age.key          0400 faramir-keeper:faramir-keeper
 <config-dir>/id_ed25519       0600 faramir-broker:faramir-broker, the key it lends; .pub 0644
 <config-dir>/secrets/         2750 root:faramir-keeper, the managed sops files
-<config-dir>/.sops.yaml       0644 root:root, the creation rule; above the store, not in it
+<config-dir>/.sops.yaml       0644 root:root, the creation rule; above the secrets directory, not in it
 <config-dir>/config.toml      0644 root:root, faramir's own, rewritten every run
 <config-dir>/config.d/        0755 root:root, yours and each consumer's, merged over it
 <any tree you enrol>          2770 <operator>:<client-group>, setgid; faramir init-project
@@ -125,11 +125,11 @@ Enforcement | Hook plus filesystem permissions. | Instructions to the agent are 
 /etc/logrotate.d/faramir      0644 root:root, weekly, 8 kept, early at 16MB
 ```
 
-`--config-dir` moves the config, the store and the age key off `/etc` together; the audit log stays where it is. `faramir status` reports the paths in use.
+`--config-dir` moves the config, the secrets directory and the age key off `/etc` together; the audit log stays where it is. `faramir status` reports the paths in use.
 
-A brokered command can write the working tree and reach the broker socket, its output redacted and audited like any other. It cannot reach the age key by any route: the modes above are what refuse the key file, the store, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
+A brokered command can write the working tree and reach the broker socket, its output redacted and audited like any other. It cannot reach the age key by any route: the modes above are what refuse the key file, the secrets directory, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
 
-`0400 faramir-keeper` keeps the operator out of the key wherever it sits: owning the directory is permission to unlink the file, not to read it, so replacing the key buys denial of service rather than disclosure, a store encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; its unit is triggered only by its socket.
+`0400 faramir-keeper` keeps the operator out of the key wherever it sits: owning the directory is permission to unlink the file, not to read it, so replacing the key buys denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; its unit is triggered only by its socket.
 
 A tree inside a 0700 home needs traversal for `faramir-exec`. `faramir init-project` grants it by group: every directory from the home down becomes the client group and group-executable, execute only, so those uids pass through without listing what they pass. Never `chmod o+x`, which grants the same to every account on the machine. Everyone in the group gets that traversal, so keep membership to the accounts that need it. A directory already traversable by `other` is left alone; one whose group is something else is taken over, costing that group whatever the group bits gave it, and `init-project` says so. Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
 
@@ -148,12 +148,12 @@ sudo ./bin/faramir init
 
 Flag | Default | What to give it
 --- | --- | ---
-`--operator NAME` | `$SUDO_USER`, then you | An existing login account, the one your coding agent runs as. It owns the checkouts brokered commands run in, so root is refused. Anything escalating without sudo has to pass this.
-`--client-group NAME` | `dev` | A group name, created if missing. It admits a caller to the broker socket, and `init-project` group-owns a tree with it so `faramir-exec` can enter one.
-`--store-group NAME` | `faramir-keeper` | A group name, created if missing. It owns the managed sops files, and the keeper is the only account in it, so asking for a value by name and reading the file it came from stay different privileges. The default is the keeper's own group, so it follows `--keeper-user`.
+`--operator-user NAME` | `$SUDO_USER`, then you | An existing login account, the one your coding agent runs as. It owns the checkouts brokered commands run in, so root is refused. Anything escalating without sudo has to pass this.
+`--client-group NAME` | `dev` | A group name, created if missing. One group doing two jobs: it admits a caller to the broker socket, and `init-project` group-owns a tree with it so the broker can stat a request's cwd and `faramir-exec` can run there. The operator is in it for the first, the broker and the executor for the second, the keeper for neither. So the executor reaches the broker socket too, which buys it nothing: it can request the same injection the agent can, and the response is redacted and audited the same way.
+`--secrets-group NAME` | `faramir-keeper` | A group name, created if missing. It owns the ciphertext in `<config-dir>/secrets`, and the keeper is the only account in it, so asking for a value by name and reading the file it came from stay different privileges. Not who may *use* a secret: the operator is deliberately out of this group, and `doctor` fails if they are in it. The default is the keeper's own group, so it follows `--keeper-user`.
 `--config-dir DIR` | `/etc/faramir` | An absolute path for `config.toml`, `config.d/`, the age key and the managed sops files. It has to be mounted before the daemons read it, and its parent has to exist: this is the one directory faramir creates whose parent can be yours, and creating one would hand it to root.
 `--broker-user`, `--exec-user`, `--keeper-user` NAME | `faramir-broker`, `faramir-exec`, `faramir-keeper` | Service account names, created if missing. Rename them freely; no two may share a name.
-`--age-recipient KEY` | none | An age public key, repeatable, listed in `.sops.yaml` beside the keeper's so a backup of the ciphertext opens without the keeper's key. No identity is minted: the private half is yours to hold, and it opens a backup only if it outlives whatever took the keeper's key. The **public** half, checked before anything is written: `.sops.yaml` is world-readable, so an identity pasted here would hand the key that opens the store to every account on the host. Only read at the install that creates the file — see [Adding a recipient](#adding-a-recipient).
+`--age-recipient KEY` | none | An age public key, repeatable, listed in `.sops.yaml` beside the keeper's so a backup of the ciphertext opens without the keeper's key. No identity is minted: the private half is yours to hold, and it opens a backup only if it outlives whatever took the keeper's key. The **public** half, checked before anything is written: `.sops.yaml` is world-readable, so an identity pasted here would hand the key that opens the secrets to every account on the host. Only read at the install that creates the file — see [Adding a recipient](#adding-a-recipient).
 `--ssh-key PATH` | `<config-dir>/id_ed25519` | Where the identity the broker lends to brokered commands lives. One is minted either way, so this relocates rather than enables. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run. An existing key at the path is adopted, not replaced, which is how you bring your own; it must already be `faramir-broker`-owned `0600` or `init` refuses it rather than chowning a key that may be yours. It names a keypair: the broker holds both halves and signs with the private one.
 `--agent NAME` | none | `claude`, `gemini`, `opencode` or `kilocode`, repeatable. Installs that agent's deny rules into your own settings. Naming none installs none.
 `--dry-run` | off | A switch. Reports what would change and writes nothing.
@@ -175,13 +175,13 @@ Applying one is two steps, both as root:
 
 ```bash
 sudoedit /etc/faramir/.sops.yaml   # add the key under `- age:`
-sudo faramir rekey                 # re-encrypt the store to what it now says
+sudo faramir rekey                 # re-encrypt the secrets to what it now says
 ```
 
 The first decides who can read files sops creates from then on. The second brings the files that already exist into line, decrypting each with the keeper's key and re-sealing it to the rule. Name files to do only some; `--dry-run` reports what would change and writes nothing.
 
-- **The ownership and mode are preserved.** This is why `rekey` exists rather than a loop over `sops updatekeys`, which rewrites in place with no regard for either: a managed file that stops being readable by the store group is one the keeper cannot open.
-- **A rule that drops the keeper's own key is refused**, before anything is decrypted. Re-encrypting to it would leave a store nothing on the host can open, and re-running cannot undo that. This is the same drift `init` and `doctor` warn about: replace `age.key` — restored from a backup, re-minted after the file was unlinked — and the rule still names the recipient it used to have, so every value encrypted from then on is one the keeper cannot read.
+- **The ownership and mode are preserved.** This is why `rekey` exists rather than a loop over `sops updatekeys`, which rewrites in place with no regard for either: a managed file that stops being readable by the secrets group is one the keeper cannot open.
+- **A rule that drops the keeper's own key is refused**, before anything is decrypted. Re-encrypting to it would leave secrets nothing on the host can open, and re-running cannot undo that. This is the same drift `init` and `doctor` warn about: replace `age.key` — restored from a backup, re-minted after the file was unlinked — and the rule still names the recipient it used to have, so every value encrypted from then on is one the keeper cannot read.
 - **Files already sealed to the rule are skipped.** Re-encrypting rewrites the data key even when the recipients are identical, so a rekey that did not compare first would make every file look changed.
 - **Dropping a recipient is the same two steps**, and reaches no copy of the ciphertext that somebody already holds. Treat what that key could read as read.
 - **A hand-written `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. Use `sops updatekeys` per file, or `--sops-config` to name a single-rule file.
@@ -193,7 +193,7 @@ The first decides who can read files sops creates from then on. The second bring
 sudo faramir doctor
 ```
 
-A broker serving zero refs, an `ssh-agent` holding no key and a client group with members nobody recognises all look healthy otherwise. `doctor` checks what exists only once the install is on a host: the age key unreadable by every account but the keeper, the operator's own `~/.ssh` and `~/.config/sops` unreadable by the executor, the store group the keeper's alone, the config `[exec.base_env]` comes from unwritable by the operator, the binary and the deny list unwritable by it too, the keeper and executor sockets closed to the accounts that must not open them while the broker's is open to the operator, the audit log and the SSH keys unreadable by the executor while it can still authenticate, `ProtectProc` hiding the broker's environment, the `.sops.yaml` creation rule listing the keeper's own recipient rather than one it used to have, and a managed value injected into a real command coming back as its token.
+A broker serving zero refs and a client group with members nobody recognises both look healthy otherwise. `doctor` checks what exists only once the install is on a host: the age key unreadable by every account but the keeper, the operator's own `~/.ssh` and `~/.config/sops` unreadable by the executor, the secrets group the keeper's alone, the config `[exec.base_env]` comes from unwritable by the operator, the binary and the deny list unwritable by it too, the keeper and executor sockets closed to the accounts that must not open them while the broker's is open to the operator, the audit log and the SSH keys unreadable by the executor while it can still authenticate, `ProtectProc` hiding the broker's environment, the `.sops.yaml` creation rule listing the keeper's own recipient rather than one it used to have, and a managed value injected into a real command coming back as its token.
 
 Two checks need another uid: the broker's own `--check`, and asking each account what it can reach. Each is asked as the account it is about, root bypassing file modes so the same question from root answers itself. Without sudo those two report as unchecked rather than as passing.
 
@@ -228,9 +228,9 @@ faramir.env                                  NAME=secret://ref, one per line
 .claude/settings.json, .mcp.json             written by init-project
 ```
 
-`sudo faramir init-project` writes the last line and shares the tree. The other three are yours to place, and none of them needs a drop-in: the store file is managed by being in the store.
+`sudo faramir init-project` writes the last line and shares the tree. The other three are yours to place, and none of them needs a drop-in: a file is managed by being in the secrets directory.
 
-Full walk-through in [docs/ansible-sops.md](docs/ansible-sops.md): the `lookup('env', …)` mapping, why the store must stay out of `group_vars/`, and the SSH key arrangement.
+Full walk-through in [docs/ansible-sops.md](docs/ansible-sops.md): the `lookup('env', …)` mapping, why the secrets must stay out of `group_vars/`, and the SSH key arrangement.
 
 #### Other cases
 
@@ -244,7 +244,7 @@ A database task | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv
 A registry push | `bash -lc 'printf %s "$TOKEN" \| docker login -u me --password-stdin'`
 An HTTP call | `curl -H "Authorization: Bearer $TOKEN"` inside `bash -lc`, so the shell expands it.
 A tool needing a credentials *file* | Have the command write it, use it, remove it. Injection is environment-only.
-Something over SSH | Nothing. List the key in `[ssh] keys`; the child gets `SSH_AUTH_SOCK`.
+Something over SSH | Nothing. `init` renders `[ssh] key`; the child gets `SSH_AUTH_SOCK`.
 Redaction only, no secret | Skip steps 3 and 4. `faramir redact -- ./script.sh`, or use it as a filter.
 
 - A pipeline is requested explicitly as `["bash", "-lc", "…"]`; the broker never hands a string to a shell.
@@ -283,11 +283,11 @@ Command | Does
 --- | ---
 `sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. Shares the tree (group-owned and setgid, so you and a brokered command stop overwriting each other's ownership, and group-executable down from a `0700` home so the executor can enter), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config. A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` and `~/.config/sops/age/keys.txt` to every brokered command, and the walk is not reversible. `faramir doctor` re-checks it.
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](#checking-an-install).
-`sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the store is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
+`sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the secrets directory is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
 `sudo faramir rekey [FILE...]` | Re-encrypts managed sops files to the recipients `<config-dir>/.sops.yaml` names now, which is how a changed creation rule reaches values encrypted before it changed. Every managed file unless some are named. Preserves each file's owner and mode, skips one already sealed to the rule, and refuses a rule that leaves out the keeper's own key. `--dry-run` writes nothing. See [Adding a recipient](#adding-a-recipient).
 `sudo faramir logs` | Recent audit records, or the one a short id names: id, local time, op, outcome, duration, how many values it stood in for, and the command; a redact reports the text's size instead, and an edit or a rekey the managed file, a rekey also naming the recipients on each side. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched.
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed `config.d` drop-in. All three are socket activated.
-`sudo faramir uninstall` | Removes the broker. Leaves the accounts, the config, the store, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively.
+`sudo faramir uninstall` | Removes the broker. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively.
 
 ### MCP tools
 
@@ -310,9 +310,9 @@ Wire protocol: [docs/protocol.md](docs/protocol.md).
 - **Output is truncated** at `[exec] max_output_bytes`; the audit log keeps up to `[audit] max_record_bytes`.
 - **The audit log rotates weekly**, 8 kept, compressed, and early at 16MB. `[audit] max_record_bytes` bounds one record, not the file. Delete `/etc/logrotate.d/faramir` to manage it some other way.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
-- **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does, and `ProtectSystem=strict` leaves that directory read-only to the broker that uses it. A drop-in setting `[ssh] keys` is refused; `--ssh-key` is what moves or adopts one.
+- **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does, and `ProtectSystem=strict` leaves that directory read-only to the broker that uses it. A drop-in setting `[ssh] key` is refused; `--ssh-key` is what moves or adopts one.
 - **The broker's home is `/var/lib/faramir-broker`**, granted by `StateDirectory=`.
-- **Encrypt the disk.** LUKS on the root filesystem covers the age key, the store, the audit log and swap in one move.
+- **Encrypt the disk.** LUKS on the root filesystem covers the age key, the secrets, the audit log and swap in one move.
 
 ## Configuration
 
@@ -324,22 +324,36 @@ Setting | Effect
 `[exec] max_timeout_sec` | How long a command may run.
 `[exec] max_output_bytes` | What comes back; the audit log keeps up to `[audit] max_record_bytes`.
 `[secrets] min_length` | A value too short to redact is refused at load, so it can be injected by nothing.
-`[server] max_redacts_per_min` | How often one account may ask whether a piece of text holds a managed value. 240 by default, 0 for no limit. The wrapper makes one call per Bash command, so raise it only for a tool of yours that does more.
 the executor's uid | The real bound.
 
-- `allowed_groups` admits every member of a group including supplementary membership, and exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_users`; the group form is not a key there and setting it is a hard error naming the alternatives, because the only group in play is the client group, which holds the agent's own uid.
+- `allowed_group` admits every member of one group including supplementary membership, and exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_user`; the group form is not a key there and setting it is a hard error naming the alternatives, because the only group in play is the client group, which holds the agent's own uid.
 - No config names where a command runs. A brokered command runs where its caller was; a request naming no cwd is refused.
 - A mistyped key or `[section]` is a hard error naming the alternatives. Values are range-checked. Zero stays legal where it means something (`kill_grace_sec = 0`, `refresh_interval_sec = 0`).
-- **The sockets belong to their units.** Under socket activation the daemons are handed a listening descriptor and never reach the bind path, so `ListenStream=` and `SocketMode=` are what a socket is; `socket_path` and `socket_mode` only describe it. `init` renders both sides together. A drop-in setting either is refused, because it would move nothing and still break something: the broker *dials* the keeper and the executor at the configured path, and `doctor` inspects the mode of the file named there, so an edit disconnects the broker from a daemon still listening where it always was. Change them with `faramir init`.
-- **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order, and are where *everything you set* goes. `config.toml` is faramir's own and `init` rewrites it every run, so an edit there is replaced without warning; `init` never touches a drop-in. Tables merge key by key, so one `[secrets] files` does not discard `min_length` and one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
+- **The sockets belong to their units.** Under socket activation the daemons are handed a listening descriptor and never reach the bind path, so `ListenStream=` and `SocketMode=` are what a socket is. There is no `socket_mode` key: it would have described a mode systemd had already decided, and `--check` reading it would have tested a value the running socket did not have. `socket_path` stays, because the broker *dials* the keeper and the executor at it, and because a daemon run outside systemd binds it itself; `init` renders it alongside the unit and a drop-in setting it is refused, since moving it would disconnect the broker from a daemon still listening where it always was. Both `--check` and `doctor` stat the bound socket for its mode. `[ssh] agent_socket_mode` is gone for the same reason in reverse: the broker binds that socket itself, so the mode is a constant beside the code that sets it rather than a value a drop-in could widen past the group `exec_group` names. No config key is a file mode any more.
+- **Drop-ins.** `/etc/faramir/config.d/*.toml` merge over the base in lexical order. `config.toml` is faramir's own and `init` rewrites it every run, so an edit there is replaced without warning; `init` never touches a drop-in. That is what a drop-in is for: it is the non-generated place a generated file needs, without which `init` would have to either merge into a file you had edited or stop rewriting. What it can set is the defaults `init` does not derive, which after the rule above is `[exec]` and `[exec.base_env]` entire, `[secrets] files`, `decrypt_command`, `refresh_interval_sec` and `min_length`, the three `[server]` limits, and `[audit] max_record_bytes`. Everything security-shaped is `init`'s and refused here. In practice the ones you reach for are `[exec.base_env]`, since the child inherits nothing else, and `default_timeout_sec` for a command that outruns ten minutes. Tables merge key by key, so one `[secrets] files` does not discard `min_length` and one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
 
-Lists split by what they are:
+**What init derives, a drop-in may not set.** The rule is the value's provenance, not its section: a value `init` computes from a flag or from the install is `init`'s and is refused outright; a value it writes as a plain default is a starting point, and yours.
+
+Key | Flag it derives from
+--- | ---
+`[server] socket_path`, and the same on `[keeper]` and `[executor]` | rendered with the `.socket` units
+`[server] allowed_group` | `--client-group`
+`[keeper] allowed_user`, `[executor] allowed_user` | `--broker-user`
+`[keeper] age_key_file` | `--config-dir`
+`[keeper] age_key_credential` | rendered with the keeper unit's `LoadCredential=`
+`[ssh] ssh_agent`, `[ssh] ssh_add` | resolved on `PATH` at install time; the broker execs them as its own uid
+`[ssh] key` | `--ssh-key`
+`[ssh] exec_group` | `--exec-user`, resolved to that account's own group at install time
+`[ssh] agent_socket`, `[audit] log_path` | no flag: `/run/faramir` and `/var/log/faramir`, fixed at build time. The audit log does not follow `--config-dir`, `{{.LogDir}}` being the broker unit's `ReadWritePaths`
+
+Each is one value, matching the one flag behind it. Two cost something rather than being tidiness: `exec_group` is the group the agent relay's `SO_PEERCRED` check admits, so a drop-in naming the client group there hands the broker's SSH identity to the account the relay exists to keep it from; `ssh_agent` and `ssh_add` are binaries the broker execs as the uid holding every plaintext value. `log_path` is rendered into `logrotate.conf` alongside, so moving one leaves rotation pointed at a file nothing writes.
+
+Everything else is a default. Lists among them split by what they are:
 
 What | Rule | Why
 --- | --- | ---
 `[secrets] files` | **accumulates**, duplicates collapsed | An inventory with one entry per owner. Replacing would leave the broker holding fewer files than its operator believes, injecting and redacting nothing for the loser. Entries are glob patterns, deduplicated again after expansion, so a drop-in naming a file the base already globs adds nothing.
-`[ssh] keys` | **refused in a drop-in** | Policy, not an inventory. `init` mints the key, holds both halves and renders the path, so the list has one owner. A second identity reaches the same hosts and is one no account can vouch for; use `faramir init --ssh-key` to move or adopt one.
-every other list | **refused** when two sources set it, naming both | `allowed_users`, `allowed_groups` and `decrypt_command` are policy. Accumulating would widen what the sockets admit by writing a file that never said so; taking the last would make it depend on filename order.
+`[secrets] decrypt_command` | **refused** when two sources set it, naming both | Policy, and the only list left that is. Accumulating would hand the keeper a second way to invoke sops by writing a file that never said so; taking the last would make it depend on filename order.
 
 - Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir broker --check` report `configs`: the base file and every drop-in that contributed, in merge order.
 - Dotfiles are skipped, so an editor's `.#name.toml` lock does not stop the daemons starting.
@@ -354,15 +368,21 @@ An unknown key or `[section]` | A config that reads as though it took effect.
 A value out of range | Same.
 A ref too short to redact | Refused at load, so covered by nothing.
 A `[secrets] files` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
-A `[ssh] key` passphrase-protected | `ssh-add` refuses it, leaving every host unreachable. `init` catches one missing, unreadable by the broker, or without its `.pub`.
-`[keeper]` or `[executor] allowed_users` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route, and the executor's runs a command with no policy, no redaction and no audit record. The socket modes still stand in the way, so this is the second of two locks, and a gate that waits for both to be open reports the problem afterwards.
-`[server] socket_mode` with world bits set | Every account on the host reaches the broker, whatever `allowed_groups` says.
+An `[ssh] key` the agent cannot load, passphrase-protected or not on disk | `ssh-add` refuses it, leaving every host unreachable. `init` catches one missing, unreadable by the broker, or without its `.pub`.
+`[keeper]` or `[executor] allowed_user` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route, and the executor's runs a command with no policy, no redaction and no audit record. The socket modes still stand in the way, so this is the second of two locks, and a gate that waits for both to be open reports the problem afterwards.
+The bound broker socket having world bits | Every account on the host reaches the broker, whatever `allowed_group` says. Stat'ed, not read from the config, so it reflects what the `.socket` unit actually did. Unbound is reported as unchecked.
 
-A store on a filesystem that is not mounted yet looks exactly like one that was never written, and both leave the broker redacting nothing.
+Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. Neither is served: the broker refuses `exec` and `redact` while it holds no managed values, so the two are told apart by `--check` and `doctor` rather than by a command running unprotected.
 
-Run it as the broker's own account. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on; the `allowed_users` check is skipped there too, since from root every name compares unequal. `faramir doctor` makes the same check knowing the account names.
+Run it as the broker's own account. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on; the `allowed_user` check is skipped there too, since from root every name compares unequal. `faramir doctor` makes the same check knowing the account names.
 
-**The fourth row is also checked every time the broker starts.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time. The daemon now applies the same rule to itself: a configured file it cannot load, including a keeper it cannot reach on a cold start, and it logs what failed and exits rather than binding its socket. The unit restarts on failure, which is what recovers the cases that resolve themselves — a volume that mounts a moment later, a keeper still starting. Later failures do not stop a running broker: it keeps the last value set it knew to be true, which is the better answer once there is one.
+**The daemon holds itself to the same rules, and on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time.
+
+For the secrets that is one rule: **the broker serves `exec` and `redact` only while it holds every value the config asked for.** Nothing configured, an entry that named no file, a file that is there and did not load, each refuses with `no_secrets`, naming which. It comes up either way and `status` and `list_secrets` keep answering, because those are what explain a missing store and neither produces output that depends on the value set. Per request, so a reload that shrinks the set later is caught too, which a startup gate never was. The exception is a keeper that could not be reached: the set kept then is the last one known to be true, unconfirmed rather than short, so a keeper hiccup does not become refused commands.
+
+An `[ssh] key` the agent does not load is logged and not fatal, and the difference from a short value set is what each endangers. A set the broker does not fully hold endangers the output of every command, so those are refused. A key the agent does not hold breaks only commands that reach a managed host, and those fail on their own with `ssh`'s error, at the point of use. Stopping the daemon over it would stop the commands that never touch SSH and remove the process `status` and `doctor` ask. `--check` and `doctor` fail on it, which is where you find out without waiting for a playbook to.
+
+An unset `[ssh] key` is not a failure, being the host that authenticates some other way.
 
 ### What no setting changes
 

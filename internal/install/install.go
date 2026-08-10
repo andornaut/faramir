@@ -17,44 +17,44 @@ import (
 // Options is one `faramir init` invocation: everything an operator can decide.
 // The paths that follow are in Layout.
 type Options struct {
-	// Operator is the account the coding agent runs as.  It has no account of
-	// its own: the work it does is the operator's, and a separate uid could
-	// reach none of it.
-	Operator string
+	// Operator is the account the coding agent runs as.  It has no account of its
+	// own: the work it does is the operator's, and a separate uid could reach none
+	// of it.
+	OperatorUser string
 
-	Group      string
-	StoreGroup string
-	BrokerUser string
-	KeeperUser string
-	ExecUser   string
+	ClientGroup  string
+	SecretsGroup string
+	BrokerUser   string
+	KeeperUser   string
+	ExecUser     string
 
-	// ConfigDir holds config.toml, config.d/, the age key and the store.  One
-	// path, so a store in an encrypted home has the key that opens it there
-	// too.
+	// ConfigDir holds config.toml, config.d/, the age key and the secrets
+	// directory.  One path, so secrets in an encrypted home have the key that
+	// opens them there too.
 	ConfigDir string
 
-	// AgeRecipients are listed in .sops.yaml alongside the keeper's, so an
-	// account that is not the keeper can read the files it is responsible for.
-	// Public keys only: a second private key is a second way into the store.
+	// AgeRecipients are listed in .sops.yaml alongside the keeper's, so an account
+	// that is not the keeper can read the files it is responsible for. Public keys
+	// only: a second private key is a second way into the secrets directory.
 	AgeRecipients []string
 
-	// SSHKey relocates the identity the broker lends through an agent it owns,
-	// so the executor can authenticate with it without reading it.  Empty takes
-	// the default beside the age key rather than leaving the broker without one:
-	// see Layout.SSHKey for why there, and why one is minted whether or not a
-	// host turns out to need it.
+	// SSHKey relocates the identity the broker lends through an agent it owns, so
+	// the executor can authenticate with it without reading it.  Empty takes the
+	// default beside the age key rather than leaving the broker without one: see
+	// Layout.SSHKey for why there, and why one is minted whether or not a host
+	// turns out to need it.
 	//
-	// It names a keypair, and the broker holds both halves: the private one
-	// signs the challenge a managed host sends, and the public one is what goes
-	// into that host's authorized_keys.
+	// It names a keypair, and the broker holds both halves: the private one signs
+	// the challenge a managed host sends, and the public one is what goes into
+	// that host's authorized_keys.
 	SSHKey string
 
 	// No tree is enrolled here: a tree is per project and this runs once per
 	// machine.  See `faramir init-project`.
 
-	// Agents names the coding agents whose settings get the Read deny rules,
-	// which refuse to open key material wherever the agent is working.  Empty
-	// writes nothing.
+	// Agents names the coding agents whose settings get the Read deny rules, which
+	// refuse to open key material wherever the agent is working.  Empty writes
+	// nothing.
 	//
 	// The PreToolUse hook is per project, because registering it auto-approves
 	// Bash there.  The same names `faramir init-project --agent` takes, which
@@ -87,12 +87,12 @@ type Report struct {
 	// Warnings are the things that install cleanly and then do not work.  Not
 	// failures, each having a legitimate shape.
 	Warnings []string `json:"warnings,omitempty"`
-	// BrokerPublicKey has to be in authorized_keys on every managed host.
-	// Reported every run, not only when it was generated.
+	// BrokerPublicKey has to be in authorized_keys on every managed host. Reported
+	// every run, not only when it was generated.
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
 	// AgeRecipients is who can decrypt the managed files, read back from
-	// .sops.yaml rather than taken from --age-recipient: the two agree only on
-	// the run that creates it.  Empty when the file could not be read.
+	// .sops.yaml rather than taken from --age-recipient: the two agree only on the
+	// run that creates it.  Empty when the file could not be read.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
 }
 
@@ -102,8 +102,8 @@ type runner struct {
 	fs     fsys
 	report Report
 
-	// The directory the running faramir came out of, so the binary that
-	// provisions the host is the one that lands on it.  Nothing names it.
+	// The directory the running faramir came out of, so the binary that provisions
+	// the host is the one that lands on it.  Nothing names it.
 	binaries string
 
 	// What the validation step established, not what it was asked to check: it
@@ -112,19 +112,19 @@ type runner struct {
 	brokerLoadedRefs int
 	brokerChecked    bool
 
-	// The key the broker will load, set once it is on disk with the ownership
-	// the broker needs.  Empty under a dry run, so the validation step knows not
-	// to ask a broker that was never given one.
+	// The key the broker will load, set once it is on disk with the ownership the
+	// broker needs.  Empty under a dry run, so the validation step knows not to
+	// ask a broker that was never given one.
 	sshKey string
 
 	// The keeper's own age recipient, empty when it could not be read.  A
-	// .sops.yaml written without it encrypts every later value to everyone
-	// except the account that has to decrypt them.
+	// .sops.yaml written without it encrypts every later value to everyone except
+	// the account that has to decrypt them.
 	keeperRecipient string
 
 	// What the running daemons would not otherwise pick up.  None re-reads its
-	// config or reloads its binary, and nothing else is worth killing the
-	// commands in flight for.
+	// config or reloads its binary, and nothing else is worth killing the commands
+	// in flight for.
 	needsRestart   bool
 	restartReasons []string
 
@@ -136,7 +136,7 @@ type runner struct {
 	keeperUID    int
 	execUID      int
 	groupGID     int
-	storeGID     int
+	secretsGID   int
 	brokerGID    int
 	keeperGID    int
 	execGID      int
@@ -170,12 +170,12 @@ func Run(opts Options) (Report, error) {
 		run.stepSopsConfig,
 		run.stepBinaries,
 		run.stepConfig,
-		// After the config: it reads [ssh] keys merged across config.d.  Before
-		// any daemon starts: a key the broker cannot read leaves the agent
-		// holding nothing.
+		// After the config: it reads [ssh] key merged across config.d.  Before any
+		// daemon starts: a key the broker cannot read leaves the agent holding
+		// nothing.
 		run.stepSSHKey,
-		// Before the units are written: it grants the traversal that lets a
-		// service uid reach a config under the operator's home.
+		// Before the units are written: it grants the traversal that lets a service
+		// uid reach a config under the operator's home.
 		run.stepReachable,
 		run.stepUnits,
 		run.stepSystemd,
@@ -193,8 +193,8 @@ func Run(opts Options) (Report, error) {
 }
 
 func (o *Options) applyDefaults() {
-	if o.Group == "" {
-		o.Group = DefaultGroup
+	if o.ClientGroup == "" {
+		o.ClientGroup = DefaultClientGroup
 	}
 	if o.BrokerUser == "" {
 		o.BrokerUser = DefaultBrokerUser
@@ -204,8 +204,8 @@ func (o *Options) applyDefaults() {
 	}
 	// After KeeperUser, whose primary group this is: the keeper is the only
 	// account that opens a managed file, so there is no membership to keep.
-	if o.StoreGroup == "" {
-		o.StoreGroup = o.KeeperUser
+	if o.SecretsGroup == "" {
+		o.SecretsGroup = o.KeeperUser
 	}
 	if o.ExecUser == "" {
 		o.ExecUser = DefaultExecUser
@@ -218,11 +218,13 @@ func (o *Options) applyDefaults() {
 // layout derives the paths from the options and checks them.
 func (o Options) layout() (Layout, error) {
 	layout := Layout{
-		Group:      o.Group,
-		StoreGroup: o.StoreGroup,
-		BrokerUser: o.BrokerUser,
-		KeeperUser: o.KeeperUser,
-		ExecUser:   o.ExecUser,
+		ClientGroup:  o.ClientGroup,
+		SecretsGroup: o.SecretsGroup,
+		BrokerUser:   o.BrokerUser,
+		KeeperUser:   o.KeeperUser,
+		ExecUser:     o.ExecUser,
+		// Replaced by resolveIDs once the account exists; a dry run keeps it.
+		ExecGroup:  o.ExecUser,
 		ConfigDir:  filepath.Clean(o.ConfigDir),
 		BinDir:     DefaultBinDir,
 		LibexecDir: DefaultLibexecDir,
@@ -230,12 +232,18 @@ func (o Options) layout() (Layout, error) {
 		RunDir:     DefaultRunDir,
 		LogDir:     DefaultLogDir,
 		SSHKey:     o.SSHKey,
+		// The broker execs these as the uid holding every plaintext value, so they
+		// are resolved here rather than defaulted in the config parser and left for a
+		// drop-in to point elsewhere.
+		SshAgent: lookPathOr("ssh-agent", "/usr/bin/ssh-agent"),
+		SshAdd:   lookPathOr("ssh-add", "/usr/bin/ssh-add"),
 	}
 	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
-	// Beside the config, even inside the operator's home: what keeps the
-	// operator out is the key's 0400 keeper ownership, and owning the directory
-	// is permission to unlink the file, not to read it.  Following the config
-	// puts the key inside an encrypted home when the store is already there.
+	// Beside the config, even inside the operator's home: what keeps the operator
+	// out is the key's 0400 keeper ownership, and owning the directory is
+	// permission to unlink the file, not to read it.  Following the config puts
+	// the key inside an encrypted home when the secrets directory is already
+	// there.
 	layout.AgeKeyPath = filepath.Join(layout.ConfigDir, "age.key")
 	if layout.SSHKey == "" {
 		layout.SSHKey = filepath.Join(layout.ConfigDir, "id_ed25519")
@@ -250,26 +258,26 @@ func (r *runner) preflight() error {
 		return errors.New("faramir init must run as root: it creates accounts, " +
 			"writes under /etc and installs systemd units")
 	}
-	if r.opts.Operator == "" || r.opts.Operator == "root" {
-		return errors.New("name the account the coding agent runs as: pass --operator, " +
+	if r.opts.OperatorUser == "" || r.opts.OperatorUser == "root" {
+		return errors.New("name the account the coding agent runs as: pass --operator-user, " +
 			"or run through sudo so SUDO_USER carries it. It must not be root: " +
 			"the operator owns the checkouts a brokered command runs in")
 	}
-	if !userExists(r.opts.Operator) {
-		return fmt.Errorf("no such user: %s", r.opts.Operator)
+	if !userExists(r.opts.OperatorUser) {
+		return fmt.Errorf("no such user: %s", r.opts.OperatorUser)
 	}
-	// Before .sops.yaml is written, that file being written once and then kept:
-	// a bad recipient lands in a world-readable rule and breaks every later
-	// encrypt, nowhere near the run that accepted it.  The keeper's own is read
-	// out of the key and needs no check.
+	// Before .sops.yaml is written, that file being written once and then kept: a
+	// bad recipient lands in a world-readable rule and breaks every later encrypt,
+	// nowhere near the run that accepted it.  The keeper's own is read out of the
+	// key and needs no check.
 	for _, recipient := range r.opts.AgeRecipients {
 		if err := agekey.ValidateRecipient(recipient); err != nil {
 			return fmt.Errorf("--age-recipient: %w", err)
 		}
 	}
 	// An encrypted home is a different directory before its owner logs in, so a
-	// write lands in the backing store and is shadowed the moment it mounts.
-	// The config directory answers for the store and the key too.
+	// write lands in the backing store and is shadowed the moment it mounts. The
+	// config directory answers for the secrets directory and the key too.
 	if home := homeOf(r.layout.ConfigDir); home != "" && looksEncrypted(home) && !homeIsMounted(home) {
 		return fmt.Errorf("%s is an encrypted home and is not mounted, and %s is "+
 			"inside it. Installing now would write plaintext to the backing store, "+
@@ -280,8 +288,7 @@ func (r *runner) preflight() error {
 	// the operator.  ensureDir chowns every ancestor it has to create, so an
 	// absent parent comes back root-owned and is no longer its owner's to write:
 	// ~/.config created that way breaks every other tool that keeps state there.
-	// The directories under /usr/local are faramir's own and are created as
-	// usual.
+	// The directories under /usr/local are faramir's own and are created as usual.
 	if parent := filepath.Dir(r.layout.ConfigDir); !exists(parent) {
 		return fmt.Errorf("%s does not exist, and %s is inside it. Create it with "+
 			"the ownership you want first: creating it here would hand it to root",

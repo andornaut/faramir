@@ -32,23 +32,23 @@ var agentInstructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 type ProjectOptions struct {
 	// Dir is the tree to enrol.  Defaults to the working directory.
 	Dir string
-	// Operator owns the tree and keeps owning it; this grants group access for
-	// the executor's uid.
-	Operator string
-	// ConfigDir is where the client group is learned.  A flag could disagree
-	// with what the sockets admit, leaving a tree the executor cannot enter.
+	// Operator owns the tree and keeps owning it; this grants group access for the
+	// executor's uid.
+	OperatorUser string
+	// ConfigDir is where the client group is learned.  A flag could disagree with
+	// what the sockets admit, leaving a tree the executor cannot enter.
 	ConfigDir string
-	// Group overrides the group read from the config.  For a host whose config
-	// is not readable, not for ordinary use.
-	Group string
+	// ClientGroup overrides the group read from the config.  For a host whose
+	// config is not readable, not for ordinary use.
+	ClientGroup string
 	// Hook registers the PreToolUse hook in the project's agent settings, which
 	// redacts the output of everything the agent runs there.  It auto-approves
-	// Bash for the project: a rewritten command matches no permission rule, so
-	// the hook's deny list is what refuses one.
+	// Bash for the project: a rewritten command matches no permission rule, so the
+	// hook's deny list is what refuses one.
 	Hook bool
-	// Agents names which coding agents to enrol; empty means Claude Code.
-	// Named rather than detected, enrolling costing something on some agents.
-	// What a tree happens to carry is reported instead.
+	// Agents names which coding agents to enrol; empty means Claude Code. Named
+	// rather than detected, enrolling costing something on some agents. What a
+	// tree happens to carry is reported instead.
 	Agents []string
 	DryRun bool
 	Log    func(string)
@@ -56,13 +56,13 @@ type ProjectOptions struct {
 
 // ProjectReport is one enrolment's outcome.
 type ProjectReport struct {
-	Version  string   `json:"version"`
-	Dir      string   `json:"dir"`
-	Group    string   `json:"group"`
-	Changed  bool     `json:"changed"`
-	DryRun   bool     `json:"dry_run,omitempty"`
-	Steps    []Step   `json:"steps"`
-	Warnings []string `json:"warnings,omitempty"`
+	Version     string   `json:"version"`
+	Dir         string   `json:"dir"`
+	ClientGroup string   `json:"group"`
+	Changed     bool     `json:"changed"`
+	DryRun      bool     `json:"dry_run,omitempty"`
+	Steps       []Step   `json:"steps"`
+	Warnings    []string `json:"warnings,omitempty"`
 }
 
 // Project enrols one tree: the group and modes that let a brokered command run
@@ -90,9 +90,9 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	if opts.ConfigDir == "" {
 		opts.ConfigDir = DefaultConfigDir
 	}
-	if opts.Operator == "" || opts.Operator == "root" {
+	if opts.OperatorUser == "" || opts.OperatorUser == "root" {
 		return ProjectReport{}, fmt.Errorf("name the account that works in %s: pass "+
-			"--operator, or run through sudo so SUDO_USER carries it. The tree "+
+			"--operator-user, or run through sudo so SUDO_USER carries it. The tree "+
 			"belongs to somebody, and root here would chown a checkout away from "+
 			"its owner", dir)
 	}
@@ -100,7 +100,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		return ProjectReport{}, fmt.Errorf("faramir init-project must run as root: it " +
 			"changes group ownership and modes on directories you do not own")
 	}
-	if err := refuseOversharing(dir, opts.Operator); err != nil {
+	if err := refuseOversharing(dir, opts.OperatorUser); err != nil {
 		return ProjectReport{}, err
 	}
 
@@ -152,9 +152,9 @@ func refuseOversharing(dir, operator string) error {
 	if home := homeOf(dir); home == dir {
 		return tooBig("a home directory")
 	}
-	// The account's own home as passwd records it, which catches one outside
-	// /home and /root.  Resolved, because dir is.  An unknown account fails
-	// later in shareTree, with the error that names it.
+	// The account's own home as passwd records it, which catches one outside /home
+	// and /root.  Resolved, because dir is.  An unknown account fails later in
+	// shareTree, with the error that names it.
 	if entry, err := user.Lookup(operator); err == nil && entry.HomeDir != "" {
 		home, err := sharetree.Resolve(entry.HomeDir)
 		if err != nil {
@@ -212,12 +212,12 @@ func (p *project) warn(format string, args ...any) {
 }
 
 // resolveGroup reads the shared group out of the installed config.
-// allowed_groups is what the broker socket admits, so it is the only value that
+// allowed_group is what the broker socket admits, so it is the only value that
 // makes a shared tree usable; a flag would leave every mode right and the
 // executor still unable to enter.
 func (p *project) resolveGroup() error {
-	if p.opts.Group != "" {
-		p.report.Group = p.opts.Group
+	if p.opts.ClientGroup != "" {
+		p.report.ClientGroup = p.opts.ClientGroup
 		return nil
 	}
 	configFile := filepath.Join(p.opts.ConfigDir, "config.toml")
@@ -227,42 +227,37 @@ func (p *project) resolveGroup() error {
 			"Run faramir init first, pass --config-dir if the config is elsewhere, "+
 			"or pass --client-group to name it directly", configFile, err)
 	}
-	if len(cfg.Server.AllowedGroups) == 0 {
+	if cfg.Server.AllowedGroup == "" {
 		return fmt.Errorf("%s admits no group, so a shared tree would reach nothing. "+
-			"Set allowed_groups", configFile)
+			"Run `faramir init --client-group NAME`", configFile)
 	}
-	// The first, when there are several: a tree has one group.
-	p.report.Group = cfg.Server.AllowedGroups[0]
-	if len(cfg.Server.AllowedGroups) > 1 {
-		p.warn("%s admits %s; this tree is given %s, which is the first",
-			configFile, strings.Join(cfg.Server.AllowedGroups, ", "), p.report.Group)
-	}
+	p.report.ClientGroup = cfg.Server.AllowedGroup
 	return nil
 }
 
 func (p *project) shareTree() error {
 	if p.opts.DryRun {
 		p.step("share tree", false, fmt.Sprintf("%s with group %s",
-			p.opts.Dir, p.report.Group))
+			p.opts.Dir, p.report.ClientGroup))
 		return nil
 	}
-	uid, err := lookupUser(p.opts.Operator)
+	uid, err := lookupUser(p.opts.OperatorUser)
 	if err != nil {
 		return err
 	}
-	gid, err := lookupGroup(p.report.Group)
+	gid, err := lookupGroup(p.report.ClientGroup)
 	if err != nil {
 		return err
 	}
 	p.uid, p.gid = uid, gid
 	if err := sharetree.Share(sharetree.Options{
-		Dir: p.opts.Dir, Operator: p.opts.Operator, Group: p.report.Group,
+		Dir: p.opts.Dir, Operator: p.opts.OperatorUser, Group: p.report.ClientGroup,
 	}); err != nil {
 		return fmt.Errorf("%s: %w", p.opts.Dir, err)
 	}
-	// The executor runs under ProtectSystem=strict with /home as its only
-	// writable tree, so a tree outside it takes the group and then refuses every
-	// write with EROFS.
+	// The executor runs under ProtectSystem=strict with /home as its only writable
+	// tree, so a tree outside it takes the group and then refuses every write with
+	// EROFS.
 	if homeOf(p.opts.Dir) == "" {
 		p.warn("%s is outside /home, which is the only tree faramir-exec may write. "+
 			"A brokered command can enter it and still gets EROFS on every write. "+
@@ -272,7 +267,7 @@ func (p *project) shareTree() error {
 	// Reported as no change: after the first run it re-applies what is already
 	// there.
 	p.step("share tree", false, fmt.Sprintf("%s with group %s",
-		p.opts.Dir, p.report.Group))
+		p.opts.Dir, p.report.ClientGroup))
 	return nil
 }
 
@@ -304,8 +299,8 @@ func (p *project) agentConfig() error {
 			if err != nil {
 				return err
 			}
-			// Merged, not overwritten: the file is the project's to edit, and
-			// only the keys faramir writes are touched.
+			// Merged, not overwritten: the file is the project's to edit, and only the
+			// keys faramir writes are touched.
 			write := p.fs.writeFile
 			if file.merge {
 				write = p.fs.mergeFile
@@ -330,8 +325,8 @@ func (p *project) agentConfig() error {
 	// Named rather than counted, so an operator knows which file to merge.
 	p.step("agent config", changed, strings.Join(written, ", "))
 
-	// Reported, never acted on: a directory left behind by trying an agent is
-	// not a decision to enrol it.
+	// Reported, never acted on: a directory left behind by trying an agent is not
+	// a decision to enrol it.
 	var unenrolled []string
 	for _, name := range detectedAgents(p.opts.Dir) {
 		enrolled := false

@@ -27,13 +27,13 @@ func TestPreflightRefusesAConfigDirWhoseParentIsAbsent(t *testing.T) {
 		refused   bool
 	}{
 		{"the parent is absent", filepath.Join(base, "absent", "faramir"), true},
-		// Reaches the later checks instead, which is all this asserts: the
-		// parent being there is not what stops the run.
+		// Reaches the later checks instead, which is all this asserts: the parent
+		// being there is not what stops the run.
 		{"the parent is there", filepath.Join(base, "faramir"), false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			run := &runner{
-				opts:   Options{Operator: me.Username, DryRun: true},
+				opts:   Options{OperatorUser: me.Username, DryRun: true},
 				layout: Layout{ConfigDir: tc.configDir},
 			}
 

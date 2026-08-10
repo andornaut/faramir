@@ -24,7 +24,7 @@ type sopsRules struct {
 }
 
 // sopsRecipients is every age recipient .sops.yaml lists, in order, without
-// repeats.  Across every rule rather than the one matching the store:
+// repeats.  Across every rule rather than the one matching the secrets:
 // re-implementing sops' selection would be a second answer free to disagree
 // with sops', and the question here is only whether a key is in the file at
 // all.

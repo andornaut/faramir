@@ -47,43 +47,6 @@ type Server struct {
 	slots chan struct{}
 	ln    net.Listener
 	wg    sync.WaitGroup
-
-	// redacts counts the redact op per calling uid over a sliding minute.
-	redacts struct {
-		sync.Mutex
-		at map[int32][]time.Time
-	}
-}
-
-// allowRedact reports whether this peer may run one more redact, and records
-// it.  A sliding window rather than a token bucket, which would let a burst
-// through after a quiet spell.  Keyed by uid, since each request is its own
-// connection.
-func (s *Server) allowRedact(peer *sockutil.Peer) bool {
-	limit := s.Config.Server.MaxRedactsPerMin
-	if limit <= 0 || peer == nil {
-		return true
-	}
-	now := time.Now()
-	cutoff := now.Add(-time.Minute)
-
-	s.redacts.Lock()
-	defer s.redacts.Unlock()
-	if s.redacts.at == nil {
-		s.redacts.at = map[int32][]time.Time{}
-	}
-	kept := s.redacts.at[peer.UID][:0]
-	for _, at := range s.redacts.at[peer.UID] {
-		if at.After(cutoff) {
-			kept = append(kept, at)
-		}
-	}
-	if len(kept) >= limit {
-		s.redacts.at[peer.UID] = kept
-		return false
-	}
-	s.redacts.at[peer.UID] = append(kept, now)
-	return true
 }
 
 func New(cfg *config.Config) *Server {
@@ -100,7 +63,7 @@ func New(cfg *config.Config) *Server {
 }
 
 func (s *Server) Listen() (net.Listener, error) {
-	ln, err := sockutil.Listen(s.Config.Server.SocketPath, s.Config.Server.SocketMode)
+	ln, err := sockutil.Listen(s.Config.Server.SocketPath)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +147,7 @@ func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 		return nil, err
 	}
 	cfg := s.Config.Server
-	if !sockutil.Allowed(peer, nil, cfg.AllowedGroups) {
+	if !sockutil.Allowed(peer, "", cfg.AllowedGroup) {
 		return nil, nil
 	}
 	return peer, nil
@@ -215,23 +178,22 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 }
 
 func (s *Server) opStatus() protocol.Response {
-	// Counts, not paths.  Any member of the client group can ask, which includes
+	// Whether, not where.  Any member of the client group can ask, which includes
 	// the coding agent, so what goes here lands in a model's context by default.
-	// The count is also the answer: a configured key that did not load looks
+	// It is also the whole answer: a configured key that did not load looks
 	// identical to a working one from the config's side, and that difference is
 	// the only thing anyone debugs here.
-	configured, usable := s.Config.Ssh.Keys, 0
-	for _, path := range configured {
-		if data, err := os.ReadFile(path); err == nil && unusableReason(data) == "" {
-			usable++
-		}
+	configured, usable := s.Config.Ssh.Key != "", false
+	if configured {
+		data, err := os.ReadFile(s.Config.Ssh.Key)
+		usable = err == nil && unusableReason(data) == ""
 	}
 	body, _ := json.MarshalIndent(map[string]any{
 		"version": version.Version,
 		// Every file that contributed, in merge order.
 		"configs": s.Config.Sources,
 		"secrets": s.Store.Describe(),
-		"ssh":     map[string]any{"configured": len(configured), "usable": usable},
+		"ssh":     map[string]any{"configured": configured, "usable": usable},
 	}, "", "  ")
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",
@@ -243,24 +205,18 @@ func (s *Server) opStatus() protocol.Response {
 // broker's uid gets the same redaction a brokered command does.  The value set
 // never leaves this process.
 //
-// It is a deliberate oracle, bounded by [server] max_redacts_per_min and
-// recorded like every other op; see docs/design.md.  Only the input size and
-// what was found are logged, never the text.
+// It is a deliberate oracle, recorded like every other op; see docs/design.md.
+// Only the input size and what was found are logged, never the text.
+//
+// Not rate-limited.  A throttle here slowed a guessing attack that the same
+// caller need never mount: list_secrets and run are ops on this socket behind
+// the same check, so every managed value can be had by naming it rather than by
+// guessing it.  Bounding the slower path bought nothing while the faster one is
+// open by design, and cost a lock on the hot path, the wrapper calling redact
+// once per Bash command.
 func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	// Refused rather than delayed: a wait would stall the agent's shell with no
-	// explanation.
-	if !s.allowRedact(peer) {
-		logID := audit.NewLogID()
-		log.Printf("%s uid %d is over [server] max_redacts_per_min (%d); refusing",
-			logID, peer.UID, s.Config.Server.MaxRedactsPerMin)
-		s.Audit.Write(map[string]any{
-			"log_id": logID, "op": "redact", "peer": peer,
-			"input_bytes": len(request.Text), "refused": "rate_limited",
-		}, "")
-		return protocol.ErrorResponse("rate_limited", fmt.Sprintf(
-			"more than %d redact calls in a minute from this account; "+
-				"raise [server] max_redacts_per_min if this is ordinary use",
-			s.Config.Server.MaxRedactsPerMin), logID)
+	if refused := s.refuseWhileIncomplete("a redact", audit.NewLogID()); refused != nil {
+		return *refused
 	}
 	redactor := s.redactor()
 	output := redactor.RedactText(request.Text)
@@ -277,8 +233,8 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protoc
 }
 
 func (s *Server) opListSecrets() protocol.Response {
-	// Names only, and only refs that loaded: a value the redactor cannot cover
-	// is refused at load.
+	// Names only, and only refs that loaded: a value the redactor cannot cover is
+	// refused at load.
 	refs := s.Store.Refs()
 	var output strings.Builder
 	for _, ref := range refs {
@@ -290,22 +246,52 @@ func (s *Server) opListSecrets() protocol.Response {
 	}
 }
 
+// refuseWhileIncomplete is the gate on the two ops whose safety depends on the
+// value set: served only while the broker holds everything the config asked
+// for.  Short of that, the redactor covers less than its operator believes and
+// the caller cannot tell the difference from a command with nothing to hide.
+//
+// One rule rather than three, and here rather than at startup.  Startup was the
+// wrong place twice over: it only ever judged the host as it was at boot, so a
+// reload that shrank the set afterwards went unremarked, and exiting takes the
+// daemon down just when `faramir status` and `doctor` are what would explain
+// why.  status and list_secrets stay available for that reason: neither
+// produces output that depends on the set.
+func (s *Server) refuseWhileIncomplete(op, logID string) *protocol.Response {
+	reason := s.Store.Incomplete()
+	if reason == "" {
+		return nil
+	}
+	if patterns := s.Config.Secrets.Files; len(patterns) == 0 {
+		reason = "no [secrets] files are configured"
+	}
+	log.Printf("%s refusing %s: %s", logID, op, reason)
+	out := protocol.ErrorResponse("no_secrets", fmt.Sprintf(
+		"the broker does not hold every managed value, so %s would run with "+
+			"redaction covering less than the config asks for: %s. Fix that, or write "+
+			"a first secret with `sudo faramir edit`, then retry", op, reason), logID)
+	return &out
+}
+
 func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	execCfg := s.Config.Exec
 	logID := audit.NewLogID()
+	if refused := s.refuseWhileIncomplete("this command", logID); refused != nil {
+		return *refused
+	}
 
 	cmd, envRefs := request.Cmd, request.EnvRefs
 
-	// No fallback: a brokered command runs where its caller was, and nothing
-	// else knows where that is.
+	// No fallback: a brokered command runs where its caller was, and nothing else
+	// knows where that is.
 	cwd := request.Cwd
 	if !request.HasCwd || cwd == "" {
 		return protocol.ErrorResponse("bad_request",
 			"no cwd: name the directory to run in.", logID)
 	}
 	// Fails early with a clear message; it enforces nothing.  Permission is left
-	// to the executor, whose uid may hold traversal the broker does not.
-	// Absence is refused here, being knowable from any uid.
+	// to the executor, whose uid may hold traversal the broker does not. Absence
+	// is refused here, being knowable from any uid.
 	info, statErr := os.Stat(cwd)
 	switch {
 	case statErr == nil && !info.IsDir():
@@ -329,8 +315,8 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
 
-	// The only place plaintext is touched outside the store, and it goes
-	// straight into the child's environ.  HOME is left to the executor.
+	// The only place plaintext is touched outside the store, and it goes straight
+	// into the child's environ.  HOME is left to the executor.
 	env := make(map[string]string, len(execCfg.BaseEnv)+1)
 	maps.Copy(env, execCfg.BaseEnv)
 	// SSH_AUTH_SOCK: the child can authenticate with the keys, not read them.
@@ -366,8 +352,8 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 			s.Config.Server.MaxConcurrency), logID)
 	}
 
-	// Every known secret, not only the injected ones: a managed host can print
-	// one the broker never injected.
+	// Every known secret, not only the injected ones: a managed host can print one
+	// the broker never injected.
 	redactor := redact.New(s.Store.Pairs(), s.Store.Policy)
 	collector := audit.NewCollector(s.Config.Audit.MaxRecordBytes)
 	started := time.Now()
@@ -378,8 +364,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		Env:        env,
 		TimeoutSec: timeout,
 	})
-	// Drop the plaintext as soon as the child has it; the store keeps the
-	// values.
+	// Drop the plaintext as soon as the child has it; the store keeps the values.
 	for k := range env {
 		delete(env, k)
 	}
@@ -438,8 +423,8 @@ func redactEach(r *redact.Redactor, in []string) []string {
 
 // CheckOutput is the operator-facing --check report: the refs refused at load,
 // which the agent-facing status op never names, and the state of the configured
-// SSH keys.  Both are non-zero, being a broker that serves without doing the job
-// it was installed for.
+// SSH keys.  Both are non-zero, being a broker that serves without doing the
+// job it was installed for.
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
 	sshInfo, problems := s.describeSSH()
@@ -458,8 +443,21 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	}
 	refused, _ := secrets["not_redactable"].(map[string]string)
 	if len(refused) > 0 {
-		// Nothing logged: loading already named every refused secret, and the
-		// JSON body carries the same set as not_redactable.
+		// Nothing logged: loading already named every refused secret, and the JSON
+		// body carries the same set as not_redactable.
+		code = 1
+	}
+	// The audit is stricter than the daemon's own gate, which is the split: the
+	// daemon starts while the store is not written yet, and refuses exec and
+	// redact until it is.  Here that state fails, because a host serving nothing
+	// is one an operator asked about and should be told about.
+	if s.Store.Count() == 0 {
+		log.Printf("the broker holds no managed values, so nothing is injectable " +
+			"and nothing is redacted; exec and redact are refused until one loads")
+		code = 1
+	}
+	if absent := s.Store.Unresolved(); len(absent) > 0 {
+		log.Printf("%d configured entry(ies) named no file: %v", len(absent), absent)
 		code = 1
 	}
 	// Every value the broker failed to load is one it cannot redact.  Absent
@@ -471,9 +469,9 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		code = 1
 	}
 	if len(problems) > 0 {
-		log.Printf("%d configured SSH key(s) the broker cannot use: %v", len(problems), problems)
-		log.Printf("brokered commands will reach no host that expects one; " +
-			"place the key, or set [ssh] keys = [] to authenticate some other way")
+		log.Printf("the broker cannot use the configured SSH key: %v", problems)
+		log.Printf("brokered commands will reach no host that expects it; " +
+			"place the key, or leave [ssh] key unset to authenticate some other way")
 		code = 1
 	}
 	return body, code
@@ -489,34 +487,39 @@ func (s *Server) CheckOutput() ([]byte, int) {
 // reported as unchecked instead.
 func (s *Server) policyProblems() []string {
 	problems := []string{}
-	if mode := s.Config.Server.SocketMode; mode&0o007 != 0 {
+	// The socket itself, not a config key describing it: under systemd the .socket
+	// unit's SocketMode= is what the mode ends up as, so a key here could read
+	// 0660 while the bound socket is world-writable.  Unbound means unchecked
+	// rather than passing.
+	path := s.Config.Server.SocketPath
+	if info, err := os.Stat(path); err != nil {
+		log.Printf("%s is not bound, so its mode went unchecked: %v", path, err)
+	} else if mode := info.Mode().Perm(); mode&0o007 != 0 {
 		problems = append(problems, fmt.Sprintf(
-			"[server] socket_mode is %04o: every account on this host can reach the "+
-				"broker, whatever allowed_groups says", mode))
+			"%s is %04o: every account on this host can reach the broker, whatever "+
+				"allowed_group says", path, mode))
 	}
 	if os.Geteuid() == 0 {
-		log.Printf("running as root, so [keeper] and [executor] allowed_users were " +
+		log.Printf("running as root, so [keeper] and [executor] allowed_user were " +
 			"not checked: run --check as the broker's own account")
 		return problems
 	}
 	for _, socket := range []struct {
 		section string
-		users   []string
+		account string
 		cost    string
 	}{
-		{"keeper", s.Config.Keeper.AllowedUsers,
+		{"keeper", s.Config.Keeper.AllowedUser,
 			"asking it for a decrypted value is the age key without reading the file"},
-		{"executor", s.Config.Executor.AllowedUsers,
+		{"executor", s.Config.Executor.AllowedUser,
 			"a command sent there runs unredacted and unlogged"},
 	} {
-		// An empty list is not checked: it fails loudly on its own, and the
-		// failure looked for here is a list admitting one account too many.
-		for _, name := range socket.users {
-			if !isSelf(name) {
-				problems = append(problems, fmt.Sprintf(
-					"[%s] allowed_users names %s, which is not the broker: %s",
-					socket.section, name, socket.cost))
-			}
+		// Unset is not checked: it fails loudly on its own, and the failure looked
+		// for here is a name admitting the wrong account.
+		if socket.account != "" && !isSelf(socket.account) {
+			problems = append(problems, fmt.Sprintf(
+				"[%s] allowed_user names %s, which is not the broker: %s",
+				socket.section, socket.account, socket.cost))
 		}
 	}
 	return problems
@@ -533,7 +536,7 @@ func isSelf(name string) bool {
 }
 
 // unusableReason names why ssh-add will refuse this key, or "" if it will take
-// it.  In practice: a passphrase-protected key, or [ssh] keys pointing at the
+// it.  In practice: a passphrase-protected key, or [ssh] key pointing at the
 // .pub.  Either leaves the broker up with an agent holding nothing.  The parse
 // is what ssh-add would do, and its error carries no key material.
 func unusableReason(data []byte) string {
@@ -547,40 +550,36 @@ func unusableReason(data []byte) string {
 			"so ssh-add will refuse it"
 	}
 	if _, _, _, _, pubErr := ssh.ParseAuthorizedKey(data); pubErr == nil {
-		return "this is a public key; [ssh] keys must name the private key"
+		return "this is a public key; [ssh] key must name the private key"
 	}
 	return "not a usable private key"
 }
 
-// describeSSH reports which configured keys the broker can read and use, and
-// one line per key that is neither.  A file check rather than a loaded-key
-// count: --check runs before Ssh.Start, and starting a second agent would
-// replace a running broker's socket.
+// describeSSH reports whether the broker can read and use the configured key,
+// and why not when it cannot.  A file check rather than a loaded-key count:
+// --check runs before Ssh.Start, and starting a second agent would replace a
+// running broker's socket.
 func (s *Server) describeSSH() (map[string]any, []string) {
-	keys := make([]map[string]any, 0, len(s.Config.Ssh.Keys))
-	var problems []string
-	for _, path := range s.Config.Ssh.Keys {
-		data, err := os.ReadFile(path)
-		readable := err == nil
-		entry := map[string]any{"path": path, "readable": readable}
-		if !readable {
-			problems = append(problems, path+": "+err.Error())
-			keys = append(keys, entry)
-			continue
-		}
-		if reason := unusableReason(data); reason != "" {
-			entry["usable"] = false
-			entry["reason"] = reason
-			problems = append(problems, path+": "+reason)
-		} else {
-			entry["usable"] = true
-		}
-		keys = append(keys, entry)
+	info := map[string]any{"agent_socket": s.Config.Ssh.AgentSocket}
+	path := s.Config.Ssh.Key
+	// Absent is deliberate: the key then lives where the executor can read it.
+	if path == "" {
+		return info, nil
 	}
-	return map[string]any{
-		"agent_socket": s.Config.Ssh.AgentSocket,
-		// Empty is deliberate: the keys then live where the executor can read
-		// them.
-		"keys": keys,
-	}, problems
+
+	key := map[string]any{"path": path}
+	info["key"] = key
+	data, err := os.ReadFile(path)
+	if err != nil {
+		key["readable"] = false
+		return info, []string{path + ": " + err.Error()}
+	}
+	key["readable"] = true
+	if reason := unusableReason(data); reason != "" {
+		key["usable"] = false
+		key["reason"] = reason
+		return info, []string{path + ": " + reason}
+	}
+	key["usable"] = true
+	return info, nil
 }

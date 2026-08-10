@@ -18,10 +18,10 @@ Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
-# {{.Group}}, because brokered commands run in the working tree and write to it:
+# {{.ClientGroup}}, because brokered commands run in the working tree and write to it:
 # ansible drops .retry files and fact caches.  The tree is agent-owned and
 # group-writable, so this is the access the agent already has.
-SupplementaryGroups={{.Group}}
+SupplementaryGroups={{.ClientGroup}}
 
 # Every brokered command runs as this uid, so what it can reach is what a
 # command can reach:
@@ -31,10 +31,10 @@ SupplementaryGroups={{.Group}}
 #   {{.RunDir}}/exec.sock    no  (0660 root:{{.BrokerUser}})
 #   {{.LogDir}}/audit.log  no  (0600 {{.BrokerUser}})
 #   ~{{.BrokerUser}}/.ssh      no  (0700 {{.BrokerUser}})
-#   the working tree          read and write, via {{.Group}} above
+#   the working tree          read and write, via {{.ClientGroup}} above
 #   the rest of /home         whatever the mode allows, read-only
 #
-# {{.RunDir}}/broker.sock is reachable, being 0660 root:{{.Group}}, so a brokered
+# {{.RunDir}}/broker.sock is reachable, being 0660 root:{{.ClientGroup}}, so a brokered
 # command can call the broker back.  That buys it nothing: the response is
 # redacted and audited like the agent's own.
 #
@@ -84,7 +84,7 @@ RemoveIPC=true
 # 0007 rather than the other two's 0077: children write into the operator's
 # working tree, and a file the operator cannot open is not a shared tree.  With
 # the setgid directory supplying the group, their files land 0660
-# {{.ExecUser}}:{{.Group}}.  The executor itself creates no files.
+# {{.ExecUser}}:{{.ClientGroup}}.  The executor itself creates no files.
 UMask=0007
 
 # Every remaining exposure item, and why it is accepted.  Anything flagged that

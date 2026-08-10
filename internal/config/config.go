@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
@@ -58,7 +57,8 @@ func rejectUnknown(raw map[string]any, known []string, where, noun string) error
 		where, noun, strings.Join(unknown, ", "), noun, strings.Join(sorted, ", "))
 }
 
-// table returns one [section] as a map, rejecting a scalar written in its place.
+// table returns one [section] as a map, rejecting a scalar written in its
+// place.
 func table(raw map[string]any, key, where string) (map[string]any, error) {
 	value, ok := raw[key]
 	if !ok || value == nil {
@@ -71,32 +71,6 @@ func table(raw map[string]any, key, where string) (map[string]any, error) {
 	out := make(map[string]any, len(m))
 	maps.Copy(out, m)
 	return out, nil
-}
-
-// octalMode accepts both "0660" and TOML's own 0o660.  An int is already the
-// mode, so a base-8 parse would reinterpret it silently.  The range check
-// catches an unquoted decimal 660, which would mean 0o1224.
-func octalMode(value any, where string) (os.FileMode, error) {
-	switch v := value.(type) {
-	case string:
-		n, err := strconv.ParseInt(v, 8, 32)
-		if err != nil {
-			return 0, fmt.Errorf("%s: %q is not octal", where, v)
-		}
-		return rangeCheckMode(n, where)
-	case int64:
-		return rangeCheckMode(v, where)
-	default:
-		return 0, fmt.Errorf("%s: expected an octal string or integer", where)
-	}
-}
-
-func rangeCheckMode(n int64, where string) (os.FileMode, error) {
-	if n < 0 || n > 0o777 {
-		return 0, fmt.Errorf("%s: out of range, expected 0 to 0o777; write the mode in "+
-			`octal, as "0660" or 0o660`, where)
-	}
-	return os.FileMode(n), nil
 }
 
 func stringList(value any, where string, fallback []string) ([]string, error) {
@@ -163,8 +137,8 @@ func integer(value any, where string, fallback int) (int, error) {
 }
 
 // intInRange is the value check the sizes and counts need: max_concurrency = -1
-// panics on startup, 0 refuses every request as busy, and
-// default_timeout_sec = 0 kills every command as it starts.
+// panics on startup, 0 refuses every request as busy, and default_timeout_sec =
+// 0 kills every command as it starts.
 func intInRange(sec map[string]any, key, where string, fallback, low, high int) (int, error) {
 	n, err := integer(sec[key], where, fallback)
 	if err != nil {
@@ -194,16 +168,15 @@ const maxInt = int(^uint(0) >> 1)
 //
 // Callers are named by group rather than by uid.  A uid list was a second
 // spelling of the same answer that stopped being true the moment an account was
-// renumbered, and nothing asked it a question allowed_groups could not.
+// renumbered, and nothing asked it a question allowed_group could not.
+//
+// One group, because `faramir init --client-group` names one and a drop-in may
+// not set it.  A list held exactly one value on every install that existed.
 type ServerConfig struct {
 	SocketPath      string
-	SocketMode      os.FileMode
 	MaxConcurrency  int
 	MaxRequestBytes int
-	AllowedGroups   []string
-	// MaxRedactsPerMin bounds the redact op per calling uid.  Zero is no limit.
-	// It does not close the oracle, only make a probe visible.
-	MaxRedactsPerMin int
+	AllowedGroup    string
 }
 
 type ExecConfig struct {
@@ -219,12 +192,12 @@ type ExecConfig struct {
 
 // KeeperConfig describes the process that holds the age key: separate uid,
 // separate socket, no operation that returns the key.  The broker is the only
-// client, which AllowedUsers says.  No allowed_groups, because the only group
-// in play holds the agent's own uid.
+// client, which AllowedUser says: one account, not a list, because a second
+// would be a second reader of the age key.  No allowed_group, because the only
+// group in play holds the agent's own uid.
 type KeeperConfig struct {
 	SocketPath       string
-	SocketMode       os.FileMode
-	AllowedUsers     []string
+	AllowedUser      string
 	AgeKeyCredential string
 	AgeKeyFile       string
 }
@@ -237,28 +210,26 @@ type KeeperConfig struct {
 // holds one [server] max_concurrency slot for the whole of each child, so that
 // cap binds first and always; the executor keeps a fixed backstop of its own.
 type ExecutorConfig struct {
-	SocketPath   string
-	SocketMode   os.FileMode
-	AllowedUsers []string
+	SocketPath  string
+	AllowedUser string
 }
 
-// SshConfig is an ssh-agent the broker owns, for keys the executor must not
-// read.  With no Keys no agent is started, and SSH authenticates however the
+// SshConfig is an ssh-agent the broker owns, for a key the executor must not
+// read.  With no Key no agent is started, and SSH authenticates however the
 // operator arranged it for the executor's uid.
 type SshConfig struct {
-	Keys            []string
-	AgentSocket     string
-	AgentSocketMode os.FileMode
-	ExecGroup       string
-	SshAgent        string
-	SshAdd          string
+	Key         string
+	AgentSocket string
+	ExecGroup   string
+	SshAgent    string
+	SshAdd      string
 }
 
 type SecretsConfig struct {
 	Files []string
-	// How the keeper invokes sops; "{file}" is each managed path.  Executed
-	// rather than linked, which would pull every key source sops supports into
-	// the process holding the master key.
+	// How the keeper invokes sops; "{file}" is each managed path.  Executed rather
+	// than linked, which would pull every key source sops supports into the
+	// process holding the master key.
 	DecryptCommand     []string
 	RefreshIntervalSec int
 	MinLength          int
@@ -273,8 +244,8 @@ type AuditConfig struct {
 
 type Config struct {
 	Path string
-	// Every file that contributed, base first then each drop-in in order.
-	// Reported by status and --check.
+	// Every file that contributed, base first then each drop-in in order. Reported
+	// by status and --check.
 	Sources  []string
 	Server   ServerConfig
 	Keeper   KeeperConfig
@@ -302,8 +273,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	// Drop-ins carry what belongs to whatever consumes the broker -- which sops
-	// files to manage, which SSH key to lend -- so the two have separate
-	// owners.
+	// files to manage, which SSH key to lend -- so the two have separate owners.
 	dropIns, err := dropInPaths(filepath.Join(filepath.Dir(path), dropInDirName))
 	if err != nil {
 		return nil, err
@@ -367,8 +337,8 @@ func dropInPaths(dir string) ([]string, error) {
 	var paths []string
 	for _, entry := range entries {
 		name := entry.Name()
-		// Skipped, not read: an editor's lock is a dangling .#name.toml symlink,
-		// and refusing it would stop the daemons while a drop-in is open.
+		// Skipped, not read: an editor's lock is a dangling .#name.toml symlink, and
+		// refusing it would stop the daemons while a drop-in is open.
 		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".toml") {
 			continue
 		}
@@ -380,16 +350,51 @@ func dropInPaths(dir string) ([]string, error) {
 
 // inventoryLists name what the broker is to manage, one entry per owner, so
 // they accumulate across sources.  Everything else is policy and replaces:
-// accumulating allowed_users, allowed_groups or decrypt_command would widen
-// what the sockets admit by writing a file that never said so.
-//
-// ssh.keys is not one of them.  init mints one key, holds both halves and
-// renders the path here, so the list has one owner and a drop-in naming another
-// key is refused like any other policy list.  Two identities reach the same
-// hosts and only one of them is a key no other account has ever held; a key of
-// your own goes to `faramir init --ssh-key`, which adopts it and says so.
+// accumulating decrypt_command would hand the keeper a second way to invoke
+// sops by writing a file that never said so.
 var inventoryLists = map[string]bool{
 	"secrets.files": true,
+}
+
+// initOwned are the keys init derives from a flag or from the install layout,
+// which a drop-in may not set.  The rule that decides membership: a key init
+// computes is init's, and a key it writes as a plain default is a starting
+// point the operator may change.  Everything not here is the second kind.
+//
+// Distinct from systemdOwned, which is what the .socket units decide.
+//
+// Each of these is a scalar, so the policy rule below cannot reach it: that one
+// refuses a list two sources set, and a scalar simply replaces.  ssh.exec_group
+// is the reason this matters rather than being tidiness, being the group the
+// agent's SO_PEERCRED check admits; a drop-in naming the client group there
+// hands the broker's identity to the account the agent exists to keep it from.
+// The value is the flag that sets each, so the refusal says what to run
+// instead.  Empty for a value rendered from a compiled-in path, which no flag
+// moves: naming one would send the operator to a command that changes nothing.
+var initOwned = map[string]string{
+	// A second identity reaches the same hosts and is one no account has ever
+	// held; a key of your own is adopted rather than replaced.
+	"ssh.key": "--ssh-key PATH",
+	// What each socket admits.
+	"server.allowed_group":  "--client-group NAME",
+	"keeper.allowed_user":   "--broker-user NAME",
+	"executor.allowed_user": "--broker-user NAME",
+	// The exec account's primary group, resolved at install time.
+	"ssh.exec_group": "--exec-user NAME",
+	// Where the master key is read from, and the credential the keeper unit
+	// supplies it under, which that unit renders alongside.
+	"keeper.age_key_file":       "--config-dir PATH",
+	"keeper.age_key_credential": "",
+	// The binaries the broker execs as the uid holding every plaintext value. init
+	// resolves them on PATH; a drop-in pointing either elsewhere is code execution
+	// as that uid.
+	"ssh.ssh_agent": "",
+	"ssh.ssh_add":   "",
+	// From LogDir and RunDir.  audit.log_path is rendered into logrotate.conf
+	// beside it, and the agent socket into the unit's RuntimeDirectory, so moving
+	// one here leaves the other pointed where it was.
+	"audit.log_path":   "",
+	"ssh.agent_socket": "",
 }
 
 // systemdOwned are the keys the .socket units decide, which a drop-in may not
@@ -406,11 +411,8 @@ var inventoryLists = map[string]bool{
 // and has to carry them, and a broker run outside systemd binds them itself.
 var systemdOwned = map[string]bool{
 	"server.socket_path":   true,
-	"server.socket_mode":   true,
 	"keeper.socket_path":   true,
-	"keeper.socket_mode":   true,
 	"executor.socket_path": true,
-	"executor.socket_mode": true,
 }
 
 // mergeInto layers one decoded config over another.  Tables merge key by key
@@ -435,12 +437,24 @@ func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, s
 				"`faramir init` and let it rewrite both sides", source, full)
 		}
 
+		if dropIn {
+			if flag, owned := initOwned[full]; owned {
+				remedy := "It is rendered from a path fixed at build time, which no flag moves"
+				if flag != "" {
+					remedy = "Change it with `faramir init " + flag + "`"
+				}
+				return fmt.Errorf("%s: %s is init's, not this file's: it derives from "+
+					"the install rather than being a default to tune, and init rewrites "+
+					"it every run. %s", source, full, remedy)
+			}
+		}
+
 		if sub, ok := value.(map[string]any); ok {
-			// A table always merges into a table, one being created when the
-			// base has none.  Replacing wholesale left every key inside it
-			// unmarked in setBy, so a later drop-in setting a policy list in
-			// there looked unset and overwrote it silently; recursing into an
-			// empty map marks them on the way through instead.
+			// A table always merges into a table, one being created when the base has
+			// none.  Replacing wholesale left every key inside it unmarked in setBy, so
+			// a later drop-in setting a policy list in there looked unset and overwrote
+			// it silently; recursing into an empty map marks them on the way through
+			// instead.
 			existing, ok := base[key].(map[string]any)
 			if !ok {
 				existing = map[string]any{}
@@ -492,14 +506,14 @@ func appendNew(existing, incoming []any) []any {
 
 var (
 	sections   = []string{"server", "keeper", "executor", "exec", "ssh", "secrets", "audit"}
-	serverKeys = []string{"socket_path", "socket_mode", "max_concurrency",
-		"max_request_bytes", "allowed_groups", "max_redacts_per_min"}
-	keeperKeys = []string{"socket_path", "socket_mode", "allowed_users",
+	serverKeys = []string{"socket_path", "max_concurrency",
+		"max_request_bytes", "allowed_group"}
+	keeperKeys = []string{"socket_path", "allowed_user",
 		"age_key_credential", "age_key_file"}
-	executorKeys = []string{"socket_path", "socket_mode", "allowed_users"}
+	executorKeys = []string{"socket_path", "allowed_user"}
 	execKeys     = []string{"default_timeout_sec", "max_timeout_sec",
 		"max_output_bytes", "base_env", "term_cols", "term_rows", "kill_grace_sec"}
-	sshKeys = []string{"keys", "agent_socket", "agent_socket_mode", "exec_group",
+	sshKeys = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
 	secretsKeys = []string{"files", "decrypt_command", "refresh_interval_sec",
 		"min_length"}
@@ -549,17 +563,11 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 	}
 	*out = ServerConfig{
 		SocketPath:     "/run/faramir/broker.sock",
-		SocketMode:     0o660,
 		MaxConcurrency: 4, MaxRequestBytes: 262144,
-		AllowedGroups: []string{"dev"}, MaxRedactsPerMin: 240,
+		AllowedGroup: "dev",
 	}
 	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
 		return err
-	}
-	if v, ok := sec["socket_mode"]; ok {
-		if out.SocketMode, err = octalMode(v, fmt.Sprintf("%s: server.socket_mode", path)); err != nil {
-			return err
-		}
 	}
 	// 1, not 0: an unbuffered channel refuses every request as busy.
 	if out.MaxConcurrency, err = atLeast(sec, "max_concurrency", where, out.MaxConcurrency, 1); err != nil {
@@ -568,14 +576,10 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 	if out.MaxRequestBytes, err = atLeast(sec, "max_request_bytes", where, out.MaxRequestBytes, 1); err != nil {
 		return err
 	}
-	if out.AllowedGroups, err = stringList(sec["allowed_groups"], where, out.AllowedGroups); err != nil {
+	if out.AllowedGroup, err = str(sec["allowed_group"], where, out.AllowedGroup); err != nil {
 		return err
 	}
 	// Zero means no limit.
-	if out.MaxRedactsPerMin, err = atLeast(sec, "max_redacts_per_min", where,
-		out.MaxRedactsPerMin, 0); err != nil {
-		return err
-	}
 	return nil
 }
 
@@ -589,18 +593,13 @@ func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
 		return err
 	}
 	*out = KeeperConfig{
-		SocketPath: "/run/faramir/keeper.sock", SocketMode: 0o660,
-		AllowedUsers: []string{"faramir-broker"}, AgeKeyCredential: "age_key",
+		SocketPath:  "/run/faramir/keeper.sock",
+		AllowedUser: "faramir-broker", AgeKeyCredential: "age_key",
 	}
 	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
 		return err
 	}
-	if v, ok := sec["socket_mode"]; ok {
-		if out.SocketMode, err = octalMode(v, fmt.Sprintf("%s: keeper.socket_mode", path)); err != nil {
-			return err
-		}
-	}
-	if out.AllowedUsers, err = stringList(sec["allowed_users"], where, out.AllowedUsers); err != nil {
+	if out.AllowedUser, err = str(sec["allowed_user"], where, out.AllowedUser); err != nil {
 		return err
 	}
 	if out.AgeKeyCredential, err = str(sec["age_key_credential"], where, out.AgeKeyCredential); err != nil {
@@ -622,18 +621,13 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 		return err
 	}
 	*out = ExecutorConfig{
-		SocketPath: "/run/faramir/exec.sock", SocketMode: 0o660,
-		AllowedUsers: []string{"faramir-broker"},
+		SocketPath:  "/run/faramir/exec.sock",
+		AllowedUser: "faramir-broker",
 	}
 	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
 		return err
 	}
-	if v, ok := sec["socket_mode"]; ok {
-		if out.SocketMode, err = octalMode(v, fmt.Sprintf("%s: executor.socket_mode", path)); err != nil {
-			return err
-		}
-	}
-	if out.AllowedUsers, err = stringList(sec["allowed_users"], where, out.AllowedUsers); err != nil {
+	if out.AllowedUser, err = str(sec["allowed_user"], where, out.AllowedUser); err != nil {
 		return err
 	}
 	return nil
@@ -706,9 +700,9 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	if out.Files, err = stringList(sec["files"], where, nil); err != nil {
 		return err
 	}
-	// Each entry is a glob pattern; a malformed one matches nothing at every
-	// later stage, reading as a missing store.  Matching the empty string
-	// touches no filesystem and reports only ErrBadPattern.
+	// Each entry is a glob pattern; a malformed one matches nothing at every later
+	// stage, reading as a missing store.  Matching the empty string touches no
+	// filesystem and reports only ErrBadPattern.
 	for _, pattern := range out.Files {
 		if _, err := filepath.Match(pattern, ""); err != nil {
 			return fmt.Errorf("%s: files entry %q is not a valid glob pattern: %v",
@@ -740,19 +734,14 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 		return err
 	}
 	*out = SshConfig{
-		AgentSocket: "/run/faramir/ssh-agent.sock", AgentSocketMode: 0o660,
-		ExecGroup: "faramir-exec", SshAgent: "/usr/bin/ssh-agent", SshAdd: "/usr/bin/ssh-add",
+		AgentSocket: "/run/faramir/ssh-agent.sock",
+		ExecGroup:   "faramir-exec", SshAgent: "/usr/bin/ssh-agent", SshAdd: "/usr/bin/ssh-add",
 	}
-	if out.Keys, err = stringList(sec["keys"], where, nil); err != nil {
+	if out.Key, err = str(sec["key"], where, ""); err != nil {
 		return err
 	}
 	if out.AgentSocket, err = str(sec["agent_socket"], where, out.AgentSocket); err != nil {
 		return err
-	}
-	if v, ok := sec["agent_socket_mode"]; ok {
-		if out.AgentSocketMode, err = octalMode(v, fmt.Sprintf("%s: ssh.agent_socket_mode", path)); err != nil {
-			return err
-		}
 	}
 	if out.ExecGroup, err = str(sec["exec_group"], where, out.ExecGroup); err != nil {
 		return err

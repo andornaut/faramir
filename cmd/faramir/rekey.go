@@ -1,19 +1,19 @@
 package main
 
-// `faramir rekey` applies a changed `.sops.yaml` to a store that was encrypted
-// before it changed.
+// `faramir rekey` applies a changed `.sops.yaml` to a secrets directory that
+// was encrypted before it changed.
 //
 // Adding or dropping an age recipient is two separate facts.  The creation rule
-// decides who can read files sops writes from then on; every file already in the
-// store is still sealed to the recipients it was written with, and nothing walks
-// the store to bring them into line.  `faramir edit` will not do it either: it
-// re-encrypts to the recipients a file already carries, on purpose, so that an
-// edit cannot silently drop a reader mid-edit.
+// decides who can read files sops writes from then on; every file already in
+// the secrets directory is still sealed to the recipients it was written with,
+// and nothing walks that directory to bring them into line.  `faramir edit`
+// will not do it either: it re-encrypts to the recipients a file already
+// carries, on purpose, so that an edit cannot silently drop a reader mid-edit.
 //
 // That left the operator running `sops updatekeys` once per managed file, as
 // root, and checking the ownership afterwards because updatekeys rewrites in
-// place with no regard for it -- a managed file that stops being readable by the
-// store group is one the keeper cannot open.  This is that loop, with the
+// place with no regard for it -- a managed file that stops being readable by
+// the secrets group is one the keeper cannot open.  This is that loop, with the
 // ownership preserved by the same writeBack an edit uses, and recorded in the
 // audit log the way an edit is.
 //
@@ -59,7 +59,10 @@ func cmdRekey(args []string) int {
 		return 1
 	}
 
-	managed, unresolvable := keeper.Resolve(cfg.Secrets.Files)
+	// Both kinds together: this is a diagnostic printed when the named file is
+	// not among the managed ones, and the operator wants every reason.
+	managed, failures, absent := keeper.Resolve(cfg.Secrets.Files)
+	unresolvable := slices.Concat(failures, absent)
 	targets, err := rekeyTargets(managed, fs.Args())
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
@@ -93,9 +96,10 @@ func cmdRekey(args []string) int {
 		fmt.Fprintf(os.Stderr, "age key: %v\n", err)
 		return 1
 	}
-	// Checked before anything is decrypted.  Re-encrypting to a rule the keeper
-	// is not named in produces a store that opens for nobody the broker can ask,
-	// one file at a time, and the failure only shows up at the next refresh.
+	// Checked before anything is decrypted.  Re-encrypting to a rule the keeper is
+	// not named in produces a secrets directory that opens for nobody the broker
+	// can ask, one file at a time, and the failure only shows up at the next
+	// refresh.
 	if err := keeperStaysAReader(keyPath, wanted, rulePath); err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 1
@@ -123,8 +127,8 @@ func cmdRekey(args []string) int {
 
 		err = reencrypt(target, keyPath, wanted)
 		// One record per file, naming the recipients on both sides and never the
-		// values: who can read the store is exactly what an operator needs the
-		// log to be able to answer afterwards.
+		// values: who can read the secrets directory is exactly what an operator
+		// needs the log to be able to answer afterwards.
 		record := map[string]any{
 			"op": "rekey", "log_id": audit.NewLogID(), "file": target,
 			"from": was, "to": wanted,
@@ -144,9 +148,9 @@ func cmdRekey(args []string) int {
 		changed++
 	}
 
-	// Named rather than left implicit: a rekey that reached only some of the
-	// store is the state an operator has to know about, because the rest is still
-	// sealed to the old recipients.
+	// Named rather than left implicit: a rekey that reached only some of the files
+	// is the state an operator has to know about, because the rest is still sealed
+	// to the old recipients.
 	if failed > 0 {
 		fmt.Fprintf(os.Stderr, "%d of %d file(s) could not be re-encrypted; "+
 			"those still open to the recipients they had\n", failed, len(targets))
@@ -166,9 +170,9 @@ func cmdRekey(args []string) int {
 // rekeyTargets is every managed file, or just the ones named.
 //
 // Naming none is the whole point of the command, so it is the default; naming
-// some is for a store where one file is meant to stay as it is.  Either way a
-// path that is not managed is refused by resolveManaged, so a rekey cannot walk
-// out of the store.
+// some is for a secrets directory where one file is meant to stay as it is.
+// Either way a path that is not managed is refused by resolveManaged, so a
+// rekey cannot walk out of the secrets directory.
 func rekeyTargets(managed, named []string) ([]string, error) {
 	if len(named) == 0 {
 		if len(managed) == 0 {
@@ -189,10 +193,10 @@ func rekeyTargets(managed, named []string) ([]string, error) {
 	return out, nil
 }
 
-// ruleAgeRecipient matches the age keys listed under a creation rule.  Read with
-// a regex for the reason recipientsOf is: the sops libraries are kept out of
-// this binary deliberately, and a YAML parser for one cleartext list would undo
-// that.
+// ruleAgeRecipient matches the age keys listed under a creation rule.  Read
+// with a regex for the reason recipientsOf is: the sops libraries are kept out
+// of this binary deliberately, and a YAML parser for one cleartext list would
+// undo that.
 var ruleAgeRecipient = regexp.MustCompile(`(age1[0-9a-z]+)`)
 
 // ruleCreationRule counts the rules in the file, because the regex above reads
@@ -206,8 +210,8 @@ var ruleCreationRule = regexp.MustCompile(`(?m)^\s*-\s+path_regex\s*:`)
 // *.sops.yml wherever it sits, so every managed file is governed by the same
 // list and reading the whole file is reading that list.  With two rules the
 // answer depends on which one a path matches, which is a path_regex question
-// this cannot answer -- so it refuses rather than re-encrypting half the store
-// to the wrong set.
+// this cannot answer -- so it refuses rather than re-encrypting half the
+// secrets directory to the wrong set.
 func ruleRecipients(path string) ([]string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -247,7 +251,7 @@ func keeperStaysAReader(keyPath string, wanted []string, rulePath string) error 
 		return nil
 	}
 	return fmt.Errorf("%s does not list %s, which is the key %s decrypts with: "+
-		"re-encrypting to it would leave a store the keeper cannot open, and the "+
+		"re-encrypting to it would leave a secrets directory the keeper cannot open, and the "+
 		"broker would come up serving nothing. Add it under '- age:' first",
 		rulePath, recipient, keyPath)
 }
@@ -268,8 +272,8 @@ func sameRecipients(was, wanted []string) bool {
 //
 // The plaintext goes through a 0600 file in a tmpfs rather than through this
 // process's memory and back, because sops encrypts a file and takes its name:
-// the creation rule selects by path_regex, so the temporary copy has to keep the
-// target's own name to match the rule at all.
+// the creation rule selects by path_regex, so the temporary copy has to keep
+// the target's own name to match the rule at all.
 func reencrypt(target, keyPath string, recipients []string) error {
 	decrypted, err := runSops(keyPath, "--decrypt", target)
 	if err != nil {

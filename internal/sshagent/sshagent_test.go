@@ -47,7 +47,7 @@ func newKey(t *testing.T, dir string) string {
 
 func baseConfig(dir string) config.SshConfig {
 	return config.SshConfig{
-		AgentSocket: filepath.Join(dir, "ssh-agent.sock"), AgentSocketMode: 0o600,
+		AgentSocket: filepath.Join(dir, "ssh-agent.sock"),
 		// The test runs as one uid, so there is no executor group to hand it to.
 		ExecGroup: "",
 		SshAgent:  "/usr/bin/ssh-agent", SshAdd: "/usr/bin/ssh-add",
@@ -56,35 +56,66 @@ func baseConfig(dir string) config.SshConfig {
 
 // -- disabled by default ----------------------------------------------------
 
-// With no keys, no agent is started and nothing is injected.
-func TestNoKeysMeansNoAgentAndNoInjection(t *testing.T) {
+// With no key, no agent is started and nothing is injected.
+func TestNoKeyMeansNoAgentAndNoInjection(t *testing.T) {
 	dir := t.TempDir()
 	a := New(baseConfig(dir))
 	if a.Enabled() {
-		t.Error("Enabled with no keys")
+		t.Error("Enabled with no key")
 	}
-	a.Start()
+	if err := a.Start(); err != nil {
+		t.Errorf("Start with no key: %v, want nil", err)
+	}
 	defer a.Stop()
 
 	if env := a.Env(); len(env) != 0 {
 		t.Errorf("Env = %v, want empty", env)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "ssh-agent.sock")); err == nil {
-		t.Error("an agent socket was created with no keys configured")
+		t.Error("an agent socket was created with no key configured")
 	}
 }
 
-// SSH is optional, so a missing binary is logged rather than fatal.
-func TestAMissingBinaryDoesNotRaise(t *testing.T) {
+// -- a configured key the agent cannot hold is fatal -----------------------
+
+// A key is configured, so a host without the binary cannot serve it.
+func TestAMissingBinaryIsAnError(t *testing.T) {
 	dir := t.TempDir()
 	cfg := baseConfig(dir)
-	cfg.Keys = []string{filepath.Join(dir, "nope")}
+	cfg.Key = filepath.Join(dir, "nope")
 	cfg.SshAgent = filepath.Join(dir, "no-such-ssh-agent")
 
 	a := New(cfg)
-	a.Start() // must not panic
+	err := a.Start()
 	defer a.Stop()
 
+	if err == nil {
+		t.Fatal("Start = nil with an ssh-agent that does not exist")
+	}
+	if env := a.Env(); len(env) != 0 {
+		t.Errorf("Env = %v after a failed start", env)
+	}
+}
+
+// The config names a key and the disk has none, which is the drift that
+// otherwise surfaces as a brokered command failing to authenticate.
+func TestAConfiguredKeyThatIsNotOnDiskIsAnError(t *testing.T) {
+	requireSSH(t)
+	dir := t.TempDir()
+	cfg := baseConfig(dir)
+	cfg.Key = filepath.Join(dir, "id_ed25519")
+
+	a := New(cfg)
+	err := a.Start()
+	defer a.Stop()
+
+	if err == nil {
+		t.Fatal("Start = nil with a configured key that is not on disk")
+	}
+	// Bound after the key loads, so a failure to load leaves nothing to reach.
+	if _, statErr := os.Stat(cfg.AgentSocket); statErr == nil {
+		t.Error("the proxy socket was bound with no key loaded")
+	}
 	if env := a.Env(); len(env) != 0 {
 		t.Errorf("Env = %v after a failed start", env)
 	}
@@ -98,13 +129,13 @@ func startedAgent(t *testing.T) (*Agent, string) {
 	dir := t.TempDir()
 	key := newKey(t, dir)
 	cfg := baseConfig(dir)
-	cfg.Keys = []string{key}
+	cfg.Key = key
 
 	a := New(cfg)
-	a.Start()
+	err := a.Start()
 	t.Cleanup(a.Stop)
-	if len(a.Env()) == 0 {
-		t.Skip("ssh-agent did not come up in this environment")
+	if err != nil || len(a.Env()) == 0 {
+		t.Skipf("ssh-agent did not come up in this environment: %v", err)
 	}
 	return a, key
 }
@@ -189,8 +220,8 @@ func TestTheAgentSocketIsNotWorldAccessible(t *testing.T) {
 	}
 }
 
-// The agent lends authentication, not keys: the private half is never
-// reachable through the socket.
+// The agent lends authentication, not keys: the private half is never reachable
+// through the socket.
 func TestThePrivateKeyNeverAppearsInOutput(t *testing.T) {
 	a, key := startedAgent(t)
 	private, err := os.ReadFile(key)

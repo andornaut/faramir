@@ -54,8 +54,8 @@ func TestEnsureDirCreatesEveryLevel(t *testing.T) {
 	if !changed {
 		t.Error("creating a directory reported no change")
 	}
-	// Ancestors get traversal, the leaf what was asked for: a store's 2770 on
-	// its parent would let the shared group rename the store.
+	// Ancestors get traversal, the leaf what was asked for: the secrets directory's
+	// 2770 on its parent would let the shared group rename the secrets directory.
 	for dir, want := range map[string]os.FileMode{
 		filepath.Join(root, "config"):         0o755,
 		filepath.Join(root, "config", "sops"): 0o755,
@@ -84,10 +84,10 @@ func TestEnsureDirDoesNotWidenAncestors(t *testing.T) {
 		t.Fatal(err)
 	}
 	if parent.Mode().Perm()&0o020 != 0 {
-		t.Errorf("the store's parent is group-writable (%o)", parent.Mode().Perm())
+		t.Errorf("the secrets directory's parent is group-writable (%o)", parent.Mode().Perm())
 	}
 	if parent.Mode()&os.ModeSetgid != 0 {
-		t.Error("the store's parent is setgid")
+		t.Error("the secrets directory's parent is setgid")
 	}
 }
 

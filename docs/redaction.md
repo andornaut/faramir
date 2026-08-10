@@ -8,7 +8,7 @@
 
 So the broker holds every managed value, not the subset the current command names. It refetches on startup, when a file's fingerprint changes, and when the previous fetch could not reach the keeper: the files are unchanged in that case, so the poll would never notice, and an empty value set redacts nothing.
 
-The fingerprints come from the keeper rather than a stat, the store being group-readable by the keeper alone, and `[secrets] files` globs are expanded there per request, so a file dropped into the store is picked up within `refresh_interval_sec` with no daemon to restart.
+The fingerprints come from the keeper rather than a stat, the secrets being group-readable by the keeper alone, and `[secrets] files` globs are expanded there per request, so a file dropped into the secrets directory is picked up within `refresh_interval_sec` with no daemon to restart.
 
 ## Why a PTY and not a pipe
 

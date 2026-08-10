@@ -69,7 +69,7 @@ func New(cfg *config.Config) *Executor {
 }
 
 func (e *Executor) Listen() (net.Listener, error) {
-	ln, err := sockutil.Listen(e.config.Executor.SocketPath, e.config.Executor.SocketMode)
+	ln, err := sockutil.Listen(e.config.Executor.SocketPath)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,7 @@ func (e *Executor) serveConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
 	peer, err := sockutil.PeerCred(conn)
-	if err != nil || !sockutil.AllowedUser(peer, e.config.Executor.AllowedUsers) {
+	if err != nil || !sockutil.AllowedUser(peer, e.config.Executor.AllowedUser) {
 		_ = sockutil.Send(conn, errorResponse("forbidden", "peer not authorized"))
 		return
 	}
@@ -236,8 +236,8 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 		}
 		env = append(env, k+"="+v)
 	}
-	// HOME belongs to this uid, not the broker's; ansible creates
-	// ~/.ansible/tmp unconditionally.
+	// HOME belongs to this uid, not the broker's; ansible creates ~/.ansible/tmp
+	// unconditionally.
 	if !hasHome {
 		env = append(env, "HOME="+ownHome())
 	}
@@ -245,9 +245,9 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	timeoutSec := positive(req.TimeoutSec, e.config.Exec.DefaultTimeoutSec)
 	graceSec := positive(req.KillGraceSec, e.config.Exec.KillGraceSec)
 
-	// Nothing writes to the master, so a child reading stdin would block until
-	// its timeout; /dev/null makes that an immediate EOF.  stdout and stderr
-	// keep the PTY, which `test -t 1` and /dev/tty writes depend on.
+	// Nothing writes to the master, so a child reading stdin would block until its
+	// timeout; /dev/null makes that an immediate EOF.  stdout and stderr keep the
+	// PTY, which `test -t 1` and /dev/tty writes depend on.
 	devnull, err := os.Open(os.DevNull)
 	if err != nil {
 		return errorResponse("exec_failed", err.Error())
@@ -301,8 +301,8 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 // done is closed by the caller's cmd.Wait goroutine, since waiting twice would
 // fail with ECHILD.
 func (e *Executor) await(cmd *exec.Cmd, conn net.Conn, done <-chan struct{}, timeoutSec, graceSec int) bool {
-	// A readable connection means the broker sent something or hung up; either
-	// way it is no longer waiting, and the child must not outlive it.
+	// A readable connection means the broker sent something or hung up; either way
+	// it is no longer waiting, and the child must not outlive it.
 	hangup := make(chan struct{})
 	go func() {
 		one := make([]byte, 1)

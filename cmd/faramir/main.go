@@ -59,11 +59,11 @@ Provisioning (require root; they do not talk to the broker):
   init          install or re-install faramir on this host
   init-project  enrol one working tree: share it, and configure the agent there
   edit          edit a managed sops file
-  rekey         re-encrypt the store to the recipients .sops.yaml now names
+  rekey         re-encrypt the secrets directory to the recipients .sops.yaml now names
   logs          show the audit log: what ran, against which refs, and how it ended
   doctor        report whether the install is doing its job
   reload        drop the daemons onto a changed configuration
-  uninstall     remove the broker, keeping the key, the store and the log
+  uninstall     remove the broker, keeping the key, the secrets directory and the log
 
 Run by systemd and by the coding agent, not by you:
   broker        the secrets broker daemon
@@ -171,12 +171,12 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 	}
 }
 
-// operatorName resolves the account that works in the tree: --operator, then
-// SUDO_USER so `sudo faramir init` needs no flag, then the caller.
+// operatorName resolves the account that works in the tree: --operator-user,
+// then SUDO_USER so `sudo faramir init` needs no flag, then the caller.
 //
 // root is not an answer at any position -- the tree belongs to somebody, and
 // chowning a checkout to root would take it from its owner -- so escalating by
-// another route means passing --operator.
+// another route means passing --operator-user.
 func operatorName(flagValue string) string {
 	candidates := []string{flagValue, os.Getenv("SUDO_USER")}
 	if current, err := user.Current(); err == nil {
@@ -209,15 +209,15 @@ func cmdKeygen(args []string) int {
 		fmt.Fprintf(os.Stderr, "Public key: %s\n", id.Recipient())
 		return 0
 	}
-	// Generate refuses to clobber: overwriting an age key destroys every sops
-	// file it was the only recipient for, retroactively.
+	// Generate refuses to clobber: overwriting an age key destroys every sops file
+	// it was the only recipient for, retroactively.
 	recipient, created, err := agekey.Generate(*out)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
 		return 1
 	}
-	// Non-zero on an existing target, so a caller can tell a fresh identity
-	// from one that was already there.
+	// Non-zero on an existing target, so a caller can tell a fresh identity from
+	// one that was already there.
 	if !created {
 		fmt.Fprintf(os.Stderr,
 			"faramir: %s exists; refusing to overwrite an age key\n", *out)
@@ -296,8 +296,8 @@ func cmdRun(args []string) int {
 	if len(refs) > 0 {
 		request["env_refs"] = refs
 	}
-	// The caller's own directory unless -C says otherwise: a brokered command
-	// runs where it was typed.
+	// The caller's own directory unless -C says otherwise: a brokered command runs
+	// where it was typed.
 	if *cwd == "" {
 		if here, err := os.Getwd(); err == nil {
 			*cwd = here
@@ -332,9 +332,9 @@ func checkRef(name, uri string) error {
 	return nil
 }
 
-// readEnvFile reads NAME=secret://ref lines, one per line, # for a comment.
-// The file holds refs and never values, so it lives beside the playbook it
-// belongs to; the request on the wire is the same either way.
+// readEnvFile reads NAME=secret://ref lines, one per line, # for a comment. The
+// file holds refs and never values, so it lives beside the playbook it belongs
+// to; the request on the wire is the same either way.
 func readEnvFile(path string) (map[string]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -355,9 +355,8 @@ func readEnvFile(path string) (map[string]string, error) {
 		if err := checkRef(name, uri); err != nil {
 			return nil, fmt.Errorf("%s:%d: %w", path, i+1, err)
 		}
-		// Not last-wins: silently picking one of two is how the wrong
-		// credential reaches a host.  An identical repeat is a merge artefact,
-		// so it passes.
+		// Not last-wins: silently picking one of two is how the wrong credential
+		// reaches a host.  An identical repeat is a merge artefact, so it passes.
 		if existing, seen := refs[name]; seen && existing != uri {
 			return nil, fmt.Errorf("%s:%d: %s is given twice, as %s and %s",
 				path, i+1, name, existing, uri)
@@ -368,8 +367,8 @@ func readEnvFile(path string) (map[string]string, error) {
 }
 
 // chunkBytes is how much text one redact request carries.  Well under the
-// broker's default max_request_bytes, which applies to the JSON-encoded line:
-// a control byte becomes six characters, so this cannot exceed it however badly
+// broker's default max_request_bytes, which applies to the JSON-encoded line: a
+// control byte becomes six characters, so this cannot exceed it however badly
 // it encodes.
 const chunkBytes = 32 << 10
 
@@ -415,9 +414,9 @@ func redactChild(socketPath string, argv []string) int {
 	streamErr := redactStream(socketPath, output, os.Stdout)
 	if streamErr != nil {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", streamErr)
-		// Drain, or a child that fills the pipe blocks the Wait below.
-		// Discarded rather than written: this is the text that could not be
-		// redacted, and the rest of a stream that stopped.
+		// Drain, or a child that fills the pipe blocks the Wait below. Discarded
+		// rather than written: this is the text that could not be redacted, and the
+		// rest of a stream that stopped.
 		_, _ = io.Copy(io.Discard, output)
 	}
 	err = cmd.Wait()
@@ -432,8 +431,8 @@ func redactChild(socketPath string, argv []string) int {
 		code = 1
 	}
 	// The command still ran, and whatever it changed is changed; what is missing
-	// is the part of its output that could not be redacted.  So its own status
-	// is kept when it failed, and a success is turned into a failure, because
+	// is the part of its output that could not be redacted.  So its own status is
+	// kept when it failed, and a success is turned into a failure, because
 	// withheld output must not read as a command that printed nothing.  This is
 	// what wrap.sh does with the same situation, and now for the same reason.
 	if streamErr != nil && code == 0 {
@@ -445,8 +444,7 @@ func redactChild(socketPath string, argv []string) int {
 // redactStream sends the input through the broker a chunk at a time, breaking
 // on a newline where it can so a value is not split across two requests.  A
 // multi-line value and a line longer than a chunk still split one.  ReadSlice
-// rather than ReadBytes, which would grow one long line past
-// max_request_bytes.
+// rather than ReadBytes, which would grow one long line past max_request_bytes.
 //
 // A chunk that cannot be redacted is never written, and neither is anything
 // after it: the stream stops there and the error says so.  Chunks already
@@ -476,9 +474,9 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 
 	for {
 		line, err := reader.ReadSlice('\n')
-		// Flushed before the append: a partial buffer plus a full ReadSlice
-		// would make one request of nearly twice chunkBytes, and a chunk the
-		// broker refuses is now a refused stream.
+		// Flushed before the append: a partial buffer plus a full ReadSlice would
+		// make one request of nearly twice chunkBytes, and a chunk the broker refuses
+		// is now a refused stream.
 		if len(buf) > 0 && len(buf)+len(line) > chunkBytes {
 			if flushErr := flush(); flushErr != nil {
 				return flushErr
@@ -523,8 +521,8 @@ func redactOnce(socketPath, text string) (string, error) {
 	}
 	line, err := sockutil.ReadLine(conn, 1<<26)
 	if err != nil {
-		// Named, not flattened: an oversized request and a reset connection
-		// want different fixes.
+		// Named, not flattened: an oversized request and a reset connection want
+		// different fixes.
 		return "", fmt.Errorf("reading the response: %w", err)
 	}
 	if len(line) == 0 {
@@ -605,8 +603,7 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 	}
 
 	if asJSON {
-		// Re-encoded for readability; a round trip through any changes
-		// nothing.
+		// Re-encoded for readability; a round trip through any changes nothing.
 		var raw any
 		if err := json.Unmarshal(line, &raw); err == nil {
 			enc := json.NewEncoder(os.Stdout)

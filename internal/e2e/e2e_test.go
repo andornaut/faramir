@@ -86,15 +86,15 @@ func newHarness(t *testing.T) *harness {
 	cfg := &config.Config{
 		Path: "<test>",
 		Server: config.ServerConfig{
-			SocketPath: filepath.Join(runDir, "broker.sock"), SocketMode: 0o660,
+			SocketPath:     filepath.Join(runDir, "broker.sock"),
 			MaxConcurrency: 4, MaxRequestBytes: 262144,
 		},
 		Keeper: config.KeeperConfig{
-			SocketPath: filepath.Join(runDir, "keeper.sock"), SocketMode: 0o660,
+			SocketPath: filepath.Join(runDir, "keeper.sock"),
 			AgeKeyFile: keyPath,
 		},
 		Executor: config.ExecutorConfig{
-			SocketPath: filepath.Join(runDir, "exec.sock"), SocketMode: 0o660,
+			SocketPath: filepath.Join(runDir, "exec.sock"),
 		},
 		Exec: config.ExecConfig{
 			DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
@@ -196,7 +196,8 @@ func (h *harness) runBash(t *testing.T, script string) response {
 
 const token = "«SECRET:home/router/admin»"
 
-// Matrix 3: the credential reaches the right variable, tokenized on the way out.
+// Matrix 3: the credential reaches the right variable, tokenized on the way
+// out.
 func TestExecInjectsAndRedacts(t *testing.T) {
 	h := newHarness(t)
 	r := h.call(t, map[string]any{
@@ -340,8 +341,8 @@ func TestAuditLogRecordsTheRunWithoutTheValue(t *testing.T) {
 	}
 }
 
-// A brokered command cannot decrypt the store itself, which is what lets ansible
-// be a consumer of the broker rather than a holder of the master key.
+// A brokered command cannot decrypt the store itself, which is what lets
+// ansible be a consumer of the broker rather than a holder of the master key.
 func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
 	h := newHarness(t)
 	r := h.call(t, map[string]any{
@@ -363,8 +364,8 @@ func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
 	}
 }
 
-// The reason for the PTY: ssh and sudo write prompts straight to /dev/tty, which
-// no pipe would see.  Captured is half of it, redacted the other.
+// The reason for the PTY: ssh and sudo write prompts straight to /dev/tty,
+// which no pipe would see.  Captured is half of it, redacted the other.
 func TestWritesToDevTtyAreCapturedAndRedacted(t *testing.T) {
 	h := newHarness(t)
 	r := h.runBash(t, `printenv ROUTER_PW > /dev/tty`)

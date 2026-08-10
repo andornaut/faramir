@@ -72,14 +72,14 @@ func brokerConfigDir(socketPath string) string {
 
 func cmdInit(args []string) int {
 	fs := newFlagSet("init", "init [options]")
-	operator := fs.String("operator", "",
+	operatorUser := fs.String("operator-user", "",
 		"account the coding agent runs as (default $SUDO_USER, then you)")
 	// One admits a caller to the broker socket and shares the working tree, the
 	// other owns the ciphertext; holding one is not holding the other.
-	clientGroup := fs.String("client-group", install.DefaultGroup,
+	clientGroup := fs.String("client-group", install.DefaultClientGroup,
 		"group admitted to the broker socket, and shared with the executor on a working tree")
-	storeGroup := fs.String("store-group", "",
-		"group owning the managed sops files (default: the keeper's own, which is the only account that opens one)")
+	secretsGroup := fs.String("secrets-group", "",
+		"group owning the ciphertext in <config-dir>/secrets (default: the keeper's own group, which is the only account that opens one; naming another buys a second reader)")
 	brokerUser := fs.String("broker-user", install.DefaultBrokerUser, "account that holds the SSH keys and the audit log")
 	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
 	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
@@ -95,15 +95,16 @@ func cmdInit(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	var recipients multiFlag
-	fs.Var(&recipients, "age-recipient", "extra age recipient for .sops.yaml (repeatable)")
+	fs.Var(&recipients, "age-recipient",
+		"an age PUBLIC key that may also decrypt the secrets directory, added to .sops.yaml beside the keeper's own so a backup of the ciphertext opens without the keeper's key; repeatable, and only read at the install that creates the file")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
 
 	opts := install.Options{
-		Operator:      operatorName(*operator),
-		Group:         *clientGroup,
-		StoreGroup:    *storeGroup,
+		OperatorUser:  operatorName(*operatorUser),
+		ClientGroup:   *clientGroup,
+		SecretsGroup:  *secretsGroup,
 		BrokerUser:    *brokerUser,
 		KeeperUser:    *keeperUser,
 		ExecUser:      *execUser,
@@ -137,8 +138,7 @@ func cmdInit(args []string) int {
 }
 
 // reportToOperator prints what a person needs after a run: what installs
-// cleanly and then does not work, and the public key the fleet must
-// authorize.
+// cleanly and then does not work, and the public key the fleet must authorize.
 func reportToOperator(report install.Report) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
@@ -158,7 +158,7 @@ func reportToOperator(report install.Report) {
 // enrol wherever it was run from.
 func cmdInitProject(args []string) int {
 	fs := newFlagSet("init-project", "init-project [options] [DIR]")
-	operator := fs.String("operator", "",
+	operatorUser := fs.String("operator-user", "",
 		"account that works in the tree (default $SUDO_USER, then you)")
 	configDir := fs.String("config-dir", install.DefaultConfigDir,
 		"where the installed config is, which is where the client group is read from")
@@ -182,13 +182,13 @@ func cmdInitProject(args []string) int {
 	}
 
 	opts := install.ProjectOptions{
-		Dir:       fs.Arg(0),
-		Operator:  operatorName(*operator),
-		ConfigDir: *configDir,
-		Group:     *clientGroup,
-		Hook:      *hook,
-		Agents:    agents,
-		DryRun:    *dryRun,
+		Dir:          fs.Arg(0),
+		OperatorUser: operatorName(*operatorUser),
+		ConfigDir:    *configDir,
+		ClientGroup:  *clientGroup,
+		Hook:         *hook,
+		Agents:       agents,
+		DryRun:       *dryRun,
 	}
 	if !*asJSON {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
@@ -209,7 +209,7 @@ func cmdInitProject(args []string) int {
 		for _, warning := range report.Warnings {
 			fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
 		}
-		fmt.Fprintf(os.Stderr, "\nEnrolled %s with group %s.\n", report.Dir, report.Group)
+		fmt.Fprintf(os.Stderr, "\nEnrolled %s with group %s.\n", report.Dir, report.ClientGroup)
 		fmt.Fprintln(os.Stderr, "Check it from the tree: cd there and run "+
 			"`faramir run -- pwd`. A brokered command runs where its caller was, "+
 			"so that is the whole test.")
@@ -224,15 +224,22 @@ func cmdDoctor(args []string) int {
 	fs := newFlagSet("doctor", "doctor [options]")
 	configDir := fs.String("config-dir", "", "where config.toml was installed (default: ask the broker)")
 	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
-	operator := fs.String("operator", "", "account the coding agent runs as")
-	clientGroup := fs.String("client-group", install.DefaultGroup,
-		"group admitted to the broker socket")
-	storeGroup := fs.String("store-group", "",
-		"group owning the managed sops files (default: the keeper's own)")
-	brokerUser := fs.String("broker-user", install.DefaultBrokerUser,
-		"account the broker runs as, which --check has to be asked as")
-	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
-	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
+	operatorUser := fs.String("operator-user", "", "account the coding agent runs as")
+	// Empty rather than the install defaults: doctor reads what this host
+	// actually runs out of the units, the config and the secrets directory, and
+	// a default here would shadow that and answer about accounts a host
+	// installed with other names does not have.  Each names an override for a
+	// host whose install is not the one on this machine.
+	clientGroup := fs.String("client-group", "",
+		"override the group admitted to the broker socket, instead of reading [server] allowed_group")
+	secretsGroup := fs.String("secrets-group", "",
+		"override the group owning the ciphertext, instead of reading it off <config-dir>/secrets")
+	brokerUser := fs.String("broker-user", "",
+		"override the account the broker runs as, instead of reading faramir-broker.service")
+	keeperUser := fs.String("keeper-user", "",
+		"override the account that holds the age key, instead of reading faramir-keeper.service")
+	execUser := fs.String("exec-user", "",
+		"override the account brokered commands run as, instead of reading faramir-exec.service")
 	asJSON := fs.Bool("json", false, "print the findings as JSON")
 	when := fs.String("color", "auto", "colourise: auto, always or never")
 	if code, ok := parseFlags(fs, args); !ok {
@@ -244,13 +251,13 @@ func cmdDoctor(args []string) int {
 		return 2
 	}
 	report := install.Diagnose(install.DoctorOptions{
-		ConfigDir:  resolveConfigDir(*configDir, *socket),
-		Operator:   operatorName(*operator),
-		Group:      *clientGroup,
-		BrokerUser: *brokerUser,
-		KeeperUser: *keeperUser,
-		ExecUser:   *execUser,
-		StoreGroup: *storeGroup,
+		ConfigDir:    resolveConfigDir(*configDir, *socket),
+		OperatorUser: operatorName(*operatorUser),
+		ClientGroup:  *clientGroup,
+		BrokerUser:   *brokerUser,
+		KeeperUser:   *keeperUser,
+		ExecUser:     *execUser,
+		SecretsGroup: *secretsGroup,
 	})
 	if *asJSON {
 		body, err := json.MarshalIndent(report, "", "  ")

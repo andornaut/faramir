@@ -63,7 +63,7 @@ lint:
 ##
 ## Pass anything else through INIT_ARGS, e.g. --config-dir or --seal-age-key.
 install:
-	sudo $(BIN)/faramir init --operator "$$(id -un)" $(INIT_ARGS)
+	sudo $(BIN)/faramir init --operator-user "$$(id -un)" $(INIT_ARGS)
 
 ## verify: examine a live deployment (root).  Asks each account what it can
 ## reach, which is a question only root can put to another uid.

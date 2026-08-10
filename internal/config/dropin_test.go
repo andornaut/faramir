@@ -85,8 +85,8 @@ func TestListsAccumulateAcrossDropIns(t *testing.T) {
 			},
 			get: func(c *Config) []string { return c.Secrets.Files }, want: 2,
 			why: "both projects have to end up managed"},
-		// [ssh] keys is deliberately absent from this table: it is policy rather
-		// than an inventory, and TestAPolicyListSetTwiceIsRefused covers it.
+		// [ssh] key is deliberately absent from this table: it is one identity rather
+		// than an inventory, and TestADropInMayNotSetWhatInitDerives covers it.
 		{name: "the same store named twice",
 			dropIns: map[string]string{
 				"10-a.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
@@ -107,29 +107,19 @@ func TestListsAccumulateAcrossDropIns(t *testing.T) {
 	}
 }
 
-// Accumulating a policy list would widen what the sockets admit; taking the
-// last would make it depend on filename order.
+// decrypt_command is the only policy list left, the accounts each socket admits
+// having become one name apiece that TestADropInMayNotSetWhatInitDerives
+// covers.  Accumulating it would hand the keeper a second way to invoke sops;
+// taking the last would make it depend on filename order.
 func TestAPolicyListSetTwiceIsRefused(t *testing.T) {
-	for _, tc := range []struct{ name, base, dropIn string }{
-		{"base and drop-in", "[server]\nallowed_groups = [\"dev\"]\n", "[server]\nallowed_groups = [\"wheel\"]\n"},
-		{"decrypt_command", "[secrets]\ndecrypt_command = [\"sops\"]\n", "[secrets]\ndecrypt_command = [\"cat\"]\n"},
-		// init mints the key, holds both halves and renders the path, so the
-		// list has one owner.  A second identity reaching the same hosts is one
-		// no account can vouch for, and the way to use a key of your own is
-		// `faramir init --ssh-key`, which adopts it and asserts its mode.
-		{"ssh keys", "[ssh]\nkeys = [\"/var/lib/faramir-broker/.ssh/a\"]\n",
-			"[ssh]\nkeys = [\"/home/op/.ssh/id_ed25519\"]\n"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			_, err := write(t, minimal+tc.base, map[string]string{"10-x.toml": tc.dropIn})
-			if err == nil {
-				t.Fatal("a policy list was overridden silently")
-			}
-			// Both files, since the fix is to remove one.
-			if !strings.Contains(err.Error(), "10-x.toml") || !strings.Contains(err.Error(), "config.toml") {
-				t.Errorf("error names too little to act on: %v", err)
-			}
-		})
+	_, err := write(t, minimal+"[secrets]\ndecrypt_command = [\"sops\"]\n",
+		map[string]string{"10-x.toml": "[secrets]\ndecrypt_command = [\"cat\"]\n"})
+	if err == nil {
+		t.Fatal("a policy list was overridden silently")
+	}
+	// Both files, since the fix is to remove one.
+	if !strings.Contains(err.Error(), "10-x.toml") || !strings.Contains(err.Error(), "config.toml") {
+		t.Errorf("error names too little to act on: %v", err)
 	}
 }
 
@@ -159,7 +149,7 @@ default_timeout_sec = 600
 // listening on the old one. That surfaces as "keeper unreachable", which reads
 // as an outage rather than an edit.
 func TestADropInMayNotSetASocketTheUnitOwns(t *testing.T) {
-	for _, key := range []string{"socket_path = \"/run/x.sock\"", "socket_mode = \"0666\""} {
+	for _, key := range []string{"socket_path = \"/run/x.sock\""} {
 		for _, section := range []string{"server", "keeper", "executor"} {
 			t.Run(section+" "+key, func(t *testing.T) {
 				_, err := write(t, minimal, map[string]string{
@@ -178,13 +168,50 @@ func TestADropInMayNotSetASocketTheUnitOwns(t *testing.T) {
 	}
 }
 
+// Every value init computes from a flag or from the install.  Each is a scalar,
+// which replaces rather than accumulating, so nothing else here would catch it.
+// exec_group is the one that costs something: it is the group the agent relay
+// admits, so a drop-in naming the client group there hands the broker's SSH
+// identity to the account the relay exists to keep it from.
+func TestADropInMayNotSetWhatInitDerives(t *testing.T) {
+	for _, tc := range []struct{ dropIn, flag string }{
+		{"[ssh]\nkey = \"/home/op/.ssh/id_ed25519\"\n", "--ssh-key"},
+		{"[ssh]\nexec_group = \"dev\"\n", "--exec-user"},
+		{"[ssh]\nagent_socket = \"/tmp/agent.sock\"\n", ""},
+		{"[server]\nallowed_group = \"wheel\"\n", "--client-group"},
+		{"[keeper]\nallowed_user = \"root\"\n", "--broker-user"},
+		{"[executor]\nallowed_user = \"root\"\n", "--broker-user"},
+		{"[audit]\nlog_path = \"/tmp/audit.log\"\n", ""},
+		{"[ssh]\nssh_agent = \"/tmp/evil\"\n", ""},
+		{"[ssh]\nssh_add = \"/tmp/evil\"\n", ""},
+		{"[keeper]\nage_key_file = \"/tmp/other.key\"\n", "--config-dir"},
+		{"[keeper]\nage_key_credential = \"other\"\n", ""},
+	} {
+		t.Run(tc.flag+tc.dropIn, func(t *testing.T) {
+			_, err := write(t, minimal, map[string]string{"10-x.toml": tc.dropIn})
+			if err == nil {
+				t.Fatal("a drop-in set a value init derives")
+			}
+			// The file to edit, and the remedy: a flag when there is one, and otherwise
+			// that no flag moves it.
+			remedy := "no flag moves"
+			if tc.flag != "" {
+				remedy = "faramir init " + tc.flag
+			}
+			if !strings.Contains(err.Error(), "10-x.toml") ||
+				!strings.Contains(err.Error(), remedy) {
+				t.Errorf("error names too little to act on: %v", err)
+			}
+		})
+	}
+}
+
 // The base file is init's to write, and carries every one of them. Refusing
 // them there would refuse the config init just rendered.
 func TestTheBaseFileMaySetTheSocketsItRenders(t *testing.T) {
 	cfg, err := write(t, `
 [server]
 socket_path = "/run/faramir/broker.sock"
-socket_mode = "0660"
 [keeper]
 socket_path = "/run/faramir/keeper.sock"
 [executor]
@@ -204,14 +231,14 @@ socket_path = "/run/faramir/exec.sock"
 // Lexical order, so a numeric prefix decides who wins.
 func TestTheLastDropInWins(t *testing.T) {
 	cfg, err := write(t, minimal, map[string]string{
-		"10-first.toml":  "[audit]\nlog_path = \"/tmp/first.log\"\n",
-		"20-second.toml": "[audit]\nlog_path = \"/tmp/second.log\"\n",
+		"10-first.toml":  "[audit]\nmax_record_bytes = 1111\n",
+		"20-second.toml": "[audit]\nmax_record_bytes = 2222\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Audit.LogPath != "/tmp/second.log" {
-		t.Errorf("log_path = %q, want the later drop-in's", cfg.Audit.LogPath)
+	if cfg.Audit.MaxRecordBytes != 2222 {
+		t.Errorf("max_record_bytes = %d, want the later drop-in's", cfg.Audit.MaxRecordBytes)
 	}
 }
 
@@ -264,15 +291,15 @@ func TestADropInIsHeldToTheSameChecks(t *testing.T) {
 // Only .toml, so a backup or .dist beside one is not configuration.
 func TestOnlyTomlFilesAreRead(t *testing.T) {
 	cfg, err := write(t, minimal, map[string]string{
-		"10-real.toml":      "[audit]\nlog_path = \"/tmp/real.log\"\n",
-		"20-backup.toml.sw": "[audit]\nlog_path = \"/tmp/swap.log\"\n",
-		"30-old.toml.dist":  "[audit]\nlog_path = \"/tmp/dist.log\"\n",
+		"10-real.toml":      "[audit]\nmax_record_bytes = 1111\n",
+		"20-backup.toml.sw": "[audit]\nmax_record_bytes = 2222\n",
+		"30-old.toml.dist":  "[audit]\nmax_record_bytes = 3333\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Audit.LogPath != "/tmp/real.log" {
-		t.Errorf("log_path = %q, want only the .toml applied", cfg.Audit.LogPath)
+	if cfg.Audit.MaxRecordBytes != 1111 {
+		t.Errorf("max_record_bytes = %d, want only the .toml applied", cfg.Audit.MaxRecordBytes)
 	}
 	if len(cfg.Sources) != 2 {
 		t.Errorf("sources = %v, want the base and the one .toml", cfg.Sources)
