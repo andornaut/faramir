@@ -49,6 +49,16 @@ type Options struct {
 	// that host's authorized_keys.
 	SSHKey string
 
+	// KnownHosts is a known_hosts file to pin for the executor, copied to
+	// Layout.ExecKnownHosts.  Empty pins nothing, which is the host where
+	// /etc/ssh/ssh_known_hosts already covers every account.
+	//
+	// Opt-in because it names a file of the operator's, and a copy rather than a
+	// reference because the executor cannot read the operator's 0700 ~/.ssh.  Only
+	// public host keys travel, which is what makes this safe where copying an ssh
+	// config is not.
+	KnownHosts string
+
 	// No tree is enrolled here: a tree is per project and this runs once per
 	// machine.  See `faramir init-project`.
 
@@ -128,6 +138,11 @@ type runner struct {
 	needsRestart   bool
 	restartReasons []string
 
+	// What this run took from the install it found rather than from a flag, as
+	// "--flag value", empty on a first install and on one that named every
+	// compiled-in default.
+	adopted []string
+
 	// Resolved after the accounts step; keep when the account does not exist,
 	// which only happens under DryRun.
 	operatorUID  int
@@ -135,6 +150,7 @@ type runner struct {
 	brokerUID    int
 	keeperUID    int
 	execUID      int
+	execGID      int
 	secretsGID   int
 	brokerGID    int
 	keeperGID    int
@@ -143,16 +159,24 @@ type runner struct {
 // Run provisions the host.  Idempotent: a second run with the same options
 // changes nothing and reports so.
 func Run(opts Options) (Report, error) {
+	// Before the defaults: adoption is what keeps a flag left out from reverting
+	// the install, and applyDefaults cannot tell an omitted flag from one that
+	// named the compiled-in value.
+	adopted, err := opts.adoptInstalled()
+	if err != nil {
+		return Report{}, err
+	}
 	opts.applyDefaults()
 	layout, err := opts.layout()
 	if err != nil {
 		return Report{}, err
 	}
 	run := &runner{
-		opts:   opts,
-		layout: layout,
-		fs:     fsys{dryRun: opts.DryRun},
-		report: Report{Version: version.Version, DryRun: opts.DryRun},
+		opts:    opts,
+		layout:  layout,
+		fs:      fsys{dryRun: opts.DryRun},
+		report:  Report{Version: version.Version, DryRun: opts.DryRun},
+		adopted: adopted,
 	}
 	if self, err := os.Executable(); err == nil {
 		run.binaries = filepath.Dir(self)
@@ -161,6 +185,7 @@ func Run(opts Options) (Report, error) {
 		return run.report, err
 	}
 	steps := []func() error{
+		run.stepAdopted,
 		run.stepAccounts,
 		run.resolveIDs,
 		run.stepDirectories,
@@ -172,6 +197,9 @@ func Run(opts Options) (Report, error) {
 		// daemon starts: a key the broker cannot read leaves the agent holding
 		// nothing.
 		run.stepSSHKey,
+		// The other half of reaching a managed host: the key authenticates to it,
+		// these say which host answering is that host.
+		run.stepKnownHosts,
 		// Before the units are written: it grants the traversal that lets a service
 		// uid reach a config under the operator's home.
 		run.stepReachable,
@@ -271,6 +299,14 @@ func (r *runner) preflight() error {
 	for _, recipient := range r.opts.AgeRecipients {
 		if err := agekey.ValidateRecipient(recipient); err != nil {
 			return fmt.Errorf("--age-recipient: %w", err)
+		}
+	}
+	// Read before an account or a key exists: a path that is not a known_hosts
+	// file is a typo, and reporting it at the step would leave a half-finished
+	// install to re-run.
+	if r.opts.KnownHosts != "" {
+		if _, _, err := readKnownHosts(r.opts.KnownHosts); err != nil {
+			return fmt.Errorf("--known-hosts: %w", err)
 		}
 	}
 	// An encrypted home is a different directory before its owner logs in, so a
