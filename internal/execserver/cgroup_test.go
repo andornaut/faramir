@@ -80,17 +80,17 @@ func TestDrainReturnsWhenEmptyAndBoundsItsWait(t *testing.T) {
 	}
 }
 
-// Confinement is off unless a host both runs cgroup v2 and was installed with a
-// delegated unit, so a host missing either falls back to the process-group kill
-// rather than failing a run.  On this test host cgroupBase is expected empty;
-// where it is not, the real thing is exercised.
-func TestCgroupBaseIsEmptyWithoutDelegation(t *testing.T) {
+// cgroupBase is "" unless a host both runs cgroup v2 and hands this process a
+// delegated subtree it can write, so a host missing either refuses every run
+// rather than reaping by the escapable process group.  Where a base is found it
+// must be a real, writable cgroup directory, since a run is spawned into a child
+// of it; where it is "" the discovery simply declined, which is a host to fix,
+// not a state this test asserts.
+func TestCgroupBaseIsARealDirectoryOrNothing(t *testing.T) {
 	base := cgroupBase()
 	if base == "" {
-		return // the common case in CI: no v2, or no delegated subtree
+		return // no v2, or no delegated subtree: the executor would refuse to run here
 	}
-	// If a base was found it must be a real, writable cgroup directory, since a run
-	// would be spawned into a child of it.
 	if _, err := os.Stat(filepath.Join(base, "cgroup.procs")); err != nil {
 		t.Errorf("cgroupBase returned %q, which is not a cgroup v2 directory: %v", base, err)
 	}

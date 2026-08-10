@@ -126,4 +126,4 @@ The descriptor is the **slave** end of a PTY the broker created. The broker keep
 
 `argv[0]` arrives already resolved to an absolute path and the executor checks nothing about it. What bounds a brokered command is the uid it runs as (no age key, no audit log, no SSH key) and the mode on this socket, which the executor's own uid cannot open.
 
-The executor owns the timeout, because it owns the process group. **Closing the connection is how the broker says "give up"**, and the child's process group is killed. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.
+The executor owns the timeout, because it owns the run's cgroup. **Closing the connection is how the broker says "give up"**, and the whole cgroup is killed and drained — a `setsid` child that broke out of the process group among it, since the cgroup is the one reaper and a run that cannot be confined is refused rather than run. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.

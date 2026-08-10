@@ -13,31 +13,24 @@ import (
 )
 
 // Per-run cgroup confinement: a brokered command is spawned into a cgroup of its
-// own and the whole cgroup is torn down when the run ends.  Preferred over the
-// process group for one reason -- a process group (what Setsid sets up and killpg
-// reaches) is escaped by a child that calls setsid(), which starts a new session
-// and group the signal misses, while a cgroup is not escapable: a descendant
-// inherits it and cannot move out without write on another cgroup, which this uid
-// does not have, so cgroup.kill reaps the whole tree, the setsid child among it,
-// atomically.
+// own and the whole cgroup is torn down when the run ends.  This is the one
+// reaper, with no process-group fallback -- a process group (what Setsid sets up
+// and killpg reaches) is escaped by a child that calls setsid(), which starts a
+// new session and group the signal misses, while a cgroup is not escapable: a
+// descendant inherits it and cannot move out without write on another cgroup,
+// which this uid does not have, so cgroup.kill reaps the whole tree, the setsid
+// child among it, atomically.
 //
 // It needs cgroup v2, a unit granted Delegate=, and cgroup.kill (kernel >= 5.14).
-// `init` renders Delegate= on the executor unit for every install, so a real host
-// confines; the fallback below is for the contexts where the executor runs
-// outside that unit (a container, a CI runner, a test).
+// `init` renders Delegate= on the executor unit for every install, elevation or
+// not, so a real host always confines.  A host that cannot -- an old kernel, a
+// container without delegation -- refuses every command rather than reaping by
+// process group, because a silent degrade there is the failure this closes: an
+// elevation's serialization rests on a run leaving no straggler that could sit
+// through the next approval window, and even without elevation an unreaped setsid
+// child is a process outliving the run that spawned it.
 //
-//   - On an elevating host it is MANDATORY.  It is what makes the broker's
-//     serialization sound -- an approval is granted only when the run is the sole
-//     brokered command, so no setsid straggler may sit through the quiet window --
-//     and a run that cannot be confined is refused rather than reaped by process
-//     group, because a silent degrade there is the failure this closes.
-//   - Elsewhere it is a hardening used when available: a run that leaves a
-//     straggler is untidy, not a security hole (there is no approval to protect),
-//     so a host without a delegated cgroup reaps by process group instead of
-//     refusing every command.
-//
-// `faramir doctor` fails an elevating host that lost the delegation and warns a
-// plain one.
+// `faramir doctor` fails a host whose executor unit lost the delegation.
 
 // cgroupBase is the cgroup v2 directory this executor may create run cgroups
 // under, or "" when confinement is unavailable.  Probed once at startup: per run
@@ -143,11 +136,11 @@ func (c *runCgroup) kill() {
 	}
 }
 
-// terminate ends the run's tree the way the process-group kill used to: a
-// graceful SIGTERM to every member first, then cgroup.kill for whatever is left
-// once the grace runs out.  Both phases address the cgroup, so a setsid child
-// that left the process group is reached the same as the rest -- there is no
-// separate process-group signal, this is the one mechanism.
+// terminate ends the run's tree gracefully: a SIGTERM to every member first,
+// then cgroup.kill for whatever is left once the grace runs out.  Both phases
+// address the cgroup, so a setsid child that left the process group is reached
+// the same as the rest -- there is no separate process-group signal, this is the
+// one mechanism.
 func (c *runCgroup) terminate(graceSec int) {
 	for _, pid := range c.pids() {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
