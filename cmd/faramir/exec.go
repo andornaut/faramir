@@ -25,7 +25,7 @@ func cmdExec(args []string) int {
 				"through the broker, use `faramir run`.\n\noptions:\n")
 		fs.PrintDefaults()
 	}
-	configPath := fs.String("config", "", "path to config.toml")
+	configPath := fs.String("config", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
 	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
 	showVersion := fs.Bool("version", false, "print the version and exit")
 	if code, ok := parseFlags(fs, args); !ok {
@@ -41,7 +41,7 @@ func cmdExec(args []string) int {
 		return 0
 	}
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(resolveDaemonConfig(*configPath))
 	if err != nil {
 		log.Printf("%v", err)
 		return 2

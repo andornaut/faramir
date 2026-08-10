@@ -386,6 +386,27 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 		}
 	}
 	_, _ = fmt.Fprintf(w, "\n%s\n", paint.bold(strings.Join(totals, ", ")))
+	printNotAsked(w, paint, report.NotAsked)
+}
+
+// printNotAsked says how much of the examination did not happen, outside the
+// findings and outside the totals.  A check that was skipped is one warn line
+// whatever it stood for, so the totals read the same on a host examined in full
+// and on one where a dozen questions were never put.
+func printNotAsked(w io.Writer, paint palette, count int) {
+	if count == 0 {
+		return
+	}
+	note := fmt.Sprintf("%d more check(s) were not made, so the totals above are not "+
+		"the whole examination.", count)
+	if os.Geteuid() != 0 {
+		note += " Each of them has to read a file or run a command as an account that " +
+			"is not yours: re-run as `sudo faramir doctor`."
+	}
+	_, _ = fmt.Fprintln(w)
+	for _, line := range wrapText(note, terminalWidth()) {
+		_, _ = fmt.Fprintf(w, "%s\n", paint.warn(line))
+	}
 }
 
 // statusColumn is the glyph and the word: the glyph makes the column scannable,

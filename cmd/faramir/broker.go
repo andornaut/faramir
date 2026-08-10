@@ -17,7 +17,7 @@ import (
 // the SSH keys.  systemd runs it as its own uid, which is the boundary.
 func cmdBroker(args []string) int {
 	fs := newFlagSet("broker", "broker [-c PATH] [--check] [--parse-only]")
-	configPath := fs.String("config", "", "path to config.toml")
+	configPath := fs.String("config", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
 	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
 	check := fs.Bool("check", false, "validate config and exit")
 	// Whether a config parses, judged by the parser that will judge it later.
@@ -40,7 +40,7 @@ func cmdBroker(args []string) int {
 		return 0
 	}
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(resolveDaemonConfig(*configPath))
 	if err != nil {
 		log.Printf("%v", err)
 		return 2

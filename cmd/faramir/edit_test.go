@@ -174,3 +174,44 @@ func TestAUnitWithoutTheVariableFallsThrough(t *testing.T) {
 		t.Errorf("resolveConfig invented %q from a unit that names no config", got)
 	}
 }
+
+// A daemon run from a shell finds the install rather than the compiled-in
+// default, which is what `faramir broker --check` needs on an install that
+// moved.  Under systemd the unit sets FARAMIR_CONFIG and none of this is
+// reached; sudo clears it, which is how the check is run.
+func TestADaemonTakesTheConfigTheUnitNames(t *testing.T) {
+	want := "/home/op/.config/faramir/config.toml"
+	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+want+"\n")
+	if got := resolveDaemonConfig(""); got != want {
+		t.Errorf("resolveDaemonConfig(\"\") = %q, want the path the unit names", got)
+	}
+	if got := resolveDaemonConfig("/somewhere/config.toml"); got != "/somewhere/config.toml" {
+		t.Errorf("resolveDaemonConfig returned %q for an explicit path", got)
+	}
+	t.Setenv("FARAMIR_CONFIG", "/from/env/config.toml")
+	if got := resolveDaemonConfig(""); got != "" {
+		t.Errorf("resolveDaemonConfig returned %q instead of deferring to config.Load", got)
+	}
+}
+
+// The daemons must not ask the broker which config to load: each is a process
+// that may be about to bind that socket, and connecting to it would activate
+// the installed daemon and leave the two contending for the path.  A client
+// command asks and takes the answer, which is what makes this observable.
+func TestADaemonDoesNotAskTheBroker(t *testing.T) {
+	live := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(live, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	unit := "/home/op/.config/faramir/config.toml"
+	withUnit(t, "[Service]\nUser=faramir-broker\nEnvironment=FARAMIR_CONFIG="+unit+"\n")
+	t.Setenv("FARAMIR_SOCKET", statusBroker(t, []string{live}))
+
+	if got := resolveConfig(""); got != live {
+		t.Errorf("resolveConfig(\"\") = %q, want the running broker's own answer %q", got, live)
+	}
+	if got := resolveDaemonConfig(""); got != unit {
+		t.Errorf("resolveDaemonConfig(\"\") = %q, want the unit's %q: a daemon asked the "+
+			"socket it may be about to bind", got, unit)
+	}
+}
