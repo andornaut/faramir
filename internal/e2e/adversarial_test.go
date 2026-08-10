@@ -98,6 +98,43 @@ func TestAdversarialE2E(t *testing.T) {
 	fmt.Println()
 }
 
+// TestAdversarialTimeoutFlush proves the partial-output path: a command that
+// prints the secret (raw and hex) and then hangs past its timeout is killed,
+// but what it printed first must still come back redacted. The executor runs
+// redactor.Flush() on every exit path, including the abort, so no buffered raw
+// output escapes when the child is cut short.
+func TestAdversarialTimeoutFlush(t *testing.T) {
+	h := newHarness(t)
+
+	script := `printf 'TOK=%s\n' "$ROUTER_PW"; ` +
+		`s="$ROUTER_PW"; for ((i=0;i<${#s};i++)); do printf '%02x' "'${s:$i:1}"; done; printf '\n'; ` +
+		`sleep 30`
+	r := h.call(t, map[string]any{
+		"op":          "exec",
+		"cmd":         []any{"bash", "-lc", script},
+		"env_refs":    map[string]any{"ROUTER_PW": "secret://home/router/admin"},
+		"timeout_sec": 1,
+	})
+	if r.Error != nil {
+		t.Fatalf("broker error: %v", r.Error)
+	}
+	out := r.Output
+
+	if !strings.Contains(out, token) {
+		t.Errorf("expected the printed secret to come back as a token; output=%q", out)
+	}
+	if !strings.Contains(out, "timed out") {
+		t.Errorf("expected a timeout notice; output=%q", out)
+	}
+	if strings.Contains(out, routerPassword) {
+		t.Errorf("RAW SECRET LEAKED on the timeout path: %q", out)
+	}
+	if hx := recoverableHexLower(routerPassword); strings.Contains(out, hx) {
+		t.Errorf("HEX SECRET LEAKED on the timeout path: %q", out)
+	}
+	fmt.Printf("\ntimeout-flush: printed-then-killed output came back redacted (%d bytes, token present, no raw/hex)\n\n", len(out))
+}
+
 func b64(s string) string {
 	const std = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
 	var b strings.Builder
