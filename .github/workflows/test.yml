@@ -45,8 +45,20 @@ jobs:
       - name: The shipped binary must not link sops
         run: "! go list -deps ./cmd/faramir | grep -q getsops"
 
-      - name: Run tests
-        run: go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
+      # Every brokered command is confined to its own cgroup and reaped there,
+      # with no process-group fallback, so the executor refuses to run where it
+      # cannot make a cgroup -- and the tests exercise that real path rather than
+      # a weaker one. The GitHub runner is unprivileged and sits in a root-owned
+      # service cgroup it cannot subdivide, so hand it one it owns (exactly as
+      # `init` grants the executor unit Delegate= on a real host) and move this
+      # shell into it: `go test` inherits it and confinement runs for real.
+      - name: Delegate a cgroup to the runner, then run tests
+        run: |
+          CG=/sys/fs/cgroup/faramir-test
+          sudo mkdir -p "$CG"
+          sudo chown -R "$(id -u):$(id -g)" "$CG"
+          echo $$ | sudo tee "$CG/cgroup.procs" > /dev/null
+          go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload coverage
         uses: actions/upload-artifact@v7
