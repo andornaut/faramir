@@ -66,7 +66,7 @@ func owns(path string) string {
 // Held as a list so a run that skips them can say how many went unasked: the
 // single warn line below stands for all of them, and a count taken from the
 // list cannot drift from what is in it.
-func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Config, servesCommands bool) {
+func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
 	checks := []func(){
 		func() { diagnoseAgeKey(report, opts, cfg) },
 		func() { diagnoseOperatorKeys(report, opts) },
@@ -79,7 +79,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnoseSocketPolicy(report, opts, cfg) },
 		func() { diagnoseSSHKey(report, opts, cfg) },
 		func() { diagnoseProtectProc(report, opts) },
-		func() { diagnoseBrokered(report, opts, servesCommands) },
+		func() { diagnoseBrokered(report, opts, serves) },
 	}
 	if os.Geteuid() != 0 {
 		report.NotAsked += len(checks)
@@ -479,12 +479,22 @@ func mainPID(unit string) string {
 // diagnoseBrokered asks the broker to run something: the one place the answer
 // is what a brokered command actually gets.  As the operator, the broker
 // checking the peer's credentials and root not being in the shared group.
-func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, servesCommands bool) {
+func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerServes) {
 	// Running one against a refusing broker would report the refusal as a broken
 	// boundary.  That state is a failure already, reported where it belongs.
-	if !servesCommands {
+	//
+	// Reached as root, so an unestablished value set means --check itself did not
+	// report, which is a distinct reason and not the broker's answer.
+	switch serves {
+	case servesNothing:
+		report.NotAsked++
 		report.add("brokered command", StatusWarn, "not asked: the broker has read "+
 			"no managed file, so it refuses the command this would run")
+		return
+	case servesUnknown:
+		report.NotAsked++
+		report.add("brokered command", StatusWarn, "not asked: --check did not report, "+
+			"so whether the broker would refuse the command this runs is unknown")
 		return
 	}
 	faramir := filepath.Join(DefaultBinDir, "faramir")

@@ -58,6 +58,30 @@ const (
 	StatusFailed Status = "failed"
 )
 
+// brokerServes is what the --check probe established about the value set.  A
+// probe that did not run is distinct from one that ran and found nothing: read
+// as the same, a broker holding thirteen values is reported as one holding
+// none, and the probes that key off it are skipped citing a state the broker is
+// not in.
+type brokerServes int
+
+const (
+	servesUnknown brokerServes = iota
+	servesNothing
+	servesValues
+)
+
+// refusedCode is the error code the broker returns for an op it will not serve
+// while a managed file went unread.  A probe that runs a brokered command has
+// to tell that refusal from an answer, or it reports the refusal as whatever it
+// was probing for.
+const refusedCode = "no_secrets"
+
+// sshAgentRefused is stated once, being reported both before the probe runs and
+// after the broker refuses it.
+const sshAgentRefused = "not asked: the broker holds no managed values, so it " +
+	"refuses the brokered command this probe runs"
+
 // Finding is one check.
 type Finding struct {
 	Name   string `json:"check"`
@@ -68,10 +92,10 @@ type Finding struct {
 // DoctorReport is the whole examination; Failed is the exit code a caller
 // reads.
 //
-// NotAsked counts the checks that never ran, which a caller has to report
-// alongside the findings: one warn line stands for a dozen unasked questions,
-// so the totals alone read as a complete examination of a host that was barely
-// examined.
+// NotAsked counts the checks that could not be put, for want of root or of a
+// broker holding values.  A caller has to report it alongside the findings: one
+// warn line stands for a dozen unasked questions, so the totals alone read as a
+// complete examination of a host that was barely examined.
 type DoctorReport struct {
 	Failed   bool      `json:"failed"`
 	NotAsked int       `json:"not_asked"`
@@ -127,23 +151,26 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 		return report
 	}
 
-	// What any account can answer, in name order.
+	// The broker probe first, whatever order it is reported in: it is what says
+	// whether the broker serves anything, which the ssh agent and boundaries
+	// checks both need before they run.  Its own findings are buffered so they
+	// still land in name order below.
+	var brokerReport DoctorReport
+	serves := diagnoseBroker(&brokerReport, configFile, opts.BrokerUser)
+
+	// What any account can answer, in name order.  The ssh agent probe belongs
+	// here: it runs a brokered command as the operator, which is the caller's own
+	// account whenever doctor was not run as root.
 	diagnoseGroup(&report, opts)
 	diagnoseUnits(&report)
+	diagnoseSSHAgent(&report, opts, cfg, serves)
 	diagnoseVersion(&report, opts)
 
 	// Then the checks that need root, grouped so a run without it reads as one
 	// block of warnings at the end rather than as gaps between the answers above.
-	//
-	// Buffered rather than reported where it runs: the broker probe is what says
-	// whether the broker serves anything, which boundaries and the ssh agent both
-	// need before they run, and its findings still belong in name order.
-	var brokerReport DoctorReport
-	servesCommands := diagnoseBroker(&brokerReport, configFile, opts.BrokerUser)
-	diagnoseBoundaries(&report, opts, cfg, servesCommands)
+	diagnoseBoundaries(&report, opts, cfg, serves)
 	report.merge(brokerReport)
 	diagnoseSopsConfig(&report, opts)
-	diagnoseSSHAgent(&report, opts, cfg, servesCommands)
 	return report
 }
 
@@ -270,13 +297,13 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 // Run as the broker's own uid, which is why this needs root: --check opens the
 // keeper socket, the SSH keys and the secrets files itself, and root and an
 // ordinary account each get a different answer.
-func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) (servesCommands bool) {
+func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerServes {
 	if os.Geteuid() != 0 {
 		report.NotAsked++
 		report.add("broker", StatusWarn, "run doctor as root to ask this: --check "+
 			"has to run as %s, and any other account gets an answer that is not "+
 			"the broker's", brokerUser)
-		return false
+		return servesUnknown
 	}
 	run := &runner{}
 	// Read the report before the exit code is judged.  --check exits non-zero on
@@ -288,10 +315,10 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) (serves
 	if err := json.Unmarshal([]byte(out), &check); err != nil {
 		if checkErr != nil {
 			report.add("broker", StatusFailed, "--check failed as %s: %v", brokerUser, checkErr)
-			return false
+			return servesUnknown
 		}
 		report.add("broker", StatusFailed, "could not read the --check report: %v", err)
-		return false
+		return servesUnknown
 	}
 	// Every one of these fails.  The daemon is more forgiving on purpose, coming
 	// up while the secrets are not written yet and refusing exec and redact until
@@ -319,16 +346,19 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) (serves
 	}
 	// --check fails for reasons the switch does not cover: an unusable [ssh] key,
 	// a ref refused as not redactable, a bound socket with world bits.  Judged on
-	// whether this function accounted for the exit code, not on whether anything
-	// else in the report failed: diagnoseUnits runs first and would otherwise
-	// swallow this one whenever a socket was also down.
+	// whether this function accounted for the exit code rather than on whether
+	// anything else in the report failed, which would swallow this one whenever
+	// another check had already failed for reasons of its own.
 	if checkErr != nil && !explained {
 		report.add("broker", StatusFailed, "--check failed as %s for a reason not "+
 			"reported above: %v", brokerUser, checkErr)
 	}
 	// A probe that ran a brokered command against a refusing broker would report
 	// the refusal as whatever it was probing for.
-	return check.serves()
+	if check.serves() {
+		return servesValues
+	}
+	return servesNothing
 }
 
 // diagnoseSSHAgent asks what a brokered command would actually get, rather than
@@ -339,28 +369,31 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) (serves
 // the executor's uid some other way, and `ssh-add -l` there exits non-zero
 // because no agent is running, which is not a fault to report.
 //
-// Skipped too when the broker serves no commands, the probe being one: the
-// refusal is about the value set and is reported as that.
-func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Config, servesCommands bool) {
+// Skipped when the broker is known to serve no commands, the probe being one:
+// the refusal is about the value set and is reported as that.  Not skipped for
+// want of root, the probe running as the caller's own account then, and not
+// skipped on an unasked broker probe: that says nothing about the value set,
+// and the refusal is recognised below if it comes.
+func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
 	if cfg == nil || cfg.Ssh.Key == "" {
 		report.add("ssh agent", StatusOK, "no [ssh] key configured, so no agent runs "+
 			"and none is expected")
 		return
 	}
-	if !servesCommands {
+	if serves == servesNothing {
 		report.NotAsked++
-		report.add("ssh agent", StatusWarn, "not asked: the broker holds no managed "+
-			"values, so it refuses the brokered command this probe runs")
+		report.add("ssh agent", StatusWarn, "%s", sshAgentRefused)
 		return
 	}
 	out, err := asOperator(opts, filepath.Join(DefaultBinDir, "faramir"),
 		"run", "--quiet", "--", "ssh-add", "-l")
-	// Success first: ssh-add exits non-zero both when the agent is empty and
-	// when it could not be reached, so err alone does not say which.
-	switch {
-	case strings.Contains(out, "SHA256"):
+	switch classifySSHProbe(out, err) {
+	case sshProbeHasKey:
 		report.add("ssh agent", StatusOK, "holds a usable key")
-	case strings.Contains(out, "no identities"):
+	case sshProbeRefused:
+		report.NotAsked++
+		report.add("ssh agent", StatusWarn, "%s", sshAgentRefused)
+	case sshProbeEmpty:
 		report.add("ssh agent", StatusFailed, "the agent holds nothing, though [ssh] "+
 			"key names %s, so every brokered command that reaches a managed host "+
 			"fails to authenticate. Place the key and restart faramir-broker",
@@ -369,6 +402,36 @@ func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 		report.add("ssh agent", StatusFailed, "could not ask the broker: %v: %s",
 			err, strings.TrimSpace(out))
 	}
+}
+
+// sshProbeResult is what `ssh-add -l` through the broker came back as.
+type sshProbeResult int
+
+const (
+	sshProbeHasKey sshProbeResult = iota
+	sshProbeRefused
+	sshProbeEmpty
+	sshProbeUnreachable
+)
+
+// classifySSHProbe reads the probe's answer, apart from running it so the
+// reading can be tested without a broker.
+//
+// Success first: ssh-add exits non-zero both when the agent is empty and when
+// it could not be reached, so err alone does not say which and the output
+// decides.  The refusal is the broker declining to run the probe at all, which
+// is a statement about the value set rather than about the agent, and is the
+// one answer here that must not be reported as a fault of the thing probed.
+func classifySSHProbe(out string, err error) sshProbeResult {
+	switch {
+	case strings.Contains(out, "SHA256"):
+		return sshProbeHasKey
+	case err != nil && strings.Contains(err.Error(), refusedCode):
+		return sshProbeRefused
+	case strings.Contains(out, "no identities"):
+		return sshProbeEmpty
+	}
+	return sshProbeUnreachable
 }
 
 // diagnoseGroup lists members of the shared group that this did not create.
