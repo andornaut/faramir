@@ -208,12 +208,11 @@ func (s *Server) opStatus() protocol.Response {
 // It is a deliberate oracle, recorded like every other op; see docs/design.md.
 // Only the input size and what was found are logged, never the text.
 //
-// Not rate-limited.  A throttle here slowed a guessing attack that the same
-// caller need never mount: list_secrets and run are ops on this socket behind
-// the same check, so every managed value can be had by naming it rather than by
-// guessing it.  Bounding the slower path bought nothing while the faster one is
-// open by design, and cost a lock on the hot path, the wrapper calling redact
-// once per Bash command.
+// Not rate-limited.  A throttle bounds only a guessing attack the same caller
+// need never mount: list_secrets and run are ops on this socket behind the same
+// check, so every managed value can be had by naming it.  Bounding the slower
+// path buys nothing while the faster one is open by design, and would cost a
+// lock on the hot path, the wrapper calling redact once per Bash command.
 func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID()); refused != nil {
 		return *refused
