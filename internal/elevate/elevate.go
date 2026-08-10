@@ -66,7 +66,11 @@ const (
 	// TokenEnv is how a brokered command's descendants name the run they belong
 	// to.  The helper reads it out of /proc rather than being passed it, because
 	// PAM does not carry the child's environment into the module.
-	TokenEnv = "FARAMIR_ELEVATE_TOKEN"
+	//
+	// The value is the name of an environment variable, not a credential: what it
+	// names identifies a run, and the op that spends it is refused to anything but
+	// root.  gosec keys G101 off the "TOKEN" in the identifier, hence the exception.
+	TokenEnv = "FARAMIR_ELEVATE_TOKEN" //nolint:gosec // G101: env var name, not a credential
 )
 
 // Run is the brokered command a request is made on behalf of.  It is what the
