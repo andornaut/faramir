@@ -93,6 +93,12 @@ func cmdBroker(args []string) int {
 			"restart faramir-broker, or unset [ssh] key")
 	}
 
+	// Nothing to start: elevation binds no socket and holds no credential.  A
+	// question lives in this process and is answered through the broker's own
+	// socket, so the only thing to arrange is releasing whatever is waiting when
+	// this stops.
+	defer s.Elevate.Stop()
+
 	if _, err := s.Listen(); err != nil {
 		log.Printf("%v", err)
 		return 1

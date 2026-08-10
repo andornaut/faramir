@@ -11,6 +11,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -225,6 +226,38 @@ type SshConfig struct {
 	SshAdd      string
 }
 
+// ElevateConfig is how a brokered command becomes root on this host: it does
+// not authenticate, it asks.  sudo is pointed at a PAM service of faramir's
+// own whose authentication step is a helper that asks the broker whether this
+// command was approved, so there is no password to mint, store, hand out or
+// steal.
+//
+// With no ExecUser nothing is granted and no question can be raised, which is
+// the install that never passed --elevate.  Everything here but TimeoutSec is
+// init's: each value names a file or a program that decides whether an
+// elevation happens.
+type ElevateConfig struct {
+	// ExecUser is the account the sudoers entry was written for, and the switch
+	// for the whole arrangement.  The helper checks PAM_USER against it, so a PAM
+	// service reached for some other account authenticates nothing.
+	ExecUser string
+	// PamService is the sudoers `pam_service` name, and so the file under
+	// /etc/pam.d that sudo reads for that account alone.  Private on purpose: a
+	// mistake in it reaches this account and leaves every other sudo untouched.
+	PamService string
+	// Helper is what the PAM service execs.  Named here so --check and doctor can
+	// say whether it is there and who can write it.
+	Helper string
+	// NotifyCommand announces that a question is waiting, "{prompt}" being the
+	// line the broker builds and "{id}" the question to answer.  Optional,
+	// best-effort and answerless: whatever it runs cannot approve anything, the
+	// answer coming back over the broker socket from a caller SO_PEERCRED says is
+	// root.
+	NotifyCommand []string
+	// TimeoutSec is how long a question waits for an answer before it is refused.
+	TimeoutSec int
+}
+
 type SecretsConfig struct {
 	Files []string
 	// How the keeper invokes sops; "{file}" is each managed path.  Executed rather
@@ -252,6 +285,7 @@ type Config struct {
 	Executor ExecutorConfig
 	Exec     ExecConfig
 	Ssh      SshConfig
+	Elevate  ElevateConfig
 	Secrets  SecretsConfig
 	Audit    AuditConfig
 }
@@ -363,8 +397,9 @@ var inventoryLists = map[string]bool{
 //
 // Distinct from systemdOwned, which is what the .socket units decide.
 //
-// Each of these is a scalar, so the policy rule below cannot reach it: that one
-// refuses a list two sources set, and a scalar simply replaces.  ssh.exec_group
+// All but elevate.notify_command are scalars, which the policy rule below
+// cannot reach: that one refuses a list two sources set, and a scalar simply
+// replaces.  This check runs first either way.  ssh.exec_group
 // is the reason this matters rather than being tidiness, being the group the
 // agent's SO_PEERCRED check admits; a drop-in naming the client group there
 // hands the broker's identity to the account the agent exists to keep it from.
@@ -381,6 +416,17 @@ var initOwned = map[string]string{
 	"executor.allowed_user": "--broker-user NAME",
 	// The exec account's primary group, resolved at install time.
 	"ssh.exec_group": "--exec-user NAME",
+	// The whole of [elevate] but timeout_sec.  Every one of these decides whether
+	// an elevation happens rather than being a default to tune: pam_service names
+	// the file sudo authenticates that account against, helper is the program that
+	// file execs as root, notify_command is a program the broker execs as the uid
+	// holding every plaintext value, and exec_user is the account the whole grant
+	// is written for.  Who may *answer* is not here, being no config key at all:
+	// it is root, checked with SO_PEERCRED, and nothing can widen it.
+	"elevate.exec_user":      "--elevate",
+	"elevate.pam_service":    "",
+	"elevate.helper":         "",
+	"elevate.notify_command": "",
 	// Where the master key is read from, and the credential the keeper unit
 	// supplies it under, which that unit renders alongside.
 	"keeper.age_key_file":       "--config-dir PATH",
@@ -508,7 +554,8 @@ func appendNew(existing, incoming []any) []any {
 }
 
 var (
-	sections   = []string{"server", "keeper", "executor", "exec", "ssh", "secrets", "audit"}
+	sections = []string{"server", "keeper", "executor", "exec", "ssh", "elevate",
+		"secrets", "audit"}
 	serverKeys = []string{"socket_path", "max_concurrency",
 		"max_request_bytes", "allowed_group"}
 	keeperKeys = []string{"socket_path", "allowed_user",
@@ -518,6 +565,8 @@ var (
 		"max_output_bytes", "base_env", "term_cols", "term_rows", "kill_grace_sec"}
 	sshKeys = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
+	elevateKeys = []string{"exec_user", "pam_service", "helper",
+		"notify_command", "timeout_sec"}
 	secretsKeys = []string{"files", "decrypt_command", "refresh_interval_sec",
 		"min_length"}
 	auditKeys = []string{"log_path", "max_record_bytes"}
@@ -547,6 +596,9 @@ func fromMap(raw map[string]any, path string) (*Config, error) {
 		return nil, err
 	}
 	if err := loadSsh(raw, path, &cfg.Ssh); err != nil {
+		return nil, err
+	}
+	if err := loadElevate(raw, path, &cfg.Elevate); err != nil {
 		return nil, err
 	}
 	if err := loadAudit(raw, path, &cfg.Audit); err != nil {
@@ -781,6 +833,53 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 		return err
 	}
 	if out.SshAdd, err = str(sec["ssh_add"], where, out.SshAdd); err != nil {
+		return err
+	}
+	return nil
+}
+
+func loadElevate(raw map[string]any, path string, out *ElevateConfig) error {
+	where := fmt.Sprintf("%s: [elevate]", path)
+	sec, err := table(raw, "elevate", path)
+	if err != nil {
+		return err
+	}
+	if err := rejectUnknownKeys(sec, elevateKeys, where); err != nil {
+		return err
+	}
+	// No exec_user by default, which is the install that granted no sudoers
+	// entry: the rest describes where things would go if one ever did.
+	*out = ElevateConfig{
+		PamService: "faramir-sudo",
+		Helper:     "/usr/local/libexec/faramir/pam-approve",
+		// Nothing by default: `faramir approve --watch` is where a question is seen
+		// and answered, and a host that wants shouting about it as well says so.
+		NotifyCommand: nil,
+		TimeoutSec:    120,
+	}
+	if out.ExecUser, err = str(sec["exec_user"], where, ""); err != nil {
+		return err
+	}
+	if out.PamService, err = str(sec["pam_service"], where, out.PamService); err != nil {
+		return err
+	}
+	if out.Helper, err = str(sec["helper"], where, out.Helper); err != nil {
+		return err
+	}
+	if out.NotifyCommand, err = stringList(sec["notify_command"], where, out.NotifyCommand); err != nil {
+		return err
+	}
+	// An announcement that names neither the command nor the question is one
+	// nobody can act on.  Empty is fine and is the default: it means the watcher
+	// is the only place a question shows up.
+	if len(out.NotifyCommand) > 0 && !slices.ContainsFunc(out.NotifyCommand, func(arg string) bool {
+		return strings.Contains(arg, "{prompt}") || strings.Contains(arg, "{id}")
+	}) {
+		return fmt.Errorf("%s: notify_command names neither {prompt} nor {id}, so it "+
+			"would announce that something is waiting without saying what", where)
+	}
+	// 0 would refuse every question the instant it was raised.
+	if out.TimeoutSec, err = atLeast(sec, "timeout_sec", where, out.TimeoutSec, 1); err != nil {
 		return err
 	}
 	return nil

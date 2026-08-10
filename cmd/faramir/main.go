@@ -62,6 +62,7 @@ the install is):
   edit          edit a managed sops file
   rekey         re-encrypt the secrets directory to the recipients .sops.yaml now names
   logs          show the audit log: what ran, against which refs, and how it ended
+  approve       answer an elevation a brokered command asked for
   doctor        report whether the install is doing its job
   reload        drop the daemons onto a changed configuration
   uninstall     remove the broker, keeping the key, the secrets directory and the log
@@ -72,6 +73,7 @@ Run by systemd and by the coding agent, not by you:
   exec          the executor daemon (to run a command, see "run" above)
   mcp           MCP stdio server
   guard         PreToolUse hook
+  pam-approve   decide one sudo, inside a brokered command (run by PAM)
 
 Run "faramir <command> --help" for that command's own options.
 
@@ -118,6 +120,8 @@ func run(args []string) int {
 		return cmdRekey(args[1:])
 	case "logs":
 		return cmdLogs(args[1:])
+	case "approve":
+		return cmdApprove(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
 	case "reload":
@@ -132,6 +136,8 @@ func run(args []string) int {
 		return cmdKeeper(args[1:])
 	case "exec":
 		return cmdExec(args[1:])
+	case "pam-approve":
+		return cmdPamApprove(args[1:])
 	case "mcp":
 		return mcp.Run(args[1:])
 	case "guard":

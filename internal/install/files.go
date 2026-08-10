@@ -181,6 +181,21 @@ func (r *runner) stepBinaries() error {
 	}
 	changed = changed || made
 
+	// What the PAM service execs to decide one sudo, rendered because it names the
+	// binary and the account by path.  Installed on every host, elevation or not:
+	// without a PAM service and a sudoers entry nothing execs it, and leaving a
+	// stale one behind would be worse than leaving one that does nothing.
+	// Executable, unlike wrap.sh: PAM execs this, as root.
+	helper, err := render("agent/hooks/pam-approve.tmpl", r.layout)
+	if err != nil {
+		return err
+	}
+	made, err = r.fs.writeFile(r.layout.PamHelper(), helper, 0o755, 0, 0)
+	if err != nil {
+		return err
+	}
+	changed = changed || made
+
 	docs, err := r.installDocs()
 	if err != nil {
 		return err

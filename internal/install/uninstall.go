@@ -30,8 +30,13 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
-	// The sockets went with the units above.
-	for _, path := range []string{"/etc/tmpfiles.d/faramir.conf", logrotateConfig, DefaultRunDir} {
+	// The sockets went with the units above.  The sudoers grant goes with them:
+	// it names the executor's uid, and with the broker gone nothing is left that
+	// could answer its password prompt, so keeping it would leave a grant behind
+	// with no arrangement around it.  The password file stays with the rest of
+	// the config directory, useless without the entry it authenticates against.
+	for _, path := range []string{"/etc/tmpfiles.d/faramir.conf", logrotateConfig,
+		sudoersFile, DefaultRunDir} {
 		if err := os.RemoveAll(path); err != nil {
 			return nil, err
 		}
@@ -59,6 +64,11 @@ func Uninstall(configDir string) ([]string, error) {
 		filepath.Join(configDir, "config.toml") + " -- the base config",
 		filepath.Join(configDir, "config.d") + "/ -- per-consumer settings merged over it",
 		DefaultLogDir + "/ -- the audit log",
+		filepath.Join(configDir, "elevate.secret") +
+			" -- the sudo password, if --elevate was ever used; " +
+			sudoersFile + " is gone, so it authenticates against nothing. " +
+			"The account's own password is not cleared: `usermod -L " +
+			DefaultExecUser + "`",
 		fmt.Sprintf("users %s, %s and %s, and the shared group",
 			DefaultBrokerUser, DefaultKeeperUser, DefaultExecUser),
 		"a shared tree's group and setgid bits, and the traversal granted to reach it",

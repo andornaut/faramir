@@ -42,6 +42,61 @@ SupplementaryGroups={{.ClientGroup}}
 # state directory and PrivateTmp.
 ProtectProc=invisible
 ProcSubset=pid
+{{if .Elevate}}
+# This host was installed with `faramir init --elevate`, so the directives that
+# bound *root* are dropped here.  Not a weakening thrown in with the grant: each
+# one below would otherwise make the grant a lie, either refusing sudo outright
+# or handing back a root that cannot change anything.  What bounds this uid when
+# nobody has approved anything is unchanged, and it is the same thing it always
+# was: the uid.
+#
+# The two halves are separate on purpose.  Everything in this block is about
+# what an *approved* command may do; everything outside it is about what
+# {{.ExecUser}} may do unasked, and none of that moved.
+#
+# NoNewPrivileges=true makes every setuid binary inert, sudo included, so a host
+# with it set and a sudoers entry written reports "effective uid is not 0" on
+# every task and nothing says why.
+NoNewPrivileges=false
+# CapabilityBoundingSet= is not set: an empty one bounds root as well, so an
+# approved elevation would reach uid 0 holding no capability and fail on the
+# first chown, mount or bind.  AmbientCapabilities= stays empty, which grants
+# this uid nothing before sudo has run.
+AmbientCapabilities=
+# ProtectSystem= is not set either.  A read-only /usr and /etc is exactly what
+# an approved "configure this host" is for, so leaving it on would turn every
+# such task into EROFS.  Below the approval, file modes are what refuse this
+# uid, as they do everywhere else.
+#
+# ReadWritePaths= is then unnecessary: nothing is mounted read-only to name an
+# exception to.
+PrivateTmp=true
+# Children run on a PTY.  The device ACL is dropped rather than narrowed: an
+# approved root task that touches a disk or a tty other than its own is one the
+# human said yes to.
+PrivateDevices=false
+# Ansible creates ~/.ansible/tmp unconditionally; this is that home.
+StateDirectory={{.ExecUser}}
+#
+# EVERY seccomp-based directive is absent here, and that is not a preference.
+# systemd turns NoNewPrivileges= ON, overriding the line above, if any of
+# LockPersonality=, MemoryDenyWriteExecute=, PrivateDevices=true,
+# ProtectClock=, ProtectHostname=, ProtectKernelLogs=, ProtectKernelModules=,
+# ProtectKernelTunables=, RestrictAddressFamilies=, RestrictNamespaces=,
+# RestrictRealtime=, RestrictSUIDSGID=, SystemCallArchitectures= or
+# SystemCallFilter= is set.  A seccomp filter without CAP_SYS_ADMIN requires
+# NNP, so the two cannot both hold -- and with NNP on, sudo is inert and this
+# host's grant is a lie that reports "effective uid is not 0" on every task.
+#
+# So keeping one of them here does not harden this unit.  It silently turns the
+# feature off.  faramir-exec.service on a host without --elevate keeps all of
+# them, which is the arrangement to prefer.
+#
+# What is left below is what bounds this uid without seccomp: a namespace, a
+# home, an IPC sweep and a umask.  ProtectProc= above is a procfs mount option
+# rather than a filter, so it stays either way.
+RemoveIPC=true
+{{else}}
 NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
@@ -75,12 +130,25 @@ RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
 ProtectClock=true
-ProtectControlGroups=true
+# ProtectControlGroups= is NOT set, unlike the rest of the Protect* family: the
+# executor confines each run to a cgroup of its own (Delegate= below) and reaps
+# the whole cgroup when the run ends, which it cannot do against a read-only
+# cgroupfs.  Delegate= scopes the writable view to this service's own subtree;
+# ownership refuses every other cgroup, so the reach gained is one subtree the
+# executor created itself.
 ProtectHostname=true
 ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 RemoveIPC=true
+{{end}}
+# Every brokered command is confined to a cgroup of its own and the whole cgroup
+# is killed when the run ends, so a child that calls setsid -- escaping a
+# process-group kill -- is reaped all the same.  Delegate= is what hands this
+# service the cgroup subtree it makes those under; without it the executor cannot
+# confine and refuses to run.  On both branches, elevation or not: it is the one
+# mechanism that ends a run's processes, and `faramir doctor` checks it.
+Delegate=yes
 # 0007 rather than the other two's 0077: children write into the operator's
 # working tree, and a file the operator cannot open is not a shared tree.  With
 # the setgid directory supplying the group, their files land 0660
@@ -88,7 +156,8 @@ RemoveIPC=true
 UMask=0007
 
 # Every remaining exposure item, and why it is accepted.  Anything flagged that
-# is NOT on this list is a regression.
+# is NOT on this list is a regression.  On a host installed with --elevate the
+# block above adds its own, each stated there.
 #
 #   PrivateNetwork=, IPAddressDeny=
 #       Brokered commands reach managed hosts; egress control is a non-goal.
@@ -100,6 +169,9 @@ UMask=0007
 #       Every child runs on a PTY.
 #   SupplementaryGroups=, ReadWritePaths=
 #       Commands run in the working tree and write to it.
+#   ProtectControlGroups=
+#       The executor manages a per-run cgroup; Delegate= scopes that to its own
+#       subtree and ownership refuses the rest.
 
 [Install]
 WantedBy=multi-user.target

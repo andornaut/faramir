@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net"
 	"os"
+	osexec "os/exec"
 	"os/user"
 	"path/filepath"
 	"strconv"
@@ -22,6 +23,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/elevate"
 	"github.com/andornaut/faramir/internal/executor"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
@@ -34,10 +36,11 @@ import (
 )
 
 type Server struct {
-	Config *config.Config
-	Store  *secretstore.Store
-	Audit  *audit.Log
-	Ssh    *sshagent.Agent
+	Config  *config.Config
+	Store   *secretstore.Store
+	Audit   *audit.Log
+	Ssh     *sshagent.Agent
+	Elevate *elevate.Server
 
 	// exec runs one command.  A field so a test can substitute one that records
 	// what it was handed, rather than reaching broker policy through a socket, a
@@ -50,16 +53,23 @@ type Server struct {
 }
 
 func New(cfg *config.Config) *Server {
-	return &Server{
-		Config: cfg,
-		Store:  secretstore.New(cfg.Secrets, cfg.Keeper),
-		Audit:  audit.NewLog(cfg.Audit),
-		Ssh:    sshagent.New(cfg.Ssh),
-		slots:  make(chan struct{}, cfg.Server.MaxConcurrency),
+	s := &Server{
+		Config:  cfg,
+		Store:   secretstore.New(cfg.Secrets, cfg.Keeper),
+		Audit:   audit.NewLog(cfg.Audit),
+		Ssh:     sshagent.New(cfg.Ssh),
+		Elevate: elevate.New(cfg.Elevate),
+		slots:   make(chan struct{}, cfg.Server.MaxConcurrency),
 		exec: func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
 			return executor.Run(cfg.Exec, cfg.Executor, r, sink, req)
 		},
 	}
+	// An elevation is a thing that happened on this host, so it is recorded where
+	// every other op is.  The record holds the command and the answer; the secret
+	// is not in it, and could not be, the audit log being written after redaction
+	// and that value being in the set.
+	s.Elevate.Record = func(entry map[string]any) { s.Audit.Write(entry, "") }
+	return s
 }
 
 func (s *Server) Listen() (net.Listener, error) {
@@ -172,6 +182,12 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 		return s.opListSecrets()
 	case "redact":
 		return s.opRedact(request, peer)
+	case "approvals":
+		return s.opApprovals(request, peer)
+	case "approve":
+		return s.opApprove(request, peer)
+	case "elevate":
+		return s.opElevate(request, peer)
 	default:
 		return s.opExec(request, peer)
 	}
@@ -194,6 +210,12 @@ func (s *Server) opStatus() protocol.Response {
 		"configs": s.Config.Sources,
 		"secrets": s.Store.Describe(),
 		"ssh":     map[string]any{"configured": configured, "usable": usable},
+		// Whether a brokered command may ask to elevate, which is worth the agent
+		// knowing: without it a playbook that touches this host has to leave it out
+		// and be applied some other way.  Whether, not how: the socket, the helper
+		// and the password are none of a caller's business, and a human answers
+		// every request either way.
+		"elevate": map[string]any{"configured": s.Elevate.Enabled()},
 	}, "", "  ")
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",
@@ -230,6 +252,98 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protoc
 		"redactions": summary, "log_id": logID,
 	}
 }
+
+// opApprovals and opApprove are the elevation channel, and the only two ops
+// this socket refuses to a caller it otherwise admits.
+//
+// Root, checked with SO_PEERCRED, and nothing else -- not the client group,
+// which holds the account the coding agent runs as, and not the executor, which
+// is the side asking.  This one check is what stands between an agent and its
+// own approval, so it is made here rather than left to a file mode: the socket
+// admits a group by design, and only the op knows that this request is
+// different.
+//
+// An account that can reach root can already read the age key, so nothing is
+// lost by trusting it here.
+func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response {
+	if peer != nil && peer.UID == 0 {
+		return nil
+	}
+	out := protocol.ErrorResponse("forbidden", fmt.Sprintf(
+		"%s is root's: an elevation must be answered by an account the coding "+
+			"agent cannot become. Run `sudo faramir approve`", op), "")
+	return &out
+}
+
+// opElevate is what sudo's PAM helper asks, and the only thing that decides
+// whether a brokered command becomes root.  It blocks until a human answers.
+//
+// Root, like the other two: the helper reaches it because pam_exec runs it with
+// seteuid inside sudo, and the child that holds the token cannot spend it.  That
+// is what makes the token an identifier rather than a credential -- there is no
+// credential anywhere in this, which is the whole point of answering rather
+// than authenticating.
+func (s *Server) opElevate(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+	if refused := s.requireRoot("elevate", peer); refused != nil {
+		return *refused
+	}
+	if request.Token == "" {
+		return protocol.ErrorResponse("bad_request",
+			"'token' must name the brokered command asking to elevate", "")
+	}
+	approved, reason := s.Elevate.Ask(request.Token)
+	// A refusal is a response rather than an error: the helper reports it to PAM
+	// as a failed authentication, which is what sudo has to see.
+	return protocol.Response{
+		"exit_code": 0, "approved": approved, "reason": reason,
+		"output": reason + "\n", "truncated": false,
+		"redactions": []any{}, "log_id": nil,
+	}
+}
+
+func (s *Server) opApprovals(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+	if refused := s.requireRoot("approvals", peer); refused != nil {
+		return *refused
+	}
+	wait := min(time.Duration(request.WaitSec)*time.Second, maxApprovalWait)
+	questions := s.Elevate.QuestionsWait(wait)
+	body, _ := json.MarshalIndent(map[string]any{"questions": questions}, "", "  ")
+	return protocol.Response{
+		"exit_code": 0, "output": string(body) + "\n", "questions": questions,
+		"truncated": false, "redactions": []any{}, "log_id": nil,
+	}
+}
+
+func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+	if refused := s.requireRoot("approve", peer); refused != nil {
+		return *refused
+	}
+	// Named by the answering account rather than by uid alone: the audit record is
+	// read by a person asking who let something through.
+	who := fmt.Sprintf("uid %d", peer.UID)
+	if entry, err := user.LookupId(strconv.Itoa(int(peer.UID))); err == nil {
+		who = entry.Username
+	}
+	if peer.PID > 0 {
+		who = fmt.Sprintf("%s (pid %d)", who, peer.PID)
+	}
+	if err := s.Elevate.Answer(request.ID, request.Approve, who); err != nil {
+		return protocol.ErrorResponse("unknown_question", err.Error(), "")
+	}
+	verdict := "refused"
+	if request.Approve {
+		verdict = "approved"
+	}
+	return protocol.Response{
+		"exit_code": 0, "output": request.ID + " " + verdict + "\n",
+		"truncated": false, "redactions": []any{}, "log_id": nil,
+	}
+}
+
+// maxApprovalWait bounds a watcher's long poll.  It returns an empty list and
+// the watcher asks again, so a broker restarted under it is noticed rather than
+// waited on forever.
+const maxApprovalWait = 60 * time.Second
 
 func (s *Server) opListSecrets() protocol.Response {
 	// Names only, and only refs that loaded: a value the redactor cannot cover is
@@ -333,6 +447,28 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	maps.Copy(env, execCfg.BaseEnv)
 	// SSH_AUTH_SOCK: the child can authenticate with the keys, not read them.
 	maps.Copy(env, s.Ssh.Env())
+	// A token, and nothing else: the child can be identified when it asks to
+	// elevate, and a human answers out of band.  Not a capability -- spending it
+	// is an op the broker refuses to anything but root -- so what the child holds
+	// names its run rather than authorising it.
+	//
+	// Registered before the child starts and dropped when it ends, so a request
+	// that arrives late is refused rather than answered against a finished
+	// command.  The argv is the redacted one, this reaching a terminal and the log.
+	token, held := s.Elevate.Register(elevate.Run{
+		Argv: redactEach(s.redactor(), cmd), Cwd: cwd, LogID: logID,
+	})
+	// Held while another command holds an approved elevation: the two share the
+	// executor's uid, so running this one now would give it a route to the root
+	// that was approved for the other.  Busy rather than an error -- the caller
+	// retries, and the wait is bounded by the approved run's own life.
+	if held {
+		return protocol.ErrorResponse("busy", "an approved elevation is running as "+
+			"the executor's uid; no other brokered command runs until it ends, so "+
+			"nothing can ride its approval. Retry shortly", logID)
+	}
+	defer s.Elevate.Release(token)
+	maps.Copy(env, s.Elevate.Env(token))
 	injected := map[string]string{}
 	for name, uri := range envRefs {
 		ref, err := secretref.Parse(uri)
@@ -366,7 +502,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 
 	// Every known secret, not only the injected ones: a managed host can print one
 	// the broker never injected.
-	redactor := redact.New(s.Store.Pairs(), s.Store.Policy)
+	redactor := s.redactor()
 	collector := audit.NewCollector(s.Config.Audit.MaxRecordBytes)
 	started := time.Now()
 
@@ -426,6 +562,10 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 
 // redactor builds a fresh matcher over the whole value set.  Fresh because a
 // Redactor carries per-stream state and counts.
+//
+// Elevation adds nothing here, which is the point of it: an approval is a
+// decision rather than a value, so there is no credential for a child to print
+// back and none for this to cover.
 func (s *Server) redactor() *redact.Redactor {
 	return redact.New(s.Store.Pairs(), s.Store.Policy)
 }
@@ -454,10 +594,11 @@ func redactEach(r *redact.Redactor, in []string) []string {
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
 	sshInfo, problems := s.describeSSH()
+	elevateInfo, elevateProblems := s.describeElevation()
 	policy := s.policyProblems()
 	body, _ := json.MarshalIndent(map[string]any{
 		"configs": s.Config.Sources,
-		"secrets": secrets, "ssh": sshInfo, "policy": policy,
+		"secrets": secrets, "ssh": sshInfo, "elevate": elevateInfo, "policy": policy,
 	}, "", "  ")
 
 	code := 0
@@ -500,7 +641,60 @@ func (s *Server) CheckOutput() ([]byte, int) {
 			"place the key, or leave [ssh] key unset to authenticate some other way")
 		code = 1
 	}
+	// Same weighting as the SSH key: an elevation that cannot be asked for breaks
+	// only the commands that elevate, and those fail at the point of use with
+	// sudo's own error.  Here is where an operator finds out without waiting for a
+	// playbook to.
+	if len(elevateProblems) > 0 {
+		log.Printf("this host cannot answer an elevation: %v", elevateProblems)
+		log.Printf("a brokered command that runs sudo will fail to authenticate; " +
+			"re-run `faramir init --elevate`, or re-run without it to take the grant " +
+			"away entirely")
+		code = 1
+	}
 	return body, code
+}
+
+// describeElevation reports whether this host could answer an elevation, and
+// why not when it could not.  Files rather than a live probe: putting the
+// question would mean waiting on a human, and `--check` runs from `init`.
+func (s *Server) describeElevation() (map[string]any, []string) {
+	info := map[string]any{"configured": s.Elevate.Enabled()}
+	if !s.Elevate.Enabled() {
+		// The install that granted no sudoers entry, which is the default one.
+		return info, nil
+	}
+	cfg := s.Config.Elevate
+	info["exec_user"] = cfg.ExecUser
+	info["pam_service"] = cfg.PamService
+	info["helper"] = cfg.Helper
+	info["notify_command"] = cfg.NotifyCommand
+
+	var problems []string
+	// The helper is what sudo's PAM service execs, as root.  Absent, every
+	// elevation fails closed, which is safe and useless.
+	if _, err := os.Stat(cfg.Helper); err != nil {
+		problems = append(problems, cfg.Helper+": "+err.Error()+
+			" (the PAM service execs it, so no elevation can be approved)")
+	}
+	// The PAM service file itself.  Absent, PAM falls back to /etc/pam.d/other,
+	// which on a normal host asks for a password nothing supplies -- but on one
+	// whose `other` is permissive would authenticate anything, so doctor checks
+	// that too.
+	pamFile := "/etc/pam.d/" + cfg.PamService
+	if _, err := os.Stat(pamFile); err != nil {
+		problems = append(problems, pamFile+": "+err.Error()+
+			" (sudo would fall back to /etc/pam.d/other for "+cfg.ExecUser+")")
+	}
+	// The notifier is optional -- `faramir approve --watch` is where a question is
+	// seen -- but one that is configured and absent announces nothing, silently.
+	if len(cfg.NotifyCommand) > 0 {
+		if _, err := osexec.LookPath(cfg.NotifyCommand[0]); err != nil {
+			problems = append(problems, cfg.NotifyCommand[0]+": "+err.Error()+
+				" ([elevate] notify_command names it, so nothing announces a pending request)")
+		}
+	}
+	return info, problems
 }
 
 // policyProblems names the settings that widen what a socket admits.  The

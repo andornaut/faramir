@@ -3,6 +3,7 @@ package install
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"regexp"
@@ -78,6 +79,8 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnoseSockets(report, opts, cfg) },
 		func() { diagnoseSocketPolicy(report, opts, cfg) },
 		func() { diagnoseSSHKey(report, opts, cfg) },
+		func() { diagnoseElevation(report, opts, cfg) },
+		func() { diagnoseCgroupDelegation(report, opts, cfg) },
 		func() { diagnoseProtectProc(report, opts) },
 		func() { diagnoseBrokered(report, opts, serves) },
 	}
@@ -184,6 +187,10 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 		DefaultLibexecDir,
 		filepath.Join(DefaultLibexecDir, "deny-patterns.txt"),
 		filepath.Join(DefaultLibexecDir, "wrap.sh"),
+		// The PAM helper is here for a different reason from the three above:
+		// nothing reads it to enforce a rule, PAM execs it as root.  An account that
+		// can write it decides every elevation on this host.
+		filepath.Join(DefaultLibexecDir, "pam-approve"),
 	}
 	for _, path := range enforcers {
 		if !exists(path) {
@@ -447,6 +454,181 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 		"held by it", opts.OperatorUser, opts.ExecUser)
 }
 
+// diagnoseElevation checks the one grant that widens what a brokered command
+// can do, on the host that has it and on the host that does not.
+//
+// Two claims, and the second is made either way.  Where elevation is
+// configured: the PAM service that authenticates the executor says what it is
+// supposed to say, and nothing the executor can write decides it.  Everywhere:
+// the executor holds no passwordless sudo and no password of its own, which
+// are the two ways it could elevate with the broker out of the way.
+func diagnoseElevation(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
+	if nopasswd, known := passwordlessSudo(opts.ExecUser); known && nopasswd != "" {
+		report.add("elevation", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
+			"a brokered command elevates without the broker, the question or a human "+
+			"in the way. Remove it: NOPASSWD skips PAM, which is where the approval "+
+			"is asked for", opts.ExecUser, nopasswd)
+		return
+	}
+	// A password on that account is a second way in, and one nothing asks the
+	// broker about.  It authenticates through PAM against the broker or not at
+	// all.
+	if shadow, err := os.ReadFile(shadowFile); err == nil && shadowUsable(string(shadow), opts.ExecUser) {
+		report.add("elevation", StatusFailed, "%s has a usable password, so it can "+
+			"authenticate without the broker being asked anything. Lock it: "+
+			"usermod -L %s", opts.ExecUser, opts.ExecUser)
+		return
+	}
+	if cfg == nil || cfg.Elevate.ExecUser == "" {
+		// No grant asked for.  Reported rather than silent: "this host cannot
+		// elevate" is an answer, and the checks above are what stand behind it.
+		report.add("elevation", StatusOK, "%s has no sudo on this host; brokered "+
+			"commands cannot elevate, which is the default arrangement", opts.ExecUser)
+		return
+	}
+
+	pamFile := filepath.Join(pamDir, cfg.Elevate.PamService)
+	body, err := os.ReadFile(pamFile)
+	if err != nil {
+		report.add("elevation", StatusFailed, "%s is configured to authenticate "+
+			"through %s, which cannot be read (%v): sudo falls back to %s/other for "+
+			"that account. Re-run `faramir init --elevate`",
+			opts.ExecUser, pamFile, err, pamDir)
+		return
+	}
+	if problem := pamStackProblem(string(body), cfg.Elevate.Helper); problem != "" {
+		report.add("elevation", StatusFailed, "%s: %s", pamFile, problem)
+		return
+	}
+	// The helper the stack execs, as root.  An account that can write it chooses
+	// what decides every elevation on this host.
+	for _, account := range []string{opts.ExecUser, opts.OperatorUser} {
+		if canWrite(account, cfg.Elevate.Helper) {
+			report.add("elevation", StatusFailed, "%s can write %s, which is what "+
+				"decides every elevation: it would be choosing its own answer",
+				account, cfg.Elevate.Helper)
+			return
+		}
+	}
+	// The fallback, for the case where the service file is ever removed: a
+	// permissive `other` would authenticate anything reaching it.
+	if other, err := os.ReadFile(filepath.Join(pamDir, "other")); err == nil {
+		if permissiveAuth(string(other)) {
+			report.add("elevation", StatusFailed, "%s/other authenticates without "+
+				"asking anything, so removing %s would not close this host's "+
+				"elevation but open it. Make the fallback pam_deny",
+				pamDir, pamFile)
+			return
+		}
+	}
+	report.add("elevation", StatusOK, "%s may ask to sudo and holds no credential "+
+		"for it; %s asks the broker, and root answers, one approval per command",
+		opts.ExecUser, pamFile)
+}
+
+// diagnoseCgroupDelegation checks the reaper each run depends on: the executor
+// confines a brokered command to a cgroup of its own and tears the whole cgroup
+// down when the run ends, so a setsid child cannot outlive it.  That needs
+// Delegate= on the unit, which `init` renders on every install.  How much its
+// absence costs depends on elevation: an elevating host requires the cgroup, so
+// without it every command is refused; elsewhere the process-group kill reaps the
+// tree (a setsid escapee excepted), so its absence is a weakened, not a broken,
+// host.
+func diagnoseCgroupDelegation(report *DoctorReport, _ DoctorOptions, cfg *config.Config) {
+	delegates, known := execUnitDelegates()
+	elevating := cfg != nil && cfg.Elevate.ExecUser != ""
+	switch {
+	case !known:
+		// systemd not reachable, or the unit not installed: the socket and broker
+		// checks already speak to that, and this cannot add to it.
+		return
+	case !delegates && elevating:
+		report.add("cgroup delegation", StatusFailed, "the executor unit does not set "+
+			"Delegate=, so an elevating host cannot confine a run and the executor refuses "+
+			"to run it: every brokered command fails until this is fixed. Reinstall with "+
+			"`faramir init --elevate` on a host running cgroup v2 (kernel >= 5.14)")
+	case !delegates:
+		report.add("cgroup delegation", StatusWarn, "the executor unit does not set "+
+			"Delegate=, so a run is reaped by process group rather than confined to a "+
+			"cgroup: a command that calls setsid could leave a process behind. Reinstall "+
+			"with `faramir init` on a host running cgroup v2 to close that")
+	default:
+		report.add("cgroup delegation", StatusOK, "the executor unit is delegated a "+
+			"cgroup subtree, so each run is confined and reaped and a setsid child "+
+			"cannot outlive it")
+	}
+}
+
+// execUnitDelegates reports whether the executor unit is granted its own cgroup
+// subtree (Delegate=), and whether that could be determined.  systemctl show
+// reads the unit whether or not it is running, which matters because the
+// executor is socket-activated and usually idle.
+func execUnitDelegates() (delegates, known bool) {
+	if !systemdRunning() {
+		return false, false
+	}
+	run := &runner{}
+	out, err := run.command("systemctl", "show", "faramir-exec.service", "-p", "Delegate", "--value")
+	if err != nil {
+		return false, false
+	}
+	return strings.TrimSpace(out) == "yes", true
+}
+
+// pamStackProblem names what is wrong with the authentication stack, or "".
+//
+// Two things decide whether it gates anything.  `requisite` on the helper: with
+// `sufficient` a REFUSAL is not fatal, the stack falls through to whatever
+// permits below, and every elevation is granted without asking.  And `seteuid`:
+// without it pam_exec runs the helper with the real uid, which under setuid
+// sudo is the executor's own, and the broker answers the elevate op to root
+// alone -- so the helper is refused and nothing on this host can elevate.
+func pamStackProblem(body, helper string) string {
+	for line := range strings.Lines(body) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || !strings.Contains(line, "pam_exec.so") {
+			continue
+		}
+		if !strings.HasPrefix(line, "auth") {
+			continue
+		}
+		switch {
+		case !strings.Contains(line, "requisite"):
+			return "the helper is not `requisite`, so a refusal is not fatal and the " +
+				"stack falls through to whatever permits below: every elevation would " +
+				"be granted without asking. Re-run `faramir init --elevate`"
+		case !strings.Contains(line, "seteuid"):
+			return "the helper runs without `seteuid`, so pam_exec runs it as the " +
+				"executor rather than root: the broker answers the elevate op to root " +
+				"alone, so every elevation on this host fails. Re-run `faramir init --elevate`"
+		case helper != "" && !strings.Contains(line, helper):
+			return "the helper is not " + helper + ", so something other than faramir " +
+				"decides these elevations"
+		}
+		return ""
+	}
+	return "no pam_exec auth line, so nothing asks the broker and whatever else " +
+		"is in this file decides. Re-run `faramir init --elevate`"
+}
+
+// permissiveAuth reports whether a stack authenticates without asking: a
+// pam_permit with nothing that can refuse ahead of it.
+func permissiveAuth(body string) bool {
+	for line := range strings.Lines(body) {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "auth") {
+			continue
+		}
+		if strings.Contains(line, "pam_permit.so") {
+			return true
+		}
+		// Anything else in the auth stack -- a unix check, a deny, an include --
+		// means the fallback is not a free pass.
+		return false
+	}
+	return false
+}
+
 // diagnoseProtectProc: a brokered command's value is in the executor's
 // environment while it runs, and /proc is where another account would read it.
 func diagnoseProtectProc(report *DoctorReport, opts DoctorOptions) {
@@ -601,4 +783,55 @@ func ownerName(info os.FileInfo) string {
 		return account.Username
 	}
 	return uid
+}
+
+// shadowFile is where the hashes are.  A variable so a test can point at one it
+// wrote, as loginDefs is.
+var shadowFile = "/etc/shadow"
+
+// shadowUsable is the parse: the second field is the hash, and "!" locks it,
+// "*" means no password was ever set, and empty means anything gets in.
+//
+// The executor must have none of the first kind.  It authenticates through PAM
+// against the broker's answer, so a password on that account is a second way in
+// and one nothing asks the broker about.
+func shadowUsable(shadow, account string) bool {
+	for line := range strings.Lines(shadow) {
+		name, rest, found := strings.Cut(strings.TrimRight(line, "\n"), ":")
+		if !found || name != account {
+			continue
+		}
+		hash, _, _ := strings.Cut(rest, ":")
+		return hash != "" && !strings.HasPrefix(hash, "!") && !strings.HasPrefix(hash, "*")
+	}
+	return false
+}
+
+// passwordlessSudo reports the executor's NOPASSWD entries, and whether the
+// question could be put at all.  `sudo -l -U` needs root and asks sudo's own
+// parser, which is the only thing that reads sudoers the way sudo does: an
+// entry can come from any file in sudoers.d, from a group, or from LDAP.
+//
+// NOPASSWD is what this looks for because it skips PAM entirely, and PAM is
+// where the approval is asked for.  An entry with it is a brokered command
+// elevating with the broker, the question and the human all out of the way.
+func passwordlessSudo(account string) (string, bool) {
+	if account == "" {
+		return "", false
+	}
+	if _, err := exec.LookPath("sudo"); err != nil {
+		// No sudo on the host at all: nothing to grant and nothing to check.
+		return "", true
+	}
+	run := &runner{}
+	// The exit status is not read: sudo exits non-zero for an account with no
+	// entries, which is the healthy default and the same output -- none -- as an
+	// account whose entries all authenticate.
+	out, _ := run.command("sudo", "-l", "-U", account)
+	for line := range strings.Lines(out) {
+		if strings.Contains(line, "NOPASSWD") {
+			return strings.TrimSpace(line), true
+		}
+	}
+	return "", true
 }

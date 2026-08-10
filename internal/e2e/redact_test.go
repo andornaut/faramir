@@ -56,7 +56,8 @@ func TestTheRewrittenCommandRedactsAndKeepsShellState(t *testing.T) {
 
 	session := exec.Command("bash", "-c", first+"\n"+second+"\n")
 	session.Dir = "/tmp"
-	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli)
+	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli,
+		privateRuntimeEnv(t))
 	out, err := session.CombinedOutput()
 	if err != nil {
 		t.Fatalf("running the rewritten commands: %v: %s", err, out)
@@ -76,6 +77,21 @@ func TestTheRewrittenCommandRedactsAndKeepsShellState(t *testing.T) {
 	if !strings.Contains(got, "kept=yes") {
 		t.Errorf("output = %q, want export to have persisted to the next command", got)
 	}
+}
+
+// privateRuntimeEnv gives the wrapper the private XDG_RUNTIME_DIR it insists on:
+// a directory owned by this uid that no other account can read.  A real session
+// has one at /run/user/<uid>; a bare test process may not (nor may CI), so the
+// tests provide their own rather than depend on the ambient environment.
+// t.TempDir is this uid's; the chmod clears the group and other bits the
+// wrapper's `stat` check refuses.
+func privateRuntimeEnv(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return "XDG_RUNTIME_DIR=" + dir
 }
 
 // runWrapped runs a rewritten command the way the agent's shell would, keeping
@@ -105,7 +121,8 @@ func TestTheWrapperWithholdsOutputItCouldNotRedact(t *testing.T) {
 	rewritten := guardRewrite(t, cli, "echo leaked:"+routerPassword)
 
 	stdout, stderr, code := runWrapped(t, rewritten,
-		"FARAMIR_SOCKET="+filepath.Join(t.TempDir(), "absent.sock"), "FARAMIR_CLI="+cli)
+		"FARAMIR_SOCKET="+filepath.Join(t.TempDir(), "absent.sock"), "FARAMIR_CLI="+cli,
+		privateRuntimeEnv(t))
 
 	if strings.Contains(stdout, routerPassword) {
 		t.Errorf("the value reached the agent unredacted: %q", stdout)
@@ -163,7 +180,8 @@ func TestTheRewrittenCommandKeepsTheExitCode(t *testing.T) {
 	rewritten := guardRewrite(t, cli, "echo before; (exit 33)")
 
 	session := exec.Command("bash", "-c", rewritten)
-	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli)
+	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli,
+		privateRuntimeEnv(t))
 	out, err := session.CombinedOutput()
 	var exitErr *exec.ExitError
 	if !strings.Contains(string(out), "before") {

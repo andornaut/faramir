@@ -60,6 +60,7 @@ ReadWritePaths={{.LogDir}}
 # Leading "-": an absent {{.RunDir}} would otherwise fail the unit with a
 # mount-namespace error rather than the broker reporting what is wrong.
 ReadWritePaths=-{{.RunDir}}
+
 # The broker's home: SSH keys for managed hosts, and ~/.ansible/tmp, which
 # ansible-playbook creates unconditionally.
 StateDirectory={{.BrokerUser}}
