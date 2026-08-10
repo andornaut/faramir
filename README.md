@@ -86,59 +86,11 @@ The age key is not in the value set: no child can obtain it.
 
 ### Design decisions
 
-Decision | Choice | Rationale
---- | --- | ---
-Isolation | Uid separation plus systemd hardening. No containers. | Network isolation is a non-goal, and it was the main thing containers made easy. A sandbox confines what a child sees; it is not a substitute for a uid that holds nothing.
-How the roles are separated | `User=` in three units, all starting one binary. | The uid is what the kernel checks against `0400 faramir-keeper` and against a socket's group. Separate executables check nothing extra.
-Filesystem isolation | None beyond file modes and `ProtectSystem=strict`. | A home the executor may not read is one the mode already refuses; one it may read, the agent can read directly.
-Where commands run | The agent's working tree, directly. | A promotion gate buys an immutable snapshot and a commit sha, both properties against a deliberate agent, which is out of scope.
-Who executes | The broker, as its own uid. | If the client execs, plaintext lives in a process the agent owns.
-Who holds the key | A separate uid that executes nothing. | A key the broker can load is a key any brokered command can read.
-Who forks the child | A third uid, given the PTY slave over `SCM_RIGHTS`. | Anything the forking uid can reach, the child can reach.
-Command allowlist | None. | Any rule permitting an interpreter is reachable in one step through `bash`, which a usable policy must permit.
-How a program gets values | `env_refs`, read from the environment. | The alternative is handing the program the master key.
-Secrets at rest | sops plus age. | Encrypted YAML in the repo, per-key diffs, no network round trip.
-Redaction | Custom, over the whole value set. | Off-the-shelf injectors mask only what they injected; a managed host can print a credential the broker never injected.
-Agent interface | Unix socket exposed as MCP tools plus a CLI. | A distinct tool is more discoverable to a model than a documented convention.
-Enforcement | Hook plus filesystem permissions. | Instructions to the agent are ergonomics, not a boundary.
+The table of what was chosen and what each choice costs is in [docs/design.md](docs/design.md), with the reasoning behind the ones that cost something.
 
 ### Layout
 
-```text
-/usr/local/bin/faramir        the only binary; every role is a subcommand
-/usr/local/libexec/faramir/   the deny list and wrap.sh, rendered per install
-
-/run/faramir/broker.sock      socket-activated, 0660 root:<client-group>
-/run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
-/run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
-/run/faramir/ssh-agent.sock   optional, 0660 faramir-broker:faramir-exec
-<config-dir>/age.key          0400 faramir-keeper:faramir-keeper
-<config-dir>/id_ed25519       0600 faramir-broker:faramir-broker, the key it lends; .pub 0644
-<config-dir>/secrets/         2750 root:faramir-keeper, the managed sops files
-<config-dir>/.sops.yaml       0644 root:root, the creation rule; above the secrets directory, not in it
-<config-dir>/config.toml      0644 root:root, faramir's own, rewritten every run
-<config-dir>/config.d/        0755 root:root, yours and each consumer's, merged over it
-<any tree you enrol>          2770 <operator>:<client-group>, setgid; faramir init-project
-~faramir-broker/.ssh/         0700 faramir-broker, the keys it lends through the agent
-/var/log/faramir/             0750 faramir-broker:faramir-broker, LogsDirectoryMode=
-/var/log/faramir/audit.log    0600 faramir-broker:faramir-broker; faramir logs reads it
-/etc/logrotate.d/faramir      0644 root:root, weekly, 8 kept, early at 16MB
-```
-
-`--config-dir` moves the config, the secrets directory and the age key off `/etc` together; the audit log stays where it is. `faramir status` reports the paths in use.
-
-A brokered command can write the working tree and reach the broker socket, its output redacted and audited like any other. It cannot reach the age key by any route: the modes above are what refuse the key file, the secrets directory, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
-
-`0400 faramir-keeper` keeps the operator out of the key wherever it sits: owning the directory is permission to unlink the file, not to read it, so replacing the key buys denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; its unit is triggered only by its socket.
-
-A tree inside a 0700 home needs traversal for `faramir-exec`, which `faramir init-project` grants by group:
-
-- Every directory from the home down becomes the client group and group-executable, execute only, so those uids pass through without listing what they pass.
-- Never `chmod o+x`, which grants the same to every account on the machine.
-- Everyone in the group gets that traversal, so keep membership to the accounts that need it.
-- A directory already traversable by `other` is left alone. One whose group is something else is taken over, costing that group whatever the group bits gave it, and `init-project` says so.
-- Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
-- The tree itself gets more than traversal: `2770`, group-readable and group-writable throughout, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code.
+Every path the install creates, with its mode and owner, is in [docs/layout.md](docs/layout.md): what `--config-dir` moves, what a brokered command can and cannot reach, and what enrolling a working tree changes.
 
 ## Installation
 
@@ -166,9 +118,9 @@ Flag | Default | What to give it
 `--operator-user NAME` | `$SUDO_USER`, then you | An existing login account, the one your coding agent runs as. It owns the checkouts brokered commands run in, so root is refused. Anything escalating without sudo has to pass this.
 `--client-group NAME` | [what the install uses](#installation), then `dev` | A group name, created if missing. One group doing two jobs: it admits a caller to the broker socket, and `init-project` group-owns a tree with it so the broker can stat a request's cwd and `faramir-exec` can run there. The operator is in it for the first, the broker and the executor for the second, the keeper for neither. The executor therefore reaches the broker socket, which buys it nothing: it can request the same injection the agent can, redacted and audited the same way.
 `--secrets-group NAME` | [what the install uses](#installation), then `faramir-keeper` | A group name, created if missing. It owns the ciphertext in `<config-dir>/secrets`, and the keeper is the only account in it, so asking for a value by name and reading the file it came from stay different privileges. Not who may *use* a secret: the operator is deliberately out of this group, and `doctor` fails if they are in it. The default is the keeper's own group, so it follows `--keeper-user`.
-`--config-dir DIR` | [found the usual way](#checking-an-install) | An absolute path for `config.toml`, `config.d/`, the age key and the managed sops files. Left out, it re-provisions the install this host already has. Naming one provisions that directory instead, which on a host installed elsewhere is a second install beside the first. It has to be mounted before the daemons read it, and its parent has to exist: this is the one directory faramir creates whose parent can be yours, and creating one would hand it to root.
+`--config-dir DIR` | [found the usual way](docs/operating.md#checking-an-install) | An absolute path for `config.toml`, `config.d/`, the age key and the managed sops files. Left out, it re-provisions the install this host already has. Naming one provisions that directory instead, which on a host installed elsewhere is a second install beside the first. It has to be mounted before the daemons read it, and its parent has to exist: this is the one directory faramir creates whose parent can be yours, and creating one would hand it to root.
 `--broker-user`, `--exec-user`, `--keeper-user` NAME | [what the install uses](#installation), then `faramir-broker`, `faramir-exec`, `faramir-keeper` | Service account names, created if missing. Rename them freely; no two may share a name.
-`--age-recipient KEY` | none | An age public key, repeatable, listed in `.sops.yaml` beside the keeper's so a backup of the ciphertext opens without the keeper's key. No identity is minted: the private half is yours to hold, and it opens a backup only if it outlives whatever took the keeper's key. The **public** half, checked before anything is written: `.sops.yaml` is world-readable, so an identity pasted here would hand the key that opens the secrets to every account on the host. Only read at the install that creates the file; see [Adding a recipient](#adding-a-recipient).
+`--age-recipient KEY` | none | An age public key, repeatable, listed in `.sops.yaml` beside the keeper's so a backup of the ciphertext opens without the keeper's key. No identity is minted: the private half is yours to hold, and it opens a backup only if it outlives whatever took the keeper's key. The **public** half, checked before anything is written: `.sops.yaml` is world-readable, so an identity pasted here would hand the key that opens the secrets to every account on the host. Only read at the install that creates the file; see [Adding a recipient](docs/operating.md#adding-a-recipient).
 `--ssh-key PATH` | [what the install uses](#installation), then `<config-dir>/id_ed25519` | Where the identity the broker lends to brokered commands lives. One is minted either way, so this relocates rather than enables. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run. An existing key at the path is adopted, not replaced, which is how you bring your own; it must already be `faramir-broker`-owned `0600` or `init` refuses it rather than chowning a key that may be yours. It names a keypair: the broker holds both halves and signs with the private one.
 `--known-hosts PATH` | none | A `known_hosts` file pinned for the executor, copied to `<exec-home>/.ssh/known_hosts`. A copy, the executor being unable to read your `0700 ~/.ssh`, and safe to copy where an ssh config is not: public host keys carry no directive that executes anything. Replaced whole on each run, `HashKnownHosts` leaving entries unmatchable by name to merge, so the file you name is the authority. One that is not a `known_hosts` file is refused before anything is written, which catches a path that reaches a private key.
 `--agent NAME` | none | `claude`, `gemini`, `opencode` or `kilocode`, repeatable. Installs that agent's deny rules into your own settings. Naming none installs none.
@@ -179,64 +131,13 @@ The units are sandboxed, so the config directory is not a free choice. `init` re
 
 `init` installs and never migrates: it writes what this version wants and leaves an older layout's leftovers alone.
 
-### Adding a recipient
-
-`--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which is not something a re-run of the installer should do behind your back.
-
-A run that keeps the file reads it back, reports the recipients it actually lists as `age_recipients`, and warns naming any key you asked for that is not in there. `doctor` answers the same question about a host nobody is installing.
-
-`faramir edit` does not apply a changed rule either, and for the same reason: it re-encrypts to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
-
-Applying one is two steps, both as root:
-
-```bash
-sudoedit /etc/faramir/.sops.yaml   # add the key under `- age:`
-sudo faramir rekey                 # re-encrypt the secrets to what it now says
-```
-
-The first decides who can read files sops creates from then on. The second brings the files that already exist into line, decrypting each with the keeper's key and re-sealing it to the rule. Name files to do only some; `--dry-run` reports what would change and writes nothing.
-
-- **The ownership and mode are preserved.** This is why `rekey` exists rather than a loop over `sops updatekeys`, which rewrites in place with no regard for either: a managed file that stops being readable by the secrets group is one the keeper cannot open.
-- **A rule that drops the keeper's own key is refused**, before anything is decrypted. Re-encrypting to it would leave secrets nothing on the host can open, and re-running cannot undo that. This is the same drift `init` and `doctor` warn about: replace `age.key` (restored from a backup, or re-minted after the file was unlinked) and the rule still names the old recipient, so every value encrypted from then on is one the keeper cannot read.
-- **Files already sealed to the rule are skipped.** Re-encrypting rewrites the data key even when the recipients are identical, so a rekey that did not compare first would make every file look changed.
-- **Dropping a recipient is the same two steps**, and reaches no copy of the ciphertext that somebody already holds. Treat what that key could read as read.
-- **A hand-written `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. Use `sops updatekeys` per file, or `--sops-config` to name a single-rule file.
-- **With the keeper's key as the only recipient there is nothing to keep in step.** `edit` decrypts and re-encrypts with `<config-dir>/age.key` every time, and `rekey` never needs running. The cost is that the key is the only way in: losing it loses every managed value, retroactively, and a second recipient is the backup that avoids it.
-
 ### Checking an install
 
 ```bash
 sudo faramir doctor
 ```
 
-A broker serving zero refs and a client group with members nobody recognises both look healthy otherwise. `doctor` checks what exists only once the install is on a host:
-
-- the age key unreadable by every account but the keeper
-- the operator's own `~/.ssh` and `~/.config/sops` unreadable by the executor
-- the secrets group the keeper's alone
-- the config `[exec.base_env]` comes from, the binary and the deny list, none of them writable by the operator
-- the keeper and executor sockets closed to the accounts that must not open them, the broker's open to the operator
-- the audit log and the SSH keys unreadable by the executor, which can still authenticate
-- how many host keys a brokered `ssh` can verify a host against
-- `ProtectProc` hiding the broker's environment
-- the `.sops.yaml` creation rule listing the keeper's own recipient rather than one it used to have
-- a managed value injected into a real command coming back as its token
-
-It also compares the version the broker reports against its own. They differ when a new binary was installed and the daemons were never restarted onto it, which makes every other finding a report on the build that is not running, so this fails rather than warns and the fix is to re-run `init`. A broker that does not answer at all is a warning instead, `doctor` being for a stopped install as much as a running one.
-
-Most of the examination needs another uid: the broker's own `--check`, the comparison of the `.sops.yaml` recipients against the keeper's `0400` age key, and the checks that ask what each account can reach. Each is asked as the account it is about, root bypassing file modes so the same question from root answers itself.
-
-Without sudo those report as unchecked rather than as passing, grouped at the end. A skipped check is one warn line whatever it stood for, so a line under the totals counts them: the totals alone would read the same on a host examined in full and on one where most of the questions were never put.
-
-Two checks run a brokered command rather than reading a mode: the SSH agent probe and the brokered command check.
-
-- Both skip against a broker known to hold no values, and against one that answered nothing when the install was looked up: neither will run the command, and the refusal and the outage are reported by the secrets and socket checks instead.
-- They differ on a broker that was never asked. The brokered command check needs root, so an unestablished value set there is `--check` not having reported. The SSH agent probe runs as the caller's own account, so it is answered without sudo and a refusal is recognised as one.
-- A refusal from a broker whose `--check` read every managed file fails rather than skips: `--check` reads those files itself, so a daemon refusing what they cover came up before they were written.
-
-**Finding the install.** `doctor`, `init-project`, `uninstall`, `edit`, `rekey` and `logs` all act on an install they did not perform, and each finds it the same way: `--config-dir` (or `--config`) if you name one, then the running broker's own answer, then the `FARAMIR_CONFIG=` its unit names, then the compiled-in default. The unit is what covers a host whose config moved and whose broker is down. `init` finds it the same way and prints what it settled on before writing anything. Naming `--config-dir` is still what puts an install somewhere new.
-
-The three daemon entry points, `broker`, `keeper` and `exec`, follow the same chain without asking a running broker: each is a process that may be about to bind that socket, and connecting to it would socket-activate the installed daemon and leave the two contending for the path. The unit answers the same question, being where a running broker's config came from. Under systemd none of this is reached, the units setting `FARAMIR_CONFIG` themselves; it is what makes `faramir broker --check` work from a shell on an install that is not at the default path.
+Reports whether the install is doing its job, and as root what each account can reach. What it checks, what a run without sudo cannot ask, and how every command finds the install: [docs/operating.md](docs/operating.md).
 
 ## Usage
 
@@ -320,13 +221,13 @@ faramir redact -- ./deploy.sh
 
 Command | Does
 --- | ---
-`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. [Shares the tree](#layout), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config, [found the usual way](#checking-an-install). A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` and `~/.config/sops/age/keys.txt` to every brokered command, and the walk is not reversible. `faramir doctor` re-checks it.
-`sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](#checking-an-install).
+`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. [Shares the tree](docs/layout.md), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. The client group comes from the installed config, [found the usual way](docs/operating.md#checking-an-install). A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` and `~/.config/sops/age/keys.txt` to every brokered command, and the walk is not reversible. `faramir doctor` re-checks it.
+`sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](docs/operating.md#checking-an-install).
 `sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the secrets directory is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
-`sudo faramir rekey [FILE...]` | Re-encrypts managed sops files to the recipients `<config-dir>/.sops.yaml` names now, which is how a changed creation rule reaches values encrypted before it changed. Every managed file unless some are named. Preserves each file's owner and mode, skips one already sealed to the rule, and refuses a rule that leaves out the keeper's own key. `--dry-run` writes nothing. See [Adding a recipient](#adding-a-recipient).
+`sudo faramir rekey [FILE...]` | Re-encrypts managed sops files to the recipients `<config-dir>/.sops.yaml` names now, which is how a changed creation rule reaches values encrypted before it changed. Every managed file unless some are named. Preserves each file's owner and mode, skips one already sealed to the rule, and refuses a rule that leaves out the keeper's own key. `--dry-run` writes nothing. See [Adding a recipient](docs/operating.md#adding-a-recipient).
 `sudo faramir logs` | Recent audit records, or the one a short id names: id, local time, op, outcome, duration, how many values it stood in for, and the command; a redact reports the text's size instead, and an edit or a rekey the managed file, a rekey also naming the recipients on each side. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched.
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed `config.d` drop-in. All three are socket activated.
-`sudo faramir uninstall` | Removes the broker from the install it [finds the usual way](#checking-an-install). Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively.
+`sudo faramir uninstall` | Removes the broker from the install it [finds the usual way](docs/operating.md#checking-an-install). Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively.
 
 ### MCP tools
 
@@ -340,29 +241,7 @@ Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 ### Notes
 
-- **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
-- **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.
-- **The keeper must be up before the broker is.** On a cold start there is no previous value set, so a keeper it cannot reach means nothing to redact with, and the broker refuses `exec` and `redact` rather than serving that. Its unit `Requires=` the keeper socket and restarts on failure, so activation normally supplies this. A keeper lost *later* does not stop a running broker: it keeps the set it already has and retries.
-- **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so an installed binary too old to know the agent refuses every command in that project rather than running it unredacted.
-- **Children do not inherit the broker's environment.** They get `[exec.base_env]` plus injected secrets. Add what a tool needs there.
-- **Interactive prompts fail rather than hang.** Stdin is `/dev/null`. Pass non-interactive flags.
-- **Output is truncated** at `[exec] max_output_bytes`; the audit log keeps up to `[audit] max_record_bytes`.
-- **The audit log rotates weekly**, 8 kept, compressed, and early at 16MB. `[audit] max_record_bytes` bounds one record, not the file. Delete `/etc/logrotate.d/faramir` to manage it some other way.
-- **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
-- **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does, and `ProtectSystem=strict` leaves that directory read-only to the broker that uses it. A drop-in setting `[ssh] key` is refused; `--ssh-key` is what moves or adopts one.
-- **A brokered `ssh` logs in as the executor.** `ssh host` naming no user asks for `faramir-exec`, which is nobody's account on a managed host, and the key is refused however well it is installed. Give the login (`ssh deploy@host.example.com`), or write one `User` per host into `/var/lib/faramir-exec/.ssh/config` as root, that being the child's `HOME`. Ansible needs neither, `ansible_user` being in the inventory.
-- **A brokered `ssh` verifies against `/etc/ssh/ssh_known_hosts` and the executor's own.** The executor's starts absent and nothing can prompt you to add to it, so a host trusted only in your `~/.ssh/known_hosts` is refused before the broker's key is offered. `init --known-hosts PATH` pins a file for the executor; the system-wide file is the alternative, covering every account at once. Either way an entry is filed under the name ssh dials, port-bracketed where that is not 22 (`[host.example.com]:2222`), and is never consulted under another name. Seed the system-wide file from a connection you have already verified, taking every type the host offers, the algorithm being negotiated per connection:
-
-  ```bash
-  sudo ssh-keygen -R host.example.com -f /etc/ssh/ssh_known_hosts
-  ssh host.example.com 'cat /etc/ssh/ssh_host_*_key.pub' \
-    | awk '{print "host.example.com", $1, $2}' \
-    | sudo tee -a /etc/ssh/ssh_known_hosts
-  ```
-
-  The removal first makes it re-runnable. [ansible-ctrl's faramir role](https://github.com/andornaut/ansible-ctrl/blob/main/roles/faramir/tasks/ssh.yml) does this across a fleet.
-- **The broker's home is `/var/lib/faramir-broker`**, granted by `StateDirectory=`.
-- **Encrypt the disk.** LUKS on the root filesystem covers the age key, the secrets, the audit log and swap in one move.
+The operational rules that are not obvious from a command's own output, from restart order to what a brokered `ssh` logs in as: [docs/operating.md#notes](docs/operating.md#notes).
 
 ## Configuration
 
@@ -372,27 +251,18 @@ Settings live in `<config-dir>/config.toml`, which `init` rewrites every run, an
 
 [docs/configuration.md](docs/configuration.md) is the reference: every setting a drop-in may set and every one it may not, how lists merge, what `faramir broker --check` fails on, and the invariants no setting changes.
 
-## Developing
-
-```bash
-make build           # a static binary into bin/
-make coverage        # race-enabled suite plus per-function report
-make fmt             # apply the import and format rules CI checks
-make lint            # golangci-lint
-make test            # whole suite; needs no sops installed
-make test-e2e        # end-to-end against a real broker in a temp dir
-make test-unit       # everything except end-to-end
-```
-
-- Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout. The `.tmpl` files are the shipped files themselves, so what you read is what the install writes.
-- Tests live where the logic does. Most of what the broker does is decide, and none of that needs a socket or a child process, so `internal/server` substitutes the executor. `internal/executor` uses a real child, because the PTY and the streaming redactor only mean anything against real bytes.
-- The suite runs in a temp directory under one uid, so it covers the protocol, the PTY hand-off and the redactor, but never the uid boundary. That boundary is only real on a host, which is what `sudo faramir doctor` is for. Adversarial exfiltration is asserted nowhere; a value piped through `rev` reaches the caller transformed, as [Not prevented](#not-prevented) says.
-- The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries. It is imported only from `_test.go`, which keeps sops out of the shipped binary; CI fails the build on a `getsops` import reaching `./cmd/faramir`.
-- The opencode and Kilo Code plugins are the only shipped logic that is not Go, so they are run rather than read: node drives the shipped file against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed. Skipped where node is absent. No test covers a running opencode or Kilo Code, or Bun, which is the runtime both load a plugin under.
+## Documentation
 
 Doc | Covers
 --- | ---
 [docs/ansible-sops.md](docs/ansible-sops.md) | Pointing `group_vars` at the environment
+[docs/configuration.md](docs/configuration.md) | Every setting, what a drop-in may set, what `--check` fails on
 [docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what enrolment costs
+[docs/layout.md](docs/layout.md) | Every path the install creates, with its mode and owner
+[docs/operating.md](docs/operating.md) | Checking an install, the operational notes, adding an age recipient
 [docs/protocol.md](docs/protocol.md) | Request and response shapes on the socket
 [docs/redaction.md](docs/redaction.md) | What the redactor covers, and what it cannot
+
+## Developing
+
+Build, test and coverage: [CONTRIBUTING.md](CONTRIBUTING.md).
