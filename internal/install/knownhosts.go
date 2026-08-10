@@ -82,12 +82,9 @@ func hasPrefixIn(s string, prefixes []string) bool {
 // countKnownHosts reports how many host keys ssh would take from a file, and
 // zero for one that is absent.
 //
-// Lenient where readKnownHosts refuses, the two answering different questions: a
-// path handed to --known-hosts is vetted before it is copied, while this counts
-// what an existing file already holds.  ssh reads a known_hosts file line by
-// line and ignores what it cannot parse, so one hand-edited line in a file of
-// two hundred leaves the other entries verifying hosts, and reporting the file
-// as holding nothing would state the opposite.
+// Lenient where readKnownHosts refuses: ssh reads a known_hosts file line by
+// line and ignores what it cannot parse, so the entries either side of a bad
+// line still verify their hosts.
 func countKnownHosts(path string) int {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -105,15 +102,13 @@ func countKnownHosts(path string) int {
 // this is safe where copying an ssh config is not, a known_hosts file being
 // public keys with no directive that executes anything.
 //
-// Opt-in, and silent without --known-hosts: on the usual host
-// /etc/ssh/ssh_known_hosts already covers every account, and a line on every
-// install saying what was not done is noise.  doctor is what reports the state
-// where nothing is pinned anywhere.
+// Silent without --known-hosts, doctor being what reports a host with nothing
+// pinned anywhere.
 //
-// Replaced whole rather than merged.  HashKnownHosts is on by default, so
-// entries cannot be matched by name to merge them, and appending blind would
-// keep a rotated host's old key as a second line ssh still accepts.  The named
-// file is the authority, including for an entry removed from it.
+// Replaced whole rather than merged: HashKnownHosts is on by default, so entries
+// cannot be matched by name, and appending blind would keep a rotated host's old
+// key as a second line ssh still accepts.  The named file is the authority,
+// including for an entry removed from it.
 func (r *runner) stepKnownHosts() error {
 	if r.opts.KnownHosts == "" {
 		return nil
@@ -123,9 +118,7 @@ func (r *runner) stepKnownHosts() error {
 		return err
 	}
 	path := r.layout.ExecKnownHosts()
-	// Says what the write does, not what the source holds: the file is replaced
-	// whole, so pinning an empty one removes the entries pinned by an earlier run
-	// rather than leaving them and adding nothing.
+	// The file is replaced whole, so pinning an empty one removes what is there.
 	if entries == 0 {
 		r.warn("%s holds no host keys, so this removes whatever %s had pinned and "+
 			"leaves a brokered ssh verifying against %s alone. Re-run with a file that "+
