@@ -237,7 +237,7 @@ type Secret struct {
 }
 
 // New builds a redactor over the given secrets.  A value the policy refuses is
-// not matched; naming it is the secret store's job.
+// not matched; naming it is the secretstore package's job.
 func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 	r := &Redactor{Policy: policy, counts: map[string]int{}}
 	seen := map[string]bool{}
@@ -352,7 +352,7 @@ func (r *Redactor) redact(text string) string {
 	}
 	// Built at most once per distinct text, not once per secret: every entry
 	// needs the same newline-free view, and building it per entry makes the
-	// pass quadratic in the size of the store.  Invalidated only when an entry
+	// pass quadratic in the size of the value set.  Invalidated only when an entry
 	// replaced something, which is why the plain pass below keeps the old
 	// string on a miss.
 	var view *collapsedView

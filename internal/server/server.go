@@ -246,16 +246,6 @@ func (s *Server) opListSecrets() protocol.Response {
 	}
 }
 
-// refuseUnreadable is the gate on the two ops whose output is redacted against
-// the value set.  One question for both, because both risk the same thing: see
-// Store.Unreadable.
-//
-// Here rather than at startup.  Startup was the wrong place twice over: it only
-// ever judged the host as it was at boot, so a reload that shrank the set
-// afterwards went unremarked, and exiting takes the daemon down just when
-// `faramir status` and `doctor` are what would explain why.  status and
-// list_secrets stay available for that reason: neither produces output that
-// depends on the set.
 // secretsDir is where a first file goes, taken from the configured pattern
 // rather than a default: --config-dir moves it, and naming the wrong directory
 // in the one actionable line here would send the operator somewhere the broker
@@ -267,6 +257,15 @@ func (s *Server) secretsDir() string {
 	return "the directory [secrets] files names"
 }
 
+// refuseUnreadable is the gate on the two ops whose output is redacted against
+// the value set.  One question for both, because both risk the same thing: see
+// Store.Unreadable.
+//
+// Here rather than at startup, for two reasons.  A check at startup judges the
+// host as it was at boot, so a reload that shrinks the set afterwards passes
+// unremarked; and exiting takes the daemon down just when `faramir status` and
+// `doctor` are what would explain why.  status and list_secrets stay available
+// for the second reason: neither produces output that depends on the set.
 func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	reason := s.Store.Unreadable()
 	if reason == "" {
@@ -462,9 +461,9 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		code = 1
 	}
 	// The audit is stricter than the daemon's own gate, which is the split: the
-	// daemon starts while the store is not written yet, and refuses exec and
-	// redact until it is.  Here that state fails, because a host serving nothing
-	// is one an operator asked about and should be told about.
+	// daemon starts while the secrets directory is not written yet, and refuses
+	// exec and redact until it is.  Here that state fails, because a host serving
+	// nothing is one an operator asked about and should be told about.
 	if s.Store.Count() == 0 {
 		log.Printf("the broker holds no managed values, so nothing is injectable " +
 			"and nothing is redacted; exec and redact are refused until one loads")

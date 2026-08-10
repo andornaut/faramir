@@ -67,9 +67,36 @@ func TestResolveConfigDirPrefersTheFlag(t *testing.T) {
 	}
 }
 
-// Nothing listening is the case doctor exists for, so it carries on against the
-// default.
+// pointBrokerUnit aims the unit step of the ladder at a fixture, so a test
+// about a later step is not answered by this host's own install.
+func pointBrokerUnit(t *testing.T, body string) {
+	t.Helper()
+	unit := filepath.Join(t.TempDir(), "faramir-broker.service")
+	if body != "" {
+		if err := os.WriteFile(unit, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	original := brokerUnit
+	brokerUnit = unit
+	t.Cleanup(func() { brokerUnit = original })
+}
+
+// The step between a silent broker and the default: a broker that is not
+// running was still installed to load something, and its unit says what.
+func TestResolveConfigDirReadsTheUnitWhenTheBrokerIsSilent(t *testing.T) {
+	pointBrokerUnit(t, "[Service]\nUser=faramir-broker\n"+
+		"Environment=FARAMIR_CONFIG=/home/op/.config/faramir/config.toml\n")
+	missing := filepath.Join(t.TempDir(), "absent.sock")
+	if got := resolveConfigDir("", missing); got != "/home/op/.config/faramir" {
+		t.Errorf("resolveConfigDir = %q, want the directory the unit names", got)
+	}
+}
+
+// Nothing listening and no unit is a host with no install, which is the case
+// doctor exists for, so it carries on against the default.
 func TestResolveConfigDirFallsBackWhenTheBrokerIsSilent(t *testing.T) {
+	pointBrokerUnit(t, "")
 	missing := filepath.Join(t.TempDir(), "absent.sock")
 	if got := resolveConfigDir("", missing); got != install.DefaultConfigDir {
 		t.Errorf("resolveConfigDir = %q, want %q", got, install.DefaultConfigDir)
@@ -78,6 +105,7 @@ func TestResolveConfigDirFallsBackWhenTheBrokerIsSilent(t *testing.T) {
 
 // A broker that answers with something else is the same as one that does not.
 func TestResolveConfigDirFallsBackOnAnEmptyConfigList(t *testing.T) {
+	pointBrokerUnit(t, "")
 	socket := statusBroker(t, []string{})
 	if got := resolveConfigDir("", socket); got != install.DefaultConfigDir {
 		t.Errorf("resolveConfigDir = %q, want %q", got, install.DefaultConfigDir)

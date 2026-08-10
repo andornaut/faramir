@@ -9,10 +9,11 @@
 # Drop-ins merge over this file in lexical order.  [secrets] files accumulates
 # rather than replacing, and decrypt_command is refused if a drop-in sets it
 # again.  Every value init derives from a flag or from the install is refused
-# outright: the socket paths, allowed_group, allowed_user, [ssh] key,
-# exec_group, agent_socket and the audit log_path.  Re-running `faramir init`
-# is what changes the ones a flag reaches; the rest come from paths fixed at
-# build time.  What is left is a default, and yours to set.
+# outright: the socket paths, allowed_group, allowed_user, the keeper's
+# age_key_file and age_key_credential, the whole of [ssh], and audit log_path.
+# Re-running `faramir init` is what changes the ones a flag reaches; the rest
+# come from paths fixed at build time.  What is left is a default, and yours
+# to set.
 #
 # Check a config with:  faramir broker -c FILE --check
 # See README.md and docs/design.md.

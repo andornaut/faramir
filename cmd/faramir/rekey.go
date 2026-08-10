@@ -6,9 +6,7 @@ package main
 // Adding or dropping an age recipient is two separate facts.  The creation rule
 // decides who can read files sops writes from then on; every file already in
 // the secrets directory is still sealed to the recipients it was written with,
-// and nothing walks that directory to bring them into line.  `faramir edit`
-// will not do it either: it re-encrypts to the recipients a file already
-// carries, on purpose, so that an edit cannot silently drop a reader mid-edit.
+// and nothing else walks that directory to bring them into line.
 //
 // This walks the managed files rather than leaving the operator to run `sops
 // updatekeys` per file, which rewrites in place with no regard for ownership: a

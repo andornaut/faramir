@@ -33,9 +33,9 @@ const (
 	DefaultExecUser    = "faramir-exec"
 )
 
-// There is no DefaultStoreGroup: it defaults to the keeper's own primary group,
-// so the accounts that can read the ciphertext are the one that decrypts it, by
-// construction rather than by a membership list.
+// There is no DefaultSecretsGroup: it defaults to the keeper's own primary
+// group, so the only account that can read the ciphertext is the one that
+// decrypts it, by construction rather than by a membership list.
 
 // Layout is everything the templates and the install steps must agree on. Built
 // once by Options.layout and passed down.
@@ -48,9 +48,7 @@ type Layout struct {
 	// the executor for the second, and the keeper for neither.
 	//
 	// The executor therefore reaches the broker socket, which is deliberate and
-	// argued where it shows: see faramir-exec.service.tmpl.  Splitting the two
-	// jobs into two groups was considered and declined; it changes no behaviour
-	// while both default to the same name, and buys only the name.
+	// argued where it shows: see faramir-exec.service.tmpl.
 	//
 	// SecretsGroup owns the secrets directory and holds the keeper alone, that
 	// being the only account that opens a managed file; the operator is not in it,
@@ -90,15 +88,12 @@ type Layout struct {
 	// and the file cannot drift apart.
 	//
 	// Never empty.  One is minted whether or not a host turns out to need it, so
-	// `init` prints a public half the operator can put in an authorized_keys
-	// whenever they want, without re-running with a flag.  The cost is an
-	// ssh-agent holding a key that may open nothing.
+	// `init` prints a public half the operator can add to an authorized_keys
+	// without re-running with a flag.  The cost is an ssh-agent holding a key
+	// that may open nothing.
 	//
-	// It defaults into the config directory, beside the age key and for the same
-	// reason: the key follows the config, so a config moved into an encrypted home
-	// takes the private half with it.  A fleet key is the one piece of material
-	// that cannot be rotated out of someone else's hands once copied. Read-only
-	// there, the broker running ProtectSystem=strict with the config directory
+	// It defaults beside the age key in the config directory, and is read-only
+	// there: the broker runs ProtectSystem=strict with the config directory
 	// outside its ReadWritePaths, so the account that uses the key is not the
 	// account that can replace it.
 	//
@@ -109,16 +104,13 @@ type Layout struct {
 }
 
 // AgeKeyDir is where the key lives, which is the config directory: the key
-// follows the config so that secrets in an encrypted home have the key that
-// opens them in there too.
+// follows the config, so secrets in an encrypted home have the key that opens
+// them in there too.
 func (l Layout) AgeKeyDir() string { return filepath.Dir(l.AgeKeyPath) }
 
 // SecretsDir is where the managed sops files live, always under the config
-// directory rather than anywhere an operator names.  The age key follows the
-// config, so secrets placed away from it are ciphertext in one place and the
-// key that opens them in another: moving them into an encrypted home while the
-// config stays in /etc leaves the key on the unencrypted disk, which is the
-// arrangement moving it was for.
+// directory rather than anywhere an operator names, so the ciphertext cannot
+// end up on a different disk from the key that opens it.
 func (l Layout) SecretsDir() string { return filepath.Join(l.ConfigDir, "secrets") }
 
 // SopsConfigPath is where the creation rule lives: the config directory, beside

@@ -40,7 +40,7 @@ shell double-quoted (`\$`, `` \` ``, `\"`) | `set -x` traces
 
 **5. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. `[secrets] min_length` is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
 
-Length is the whole of the test. There is no distinct-character count and no entropy floor: how strong a credential is belongs to whoever chose it, and neither measure is the strength check it reads as (`password` clears both). Length is different in kind, being a bound on what the redactor can search for without eating the output. What an entropy floor would additionally catch, a long value like `aaaaaaaa` matching any run of eight, is noise in the operator's own output rather than a value that escapes.
+Length is the whole of the test. There is no distinct-character count and no entropy floor: neither is the strength check it reads as (`password` clears both), and how strong a credential is belongs to whoever chose it. Length is different in kind, being a bound on what the redactor can search for without eating the output. A long low-entropy value such as `aaaaaaaa` matches any run of eight, but that mangles the operator's own output rather than letting a value escape.
 
 Refusal closes the injection half only. A refused value is absent from the redactor, so reaching the output another way it arrives in plaintext, which is why the list stays operator-side: the broker logs each one at load and `faramir broker --check` reports them under `secrets.not_redactable` and exits non-zero, while `faramir_status` and `faramir_list_secrets` say nothing. Lengthen the secret rather than lowering the threshold.
 

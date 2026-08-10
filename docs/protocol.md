@@ -61,7 +61,7 @@ Code | Meaning
 `bad_request` | Malformed request, bad or reserved env var name, a malformed `secret://` reference, `cwd` that does not exist
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `busy` | At `[server] max_concurrency`; retry
-`no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. Refuses `exec` and `redact` alike, both being redacted against the same set. What the files held does not matter, so an install with no secrets in it yet serves. `status` and `list_secrets` always answer
+`no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `list_secrets` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`)
 `too_large` | Request exceeded `[server] max_request_bytes`

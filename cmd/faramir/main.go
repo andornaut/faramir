@@ -55,7 +55,8 @@ Commands:
   keygen        mint an age keypair for the keeper
   version       print the version and exit
 
-Provisioning (require root; they do not talk to the broker):
+Provisioning (require root; they act on files, and ask a running broker where
+the install is):
   init          install or re-install faramir on this host
   init-project  enrol one working tree: share it, and configure the agent there
   edit          edit a managed sops file

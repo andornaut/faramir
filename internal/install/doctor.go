@@ -13,6 +13,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // DoctorOptions is what Diagnose needs to find an install it did not perform.
@@ -28,6 +29,11 @@ type DoctorOptions struct {
 	// SecretsGroup owns the managed sops files, defaulting to the keeper's own
 	// group as install leaves it.
 	SecretsGroup string
+
+	// BrokerVersion is what the running broker reported, empty when it did not
+	// answer.  Passed in rather than asked for here, the caller already having
+	// opened the socket to find the install.
+	BrokerVersion string
 }
 
 // Status is a finding's verdict.  Three levels, because a broker that is
@@ -108,6 +114,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	}
 
 	diagnoseUnits(&report)
+	diagnoseVersion(&report, opts)
 	servesCommands := diagnoseBroker(&report, configFile, opts.BrokerUser)
 	diagnoseSSHAgent(&report, opts, cfg, servesCommands)
 	diagnoseGroup(&report, opts)
@@ -205,6 +212,29 @@ func diagnoseUnits(report *DoctorReport) {
 			continue
 		}
 		report.add("sockets", StatusOK, "%s is listening", socket)
+	}
+}
+
+// diagnoseVersion compares the running broker against the binary asking.  They
+// diverge when a new binary was installed and the daemons were not restarted
+// onto it, which every other finding here would then describe wrongly: the
+// checks read this build's paths, modes and config rules against a host running
+// the previous one.
+//
+// A fail rather than a warn.  Nothing is wrong with either build; what is wrong
+// is that an upgrade did not finish, and re-running init is what finishes it.
+func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
+	switch {
+	case opts.BrokerVersion == "":
+		report.add("version", StatusWarn, "the broker did not answer, so which build "+
+			"is running is unknown; this binary is %s", version.Version)
+	case opts.BrokerVersion != version.Version:
+		report.add("version", StatusFailed, "the broker is running %s and this binary "+
+			"is %s, so the daemons were never restarted onto what is installed and "+
+			"every finding below describes the wrong build. Run `sudo faramir init`",
+			opts.BrokerVersion, version.Version)
+	default:
+		report.add("version", StatusOK, "broker and binary are both %s", version.Version)
 	}
 }
 
@@ -384,7 +414,7 @@ func groupMembers(name string) ([]string, error) {
 // Failing rather than falling back, and stopping rather than carrying on: each
 // of these is readable on any working install, so not reading one means the
 // install is broken, and every finding after it would name an account this host
-// may not have.  A wrong answer given confidently is worse here than no answer.
+// may not have.
 func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Config) (DoctorOptions, bool) {
 	for _, role := range []struct {
 		unit string

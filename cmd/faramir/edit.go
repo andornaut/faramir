@@ -23,6 +23,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/keeper"
 )
 
@@ -131,34 +132,26 @@ func cmdEdit(args []string) int {
 	return 0
 }
 
-// brokerUnit records the config the daemons loaded.  A variable so a test can
-// point it at a fixture.
-var brokerUnit = "/etc/systemd/system/faramir-broker.service"
-
 // resolveConfig finds the config this edit has to agree with: --config, then
-// $FARAMIR_CONFIG, then the compiled default, then the broker's unit.  The last
-// step is what makes this work under sudo on an install whose config moved into
-// a home, sudo having cleared the environment.
+// $FARAMIR_CONFIG, then whatever discoverConfigFile finds, then the compiled
+// default if it is there.
+//
+// An empty result is deferred to config.Load rather than guessed at, which is
+// also what an explicit $FARAMIR_CONFIG returns: the variable is Load's to
+// read, so returning a path here would override the caller's own choice.
+//
+// Reaching the unit matters under sudo on an install whose config moved into a
+// home: sudo clears the environment, and the socket goes unanswered whenever
+// the broker is not running.
 func resolveConfig(requested string) string {
 	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
 		return requested
 	}
-	// Asked of the running broker, as the other provisioning commands do.
-	if path := filepath.Join(resolveConfigDir("", socketDefault()), "config.toml"); exists(path) {
+	if path := discoverConfigFile(askBroker(socketDefault())); path != "" {
 		return path
 	}
-	// Under sudo this process is root, which [server] allowed_group does not
-	// admit, so the question above can go unanswered exactly here.  The unit is
-	// the same answer written down.
-	body, err := os.ReadFile(brokerUnit)
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(body), "\n") {
-		if rest, found := strings.CutPrefix(strings.TrimSpace(line),
-			"Environment=FARAMIR_CONFIG="); found {
-			return rest
-		}
+	if path := filepath.Join(install.DefaultConfigDir, "config.toml"); exists(path) {
+		return path
 	}
 	return ""
 }
