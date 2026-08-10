@@ -480,11 +480,13 @@ func mainPID(unit string) string {
 // is what a brokered command actually gets.  As the operator, the broker
 // checking the peer's credentials and root not being in the shared group.
 func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerServes) {
-	// Running one against a refusing broker would report the refusal as a broken
-	// boundary.  That state is a failure already, reported where it belongs.
+	// Three states where the command is not sent, each reported as unasked: a
+	// broker that refuses it, one whose value set --check did not establish, and
+	// one that is not running.  Sent anyway, a refusal or an outage comes back as
+	// a boundary that does not hold; the secrets and sockets checks report both.
 	//
-	// Reached as root, so an unestablished value set means --check itself did not
-	// report, which is a distinct reason and not the broker's answer.
+	// Reached as root, so an unestablished value set is --check itself not having
+	// reported rather than the broker's answer.
 	switch serves {
 	case servesNothing:
 		report.NotAsked++
@@ -497,11 +499,6 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 			"so whether the broker would refuse the command this runs is unknown")
 		return
 	}
-	// The other way the command cannot be sent, and the state doctor is run in on
-	// purpose: a broker that answered nothing when the install was looked up is
-	// one no brokered command reaches, and running one here would report a
-	// stopped install as a boundary that does not hold.  The outage is the
-	// sockets and version checks' to report.
 	if opts.BrokerVersion == "" {
 		report.NotAsked++
 		report.add("brokered command", StatusWarn, "not asked: the broker did not "+

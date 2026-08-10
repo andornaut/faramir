@@ -59,10 +59,10 @@ const (
 )
 
 // brokerServes is what the --check probe established about the value set.  A
-// probe that did not run is distinct from one that ran and found nothing: read
-// as the same, a broker holding thirteen values is reported as one holding
-// none, and the probes that key off it are skipped citing a state the broker is
-// not in.
+// probe that did not run has to stay distinct from one that ran and found
+// nothing: --check needs root, so reading the two as the same reports every
+// broker examined without sudo as one holding no values, and skips the probes
+// that key off it citing a state the broker is not in.
 type brokerServes int
 
 const (
@@ -82,11 +82,9 @@ const refusedCode = "no_secrets"
 const sshAgentRefused = "not asked: the broker holds no managed values, so it " +
 	"refuses the brokered command this probe runs"
 
-// sshAgentUnanswered is the other reason the probe cannot be put: it sends a
-// brokered command, so a broker that answered nothing when the install was
-// looked up answers this no better.  Reported here as unasked rather than as a
-// fault of the agent, the outage being the sockets and version checks' to
-// report.
+// sshAgentUnanswered is the other reason the probe cannot be put: a broker that
+// answered nothing when the install was looked up answers a brokered command no
+// better.
 const sshAgentUnanswered = "not asked: the broker did not answer, so the " +
 	"brokered command this probe runs cannot be sent"
 
@@ -100,10 +98,11 @@ type Finding struct {
 // DoctorReport is the whole examination; Failed is the exit code a caller
 // reads.
 //
-// NotAsked counts the checks that could not be put, for want of root or of a
-// broker holding values.  A caller has to report it alongside the findings: one
-// warn line stands for a dozen unasked questions, so the totals alone read as a
-// complete examination of a host that was barely examined.
+// NotAsked counts the checks that could not be put, for want of root, of a
+// broker holding values or of one running at all.  A caller has to report it
+// alongside the findings: one warn line stands for a dozen unasked questions,
+// so the totals alone read as a complete examination of a host that was barely
+// examined.
 type DoctorReport struct {
 	Failed   bool      `json:"failed"`
 	NotAsked int       `json:"not_asked"`
@@ -377,10 +376,9 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 // the executor's uid some other way, and `ssh-add -l` there exits non-zero
 // because no agent is running, which is not a fault to report.
 //
-// Skipped when the probe cannot be put at all, for the reasons skipSSHProbe
-// gives.  Not skipped for want of root, the probe running as the caller's own
-// account then, and not skipped on an unasked broker probe: that says nothing
-// about the value set, and the refusal is recognised below if it comes.
+// Not skipped for want of root: the probe runs as the caller's own account,
+// which is the operator either way.  Deciding the skip and reading the answer
+// are split out so both can be tested without a broker.
 func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
 	if cfg == nil || cfg.Ssh.Key == "" {
 		report.add("ssh agent", StatusOK, "no [ssh] key configured, so no agent runs "+
@@ -397,14 +395,14 @@ func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 	reportSSHProbe(report, cfg, serves, out, err)
 }
 
-// skipSSHProbe reports why the probe cannot be put, empty when it can.  Apart
-// from running it, so what decides a skip can be tested without a broker.
+// skipSSHProbe reports why the probe cannot be put, empty when it can.  The
+// probe sends a brokered command, so a broker that refuses one and a broker
+// that answers nothing are both states where there is no answer to be had, and
+// reporting either as the agent's own fails a host whose agent is fine.
 //
-// The established refusal first: it is what --check answered about the value
-// set, and it names the fault to fix.  A broker that did not answer is the
-// second, and it covers the state doctor is run in on purpose: a stopped
-// install, where a probe that sends a brokered command would report the outage
-// as an SSH agent that could not be reached.
+// The established refusal first: it names the fault to fix.  An empty version
+// is what the install lookup got from a broker that is not running, which the
+// sockets and version checks report.
 func skipSSHProbe(serves brokerServes, brokerVersion string) string {
 	switch {
 	case serves == servesNothing:
@@ -415,12 +413,12 @@ func skipSSHProbe(serves brokerServes, brokerVersion string) string {
 	return ""
 }
 
-// reportSSHProbe turns the probe's answer into a finding, apart from running it
-// for the reason given on skipSSHProbe.
+// reportSSHProbe turns the probe's answer into a finding.
 //
 // A refusal from a broker --check found holding values is the one answer that
-// is neither the agent's nor a skip: the two disagree, which is the running
-// daemon having started before the values were written.
+// is neither the agent's nor a skip: --check reads the managed files itself, so
+// a daemon refusing what those files cover is one that came up before they were
+// written.
 func reportSSHProbe(report *DoctorReport, cfg *config.Config, serves brokerServes, out string, err error) {
 	switch classifySSHProbe(out, err) {
 	case sshProbeHasKey:
@@ -456,14 +454,12 @@ const (
 	sshProbeUnreachable
 )
 
-// classifySSHProbe reads the probe's answer, apart from running it so the
-// reading can be tested without a broker.
+// classifySSHProbe reads the probe's answer.
 //
 // Success first: ssh-add exits non-zero both when the agent is empty and when
 // it could not be reached, so err alone does not say which and the output
-// decides.  The refusal is the broker declining to run the probe at all, which
-// is a statement about the value set rather than about the agent, and is the
-// one answer here that must not be reported as a fault of the thing probed.
+// decides.  The refusal is the broker declining to run the probe at all, a
+// statement about the value set rather than about the agent.
 func classifySSHProbe(out string, err error) sshProbeResult {
 	switch {
 	case strings.Contains(out, "SHA256"):
