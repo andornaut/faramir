@@ -1,12 +1,14 @@
 package install
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/agekey"
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -294,5 +296,80 @@ func TestVersionSkewIsAFindingOfItsOwn(t *testing.T) {
 				t.Errorf("report.Failed = %v, want %v", report.Failed, wantFailed)
 			}
 		})
+	}
+}
+
+// The broker declining to run the probe is a statement about the value set, not
+// about the agent.  Reported as the agent's own answer it becomes a failure
+// against a host whose agent is fine, and the plain answers must keep working
+// when an error is present, ssh-add exiting non-zero on an empty agent.
+func TestTheSSHProbeTellsARefusalFromAnAnswer(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		out  string
+		err  error
+		want sshProbeResult
+	}{
+		{
+			name: "the agent answered",
+			out:  "256 SHA256:abc faramir broker on host (ED25519)\n",
+			want: sshProbeHasKey,
+		},
+		{
+			name: "the agent answered despite a non-zero exit",
+			out:  "256 SHA256:abc faramir broker on host (ED25519)\n",
+			err:  errors.New("exit status 1"),
+			want: sshProbeHasKey,
+		},
+		{
+			name: "the broker refused the probe",
+			err:  errors.New("faramir: " + refusedCode + ": the broker does not hold every managed value"),
+			want: sshProbeRefused,
+		},
+		{
+			name: "the agent holds nothing",
+			out:  "The agent has no identities.\n",
+			err:  errors.New("exit status 1"),
+			want: sshProbeEmpty,
+		},
+		{
+			name: "nothing answered",
+			err:  errors.New("exit status 2"),
+			want: sshProbeUnreachable,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := classifySSHProbe(tc.out, tc.err); got != tc.want {
+				t.Errorf("classifySSHProbe = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// A broker probe that never ran says nothing about the value set, so the ssh
+// agent check has to run rather than report a broker holding values as one
+// holding none.  Only a probe that ran and found nothing skips it.
+func TestTheSSHAgentIsSkippedOnlyOnAnEstablishedRefusal(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Ssh.Key = "/etc/faramir/id_ed25519"
+
+	var report DoctorReport
+	diagnoseSSHAgent(&report, DoctorOptions{}, cfg, servesNothing)
+	if len(report.Findings) != 1 || report.Findings[0].Detail != sshAgentRefused {
+		t.Fatalf("a broker known to serve nothing: got %+v", report.Findings)
+	}
+	if report.NotAsked != 1 {
+		t.Errorf("NotAsked = %d, want the skipped check counted", report.NotAsked)
+	}
+
+	// No key configured is the host that arranges SSH some other way, and is an
+	// answer rather than a check that went unmade.
+	var noKey DoctorReport
+	diagnoseSSHAgent(&noKey, DoctorOptions{}, &config.Config{}, servesUnknown)
+	if len(noKey.Findings) != 1 || noKey.Findings[0].Status != StatusOK {
+		t.Fatalf("no [ssh] key: got %+v", noKey.Findings)
+	}
+	if noKey.NotAsked != 0 {
+		t.Errorf("NotAsked = %d, want 0 for a check that was answered", noKey.NotAsked)
 	}
 }
