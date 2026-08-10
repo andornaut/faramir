@@ -181,7 +181,13 @@ func TestTheRewrittenCommandKeepsTheExitCode(t *testing.T) {
 // output.
 func TestTheRewriteLeavesNoTemporaryFile(t *testing.T) {
 	h := newHarness(t)
+	// A stand-in for the real XDG_RUNTIME_DIR, which is the session's own tmpfs at
+	// 0700.  t.TempDir hands back 0775, and the hook refuses to capture unredacted
+	// output into a directory another account can read.
 	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	cli := faramirCLI(t)
 	rewritten := guardRewrite(t, cli, "echo "+routerPassword)
 
@@ -197,6 +203,80 @@ func TestTheRewriteLeavesNoTemporaryFile(t *testing.T) {
 	}
 	if len(left) != 0 {
 		t.Errorf("left behind: %v", left)
+	}
+}
+
+// A command that runs "exit" ends the sourced shell at the eval, before the
+// cleanup, and the capture file at that point holds output nothing has redacted
+// yet.  An EXIT trap is what still runs on that path.
+func TestTheRewriteLeavesNoTemporaryFileWhenTheCommandExits(t *testing.T) {
+	h := newHarness(t)
+	dir := t.TempDir()
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cli := faramirCLI(t)
+	rewritten := guardRewrite(t, cli, "echo "+routerPassword+"; exit 42")
+
+	session := exec.Command("bash", "-c", rewritten)
+	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock,
+		"FARAMIR_CLI="+cli, "XDG_RUNTIME_DIR="+dir)
+	out, err := session.CombinedOutput()
+
+	// The status the command chose still reaches the caller.
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 42 {
+		t.Errorf("exit = %v, want 42", err)
+	}
+	if strings.Contains(string(out), routerPassword) {
+		t.Errorf("the value reached the caller: %q", out)
+	}
+	left, err := filepath.Glob(filepath.Join(dir, "faramir.*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range left {
+		body, _ := os.ReadFile(path)
+		t.Errorf("left behind %s holding %q", path, body)
+	}
+}
+
+// Fails closed: with nowhere private to capture into, the command does not run
+// at all.  Running it would print whatever it found straight to the agent, and
+// capturing into a directory another account can write is not a capture whose
+// contents this can answer for.
+func TestTheRewriteRefusesWithoutAPrivateRuntimeDir(t *testing.T) {
+	h := newHarness(t)
+	cli := faramirCLI(t)
+	rewritten := guardRewrite(t, cli, "echo "+routerPassword)
+
+	shared := t.TempDir()
+	if err := os.Chmod(shared, 0o777); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		dir  string
+	}{
+		{"unset, as under sudo and in cron", ""},
+		{"a directory other accounts can write", shared},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			session := exec.Command("bash", "-c", rewritten)
+			session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock,
+				"FARAMIR_CLI="+cli, "XDG_RUNTIME_DIR="+tc.dir)
+			out, err := session.CombinedOutput()
+
+			if err == nil {
+				t.Errorf("the command was run anyway: %s", out)
+			}
+			if strings.Contains(string(out), routerPassword) {
+				t.Errorf("the value reached the caller: %q", out)
+			}
+			if !strings.Contains(string(out), "was not run") {
+				t.Errorf("output does not say the command was withheld: %q", out)
+			}
+		})
 	}
 }
 
