@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -231,4 +232,43 @@ func dispatcherNames(t *testing.T) []string {
 		t.Fatalf("found only %d case labels in run(); the switch was not parsed", len(names))
 	}
 	return names
+}
+
+// Deny by default, at the last place a human's answer is read: only an explicit
+// yes approves, so a typo, a stray word or an empty line refuses.
+func TestOnlyYesApproves(t *testing.T) {
+	for _, line := range []string{"yes", "y", "YES", " yes "} {
+		if !approves(line) {
+			t.Errorf("%q did not approve", line)
+		}
+	}
+	for _, line := range []string{"no", "", "\n", "y e s", "sure", "yes please", "ok", "1"} {
+		if approves(line) {
+			t.Errorf("%q approved an elevation", line)
+		}
+	}
+}
+
+// A sentence is an answer, not a closed stdin.  Scanln reported "expected
+// newline" for anything past the first word, which the watcher read as end of
+// input and exited on, leaving the question to expire unanswered.
+func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
+	answers = bufio.NewReader(strings.NewReader("yes please\nyes\n\n"))
+	for _, want := range []struct {
+		approve bool
+		ok      bool
+	}{
+		{false, true}, // "yes please" is not yes, and is still an answer
+		{true, true},  // the next line is read, not eaten by the one before
+		{false, true}, // a bare newline is a no
+	} {
+		approve, ok := readAnswer()
+		if approve != want.approve || ok != want.ok {
+			t.Errorf("readAnswer = (%v, %v), want (%v, %v)", approve, ok, want.approve, want.ok)
+		}
+	}
+	// And only a closed stdin ends the watch.
+	if _, ok := readAnswer(); ok {
+		t.Error("readAnswer kept going past the end of its input")
+	}
 }

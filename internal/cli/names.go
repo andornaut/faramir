@@ -21,17 +21,20 @@ var Operator = []string{
 	"edit",
 	"rekey",
 	"logs",
+	"approve",
 	"doctor",
 	"reload",
 	"uninstall",
 }
 
-// Internal is the roles run by systemd (broker, keeper, exec) and by the agent's
-// harness (mcp, guard), each spelled as its unit and account are.
+// Internal is the roles run by systemd (broker, keeper, exec), by the agent's
+// harness (mcp, guard) and by PAM inside a brokered command (pam-approve),
+// each spelled as its unit, account or PAM service is.
 var Internal = []string{
 	"broker",
 	"keeper",
 	"exec",
 	"mcp",
 	"guard",
+	"pam-approve",
 }

@@ -28,15 +28,24 @@ func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
 // SSH_AUTH_SOCK is here because rebinding it would decide what the child
-// authenticates against.
+// authenticates against.  SUDO_ASKPASS and the two beside it are here for the
+// same reason one step further on: they decide what answers sudo, and a caller
+// that could point them elsewhere could answer its own prompt.
 var ReservedEnv = map[string]bool{
 	"PATH": true, "HOME": true, "LD_PRELOAD": true, "LD_LIBRARY_PATH": true,
 	"IFS": true, "BASH_ENV": true, "ENV": true, "SOPS_AGE_KEY": true,
 	"SOPS_AGE_KEY_FILE": true, "CREDENTIALS_DIRECTORY": true,
 	"SSH_AUTH_SOCK": true, "SSH_AGENT_PID": true,
+	"SUDO_ASKPASS": true, "FARAMIR_ASKPASS_SOCKET": true,
+	"FARAMIR_ASKPASS_TOKEN": true,
 }
 
-var ops = []string{"exec", "list_secrets", "redact", "status"}
+// approvals and approve are the elevation channel, and the only ops the broker
+// refuses to anything but root.  They are on this socket rather than one of
+// their own because the check that matters is SO_PEERCRED, which every
+// connection here already carries; a second socket would be a second mode to
+// get wrong.
+var ops = []string{"exec", "list_secrets", "redact", "status", "approvals", "approve", "elevate"}
 
 type Request struct {
 	Op         string
@@ -47,6 +56,17 @@ type Request struct {
 	TimeoutSec int
 	// Text is what the redact op scrubs.  Only that op reads it.
 	Text string
+
+	// ID names the elevation question `approve` answers, and Approve is the
+	// answer.  WaitSec is how long `approvals` may block before returning an
+	// empty list, so a watcher costs one connection rather than a poll a second.
+	ID      string
+	Approve bool
+	WaitSec int
+	// Token names the brokered command the `elevate` op asks about.  It is an
+	// identifier, not a credential: the op that reads it is refused to anything
+	// but root.
+	Token string
 }
 
 // Parse validates a decoded request payload.
@@ -128,6 +148,34 @@ func Parse(payload map[string]any) (*Request, error) {
 			}
 			req.EnvRefs[name] = s
 		}
+	}
+
+	if req.Op == "approve" {
+		id, isStr := payload["id"].(string)
+		if !isStr || id == "" {
+			return nil, fmt.Errorf("'id' must name the question to answer; " +
+				"`faramir approve` lists what is waiting")
+		}
+		req.ID = id
+		// Absent is a refusal.  Deny by default holds here too: a malformed answer
+		// must not read as a yes.
+		req.Approve, _ = payload["approve"].(bool)
+	}
+
+	if req.Op == "elevate" {
+		token, isStr := payload["token"].(string)
+		if !isStr || token == "" {
+			return nil, fmt.Errorf("'token' must name the brokered command asking to elevate")
+		}
+		req.Token = token
+	}
+
+	if raw, ok := payload["wait_sec"]; ok && raw != nil {
+		n, isNum := toInt(raw)
+		if !isNum || n < 0 {
+			return nil, fmt.Errorf("'wait_sec' must be a non-negative integer")
+		}
+		req.WaitSec = n
 	}
 
 	if raw, ok := payload["timeout_sec"]; ok && raw != nil {

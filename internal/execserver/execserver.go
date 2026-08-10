@@ -51,6 +51,9 @@ type Executor struct {
 	ln     net.Listener
 	slots  chan struct{}
 	wg     sync.WaitGroup
+	// cgroupBase is the cgroup v2 directory each run is confined under, or "" where
+	// confinement is unavailable and the executor refuses to run.  Set once at New.
+	cgroupBase string
 }
 
 // maxConcurrent is a backstop, not a knob.
@@ -65,7 +68,17 @@ type Executor struct {
 const maxConcurrent = 16
 
 func New(cfg *config.Config) *Executor {
-	return &Executor{config: cfg, slots: make(chan struct{}, maxConcurrent)}
+	e := &Executor{config: cfg, slots: make(chan struct{}, maxConcurrent)}
+	// Every run is confined to its own cgroup, elevation or not, and that cgroup is
+	// how a run is ended -- the one mechanism, no process-group fallback.  Probed
+	// once here; a host that cannot confine refuses to run rather than run a command
+	// it cannot reliably reap.
+	if e.cgroupBase = cgroupBase(); e.cgroupBase == "" {
+		log.Printf("this executor has no usable cgroup, so brokered commands will be " +
+			"refused: it needs cgroup v2, a unit that sets Delegate=, and a kernel with " +
+			"cgroup.kill (>= 5.14). Reinstall on such a host")
+	}
+	return e
 }
 
 func (e *Executor) Listen() (net.Listener, error) {
@@ -260,9 +273,33 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	cmd.Stdin = devnull
 	cmd.Stdout = slave
 	cmd.Stderr = slave
-	// Setsid makes the child a session leader, so killpg reaches everything it
-	// spawns.  Ctty 1 is the slave, so a write to /dev/tty lands on our PTY.
+	// Setsid makes the child a session leader so it can take the PTY as its
+	// controlling terminal; Ctty 1 is the slave, so a write to /dev/tty lands on
+	// our PTY.  It is not how the run is killed -- the cgroup is.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 1}
+
+	// Confinement is mandatory for every run: the child is spawned directly into
+	// its own cgroup, so a descendant that calls setsid -- which a process-group
+	// kill would miss -- is still reaped when the cgroup is torn down.  A host that
+	// cannot confine refuses the run rather than running it unreaped; this needs
+	// cgroup v2, a unit with Delegate=, and a kernel >= 5.14 (cgroup.kill), and old
+	// kernels are not supported -- they fail closed.
+	if e.cgroupBase == "" {
+		return errorResponse("exec_failed", "this host has no usable cgroup (needs "+
+			"cgroup v2, a unit with Delegate=, and a kernel with cgroup.kill >= 5.14); "+
+			"refusing to run a command that cannot be confined and reaped")
+	}
+	rcg, err := newRunCgroup(e.cgroupBase)
+	if err != nil {
+		return errorResponse("exec_failed", fmt.Sprintf("could not confine this run to "+
+			"a cgroup (%v); refusing to run it", err))
+	}
+	cmd.SysProcAttr.UseCgroupFD = true
+	cmd.SysProcAttr.CgroupFD = rcg.fd
+	// Closed after the run on every path, a normal exit included: it kills whatever
+	// is still in the cgroup -- a setsid grandchild can outlive a zero exit -- waits
+	// for it to empty, and removes it.
+	defer rcg.close()
 
 	started := time.Now()
 	if err := cmd.Start(); err != nil {
@@ -276,7 +313,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 		_ = cmd.Wait()
 		close(waitDone)
 	}()
-	timedOut := e.await(cmd, conn, waitDone, timeoutSec, graceSec)
+	timedOut := e.await(rcg, cmd, conn, waitDone, timeoutSec, graceSec)
 	<-waitDone
 
 	exitCode := cmd.ProcessState.ExitCode()
@@ -299,8 +336,9 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 
 // await waits for the child, watching the clock and the broker's connection.
 // done is closed by the caller's cmd.Wait goroutine, since waiting twice would
-// fail with ECHILD.
-func (e *Executor) await(cmd *exec.Cmd, conn net.Conn, done <-chan struct{}, timeoutSec, graceSec int) bool {
+// fail with ECHILD.  A timeout or a hangup ends the run's whole cgroup, not just
+// the child, so a setsid descendant goes with it.
+func (e *Executor) await(rcg *runCgroup, cmd *exec.Cmd, conn net.Conn, done <-chan struct{}, timeoutSec, graceSec int) bool {
 	// A readable connection means the broker sent something or hung up; either way
 	// it is no longer waiting, and the child must not outlive it.
 	hangup := make(chan struct{})
@@ -327,35 +365,13 @@ func (e *Executor) await(cmd *exec.Cmd, conn net.Conn, done <-chan struct{}, tim
 	case <-done:
 		return false
 	case <-timer.C:
-		log.Printf("pid %d exceeded %ds; killing", cmd.Process.Pid, timeoutSec)
-		terminate(cmd, graceSec)
+		log.Printf("pid %d exceeded %ds; killing its cgroup", cmd.Process.Pid, timeoutSec)
+		rcg.terminate(graceSec)
 		return true
 	case <-hangup:
-		log.Printf("broker hung up; killing pid %d", cmd.Process.Pid)
-		terminate(cmd, graceSec)
+		log.Printf("broker hung up; killing pid %d's cgroup", cmd.Process.Pid)
+		rcg.terminate(graceSec)
 		return false
-	}
-}
-
-// terminate SIGTERMs the whole process group, then SIGKILLs what is left.
-func terminate(cmd *exec.Cmd, graceSec int) {
-	pid := cmd.Process.Pid
-	for _, sig := range []syscall.Signal{syscall.SIGTERM, syscall.SIGKILL} {
-		if err := syscall.Kill(-pid, sig); err != nil {
-			_ = cmd.Process.Signal(sig)
-		}
-		wait := time.Duration(graceSec) * time.Second
-		if sig == syscall.SIGKILL {
-			wait = 5 * time.Second
-		}
-		deadline := time.Now().Add(wait)
-		for time.Now().Before(deadline) {
-			if err := syscall.Kill(pid, 0); err != nil {
-				return // gone
-			}
-			time.Sleep(20 * time.Millisecond)
-		}
-		log.Printf("pid %d survived %v", pid, sig)
 	}
 }
 

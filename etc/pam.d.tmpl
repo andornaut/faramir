@@ -1,0 +1,40 @@
+# /etc/pam.d/{{.PamService}} -- how sudo authenticates {{.ExecUser}}, and only
+# {{.ExecUser}}.
+#
+# Written by `faramir init --elevate` and REWRITTEN BY EVERY RUN.  Re-running
+# init without --elevate removes it, along with the sudoers entry that names it.
+#
+# A service of faramir's own rather than an edit to /etc/pam.d/sudo, which is
+# what {{.SudoersFile}}'s `pam_service` selects.  Everyone else's sudo reads the
+# stock file and is untouched by anything here: a mistake below reaches
+# {{.ExecUser}} and nobody else, so it can neither lock this host's operators
+# out of sudo nor hand any other account a free one.
+#
+# There is no password in this.  The authentication step is a helper that asks
+# the broker whether the brokered command making this call was approved by a
+# human, so nothing is minted, stored or handed out, and an approval cannot be
+# carried to a later command.
+#
+# THE TWO WORDS THAT MATTER:
+#
+#   requisite  -- not `sufficient`.  With `sufficient`, a helper that REFUSES is
+#                 not fatal, the stack falls through to pam_permit below, and
+#                 every elevation is granted without asking anybody.  One word,
+#                 and the gate is gone.
+#   seteuid    -- pam_exec otherwise runs the helper with the REAL uid, which
+#                 under setuid sudo is {{.ExecUser}}'s own.  The broker answers
+#                 the elevate op to root and to nobody else, so without this the
+#                 helper is refused and EVERY elevation fails: the feature is
+#                 off rather than loose, but it is off.  It also keeps the
+#                 process doing the deciding out of the reach of the uid being
+#                 decided about, instead of resting on the kernel marking a
+#                 setuid child non-dumpable -- which it does today, and which is
+#                 not a thing to build a boundary on.
+#
+# Fail-closed by construction: a missing module, an unparseable line or a
+# non-zero helper all end in a refusal, because nothing here authenticates
+# except by reaching pam_permit past a requisite that succeeded.
+auth     requisite  pam_exec.so quiet seteuid {{.PamHelper}}
+auth     required   pam_permit.so
+account  required   pam_permit.so
+session  required   pam_permit.so

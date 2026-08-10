@@ -95,3 +95,38 @@ The executor's account cannot read the key, so `ssh` problems are debugged throu
 Keep `ANSIBLE_HOST_KEY_CHECKING=True` in `[exec.base_env]`. Turning it off to make a broken host work is how a broker with credentials hands them to whatever answers.
 
 `faramir-exec` has its own `known_hosts` and it starts absent, so a play whose hosts are trusted only in the operator's `~/.ssh/known_hosts` fails verification before the key above is offered. `faramir init --known-hosts ~/.ssh/known_hosts` pins yours for it; `/etc/ssh/ssh_known_hosts` is the alternative, being the file every account on the host reads. `faramir doctor` reports how many host keys the executor can verify against.
+
+## 4. Becoming root on the controller
+
+`become` on a *managed* host is the operator's own arrangement: the account Ansible connects as has passwordless sudo there, and faramir has no part in it.
+
+The controller — the host faramir itself runs on — is different, and by default it has to be left out:
+
+```bash
+faramir run --env-file faramir.env -- ansible-playbook msmtp.yml --limit '!controller'
+```
+
+because a brokered command runs as `faramir-exec`, which has no sudo. A playbook that touches every host including this one then splits in two: the fleet through the broker, the controller as root some other way, which is a secret-bearing run happening twice.
+
+`sudo faramir init --elevate` closes that. It grants `faramir-exec` a password-required sudoers entry here and points it at a PAM service of faramir's own, whose authentication step asks the broker whether a human approved the brokered command making the call. There is no password: what satisfies `sudo` is a decision, so nothing is minted, stored or handed out. The answer comes from `sudo faramir approve`, which the broker checks with `SO_PEERCRED` to be root, so the account the coding agent runs as cannot approve what the agent asked for. The full argument, including what an approval does *not* bound, is in the [README](../README.md#elevating-on-the-controller).
+
+The Ansible side is one variable, on the controller host only:
+
+```yaml
+# host_vars/controller.yml
+ansible_become_flags: '-H'
+```
+
+Dropping the default `-n` is the whole of it: `-n` tells `sudo` to fail rather than authenticate, and it does so before the PAM stack runs, so the question is never put and every task fails with `sudo: a password is required` even when a human is watching. Nothing here prompts, so there is no `SUDO_ASKPASS` and no `-A`. `-H` sets `HOME` to root's, which is what `become` normally does for you.
+
+And you leave a watcher running, as root, in a terminal the coding agent cannot type into — a console, an ssh session from another machine, or a login as another account. Not a tmux pane on your own account: the agent runs as you, and `tmux send-keys` needs nothing more than that. The command warns when it can tell.
+
+```bash
+sudo faramir approve --watch
+```
+
+Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var -- there is no become password. The first task that elevates puts a question there naming the playbook; anything but `yes`, including no answer, fails that task with `sudo`'s own error.
+
+- One approval per playbook run, not per task. Ansible calls `sudo` once per become'd task, and a question asked once a task is one nobody reads; a yes covers every `sudo` that `ansible-playbook` invocation makes. It is not a timed cache: the approval is scoped to that one brokered command and is gone when it exits, so a second `faramir run` is asked about separately however soon it follows.
+- A *second* brokered command cannot ride the approval: the broker serialises approved runs, refusing to approve one while anything else runs as the executor and holding new `faramir run`s until it ends. Expect other brokered commands to return `busy` for the length of an approved playbook — that pause is the protection. What is *not* bounded is the approved command itself: it gets real root and can make it permanent (a setuid binary, a `systemd` unit, a line in `sudoers`), exactly as `sudo ansible-playbook` by hand can. So approve only a playbook you trust with permanent root, and keep it operator-owned and read-only to brokered commands so the agent cannot author what root runs. The [README](../README.md#elevating-on-the-controller) has the full argument and the demonstrated attack.
+- `faramir doctor` reports the arrangement, and reports a `NOPASSWD` entry for `faramir-exec` as a failure whether or not this host was installed with `--elevate`.
