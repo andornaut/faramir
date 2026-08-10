@@ -9,6 +9,24 @@ Not defended | Why
 The fleet | The account Ansible connects as has passwordless sudo on every managed host. The operator's arrangement.
 Personal credentials at rest | `.env`, `~/.npmrc` and the like are read by the tools that need them. Scope and rotation are the mitigations.
 
+## The decisions
+
+Decision | Choice | Rationale
+--- | --- | ---
+Isolation | Uid separation plus systemd hardening. No containers. | Network isolation is a non-goal, and it was the main thing containers made easy. A sandbox confines what a child sees; it is not a substitute for a uid that holds nothing.
+How the roles are separated | `User=` in three units, all starting one binary. | The uid is what the kernel checks against `0400 faramir-keeper` and against a socket's group. Separate executables check nothing extra.
+Filesystem isolation | None beyond file modes and `ProtectSystem=strict`. | A home the executor may not read is one the mode already refuses; one it may read, the agent can read directly.
+Where commands run | The agent's working tree, directly. | A promotion gate buys an immutable snapshot and a commit sha, both properties against a deliberate agent, which is out of scope.
+Who executes | The broker, as its own uid. | If the client execs, plaintext lives in a process the agent owns.
+Who holds the key | A separate uid that executes nothing. | A key the broker can load is a key any brokered command can read.
+Who forks the child | A third uid, given the PTY slave over `SCM_RIGHTS`. | Anything the forking uid can reach, the child can reach.
+Command allowlist | None. | Any rule permitting an interpreter is reachable in one step through `bash`, which a usable policy must permit.
+How a program gets values | `env_refs`, read from the environment. | The alternative is handing the program the master key.
+Secrets at rest | sops plus age. | Encrypted YAML in the repo, per-key diffs, no network round trip.
+Redaction | Custom, over the whole value set. | Off-the-shelf injectors mask only what they injected; a managed host can print a credential the broker never injected.
+Agent interface | Unix socket exposed as MCP tools plus a CLI. | A distinct tool is more discoverable to a model than a documented convention.
+Enforcement | Hook plus filesystem permissions. | Instructions to the agent are ergonomics, not a boundary.
+
 ## One mode
 
 The agent runs as the operator. An agent maintaining the operator's repositories needs their checkouts, their `gh` credential and their commit identity, and every route to giving a separate uid that access hands over the same files by another name. Bounding an unattended run is then a credential-scope problem: a `gh` token limited to the repositories it maintains, plus branch protection. Filesystem blast radius is out of scope.
