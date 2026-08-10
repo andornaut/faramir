@@ -228,3 +228,39 @@ func TestSopsRecipientsReadsWhatTheRuleLists(t *testing.T) {
 		}
 	}
 }
+
+// serves mirrors the daemon's gate, so the probes that run a brokered command
+// are skipped only when it would really be refused.  A ref count is the wrong
+// question: values below min_length are refused at load, so a host whose secrets
+// are all too short reads its files and serves while counting zero.
+func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		files      []string
+		errors     []string
+		unresolved []string
+		count      int
+		want       bool
+	}{
+		{name: "read one file holding nothing", files: []string{"a.sops.yml"}, want: true},
+		{name: "read one file, every value too short",
+			files: []string{"a.sops.yml"}, count: 0, want: true},
+		{name: "one entry named nothing, another loaded",
+			files: []string{"a.sops.yml"}, unresolved: []string{"/b/*.sops.yml"}, want: true},
+		{name: "nothing matched", unresolved: []string{"/b/*.sops.yml"}, want: false},
+		{name: "nothing configured", want: false},
+		{name: "a file that did not load",
+			files: []string{"a.sops.yml"}, errors: []string{"a.sops.yml: bad mac"}, want: false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var report checkReport
+			report.Secrets.Files = tc.files
+			report.Secrets.Errors = tc.errors
+			report.Secrets.Unresolved = tc.unresolved
+			report.Secrets.Count = tc.count
+			if got := report.serves(); got != tc.want {
+				t.Errorf("serves() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

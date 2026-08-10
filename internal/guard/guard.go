@@ -75,7 +75,7 @@ var fallback = []string{
 	`/proc/self/environ`,
 	// Readers, encoders, interpreters and copiers pointed at key material.
 	// "sops/age" is the operator's ~/.config/sops/age/keys.txt, which opens the
-	// same store and is readable by the agent's uid.  "[^|]*" stops at the
+	// same secrets and is readable by the agent's uid.  "[^|]*" stops at the
 	// first pipe; "[\s/=]\.env" keeps faramir.env (refs, no values) out.
 	readCommands + `[^|]*` +
 		`(age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/var/log/faramir)`,
@@ -115,7 +115,7 @@ type compiled struct {
 	re     *regexp.Regexp
 }
 
-// configDir is where this host's config, store and keys actually are.  Taken
+// configDir is where this host's config, secrets and keys actually are.  Taken
 // from the same place the daemons take it, so an install moved with
 // --config-dir moves what these rules refuse; a hardcoded convention refused one
 // layout and went silent the moment the config was placed anywhere else, which

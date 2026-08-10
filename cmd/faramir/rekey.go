@@ -10,12 +10,11 @@ package main
 // will not do it either: it re-encrypts to the recipients a file already
 // carries, on purpose, so that an edit cannot silently drop a reader mid-edit.
 //
-// That left the operator running `sops updatekeys` once per managed file, as
-// root, and checking the ownership afterwards because updatekeys rewrites in
-// place with no regard for it -- a managed file that stops being readable by
-// the secrets group is one the keeper cannot open.  This is that loop, with the
-// ownership preserved by the same writeBack an edit uses, and recorded in the
-// audit log the way an edit is.
+// This walks the managed files rather than leaving the operator to run `sops
+// updatekeys` per file, which rewrites in place with no regard for ownership: a
+// managed file that stops being readable by the secrets group is one the keeper
+// cannot open.  Ownership is preserved by the same writeBack an edit uses, and
+// each file is recorded in the audit log the way an edit is.
 //
 // It runs as root for the same reason edit does: the age key is readable by the
 // keeper and by root, and re-encrypting means decrypting first.
@@ -72,8 +71,8 @@ func cmdRekey(args []string) int {
 		return 1
 	}
 	// Reported even when enough resolved to proceed, unlike edit, which opens the
-	// one file it was asked for.  Here a pattern that named nothing is part of the
-	// store this run did not reach, and the whole point is to leave none behind.
+	// one file it was asked for.  Here a pattern that named nothing is a managed
+	// file this run did not reach, and the whole point is to leave none behind.
 	for _, reason := range unresolvable {
 		fmt.Fprintf(os.Stderr, "not reached: %s\n", reason)
 	}

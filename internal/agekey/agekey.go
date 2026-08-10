@@ -58,8 +58,8 @@ func Generate(path string) (recipient string, created bool, err error) {
 // ValidateRecipient reports whether s is something sops will accept in a
 // creation rule's age recipients.  Checked before it is written: .sops.yaml is
 // world-readable, so a private half pasted there hands every account the key
-// that opens the store, and the file is written once and kept, so an unparseable
-// recipient fails every later encrypt instead of this run.
+// that opens the secrets, and the file is written once and kept, so an
+// unparseable recipient fails every later encrypt instead of this run.
 //
 // The shapes are sops' own, from parseRecipient in its age key source.  A plugin
 // recipient is taken on its shape alone, the plugin binary being the only thing
@@ -78,9 +78,10 @@ func ValidateRecipient(s string) error {
 	// the two halves sit adjacent in one file with only one safe to publish.
 	if strings.HasPrefix(s, "AGE-SECRET-KEY-") || strings.HasPrefix(s, "AGE-PLUGIN-") {
 		return errors.New("that is an age identity, the private half, not a recipient. " +
-			".sops.yaml is world-readable, so writing it there hands the key that opens " +
-			"the store to every account on this host. Pass the public half instead: the " +
-			"age1... line, which is also the '# public key:' comment above the identity")
+			".sops.yaml is world-readable, so writing it there hands the key that " +
+			"opens the secrets to every account on this host. Pass the public half " +
+			"instead: the age1... line, which is also the '# public key:' comment " +
+			"above the identity")
 	}
 	switch {
 	case strings.HasPrefix(s, "age1pq1"):
@@ -111,7 +112,7 @@ func ValidateRecipient(s string) error {
 //
 // Derived from the private half wherever there is one: the "# public key:"
 // comment is a comment, absent from a hand-written key and free to disagree
-// with the identity beneath it.  A wrong answer here seals the store to a key
+// with the identity beneath it.  A wrong answer here seals the secrets to a key
 // the host does not hold.  The comment is the fallback, for a file holding a
 // recipient and no identity; the last of either wins.
 func Recipient(path string) (string, error) {

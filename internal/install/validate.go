@@ -13,7 +13,7 @@ type checkReport struct {
 	Secrets struct {
 		Count int `json:"count"`
 		// Patterns is [secrets] files as configured, Files what it named on disk.
-		// Entries naming nothing are a host waiting for its store; entries naming
+		// Entries naming nothing are a host waiting for its secrets; entries naming
 		// files that did not load are a fault.
 		Patterns []string `json:"patterns"`
 		Files    []string `json:"files"`
@@ -22,6 +22,15 @@ type checkReport struct {
 		// work out for itself: the secrets directory is the keeper's to list.
 		Unresolved []string `json:"unresolved"`
 	} `json:"secrets"`
+}
+
+// serves reports whether the broker will run exec and redact: at least one
+// managed file was read, and every file it read loaded.  The daemon's own gate,
+// mirrored so a probe that runs a brokered command is skipped only when it would
+// really be refused.  Not a ref count: files that are there and hold nothing
+// still serve.
+func (c checkReport) serves() bool {
+	return len(c.Secrets.Files) > 0 && len(c.Secrets.Errors) == 0
 }
 
 // stepValidate asks the broker what it can do with what was installed.  As the
@@ -61,7 +70,7 @@ func (r *runner) stepValidate() error {
 				"sops and re-run; until then every brokered command runs unredacted",
 				strings.Join(absent, ", "),
 				map[bool]string{true: "has", false: "have"}[len(absent) == 1])
-			r.step("validate", false, "no store yet")
+			r.step("validate", false, "no secrets yet")
 			return nil
 		}
 		return fmt.Errorf("the installed config does not work for %s: %w\n"+
@@ -105,16 +114,15 @@ func (r *runner) stepValidate() error {
 	// install time. Gated on the key that reached disk rather than on --ssh-key,
 	// which is a relocation and empty on most runs.
 	//
-	// Skipped while the broker holds no values, which is what a first install
-	// looks like: it refuses every brokered command then, so this probe would
-	// report the empty store as an SSH fault.
-	if r.sshKey != "" && report.Secrets.Count == 0 {
-		r.warn("the broker holds no managed values yet, so it refuses brokered " +
+	// Skipped while the broker is refusing, which is what a first install looks
+	// like: this probe would report the refusal as an SSH fault.
+	if r.sshKey != "" && !report.serves() {
+		r.warn("the broker has read no managed file yet, so it refuses brokered " +
 			"commands and what its ssh-agent holds could not be asked. Write a " +
 			"secret, then: faramir doctor")
 		r.step("broker ssh agent", false, "not asked")
 	}
-	if r.sshKey != "" && report.Secrets.Count > 0 {
+	if r.sshKey != "" && report.serves() {
 		out, agentErr := r.command(filepath.Join(r.layout.BinDir, "faramir"),
 			"run", "--quiet", "--", "ssh-add", "-l")
 		// The error carries stderr, where the reason is; dropping it reports every

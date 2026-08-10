@@ -26,8 +26,8 @@ type response struct {
 	State  []FileState       `json:"state"`
 	Errors []string          `json:"errors"`
 	// Unresolved is the entries that named nothing, kept apart from Errors: a
-	// store not written yet is what a first install looks like, and a file that
-	// is there and will not open is a value the redactor is missing.
+	// secrets directory not written yet is what a first install looks like, and a
+	// file that is there and will not open is a value the redactor is missing.
 	Unresolved []string `json:"unresolved"`
 	Error      *struct {
 		Code    string `json:"code"`

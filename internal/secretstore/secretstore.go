@@ -7,8 +7,8 @@
 // never in an argv.
 //
 // Cached, and reloaded on start and when a managed file's mtime changes.  The
-// keeper reports those fingerprints too, since the store is readable by its
-// group alone, so the poll is a socket round trip rather than a stat --
+// keeper reports those fingerprints too, since the secrets are readable by
+// their group alone, so the poll is a socket round trip rather than a stat --
 // refresh_interval_sec bounds it.  Nothing reloads on a signal: the file list
 // comes from config.toml, which the daemons read once at startup.
 package secretstore
@@ -44,14 +44,13 @@ type Store struct {
 	retry     bool
 	checkedAt time.Time
 
-	// A configured file that is there and did not load.  Fatal at startup: the
-	// redactor is missing a value it should have and nothing else says so.
+	// A configured file that is there and did not load.  The redactor is missing
+	// a value it should have, so exec and redact refuse while this is set.
 	loadErrors []string
 
-	// A configured entry that named no file.  Not fatal at startup, being what a
-	// first install looks like, and reported everywhere it matters instead: the
-	// daemon logs it, exec and redact refuse while the value set is empty, and
-	// `--check` and `doctor` fail.
+	// A configured entry that named no file.  Kept apart from loadErrors because
+	// it is what a first install looks like, though both refuse exec and redact:
+	// the daemon logs it and `--check` and `doctor` fail on it.
 	unresolved []string
 
 	// Held across a refresh-driven reload, not under mu, which Reload takes
@@ -134,8 +133,8 @@ func (s *Store) Reload() {
 
 // RefreshIfStale asks the keeper for the managed files' fingerprints, and
 // reloads when one changed or the last attempt failed.  A round trip rather
-// than a stat, because the store is readable by the keeper's group alone; the
-// keeper serves it without the key or sops, so it costs a connect.
+// than a stat, because the secrets are readable by the keeper's group alone;
+// the keeper serves it without the key or sops, so it costs a connect.
 //
 // refresh_interval_sec may be 0, meaning a check on every request, so one
 // refresh-driven reload runs at a time and the rest return immediately.
@@ -246,8 +245,8 @@ func (s *Store) describeLocked() map[string]any {
 		errs = []string{}
 	}
 	// patterns is what was configured, files what it named on disk.  A glob
-	// makes them differ, which is how a first install is told apart from a
-	// store that went missing.  This process cannot expand a pattern itself.
+	// makes them differ, which is how a first install is told apart from secrets
+	// that went missing.  This process cannot expand a pattern itself.
 	patterns := s.config.Files
 	if patterns == nil {
 		patterns = []string{}
@@ -312,34 +311,25 @@ func (s *Store) Count() int {
 // unsafe.
 //
 // The risk is output holding a managed secret the redactor does not have, so
-// what matters is whether a managed file exists whose contents went unread.
-// How many secrets came out of the files that were read does not: a file that
-// is there and empty holds nothing to miss, and an install whose operator has
-// not written a secret yet is configured correctly and serves.  A ref no file
-// defines is answered by unknown_secret, which says the true thing where this
-// would say a vague one.
+// the test is whether a managed file exists whose contents went unread: at least
+// one file matched, and every matched file loaded.  How many secrets came out of
+// them does not enter into it, an empty file holding nothing to miss.  A ref no
+// file defines is answered by unknown_secret.
 //
-// At least one file has to have matched.  Nothing configured, and an entry that
-// named none, are refused alike rather than told apart: the file may be absent
-// because it was never written, or because the filesystem holding it is not
-// mounted, and only the second is dangerous.  Refusing both costs a fresh
-// install every wrapped command until one file exists, which is loud and says
-// why.
+// Called per request, since a reload can lose a file at any time.
 //
-// Checked per request rather than once at startup, since a reload can lose a
-// file at any time and a broker that kept serving would redact less than its
-// operator believes with nothing to say so.
-//
-// A keeper that could not be reached is the exception.  The set kept then is
-// the last one known to be true, so it is unconfirmed rather than short, and
-// refusing on it would turn a keeper hiccup into refused commands.  A cold
-// start needs no exception, holding no files either.
+// A keeper that could not be reached is the exception, but only once a set has
+// loaded: what is kept then is the last thing known to be true, unconfirmed
+// rather than short.  A cold start has nothing to keep, so it refuses.
 func (s *Store) Unreadable() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	switch {
-	case s.retry:
+	case s.retry && len(s.state) > 0:
 		return ""
+	case s.retry:
+		return "the keeper could not be reached and no value set was ever loaded: " +
+			strings.Join(s.loadErrors, "; ")
 	case len(s.loadErrors) > 0:
 		return "a managed file did not load, so what is in it went unread: " +
 			strings.Join(s.loadErrors, "; ")

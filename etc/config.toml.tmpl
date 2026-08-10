@@ -72,7 +72,8 @@ ssh_add = "{{.SshAdd}}"
 [secrets]
 # Every sops file the keeper manages.  ALL of their values are redacted, not
 # only the injected ones.  Entries are globs, so naming the directory picks up
-# a file added beside the others; one that matches nothing is a load failure.
+# a file added beside the others; one that matches nothing leaves the broker
+# refusing exec and redact, and fails --check.
 files = ["{{.SecretsDir}}/*.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 # How often the broker may ask the keeper whether a managed file changed.

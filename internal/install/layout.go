@@ -181,8 +181,8 @@ func homeOf(path string) string {
 // Checked before anything is written, so a bad value stops the run rather than
 // surfacing as a mount error once the binaries are already on the host.
 func (l Layout) validate() error {
-	// The store and the key are under it, so checking the config directory checks
-	// every path an operator can move.
+	// The secrets and the key are under it, so checking the config directory
+	// checks every path an operator can move.
 	dir := l.ConfigDir
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("config dir must be an absolute path: %s", dir)
@@ -230,8 +230,8 @@ func (l Layout) validate() error {
 // homeIsMounted reports whether an encrypted home has been unlocked.
 //
 // Writing into one before its owner logs in lands in the unencrypted backing
-// store, where it is shadowed and invisible the moment the home mounts: the
-// install looks like it worked and the daemons never see the file again.  A
+// directory, where it is shadowed and invisible the moment the home mounts:
+// the install looks like it worked and the daemons never see the file again.  A
 // mounted filesystem sits on a different device from the directory it covers,
 // which is what this compares; mountpoint(1) is not on every host and its
 // absence would read as "not mounted".

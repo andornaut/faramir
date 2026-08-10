@@ -527,8 +527,9 @@ func TestExecIsRefusedWhenOneFileDidNotLoad(t *testing.T) {
 // true, so it is unconfirmed rather than short.  Refusing on it would turn a
 // keeper hiccup into refused commands.
 func TestExecIsServedWhileTheKeeperIsUnreachable(t *testing.T) {
-	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	s := serverWith(t, k)
+	file := managedFile(t)
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, file)
+	s := serverWith(t, k, file)
 	s.Store.Reload()
 	_ = k.Listener.Close()
 	s.Store.Reload()
@@ -538,6 +539,34 @@ func TestExecIsServedWhileTheKeeperIsUnreachable(t *testing.T) {
 	}
 	if reason := s.Store.Unreadable(); reason != "" {
 		t.Errorf("Unreadable = %q, want servable on the previous set", reason)
+	}
+}
+
+// The exception above covers a set that was loaded and then went unconfirmed.  A
+// cold start has nothing to keep, so an unreachable keeper leaves the redactor
+// empty with no way to know what it is missing.
+func TestBothOpsAreRefusedWhenTheKeeperWasNeverReached(t *testing.T) {
+	file := managedFile(t)
+	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, file)
+	_ = k.Listener.Close()
+	s := serverWith(t, k, file)
+	s.Store.Reload()
+
+	if s.Store.Count() != 0 {
+		t.Fatalf("Count = %d, want an empty set", s.Store.Count())
+	}
+	if s.Store.Unreadable() == "" {
+		t.Error("Unreadable = \"\", want refused: no value set was ever loaded")
+	}
+	peer := &sockutil.Peer{UID: 1000}
+	for _, op := range []map[string]any{
+		{"op": "redact", "text": "x"},
+		{"op": "exec", "cmd": []any{"true"}, "cwd": t.TempDir()},
+	} {
+		got := s.Handle(op, peer)
+		if got["error"] == nil {
+			t.Errorf("%v was served, want refused", op["op"])
+		}
 	}
 }
 

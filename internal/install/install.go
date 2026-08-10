@@ -274,11 +274,11 @@ func (r *runner) preflight() error {
 		}
 	}
 	// An encrypted home is a different directory before its owner logs in, so a
-	// write lands in the backing store and is shadowed the moment it mounts. The
-	// config directory answers for the secrets directory and the key too.
+	// write lands in the backing directory and is shadowed the moment it mounts.
+	// The config directory answers for the secrets directory and the key too.
 	if home := homeOf(r.layout.ConfigDir); home != "" && looksEncrypted(home) && !homeIsMounted(home) {
 		return fmt.Errorf("%s is an encrypted home and is not mounted, and %s is "+
-			"inside it. Installing now would write plaintext to the backing store, "+
+			"inside it. Installing now would write plaintext to the backing directory, "+
 			"where it is hidden once the home mounts. Log in as its owner first",
 			home, r.layout.ConfigDir)
 	}

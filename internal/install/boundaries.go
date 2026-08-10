@@ -110,7 +110,7 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 			return
 		}
 	}
-	// The group is half of it: a world-readable store is reachable by accounts no
+	// The group is half of it: world-readable secrets are reachable by accounts no
 	// group names.
 	dir := filepath.Join(opts.ConfigDir, "secrets")
 	if cfg != nil && len(cfg.Secrets.Files) > 0 {
@@ -469,12 +469,11 @@ func mainPID(unit string) string {
 // is what a brokered command actually gets.  As the operator, the broker
 // checking the peer's credentials and root not being in the shared group.
 func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, servesCommands bool) {
-	// The broker refuses every brokered command while it holds no values, so
-	// running one here would report the empty store as a broken boundary.  That
-	// state is a failure already, reported where it belongs.
+	// Running one against a refusing broker would report the refusal as a broken
+	// boundary.  That state is a failure already, reported where it belongs.
 	if !servesCommands {
-		report.add("brokered command", StatusWarn, "not asked: the broker holds no "+
-			"managed values, so it refuses the command this would run")
+		report.add("brokered command", StatusWarn, "not asked: the broker has read "+
+			"no managed file, so it refuses the command this would run")
 		return
 	}
 	faramir := filepath.Join(DefaultBinDir, "faramir")

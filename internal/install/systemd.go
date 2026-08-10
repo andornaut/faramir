@@ -8,7 +8,7 @@ import (
 
 // sockets are what gets enabled, not services: all three are socket activated,
 // so nothing starts before the operator has logged in, which is what makes a
-// config or store inside a home workable.  The keeper and the executor first,
+// config or secrets inside a home workable.  The keeper and the executor first,
 // the broker talking to both.
 var sockets = []string{
 	"faramir-keeper.socket",
