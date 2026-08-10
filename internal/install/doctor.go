@@ -176,6 +176,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	// Then the checks that need root, grouped so a run without it reads as one
 	// block of warnings at the end rather than as gaps between the answers above.
 	diagnoseBoundaries(&report, opts, cfg, serves)
+	diagnoseKnownHosts(&report, opts, cfg)
 	report.merge(brokerReport)
 	diagnoseSopsConfig(&report, opts)
 	return report

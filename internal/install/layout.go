@@ -132,6 +132,15 @@ func (l Layout) BrokerHome() string { return "/var/lib/" + l.BrokerUser }
 func (l Layout) KeeperHome() string { return "/var/lib/" + l.KeeperUser }
 func (l Layout) ExecHome() string   { return "/var/lib/" + l.ExecUser }
 
+// ExecKnownHosts is where --known-hosts pins the host keys a brokered ssh
+// verifies against.  Under the executor's own home rather than
+// /etc/ssh/ssh_known_hosts: ssh reads the global file first and this second, so
+// pinning here adds to what the host already trusts instead of rewriting a file
+// every other account on it reads.
+func (l Layout) ExecKnownHosts() string {
+	return filepath.Join(l.ExecHome(), ".ssh", "known_hosts")
+}
+
 // KeeperBinds is what has to be bound back into the keeper's mount namespace,
 // already formatted as BindReadOnlyPaths= values.
 //

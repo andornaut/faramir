@@ -141,18 +141,32 @@ func cmdInit(args []string) int {
 		"account the coding agent runs as (default $SUDO_USER, then you)")
 	// One admits a caller to the broker socket and shares the working tree, the
 	// other owns the ciphertext; holding one is not holding the other.
-	clientGroup := fs.String("client-group", install.DefaultClientGroup,
-		"group admitted to the broker socket, and shared with the executor on a working tree")
+	clientGroup := fs.String("client-group", "",
+		"group admitted to the broker socket, and shared with the executor on a working "+
+			"tree (default: what the install uses, then "+install.DefaultClientGroup+")")
 	secretsGroup := fs.String("secrets-group", "",
-		"group owning the ciphertext in <config-dir>/secrets (default: the keeper's own group, which is the only account that opens one; naming another buys a second reader)")
-	brokerUser := fs.String("broker-user", install.DefaultBrokerUser, "account that holds the SSH keys and the audit log")
-	keeperUser := fs.String("keeper-user", install.DefaultKeeperUser, "account that holds the age key")
-	execUser := fs.String("exec-user", install.DefaultExecUser, "account brokered commands run as")
-	configDir := fs.String("config-dir", install.DefaultConfigDir,
-		"where config.toml, config.d/, the age key and the managed sops files are installed")
+		"group owning the ciphertext in <config-dir>/secrets (default: what the install uses, then the keeper's own group, which is the only account that opens one; naming another buys a second reader)")
+	brokerUser := fs.String("broker-user", "",
+		"account that holds the SSH keys and the audit log (default: what the install "+
+			"uses, then "+install.DefaultBrokerUser+")")
+	keeperUser := fs.String("keeper-user", "",
+		"account that holds the age key (default: what the install uses, then "+
+			install.DefaultKeeperUser+")")
+	execUser := fs.String("exec-user", "",
+		"account brokered commands run as (default: what the install uses, then "+
+			install.DefaultExecUser+")")
+	configDir := fs.String("config-dir", "",
+		"where config.toml, config.d/, the age key and the managed sops files are "+
+			"installed (default: ask the broker, then read its unit, then "+install.DefaultConfigDir+")")
+	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	sshKey := fs.String("ssh-key", "",
 		"where the identity the broker lends to brokered commands lives "+
-			"(default: id_ed25519 beside the age key; one is minted either way)")
+			"(default: what the install uses, then id_ed25519 beside the age key; "+
+			"one is minted either way)")
+	knownHosts := fs.String("known-hosts", "",
+		"a known_hosts file whose host keys are pinned for the executor, copied to "+
+			"<exec-home>/.ssh/known_hosts (default: none, a brokered ssh then verifying "+
+			"against /etc/ssh/ssh_known_hosts alone)")
 	var initAgents multiFlag
 	fs.Var(&initAgents, "agent",
 		"install the deny rules into this agent's own settings, repeatable "+
@@ -173,9 +187,10 @@ func cmdInit(args []string) int {
 		BrokerUser:    *brokerUser,
 		KeeperUser:    *keeperUser,
 		ExecUser:      *execUser,
-		ConfigDir:     *configDir,
+		ConfigDir:     resolveConfigDir(*configDir, *socket),
 		AgeRecipients: recipients,
 		SSHKey:        *sshKey,
+		KnownHosts:    *knownHosts,
 		Agents:        initAgents,
 		DryRun:        *dryRun,
 	}
@@ -183,6 +198,11 @@ func cmdInit(args []string) int {
 	// --json entirely.
 	if !*asJSON {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
+		// Named before anything is written.  Without --config-dir this was
+		// discovered, and an install written somewhere the operator did not expect
+		// is a second install rather than an error: new keys, an empty secrets
+		// directory, and the units pointed at it.
+		fmt.Fprintf(os.Stderr, "provisioning the install at %s\n", opts.ConfigDir)
 	}
 
 	report, err := install.Run(opts)

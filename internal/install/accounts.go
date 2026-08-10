@@ -303,7 +303,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 // is then left alone.
 func (r *runner) resolveIDs() error {
 	r.operatorUID, r.brokerUID, r.keeperUID, r.execUID = keep, keep, keep, keep
-	r.brokerGID, r.keeperGID = keep, keep
+	r.brokerGID, r.keeperGID, r.execGID = keep, keep, keep
 	r.secretsGID = keep
 	lookups := []struct {
 		name string
@@ -338,8 +338,9 @@ func (r *runner) resolveIDs() error {
 	// exists called what the account is.  It is what [ssh] exec_group renders to
 	// and what the agent socket is handed to, so a name that resolves to some
 	// other group would admit an account the relay exists to keep out.
-	if _, name, err := primaryGroup(r.layout.ExecUser); err == nil {
+	if gid, name, err := primaryGroup(r.layout.ExecUser); err == nil {
 		r.layout.ExecGroup = name
+		r.execGID = gid
 	} else if !r.opts.DryRun {
 		return err
 	}

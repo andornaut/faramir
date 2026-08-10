@@ -93,3 +93,5 @@ The broker keeps both halves under its own uid, loads the private one into an `s
 The executor's account cannot read the key, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
 
 Keep `ANSIBLE_HOST_KEY_CHECKING=True` in `[exec.base_env]`. Turning it off to make a broken host work is how a broker with credentials hands them to whatever answers.
+
+The key is half of reaching a host; the other half is knowing which host answered. `faramir-exec` has its own `known_hosts` and it starts absent, so a play whose hosts are trusted only in the operator's `~/.ssh/known_hosts` fails verification before the key above is ever offered. `faramir init --known-hosts ~/.ssh/known_hosts` pins yours for it, and `/etc/ssh/ssh_known_hosts` is the alternative, being the file every account on the host reads. `faramir doctor` reports how many host keys the executor can verify against.
