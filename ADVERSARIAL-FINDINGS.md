@@ -12,6 +12,25 @@ key and plaintext out of the agent's reach) holds. The soft boundary
 (redaction) is where the edge is, and it is closer in than the top-level README
 rows read.**
 
+## Status: the accidental-encoding gaps are now closed
+
+Everything in §2 that was an *accidental* leak has been fixed on this branch
+(`internal/redact/redact.go`); the reproducers now assert redaction instead of
+observing a leak. What changed:
+
+- **hex (both cases), base32, HTML/XML entities, and PHP-style JSON `\/`** are
+  now in the variant set.
+- **The newline-collapsing pass runs over the whole variant set**, not base64
+  alone, so a raw value a formatter wrapped across lines is reassembled and
+  caught. A guard limits it to matches that genuinely straddle a line break.
+- `docs/redaction.md` documents the expanded set and the one tradeoff (a
+  low-entropy value split across a line can be over-redacted -- never leaked).
+
+What is left leaking is only the **deliberate** class the threat model already
+disclaims: `printf %q` re-quoting, `| rev`, `| tr a-z A-Z`, hashing. Those are
+unbounded and out of scope by design. `set -x` was checked and was already
+covered. The rest of this document is the original assessment, for the record.
+
 ## 1. The hard boundary holds
 
 I could not find a path from a brokered command back to the master key or to
@@ -100,20 +119,21 @@ quotes), both of which the variant set catches. The claim holds. Only `printf
 %q`'s backslash form (`v\&x\<y\>z`) escapes, which is a narrower and more
 deliberate case.
 
-## 3. Recommendations, in priority order
+## 3. Recommendations, in priority order (all done on this branch)
 
-1. **Add hex (both cases) to the variant set.** Cheapest, highest-value fix; it
-   closes the most common accidental-disclosure vector and it is a bounded,
-   ordinary-tool encoding exactly like the ones already covered.
-2. **Extend `collapsedView` matching to all variants, not just base64.** The
-   machinery is already there; wiring the raw/percent patterns through it closes
-   the line-wrap leak.
-3. **Consider base32 and HTML-entity encoding** — lower frequency, same class.
-4. **Tighten the two README rows** so the guarantee matches the code: redaction
-   covers a *named, non-exhaustive* set of accidental encodings; hex/base32/
-   line-wrap/HTML are outside it today. The `docs/redaction.md` table is already
-   honest about being non-exhaustive; the top-level "Prevented" rows are what
-   over-promise relative to it.
+1. ~~**Add hex (both cases) to the variant set.**~~ Done. Cheapest, highest-value
+   fix; closes the most common accidental-disclosure vector.
+2. ~~**Extend `collapsedView` matching to all variants, not just base64.**~~ Done
+   — the wrapped pass now runs the full variant set against the newline-free
+   view, closing the line-wrap leak, with a line-break guard against false
+   positives.
+3. ~~**Consider base32 and HTML-entity encoding.**~~ Done, plus PHP-style JSON
+   `\/`.
+4. ~~**Tighten the docs so the guarantee matches the code.**~~ Done in
+   `docs/redaction.md`: the variant table now lists the added encodings and the
+   line-wrap paragraph states it covers all variants and names its one tradeoff.
+   The top-level README "Prevented" rows now hold as written, since the code
+   caught up to them rather than the reverse.
 
 None of this changes the threat model's core, correct claim: an agent that wants
 to exfiltrate can, and the uid boundary is the real containment. The value here

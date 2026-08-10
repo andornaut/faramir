@@ -10,9 +10,12 @@
 package redact
 
 import (
+	"encoding/base32"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"html"
 	"regexp"
 	"sort"
 	"strings"
@@ -85,6 +88,34 @@ func base64Variants(value string) map[string]bool {
 	return out
 }
 
+// base32Variants returns the RFC 4648 base32 encodings of value, padded and
+// not.  TOTP seeds and some token formats are base32; the encoding is
+// upper-case, and the unpadded form is what `otpauth://` URIs carry.
+func base32Variants(value string) map[string]bool {
+	enc := base32.StdEncoding.EncodeToString([]byte(value))
+	return map[string]bool{
+		enc:                         true,
+		strings.TrimRight(enc, "="): true,
+	}
+}
+
+// htmlVariants returns the HTML/XML entity-escaped renderings of value.  A
+// credential reflected into an HTML page (an API error page fetched with curl)
+// arrives with its metacharacters escaped.  Two renderings differ only in how
+// the quotes are spelled: Go's html.EscapeString uses numeric references, while
+// PHP's htmlspecialchars and browsers emit the named ones.
+func htmlVariants(value string) map[string]bool {
+	out := map[string]bool{html.EscapeString(value): true}
+	named := value
+	named = strings.ReplaceAll(named, "&", "&amp;")
+	named = strings.ReplaceAll(named, "<", "&lt;")
+	named = strings.ReplaceAll(named, ">", "&gt;")
+	named = strings.ReplaceAll(named, `"`, "&quot;")
+	named = strings.ReplaceAll(named, "'", "&#39;")
+	out[named] = true
+	return out
+}
+
 // percentEncode mirrors Python's urllib.parse.quote(value, safe="").
 // Unreserved characters are the ASCII letters, digits, and "_.-~".
 func percentEncode(value string, plus bool) string {
@@ -143,9 +174,22 @@ func variants(value string) map[string]bool {
 	for v := range base64Variants(value) {
 		out[v] = true
 	}
+	for v := range base32Variants(value) {
+		out[v] = true
+	}
+	// Hex, both cases: xxd -p, od -An -tx1, hexdump, openssl, DB BLOB dumps.
+	h := hex.EncodeToString([]byte(value))
+	out[h] = true
+	out[strings.ToUpper(h)] = true
+	for v := range htmlVariants(value) {
+		out[v] = true
+	}
 	out[percentEncode(value, false)] = true
 	out[percentEncode(value, true)] = true
-	out[jsonEscape(value)] = true
+	js := jsonEscape(value)
+	out[js] = true
+	// PHP's json_encode and many JSON serializers escape "/" as "\/" by default.
+	out[strings.ReplaceAll(js, "/", `\/`)] = true
 	out[shlexQuote(value)] = true
 	// Body of a shell single-quoted string.
 	out[strings.ReplaceAll(value, "'", `'\''`)] = true
@@ -282,15 +326,14 @@ func compile(ref, value string) entry {
 	sort.Strings(vs) // deterministic before the length sort
 	pattern := alternation(vs)
 
-	var b64 []string
-	for v := range base64Variants(value) {
-		b64 = append(b64, v)
-	}
-	sort.Strings(b64)
-	var wrapped *regexp.Regexp
-	if len(b64) > 0 {
-		wrapped = alternation(b64)
-	}
+	// The wrapped pass matches against a newline-free view of the output, so it
+	// catches a rendering a formatter split across lines: base64 wraps at 76
+	// columns by default, but `fold`, `fmt`, `openssl x509 -text` and any
+	// width-aware pretty-printer wrap the raw value and every other variant too.
+	// It is the full variant set, not base64 alone; the newline guard in
+	// subWrapped keeps this pass to genuinely line-spanning matches, so the plain
+	// pass still owns everything on a single line.
+	wrapped := pattern
 
 	longest := 0
 	for _, v := range vs {
@@ -381,9 +424,10 @@ func (r *Redactor) redact(text string) string {
 }
 
 // collapsedView is one haystack with its line breaks taken out, plus what maps
-// a match back onto the original.  base64 output wraps at 76 columns, so an
-// encoded value arrives with newlines inside it; matching happens against view
-// and the replaced span is in the original.
+// a match back onto the original.  A formatter wraps a value across lines --
+// base64 at 76 columns, or `fold`/`fmt`/`openssl -text` on anything -- so the
+// value arrives with newlines inside it; matching happens against view and the
+// replaced span is in the original.
 type collapsedView struct {
 	// runes is the original, indexed the way the spans below are.
 	runes []rune
