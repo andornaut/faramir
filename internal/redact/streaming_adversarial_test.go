@@ -2,7 +2,6 @@ package redact
 
 import (
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"testing"
 )
@@ -93,36 +92,36 @@ func TestColourSpliceIsStripped(t *testing.T) {
 	}
 }
 
-// C. The boundary. These splice a separator the terminal collapses (or hides)
-// but ansiRE does NOT strip, so the value is split in the matched text and
-// escapes. All require deliberate crafting -- the same class as `| rev`. This
-// test only reports; it asserts nothing, because the threat model documents
-// this boundary as out of scope. The value is showing the operator exactly
-// where stage-1 ends.
-func TestStripBoundaryMap(t *testing.T) {
-	cases := map[string]string{
-		"zero-width-space (U+200B)":  spliceEveryChar(streamSecret, "​"),
-		"zero-width-joiner (U+200D)": spliceEveryChar(streamSecret, "‍"),
-		"word-joiner (U+2060)":       spliceEveryChar(streamSecret, "⁠"),
-		"soft-hyphen (U+00AD)":       spliceEveryChar(streamSecret, "­"),
+// C. The boundary.  These splice a separator the terminal collapses (or hides)
+// but ansiRE does not strip, so the value is split in the matched text and
+// escapes.  All require deliberate crafting, the same class as `| rev`, and the
+// threat model documents that class as out of scope.
+//
+// Asserted rather than printed, so it is a boundary and not a note: each case
+// pins where stage 1 stops.  A separator that starts being stripped fails here,
+// which is the signal to widen ansiRE deliberately and move the case up to the
+// covered set rather than to discover the change by reading output.
+func TestZeroWidthSplicingSurvivesStage1(t *testing.T) {
+	for _, tc := range []struct{ name, sep string }{
+		{"zero-width space", "\u200b"},
+		{"zero-width joiner", "\u200d"},
+		{"word joiner", "\u2060"},
+		{"soft hyphen", "\u00ad"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
+			got := r.RedactText(spliceEveryChar(streamSecret, tc.sep))
+
+			// Whole in the output once the separator is taken back out, which is what
+			// a reader of that output does for free.
+			stripped := strings.ReplaceAll(got, tc.sep, "")
+			if !strings.Contains(stripped, streamSecret) {
+				t.Errorf("%s is now handled by stage 1: %q.\nThat is an improvement, "+
+					"not a regression: move this case to the covered set and say so in "+
+					"docs/redaction.md", tc.name, got)
+			}
+		})
 	}
-	fmt.Printf("\n%-30s %s\n", "SEPARATOR spliced into value", "stage-1 result")
-	fmt.Println(strings.Repeat("-", 60))
-	for name, s := range cases {
-		r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
-		got := r.RedactText(s)
-		// "Leaked" here means: strip the separator and the secret is whole.
-		stripped := got
-		for _, sep := range []string{"​", "‍", "⁠", "­"} {
-			stripped = strings.ReplaceAll(stripped, sep, "")
-		}
-		verdict := "stripped/redacted"
-		if strings.Contains(stripped, streamSecret) || strings.Contains(got, streamSecret) {
-			verdict = ">>> survives (deliberate, documented out of scope)"
-		}
-		fmt.Printf("%-30s %s\n", name, verdict)
-	}
-	fmt.Println()
 }
 
 func spliceEveryChar(s, sep string) string {

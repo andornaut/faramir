@@ -15,7 +15,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"html"
 	"regexp"
 	"sort"
 	"strings"
@@ -99,22 +98,19 @@ func base32Variants(value string) map[string]bool {
 	}
 }
 
-// htmlVariants returns the HTML/XML entity-escaped renderings of value.  A
-// credential reflected into an HTML page (an API error page fetched with curl)
-// arrives with its metacharacters escaped.  Two renderings differ only in how
-// the quotes are spelled: Go's html.EscapeString uses numeric references, while
-// PHP's htmlspecialchars and browsers emit the named ones.
-func htmlVariants(value string) map[string]bool {
-	out := map[string]bool{html.EscapeString(value): true}
-	named := value
-	named = strings.ReplaceAll(named, "&", "&amp;")
-	named = strings.ReplaceAll(named, "<", "&lt;")
-	named = strings.ReplaceAll(named, ">", "&gt;")
-	named = strings.ReplaceAll(named, `"`, "&quot;")
-	named = strings.ReplaceAll(named, "'", "&#39;")
-	out[named] = true
-	return out
-}
+// There is deliberately no HTML/XML entity variant.  Every other encoding here
+// has one spelling, or a closed set of them, which is what makes enumerating it
+// possible at all.  Entity escaping has neither: each character has a named, a
+// decimal and a hexadecimal form, an encoder chooses which characters to escape
+// at all, and "&#112;" for a plain "p" is as valid as leaving it alone.  The set
+// is unbounded, so a list of renderings covers whichever producer it was written
+// against and reads as coverage of the rest.  A partial list here caught Go's
+// html.EscapeString while PHP's htmlspecialchars ("&#039;") and XML ("&apos;")
+// went through in clear, which is the wrong way round: a credential reflected
+// off a real error page comes from the second kind.
+//
+// A value reflected into a page is the child choosing the encoding of its own
+// output, which the README already names as out of scope.
 
 // percentEncode mirrors Python's urllib.parse.quote(value, safe="").
 // Unreserved characters are the ASCII letters, digits, and "_.-~".
@@ -181,9 +177,6 @@ func variants(value string) map[string]bool {
 	h := hex.EncodeToString([]byte(value))
 	out[h] = true
 	out[strings.ToUpper(h)] = true
-	for v := range htmlVariants(value) {
-		out[v] = true
-	}
 	out[percentEncode(value, false)] = true
 	out[percentEncode(value, true)] = true
 	js := jsonEscape(value)
@@ -328,11 +321,17 @@ func compile(ref, value string) entry {
 
 	// The wrapped pass matches against a newline-free view of the output, so it
 	// catches a rendering a formatter split across lines: base64 wraps at 76
-	// columns by default, but `fold`, `fmt`, `openssl x509 -text` and any
-	// width-aware pretty-printer wrap the raw value and every other variant too.
-	// It is the full variant set, not base64 alone; the newline guard in
-	// subWrapped keeps this pass to genuinely line-spanning matches, so the plain
-	// pass still owns everything on a single line.
+	// columns by default, and `fold` wraps the raw value and every other variant
+	// the same way.  It is the full variant set, not base64 alone; the newline
+	// guard in subWrapped keeps this pass to genuinely line-spanning matches, so
+	// the plain pass still owns everything on a single line.
+	//
+	// Newlines only.  A continuation the formatter indents (`pr`, and the nested
+	// fields of `openssl -text`) still has its whitespace between the fragments
+	// and is not caught, and `fmt` breaks at word boundaries so it never splits a
+	// value at all.  Collapsing the indentation too would join any two words that
+	// happen to straddle an indented line break, which corrupts more output than
+	// the wrapping it would catch.
 	wrapped := pattern
 
 	longest := 0

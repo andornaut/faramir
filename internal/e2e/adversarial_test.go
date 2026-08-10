@@ -66,8 +66,6 @@ func TestAdversarialE2E(t *testing.T) {
 		},
 	}
 
-	fmt.Printf("\n%-58s %-11s %s\n", "CASE", "KIND", "RESULT")
-	fmt.Println(strings.Repeat("-", 90))
 	for _, c := range cases {
 		r := h.runBash(t, c.script)
 		if r.Error != nil {
@@ -86,16 +84,21 @@ func TestAdversarialE2E(t *testing.T) {
 		if leaked {
 			result = ">>> LEAKED <<<"
 		}
-		fmt.Printf("%-58s %-11s %s\n", c.name, c.kind, result)
+		t.Logf("%-58s %-11s %s", c.name, c.kind, result)
 
-		// Assert the control behaves as the design claims; the rest are
-		// observations, not failures (the design documents them as out of the
-		// exhaustive set).
-		if c.wantRedact && leaked {
-			t.Errorf("%s: expected redaction but secret form leaked; output=%q", c.name, out)
+		// Both directions, so every case can fail.  wantRedact=false pins a
+		// boundary the design documents as out of scope rather than skipping the
+		// assertion: a case that stops leaking is an improvement to record, not a
+		// result to leave unchecked.
+		switch {
+		case c.wantRedact && leaked:
+			t.Errorf("%s: expected redaction but the secret form leaked; output=%q", c.name, out)
+		case !c.wantRedact && !leaked:
+			t.Errorf("%s: documented as not prevented, but the redactor caught it. "+
+				"That is an improvement: move it to wantRedact and say so in "+
+				"docs/redaction.md; output=%q", c.name, out)
 		}
 	}
-	fmt.Println()
 }
 
 // TestAdversarialTimeoutFlush proves the partial-output path: a command that

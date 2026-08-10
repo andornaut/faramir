@@ -4,7 +4,6 @@ import (
 	"encoding/base32"
 	"encoding/hex"
 	"fmt"
-	"html"
 	"strings"
 	"testing"
 )
@@ -63,7 +62,6 @@ func TestAdversarialBattery(t *testing.T) {
 		{"base32", plainSecret, "ACCIDENTAL", "TOTP seeds, some tokens", func(s string) string {
 			return base32.StdEncoding.EncodeToString([]byte(s))
 		}},
-		{"html-entities", richSecret, "ACCIDENTAL", "API HTML error page reflecting a token via curl", html.EscapeString},
 		{"json-slash-php", richSecret, "ACCIDENTAL", "PHP json_encode (escapes / as \\/)", func(s string) string {
 			return strings.ReplaceAll(s, "/", `\/`)
 		}},
@@ -83,7 +81,7 @@ func TestAdversarialBattery(t *testing.T) {
 		{"bash-printf-q", richSecret, "DELIBERATE", "bash printf %q (NOT set -x, which is covered)", bashPrintfQ},
 
 		// ---- ADVERSARIAL: deliberate, documented as Not-prevented ----
-		{"rev", plainSecret, "ADVERSARIAL", "| rev", func(s string) string { return reverse(s) }},
+		{"rev", plainSecret, "ADVERSARIAL", "| rev", reverse},
 		{"upcase", plainSecret, "ADVERSARIAL", "| tr a-z A-Z", strings.ToUpper},
 		{"space-out", plainSecret, "ADVERSARIAL", "| sed 's/./& /g'", func(s string) string {
 			return strings.Join(strings.Split(s, ""), " ")
