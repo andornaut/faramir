@@ -124,9 +124,15 @@ func walk(t *testing.T, environ []string) string {
 	}
 	command := exec.Command("/bin/sh", "-c", "/bin/sh -c '\""+self+"\"'")
 	command.Env = append([]string{walkProbeEnv + "=1"}, environ...)
-	out, err := command.CombinedOutput()
+	// stdout only, kept apart from stderr: the probe prints the token to stdout,
+	// and a coverage-instrumented re-exec of the test binary (as CI builds it)
+	// writes "warning: GOCOVERDIR not set" to stderr.  CombinedOutput would fold
+	// that into the token; here it stays in stderr, reported only if the run fails.
+	var stderr strings.Builder
+	command.Stderr = &stderr
+	out, err := command.Output()
 	if err != nil {
-		t.Fatalf("%v: %s", err, out)
+		t.Fatalf("%v: %s", err, stderr.String())
 	}
 	return strings.TrimSpace(string(out))
 }
