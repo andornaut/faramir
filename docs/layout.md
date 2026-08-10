@@ -1,5 +1,7 @@
 # Layout
 
+Every path `faramir init` creates, what owns it, and what each account can reach through it.
+
 ```text
 /usr/local/bin/faramir        the only binary; every role is a subcommand
 /usr/local/libexec/faramir/   the deny list and wrap.sh, rendered per install
@@ -26,6 +28,8 @@
 A brokered command can write the working tree and reach the broker socket, its output redacted and audited like any other. It cannot reach the age key by any route: the modes above are what refuse the key file, the secrets directory, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
 
 `0400 faramir-keeper` keeps the operator out of the key wherever it sits: owning the directory is permission to unlink the file, not to read it, so replacing the key buys denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; its unit is triggered only by its socket.
+
+## Sharing a working tree
 
 A tree inside a 0700 home needs traversal for `faramir-exec`, which `faramir init-project` grants by group:
 
