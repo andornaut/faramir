@@ -42,9 +42,10 @@ Failure | How
 Failure | Why
 --- | ---
 **Adversarial exfiltration.** Transforming a value (`\| rev`, `\| sha256sum`) defeats redaction. | The child chooses the encoding of its own output, so the matcher cannot be completed.
-**Blast radius.** A brokered command runs anything the executor's uid can. | Out of scope. That uid is the bound.
+**Blast radius.** A brokered command runs anything the executor's uid can. | Out of scope. That uid is the bound. With [`init --elevate`](#elevating-on-the-controller) it may also *ask* to become root, which a human answers per command; the uid is still what it can do unasked.
+**Root persistence by the *approved* command.** With `--elevate`, the one command a human approves gets real root and can make it permanent. | Not prevented, and unfixable: configuring a host and backdooring it are the same primitives, so an approved command that is hostile (a compromised playbook, a bad Galaxy role) installs its own persistence — setuid binary, `systemd` unit, `cron`, `sudoers`. Approving an elevation is trusting *that command* with permanent root, exactly as `sudo ansible-playbook` by hand is. A *second, unapproved* command can't ride the approval — the broker serialises approved runs so nothing else runs as `faramir-exec` during the window — but the approved one is on you. [The full argument](#elevating-on-the-controller).
 **Network egress.** No iptables, namespaces or proxy allowlist. | Out of scope.
-**Anything at rest.** Nothing here encrypts the disk. | The uid boundaries only hold while the machine is running. Full-disk encryption is the measure; the age key is a file like any other to someone holding the drive.
+**Anything at rest.** Nothing here encrypts the disk. | The uid boundaries only hold while the machine is running. Full-disk encryption is the measure; the age key is a file like any other to someone holding the drive. Elevation is the exception, and only because it can be: `--elevate` mints no credential at all, so a stolen disk carries nothing that can sudo here.
 **Unenrolled projects.** The value set is global. | A command in a project you never enrolled can print a managed value uncaught.
 
 ## How it works
@@ -54,7 +55,7 @@ One binary, `faramir`. The daemons, the MCP server and the guard are subcommands
 uid | Runs | Holds
 --- | --- | ---
 you | the coding agent, and `faramir run` | nothing secret
-`faramir-broker` | `faramir broker` | plaintext values in memory, SSH keys
+`faramir-broker` | `faramir broker` | plaintext values in memory, SSH keys, and with `--elevate` the pending questions
 `faramir-exec` | `faramir exec` | nothing
 `faramir-keeper` | `faramir keeper`, and nothing but sops | the age master key
 
@@ -70,6 +71,8 @@ One call, end to end:
 
 **SSH keys** are held by the broker and loaded into an `ssh-agent` it owns; the child gets only `SSH_AUTH_SOCK`, so it can authenticate and cannot read a key. `ssh-agent` refuses any peer uid but its own, so the broker relays, forwarding only `REQUEST_IDENTITIES` and `SIGN_REQUEST`.
 
+**Elevation**, on a host installed with `--elevate`, keeps the same boundary without holding anything: there is no password. The executor gets a password-required sudoers entry pointed at a PAM service of faramir's own, whose authentication step asks the broker whether a human approved the brokered command making the call. The child gets only a token naming its own run. The `sudo` waits until `sudo faramir approve` answers — root, checked with `SO_PEERCRED`, so the account the agent runs as cannot answer for itself — and a yes covers that command's sudos until it exits. See [Elevating on the controller](#elevating-on-the-controller). Off by default, and an install that never asked for it grants nothing.
+
 ### Redaction
 
 Detail in [docs/redaction.md](docs/redaction.md).
@@ -82,7 +85,7 @@ Detail in [docs/redaction.md](docs/redaction.md).
 6. **Values too short to redact are refused at load.** Length only: a short value matches inside ordinary words, and blanking those at random is a fault in this program rather than in the secret. The broker names each refusal; the agent is told nothing.
 7. **Tokens are stable**, so the model can reason about a secret across turns.
 
-The age key is not in the value set: no child can obtain it.
+The age key is not in the value set: no child can obtain it. Neither is anything from `--elevate`, for a simpler reason than a rule — elevation mints no credential, so there is nothing to redact.
 
 ### Design and layout
 
@@ -120,6 +123,7 @@ Flag | Default | What to give it
 `--ssh-key PATH` | [what the install uses](#installation), then `<config-dir>/id_ed25519` | Where the identity the broker lends to brokered commands lives. One is minted either way, so this relocates rather than enables. Its public half must reach `authorized_keys` on every managed host; `init` prints it every run. An existing key at the path is adopted, not replaced, which is how you bring your own; it must already be `faramir-broker`-owned `0600` or `init` refuses it rather than chowning a key that may be yours. It names a keypair: the broker holds both halves and signs with the private one.
 `--known-hosts PATH` | none | A `known_hosts` file pinned for the executor, copied to `<exec-home>/.ssh/known_hosts`. A copy, the executor being unable to read your `0700 ~/.ssh`, and safe to copy where an ssh config is not: public host keys carry no directive that executes anything. Replaced whole on each run, `HashKnownHosts` leaving entries unmatchable by name to merge, so the file you name is the authority. One that is not a `known_hosts` file is refused before anything is written, which catches a path that reaches a private key.
 `--agent NAME` | none | `claude`, `gemini`, `opencode` or `kilocode`, repeatable. Installs that agent's deny rules into your own settings. Naming none installs none.
+`--elevate` | off | A switch, and the one place the executor's reach grows. It grants `faramir-exec` a **password-required** sudoers entry on this host, writes the private PAM service that entry authenticates through, and renders `[elevate]`, so a brokered command can *ask* to become root and a human answers per command. There is no password: the PAM service's authentication step asks the broker, so nothing that can sudo on this host exists at rest or in memory. Not passing the flag removes the grant and the service, locks the account and drops the section, which is how you take it back. [What it buys and what it costs](#elevating-on-the-controller).
 `--dry-run` | off | A switch. Reports what would change and writes nothing.
 `--json` | off | A switch. Prints the report as JSON, one entry per step with a `changed` flag.
 
@@ -213,6 +217,15 @@ faramir redact -- ./deploy.sh
 - One file refuses a name given twice with different refs. Across sources, a later `--env-file` wins over an earlier one, and `--env` wins over both.
 - A bad line is reported with file and line. The offending value never appears.
 
+### Elevating on the controller
+
+A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that also configures the controller has to leave it out with `--limit '!controller'`. `sudo faramir init --elevate` closes that split without moving the boundary: the executor gets a password-required sudoers entry pointed at a PAM service of faramir's own, whose auth step asks the broker whether a human approved the brokered command making the call. There is no credential — the answer is a decision — and `sudo faramir approve` (root, checked with `SO_PEERCRED`) answers it, one question per run.
+
+Whether a host elevates at all is a deliberate, per-host choice made at `init`: **on**, and this host's executor is sandboxed as a uid that can become root on approval; **off** (the default), and it grants nothing. Re-running `init` without the flag takes it back.
+
+The one seam nothing closes: an approved command gets real root and can make it permanent, exactly as `sudo ansible-playbook` by hand can. Approving is trusting *that command* with permanent root, so keep it operator-owned and read-only to brokered commands.
+
+How to install, run and watch it, and the full caveat: [docs/operating.md](docs/operating.md#elevating-on-the-controller). Why it is shaped this way: [docs/design.md](docs/design.md#elevating-on-the-controller). Wiring Ansible to it: [docs/ansible-sops.md](docs/ansible-sops.md#4-becoming-root-on-the-controller).
 ### Operator commands
 
 Command | Does
@@ -221,7 +234,8 @@ Command | Does
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](docs/operating.md#checking-an-install).
 `sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the secrets directory is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
 `sudo faramir rekey [FILE...]` | Re-encrypts managed sops files to the recipients `<config-dir>/.sops.yaml` names now, which is how a changed creation rule reaches values encrypted before it changed. Every managed file unless some are named. Preserves each file's owner and mode, skips one already sealed to the rule, and refuses a rule that leaves out the keeper's own key. `--dry-run` writes nothing. See [Adding a recipient](docs/operating.md#adding-a-recipient).
-`sudo faramir logs` | Recent audit records, or the one a short id names: id, local time, op, outcome, duration, how many values it stood in for, and the command; a redact reports the text's size instead, and an edit or a rekey the managed file, a rekey also naming the recipients on each side. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched.
+`sudo faramir logs` | Recent audit records, or the one a short id names: id, local time, op, outcome, duration, how many values it stood in for, and the command; a redact reports the text's size instead, an edit or a rekey the managed file, a rekey also naming the recipients on each side, and an elevate whether it was approved, by whom, and which command's record it belongs to. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched.
+`sudo faramir approve [--watch]` | Answer an elevation a brokered command asked for. Root only: the broker checks `SO_PEERCRED`, because the account the coding agent runs as must not be able to approve what the agent asked for. `--watch` waits for questions and answers them from that terminal; without it, what is waiting is listed and `faramir approve ID` (or `--deny ID`) answers one. See [Elevating on the controller](docs/operating.md#elevating-on-the-controller).
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed `config.d` drop-in. All three are socket activated.
 `sudo faramir uninstall` | Removes the broker from the install it [finds the usual way](docs/operating.md#checking-an-install). Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively.
 

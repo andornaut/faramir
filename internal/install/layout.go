@@ -26,6 +26,9 @@ const (
 
 	// Not derived from a layout field: the path is the distribution's.
 	logrotateConfig = "/etc/logrotate.d/faramir"
+	sudoersDir      = "/etc/sudoers.d"
+	sudoersFile     = sudoersDir + "/faramir"
+	pamDir          = "/etc/pam.d"
 
 	DefaultClientGroup = "dev"
 	DefaultBrokerUser  = "faramir-broker"
@@ -101,7 +104,34 @@ type Layout struct {
 	// so a copy of it is refused wherever it turns up, not only where ConfigDir
 	// was rendered into a pattern.
 	SSHKey string
+
+	// Elevate is whether this host grants the executor a sudoers entry, and is the
+	// switch for the whole arrangement: unset renders no [elevate] section, writes
+	// no sudoers file and no PAM service, so nothing can be asked for.
+	//
+	// There is no credential to place.  sudo authenticates that account against a
+	// PAM service of faramir's own whose auth step asks the broker whether a human
+	// approved this command, so nothing is minted, stored or handed out.
+	Elevate bool
 }
+
+// PamHelper is what the PAM service execs, as root, to decide one sudo: a
+// wrapper beside the hook's own files that runs `faramir pam-approve`.
+func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, "pam-approve") }
+
+// PamService is the sudoers `pam_service` name, and so the file under
+// /etc/pam.d that sudo reads for the executor's account alone.  Private on
+// purpose: a mistake in it reaches that account and leaves every other sudo on
+// the host untouched.
+func (l Layout) PamService() string { return "faramir-sudo" }
+
+// PamFile is where that service lives.
+func (l Layout) PamFile() string { return filepath.Join(pamDir, l.PamService()) }
+
+// SudoersFile is the grant itself.  Under /etc/sudoers.d rather than in the
+// config directory: sudo reads one place, and a grant kept where --config-dir
+// points would be a grant sudo never saw.
+func (l Layout) SudoersFile() string { return sudoersFile }
 
 // AgeKeyDir is where the key lives, which is the config directory: the key
 // follows the config, so secrets in an encrypted home have the key that opens

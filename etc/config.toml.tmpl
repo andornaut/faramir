@@ -69,7 +69,34 @@ exec_group = "{{.ExecGroup}}"
 # Resolved on PATH by init; the broker execs these as its own uid.
 ssh_agent = "{{.SshAgent}}"
 ssh_add = "{{.SshAdd}}"
-
+{{if .Elevate}}
+# How a brokered command becomes root on this host, written because `faramir
+# init --elevate` was run.  It does not authenticate: sudo is pointed at
+# {{.PamFile}} -- a PAM service of faramir's own, named by {{.SudoersFile}} --
+# whose authentication step asks the broker whether a human approved the
+# command making the call.
+#
+# So there is no password anywhere: nothing minted, nothing stored, nothing
+# handed out, and nothing a command approved once could keep and pass to a
+# later one.  The answer comes from `sudo faramir approve`, checked with
+# SO_PEERCRED to be root, so the account the coding agent runs as cannot
+# approve what the agent asked for.
+#
+# All of this is init's.  A drop-in setting any of it is refused: re-run
+# `faramir init --elevate`, or re-run without it to take the grant away.
+# timeout_sec is a plain default and yours.
+[elevate]
+exec_user = "{{.ExecUser}}"
+pam_service = "{{.PamService}}"
+helper = "{{.PamHelper}}"
+# Optional: announce that a question is waiting, "{prompt}" being the line the
+# broker builds and "{id}" the question to answer.  It carries no answer and is
+# not waited on, so anything will do -- wall, a desktop notifier, a push.
+# Unset, `faramir approve --watch` is the only place a question shows up.
+# notify_command = ["wall", "{prompt}"]
+# How long a question waits for a human before it is refused.
+timeout_sec = 120
+{{end}}
 [secrets]
 # Every sops file the keeper manages.  ALL of their values are redacted, not
 # only the injected ones.  Entries are globs, so naming the directory picks up

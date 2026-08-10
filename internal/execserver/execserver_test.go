@@ -3,6 +3,7 @@ package execserver
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -146,5 +147,118 @@ func TestAMissingProgramIsExecFailed(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "exec_failed") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+// The claim the cgroup exists for: a child that calls setsid -- breaking out of
+// the process group a killpg would reach -- is still reaped when the run ends,
+// because it cannot leave the run's cgroup.  The command detaches a grandchild
+// that would outlive it, prints the grandchild's pid, and exits; once the run is
+// done the grandchild must be gone.  Skipped where the host has no usable cgroup,
+// which is where confinement is not exercised anyway.
+func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
+	e, sock, dir := newExecutor(t)
+	if e.cgroupBase == "" {
+		t.Skip("no usable cgroup on this host; confinement is not exercised")
+	}
+	if _, err := os.Stat("/bin/sh"); err != nil {
+		t.Skip("no /bin/sh")
+	}
+
+	// setsid detaches the grandchild into its own session and process group; it
+	// prints its pid and sleeps well past the run.  The main shell exits at once.
+	_, output, err := runChild(t, sock, []string{"/bin/sh", "-c",
+		"setsid sh -c 'echo GPID=$$; exec sleep 60' & sleep 0.3"}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var gpid int
+	for _, field := range strings.Fields(output) {
+		if after, ok := strings.CutPrefix(field, "GPID="); ok {
+			gpid, _ = strconv.Atoi(strings.TrimSpace(after))
+		}
+	}
+	if gpid <= 0 {
+		t.Fatalf("no grandchild pid in output %q", output)
+	}
+	// The run has returned, so rcg.close() has already killed and drained the
+	// cgroup.  A process-group kill would have missed this pid; the cgroup did not.
+	// "Running" excludes a zombie: a killed process the reaper has not collected is
+	// dead, holds nothing, and satisfies the claim -- and kill(pid, 0) would call it
+	// alive, so the state is read instead.
+	if running(gpid) {
+		t.Errorf("setsid grandchild %d is still running after the run: the cgroup did "+
+			"not reap it", gpid)
+	}
+}
+
+// running reports whether a pid is a live process, a zombie counting as dead: it
+// has been killed and holds nothing, only awaiting a reap.  Missing is dead too.
+func running(pid int) bool {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return false
+	}
+	// The state is the field after the comm, which is parenthesised and may itself
+	// hold spaces or ')', so the scan starts past the last ')'.
+	end := strings.LastIndexByte(string(data), ')')
+	fields := strings.Fields(string(data)[end+1:])
+	return len(fields) > 0 && fields[0] != "Z"
+}
+
+// An elevating host requires confinement: with no usable cgroup it refuses to
+// run, rather than reap by process group, which a setsid child escapes.  Forced
+// by clearing the discovered base, so the refusal is exercised even where a
+// cgroup is in fact available.
+func TestAnElevatingExecutorRefusesWithoutACgroup(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "exec.sock")
+	e := New(&config.Config{
+		Exec:     config.ExecConfig{DefaultTimeoutSec: 15, KillGraceSec: 2, TermCols: 80, TermRows: 24},
+		Executor: config.ExecutorConfig{SocketPath: sock},
+		Elevate:  config.ElevateConfig{ExecUser: "faramir-exec"},
+	})
+	if !e.requireCgroup {
+		t.Fatal("an elevating executor does not require confinement")
+	}
+	e.cgroupBase = "" // as on a host without cgroup v2, Delegate=, or cgroup.kill
+	if _, err := e.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	go e.Serve()
+	t.Cleanup(func() { e.Close() })
+
+	if _, _, err := runChild(t, sock, []string{"/bin/sh", "-c", "true"}, dir); err == nil ||
+		!strings.Contains(err.Error(), "cgroup") {
+		t.Errorf("err = %v, want a refusal naming the missing cgroup", err)
+	}
+}
+
+// A non-elevating host has no approval to protect, so with no usable cgroup it
+// runs the command anyway and reaps it by process group -- requiring a delegated
+// cgroup there would refuse every command on a host or container that has none.
+func TestANonElevatingExecutorRunsWithoutACgroup(t *testing.T) {
+	dir := t.TempDir()
+	sock := filepath.Join(dir, "exec.sock")
+	e := New(&config.Config{
+		Exec:     config.ExecConfig{DefaultTimeoutSec: 15, KillGraceSec: 2, TermCols: 120, TermRows: 40},
+		Executor: config.ExecutorConfig{SocketPath: sock},
+	})
+	if e.requireCgroup {
+		t.Fatal("a non-elevating executor requires confinement")
+	}
+	e.cgroupBase = "" // the host cannot confine
+	if _, err := e.Listen(); err != nil {
+		t.Fatal(err)
+	}
+	go e.Serve()
+	t.Cleanup(func() { e.Close() })
+
+	result, output, err := runChild(t, sock, []string{"/bin/sh", "-c", "echo ran"}, dir)
+	if err != nil {
+		t.Fatalf("a non-elevating command was refused with no cgroup: %v", err)
+	}
+	if result.ExitCode != 0 || !strings.Contains(output, "ran") {
+		t.Errorf("exit=%d output=%q, want the command to have run", result.ExitCode, output)
 	}
 }

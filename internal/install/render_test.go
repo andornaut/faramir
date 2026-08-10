@@ -35,6 +35,9 @@ func TestTemplatesRender(t *testing.T) {
 	assets := append([]string{
 		"etc/config.toml.tmpl",
 		"etc/logrotate.conf.tmpl",
+		"etc/sudoers.tmpl",
+		"etc/pam.d.tmpl",
+		"agent/hooks/pam-approve.tmpl",
 		"systemd/faramir.tmpfiles.conf.tmpl",
 	}, unitValues()...)
 	for _, asset := range assets {

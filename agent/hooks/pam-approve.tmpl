@@ -1,0 +1,15 @@
+#!/bin/sh
+# {{.PamHelper}} -- the authentication step of {{.PamService}}.
+#
+# Written by `faramir init`.  Installed whether or not this host grants an
+# elevation: without the PAM service and the sudoers entry beside it, nothing
+# execs this, and on its own it approves nothing.
+#
+# A wrapper rather than a program: faramir is one binary and every role is a
+# subcommand of it, and pam_exec names something executable.
+#
+# It is run by sudo, as root, and its exit status is the whole authentication:
+# zero authenticates, anything else does not.  So it must fail closed, which is
+# what `faramir pam-approve` does on every path -- an unreachable broker, an
+# unknown token, a refusal and a timeout all exit non-zero.
+exec {{.BinDir}}/faramir pam-approve --socket {{.RunDir}}/broker.sock --account {{.ExecUser}}

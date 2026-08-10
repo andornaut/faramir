@@ -49,6 +49,12 @@ func TestEnsureOwnershipFixesTheMode(t *testing.T) {
 	if err := os.WriteFile(path, []byte("x"), 0o666); err != nil {
 		t.Fatal(err)
 	}
+	// Chmod, not the WriteFile mode: WriteFile is masked by the umask, so under the
+	// common 022 the file lands 0644 already and there is nothing for ensureOwnership
+	// to fix.  chmod ignores the umask, so the starting mode is wrong on any host.
+	if err := os.Chmod(path, 0o666); err != nil {
+		t.Fatal(err)
+	}
 	changed, err := realFS.ensureOwnership(path, 0o644, keep, keep)
 	if err != nil {
 		t.Fatal(err)

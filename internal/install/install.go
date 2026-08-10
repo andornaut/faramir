@@ -59,6 +59,18 @@ type Options struct {
 	// config is not.
 	KnownHosts string
 
+	// Elevate grants the executor a password-required sudoers entry on this host,
+	// pointed at a PAM service of faramir's own whose auth step asks the broker
+	// whether a human approved the brokered command making the call.  So one
+	// brokered command can configure the fleet and the controller together, and
+	// there is no credential: the answer is a decision, not a secret.  Off by
+	// default: it is the one place the executor's reach grows, and every request is
+	// answered by a human naming the command.
+	//
+	// A switch rather than a value read once: re-running without it removes the
+	// grant, which is the direction that takes reach away.
+	Elevate bool
+
 	// No tree is enrolled here: a tree is per project and this runs once per
 	// machine.  See `faramir init-project`.
 
@@ -201,6 +213,11 @@ func Run(opts Options) (Report, error) {
 		// The other half of reaching a managed host: the key authenticates to it,
 		// these say which host answering is that host.
 		run.stepKnownHosts,
+		// After the config, which renders [elevate] from the same layout, and before
+		// anything restarts a daemon: a broker that came up without the PAM service
+		// and the sudoers entry in place would refuse every elevation until the next
+		// activation.
+		run.stepElevation,
 		// Before the units are written: it grants the traversal that lets a service
 		// uid reach a config under the operator's home.
 		run.stepReachable,
@@ -275,6 +292,10 @@ func (o Options) layout() (Layout, error) {
 	if layout.SSHKey == "" {
 		layout.SSHKey = filepath.Join(layout.ConfigDir, "id_ed25519")
 	}
+	// Off unless asked for, and the config template keys the whole [elevate]
+	// section off it: an install that never passed --elevate renders no section,
+	// writes no PAM service and grants no sudoers entry.
+	layout.Elevate = o.Elevate
 	return layout, layout.validate()
 }
 

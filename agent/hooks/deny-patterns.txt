@@ -74,6 +74,6 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # Reaching the broker's private state.  Reading the audit log is covered above;
 # listing the directory is not.  journalctl is absent: the daemons log ref names
 # and counts, never values.
-\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard)\b
+\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|pam-approve)\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-
