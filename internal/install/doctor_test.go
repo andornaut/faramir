@@ -348,18 +348,47 @@ func TestTheSSHProbeTellsARefusalFromAnAnswer(t *testing.T) {
 
 // A broker probe that never ran says nothing about the value set, so the ssh
 // agent check has to run rather than report a broker holding values as one
-// holding none.  Only a probe that ran and found nothing skips it.
-func TestTheSSHAgentIsSkippedOnlyOnAnEstablishedRefusal(t *testing.T) {
-	cfg := &config.Config{}
-	cfg.Ssh.Key = "/etc/faramir/id_ed25519"
-
-	var report DoctorReport
-	diagnoseSSHAgent(&report, DoctorOptions{}, cfg, servesNothing)
-	if len(report.Findings) != 1 || report.Findings[0].Detail != sshAgentRefused {
-		t.Fatalf("a broker known to serve nothing: got %+v", report.Findings)
-	}
-	if report.NotAsked != 1 {
-		t.Errorf("NotAsked = %d, want the skipped check counted", report.NotAsked)
+// holding none.  A broker that answered nothing is the other way round: the
+// probe sends a brokered command, so it cannot be put at all, and reporting it
+// as an agent that could not be reached fails a stopped install over a check
+// about something else.
+func TestWhatSkipsTheSSHAgentProbe(t *testing.T) {
+	const running = "1.2.3"
+	for _, tc := range []struct {
+		name    string
+		serves  brokerServes
+		version string
+		want    string
+	}{
+		{
+			name:    "a broker known to serve nothing",
+			serves:  servesNothing,
+			version: running,
+			want:    sshAgentRefused,
+		},
+		{
+			name:   "a broker that answered nothing",
+			serves: servesUnknown,
+			want:   sshAgentUnanswered,
+		},
+		{
+			name:    "a broker probe that never ran",
+			serves:  servesUnknown,
+			version: running,
+			want:    "",
+		},
+		{
+			name:    "a broker known to serve values",
+			serves:  servesValues,
+			version: running,
+			want:    "",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := skipSSHProbe(tc.serves, tc.version); got != tc.want {
+				t.Errorf("skipSSHProbe = %q, want %q", got, tc.want)
+			}
+		})
 	}
 
 	// No key configured is the host that arranges SSH some other way, and is an
@@ -371,5 +400,66 @@ func TestTheSSHAgentIsSkippedOnlyOnAnEstablishedRefusal(t *testing.T) {
 	}
 	if noKey.NotAsked != 0 {
 		t.Errorf("NotAsked = %d, want 0 for a check that was answered", noKey.NotAsked)
+	}
+}
+
+// The brokered command check runs a command rather than reading a mode, so
+// every state where the command cannot be sent has to be a skip.  Run as a
+// check it fails a stopped install over an outage the sockets and version
+// checks already report.
+func TestTheBrokeredCommandIsSkippedWhenItCannotBeSent(t *testing.T) {
+	const running = "1.2.3"
+	for _, tc := range []struct {
+		name    string
+		serves  brokerServes
+		version string
+	}{
+		{name: "a broker known to serve nothing", serves: servesNothing, version: running},
+		{name: "a --check that did not report", serves: servesUnknown, version: running},
+		{name: "a broker that answered nothing", serves: servesValues},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var report DoctorReport
+			diagnoseBrokered(&report, DoctorOptions{BrokerVersion: tc.version}, tc.serves)
+			if len(report.Findings) != 1 || report.Findings[0].Status != StatusWarn {
+				t.Fatalf("got %+v", report.Findings)
+			}
+			if report.NotAsked != 1 {
+				t.Errorf("NotAsked = %d, want the skipped check counted", report.NotAsked)
+			}
+			if report.Failed {
+				t.Error("report.Failed = true, want a skip rather than an exit code")
+			}
+		})
+	}
+}
+
+// A refusal answers the probe against a broker holding nothing and contradicts
+// --check against one holding values.  Reported as a skip in the second case it
+// repeats a claim --check just disproved, and says nothing about the daemon
+// that is actually refusing.
+func TestARefusalFromABrokerHoldingValuesIsAFailure(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Ssh.Key = "/etc/faramir/id_ed25519"
+	refusal := errors.New("faramir: " + refusedCode + ": the broker does not hold every managed value")
+
+	var contradicted DoctorReport
+	reportSSHProbe(&contradicted, cfg, servesValues, "", refusal)
+	if len(contradicted.Findings) != 1 || contradicted.Findings[0].Status != StatusFailed {
+		t.Fatalf("--check read every file and the daemon refuses: got %+v", contradicted.Findings)
+	}
+	if contradicted.NotAsked != 0 {
+		t.Errorf("NotAsked = %d, want 0: the probe was put and answered", contradicted.NotAsked)
+	}
+
+	// Without root --check does not report, so a refusal is the only word on the
+	// value set and stands as the reason the probe went unanswered.
+	var unestablished DoctorReport
+	reportSSHProbe(&unestablished, cfg, servesUnknown, "", refusal)
+	if len(unestablished.Findings) != 1 || unestablished.Findings[0].Detail != sshAgentRefused {
+		t.Fatalf("no --check report to contradict: got %+v", unestablished.Findings)
+	}
+	if unestablished.NotAsked != 1 {
+		t.Errorf("NotAsked = %d, want the unanswered check counted", unestablished.NotAsked)
 	}
 }

@@ -497,6 +497,17 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 			"so whether the broker would refuse the command this runs is unknown")
 		return
 	}
+	// The other way the command cannot be sent, and the state doctor is run in on
+	// purpose: a broker that answered nothing when the install was looked up is
+	// one no brokered command reaches, and running one here would report a
+	// stopped install as a boundary that does not hold.  The outage is the
+	// sockets and version checks' to report.
+	if opts.BrokerVersion == "" {
+		report.NotAsked++
+		report.add("brokered command", StatusWarn, "not asked: the broker did not "+
+			"answer, so the command this runs cannot be sent")
+		return
+	}
 	faramir := filepath.Join(DefaultBinDir, "faramir")
 	brokered := func(args ...string) (string, error) {
 		return asUser(opts.OperatorUser, append([]string{faramir, "run", "--quiet", "--"}, args...)...)
