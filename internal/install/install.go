@@ -146,6 +146,7 @@ type runner struct {
 	// Resolved after the accounts step; keep when the account does not exist,
 	// which only happens under DryRun.
 	operatorUID  int
+	operatorGID  int
 	operatorHome string
 	brokerUID    int
 	keeperUID    int
@@ -328,6 +329,9 @@ func (r *runner) preflight() error {
 			"the ownership you want first: creating it here would hand it to root",
 			parent, r.layout.ConfigDir)
 	}
+	if err := r.refuseSymlinks(); err != nil {
+		return err
+	}
 	// The binaries are built ahead of time.  Checked here rather than at the
 	// install step, which is after the accounts and the age key exist.
 	if r.binaries == "" {
@@ -342,6 +346,60 @@ func (r *runner) preflight() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("not built in %s: %s. Run 'make build', then run the "+
 			"faramir it built", r.binaries, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// refuseSymlinks fails the run when any path this install asserts a mode or an
+// owner on is a symlink.  Those assertions are what keep the file out of the
+// agent's reach, and applying one through a link applies it to the target
+// instead: under --config-dir the directories below can sit in the operator's
+// own home, which is the uid the agent runs as.
+//
+// A precondition rather than a refusal at each step, so the answer is one
+// message with the host untouched instead of a failure partway through, with
+// accounts created and no units written.
+//
+// It does not replace the O_NOFOLLOW repair in ensureOwnership.  This runs
+// before the steps, and nothing stops the path being re-pointed in between; what
+// it buys is the diagnosis, not the enforcement.
+func (r *runner) refuseSymlinks() error {
+	dropInDir := filepath.Join(r.layout.ConfigDir, "config.d")
+	secretsDir := r.layout.SecretsDir()
+	// The directories before what is in them, so a linked directory is named as
+	// itself rather than through the entries it happens to list.
+	paths := []string{
+		r.layout.ConfigDir,
+		dropInDir,
+		secretsDir,
+		r.layout.SopsConfigPath(),
+		r.layout.AgeKeyPath,
+		r.layout.LogDir,
+		r.layout.AuditLogPath(),
+	}
+	for _, dir := range []string{dropInDir, secretsDir} {
+		// Absent, or a dry run that cannot look inside; either way there is nothing
+		// here to answer for.
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			paths = append(paths, filepath.Join(dir, entry.Name()))
+		}
+	}
+	for _, path := range paths {
+		info, err := os.Lstat(path)
+		if err != nil || info.Mode()&os.ModeSymlink == 0 {
+			continue
+		}
+		target, _ := os.Readlink(path)
+		return fmt.Errorf("%s is a symlink to %s. faramir asserts the mode and owner "+
+			"of that path, and through a link they would land on the target instead, "+
+			"so nothing has been installed. Replace it with a regular file or "+
+			"directory. To keep the data elsewhere, move the install itself with "+
+			"--config-dir, or mount the directory rather than linking it",
+			path, target)
 	}
 	return nil
 }

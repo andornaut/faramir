@@ -66,6 +66,19 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 	if !own {
 		return false, nil
 	}
+	// Asserted from here down, so the same rule as ensureOwnership applies: the
+	// mode and owner set below are what take this directory back from the account
+	// the agent runs as, and through a link they would land on its target while
+	// the link kept its own ownership.  os.Stat above followed it; this does not.
+	link, err := os.Lstat(path)
+	if err != nil {
+		return false, err
+	}
+	if link.Mode()&os.ModeSymlink != 0 {
+		return false, fmt.Errorf("%s is a symlink, and the mode and owner asserted "+
+			"here would land on whatever it points at: replace it with a real directory",
+			path)
+	}
 	changed := info.Mode().Perm() != mode.Perm() || info.Mode()&os.ModeSetgid != mode&os.ModeSetgid
 	if wrong, err := wrongOwner(info, uid, gid); err != nil {
 		return false, err
@@ -75,18 +88,26 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 	if !changed || f.dryRun {
 		return changed, nil
 	}
-	if err := os.Chmod(path, mode); err != nil {
-		return false, err
-	}
-	return true, chown(path, uid, gid)
+	return true, chmodAndChown(path, mode, uid, gid)
 }
 
 // ensureOwnership fixes an existing file's owner, group and mode without
 // touching its contents, for a file only its owner can read.
+//
+// Lstat to decide and a descriptor to repair, never a path-based chmod: the
+// directories this walks are writable by the account the assertion exists to
+// constrain, so a symlink planted there would take root's chmod to its target.
 func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool, error) {
-	info, err := os.Stat(path)
+	info, err := os.Lstat(path)
 	if err != nil {
 		return false, err
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		// Refused rather than skipped: the mode and owner asserted here are what
+		// keeps the file out of the agent's reach, and a link left in place is one
+		// whose target the agent may own.  Replace it with a regular file.
+		return false, fmt.Errorf("%s is a symlink, and its mode and owner would be "+
+			"applied to whatever it points at: replace it with a regular file", path)
 	}
 	wrong, err := wrongOwner(info, uid, gid)
 	if err != nil {
@@ -98,10 +119,54 @@ func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool
 	if f.dryRun {
 		return true, nil
 	}
-	if err := os.Chmod(path, mode); err != nil {
+	return true, chmodAndChown(path, mode, uid, gid)
+}
+
+// ensurePrivateFile creates an empty 0600 file if it is absent and asserts its
+// mode and ownership either way, for a file whose owner would otherwise be
+// whichever uid happens to write to it first.  0600 rather than a parameter:
+// the one thing this creates is the audit log, and a mode that let another
+// account read it would undo what the separate uid is for.
+func (f fsys) ensurePrivateFile(path string, uid, gid int) (bool, error) {
+	const mode = os.FileMode(0o600)
+	switch _, err := os.Lstat(path); {
+	// A dry run runs unprivileged and cannot look inside a directory the broker
+	// owns.  Reported as no change, as ensureDir does.
+	case f.dryRun && errors.Is(err, os.ErrPermission):
+		return false, nil
+	case errors.Is(err, os.ErrNotExist):
+		if f.dryRun {
+			return true, nil
+		}
+		handle, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+		if err != nil {
+			return false, err
+		}
+		_ = handle.Close()
+		// The open applied the umask to mode; this does not.
+		return true, chmodAndChown(path, mode, uid, gid)
+	case err != nil:
 		return false, err
 	}
-	return true, chown(path, uid, gid)
+	return f.ensureOwnership(path, mode, uid, gid)
+}
+
+// chmodAndChown repairs one file through a descriptor opened O_NOFOLLOW, so
+// the file checked and the file changed are the same file even if the path is
+// re-pointed in between.  O_NONBLOCK so a fifo does not wait for a writer.
+func chmodAndChown(path string, mode os.FileMode, uid, gid int) error {
+	handle, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = handle.Close() }()
+	if err := handle.Chmod(mode); err != nil {
+		return err
+	}
+	if uid == keep && gid == keep {
+		return nil
+	}
+	return handle.Chown(uid, gid)
 }
 
 // mergeFile merges faramir's keys into an existing JSON file, or writes data

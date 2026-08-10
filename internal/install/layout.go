@@ -124,6 +124,11 @@ func (l Layout) SopsConfigPath() string { return filepath.Join(l.ConfigDir, ".so
 // current one for anything run from in there.
 func (l Layout) StaleSopsConfigPath() string { return filepath.Join(l.SecretsDir(), ".sops.yaml") }
 
+// AuditLogPath is the file the broker appends a record to.  Rendered into both
+// config.toml and logrotate.conf from LogDir, and created by the install so
+// that its owner is not whichever uid writes to it first.
+func (l Layout) AuditLogPath() string { return filepath.Join(l.LogDir, "audit.log") }
+
 // BrokerHome, KeeperHome and ExecHome are the service accounts' homes.  Derived
 // from the account names so that renaming one does not leave it living in a
 // directory named after the old one, which is also what StateDirectory= in each

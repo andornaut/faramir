@@ -160,8 +160,18 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 			return
 		}
 	}
-	report.add("config ownership", StatusOK, "%s cannot write the config or its drop-ins",
-		opts.OperatorUser)
+	// The creation rule is kept if it already exists, so an operator-created one
+	// never went through the install's own writeFile.  Whoever can write it
+	// chooses which age keys every value encrypted from now on is readable by.
+	sopsConfig := filepath.Join(opts.ConfigDir, ".sops.yaml")
+	if exists(sopsConfig) && canWrite(opts.OperatorUser, sopsConfig) {
+		report.add("config ownership", StatusFailed, "%s can write %s, which names the "+
+			"age recipients: an edit there chooses who can decrypt every value written "+
+			"after it", opts.OperatorUser, sopsConfig)
+		return
+	}
+	report.add("config ownership", StatusOK, "%s cannot write the config, its drop-ins "+
+		"or the creation rule", opts.OperatorUser)
 }
 
 // diagnoseInstalledFiles checks what the deny list protects.  The binary is the
