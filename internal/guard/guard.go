@@ -92,7 +92,9 @@ var fallback = []string{
 	// does not, so "systemctl restart faramir-keeper" stays allowed.  Only
 	// sudo's own flags may precede the executable name.  journalctl is absent:
 	// the daemons log ref names and counts, never values.
-	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|pam-approve)\b`,
+	// `approve` among them: it is the op that decides an elevation, and the agent
+	// must not be able to answer the question it raised.
+	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|approve|pam-approve)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Refused for what it costs, not because it hides anything: the wrapper
 	// fails closed, so a stopped broker withholds every command's output in
@@ -205,11 +207,35 @@ func commandOf(p *payload) string {
 // because the daemons are subcommands of this binary too; one missing from
 // cli.Operator merely has its arguments scanned.
 var faramirCall = regexp.MustCompile(
-	`(^|[;&|\n])\s*(sudo\s+)?faramir[ \t]+(` +
+	`(^|[;&|\n])\s*faramir[ \t]+(` +
 		strings.Join(cli.Operator, "|") + `)\b[^;&|\n]*`)
 
+// sudoFaramirCall is the same for a call under sudo, and sanctions one
+// subcommand fewer.  `approve` is left out so that the deny patterns get to see
+// it: it is the op that decides an elevation, and this hook gates the shell of
+// the agent that raised the request.  An operator answers in their own terminal,
+// where no hook runs, so nothing a person does is denied by this.  RE2 has no
+// negative lookahead, hence a second expression over a second list rather than
+// an exception inside the first.
+var sudoFaramirCall = regexp.MustCompile(
+	`(^|[;&|\n])\s*sudo\s+faramir[ \t]+(` +
+		strings.Join(sudoSanctioned(), "|") + `)\b[^;&|\n]*`)
+
+// sudoSanctioned is cli.Operator without the subcommands that must stay visible
+// to the deny patterns when run as root.
+func sudoSanctioned() []string {
+	out := make([]string, 0, len(cli.Operator))
+	for _, name := range cli.Operator {
+		if name != "approve" {
+			out = append(out, name)
+		}
+	}
+	return out
+}
+
 func decide(command string) (string, bool) {
-	stripped := faramirCall.ReplaceAllString(command, "$1")
+	stripped := sudoFaramirCall.ReplaceAllString(command, "$1")
+	stripped = faramirCall.ReplaceAllString(stripped, "$1")
 	for _, p := range loadPatterns() {
 		if p.re.MatchString(stripped) {
 			return p.source, true

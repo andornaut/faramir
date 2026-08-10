@@ -132,7 +132,7 @@ func (r *runner) stepElevation() error {
 func (r *runner) revokeElevation() error {
 	stale := []string{
 		sudoersFile,
-		filepath.Join(pamDir, "faramir-sudo"),
+		pamServiceFile,
 		// Where earlier layouts kept a password.
 		filepath.Join(r.layout.RunDir, "elevate.secret"),
 		filepath.Join(r.layout.ConfigDir, "elevate.secret"),

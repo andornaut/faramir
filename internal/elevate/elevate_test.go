@@ -1,6 +1,7 @@
 package elevate
 
 import (
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -496,6 +497,74 @@ func TestStopReleasesWhatIsWaiting(t *testing.T) {
 	}
 	if token := mustRegister(s, run()); token != "" {
 		t.Error("a run was registered after Stop")
+	}
+}
+
+// A command that ends takes its unanswered question with it.  A question left
+// filed would be shown by `faramir approve` and would take a yes for a command
+// that is no longer running, and it would hold one of the maxPending slots until
+// its own timeout.
+func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
+	s := started(t, baseConfig()) // TimeoutSec is 10: nothing here may wait that long
+	token := mustRegister(s, run())
+
+	done := make(chan string, 1)
+	go func() {
+		approved, reason := s.Ask(token)
+		if approved {
+			done <- "approved"
+			return
+		}
+		done <- reason
+	}()
+	id := waitForQuestion(t, s)
+
+	s.Release(token)
+
+	select {
+	case reason := <-done:
+		if reason == "approved" {
+			t.Error("a request was approved after its command ended")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a request outlived the command it was raised for")
+	}
+	if left := s.Questions(); len(left) != 0 {
+		t.Errorf("%d questions still waiting after the command ended: %v", len(left), left)
+	}
+	if err := s.Answer(id, true, "the operator"); err == nil {
+		t.Error("a question was approved for a command that had already ended")
+	}
+}
+
+// The two refusals pend can give are told apart.  A saturated host and a
+// stopping broker send an operator looking in different places, and one
+// reported as the other sends them hunting for pending questions that are not
+// there.
+func TestARefusalSaysWhichLimitItHit(t *testing.T) {
+	s := started(t, baseConfig())
+	// Fill the queue: one question per command, so this takes maxPending commands.
+	for i := range maxPending {
+		token := mustRegister(s, Run{Argv: []string{"playbook", strconv.Itoa(i)}})
+		go s.Ask(token)
+	}
+	for range 100 {
+		if len(s.Questions()) == maxPending {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, _, reason := s.pend(mustRegister(s, run()), run()); !strings.Contains(reason, "waiting") {
+		t.Errorf("reason = %q, want the full queue named", reason)
+	}
+
+	// A stopping broker, which Ask reaches when Stop lands between its own lookup
+	// and this call.
+	stopping := New(baseConfig())
+	token := mustRegister(stopping, run())
+	stopping.Stop()
+	if _, _, reason := stopping.pend(token, run()); !strings.Contains(reason, "stopping") {
+		t.Errorf("reason = %q, want the stopping broker named rather than a full queue", reason)
 	}
 }
 

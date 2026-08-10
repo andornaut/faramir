@@ -29,6 +29,8 @@ const (
 	sudoersDir      = "/etc/sudoers.d"
 	sudoersFile     = sudoersDir + "/faramir"
 	pamDir          = "/etc/pam.d"
+	pamServiceName  = "faramir-sudo"
+	pamServiceFile  = pamDir + "/" + pamServiceName
 
 	DefaultClientGroup = "dev"
 	DefaultBrokerUser  = "faramir-broker"
@@ -123,10 +125,10 @@ func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, "pam-app
 // /etc/pam.d that sudo reads for the executor's account alone.  Private on
 // purpose: a mistake in it reaches that account and leaves every other sudo on
 // the host untouched.
-func (l Layout) PamService() string { return "faramir-sudo" }
+func (l Layout) PamService() string { return pamServiceName }
 
 // PamFile is where that service lives.
-func (l Layout) PamFile() string { return filepath.Join(pamDir, l.PamService()) }
+func (l Layout) PamFile() string { return pamServiceFile }
 
 // SudoersFile is the grant itself.  Under /etc/sudoers.d rather than in the
 // config directory: sudo reads one place, and a grant kept where --config-dir

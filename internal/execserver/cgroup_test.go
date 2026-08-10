@@ -27,6 +27,27 @@ func TestUnifiedCgroupPathReadsOnlyTheV2Line(t *testing.T) {
 	}
 }
 
+// Every cgroup2 mount is returned, in the order the table lists them: the
+// membership path from /proc/self/cgroup is relative to the mount this process
+// reaches its hierarchy through, so a host showing more than one is tried mount
+// by mount rather than settled on the first line that says cgroup2.
+func TestCgroup2MountsReturnsEveryUnifiedMount(t *testing.T) {
+	const table = "sysfs /sys sysfs rw,nosuid 0 0\n" +
+		"cgroup /sys/fs/cgroup/pids cgroup rw,pids 0 0\n" +
+		"cgroup2 /sys/fs/cgroup/unified cgroup2 rw,nsdelegate 0 0\n" +
+		"proc /proc proc rw 0 0\n" +
+		"cgroup2 /run/other-cgroup cgroup2 rw 0 0\n"
+	got := cgroup2MountsIn(table)
+	want := []string{"/sys/fs/cgroup/unified", "/run/other-cgroup"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("cgroup2MountsIn = %v, want %v", got, want)
+	}
+	// A v1-only table has none, which is the host the executor refuses to run on.
+	if got := cgroup2MountsIn("cgroup /sys/fs/cgroup/pids cgroup rw,pids 0 0\n"); len(got) != 0 {
+		t.Errorf("cgroup2MountsIn of a v1-only table = %v, want none", got)
+	}
+}
+
 // pids reads cgroup.procs, which is what drain watches to know a run's whole
 // tree is gone -- the setsid child among it -- before the run is counted done.
 func TestPidsReadsTheProcsFile(t *testing.T) {

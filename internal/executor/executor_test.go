@@ -41,6 +41,13 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 		},
 	}
 	e := execserver.New(cfg)
+	// Every brokered command is confined to its own cgroup, so an executor without
+	// a delegated one refuses all of them and there is no output to assert on.  CI
+	// delegates a cgroup to the runner and exercises the real path; run under
+	// `systemd-run --user --scope go test ./...` to do the same locally.
+	if !e.CanConfine() {
+		t.Skip("no delegated cgroup on this host; the executor refuses every command here")
+	}
 	if _, err := e.Listen(); err != nil {
 		t.Fatal(err)
 	}

@@ -173,9 +173,10 @@ func cmdInit(args []string) int {
 			"(none by default; known: "+strings.Join(install.KnownAgents(), ", ")+")")
 	elevate := fs.Bool("elevate", false,
 		"let a brokered command ask to sudo on this host: grant the executor a "+
-			"password-required sudoers entry and give the broker the password for it, "+
-			"so every request is approved by a human who is told which command it is "+
-			"for. Off by default, and re-running without it takes the grant away")
+			"password-required sudoers entry pointed at a PAM service whose auth step "+
+			"asks the broker, so there is no password anywhere and every request is "+
+			"approved by a human who is told which command it is for. Off by default, "+
+			"and re-running without it takes the grant away")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	var recipients multiFlag

@@ -46,6 +46,34 @@ func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
 	}
 }
 
+// Answering an elevation is the operator's, and this hook gates the agent's
+// shell rather than the operator's terminal: an agent that could approve the
+// request it raised is the whole boundary gone.  Both the helper sudo runs and
+// the subcommand a human types are denied here.
+func TestTheAgentCannotAnswerItsOwnElevation(t *testing.T) {
+	for _, cmd := range []string{
+		"sudo faramir approve",
+		"sudo faramir approve a1b2c3",
+		"sudo faramir approve --watch",
+		"sudo -n faramir approve a1b2c3",
+		"sudo faramir pam-approve",
+	} {
+		if _, denied := decide(cmd); !denied {
+			t.Errorf("the agent may answer an elevation: %q", cmd)
+		}
+	}
+	// Without sudo it reaches a broker that refuses it anyway, and denying it here
+	// would only trade the refusal for a worse message.
+	if pattern, denied := decide("faramir approve --watch"); denied {
+		t.Errorf("wrongly denied an unprivileged approve (pattern %q)", pattern)
+	}
+	// `approve` is the only subcommand carved out of the sudo sanction: every
+	// other one still has its own arguments left unscanned under sudo.
+	if pattern, denied := decide("sudo faramir edit secret://a/b"); denied {
+		t.Errorf("the sudo sanction lost more than approve (pattern %q)", pattern)
+	}
+}
+
 // Naming the sanctioned subcommands is only safe if every one is named: one
 // left out has its arguments scanned.
 func TestEveryOperatorSubcommandIsSanctioned(t *testing.T) {

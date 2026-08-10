@@ -36,52 +36,74 @@ import (
 // under, or "" when confinement is unavailable.  Probed once at startup: per run
 // it is a field read, not a syscall.
 func cgroupBase() string {
-	mount := cgroup2Mount()
-	if mount == "" {
-		return "" // no unified hierarchy: a cgroup v1 host, or none at all
-	}
 	rel, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		return ""
 	}
 	unified := unifiedCgroupPath(string(rel))
 	if unified == "" {
-		return "" // no v2 membership line
+		return "" // no v2 membership line: a cgroup v1 host, or none at all
 	}
-	base := filepath.Join(mount, unified)
-	// Two gates in one probe: a sub-cgroup is created and removed.  The mkdir
-	// succeeds only where the unit was granted Delegate= -- without it systemd owns
-	// this directory and the uid cannot write here, which is the real delegation
-	// check, a mode being able to lie about who may write.  Its cgroup.kill file
-	// exists only on a kernel >= 5.14, which is the feature this reaps a tree with.
-	// Either missing means the host cannot confine, and the executor will refuse to
-	// run rather than run unreaped.
-	probe := filepath.Join(base, "faramir-cgroup-probe")
-	if err := os.Mkdir(probe, 0o755); err != nil {
-		return ""
-	}
-	_, killErr := os.Stat(filepath.Join(probe, "cgroup.kill"))
-	_ = os.Remove(probe)
-	if killErr != nil {
-		return ""
-	}
-	return base
-}
-
-// cgroup2Mount is where the unified hierarchy is mounted, read from /proc/mounts,
-// or "".  It is /sys/fs/cgroup on a pure-v2 host and a subdirectory of it on a
-// hybrid one, so the location is looked up rather than assumed.
-func cgroup2Mount() string {
-	data, err := os.ReadFile("/proc/mounts")
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(data), "\n") {
-		if fields := strings.Fields(line); len(fields) >= 3 && fields[2] == "cgroup2" {
-			return fields[1]
+	// Every visible cgroup2 mount is tried, not just the first: the membership path
+	// is relative to whichever mount this process's hierarchy is reached through,
+	// and joining it to an unrelated one names a directory that does not exist.
+	// The probe below is what settles it, so the mount that answers is the mount
+	// that gets used.
+	for _, mount := range cgroup2Mounts() {
+		if base := filepath.Join(mount, unified); usableCgroup(base) {
+			return base
 		}
 	}
 	return ""
+}
+
+// usableCgroup reports whether run cgroups can be made under this directory.
+// Two gates in one probe: a sub-cgroup is created and removed.  The mkdir
+// succeeds only where the unit was granted Delegate= -- without it systemd owns
+// this directory and the uid cannot write here, which is the real delegation
+// check, a mode being able to lie about who may write.  Its cgroup.kill file
+// exists only on a kernel >= 5.14, which is the feature this reaps a tree with.
+// Either missing means the host cannot confine, and the executor will refuse to
+// run rather than run unreaped.
+func usableCgroup(base string) bool {
+	probe := filepath.Join(base, "faramir-cgroup-probe")
+	if err := os.Mkdir(probe, 0o755); err != nil {
+		return false
+	}
+	_, killErr := os.Stat(filepath.Join(probe, "cgroup.kill"))
+	_ = os.Remove(probe)
+	return killErr == nil
+}
+
+// CanConfine reports whether this executor found a delegated cgroup at startup.
+// It is false where every command would be refused, which is a host to fix.
+func (e *Executor) CanConfine() bool { return e.cgroupBase != "" }
+
+// cgroup2Mounts is where the unified hierarchy is mounted, in the order
+// /proc/self/mounts lists it.  It is /sys/fs/cgroup on a pure-v2 host and a
+// subdirectory of it on a hybrid one, so the location is looked up rather than
+// assumed, and a namespace can show more than one.  Read the per-process file,
+// never /proc/mounts: the executor unit sets ProcSubset=pid, which mounts procfs
+// with subset=pid and hides every non-pid top-level entry, /proc/mounts among
+// them, while /proc/self/mounts stays readable.
+func cgroup2Mounts() []string {
+	data, err := os.ReadFile("/proc/self/mounts")
+	if err != nil {
+		return nil
+	}
+	return cgroup2MountsIn(string(data))
+}
+
+// cgroup2MountsIn is the parse, split out so it can be tested against a mount
+// table this host does not have.
+func cgroup2MountsIn(mounts string) []string {
+	var out []string
+	for _, line := range strings.Split(mounts, "\n") {
+		if fields := strings.Fields(line); len(fields) >= 3 && fields[2] == "cgroup2" {
+			out = append(out, fields[1])
+		}
+	}
+	return out
 }
 
 // unifiedCgroupPath is the path from the "0::" line of /proc/<pid>/cgroup, the

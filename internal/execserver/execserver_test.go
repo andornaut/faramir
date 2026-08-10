@@ -25,6 +25,14 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 		Executor: config.ExecutorConfig{SocketPath: sock},
 	}
 	e := New(cfg)
+	// Confinement is mandatory: an executor with no delegated cgroup refuses every
+	// command, so a test that runs one has nothing to assert on such a host.  CI
+	// delegates a cgroup to the runner and exercises the real path; a workstation
+	// whose shell sits in a root-owned cgroup skips instead of failing.  Run under
+	// `systemd-run --user --scope go test ./...` to get a delegated cgroup locally.
+	if e.cgroupBase == "" {
+		t.Skip("no delegated cgroup on this host; the executor refuses every command here")
+	}
 	if _, err := e.Listen(); err != nil {
 		t.Fatal(err)
 	}
@@ -154,13 +162,9 @@ func TestAMissingProgramIsExecFailed(t *testing.T) {
 // the process group a killpg would reach -- is still reaped when the run ends,
 // because it cannot leave the run's cgroup.  The command detaches a grandchild
 // that would outlive it, prints the grandchild's pid, and exits; once the run is
-// done the grandchild must be gone.  Skipped where the host has no usable cgroup,
-// which is where confinement is not exercised anyway.
+// done the grandchild must be gone.
 func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
-	e, sock, dir := newExecutor(t)
-	if e.cgroupBase == "" {
-		t.Skip("no usable cgroup on this host; confinement is not exercised")
-	}
+	_, sock, dir := newExecutor(t)
 	if _, err := os.Stat("/bin/sh"); err != nil {
 		t.Skip("no /bin/sh")
 	}

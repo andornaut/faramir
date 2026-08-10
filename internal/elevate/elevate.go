@@ -38,6 +38,7 @@
 package elevate
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
@@ -221,13 +222,23 @@ func (s *Server) otherRunLocked(token string) string {
 // Release drops a token when its command ends, so a request that arrives after
 // is refused rather than answered against a command that is over.  This is what
 // makes an approval die with the run it was given for.
+//
+// The command's unanswered question goes with it.  One left filed would be shown
+// by `faramir approve` and would take a yes for a command that is no longer
+// running, which is an approval a human cannot judge, and it would hold one of
+// the maxPending slots until it timed out.
 func (s *Server) Release(token string) {
 	if token == "" {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	delete(s.runs, token)
+	pending := s.waiting[token]
+	s.mu.Unlock()
+	if pending != nil {
+		// Outside the lock: finish takes it.
+		s.finish(pending, false, "the command ended before this was answered")
+	}
 }
 
 // Ask is the whole of what a sudo asks for: may this command become root?
@@ -278,10 +289,9 @@ func (s *Server) Ask(token string) (approved bool, reason string) {
 // approval given for something else.  This is scoped to the command the human
 // was shown, dies when the run ends, and cannot be reached by a second run.
 func (s *Server) ask(token string, run Run) (approved, prompted bool, reason string) {
-	pending, raised := s.pend(token, run)
+	pending, raised, refused := s.pend(token, run)
 	if pending == nil {
-		return false, false, fmt.Sprintf(
-			"%d commands are already waiting to be approved", maxPending)
+		return false, false, refused
 	}
 	if raised {
 		// Best-effort and answerless: it says a question is waiting, and the answer
@@ -296,8 +306,11 @@ func (s *Server) ask(token string, run Run) (approved, prompted bool, reason str
 }
 
 // pend files the question, or hands back the one this command already raised.
-// The second return is whether this call is the one that raised it.
-func (s *Server) pend(token string, run Run) (*approval, bool) {
+// The second return is whether this call is the one that raised it; the third is
+// why no question could be filed, when none was.  The two refusals are reported
+// apart: a saturated host and a stopping broker send an operator looking in
+// different places.
+func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Re-checked under the lock: the requests of a playbook arrive in a rush, and
@@ -306,13 +319,17 @@ func (s *Server) pend(token string, run Run) (*approval, bool) {
 		answered := &approval{done: make(chan struct{}), approved: true,
 			reason: "covered by the approval given for this command"}
 		close(answered.done)
-		return answered, false
+		return answered, false, ""
 	}
 	if existing, ok := s.waiting[token]; ok {
-		return existing, false
+		return existing, false, ""
 	}
-	if s.stopped || len(s.waiting) >= maxPending {
-		return nil, false
+	if s.stopped {
+		return nil, false, "the broker is stopping, so nothing can be approved now"
+	}
+	if len(s.waiting) >= maxPending {
+		return nil, false, fmt.Sprintf(
+			"%d commands are already waiting to be approved", maxPending)
 	}
 	pending := &approval{
 		id: newID(), token: token, run: run, asked: time.Now(),
@@ -321,7 +338,7 @@ func (s *Server) pend(token string, run Run) (*approval, bool) {
 	s.waiting[token] = pending
 	s.wakeLocked()
 	log.Printf("elevate: %s is waiting to be approved: %s", pending.id, run.Command())
-	return pending, true
+	return pending, true, ""
 }
 
 // finish answers a question once, releasing every request waiting on it.
@@ -377,28 +394,32 @@ func (s *Server) notify(pending *approval) {
 		arg = strings.ReplaceAll(arg, "{prompt}", Prompt(pending.run))
 		argv = append(argv, strings.ReplaceAll(arg, "{id}", pending.id))
 	}
-	cmd := exec.Command(argv[0], argv[1:]...)
+	// The deadline is the context's, and the kill runs from inside cmd.Wait: a
+	// timeout that signalled from a goroutine of its own could fire after the
+	// process had been reaped, and the kernel reuses a pid once nothing holds it,
+	// so the signal would reach some unrelated process group of the broker's uid.
+	// Wait has not returned while Cancel runs, so the pid is still this notifier's.
+	ctx, cancel := context.WithTimeout(context.Background(), notifyTimeout)
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	// The broker's own environment is never inherited by anything it starts.
 	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"}
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
-	// Its own process group, and a deadline: a notifier that hangs must not
-	// outlive the question it announced.
+	// Its own process group, so the deadline reaches whatever the notifier itself
+	// started: a notifier that hangs must not outlive the question it announced.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	// Honoured by Wait alone, which is why the wait below is cmd.Wait rather than
+	// cmd.Process.Wait: a group kill that leaves the leader standing is still
+	// bounded, by a SIGKILL to the process itself.
 	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
+		cancel()
 		log.Printf("elevate: cannot run the notifier %s: %v", argv[0], err)
 		return
 	}
 	go func() {
-		done := make(chan struct{})
-		go func() { _, _ = cmd.Process.Wait(); close(done) }()
-		select {
-		case <-done:
-		case <-time.After(notifyTimeout):
-			if err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL); err != nil {
-				_ = cmd.Process.Kill()
-			}
-		}
+		defer cancel()
+		_ = cmd.Wait()
 	}()
 }
 
