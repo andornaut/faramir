@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -250,5 +251,34 @@ func TestTokenHighlightsEverySecretToken(t *testing.T) {
 func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
 	if got := always(t).token("tail «SECRET:trunc"); got != "tail «SECRET:trunc" {
 		t.Errorf("token mangled an unterminated token: %q", got)
+	}
+}
+
+// -n bounds the listing.  Zero asks for no records, and a guard that skipped the
+// trim for anything non-positive printed the whole log to someone who asked for
+// none of it.
+func TestTailRecords(t *testing.T) {
+	records := []map[string]any{{"log_id": "a"}, {"log_id": "b"}, {"log_id": "c"}}
+	for _, tc := range []struct {
+		name  string
+		count int
+		want  []string
+	}{
+		{"zero asks for nothing", 0, nil},
+		{"a negative count asks for nothing", -1, nil},
+		{"one takes the last", 1, []string{"c"}},
+		{"two take the last two", 2, []string{"b", "c"}},
+		{"the whole log", 3, []string{"a", "b", "c"}},
+		{"more than there are is not an error", 99, []string{"a", "b", "c"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			for _, record := range tailRecords(records, tc.count) {
+				got = append(got, record["log_id"].(string))
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("tailRecords(%d) = %v, want %v", tc.count, got, tc.want)
+			}
+		})
 	}
 }

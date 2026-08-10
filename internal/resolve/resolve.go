@@ -69,6 +69,14 @@ func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 	path := execCfg.BaseEnv["PATH"]
 	found := ""
 	for dir := range strings.SplitSeq(path, ":") {
+		// An empty or relative component means the working directory to a shell,
+		// and the broker's is not the child's: the file tested here and the file the
+		// executor runs would be two different files.  Skipped rather than resolved
+		// against the request's cwd, a PATH the operator writes being no place to
+		// name a directory the agent chooses.
+		if !filepath.IsAbs(dir) {
+			continue
+		}
 		candidate := filepath.Join(dir, argv0)
 		if isFile(candidate) && executable(candidate) {
 			found = candidate

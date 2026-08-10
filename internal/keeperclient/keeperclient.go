@@ -7,9 +7,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/andornaut/faramir/internal/sockutil"
 )
+
+// callTimeout bounds one round trip to the keeper, decryption included.  Above
+// the keeper's own decryptBudget, which is what bounds the reply: this is the
+// backstop for a keeper that accepts a connection and then answers nothing, not
+// a limit on how long decryption may legitimately take.  Kept as a separate
+// constant because this package shares no code with the one holding the key.
+const callTimeout = 10 * time.Minute
 
 // FileState is one managed file's fingerprint.  Comparable, since the staleness
 // check is set equality over these, and it carries no contents.
@@ -42,6 +50,11 @@ func call(socketPath, op string) (*response, error) {
 		return nil, fmt.Errorf("keeper socket %s: %v", socketPath, err)
 	}
 	defer func() { _ = conn.Close() }()
+	// The caller is the broker serving a request whose own read deadline has
+	// already been cleared, so without this a keeper that accepts and never
+	// answers leaves `faramir run` hanging with nothing to report.  Generous:
+	// get_values execs sops once per managed file.
+	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
 	if err := sockutil.Send(conn, map[string]any{"op": op}); err != nil {
 		return nil, fmt.Errorf("keeper: %v", err)
