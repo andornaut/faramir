@@ -241,25 +241,34 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) (serves
 	// up while the secrets are not written yet and refusing exec and redact until
 	// they are; doctor is the audit, and a broker serving nothing is what an
 	// operator ran it to be told about.
+	explained := true
 	switch {
 	case len(check.Secrets.Patterns) == 0:
 		report.add("secrets", StatusFailed, "no managed sops files are configured, so "+
 			"nothing is injectable and nothing is redacted")
 	case len(check.Secrets.Unresolved) > 0:
-		report.add("secrets", StatusFailed, "%s named no file, so nothing is "+
-			"injectable and nothing is redacted. Either the secrets have not been "+
-			"written yet, or they are on a filesystem that is not mounted: %s",
-			strings.Join(check.Secrets.Patterns, ", "),
-			strings.Join(check.Secrets.Unresolved, "; "))
+		// The unresolved entries alone: another pattern beside them may have
+		// matched and loaded, and naming that one too would say the untrue thing.
+		report.add("secrets", StatusFailed, "%s. Either the secrets have not been "+
+			"written yet, or they are on a filesystem that is not mounted; %d ref(s) "+
+			"loaded from what did resolve",
+			strings.Join(check.Secrets.Unresolved, "; "), check.Secrets.Count)
 	case check.Secrets.Count == 0:
 		report.add("secrets", StatusFailed, "read %s and loaded no refs. %s",
 			strings.Join(check.Secrets.Files, ", "), loadErrorDetail(check.Secrets.Errors))
 	default:
 		report.add("secrets", StatusOK, "%d ref(s) from %d file(s)",
 			check.Secrets.Count, len(check.Secrets.Files))
+		explained = false
 	}
-	if checkErr != nil && !report.Failed {
-		report.add("broker", StatusFailed, "--check failed as %s: %v", brokerUser, checkErr)
+	// --check fails for reasons the switch does not cover: an unusable [ssh] key,
+	// a ref refused as not redactable, a bound socket with world bits.  Judged on
+	// whether this function accounted for the exit code, not on whether anything
+	// else in the report failed: diagnoseUnits runs first and would otherwise
+	// swallow this one whenever a socket was also down.
+	if checkErr != nil && !explained {
+		report.add("broker", StatusFailed, "--check failed as %s for a reason not "+
+			"reported above: %v", brokerUser, checkErr)
 	}
 	// The broker refuses every brokered command while it holds nothing, so a
 	// probe that runs one would report the empty store as whatever it was

@@ -135,11 +135,9 @@ type runner struct {
 	brokerUID    int
 	keeperUID    int
 	execUID      int
-	groupGID     int
 	secretsGID   int
 	brokerGID    int
 	keeperGID    int
-	execGID      int
 }
 
 // Run provisions the host.  Idempotent: a second run with the same options

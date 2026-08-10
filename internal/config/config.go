@@ -440,7 +440,10 @@ func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, s
 		if dropIn {
 			if flag, owned := initOwned[full]; owned {
 				remedy := "It is rendered from a path fixed at build time, which no flag moves"
-				if flag != "" {
+				switch {
+				case strings.HasPrefix(flag, "(no flag"):
+					remedy = "Re-run `faramir init`, which resolves it, rather than naming it here"
+				case flag != "":
 					remedy = "Change it with `faramir init " + flag + "`"
 				}
 				return fmt.Errorf("%s: %s is init's, not this file's: it derives from "+

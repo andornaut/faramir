@@ -68,10 +68,12 @@ func cmdBroker(args []string) int {
 	// every request rather than once at boot.  Exiting instead would take down
 	// the process `faramir status` and `doctor` ask, which is the process that
 	// explains why the secrets are missing.
-	if reason := s.Store.Incomplete(); reason != "" {
-		log.Printf("serving no commands: %s", reason)
-		log.Printf("status and list_secrets still answer; write a secret with " +
-			"`sudo faramir edit`, then no restart is needed")
+	if reason := s.Store.Unreadable(); reason != "" {
+		log.Printf("refusing exec and redact: %s", reason)
+		log.Printf("every command the agent hook wraps has its output withheld " +
+			"until this is fixed, which is what keeps an unread file from being " +
+			"read past. status and list_secrets still answer; encrypt a file into " +
+			"the secrets directory, and no restart is needed")
 	}
 
 	sshErr := s.Ssh.Start()

@@ -237,7 +237,15 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // key under ~/.config/sops -- a second copy of the same authority, which the
 // check above cannot see.
 func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
-	// The account not resolving is not an unaskable question: it is the name
+	// No name to ask about is how doctor was invoked: operatorName falls back to
+	// SUDO_USER and then to the caller, and a root login shell, a cron job or a
+	// systemd timer has neither.  Nothing about the install is wrong.
+	if opts.OperatorUser == "" {
+		report.add("operator keys", StatusWarn, "no operator account to ask about: "+
+			"run under sudo so SUDO_USER carries it, or pass --operator-user")
+		return
+	}
+	// A name that was given and does not resolve is different: it is the name
 	// every other finding here is about, so a pass below would be about nobody.
 	entry, err := user.Lookup(opts.OperatorUser)
 	if err != nil || entry.HomeDir == "" {
