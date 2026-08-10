@@ -145,7 +145,11 @@ It is not rate-limited. Nothing short of removing the op closes the oracle, and 
 
 Bring a limit back if `redact` ever becomes reachable by a caller that cannot reach `run`. There is no such caller today.
 
-**An approval prompt is the same kind of oracle, weighted the other way.** `--elevate` puts a question on the console that a human answers, and a question a human can answer wrongly is a boundary made of attention. It survives the same weighting the `redact` op is held to, and for a different reason: this one is deny-by-default. Silence is a refusal, an unreadable prompt is a refusal, and anything that is not `yes` is a refusal, so an oracle that is not answered grants nothing.
+## Elevating on the controller
+
+How to install and run this is in [operating.md](operating.md#elevating-on-the-controller); this is why it is shaped the way it is. `--elevate` is a per-host, install-time decision (that section explains the choice); everything below is the reasoning behind the mechanism it installs.
+
+**An approval is the same kind of oracle as `redact`, weighted the other way.** `--elevate` puts a question to a human, and a question a human can answer wrongly is a boundary made of attention. It survives the same weighting the `redact` op is held to, and for a different reason: this one is deny-by-default. Silence is a refusal, an unreachable answer channel is a refusal, and anything that is not `yes` is a refusal, so an oracle that is not answered grants nothing.
 
 What makes the answer worth anything is that the prompt names the command. A human who approves an elevation they did not initiate has already lost — so the broker writes the question itself, from the argv it started, and refuses a request it cannot attribute to a running command rather than asking about "something". The prompt string `sudo` passes to the helper is dropped on the floor: it comes from the child, which is the side being asked about.
 

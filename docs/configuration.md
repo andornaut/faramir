@@ -50,8 +50,11 @@ Key | Flag it derives from
 `[ssh] key` | `--ssh-key`
 `[ssh] exec_group` | `--exec-user`, resolved to that account's own group at install time
 `[ssh] agent_socket`, `[audit] log_path` | no flag: `/run/faramir` and `/var/log/faramir`, fixed at build time. The audit log does not follow `--config-dir`, `{{.LogDir}}` being the broker unit's `ReadWritePaths`
+`[elevate] exec_user`, `pam_service`, `helper` | `--elevate` (see below)
 
 Each is one value, matching the one flag behind it. Two cost something rather than being tidiness: `exec_group` is the group the agent relay's `SO_PEERCRED` check admits, so a drop-in naming the client group there hands the broker's SSH identity to the account the relay exists to keep it from; `ssh_agent` and `ssh_add` are binaries the broker execs as the uid holding every plaintext value. `log_path` is rendered into `logrotate.conf` alongside, so moving one leaves rotation pointed at a file nothing writes.
+
+**The whole of `[elevate]` but `timeout_sec` is `init`'s, because it is the elevation boundary itself, decided per host at install time.** Whether the section is rendered at all is the `--elevate` flag ([operating.md](operating.md#the-decision-is-made-at-init-per-host) has the decision): unset, there is no `[elevate]` section, no sudoers entry and no PAM service, and a brokered command's `sudo` fails as on any host that granted nothing. Set, `exec_user` is the account the grant is written for, `pam_service` names the file `sudo` authenticates it through — so a drop-in pointing it at a service the operator wrote would choose what decides every elevation — and `helper` is the program PAM execs, as root, to make that decision. A drop-in setting any of them is refused; re-run `init --elevate` to change the arrangement, or re-run without it to take the grant away. `timeout_sec` is a plain default and yours: how long a question waits for a human before it is refused. `notify_command` is unset by default and is `init`'s only because the broker execs it; it announces a pending question and carries no answer.
 
 Everything else is a default. Lists among them split by what they are:
 
@@ -74,6 +77,7 @@ A value out of range | Same.
 A ref too short to redact | Refused at load, so covered by nothing.
 A `[secrets] files` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
 An `[ssh] key` the agent cannot load, passphrase-protected or not on disk | `ssh-add` refuses it, leaving every host unreachable. `init` catches one missing, unreadable by the broker, or without its `.pub`.
+An `[elevate] helper` or PAM service file that is not there, or a `notify_command` that is not installed | The same weighting as the key: elevation is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions that are waiting.
 `[keeper]` or `[executor] allowed_user` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route, and the executor's runs a command with no policy, no redaction and no audit record. The socket modes still stand in the way, so this is the second of two locks, and a gate that waits for both to be open reports the problem afterwards.
 The bound broker socket having world bits | Every account on the host reaches the broker, whatever `allowed_group` says. Stat'ed, not read from the config, so it reflects what the `.socket` unit actually did. Unbound is reported as unchecked.
 
@@ -100,4 +104,6 @@ An unset `[ssh] key` is not a failure, being the host that authenticates some ot
 - **Secrets are injected as environment variables only.** Never into `argv`, which is visible in `ps` and `/proc/<pid>/cmdline`.
 - **`cmd` is an array.** Never a string handed to `sh -c`.
 - **The broker runs the working tree as it is on disk.** No promotion step.
+- **Nothing elevates without a human, and no setting widens what one approval covers.** An approval is scoped to the brokered command it was shown for and dies with it; whether a host may elevate at all is the `--elevate` install-time decision, not a config key. A `notify_command` that cannot announce is a refusal waiting to be seen, not a pass.
+- **Every run is confined to a cgroup and reaped there.** Not a setting: a host without cgroup v2, `Delegate=` on the executor unit, and `cgroup.kill` (kernel ≥ 5.14) refuses to run rather than run a command it cannot reliably reap. `faramir doctor` reports it.
 - **`redactions` reports counts, not values.** `log_id` names the audit record, which holds the same tokens.
