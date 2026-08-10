@@ -198,3 +198,32 @@ func TestOwnSSHKeyRepairsOnlyWhatItMinted(t *testing.T) {
 		}
 	})
 }
+
+// A symlink where the creation rule should be is refused rather than followed:
+// the mode would otherwise be applied to whatever it points at.
+func TestStepSopsConfigRefusesASymlinkedRule(t *testing.T) {
+	dir := t.TempDir()
+	run := &runner{
+		layout: Layout{ConfigDir: dir, KeeperUser: "faramir-keeper",
+			AgeKeyPath: filepath.Join(dir, "age.key")},
+	}
+	target := filepath.Join(dir, "elsewhere.yaml")
+	writeRule(t, target, "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p")
+	if err := os.Chmod(target, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, run.layout.SopsConfigPath()); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run.stepSopsConfig(); err == nil {
+		t.Fatal("a symlinked creation rule was accepted")
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("the link's target is %04o, want 0600: the mode was applied through it", got)
+	}
+}

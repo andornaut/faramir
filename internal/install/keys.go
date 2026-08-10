@@ -71,6 +71,13 @@ func (r *runner) addRecipient(recipient string) {
 func (r *runner) stepSopsConfig() error {
 	path := r.layout.SopsConfigPath()
 	if exists(path) {
+		// The contents are kept (see keepSopsConfig) but the mode and ownership are
+		// re-asserted, not merely set at creation: an operator-created file left
+		// operator-writable lets the account the secrets group exists to keep out
+		// choose the recipients of everything written from then on.
+		if _, err := r.fs.ensureOwnership(path, 0o644, 0, 0); err != nil {
+			return err
+		}
 		r.keepSopsConfig(path)
 		return nil
 	}

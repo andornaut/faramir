@@ -18,13 +18,16 @@ package install
 // read what the keeper and broker hold either.  See docs/design.md.
 
 import (
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // serviceAccount is one of the three uids and where its state lives.
@@ -274,9 +277,78 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		return false, err
 	}
 	profile := filepath.Join(home, ".bashrc")
-	current, err := os.ReadFile(profile)
-	if err != nil {
+	// One descriptor, opened before the contents are read and checked through
+	// that same descriptor.  This runs as root and a dotfile manager may
+	// legitimately symlink .bashrc, so the link is followed but where it lands is
+	// not taken on trust: without the owner check, pointing it at a file root can
+	// write turns this into an arbitrary append.  Mode 0 is never applied without
+	// O_CREATE, and O_APPEND puts every write at the end whatever the read offset.
+	//
+	// Read-only under a dry run, which writes nothing and runs unprivileged:
+	// asking for write there would fail on a profile the caller may only read.
+	// Nothing below is fatal.  The umask is a convenience for a shared tree, and
+	// this step runs before the directories, binaries, config and units: failing
+	// the run over a profile leaves the host with no broker at all.  Reported the
+	// way the group-membership checks above report what they will not fix.
+	skip := func(format string, args ...any) {
+		r.warn(format+". Add `umask 002` to your shell profile by hand if you share "+
+			"a tree with brokered commands", args...)
+	}
+	// What it is, before opening it.  Opening has side effects of its own on
+	// anything that is not a regular file, and this runs as root on a path in a
+	// directory the account the agent runs as can write: a device node here would
+	// be armed by the open itself, whatever the checks after it decide.
+	switch resolved, err := os.Stat(profile); {
+	case errors.Is(err, os.ErrNotExist):
 		// The account may not use bash at all.
+		return false, nil
+	case err != nil:
+		skip("could not read %s (%v)", profile, err)
+		return false, nil
+	case !resolved.Mode().IsRegular():
+		skip("%s is not a regular file", profile)
+		return false, nil
+	}
+	access := os.O_RDWR | os.O_APPEND
+	if r.opts.DryRun {
+		access = os.O_RDONLY
+	}
+	// O_NONBLOCK in case the check above lost a race with the path being
+	// re-pointed: it keeps a fifo from waiting for a writer.  The descriptor is
+	// then checked again below, which is what decides.
+	handle, err := os.OpenFile(profile, access|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		skip("could not open %s (%v)", profile, err)
+		return false, nil
+	}
+	defer func() { _ = handle.Close() }()
+	info, err := handle.Stat()
+	if err != nil {
+		skip("could not read %s (%v)", profile, err)
+		return false, nil
+	}
+	operatorUID, err := lookupUser(r.opts.OperatorUser)
+	if err != nil {
+		skip("cannot resolve %s (%v)", r.opts.OperatorUser, err)
+		return false, nil
+	}
+	if !info.Mode().IsRegular() {
+		skip("%s is not a regular file", profile)
+		return false, nil
+	}
+	if wrong, err := wrongOwner(info, operatorUID, keep); err != nil {
+		return false, err
+	} else if wrong {
+		skip("%s resolves to a file %s does not own, and appending to it as "+
+			"root would write wherever it points", profile, r.opts.OperatorUser)
+		return false, nil
+	}
+	current, err := io.ReadAll(handle)
+	if err != nil {
+		skip("could not read %s (%v)", profile, err)
 		return false, nil
 	}
 	for line := range strings.Lines(string(current)) {
@@ -287,12 +359,6 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 	if r.opts.DryRun {
 		return true, nil
 	}
-	// Mode 0: never applied without O_CREATE, and this only appends.
-	handle, err := os.OpenFile(profile, os.O_APPEND|os.O_WRONLY, 0)
-	if err != nil {
-		return false, err
-	}
-	defer func() { _ = handle.Close() }()
 	_, err = handle.WriteString(
 		"\n# shared dev tree: let group members edit each other's files\numask 002\n")
 	return err == nil, err
@@ -303,7 +369,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 // is then left alone.
 func (r *runner) resolveIDs() error {
 	r.operatorUID, r.brokerUID, r.keeperUID, r.execUID = keep, keep, keep, keep
-	r.brokerGID, r.keeperGID, r.execGID = keep, keep, keep
+	r.operatorGID, r.brokerGID, r.keeperGID, r.execGID = keep, keep, keep, keep
 	r.secretsGID = keep
 	lookups := []struct {
 		name string
@@ -341,6 +407,14 @@ func (r *runner) resolveIDs() error {
 	if gid, name, err := primaryGroup(r.layout.ExecUser); err == nil {
 		r.layout.ExecGroup = name
 		r.execGID = gid
+	} else if !r.opts.DryRun {
+		return err
+	}
+	// The operator's own group, by the same reasoning: a directory created under
+	// their home has to end up grouped to them, not to whatever group the process
+	// creating it happened to run with.
+	if gid, _, err := primaryGroup(r.opts.OperatorUser); err == nil {
+		r.operatorGID = gid
 	} else if !r.opts.DryRun {
 		return err
 	}

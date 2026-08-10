@@ -150,6 +150,37 @@ func TestTraversalAction(t *testing.T) {
 	}
 }
 
+// A regrouped directory hands the incoming group execute and nothing else.  The
+// group bits on the way in were the previous group's: carrying them over would
+// give the executor read on a 0750 home and write on a 0770 one.
+func TestTraversalMode(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		in        os.FileMode
+		regrouped bool
+		want      os.FileMode
+	}{
+		// Same group already: the bits it has are the ones it is meant to have, and
+		// only traversal is missing.
+		{"keeping the group adds execute alone", 0o700, false, 0o710},
+		{"keeping the group leaves its read in place", 0o750, false, 0o750},
+		{"keeping the group leaves its write in place", 0o770, false, 0o770},
+		// Taken over from another group, which loses everything it had.
+		{"a regroup grants execute", 0o700, true, 0o710},
+		{"a regroup drops the group's read", 0o750, true, 0o710},
+		{"a regroup drops the group's read and write", 0o770, true, 0o710},
+		{"a regroup leaves the owner alone", 0o500, true, 0o510},
+		{"a regroup leaves other alone", 0o771, true, 0o711},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := traversalMode(tc.in, tc.regrouped); got != tc.want {
+				t.Errorf("traversalMode(%o, regrouped=%v) = %o, want %o",
+					tc.in, tc.regrouped, got, tc.want)
+			}
+		})
+	}
+}
+
 // Execute only: read would let these uids list the operator's home rather than
 // pass through it.  The group is the tree's own, so nothing is regrouped and no
 // privilege is needed; TestTraversalAction covers that branch.

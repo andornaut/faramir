@@ -124,6 +124,18 @@ func (r *runner) stepDirectories() error {
 	}
 	changed = changed || made
 
+	// The log file itself, not only the directory it sits in: whoever writes the
+	// first record creates it, and `faramir edit` runs as root, so on a fresh host
+	// the log lands root-owned and every later append from the broker fails.
+	// audit.Write deliberately never fails a request, so that is silent.
+	// logrotate re-creates it broker-owned, which covers every file after this
+	// one.
+	made, err = r.fs.ensurePrivateFile(r.layout.AuditLogPath(), r.brokerUID, r.brokerGID)
+	if err != nil {
+		return err
+	}
+	changed = changed || made
+
 	r.step("directories", changed, fmt.Sprintf("%s, %s, %s",
 		r.layout.ConfigDir, r.layout.SecretsDir(), r.layout.LogDir))
 	return nil

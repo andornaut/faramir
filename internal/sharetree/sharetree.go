@@ -223,12 +223,24 @@ func grantTraversal(home, dir string, opts Options, gid int) error {
 				return err
 			}
 		}
-		if err := os.Chmod(component, info.Mode()|0o010); err != nil {
+		if err := os.Chmod(component, traversalMode(info.Mode(), action == regroup)); err != nil {
 			return err
 		}
 		opts.logf("%s: %s may now traverse it", component, opts.Group)
 	}
 	return nil
+}
+
+// traversalMode is what one directory on the path is chmodded to.  Group
+// execute added, and on a regroup the group's read and write dropped first:
+// those bits belonged to the previous group, and carrying them over to a group
+// the executor is in would hand it read on a 0750 home, or write on a 0770 one.
+// The owner's own bits are never touched.
+func traversalMode(mode os.FileMode, regrouped bool) os.FileMode {
+	if regrouped {
+		mode &^= 0o070
+	}
+	return mode | 0o010
 }
 
 type traversal int

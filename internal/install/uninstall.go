@@ -53,7 +53,7 @@ func Uninstall(configDir string) ([]string, error) {
 		}
 	}
 	return []string{
-		filepath.Join(DefaultConfigDir, "age.key") +
+		filepath.Join(configDir, "age.key") +
 			" -- deleting it makes every managed sops file unreadable",
 		filepath.Join(configDir, "secrets") + "/ -- the managed sops files",
 		filepath.Join(configDir, "config.toml") + " -- the base config",
