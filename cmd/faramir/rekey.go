@@ -280,6 +280,8 @@ func reencrypt(target, keyPath string, recipients []string) error {
 	if err != nil {
 		return fmt.Errorf("temporary directory: %w", err)
 	}
+	// Registered first so it runs last; see editManaged.
+	defer removeOnSignal(dir)()
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	plain := filepath.Join(dir, filepath.Base(target))

@@ -58,6 +58,25 @@ func TestProgram(t *testing.T) {
 			wants: []string{"base_env", "venv"},
 			why:   "the one failure an operator will hit, so it has to be self-correcting"},
 
+		// -- PATH components that are not absolute ---------------------------
+		// A shell reads these as its working directory.  The broker's is not the
+		// child's, so honouring one would test a file the executor is not going to
+		// run, and return a relative path from a function that promises absolute.
+		{name: "a leading empty PATH component is skipped",
+			arg: "sh", cwd: "/", cfg: cfgWithPath(":/bin"), want: realpath("/bin/sh")},
+		{name: "a trailing empty PATH component is skipped",
+			arg: "sh", cwd: "/", cfg: cfgWithPath("/bin:"), want: realpath("/bin/sh")},
+		{name: "an empty PATH finds nothing",
+			arg: "sh", cwd: "/", cfg: cfgWithPath(""),
+			wants: []string{"not found on the broker's PATH"}},
+		{name: "a PATH of nothing but empty components finds nothing",
+			arg: "sh", cwd: "/", cfg: cfgWithPath("::"),
+			wants: []string{"not found on the broker's PATH"}},
+		{name: "a relative PATH component is skipped",
+			arg: "deploy.sh", cwd: dir, cfg: cfgWithPath("."),
+			wants: []string{"not found on the broker's PATH"},
+			why:   "resolved against the broker's cwd, never the request's"},
+
 		// -- explicit paths --------------------------------------------------
 		{name: "an absolute path anywhere is fine",
 			arg: script, cwd: dir, want: realpath(script),

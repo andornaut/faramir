@@ -40,9 +40,10 @@ const (
 	// ansible-playbook -f 100 authenticates to a hundred hosts at once.  It bounds
 	// the broker's descriptor table, not fairness between commands.
 	maxRelays = 256
-	// How long a connection may sit before its first request.  Dropped once one
-	// arrives: an ssh session may go hours between signatures.
-	firstRequestTimeout = 30 * time.Second
+	// How long the agent the proxy relays to may take over one request.  It is
+	// the broker's own ssh-agent signing with a key already loaded, so this bounds
+	// a stuck agent rather than a slow one.
+	upstreamTimeout = 30 * time.Second
 	// ssh-agent's own limit on a single message.
 	maxAgentMessage = 256 * 1024
 	// The mode the proxy socket ends up with once its group is the executor's.
@@ -51,6 +52,19 @@ const (
 	// no group names.
 	socketMode = 0o660
 )
+
+// firstRequestTimeout is how long a connection may sit before its first relayed
+// request.  Dropped once one arrives, and an idle connection is then held for as
+// long as the peer keeps it open: an ssh session may go hours between
+// signatures, so there is no idle bound to be had here.
+//
+// A refused request does not drop it.  That closes the cheapest way to sit on a
+// relay slot -- one message the proxy will not forward -- and no more: a peer
+// that sends a real REQUEST_IDENTITIES first reaches the same idle state, so
+// maxRelays, not this, is what bounds a peer determined to hold slots.
+//
+// A variable so a test need not wait it out.
+var firstRequestTimeout = 30 * time.Second
 
 // The two requests the executor may make: list the public halves, and sign.
 const (
@@ -243,7 +257,6 @@ func (a *Agent) relay(client net.Conn, private string) {
 		if err != nil {
 			return
 		}
-		deadline = time.Time{}
 
 		if kind := request[4]; kind != agentRequestIdentities && kind != agentSignRequest {
 			log.Printf("ssh-agent proxy: refusing agent request type %d; "+
@@ -256,7 +269,10 @@ func (a *Agent) relay(client net.Conn, private string) {
 			}
 			continue
 		}
+		// Only a request the proxy will actually relay stops the clock.
+		deadline = time.Time{}
 
+		_ = upstream.SetDeadline(time.Now().Add(upstreamTimeout))
 		if _, err := upstream.Write(request); err != nil {
 			return
 		}
@@ -264,6 +280,7 @@ func (a *Agent) relay(client net.Conn, private string) {
 		if err != nil {
 			return
 		}
+		_ = upstream.SetDeadline(time.Time{})
 		if _, err := client.Write(response); err != nil {
 			return
 		}

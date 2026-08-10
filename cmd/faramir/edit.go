@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -289,11 +290,28 @@ func editManaged(target, keyPath, editorPath string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("temporary directory: %w", err)
 	}
+	// Registered first so it runs last: defers unwind LIFO, and uninstalling the
+	// handler before the directory is gone leaves a window where a signal kills
+	// this process with the decrypted store still in place.
+	defer removeOnSignal(dir)()
 	defer func() { _ = os.RemoveAll(dir) }()
 
 	// The target's own name: .sops.yaml creation rules select by path_regex, and
 	// anything else would match no rule and encrypt to no recipient.
 	plain := filepath.Join(dir, filepath.Base(target))
+
+	// The recipients the file already had, named explicitly: sops resolves
+	// .sops.yaml by walking up from the file, which here is in a tmpfs, and an
+	// edit should preserve who could read the file -- applying a changed
+	// .sops.yaml is what `faramir rekey` is for.
+	//
+	// Read before the editor runs.  It is knowable from the ciphertext, and a
+	// file whose metadata this cannot parse would otherwise be reported only
+	// after the operator had already made their edit, which is then discarded.
+	recipients, err := recipientsOf(target)
+	if err != nil {
+		return false, err
+	}
 
 	decrypted, err := runSops(keyPath, "--decrypt", target)
 	if err != nil {
@@ -321,14 +339,6 @@ func editManaged(target, keyPath, editorPath string) (bool, error) {
 		return false, nil
 	}
 
-	// The recipients the file already had, named explicitly: sops resolves
-	// .sops.yaml by walking up from the file, which here is in a tmpfs, and an
-	// edit should preserve who could read the file -- applying a changed
-	// .sops.yaml is what `faramir rekey` is for.
-	recipients, err := recipientsOf(target)
-	if err != nil {
-		return false, err
-	}
 	reencrypted, err := runSops(keyPath, "--encrypt", "--age", strings.Join(recipients, ","), plain)
 	if err != nil {
 		return false, fmt.Errorf("encrypt: %w", err)
@@ -396,9 +406,43 @@ func chownLike(path string, info os.FileInfo) error {
 	return os.Chown(path, int(stat.Uid), int(stat.Gid))
 }
 
-// ageRecipient matches the recipient entries in a sops metadata block, in both
-// encodings.  The metadata is cleartext, so this needs no key.
-var ageRecipient = regexp.MustCompile(`recipient"?\s*:\s*"?(age1[0-9a-z]+)`)
+// removeOnSignal removes dir when a terminating signal arrives, and returns the
+// function that uninstalls the handler.  A deferred cleanup does not run when
+// the process does not return, and what is left behind here is the whole
+// decrypted store, on a tmpfs that keeps it until the machine reboots.
+//
+// SIGHUP is the one that happens: closing the terminal while the editor is
+// open.  The signal is re-raised with its default disposition afterwards, so
+// the caller still sees a process killed by a signal rather than an exit code
+// invented here.  Every signal caught here would have terminated the process
+// anyway, so nothing survives that did not before.
+func removeOnSignal(dir string) func() {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
+	go func() {
+		received, ok := <-signals
+		if !ok { // uninstalled: the caller returned normally and its defer cleans up
+			return
+		}
+		_ = os.RemoveAll(dir)
+		signal.Stop(signals)
+		if sig, ok := received.(syscall.Signal); ok {
+			signal.Reset(sig)
+			_ = syscall.Kill(os.Getpid(), sig)
+		}
+	}()
+	return func() {
+		// Stop before close, so nothing can be sent to a closed channel.
+		signal.Stop(signals)
+		close(signals)
+	}
+}
+
+// ageRecipient matches the recipient entries in a sops metadata block, in every
+// encoding: "recipient: age1..." in YAML, "recipient": "age1..." in JSON, and
+// sops_age__list_0__map_recipient=age1... in the dotenv and ini forms.  The
+// metadata is cleartext, so this needs no key.
+var ageRecipient = regexp.MustCompile(`recipient"?\s*[:=]\s*"?(age1[0-9a-z]+)`)
 
 // recipientsOf reads the age recipients a managed file is already encrypted to.
 // A regex rather than a YAML library, which would undo keeping the sops

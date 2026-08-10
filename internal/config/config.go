@@ -677,6 +677,34 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 	if out.KillGraceSec, err = atLeast(sec, "kill_grace_sec", where, out.KillGraceSec, 0); err != nil {
 		return err
 	}
+	// PATH decides which file a bare cmd[0] resolves to, and it is resolved by the
+	// broker on behalf of a child that runs somewhere else.  A component a shell
+	// would read as its working directory is therefore two different directories
+	// here, so it is refused at load rather than skipped at resolve time: the
+	// broker does not start, instead of running a file nobody named.
+	// A base_env in the file replaces the built-in one rather than adding to it,
+	// so a table that omits PATH leaves the broker resolving no bare name at all.
+	// Named separately from the check below, which would report the same empty
+	// string as a component nobody wrote.
+	if out.BaseEnv["PATH"] == "" {
+		return fmt.Errorf("%s: [exec] base_env sets no PATH, so no bare program name "+
+			"resolves. Setting base_env replaces the built-in table rather than adding "+
+			"to it, so it has to name PATH itself; `faramir init` writes it as %q",
+			path, defaultPATH)
+	}
+	for component := range strings.SplitSeq(out.BaseEnv["PATH"], ":") {
+		if filepath.IsAbs(component) {
+			continue
+		}
+		shown := component
+		if shown == "" {
+			shown = "an empty component"
+		}
+		return fmt.Errorf("%s: [exec] base_env PATH contains %s, which means the "+
+			"working directory. The broker resolves a bare program name from its own "+
+			"directory and the command runs in the request's, so the file checked "+
+			"would not be the file run. Name every directory absolutely", path, shown)
+	}
 	// Every request is clamped to max_timeout_sec, so a smaller one here would
 	// replace default_timeout_sec rather than cap it.
 	if out.MaxTimeoutSec < out.DefaultTimeoutSec {

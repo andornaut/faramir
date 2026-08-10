@@ -381,7 +381,21 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		delete(env, k)
 	}
 	if err != nil {
-		return protocol.ErrorResponse("exec_failed", s.safeDetail(err.Error()), logID)
+		detail := s.safeDetail(err.Error())
+		// The child ran as the executor whatever failed afterwards, so it is
+		// recorded before the error is returned: without this a command that
+		// reached a managed host leaves nothing behind but a daemon-log line.
+		record := s.redactor()
+		s.Audit.Write(map[string]any{
+			"log_id": logID, "op": "exec", "peer": peer,
+			"cmd":        redactEach(record, cmd),
+			"argv0_path": record.RedactText(argv0Path),
+			"cwd":        record.RedactText(cwd),
+			"env_refs":   injected,
+			"started_at": started.Unix(),
+			"error":      detail,
+		}, collector.Text())
+		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
 
 	record := s.redactor()

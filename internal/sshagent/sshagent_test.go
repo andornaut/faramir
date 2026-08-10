@@ -374,6 +374,58 @@ func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
 	}
 }
 
+// The refusal above answers on the protocol and keeps the connection, so it
+// must not also stop the clock: a peer that sends one refused message and then
+// nothing would otherwise hold its relay slot for as long as the agent runs, and
+// maxRelays of them leave the proxy with none.  Only a request the proxy will
+// actually forward means the connection is in use.
+func TestARefusedRequestDoesNotClearTheFirstRequestTimeout(t *testing.T) {
+	restore := firstRequestTimeout
+	firstRequestTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { firstRequestTimeout = restore })
+
+	a, _ := startedAgent(t)
+	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
+
+	// Refused, answered, and the connection is still open.
+	if reply := request(t, client, msgExtension); !bytes.Equal(reply, []byte{msgFailure}) {
+		t.Fatalf("reply = %v, want SSH_AGENT_FAILURE [%d]", reply, msgFailure)
+	}
+	// Now send nothing.  The deadline is still the one set when the connection
+	// opened, so the relay unwinds on its own and gives the slot back.
+	for range 100 {
+		if len(a.slots) == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if held := len(a.slots); held != 0 {
+		t.Fatalf("%d relay slot(s) still held by a peer that only ever sent a refused request", held)
+	}
+	_ = client.Close()
+}
+
+// A request the proxy does forward is the connection being used, so the clock
+// stops: an ssh session may go hours between signatures.
+func TestAForwardedRequestClearsTheFirstRequestTimeout(t *testing.T) {
+	restore := firstRequestTimeout
+	firstRequestTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { firstRequestTimeout = restore })
+
+	a, _ := startedAgent(t)
+	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
+	defer func() { _ = client.Close() }()
+
+	if reply := request(t, client, msgRequestIdentities); reply[0] != msgIdentitiesAnswer {
+		t.Fatalf("answer type = %d, want %d", reply[0], msgIdentitiesAnswer)
+	}
+	// Well past the timeout, idle throughout.
+	time.Sleep(400 * time.Millisecond)
+	if reply := request(t, client, msgRequestIdentities); reply[0] != msgIdentitiesAnswer {
+		t.Errorf("the connection was dropped while idle between signatures: %v", reply)
+	}
+}
+
 // Not a request the executor could have meant, and forwarding it asks ssh-agent
 // to allocate on demand.
 func TestAnOversizedMessageIsRefused(t *testing.T) {

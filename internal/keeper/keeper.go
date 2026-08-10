@@ -47,6 +47,15 @@ import (
 const (
 	maxRequestBytes = 65536
 	decryptTimeout  = 60 * time.Second
+	// decryptBudget bounds one get_values across every managed file, so a reply
+	// arrives within a time the caller can bound too.  keeperclient's own
+	// callTimeout is set above this; the two are separate constants because that
+	// package deliberately shares no code with the one holding the key.
+	decryptBudget = 5 * time.Minute
+	// How long one peer may take to send its request, and to read the reply once
+	// it is ready.  Not the time to serve it: decryptTimeout bounds that, per
+	// file.
+	requestTimeout = 30 * time.Second
 )
 
 // --------------------------------------------------------------------------
@@ -269,6 +278,16 @@ func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]strin
 		env = append(env, "SOPS_AGE_KEY_FILE="+path)
 	}
 
+	// One budget across the whole set as well as one per file.  Without it the
+	// reply is bounded only by len(paths) * decryptTimeout, which neither the
+	// caller nor its own deadline knows in advance; a store big enough would then
+	// time out on the broker's side while this was still working, and the next
+	// request would start over with nothing cached.  Files past the budget report
+	// as failures rather than being waited on, which is what a per-file failure
+	// already looks like here.
+	overall, cancelAll := context.WithTimeout(context.Background(), decryptBudget)
+	defer cancelAll()
+
 	for _, path := range paths {
 		argv := make([]string, 0, len(secrets.DecryptCommand))
 		for _, a := range secrets.DecryptCommand {
@@ -279,7 +298,7 @@ func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]strin
 			continue
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), decryptTimeout)
+		ctx, cancel := context.WithTimeout(overall, decryptTimeout)
 		cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 		cmd.Env = env
 		stdout, err := cmd.Output()
@@ -376,6 +395,11 @@ func (k *Keeper) Close() error {
 
 func (k *Keeper) serveConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
+	// Serve handles one connection at a time, so a peer that connects and then
+	// neither sends nor reads would stall every later request: the broker's
+	// RefreshIfStale would block and `faramir run` would hang rather than fail.
+	// Both directions, which covers the refusals below as well as the read.
+	_ = conn.SetDeadline(time.Now().Add(requestTimeout))
 	peer, err := sockutil.PeerCred(conn)
 	if err != nil {
 		log.Printf("SO_PEERCRED unavailable: %v", err)
@@ -394,7 +418,13 @@ func (k *Keeper) serveConnection(conn net.Conn) {
 	if err := json.Unmarshal(line, &payload); err != nil {
 		return
 	}
-	_ = sockutil.Send(conn, k.Handle(payload))
+	// Cleared before Handle: get_values execs sops once per managed file, which is
+	// not on the same clock as reading one line of JSON.  The reply gets a fresh
+	// deadline once there is something to write.
+	_ = conn.SetDeadline(time.Time{})
+	response := k.Handle(payload)
+	_ = conn.SetWriteDeadline(time.Now().Add(requestTimeout))
+	_ = sockutil.Send(conn, response)
 }
 
 // Handle dispatches one request.

@@ -86,9 +86,7 @@ func cmdLogs(args []string) int {
 		return 1
 	}
 
-	if *count < len(records) && *count > 0 {
-		records = records[len(records)-*count:]
-	}
+	records = tailRecords(records, *count)
 	// Once per day rather than on every line, which would crowd out the columns
 	// that differ.
 	day := ""
@@ -146,6 +144,19 @@ func summarise(record map[string]any, paint palette) string {
 	b.WriteString(paint.ref(pad(redactionTotal(record), 12)))
 	b.WriteString(detail(record))
 	return strings.TrimRight(b.String(), " ")
+}
+
+// tailRecords is the last count records.  A count of zero or less asks for
+// nothing and gets nothing: treating it as "no limit" would print the whole log
+// to someone who asked for none of it.
+func tailRecords(records []map[string]any, count int) []map[string]any {
+	switch {
+	case count <= 0:
+		return nil
+	case count < len(records):
+		return records[len(records)-count:]
+	}
+	return records
 }
 
 // detail is the command for an exec, the size of the text for a redact, and the

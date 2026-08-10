@@ -189,3 +189,78 @@ func TestDecryptCommandDefaultsAndOverrides(t *testing.T) {
 		t.Errorf("override ignored: %v", cfg.Secrets.DecryptCommand)
 	}
 }
+
+// base_env PATH decides which file a bare cmd[0] resolves to, and the broker
+// resolves it on behalf of a child that runs in the request's directory, not the
+// broker's.  A component a shell would read as "here" therefore names two
+// different directories, so it is refused at load: the broker does not start,
+// rather than running a file nobody named.
+func TestBaseEnvPathMustBeAbsolute(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		path string
+		// wants is a substring of the refusal; "" means the config must load.
+		wants string
+	}{
+		{"absolute components are fine", "/usr/bin:/bin", ""},
+		{"a single absolute component is fine", "/usr/bin", ""},
+		{"a leading empty component", ":/usr/bin", "base_env PATH"},
+		{"a trailing empty component", "/usr/bin:", "base_env PATH"},
+		{"an empty component in the middle", "/usr/bin::/bin", "base_env PATH"},
+		{"an explicit dot", "/usr/bin:.", "base_env PATH"},
+		{"a relative directory", "/usr/bin:vendor/bin", "base_env PATH"},
+		// Its own message: an empty string is not a component the operator wrote,
+		// and a base_env replaces the built-in table rather than adding to it.
+		{"no PATH at all", "", "sets no PATH"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg, err := load(t, "[exec]\nbase_env = { PATH = \""+tc.path+"\" }\n")
+			if tc.wants != "" {
+				if err == nil {
+					t.Fatalf("PATH %q was accepted; base_env = %v", tc.path, cfg.Exec.BaseEnv)
+				}
+				if !strings.Contains(err.Error(), tc.wants) {
+					t.Errorf("error does not say %q: %v", tc.wants, err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("PATH %q was refused: %v", tc.path, err)
+			}
+			if cfg.Exec.BaseEnv["PATH"] != tc.path {
+				t.Errorf("PATH = %q, want %q", cfg.Exec.BaseEnv["PATH"], tc.path)
+			}
+		})
+	}
+}
+
+// The compiled-in default has to pass its own check.
+func TestTheDefaultPathIsAccepted(t *testing.T) {
+	cfg, err := load(t, minimal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Exec.BaseEnv["PATH"] != defaultPATH {
+		t.Errorf("PATH = %q, want the compiled-in default", cfg.Exec.BaseEnv["PATH"])
+	}
+}
+
+// base_env replaces the built-in table rather than adding to it, so a file that
+// sets any variable and omits PATH leaves the broker resolving no bare name.
+// Refused, and named as the missing PATH rather than as an empty component the
+// operator never wrote.
+func TestBaseEnvWithoutPathIsNamedAsSuch(t *testing.T) {
+	for _, body := range []string{
+		"[exec]\nbase_env = { TERM = \"dumb\" }\n",
+		"[exec.base_env]\nANSIBLE_NOCOWS = \"1\"\n",
+	} {
+		_, err := load(t, body)
+		if err == nil {
+			t.Errorf("%q was accepted with no PATH", body)
+			continue
+		}
+		if !strings.Contains(err.Error(), "sets no PATH") {
+			t.Errorf("%q: error does not name the missing PATH: %v", body, err)
+		}
+	}
+}
