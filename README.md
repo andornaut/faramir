@@ -197,9 +197,13 @@ A broker serving zero refs and a client group with members nobody recognises bot
 
 It also compares the version the broker reports against its own. They differ when a new binary was installed and the daemons were never restarted onto it, which makes every other finding a report on the build that is not running, so this fails rather than warns and the fix is to re-run `init`. A broker that does not answer at all is a warning instead, `doctor` being for a stopped install as much as a running one.
 
-Two checks need another uid: the broker's own `--check`, and asking each account what it can reach. Each is asked as the account it is about, root bypassing file modes so the same question from root answers itself. Without sudo those two report as unchecked rather than as passing.
+Most of the examination needs another uid: the broker's own `--check`, the comparison of the `.sops.yaml` recipients against the keeper's `0400` age key, the SSH agent probe, and the dozen checks that ask what each account can reach. Each is asked as the account it is about, root bypassing file modes so the same question from root answers itself. Without sudo these report as unchecked rather than as passing, and the findings are ordered so they group at the end.
 
-**Finding the install.** `doctor`, `init-project`, `uninstall`, `edit` and `rekey` all act on an install they did not perform, and each finds it the same way: `--config-dir` (or `--config`) if you name one, then the running broker's own answer, then the `FARAMIR_CONFIG=` its unit names, then the compiled-in default. The unit is what covers a host whose config moved and whose broker is down. Only `init` differs, `--config-dir` there deciding where an install goes rather than where one is.
+A skipped check is one warn line whatever it stood for, so a line under the totals counts them: without sudo the twelve boundary checks are a single finding, and the totals alone would read the same on a host examined in full and on one where fifteen questions were never put.
+
+**Finding the install.** `doctor`, `init-project`, `uninstall`, `edit`, `rekey` and `logs` all act on an install they did not perform, and each finds it the same way: `--config-dir` (or `--config`) if you name one, then the running broker's own answer, then the `FARAMIR_CONFIG=` its unit names, then the compiled-in default. The unit is what covers a host whose config moved and whose broker is down. Only `init` differs, `--config-dir` there deciding where an install goes rather than where one is.
+
+The three daemon entry points, `broker`, `keeper` and `exec`, follow the same chain without asking a running broker: each is a process that may be about to bind that socket, and connecting to it would socket-activate the installed daemon and leave the two contending for the path. The unit answers the same question, being where a running broker's config came from. Under systemd none of this is reached, the units setting `FARAMIR_CONFIG` themselves; it is what makes `faramir broker --check` work from a shell on an install that is not at the default path.
 
 ## Usage
 
@@ -376,7 +380,7 @@ The bound broker socket having world bits | Every account on the host reaches th
 
 Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. `--check` and `doctor` tell the two apart.
 
-Run it as the broker's own account. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on; the `allowed_user` check is skipped there too, since from root every name compares unequal. `faramir doctor` makes the same check knowing the account names.
+Run it as the broker's own account, `sudo -u faramir-broker faramir broker --check`, which needs no `-c`: sudo clears `FARAMIR_CONFIG`, and the unit is the next step. Run as root it reads what the broker cannot, and a key left `root:root` then passes a gate the broker fails on; the `allowed_user` check is skipped there too, since from root every name compares unequal. `faramir doctor` makes the same check knowing the account names.
 
 **The daemon holds itself to the same rules, and on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time.
 

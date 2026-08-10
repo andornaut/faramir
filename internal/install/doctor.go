@@ -67,8 +67,14 @@ type Finding struct {
 
 // DoctorReport is the whole examination; Failed is the exit code a caller
 // reads.
+//
+// NotAsked counts the checks that never ran, which a caller has to report
+// alongside the findings: one warn line stands for a dozen unasked questions,
+// so the totals alone read as a complete examination of a host that was barely
+// examined.
 type DoctorReport struct {
 	Failed   bool      `json:"failed"`
+	NotAsked int       `json:"not_asked"`
 	Findings []Finding `json:"findings"`
 }
 
@@ -79,6 +85,14 @@ func (d *DoctorReport) add(name string, status Status, format string, args ...an
 	if status == StatusFailed {
 		d.Failed = true
 	}
+}
+
+// merge appends another report's findings, carrying its verdict and its unasked
+// count with them.
+func (d *DoctorReport) merge(other DoctorReport) {
+	d.Findings = append(d.Findings, other.Findings...)
+	d.Failed = d.Failed || other.Failed
+	d.NotAsked += other.NotAsked
 }
 
 // Diagnose reports whether an install is doing its job -- the questions the
@@ -113,13 +127,23 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 		return report
 	}
 
+	// What any account can answer, in name order.
+	diagnoseGroup(&report, opts)
 	diagnoseUnits(&report)
 	diagnoseVersion(&report, opts)
-	servesCommands := diagnoseBroker(&report, configFile, opts.BrokerUser)
-	diagnoseSSHAgent(&report, opts, cfg, servesCommands)
-	diagnoseGroup(&report, opts)
-	diagnoseSopsConfig(&report, opts)
+
+	// Then the checks that need root, grouped so a run without it reads as one
+	// block of warnings at the end rather than as gaps between the answers above.
+	//
+	// Buffered rather than reported where it runs: the broker probe is what says
+	// whether the broker serves anything, which boundaries and the ssh agent both
+	// need before they run, and its findings still belong in name order.
+	var brokerReport DoctorReport
+	servesCommands := diagnoseBroker(&brokerReport, configFile, opts.BrokerUser)
 	diagnoseBoundaries(&report, opts, cfg, servesCommands)
+	report.merge(brokerReport)
+	diagnoseSopsConfig(&report, opts)
+	diagnoseSSHAgent(&report, opts, cfg, servesCommands)
 	return report
 }
 
@@ -176,6 +200,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	keyPath := filepath.Join(opts.ConfigDir, "age.key")
 	keeper, err := agekey.Recipient(keyPath)
 	if err != nil {
+		report.NotAsked++
 		report.add("sops config", StatusWarn, "%s lists %s, and whether %s is among "+
 			"them went unchecked: %v. Re-run as root", path, strings.Join(listed, ", "),
 			keyPath, err)
@@ -247,6 +272,7 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 // ordinary account each get a different answer.
 func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) (servesCommands bool) {
 	if os.Geteuid() != 0 {
+		report.NotAsked++
 		report.add("broker", StatusWarn, "run doctor as root to ask this: --check "+
 			"has to run as %s, and any other account gets an answer that is not "+
 			"the broker's", brokerUser)
@@ -322,6 +348,7 @@ func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 		return
 	}
 	if !servesCommands {
+		report.NotAsked++
 		report.add("ssh agent", StatusWarn, "not asked: the broker holds no managed "+
 			"values, so it refuses the brokered command this probe runs")
 		return

@@ -18,7 +18,7 @@ import (
 // that executes nothing but sops.
 func cmdKeeper(args []string) int {
 	fs := newFlagSet("keeper", "keeper [-c PATH] [--check]")
-	configPath := fs.String("config", "", "path to config.toml")
+	configPath := fs.String("config", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
 	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
 	check := fs.Bool("check", false, "decrypt once and exit")
 	showVersion := fs.Bool("version", false, "print the version and exit")
@@ -35,7 +35,7 @@ func cmdKeeper(args []string) int {
 		return 0
 	}
 
-	cfg, err := config.Load(*configPath)
+	cfg, err := config.Load(resolveDaemonConfig(*configPath))
 	if err != nil {
 		log.Printf("%v", err)
 		return 2

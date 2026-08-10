@@ -62,34 +62,45 @@ func owns(path string) string {
 }
 
 // diagnoseBoundaries runs every check that needs a uid other than this one.
+//
+// Held as a list so a run that skips them can say how many went unasked: the
+// single warn line below stands for all of them, and a count taken from the
+// list cannot drift from what is in it.
 func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Config, servesCommands bool) {
+	checks := []func(){
+		func() { diagnoseAgeKey(report, opts, cfg) },
+		func() { diagnoseOperatorKeys(report, opts) },
+		func() { diagnoseStore(report, opts, cfg) },
+		func() { diagnoseConfigWritable(report, opts) },
+		func() { diagnoseInstalledFiles(report, opts) },
+		func() { diagnoseDenyPatterns(report, opts) },
+		func() { diagnoseAuditLog(report, opts, cfg) },
+		func() { diagnoseSockets(report, opts, cfg) },
+		func() { diagnoseSocketPolicy(report, opts, cfg) },
+		func() { diagnoseSSHKey(report, opts, cfg) },
+		func() { diagnoseProtectProc(report, opts) },
+		func() { diagnoseBrokered(report, opts, servesCommands) },
+	}
 	if os.Geteuid() != 0 {
-		report.add("boundaries", StatusWarn, "run doctor as root to check these: they "+
+		report.NotAsked += len(checks)
+		report.add("boundaries", StatusWarn, "run doctor as root to check these: %d checks "+
 			"ask what %s, %s and %s can reach, and no account can answer that for "+
-			"another", opts.OperatorUser, opts.BrokerUser, opts.ExecUser)
+			"another", len(checks), opts.OperatorUser, opts.BrokerUser, opts.ExecUser)
 		return
 	}
 	// The probe itself: every check below reads a refusal as a boundary, so a
 	// runuser that cannot run would report all of them as holding.  Every account
 	// can read /, so a refusal here is the mechanism.
 	if !canRead(opts.KeeperUser, "/") {
+		report.NotAsked += len(checks)
 		report.add("boundaries", StatusWarn, "cannot ask %s what it can reach, so none "+
-			"of these were checked: runuser has to be installed for this",
-			opts.KeeperUser)
+			"of these %d checks were made: runuser has to be installed for this",
+			opts.KeeperUser, len(checks))
 		return
 	}
-	diagnoseAgeKey(report, opts, cfg)
-	diagnoseOperatorKeys(report, opts)
-	diagnoseStore(report, opts, cfg)
-	diagnoseConfigWritable(report, opts)
-	diagnoseInstalledFiles(report, opts)
-	diagnoseDenyPatterns(report, opts)
-	diagnoseAuditLog(report, opts, cfg)
-	diagnoseSockets(report, opts, cfg)
-	diagnoseSocketPolicy(report, opts, cfg)
-	diagnoseSSHKey(report, opts, cfg)
-	diagnoseProtectProc(report, opts)
-	diagnoseBrokered(report, opts, servesCommands)
+	for _, check := range checks {
+		check()
+	}
 }
 
 // diagnoseStore checks who can reach the ciphertext.  Every account but the

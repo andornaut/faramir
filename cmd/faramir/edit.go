@@ -132,13 +132,13 @@ func cmdEdit(args []string) int {
 	return 0
 }
 
-// resolveConfig finds the config this edit has to agree with: --config, then
-// $FARAMIR_CONFIG, then whatever discoverConfigFile finds, then the compiled
-// default if it is there.
+// resolveConfig finds the config a client command has to agree with: --config,
+// then $FARAMIR_CONFIG, then whatever discoverConfigFile finds, then the
+// compiled default if it is there.
 //
-// An empty result is deferred to config.Load rather than guessed at, which is
-// also what an explicit $FARAMIR_CONFIG returns: the variable is Load's to
-// read, so returning a path here would override the caller's own choice.
+// An explicit $FARAMIR_CONFIG returns empty like the rest: the variable is
+// config.Load's to read, so returning a path here would override the caller's
+// own choice.
 //
 // Reaching the unit matters under sudo on an install whose config moved into a
 // home: sudo clears the environment, and the socket goes unanswered whenever
@@ -147,8 +147,33 @@ func resolveConfig(requested string) string {
 	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
 		return requested
 	}
-	if path := discoverConfigFile(askBroker(socketDefault())); path != "" {
-		return path
+	return installedConfig(discoverConfigFile(askBroker(socketDefault())))
+}
+
+// resolveDaemonConfig is resolveConfig for the three daemon entry points, which
+// under systemd are given no -c at all: the unit sets FARAMIR_CONFIG instead.
+// Run by hand with neither, the install still has to be found rather than
+// assumed, `faramir broker --check` being the invocation that reaches this.
+//
+// The running broker is not a step here, unlike resolveConfig: this process may
+// be about to bind the broker's own socket, and connecting to it would
+// socket-activate the installed daemon and leave the two contending for the
+// path.  The unit answers the same question without the round trip, being where
+// a running broker's config came from.
+func resolveDaemonConfig(requested string) string {
+	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
+		return requested
+	}
+	return installedConfig(unitConfigFile())
+}
+
+// installedConfig takes what discovery found, and falls back to the compiled-in
+// default only when that file is there.  An empty result is deferred to
+// config.Load rather than guessed at: Load names the default itself, and the
+// error it reports for a host with no install is the one to print.
+func installedConfig(found string) string {
+	if found != "" {
+		return found
 	}
 	if path := filepath.Join(install.DefaultConfigDir, "config.toml"); exists(path) {
 		return path
