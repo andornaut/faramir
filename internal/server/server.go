@@ -552,7 +552,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// exact interval the serialization is protecting.  Failing here says what
 	// happened and leaves the decision to run again with whoever reads it.
 	if heldBy != "" {
-		return protocol.ErrorResponse("held", "an approval is being decided or held "+
+		return protocol.ErrorResponse("approval_in_progress", "an approval is being decided or held "+
 			"on the executor's uid ("+heldBy+"), and no other brokered command runs "+
 			"while one is: they share that uid, so a second could ride the approval. "+
 			"This command was not run and was not queued. Run it again once that one "+

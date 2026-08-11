@@ -68,7 +68,7 @@ Code | Meaning
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
 `busy` | At `[server] max_concurrency`; retry
-`held` | An approval is being decided or held on the executor's uid, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only on a host installed with `--allow-sudo`
+`approval_in_progress` | An approval is being decided or held on the executor's uid, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued, and the code names the host's state rather than your request's. Only on a host installed with `--allow-sudo`
 `not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the approval. The question is refused rather than held open, so the `sudo` fails and the command is run again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `exec` alone: a command that cannot be recorded is not one this host runs, and the filesystem the log sits on is one a brokered command's own output can fill
 `no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `list_secrets` always answer

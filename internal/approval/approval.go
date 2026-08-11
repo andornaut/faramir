@@ -213,7 +213,7 @@ func (s *Server) Env(token string) map[string]string {
 // other brokered command may start: they share the executor's uid, so a second
 // process could read the first's token out of /proc and ride the approval it was
 // never shown for.  A held command must not run: the broker turns it into a
-// terminal `held`, which nothing retries.  This is one half of a
+// terminal `approval_in_progress`, which nothing retries.  This is one half of a
 // symmetry: registering a run also blocks a *new* approval (Answer requires sole
 // occupancy), so a live approval and any other registered run never coexist.
 //
@@ -243,9 +243,10 @@ func (s *Server) Register(run Run) (token, heldBy string) {
 	if s.stopped {
 		return "", ""
 	}
-	// The reason, not a bool: it names the command holding the host, and a `held`
-	// is terminal, so this message is all the caller gets.  The sudo-side refusal
-	// in pend names it too, and the two enforcement points should answer alike.
+	// The reason, not a bool: it names the command holding the host, and an
+	// `approval_in_progress` is terminal, so this message is all the caller gets.
+	// The sudo-side refusal in pend names it too, and the two enforcement points
+	// should answer alike.
 	if why := s.holdLocked(); why != "" {
 		log.Printf("approval: holding a new command: %s", why)
 		return "", why

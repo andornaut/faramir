@@ -96,14 +96,17 @@ func TestApprovalAddsNothingToTheValueSet(t *testing.T) {
 	}
 }
 
-// While one command holds an approval, opExec refuses a second with `held`
-// rather than running it: the two share the executor's uid, so the new one would
-// be a route to the root approved for the first.  This is the wiring of the
-// serialization the approval server enforces, checked through real dispatch.
+// While one command holds an approval, opExec refuses a second with
+// `approval_in_progress` rather than running it: the two share the executor's
+// uid, so the new one would be a route to the root approved for the first.  This
+// is the wiring of the serialization the approval server enforces, checked
+// through real dispatch.
 //
-// `held` rather than `busy`, and the difference is the point: `busy` invites a
-// retry, and a caller retrying against a live approval is one polling the exact
-// interval the serialization exists to protect.
+// Its own code rather than `busy`, and the difference is the point: `busy`
+// invites a retry, and a caller retrying against a live approval is one polling
+// the exact interval the serialization exists to protect.  The code names the
+// host's state rather than the request's, so nothing in it can be read as this
+// command having been queued.
 func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
@@ -128,8 +131,8 @@ func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 
 	// A second brokered command is now refused outright, and never reaches the
 	// executor.
-	if code := errorCode(t, exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})); code != "held" {
-		t.Errorf("a command during a live approval got %q, want held", code)
+	if code := errorCode(t, exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})); code != "approval_in_progress" {
+		t.Errorf("a command during a live approval got %q, want approval_in_progress", code)
 	}
 
 	// It runs again once the approved run ends.
