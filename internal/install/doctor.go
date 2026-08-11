@@ -282,48 +282,234 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 // diagnoseLogRotation asks whether anything bounds the audit log.
 //
 // [audit] max_record_bytes bounds one record, and nothing in faramir bounds the
-// file: rotation is logrotate's, which is a program that has to be installed and
-// has to run.  Worth a check of its own because the install writes the config
-// whether or not the program exists, so the step reports "changed" on a host
-// where it does nothing, and because the account that fills the log is the one
-// this whole install exists to bound: a brokered command's output is what a
-// record carries, so an agent that prints enough writes the disk full, and a
-// full disk is where brokered commands stop running at all.
+// file: rotation is logrotate's, which is a program that has to be installed,
+// has to name this log, and has to be run on it.  Worth a check of its own
+// because the install writes the config whether or not the program exists, so
+// the step reports "changed" on a host where it does nothing, and because the
+// account that fills the log is the one this whole install exists to bound: a
+// brokered command's output is what a record carries, so an agent that prints
+// enough writes the disk full, and a full disk is where brokered commands stop
+// running at all.
 //
-// Not among the boundary checks, which need root and a working runuser: this
-// one reads a path, a $PATH and a size, and asks no account anything.  Reported
-// to a caller without root because a log with no ceiling is what ends in every
-// brokered command being refused.
+// Every question here is asked of what is on disk rather than of the install's
+// own intentions, because each of them has an answer that looks exactly like a
+// working rotation from the install's side: a rule bounding the path config.toml
+// named before it was edited, and a rule no run of logrotate ever reads, both
+// leave the file present, the program installed and the log growing.
+//
+// The first two questions read a path and a $PATH and ask no account anything.
+// The last two read logrotate's state and the log itself, which belong to root
+// and to the broker, so a caller without root is told they went unasked rather
+// than given the pass they would otherwise infer from a stat that failed.
 func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	if cfg == nil || cfg.Audit.LogPath == "" {
 		return
 	}
+	logPath := cfg.Audit.LogPath
 	if !exists(logrotateConfig) {
 		report.add("log rotation", StatusFailed, "%s does not exist, so nothing "+
 			"bounds %s. Re-run `faramir init`, or bound it some other way",
-			logrotateConfig, cfg.Audit.LogPath)
+			logrotateConfig, logPath)
 		return
 	}
 	if _, err := exec.LookPath("logrotate"); err != nil {
 		report.add("log rotation", StatusFailed, "%s exists and logrotate does not, "+
 			"so it is inert and %s grows without a ceiling. Install logrotate, or "+
-			"bound that file some other way", logrotateConfig, cfg.Audit.LogPath)
+			"bound that file some other way", logrotateConfig, logPath)
 		return
 	}
+
+	// The rule has to name the file the broker appends to.  Both are rendered
+	// from one layout, so they agree wherever init wrote them together and part
+	// wherever [audit] log_path was moved afterwards, which leaves the rule
+	// bounding a path nothing writes and the log growing under the old name.
+	named, err := logrotateLogs(logrotateConfig)
+	switch {
+	case err != nil:
+		report.add("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
+			"anything bounds %s cannot be established", logrotateConfig, err, logPath)
+		return
+	case len(named) == 0:
+		report.add("log rotation", StatusWarn, "%s names no log file, so it is empty "+
+			"or written in a form this check cannot read. Confirm it covers %s with "+
+			"`logrotate -d %s`", logrotateConfig, logPath, logrotateConfig)
+		return
+	case !logrotateCovers(named, logPath):
+		report.add("log rotation", StatusFailed, "%s bounds %s and the broker appends "+
+			"to %s, so nothing bounds the log this host writes. Point [audit] "+
+			"log_path back at the rotated file, or re-run `faramir init` to rewrite "+
+			"the rule", logrotateConfig, strings.Join(named, ", "), logPath)
+		return
+	}
+
+	// What logrotate has processed, which is the only account of whether the rule
+	// is read by the runs that happen rather than merely installed.  A rule the
+	// include line does not reach, or one a syntax error earlier in the set
+	// abandons, is skipped every run and says nothing about it anywhere else.
+	statePath := firstExisting(logrotateStatePaths)
+	if statePath == "" {
+		report.add("log rotation", StatusWarn, "logrotate keeps no state at %s, so it "+
+			"has not run on this host and %s is bounded by a rule nothing has applied. "+
+			"Check the logrotate timer or cron job",
+			strings.Join(logrotateStatePaths, " or "), logPath)
+		return
+	}
+	rotated, err := logrotateStateLogs(statePath)
+	switch {
+	case os.IsPermission(err):
+		report.unasked("log rotation", 1, "run doctor as root to ask the rest: %s "+
+			"says which logs logrotate has processed and %s is the broker's, so "+
+			"whether the rule is being applied and how large the log has grown are "+
+			"both root's to read. %s does name %s",
+			statePath, logPath, logrotateConfig, logPath)
+		return
+	case err != nil:
+		report.add("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
+			"logrotate has ever applied %s cannot be established",
+			statePath, err, logrotateConfig)
+		return
+	case !slices.Contains(rotated, logPath):
+		report.add("log rotation", StatusWarn, "%s names %d logs and not %s, so "+
+			"logrotate has not applied the rule to it. A host whose first run has not "+
+			"come round yet is the ordinary reason; past that, %s is not being read. "+
+			"Check the logrotate timer or cron job",
+			statePath, len(rotated), logPath, logrotateConfig)
+		return
+	}
+
 	// The config says 16MB, so a log far past it is one logrotate is not being
 	// run on, whatever is installed.  A multiple rather than the number itself:
 	// rotation is scheduled rather than continuous, and a log over the size
 	// between two runs is ordinary.
 	const rotateSize = 16 << 20
-	if info, err := os.Stat(cfg.Audit.LogPath); err == nil && info.Size() > 4*rotateSize {
+	info, err := os.Stat(logPath)
+	switch {
+	case os.IsPermission(err):
+		report.unasked("log rotation", 1, "run doctor as root to ask the last of "+
+			"this: %s is the broker's, so its size is root's to read. %s does name "+
+			"it, and %s records that logrotate has applied the rule",
+			logPath, logrotateConfig, statePath)
+		return
+	// Absent is not a fault: the rule is missingok and the broker opens the file
+	// with O_CREATE, so the next record makes it again.
+	case err == nil && info.Size() > 4*rotateSize:
 		report.add("log rotation", StatusWarn, "%s is %d bytes, well past the %d "+
 			"the rule rotates at, so logrotate is installed and is not being run on "+
 			"it. Check the logrotate timer or cron job",
-			cfg.Audit.LogPath, info.Size(), rotateSize)
+			logPath, info.Size(), rotateSize)
 		return
 	}
-	report.add("log rotation", StatusOK, "%s bounds %s, and logrotate is installed "+
-		"to apply it", logrotateConfig, cfg.Audit.LogPath)
+	report.add("log rotation", StatusOK, "%s bounds %s, logrotate is installed to "+
+		"apply it, and %s records that it has", logrotateConfig, logPath, statePath)
+}
+
+// logrotateLogs is the log files a rule file names: every path outside a
+// directive block, which is where logrotate takes its file list from.
+//
+// A parser rather than `logrotate -d`, whose answer is prose that differs
+// between versions.  It reads the form init writes and the forms a hand edit
+// produces: several paths to one block, quoted paths, comments, globs.  Blocks
+// are skipped by brace depth, so a postrotate script carrying braces of its own
+// is the one edit that can hide a path from this, and finding none at all is
+// reported as a rule that could not be read rather than as one that misses the
+// log.
+func logrotateLogs(path string) ([]string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var logs []string
+	depth := 0
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if comment := strings.IndexByte(line, '#'); comment >= 0 {
+			line = line[:comment]
+		}
+		for _, field := range strings.Fields(line) {
+			// logrotate lexes the brace as its own token, so a path can carry one
+			// with no space between them.
+			if trimmed := strings.TrimSuffix(field, "{"); trimmed != field {
+				if depth == 0 && trimmed != "" {
+					logs = append(logs, unquoteField(trimmed))
+				}
+				depth++
+				continue
+			}
+			switch {
+			case field == "}":
+				depth = max(depth-1, 0)
+			case depth > 0:
+				// A directive rather than a path.
+			default:
+				logs = append(logs, unquoteField(field))
+			}
+		}
+	}
+	return logs, nil
+}
+
+// logrotateCovers reports whether a rule naming these logs covers the one the
+// broker writes.  Globs count: a rule may name /var/log/faramir/*.log, which
+// bounds audit.log without spelling it.
+func logrotateCovers(named []string, logPath string) bool {
+	for _, candidate := range named {
+		if candidate == logPath {
+			return true
+		}
+		if matched, err := filepath.Match(candidate, logPath); err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+// logrotateStateLogs is every log logrotate's state file names, which is every
+// log it has processed.  One line per log, the path first and quoted since
+// version 2, then the date it was last rotated -- which is not read here: a
+// quiet log is not rotated at all under notifempty, so the date says how busy
+// the host has been rather than whether the rule is applied, and how large the
+// log has grown answers that better.
+func logrotateStateLogs(path string) ([]string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var logs []string
+	for line := range strings.SplitSeq(string(body), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "logrotate state") {
+			continue
+		}
+		if strings.HasPrefix(line, `"`) {
+			// A quoted path may hold spaces, so it ends at its own quote rather
+			// than at the first field boundary.
+			if end := strings.IndexByte(line[1:], '"'); end >= 0 {
+				logs = append(logs, line[1:end+1])
+				continue
+			}
+		}
+		logs = append(logs, strings.Fields(line)[0])
+	}
+	return logs, nil
+}
+
+// firstExisting is the first of these paths this host has, or "" for none.
+func firstExisting(paths []string) string {
+	for _, path := range paths {
+		if exists(path) {
+			return path
+		}
+	}
+	return ""
+}
+
+// unquoteField drops one matching pair of quotes.
+func unquoteField(field string) string {
+	for _, quote := range []string{`"`, `'`} {
+		if len(field) > 1 && strings.HasPrefix(field, quote) && strings.HasSuffix(field, quote) {
+			return field[1 : len(field)-1]
+		}
+	}
+	return field
 }
 
 // diagnoseUnits reports the sockets, not the services: all three are socket

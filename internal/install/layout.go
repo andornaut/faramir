@@ -25,8 +25,7 @@ const (
 	DefaultLogDir     = "/var/log/faramir"
 
 	// Not derived from a layout field: the path is the distribution's.
-	logrotateConfig = "/etc/logrotate.d/faramir"
-	pamServiceName  = "faramir-sudo"
+	pamServiceName = "faramir-sudo"
 
 	DefaultClientGroup = "dev"
 	DefaultBrokerUser  = "faramir-broker"
@@ -34,15 +33,26 @@ const (
 	DefaultExecUser    = "faramir-exec"
 )
 
-// Where the distribution keeps the two files a sudo grant needs.  Variables
-// rather than constants so a test can point at directories it wrote: what has
-// to be exercised is a host that has one and not the other, which is a state no
-// test can create at the real paths.
+// Where the distribution keeps the two files a sudo grant needs, the audit
+// log's rotation rule, and logrotate's own record of what it has rotated.
+// Variables rather than constants so a test can point at files it wrote: what
+// has to be exercised is a host that has one and not the other, which is a
+// state no test can create at the real paths.
 var (
-	sudoersDir     = "/etc/sudoers.d"
-	pamDir         = "/etc/pam.d"
-	sudoersFile    = sudoersDir + "/faramir"
-	pamServiceFile = pamDir + "/" + pamServiceName
+	sudoersDir      = "/etc/sudoers.d"
+	pamDir          = "/etc/pam.d"
+	sudoersFile     = sudoersDir + "/faramir"
+	pamServiceFile  = pamDir + "/" + pamServiceName
+	logrotateConfig = "/etc/logrotate.d/faramir"
+
+	// The state path is compiled into logrotate rather than configured, and
+	// distributions do not agree on it, so each one they use is looked for and
+	// the first that exists answers.
+	logrotateStatePaths = []string{
+		"/var/lib/logrotate/status",           // Debian, Ubuntu
+		"/var/lib/logrotate.status",           // older Debian
+		"/var/lib/logrotate/logrotate.status", // Fedora, RHEL
+	}
 )
 
 // There is no DefaultSecretsGroup: it defaults to the keeper's own primary

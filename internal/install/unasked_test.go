@@ -97,10 +97,12 @@ func TestTheGroupBailOutCountsEveryGroupItSkipped(t *testing.T) {
 	}
 }
 
-// The log-rotation check reads a path, a $PATH and a size and asks no account
-// anything, so it is not behind the root gate: an unbounded audit log ends in
-// every brokered command being refused, and a caller without root has to hear
-// about it.
+// Whether a rule exists and covers the log this config names is read from a
+// path and a $PATH, so it is not behind the root gate: an unbounded audit log
+// ends in every brokered command being refused, and a caller without root has
+// to hear about it.  The two questions that do need root -- whether logrotate
+// has applied the rule, and how large the log has grown -- are reported as
+// unasked, which still names the log rather than standing in for it.
 func TestLogRotationIsReportedWithoutRoot(t *testing.T) {
 	if os.Geteuid() == 0 {
 		t.Skip("this asserts what a caller without root is told")

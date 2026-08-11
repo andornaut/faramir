@@ -462,3 +462,244 @@ func TestARefusalFromABrokerHoldingValuesIsAFailure(t *testing.T) {
 		t.Errorf("NotAsked = %d, want the unanswered check counted", unestablished.NotAsked)
 	}
 }
+
+// stubLogrotate points the check at files a test wrote and puts a program named
+// logrotate on $PATH.  The real rule, the real state file and the real log
+// belong to the host running the tests, and every state worth checking here is
+// one that host is not in.  An empty body leaves that file out.
+func stubLogrotate(t *testing.T, rule, state string) (rulePath, statePath string) {
+	t.Helper()
+	dir := t.TempDir()
+	rulePath = filepath.Join(dir, "faramir")
+	statePath = filepath.Join(dir, "status")
+	for path, body := range map[string]string{rulePath: rule, statePath: state} {
+		if body == "" {
+			continue
+		}
+		if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	originalRule, originalState := logrotateConfig, logrotateStatePaths
+	logrotateConfig, logrotateStatePaths = rulePath, []string{statePath}
+	t.Cleanup(func() { logrotateConfig, logrotateStatePaths = originalRule, originalState })
+
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "logrotate"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+	return rulePath, statePath
+}
+
+// Every state below leaves the install looking healthy from its own side: the
+// rule is where init put it, logrotate is installed, and the log grows anyway.
+// What tells them apart is on disk, so that is what the check reads.
+func TestDiagnoseLogRotationAsksWhatIsOnDisk(t *testing.T) {
+	const applied = "logrotate state -- version 2\n\"LOG\" 2026-8-11-0:0:0\n"
+	for _, tc := range []struct {
+		name  string
+		rule  string
+		state string
+		size  int64
+		want  Status
+		says  []string
+	}{
+		{
+			name: "the rule init writes, and logrotate has applied it",
+			rule: "LOG {\n    weekly\n    rotate 8\n}\n", state: applied,
+			want: StatusOK, says: []string{"LOG"},
+		},
+		{
+			name: "a glob that covers it",
+			rule: "DIR/*.log {\n    weekly\n}\n", state: applied,
+			want: StatusOK,
+		},
+		{
+			name:  "no rule at all",
+			state: applied,
+			want:  StatusFailed, says: []string{"does not exist", "faramir init"},
+		},
+		{
+			// [audit] log_path moved after the install, which leaves the rule
+			// bounding a path nothing writes.
+			name: "a rule for a log the broker no longer writes",
+			rule: "DIR/moved.log {\n    weekly\n}\n", state: applied,
+			want: StatusFailed, says: []string{"moved.log", "LOG", "log_path"},
+		},
+		{
+			name:  "a rule logrotate reads past every run",
+			rule:  "LOG {\n    weekly\n}\n",
+			state: "logrotate state -- version 2\n\"/var/log/syslog\" 2026-8-11-0:0:0\n",
+			want:  StatusWarn, says: []string{"has not applied", "timer or cron"},
+		},
+		{
+			name: "a host logrotate has never run on",
+			rule: "LOG {\n    weekly\n}\n",
+			want: StatusWarn, says: []string{"has not run", "timer or cron"},
+		},
+		{
+			name: "a log far past what the rule rotates at",
+			rule: "LOG {\n    weekly\n}\n", state: applied, size: 65 << 20,
+			want: StatusWarn, says: []string{"past", "timer or cron"},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			logPath := filepath.Join(dir, "audit.log")
+			render := strings.NewReplacer("LOG", logPath, "DIR", dir)
+			stubLogrotate(t, render.Replace(tc.rule), render.Replace(tc.state))
+			if err := os.WriteFile(logPath, []byte("{}\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if tc.size > 0 {
+				// Sparse: what is read is the size, and 65MB of it costs nothing.
+				if err := os.Truncate(logPath, tc.size); err != nil {
+					t.Fatal(err)
+				}
+			}
+			cfg := &config.Config{}
+			cfg.Audit.LogPath = logPath
+
+			var report DoctorReport
+			diagnoseLogRotation(&report, cfg)
+
+			if len(report.Findings) != 1 {
+				t.Fatalf("findings = %+v, want exactly one", report.Findings)
+			}
+			finding := report.Findings[0]
+			if finding.Status != tc.want {
+				t.Errorf("status = %q, want %q: %s", finding.Status, tc.want, finding.Detail)
+			}
+			if report.Failed != (tc.want == StatusFailed) {
+				t.Errorf("Failed = %v for a %q finding: %s", report.Failed, tc.want, finding.Detail)
+			}
+			for _, want := range tc.says {
+				if !strings.Contains(finding.Detail, render.Replace(want)) {
+					t.Errorf("detail does not say %q: %s", want, finding.Detail)
+				}
+			}
+			// The log is named whatever the verdict: a reader has to know which
+			// file the finding is about.
+			if !strings.Contains(finding.Detail, logPath) {
+				t.Errorf("detail does not name %s: %s", logPath, finding.Detail)
+			}
+		})
+	}
+}
+
+// The state file is root's and the log is the broker's, so the last two
+// questions cannot be put by every caller.  Told as an answer they are the pass
+// a stat that failed would otherwise be read as.
+func TestLogRotationSaysWhichQuestionsNeededRoot(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("this asserts what a caller who cannot read the state file is told")
+	}
+	dir := t.TempDir()
+	logPath := filepath.Join(dir, "audit.log")
+	_, statePath := stubLogrotate(t, logPath+" {\n    weekly\n}\n",
+		"logrotate state -- version 2\n\""+logPath+"\" 2026-8-11-0:0:0\n")
+	if err := os.Chmod(statePath, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	cfg := &config.Config{}
+	cfg.Audit.LogPath = logPath
+
+	var report DoctorReport
+	diagnoseLogRotation(&report, cfg)
+
+	if len(report.Findings) != 1 || report.Findings[0].Status != StatusWarn {
+		t.Fatalf("findings = %+v, want one warn", report.Findings)
+	}
+	if report.Failed {
+		t.Errorf("a question nobody could put failed the report: %s", report.Findings[0].Detail)
+	}
+	if report.NotAsked != 1 {
+		t.Errorf("NotAsked = %d, want the unput question counted", report.NotAsked)
+	}
+	// What was established still gets said, that being the half a caller
+	// without root can act on.
+	if !strings.Contains(report.Findings[0].Detail, logPath) {
+		t.Errorf("detail does not name the log: %s", report.Findings[0].Detail)
+	}
+}
+
+// The file list is what the check compares against config.toml, so a directive
+// read as a path reports a rule covering files nothing writes, and a path
+// missed reports a covered log as unbounded.
+func TestLogrotateLogsReadsTheFileListAndNotTheDirectives(t *testing.T) {
+	rule := `# The audit log, and a second file to show two on one block.
+"/var/log/faramir/audit.log" /var/log/faramir/other.log {
+    su faramir-broker faramir-broker
+    create 0600 faramir-broker faramir-broker
+    weekly
+    rotate 8
+    maxsize 16M
+}
+/var/log/faramir/attached.log{
+    weekly
+}
+`
+	path := filepath.Join(t.TempDir(), "faramir")
+	if err := os.WriteFile(path, []byte(rule), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logs, err := logrotateLogs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/var/log/faramir/audit.log",
+		"/var/log/faramir/other.log",
+		"/var/log/faramir/attached.log",
+	}
+	if strings.Join(logs, " ") != strings.Join(want, " ") {
+		t.Errorf("logs = %q, want %q", logs, want)
+	}
+}
+
+// A rule that does not name the log covers it anyway when it names a glob that
+// matches, so the comparison cannot be a string one.
+func TestLogrotateCoversMatchesAGlob(t *testing.T) {
+	for _, tc := range []struct {
+		named string
+		want  bool
+	}{
+		{"/var/log/faramir/audit.log", true},
+		{"/var/log/faramir/*.log", true},
+		{"/var/log/faramir/*", true},
+		{"/var/log/faramir/other.log", false},
+		{"/var/log/*/audit.log", true},
+		{"/var/log/[", false}, // a pattern filepath.Match rejects is not a match
+	} {
+		if got := logrotateCovers([]string{tc.named}, "/var/log/faramir/audit.log"); got != tc.want {
+			t.Errorf("a rule naming %s covers the audit log = %v, want %v", tc.named, got, tc.want)
+		}
+	}
+}
+
+// The state file is how the check knows the rule is applied rather than merely
+// installed, so every line of it that names a log has to be read.
+func TestLogrotateStateLogsNamesEveryLogItHasProcessed(t *testing.T) {
+	state := `logrotate state -- version 2
+"/var/log/faramir/audit.log" 2026-8-11-0:0:0
+"/var/log/a name with spaces.log" 2026-8-4-0:0:0
+/var/log/unquoted.log 2026-8-4-0:0:0
+`
+	path := filepath.Join(t.TempDir(), "status")
+	if err := os.WriteFile(path, []byte(state), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	logs, err := logrotateStateLogs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{
+		"/var/log/faramir/audit.log",
+		"/var/log/a name with spaces.log",
+		"/var/log/unquoted.log",
+	}
+	if strings.Join(logs, "|") != strings.Join(want, "|") {
+		t.Errorf("logs = %q, want %q", logs, want)
+	}
+}

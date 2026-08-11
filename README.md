@@ -96,7 +96,7 @@ Every field of a record is chosen by the account the log exists to hold to accou
 2. **An append is exclusive and all-or-nothing.** Writers take a lock, and a write that lands short is taken back. Without that, a torn line swallows the record appended after it, so one failure costs two records and the second of them succeeded.
 3. **Every `log_id` is distinct**, carrying the writer's nonce and a counter that only advances rather than two random bytes, which collide within minutes at the rate four concurrent commands reach.
 
-And a command that cannot be recorded does not run: the broker checks the log can be written before it starts anything, and refuses with `no_audit` otherwise. The file itself is logrotate's to bound, which `faramir doctor` checks is installed and running.
+And a command that cannot be recorded does not run: the broker checks the log can be written before it starts anything, and refuses with `no_audit` otherwise. The file itself is logrotate's to bound, and `faramir doctor` checks that logrotate is installed, that its rule names the log the broker writes, and that it has applied that rule.
 
 ### Design and layout
 
