@@ -390,3 +390,202 @@ func TestUnwritableIsSilentOnAWorkingLog(t *testing.T) {
 		t.Errorf("a writable log reports %q", reason)
 	}
 }
+
+// A record that does not fit is reduced, not discarded.  The ceiling reduce
+// applies is counted in encoded bytes for the same reason the cap is: two
+// hundred arguments of a thousand '<' each are 200KB raw, under any per-string
+// limit worth having, and 1.2MB once encoded -- so a clamp counted in raw bytes
+// changed nothing, the record stayed over the cap, and what landed was the
+// identity stub: no cmd, no cwd, no exit code, no output.
+func TestALargeArgvKeepsTheRestOfTheRecord(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	args := []string{"bash", "-c"}
+	for range 200 {
+		args = append(args, strings.Repeat("<", 1000))
+	}
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 262144}).Write(map[string]any{
+		"log_id": "x", "op": "exec", "cmd": args, "cwd": "/srv/work",
+		"exit_code": 0.0,
+	}, Output{Text: "the output of the run\n"})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > 262144 {
+		t.Fatalf("the record is %d bytes for a cap of %d", len(data), 262144)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"log_id", "op", "cmd", "cwd", "exit_code", "output"} {
+		if _, ok := record[key]; !ok {
+			t.Errorf("the record lost %q while being cut down to fit", key)
+		}
+	}
+	if record["record_reduced"] != true {
+		t.Error("a reduced record does not say that it was reduced")
+	}
+	if got, _ := record["output"].(string); got != "the output of the run\n" {
+		t.Errorf("output = %q, want it untouched: argv is what was too large", got)
+	}
+}
+
+// The same in the other shape: many entries rather than long ones.  An env_refs
+// map naming one value under thousands of names is over the cap however short
+// each entry is, so a ceiling on strings alone leaves it unreachable.
+func TestManyEntriesAreCutDownToo(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	refs := map[string]string{}
+	for i := range 20_000 {
+		refs[fmt.Sprintf("VAR_%05d", i)] = "home/router/admin"
+	}
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 65536}).Write(map[string]any{
+		"log_id": "x", "op": "exec", "cmd": []string{"printenv"}, "env_refs": refs,
+	}, Output{})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > 65536 {
+		t.Fatalf("the record is %d bytes for a cap of %d", len(data), 65536)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	kept, _ := record["env_refs"].(map[string]any)
+	if len(kept) == 0 {
+		t.Fatal("every ref was dropped")
+	}
+	// Sorted, so which ones survive is the same on every run rather than whatever
+	// the map happened to iterate to first.
+	if _, ok := kept["VAR_00000"]; !ok {
+		t.Errorf("kept %d refs and not the first in order: %v", len(kept), kept)
+	}
+}
+
+// Output cut by reduce has to say so as well.  A record whose output was
+// shortened and does not carry the flag reads as a complete one.
+func TestOutputCutByReductionIsFlagged(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	// A cap at the floor, so even the reduced record is tight and the output field
+	// is one of the things that has to give.
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+		Write(map[string]any{
+			"log_id": "x", "op": "exec",
+			"cmd": []string{"bash", "-c", strings.Repeat("<", 200_000)},
+		}, Output{Text: strings.Repeat("z", 3000)})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := record["output"].(string)
+	if len(got) >= 3000 {
+		t.Skip("the output was not cut, so there is nothing to flag")
+	}
+	if record["output_truncated"] != true {
+		t.Errorf("output was cut to %d bytes and the record does not say so: %v", len(got), record)
+	}
+}
+
+// A run's output is recorded in the order it was written.  The head takes what
+// fits until a chunk does not, and then it is shut: without that a chunk too
+// large for the room left goes to the tail and a smaller one after it lands in
+// the head, ahead of it, so the record shows the run out of order.
+func TestTheCollectorDoesNotReorderOutput(t *testing.T) {
+	c := NewCollector(2048)
+	// The last two bytes of the head's budget: '<' costs six and will not fit,
+	// "BB" costs two and would.
+	c.Add(strings.Repeat("a", c.half()-2))
+	c.Add("<")
+	c.Add("BB")
+	if got := c.Output().Text; !strings.HasSuffix(got, "<BB") {
+		t.Errorf("output ends %q, want the chunks in the order they arrived", got[max(len(got)-8, 0):])
+	}
+}
+
+// Unwritable is asked before every command, so it has to be about now.  Latching
+// the answer made it a report on the host as it was at startup: a log made
+// unwritable afterwards -- a read-only remount, an immutable bit, an owner
+// changed by a hand-edited logrotate rule -- still answered yes, and every
+// command ran with its record going nowhere, which is the state the check exists
+// to rule out.
+//
+// Posed as ENOTDIR rather than as a mode, because the account that asks this in
+// production is a daemon and the account that runs the tests is often root, and
+// root opens a file whatever its mode says.
+func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "logdir")
+	log := NewLog(config.AuditConfig{
+		LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: 64 * 1024,
+	})
+
+	log.Write(map[string]any{"log_id": "first", "op": "exec"}, Output{})
+	if reason := log.Unwritable(); reason != "" {
+		t.Fatalf("a working log reports %q", reason)
+	}
+
+	// The directory the log lives in becomes a file, so every open under it fails
+	// for everybody.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dir, []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if reason := log.Unwritable(); reason == "" {
+		t.Error("a log that can no longer be opened for append reports as writable")
+	}
+}
+
+// A long argv and a long run in the same command: the output is sized against
+// what the rest of the record costs, so this is an ordinary record rather than
+// a reduced one.  With the reserve fixed in advance the two added up past the
+// cap and every such command was recorded with its fields cut.
+func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
+	const cap = 1 << 20
+	path := filepath.Join(t.TempDir(), "audit.log")
+	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: cap})
+
+	// argv at what [server] max_request_bytes would let through, and output at
+	// what Collector streams against, which is the pair that has to coexist.
+	args := []string{"ansible-playbook", "--extra-vars", strings.Repeat("x", 200_000)}
+	collector := NewCollector(log.OutputBudget())
+	collector.Add(strings.Repeat("ok: [host.example.com]\n", 60_000))
+
+	log.Write(map[string]any{
+		"log_id": "x", "op": "exec", "cmd": args, "cwd": "/srv/ansible",
+		"exit_code": 0.0,
+	}, collector.Output())
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > cap {
+		t.Fatalf("the record is %d bytes for a cap of %d", len(data), cap)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if record["record_reduced"] == true {
+		t.Error("an ordinary command was recorded as a reduced record")
+	}
+	if got, _ := record["cmd"].([]any); len(got) != 3 {
+		t.Errorf("argv was cut to %d arguments", len(got))
+	}
+	if got, _ := record["cmd"].([]any); len(got) == 3 {
+		if arg, _ := got[2].(string); len(arg) != 200_000 {
+			t.Errorf("the long argument was cut to %d bytes", len(arg))
+		}
+	}
+}

@@ -912,7 +912,7 @@ func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	if err := rejectUnknownKeys(sec, auditKeys, where); err != nil {
 		return err
 	}
-	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log", MaxRecordBytes: 262144}
+	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log", MaxRecordBytes: 1048576}
 	if out.LogPath, err = str(sec["log_path"], where, out.LogPath); err != nil {
 		return err
 	}

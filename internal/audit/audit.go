@@ -47,6 +47,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -121,7 +122,6 @@ type Output struct {
 type Log struct {
 	config config.AuditConfig
 	mu     sync.Mutex
-	ready  bool
 }
 
 func NewLog(cfg config.AuditConfig) *Log { return &Log{config: cfg} }
@@ -129,30 +129,63 @@ func NewLog(cfg config.AuditConfig) *Log { return &Log{config: cfg} }
 // OutputBudget is how many bytes of a record's line the command's output may
 // occupy, once escaped.  Derived rather than configured: an operator sets how
 // large a record may be, and the rest of the record is not theirs to size.
+//
+// What [Collector] streams against, so it is the constant-reserve estimate: the
+// rest of the record does not exist yet while a run is still producing output.
+// Write sizes the same field again against the record it ends up with.
 func (l *Log) OutputBudget() int {
 	return max(l.config.MaxRecordBytes-recordReserve, minOutputBudget)
 }
 
-func (l *Log) ensure() error {
-	if l.ready {
-		return nil
+// roomForOutput is what is left of the cap once everything else in the record is
+// counted: the record is marshalled with an empty output field and measured.
+// One extra pass over a small map, and it is what keeps an ordinary command with
+// a long argv from being recorded as a reduced one.
+func (l *Log) roomForOutput(payload map[string]any) int {
+	rest := make(map[string]any, len(payload)+3)
+	maps.Copy(rest, payload)
+	rest["output"] = ""
+	// The fields Write adds after this measurement, so the room accounts for them
+	// rather than being spent and then overrun by a few dozen bytes.
+	rest["output_dropped"] = 0
+	rest["output_truncated"] = true
+	rest["record_reduced"] = true
+	skeleton, err := json.Marshal(rest)
+	if err != nil {
+		return l.OutputBudget()
 	}
+	// One for the newline the line carries.
+	return max(l.config.MaxRecordBytes-len(skeleton)-1, minOutputBudget)
+}
+
+// open returns the log open for append, creating it 0600 if it is not there.
+//
+// Nothing is cached across calls.  A latch here made "can this be written?" a
+// question answered once, at startup, about a host that had not run anything
+// yet -- and every answer after that was about the past: a read-only remount, an
+// immutable bit, an owner changed by a hand-edited logrotate rule, none of them
+// seen, and Unwritable saying yes to all of them.  That is the state
+// refuseUnauditable exists to rule out, so it is asked again every time, for the
+// price of an open and a close.
+//
+// O_CREATE though the file usually exists: logrotate renames it away, and the
+// next record makes the new one rather than waiting for anything to notice.
+func (l *Log) open() (*os.File, error) {
 	path := l.config.LogPath
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+		return nil, err
 	}
 	// An explicit mode rather than umask-plus-touch: the umask is process-wide,
 	// and a child forked during that window would inherit it.
 	fh, err := os.OpenFile(path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	_ = fh.Close()
-	if err := os.Chmod(path, 0o600); err != nil {
-		return err
+	if err := fh.Chmod(0o600); err != nil {
+		_ = fh.Close()
+		return nil, err
 	}
-	l.ready = true
-	return nil
+	return fh, nil
 }
 
 // Unwritable reports why the next record could not be written, or "" when one
@@ -166,9 +199,11 @@ func (l *Log) ensure() error {
 func (l *Log) Unwritable() string {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if err := l.ensure(); err != nil {
+	fh, err := l.open()
+	if err != nil {
 		return fmt.Sprintf("%s cannot be opened for append (%v)", l.config.LogPath, err)
 	}
+	_ = fh.Close()
 	var fs unix.Statfs_t
 	if err := unix.Statfs(filepath.Dir(l.config.LogPath), &fs); err != nil {
 		// Not a refusal: a filesystem that will not answer is not one that has been
@@ -190,10 +225,17 @@ func (l *Log) Write(record map[string]any, output Output) {
 	payload := make(map[string]any, len(record)+2)
 	maps.Copy(payload, record)
 
-	// A backstop rather than the usual path: Collector already excerpted what it
-	// streamed.  It runs unconditionally because a caller passing a string of its
-	// own must not be able to write a line past the cap either.
-	text, dropped := Excerpt(output.Text, l.OutputBudget())
+	// Sized against what the rest of the record actually costs, rather than
+	// against the constant Collector had to guess with while the run was still
+	// streaming.  argv is the caller's too and can be most of a record on its own,
+	// so a reserve fixed in advance is either too small, and an ordinary command
+	// needs reducing, or too large, and a short run's output is cut to leave room
+	// nothing used.
+	//
+	// Collector has usually excerpted this already; what is left here is the
+	// difference between its guess and the answer, plus the case of a caller
+	// handing over a string of its own.
+	text, dropped := Excerpt(output.Text, l.roomForOutput(payload))
 	payload["output"] = text
 	if total := output.Dropped + dropped; total > 0 {
 		payload["output_dropped"] = total
@@ -204,14 +246,9 @@ func (l *Log) Write(record map[string]any, output Output) {
 
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if err := l.ensure(); err != nil {
-		log.Printf("cannot open audit log %s: %v", l.config.LogPath, err)
-		return
-	}
-	// O_CREATE though ensure() made the file: logrotate renames it away and
-	// ensure() does not run again.  Opened per write rather than held, which is
-	// what makes a plain rename safe with no copytruncate and no signal.
-	fh, err := os.OpenFile(l.config.LogPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	// Opened per write rather than held, which is what makes a plain rename safe
+	// with no copytruncate and no signal.
+	fh, err := l.open()
 	if err != nil {
 		// Logging that broke does not fail a request here; the request was refused
 		// before it ran, by Unwritable, or it was not one that runs anything.
@@ -261,9 +298,21 @@ func appendLine(fh *os.File, line []byte, path string) {
 	}
 }
 
-// encode is one record as one line, never longer than the cap.  Three steps,
-// each unconditional, so there is no input for which this returns something
-// over the cap or nothing at all.
+// reductions are what encode falls back through when a record does not fit,
+// each a ceiling on one string and on how many entries a list or a map keeps.
+// Both are needed: a record can be too large because one field is long (argv
+// holding a generated `--extra-vars` blob) or because there are many of them
+// (an env_refs map naming the same value under a thousand names), and cutting
+// only strings leaves the second case unreachable by any ceiling.
+//
+// Deliberately few, and each a long way below the last: this runs on a record
+// that is already over the cap, and an operator reading one wants to know it was
+// reduced, not to receive it exactly at the limit.
+var reductions = [][2]int{{fieldCeiling, 64}, {256, 8}, {64, 4}}
+
+// encode is one record as one line, never longer than the cap.  It reduces
+// rather than gives up, because what is over the cap is almost always one
+// caller-chosen field and the rest of the record is the part being audited.
 func (l *Log) encode(payload map[string]any) []byte {
 	limit := l.config.MaxRecordBytes
 	line, err := json.Marshal(payload)
@@ -273,19 +322,30 @@ func (l *Log) encode(payload map[string]any) []byte {
 	if err != nil {
 		log.Printf("audit marshal failed: %v", err)
 	} else {
-		// Some other field is what is large: argv above all, execve taking two
-		// megabytes of it, and it is the agent's text.  Every string is cut to the
-		// same ceiling rather than each getting a limit of its own, and only on a
-		// record that is over the cap anyway.
-		clampStrings(payload, fieldCeiling)
-		if line, err = json.Marshal(payload); err == nil && len(line)+1 <= limit {
-			return append(line, '\n')
+		before, _ := payload["output"].(string)
+		for _, step := range reductions {
+			reduce(payload, step[0], step[1])
+			payload["record_reduced"] = true
+			// The output field is reduced along with the rest, so what it says about
+			// itself has to keep up: a record whose output was cut and does not say so
+			// reads as a complete one.
+			if after, _ := payload["output"].(string); len(after) < len(before) {
+				payload["output_truncated"] = true
+				dropped, _ := payload["output_dropped"].(int)
+				payload["output_dropped"] = dropped + len(before) - len(after)
+				before = after
+			}
+			if line, err = json.Marshal(payload); err == nil && len(line)+1 <= limit {
+				return append(line, '\n')
+			}
 		}
 	}
-	// Not reachable with every string bounded and the output budget derived from
-	// the same cap.  Unconditional so that it stays not reachable: a record that
-	// cannot be made to fit is still evidence that something ran, and dropping the
-	// line would be the one outcome this package exists to rule out.
+	// Reachable only when a record's fixed structure alone is over the cap, which
+	// takes a max_record_bytes near its floor or thousands of redaction counts, and
+	// neither is something a brokered command chooses.  Unconditional so that it
+	// stays that way: a record that cannot be made to fit is still evidence that
+	// something ran, and writing no line at all is the one outcome this package
+	// exists to rule out.
 	stub, _ := json.Marshal(map[string]any{
 		"log_id": payload["log_id"], "op": payload["op"], "peer": payload["peer"],
 		"error": "this record did not fit [audit] max_record_bytes and was reduced to its identity",
@@ -293,38 +353,74 @@ func (l *Log) encode(payload map[string]any) []byte {
 	return append(stub, '\n')
 }
 
-// clampStrings cuts every string reachable in the record to limit bytes.  It
-// walks the maps and slices a record is made of rather than naming fields, so a
-// field added later is bounded without this having to hear about it.
-func clampStrings(value any, limit int) any {
+// reduce cuts every string in the record to strLimit encoded bytes and every list
+// and map to items entries, saying so where it does.  It walks what a record is
+// made of rather than naming fields, so a field added later is bounded without
+// this having to hear about it.
+//
+// Encoded bytes, not raw ones: the cap this serves is counted in what the line
+// spends, so a ceiling counted any other way is a ceiling in the wrong unit --
+// two hundred arguments of a thousand '<' each are 200KB raw, under any
+// per-string limit worth having, and 1.2MB once encoded.
+func reduce(value any, strLimit, items int) any {
 	switch typed := value.(type) {
 	case string:
-		if len(typed) <= limit {
-			return typed
-		}
-		return cutAtRune(typed, limit) + "… (cut to fit the record)"
+		return clamp(typed, strLimit)
 	case map[string]any:
 		for key, inner := range typed {
-			typed[key] = clampStrings(inner, limit)
+			typed[key] = reduce(inner, strLimit, items)
 		}
+		return dropEntries(typed, items)
 	case map[string]string:
 		for key, inner := range typed {
-			if len(inner) > limit {
-				typed[key] = cutAtRune(inner, limit) + "… (cut to fit the record)"
-			}
+			typed[key] = clamp(inner, strLimit)
 		}
+		return dropEntries(typed, items)
 	case []string:
 		for i, inner := range typed {
-			if len(inner) > limit {
-				typed[i] = cutAtRune(inner, limit) + "… (cut to fit the record)"
-			}
+			typed[i] = clamp(inner, strLimit)
+		}
+		if len(typed) > items {
+			return append(typed[:items:items], more(len(typed)-items))
 		}
 	case []any:
 		for i, inner := range typed {
-			typed[i] = clampStrings(inner, limit)
+			typed[i] = reduce(inner, strLimit, items)
+		}
+		if len(typed) > items {
+			return append(typed[:items:items], any(more(len(typed)-items)))
 		}
 	}
 	return value
+}
+
+// clamp is one string at an encoded ceiling, marked where it was cut.
+func clamp(text string, budget int) string {
+	if encodedLen(text) <= budget {
+		return text
+	}
+	return prefixWithin(text, max(budget-markerReserve, 1)) + "… (cut to fit the record)"
+}
+
+func more(n int) string { return fmt.Sprintf("… (%d more, cut to fit the record)", n) }
+
+// dropEntries keeps the first items keys in sorted order, so which entries
+// survive is the same on every run rather than whatever the map iterated to
+// first.  A map is generic over its value type, so this is written twice rather
+// than reached through reflection.
+func dropEntries[V any](entries map[string]V, items int) map[string]V {
+	if len(entries) <= items {
+		return entries
+	}
+	keys := make([]string, 0, len(entries))
+	for key := range entries {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys[items:] {
+		delete(entries, key)
+	}
+	return entries
 }
 
 // Excerpt keeps the head and the tail of a command's output and says what it
@@ -453,9 +549,15 @@ type Collector struct {
 	budget  int
 	head    strings.Builder
 	headLen int // encoded, so the budget means the same here as in the record
-	tail    []string
-	tailLen int
-	dropped int
+	// headShut is set by the first chunk that goes to the tail.  Without it the
+	// head keeps taking whatever still fits, so a chunk too large for the room
+	// left goes to the tail and a smaller one after it lands in the head, ahead of
+	// it: the record then shows a run's own output out of the order it was
+	// written, which is worse than showing less of it.
+	headShut bool
+	tail     []string
+	tailLen  int
+	dropped  int
 }
 
 func NewCollector(budget int) *Collector {
@@ -471,7 +573,7 @@ func (c *Collector) Add(text string) {
 	// Fill the head first, then treat everything after it as tail, dropping from
 	// the front of the tail as it overflows.  A ring of chunks rather than of
 	// bytes: chunks arrive small, and the one that overshoots is trimmed once.
-	if c.headLen < c.half() {
+	if !c.headShut && c.headLen < c.half() {
 		keep := prefixWithin(text, c.half()-c.headLen)
 		if keep != "" {
 			c.head.WriteString(keep)
@@ -482,6 +584,9 @@ func (c *Collector) Add(text string) {
 			return
 		}
 	}
+	// Whatever did not fit the head ends it: from here the record is written in
+	// the order the run wrote it, or it is not worth reading.
+	c.headShut = true
 	c.tail = append(c.tail, text)
 	c.tailLen += encodedLen(text)
 	for c.tailLen > c.half() && len(c.tail) > 1 {

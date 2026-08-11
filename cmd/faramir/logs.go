@@ -167,23 +167,36 @@ func parseLine(line []byte) (record map[string]any, lost bool) {
 //
 // A count of zero or less asks for nothing and gets nothing: treating it as "no
 // limit" would print the whole log to somebody who asked for none of it.
+//
+// The ring grows to what the log holds rather than to what -n asked for, so
+// `-n 500000000` on a log of ten records costs ten records.  Sized up front it
+// was an allocation the caller named: a number the flag accepts, times a slice
+// header, before a single line had been read.
 func tailRecords(path string, count int) ([]map[string]any, int, error) {
 	if count <= 0 {
 		return nil, 0, nil
 	}
-	ring, next, filled := make([][]byte, count), 0, false
+	ring, next, filled := make([][]byte, 0, min(count, 1024)), 0, false
 	if err := scanAuditLog(path, func(line []byte) bool {
 		// Copied: the reader owns its buffer and reuses it on the next line.
-		ring[next] = append([]byte(nil), line...)
+		kept := append([]byte(nil), line...)
+		if !filled && len(ring) < count {
+			ring = append(ring, kept)
+			if len(ring) == count {
+				filled = true
+			}
+			return true
+		}
+		ring[next] = kept
 		if next++; next == count {
-			next, filled = 0, true
+			next = 0
 		}
 		return true
 	}); err != nil {
 		return nil, 0, err
 	}
 
-	ordered := ring[:next]
+	ordered := ring
 	if filled {
 		ordered = append(append([][]byte{}, ring[next:]...), ring[:next]...)
 	}

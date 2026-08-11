@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -412,5 +413,31 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 	}
 	if !strings.Contains(line, "ask_approval refused") {
 		t.Errorf("summarise = %q, want the op and the outcome as separate columns", line)
+	}
+}
+
+// The ring grows to what the log holds rather than to what -n asked for.  Sized
+// up front, `-n` was an allocation the caller named: a number the flag accepts,
+// times a slice header, before a single line had been read.
+func TestTailRecordsDoesNotAllocateWhatWasAskedFor(t *testing.T) {
+	path := writeLog(t,
+		`{"log_id":"a","op":"exec"}`,
+		`{"log_id":"b","op":"exec"}`,
+	)
+	var before, after runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&before)
+	records, _, err := tailRecords(path, 500_000_000)
+	runtime.ReadMemStats(&after)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 2 {
+		t.Fatalf("got %d records, want 2", len(records))
+	}
+	// A slice header is 24 bytes, so the old form wanted 12GB here.  Anything in
+	// the megabytes means the count was allocated rather than the log.
+	if grew := after.TotalAlloc - before.TotalAlloc; grew > 8<<20 {
+		t.Errorf("reading two records with -n 500000000 allocated %d bytes", grew)
 	}
 }
