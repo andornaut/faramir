@@ -156,7 +156,18 @@ func (l *Log) roomForOutput(payload map[string]any) int {
 		return l.OutputBudget()
 	}
 	// One for the newline the line carries.
-	return max(l.config.MaxRecordBytes-len(skeleton)-1, minOutputBudget)
+	room := l.config.MaxRecordBytes - len(skeleton) - 1
+	if len(skeleton) >= l.config.MaxRecordBytes {
+		// The rest of the record is over the cap on its own, so reduction is about to
+		// cut it down and the output that survives has room after that.  Sizing the
+		// output to nothing here would throw it away because the argv was long, which
+		// is the wrong one of the two to lose.
+		return l.OutputBudget()
+	}
+	// No floor under what is left: a floor is a claim about room that is not
+	// there, and the record then overshoots and is reduced, so the output it was
+	// protecting comes out smaller than the honest arithmetic would have left it.
+	return max(room, 0)
 }
 
 // open returns the log open for append, creating it 0600 if it is not there.

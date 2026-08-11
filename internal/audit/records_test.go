@@ -1,6 +1,7 @@
 package audit
 
 import (
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -135,7 +136,7 @@ func repoRoot(t *testing.T) string {
 // records any more.  A refactor that builds a record some other way -- a struct,
 // a helper, a map assembled key by key -- takes it out of this test's sight, and
 // a guard that has stopped looking must say so rather than pass.
-const knownRecordShapes = 8
+const knownRecordShapes = 10
 
 func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 	shapes := recordShapes(t)
@@ -177,42 +178,70 @@ func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 	}
 }
 
-// What the floor would have to be for the widest record in the tree, reported
-// rather than asserted: it is the number to raise config.MinRecordBytes to when
-// the test above starts failing, and it is worth seeing before it does.
-func TestReportTheFloorTheWidestRecordNeeds(t *testing.T) {
+// What config.MinRecordBytes buys, reported rather than asserted.
+//
+// The floor is not sized by what a record's fields need -- they survive far
+// below it, cut down to nothing much.  It is sized by the smallest cap at which
+// an ordinary record is written *normally*: not reduced, and with enough of the
+// command's output left to be worth reading.  Those are different numbers and
+// the first one is the misleading one, so this reports both.
+func TestReportWhatTheFloorBuys(t *testing.T) {
 	// It writes below the cap that fits, on purpose: that is the boundary it is
 	// looking for.
 	defer unstrict()()
+
 	widest, widestAt := 0, ""
 	for where, keys := range recordShapes(t) {
 		if len(keys) > widest {
 			widest, widestAt = len(keys), where
 		}
 	}
-	// Bisect on the cap: the smallest one at which the widest record still comes
-	// out whole.
-	record := map[string]any{}
-	for i := range widest {
-		record["field_"+strconv.Itoa(i)] = strings.Repeat("<", 4096)
-	}
-	needed := config.MinRecordBytes
-	for cap := 256; cap <= config.MinRecordBytes; cap += 64 {
-		path := filepath.Join(t.TempDir(), "audit.log")
-		fresh := map[string]any{}
-		for key, value := range record {
-			fresh[key] = value
+
+	// A record of the widest shape, with a run's worth of output behind it.
+	record := func() map[string]any {
+		out := map[string]any{}
+		for i := range widest - 1 {
+			out["field_"+strconv.Itoa(i)] = "an ordinary value"
 		}
-		NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: cap}).Write(fresh, Output{})
+		out["log_id"] = "2026-08-11T06:00:00Z-abcd000001"
+		return out
+	}
+	output := Output{Text: strings.Repeat("ok: [host.example.com]\n", 100_000)}
+
+	fieldsSurviveAt, normalAt, keptAtFloor := 0, 0, 0
+	for cap := 256; cap <= 16*config.MinRecordBytes; cap += 64 {
+		path := filepath.Join(t.TempDir(), "audit.log")
+		NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: cap}).Write(record(), output)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if strings.Count(string(data), "field_") == widest {
-			needed = cap
+		var got map[string]any
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if fieldsSurviveAt == 0 && strings.Count(string(data), "field_") == widest-1 {
+			fieldsSurviveAt = cap
+		}
+		if normalAt == 0 && got["record_reduced"] != true {
+			normalAt = cap
+		}
+		if cap >= config.MinRecordBytes && keptAtFloor == 0 {
+			kept, _ := got["output"].(string)
+			keptAtFloor = len(kept)
+		}
+		if fieldsSurviveAt > 0 && normalAt > 0 && keptAtFloor > 0 {
 			break
 		}
 	}
-	t.Logf("widest record: %d fields at %s; it fits from a cap of %d, and the floor is %d (%.1fx)",
-		widest, widestAt, needed, config.MinRecordBytes, float64(config.MinRecordBytes)/float64(needed))
+	t.Logf("widest record: %d fields at %s", widest, widestAt)
+	t.Logf("its fields survive from a cap of %d, which is not the number to judge "+
+		"the floor by: everything is cut to nothing much down there", fieldsSurviveAt)
+	t.Logf("it is written unreduced from a cap of %d, and config.MinRecordBytes is %d",
+		normalAt, config.MinRecordBytes)
+	t.Logf("at the floor a record keeps %d bytes of a command's output", keptAtFloor)
+	if normalAt > config.MinRecordBytes {
+		t.Errorf("an ordinary record is reduced at the floor: raise config.MinRecordBytes "+
+			"to at least %d", normalAt)
+	}
 }
