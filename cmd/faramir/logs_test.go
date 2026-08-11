@@ -255,6 +255,25 @@ func TestAnAbsentLogIsNamedEvenWhenNothingWasAskedFor(t *testing.T) {
 	}
 }
 
+// The third case of an empty listing, after an absent log and an empty one:
+// nothing was asked for.  Reporting that as "holds no records" is a claim about
+// the host, and the log named there may be full of them.
+func TestEmptyReasonSeparatesAskingForNoneFromHavingNone(t *testing.T) {
+	for _, count := range []int{0, -1, -5} {
+		got := emptyReason("/var/log/faramir/audit.log", count)
+		if !strings.Contains(got, fmt.Sprintf("-n %d", count)) {
+			t.Errorf("emptyReason(%d) = %q, want it to name the count that asked for nothing", count, got)
+		}
+		if strings.Contains(got, "holds no records") {
+			t.Errorf("emptyReason(%d) = %q: a count of none was reported as a log of none", count, got)
+		}
+	}
+	got := emptyReason("/var/log/faramir/audit.log", 20)
+	if !strings.Contains(got, "/var/log/faramir/audit.log holds no records") {
+		t.Errorf("emptyReason(20) = %q, want the log named as empty", got)
+	}
+}
+
 // rec is one record read back the way the command reads it.
 func rec(t *testing.T, line string) map[string]any {
 	t.Helper()

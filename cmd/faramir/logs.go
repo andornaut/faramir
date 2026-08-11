@@ -91,7 +91,7 @@ func cmdLogs(args []string) int {
 	}
 	reportSkipped(path, skipped)
 	if len(records) == 0 {
-		fmt.Fprintf(os.Stderr, "%s holds no records to show\n", path)
+		fmt.Fprintln(os.Stderr, emptyReason(path, *count))
 		return 0
 	}
 	// Once per day rather than on every line, which would crowd out the columns
@@ -270,6 +270,19 @@ func reportSkipped(path string, skipped int) {
 		"The broker writes one record per line and takes back a write that lands "+
 		"short, so a line like this was written by something else or damaged "+
 		"afterwards\n", path, skipped)
+}
+
+// emptyReason is why the listing is empty.  A count that asked for nothing and
+// a log that holds nothing are different answers, and one message for both
+// reports the state of the host to somebody who typed -n 0: the log named there
+// may be full of records.  An absent log is neither, and is reported before
+// this by tailRecords opening it whatever the count was.
+func emptyReason(path string, count int) string {
+	if count <= 0 {
+		return fmt.Sprintf("-n %d asks for no records. Pass a positive count to "+
+			"list some, or a log-id to look one up", count)
+	}
+	return fmt.Sprintf("%s holds no records to show", path)
 }
 
 // shortIDWidth is the hex tail of a log_id: the writer's nonce and its counter,
