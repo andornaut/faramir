@@ -147,7 +147,7 @@ Read the "expires in" and mean it: the clock started when the question was raise
 
 `--deny` needs no id: only one question is ever outstanding, so `sudo faramir approve --deny` refuses the one that is waiting, printing what it refused first. There is deliberately no bare form that *approves* whatever is there. Refusing something unseen is safe, and an approval that names no command is one nobody judged, which is what this channel exists to prevent.
 
-`sudo faramir approve --watch --deny` is the unattended version: it refuses each question as it arrives, reads no answer, and can approve nothing. Worth leaving running when you step away: a brokered `sudo` then fails at once and says why, instead of hanging for `timeout_sec` and failing anyway.
+It does not combine with `--watch`, which answers each question as it arrives from its own terminal; passing both is a usage error rather than a silently ignored flag.
 
 And `sudo faramir approve` from your own shell is the last resort rather than the first, which is why the command's own error message no longer suggests it: reaching root that way leaves a warm sudo timestamp in a shell the agent can use, which hands it the account this whole check exists to keep it out of. On a host installed with `--allow-sudo`, consider `Defaults:<you> timestamp_timeout=0` for the same reason.
 

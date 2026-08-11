@@ -46,6 +46,17 @@ func cmdApprove(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: faramir approve [options] [ID]")
 		return 2
 	}
+	// --deny answers the one question outstanding, so it has nothing to say to the
+	// watcher, which answers each as it arrives from the terminal it runs on.
+	// Refused rather than ignored: a flag that silently does nothing reads as a
+	// standing refusal to whoever passed it, and this one would not be.
+	if *deny && *watch {
+		fmt.Fprintln(os.Stderr, "faramir approve: --deny answers one question, so it "+
+			"does not combine with --watch. Use `faramir approve --deny` to refuse "+
+			"what is waiting, or --watch and answer each one")
+		return 2
+	}
+
 	if os.Geteuid() != 0 {
 		// Not "try sudo".  Reaching root that way from the account the agent runs as
 		// leaves a warm sudo timestamp in a shell the agent can use, which hands it
@@ -64,7 +75,7 @@ func cmdApprove(args []string) int {
 		return answer(*c.socket, id, !*deny, *c.json)
 	}
 	if *watch {
-		return watchApprovals(*c.socket, *deny)
+		return watchApprovals(*c.socket)
 	}
 	// --deny needs no id, and the asymmetry with approving is the point.  Only one
 	// question is ever outstanding, so "the one that is waiting" names exactly one
@@ -89,7 +100,7 @@ func denyWaiting(socketPath string, asJSON bool) int {
 	}
 	if len(questions) == 0 {
 		fmt.Fprintln(os.Stderr, "nothing is waiting to be refused. "+
-			"`faramir approve --watch --deny` refuses each one as it arrives")
+			"`faramir approve --watch` waits for the next one")
 		return 1
 	}
 	// At most one, ever: a second command asking while this waits is refused
@@ -145,22 +156,10 @@ func listApprovals(socketPath string, asJSON bool) int {
 // This terminal, deliberately.  The prompt must not land where the agent can
 // type, so run it somewhere the agent does not reach: not a shell it drives, and
 // not a pane of a session it shares.
-//
-// denyAll makes it an unattended refusenik: it reads no answer and approves
-// nothing, refusing each question as it arrives.  Useful for stepping away, a
-// command that would otherwise hang for [sudo] timeout_sec failing at once and
-// saying why, and safe by construction, there being no path through it that can
-// say yes.  warnIfTypeable is skipped there for the same reason: that warning is
-// about an approval somebody else could type, and nothing here can approve.
-func watchApprovals(socketPath string, denyAll bool) int {
-	if denyAll {
-		fmt.Fprintln(os.Stderr, "refusing every approval request as it arrives, and "+
-			"reading no answer: nothing can be approved from here. Ctrl-C to stop.")
-	} else {
-		warnIfTypeable()
-		fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, and "+
-			"anything else refuses. One command is asked about at a time. Ctrl-C to stop.")
-	}
+func watchApprovals(socketPath string) int {
+	warnIfTypeable()
+	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, and "+
+		"anything else refuses. One command is asked about at a time. Ctrl-C to stop.")
 	// No set of ids already answered.  There was one, and it is gone with the
 	// queue: a question is removed from the broker the moment it is answered,
 	// refused or expired, and only one is ever outstanding, so a question cannot
@@ -188,15 +187,12 @@ func watchApprovals(socketPath string, denyAll bool) int {
 		}
 		for _, question := range questions {
 			printQuestion(question)
-			approve := false
-			if !denyAll {
-				var ok bool
-				if approve, ok = readAnswer(); !ok {
-					// Stdin closed: nothing further can be answered here, and leaving the
-					// loop spinning would refuse nothing and approve nothing.
-					fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
-					return 0
-				}
+			approve, ok := readAnswer()
+			if !ok {
+				// Stdin closed: nothing further can be answered here, and leaving the
+				// loop spinning would refuse nothing and approve nothing.
+				fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
+				return 0
 			}
 			// The two failures are not the same and must not be treated alike.
 			//

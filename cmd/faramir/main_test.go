@@ -284,12 +284,18 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 // deliberate and worth holding in place.  Refusing something unseen is safe,
 // and there is no bare `faramir approve` that says yes to whatever is there,
 // because an approval that names no command is one nobody judged.
-func TestDenyWithoutAnIDIsAccepted(t *testing.T) {
+//
+// It does not combine with --watch, which answers each question as it arrives
+// from its own terminal.  Refused rather than ignored: a flag that silently does
+// nothing reads as a standing refusal to whoever passed it.
+func TestDenyWithoutAnIDIsAcceptedButNotWithWatch(t *testing.T) {
 	// Not root, so it stops at that check rather than dialling a socket, which is
 	// enough to show --deny is no longer refused as a usage error before it.
-	for _, args := range [][]string{{"--deny"}, {"--deny", "--watch"}} {
-		if code := cmdApprove(args); code == 2 {
-			t.Errorf("faramir approve %v = 2, want --deny accepted without an id", args)
-		}
+	if code := cmdApprove([]string{"--deny"}); code == 2 {
+		t.Error("faramir approve --deny = 2, want it accepted without an id")
+	}
+	if code := cmdApprove([]string{"--deny", "--watch"}); code != 2 {
+		t.Errorf("faramir approve --deny --watch = %d, want 2: --deny answers one "+
+			"question and has nothing to say to the watcher", code)
 	}
 }
