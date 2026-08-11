@@ -42,10 +42,6 @@ type request struct {
 	KillGraceSec int               `json:"kill_grace_sec"`
 }
 
-// --------------------------------------------------------------------------
-// Server
-// --------------------------------------------------------------------------
-
 type Executor struct {
 	config *config.Config
 	ln     net.Listener
@@ -58,23 +54,16 @@ type Executor struct {
 	cgroupBase string
 }
 
-// maxConcurrent is a backstop, not a knob.
-//
-// The broker is the executor's only permitted client and gates every child
-// behind [server] max_concurrency, holding a slot for the whole run, so that
-// number is the one that binds and this one is never reached.  Not a config key
-// for that reason: raising or lowering it would change nothing an operator could
-// observe.  What it still provides is that a broker with a bug cannot fork
-// without limit here, which is a reason to keep the check and none to tune it.
+// maxConcurrent is a backstop, not a knob.  The broker is this socket's only
+// permitted client and holds a [server] max_concurrency slot for the whole of
+// each run, so that number binds first and this one is never reached; it bounds
+// a broker with a bug, which is why it is not a config key.
 const maxConcurrent = 16
 
 func New(cfg *config.Config) *Executor {
 	e := &Executor{config: cfg, slots: make(chan struct{}, maxConcurrent)}
-	// Probed once.  Every run is confined to its own cgroup: that is the one
-	// reaper, and it is what a setsid child cannot escape.  A run that cannot be
-	// confined is refused rather than reaped by process group, which a setsid child
-	// escapes: there is no fallback, so a host without a delegated cgroup refuses
-	// every command until it is fixed.
+	// Probed once: per run this is a field read rather than a syscall.  "" means
+	// every command is refused until the host is fixed.
 	e.cgroupBase = cgroupBase()
 	if e.cgroupBase == "" {
 		log.Printf("this executor has no delegated cgroup, so brokered commands will be " +
@@ -399,10 +388,6 @@ func round3(v float64) float64 {
 func errorResponse(code, message string) map[string]any {
 	return map[string]any{"error": map[string]string{"code": code, "message": message}}
 }
-
-// --------------------------------------------------------------------------
-// Client (used by the broker)
-// --------------------------------------------------------------------------
 
 type ChildResult struct {
 	ExitCode int

@@ -107,13 +107,9 @@ type Layout struct {
 	// was rendered into a pattern.
 	SSHKey string
 
-	// AllowSudo is whether this host grants the executor a sudoers entry, and is the
-	// switch for the whole arrangement: unset renders no [sudo] section, writes
-	// no sudoers file and no PAM service, so nothing can be asked for.
-	//
-	// There is no credential to place.  sudo authenticates that account against a
-	// PAM service of faramir's own whose auth step asks the broker whether a human
-	// approved this command, so nothing is minted, stored or handed out.
+	// AllowSudo is the switch for the whole arrangement: unset renders no [sudo]
+	// section, writes no sudoers file and no PAM service, so nothing can be asked
+	// for.
 	AllowSudo bool
 }
 
@@ -122,9 +118,7 @@ type Layout struct {
 func (l Layout) PamHelper() string { return filepath.Join(l.LibexecDir, "pam-approve") }
 
 // PamService is the sudoers `pam_service` name, and so the file under
-// /etc/pam.d that sudo reads for the executor's account alone.  Private on
-// purpose: a mistake in it reaches that account and leaves every other sudo on
-// the host untouched.
+// /etc/pam.d that sudo reads for the executor's account alone.
 func (l Layout) PamService() string { return pamServiceName }
 
 // PamFile is where that service lives.

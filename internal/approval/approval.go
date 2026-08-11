@@ -1,40 +1,16 @@
 // Package approval lets a brokered command become root on this host, once, with
-// a human's consent, and holds no credential that could do it again.
-//
-// `faramir init --allow-sudo` grants the executor's uid a sudoers entry and points
-// sudo at a PAM service of faramir's own, whose whole authentication step is a
-// helper that asks the broker whether this command was approved.  There is no
-// password: nothing is minted, nothing is stored, nothing is handed out, and so
-// nothing can be kept.  What satisfies sudo is the broker's answer, spent where
-// it is given, naming one command.
-//
-// What that fixes.  A password is a bearer token: whatever holds it can
-// authenticate, so a command approved once could read the value out of the
-// helper it was given and leave it for a later brokered command that was never
-// approved (same uid, shared PrivateTmp, shared working tree).  One approval
-// became root until the value was replaced.  An approval that is a decision
-// rather than a secret cannot be carried anywhere.
-//
-// How the pieces fit:
+// a human's consent, and holds no credential that could do it again.  Why it is
+// shaped this way is docs/design.md; this is what the code must maintain.
 //
 //   - The child's environment carries FARAMIR_APPROVAL_TOKEN and nothing else.
 //     Inert on its own: the op that spends it is refused to anything but root.
-//   - sudo runs the PAM helper as root (pam_exec's `seteuid`; without it the
-//     helper runs as the *invoking* uid, which is the child's own, and the
-//     child is its ancestor and could ptrace it into exiting zero).
-//   - The helper finds the token by walking /proc up from sudo, so nothing has
-//     to be threaded through PAM, and asks the broker over the broker socket.
+//   - The PAM helper finds the token by walking /proc up from sudo, so nothing
+//     has to be threaded through PAM, and asks the broker over its socket.
 //   - The broker files a question, a human answers it through `faramir
 //     approve`, and the answer releases every request from that one command.
 //
-// The bound this does not reach, and no design here can: an approved command
-// *is* root, and root can remove the gate by writing its own sudoers file,
-// editing the PAM service, or replacing the helper.  An approval is consent for
-// a command, not a sandbox around it.
-//
-// Optional: with no [sudo] exec_user nothing is granted, no question can be
-// raised, and a brokered command's sudo fails as it does on any host that
-// granted nothing.
+// Optional: with no [sudo] exec_user nothing is granted and no question can be
+// raised.
 package approval
 
 import (

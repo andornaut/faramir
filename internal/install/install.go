@@ -59,13 +59,9 @@ type Options struct {
 	// config is not.
 	KnownHosts string
 
-	// AllowSudo grants the executor a password-required sudoers entry on this host,
-	// pointed at a PAM service of faramir's own whose auth step asks the broker
-	// whether a human approved the brokered command making the call.  So one
-	// brokered command can configure the fleet and the controller together, and
-	// there is no credential: the answer is a decision, not a secret.  Off by
-	// default: it is the one place the executor's reach grows, and every request is
-	// answered by a human naming the command.
+	// AllowSudo lets a brokered command ask to become root on this host, so one
+	// run can configure the fleet and the controller together.  Off by default: it
+	// is the one place the executor's reach grows.  See docs/operating.md.
 	//
 	// A switch rather than a value read once: re-running without it removes the
 	// grant, which is the direction that takes reach away.

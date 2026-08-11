@@ -13,24 +13,15 @@ import (
 )
 
 // Per-run cgroup confinement: a brokered command is spawned into a cgroup of its
-// own and the whole cgroup is torn down when the run ends.  This is the one
-// reaper, with no process-group fallback.  A process group (what Setsid sets up
-// and killpg reaches) is escaped by a child that calls setsid(), which starts a
-// new session and group the signal misses, while a cgroup is not escapable: a
-// descendant inherits it and cannot move out without write on another cgroup,
-// which this uid does not have, so cgroup.kill reaps the whole tree, the setsid
-// child among it, atomically.
+// own and the whole cgroup is torn down when the run ends.  A descendant
+// inherits the cgroup and cannot move out without write on another one, which
+// this uid does not have, so cgroup.kill reaps the whole tree atomically,
+// including a child that called setsid() and left the process group behind.
 //
-// It needs cgroup v2, a unit granted Delegate=, and cgroup.kill (kernel >= 5.14).
-// `init` renders Delegate= on the executor unit for every install, approval or
-// not, so a real host always confines.  A host that cannot (an old kernel, a
-// container without delegation) refuses every command rather than reaping by
-// process group, because a silent degrade there is the failure this closes: an
-// approval's serialization rests on a run leaving no straggler that could sit
-// through the next approval window, and even without approval an unreaped setsid
-// child is a process outliving the run that spawned it.
-//
-// `faramir doctor` fails a host whose executor unit lost the delegation.
+// This is the one reaper, with no process-group fallback: a host that cannot
+// confine refuses every command rather than degrading to the escapable
+// mechanism.  See docs/design.md for why there is no fallback.  It needs cgroup
+// v2, a unit granted Delegate=, and cgroup.kill (kernel >= 5.14).
 
 // cgroupBase is the cgroup v2 directory this executor may create run cgroups
 // under, or "" when confinement is unavailable.  Probed once at startup: per run

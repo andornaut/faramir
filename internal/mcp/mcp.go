@@ -31,10 +31,6 @@ func socketPath() string {
 	return defaultSocket
 }
 
-// --------------------------------------------------------------------------
-// Tool definitions
-// --------------------------------------------------------------------------
-
 type tool struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -100,10 +96,6 @@ var tools = []tool{
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 	},
 }
-
-// --------------------------------------------------------------------------
-// Broker calls
-// --------------------------------------------------------------------------
 
 type brokerResponse struct {
 	ExitCode   *int   `json:"exit_code"`
@@ -244,10 +236,6 @@ func callTool(name string, arguments map[string]any) map[string]any {
 	}
 	return format(response)
 }
-
-// --------------------------------------------------------------------------
-// JSON-RPC
-// --------------------------------------------------------------------------
 
 type message struct {
 	Method string          `json:"method"`

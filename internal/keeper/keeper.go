@@ -11,16 +11,9 @@
 // Fingerprinting lives here because the secrets are group-readable by this uid
 // alone; the broker asks what changed rather than looking.
 //
-// Protocol: one line of JSON in, one out, same shape as the broker socket.
-//
-//	-> {"op": "get_values"}
-//	<- {"values": {ref: value, ...}, "state": [...], "errors": [...], "unresolved": [...]}
-//	-> {"op": "get_state"}
-//	<- {"state": [{"path": ..., "mtime_unix_nano": ..., "size": ...}], "errors": [...], "unresolved": [...]}
-//	<- {"error": {"code": ..., "message": ...}}
-//
-// get_values returns every managed value, never a subset, and carries the state
-// with it so a reload is one round trip.
+// Two ops, get_values and get_state, shaped like the broker socket's and
+// specified in docs/protocol.md.  get_values returns every managed value, never
+// a subset, and carries the file state with it so a reload is one round trip.
 package keeper
 
 import (
@@ -57,10 +50,6 @@ const (
 	// file.
 	requestTimeout = 30 * time.Second
 )
-
-// --------------------------------------------------------------------------
-// Flattening
-// --------------------------------------------------------------------------
 
 // Flatten walks decrypted JSON into "path/to/key" -> string pairs.
 func Flatten(node any) map[string]string {
@@ -106,10 +95,6 @@ func flattenNode(node any, prefix string, out map[string]string) {
 		out[prefix] = fmt.Sprintf("%v", v)
 	}
 }
-
-// --------------------------------------------------------------------------
-// Key location
-// --------------------------------------------------------------------------
 
 // ageSecretKeyRe matches an age identity, so one can be scrubbed from a message
 // without the keeper ever reading the file.
@@ -164,10 +149,6 @@ func (k *KeyHolder) Path() string {
 func (k *KeyHolder) Scrub(text string) string {
 	return ageSecretKeyRe.ReplaceAllString(text, "«AGE-KEY»")
 }
-
-// --------------------------------------------------------------------------
-// File state
-// --------------------------------------------------------------------------
 
 // FileState is one managed file's identity on disk: enough to notice an edit,
 // nothing about its contents.  Nanoseconds, because a serialization that rounds
@@ -257,10 +238,6 @@ func StatAll(secrets config.SecretsConfig) ([]FileState, []string, []string) {
 	return state, errors, unresolved
 }
 
-// --------------------------------------------------------------------------
-// Decryption
-// --------------------------------------------------------------------------
-
 // DecryptAll decrypts every managed file.  Per-file failures are returned as
 // errors rather than aborting, so one broken file does not blank the value set.
 func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]string, []string) {
@@ -349,10 +326,6 @@ func lastLine(s string) string {
 	}
 	return s
 }
-
-// --------------------------------------------------------------------------
-// Server
-// --------------------------------------------------------------------------
 
 type Keeper struct {
 	config *config.Config
@@ -462,7 +435,6 @@ func errorResponse(code, message string) map[string]any {
 	return map[string]any{"error": map[string]string{"code": code, "message": message}}
 }
 
-// SortedRefs is a helper for --check output.
 func SortedRefs(values map[string]string) []string {
 	refs := make([]string, 0, len(values))
 	for ref := range values {

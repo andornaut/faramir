@@ -1,14 +1,9 @@
 package main
 
 // `faramir rekey` applies a changed `.sops.yaml` to a secrets directory that
-// was encrypted before it changed.
+// was encrypted before it changed.  What that is for is docs/operating.md.
 //
-// Adding or dropping an age recipient is two separate facts.  The creation rule
-// decides who can read files sops writes from then on; every file already in
-// the secrets directory is still sealed to the recipients it was written with,
-// and nothing else walks that directory to bring them into line.
-//
-// This walks the managed files rather than leaving the operator to run `sops
+// It walks the managed files rather than leaving the operator to run `sops
 // updatekeys` per file, which rewrites in place with no regard for ownership: a
 // managed file that stops being readable by the secrets group is one the keeper
 // cannot open.  Ownership is preserved by the same writeBack an edit uses, and

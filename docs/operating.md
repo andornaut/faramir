@@ -160,4 +160,4 @@ An approval could leak past the one command it was shown for in two ways. One is
 - the helper must be unwritable by the executor and by you
 - `/etc/pam.d/other` must not be a free pass, for the case where the service file is ever removed
 - `faramir-exec` must hold no `NOPASSWD` entry from any source and no password of its own
-- the executor unit must be delegated a cgroup, so a run is confined and a `setsid` child cannot outlive it. A hard failure on any host, a sudo grant or not, since the cgroup is the one reaper and a run that cannot be confined is refused rather than reaped by the escapable process group.
+- the executor unit must be delegated a cgroup, so a run is confined and a `setsid` child cannot outlive it. A hard failure on any host, a sudo grant or not.

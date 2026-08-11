@@ -1,32 +1,16 @@
 package install
 
-// The sudo grant: the one place the executor's reach grows, and the arrangement that
-// keeps it from growing further.
+// The sudo grant `faramir init --allow-sudo` writes.  What it is for is
+// docs/operating.md; what it must keep saying:
 //
-// `faramir init --allow-sudo` grants ExecUser a sudoers entry whose authentication
-// is a question put to the broker.  A brokered command can then ask to sudo;
-// it cannot sudo.  The ask is
-// answered out of band by a human who is told which command it is for, on a
-// channel the coding agent is not in.
+//   - PASSWD, never NOPASSWD.  A passwordless grant is usable with the broker
+//     out of the way, which is a brokered command skipping the approval.
+//   - A PAM service of faramir's own, named by the entry's `pam_service`, so a
+//     mistake here leaves every other sudo on the host alone.
 //
-// What each half provides, and why neither is enough on its own:
-//
-//   - The sudoers entry is PASSWD, never NOPASSWD.  A passwordless grant would
-//     be usable by anything running as this uid with the broker out of the way,
-//     which is a brokered command skipping the approval.
-//   - There is no password.  sudo authenticates that account against a PAM
-//     service of faramir's own whose auth step asks the broker whether a human
-//     approved this command, so nothing is minted, stored or handed out:
-//     nothing at rest, and nothing an approved command could keep and hand to a
-//     later one.
-//   - The PAM service is private, named by the sudoers entry's `pam_service`,
-//     so a mistake in it reaches this account and leaves every other sudo on the
-//     host alone.
-//
-// Re-running init without --allow-sudo takes the grant away: the file goes and the
-// account's password is locked.  init installs and does not migrate, but this
-// direction removes reach rather than leaving an older layout lying about, and
-// a grant nothing is configured to use is exactly the thing worth removing.
+// Re-running init without --allow-sudo takes the grant away: the file goes and
+// the account's password is locked.  init installs and does not migrate, but
+// this direction removes reach rather than leaving an older layout lying about.
 
 import (
 	"fmt"

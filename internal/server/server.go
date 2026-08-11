@@ -163,10 +163,6 @@ func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 	return peer, nil
 }
 
-// --------------------------------------------------------------------------
-// Dispatch
-// --------------------------------------------------------------------------
-
 func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Response {
 	request, err := protocol.Parse(payload)
 	if err != nil {
@@ -227,14 +223,8 @@ func (s *Server) opStatus() protocol.Response {
 // broker's uid gets the same redaction a brokered command does.  The value set
 // never leaves this process.
 //
-// It is a deliberate oracle, recorded like every other op; see docs/design.md.
-// Only the input size and what was found are logged, never the text.
-//
-// Not rate-limited.  A throttle bounds only a guessing attack the same caller
-// need never mount: list_secrets and run are ops on this socket behind the same
-// check, so every managed value can be had by naming it.  Bounding the slower
-// path gains nothing while the faster one is open by design, and would cost a
-// lock on the hot path, the wrapper calling redact once per Bash command.
+// A deliberate oracle, and deliberately not rate-limited; docs/design.md has
+// the weighting.  Only the input size and what was found are logged.
 func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID()); refused != nil {
 		return *refused

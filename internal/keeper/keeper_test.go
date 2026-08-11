@@ -127,7 +127,6 @@ func TestWrongIdentityFails(t *testing.T) {
 	}
 }
 
-// One broken file must not blank the whole value set.
 func TestOneBadFileDoesNotBlankTheSet(t *testing.T) {
 	secrets, keys := fixture(t, sops.TreeBranch{{Key: "good", Value: "a-good-value-x"}})
 	broken := filepath.Join(t.TempDir(), "broken.sops.yaml")

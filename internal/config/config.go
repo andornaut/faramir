@@ -23,10 +23,6 @@ const (
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
-// --------------------------------------------------------------------------
-// Helpers
-// --------------------------------------------------------------------------
-
 // rejectUnknownKeys fails on a mistyped key, naming it and the alternatives.
 func rejectUnknownKeys(raw map[string]any, known []string, where string) error {
 	return rejectUnknown(raw, known, where, "key")
@@ -161,10 +157,6 @@ func atLeast(sec map[string]any, key, where string, fallback, low int) (int, err
 
 const maxInt = int(^uint(0) >> 1)
 
-// --------------------------------------------------------------------------
-// Sections
-// --------------------------------------------------------------------------
-
 // ServerConfig describes the broker's own socket, the one an operator reaches.
 //
 // Callers are named by group rather than by uid.  A uid list was a second
@@ -226,16 +218,11 @@ type SshConfig struct {
 	SshAdd      string
 }
 
-// SudoConfig is how a brokered command becomes root on this host: it does
-// not authenticate, it asks.  sudo is pointed at a PAM service of faramir's
-// own whose authentication step is a helper that asks the broker whether this
-// command was approved, so there is no password to mint, store, hand out or
-// steal.
-//
-// With no ExecUser nothing is granted and no question can be raised, which is
-// the install that never passed --allow-sudo.  Everything here but TimeoutSec is
-// init's: each value names a file or a program that decides whether an
-// approval happens.
+// SudoConfig is how a brokered command becomes root on this host: it does not
+// authenticate, it asks.  With no ExecUser nothing is granted and no question
+// can be raised, which is the install that never passed --allow-sudo.
+// Everything here but TimeoutSec is init's, each value naming a file or a
+// program that decides whether an approval happens.
 type SudoConfig struct {
 	// ExecUser is the account the sudoers entry was written for, and the switch
 	// for the whole arrangement.  The helper checks PAM_USER against it, so a PAM
@@ -289,10 +276,6 @@ type Config struct {
 	Secrets  SecretsConfig
 	Audit    AuditConfig
 }
-
-// --------------------------------------------------------------------------
-// Loading
-// --------------------------------------------------------------------------
 
 func Load(path string) (*Config, error) {
 	if path == "" {
