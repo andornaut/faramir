@@ -306,7 +306,7 @@ func (r *runner) stepUnits() error {
 		if err != nil {
 			return err
 		}
-		made, err := r.fs.writeFile(filepath.Join("/etc/systemd/system", name), body, 0o644, 0, 0)
+		made, err := r.fs.writeFile(filepath.Join(systemUnitDir, name), body, 0o644, 0, 0)
 		if err != nil {
 			return err
 		}

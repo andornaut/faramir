@@ -488,45 +488,108 @@ func classifySSHProbe(out string, err error) sshProbeResult {
 	return sshProbeUnreachable
 }
 
-// diagnoseGroup lists members of the shared group that this did not create.
-// Reported rather than removed: whose grant that is, is not this command's to
-// decide.
+// diagnoseGroup lists members of the two groups that grant something, which
+// this install does not account for.  Reported rather than removed: whose grant
+// that is, is not this command's to decide, and `init` adds to these groups but
+// has never taken anything out of one it did not create.
+//
+// Both groups, because both survive a re-run that renames what they are for.
+// Changing --client-group leaves the old group intact with every member; naming
+// a new --keeper-user leaves the retired account in the group that owns the
+// ciphertext.  Nothing else on this host reports either, and the standing grant
+// is what is left of an account the install has otherwise stopped using.
 func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
-	group, err := user.LookupGroup(opts.ClientGroup)
-	if err != nil {
-		report.add("group", StatusFailed, "no group %q, so nothing can reach the "+
-			"broker socket", opts.ClientGroup)
-		return
-	}
-	members, err := groupMembers(group.Name)
-	if err != nil {
-		report.add("group", StatusFailed, "could not read the members of %s (%v), so "+
-			"who reaches the broker went unverified", opts.ClientGroup, err)
-		return
-	}
 	known := []string{opts.OperatorUser, opts.BrokerUser, opts.KeeperUser, opts.ExecUser}
+	diagnoseGroupOutsiders(report, "group", opts.ClientGroup, known,
+		"reach the broker socket, and enter a tree enrolled with it")
+	// Only when it is a group of its own.  Defaulted, the secrets group IS the
+	// keeper's primary group, and the keeper being in it is the arrangement rather
+	// than a leftover; the loop below would name every retired keeper correctly and
+	// the current one too.
+	if opts.SecretsGroup != "" && opts.SecretsGroup != opts.ClientGroup {
+		diagnoseGroupOutsiders(report, "secrets group", opts.SecretsGroup, known,
+			"read and replace the ciphertext in the secrets directory")
+	}
+}
+
+// diagnoseGroupOutsiders is one group's membership against the accounts this
+// install uses.
+//
+// Primary membership as well as supplementary: /etc/group lists only the
+// second, and an account whose primary group IS this one holds it without
+// appearing there.  That is exactly the shape a renamed --keeper-user leaves,
+// the secrets group defaulting to the keeper's own group, so reading the member
+// list alone would report the one case worth reporting as clean.
+func diagnoseGroupOutsiders(report *DoctorReport, label, name string, known []string, grants string) {
+	gid, members, err := groupEntry(name)
+	if err != nil {
+		report.add(label, StatusFailed, "no group %q, so nothing can %s", name, grants)
+		return
+	}
+	primary, err := primaryMembers(gid)
+	if err != nil {
+		report.add(label, StatusFailed, "could not read who holds %s as a primary "+
+			"group (%v), so who can %s went unverified", name, err, grants)
+		return
+	}
 	var outsiders []string
-	for _, member := range members {
-		if member != "" && !slices.Contains(known, member) {
+	for _, member := range append(members, primary...) {
+		if member != "" && !slices.Contains(known, member) &&
+			!slices.Contains(outsiders, member) {
 			outsiders = append(outsiders, member)
 		}
 	}
 	if len(outsiders) == 0 {
-		report.add("group", StatusOK, "%s has no unexpected members", opts.ClientGroup)
+		report.add(label, StatusOK, "%s has no unexpected members", name)
 		return
 	}
-	report.add("group", StatusWarn, "%s has members this install did not create: %s. "+
-		"Membership grants read on the secrets directory, so a dead account here is a standing "+
-		"grant. Drop one with: gpasswd -d <account> %s",
-		opts.ClientGroup, strings.Join(outsiders, ", "), opts.ClientGroup)
+	report.add(label, StatusWarn, "%s has members this install does not use: %s. "+
+		"Membership is what lets them %s, so an account the install has stopped "+
+		"naming is a standing grant. Drop one with: gpasswd -d <account> %s, or "+
+		"usermod -g <other> <account> where it is the primary group",
+		name, strings.Join(outsiders, ", "), grants, name)
 }
+
+// passwdFile is where the accounts are.  A variable so a test can point at one
+// it wrote, as loginDefs and shadowFile are.
+var passwdFile = "/etc/passwd"
+
+// primaryMembers is the accounts whose primary gid is this group, which
+// /etc/group does not record.
+func primaryMembers(gid string) ([]string, error) {
+	body, err := os.ReadFile(passwdFile)
+	if err != nil {
+		return nil, err
+	}
+	var accounts []string
+	for line := range strings.Lines(string(body)) {
+		fields := strings.Split(strings.TrimSpace(line), ":")
+		if len(fields) >= 4 && fields[3] == gid {
+			accounts = append(accounts, fields[0])
+		}
+	}
+	return accounts, nil
+}
+
+// groupFile is where the groups are.  A variable so a test can point at one it
+// wrote, as loginDefs and shadowFile are.
+var groupFile = "/etc/group"
 
 // groupMembers reads a group's supplementary members; primary membership does
 // not appear there.
 func groupMembers(name string) ([]string, error) {
-	body, err := os.ReadFile("/etc/group")
-	if err != nil {
-		return nil, err
+	_, members, err := groupEntry(name)
+	return members, err
+}
+
+// groupEntry is a group's gid and its supplementary members, read from the same
+// line.  Both, because the gid is what the primary members are found by, and
+// looking it up separately through the system would answer for a different file
+// from the one the members came out of.
+func groupEntry(name string) (gid string, members []string, err error) {
+	body, readErr := os.ReadFile(groupFile)
+	if readErr != nil {
+		return "", nil, readErr
 	}
 	for line := range strings.Lines(string(body)) {
 		fields := strings.Split(strings.TrimSpace(line), ":")
@@ -534,11 +597,11 @@ func groupMembers(name string) ([]string, error) {
 			continue
 		}
 		if fields[3] == "" {
-			return nil, nil
+			return fields[2], nil, nil
 		}
-		return strings.Split(fields[3], ","), nil
+		return fields[2], strings.Split(fields[3], ","), nil
 	}
-	return nil, fmt.Errorf("no group %q in /etc/group", name)
+	return "", nil, fmt.Errorf("no group %q in %s", name, groupFile)
 }
 
 // resolveIdentities finds the accounts and groups this install actually uses,
@@ -608,11 +671,15 @@ func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 	return opts, true
 }
 
+// systemUnitDir is where the units are installed.  A variable so a test can
+// point at a directory it wrote, as loginDefs and shadowFile are.
+var systemUnitDir = "/etc/systemd/system"
+
 // unitUser reads User= out of an installed unit.  Parsed rather than asked of
 // systemctl, which reports the running unit and answers nothing when the daemon
 // is down, which is one of the states worth examining.
 func unitUser(name string) (string, error) {
-	path := filepath.Join("/etc/systemd/system", name)
+	path := filepath.Join(systemUnitDir, name)
 	body, err := os.ReadFile(path)
 	if err != nil {
 		return "", err
@@ -625,6 +692,26 @@ func unitUser(name string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("%s names no User=", path)
+}
+
+// unitConfigDir is the config directory the installed broker unit loads, or ""
+// when there is no unit or it names none.  Read from the unit rather than asked
+// of a running broker: a host whose daemons are down still has an install, and
+// this is the question of where that install is.
+func unitConfigDir(name string) string {
+	body, err := os.ReadFile(filepath.Join(systemUnitDir, name))
+	if err != nil {
+		return ""
+	}
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if path, ok := strings.CutPrefix(strings.TrimSpace(line),
+			"Environment=FARAMIR_CONFIG="); ok {
+			if path = strings.TrimSpace(path); path != "" {
+				return filepath.Dir(path)
+			}
+		}
+	}
+	return ""
 }
 
 // groupOf is the group name owning a path.

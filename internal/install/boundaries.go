@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -24,7 +25,16 @@ import (
 // whose absence means the install does nothing.
 
 // asUser runs a command as another account and reports its output.
+//
+// An empty account is refused rather than passed on: `runuser -u -- cmd` takes
+// the "--" as the account name and fails with "user does not exist", which every
+// caller here would report as a boundary that does not hold.  The callers that
+// can reach this state are guarded in diagnoseBoundaries; this is so a new one
+// cannot reintroduce it quietly.
 func asUser(account string, args ...string) (string, error) {
+	if account == "" {
+		return "", errors.New("no account named, so there is nobody to ask")
+	}
 	run := &runner{}
 	return run.command("runuser", append([]string{"-u", account, "--"}, args...)...)
 }
@@ -53,13 +63,33 @@ func canWrite(account, path string) bool {
 }
 
 // owns reports a file's mode and owner as "%04o account", or "missing".
+//
+// The owner alone, because the checks that compare this string are about a mode
+// and the uid it belongs to: the age key is 0400 and the audit log 0600, so no
+// group bit is set and which group owns them decides nothing.  Requiring a group
+// name here would fail every host whose service accounts do not have
+// same-named primary groups.
 func owns(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
 		return "missing"
 	}
-	owner := ownerName(info)
-	return fmt.Sprintf("%04o %s", info.Mode().Perm(), owner)
+	return fmt.Sprintf("%04o %s", info.Mode().Perm(), ownerName(info))
+}
+
+// ownsWithGroup is owns plus the group, for the callers that check both.
+//
+// Split from owns rather than folded into it: a message is only useful beside a
+// remedy that satisfies the check that printed it, and the SSH key check
+// compares uid AND gid.  Naming the owner alone there is what produced a
+// refusal reading "id_ed25519 is 0600 broker2 ... so broker2 cannot load it",
+// with a chown beneath it that could never clear the condition.
+func ownsWithGroup(path string) string {
+	info, err := os.Stat(path)
+	if err != nil {
+		return "missing"
+	}
+	return fmt.Sprintf("%04o %s:%s", info.Mode().Perm(), ownerName(info), groupName(info))
 }
 
 // diagnoseBoundaries runs every check that needs a uid other than this one.
@@ -91,6 +121,22 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 			"ask what %s, %s, %s and %s can reach, and no account can answer that for "+
 			"another", len(checks), opts.OperatorUser, opts.BrokerUser, opts.KeeperUser,
 			opts.ExecUser)
+		return
+	}
+	// Nearly every check below asks what the operator can reach, and canRead and
+	// canWrite answer false when the account cannot be named at all.  False is the
+	// same answer a boundary that holds gives, so an unnamed operator turns the
+	// checks that pass into unearned OKs and the ones that run a command into
+	// failures blaming a `runuser -u --` nobody wrote.  Neither is a finding about
+	// this host, so none of them is claimed.
+	//
+	// It happens whenever doctor is reached without SUDO_USER: a root shell, a
+	// cron entry, a configuration manager.
+	if opts.OperatorUser == "" {
+		report.NotAsked += len(checks)
+		report.add("boundaries", StatusWarn, "the operator account is not named, and "+
+			"%d of these checks ask what it can reach, so none was made: pass "+
+			"--operator-user, or run through sudo so SUDO_USER carries it", len(checks))
 		return
 	}
 	// The probe itself: every check below reads a refusal as a boundary, so a
@@ -883,6 +929,19 @@ func ownerName(info os.FileInfo) string {
 		return account.Username
 	}
 	return uid
+}
+
+// groupName is the group a file belongs to, or the numeric gid.
+func groupName(info os.FileInfo) string {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return "unknown"
+	}
+	gid := strconv.Itoa(int(stat.Gid))
+	if group, err := user.LookupGroupId(gid); err == nil {
+		return group.Name
+	}
+	return gid
 }
 
 // shadowFile is where the hashes are.  A variable so a test can point at one it

@@ -20,13 +20,13 @@ func Uninstall(configDir string) ([]string, error) {
 		_, _ = run.command("systemctl", units...)
 	}
 	for _, name := range unitNames() {
-		if err := os.Remove(filepath.Join("/etc/systemd/system", name)); err != nil &&
+		if err := os.Remove(filepath.Join(systemUnitDir, name)); err != nil &&
 			!os.IsNotExist(err) {
 			return nil, err
 		}
 	}
 	for _, unit := range []string{"faramir-broker", "faramir-keeper", "faramir-exec"} {
-		if err := os.RemoveAll(filepath.Join("/etc/systemd/system", unit+".service.d")); err != nil {
+		if err := os.RemoveAll(filepath.Join(systemUnitDir, unit+".service.d")); err != nil {
 			return nil, err
 		}
 	}

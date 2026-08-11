@@ -67,6 +67,17 @@ type Options struct {
 	// grant, which is the direction that takes reach away.
 	AllowSudo bool
 
+	// MoveConfig is consent to point this host's daemons at a different
+	// ConfigDir.  Required because the units are one set with fixed names, so a
+	// second directory does not stand beside the first: it replaces it, and what
+	// the first held stops being managed while its age key and its ciphertext stay
+	// on disk.  Nothing about the old directory is touched either way.
+	//
+	// Named for the one thing it permits rather than called --force.  A flag that
+	// means "do it anyway" collects the next thing that needs overriding, and an
+	// operator who typed it for one reason has then consented to the other.
+	MoveConfig bool
+
 	// No tree is enrolled here: a tree is per project and this runs once per
 	// machine.  See `faramir init-project`.
 
@@ -193,43 +204,62 @@ func Run(opts Options) (Report, error) {
 	if err := run.preflight(); err != nil {
 		return run.report, err
 	}
-	steps := []func() error{
-		run.stepAdopted,
-		run.stepAccounts,
-		run.resolveIDs,
-		run.stepDirectories,
-		run.stepAgeKey,
-		run.stepSopsConfig,
-		run.stepBinaries,
-		run.stepConfig,
-		// After the config: it reads [ssh] key merged across config.d.  Before any
-		// daemon starts: a key the broker cannot read leaves the agent holding
-		// nothing.
-		run.stepSSHKey,
-		// The other half of reaching a managed host: the key authenticates to it,
-		// these say which host answering is that host.
-		run.stepKnownHosts,
-		// After the config, which renders [sudo] from the same layout, and before
-		// anything restarts a daemon: a broker that came up without the PAM service
-		// and the sudoers entry in place would refuse every approval until the next
-		// activation.
-		run.stepSudoGrant,
-		// Before the units are written: it grants the traversal that lets a service
-		// uid reach a config under the operator's home.
-		run.stepReachable,
-		run.stepUnits,
-		run.stepSystemd,
-		run.stepAgentConfig,
-		run.stepValidate,
-	}
-	for _, step := range steps {
-		if err := step(); err != nil {
-			return run.report, err
+	for _, step := range run.steps() {
+		if err := step.run(); err != nil {
+			// Named, because a run that stops partway has applied everything before it
+			// and nothing after, and which steps those were is the first thing to
+			// establish.  The steps that hand a file to an account are all after
+			// stepPreconditions, so a refusal there has changed no ownership.
+			return run.report, fmt.Errorf("%s: %w", step.name, err)
 		}
 	}
 	// Set by the sops config step, the only thing here that read the file, not
 	// restated from the options, which are only the request.
 	return run.report, nil
+}
+
+// namedStep is one step and what to call it when a run stops there.
+type namedStep struct {
+	name string
+	run  func() error
+}
+
+// steps is the order the install is applied in, which is itself a boundary:
+// everything before stepPreconditions adds accounts and groups and can be
+// repeated, everything after hands existing files to them and cannot be undone
+// by running init again.  A refusal that belongs to a later step but can be
+// asked earlier belongs in stepPreconditions, not where it is used.
+func (r *runner) steps() []namedStep {
+	return []namedStep{
+		{"adopted", r.stepAdopted},
+		{"accounts", r.stepAccounts},
+		{"resolveIDs", r.resolveIDs},
+		{"preconditions", r.stepPreconditions},
+		{"directories", r.stepDirectories},
+		{"age key", r.stepAgeKey},
+		{"sops config", r.stepSopsConfig},
+		{"binaries", r.stepBinaries},
+		{"config", r.stepConfig},
+		// After the config: it reads [ssh] key merged across config.d.  Before any
+		// daemon starts: a key the broker cannot read leaves the agent holding
+		// nothing.
+		{"ssh key", r.stepSSHKey},
+		// The other half of reaching a managed host: the key authenticates to it,
+		// these say which host answering is that host.
+		{"known hosts", r.stepKnownHosts},
+		// After the config, which renders [sudo] from the same layout, and before
+		// anything restarts a daemon: a broker that came up without the PAM service
+		// and the sudoers entry in place would refuse every approval until the next
+		// activation.
+		{"sudo grant", r.stepSudoGrant},
+		// Before the units are written: it grants the traversal that lets a service
+		// uid reach a config under the operator's home.
+		{"reachable", r.stepReachable},
+		{"units", r.stepUnits},
+		{"systemd", r.stepSystemd},
+		{"agent config", r.stepAgentConfig},
+		{"validate", r.stepValidate},
+	}
 }
 
 func (o *Options) applyDefaults() {
@@ -346,6 +376,9 @@ func (r *runner) preflight() error {
 			"the ownership you want first: creating it here would hand it to root",
 			parent, r.layout.ConfigDir)
 	}
+	if err := r.refuseConfigMove(); err != nil {
+		return err
+	}
 	if err := r.refuseSymlinks(); err != nil {
 		return err
 	}
@@ -363,6 +396,107 @@ func (r *runner) preflight() error {
 	if len(missing) > 0 {
 		return fmt.Errorf("not built in %s: %s. Run 'make build', then run the "+
 			"faramir it built", r.binaries, strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+// refuseConfigMove stops a run that would point this host's daemons at a
+// different config directory, unless it was asked to.
+//
+// There is one set of units, with fixed names, so naming a second directory
+// does not install beside the first: it repoints the daemons and leaves the
+// first where it stands.  What that costs is not the disk.  The refs the old
+// directory held leave the value set, so a brokered command that prints one of
+// those values prints it, while the age key that opens them and the ciphertext
+// itself stay on disk under their old ownership.  Nothing warned, and doctor
+// examines only the install the units name.
+//
+// A flag-less re-run never reaches this: init resolves the config directory
+// from the running broker and then from the unit, so it is already the one this
+// host uses.  Naming the same directory again is not a move either.
+func (r *runner) refuseConfigMove() error {
+	installed := unitConfigDir("faramir-broker.service")
+	if installed == "" || installed == r.layout.ConfigDir {
+		return nil
+	}
+	if !r.opts.MoveConfig {
+		return fmt.Errorf("this host's daemons load %s, and this run names %s.\n"+
+			"There is one set of units, so the second does not stand beside the "+
+			"first: the daemons would move and %s would be left holding its age key "+
+			"and its ciphertext, with the refs it serves no longer in the value set "+
+			"and no longer redacted.\n"+
+			"Pass --move-config to move them, then retire %s yourself. To provision "+
+			"the install this host already has, leave --config-dir out",
+			installed, r.layout.ConfigDir, installed, installed)
+	}
+	// Consented to, and still worth naming: what is left behind is key material,
+	// and the run that moves away from it is the last moment anybody is looking.
+	r.warn("the daemons now load %s. %s is left as it stands, including %s and "+
+		"the secrets directory: nothing there is managed or redacted from now on. "+
+		"Retire it when its values are re-encrypted where the daemons look",
+		r.layout.ConfigDir, installed, filepath.Join(installed, "age.key"))
+	return nil
+}
+
+// stepPreconditions raises, before anything is handed over, every refusal a
+// later step would raise once it was too late to re-run cleanly.
+//
+// It reports nothing when it passes.  A step in the list that says "ok" on every
+// healthy host is noise, and these are preconditions rather than work.
+func (r *runner) stepPreconditions() error {
+	if r.opts.DryRun {
+		return nil
+	}
+	if err := r.refuseUnadoptableSSHKey(); err != nil {
+		return err
+	}
+	return r.refuseInvalidSudoers()
+}
+
+// refuseUnadoptableSSHKey asks the question stepSSHKey asks, at a point where
+// the answer costs nothing.
+//
+// Only for a key already on disk: one this run mints is adopted by whoever it
+// is minted for, and a key at a path that does not exist yet cannot be wrong.
+func (r *runner) refuseUnadoptableSSHKey() error {
+	if !exists(r.layout.SSHKey) {
+		return nil
+	}
+	return r.checkSSHKey(r.layout.SSHKey, r.brokerUID, r.brokerGID)
+}
+
+// refuseInvalidSudoers has visudo judge the grant before the run reaches the
+// step that installs it.
+//
+// Rendered to a file of its own rather than to sudoers.d, so a rejection is a
+// message about a host whose sudo will not take this rather than a file written
+// into the directory sudo reads and then taken out again.  Nothing here is the
+// operator's text, so what this catches is a sudo too old for a directive; that
+// is also why a host without visudo is left to the step's own warning.
+func (r *runner) refuseInvalidSudoers() error {
+	if !r.layout.AllowSudo || !exists(sudoersDir) {
+		return nil
+	}
+	visudo, err := exec.LookPath("visudo")
+	if err != nil {
+		return nil
+	}
+	body, err := render("etc/sudoers.tmpl", r.layout)
+	if err != nil {
+		return err
+	}
+	dir, err := os.MkdirTemp("", "faramir-sudoers")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(dir) }()
+	candidate := filepath.Join(dir, "faramir")
+	if err := os.WriteFile(candidate, body, 0o440); err != nil {
+		return err
+	}
+	if out, checkErr := exec.Command(visudo, "-cf", candidate).CombinedOutput(); checkErr != nil {
+		return fmt.Errorf("visudo rejects the grant --allow-sudo would install, so "+
+			"nothing was written: %w: %s", checkErr, strings.TrimSpace(string(out)))
 	}
 	return nil
 }

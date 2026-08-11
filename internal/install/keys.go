@@ -3,13 +3,26 @@ package install
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/sshkey"
 )
+
+// brokerGroupName is the group a chown in an error message has to name, looked
+// up from the gid this run resolved rather than assumed to share the account's
+// name.  Falls back to the account name, which is what useradd would have made
+// it, so the remedy is never printed with an empty field.
+func (r *runner) brokerGroupName() string {
+	if group, err := user.LookupGroupId(strconv.Itoa(r.brokerGID)); err == nil {
+		return group.Name
+	}
+	return r.layout.BrokerUser
+}
 
 // stepAgeKey mints the keeper's identity, 0400 owned by the keeper: a key the
 // broker or the executor could read is one any brokered command could read. The
@@ -229,16 +242,66 @@ func (r *runner) stepSSHKey() error {
 	return nil
 }
 
+// sshKeyHalf is one of the two files the broker has to be able to read, with
+// the mode it must have.
+type sshKeyHalf struct {
+	path string
+	mode os.FileMode
+}
+
+// sshKeyHalves is the pair, private first.
+func sshKeyHalves(path string) []sshKeyHalf {
+	return []sshKeyHalf{{path, 0o600}, {path + ".pub", 0o644}}
+}
+
+// checkSSHKey reports why the broker could not use the key at this path, or nil.
+//
+// Split out from ownSSHKey so stepPreconditions can raise the same refusal
+// before any ownership is changed: this is the one thing a re-run that renames
+// --broker-user stops on, and stopping on it at the SSH step left the age key
+// and the audit log already handed to accounts whose units were never written.
+func (r *runner) checkSSHKey(path string, uid, gid int) error {
+	for _, half := range sshKeyHalves(path) {
+		info, err := os.Stat(half.path)
+		if err != nil {
+			return fmt.Errorf("%s: %w\nThe broker needs both halves of the key. "+
+				"Regenerate the public half with: ssh-keygen -y -f %s > %s",
+				half.path, err, path, path+".pub")
+		}
+		wrong, err := wrongOwner(info, uid, gid)
+		if err != nil {
+			return err
+		}
+		if !wrong && info.Mode().Perm() == half.mode.Perm() {
+			continue
+		}
+		// Both halves in the remedy, and the group in the chown.  This compares uid
+		// and gid, so a remedy naming the owner alone leaves the same refusal
+		// standing with its text now reading "X is 0600 broker2 ... so broker2
+		// cannot load it": an install nothing can finish by doing as it says.
+		return fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot "+
+			"load it and brokered commands reach no managed host. Hand both halves "+
+			"over, group as well as owner:\n"+
+			"    chown %s:%s %s %s\n"+
+			"    chmod 0600 %s && chmod 0644 %s\n"+
+			"Or unset [ssh] key, if it is not the broker's to hold",
+			half.path, ownsWithGroup(half.path), r.layout.BrokerUser,
+			r.layout.BrokerUser, r.brokerGroupName(), path, path+".pub",
+			path, path+".pub")
+	}
+	return nil
+}
+
 // ownSSHKey asserts, every run, that the broker can read both halves of the
 // key: one placed by hand or left root-owned leaves the agent holding nothing,
 // and nothing else says so.  A repair counts as a change.  repair is false for
 // a key this run did not write, which is refused rather than taken over.
 func (r *runner) ownSSHKey(path string, repair bool) (bool, error) {
+	if !repair {
+		return false, r.checkSSHKey(path, r.brokerUID, r.brokerGID)
+	}
 	changed := false
-	for _, half := range []struct {
-		path string
-		mode os.FileMode
-	}{{path, 0o600}, {path + ".pub", 0o644}} {
+	for _, half := range sshKeyHalves(path) {
 		info, err := os.Stat(half.path)
 		if err != nil {
 			return false, fmt.Errorf("%s: %w\nThe broker needs both halves of the key. "+
@@ -251,14 +314,6 @@ func (r *runner) ownSSHKey(path string, repair bool) (bool, error) {
 		}
 		if !wrong && info.Mode().Perm() == half.mode.Perm() {
 			continue
-		}
-		if !repair {
-			return false, fmt.Errorf("%s is %s, and [ssh] key names it, so %s cannot "+
-				"load it and brokered commands reach no managed host. Hand it over:\n"+
-				"    chown %s %s && chmod %04o %s\n"+
-				"Or unset [ssh] key, if it is not the broker's to hold",
-				half.path, owns(half.path), r.layout.BrokerUser,
-				r.layout.BrokerUser, half.path, half.mode.Perm(), half.path)
 		}
 		if err := os.Chown(half.path, r.brokerUID, r.brokerGID); err != nil {
 			return false, err

@@ -177,6 +177,12 @@ func cmdInit(args []string) int {
 			"service whose auth step asks the broker, so no password exists anywhere "+
 			"and a human approves each command through 'faramir approve'. Off by "+
 			"default, and re-running without it takes the grant away")
+	moveConfig := fs.Bool("move-config", false,
+		"consent to point this host's daemons at a different --config-dir. There is "+
+			"one set of units, so the new directory replaces the old rather than "+
+			"standing beside it: the refs the old one served leave the value set and "+
+			"stop being redacted, while its age key and ciphertext stay on disk. "+
+			"Refused without this")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	var recipients multiFlag
@@ -199,6 +205,7 @@ func cmdInit(args []string) int {
 		KnownHosts:    *knownHosts,
 		Agents:        initAgents,
 		AllowSudo:     *allowSudo,
+		MoveConfig:    *moveConfig,
 		DryRun:        *dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
