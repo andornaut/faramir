@@ -105,7 +105,7 @@ var fallback = []string{
 const advice = "Blocked: this command would put a credential (or an encrypted blob) into " +
 	"the conversation, where it would be sent to the model provider.\n\n" +
 	"Use the faramir_run tool instead: it runs the command as a separate uid " +
-	"that holds the keys and returns output with secrets replaced by " +
+	"that holds no keys of its own, and returns output with secrets replaced by " +
 	"«SECRET:ref» tokens. Secrets are named, never pasted:\n\n" +
 	"    faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n" +
 	"                env_refs={\"ROUTER_PW\": \"secret://home/router/admin\"})\n\n" +

@@ -43,7 +43,8 @@ var tools = []tool{
 		Description: "Run a command that needs credentials. This is the ONLY way to run such " +
 			"a command: the credentials do not exist in your environment, and reading " +
 			"or decrypting the managed secrets directly is blocked.\n\n" +
-			"The command runs as a separate uid that holds the keys. Output comes back " +
+			"The command runs as a separate uid that holds no keys of its own; the " +
+			"broker injects the values it was asked for. Output comes back " +
 			"with every known secret value replaced by a stable «SECRET:ref» token, so " +
 			"you can confirm a credential reached the right place without ever seeing " +
 			"it. Do not attempt to work around this: transformed output (base64, rev, " +
@@ -76,8 +77,9 @@ var tools = []tool{
 						"your edits are picked up as soon as they are saved.",
 				},
 				"timeout_sec": map[string]any{
-					"type":        "integer",
-					"description": "Seconds before the command is killed. Default 600.",
+					"type": "integer",
+					"description": "Seconds before the command is killed. Omitted takes the " +
+						"broker's configured default, and any value is clamped to its maximum.",
 				},
 			},
 			"required": []string{"cmd"},
@@ -91,8 +93,9 @@ var tools = []tool{
 	},
 	{
 		Name: "faramir_status",
-		Description: "Show broker configuration: which secret files are loaded, how many refs " +
-			"exist, and the default working directory commands run in.",
+		Description: "Show broker configuration: the version, which config files and secret " +
+			"files are loaded, how many refs exist, whether an SSH key is usable, and " +
+			"whether a command may ask to sudo on this host.",
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 	},
 }

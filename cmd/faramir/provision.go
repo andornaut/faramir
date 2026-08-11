@@ -175,7 +175,7 @@ func cmdInit(args []string) int {
 		"let a brokered command ASK to sudo on this host; it cannot sudo on its own. "+
 			"The executor gets a password-required sudoers entry pointed at a PAM "+
 			"service whose auth step asks the broker, so no password exists anywhere "+
-			"and a human approves each command through `faramir approve`. Off by "+
+			"and a human approves each command through 'faramir approve'. Off by "+
 			"default, and re-running without it takes the grant away")
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
@@ -259,8 +259,9 @@ func cmdInitProject(args []string) int {
 	clientGroup := fs.String("client-group", "",
 		"override the client group instead of reading it from the installed config")
 	hook := fs.Bool("hook", true,
-		"register the PreToolUse hook, which redacts this project's command output "+
-			"and auto-approves Bash here as a consequence")
+		"register the PreToolUse hook, which redacts this project's command output. "+
+			"On Claude Code that auto-approves Bash here as a consequence; the other "+
+			"agents have no approval to give, so it costs them nothing")
 	var agents multiFlag
 	fs.Var(&agents, "agent",
 		"coding agent to enrol, repeatable (default claude; known: "+

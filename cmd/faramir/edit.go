@@ -43,7 +43,7 @@ var editors = []string{
 }
 
 func cmdEdit(args []string) int {
-	fs := newFlagSet("edit", "edit a managed sops file")
+	fs := newFlagSet("edit", "edit [options] FILE")
 	configPath := fs.String("config", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
 	editor := fs.String("editor", "", "absolute path to the editor to run (default: the first of "+
 		strings.Join(editors, ", ")+" that exists)")
