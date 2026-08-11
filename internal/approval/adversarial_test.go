@@ -6,7 +6,8 @@ package approval
 // These were written as the record of three gaps and now assert that each is
 // closed, which is the shape to keep them in -- a probe that only documents a
 // weakness stops being read, and one that fails when the weakness comes back is
-// the thing worth having.  ADVERSARIAL-ALLOW-SUDO.md is the write-up.
+// the thing worth having.  What each one is defending, and what closing it cost,
+// is with the mechanism in docs/design.md.
 //
 // The answer channel itself is not probed here -- SO_PEERCRED, `requisite` and
 // `seteuid` are covered by internal/server and internal/install, and they hold.
