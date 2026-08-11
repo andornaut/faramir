@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -319,6 +320,54 @@ func TestOutcomeReportsATimeout(t *testing.T) {
 	}
 }
 
+// A refused request never reached a command, so it has no exit code.  The
+// listing has to say so: the alternative renders it as a command that ran and
+// produced nothing, which is a different event.
+func TestOutcomeReportsTheRefusalCode(t *testing.T) {
+	for _, code := range []string{"bad_request", "unknown_secret", "busy",
+		"forbidden", "no_secrets", "too_large", "not_quiescent", "no_audit"} {
+		record := rec(t, `{"log_id":"x","op":"exec","cmd":["/bin/true"],`+
+			`"refused":"`+code+`","error":"why"}`)
+		label, failed := outcome(record)
+		if label != code || !failed {
+			t.Errorf("outcome = (%q, %v), want (%s, true)", label, failed, code)
+		}
+		// The code is what the caller was answered with, so the row can be
+		// scanned for it and matched against what the agent reported.
+		if line := summarise(record, plain(t)); !strings.Contains(line, code) {
+			t.Errorf("the listing does not name the refusal: %s", line)
+		}
+	}
+}
+
+// The broker also records a request that failed without being refused: the
+// program would not resolve, or the executor was lost after the child was
+// spawned.  Neither carries an exit code either.
+func TestOutcomeReportsAFailureWithNoExitCode(t *testing.T) {
+	for _, body := range []string{
+		`{"log_id":"x","op":"exec","cmd":["/bin/nope"],"error":"no such program"}`,
+		`{"log_id":"x","op":"exec","cmd":["/bin/sh"],"started_at":1786000000,` +
+			`"error":"executor: connection reset"}`,
+	} {
+		label, failed := outcome(rec(t, body))
+		if label != "failed" || !failed {
+			t.Errorf("outcome = (%q, %v), want (failed, true): %s", label, failed, body)
+		}
+	}
+}
+
+// A record that ran keeps its exit code, and a redact has no outcome at all:
+// neither is what the two branches above are for.
+func TestOutcomeLeavesTheOrdinaryRecordsAlone(t *testing.T) {
+	label, failed := outcome(rec(t, `{"log_id":"x","op":"exec","exit_code":0,"duration_sec":1}`))
+	if label != "exit 0 1.00s" || failed {
+		t.Errorf("outcome = (%q, %v), want (exit 0 1.00s, false)", label, failed)
+	}
+	if label, failed := outcome(rec(t, `{"log_id":"x","op":"redact","input_bytes":10}`)); label != "" || failed {
+		t.Errorf("a redact was given an outcome: (%q, %v)", label, failed)
+	}
+}
+
 // Padding counts escape bytes as width.
 func TestPaintOutcomePadsBeforeColouring(t *testing.T) {
 	record := rec(t, `{"log_id":"x","op":"exec","exit_code":0}`)
@@ -451,6 +500,17 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 	}
 	if !strings.Contains(line, "ask_approval refused") {
 		t.Errorf("summarise = %q, want the op and the outcome as separate columns", line)
+	}
+}
+
+// The same for the outcome column, which holds a refusal code and so can be
+// wider than the column: approval_in_progress is 20 against a 16-wide column.
+// The row shifts, which is legible; the columns merging is not.
+func TestSummariseKeepsTheColumnsApartForALongRefusalCode(t *testing.T) {
+	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-4e16","op":"exec",`+
+		`"refused":"approval_in_progress","cmd":["sudo","id","-un"]}`), plain(t))
+	if !regexp.MustCompile(`approval_in_progress +sudo id -un`).MatchString(line) {
+		t.Errorf("summarise = %q, want the code and the command as separate columns", line)
 	}
 }
 

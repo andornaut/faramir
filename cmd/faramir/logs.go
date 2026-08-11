@@ -339,8 +339,23 @@ func outcome(record map[string]any) (string, bool) {
 		}
 		return "refused", true
 	}
+	// The refusal's own code, which is the string the caller was answered with:
+	// an operator handed a log_id can confirm they are reading the refusal that
+	// was cited, and the listing can be scanned for one kind of refusal.
+	if refused := str(record, "refused"); refused != "" {
+		return refused, true
+	}
 	code, ok := num(record, "exit_code")
 	if !ok {
+		// No exit code and an error: the broker recorded that this never became a
+		// finished command.  Named generically because the two records shaped this
+		// way differ in how far they got -- one could not resolve the program, the
+		// other lost the executor after the child was spawned -- and the error is
+		// on the detail view for both.  Blank here would render them as a command
+		// that ran and did nothing.
+		if str(record, "error") != "" {
+			return "failed", true
+		}
 		return "", false
 	}
 	label := fmt.Sprintf("exit %d", int(code))
