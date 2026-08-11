@@ -8,9 +8,10 @@
 #
 # Sourced, because the agent's shell persists between tool calls: a child would
 # lose every "cd", "export" and shell function the command sets.  One simple
-# command, because the permission matcher refuses a rule against a compound
-# statement.  Redacted after the command finishes, a pipeline putting it in a
-# subshell and process substitution racing the shell.
+# command, so the guard's idempotence check is a prefix test and the rewritten
+# text stays legible to whatever reads it next.  Redacted after the command
+# finishes, a pipeline putting it in a subshell and process substitution racing
+# the shell.
 #
 # Every failure fails closed: output that could not be redacted is never
 # shown.

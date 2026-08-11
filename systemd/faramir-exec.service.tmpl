@@ -45,10 +45,9 @@ ProcSubset=pid
 {{if .AllowSudo}}
 # This host was installed with `faramir init --allow-sudo`, so the directives that
 # bound *root* are dropped here.  Not a weakening thrown in with the grant: each
-# one below would otherwise make the grant a lie, either refusing sudo outright
-# or handing back a root that cannot change anything.  What bounds this uid when
-# nobody has approved anything is unchanged, and it is the same thing it always
-# was: the uid.
+# one below would otherwise make the grant ineffective, either refusing sudo
+# outright or handing back a root that cannot change anything.  What bounds this
+# uid when nobody has approved anything is unchanged: the uid.
 #
 # The two halves are separate on purpose.  Everything in this block is about
 # what an *approved* command may do; everything outside it is about what

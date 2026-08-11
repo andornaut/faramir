@@ -29,8 +29,9 @@ Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 
-# No LoadCredential= here: a credential is readable by the unit's uid, so the
-# age key would reach every brokered command.  faramir-keeper.service holds it.
+# No LoadCredential= here: a credential is readable by the unit's uid, and this
+# is the process that composes each brokered command's environment, so a broker
+# holding the age key could put it there.  faramir-keeper.service holds it.
 
 # Without this the agent uid can read /proc/<pid>/environ of the broker and of
 # every command it runs.

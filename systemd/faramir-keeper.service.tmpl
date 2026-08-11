@@ -39,7 +39,9 @@ NoNewPrivileges=true
 CapabilityBoundingSet=
 AmbientCapabilities=
 ProtectSystem=strict
-# The uid that holds the age key, so /home goes away outright.
+# This uid holds the age key, so /home is hidden from it: outright where the
+# config directory sits outside a home, and all but that one directory where it
+# does not.
 {{if .KeeperBinds -}}
 # The config directory is inside a home, so tmpfs rather than true: every other
 # home stays invisible and only that directory is bound back.  A home is not

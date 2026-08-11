@@ -89,8 +89,8 @@ func TestAnAllowedCommandIsRewrittenThroughTheRedactor(t *testing.T) {
 	if !strings.Contains(command, "ansible-playbook site.yml -vvv") {
 		t.Errorf("command = %q, want the original preserved inside", command)
 	}
-	// The permission matcher will not match an allow rule against a compound
-	// statement, so a rewrite containing one can never be allow-listed.
+	// The rewrite stays one simple command: isWrapped tests for it by prefix, so a
+	// compound statement would break idempotence and chain past the redirection.
 	for _, compound := range []string{";", "{", "&&", "\n"} {
 		if strings.Contains(command, compound) {
 			t.Errorf("command = %q contains %q, which makes it un-allow-listable", command, compound)
