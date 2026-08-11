@@ -95,3 +95,29 @@ func TestBoundSaysItTruncated(t *testing.T) {
 		t.Errorf("Bound = %q, want the partial rune dropped", got)
 	}
 }
+
+// C1 is the other half of what a terminal acts on, and the strip set does not
+// reach it: it matches CSI as ESC '[', so U+009B, the single-character form of
+// the same introducer, arrives here untouched and a following "2J" clears the
+// screen of a terminal that honours 8-bit controls.  Arg escapes these already,
+// strconv.Quote treating them as non-printable, so this is the two renderers
+// agreeing rather than a new rule.
+func TestC1ControlsAreEscaped(t *testing.T) {
+	for _, tc := range []struct{ name, in string }{
+		{"8-bit CSI", "ok: [host]\u009b2J"},
+		{"8-bit OSC", "ok: [host]\u009d0;title\u009c"},
+		{"delete", "ok: [host]\u007f"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := Line(tc.in)
+			if got == tc.in {
+				t.Fatalf("Line left %q unchanged", tc.in)
+			}
+			for _, r := range got {
+				if r >= 0x7f && r <= 0x9f {
+					t.Fatalf("Line(%q) = %q, want no rune a terminal acts on", tc.in, got)
+				}
+			}
+		})
+	}
+}

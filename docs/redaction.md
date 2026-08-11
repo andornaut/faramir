@@ -22,7 +22,7 @@ Each stage assumes the previous one has run.
 
 **1. Strip ANSI escapes.** A colour code spliced into a value defeats matching while rendering identically (`hunte\x1b[32mr2-correct-horse`). The response carries the stripped text. An escape can split across two reads, so a bounded trailing partial sequence is held back.
 
-This stage has a second reader. CSI, OSC and the C0 controls go here, which is why an approval prompt and `faramir logs` are not full of them; what it leaves is a bare `\r` (only CRLF is normalised) and `ESC` followed by a byte outside `@-Z` and `\-_`, and [internal/termsafe](../internal/termsafe/termsafe.go) renders those two before either reaches a terminal. Narrowing what is stripped here widens what termsafe has to catch, and its tests name the two cases so the pair stays legible.
+This stage has a second reader. CSI, OSC and the C0 controls go here, which is why an approval prompt and `faramir logs` are not full of them; what it leaves is a bare `\r` (only CRLF is normalised), `ESC` followed by a byte outside `@-Z` and `\-_`, and the C1 controls `U+0080`–`U+009F`, which the patterns above do not reach: they match CSI as `ESC [`, and `U+009B` is the single-character form of the same introducer. [internal/termsafe](../internal/termsafe/termsafe.go) renders all three before any of them reaches a terminal. Narrowing what is stripped here widens what termsafe has to catch, and its tests name the cases so the pair stays legible.
 
 **2. Match an expanded value set.** Not exhaustive by design: an agent that *wants* to defeat this can. These are what ordinary tools produce by accident.
 

@@ -81,8 +81,15 @@ func Line(line string) string {
 // unsafeRune reports whether a terminal would act on this rune rather than draw
 // it.  Tab is left alone: it is layout an operator wants, and it cannot move the
 // cursor anywhere a reader would not expect.
+//
+// C1 (U+0080..U+009F) is here for the same reason C0 is, and it is not covered
+// by the strip set: that matches CSI as ESC '[', so a child writing U+009B, the
+// single-character form of the same introducer, reaches this unchanged, and a
+// terminal honouring 8-bit controls reads "2J" as a screen clear.  Arg
+// escapes these already, strconv.Quote treating them as non-printable; the two
+// renderers agreeing is the point.
 func unsafeRune(r rune) bool {
-	return (r < 0x20 && r != '\t') || r == 0x7f
+	return (r < 0x20 && r != '\t') || (r >= 0x7f && r <= 0x9f)
 }
 
 // Bound truncates on a rune boundary and says that it did.  Silent truncation

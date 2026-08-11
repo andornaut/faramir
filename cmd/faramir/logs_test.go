@@ -26,7 +26,7 @@ func TestReadAuditLogSkipsUnparseableLines(t *testing.T) {
 		`{"log_id":"b","op":"exec"}`,
 		`{"log_id":"c","op":`,
 	)
-	records, err := readAuditLog(path)
+	records, _, err := readAuditLog(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func TestReadAuditLogHandlesLongRecords(t *testing.T) {
 		`{"log_id":"big","output":"`+strings.Repeat("x", 200_000)+`"}`,
 		`{"log_id":"after"}`,
 	)
-	records, err := readAuditLog(path)
+	records, _, err := readAuditLog(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +59,7 @@ func TestReadAuditLogHandlesLongRecords(t *testing.T) {
 // Says the log is absent rather than an ENOENT on a path the caller never
 // named.
 func TestReadAuditLogNamesAnAbsentLog(t *testing.T) {
-	_, err := readAuditLog(filepath.Join(t.TempDir(), "nope.log"))
+	_, _, err := readAuditLog(filepath.Join(t.TempDir(), "nope.log"))
 	if err == nil {
 		t.Fatal("no error for an absent log")
 	}
@@ -71,7 +71,7 @@ func TestReadAuditLogNamesAnAbsentLog(t *testing.T) {
 // rec is one record read back the way the command reads it.
 func rec(t *testing.T, line string) map[string]any {
 	t.Helper()
-	records, err := readAuditLog(writeLog(t, line))
+	records, _, err := readAuditLog(writeLog(t, line))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -280,5 +280,118 @@ func TestTailRecords(t *testing.T) {
 				t.Errorf("tailRecords(%d) = %v, want %v", tc.count, got, tc.want)
 			}
 		})
+	}
+}
+
+// A record's output is bounded by [audit] max_record_bytes, and JSON escaping
+// multiplies it: '<' renders as "<", six bytes for one, so a brokered
+// command emitting 1.4MiB of them writes an 8MiB line.  A reader with a ceiling
+// does not lose that record alone.  It stops there, so every record before and
+// after it goes unread too, which makes one command a way to blind the log.
+//
+// Measured against a live install: 1,300,000 bytes of '<' listed fine and
+// 1,400,000 took the whole log out, past and future, by id and by listing.
+func TestReadAuditLogSurvivesARecordNoCeilingWouldFit(t *testing.T) {
+	// Well past any fixed buffer, and past what a Scanner allowed.
+	huge := strings.Repeat(`<`, 1_600_000) // 9.6MB of escapes, 1.6MB decoded
+	path := writeLog(t,
+		`{"log_id":"before","op":"exec"}`,
+		`{"log_id":"poison","op":"exec","output":"`+huge+`"}`,
+		`{"log_id":"after","op":"exec"}`,
+	)
+	records, skipped, err := readAuditLog(path)
+	if err != nil {
+		t.Fatalf("one oversized record made the whole log unreadable: %v", err)
+	}
+	if skipped != 0 {
+		t.Errorf("skipped %d lines, want 0: every line here parses", skipped)
+	}
+	var ids []string
+	for _, record := range records {
+		ids = append(ids, str(record, "log_id"))
+	}
+	if !slices.Equal(ids, []string{"before", "poison", "after"}) {
+		t.Errorf("read %v, want the records before, at and after the oversized one", ids)
+	}
+}
+
+// An interior line that does not parse is a record that was lost, which is the
+// one thing this file exists not to do quietly.  A full disk cuts a write short
+// and the next record appends to what landed, so one failure takes two records
+// and a listing that said nothing would look complete.
+func TestReadAuditLogCountsInteriorLinesItSkipped(t *testing.T) {
+	path := writeLog(t,
+		`{"log_id":"a","op":"exec"}`,
+		`{"log_id":"torn","op":"exec","output":"ZZZ{"log_id":"eaten","op":"exec"}`,
+		`{"log_id":"b","op":"exec"}`,
+	)
+	records, skipped, err := readAuditLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1: the glued line is a record nobody will see", skipped)
+	}
+	if len(records) != 2 {
+		t.Fatalf("got %d records, want 2", len(records))
+	}
+}
+
+// The final line is the one an append can be caught halfway through, so it is
+// not evidence of anything and must not be reported as a loss.  What marks it is
+// the missing newline: nothing finished writing it.
+func TestReadAuditLogDoesNotCountALineStillBeingAppended(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	body := `{"log_id":"a","op":"exec"}` + "\n" + `{"log_id":"b","op":`
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	records, skipped, err := readAuditLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped != 0 {
+		t.Errorf("skipped = %d, want 0 for a torn final line", skipped)
+	}
+	if len(records) != 1 {
+		t.Errorf("got %d records, want 1", len(records))
+	}
+}
+
+// An op longer than its column ran into the one after it: `ask_approval` and
+// its outcome printed as `ask_approvalrefused`, with every column past it
+// shifted.  A row whose columns have merged is a row that is read wrong.
+func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
+	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-4e16","op":"ask_approval",`+
+		`"approved":false,"cmd":["sudo","id","-un"]}`), plain(t))
+	if strings.Contains(line, "ask_approvalrefused") {
+		t.Errorf("op and outcome merged: %q", line)
+	}
+	if !strings.Contains(line, "ask_approval refused") {
+		t.Errorf("summarise = %q, want the op and the outcome as separate columns", line)
+	}
+}
+
+// A glued line that ends properly is the shape a full disk leaves: the torn
+// record, then the next record appended straight onto it, terminated by that
+// second write.  It is the last line in the file and it is still a record lost,
+// so the missing newline is what excuses a line, not its position.
+func TestReadAuditLogCountsAGluedFinalLine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	body := `{"log_id":"a","op":"exec"}` + "\n" +
+		`{"log_id":"torn","op":"exec","output":"ZZZ` +
+		`{"log_id":"eaten","op":"exec"}` + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	records, skipped, err := readAuditLog(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped != 1 {
+		t.Errorf("skipped = %d, want 1: a terminated line that will not parse is a record gone", skipped)
+	}
+	if len(records) != 1 {
+		t.Errorf("got %d records, want 1", len(records))
 	}
 }

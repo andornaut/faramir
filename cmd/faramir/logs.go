@@ -11,8 +11,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -64,10 +67,20 @@ func cmdLogs(args []string) int {
 		path = cfg.Audit.LogPath
 	}
 
-	records, err := readAuditLog(path)
+	records, skipped, err := readAuditLog(path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 1
+	}
+	// Said rather than swallowed: a line in the middle of the file that does not
+	// parse is a record this command is about to not show, and a listing that
+	// looks complete is worse than one that says what it is missing.  A write cut
+	// short by a full disk leaves one, and the next record appends to it, so two
+	// are gone for one failure.
+	if skipped > 0 {
+		fmt.Fprintf(os.Stderr, "%s: %d line(s) do not parse and are not shown below. "+
+			"A record was lost where an append was cut short, which a full disk does; "+
+			"the daemon log names the write that failed\n", path, skipped)
 	}
 	if len(records) == 0 {
 		fmt.Fprintf(os.Stderr, "%s holds no records yet\n", path)
@@ -103,34 +116,61 @@ func cmdLogs(args []string) int {
 
 // readAuditLog parses the log as JSONL, skipping a line that does not parse: a
 // read concurrent with the daemon's append gives a torn final line, which must
-// not hide the records before it.
-func readAuditLog(path string) ([]map[string]any, error) {
+// not hide the records before it.  The second return is how many *interior*
+// lines were skipped, the torn final one being expected and not counted: an
+// interior one means a record was lost, which is the one thing this file exists
+// not to do quietly.
+//
+// Lines are read with no ceiling on their length, which is why this is a
+// bufio.Reader and not a Scanner.  One record carries its command's output, up
+// to [audit] max_record_bytes (4MiB by default), and JSON escaping multiplies
+// that by up to six: '<', '>', '&' and every C0 control byte each render as a
+// six-byte < escape, so 1.4MiB of output a brokered command chose is an
+// 8MiB line.  A fixed ceiling here is therefore a size the agent can pick, and
+// exceeding it does not lose one record: the read stops there, so every record
+// before and after it is withheld too, and one command blinds the whole log.
+func readAuditLog(path string) ([]map[string]any, int, error) {
 	fh, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
+			return nil, 0, fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
 				"this host, or [audit] log_path names somewhere else", path)
 		}
-		return nil, err
+		return nil, 0, err
 	}
 	defer func() { _ = fh.Close() }()
 
 	var records []map[string]any
-	scanner := bufio.NewScanner(fh)
-	// A record carries its command's output, bounded by [audit]
-	// max_record_bytes (4MiB by default); bufio's own default is 64KiB.
-	scanner.Buffer(make([]byte, 0, 64*1024), 8*1024*1024)
-	for scanner.Scan() {
-		var record map[string]any
-		if err := json.Unmarshal(scanner.Bytes(), &record); err != nil {
-			continue
+	skipped, midAppend := 0, false
+	reader := bufio.NewReaderSize(fh, 64*1024)
+	for {
+		line, readErr := reader.ReadBytes('\n')
+		if len(bytes.TrimSpace(line)) > 0 {
+			var record map[string]any
+			if err := json.Unmarshal(line, &record); err != nil {
+				skipped++
+				// The one unparseable line that is not evidence of a lost record: the
+				// daemon caught midway through appending it, so it has no newline on the
+				// end and nothing follows it.  A line that ends properly was finished by
+				// somebody, and one that will not parse is a record gone: a write cut
+				// short leaves an open line and the next record appends onto it.
+				midAppend = !bytes.HasSuffix(line, []byte("\n"))
+			} else {
+				records = append(records, record)
+				midAppend = false
+			}
 		}
-		records = append(records, record)
+		if readErr != nil {
+			if errors.Is(readErr, io.EOF) {
+				break
+			}
+			return nil, skipped, fmt.Errorf("%s: %w", path, readErr)
+		}
 	}
-	if err := scanner.Err(); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+	if midAppend {
+		skipped--
 	}
-	return records, nil
+	return records, skipped, nil
 }
 
 // summarise is one record on one line: when, what, how it ended, how many
@@ -416,9 +456,13 @@ func list(record map[string]any, key string) []string {
 	return out
 }
 
+// pad is one column of the listing, widened to width.  A value that is already
+// that wide still gets a space: without one it runs into the column after it,
+// which is what an op name longer than its column did (`ask_approvalrefused`),
+// and a row whose columns have merged is a row that is read wrong.
 func pad(text string, width int) string {
 	if len(text) >= width {
-		return text
+		return text + " "
 	}
 	return text + strings.Repeat(" ", width-len(text))
 }

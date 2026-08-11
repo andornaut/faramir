@@ -99,9 +99,34 @@ func (l *Log) Write(record map[string]any, output string) {
 		return
 	}
 	defer func() { _ = fh.Close() }()
-	if _, err := fh.Write(append(line, '\n')); err != nil {
-		log.Printf("audit write failed: %v", err)
+	line = append(line, '\n')
+	written, err := fh.Write(line)
+	if err == nil {
+		return
 	}
+	log.Printf("audit write failed: %v", err)
+	if leftOpen(line, written) {
+		if _, err := fh.Write([]byte{'\n'}); err != nil {
+			log.Printf("audit could not terminate a torn record, so the next one "+
+				"appends to it and neither reads back: %v", err)
+		}
+	}
+}
+
+// leftOpen reports whether a failed write left the record's line open: some of
+// it landed, not all of it, and what landed does not end the line.
+//
+// The next record appends straight onto an open line, so one failed write takes
+// two records rather than one, and the second of them is a record that was
+// written successfully.  `faramir logs` skips both, an unparseable line being
+// indistinguishable from the torn final one a concurrent read sees.  Closing the
+// line costs a byte and keeps the loss to the record that failed.
+//
+// Best effort by nature: what usually stops a record is a full filesystem, which
+// stops the terminator too.  It is the short write with a cause of its own that
+// this keeps from spreading.
+func leftOpen(line []byte, written int) bool {
+	return written > 0 && written < len(line) && line[written-1] != '\n'
 }
 
 // cutAtRune returns the first limit bytes of s, backing off only far enough not

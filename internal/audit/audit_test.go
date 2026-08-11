@@ -119,3 +119,30 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 			len(record.Output), limit)
 	}
 }
+
+// A write cut short leaves a line with no newline on the end, and the next
+// record appends straight onto it: one failure takes two records, the second of
+// them one that was written successfully, and `faramir logs` skips both without
+// distinguishing either from the torn final line a concurrent read sees.
+//
+// The failure itself needs a full filesystem, which a test cannot ask for, so
+// what is asserted here is the decision that follows one.
+func TestLeftOpenRecognisesAWriteCutShort(t *testing.T) {
+	line := []byte(`{"log_id":"a"}` + "\n")
+	for _, tc := range []struct {
+		name    string
+		written int
+		want    bool
+	}{
+		{"nothing landed, so there is no line to close", 0, false},
+		{"cut in the middle", 5, true},
+		{"cut one byte short of the newline", len(line) - 1, true},
+		{"the whole line landed", len(line), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := leftOpen(line, tc.written); got != tc.want {
+				t.Errorf("leftOpen(%d of %d) = %v, want %v", tc.written, len(line), got, tc.want)
+			}
+		})
+	}
+}
