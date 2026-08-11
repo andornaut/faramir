@@ -9,10 +9,10 @@ package install
 //	group <client>    access to a tree brokered commands run in
 //	group <secrets>   read on the ciphertext; the keeper's own group by default
 //
-// Three uids because anything a uid can read, a command running as that uid can
-// read.  Two groups because being admitted to the broker socket and being able
-// to read the file a value comes from are different privileges; the secrets
-// group holds the keeper alone, so it needs no membership list.
+// Three service uids because anything a uid can read, a command running as that
+// uid can read.  Two groups because being admitted to the broker socket and
+// being able to read the file a value comes from are different privileges; the
+// secrets group holds the keeper alone, so it needs no membership list.
 //
 // The coding agent has no account: it runs as the operator, whose uid cannot
 // read what the keeper and broker hold either.  See docs/design.md.

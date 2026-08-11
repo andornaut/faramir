@@ -156,7 +156,7 @@ How to install and run this is in [operating.md](operating.md#allowing-sudo-on-t
 
 What makes the answer worth anything is that the prompt names the command. An approval a human cannot attribute to a command they initiated is worthless, so the broker writes the question itself, from the argv it started, and refuses a request it cannot attribute to a running command rather than asking about "something". The prompt string `sudo` passes to the helper is ignored: it comes from the child, which is the side being asked about.
 
-Three things follow from that, and each is the reason an easier design was not taken:
+Five things follow from that, and each is the reason an easier design was not taken:
 
 - **No time window.** `timestamp_timeout=0`, so sudo's own credential cache never decides this. A window in which approval is assumed is a window an agent can start a brokered command inside, riding an approval a human gave for something else. What an approval does cover is the brokered command it was shown for: one question per `faramir run`, spent on that run's sudos and gone when it exits. The scope is a named command rather than a stretch of time, and the prompt says which one it is asking for.
 - **Not the caller's terminal.** Passing stdin through so `--ask-become-pass` prompts where `faramir run` was typed is the fix that suggests itself first and the worst one available: the agent owns that process tree, so a password typed into it is a password the agent can read.

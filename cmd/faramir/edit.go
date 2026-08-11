@@ -5,7 +5,7 @@ package main
 // than asking the keeper, which has no operation that returns key material;
 // under sudo this process is already root.
 //
-// Over running sops by hand it buys: plaintext that is 0600 root in a tmpfs
+// Over running sops by hand it adds: plaintext that is 0600 root in a tmpfs
 // rather than readable by the uid the agent runs as; an editor this process
 // chose, never one $EDITOR named; a path argument that cannot leave the managed
 // set; and an audit record.

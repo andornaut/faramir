@@ -119,9 +119,9 @@ type compiled struct {
 
 // configDir is where this host's config, secrets and keys actually are.  Taken
 // from the same place the daemons take it, so an install moved with
-// --config-dir moves what these rules refuse; a hardcoded convention refused one
-// layout and went silent the moment the config was placed anywhere else, which
-// includes an operator who moved XDG_CONFIG_HOME.
+// --config-dir moves what these rules refuse.  A hardcoded convention would
+// refuse one layout and go silent for a config placed anywhere else, an operator
+// who moved XDG_CONFIG_HOME among them.
 func configDir() string {
 	path := os.Getenv("FARAMIR_CONFIG")
 	if path == "" {
@@ -365,8 +365,10 @@ func wrap(h *host, command string, p *payload) (string, bool) {
 		return "", false
 	}
 
-	// One simple command, so a single "Bash(source:*)" rule can allow-list it;
-	// a rewrite built from "{ ...; }" and ";" cannot be allow-listed at all.
+	// One simple command rather than a compound statement built from "{ ...; }"
+	// and ";", so the rewritten text stays one word and one argument for whatever
+	// reads it next: a classifier in auto mode, or an operator in the transcript.
+	// It is not allow-listable either way, per the rewrite path above.
 	// Quoted for exactly one round trip through the sourced script's eval; see
 	// agent/hooks/wrap.sh.
 	return "source " + wrapScript() + " " + shellQuote(command), true

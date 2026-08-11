@@ -185,8 +185,8 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 // diagnoseSopsConfig reports a creation rule left inside the secrets directory.
 // sops takes the first .sops.yaml it finds walking up from the working
 // directory, so a copy in the secrets directory shadows the one above it and
-// new values encrypt to different recipients depending on where the operator
-// was standing.
+// new values encrypt to different recipients depending on the working directory
+// sops was run from.
 //
 // Reported rather than moved: answering which is current wrongly writes values
 // nothing can decrypt.

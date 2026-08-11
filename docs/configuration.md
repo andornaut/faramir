@@ -7,7 +7,7 @@ Setting | Effect
 `[exec.base_env] PATH` | Where a bare name is looked up, and the only `PATH` the child gets.
 `[exec] max_timeout_sec` | How long a command may run.
 `[exec] max_output_bytes` | What comes back; the audit log keeps up to `[audit] max_record_bytes`.
-`[secrets] min_length` | A value too short to redact is refused at load, so it can be injected by nothing.
+`[secrets] min_length` | A value too short to redact is refused at load, so nothing can inject it.
 the executor's uid | The real bound.
 
 - `allowed_group` admits every member of one group including supplementary membership, and exists on `[server]` alone. `[keeper]` and `[executor]` have one legitimate client each, the broker, named in `allowed_user`; the group form is not a key there and setting it is a hard error naming the alternatives, because the only group in play is the client group, which holds the agent's own uid.
@@ -34,6 +34,7 @@ Section | Keys
 `[secrets]` | `files`, `refresh_interval_sec`, `min_length`. Not `decrypt_command`, which the base file sets and a second source is refused for
 `[server]` | `max_concurrency`, `max_request_bytes`
 `[audit]` | `max_record_bytes`
+`[sudo]` | `timeout_sec` alone, and only on a host installed with `--allow-sudo`. The rest of the section is the approval boundary itself, below
 
 ## What init derives, a drop-in may not set
 

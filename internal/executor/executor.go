@@ -81,7 +81,7 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	emitted := 0
 	truncated := false
 	aborted := false
-	// The executor owns the process group and enforces the timeout; this is the
+	// The executor owns the run's cgroup and enforces the timeout; this is the
 	// backstop for it not coming back at all.
 	deadline := started.Add(time.Duration(timeoutSec+execCfg.KillGraceSec+backstopMarginSec) * time.Second)
 
@@ -106,7 +106,7 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 		remaining := time.Until(deadline)
 		if remaining <= 0 {
 			aborted = true
-			client.Abort() // hanging up kills the child's process group
+			client.Abort() // hanging up tears down the run's cgroup
 			break
 		}
 		if err := master.SetReadDeadline(time.Now().Add(min(remaining, time.Second))); err != nil {

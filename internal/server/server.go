@@ -149,7 +149,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 }
 
 // peer performs the SO_PEERCRED check.  The socket mode already restricts this
-// to the dev group; this also gives the audit log a real uid.
+// to the client group; this also gives the audit log a real uid.
 func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 	peer, err := sockutil.PeerCred(conn)
 	if err != nil {
@@ -253,8 +253,9 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protoc
 	}
 }
 
-// opApprovals and opApprove are the approval channel, and the only two ops
-// this socket refuses to a caller it otherwise admits.
+// opApprovals and opApprove are the operator's half of the approval channel,
+// and with opAskApproval the only ops this socket refuses to a caller it
+// otherwise admits.
 //
 // Root, checked with SO_PEERCRED, and nothing else: not the client group, which
 // holds the account the coding agent runs as, and not the executor, which is the

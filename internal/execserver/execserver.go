@@ -6,8 +6,8 @@
 // SCM_RIGHTS and keeps the master.  This service does the fork, the session
 // setup and the reaping, and reports an exit status.
 //
-// Closing the connection means "give up", and tears down the run's cgroup,
-// which covers the broker dying mid-command.
+// Closing the connection cancels the run and tears down its cgroup, which covers
+// the broker dying mid-command.
 package execserver
 
 import (
@@ -62,11 +62,10 @@ type Executor struct {
 //
 // The broker is the executor's only permitted client and gates every child
 // behind [server] max_concurrency, holding a slot for the whole run, so that
-// number is the one that binds and this one is never reached. It was a config
-// key set four times higher than the cap above it: an operator could raise or
-// lower it and watch nothing change. What it still provides is that a broker with a
-// bug cannot fork without limit here, which is a reason to keep the check and
-// no reason to let anyone tune it.
+// number is the one that binds and this one is never reached.  Not a config key
+// for that reason: raising or lowering it would change nothing an operator could
+// observe.  What it still provides is that a broker with a bug cannot fork
+// without limit here, which is a reason to keep the check and none to tune it.
 const maxConcurrent = 16
 
 func New(cfg *config.Config) *Executor {

@@ -397,12 +397,13 @@ var inventoryLists = map[string]bool{
 //
 // Distinct from systemdOwned, which is what the .socket units decide.
 //
-// All but approval.notify_command are scalars, which the policy rule below
-// cannot reach: that one refuses a list two sources set, and a scalar simply
-// replaces.  This check runs first either way.  ssh.exec_group
-// is the reason this matters rather than being tidiness, being the group the
-// agent's SO_PEERCRED check admits; a drop-in naming the client group there
-// hands the broker's identity to the account the agent exists to keep it from.
+// All but sudo.notify_command are scalars, which the policy rule below cannot
+// reach: that one refuses a list two sources set, and a scalar simply replaces.
+// This check runs first either way.  ssh.exec_group is what makes this matter
+// rather than being tidiness, being the group the ssh-agent relay's SO_PEERCRED
+// check admits; a drop-in naming the client group there hands the broker's SSH
+// identity to the account the relay exists to keep it from.
+//
 // The value is the flag that sets each, so the refusal says what to run
 // instead.  Empty for a value rendered from a compiled-in path, which no flag
 // moves: naming one would send the operator to a command that changes nothing.

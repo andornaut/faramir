@@ -104,10 +104,9 @@ func base32Variants(value string) map[string]bool {
 // decimal and a hexadecimal form, an encoder chooses which characters to escape
 // at all, and "&#112;" for a plain "p" is as valid as leaving it alone.  The set
 // is unbounded, so a list of renderings covers whichever producer it was written
-// against and reads as coverage of the rest.  A partial list here caught Go's
-// html.EscapeString while PHP's htmlspecialchars ("&#039;") and XML ("&apos;")
-// went through in clear, which is the wrong way round: a credential reflected
-// off a real error page comes from the second kind.
+// against and reads as coverage of the rest: Go's html.EscapeString, PHP's
+// htmlspecialchars ("&#039;") and XML ("&apos;") spell the same character three
+// ways.
 //
 // A value reflected into a page is the child choosing the encoding of its own
 // output, which the README already names as out of scope.

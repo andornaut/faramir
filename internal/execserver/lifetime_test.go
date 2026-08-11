@@ -96,7 +96,7 @@ func TestAChildIsKilledWhenTheBrokerHangsUp(t *testing.T) {
 	t.Fatalf("pid %d survived the broker hanging up", pid)
 }
 
-// The executor owns the timeout, because it owns the process group.
+// The executor owns the timeout, because it owns the run's cgroup.
 func TestTimeoutIsEnforcedByTheExecutor(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 	sh := shPath(t)

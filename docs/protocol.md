@@ -27,7 +27,7 @@ The mode is one check; the broker also tests `SO_PEERCRED` against `[server] all
 Field | Required | Notes
 --- | --- | ---
 `cmd` | yes | **Array.** A string is rejected with guidance; the broker never runs `sh -c` for you.
-`cwd` | yes | Absolute, and must exist. No fallback: a request naming none is refused. A relative `cmd[0]` resolves against it.
+`cwd` | yes | Absolute, and must exist. No fallback: a request naming none is refused. A relative `cmd[0]` resolves against it. The CLI and the MCP server each fill in their own working directory when the caller names none, so this is a refusal only on the socket.
 `env_refs` | no | `NAME` → `secret://ref`. Values cannot be passed; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved.
 `timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`.
 

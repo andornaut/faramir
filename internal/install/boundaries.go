@@ -782,12 +782,14 @@ func ownerName(info os.FileInfo) string {
 // wrote, as loginDefs is.
 var shadowFile = "/etc/shadow"
 
-// shadowUsable is the parse: the second field is the hash, and "!" locks it,
-// "*" means no password was ever set, and empty means anything gets in.
+// shadowUsable reports whether an account has a password it could authenticate
+// with.  The second field is the hash: a "!" prefix locks it, "*" means no
+// password was ever set, and empty is treated the same way, pam_unix refusing an
+// empty one unless the stack says nullok.
 //
-// The executor must have none of the first kind.  It authenticates through PAM
-// against the broker's answer, so a password on that account is a second way in
-// and one nothing asks the broker about.
+// The executor must have none.  It authenticates through PAM against the
+// broker's answer, so a password on that account is a second way in, and one
+// nothing asks the broker about.
 func shadowUsable(shadow, account string) bool {
 	for line := range strings.Lines(shadow) {
 		name, rest, found := strings.Cut(strings.TrimRight(line, "\n"), ":")
@@ -806,7 +808,7 @@ func shadowUsable(shadow, account string) bool {
 // entry can come from any file in sudoers.d, from a group, or from LDAP.
 //
 // NOPASSWD is what this looks for because it skips PAM entirely, and PAM is
-// where the approval is asked for.  An entry with it is a brokered command
+// where the approval is asked for.  An entry with it lets a brokered command
 // sudo with the broker, the question and the human all out of the way.
 func passwordlessSudo(account string) (string, bool) {
 	if account == "" {
