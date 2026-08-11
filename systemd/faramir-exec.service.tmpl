@@ -17,6 +17,11 @@ SyslogIdentifier=faramir-exec
 Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
+# KillMode is systemd's default control-group, so a stop ends every brokered
+# command in this unit's tree along with the daemon.  Named rather than
+# inherited, and the same 30s the broker gets, so one restart does not sit at
+# two different limits.
+TimeoutStopSec=30
 
 # {{.ClientGroup}}, because brokered commands run in the working tree and write to it:
 # ansible drops .retry files and fact caches.  The tree is agent-owned and

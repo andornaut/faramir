@@ -594,6 +594,35 @@ func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	return &out
 }
 
+// refuse answers a request that will not run, and records it under the log_id
+// the caller is given.
+//
+// The id is the point.  Every refusal carries one, and `faramir mcp` hands it to
+// the model as "operator can inspect log_id …", so an id naming no record sends
+// somebody to look up nothing.  It is also the same question the audit log
+// answers for every other outcome: why did this not run.
+//
+// Not for the refusals decided before a request is parsed -- too_large, a
+// forbidden peer, malformed JSON -- which carry no id precisely because there is
+// nothing yet to record them against.
+func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
+	cmd []string, cwd string) protocol.Response {
+	record := s.redactor()
+	detail := record.RedactText(message)
+	entry := map[string]any{
+		"log_id": logID, "op": "exec", "peer": peer,
+		"refused": code, "error": detail,
+	}
+	if len(cmd) > 0 {
+		entry["cmd"] = redactEach(record, cmd)
+	}
+	if cwd != "" {
+		entry["cwd"] = record.RedactText(cwd)
+	}
+	s.Audit.Write(entry, audit.Output{})
+	return protocol.ErrorResponse(code, detail, logID)
+}
+
 // refuseUnauditable is the gate on running anything at all: a command that
 // cannot be recorded is not run.
 //
@@ -637,8 +666,8 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// knows where that is.
 	cwd := request.Cwd
 	if !request.HasCwd || cwd == "" {
-		return protocol.ErrorResponse("bad_request",
-			"no cwd: name the directory to run in.", logID)
+		return s.refuse("bad_request", "no cwd: name the directory to run in.",
+			logID, peer, cmd, "")
 	}
 	// Fails early with a clear message; it enforces nothing.  Permission is left
 	// to the executor, whose uid may hold traversal the broker does not. Absence
@@ -646,11 +675,11 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	info, statErr := os.Stat(cwd)
 	switch {
 	case statErr == nil && !info.IsDir():
-		return protocol.ErrorResponse("bad_request", "cwd is not a directory: "+cwd, logID)
+		return s.refuse("bad_request", "cwd is not a directory: "+cwd, logID, peer, cmd, cwd)
 	case os.IsPermission(statErr):
 		// The executor decides.
 	case statErr != nil:
-		return protocol.ErrorResponse("bad_request", "cwd does not exist: "+cwd, logID)
+		return s.refuse("bad_request", "cwd does not exist: "+cwd, logID, peer, cmd, cwd)
 	}
 
 	argv0Path, err := resolve.Program(cmd[0], cwd, execCfg)
@@ -679,9 +708,9 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	case s.slots <- struct{}{}:
 		defer func() { <-s.slots }()
 	default:
-		return protocol.ErrorResponse("busy", fmt.Sprintf(
+		return s.refuse("busy", fmt.Sprintf(
 			"broker is at its concurrency limit (%d); retry shortly",
-			s.Config.Server.MaxConcurrency), logID)
+			s.Config.Server.MaxConcurrency), logID, peer, cmd, cwd)
 	}
 
 	// A token, and nothing else: the child can be identified when it asks to
@@ -715,11 +744,11 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// exact interval the serialization is protecting.  Failing here says what
 	// happened and leaves the decision to run again with whoever reads it.
 	if heldBy != "" {
-		return protocol.ErrorResponse("approval_in_progress", "an approval is being decided or held "+
+		return s.refuse("approval_in_progress", "an approval is being decided or held "+
 			"on the executor's uid ("+heldBy+"), and no other brokered command runs "+
 			"while one is: they share that uid, so a second could ride the approval. "+
 			"This command was not run and was not queued. Run it again once that one "+
-			"has finished", logID)
+			"has finished", logID, peer, cmd, cwd)
 	}
 	defer s.Approval.Release(token)
 	maps.Copy(env, s.Approval.Env(token))
@@ -727,11 +756,11 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	for name, uri := range envRefs {
 		ref, err := secretref.Parse(uri)
 		if err != nil {
-			return protocol.ErrorResponse("unknown_secret", err.Error(), logID)
+			return s.refuse("unknown_secret", err.Error(), logID, peer, cmd, cwd)
 		}
 		value, err := s.Store.Value(ref)
 		if err != nil {
-			return protocol.ErrorResponse("unknown_secret", err.Error(), logID)
+			return s.refuse("unknown_secret", err.Error(), logID, peer, cmd, cwd)
 		}
 		env[name] = value
 		injected[name] = ref

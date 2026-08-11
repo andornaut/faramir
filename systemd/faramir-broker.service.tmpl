@@ -28,6 +28,14 @@ SyslogIdentifier=faramir-broker
 Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
+# What a stop spends its time on is a brokered command still running: the broker
+# waits for the result, and nothing hurries that along.  Connections merely
+# waiting on a peer are released the moment the listener closes, so this is the
+# command and only the command.  Named rather than inherited: the default is 90s,
+# which is long enough that an operator reads a restart as hung, and the kill at
+# the end of it is the same kill either way.  30s finishes anything short and
+# stops waiting on anything that is not.
+TimeoutStopSec=30
 
 # No LoadCredential= here: a credential is readable by the unit's uid, and this
 # is the process that composes each brokered command's environment, so a broker

@@ -17,6 +17,10 @@ SyslogIdentifier=faramir-keeper
 Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
+# Nothing here outlives a request, so this is never reached; it is set so all
+# three units stop on stated terms rather than two on stated terms and one on
+# whatever the default is.
+TimeoutStopSec=30
 
 # {{.SecretsGroup}}, only so this process can read {{.SecretsDir}} (2750, that
 # group) to decrypt and fingerprint.  Read access to ciphertext; the key stays
