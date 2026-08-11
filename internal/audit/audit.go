@@ -224,7 +224,8 @@ func (l *Log) Unwritable() string {
 		log.Printf("cannot measure free space under %s: %v", l.config.LogPath, err)
 		return ""
 	}
-	free := int64(fs.Bavail) * int64(fs.Bsize)
+	// Bavail is unsigned and Bsize is not, which is why only one is converted.
+	free := int64(fs.Bavail) * fs.Bsize
 	if want := int64(l.config.MaxRecordBytes); free < want {
 		return fmt.Sprintf("%s has %d bytes free and one record may need %d",
 			filepath.Dir(l.config.LogPath), free, want)
