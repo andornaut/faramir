@@ -181,6 +181,9 @@ func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 // rather than asserted: it is the number to raise config.MinRecordBytes to when
 // the test above starts failing, and it is worth seeing before it does.
 func TestReportTheFloorTheWidestRecordNeeds(t *testing.T) {
+	// It writes below the cap that fits, on purpose: that is the boundary it is
+	// looking for.
+	defer unstrict()()
 	widest, widestAt := 0, ""
 	for where, keys := range recordShapes(t) {
 		if len(keys) > widest {

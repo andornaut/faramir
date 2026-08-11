@@ -350,18 +350,60 @@ func (l *Log) encode(payload map[string]any) []byte {
 			}
 		}
 	}
+	return l.lastResort(payload, len(payload))
+}
+
+// strict makes reaching the last resort fatal instead of survivable.  Tests set
+// it, so a change that puts a record beyond the cap stops CI on the spot rather
+// than being noticed later in a log; the two tests that reach it deliberately
+// turn it off around themselves.
+//
+// Off in the shipped binary on purpose.  Reaching this is a bug, and a bug is
+// worth crashing on where a crash costs nothing -- but here it would take the
+// broker down mid-run, killing every brokered command with it, to protect a
+// record it was already about to write.  On a host the answer is to write the
+// record and say, in terms nobody reads past, that this build is wrong.
+var strict = false
+
+// lastResort is what happens when a record cannot be made to fit: it is written
+// cut back to the fact that it happened, and the fact that it happened is a bug
+// reported in the same breath.
+//
+// Not caller-controlled and so not a runtime condition to handle.  Everything a
+// caller chooses -- how long a value is, how many entries a list holds -- is
+// bounded by the reductions above.  What is left is the record's *field set*
+// against [config.AuditConfig] MaxRecordBytes, and the field set is written in
+// this repository: a record grew fields, or a value of a type that will not
+// marshal was put in one.  Either is a change somebody made here, and
+// TestEveryRecordThisTreeWritesFitsTheSmallestCap fails on the first of them
+// before it can ship.
+//
+// It still writes the line rather than dropping it or refusing.  Being a bug
+// does not make the record less true, and a host that has this bug is a host
+// where something ran.
+func (l *Log) lastResort(payload map[string]any, fields int) []byte {
+	// Named short and quoted: by here the op has been through the reductions like
+	// everything else, so it is not necessarily the word the record started with.
+	op := fmt.Sprint(payload["op"])
+	if len(op) > 32 {
+		op = op[:32] + "…"
+	}
+	report := fmt.Sprintf("BUG in faramir: a %d-field %q record does not fit "+
+		"[audit] max_record_bytes (%d) even reduced, so it is being written as its "+
+		"identity alone. Every record of this shape is affected, not this one. "+
+		"Either a record gained fields without config.MinRecordBytes being raised "+
+		"to match, or one carries a value that will not marshal",
+		fields, op, l.config.MaxRecordBytes)
+	if strict {
+		panic(report)
+	}
+	log.Print(report)
 	return stubLine(payload)
 }
 
-// stubLine is the last reduction: a record cut back to the fact that it
-// happened.  It is what makes encode total -- for any input there is a line, and
-// it is under the cap -- and every caller is spared the question of what to do
-// when there is not.
-//
-// Not dead code, though nothing a brokered command sends reaches it: what it
-// guards is a record whose *field set* is too large, and the field set is the
-// code's.  Add enough fields to a record and a small max_record_bytes reaches
-// this, which is the day it earns its place.
+// stubLine is the record cut back to its identity.  It is what makes encode
+// total -- for any input there is a line, and it is under the cap -- so no
+// caller has to hold an opinion about what to do when there is not.
 func stubLine(payload map[string]any) []byte {
 	const why = "this record did not fit [audit] max_record_bytes and was reduced to its identity"
 	if line, err := json.Marshal(map[string]any{

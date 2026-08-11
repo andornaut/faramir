@@ -691,6 +691,7 @@ func TestNothingACallerSendsReachesTheStub(t *testing.T) {
 // a record grows enough fields is the day it is the only thing standing between
 // that record and no record.
 func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
+	defer unstrict()()
 	payload := map[string]any{"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec"}
 	for i := range 200 {
 		payload[fmt.Sprintf("field_%03d", i)] = strings.Repeat("<", 400)
@@ -723,6 +724,7 @@ func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
 // passes over in silence.  A record was gone with nothing to notice, which is
 // the one outcome this package is for.
 func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
+	defer unstrict()()
 	path := filepath.Join(t.TempDir(), "audit.log")
 	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 1 << 20}).Write(map[string]any{
 		"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec",
