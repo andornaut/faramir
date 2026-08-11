@@ -47,6 +47,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -324,7 +325,16 @@ func (l *Log) encode(payload map[string]any) []byte {
 	} else {
 		before, _ := payload["output"].(string)
 		for _, step := range reductions {
-			reduce(payload, step[0], step[1])
+			// Each field, not the record.  reduce() bounds how many entries a
+			// collection keeps, and applied to the payload itself that ceiling is a
+			// ceiling on the record's own fields: it deleted them in reverse key
+			// order until few enough were left, so `redactions` -- what says which
+			// credentials the command used -- went first, and what landed looked like
+			// an ordinary complete record.  The field set is the code's, not a
+			// caller's, and is never what is too large.
+			for key, value := range payload {
+				payload[key] = reduce(value, step[0], step[1])
+			}
 			payload["record_reduced"] = true
 			// The output field is reduced along with the rest, so what it says about
 			// itself has to keep up: a record whose output was cut and does not say so
@@ -390,8 +400,35 @@ func reduce(value any, strLimit, items int) any {
 		if len(typed) > items {
 			return append(typed[:items:items], any(more(len(typed)-items)))
 		}
+	default:
+		return reduceTyped(value, strLimit, items)
 	}
 	return value
+}
+
+// reduceTyped bounds a slice whose element type this package cannot name.
+// `redactions` is []redact.Count, and naming it here would make the audit log
+// depend on the redactor to know how large it may be; more to the point, the
+// next such field would need the same edit, and the promise above is that it
+// would not.  Reflection is the price of that promise, and it is paid only on a
+// record already over the cap.
+//
+// The result is []any, so the marker can sit in it: a list of objects that ends
+// in a sentence is odd to look at and says what happened, which a list silently
+// missing 19,000 entries does not.
+func reduceTyped(value any, strLimit, items int) any {
+	if value == nil {
+		return value
+	}
+	rv := reflect.ValueOf(value)
+	if rv.Kind() != reflect.Slice || rv.Len() <= items {
+		return value
+	}
+	out := make([]any, 0, items+1)
+	for i := range items {
+		out = append(out, reduce(rv.Index(i).Interface(), strLimit, items))
+	}
+	return append(out, any(more(rv.Len()-items)))
 }
 
 // clamp is one string at an encoded ceiling, marked where it was cut.

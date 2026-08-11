@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/redact"
 )
 
 func TestCutAtRuneKeepsWholeRunes(t *testing.T) {
@@ -586,6 +587,100 @@ func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
 	if got, _ := record["cmd"].([]any); len(got) == 3 {
 		if arg, _ := got[2].(string); len(arg) != 200_000 {
 			t.Errorf("the long argument was cut to %d bytes", len(arg))
+		}
+	}
+}
+
+// A record that has to be reduced keeps every field it was given.  The item
+// ceiling is for collections a caller filled; applied to the payload itself it
+// is a ceiling on the record's own fields, and it deleted them in reverse key
+// order until few enough were left -- `redactions` first, which is what says
+// which credentials the command used, leaving something that read as an
+// ordinary complete record.
+func TestReducingARecordKeepsEveryFieldOfIt(t *testing.T) {
+	counts := make([]redact.Count, 0, 20_000)
+	for i := range 20_000 {
+		counts = append(counts, redact.Count{
+			Token: fmt.Sprintf("«SECRET:team/service-%05d/password»", i), Count: 1,
+		})
+	}
+	path := filepath.Join(t.TempDir(), "audit.log")
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 1 << 20}).Write(map[string]any{
+		"log_id": "x", "op": "exec", "cmd": []string{"ansible-playbook", "site.yml"},
+		"cwd": "/srv/ansible", "exit_code": 0.0, "redactions": counts,
+		"peer": map[string]any{"uid": 1001.0, "pid": 42.0},
+	}, Output{Text: "the output an operator came to read\n"})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{
+		"log_id", "op", "cmd", "cwd", "exit_code", "peer", "output", "redactions",
+	} {
+		if _, ok := record[key]; !ok {
+			t.Errorf("the record lost %q while being reduced", key)
+		}
+	}
+	// The list itself is what gives, and it says how much of it did.
+	kept, _ := record["redactions"].([]any)
+	if len(kept) == 0 || len(kept) >= 20_000 {
+		t.Fatalf("redactions has %d entries, want it bounded and not empty", len(kept))
+	}
+	if last, _ := kept[len(kept)-1].(string); !strings.Contains(last, "more, cut to fit") {
+		t.Errorf("a bounded list does not say what it left out: %v", kept[len(kept)-1])
+	}
+}
+
+// The identity stub is the backstop for a record that cannot be made to fit.
+// With every caller-chosen field bounded -- strings by encoded length, lists and
+// maps by entry count, whatever their element type -- there is no record a
+// caller can compose that reaches it, and this is the assertion that says so:
+// the smallest cap the config allows, against every field as large as anything
+// upstream could make it.
+func TestNothingACallerSendsReachesTheStub(t *testing.T) {
+	counts := make([]redact.Count, 0, 50_000)
+	for i := range 50_000 {
+		counts = append(counts, redact.Count{
+			Token: fmt.Sprintf("«SECRET:%s-%05d»", strings.Repeat("deep/path/", 20), i), Count: i,
+		})
+	}
+	refs := map[string]string{}
+	for i := range 20_000 {
+		refs[fmt.Sprintf("VAR_%05d_%s", i, strings.Repeat("N", 200))] = strings.Repeat("r", 500)
+	}
+	var args []string
+	for range 5_000 {
+		args = append(args, strings.Repeat("<", 2_000))
+	}
+	path := filepath.Join(t.TempDir(), "audit.log")
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+		Write(map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec",
+			"cmd": args, "cwd": strings.Repeat("<", 100_000), "env_refs": refs,
+			"redactions": counts, "exit_code": 0.0,
+			"peer":  map[string]any{"uid": 1001.0, "pid": 42.0, "gid": 1002.0},
+			"error": strings.Repeat("&", 100_000),
+		}, Output{Text: strings.Repeat("\x01", 500_000)})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > config.MinRecordBytes {
+		t.Fatalf("the record is %d bytes for a cap of %d", len(data), config.MinRecordBytes)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"log_id", "op", "cmd", "cwd", "env_refs", "redactions", "peer", "error"} {
+		if _, ok := record[key]; !ok {
+			t.Errorf("the stub was reached: %q is gone. Record: %s", key, data)
 		}
 	}
 }
