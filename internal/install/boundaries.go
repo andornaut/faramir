@@ -546,18 +546,20 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	// agent runs as that account, so a key it can read is one that reaches the
 	// model's context by any route the deny patterns miss.  init asserts the mode;
 	// this is what catches a chmod afterwards.
-	_, skipped := askable(opts.OperatorUser)
+	operator, skipped := askable(opts.OperatorUser)
 	if key := cfg.Ssh.Key; exists(key) {
 		if canRead(opts.ExecUser, key) {
 			report.add("ssh key", StatusFailed, "%s can read %s, so the agent gains "+
 				"nothing: a brokered command can take the key itself", opts.ExecUser, key)
 			return
 		}
-		if !skipped && canRead(opts.OperatorUser, key) {
-			report.add("ssh key", StatusFailed, "%s can read %s, and the coding agent "+
-				"runs as that account: the key is readable by the thing the agent "+
-				"was meant to keep it from", opts.OperatorUser, key)
-			return
+		for _, account := range operator {
+			if canRead(account, key) {
+				report.add("ssh key", StatusFailed, "%s can read %s, and the coding agent "+
+					"runs as that account: the key is readable by the thing the agent "+
+					"was meant to keep it from", account, key)
+				return
+			}
 		}
 	}
 	if private := cfg.Ssh.AgentSocket + ".private"; exists(private) &&

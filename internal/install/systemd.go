@@ -3,6 +3,8 @@ package install
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -29,6 +31,98 @@ var services = []string{
 func systemdRunning() bool {
 	info, err := os.Stat("/run/systemd/system")
 	return err == nil && info.IsDir()
+}
+
+// systemUnitDir is where the units are installed.  A variable so a test can
+// point at a directory it wrote, as loginDefs and shadowFile are.
+var systemUnitDir = "/etc/systemd/system"
+
+// UnitPath is where a unit of this name is installed.  Exported so a caller
+// outside this package resolves the same file this one does, rather than
+// restating the directory and drifting from it.
+func UnitPath(name string) string {
+	return filepath.Join(systemUnitDir, name)
+}
+
+// unitUser reads User= out of an installed unit.  Parsed rather than asked of
+// systemctl, which reports the running unit and answers nothing when the daemon
+// is down, which is one of the states worth examining.
+func unitUser(name string) (string, error) {
+	path := UnitPath(name)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	for line := range strings.SplitSeq(string(body), "\n") {
+		if account, ok := strings.CutPrefix(strings.TrimSpace(line), "User="); ok {
+			if account = strings.TrimSpace(account); account != "" {
+				return account, nil
+			}
+		}
+	}
+	return "", fmt.Errorf("%s names no User=", path)
+}
+
+// UnitConfigFile is the config file the unit at this path loads, or "" when
+// there is no unit or it names none.  Read from the unit rather than asked of a
+// running broker: a host whose daemons are down still has an install, and this
+// is the question of where that install is.
+//
+// Drop-ins as well as the unit, in the order systemd reads them: a
+// <unit>.d/*.conf setting Environment=FARAMIR_CONFIG is what the daemons
+// actually load, and uninstall removes those directories, so they are a state
+// this install expects rather than one only an operator could have made.
+// Reading the main file alone would see no move where there is one, and
+// re-provision a directory nothing loads.
+//
+// Exported because every caller that resolves this host's install has to get
+// the same answer: one reader consulting drop-ins and another reading the unit
+// alone put init's own refusal at odds with the directory it was given.
+func UnitConfigFile(unit string) string {
+	file := ""
+	for _, path := range unitFiles(unit) {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for line := range strings.SplitSeq(string(body), "\n") {
+			if value, ok := strings.CutPrefix(strings.TrimSpace(line),
+				"Environment=FARAMIR_CONFIG="); ok {
+				// An empty assignment is systemd's way of unsetting, so it clears what an
+				// earlier file said rather than being skipped as "names none".
+				file = strings.TrimSpace(value)
+			}
+		}
+	}
+	return file
+}
+
+// unitConfigDir is UnitConfigFile's directory, for the installed unit of this
+// name.
+func unitConfigDir(name string) string {
+	file := UnitConfigFile(UnitPath(name))
+	if file == "" {
+		return ""
+	}
+	return filepath.Dir(file)
+}
+
+// unitFiles is a unit and its drop-ins, in the order systemd applies them: the
+// unit first, then <unit>.d/*.conf sorted by name, later winning.
+func unitFiles(unit string) []string {
+	files := []string{unit}
+	entries, err := os.ReadDir(unit + ".d")
+	if err != nil {
+		return files
+	}
+	var dropIns []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".conf") {
+			dropIns = append(dropIns, filepath.Join(unit+".d", entry.Name()))
+		}
+	}
+	slices.Sort(dropIns)
+	return append(files, dropIns...)
 }
 
 func (r *runner) stepSystemd() error {

@@ -9,16 +9,6 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// find is the first finding under a name, or nil.
-func find(report DoctorReport, name string) *Finding {
-	for i, finding := range report.Findings {
-		if finding.Name == name {
-			return &report.Findings[i]
-		}
-	}
-	return nil
-}
-
 // canRead answers false for an account it cannot name, which is the same answer
 // a boundary that holds gives, so a check that asks about an unnamed operator
 // and then passes reports a boundary nobody established.
@@ -133,22 +123,21 @@ func TestLogRotationIsReportedWithoutRoot(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(configDir, "secrets"), 0o750); err != nil {
 		t.Fatal(err)
 	}
+	logPath := filepath.Join(dir, "audit.log")
 	if err := os.WriteFile(filepath.Join(configDir, "config.toml"), []byte(
 		"[server]\nallowed_group = \"dev\"\n\n[audit]\nlog_path = \""+
-			filepath.Join(dir, "audit.log")+"\"\n"), 0o644); err != nil {
+			logPath+"\"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	logPath := filepath.Join(dir, "audit.log")
-	report := Diagnose(DoctorOptions{ConfigDir: configDir})
-	finding := find(report, "log rotation")
-	if finding == nil {
-		t.Fatalf("no log rotation finding in a run without root: %+v", report.Findings)
+	found := findingsNamed(Diagnose(DoctorOptions{ConfigDir: configDir}), "log rotation")
+	if len(found) == 0 {
+		t.Fatal("no log rotation finding in a run without root")
 	}
 	// Whatever the verdict, it is about the log this config names rather than a
 	// line saying the question went unput.
-	if !strings.Contains(finding.Detail, logPath) {
+	if !strings.Contains(found[0].Detail, logPath) {
 		t.Errorf("finding is %q %q, want it to name %s",
-			finding.Status, finding.Detail, logPath)
+			found[0].Status, found[0].Detail, logPath)
 	}
 }

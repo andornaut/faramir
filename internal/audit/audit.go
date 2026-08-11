@@ -429,8 +429,8 @@ func stubLine(payload map[string]any) []byte {
 	// here is the first marshal failing, which skips the reductions entirely, so
 	// these three were never bounded and a line built from them would be as long
 	// as they are -- the one thing this function exists to rule out.  Printing
-	// them also makes every value a string, and marshalling strings cannot fail,
-	// so there is no second failure to fall back from.
+	// them also leaves the map holding strings and a bool, neither of which can
+	// fail to marshal, so there is no second failure to fall back from.
 	line, _ := json.Marshal(map[string]any{
 		"log_id":         clamp(fmt.Sprint(payload["log_id"]), 256),
 		"op":             clamp(fmt.Sprint(payload["op"]), 256),

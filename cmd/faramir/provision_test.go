@@ -118,22 +118,16 @@ func TestResolveConfigDirFallsBackOnAnEmptyConfigList(t *testing.T) {
 // passed no --config-dir, and the only way past would be --move-config, which
 // moves the daemons the other way.
 func TestTheUnitReaderTakesTheDropInTheDaemonsLoad(t *testing.T) {
-	unit := filepath.Join(t.TempDir(), "faramir-broker.service")
-	if err := os.WriteFile(unit, []byte("[Service]\nUser=faramir-broker\n"+
-		"Environment=FARAMIR_CONFIG=/etc/faramir/config.toml\n"), 0o644); err != nil {
+	pointBrokerUnit(t, "[Service]\nUser=faramir-broker\n"+
+		"Environment=FARAMIR_CONFIG=/etc/faramir/config.toml\n")
+	if err := os.Mkdir(brokerUnit+".d", 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Mkdir(unit+".d", 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(unit+".d", "10-moved.conf"),
+	if err := os.WriteFile(filepath.Join(brokerUnit+".d", "10-moved.conf"),
 		[]byte("[Service]\nEnvironment=FARAMIR_CONFIG=/srv/faramir/config.toml\n"),
 		0o644); err != nil {
 		t.Fatal(err)
 	}
-	original := brokerUnit
-	brokerUnit = unit
-	t.Cleanup(func() { brokerUnit = original })
 
 	if got := unitConfigFile(); got != "/srv/faramir/config.toml" {
 		t.Errorf("unitConfigFile = %q, want the drop-in's path", got)

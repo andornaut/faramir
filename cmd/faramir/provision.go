@@ -21,8 +21,10 @@ import (
 )
 
 // brokerUnit records the config the daemons loaded.  A variable so a test can
-// point it at a fixture.
-var brokerUnit = "/etc/systemd/system/faramir-broker.service"
+// point it at a fixture, and taken from install rather than written out again:
+// init refuses a config move against the same file, so a second literal here
+// would drift from the one the refusal reads.
+var brokerUnit = install.UnitPath("faramir-broker.service")
 
 // status is what a running broker says about itself: where its config is, and
 // which build is answering.
