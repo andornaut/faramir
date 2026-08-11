@@ -293,7 +293,7 @@ func detail(record map[string]any) string {
 	if cmd := joinCmd(record); cmd != "" {
 		return cmd
 	}
-	if size, ok := record["input_bytes"].(float64); ok {
+	if size, ok := num(record, "input_bytes"); ok {
 		return humanBytes(int64(size)) + " in"
 	}
 	if file := str(record, "file"); file != "" {
@@ -322,45 +322,62 @@ func paintOutcome(record map[string]any, paint palette) string {
 // outcome is how an exec ended, and whether that is a failure.  A redact ran no
 // command, so it has neither.
 func outcome(record map[string]any) (string, bool) {
-	if timedOut, _ := record["timed_out"].(bool); timedOut {
+	if timedOut, _ := boolean(record, "timed_out"); timedOut {
 		return "timed out", true
 	}
 	// An approval ends in an answer rather than an exit code.  A refusal is the
 	// one painted as a failure, not because refusing is wrong (it is the safe
 	// answer) but because something asked, and that is what an operator is scanning
 	// for.
-	if approved, ok := record["approved"].(bool); ok {
+	if approved, ok := boolean(record, "approved"); ok {
 		if approved {
 			return "approved", false
 		}
 		return "refused", true
 	}
-	code, ok := record["exit_code"].(float64)
+	code, ok := num(record, "exit_code")
 	if !ok {
 		return "", false
 	}
 	label := fmt.Sprintf("exit %d", int(code))
-	if seconds, ok := record["duration_sec"].(float64); ok {
+	if seconds, ok := num(record, "duration_sec"); ok {
 		label += fmt.Sprintf(" %.2fs", seconds)
 	}
 	return label, code != 0
 }
 
-// redactionTotal is how many values this record stood in for, summed across
-// tokens: a credential was used, without saying which value it had.
-func redactionTotal(record map[string]any) string {
+// redaction is one token and how often it stood in for its value.
+type redaction struct {
+	token string
+	count int
+}
+
+// redactions is the record's counts, read once for both the listing's sum and
+// the detail view's per-token line: two readers of the same array disagreeing
+// about its shape would print two different answers to the same question.
+func redactions(record map[string]any) []redaction {
 	entries, ok := record["redactions"].([]any)
-	if !ok || len(entries) == 0 {
-		return ""
+	if !ok {
+		return nil
 	}
-	total := 0
+	out := make([]redaction, 0, len(entries))
 	for _, entry := range entries {
 		fields, ok := entry.(map[string]any)
 		if !ok {
 			continue
 		}
-		count, _ := fields["count"].(float64)
-		total += int(count)
+		count, _ := num(fields, "count")
+		out = append(out, redaction{token: str(fields, "token"), count: int(count)})
+	}
+	return out
+}
+
+// redactionTotal is how many values this record stood in for, summed across
+// tokens: a credential was used, without saying which value it had.
+func redactionTotal(record map[string]any) string {
+	total := 0
+	for _, entry := range redactions(record) {
+		total += entry.count
 	}
 	if total == 0 {
 		return ""
@@ -368,13 +385,23 @@ func redactionTotal(record map[string]any) string {
 	return fmt.Sprintf("%d redacted", total)
 }
 
+// printField is one labelled line of the detail view, skipped when there is
+// nothing under the label.  The label's width is stated once here: a row whose
+// label column is a different width from the row above it is read as a
+// different kind of row.
+func printField(paint palette, label, value string) {
+	const labelWidth = 10
+	if value == "" {
+		return
+	}
+	fmt.Printf("  %s %s\n", paint.key(pad(label, labelWidth)), value)
+}
+
 // printRecord is the whole of one record, output included.
 func printRecord(record map[string]any, paint palette) {
 	fmt.Println(summarise(record, paint))
-	fmt.Printf("  %s %s\n", paint.key(pad("id", 10)), str(record, "log_id"))
-	if who := describePeer(record); who != "" {
-		fmt.Printf("  %s %s\n", paint.key(pad("caller", 10)), who)
-	}
+	printField(paint, "id", str(record, "log_id"))
+	printField(paint, "caller", describePeer(record))
 	// outcome is the approval's own reason (why it was refused, or that it was
 	// approved) and exec_log_id is the command's record, so an approval reads in
 	// both directions.
@@ -384,23 +411,17 @@ func printRecord(record map[string]any, paint palette) {
 	// by the account this log exists to hold to account.
 	for _, field := range []string{"cwd", "error", "outcome", "exec_log_id"} {
 		if value := str(record, field); value != "" {
-			fmt.Printf("  %s %s\n", paint.key(pad(field, 10)), termsafe.Line(value))
+			printField(paint, field, termsafe.Line(value))
 		}
 	}
-	if refs := list(record, "env_refs"); len(refs) > 0 {
-		fmt.Printf("  %s %s\n", paint.key(pad("refs", 10)), paint.ref(strings.Join(refs, ", ")))
-	}
+	printField(paint, "refs", paint.ref(strings.Join(list(record, "env_refs"), ", ")))
 	// A rekey's recipients, which are the whole of what it changed: who could
 	// read that file before, and who can now.  Public keys, so printing them
 	// discloses nothing the ciphertext does not already carry.
 	for _, field := range []string{"from", "to"} {
-		if recipients := list(record, field); len(recipients) > 0 {
-			fmt.Printf("  %s %s\n", paint.key(pad(field, 10)), paint.ref(strings.Join(recipients, ", ")))
-		}
+		printField(paint, field, paint.ref(strings.Join(list(record, field), ", ")))
 	}
-	if counts := redactionCounts(record); counts != "" {
-		fmt.Printf("  %s %s\n", paint.key(pad("redacted", 10)), paint.ref(counts))
-	}
+	printField(paint, "redacted", paint.ref(redactionCounts(record)))
 	output, _ := record["output"].(string)
 	if output == "" {
 		return
@@ -413,25 +434,16 @@ func printRecord(record map[string]any, paint palette) {
 	for line := range strings.SplitSeq(strings.TrimRight(output, "\n"), "\n") {
 		fmt.Printf("    %s\n", paint.token(termsafe.Line(line)))
 	}
-	if truncated, _ := record["output_truncated"].(bool); truncated {
+	if truncated, _ := boolean(record, "output_truncated"); truncated {
 		fmt.Printf("    %s\n", paint.dim("[truncated at [audit] max_record_bytes]"))
 	}
 }
 
 // redactionCounts is per token, for the detail view; the listing sums them.
 func redactionCounts(record map[string]any) string {
-	entries, ok := record["redactions"].([]any)
-	if !ok {
-		return ""
-	}
 	var out []string
-	for _, entry := range entries {
-		fields, ok := entry.(map[string]any)
-		if !ok {
-			continue
-		}
-		count, _ := fields["count"].(float64)
-		out = append(out, fmt.Sprintf("%s×%d", str(fields, "token"), int(count)))
+	for _, entry := range redactions(record) {
+		out = append(out, fmt.Sprintf("%s×%d", entry.token, entry.count))
 	}
 	return strings.Join(out, ", ")
 }
@@ -454,7 +466,7 @@ const dateLayout = "2006-01-02 MST"
 // the log_id, which carries the same instant.  A redact record has no
 // started_at.
 func startedAt(record map[string]any) time.Time {
-	if seconds, ok := record["started_at"].(float64); ok {
+	if seconds, ok := num(record, "started_at"); ok {
 		return time.Unix(int64(seconds), 0)
 	}
 	id := str(record, "log_id")
@@ -499,8 +511,8 @@ func describePeer(record map[string]any) string {
 	if !ok {
 		return ""
 	}
-	uid, _ := fields["uid"].(float64)
-	pid, _ := fields["pid"].(float64)
+	uid, _ := num(fields, "uid")
+	pid, _ := num(fields, "pid")
 	who := fmt.Sprintf("uid %d", int(uid))
 	if account, err := user.LookupId(fmt.Sprint(int(uid))); err == nil {
 		who = fmt.Sprintf("%s (uid %d)", account.Username, int(uid))
@@ -526,6 +538,23 @@ func humanBytes(n int64) string {
 func str(record map[string]any, key string) string {
 	value, _ := record[key].(string)
 	return value
+}
+
+// num is a recorded number and whether the field was there.  Every number in a
+// record comes back from encoding/json as a float64, whatever it was written
+// as, and the callers here want to tell an absent exit code from an exit code
+// of zero.
+func num(record map[string]any, key string) (float64, bool) {
+	value, ok := record[key].(float64)
+	return value, ok
+}
+
+// boolean is a recorded flag and whether the field was there.  `flag` is the
+// standard library's package name here, and this file's callers are already
+// reading command-line flags by that word.
+func boolean(record map[string]any, key string) (bool, bool) {
+	value, ok := record[key].(bool)
+	return value, ok
 }
 
 func list(record map[string]any, key string) []string {
