@@ -19,9 +19,10 @@ builds:
     flags: [-trimpath]
     ldflags: [-s -w]
 
-# One archive, holding the one binary, the README and the licence.  `faramir
-# init` is given the directory it was unpacked into and copies what it finds
-# there.
+# One archive, holding the one binary plus the README and the licence for
+# whoever unpacks it.  `faramir init` needs only the binary: everything it
+# writes to a host is embedded in it, and it installs the executable it is
+# running from.
 archives:
   - formats: [tar.gz]
     # this name template makes the output compatible with many package managers

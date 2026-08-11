@@ -57,11 +57,10 @@ lint:
 	golangci-lint run
 
 ## install: provision this host.  Deliberately NOT dependent on build: this
-## runs as root, the compiler should not, and init is meant to work on a host
-## with no Go at all (see --binaries).  It refuses to run without the binary
-## and says so.
+## runs as root and the compiler should not.  init installs the binary it was
+## run from, so a host needs no Go of its own.
 ##
-## Pass anything else through INIT_ARGS, e.g. --config-dir or --seal-age-key.
+## Pass anything else through INIT_ARGS, e.g. --config-dir or --allow-sudo.
 install:
 	sudo $(BIN)/faramir init --operator-user "$$(id -un)" $(INIT_ARGS)
 

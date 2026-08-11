@@ -47,7 +47,10 @@ type agentTarget struct {
 type agentFile struct {
 	// path is relative to the tree.
 	path string
-	// asset is the embedded file to write.
+	// asset is the embedded file to write.  An accountFiles asset is rendered as
+	// a text/template whatever it is named, so agent/claude/settings.json carries
+	// {{.ConfigDir}} without a .tmpl suffix; a files asset is written verbatim,
+	// and none of those holds a marker.
 	asset string
 	// dirMode creates the parent when the path has one.
 	mode os.FileMode

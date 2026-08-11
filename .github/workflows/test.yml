@@ -47,8 +47,8 @@ jobs:
 
       # Every brokered command is confined to its own cgroup and reaped there,
       # with no process-group fallback, so the executor refuses to run where it
-      # cannot make a cgroup -- and the tests exercise that real path rather than
-      # a weaker one. The GitHub runner is unprivileged and sits in a root-owned
+      # cannot make a cgroup, and the tests exercise that real path rather than a
+      # weaker one. The GitHub runner is unprivileged and sits in a root-owned
       # service cgroup it cannot subdivide, so hand it one it owns (exactly as
       # `init` grants the executor unit Delegate= on a real host) and move this
       # shell into it: `go test` inherits it and confinement runs for real.
