@@ -684,3 +684,64 @@ func TestNothingACallerSendsReachesTheStub(t *testing.T) {
 		}
 	}
 }
+
+// The terminal reduction is reached when a record's field set is what is too
+// large, which is the code's to decide and not a caller's.  Kept and tested
+// rather than deleted as unreachable: it is what makes encode total, and the day
+// a record grows enough fields is the day it is the only thing standing between
+// that record and no record.
+func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
+	payload := map[string]any{"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec"}
+	for i := range 200 {
+		payload[fmt.Sprintf("field_%03d", i)] = strings.Repeat("<", 400)
+	}
+	path := filepath.Join(t.TempDir(), "audit.log")
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+		Write(payload, Output{})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(data) > config.MinRecordBytes {
+		t.Errorf("the terminal reduction is %d bytes for a cap of %d", len(data), config.MinRecordBytes)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("the terminal reduction does not parse: %v", err)
+	}
+	if record["log_id"] != "2026-08-11T06:00:00Z-abcd000001" {
+		t.Errorf("it does not say which record it was: %v", record)
+	}
+	if record["record_reduced"] != true {
+		t.Error("it does not say that it is a reduction")
+	}
+}
+
+// A value that will not marshal at all took the same path, and the stub's own
+// marshal failed with it: what landed was "\n", a blank line, which a reader
+// passes over in silence.  A record was gone with nothing to notice, which is
+// the one outcome this package is for.
+func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 1 << 20}).Write(map[string]any{
+		"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec",
+		// A channel marshals to an error, whatever else is in the record.
+		"broken": make(chan int),
+	}, Output{})
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(strings.TrimSpace(string(data))) == 0 {
+		t.Fatal("a blank line was written, which a reader skips without saying so")
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatalf("what was written does not parse: %q", data)
+	}
+	if got, _ := record["log_id"].(string); !strings.Contains(got, "abcd000001") {
+		t.Errorf("the line does not say which record it was: %s", data)
+	}
+}

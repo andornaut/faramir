@@ -350,17 +350,43 @@ func (l *Log) encode(payload map[string]any) []byte {
 			}
 		}
 	}
-	// Reachable only when a record's fixed structure alone is over the cap, which
-	// takes a max_record_bytes near its floor or thousands of redaction counts, and
-	// neither is something a brokered command chooses.  Unconditional so that it
-	// stays that way: a record that cannot be made to fit is still evidence that
-	// something ran, and writing no line at all is the one outcome this package
-	// exists to rule out.
-	stub, _ := json.Marshal(map[string]any{
+	return stubLine(payload)
+}
+
+// stubLine is the last reduction: a record cut back to the fact that it
+// happened.  It is what makes encode total -- for any input there is a line, and
+// it is under the cap -- and every caller is spared the question of what to do
+// when there is not.
+//
+// Not dead code, though nothing a brokered command sends reaches it: what it
+// guards is a record whose *field set* is too large, and the field set is the
+// code's.  Add enough fields to a record and a small max_record_bytes reaches
+// this, which is the day it earns its place.
+func stubLine(payload map[string]any) []byte {
+	const why = "this record did not fit [audit] max_record_bytes and was reduced to its identity"
+	if line, err := json.Marshal(map[string]any{
 		"log_id": payload["log_id"], "op": payload["op"], "peer": payload["peer"],
-		"error": "this record did not fit [audit] max_record_bytes and was reduced to its identity",
+		"error": why, "record_reduced": true,
+	}); err == nil {
+		return append(line, '\n')
+	}
+	// A value that will not marshal at all is what brought us here, and the same
+	// value is in the map above.  Every key and value below is a string, and
+	// marshalling strings cannot fail, so this step has no failure of its own.
+	// Without it the line was "\n", and a blank line is the one thing a reader
+	// passes over in silence: the record would be gone with nothing to notice.
+	line, _ := json.Marshal(map[string]string{
+		"log_id": clamp(fmt.Sprint(payload["log_id"]), 256),
+		"op":     clamp(fmt.Sprint(payload["op"]), 256),
+		"peer":   clamp(fmt.Sprint(payload["peer"]), 256),
+		"error":  why,
 	})
-	return append(stub, '\n')
+	if len(line) == 0 {
+		// Unreachable, and the belt to the braces: the invariant is that this
+		// function returns a record, so it does not depend on being right about that.
+		line = []byte(`{"error":"` + why + `"}`)
+	}
+	return append(line, '\n')
 }
 
 // reduce cuts every string in the record to strLimit encoded bytes and every list
