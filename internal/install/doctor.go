@@ -266,6 +266,12 @@ func diagnoseUnits(report *DoctorReport) {
 	for _, socket := range sockets {
 		out, err := run.command("systemctl", "is-active", socket)
 		state := strings.TrimSpace(out)
+		if state == "" {
+			// systemctl prints the state even when it exits non-zero, so an empty
+			// answer is systemctl itself having failed.  Named, or the finding reads
+			// "<socket> is ;".
+			state = "unreportable"
+		}
 		if err != nil || state != "active" {
 			report.add("sockets", StatusFailed, "%s is %s; check journalctl -u %s",
 				socket, state, socket)

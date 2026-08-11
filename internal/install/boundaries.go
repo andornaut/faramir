@@ -87,8 +87,9 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	if os.Geteuid() != 0 {
 		report.NotAsked += len(checks)
 		report.add("boundaries", StatusWarn, "run doctor as root to check these: %d checks "+
-			"ask what %s, %s and %s can reach, and no account can answer that for "+
-			"another", len(checks), opts.OperatorUser, opts.BrokerUser, opts.ExecUser)
+			"ask what %s, %s, %s and %s can reach, and no account can answer that for "+
+			"another", len(checks), opts.OperatorUser, opts.BrokerUser, opts.KeeperUser,
+			opts.ExecUser)
 		return
 	}
 	// The probe itself: every check below reads a refusal as a boundary, so a
