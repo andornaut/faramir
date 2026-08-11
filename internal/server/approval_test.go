@@ -191,27 +191,8 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
 
-	token, _ := s.Approval.Register(approval.Run{
-		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-9",
-	})
-	granted := make(chan bool, 1)
-	go func() {
-		approved, _ := s.Approval.Ask(token)
-		granted <- approved
-	}()
-
+	question, granted := raiseAndWait(t, s, "log-9")
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
-	var question approval.Question
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) && question.ID == "" {
-		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
-		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
-			question = questions[0]
-		}
-	}
-	if question.ID == "" {
-		t.Fatal("no question reached root")
-	}
 	if !strings.Contains(question.Prompt, "ansible-playbook site.yml") {
 		t.Errorf("the question does not name the command: %q", question.Prompt)
 	}
@@ -248,26 +229,8 @@ func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 		return false, "1 process(es) are running as the executor outside any brokered command"
 	}
 
-	token, _ := s.Approval.Register(approval.Run{
-		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-q",
-	})
-	granted := make(chan bool, 1)
-	go func() {
-		approved, _ := s.Approval.Ask(token)
-		granted <- approved
-	}()
-
+	question, granted := raiseAndWait(t, s, "log-q")
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
-	var question approval.Question
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && question.ID == ""; {
-		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
-		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
-			question = questions[0]
-		}
-	}
-	if question.ID == "" {
-		t.Fatal("no question reached root")
-	}
 
 	response := s.Handle(map[string]any{
 		"op": "approve", "id": question.ID, "approve": true}, root)
@@ -304,4 +267,29 @@ func errorDetail(response protocol.Response) string {
 		return e["message"]
 	}
 	return ""
+}
+
+// raiseAndWait registers a run, puts its question, and returns the question as
+// root sees it together with the channel the blocked sudo answers on.  Both
+// approval tests below drive the same protocol; one copy of the poll means one
+// place to change when the channel's shape does.
+func raiseAndWait(t *testing.T, s *Server, logID string) (approval.Question, <-chan bool) {
+	t.Helper()
+	token, _ := s.Approval.Register(approval.Run{
+		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: logID,
+	})
+	granted := make(chan bool, 1)
+	go func() {
+		approved, _ := s.Approval.Ask(token)
+		granted <- approved
+	}()
+	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
+		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
+			return questions[0], granted
+		}
+	}
+	t.Fatal("no question reached root")
+	return approval.Question{}, nil
 }

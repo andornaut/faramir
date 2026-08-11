@@ -22,7 +22,6 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -73,6 +72,17 @@ type Run struct {
 	approved bool
 }
 
+// resolvedProgram is what argv[0] resolved to when that is not what argv[0]
+// says, and "" when the two agree.  One rule, applied here, so the prompt line
+// and the question's own fields cannot disagree about it and no caller has to
+// re-derive it from rendered text.
+func (r Run) resolvedProgram() string {
+	if len(r.Argv) == 0 || r.Argv0Path == "" || r.Argv0Path == r.Argv[0] {
+		return ""
+	}
+	return r.Argv0Path
+}
+
 // maxCommandChars bounds what a question spends on the command.  Argv is the
 // caller's and can be as long as it likes; a question whose real content has
 // scrolled off the top of a terminal is one nobody read.  The audit record keeps
@@ -106,18 +116,27 @@ func safeArg(arg string) string {
 	if arg == "" {
 		return `""`
 	}
-	if strconv.Quote(arg) == `"`+arg+`"` && !strings.ContainsAny(arg, " \t") {
+	quoted := strconv.Quote(arg)
+	if quoted == `"`+arg+`"` && !strings.ContainsAny(arg, " \t") {
 		return arg
 	}
-	return strconv.Quote(arg)
+	return quoted
 }
 
-// safeUnlessEmpty is safeArg for a field a caller drops when it is absent.
+// safeField is safeArg for a single field of a question rather than one argument
+// of a command, so it is bounded as well as quoted.  The cwd and the resolved
+// program are the caller's too, and a question whose real content has scrolled
+// off the top of a terminal is one nobody read, whichever field pushed it there.
+func safeField(value string) string {
+	return bound(safeArg(value), maxCommandChars)
+}
+
+// safeUnlessEmpty is safeField for a field a caller drops when it is absent.
 func safeUnlessEmpty(value string) string {
 	if value == "" {
 		return ""
 	}
-	return safeArg(value)
+	return safeField(value)
 }
 
 // bound truncates on a rune boundary and says that it did.  Silent truncation
@@ -126,9 +145,19 @@ func bound(text string, limit int) string {
 	if len(text) <= limit {
 		return text
 	}
+	// Backing off at most one rune, as internal/audit and internal/executor do for
+	// the same job: scanning back for the first valid prefix would drop everything
+	// after any invalid byte rather than just the partial rune at the end.
 	cut := text[:limit]
-	for len(cut) > 0 && !utf8.ValidString(cut) {
-		cut = cut[:len(cut)-1]
+	for i := 1; i < utf8.UTFMax && i <= len(cut); i++ {
+		start := len(cut) - i
+		if !utf8.RuneStart(cut[start]) {
+			continue
+		}
+		if !utf8.ValidString(cut[start:]) {
+			cut = cut[:start]
+		}
+		break
 	}
 	return fmt.Sprintf("%s... (%d more bytes; the audit record has all of it)",
 		cut, len(text)-len(cut))
@@ -156,23 +185,26 @@ type Server struct {
 	//
 	// Set by the broker to a call on the executor, which is the only account that
 	// can see those processes at all: the broker's own unit sets
-	// ProtectProc=invisible, so another uid's /proc is not there to read.  Nil
-	// means unchecked, which is the case in tests; in production an unset or
-	// unreachable check refuses the approval.
+	// ProtectProc=invisible, so another uid's /proc is not there to read.
+	//
+	// Nil refuses every approval, so a Server built without one grants no root
+	// rather than granting it on bookkeeping alone.  Everything else in this path
+	// fails closed, and an unwired check is the one way it could have failed open,
+	// which is not a property to leave to whoever writes the next constructor.
 	Quiescent func() (quiet bool, detail string)
 
 	mu sync.Mutex
 	// runs is what is in flight, keyed by the token in each child's environment.
 	runs map[string]Run
-	// waiting is the question a human has not answered yet: at most one, ever.
-	// Keyed by token, so the second task of a playbook joins the question the
-	// first one raised instead of asking again (one question per command rather
-	// than one per sudo), and a second *command* is refused rather than queued
-	// behind it.
+	// waiting is the question a human has not answered yet, or nil.  One, never a
+	// queue: the second task of a playbook joins the question the first one raised
+	// (one question per command rather than one per sudo), and a second *command*
+	// is refused rather than filed behind it.
 	//
-	// Still a map rather than a single field, because the key is what makes the
-	// joining work and what lets Release drop a run's own question by token.
-	waiting map[string]*approval
+	// A field rather than a map keyed by token, so "at most one" is what the type
+	// says rather than what a comment claims and pend enforces.  Joining and
+	// dropping both compare against the token this already carries.
+	waiting *approval
 	// changed is closed and replaced whenever waiting does, so `faramir approve
 	// --watch` can block on the next change rather than poll for it.
 	changed chan struct{}
@@ -199,7 +231,6 @@ func New(cfg config.SudoConfig) *Server {
 	return &Server{
 		config:  cfg,
 		runs:    map[string]Run{},
-		waiting: map[string]*approval{},
 		changed: make(chan struct{}),
 	}
 }
@@ -229,7 +260,7 @@ func (s *Server) Env(token string) map[string]string {
 // other brokered command may start: they share the executor's uid, so a second
 // process could read the first's token out of /proc and ride the approval it was
 // never shown for.  A held command must not run: the broker turns it into a
-// `busy` the caller retries once the approved run ends.  This is one half of a
+// terminal `held`, which nothing retries.  This is one half of a
 // symmetry: registering a run also blocks a *new* approval (Answer requires sole
 // occupancy), so a live approval and any other registered run never coexist.
 //
@@ -242,29 +273,32 @@ func (s *Server) Env(token string) map[string]string {
 // it.  The cost is that one unanswered question stalls unrelated brokered work
 // for up to [sudo] timeout_sec, which is the same cost an approved run already
 // imposes for its whole length.
-func (s *Server) Register(run Run) (token string, held bool) {
+func (s *Server) Register(run Run) (token, heldBy string) {
 	if !s.Enabled() {
-		return "", false
+		return "", ""
 	}
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
 		// Without a token the broker cannot say what it is approving, and an
 		// unnamed approval is the thing this exists to avoid.
 		log.Printf("approval: no randomness for a token (%v); this command cannot sudo", err)
-		return "", false
+		return "", ""
 	}
 	token = hex.EncodeToString(raw[:])
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stopped {
-		return "", false
+		return "", ""
 	}
+	// The reason, not a bool: it names the command holding the host, and a `held`
+	// is terminal, so this message is all the caller gets.  The sudo-side refusal
+	// in pend names it too, and the two enforcement points should answer alike.
 	if why := s.holdLocked(); why != "" {
 		log.Printf("approval: holding a new command: %s", why)
-		return "", true
+		return "", why
 	}
 	s.runs[token] = run
-	return token, false
+	return token, ""
 }
 
 // holdLocked says why a new brokered command may not start now, or "".
@@ -278,13 +312,21 @@ func (s *Server) holdLocked() string {
 	return ""
 }
 
-// waitingLocked names the one command with a question outstanding, or "".  At
-// most one is ever outstanding: pend refuses a second rather than queueing it.
+// waitingLocked names the command with a question outstanding, or "".
 func (s *Server) waitingLocked() string {
-	for _, pending := range s.waiting {
-		return pending.run.Command()
+	if s.waiting == nil {
+		return ""
 	}
-	return ""
+	return s.waiting.run.Command()
+}
+
+// waitingForLocked is the outstanding question if it belongs to this token, or
+// nil.  The token comparison is what the map key used to do.
+func (s *Server) waitingForLocked(token string) *approval {
+	if s.waiting != nil && s.waiting.token == token {
+		return s.waiting
+	}
+	return nil
 }
 
 // approvalLiveLocked names the command whose approval currently holds the host,
@@ -319,14 +361,14 @@ func (s *Server) otherRunLocked(token string) string {
 // The command's unanswered question goes with it.  One left filed would be shown
 // by `faramir approve` and would take a yes for a command that is no longer
 // running, which is an approval a human cannot judge, and it would hold the one
-// question slot, of which there is only one, until it timed out.
+// question slot until it timed out.
 func (s *Server) Release(token string) {
 	if token == "" {
 		return
 	}
 	s.mu.Lock()
 	delete(s.runs, token)
-	pending := s.waiting[token]
+	pending := s.waitingForLocked(token)
 	s.mu.Unlock()
 	if pending != nil {
 		// Outside the lock: finish takes it.
@@ -400,9 +442,9 @@ func (s *Server) ask(token string, run Run) (approved, prompted bool, reason str
 
 // pend files the question, or hands back the one this command already raised.
 // The second return is whether this call is the one that raised it; the third is
-// why no question could be filed, when none was.  The two refusals are reported
-// apart: a saturated host and a stopping broker send an operator looking in
-// different places.
+// why no question could be filed, when none was.  The refusals are reported
+// apart: a host already holding a question and a stopping broker send an
+// operator looking in different places.
 func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -414,7 +456,7 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 		close(answered.done)
 		return answered, false, ""
 	}
-	if existing, ok := s.waiting[token]; ok {
+	if existing := s.waitingForLocked(token); existing != nil {
 		return existing, false, ""
 	}
 	if s.stopped {
@@ -445,7 +487,7 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 		id: id, token: token, run: run, asked: time.Now(),
 		done: make(chan struct{}),
 	}
-	s.waiting[token] = pending
+	s.waiting = pending
 	s.wakeLocked()
 	log.Printf("approval: %s is waiting to be approved: %s", pending.id, run.Command())
 	return pending, true, ""
@@ -462,10 +504,10 @@ func (s *Server) finish(pending *approval, approved bool, reason string) {
 	pending.once.Do(func() {
 		s.mu.Lock()
 		pending.approved, pending.reason = approved, reason
-		// Only if it is still the current question for that command: a token
-		// released and re-registered would otherwise lose its own.
-		if s.waiting[pending.token] == pending {
-			delete(s.waiting, pending.token)
+		// Only if it is still the outstanding one: a token released and
+		// re-registered would otherwise lose its own.
+		if s.waiting == pending {
+			s.waiting = nil
 		}
 		s.wakeLocked()
 		s.mu.Unlock()
@@ -499,9 +541,10 @@ func (s *Server) notify(pending *approval) {
 	if len(s.config.NotifyCommand) == 0 {
 		return
 	}
+	prompt := Prompt(pending.run)
 	argv := make([]string, 0, len(s.config.NotifyCommand))
 	for _, arg := range s.config.NotifyCommand {
-		arg = strings.ReplaceAll(arg, "{prompt}", Prompt(pending.run))
+		arg = strings.ReplaceAll(arg, "{prompt}", prompt)
 		argv = append(argv, strings.ReplaceAll(arg, "{id}", pending.id))
 	}
 	// The deadline is the context's, and the kill runs from inside cmd.Wait: a
@@ -566,15 +609,15 @@ func Prompt(run Run) string {
 	}
 	where := ""
 	if run.Cwd != "" {
-		where = " in " + safeArg(run.Cwd)
+		where = " in " + safeField(run.Cwd)
 	}
 	// Named only when it is not what the command says, which is the case worth a
 	// human's attention: a relative argv[0] resolves against the request's cwd,
 	// so `bin/ansible-playbook` can be a file the agent wrote.  Saying it every
 	// time would make the line longer and the difference harder to notice.
 	program := ""
-	if len(run.Argv) > 0 && run.Argv0Path != "" && run.Argv0Path != run.Argv[0] {
-		program = " (which is " + safeArg(run.Argv0Path) + ")"
+	if resolved := run.resolvedProgram(); resolved != "" {
+		program = " (which is " + safeField(resolved) + ")"
 	}
 	return fmt.Sprintf("faramir: run as root on %s: %s%s%s -- approve every sudo "+
 		"this command makes until it ends? Type yes", host, run.Command(), program, where)
@@ -611,7 +654,8 @@ type Question struct {
 	ExpiresInSec int `json:"expires_in_sec"`
 }
 
-// Questions is what is waiting now, longest first.
+// Questions is the one question waiting, or nothing.  A slice because that is
+// the shape the protocol returns, not because there can be two.
 func (s *Server) Questions() []Question {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -619,23 +663,25 @@ func (s *Server) Questions() []Question {
 }
 
 func (s *Server) questionsLocked() []Question {
-	out := make([]Question, 0, len(s.waiting))
-	for _, pending := range s.waiting {
-		waited := int(time.Since(pending.asked).Seconds())
-		out = append(out, Question{
-			ID: pending.id, Prompt: Prompt(pending.run),
-			// Rendered like the command, and for the same reason: these are the
-			// caller's strings and they are printed to a terminal.  Absent stays
-			// absent: safeArg would render "" as a pair of quotation marks, which
-			// the caller would then print as a field holding nothing.
-			Cmd: pending.run.Command(), Cwd: safeUnlessEmpty(pending.run.Cwd),
-			Program: safeUnlessEmpty(pending.run.Argv0Path), LogID: pending.run.LogID,
-			WaitingSec:   waited,
-			ExpiresInSec: max(0, s.config.TimeoutSec-waited),
-		})
+	pending := s.waiting
+	if pending == nil {
+		return []Question{}
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].WaitingSec > out[j].WaitingSec })
-	return out
+	waited := int(time.Since(pending.asked).Seconds())
+	return []Question{{
+		ID: pending.id, Prompt: Prompt(pending.run),
+		// Rendered like the command, and for the same reason: these are the
+		// caller's strings and they are printed to a terminal.  Absent stays
+		// absent: safeArg would render "" as a pair of quotation marks, which the
+		// caller would then print as a field holding nothing.
+		Cmd: pending.run.Command(), Cwd: safeUnlessEmpty(pending.run.Cwd),
+		// Only when it says something the command does not.  The same rule as
+		// Prompt's, made once here so the field block and the prompt line cannot
+		// disagree, and so the CLI needs no second opinion about it.
+		Program: safeUnlessEmpty(pending.run.resolvedProgram()), LogID: pending.run.LogID,
+		WaitingSec:   waited,
+		ExpiresInSec: max(0, s.config.TimeoutSec-waited),
+	}}
 }
 
 // QuestionsWait is Questions for a watcher: it returns at once if anything is
@@ -644,7 +690,7 @@ func (s *Server) questionsLocked() []Question {
 // terminal and the broker keeps no client state.
 func (s *Server) QuestionsWait(wait time.Duration) []Question {
 	s.mu.Lock()
-	if len(s.waiting) > 0 {
+	if s.waiting != nil {
 		defer s.mu.Unlock()
 		return s.questionsLocked()
 	}
@@ -676,9 +722,11 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// that gap is caught by the sole-occupancy check below, under the lock.
 	if approve {
 		if s.Quiescent == nil {
-			log.Printf("approval: %s has no quiescence check, so it is approved on "+
-				"this server's own bookkeeping alone", id)
-		} else if quiet, detail := s.Quiescent(); !quiet {
+			return s.refuseForNoise(id, "this broker has no way to ask whether the host "+
+				"is quiet, and an approval granted on bookkeeping alone is one nothing "+
+				"checked against the process table")
+		}
+		if quiet, detail := s.Quiescent(); !quiet {
 			return s.refuseForNoise(id, detail)
 		}
 	}
@@ -692,9 +740,8 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// Sole occupancy: root is handed to a run only when it is the one brokered
 	// command running.  Anything else on the executor's uid could read this run's
 	// token and ride the approval, so the host has to be quiet before a yes takes.
-	// Refused without answering the question, so the run keeps waiting and the
-	// operator retries once the others drain, rather than this sudo failing now
-	// and the run having to ask again.  A refusal (no) needs no such quiet.
+	// Refusing here answers the question no rather than holding it open; see
+	// refuseForNoise.  A refusal (no) needs no such quiet.
 	//
 	// The check and the flag it stands on are set under one lock hold, on purpose:
 	// Register admits a new run whenever no approval is live, so a gap between "no
@@ -738,7 +785,7 @@ var ErrNotQuiescent = errors.New("the host was not quiet, so this was refused ra
 //
 // Fail early, and do not hold the question open for another try.  Leaving it
 // open reads as the kinder behaviour, the run keeping its place while the
-// operator answers again once the host settles, and it is the wrong shape.  It
+// operator answers again once the host settles, and it is the wrong shape: it
 // makes the
 // operator poll the one interval in which the host must be quiet, and it leaves a
 // yes standing against a question whose answer depends on a condition that can
@@ -769,10 +816,8 @@ func (s *Server) find(id string) (*approval, error) {
 
 // findLocked is the question with this id, or why there is none.
 func (s *Server) findLocked(id string) (*approval, error) {
-	for _, candidate := range s.waiting {
-		if candidate.id == id {
-			return candidate, nil
-		}
+	if s.waiting != nil && s.waiting.id == id {
+		return s.waiting, nil
 	}
 	return nil, fmt.Errorf("no question %s is waiting; it may have been answered "+
 		"already, or its command may have given up", id)
@@ -785,13 +830,10 @@ func (s *Server) Stop() {
 	s.mu.Lock()
 	s.stopped = true
 	clear(s.runs)
-	waiting := make([]*approval, 0, len(s.waiting))
-	for _, pending := range s.waiting {
-		waiting = append(waiting, pending)
-	}
+	pending := s.waiting
 	s.mu.Unlock()
-	// Outside the lock: finish takes it.
-	for _, pending := range waiting {
+	if pending != nil {
+		// Outside the lock: finish takes it.
 		s.finish(pending, false, "the broker stopped before this was answered")
 	}
 }

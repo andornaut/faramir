@@ -51,9 +51,9 @@ func approvalBroker(t *testing.T) (*server.Server, string) {
 // on it was approved.
 func raise(t *testing.T, s *server.Server, argv ...string) <-chan bool {
 	t.Helper()
-	token, held := s.Approval.Register(approval.Run{Argv: argv, Cwd: "/srv"})
-	if held || token == "" {
-		t.Fatalf("the run was not registered (held=%v)", held)
+	token, heldBy := s.Approval.Register(approval.Run{Argv: argv, Cwd: "/srv"})
+	if heldBy != "" || token == "" {
+		t.Fatalf("the run was not registered (held by %q)", heldBy)
 	}
 	granted := make(chan bool, 1)
 	go func() {

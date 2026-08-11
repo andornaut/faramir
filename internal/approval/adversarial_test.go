@@ -57,13 +57,28 @@ func TestThePromptDoesNotObeyTheCwd(t *testing.T) {
 // Argv is unbounded, and a question whose real content has scrolled off the top
 // of a terminal is one nobody read.
 func TestThePromptIsBounded(t *testing.T) {
-	prompt := Prompt(Run{Argv: []string{"playbook", strings.Repeat("a", 10_000)}})
-	if len(prompt) > maxCommandChars+400 {
-		t.Errorf("prompt is %d bytes, want the command bounded near %d",
-			len(prompt), maxCommandChars)
-	}
-	if !strings.Contains(prompt, "more bytes") {
-		t.Errorf("prompt = %q, want the truncation said rather than silent", prompt)
+	long := strings.Repeat("a", 10_000)
+	// Every caller-chosen field, not only argv: the cwd and the resolved program
+	// are the caller's too, and a 4KB cwd pushes the question off the top of the
+	// screen exactly as a 4KB argument would.
+	for _, tc := range []struct {
+		name string
+		run  Run
+	}{
+		{"argv", Run{Argv: []string{"playbook", long}}},
+		{"cwd", Run{Argv: []string{"playbook"}, Cwd: "/" + long}},
+		{"program", Run{Argv: []string{"playbook"}, Argv0Path: "/" + long}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			prompt := Prompt(tc.run)
+			if len(prompt) > maxCommandChars+400 {
+				t.Errorf("prompt is %d bytes, want it bounded near %d",
+					len(prompt), maxCommandChars)
+			}
+			if !strings.Contains(prompt, "more bytes") {
+				t.Errorf("prompt = %q, want the truncation said rather than silent", prompt)
+			}
+		})
 	}
 }
 
@@ -142,7 +157,7 @@ func TestAQuestionHoldsNewCommandsToo(t *testing.T) {
 	go func() { _, _ = s.Ask(token) }()
 	id := waitForQuestion(t, s)
 
-	if _, held := s.Register(Run{Argv: []string{"true"}, Cwd: "/srv/ctrl"}); !held {
+	if _, heldBy := s.Register(Run{Argv: []string{"true"}, Cwd: "/srv/ctrl"}); heldBy == "" {
 		t.Fatal("a command started while a question was waiting, so the operator's " +
 			"yes would be refused for want of a quiescence that caller controls")
 	}
@@ -176,5 +191,35 @@ func TestAQuestionSaysHowLongIsLeftToAnswerIt(t *testing.T) {
 		t.Errorf("waiting %ds + expires in %ds != timeout %ds: the two describe one "+
 			"clock and have to agree", question.WaitingSec, question.ExpiresInSec,
 			cfg.TimeoutSec)
+	}
+}
+
+// A Server with no way to ask whether the host is quiet refuses every approval.
+//
+// Everything else on this path fails closed, and an unwired check was the one
+// way it could have failed open: the broker wires it after constructing the
+// Server, so "has a quiescence check" would otherwise be a property of one
+// call site rather than of the type.
+func TestAnUnwiredQuiescenceCheckRefuses(t *testing.T) {
+	s := started(t, baseConfig())
+	s.Quiescent = nil
+
+	token := mustRegister(s, run())
+	granted := make(chan bool, 1)
+	go func() {
+		approved, _ := s.Ask(token)
+		granted <- approved
+	}()
+	id := waitForQuestion(t, s)
+
+	err := s.Answer(id, true, "the test")
+	if err == nil {
+		t.Fatal("an approval took on a server that cannot ask whether the host is quiet")
+	}
+	if !errors.Is(err, ErrNotQuiescent) {
+		t.Errorf("Answer error = %v, want ErrNotQuiescent", err)
+	}
+	if approved := <-granted; approved {
+		t.Error("the sudo was approved without the host having been checked")
 	}
 }

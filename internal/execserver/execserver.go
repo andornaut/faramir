@@ -22,6 +22,7 @@ import (
 	"os/exec"
 	"os/user"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -50,7 +51,12 @@ type request struct {
 // ProtectProc=invisible, so another uid's /proc is not in its view at all.  This
 // service shares the uid with every brokered command, so they are in its view,
 // which is what makes it the place the question is answered.
-const opQuiescent = "quiescent"
+const (
+	// opExec starts a command, which is what an absent op has always meant and
+	// still means.
+	opExec      = "exec"
+	opQuiescent = "quiescent"
+)
 
 type Executor struct {
 	config *config.Config
@@ -153,11 +159,22 @@ func (e *Executor) serveConnection(conn net.Conn) {
 		return
 	}
 	// Before the terminal-fd check: a question about the host carries no PTY.
-	if payload.Op == opQuiescent {
+	// An unknown op is named rather than fed to run(), which would report it as a
+	// malformed command and send whoever debugs a version skew to the wrong place.
+	switch payload.Op {
+	case "", opExec:
+	case opQuiescent:
 		if slaveFD >= 0 {
 			_ = unix.Close(slaveFD)
 		}
 		_ = sockutil.Send(conn, e.quiescence())
+		return
+	default:
+		if slaveFD >= 0 {
+			_ = unix.Close(slaveFD)
+		}
+		_ = sockutil.Send(conn, errorResponse("bad_request",
+			"unknown op "+strconv.Quote(payload.Op)))
 		return
 	}
 	if slaveFD < 0 {
@@ -458,7 +475,7 @@ func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
-	if err := sockutil.Send(conn, map[string]any{"op": opQuiescent}); err != nil {
+	if err := sockutil.Send(conn, request{Op: opQuiescent}); err != nil {
 		return false, fmt.Sprintf("the executor could not be asked whether this host "+
 			"is quiet (%v)", err)
 	}

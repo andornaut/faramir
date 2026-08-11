@@ -24,6 +24,11 @@ func baseConfig() config.SudoConfig {
 func started(t *testing.T, cfg config.SudoConfig) *Server {
 	t.Helper()
 	s := New(cfg)
+	// A quiet host, which is what these tests are about the other half of.  It has
+	// to be said rather than left nil: nil refuses every approval, so that a
+	// Server built without a way to ask the kernel grants no root.  The tests that
+	// are about the check itself set their own.
+	s.Quiescent = func() (bool, string) { return true, "the test says so" }
 	t.Cleanup(s.Stop)
 	return s
 }
@@ -37,8 +42,8 @@ func run() Run {
 // command holds an approval.  The tests that exercise the hold call
 // Register directly.
 func mustRegister(s *Server, r Run) string {
-	token, held := s.Register(r)
-	if held {
+	token, heldBy := s.Register(r)
+	if heldBy != "" {
 		panic("a run was held with no approval live")
 	}
 	return token
@@ -256,12 +261,12 @@ func TestAnApprovalHoldsEveryOtherCommand(t *testing.T) {
 	if err := s.Answer(id, true, "operator"); err != nil {
 		t.Fatalf("the first run was the only one, so it should approve: %v", err)
 	}
-	if _, held := s.Register(Run{Argv: []string{"curl", "evil"}, Cwd: "/tmp"}); !held {
+	if _, heldBy := s.Register(Run{Argv: []string{"curl", "evil"}, Cwd: "/tmp"}); heldBy == "" {
 		t.Error("a new command was admitted while an approval was live: it " +
 			"could read the approved run's token and ride it")
 	}
 	s.Release(first)
-	if _, held := s.Register(Run{Argv: []string{"curl", "ok"}, Cwd: "/tmp"}); held {
+	if _, heldBy := s.Register(Run{Argv: []string{"curl", "ok"}, Cwd: "/tmp"}); heldBy != "" {
 		t.Error("a command was still held after the approved run ended")
 	}
 }
@@ -281,16 +286,16 @@ func TestAnApprovalAndASecondRunNeverCoexist(t *testing.T) {
 
 		var wg sync.WaitGroup
 		var approveErr error
-		var secondHeld bool
+		var secondHeldBy string
 		wg.Add(2)
 		go func() { defer wg.Done(); approveErr = s.Answer(id, true, "operator") }()
 		go func() {
 			defer wg.Done()
-			_, secondHeld = s.Register(Run{Argv: []string{"curl", "evil"}, Cwd: "/tmp"})
+			_, secondHeldBy = s.Register(Run{Argv: []string{"curl", "evil"}, Cwd: "/tmp"})
 		}()
 		wg.Wait()
 
-		if approveErr == nil && !secondHeld {
+		if approveErr == nil && secondHeldBy == "" {
 			t.Fatalf("the first run was approved while a second was admitted: the " +
 				"second shares the executor uid and can ride the approval")
 		}

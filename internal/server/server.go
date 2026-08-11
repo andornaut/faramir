@@ -478,12 +478,17 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// Registered before the child starts and dropped when it ends, so a request
 	// that arrives late is refused rather than answered against a finished
 	// command.  The argv is the redacted one, this reaching a terminal and the log.
-	token, held := s.Approval.Register(approval.Run{
-		Argv: redactEach(s.redactor(), cmd), Cwd: cwd, LogID: logID,
+	// One redactor for the whole question: building one compiles a pattern per
+	// managed value, and this is the path every brokered command takes.  Not
+	// shared with the audit write below, which is built after the child ran and
+	// against whatever the store holds by then.
+	asked := s.redactor()
+	token, heldBy := s.Approval.Register(approval.Run{
+		Argv: redactEach(asked, cmd), Cwd: cwd, LogID: logID,
 		// What root would actually run, which is not always what argv[0] says: a
 		// relative argv[0] resolves against the request's cwd, and that is the
 		// agent's working tree.  The question names both when they differ.
-		Argv0Path: s.redactor().RedactText(argv0Path),
+		Argv0Path: asked.RedactText(argv0Path),
 	})
 	// Held while an approval is live or a question is waiting: this command and
 	// that one share the executor's uid, so running it now would give it a route
@@ -495,12 +500,12 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// relative to somebody else's approval, and a stream of attempts against the
 	// exact interval the serialization is protecting.  Failing here says what
 	// happened and leaves the decision to run again with whoever reads it.
-	if held {
+	if heldBy != "" {
 		return protocol.ErrorResponse("held", "an approval is being decided or held "+
-			"on the executor's uid, and no other brokered command runs while one is: "+
-			"they share that uid, so a second could ride the approval. This command was "+
-			"not run and was not queued. Run it again once the approved command has "+
-			"finished", logID)
+			"on the executor's uid ("+heldBy+"), and no other brokered command runs "+
+			"while one is: they share that uid, so a second could ride the approval. "+
+			"This command was not run and was not queued. Run it again once that one "+
+			"has finished", logID)
 	}
 	defer s.Approval.Release(token)
 	maps.Copy(env, s.Approval.Env(token))

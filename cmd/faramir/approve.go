@@ -93,34 +93,44 @@ func cmdApprove(args []string) int {
 // named.  It prints what it refused first, so the operator's own scrollback says
 // which command they turned down.
 func denyWaiting(socketPath string, asJSON bool) int {
+	questions, code := waiting(socketPath, "refused")
+	if questions == nil {
+		return code
+	}
+	// Not under --json, where the answer is the whole output and a question
+	// printed ahead of it would leave nothing able to parse the result.
+	if !asJSON {
+		printQuestion(questions[0])
+	}
+	return answer(socketPath, questions[0].ID, false, asJSON)
+}
+
+// waiting is the question outstanding, or nil and the status to exit with: 69
+// for a broker that could not be reached, 1 for nothing waiting.  Shared by the
+// two one-shot forms, which differ only in the verb they report and in what they
+// do with the answer.
+//
+// One question, never a queue, so the caller indexes rather than loops.
+func waiting(socketPath, verb string) ([]approval.Question, int) {
 	questions, err := pending(socketPath, 0)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir approve: %v\n", err)
-		return 69 // EX_UNAVAILABLE, as every other broker-facing command
+		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
 	}
 	if len(questions) == 0 {
-		fmt.Fprintln(os.Stderr, "nothing is waiting to be refused. "+
-			"`faramir approve --watch` waits for the next one")
-		return 1
+		fmt.Fprintf(os.Stderr, "nothing is waiting to be %s. "+
+			"`faramir approve --watch` waits for the next one\n", verb)
+		return nil, 1
 	}
-	// At most one, ever: a second command asking while this waits is refused
-	// rather than queued.  The loop is the protocol's shape, not a queue.
-	for _, question := range questions {
-		printQuestion(question)
-		if code := answer(socketPath, question.ID, false, asJSON); code != 0 {
-			return code
-		}
-	}
-	return 0
+	return questions, 0
 }
 
 // listApprovals reports what is waiting and returns, for a look rather than a
 // vigil.  Non-zero on nothing waiting, so a script can tell the two apart.
 func listApprovals(socketPath string, asJSON bool) int {
-	questions, err := pending(socketPath, 0)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir approve: %v\n", err)
-		return 69 // EX_UNAVAILABLE, as every other broker-facing command
+	questions, code := waiting(socketPath, "approved")
+	if questions == nil {
+		return code
 	}
 	if asJSON {
 		body, _ := json.MarshalIndent(questions, "", "  ")
@@ -132,11 +142,6 @@ func listApprovals(socketPath string, asJSON bool) int {
 			return 1
 		}
 		return 0
-	}
-	if len(questions) == 0 {
-		fmt.Fprintln(os.Stderr, "nothing is waiting to be approved. "+
-			"`faramir approve --watch` waits for the next one")
-		return 1
 	}
 	for _, question := range questions {
 		printQuestion(question)
@@ -310,9 +315,11 @@ func printQuestion(question approval.Question) {
 	fmt.Printf("\n%s\n", question.Prompt)
 	fmt.Printf("  id       %s\n", question.ID)
 	fmt.Printf("  cmd      %s\n", question.Cmd)
-	// Only when it says something the command does not: a relative argv[0]
-	// resolves against the cwd, which the coding agent writes.
-	if question.Program != "" && question.Program != firstWord(question.Cmd) {
+	// Set only when it says something the command does not, which the broker
+	// decides: a relative argv[0] resolves against the cwd, and that is a tree the
+	// coding agent writes.  Re-deriving the rule here from the rendered command
+	// would be a second opinion about it, and the two could disagree.
+	if question.Program != "" {
 		fmt.Printf("  program  %s\n", question.Program)
 	}
 	if question.Cwd != "" {
@@ -323,13 +330,6 @@ func printQuestion(question approval.Question) {
 	}
 	fmt.Printf("  waiting  %ds (expires in %ds, then refused)\n",
 		question.WaitingSec, question.ExpiresInSec)
-}
-
-func firstWord(text string) string {
-	if fields := strings.Fields(text); len(fields) > 0 {
-		return fields[0]
-	}
-	return ""
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.
