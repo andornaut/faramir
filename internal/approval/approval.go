@@ -35,11 +35,6 @@ import (
 )
 
 const (
-	// How many commands may be waiting on a human at one time.  Requests from one
-	// command share a question, so this counts commands rather than sudos.  Beyond
-	// it a request is refused, which sudo reports as a failed authentication
-	// rather than hanging.
-	maxPending = 4
 	// How long the notifier may run before it is killed.  It announces a pending
 	// question and returns nothing, so nothing waits on it.
 	notifyTimeout = 10 * time.Second
@@ -169,9 +164,14 @@ type Server struct {
 	mu sync.Mutex
 	// runs is what is in flight, keyed by the token in each child's environment.
 	runs map[string]Run
-	// waiting is the questions a human has not answered yet, one per command
-	// rather than one per sudo.  Keyed by token, so the second task of a playbook
-	// joins the question the first one raised instead of asking again.
+	// waiting is the question a human has not answered yet: at most one, ever.
+	// Keyed by token, so the second task of a playbook joins the question the
+	// first one raised instead of asking again -- one question per command rather
+	// than one per sudo -- and a second *command* is refused rather than queued
+	// behind it.
+	//
+	// Still a map rather than a single field, because the key is what makes the
+	// joining work and what lets Release drop a run's own question by token.
 	waiting map[string]*approval
 	// changed is closed and replaced whenever waiting does, so `faramir approve
 	// --watch` can block on the next change rather than poll for it.
@@ -272,8 +272,17 @@ func (s *Server) holdLocked() string {
 	if approved := s.approvalLiveLocked(); approved != "" {
 		return fmt.Sprintf("%s holds an approval", approved)
 	}
+	if waiting := s.waitingLocked(); waiting != "" {
+		return fmt.Sprintf("%s is waiting to be approved", waiting)
+	}
+	return ""
+}
+
+// waitingLocked names the one command with a question outstanding, or "".  At
+// most one is ever outstanding: pend refuses a second rather than queueing it.
+func (s *Server) waitingLocked() string {
 	for _, pending := range s.waiting {
-		return fmt.Sprintf("%s is waiting to be approved", pending.run.Command())
+		return pending.run.Command()
 	}
 	return ""
 }
@@ -309,8 +318,8 @@ func (s *Server) otherRunLocked(token string) string {
 //
 // The command's unanswered question goes with it.  One left filed would be shown
 // by `faramir approve` and would take a yes for a command that is no longer
-// running, which is an approval a human cannot judge, and it would hold one of
-// the maxPending slots until it timed out.
+// running, which is an approval a human cannot judge, and it would hold the one
+// question slot -- there is only one -- until it timed out.
 func (s *Server) Release(token string) {
 	if token == "" {
 		return
@@ -411,9 +420,22 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 	if s.stopped {
 		return nil, false, "the broker is stopping, so nothing can be approved now"
 	}
-	if len(s.waiting) >= maxPending {
-		return nil, false, fmt.Sprintf(
-			"%d commands are already waiting to be approved", maxPending)
+	// One question at a time, and the rest are refused rather than queued.
+	//
+	// A queue here could only ever hold questions that cannot be answered yes.
+	// Two questions mean two registered runs, and Answer refuses to approve while
+	// any other run is registered -- the second could read the approved run's
+	// token and ride it -- so every queued question's only outcomes were a
+	// refusal and an expiry.  What it added was prompts: an operator working
+	// through a list of things none of which could be granted, which is the
+	// attention this design is spending carefully.
+	//
+	// Requests from the *same* run joined their question above, before this, so
+	// this refuses another command rather than another sudo.
+	if other := s.waitingLocked(); other != "" {
+		return nil, false, fmt.Sprintf("%s is already waiting to be approved, and "+
+			"one command at a time is the whole of it: a second could ride the first's "+
+			"approval, so it could not be granted while this one waits", other)
 	}
 	id := newID()
 	if id == "" {
@@ -513,7 +535,7 @@ func (s *Server) notify(pending *approval) {
 
 // newID names a question in something a person can type.  Short: it is read off
 // one terminal and typed into another, and it names a question that lives for
-// seconds among at most maxPending of them.
+// seconds, and is the only one outstanding while it does.
 //
 // Empty when there is no randomness, and the caller refuses the request rather
 // than substituting a constant: two questions sharing an id are two questions

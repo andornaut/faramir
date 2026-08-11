@@ -2,7 +2,6 @@ package approval
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -558,33 +557,68 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 	}
 }
 
-// The two refusals pend can give are told apart.  A saturated host and a
-// stopping broker send an operator looking in different places, and one
-// reported as the other sends them hunting for pending questions that are not
+// One question at a time, and a second command is refused rather than queued.
+//
+// A queue could only ever hold questions that cannot be answered yes: two
+// questions mean two registered runs, and Answer refuses to approve while any
+// other run is registered, because the second could read the approved run's
+// token and ride it.  So every queued question's only outcomes were a refusal
+// and an expiry, and what the queue added was prompts.
+func TestOnlyOneCommandMayBeWaiting(t *testing.T) {
+	s := started(t, baseConfig())
+	// Both tokens before either asks.  A pending question holds a *new*
+	// registration, so the only way two commands ask at once is both registering
+	// while the host was quiet -- which is what a burst of brokered commands looks
+	// like, and the case this refuses.
+	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
+	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
+
+	go s.Ask(first)
+	waitForQuestion(t, s)
+
+	_, raised, reason := s.pend(second, Run{Argv: []string{"playbook", "two"}})
+	if raised {
+		t.Fatal("a second command raised a question of its own while one was waiting")
+	}
+	if !strings.Contains(reason, "playbook one") {
+		t.Errorf("reason = %q, want the command already waiting named", reason)
+	}
+	if len(s.Questions()) != 1 {
+		t.Errorf("%d questions waiting, want the one: a second is refused, not queued",
+			len(s.Questions()))
+	}
+}
+
+// The same run's later sudos join its question rather than being refused by the
+// rule above: ansible calls sudo once per become'd task, and one question per
+// command is the point of the keying.
+func TestTheSameRunJoinsItsOwnQuestion(t *testing.T) {
+	s := started(t, baseConfig())
+	h := watching(t, s, true)
+
+	token := mustRegister(s, run())
+	for i := range 3 {
+		if approved, reason := s.Ask(token); !approved {
+			t.Fatalf("sudo %d of one command was refused: %s", i, reason)
+		}
+	}
+	if h.questions() != 1 {
+		t.Errorf("3 sudos from one command put %d questions, want 1", h.questions())
+	}
+}
+
+// The refusals pend can give are told apart.  A host already holding a question
+// and a stopping broker send an operator looking in different places, and one
+// reported as the other sends them hunting for a pending question that is not
 // there.
 func TestARefusalSaysWhichLimitItHit(t *testing.T) {
 	s := started(t, baseConfig())
-	// Every token first, then the questions.  A pending question holds a *new*
-	// registration, so runs that mean to ask concurrently have to be registered
-	// before the first of them does -- which is what a burst of brokered commands
-	// on a quiet host looks like.  One extra, to be the one that finds the queue
-	// full.
-	tokens := make([]string, 0, maxPending+1)
-	for i := range maxPending + 1 {
-		tokens = append(tokens, mustRegister(s, Run{Argv: []string{"playbook", strconv.Itoa(i)}}))
-	}
-	// Fill the queue: one question per command, so this takes maxPending commands.
-	for _, token := range tokens[:maxPending] {
-		go s.Ask(token)
-	}
-	for range 100 {
-		if len(s.Questions()) == maxPending {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if _, _, reason := s.pend(tokens[maxPending], run()); !strings.Contains(reason, "waiting") {
-		t.Errorf("reason = %q, want the full queue named", reason)
+	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
+	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
+	go s.Ask(first)
+	waitForQuestion(t, s)
+	if _, _, reason := s.pend(second, run()); !strings.Contains(reason, "already waiting") {
+		t.Errorf("reason = %q, want the question already outstanding named", reason)
 	}
 
 	// A stopping broker, which Ask reaches when Stop lands between its own lookup
@@ -593,7 +627,7 @@ func TestARefusalSaysWhichLimitItHit(t *testing.T) {
 	token := mustRegister(stopping, run())
 	stopping.Stop()
 	if _, _, reason := stopping.pend(token, run()); !strings.Contains(reason, "stopping") {
-		t.Errorf("reason = %q, want the stopping broker named rather than a full queue", reason)
+		t.Errorf("reason = %q, want the stopping broker named rather than a busy host", reason)
 	}
 }
 
