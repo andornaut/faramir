@@ -31,13 +31,12 @@ while [ $# -gt 0 ]; do
     --config-dir) CONFIG_DIR=$2; shift 2 ;;
     --host) HOSTS+=("$2"); shift 2 ;;
     --shred) SHRED=1; shift ;;
-    -h | --help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h | --help) sed -n '2,19p' "$0"; exit 0 ;;
     *) printf 'unknown option: %s\n' "$1" >&2; exit 2 ;;
   esac
 done
 
 SECRETS_DIR=$CONFIG_DIR/secrets
-HERE=$(cd "$(dirname "$0")" && pwd)
 
 say() { printf '\n\033[1m%s\033[0m\n' "$1"; }
 ok() { printf '  \033[32mok\033[0m      %s\n' "$1"; }
@@ -52,14 +51,20 @@ restore() {
 
 die() { no "$1"; restore; exit 1; }
 
+# doctor is the gate: it exits non-zero on a finding that failed, and only warns
+# for a check it could not put.  Run under sudo, or every boundary check it makes
+# reports as unasked and the pass means nothing.
 verify() {
   local out=/tmp/faramir-verify.$$
-  if "$HERE/verify-install.sh" "$CONFIG_DIR" >"$out" 2>&1; then
-    ok "verify-install.sh passes"
+  # SC2024: the redirect is the operator's on purpose.  Only doctor needs root;
+  # the transcript is theirs to read, and root-owning it in /tmp would be worse.
+  # shellcheck disable=SC2024
+  if sudo faramir doctor --config-dir "$CONFIG_DIR" >"$out" 2>&1; then
+    ok "faramir doctor passes"
     rm -f "$out"
     return 0
   fi
-  no "verify-install.sh fails. Output:"
+  no "faramir doctor fails. Output:"
   cat "$out"
   rm -f "$out"
   return 1
