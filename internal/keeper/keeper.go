@@ -411,7 +411,7 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 		// The poll: no key, no sops, and unlogged, since with a refresh interval of 0
 		// it runs as often as commands arrive.
 		state, errs, unresolved := StatAll(k.config.Secrets)
-		return map[string]any{"state": state, "errors": errs, "unresolved": unresolved}
+		return map[string]any{"state": state, "errors": errs, "unresolved_patterns": unresolved}
 	case "get_values":
 		// Stat first, so an edit during the decrypt leaves the fingerprint older than
 		// the values and reloads once too often.  The other order would never pick
@@ -422,7 +422,7 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 		log.Printf("served %d value(s), %d error(s), %d entry(ies) naming nothing",
 			len(values), len(errs), len(unresolved))
 		return map[string]any{"values": values, "state": state, "errors": errs,
-			"unresolved": unresolved}
+			"unresolved_patterns": unresolved}
 	default:
 		// Named explicitly, so the error says the key is not obtainable here.
 		return errorResponse("unsupported", fmt.Sprintf(

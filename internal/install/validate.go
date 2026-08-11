@@ -18,9 +18,9 @@ type checkReport struct {
 		Patterns []string `json:"patterns"`
 		Files    []string `json:"files"`
 		Errors   []string `json:"errors"`
-		// Unresolved is the entries that named nothing, which the broker cannot
-		// work out for itself: the secrets directory is the keeper's to list.
-		Unresolved []string `json:"unresolved"`
+		// UnresolvedPatterns is the entries that named nothing, which the broker
+		// cannot work out for itself: the secrets directory is the keeper's to list.
+		UnresolvedPatterns []string `json:"unresolved_patterns"`
 	} `json:"secrets"`
 }
 
@@ -63,7 +63,7 @@ func (r *runner) stepValidate() error {
 		// The running broker still refuses to serve, but failing the install over it
 		// leaves no way to reach a working host.  Anything else, including a file
 		// that is there and did not load, is fatal.
-		if absent := report.Secrets.Unresolved; len(absent) == len(report.Secrets.Patterns) &&
+		if absent := report.Secrets.UnresolvedPatterns; len(absent) == len(report.Secrets.Patterns) &&
 			len(absent) > 0 {
 			r.warn("the broker is configured for %s, which %s named no file yet, "+
 				"so it is serving nothing and redacting nothing. Write the secrets directory with "+

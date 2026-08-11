@@ -343,13 +343,13 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	case len(check.Secrets.Patterns) == 0:
 		report.add("secrets", StatusFailed, "no managed sops files are configured, so "+
 			"nothing is injectable and nothing is redacted")
-	case len(check.Secrets.Unresolved) > 0:
+	case len(check.Secrets.UnresolvedPatterns) > 0:
 		// The unresolved entries alone: another pattern beside them may have
 		// matched and loaded, and naming that one too would say the untrue thing.
 		report.add("secrets", StatusFailed, "%s. Either the secrets have not been "+
 			"written yet, or they are on a filesystem that is not mounted; %d ref(s) "+
 			"loaded from what did resolve",
-			strings.Join(check.Secrets.Unresolved, "; "), check.Secrets.Count)
+			strings.Join(check.Secrets.UnresolvedPatterns, "; "), check.Secrets.Count)
 	case check.Secrets.Count == 0:
 		report.add("secrets", StatusFailed, "read %s and loaded no refs. %s",
 			strings.Join(check.Secrets.Files, ", "), loadErrorDetail(check.Secrets.Errors))

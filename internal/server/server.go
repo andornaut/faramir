@@ -654,7 +654,7 @@ func (s *Server) CheckOutput() ([]byte, int) {
 			"and nothing is redacted; exec and redact are refused until one loads")
 		code = 1
 	}
-	if absent := s.Store.Unresolved(); len(absent) > 0 {
+	if absent := s.Store.UnresolvedPatterns(); len(absent) > 0 {
 		log.Printf("%d configured entry(ies) named no file: %v", len(absent), absent)
 		code = 1
 	}

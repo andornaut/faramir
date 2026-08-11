@@ -322,7 +322,7 @@ func TestAMissingFileIsUnresolvedRatherThanALoadError(t *testing.T) {
 	// Reported instead.  What the empty value set then refuses is a server
 	// concern, tested there; this double serves its values whatever the file
 	// list says.
-	if len(s.Unresolved()) == 0 {
+	if len(s.UnresolvedPatterns()) == 0 {
 		t.Error("a missing file was reported as a healthy install")
 	}
 }
@@ -338,7 +338,7 @@ func TestAnUnreadableFileIsUnresolvedToo(t *testing.T) {
 	s := newStore(t, k, filepath.Join(notADir, "v.sops.yml"))
 	s.Reload()
 
-	if len(s.Unresolved()) == 0 {
+	if len(s.UnresolvedPatterns()) == 0 {
 		t.Error("a file that could not be stat'd was reported as a healthy install")
 	}
 }

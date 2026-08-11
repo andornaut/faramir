@@ -70,7 +70,7 @@ func (k *Keeper) accept() {
 
 		k.mu.Lock()
 		state, errors, unresolved := keeper.StatAll(config.SecretsConfig{Files: k.files})
-		payload := map[string]any{"state": state, "errors": errors, "unresolved": unresolved}
+		payload := map[string]any{"state": state, "errors": errors, "unresolved_patterns": unresolved}
 		if request.Op != "get_state" {
 			payload["values"] = k.values
 			payload["errors"] = append(errors, k.errors...)

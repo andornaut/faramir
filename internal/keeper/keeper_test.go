@@ -207,7 +207,7 @@ func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	if state := resp["state"].([]FileState); len(state) != 0 {
 		t.Errorf("state = %v, want empty", state)
 	}
-	absent := resp["unresolved"].([]string)
+	absent := resp["unresolved_patterns"].([]string)
 	if len(absent) != 1 || !strings.Contains(absent[0], missing) {
 		t.Errorf("unresolved = %v, want one naming %s", absent, missing)
 	}
@@ -369,7 +369,7 @@ func TestAPatternThatNamesNothingIsReportedAsUnresolved(t *testing.T) {
 	if errs := resp["errors"].([]string); len(errs) != 0 {
 		t.Errorf("errors = %v, want none: naming nothing is not a load failure", errs)
 	}
-	absent := resp["unresolved"].([]string)
+	absent := resp["unresolved_patterns"].([]string)
 	if len(absent) != 1 || !strings.Contains(absent[0], "matched no files") {
 		t.Errorf("unresolved = %v, want one saying the pattern matched no files", absent)
 	}

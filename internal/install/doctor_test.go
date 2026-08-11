@@ -259,7 +259,7 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 			var report checkReport
 			report.Secrets.Files = tc.files
 			report.Secrets.Errors = tc.errors
-			report.Secrets.Unresolved = tc.unresolved
+			report.Secrets.UnresolvedPatterns = tc.unresolved
 			report.Secrets.Count = tc.count
 			if got := report.serves(); got != tc.want {
 				t.Errorf("serves() = %v, want %v", got, tc.want)

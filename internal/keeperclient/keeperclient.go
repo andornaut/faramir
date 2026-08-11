@@ -33,11 +33,12 @@ type response struct {
 	Values map[string]string `json:"values"`
 	State  []FileState       `json:"state"`
 	Errors []string          `json:"errors"`
-	// Unresolved is the entries that named nothing, kept apart from Errors: a
-	// secrets directory not written yet is what a first install looks like, and a
-	// file that is there and will not open is a value the redactor is missing.
-	Unresolved []string `json:"unresolved"`
-	Error      *struct {
+	// UnresolvedPatterns is the entries that named nothing, kept apart from
+	// Errors: a secrets directory not written yet is what a first install looks
+	// like, and a file that is there and will not open is a value the redactor is
+	// missing.
+	UnresolvedPatterns []string `json:"unresolved_patterns"`
+	Error              *struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
 	} `json:"error"`
@@ -93,7 +94,7 @@ func FetchValues(socketPath string) (map[string]string, []FileState, []string, [
 	if out.Values == nil {
 		return nil, nil, nil, nil, fmt.Errorf("keeper response has no 'values' object")
 	}
-	return out.Values, out.State, out.Errors, out.Unresolved, nil
+	return out.Values, out.State, out.Errors, out.UnresolvedPatterns, nil
 }
 
 // FetchState asks the keeper which managed files exist and when they changed:

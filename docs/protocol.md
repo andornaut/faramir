@@ -33,7 +33,7 @@ Field | Required | Notes
 
 `{"op": "redact", "text": "…"}` scrubs text the caller already holds, so a session outside the broker's uid gets the same redaction a brokered command does. `text` is required, must be a string, and is the only field this op reads. The response is the ordinary shape, `output` carrying the scrubbed text and `exit_code` always 0, no command having run. This is what `faramir redact` and the wrapper send, once per Bash command. It is an oracle by design, and is audited like every other op: the input's size and what was found, never the text.
 
-`{"op": "list_secrets"}` returns ref names only. `{"op": "status"}` returns the broker version, `configs` (the base config and every drop-in that contributed, in merge order), loaded files, the count of secrets loaded, load errors, whether an SSH key is configured and usable, and whether a brokered command may ask to sudo (`sudo.enabled`; whether, never how).
+`{"op": "list_secrets"}` returns ref names only. `{"op": "status"}` returns the broker version, `configs` (the base config and every drop-in that contributed, in merge order), loaded files, the count of secrets loaded, load errors, whether an SSH key is configured and usable (`ssh.configured`, `ssh.usable`; whether, never where), and whether a brokered command may ask to sudo (`sudo.enabled`; whether, never how).
 
 `{"op": "approvals"}` and `{"op": "approve", "id": …, "approve": true}` are the operator's half of the approval channel, and with `ask_approval` the only ops the broker refuses to a caller it otherwise admits: all three require the peer to be root, checked with `SO_PEERCRED`, because the account the coding agent runs as must not be able to approve what the agent asked for. `approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. It returns at most one question, ever: a second command asking to sudo while one is waiting is refused rather than queued behind it. Each carries `waiting_sec` and `expires_in_sec`, the second being what is left of `[sudo] timeout_sec`, which matters because the answer to a question read without `--watch` is a second command typed inside that. `approve` answers a question by `id`, and `unknown_question` means it was already answered or its command gave up. Neither reports the refs refused at load: that list names exactly the secrets that are never tokenized, so it stays behind `faramir broker --check`. See [redaction.md](redaction.md).
 
@@ -87,7 +87,7 @@ Peer uid is checked against `[keeper] allowed_user` on top of the mode. There is
 {"values": {"home/router/admin": "…"},
  "state": [{"path": "/etc/faramir/secrets/x.sops.yml",
             "mtime_unix_nano": 1743160000000000000, "size": 812}],
- "errors": [], "unresolved": []}
+ "errors": [], "unresolved_patterns": []}
 ```
 
 Every managed value, never a subset: the redactor is built from the whole value set, because a managed host can print a credential no command injected. The `state` is the fingerprint of each file this decrypt read, returned with the values so the two describe the same moment. Fetched separately it could fingerprint a file edited after the decrypt, and that edit would then never be noticed.
@@ -95,14 +95,14 @@ Every managed value, never a subset: the redactor is built from the whole value 
 ```json
 {"op": "get_state"}
 {"state": [{"path": "…", "mtime_unix_nano": 1743160000000000000, "size": 812}],
- "errors": [], "unresolved": []}
+ "errors": [], "unresolved_patterns": []}
 ```
 
 The staleness poll, and where `[secrets] files` globs are expanded, so a file added to the secrets directory appears without a restart. The broker cannot stat those files itself: it is `2750 root:faramir-keeper` and the broker is not in that group. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `refresh_interval_sec` is 0.
 
 A file that could not be stat-ed or decrypted comes back in `errors` rather than as an error response, so one broken file does not blank the whole value set. Key material is stripped from those strings before they cross the socket.
 
-`unresolved` is separate, and the separation is the point: an entry that named no file is a secrets directory not written yet, which is what every first install looks like, while a file that is there and will not open is a value the redactor is missing without knowing it. Neither stops the daemon: it starts either way and refuses `exec` and `redact` per request, so the state can be diagnosed against a running process. Both fail `faramir broker --check` and `faramir doctor`, which are the operator's audit rather than the daemon's gate. The broker cannot work this out for itself: expanding a glob means listing the secrets directory, and that is the keeper's alone.
+`unresolved_patterns` is separate, and the separation is the point: an entry that named no file is a secrets directory not written yet, which is what every first install looks like, while a file that is there and will not open is a value the redactor is missing without knowing it. Neither stops the daemon: it starts either way and refuses `exec` and `redact` per request, so the state can be diagnosed against a running process. Both fail `faramir broker --check` and `faramir doctor`, which are the operator's audit rather than the daemon's gate. The broker cannot work this out for itself: expanding a glob means listing the secrets directory, and that is the keeper's alone.
 
 Anything else is refused, and **there is no operation that returns the age key**; adding one would defeat the reason the keeper is a separate service.
 

@@ -51,7 +51,7 @@ type Store struct {
 	// A configured entry that named no file.  Kept apart from loadErrors because
 	// it is what a first install looks like, though both refuse exec and redact:
 	// the daemon logs it and `--check` and `doctor` fail on it.
-	unresolved []string
+	unresolvedPatterns []string
 
 	// Held across a refresh-driven reload, not under mu, which Reload takes
 	// itself.  Keeps concurrent requests from each starting a round trip.
@@ -82,7 +82,7 @@ func (s *Store) Reload() {
 		// thing known to be true.
 		s.mu.Lock()
 		s.loadErrors = []string{err.Error()}
-		s.unresolved = nil
+		s.unresolvedPatterns = nil
 		s.retry = true
 		s.checkedAt = time.Now()
 		s.mu.Unlock()
@@ -108,7 +108,7 @@ func (s *Store) Reload() {
 	s.state = state
 	s.retry = false
 	s.loadErrors = errors
-	s.unresolved = unresolved
+	s.unresolvedPatterns = unresolved
 	s.checkedAt = time.Now()
 	s.mu.Unlock()
 
@@ -251,16 +251,16 @@ func (s *Store) describeLocked() map[string]any {
 	if patterns == nil {
 		patterns = []string{}
 	}
-	absent := s.unresolved
+	absent := s.unresolvedPatterns
 	if absent == nil {
 		absent = []string{}
 	}
 	return map[string]any{
-		"patterns":   patterns,
-		"files":      files,
-		"count":      len(s.values),
-		"errors":     errs,
-		"unresolved": absent,
+		"patterns":            patterns,
+		"files":               files,
+		"count":               len(s.values),
+		"errors":              errs,
+		"unresolved_patterns": absent,
 	}
 }
 
@@ -288,13 +288,13 @@ func (s *Store) LoadErrors() []string {
 	return append([]string{}, s.loadErrors...)
 }
 
-// Unresolved is the configured entries that named no file.  Apart from
-// LoadErrors because it is what a first install looks like: the daemon starts
-// and says so, while `--check` and `doctor` fail on it.
-func (s *Store) Unresolved() []string {
+// UnresolvedPatterns is the configured entries that named no file.  Apart
+// from LoadErrors because it is what a first install looks like: the daemon
+// starts and says so, while `--check` and `doctor` fail on it.
+func (s *Store) UnresolvedPatterns() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return append([]string{}, s.unresolved...)
+	return append([]string{}, s.unresolvedPatterns...)
 }
 
 // Count is how many values the redactor holds.  Zero means nothing is injected
@@ -338,7 +338,7 @@ func (s *Store) Unreadable() string {
 	case len(s.config.Files) == 0:
 		return "no [secrets] files are configured"
 	}
-	return "no managed file was found: " + strings.Join(s.unresolved, "; ")
+	return "no managed file was found: " + strings.Join(s.unresolvedPatterns, "; ")
 }
 
 func sortedKeys[V any](m map[string]V) []string {
