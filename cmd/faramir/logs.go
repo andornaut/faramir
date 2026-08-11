@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 // How many records a bare `faramir logs` lists.  A screenful; a specific record
@@ -170,10 +171,10 @@ func detail(record map[string]any) string {
 		return humanBytes(int64(size)) + " in"
 	}
 	if file := str(record, "file"); file != "" {
-		return file
+		return termsafe.Line(file)
 	}
 	if detail := str(record, "error"); detail != "" {
-		return detail
+		return termsafe.Line(detail)
 	}
 	return ""
 }
@@ -251,9 +252,13 @@ func printRecord(record map[string]any, paint palette) {
 	// outcome is the approval's own reason (why it was refused, or that it was
 	// approved) and exec_log_id is the command's record, so an approval reads in
 	// both directions.
+	// Rendered, not printed: cwd is the caller's, error and outcome quote what
+	// failed (an approval's reason carries the command it was refused for, and the
+	// names of the processes that held the host), so all three carry text chosen
+	// by the account this log exists to hold to account.
 	for _, field := range []string{"cwd", "error", "outcome", "exec_log_id"} {
 		if value := str(record, field); value != "" {
-			fmt.Printf("  %s %s\n", paint.key(pad(field, 10)), value)
+			fmt.Printf("  %s %s\n", paint.key(pad(field, 10)), termsafe.Line(value))
 		}
 	}
 	if refs := list(record, "env_refs"); len(refs) > 0 {
@@ -275,8 +280,12 @@ func printRecord(record map[string]any, paint palette) {
 		return
 	}
 	fmt.Printf("  %s\n", paint.key("output"))
+	// One line at a time and escaped, never quoted or truncated: this is the text
+	// the operator came to read.  redact.Feed already took the colour and the CSI
+	// on the way in, so nothing legible is lost here; what is left to escape is a
+	// bare "\r" and a stray ESC, either of which rewrites what the reader sees.
 	for line := range strings.SplitSeq(strings.TrimRight(output, "\n"), "\n") {
-		fmt.Printf("    %s\n", paint.token(line))
+		fmt.Printf("    %s\n", paint.token(termsafe.Line(line)))
 	}
 	if truncated, _ := record["output_truncated"].(bool); truncated {
 		fmt.Printf("    %s\n", paint.dim("[truncated at [audit] max_record_bytes]"))
@@ -301,8 +310,14 @@ func redactionCounts(record map[string]any) string {
 	return strings.Join(out, ", ")
 }
 
+// joinCmd is the recorded argv as one line, rendered for a terminal: it is the
+// coding agent's own text, and this is printed to the operator's.
 func joinCmd(record map[string]any) string {
-	return strings.Join(list(record, "cmd"), " ")
+	args := list(record, "cmd")
+	for i, arg := range args {
+		args[i] = termsafe.Arg(arg)
+	}
+	return strings.Join(args, " ")
 }
 
 // The zone is in the header because the times below are local and the log_id

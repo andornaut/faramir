@@ -21,13 +21,13 @@ import (
 )
 
 // The prompt is printed to the operator's terminal with %s, and a terminal obeys
-// what it is sent: "\r" returns the cursor, ESC [ 2K erases the line, ESC [ A
-// moves up one.  Argv is the caller's, and arrives as JSON strings that
-// protocol.Parse takes as given, so an unrendered prompt would let a run erase
-// the question it is being judged on and paint a more agreeable one.
+// what it is sent.  The redactor strips CSI and OSC on the way in; what it
+// leaves is a bare "\r" and a stray ESC, either of which rewrites what the
+// reader sees.  internal/termsafe carries the measurements.
 //
-// Quoted rather than stripped: an argument that held an escape is one the
-// operator should see holding it.
+// The escape below is one redaction would have removed, which is the point: this
+// asserts the prompt does not depend on that having happened.  Quoted rather
+// than stripped, so an argument that held one is one the operator sees held it.
 func TestThePromptDoesNotObeyTheArgv(t *testing.T) {
 	prompt := Prompt(Run{
 		Argv: []string{"ansible-playbook", "site.yml\x1b[2K\rls -la"},

@@ -22,15 +22,14 @@ import (
 	"log"
 	"os"
 	"os/exec"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
-	"unicode/utf8"
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/termsafe"
 )
 
 const (
@@ -92,44 +91,22 @@ const maxCommandChars = 240
 // Command is the run as one line, rendered for a terminal.
 //
 // Every string in it is the caller's, and this reaches the operator's terminal
-// through `faramir approve`, the refusal messages and [sudo] notify_command.  A
-// terminal acts on what it is sent: "\r" returns the cursor, ESC [ 2K erases the
-// line, ESC [ A moves up one.  Left raw, a run could erase the question it is
-// being judged on and paint a more agreeable one in its place, which would
-// defeat the only thing that makes an approval worth anything, that the prompt
-// names the command.  So each argument is quoted the moment it holds anything
-// but printable text, and the whole is bounded.
+// through `faramir approve`, the refusal messages and [sudo] notify_command.
+// Left raw, a run could return the cursor with a "\r" and overwrite the question
+// it is being judged on, which would defeat the only thing that makes an
+// approval worth anything, that the prompt names the command.  termsafe says
+// what survives redaction and why.
 func (r Run) Command() string {
 	parts := make([]string, 0, len(r.Argv))
 	for _, arg := range r.Argv {
-		parts = append(parts, safeArg(arg))
+		parts = append(parts, termsafe.Arg(arg))
 	}
-	return bound(strings.Join(parts, " "), maxCommandChars)
+	return termsafe.Bound(strings.Join(parts, " "), maxCommandChars)
 }
 
-// safeArg renders one caller-chosen string so a terminal displays it rather than
-// obeying it.  Ordinary arguments are left alone (a prompt full of quotation
-// marks is one that is read less carefully), and anything holding a control
-// character, a space, a quote or a non-printable rune is quoted, which turns
-// every such byte into a visible escape.
-func safeArg(arg string) string {
-	if arg == "" {
-		return `""`
-	}
-	quoted := strconv.Quote(arg)
-	if quoted == `"`+arg+`"` && !strings.ContainsAny(arg, " \t") {
-		return arg
-	}
-	return quoted
-}
-
-// safeField is safeArg for a single field of a question rather than one argument
-// of a command, so it is bounded as well as quoted.  The cwd and the resolved
-// program are the caller's too, and a question whose real content has scrolled
-// off the top of a terminal is one nobody read, whichever field pushed it there.
-func safeField(value string) string {
-	return bound(safeArg(value), maxCommandChars)
-}
+// safeField is termsafe.Field at this package's bound, for one field of a
+// question rather than one argument of a command.
+func safeField(value string) string { return termsafe.Field(value, maxCommandChars) }
 
 // safeUnlessEmpty is safeField for a field a caller drops when it is absent.
 func safeUnlessEmpty(value string) string {
@@ -137,30 +114,6 @@ func safeUnlessEmpty(value string) string {
 		return ""
 	}
 	return safeField(value)
-}
-
-// bound truncates on a rune boundary and says that it did.  Silent truncation
-// would let a long argv end the displayed command wherever it liked.
-func bound(text string, limit int) string {
-	if len(text) <= limit {
-		return text
-	}
-	// Backing off at most one rune, as internal/audit and internal/executor do for
-	// the same job: scanning back for the first valid prefix would drop everything
-	// after any invalid byte rather than just the partial rune at the end.
-	cut := text[:limit]
-	for i := 1; i < utf8.UTFMax && i <= len(cut); i++ {
-		start := len(cut) - i
-		if !utf8.RuneStart(cut[start]) {
-			continue
-		}
-		if !utf8.ValidString(cut[start:]) {
-			cut = cut[:start]
-		}
-		break
-	}
-	return fmt.Sprintf("%s... (%d more bytes; the audit record has all of it)",
-		cut, len(text)-len(cut))
 }
 
 type Server struct {
