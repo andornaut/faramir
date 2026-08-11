@@ -135,8 +135,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	}
 	checks := append(append([]func(){}, aboutTheHost...), aboutTheOperator...)
 	if os.Geteuid() != 0 {
-		report.NotAsked += len(checks)
-		report.add("boundaries", StatusWarn, "run doctor as root to check these: %d checks "+
+		report.unasked("boundaries", len(checks), "run doctor as root to check these: %d checks "+
 			"ask what %s, %s, %s and %s can reach, and no account can answer that for "+
 			"another", len(checks), opts.OperatorUser, opts.BrokerUser, opts.KeeperUser,
 			opts.ExecUser)
@@ -146,8 +145,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	// runuser that cannot run would report all of them as holding.  Every account
 	// can read /, so a refusal here is the mechanism.
 	if !canRead(opts.KeeperUser, "/") {
-		report.NotAsked += len(checks)
-		report.add("boundaries", StatusWarn, "cannot ask %s what it can reach, so none "+
+		report.unasked("boundaries", len(checks), "cannot ask %s what it can reach, so none "+
 			"of these %d checks were made: runuser has to be installed for this",
 			opts.KeeperUser, len(checks))
 		return
@@ -160,8 +158,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	// report the boundary it is about as holding, on the strength of a question
 	// nobody could ask.
 	if opts.OperatorUser == "" {
-		report.NotAsked += len(aboutTheOperator)
-		report.add("boundaries", StatusWarn, "the operator account is not named, so "+
+		report.unasked("boundaries", len(aboutTheOperator), "the operator account is not named, so "+
 			"%d checks that ask what it can reach were not made: pass "+
 			"--operator-user, or run through sudo so SUDO_USER carries it. The rest "+
 			"of the examination is unaffected", len(aboutTheOperator))
@@ -339,8 +336,7 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 		}
 	}
 	if skipped {
-		report.NotAsked++
-		report.add("age key", StatusWarn, "%s, and %s cannot read it. The operator "+
+		report.unasked("age key", 1, "%s, and %s cannot read it. The operator "+
 			"account is not named, so whether it can was not asked",
 			want, strings.Join(accounts, " or "))
 		return
@@ -360,7 +356,7 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// SUDO_USER and then to the caller, and a root login shell, a cron job or a
 	// systemd timer has neither.  Nothing about the install is wrong.
 	if opts.OperatorUser == "" {
-		report.add("operator keys", StatusWarn, "no operator account to ask about: "+
+		report.unasked("operator keys", 1, "no operator account to ask about: "+
 			"run under sudo so SUDO_USER carries it, or pass --operator-user")
 		return
 	}
@@ -377,7 +373,7 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	if !exists(home) {
 		// An encrypted home is absent until its owner logs in, which is a state
 		// this install is designed for rather than a fault.
-		report.add("operator keys", StatusWarn, "%s does not exist, so what a brokered "+
+		report.unasked("operator keys", 1, "%s does not exist, so what a brokered "+
 			"command can read in it was not checked", home)
 		return
 	}
@@ -430,8 +426,7 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 		}
 	}
 	if skipped {
-		report.NotAsked++
-		report.add("audit log", StatusWarn, "%s, and %s cannot read it. The operator "+
+		report.unasked("audit log", 1, "%s, and %s cannot read it. The operator "+
 			"account is not named, so whether it can was not asked",
 			want, strings.Join(accounts, " or "))
 		return
@@ -474,8 +469,7 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 			continue
 		}
 		if skipped {
-			report.NotAsked++
-			report.add(socket.name, StatusWarn, "%s is closed to %s. The operator "+
+			report.unasked(socket.name, 1, "%s is closed to %s. The operator "+
 				"account is not named, so whether it is closed to that one was not asked",
 				socket.path, strings.Join(accounts, " and "))
 			continue
@@ -489,8 +483,7 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 			// The only claim here is about the operator, so there is nothing left to
 			// check: an unnamed account cannot open a socket, and reporting that as the
 			// grant being absent would fail every install examined from a root shell.
-			report.NotAsked++
-			report.add("broker socket", StatusWarn, "the operator account is not "+
+			report.unasked("broker socket", 1, "the operator account is not "+
 				"named, so whether it can open %s was not asked", path)
 		case canWrite(opts.OperatorUser, path):
 			report.add("broker socket", StatusOK, "%s can open %s", opts.OperatorUser, path)
@@ -570,8 +563,7 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 		return
 	}
 	if skipped {
-		report.NotAsked++
-		report.add("ssh key", StatusWarn, "%s can use the agent and read no key held "+
+		report.unasked("ssh key", 1, "%s can use the agent and read no key held "+
 			"by it. The operator account is not named, so whether it can read %s was "+
 			"not asked", opts.ExecUser, cfg.Ssh.Key)
 		return
@@ -614,8 +606,7 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 	nopasswd, known := sudoNoPasswd(opts.ExecUser)
 	switch {
 	case !known:
-		report.NotAsked++
-		report.add("sudo credential", StatusWarn, "which account runs the executor is not "+
+		report.unasked("sudo credential", 1, "which account runs the executor is not "+
 			"known here, so a NOPASSWD entry for it went unchecked. Pass --exec-user")
 		return
 	case nopasswd != "":
@@ -627,8 +618,7 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 	}
 	shadow, err := os.ReadFile(shadowFile)
 	if err != nil {
-		report.NotAsked++
-		report.add("sudo credential", StatusWarn, "%s cannot be read (%v), so whether %s "+
+		report.unasked("sudo credential", 1, "%s cannot be read (%v), so whether %s "+
 			"holds a password it could authenticate with went unchecked. Re-run as root",
 			shadowFile, err, opts.ExecUser)
 		return
@@ -697,8 +687,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		}
 	}
 	if skipped {
-		report.NotAsked++
-		report.add("sudo grant", StatusWarn, "%s asks the broker, and %s cannot write "+
+		report.unasked("sudo grant", 1, "%s asks the broker, and %s cannot write "+
 			"%s. The operator account is not named, so whether it can was not asked",
 			pamFile, strings.Join(accounts, " or "), cfg.Sudo.Helper)
 		return
@@ -778,8 +767,7 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 			control.path, value, opts.ExecUser, control.path, control.shut)
 		return
 	}
-	report.NotAsked++
-	report.add("user namespaces", StatusWarn, "this kernel exposes no switch for "+
+	report.unasked("user namespaces", 1, "this kernel exposes no switch for "+
 		"unprivileged user namespaces, so whether a brokered command may unshare "+
 		"one was not asked. The executor unit cannot refuse it either: "+
 		"RestrictNamespaces= denies clone3(), which is how every run is spawned "+
@@ -823,7 +811,7 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 	}
 	raw, err := os.ReadFile(ptraceScopeFile)
 	if err != nil {
-		report.add("ptrace scope", StatusWarn, "%s cannot be read (%v), so it is not "+
+		report.unasked("ptrace scope", 1, "%s cannot be read (%v), so it is not "+
 			"known whether one process running as %s can ptrace another. On a host "+
 			"that grants an approval, that is the difference between a run's "+
 			"processes being separate and being one",
@@ -949,7 +937,7 @@ func diagnoseProtectProc(report *DoctorReport, opts DoctorOptions) {
 		// Warn, not fail: the unit is socket-activated, so idle is its resting
 		// state, and a broker that cannot be reached at all is already reported by
 		// the socket check and the broker probe.
-		report.add("protectproc", StatusWarn, "the broker is not running, so what "+
+		report.unasked("protectproc", 1, "the broker is not running, so what "+
 			"/proc shows of it cannot be checked")
 		return
 	}
@@ -993,19 +981,16 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 	// reported rather than the broker's answer.
 	switch serves {
 	case servesNothing:
-		report.NotAsked++
-		report.add("brokered command", StatusWarn, "not asked: the broker has read "+
+		report.unasked("brokered command", 1, "not asked: the broker has read "+
 			"no managed file, so it refuses the command this would run")
 		return
 	case servesUnknown:
-		report.NotAsked++
-		report.add("brokered command", StatusWarn, "not asked: --check did not report, "+
+		report.unasked("brokered command", 1, "not asked: --check did not report, "+
 			"so whether the broker would refuse the command this runs is unknown")
 		return
 	}
 	if opts.BrokerVersion == "" {
-		report.NotAsked++
-		report.add("brokered command", StatusWarn, "not asked: the broker did not "+
+		report.unasked("brokered command", 1, "not asked: the broker did not "+
 			"answer, so the command this runs cannot be sent")
 		return
 	}
@@ -1065,7 +1050,7 @@ func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
 	}
 	ref := strings.TrimSpace(strings.SplitN(strings.TrimSpace(out), "\n", 2)[0])
 	if ref == "" {
-		report.add("redaction", StatusWarn, "no managed refs to probe with, so nothing "+
+		report.unasked("redaction", 1, "no managed refs to probe with, so nothing "+
 			"here proves redaction runs")
 		return
 	}

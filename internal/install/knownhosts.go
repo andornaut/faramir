@@ -169,8 +169,7 @@ func diagnoseKnownHosts(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	layout := Layout{ExecUser: opts.ExecUser}
 	path := layout.ExecKnownHosts()
 	if os.Geteuid() != 0 {
-		report.NotAsked++
-		report.add("known hosts", StatusWarn, "not asked: reading %s needs root, "+
+		report.unasked("known hosts", 1, "not asked: reading %s needs root, "+
 			"the executor's home being 0700", path)
 		return
 	}

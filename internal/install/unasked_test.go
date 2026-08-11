@@ -141,3 +141,72 @@ func TestLogRotationIsReportedWithoutRoot(t *testing.T) {
 			found[0].Status, found[0].Detail, logPath)
 	}
 }
+
+// A warn either says a question could not be put, and is counted under the
+// totals, or it is a finding about this host and is not.  Nothing but the call
+// it goes through decides which, so this is what keeps them paired: a check that
+// says it did not ask, and does not count itself, reports a host as examined
+// that was not.
+func TestEveryWarnThatSaysItDidNotAskCountsItself(t *testing.T) {
+	// The phrasings a check uses when the question was not put.  Read from the
+	// findings rather than listed per check, so a new one is covered the day it
+	// is written.
+	didNotAsk := []string{"not asked", "was not checked", "went unchecked",
+		"is not known", "were not made", "was not asked", "went unasked"}
+	for _, probe := range []struct {
+		name string
+		run  func(*DoctorReport)
+	}{
+		{"no systemd", func(r *DoctorReport) {
+			original := systemdRunning
+			systemdRunning = func() bool { return false }
+			defer func() { systemdRunning = original }()
+			diagnoseUnits(r)
+		}},
+		{"no broker", func(r *DoctorReport) { diagnoseVersion(r, DoctorOptions{}) }},
+		{"no operator", func(r *DoctorReport) { diagnoseOperatorKeys(r, DoctorOptions{}) }},
+		{"no root", func(r *DoctorReport) {
+			if os.Geteuid() == 0 {
+				return // the branch under test is the one a caller without root takes
+			}
+			diagnoseBoundaries(r, DoctorOptions{}, &config.Config{}, servesUnknown)
+		}},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			var report DoctorReport
+			probe.run(&report)
+			for _, finding := range report.Findings {
+				if finding.Status != StatusWarn {
+					continue
+				}
+				said := false
+				for _, phrase := range didNotAsk {
+					if strings.Contains(finding.Detail, phrase) {
+						said = true
+					}
+				}
+				if said && report.NotAsked == 0 {
+					t.Errorf("%q says the question was not put and nothing was counted: %s",
+						finding.Name, finding.Detail)
+				}
+			}
+		})
+	}
+}
+
+// And the pairing is structural: NotAsked moves only through unasked(), so a
+// warn added any other way cannot quietly claim a check was skipped.
+func TestUnaskedCountsAndWarnsTogether(t *testing.T) {
+	var report DoctorReport
+	report.unasked("probe", 3, "three checks stood behind this line")
+	if report.NotAsked != 3 {
+		t.Errorf("NotAsked = %d, want 3", report.NotAsked)
+	}
+	if len(report.Findings) != 1 || report.Findings[0].Status != StatusWarn {
+		t.Errorf("want one warn finding, got %+v", report.Findings)
+	}
+	report.add("finding", StatusWarn, "something this host has")
+	if report.NotAsked != 3 {
+		t.Errorf("a plain warn changed the unasked count: %d", report.NotAsked)
+	}
+}

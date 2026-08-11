@@ -28,7 +28,11 @@ var services = []string{
 
 // systemdRunning reports whether there is a systemd to talk to.  A container or
 // image build has none, and the units are still worth installing there.
-func systemdRunning() bool {
+//
+// A variable so a test can answer for it, as loginDefs and shadowFile are: what
+// needs covering is the branch taken on a host WITHOUT systemd, and a test
+// running on one that has it cannot reach that any other way.
+var systemdRunning = func() bool {
 	info, err := os.Stat("/run/systemd/system")
 	return err == nil && info.IsDir()
 }

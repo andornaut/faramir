@@ -128,6 +128,20 @@ func (d *DoctorReport) add(name string, status Status, format string, args ...an
 	}
 }
 
+// unasked is a check that could not be put: the warn line a reader sees and the
+// count under the totals, which have to move together.  count is what the one
+// line stands for, which is more than one wherever a bail-out skips a list.
+//
+// The pairing is here rather than at each site because nothing else enforces it.
+// A warn added through add() is the other kind: a finding this host has, worth
+// reporting and short of a failure -- an open sysctl, a stale rule, a group with
+// members nobody recognises -- and re-running as root would not change it.  Which
+// kind a warn is, is now which call it goes through.
+func (d *DoctorReport) unasked(name string, count int, format string, args ...any) {
+	d.NotAsked += count
+	d.add(name, StatusWarn, format, args...)
+}
+
 // merge appends another report's findings, carrying its verdict and its unasked
 // count with them.
 func (d *DoctorReport) merge(other DoctorReport) {
@@ -246,8 +260,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	keyPath := filepath.Join(opts.ConfigDir, "age.key")
 	keeper, err := agekey.Recipient(keyPath)
 	if err != nil {
-		report.NotAsked++
-		report.add("sops config", StatusWarn, "%s lists %s, and whether %s is among "+
+		report.unasked("sops config", 1, "%s lists %s, and whether %s is among "+
 			"them went unchecked: %v. Re-run as root", path, strings.Join(listed, ", "),
 			keyPath, err)
 		return
@@ -317,7 +330,8 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 // activated, so an inactive service is ordinary.
 func diagnoseUnits(report *DoctorReport) {
 	if !systemdRunning() {
-		report.add("sockets", StatusWarn, "systemd is not running here")
+		report.unasked("sockets", len(sockets), "systemd is not running here, so whether "+
+			"%d socket unit(s) are listening was not asked", len(sockets))
 		return
 	}
 	run := &runner{}
@@ -350,7 +364,7 @@ func diagnoseUnits(report *DoctorReport) {
 func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 	switch {
 	case opts.BrokerVersion == "":
-		report.add("version", StatusWarn, "the broker did not answer, so which build "+
+		report.unasked("version", 1, "the broker did not answer, so which build "+
 			"is running is unknown; this binary is %s", version.Version)
 	case opts.BrokerVersion != version.Version:
 		report.add("version", StatusFailed, "the broker is running %s and this binary "+
@@ -371,8 +385,7 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 // ordinary account each get a different answer.
 func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerServes {
 	if os.Geteuid() != 0 {
-		report.NotAsked++
-		report.add("broker", StatusWarn, "run doctor as root to ask this: --check "+
+		report.unasked("broker", 1, "run doctor as root to ask this: --check "+
 			"has to run as %s, and any other account gets an answer that is not "+
 			"the broker's", brokerUser)
 		return servesUnknown
@@ -451,8 +464,7 @@ func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 		return
 	}
 	if reason := skipSSHProbe(serves, opts.BrokerVersion); reason != "" {
-		report.NotAsked++
-		report.add("ssh agent", StatusWarn, "%s", reason)
+		report.unasked("ssh agent", 1, "%s", reason)
 		return
 	}
 	out, err := asOperator(opts, filepath.Join(DefaultBinDir, "faramir"),
@@ -496,8 +508,7 @@ func reportSSHProbe(report *DoctorReport, cfg *config.Config, serves brokerServe
 				"Restart faramir-broker")
 			return
 		}
-		report.NotAsked++
-		report.add("ssh agent", StatusWarn, "%s", sshAgentRefused)
+		report.unasked("ssh agent", 1, "%s", sshAgentRefused)
 	case sshProbeEmpty:
 		report.add("ssh agent", StatusFailed, "the agent holds nothing, though [ssh] "+
 			"key names %s, so every brokered command that reaches a managed host "+
@@ -570,8 +581,7 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 	// `gpasswd -d <the operator> <the client group>` as the remedy, which is the
 	// one change that shuts the agent out of the broker socket.
 	if opts.OperatorUser == "" {
-		report.NotAsked += len(groups)
-		report.add("group", StatusWarn, "the operator account is not named, so a "+
+		report.unasked("group", len(groups), "the operator account is not named, so a "+
 			"member of %s cannot be told from an account left behind: pass "+
 			"--operator-user, or run through sudo so SUDO_USER carries it",
 			opts.ClientGroup)
