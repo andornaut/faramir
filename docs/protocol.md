@@ -68,7 +68,7 @@ Code | Meaning
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
 `busy` | At `[server] max_concurrency`; retry
-`held` | An approval is being decided or held on the executor's uid, so no other brokered command runs. **Terminal, not retryable**: the command was neither run nor queued. Only on a host installed with `--allow-sudo`
+`held` | An approval is being decided or held on the executor's uid, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only on a host installed with `--allow-sudo`
 `not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the approval. The question is refused rather than held open, so the `sudo` fails and the command is run again once the host is quiet
 `no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `list_secrets` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
@@ -130,5 +130,15 @@ One request, carrying a single file descriptor as ancillary data:
 The descriptor is the **slave** end of a PTY the broker created. The broker keeps the master, so redaction and the audit log read the child's bytes directly. Both sides close their copy of the slave once the child holds it, or the master never reaches EOF.
 
 `argv[0]` arrives already resolved to an absolute path and the executor checks nothing about it. What bounds a brokered command is the uid it runs as (no age key, no audit log, no SSH key) and the mode on this socket, which the executor's own uid cannot open.
+
+A second op shares the socket, and an absent `op` is the request above:
+
+```json
+{"op": "quiescent"}
+
+{"quiescent": false, "detail": "1 process(es) are running as the executor outside any brokered command (4821 (sleep))"}
+```
+
+The broker asks this before an approval takes: is any process of the executor's uid alive outside that daemon and outside the runs it is confining? It is asked here because the broker cannot see the answer, its own unit setting `ProtectProc=invisible`. Every failure is a no, and an op this daemon does not know is refused by name rather than read as a malformed command, so a version skew says what it is.
 
 The executor owns the timeout, because it owns the run's cgroup. **Closing the connection is how the broker cancels a run**, and the whole cgroup is killed and drained, including a `setsid` child that broke out of the process group. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.
