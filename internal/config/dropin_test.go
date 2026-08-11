@@ -239,13 +239,13 @@ socket_path = "/run/faramir/exec.sock"
 // Lexical order, so a numeric prefix decides who wins.
 func TestTheLastDropInWins(t *testing.T) {
 	cfg, err := write(t, minimal, map[string]string{
-		"10-first.toml":  "[audit]\nmax_record_bytes = 1111\n",
-		"20-second.toml": "[audit]\nmax_record_bytes = 2222\n",
+		"10-first.toml":  "[audit]\nmax_record_bytes = 11111\n",
+		"20-second.toml": "[audit]\nmax_record_bytes = 22222\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Audit.MaxRecordBytes != 2222 {
+	if cfg.Audit.MaxRecordBytes != 22222 {
 		t.Errorf("max_record_bytes = %d, want the later drop-in's", cfg.Audit.MaxRecordBytes)
 	}
 }
@@ -299,14 +299,14 @@ func TestADropInIsHeldToTheSameChecks(t *testing.T) {
 // Only .toml, so a backup or .dist beside one is not configuration.
 func TestOnlyTomlFilesAreRead(t *testing.T) {
 	cfg, err := write(t, minimal, map[string]string{
-		"10-real.toml":      "[audit]\nmax_record_bytes = 1111\n",
-		"20-backup.toml.sw": "[audit]\nmax_record_bytes = 2222\n",
+		"10-real.toml":      "[audit]\nmax_record_bytes = 11111\n",
+		"20-backup.toml.sw": "[audit]\nmax_record_bytes = 22222\n",
 		"30-old.toml.dist":  "[audit]\nmax_record_bytes = 3333\n",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Audit.MaxRecordBytes != 1111 {
+	if cfg.Audit.MaxRecordBytes != 11111 {
 		t.Errorf("max_record_bytes = %d, want only the .toml applied", cfg.Audit.MaxRecordBytes)
 	}
 	if len(cfg.Sources) != 2 {

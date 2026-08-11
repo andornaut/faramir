@@ -129,7 +129,7 @@ func cmdRekey(args []string) int {
 		if err != nil {
 			record["error"] = err.Error()
 		}
-		log.Write(record, "")
+		log.Write(record, audit.Output{})
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", target, err)
 			failed++

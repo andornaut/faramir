@@ -47,8 +47,9 @@ The three daemon entry points, `broker`, `keeper` and `exec`, follow the same ch
 - **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so an installed binary too old to know the agent refuses every command in that project rather than running it unredacted.
 - **Children do not inherit the broker's environment.** They get `[exec.base_env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null`. Pass non-interactive flags.
-- **Output is truncated** at `[exec] max_output_bytes`; the audit log keeps up to `[audit] max_record_bytes`.
-- **The audit log rotates weekly**, 8 kept, compressed, and early at 16MB. `[audit] max_record_bytes` bounds one record, not the file. Delete `/etc/logrotate.d/faramir` to manage it some other way.
+- **Output is truncated** at `[exec] max_output_bytes`. The audit record keeps the head and the tail of a run and says how many bytes it dropped between them, sized so the whole record's line fits `[audit] max_record_bytes`. That cap is counted in encoded bytes: `<`, `>`, `&` and every control character cost six apiece as JSON, so a cap counted before encoding would be one the command chooses the meaning of.
+- **The audit log rotates weekly**, 8 kept, compressed, and early at 16MB. `[audit] max_record_bytes` bounds one record, not the file, and nothing in faramir bounds the file: rotation is logrotate's, so `doctor` fails when logrotate is not installed or is not being run. Delete `/etc/logrotate.d/faramir` to manage it some other way.
+- **A command that cannot be recorded does not run.** Before anything is started the broker checks the audit log can be opened and that its filesystem has room for one record; a host that fails either refuses every brokered command with `no_audit` rather than running them unrecorded. The agent is told, and so is the daemon log. This is reachable without anyone being at fault: a brokered command's output is what a record carries, so an agent that prints enough fills that filesystem itself.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
 - **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does, and `ProtectSystem=strict` leaves that directory read-only to the broker that uses it. A drop-in setting `[ssh] key` is refused; `--ssh-key` is what moves or adopts one.
 - **A brokered `ssh` logs in as the executor.** `ssh host` naming no user asks for `faramir-exec`, which is nobody's account on a managed host, and the key is refused however well it is installed. Give the login (`ssh deploy@host.example.com`), or write one `User` per host into `/var/lib/faramir-exec/.ssh/config` as root, that being the child's `HOME`. Ansible needs neither, `ansible_user` being in the inventory.
@@ -126,7 +127,7 @@ sudo faramir approve --watch
      id       9f2a1c
      cmd      ansible-playbook msmtp.yml
      cwd      /srv/ansible-ctrl
-     log_id   2026-08-10T12:04:11Z-3b7e
+     log_id   2026-08-10T12:04:11Z-3b7e000119
      waiting  2s (expires in 118s, then refused)
      approve? [yes/no]
    ```

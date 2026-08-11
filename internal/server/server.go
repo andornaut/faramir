@@ -69,7 +69,7 @@ func New(cfg *config.Config) *Server {
 	// every other op is.  The record holds the command and the answer; the secret
 	// is not in it, and could not be, the audit log being written after redaction
 	// and that value being in the set.
-	s.Approval.Record = func(entry map[string]any) { s.Audit.Write(entry, "") }
+	s.Approval.Record = func(entry map[string]any) { s.Audit.Write(entry, audit.Output{}) }
 	// The kernel's answer to the question the approval server can only believe:
 	// is anything running as the executor outside the run being approved?  Asked
 	// of the executor because this process cannot see it (ProtectProc=invisible
@@ -249,7 +249,7 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protoc
 	s.Audit.Write(map[string]any{
 		"log_id": logID, "op": "redact", "peer": peer,
 		"input_bytes": len(request.Text), "redactions": summary,
-	}, "")
+	}, audit.Output{})
 	return protocol.Response{
 		"exit_code": 0, "output": output, "truncated": false,
 		"redactions": summary, "log_id": logID,
@@ -401,7 +401,7 @@ func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	// answers that.
 	s.Audit.Write(map[string]any{
 		"log_id": logID, "op": op, "refused": "no_secrets", "reason": reason,
-	}, "")
+	}, audit.Output{})
 	out := protocol.ErrorResponse("no_secrets", fmt.Sprintf(
 		"the broker does not hold every managed value, so %s would run with "+
 			"redaction covering less than the config asks for: %s. Encrypt a first "+
@@ -410,10 +410,40 @@ func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	return &out
 }
 
+// refuseUnauditable is the gate on running anything at all: a command that
+// cannot be recorded is not run.
+//
+// The alternative, which this replaces, was to run it and log the write failure
+// to the daemon log.  That leaves the one state the whole design is against --
+// something ran on this host and the record of it does not exist -- and it is
+// reachable by the agent, which can fill the filesystem through this log by
+// printing to it.  So the question is asked before the command runs, when the
+// answer is still a refusal the caller is told about rather than a gap nobody
+// sees.
+//
+// Nothing is recorded here, there being nowhere to record it: the refusal goes
+// back to the caller and to the daemon log, which is journald's problem and not
+// this filesystem's.
+func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
+	reason := s.Audit.Unwritable()
+	if reason == "" {
+		return nil
+	}
+	log.Printf("%s refusing %s: the audit log cannot be written: %s", logID, phrase, reason)
+	out := protocol.ErrorResponse("no_audit",
+		"the audit log cannot be written, so "+phrase+" was refused rather than "+
+			"run unrecorded: "+reason+". Free space on that filesystem, or point "+
+			"[audit] log_path somewhere with room, and retry", logID)
+	return &out
+}
+
 func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	execCfg := s.Config.Exec
 	logID := audit.NewLogID()
 	if refused := s.refuseUnreadable("exec", "this command", logID); refused != nil {
+		return *refused
+	}
+	if refused := s.refuseUnauditable("this command", logID); refused != nil {
 		return *refused
 	}
 
@@ -448,7 +478,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 			"log_id": logID, "op": "exec", "peer": peer,
 			"cmd": redactEach(record, cmd), "cwd": record.RedactText(cwd),
 			"error": detail,
-		}, "")
+		}, audit.Output{})
 		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
 
@@ -534,7 +564,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// Every known secret, not only the injected ones: a managed host can print one
 	// the broker never injected.
 	redactor := s.redactor()
-	collector := audit.NewCollector(s.Config.Audit.MaxRecordBytes)
+	collector := audit.NewCollector(s.Audit.OutputBudget())
 	started := time.Now()
 
 	result, err := s.exec(redactor, collector.Add, executor.Request{
@@ -561,7 +591,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 			"env_refs":   injected,
 			"started_at": started.Unix(),
 			"error":      detail,
-		}, collector.Text())
+		}, collector.Output())
 		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
 
@@ -574,7 +604,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		"env_refs":   injected, "exit_code": result.ExitCode,
 		"duration_sec": result.DurationSec, "timed_out": result.TimedOut,
 		"started_at": started.Unix(), "redactions": result.Redactions,
-	}, collector.Text())
+	}, collector.Output())
 
 	total := 0
 	for _, r := range result.Redactions {
@@ -681,6 +711,15 @@ func (s *Server) CheckOutput() ([]byte, int) {
 		log.Printf("a brokered command that runs sudo will fail to authenticate; " +
 			"re-run `faramir init --allow-sudo`, or re-run without it to take the grant " +
 			"away entirely")
+		code = 1
+	}
+	// Not a warning: a host whose audit log cannot be written runs no brokered
+	// command at all, so this is the install being down rather than one feature
+	// of it being unavailable.
+	if reason := s.Audit.Unwritable(); reason != "" {
+		log.Printf("the audit log cannot be written: %s", reason)
+		log.Printf("every brokered command is refused while that holds, a command " +
+			"that cannot be recorded not being one this host runs")
 		code = 1
 	}
 	return body, code

@@ -117,6 +117,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnoseAgeKey(report, opts, cfg) },
 		func() { diagnoseDenyPatterns(report, opts) },
 		func() { diagnoseAuditLog(report, opts, cfg) },
+		func() { diagnoseLogRotation(report, cfg) },
 		func() { diagnoseSockets(report, opts, cfg) },
 		func() { diagnoseSocketPolicy(report, opts, cfg) },
 		func() { diagnoseSSHKey(report, opts, cfg) },
@@ -437,6 +438,48 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 		return
 	}
 	report.add("audit log", StatusOK, "%s, readable by nobody else", want)
+}
+
+// diagnoseLogRotation asks whether anything bounds the audit log.
+//
+// [audit] max_record_bytes bounds one record, and nothing in faramir bounds the
+// file: rotation is logrotate's, which is a program that has to be installed and
+// has to run.  Worth a check of its own because the install writes the config
+// whether or not the program exists, so the step reports "changed" on a host
+// where it does nothing, and because the account that fills the log is the one
+// this whole install exists to bound: a brokered command's output is what a
+// record carries, so an agent that prints enough writes the disk full, and a
+// full disk is where brokered commands stop running at all.
+func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
+	if cfg == nil || cfg.Audit.LogPath == "" {
+		return
+	}
+	if !exists(logrotateConfig) {
+		report.add("log rotation", StatusFailed, "%s does not exist, so nothing "+
+			"bounds %s. Re-run `faramir init`, or bound it some other way",
+			logrotateConfig, cfg.Audit.LogPath)
+		return
+	}
+	if _, err := exec.LookPath("logrotate"); err != nil {
+		report.add("log rotation", StatusFailed, "%s exists and logrotate does not, "+
+			"so it is inert and %s grows without a ceiling. Install logrotate, or "+
+			"bound that file some other way", logrotateConfig, cfg.Audit.LogPath)
+		return
+	}
+	// The config says 16MB, so a log far past it is one logrotate is not being
+	// run on, whatever is installed.  A multiple rather than the number itself:
+	// rotation is scheduled rather than continuous, and a log over the size
+	// between two runs is ordinary.
+	const rotateSize = 16 << 20
+	if info, err := os.Stat(cfg.Audit.LogPath); err == nil && info.Size() > 4*rotateSize {
+		report.add("log rotation", StatusWarn, "%s is %d bytes, well past the %d "+
+			"the rule rotates at, so logrotate is installed and is not being run on "+
+			"it. Check the logrotate timer or cron job",
+			cfg.Audit.LogPath, info.Size(), rotateSize)
+		return
+	}
+	report.add("log rotation", StatusOK, "%s bounds %s, and logrotate is installed "+
+		"to apply it", logrotateConfig, cfg.Audit.LogPath)
 }
 
 // diagnoseSockets asks who can open each one.  The keeper's is the age key by

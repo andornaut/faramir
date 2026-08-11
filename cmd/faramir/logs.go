@@ -67,40 +67,33 @@ func cmdLogs(args []string) int {
 		path = cfg.Audit.LogPath
 	}
 
-	records, skipped, err := readAuditLog(path)
+	if id := fs.Arg(0); id != "" {
+		record, skipped, err := findRecord(path, id)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "%v\n", err)
+			return 1
+		}
+		reportSkipped(path, skipped)
+		if record == nil {
+			fmt.Fprintf(os.Stderr, "no record %s in %s. Rotated files are not searched; "+
+				"a record older than the live log is in %s.1.gz and its siblings\n",
+				id, path, filepath.Base(path))
+			return 1
+		}
+		printRecord(record, paint)
+		return 0
+	}
+
+	records, skipped, err := tailRecords(path, *count)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 1
 	}
-	// Said rather than swallowed: a line in the middle of the file that does not
-	// parse is a record this command is about to not show, and a listing that
-	// looks complete is worse than one that says what it is missing.  A write cut
-	// short by a full disk leaves one, and the next record appends to it, so two
-	// are gone for one failure.
-	if skipped > 0 {
-		fmt.Fprintf(os.Stderr, "%s: %d line(s) do not parse and are not shown below. "+
-			"A record was lost where an append was cut short, which a full disk does; "+
-			"the daemon log names the write that failed\n", path, skipped)
-	}
+	reportSkipped(path, skipped)
 	if len(records) == 0 {
-		fmt.Fprintf(os.Stderr, "%s holds no records yet\n", path)
+		fmt.Fprintf(os.Stderr, "%s holds no records to show\n", path)
 		return 0
 	}
-
-	if id := fs.Arg(0); id != "" {
-		for _, record := range records {
-			if matchesID(record, id) {
-				printRecord(record, paint)
-				return 0
-			}
-		}
-		fmt.Fprintf(os.Stderr, "no record %s in %s. Rotated files are not searched; "+
-			"a record older than the live log is in %s.1.gz and its siblings\n",
-			id, path, filepath.Base(path))
-		return 1
-	}
-
-	records = tailRecords(records, *count)
 	// Once per day rather than on every line, which would crowd out the columns
 	// that differ.
 	day := ""
@@ -114,90 +107,155 @@ func cmdLogs(args []string) int {
 	return 0
 }
 
-// readAuditLog parses the log as JSONL, skipping a line that does not parse: a
-// read concurrent with the daemon's append gives a torn final line, which must
-// not hide the records before it.  The second return is how many *interior*
-// lines were skipped, the torn final one being expected and not counted: an
-// interior one means a record was lost, which is the one thing this file exists
-// not to do quietly.
+// scanAuditLog calls visit with each line of the log, in order, and stops early
+// when visit returns false.  It holds one line at a time, so what it costs is
+// the largest record rather than the file: [audit] max_record_bytes bounds a
+// line at the writer, which is the only place that can bound it.
 //
-// Lines are read with no ceiling on their length, which is why this is a
-// bufio.Reader and not a Scanner.  One record carries its command's output, up
-// to [audit] max_record_bytes (4MiB by default), and JSON escaping multiplies
-// that by up to six: '<', '>', '&' and every C0 control byte each render as a
-// six-byte < escape, so 1.4MiB of output a brokered command chose is an
-// 8MiB line.  A fixed ceiling here is therefore a size the agent can pick, and
-// exceeding it does not lose one record: the read stops there, so every record
-// before and after it is withheld too, and one command blinds the whole log.
-func readAuditLog(path string) ([]map[string]any, int, error) {
+// No ceiling on a line's length here, and none is needed.  A ceiling in a reader
+// is a size the agent picks -- a record carries its command's output, and '<',
+// '>', '&' and every C0 control cost six bytes apiece once encoded -- and
+// exceeding it would not lose one record: the read would stop there, withholding
+// every record before and after it too.
+//
+// visit is handed the line with its newline where it had one.  A line with none
+// is the last, caught midway through an append.
+func scanAuditLog(path string, visit func(line []byte) bool) error {
 	fh, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			return nil, 0, fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
+			return fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
 				"this host, or [audit] log_path names somewhere else", path)
 		}
-		return nil, 0, err
+		return err
 	}
 	defer func() { _ = fh.Close() }()
 
-	var records []map[string]any
-	skipped, midAppend := 0, false
 	reader := bufio.NewReaderSize(fh, 64*1024)
 	for {
 		line, readErr := reader.ReadBytes('\n')
-		if len(bytes.TrimSpace(line)) > 0 {
-			var record map[string]any
-			if err := json.Unmarshal(line, &record); err != nil {
-				skipped++
-				// The one unparseable line that is not evidence of a lost record: the
-				// daemon caught midway through appending it, so it has no newline on the
-				// end and nothing follows it.  A line that ends properly was finished by
-				// somebody, and one that will not parse is a record gone: a write cut
-				// short leaves an open line and the next record appends onto it.
-				midAppend = !bytes.HasSuffix(line, []byte("\n"))
-			} else {
-				records = append(records, record)
-				midAppend = false
-			}
+		if len(bytes.TrimSpace(line)) > 0 && !visit(line) {
+			return nil
 		}
 		if readErr != nil {
 			if errors.Is(readErr, io.EOF) {
-				break
+				return nil
 			}
-			return nil, skipped, fmt.Errorf("%s: %w", path, readErr)
+			return fmt.Errorf("%s: %w", path, readErr)
 		}
 	}
-	if midAppend {
-		skipped--
+}
+
+// parseLine is one line as a record, and whether losing it means a record was
+// lost.  The one unparseable line that is not evidence of a loss is the last,
+// with no newline on the end: nothing finished writing it.  A line that ends
+// properly and will not parse is a record gone.
+func parseLine(line []byte) (record map[string]any, lost bool) {
+	if err := json.Unmarshal(line, &record); err != nil {
+		return nil, bytes.HasSuffix(line, []byte("\n"))
+	}
+	return record, false
+}
+
+// tailRecords is the last count records, parsed.
+//
+// The last count *lines* are kept as bytes and parsed at the end, so what this
+// holds is bounded by what was asked for rather than by how long the log is.
+// Parsing every record to throw all but twenty away is what made `faramir logs
+// -n 3` cost a gigabyte on a log an agent had grown; scanning bytes is cheap and
+// bounded, and the parse is what is not.
+//
+// A count of zero or less asks for nothing and gets nothing: treating it as "no
+// limit" would print the whole log to somebody who asked for none of it.
+func tailRecords(path string, count int) ([]map[string]any, int, error) {
+	if count <= 0 {
+		return nil, 0, nil
+	}
+	ring, next, filled := make([][]byte, count), 0, false
+	if err := scanAuditLog(path, func(line []byte) bool {
+		// Copied: the reader owns its buffer and reuses it on the next line.
+		ring[next] = append([]byte(nil), line...)
+		if next++; next == count {
+			next, filled = 0, true
+		}
+		return true
+	}); err != nil {
+		return nil, 0, err
+	}
+
+	ordered := ring[:next]
+	if filled {
+		ordered = append(append([][]byte{}, ring[next:]...), ring[:next]...)
+	}
+	var records []map[string]any
+	skipped := 0
+	for _, line := range ordered {
+		record, lost := parseLine(line)
+		switch {
+		case record != nil:
+			records = append(records, record)
+		case lost:
+			skipped++
+		}
 	}
 	return records, skipped, nil
 }
+
+// findRecord is the first record whose id matches, or nil.  It parses one line
+// at a time and keeps only the match, so looking a record up costs the same on a
+// log of any length.
+//
+// First match, and with a log_id distinct by construction there is only ever
+// one: see audit.NewLogID.
+func findRecord(path, id string) (map[string]any, int, error) {
+	var found map[string]any
+	skipped := 0
+	err := scanAuditLog(path, func(line []byte) bool {
+		record, lost := parseLine(line)
+		if lost {
+			skipped++
+		}
+		if record != nil && matchesID(record, id) {
+			found = record
+			return false
+		}
+		return true
+	})
+	return found, skipped, err
+}
+
+// reportSkipped says what was not shown.  Swallowing it would be the worse
+// failure: a listing that looks complete when a record is missing from it is a
+// listing that answers the question wrongly, and this file exists to answer that
+// question.  Since internal/audit takes back a short write, a line that will not
+// parse now means the log was written by something else, or damaged after the
+// fact.
+func reportSkipped(path string, skipped int) {
+	if skipped == 0 {
+		return
+	}
+	fmt.Fprintf(os.Stderr, "%s: %d line(s) do not parse and are not shown. "+
+		"The broker writes one record per line and takes back a write that lands "+
+		"short, so a line like this was written by something else or damaged "+
+		"afterwards\n", path, skipped)
+}
+
+// shortIDWidth is the hex tail of a log_id: the writer's nonce and its counter,
+// which is what audit.NewLogID puts after the timestamp.
+const shortIDWidth = 10
 
 // summarise is one record on one line: when, what, how it ended, how many
 // values it touched, and the id to ask for the rest.  The id is the trailing
 // hex, the timestamp being in the row already; lookup takes either form.
 func summarise(record map[string]any, paint palette) string {
 	var b strings.Builder
-	b.WriteString(paint.dim(pad(shortID(record), 5)))
+	b.WriteString(paint.dim(pad(shortID(record), shortIDWidth)))
 	b.WriteString(" " + clockTime(record) + "  ")
 	b.WriteString(paint.bold(pad(str(record, "op"), 7)))
 	b.WriteString(paintOutcome(record, paint))
 	b.WriteString(paint.ref(pad(redactionTotal(record), 12)))
 	b.WriteString(detail(record))
 	return strings.TrimRight(b.String(), " ")
-}
-
-// tailRecords is the last count records.  A count of zero or less asks for
-// nothing and gets nothing: treating it as "no limit" would print the whole log
-// to someone who asked for none of it.
-func tailRecords(records []map[string]any, count int) []map[string]any {
-	switch {
-	case count <= 0:
-		return nil
-	case count < len(records):
-		return records[len(records)-count:]
-	}
-	return records
 }
 
 // detail is the command for an exec, the size of the text for a redact, and the

@@ -75,6 +75,17 @@ func cmdBroker(args []string) int {
 			"the secrets directory, and no restart is needed")
 	}
 
+	// Same shape and for the same reasons: said at startup so an operator finds
+	// out here, and asked again per request, because a filesystem fills after
+	// boot and the answer at boot would be the wrong one by then.
+	if reason := s.Audit.Unwritable(); reason != "" {
+		log.Printf("refusing every brokered command: the audit log cannot be "+
+			"written: %s", reason)
+		log.Printf("a command that cannot be recorded is not run, so this is the " +
+			"whole install rather than one feature of it. Free space on that " +
+			"filesystem, or point [audit] log_path somewhere with room")
+	}
+
 	sshErr := s.Ssh.Start()
 	// Covers Listen: a failed bind must not leave an agent holding the fleet keys
 	// on a reachable socket.

@@ -7,7 +7,7 @@ The commands that need credentials run as a uid that holds nothing.
 ```console
 $ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
 «SECRET:home/router/admin»
-[faramir] redacted «SECRET:home/router/admin»×1; log_id=2026-08-05T14:22:01Z-a91f
+[faramir] redacted «SECRET:home/router/admin»×1; log_id=2026-08-05T14:22:01Z-a91f00002c
 ```
 
 Agent | Redaction | Registration | Enrolment cost | Mitigation
@@ -86,6 +86,16 @@ Detail in [docs/redaction.md](docs/redaction.md).
 7. **Tokens are stable**, so the model can reason about a secret across turns.
 
 The age key is not in the value set: no child can obtain it. Neither is anything from `--allow-sudo`, approval minting no credential, so there is nothing to redact.
+
+### The audit log
+
+Every field of a record is chosen by the account the log exists to hold to account, so what bounds a record is decided where it is built rather than asked of whatever reads it later. Three things hold whatever a command does:
+
+1. **One record is one line, and no line exceeds `[audit] max_record_bytes`.** Counted in the bytes the line spends once encoded, because `<`, `>`, `&` and every control character cost six apiece as JSON: a cap counted before encoding is a cap whose meaning the command picks. A record keeps the head and the tail of a run and says what it dropped between them; if some other field is what is long, every string is cut to fit. So `faramir logs` needs no ceiling of its own, and cannot meet a record it has to refuse.
+2. **An append is exclusive and all-or-nothing.** Writers take a lock, and a write that lands short is taken back. Without that, a torn line swallows the record appended after it, so one failure costs two records and the second of them succeeded.
+3. **Every `log_id` is distinct**, carrying the writer's nonce and a counter that only advances rather than two random bytes, which collide within minutes at the rate four concurrent commands reach.
+
+And a command that cannot be recorded does not run: the broker checks the log can be written before it starts anything, and refuses with `no_audit` otherwise. The file itself is logrotate's to bound, which `faramir doctor` checks is installed and running.
 
 ### Design and layout
 
@@ -236,7 +246,7 @@ Command | Does
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](docs/operating.md#checking-an-install).
 `sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] files` globs reach, so a file dropped into the secrets directory is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
 `sudo faramir rekey [FILE...]` | Re-encrypts managed sops files to the recipients `<config-dir>/.sops.yaml` names now, which is how a changed creation rule reaches values encrypted before it changed. Every managed file unless some are named. Preserves each file's owner and mode, skips one already sealed to the rule, and refuses a rule that leaves out the keeper's own key. `--dry-run` writes nothing. See [Adding a recipient](docs/operating.md#adding-a-recipient).
-`sudo faramir logs` | Recent audit records, one row each: short id, local time, op, outcome, how many values it stood in for, and the command, an exec adding its duration. In place of the command a redact shows the text's size and an edit or a rekey the managed file. `faramir logs ID` prints one record in full, adding the caller, the cwd, the refs it named, the per-token counts, the output as it was recorded, and for an approval who answered and which command's record it belongs to; a rekey adds the recipients on each side. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. A record has no length a reader may refuse: one carries up to `[audit] max_record_bytes` of output, which JSON escaping multiplies by six for the bytes a command chooses, so a ceiling here would be a size the agent picks and exceeding it would withhold the whole log rather than one record. A line that will not parse is skipped, and how many were is said on stderr unless it is the last one, which is an append still in flight rather than a record lost. Rotated files are not searched.
+`sudo faramir logs` | Recent audit records, one row each: short id, local time, op, outcome, how many values it stood in for, and the command, an exec adding its duration. In place of the command a redact shows the text's size and an edit or a rekey the managed file. `faramir logs ID` prints one record in full, adding the caller, the cwd, the refs it named, the per-token counts, the output as it was recorded, and for an approval who answered and which command's record it belongs to; a rekey adds the recipients on each side. Not brokered, and refused as any other account: the log is `0600 faramir-broker`. Printed as found rather than redacted again, the log holding no value. `-n` bounds what is parsed and not only what is printed, and a lookup by id keeps the match alone, so reading costs what was asked for rather than what the log has grown to. A line that will not parse is skipped and counted on stderr: the broker writes one record per line and takes back a write that lands short, so one of those means the file was written by something else or damaged afterwards. Rotated files are not searched.
 `sudo faramir approve [--watch]` | Answer an approval a brokered command asked for. Root only: the broker checks `SO_PEERCRED`, because the account the coding agent runs as must not be able to approve what the agent asked for. `--watch` waits for questions and answers them from that terminal, `yes` and nothing shorter approving; without it, what is waiting is listed and `faramir approve ID` answers one. `--deny` needs no id, one question being outstanding at a time, so it refuses that one; it does not combine with `--watch`. See [Allowing sudo on the controller](docs/operating.md#allowing-sudo-on-the-controller).
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed `config.d` drop-in. All three are socket activated.
 `sudo faramir uninstall` | Removes the broker from the install it [finds the usual way](docs/operating.md#checking-an-install). Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively.

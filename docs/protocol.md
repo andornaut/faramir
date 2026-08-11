@@ -47,13 +47,13 @@ Field | Required | Notes
   "output": "…redacted, ANSI-stripped, stdout+stderr merged…",
   "truncated": false,
   "redactions": [{ "token": "«SECRET:home/router/admin»", "count": 3 }],
-  "log_id": "2026-08-05T14:22:01Z-a91f",
+  "log_id": "2026-08-05T14:22:01Z-a91f00002c",
   "timed_out": false,
   "duration_sec": 12.4
 }
 ```
 
-`redactions` reports **counts, not values**, so the caller can confirm a secret reached the right place without seeing it; a count of 0 where one was expected is a real signal that something is misconfigured. `log_id` points into `/var/log/faramir/audit.log`, which the agent cannot read, so it can say "see log 2026-08-05T14:22:01Z-a91f" to the operator.
+`redactions` reports **counts, not values**, so the caller can confirm a secret reached the right place without seeing it; a count of 0 where one was expected is a real signal that something is misconfigured. `log_id` points into `/var/log/faramir/audit.log`, which the agent cannot read, so it can say "see log 2026-08-05T14:22:01Z-a91f00002c" to the operator.
 
 An error nulls `exit_code` and adds `error`:
 
@@ -70,6 +70,7 @@ Code | Meaning
 `busy` | At `[server] max_concurrency`; retry
 `held` | An approval is being decided or held on the executor's uid, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only on a host installed with `--allow-sudo`
 `not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the approval. The question is refused rather than held open, so the `sudo` fails and the command is run again once the host is quiet
+`no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `exec` alone: a command that cannot be recorded is not one this host runs, and the filesystem the log sits on is one a brokered command's own output can fill
 `no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `list_secrets` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`)

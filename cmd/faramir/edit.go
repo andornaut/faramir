@@ -119,7 +119,7 @@ func cmdEdit(args []string) int {
 		record["changed"] = changed
 	}
 	// The file and whether it changed, never what is in it.
-	audit.NewLog(cfg.Audit).Write(record, "")
+	audit.NewLog(cfg.Audit).Write(record, audit.Output{})
 
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "edit: %v\n", err)

@@ -258,9 +258,23 @@ type SecretsConfig struct {
 // AuditConfig is the operator-only record of what the broker ran.  Output is
 // recorded after redaction, so it holds no value.
 type AuditConfig struct {
-	LogPath        string
+	LogPath string
+	// MaxRecordBytes is the largest one record's line may be, counted in the
+	// bytes the line spends once encoded rather than in the bytes a command
+	// wrote: '<', '>', '&' and every C0 control cost six apiece as JSON, so a cap
+	// counted before encoding is a cap the command chooses the meaning of.
+	//
+	// internal/audit holds a record to it whatever it is handed, excerpting the
+	// output to the head and the tail of a run and cutting every other field if
+	// that is not enough, so a reader needs no ceiling of its own.
 	MaxRecordBytes int
 }
+
+// MinRecordBytes floors [AuditConfig.MaxRecordBytes].  A record has an identity
+// even when everything else has been cut away -- the log_id, the op and the
+// caller -- and a cap below that would ask internal/audit to write a line it has
+// no room for.
+const MinRecordBytes = 4096
 
 type Config struct {
 	Path string
@@ -898,11 +912,11 @@ func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	if err := rejectUnknownKeys(sec, auditKeys, where); err != nil {
 		return err
 	}
-	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log", MaxRecordBytes: 4194304}
+	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log", MaxRecordBytes: 262144}
 	if out.LogPath, err = str(sec["log_path"], where, out.LogPath); err != nil {
 		return err
 	}
-	if out.MaxRecordBytes, err = atLeast(sec, "max_record_bytes", where, out.MaxRecordBytes, 1); err != nil {
+	if out.MaxRecordBytes, err = atLeast(sec, "max_record_bytes", where, out.MaxRecordBytes, MinRecordBytes); err != nil {
 		return err
 	}
 	return nil

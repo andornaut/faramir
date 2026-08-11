@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -340,6 +341,16 @@ func (r *runner) stepLogrotate() error {
 	made, err := r.fs.writeFile(logrotateConfig, body, 0o644, 0, 0)
 	if err != nil {
 		return err
+	}
+	// The file is inert without the program that reads it, and writing it is a
+	// step that reports "changed" either way, so a host with no logrotate looks
+	// installed and has no ceiling on the log at all.  Said here and checked again
+	// by `faramir doctor`.
+	if _, err := exec.LookPath("logrotate"); err != nil {
+		r.warn("logrotate is not installed, so %s is inert and %s grows without a "+
+			"ceiling: [audit] max_record_bytes bounds one record, not the file. "+
+			"Install logrotate, or manage that file some other way",
+			logrotateConfig, r.layout.AuditLogPath())
 	}
 	r.step("logrotate", made, logrotateConfig)
 	return nil
