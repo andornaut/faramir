@@ -279,14 +279,17 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 	}
 }
 
-// --deny answers one named question, so without an id it answers nothing.
-// Refused rather than ignored: `--watch --deny` reads like a standing refusal
-// and is not one, and an operator who believed it was would think they had left
-// the door shut when the watcher was in fact still going to prompt.
-func TestDenyNeedsAnID(t *testing.T) {
+// --deny needs no id: only one question is ever outstanding, so "the one that
+// is waiting" names exactly one thing.  The asymmetry with approving is
+// deliberate and worth holding in place -- refusing something unseen is safe,
+// and there is no bare `faramir approve` that says yes to whatever is there,
+// because an approval that names no command is one nobody judged.
+func TestDenyWithoutAnIDIsAccepted(t *testing.T) {
+	// Not root, so it stops at that check rather than dialling a socket -- which
+	// is enough to show --deny is no longer refused as a usage error before it.
 	for _, args := range [][]string{{"--deny"}, {"--deny", "--watch"}} {
-		if code := cmdApprove(args); code != 2 {
-			t.Errorf("faramir approve %v = %d, want 2: --deny is not a mode", args, code)
+		if code := cmdApprove(args); code == 2 {
+			t.Errorf("faramir approve %v = 2, want --deny accepted without an id", args)
 		}
 	}
 }

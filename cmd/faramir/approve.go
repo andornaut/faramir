@@ -46,16 +46,6 @@ func cmdApprove(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: faramir approve [options] [ID]")
 		return 2
 	}
-	// --deny answers one named question, so without an id it answers nothing.
-	// Refused rather than ignored: `--watch --deny` reads like a standing refusal
-	// and is not one -- the watcher would prompt as usual -- and an operator who
-	// believed it was would think they had left the door shut.
-	if *deny && fs.Arg(0) == "" {
-		fmt.Fprintln(os.Stderr, "faramir approve: --deny refuses one named request, so "+
-			"it needs an id: `faramir approve --deny ID`. It is not a mode, and with "+
-			"--watch it would refuse nothing")
-		return 2
-	}
 	if os.Geteuid() != 0 {
 		// Not "try sudo".  Reaching root that way from the account the agent runs as
 		// leaves a warm sudo timestamp in a shell the agent can use, which hands it
@@ -74,9 +64,43 @@ func cmdApprove(args []string) int {
 		return answer(*c.socket, id, !*deny, *c.json)
 	}
 	if *watch {
-		return watchApprovals(*c.socket)
+		return watchApprovals(*c.socket, *deny)
+	}
+	// --deny needs no id, and the asymmetry with approving is the point.  Only one
+	// question is ever outstanding, so "the one that is waiting" names exactly one
+	// thing -- and refusing something unseen is safe in a way approving it is not.
+	// There is deliberately no bare `faramir approve` that says yes to whatever is
+	// there: an approval that names no command is one nobody judged, which is what
+	// this whole channel exists to prevent.  A refusal costs a re-run.
+	if *deny {
+		return denyWaiting(*c.socket, *c.json)
 	}
 	return listApprovals(*c.socket, *c.json)
+}
+
+// denyWaiting refuses the one question outstanding, without it having to be
+// named.  It prints what it refused first, so the operator's own scrollback says
+// which command they turned down.
+func denyWaiting(socketPath string, asJSON bool) int {
+	questions, err := pending(socketPath, 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir approve: %v\n", err)
+		return 69 // EX_UNAVAILABLE, as every other broker-facing command
+	}
+	if len(questions) == 0 {
+		fmt.Fprintln(os.Stderr, "nothing is waiting to be refused. "+
+			"`faramir approve --watch --deny` refuses each one as it arrives")
+		return 1
+	}
+	// At most one, ever: a second command asking while this waits is refused
+	// rather than queued.  The loop is the protocol's shape, not a queue.
+	for _, question := range questions {
+		printQuestion(question)
+		if code := answer(socketPath, question.ID, false, asJSON); code != 0 {
+			return code
+		}
+	}
+	return 0
 }
 
 // listApprovals reports what is waiting and returns, for a look rather than a
@@ -121,10 +145,22 @@ func listApprovals(socketPath string, asJSON bool) int {
 // This terminal, deliberately.  The prompt must not land where the agent can
 // type, so run it somewhere the agent does not reach: not a shell it drives, and
 // not a pane of a session it shares.
-func watchApprovals(socketPath string) int {
-	warnIfTypeable()
-	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, and "+
-		"anything else refuses. One command is asked about at a time. Ctrl-C to stop.")
+//
+// denyAll makes it an unattended refusenik: it reads no answer and approves
+// nothing, refusing each question as it arrives.  Useful for stepping away, a
+// command that would otherwise hang for [sudo] timeout_sec failing at once and
+// saying why, and safe by construction, there being no path through it that can
+// say yes.  warnIfTypeable is skipped there for the same reason: that warning is
+// about an approval somebody else could type, and nothing here can approve.
+func watchApprovals(socketPath string, denyAll bool) int {
+	if denyAll {
+		fmt.Fprintln(os.Stderr, "refusing every approval request as it arrives, and "+
+			"reading no answer: nothing can be approved from here. Ctrl-C to stop.")
+	} else {
+		warnIfTypeable()
+		fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, and "+
+			"anything else refuses. One command is asked about at a time. Ctrl-C to stop.")
+	}
 	// No set of ids already answered.  There was one, and it is gone with the
 	// queue: a question is removed from the broker the moment it is answered,
 	// refused or expired, and only one is ever outstanding, so a question cannot
@@ -152,12 +188,15 @@ func watchApprovals(socketPath string) int {
 		}
 		for _, question := range questions {
 			printQuestion(question)
-			approve, ok := readAnswer()
-			if !ok {
-				// Stdin closed: nothing further can be answered here, and leaving the
-				// loop spinning would refuse nothing and approve nothing.
-				fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
-				return 0
+			approve := false
+			if !denyAll {
+				var ok bool
+				if approve, ok = readAnswer(); !ok {
+					// Stdin closed: nothing further can be answered here, and leaving the
+					// loop spinning would refuse nothing and approve nothing.
+					fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
+					return 0
+				}
 			}
 			// The two failures are not the same and must not be treated alike.
 			//
