@@ -351,10 +351,17 @@ func (l *Log) encode(payload map[string]any) []byte {
 			// The output field is reduced along with the rest, so what it says about
 			// itself has to keep up: a record whose output was cut and does not say so
 			// reads as a complete one.
-			if after, _ := payload["output"].(string); len(after) < len(before) {
+			//
+			// Whether it changed, not whether it shrank.  clamp counts in encoded bytes
+			// and appends a marker, so an output of escape-heavy bytes comes back longer
+			// in raw ones than it went in, and a length test reads that as untouched.
+			// What went is measured against the marker taken back off, for the same
+			// reason.
+			if after, _ := payload["output"].(string); after != before {
 				payload["output_truncated"] = true
 				dropped, _ := payload["output_dropped"].(int)
-				payload["output_dropped"] = dropped + len(before) - len(after)
+				kept := strings.TrimSuffix(after, clampMarker)
+				payload["output_dropped"] = dropped + max(len(before)-len(kept), 0)
 				before = after
 			}
 			if line, err = json.Marshal(payload); err == nil && len(line)+1 <= limit {
@@ -418,22 +425,18 @@ func (l *Log) lastResort(payload map[string]any, fields int) []byte {
 // caller has to hold an opinion about what to do when there is not.
 func stubLine(payload map[string]any) []byte {
 	const why = "this record did not fit [audit] max_record_bytes and was reduced to its identity"
-	if line, err := json.Marshal(map[string]any{
-		"log_id": payload["log_id"], "op": payload["op"], "peer": payload["peer"],
-		"error": why, "record_reduced": true,
-	}); err == nil {
-		return append(line, '\n')
-	}
-	// A value that will not marshal at all is what brought us here, and the same
-	// value is in the map above.  Every key and value below is a string, and
-	// marshalling strings cannot fail, so this step has no failure of its own.
-	// Without it the line was "\n", and a blank line is the one thing a reader
-	// passes over in silence: the record would be gone with nothing to notice.
-	line, _ := json.Marshal(map[string]string{
-		"log_id": clamp(fmt.Sprint(payload["log_id"]), 256),
-		"op":     clamp(fmt.Sprint(payload["op"]), 256),
-		"peer":   clamp(fmt.Sprint(payload["peer"]), 256),
-		"error":  why,
+	// Printed and clamped rather than carried across as they stand.  One route
+	// here is the first marshal failing, which skips the reductions entirely, so
+	// these three were never bounded and a line built from them would be as long
+	// as they are -- the one thing this function exists to rule out.  Printing
+	// them also makes every value a string, and marshalling strings cannot fail,
+	// so there is no second failure to fall back from.
+	line, _ := json.Marshal(map[string]any{
+		"log_id":         clamp(fmt.Sprint(payload["log_id"]), 256),
+		"op":             clamp(fmt.Sprint(payload["op"]), 256),
+		"peer":           clamp(fmt.Sprint(payload["peer"]), 256),
+		"error":          why,
+		"record_reduced": true,
 	})
 	if len(line) == 0 {
 		// Unreachable, and the belt to the braces: the invariant is that this
@@ -511,12 +514,17 @@ func reduceTyped(value any, strLimit, items int) any {
 	return append(out, any(more(rv.Len()-items)))
 }
 
+// clampMarker is what clamp leaves in place of what it cut.  Named so a caller
+// counting what went can take it back off: it is appended, so a cut string is
+// not necessarily shorter than the one it replaced.
+const clampMarker = "… (cut to fit the record)"
+
 // clamp is one string at an encoded ceiling, marked where it was cut.
 func clamp(text string, budget int) string {
 	if encodedLen(text) <= budget {
 		return text
 	}
-	return prefixWithin(text, max(budget-markerReserve, 1)) + "… (cut to fit the record)"
+	return prefixWithin(text, max(budget-markerReserve, 1)) + clampMarker
 }
 
 func more(n int) string { return fmt.Sprintf("… (%d more, cut to fit the record)", n) }
@@ -629,31 +637,6 @@ func suffixWithin(s string, budget int) string {
 		i -= size
 	}
 	return s
-}
-
-// cutAtRune returns the first limit bytes of s, backing off only far enough not
-// to end on a partial rune, which JSON would record as U+FFFD.  Bounded to
-// UTFMax: scanning back for the first valid prefix would discard everything
-// after any invalid byte, and brokered output is raw PTY bytes.
-func cutAtRune(s string, limit int) string {
-	if limit <= 0 {
-		return ""
-	}
-	if len(s) <= limit {
-		return s
-	}
-	cut := s[:limit]
-	for i := 1; i < utf8.UTFMax && i <= len(cut); i++ {
-		start := len(cut) - i
-		if !utf8.RuneStart(cut[start]) {
-			continue
-		}
-		if utf8.ValidString(cut[start:]) {
-			return cut // the last rune is whole
-		}
-		return cut[:start]
-	}
-	return cut
 }
 
 // Collector accumulates the redacted stream for one invocation, keeping the head

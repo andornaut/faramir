@@ -73,21 +73,15 @@ func askBroker(socketPath string) status {
 	return out
 }
 
-// unitConfigFile reads the config path out of the broker's unit, or "" when the
-// unit is unreadable or names none.  What the broker was installed to load,
-// which is the answer left when the broker itself is not running.
+// unitConfigFile reads the config path out of the broker's unit and its
+// drop-ins, or "" when neither is readable or names one.  What the broker was
+// installed to load, which is the answer left when the broker itself is not
+// running.
+//
+// The same reader init refuses a config move against, so what this resolves and
+// what that compares it to cannot disagree.
 func unitConfigFile() string {
-	body, err := os.ReadFile(brokerUnit)
-	if err != nil {
-		return ""
-	}
-	for _, line := range strings.Split(string(body), "\n") {
-		if rest, found := strings.CutPrefix(strings.TrimSpace(line),
-			"Environment=FARAMIR_CONFIG="); found {
-			return rest
-		}
-	}
-	return ""
+	return install.UnitConfigFile(brokerUnit)
 }
 
 // discoverConfigFile finds the config.toml this host's install uses: the

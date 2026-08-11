@@ -111,13 +111,12 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	// shell, a cron entry, a configuration manager — has to keep reporting an age
 	// key left 0644 or a socket regrouped by hand.
 	//
-	// The three that ask about the operator alongside other accounts are in the
+	// The ones that ask about the operator alongside other accounts are in the
 	// first list and skip it themselves rather than claiming it was asked.
 	aboutTheHost := []func(){
 		func() { diagnoseAgeKey(report, opts, cfg) },
 		func() { diagnoseDenyPatterns(report, opts) },
 		func() { diagnoseAuditLog(report, opts, cfg) },
-		func() { diagnoseLogRotation(report, cfg) },
 		func() { diagnoseSockets(report, opts, cfg) },
 		func() { diagnoseSocketPolicy(report, opts, cfg) },
 		func() { diagnoseSSHKey(report, opts, cfg) },
@@ -440,48 +439,6 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 	report.add("audit log", StatusOK, "%s, readable by nobody else", want)
 }
 
-// diagnoseLogRotation asks whether anything bounds the audit log.
-//
-// [audit] max_record_bytes bounds one record, and nothing in faramir bounds the
-// file: rotation is logrotate's, which is a program that has to be installed and
-// has to run.  Worth a check of its own because the install writes the config
-// whether or not the program exists, so the step reports "changed" on a host
-// where it does nothing, and because the account that fills the log is the one
-// this whole install exists to bound: a brokered command's output is what a
-// record carries, so an agent that prints enough writes the disk full, and a
-// full disk is where brokered commands stop running at all.
-func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
-	if cfg == nil || cfg.Audit.LogPath == "" {
-		return
-	}
-	if !exists(logrotateConfig) {
-		report.add("log rotation", StatusFailed, "%s does not exist, so nothing "+
-			"bounds %s. Re-run `faramir init`, or bound it some other way",
-			logrotateConfig, cfg.Audit.LogPath)
-		return
-	}
-	if _, err := exec.LookPath("logrotate"); err != nil {
-		report.add("log rotation", StatusFailed, "%s exists and logrotate does not, "+
-			"so it is inert and %s grows without a ceiling. Install logrotate, or "+
-			"bound that file some other way", logrotateConfig, cfg.Audit.LogPath)
-		return
-	}
-	// The config says 16MB, so a log far past it is one logrotate is not being
-	// run on, whatever is installed.  A multiple rather than the number itself:
-	// rotation is scheduled rather than continuous, and a log over the size
-	// between two runs is ordinary.
-	const rotateSize = 16 << 20
-	if info, err := os.Stat(cfg.Audit.LogPath); err == nil && info.Size() > 4*rotateSize {
-		report.add("log rotation", StatusWarn, "%s is %d bytes, well past the %d "+
-			"the rule rotates at, so logrotate is installed and is not being run on "+
-			"it. Check the logrotate timer or cron job",
-			cfg.Audit.LogPath, info.Size(), rotateSize)
-		return
-	}
-	report.add("log rotation", StatusOK, "%s bounds %s, and logrotate is installed "+
-		"to apply it", logrotateConfig, cfg.Audit.LogPath)
-}
-
 // diagnoseSockets asks who can open each one.  The keeper's is the age key by
 // another route and the executor's runs a command with no policy, redaction or
 // audit record; the broker's is the one that has to be reachable.
@@ -585,17 +542,18 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	if cfg == nil || cfg.Ssh.Key == "" {
 		return
 	}
+	// The operator alongside the executor, and for the same reason: the coding
+	// agent runs as that account, so a key it can read is one that reaches the
+	// model's context by any route the deny patterns miss.  init asserts the mode;
+	// this is what catches a chmod afterwards.
+	_, skipped := askable(opts.OperatorUser)
 	if key := cfg.Ssh.Key; exists(key) {
 		if canRead(opts.ExecUser, key) {
 			report.add("ssh key", StatusFailed, "%s can read %s, so the agent gains "+
 				"nothing: a brokered command can take the key itself", opts.ExecUser, key)
 			return
 		}
-		// The operator too, and for the same reason: the coding agent runs as that
-		// account, so a key it can read is one that reaches the model's context by
-		// any route the deny patterns miss.  init asserts the mode; this is what
-		// catches a chmod afterwards.
-		if canRead(opts.OperatorUser, key) {
+		if !skipped && canRead(opts.OperatorUser, key) {
 			report.add("ssh key", StatusFailed, "%s can read %s, and the coding agent "+
 				"runs as that account: the key is readable by the thing the agent "+
 				"was meant to keep it from", opts.OperatorUser, key)
@@ -607,6 +565,13 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 		report.add("ssh key", StatusFailed, "%s can open %s, which is ssh-agent's own "+
 			"socket: that bypasses the relay and the whole agent protocol is reachable",
 			opts.ExecUser, private)
+		return
+	}
+	if skipped {
+		report.NotAsked++
+		report.add("ssh key", StatusWarn, "%s can use the agent and read no key held "+
+			"by it. The operator account is not named, so whether it can read %s was "+
+			"not asked", opts.ExecUser, cfg.Ssh.Key)
 		return
 	}
 	// The executor alone, which is the account the two probes above put the
@@ -709,7 +674,8 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	}
 	// The helper the stack execs, as root.  An account that can write it chooses
 	// what decides every approval on this host.
-	for _, account := range []string{opts.ExecUser, opts.OperatorUser} {
+	accounts, skipped := askable(opts.ExecUser, opts.OperatorUser)
+	for _, account := range accounts {
 		if canWrite(account, cfg.Sudo.Helper) {
 			report.add("sudo grant", StatusFailed, "%s can write %s, which is what "+
 				"decides every approval: it would be choosing its own answer",
@@ -727,6 +693,13 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 				pamDir, pamFile)
 			return
 		}
+	}
+	if skipped {
+		report.NotAsked++
+		report.add("sudo grant", StatusWarn, "%s asks the broker, and %s cannot write "+
+			"%s. The operator account is not named, so whether it can was not asked",
+			pamFile, strings.Join(accounts, " or "), cfg.Sudo.Helper)
+		return
 	}
 	report.add("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker, and "+
 		"root answers, one approval per command", opts.ExecUser, pamFile)

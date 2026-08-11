@@ -121,12 +121,8 @@ func cmdLogs(args []string) int {
 // visit is handed the line with its newline where it had one.  A line with none
 // is the last, caught midway through an append.
 func scanAuditLog(path string, visit func(line []byte) bool) error {
-	fh, err := os.Open(path)
+	fh, err := openAuditLog(path)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
-				"this host, or [audit] log_path names somewhere else", path)
-		}
 		return err
 	}
 	defer func() { _ = fh.Close() }()
@@ -144,6 +140,18 @@ func scanAuditLog(path string, visit func(line []byte) bool) error {
 			return fmt.Errorf("%s: %w", path, readErr)
 		}
 	}
+}
+
+// openAuditLog is the log, with the missing-file case named: every caller of
+// this is examining an install, and "no such file" alone reads as a path typo
+// rather than as a host where nothing has been brokered.
+func openAuditLog(path string) (*os.File, error) {
+	fh, err := os.Open(path)
+	if err != nil && os.IsNotExist(err) {
+		return nil, fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
+			"this host, or [audit] log_path names somewhere else", path)
+	}
+	return fh, err
 }
 
 // parseLine is one line as a record, and whether losing it means a record was
@@ -166,7 +174,9 @@ func parseLine(line []byte) (record map[string]any, lost bool) {
 // bounded, and the parse is what is not.
 //
 // A count of zero or less asks for nothing and gets nothing: treating it as "no
-// limit" would print the whole log to somebody who asked for none of it.
+// limit" would print the whole log to somebody who asked for none of it.  The
+// log is still opened, so a host with no log at all says so rather than
+// reporting the count the caller passed as an empty log.
 //
 // The ring grows to what the log holds rather than to what -n asked for, so
 // `-n 500000000` on a log of ten records costs ten records.  Sized up front it
@@ -174,6 +184,11 @@ func parseLine(line []byte) (record map[string]any, lost bool) {
 // header, before a single line had been read.
 func tailRecords(path string, count int) ([]map[string]any, int, error) {
 	if count <= 0 {
+		fh, err := openAuditLog(path)
+		if err != nil {
+			return nil, 0, err
+		}
+		_ = fh.Close()
 		return nil, 0, nil
 	}
 	ring, next, filled := make([][]byte, 0, min(count, 1024)), 0, false

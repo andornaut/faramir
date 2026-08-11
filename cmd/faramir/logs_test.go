@@ -216,6 +216,19 @@ func TestScanAuditLogNamesAnAbsentLog(t *testing.T) {
 	}
 }
 
+// And says it for a count that asks for nothing too: "no records to show" on a
+// host with no log at all reads as an empty log rather than an absent one, so
+// the two cases stay distinct whatever -n was passed.
+func TestAnAbsentLogIsNamedEvenWhenNothingWasAskedFor(t *testing.T) {
+	_, _, err := tailRecords(filepath.Join(t.TempDir(), "nope.log"), 0)
+	if err == nil {
+		t.Fatal("no error for an absent log")
+	}
+	if !strings.Contains(err.Error(), "no audit log at") {
+		t.Errorf("unhelpful error: %v", err)
+	}
+}
+
 // rec is one record read back the way the command reads it.
 func rec(t *testing.T, line string) map[string]any {
 	t.Helper()

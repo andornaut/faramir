@@ -14,19 +14,6 @@ import (
 	"github.com/andornaut/faramir/internal/redact"
 )
 
-func TestCutAtRuneKeepsWholeRunes(t *testing.T) {
-	// "é" is two bytes, so a limit of 3 lands inside the second.
-	if got := cutAtRune("aé", 2); got != "a" {
-		t.Errorf("got %q, want %q", got, "a")
-	}
-	if got := cutAtRune("aéb", 3); got != "aé" {
-		t.Errorf("got %q, want %q", got, "aé")
-	}
-	if got := cutAtRune("abc", 10); got != "abc" {
-		t.Errorf("a string under the limit was altered: %q", got)
-	}
-}
-
 // logrotate renames the log away underneath a running broker, so without a fresh
 // open per write every record until the next restart lands in the renamed
 // file.
@@ -69,18 +56,8 @@ func TestARecordAfterARotationOpensANewLog(t *testing.T) {
 	}
 }
 
-// A child printing binary puts an invalid byte mid-stream.  Only a partial rune
-// at the very end may be trimmed.
-func TestCutAtRuneKeepsOutputAfterAnInteriorInvalidByte(t *testing.T) {
-	raw := "aaaa\xffbbbb"
-	got := cutAtRune(raw, 9)
-	if got != raw[:9] {
-		t.Errorf("got %q (%d bytes), want the first 9 bytes intact", got, len(got))
-	}
-}
-
-// The same case through the log: a record cut back to the first bad byte audits
-// nothing.
+// A child printing binary puts an invalid byte mid-stream, and a record cut back
+// to the first bad byte audits nothing.
 func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 	dir := t.TempDir()
 	limit := 1 << 16
@@ -745,5 +722,61 @@ func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
 	}
 	if got, _ := record["log_id"].(string); !strings.Contains(got, "abcd000001") {
 		t.Errorf("the line does not say which record it was: %s", data)
+	}
+}
+
+// clamp counts in encoded bytes and appends a marker, so an output of
+// escape-heavy bytes comes back longer in raw ones than it went in.  A record
+// whose output was cut and does not say so reads as a complete one.
+func TestAnOutputCutByAReductionSaysSoEvenWhenItGrew(t *testing.T) {
+	log := NewLog(config.AuditConfig{
+		LogPath:        filepath.Join(t.TempDir(), "audit.log"),
+		MaxRecordBytes: config.MinRecordBytes,
+	})
+	// Twenty '<' are 20 raw bytes and 120 encoded, so the last reduction step
+	// (a 64-byte ceiling) cuts them to nothing and leaves a 27-byte marker.
+	output := strings.Repeat("<", 20)
+	payload := map[string]any{"log_id": "cut", "op": "exec", "output": output}
+	// Enough elsewhere that the record only fits at that last step.
+	for i := range 40 {
+		payload[fmt.Sprintf("field%02d", i)] = strings.Repeat("x", 300)
+	}
+
+	var record map[string]any
+	if err := json.Unmarshal(log.encode(payload), &record); err != nil {
+		t.Fatalf("what was encoded does not parse: %v", err)
+	}
+	if got, _ := record["output"].(string); got == output {
+		t.Fatalf("the output was not cut, so this asserts nothing: %q", got)
+	}
+	if record["output_truncated"] != true {
+		t.Errorf("the output was cut and the record does not say so: %+v", record)
+	}
+	// And says how much: the whole of it, measured without the marker that
+	// replaced it.
+	if dropped, _ := record["output_dropped"].(float64); int(dropped) != len(output) {
+		t.Errorf("output_dropped = %v, want %d", record["output_dropped"], len(output))
+	}
+}
+
+// The identity fields are bounded here too.  One route to the stub is the first
+// marshal failing, which skips the reductions entirely, so nothing else has
+// bounded them and a line built from them would be as long as they are.
+func TestTheStubBoundsTheIdentityItKeeps(t *testing.T) {
+	line := stubLine(map[string]any{
+		"log_id": strings.Repeat("a", 10_000),
+		"op":     strings.Repeat("b", 10_000),
+		"peer":   strings.Repeat("c", 10_000),
+	})
+	if len(line) > config.MinRecordBytes {
+		t.Errorf("the stub is %d bytes, past the smallest cap an operator can set "+
+			"(%d)", len(line), config.MinRecordBytes)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(line, &record); err != nil {
+		t.Fatalf("the stub does not parse: %q", line)
+	}
+	if record["record_reduced"] != true {
+		t.Errorf("the stub does not say it was reduced: %+v", record)
 	}
 }

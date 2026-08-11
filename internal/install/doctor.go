@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"slices"
@@ -178,6 +179,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	// here: it runs a brokered command as the operator, which is the caller's own
 	// account whenever doctor was not run as root.
 	diagnoseGroup(&report, opts)
+	diagnoseLogRotation(&report, cfg)
 	diagnoseUnits(&report)
 	diagnoseSSHAgent(&report, opts, cfg, serves)
 	diagnoseVersion(&report, opts)
@@ -262,6 +264,53 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	}
 	report.add("sops config", StatusOK, "%s, %d recipient(s) including %s's",
 		path, len(listed), opts.KeeperUser)
+}
+
+// diagnoseLogRotation asks whether anything bounds the audit log.
+//
+// [audit] max_record_bytes bounds one record, and nothing in faramir bounds the
+// file: rotation is logrotate's, which is a program that has to be installed and
+// has to run.  Worth a check of its own because the install writes the config
+// whether or not the program exists, so the step reports "changed" on a host
+// where it does nothing, and because the account that fills the log is the one
+// this whole install exists to bound: a brokered command's output is what a
+// record carries, so an agent that prints enough writes the disk full, and a
+// full disk is where brokered commands stop running at all.
+//
+// Not among the boundary checks, which need root and a working runuser: this
+// one reads a path, a $PATH and a size, and asks no account anything.  Reported
+// to a caller without root because a log with no ceiling is what ends in every
+// brokered command being refused.
+func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
+	if cfg == nil || cfg.Audit.LogPath == "" {
+		return
+	}
+	if !exists(logrotateConfig) {
+		report.add("log rotation", StatusFailed, "%s does not exist, so nothing "+
+			"bounds %s. Re-run `faramir init`, or bound it some other way",
+			logrotateConfig, cfg.Audit.LogPath)
+		return
+	}
+	if _, err := exec.LookPath("logrotate"); err != nil {
+		report.add("log rotation", StatusFailed, "%s exists and logrotate does not, "+
+			"so it is inert and %s grows without a ceiling. Install logrotate, or "+
+			"bound that file some other way", logrotateConfig, cfg.Audit.LogPath)
+		return
+	}
+	// The config says 16MB, so a log far past it is one logrotate is not being
+	// run on, whatever is installed.  A multiple rather than the number itself:
+	// rotation is scheduled rather than continuous, and a log over the size
+	// between two runs is ordinary.
+	const rotateSize = 16 << 20
+	if info, err := os.Stat(cfg.Audit.LogPath); err == nil && info.Size() > 4*rotateSize {
+		report.add("log rotation", StatusWarn, "%s is %d bytes, well past the %d "+
+			"the rule rotates at, so logrotate is installed and is not being run on "+
+			"it. Check the logrotate timer or cron job",
+			cfg.Audit.LogPath, info.Size(), rotateSize)
+		return
+	}
+	report.add("log rotation", StatusOK, "%s bounds %s, and logrotate is installed "+
+		"to apply it", logrotateConfig, cfg.Audit.LogPath)
 }
 
 // diagnoseUnits reports the sockets, not the services: all three are socket
@@ -499,13 +548,29 @@ func classifySSHProbe(out string, err error) sshProbeResult {
 // ciphertext.  Nothing else on this host reports either, and the standing grant
 // is what is left of an account the install has otherwise stopped using.
 func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
+	// Held as a list so the bail-out below can say how many went unasked: on a
+	// host with a --secrets-group of its own there are two, and a count written
+	// out separately would report one.
+	type granting struct{ label, name, grants string }
+	groups := []granting{
+		{"group", opts.ClientGroup,
+			"reach the broker socket, and enter a tree enrolled with it"},
+	}
+	// The second only when it is a group of its own.  Defaulted, the secrets group
+	// IS the keeper's primary group, and the keeper being in it is the arrangement
+	// rather than a leftover; the loop below would name every retired keeper
+	// correctly and the current one too.
+	if opts.SecretsGroup != "" && opts.SecretsGroup != opts.ClientGroup {
+		groups = append(groups, granting{"secrets group", opts.SecretsGroup,
+			"read and replace the ciphertext in the secrets directory"})
+	}
 	// Without the operator's name there is no way to tell the account this install
 	// deliberately admitted from one left behind, and the operator IS a member of
 	// the client group by construction.  Reporting it as a leftover would print
 	// `gpasswd -d <the operator> <the client group>` as the remedy, which is the
 	// one change that shuts the agent out of the broker socket.
 	if opts.OperatorUser == "" {
-		report.NotAsked++
+		report.NotAsked += len(groups)
 		report.add("group", StatusWarn, "the operator account is not named, so a "+
 			"member of %s cannot be told from an account left behind: pass "+
 			"--operator-user, or run through sudo so SUDO_USER carries it",
@@ -513,15 +578,8 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 		return
 	}
 	known := []string{opts.OperatorUser, opts.BrokerUser, opts.KeeperUser, opts.ExecUser}
-	diagnoseGroupOutsiders(report, "group", opts.ClientGroup, known,
-		"reach the broker socket, and enter a tree enrolled with it")
-	// Only when it is a group of its own.  Defaulted, the secrets group IS the
-	// keeper's primary group, and the keeper being in it is the arrangement rather
-	// than a leftover; the loop below would name every retired keeper correctly and
-	// the current one too.
-	if opts.SecretsGroup != "" && opts.SecretsGroup != opts.ClientGroup {
-		diagnoseGroupOutsiders(report, "secrets group", opts.SecretsGroup, known,
-			"read and replace the ciphertext in the secrets directory")
+	for _, group := range groups {
+		diagnoseGroupOutsiders(report, group.label, group.name, known, group.grants)
 	}
 }
 
@@ -700,10 +758,10 @@ func unitUser(name string) (string, error) {
 	return "", fmt.Errorf("%s names no User=", path)
 }
 
-// unitConfigDir is the config directory the installed broker unit loads, or ""
-// when there is no unit or it names none.  Read from the unit rather than asked
-// of a running broker: a host whose daemons are down still has an install, and
-// this is the question of where that install is.
+// UnitConfigFile is the config file the unit at this path loads, or "" when
+// there is no unit or it names none.  Read from the unit rather than asked of a
+// running broker: a host whose daemons are down still has an install, and this
+// is the question of where that install is.
 //
 // Drop-ins as well as the unit, in the order systemd reads them: a
 // <unit>.d/*.conf setting Environment=FARAMIR_CONFIG is what the daemons
@@ -711,9 +769,13 @@ func unitUser(name string) (string, error) {
 // this install expects rather than one only an operator could have made.
 // Reading the main file alone would see no move where there is one, and
 // re-provision a directory nothing loads.
-func unitConfigDir(name string) string {
-	dir := ""
-	for _, path := range unitFiles(name) {
+//
+// Exported because every caller that resolves this host's install has to get
+// the same answer: one reader consulting drop-ins and another reading the unit
+// alone put init's own refusal at odds with the directory it was given.
+func UnitConfigFile(unit string) string {
+	file := ""
+	for _, path := range unitFiles(unit) {
 		body, err := os.ReadFile(path)
 		if err != nil {
 			continue
@@ -723,29 +785,35 @@ func unitConfigDir(name string) string {
 				"Environment=FARAMIR_CONFIG="); ok {
 				// An empty assignment is systemd's way of unsetting, so it clears what an
 				// earlier file said rather than being skipped as "names none".
-				if value = strings.TrimSpace(value); value == "" {
-					dir = ""
-					continue
-				}
-				dir = filepath.Dir(value)
+				file = strings.TrimSpace(value)
 			}
 		}
 	}
-	return dir
+	return file
+}
+
+// unitConfigDir is UnitConfigFile's directory, for the installed unit of this
+// name.
+func unitConfigDir(name string) string {
+	file := UnitConfigFile(filepath.Join(systemUnitDir, name))
+	if file == "" {
+		return ""
+	}
+	return filepath.Dir(file)
 }
 
 // unitFiles is a unit and its drop-ins, in the order systemd applies them: the
 // unit first, then <unit>.d/*.conf sorted by name, later winning.
-func unitFiles(name string) []string {
-	files := []string{filepath.Join(systemUnitDir, name)}
-	entries, err := os.ReadDir(filepath.Join(systemUnitDir, name+".d"))
+func unitFiles(unit string) []string {
+	files := []string{unit}
+	entries, err := os.ReadDir(unit + ".d")
 	if err != nil {
 		return files
 	}
 	var dropIns []string
 	for _, entry := range entries {
 		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".conf") {
-			dropIns = append(dropIns, filepath.Join(systemUnitDir, name+".d", entry.Name()))
+			dropIns = append(dropIns, filepath.Join(unit+".d", entry.Name()))
 		}
 	}
 	slices.Sort(dropIns)

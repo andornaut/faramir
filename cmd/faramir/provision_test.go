@@ -111,3 +111,35 @@ func TestResolveConfigDirFallsBackOnAnEmptyConfigList(t *testing.T) {
 		t.Errorf("resolveConfigDir = %q, want %q", got, install.DefaultConfigDir)
 	}
 }
+
+// The unit and its drop-ins, in the order systemd reads them.  init refuses a
+// config move against the same reader, so a resolver that stopped at the main
+// unit would hand init a directory init then refuses as a move: the operator
+// passed no --config-dir, and the only way past would be --move-config, which
+// moves the daemons the other way.
+func TestTheUnitReaderTakesTheDropInTheDaemonsLoad(t *testing.T) {
+	unit := filepath.Join(t.TempDir(), "faramir-broker.service")
+	if err := os.WriteFile(unit, []byte("[Service]\nUser=faramir-broker\n"+
+		"Environment=FARAMIR_CONFIG=/etc/faramir/config.toml\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(unit+".d", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(unit+".d", "10-moved.conf"),
+		[]byte("[Service]\nEnvironment=FARAMIR_CONFIG=/srv/faramir/config.toml\n"),
+		0o644); err != nil {
+		t.Fatal(err)
+	}
+	original := brokerUnit
+	brokerUnit = unit
+	t.Cleanup(func() { brokerUnit = original })
+
+	if got := unitConfigFile(); got != "/srv/faramir/config.toml" {
+		t.Errorf("unitConfigFile = %q, want the drop-in's path", got)
+	}
+	missing := filepath.Join(t.TempDir(), "absent.sock")
+	if got := resolveConfigDir("", missing); got != "/srv/faramir" {
+		t.Errorf("resolveConfigDir = %q, want the directory the daemons load", got)
+	}
+}
