@@ -25,6 +25,11 @@ func allowSudo(t *testing.T, s *Server) {
 	// New() built the server from the config it was made with, so it is rebuilt
 	// here rather than mutated.
 	s.Approval = New(s.Config).Approval
+	// Quiescence is a round trip to a running executor, which these tests do not
+	// have: they are about what the broker does with an answer, not about how the
+	// host is measured.  Stubbed quiet, so the check is exercised where it is the
+	// subject -- TestAnApprovalIsRefusedWhileTheHostIsNotQuiet, below.
+	s.Approval.Quiescent = func() (bool, string) { return true, "the test says so" }
 	t.Cleanup(s.Approval.Stop)
 }
 
@@ -216,6 +221,59 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 	}
 	if left := s.Approval.Questions(); len(left) != 0 {
 		t.Errorf("%d questions still waiting after an answer", len(left))
+	}
+}
+
+// An approval is granted only where the kernel agrees the host is quiet, not
+// where the broker's own map says so.
+//
+// The map and the process table can part: a cgroup teardown the executor gave
+// up on, a run this process aborted without waiting for, or this process
+// restarting and forgetting every run.  Any executor-uid process alive through
+// an approved window can read that run's token out of /proc and sudo on it, so
+// the answer that matters is the executor's, and a no from it refuses the
+// approval without answering the question -- the run keeps waiting, and the
+// operator retries once the host is quiet.
+func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
+	s, _ := execServer(t)
+	allowSudo(t, s)
+	s.Approval.Quiescent = func() (bool, string) {
+		return false, "1 process(es) are running as the executor outside any brokered command"
+	}
+
+	token, _ := s.Approval.Register(approval.Run{
+		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-q",
+	})
+	go s.Approval.Ask(token)
+
+	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
+	var question approval.Question
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && question.ID == ""; {
+		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
+		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
+			question = questions[0]
+		}
+	}
+	if question.ID == "" {
+		t.Fatal("no question reached root")
+	}
+
+	response := s.Handle(map[string]any{
+		"op": "approve", "id": question.ID, "approve": true}, root)
+	if response["error"] == nil {
+		t.Fatal("an approval took while the executor said the host was not quiet")
+	}
+	if left := s.Approval.Questions(); len(left) != 1 {
+		t.Errorf("%d questions waiting after a refused-for-noise answer, want the "+
+			"question still open: the run keeps waiting rather than having to ask again", len(left))
+	}
+
+	// And takes once the host is quiet, without the run having had to ask again.
+	s.Approval.Quiescent = func() (bool, string) { return true, "the test says so" }
+	if response := s.Handle(map[string]any{
+		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
+		t.Fatalf("the same question could not be approved once the host was quiet: %v",
+			response["error"])
 	}
 }
 

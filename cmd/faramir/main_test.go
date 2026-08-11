@@ -236,13 +236,19 @@ func dispatcherNames(t *testing.T) []string {
 
 // Deny by default, at the last place a human's answer is read: only an explicit
 // yes approves, so a typo, a stray word or an empty line refuses.
+//
+// "y" is among the refusals, not the approvals.  Every prompt says "Type yes",
+// and the keystroke this answer is guarded against is one the operator did not
+// make -- a tmux pane the agent can send-keys into, a tty the operator's account
+// owns.  A tool that accepts less than it asks for is one whose prompt is not
+// the rule.
 func TestOnlyYesApproves(t *testing.T) {
-	for _, line := range []string{"yes", "y", "YES", " yes "} {
+	for _, line := range []string{"yes", "YES", " yes "} {
 		if !approves(line) {
 			t.Errorf("%q did not approve", line)
 		}
 	}
-	for _, line := range []string{"no", "", "\n", "y e s", "sure", "yes please", "ok", "1"} {
+	for _, line := range []string{"no", "y", "Y", "", "\n", "y e s", "sure", "yes please", "ok", "1"} {
 		if approves(line) {
 			t.Errorf("%q approved an approval", line)
 		}

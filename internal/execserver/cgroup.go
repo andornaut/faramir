@@ -3,9 +3,11 @@ package execserver
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"syscall"
@@ -197,6 +199,130 @@ func (c *runCgroup) drain(timeout time.Duration) bool {
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
+}
+
+// --------------------------------------------------------------------------
+// Quiescence
+// --------------------------------------------------------------------------
+
+// track and untrack keep the set of run cgroups the quiescence answer measures
+// against.
+func (e *Executor) track(c *runCgroup) {
+	e.liveMu.Lock()
+	defer e.liveMu.Unlock()
+	e.live[c] = struct{}{}
+}
+
+func (e *Executor) untrack(c *runCgroup) {
+	e.liveMu.Lock()
+	defer e.liveMu.Unlock()
+	delete(e.live, c)
+}
+
+// quiescence reports whether any process of this uid is alive outside this
+// daemon and outside the runs it is confining.
+//
+// That is the fact an approval rests on.  Every brokered command runs as this
+// uid and /proc/<pid>/environ is readable within a uid, so a process the broker
+// does not know about can read an approved run's token, exec with it set, and
+// sudo on it.  The broker's own map cannot see that -- a bounded drain that gave
+// up, a run whose teardown it did not wait for, or its own restart all leave the
+// map saying one thing and the process table another -- so before an approval
+// takes, the map is checked against the kernel here.
+//
+// Fails closed on every path it cannot answer: an unreadable /proc is not
+// evidence of quiet.
+func (e *Executor) quiescence() map[string]any {
+	strays, err := e.strays()
+	if err != nil {
+		return map[string]any{"quiescent": false, "detail": fmt.Sprintf(
+			"this host's process table could not be read (%v), so nothing can say "+
+				"whether anything is running as the executor", err)}
+	}
+	if len(strays) == 0 {
+		return map[string]any{"quiescent": true, "detail": "nothing is running as the executor"}
+	}
+	log.Printf("not quiescent: %d process(es) of this uid outside any run: %s",
+		len(strays), strings.Join(strays, ", "))
+	return map[string]any{"quiescent": false, "detail": fmt.Sprintf(
+		"%d process(es) are running as the executor outside any brokered command "+
+			"(%s)", len(strays), listSome(strays, maxNamedStrays))}
+}
+
+// strays is every process of this uid that belongs neither to this daemon nor to
+// a run it is confining, named for a person, longest-standing order not being
+// interesting here.
+func (e *Executor) strays() ([]string, error) {
+	ours := os.Getuid()
+	accounted := map[int]bool{os.Getpid(): true}
+	e.liveMu.Lock()
+	for c := range e.live {
+		for _, pid := range c.pids() {
+			accounted[pid] = true
+		}
+	}
+	e.liveMu.Unlock()
+
+	entries, err := os.ReadDir("/proc")
+	if err != nil {
+		return nil, err
+	}
+	var strays []string
+	for _, entry := range entries {
+		pid, err := strconv.Atoi(entry.Name())
+		if err != nil || accounted[pid] {
+			continue
+		}
+		info, err := os.Stat(filepath.Join("/proc", entry.Name()))
+		if err != nil {
+			continue // exited between the listing and the stat
+		}
+		st, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || int(st.Uid) != ours {
+			continue
+		}
+		if !hasUserspace(pid) {
+			// A kernel thread or a zombie: no address space, so no environment to read
+			// a token out of and nothing to exec sudo with.  It cannot ride an
+			// approval, and counting it would make a host permanently un-quiet for a
+			// process that is not a process in the sense this is asking about.
+			continue
+		}
+		strays = append(strays, entry.Name()+" ("+strings.TrimSpace(comm(pid))+")")
+	}
+	sort.Strings(strays)
+	return strays, nil
+}
+
+// maxNamedStrays bounds what the refusal names.  The whole list is in the
+// executor's log; the operator reads this one off a terminal, and a message that
+// fills a screen is one that says less than a short one.
+const maxNamedStrays = 5
+
+func listSome(items []string, limit int) string {
+	if len(items) <= limit {
+		return strings.Join(items, ", ")
+	}
+	return fmt.Sprintf("%s and %d more; the executor's log has all of them",
+		strings.Join(items[:limit], ", "), len(items)-limit)
+}
+
+// hasUserspace reports whether a pid has an address space of its own.  A kernel
+// thread's cmdline is empty, and so is a zombie's; neither can read an environ
+// or exec anything.
+func hasUserspace(pid int) bool {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
+	return err == nil && len(data) > 0
+}
+
+// comm is a pid's executable name, for a message a person reads.  Best effort:
+// the name is not what the decision rests on.
+func comm(pid int) string {
+	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "comm"))
+	if err != nil {
+		return "?"
+	}
+	return string(data)
 }
 
 // close kills whatever is left, waits for the cgroup to empty, and removes it.

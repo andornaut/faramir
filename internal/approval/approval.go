@@ -22,10 +22,12 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+	"unicode/utf8"
 
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
@@ -60,6 +62,11 @@ type Run struct {
 	// terminal and the audit log.
 	Argv []string
 	Cwd  string
+	// Argv0Path is what the broker resolved Argv[0] to, and so the program root
+	// will actually run.  A relative Argv[0] resolves against the request's cwd,
+	// which is the agent's working tree, so the two can name different files and
+	// the question has to say which one it is about.
+	Argv0Path string
 	// LogID is the exec record this belongs to, so the log reads in both
 	// directions: what a command was approved for, and what an approval was spent on.
 	LogID string
@@ -70,8 +77,66 @@ type Run struct {
 	approved bool
 }
 
-// Command is the run as one line, for the question and for a log message.
-func (r Run) Command() string { return strings.Join(r.Argv, " ") }
+// maxCommandChars bounds what a question spends on the command.  Argv is the
+// caller's and can be as long as it likes; a question whose real content has
+// scrolled off the top of a terminal is one nobody read.  The audit record keeps
+// the whole of it.
+const maxCommandChars = 240
+
+// Command is the run as one line, rendered for a terminal.
+//
+// Every string in it is the caller's, and this reaches the operator's terminal
+// through `faramir approve`, the refusal messages and [sudo] notify_command.  A
+// terminal acts on what it is sent: "\r" returns the cursor, ESC [ 2K erases the
+// line, ESC [ A moves up one.  Left raw, a run could erase the question it is
+// being judged on and paint a more agreeable one in its place -- which would
+// defeat the only thing that makes an approval worth anything, that the prompt
+// names the command.  So each argument is quoted the moment it holds anything
+// but printable text, and the whole is bounded.
+func (r Run) Command() string {
+	parts := make([]string, 0, len(r.Argv))
+	for _, arg := range r.Argv {
+		parts = append(parts, safeArg(arg))
+	}
+	return bound(strings.Join(parts, " "), maxCommandChars)
+}
+
+// safeArg renders one caller-chosen string so a terminal displays it rather than
+// obeying it.  Ordinary arguments are left alone -- a prompt full of quotation
+// marks is one that is read less carefully -- and anything holding a control
+// character, a space, a quote or a non-printable rune is quoted, which turns
+// every such byte into a visible escape.
+func safeArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if strconv.Quote(arg) == `"`+arg+`"` && !strings.ContainsAny(arg, " \t") {
+		return arg
+	}
+	return strconv.Quote(arg)
+}
+
+// safeUnlessEmpty is safeArg for a field a caller drops when it is absent.
+func safeUnlessEmpty(value string) string {
+	if value == "" {
+		return ""
+	}
+	return safeArg(value)
+}
+
+// bound truncates on a rune boundary and says that it did.  Silent truncation
+// would let a long argv end the displayed command wherever it liked.
+func bound(text string, limit int) string {
+	if len(text) <= limit {
+		return text
+	}
+	cut := text[:limit]
+	for len(cut) > 0 && !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return fmt.Sprintf("%s... (%d more bytes; the audit record has all of it)",
+		cut, len(text)-len(cut))
+}
 
 type Server struct {
 	config config.SudoConfig
@@ -79,6 +144,26 @@ type Server struct {
 	// Record writes one audit entry per request.  Set by the broker; nil records
 	// nothing, which is the case in tests.
 	Record func(map[string]any)
+
+	// Quiescent asks the kernel what this server only believes: is any process of
+	// the executor's uid alive outside the runs this server knows about?
+	//
+	// Everything else here is bookkeeping, and bookkeeping is what an approval
+	// must not rest on alone.  /proc/<pid>/environ is readable within a uid, so
+	// any live executor-uid process during an approved window can read the
+	// approved run's token, exec with it set and sudo on it -- which means the
+	// map below has to agree with the process table, and three things can part
+	// them: a cgroup teardown that does not finish (the drain is bounded and
+	// reports by logging), a run aborted from the broker's side, whose teardown
+	// the broker does not wait for, and this process restarting, which forgets
+	// every run while the executor is still killing one.
+	//
+	// Set by the broker to a call on the executor, which is the only account that
+	// can see those processes at all: the broker's own unit sets
+	// ProtectProc=invisible, so another uid's /proc is not there to read.  Nil
+	// means unchecked, which is the case in tests; in production an unset or
+	// unreachable check refuses the approval.
+	Quiescent func() (quiet bool, detail string)
 
 	mu sync.Mutex
 	// runs is what is in flight, keyed by the token in each child's environment.
@@ -146,6 +231,16 @@ func (s *Server) Env(token string) map[string]string {
 // `busy` the caller retries once the approved run ends.  This is one half of a
 // symmetry: registering a run also blocks a *new* approval (Answer requires sole
 // occupancy), so a live approval and any other registered run never coexist.
+//
+// A question merely *pending* holds a new command too, and that is not the same
+// rule twice.  Answer refuses to approve while any other run is registered, so
+// a caller free to keep starting commands is a caller who decides whether the
+// host is ever quiet enough for a yes to take: the operator answers, is refused
+// for want of quiescence, and answers again.  Holding from the moment the
+// question is put makes the host drain toward the answer instead of away from
+// it.  The cost is that one unanswered question stalls unrelated brokered work
+// for up to [sudo] timeout_sec, which is the same cost an approved run already
+// imposes for its whole length.
 func (s *Server) Register(run Run) (token string, held bool) {
 	if !s.Enabled() {
 		return "", false
@@ -163,12 +258,23 @@ func (s *Server) Register(run Run) (token string, held bool) {
 	if s.stopped {
 		return "", false
 	}
-	if approved := s.approvalLiveLocked(); approved != "" {
-		log.Printf("approval: holding a new command while %q holds an approval", approved)
+	if why := s.holdLocked(); why != "" {
+		log.Printf("approval: holding a new command: %s", why)
 		return "", true
 	}
 	s.runs[token] = run
 	return token, false
+}
+
+// holdLocked says why a new brokered command may not start now, or "".
+func (s *Server) holdLocked() string {
+	if approved := s.approvalLiveLocked(); approved != "" {
+		return fmt.Sprintf("%s holds an approval", approved)
+	}
+	for _, pending := range s.waiting {
+		return fmt.Sprintf("%s is waiting to be approved", pending.run.Command())
+	}
+	return ""
 }
 
 // approvalLiveLocked names the command whose approval currently holds the host,
@@ -308,8 +414,12 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 		return nil, false, fmt.Sprintf(
 			"%d commands are already waiting to be approved", maxPending)
 	}
+	id := newID()
+	if id == "" {
+		return nil, false, "this question could not be named, so nothing could answer it"
+	}
 	pending := &approval{
-		id: newID(), token: token, run: run, asked: time.Now(),
+		id: id, token: token, run: run, asked: time.Now(),
 		done: make(chan struct{}),
 	}
 	s.waiting[token] = pending
@@ -403,10 +513,15 @@ func (s *Server) notify(pending *approval) {
 // newID names a question in something a person can type.  Short: it is read off
 // one terminal and typed into another, and it names a question that lives for
 // seconds among at most maxPending of them.
+//
+// Empty when there is no randomness, and the caller refuses the request rather
+// than substituting a constant: two questions sharing an id are two questions
+// Answer picks between by map order, which is to say at random.  A question that
+// cannot be named is one nobody can answer on purpose.
 func newID() string {
 	var raw [3]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		return "000000"
+		return ""
 	}
 	return hex.EncodeToString(raw[:])
 }
@@ -418,6 +533,9 @@ func newID() string {
 // It says what the answer covers, too.  A yes is spent on every sudo this one
 // command makes, so a question that read as though it covered a single task
 // would be asking for something other than what it grants.
+// Every caller-chosen part of it is rendered through safeArg, for the reason
+// given on Command: this string is printed to a terminal, and a terminal obeys
+// escape sequences.
 func Prompt(run Run) string {
 	host, err := os.Hostname()
 	if err != nil || host == "" {
@@ -425,10 +543,18 @@ func Prompt(run Run) string {
 	}
 	where := ""
 	if run.Cwd != "" {
-		where = " in " + run.Cwd
+		where = " in " + safeArg(run.Cwd)
 	}
-	return fmt.Sprintf("faramir: run as root on %s: %s%s -- approve every sudo "+
-		"this command makes until it ends? Type yes", host, run.Command(), where)
+	// Named only when it is not what the command says, which is the case worth a
+	// human's attention: a relative argv[0] resolves against the request's cwd,
+	// so `bin/ansible-playbook` can be a file the agent wrote.  Saying it every
+	// time would make the line longer and the difference harder to notice.
+	program := ""
+	if len(run.Argv) > 0 && run.Argv0Path != "" && run.Argv0Path != run.Argv[0] {
+		program = " (which is " + safeArg(run.Argv0Path) + ")"
+	}
+	return fmt.Sprintf("faramir: run as root on %s: %s%s%s -- approve every sudo "+
+		"this command makes until it ends? Type yes", host, run.Command(), program, where)
 }
 
 func (s *Server) record(entry map[string]any) {
@@ -447,7 +573,11 @@ type Question struct {
 	Prompt string `json:"prompt"`
 	Cmd    string `json:"cmd"`
 	Cwd    string `json:"cwd"`
-	LogID  string `json:"log_id"`
+	// Program is what argv[0] resolved to, and so what root will run.  Shown
+	// separately from Cmd because they can differ: a relative argv[0] resolves
+	// against the request's cwd, which the agent writes.
+	Program string `json:"program"`
+	LogID   string `json:"log_id"`
 	// WaitingSec says how long sudo has been sitting on this, so an operator can
 	// tell a question just raised from one about to expire.
 	WaitingSec int `json:"waiting_sec"`
@@ -465,7 +595,12 @@ func (s *Server) questionsLocked() []Question {
 	for _, pending := range s.waiting {
 		out = append(out, Question{
 			ID: pending.id, Prompt: Prompt(pending.run),
-			Cmd: pending.run.Command(), Cwd: pending.run.Cwd, LogID: pending.run.LogID,
+			// Rendered like the command, and for the same reason: these are the
+			// caller's strings and they are printed to a terminal.  Absent stays
+			// absent -- safeArg would render "" as a pair of quotation marks, which
+			// the caller would then print as a field holding nothing.
+			Cmd: pending.run.Command(), Cwd: safeUnlessEmpty(pending.run.Cwd),
+			Program: safeUnlessEmpty(pending.run.Argv0Path), LogID: pending.run.LogID,
 			WaitingSec: int(time.Since(pending.asked).Seconds()),
 		})
 	}
@@ -499,18 +634,32 @@ func (s *Server) QuestionsWait(wait time.Duration) []Question {
 // reached: it is the whole boundary, since the account the coding agent runs as
 // must not be able to approve what the agent asked for.
 func (s *Server) Answer(id string, approve bool, who string) error {
-	s.mu.Lock()
-	var pending *approval
-	for _, candidate := range s.waiting {
-		if candidate.id == id {
-			pending = candidate
-			break
+	if _, err := s.find(id); err != nil {
+		return err
+	}
+	// Outside the lock, and before it: the check is a round trip to the executor.
+	//
+	// Checking first and locking after is sound, and worth saying why.  A process
+	// that appeared between the two would have to have been spawned by something
+	// already running -- which this check would have seen -- or by the run being
+	// approved, which is what the approval is for; and a new *run* starting in
+	// that gap is caught by the sole-occupancy check below, under the lock.
+	if approve {
+		if s.Quiescent == nil {
+			log.Printf("approval: %s has no quiescence check, so it is approved on "+
+				"this server's own bookkeeping alone", id)
+		} else if quiet, detail := s.Quiescent(); !quiet {
+			return fmt.Errorf("not approving %s: %s. Every process on the executor's "+
+				"uid can read this run's token and sudo on it, so the host has to be "+
+				"quiet before a yes takes. Retry once it is", id, detail)
 		}
 	}
-	if pending == nil {
+
+	s.mu.Lock()
+	pending, err := s.findLocked(id)
+	if err != nil {
 		s.mu.Unlock()
-		return fmt.Errorf("no question %s is waiting; it may have been answered "+
-			"already, or its command may have given up", id)
+		return err
 	}
 	// Sole occupancy: root is handed to a run only when it is the one brokered
 	// command running.  Anything else on the executor's uid could read this run's
@@ -550,6 +699,24 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		map[bool]string{true: "approved", false: "refused"}[approve], who)
 	s.finish(pending, approve, reason)
 	return nil
+}
+
+// find is findLocked for a caller that does not hold the lock.
+func (s *Server) find(id string) (*approval, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.findLocked(id)
+}
+
+// findLocked is the question with this id, or why there is none.
+func (s *Server) findLocked(id string) (*approval, error) {
+	for _, candidate := range s.waiting {
+		if candidate.id == id {
+			return candidate, nil
+		}
+	}
+	return nil, fmt.Errorf("no question %s is waiting; it may have been answered "+
+		"already, or its command may have given up", id)
 }
 
 // Stop releases everything waiting and refuses anything later.  A question

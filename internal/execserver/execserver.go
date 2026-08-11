@@ -35,12 +35,22 @@ import (
 const maxRequestBytes = 1 << 20
 
 type request struct {
+	// Op names anything that is not "start a command", which is what an absent op
+	// has always meant and still does.
+	Op           string            `json:"op"`
 	Argv         []string          `json:"argv"`
 	Cwd          string            `json:"cwd"`
 	Env          map[string]string `json:"env"`
 	TimeoutSec   int               `json:"timeout_sec"`
 	KillGraceSec int               `json:"kill_grace_sec"`
 }
+
+// opQuiescent asks whether any process of this uid is alive outside the runs
+// this executor is confining.  The broker cannot answer it: its own unit sets
+// ProtectProc=invisible, so another uid's /proc is not in its view at all.  This
+// service shares the uid with every brokered command, so they are in its view,
+// which is what makes it the place the question is answered.
+const opQuiescent = "quiescent"
 
 type Executor struct {
 	config *config.Config
@@ -52,6 +62,12 @@ type Executor struct {
 	// reaper: a run that cannot be given a cgroup is refused, so "" means every
 	// command is refused until the host is fixed.
 	cgroupBase string
+
+	// live is the run cgroups in flight, which is what the quiescence answer
+	// measures everything else against: a process of this uid is accounted for if
+	// it is this daemon or a member of one of these, and is a stray otherwise.
+	liveMu sync.Mutex
+	live   map[*runCgroup]struct{}
 }
 
 // maxConcurrent is a backstop, not a knob.  The broker is this socket's only
@@ -61,7 +77,11 @@ type Executor struct {
 const maxConcurrent = 16
 
 func New(cfg *config.Config) *Executor {
-	e := &Executor{config: cfg, slots: make(chan struct{}, maxConcurrent)}
+	e := &Executor{
+		config: cfg,
+		slots:  make(chan struct{}, maxConcurrent),
+		live:   map[*runCgroup]struct{}{},
+	}
 	// Probed once: per run this is a field read rather than a syscall.  "" means
 	// every command is refused until the host is fixed.
 	e.cgroupBase = cgroupBase()
@@ -130,6 +150,14 @@ func (e *Executor) serveConnection(conn net.Conn) {
 			_ = unix.Close(slaveFD)
 		}
 		_ = sockutil.Send(conn, errorResponse("bad_request", "no usable request"))
+		return
+	}
+	// Before the terminal-fd check: a question about the host carries no PTY.
+	if payload.Op == opQuiescent {
+		if slaveFD >= 0 {
+			_ = unix.Close(slaveFD)
+		}
+		_ = sockutil.Send(conn, e.quiescence())
 		return
 	}
 	if slaveFD < 0 {
@@ -291,7 +319,17 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	// Closed after the run on every path, a normal exit included: it kills whatever
 	// is still in the cgroup (a setsid grandchild can outlive a zero exit), waits
 	// for it to empty, and removes it.
-	defer rcg.close()
+	//
+	// Dropped from `live` only after that, so a run whose teardown is still under
+	// way is still accounted for: its members are the approved run's or a
+	// straggler's, and until the cgroup is empty there is no telling which.  Once
+	// it is gone, anything left of this uid is a stray and the quiescence answer
+	// says so.
+	e.track(rcg)
+	defer func() {
+		rcg.close()
+		e.untrack(rcg)
+	}()
 
 	started := time.Now()
 	if err := cmd.Start(); err != nil {
@@ -402,6 +440,51 @@ type Client struct {
 }
 
 func NewClient(socketPath string) *Client { return &Client{socketPath: socketPath} }
+
+// Quiescent asks the executor whether anything is running as its uid outside the
+// runs it is confining.  The broker calls this before an approval takes; see
+// Executor.quiescence for why the question cannot be answered on the broker's
+// side.
+//
+// Every failure is a no.  An executor that cannot be reached or cannot be
+// understood has not said the host is quiet, and an approval granted on silence
+// is the thing this check exists to prevent.
+func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
+	conn, err := net.DialTimeout("unix", socketPath, timeout)
+	if err != nil {
+		return false, fmt.Sprintf("the executor could not be asked whether this host "+
+			"is quiet (%s: %v)", socketPath, err)
+	}
+	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(timeout))
+
+	if err := sockutil.Send(conn, map[string]any{"op": opQuiescent}); err != nil {
+		return false, fmt.Sprintf("the executor could not be asked whether this host "+
+			"is quiet (%v)", err)
+	}
+	line, err := sockutil.ReadLine(conn, maxRequestBytes)
+	if err != nil || len(line) == 0 {
+		return false, fmt.Sprintf("the executor did not say whether this host is "+
+			"quiet (%v)", err)
+	}
+	var response struct {
+		Quiescent bool   `json:"quiescent"`
+		Detail    string `json:"detail"`
+		Error     *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(line, &response); err != nil {
+		return false, "the executor's answer about this host being quiet was malformed"
+	}
+	if response.Error != nil {
+		return false, response.Error.Message
+	}
+	if response.Detail == "" {
+		response.Detail = "the executor gave no reason"
+	}
+	return response.Quiescent, response.Detail
+}
 
 func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	timeoutSec, killGraceSec int, slaveFD uintptr) error {

@@ -80,6 +80,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnoseSocketPolicy(report, opts, cfg) },
 		func() { diagnoseSSHKey(report, opts, cfg) },
 		func() { diagnoseSudoGrant(report, opts, cfg) },
+		func() { diagnosePtraceScope(report, cfg) },
 		func() { diagnoseCgroupDelegation(report, opts, cfg) },
 		func() { diagnoseProtectProc(report, opts) },
 		func() { diagnoseBrokered(report, opts, serves) },
@@ -525,6 +526,58 @@ func diagnoseSudoGrant(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 	report.add("sudo grant", StatusOK, "%s may ask to sudo and holds no credential "+
 		"for it; %s asks the broker, and root answers, one approval per command",
 		opts.ExecUser, pamFile)
+}
+
+// ptraceScopeFile is Yama's, and absent on a kernel built without it.
+const ptraceScopeFile = "/proc/sys/kernel/yama/ptrace_scope"
+
+// diagnosePtraceScope checks what stands between a brokered command and the
+// daemon it shares a uid with, on a host that grants an approval.
+//
+// The executor daemon runs as the account every brokered command runs as, is in
+// no run's cgroup, and receives each run's whole environment -- so it is the one
+// process of that uid that outlives every run and can see every run's approval
+// token.  A brokered command that can ptrace it has a foothold no cgroup
+// teardown reaches and no serialisation counts, which is exactly the state the
+// approval rests on not existing.
+//
+// The daemons mark themselves undumpable, which refuses same-uid ptrace whatever
+// this setting says.  This check is about everything else of that uid: with
+// ptrace_scope=0 -- the default on RHEL, Fedora and Arch -- any process may
+// attach to any other of the same uid, so two brokered commands that do overlap
+// can reach into one another, and the --allow-sudo executor unit carries no
+// seccomp filter to refuse the syscall (it cannot: a filter forces
+// NoNewPrivileges= on, and that makes sudo inert).
+//
+// A warning rather than a failure: it is a host-wide sysctl that other software
+// has opinions about, and faramir raising it under an operator would be
+// reconfiguring the machine rather than reporting on it.
+func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
+	if cfg == nil || cfg.Sudo.ExecUser == "" {
+		return // no grant, so nothing here decides an approval
+	}
+	raw, err := os.ReadFile(ptraceScopeFile)
+	if err != nil {
+		report.add("ptrace scope", StatusWarn, "%s cannot be read (%v), so it is not "+
+			"known whether one process running as %s can ptrace another. On a host "+
+			"that grants an approval, that is the difference between a run's "+
+			"processes being separate and being one",
+			ptraceScopeFile, err, cfg.Sudo.ExecUser)
+		return
+	}
+	scope := strings.TrimSpace(string(raw))
+	if scope == "0" {
+		report.add("ptrace scope", StatusWarn, "%s is 0, so any process running as %s "+
+			"may ptrace any other of that uid. This host grants an approval, and the "+
+			"executor unit carries no seccomp filter to refuse it (a filter would "+
+			"force NoNewPrivileges= on, which makes sudo inert). Set it to 1 or "+
+			"higher: sysctl -w kernel.yama.ptrace_scope=1, and a line in "+
+			"/etc/sysctl.d to keep it", ptraceScopeFile, cfg.Sudo.ExecUser)
+		return
+	}
+	report.add("ptrace scope", StatusOK, "%s is %s, so one process running as %s "+
+		"cannot attach to another that is not its own descendant",
+		ptraceScopeFile, scope, cfg.Sudo.ExecUser)
 }
 
 // diagnoseCgroupDelegation checks the reaper every run depends on: the executor

@@ -35,6 +35,7 @@ func cmdExec(args []string) int {
 	// See cmdBroker.
 	log.SetFlags(0)
 	log.SetPrefix("faramir-exec: ")
+	undumpable("faramir-exec")
 
 	if *showVersion {
 		fmt.Println("faramir " + version.Version)

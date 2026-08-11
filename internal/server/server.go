@@ -24,6 +24,7 @@ import (
 	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/execserver"
 	"github.com/andornaut/faramir/internal/executor"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
@@ -69,8 +70,20 @@ func New(cfg *config.Config) *Server {
 	// is not in it, and could not be, the audit log being written after redaction
 	// and that value being in the set.
 	s.Approval.Record = func(entry map[string]any) { s.Audit.Write(entry, "") }
+	// The kernel's answer to the question the approval server can only believe:
+	// is anything running as the executor outside the run being approved?  Asked
+	// of the executor because this process cannot see it -- ProtectProc=invisible
+	// keeps another uid's /proc out of the broker's view -- and failing closed,
+	// an executor that does not answer having not said the host is quiet.
+	s.Approval.Quiescent = func() (bool, string) {
+		return execserver.Quiescent(cfg.Executor.SocketPath, quiescenceWait)
+	}
 	return s
 }
+
+// quiescenceWait bounds the one round trip an approval makes to the executor.
+// Short: the answer is a /proc scan, and a human is waiting on it.
+const quiescenceWait = 5 * time.Second
 
 func (s *Server) Listen() (net.Listener, error) {
 	ln, err := sockutil.Listen(s.Config.Server.SocketPath)
@@ -438,6 +451,18 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	maps.Copy(env, execCfg.BaseEnv)
 	// SSH_AUTH_SOCK: the child can authenticate with the keys, not read them.
 	maps.Copy(env, s.Ssh.Env())
+	// The concurrency slot first, and before the run is registered: a registered
+	// run is one Answer counts as an occupant and refuses to approve alongside,
+	// so a run that is about to be refused `busy` must never be one of them.
+	select {
+	case s.slots <- struct{}{}:
+		defer func() { <-s.slots }()
+	default:
+		return protocol.ErrorResponse("busy", fmt.Sprintf(
+			"broker is at its concurrency limit (%d); retry shortly",
+			s.Config.Server.MaxConcurrency), logID)
+	}
+
 	// A token, and nothing else: the child can be identified when it asks to
 	// sudo, and a human answers out of band.  Not a capability: spending it is an
 	// op the broker refuses to anything but root, so what the child holds names its
@@ -448,6 +473,10 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// command.  The argv is the redacted one, this reaching a terminal and the log.
 	token, held := s.Approval.Register(approval.Run{
 		Argv: redactEach(s.redactor(), cmd), Cwd: cwd, LogID: logID,
+		// What root would actually run, which is not always what argv[0] says: a
+		// relative argv[0] resolves against the request's cwd, and that is the
+		// agent's working tree.  The question names both when they differ.
+		Argv0Path: s.redactor().RedactText(argv0Path),
 	})
 	// Held while another command holds an approval: the two share the
 	// executor's uid, so running this one now would give it a route to the root
@@ -480,15 +509,6 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	}
 	if timeout > execCfg.MaxTimeoutSec {
 		timeout = execCfg.MaxTimeoutSec
-	}
-
-	select {
-	case s.slots <- struct{}{}:
-		defer func() { <-s.slots }()
-	default:
-		return protocol.ErrorResponse("busy", fmt.Sprintf(
-			"broker is at its concurrency limit (%d); retry shortly",
-			s.Config.Server.MaxConcurrency), logID)
 	}
 
 	// Every known secret, not only the injected ones: a managed host can print one

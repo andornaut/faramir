@@ -543,9 +543,17 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 // there.
 func TestARefusalSaysWhichLimitItHit(t *testing.T) {
 	s := started(t, baseConfig())
+	// Every token first, then the questions.  A pending question holds a *new*
+	// registration, so runs that mean to ask concurrently have to be registered
+	// before the first of them does -- which is what a burst of brokered commands
+	// on a quiet host looks like.  One extra, to be the one that finds the queue
+	// full.
+	tokens := make([]string, 0, maxPending+1)
+	for i := range maxPending + 1 {
+		tokens = append(tokens, mustRegister(s, Run{Argv: []string{"playbook", strconv.Itoa(i)}}))
+	}
 	// Fill the queue: one question per command, so this takes maxPending commands.
-	for i := range maxPending {
-		token := mustRegister(s, Run{Argv: []string{"playbook", strconv.Itoa(i)}})
+	for _, token := range tokens[:maxPending] {
 		go s.Ask(token)
 	}
 	for range 100 {
@@ -554,7 +562,7 @@ func TestARefusalSaysWhichLimitItHit(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if _, _, reason := s.pend(mustRegister(s, run()), run()); !strings.Contains(reason, "waiting") {
+	if _, _, reason := s.pend(tokens[maxPending], run()); !strings.Contains(reason, "waiting") {
 		t.Errorf("reason = %q, want the full queue named", reason)
 	}
 

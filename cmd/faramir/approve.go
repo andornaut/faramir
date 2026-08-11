@@ -47,9 +47,16 @@ func cmdApprove(args []string) int {
 		return 2
 	}
 	if os.Geteuid() != 0 {
+		// Not "try sudo".  Reaching root that way from the account the agent runs as
+		// leaves a warm sudo timestamp in a shell the agent can use, which hands it
+		// the account this check exists to keep it out of.  The three places named
+		// here are the three warnIfTypeable does not warn about.
 		fmt.Fprintln(os.Stderr, "faramir approve must run as root: an approval has to "+
 			"be answered by an account the coding agent cannot become, and it runs as "+
-			"you. Try 'sudo faramir approve'")
+			"you. Answer from a console, an ssh session on another machine, or a login "+
+			"as another account. Reaching root with `sudo` from this shell warms a sudo "+
+			"timestamp the agent can spend, so it is the last resort rather than the "+
+			"first.")
 		return 1
 	}
 
@@ -207,18 +214,30 @@ func readAnswer() (approve, ok bool) {
 
 // approves is deny by default, as every other answer path is: only an explicit
 // yes approves, and a typo, a stray word or an empty line is a no.
+//
+// The whole word, not "y".  Every prompt says "Type yes", and the threat this
+// answer is guarded against is a keystroke the operator did not make -- a tmux
+// pane the agent can `send-keys` into, a tty the operator's own account owns.
+// Two bytes rather than four is a thin difference to rest anything on, but a
+// tool that accepts less than it asks for is one whose prompt is not the rule.
 func approves(line string) bool {
-	switch strings.ToLower(strings.TrimSpace(line)) {
-	case "yes", "y":
-		return true
-	default:
-		return false
-	}
+	return strings.ToLower(strings.TrimSpace(line)) == "yes"
 }
 
+// printQuestion shows one question.  Every caller-chosen string in it -- the
+// command, the cwd, the program -- was rendered for a terminal by the broker
+// (see approval.Command), so what arrives here holds no escape sequence to obey.
+// The fields are printed one per line for the same reason the command is quoted:
+// a question is read before it is answered.
 func printQuestion(question approval.Question) {
 	fmt.Printf("\n%s\n", question.Prompt)
 	fmt.Printf("  id       %s\n", question.ID)
+	fmt.Printf("  cmd      %s\n", question.Cmd)
+	// Only when it says something the command does not: a relative argv[0]
+	// resolves against the cwd, which the coding agent writes.
+	if question.Program != "" && question.Program != firstWord(question.Cmd) {
+		fmt.Printf("  program  %s\n", question.Program)
+	}
 	if question.Cwd != "" {
 		fmt.Printf("  cwd      %s\n", question.Cwd)
 	}
@@ -226,6 +245,13 @@ func printQuestion(question approval.Question) {
 		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
 	fmt.Printf("  waiting  %ds\n", question.WaitingSec)
+}
+
+func firstWord(text string) string {
+	if fields := strings.Fields(text); len(fields) > 0 {
+		return fields[0]
+	}
+	return ""
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.

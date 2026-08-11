@@ -122,12 +122,16 @@ sudo faramir approve --watch
    ```text
    faramir: run as root on controller: ansible-playbook msmtp.yml in /srv/ansible-ctrl -- approve every sudo this command makes until it ends? Type yes
      id       9f2a1c
+     cmd      ansible-playbook msmtp.yml
+     cwd      /srv/ansible-ctrl
      log_id   2026-08-10T12:04:11Z-3b7e
      waiting  2s
      approve? [yes/no]
    ```
 
-4. Anything but `yes` is a refusal, and so is silence: the question expires after `[sudo] timeout_sec`.
+   The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted, which is how you tell an argument that means to be read from one that means to redraw your terminal. A `program` line appears when what argv[0] resolved to is not what argv[0] says — a relative program resolves against the cwd, and that is a tree the agent writes.
+
+4. Anything but `yes` is a refusal — the whole word, not `y` — and so is silence: the question expires after `[sudo] timeout_sec`.
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else it exits non-zero, `requisite` makes that fatal at once, and `sudo` reports its own authentication failure. Nothing is written to the helper's stdout, because there is nothing to hand over.
 6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to.
 
@@ -137,7 +141,9 @@ There is no password anywhere: what satisfies `sudo` is a decision, not a creden
 
 **Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one doing the typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `faramir approve --watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. And an operator with `NOPASSWD` sudo, or a warm sudo timestamp in a shell the agent can use, has already handed it that account. The deny rules refuse `sudo faramir approve` from the agent's own shell for that reason, which raises the cost rather than removing it: the hook governs the tool the agent calls, and an account that can sudo can reach the binary another way.
 
-`[sudo] notify_command` optionally announces a pending question (`wall`, a desktop notifier, a push). It carries no answer and nothing waits on it.
+And `sudo faramir approve` from your own shell is the last resort rather than the first, which is why the command's own error message no longer suggests it: reaching root that way leaves a warm sudo timestamp in a shell the agent can use, which hands it the account this whole check exists to keep it out of. On a host installed with `--allow-sudo`, consider `Defaults:<you> timestamp_timeout=0` for the same reason.
+
+`[sudo] notify_command` optionally announces a pending question (`wall`, a desktop notifier, a push). It carries no answer and nothing waits on it. **Keep `{id}` off a broadcast channel.** `wall` writes to every terminal on the host including the agent's, and the agent runs as your account: the id is not a credential — answering still requires uid 0 — but publishing it is the difference between an agent that would have to guess what to type into your watcher and one that knows. `{prompt}` says what is waiting without saying what to type, which is what a notifier is for.
 
 ### One question per run, and what an approval does not bound
 
@@ -147,7 +153,7 @@ At most four commands may be waiting on a human at once; beyond that a request i
 
 An approval could leak past the one command it was shown for in two ways. One is closed; the other cannot be:
 
-- *A second, unapproved command riding the approval: closed.* Two brokered commands share the `faramir-exec` uid, and `/proc/<pid>/environ` is readable within a uid, so a concurrent command could read the approved run's token and `sudo` on it. The broker shuts that window: **an approval is approved only when its run is the sole brokered command in flight, and while it holds the approval every other brokered command is refused `busy`.** So expect other `faramir run`s to return `busy` for the length of an approved playbook. It rests on no `faramir-exec` process outliving its run, which is what the per-run cgroup guarantees ([design.md](design.md#allowing-sudo-on-the-controller) has the mechanism).
+- *A second, unapproved command riding the approval: closed.* Two brokered commands share the `faramir-exec` uid, and `/proc/<pid>/environ` is readable within a uid, so a concurrent command could read the approved run's token and `sudo` on it. The broker shuts that window: **an approval is approved only when its run is the sole brokered command in flight, and while a question is waiting or an approval is held every other brokered command is refused `busy`.** So expect other `faramir run`s to return `busy` from the moment a question is put until the approved playbook ends. That pause is the protection, and holding from the question rather than from the answer is what stops a busy host from making your `yes` bounce. It rests on no `faramir-exec` process outliving its run, which the per-run cgroup provides and which is **checked rather than assumed**: before an approval takes, the broker asks the executor whether anything of its uid is alive outside the run being approved, and a no refuses the approval and leaves the question open for you to answer again once the host is quiet ([design.md](design.md#allowing-sudo-on-the-controller) has the mechanism). If that keeps happening, the executor's journal names the processes.
 - *The approved command itself persisting root: not closed, ever.* An approved command gets real root and can make it permanent: a setuid-root binary, a `systemd` unit, a `cron` entry, a line in `sudoers`, none of which involves faramir again or expires when the token does. Approving is trusting **that command** with permanent root, identical to typing `sudo ansible-playbook` yourself. So keep the code an approved run executes operator-owned and read-only to brokered commands, or the agent can author what root runs. The audit log shows the approval; it does not show the persistence a hostile command installs, unless you look.
 
 ### What approval costs, beyond the grant
@@ -161,3 +167,4 @@ An approval could leak past the one command it was shown for in two ways. One is
 - `/etc/pam.d/other` must not be a free pass, for the case where the service file is ever removed
 - `faramir-exec` must hold no `NOPASSWD` entry from any source and no password of its own
 - the executor unit must be delegated a cgroup, so a run is confined and a `setsid` child cannot outlive it. A hard failure on any host, a sudo grant or not.
+- on a host that grants an approval, `/proc/sys/kernel/yama/ptrace_scope` must not be `0`, which lets any process of the executor's uid attach to any other of that uid. A warning rather than a failure: `sysctl -w kernel.yama.ptrace_scope=1`, and a line in `/etc/sysctl.d` to keep it. The daemons mark themselves undumpable, so this is about brokered commands with respect to each other rather than about reaching either daemon.

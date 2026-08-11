@@ -33,6 +33,7 @@ func cmdBroker(args []string) int {
 	// one role per process.
 	log.SetFlags(0)
 	log.SetPrefix("faramir-broker: ")
+	undumpable("faramir-broker")
 
 	// Before the config is loaded, so --version answers on a broken host.
 	if *showVersion {
