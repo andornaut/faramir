@@ -10,7 +10,7 @@ package main
 // nothing to carry.
 //
 // It finds which command is asking by walking /proc up from sudo until it meets
-// a process holding FARAMIR_ELEVATE_TOKEN.  PAM does not pass the caller's
+// a process holding FARAMIR_APPROVAL_TOKEN.  PAM does not pass the caller's
 // environment to a module, and it does not have to: this runs as root and the
 // ancestry is right there.
 
@@ -23,7 +23,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/andornaut/faramir/internal/elevate"
+	"github.com/andornaut/faramir/internal/approval"
 )
 
 // maxAncestors bounds the walk.  A brokered command's tree is a handful deep --
@@ -71,7 +71,7 @@ func cmdPamApprove(args []string) int {
 			"so there is nothing for the broker to approve")
 		return 1
 	}
-	approved, reason, err := askBrokerToElevate(*socket, token)
+	approved, reason, err := askBrokerToApprove(*socket, token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir pam-approve: %v\n", err)
 		return 1
@@ -86,8 +86,8 @@ func cmdPamApprove(args []string) int {
 // findToken walks up from this process until it meets one holding the token a
 // brokered command carries.  Root reads any /proc/<pid>/environ, which is one
 // of the two reasons the PAM service runs this with seteuid; the other is that
-// the broker answers the elevate op to root alone, so as the executor's own uid
-// this would be refused and no elevation on the host would work.
+// the broker answers the ask_approval op to root alone, so as the executor's own uid
+// this would be refused and no approval on the host would work.
 func findToken() string {
 	pid := os.Getppid()
 	for range maxAncestors {
@@ -112,7 +112,7 @@ func tokenOf(pid int) string {
 		return ""
 	}
 	for _, entry := range strings.Split(string(data), "\x00") {
-		if value, found := strings.CutPrefix(entry, elevate.TokenEnv+"="); found {
+		if value, found := strings.CutPrefix(entry, approval.TokenEnv+"="); found {
 			return value
 		}
 	}
@@ -143,11 +143,11 @@ func parentOf(pid int) (int, bool) {
 	return parent, true
 }
 
-// askBrokerToElevate puts the question and waits for the answer, which is a
-// human's.  No deadline of its own: the broker holds the question for [elevate]
+// askBrokerToApprove puts the question and waits for the answer, which is a
+// human's.  No deadline of its own: the broker holds the question for [sudo]
 // timeout_sec and refuses it after that, so a wait here always ends.
-func askBrokerToElevate(socketPath, token string) (bool, string, error) {
-	line, err := roundTrip(socketPath, map[string]any{"op": "elevate", "token": token}, elevateWait)
+func askBrokerToApprove(socketPath, token string) (bool, string, error) {
+	line, err := roundTrip(socketPath, map[string]any{"op": "ask_approval", "token": token}, approvalWait)
 	if err != nil {
 		return false, "", err
 	}
@@ -167,7 +167,7 @@ func askBrokerToElevate(socketPath, token string) (bool, string, error) {
 	return response.Approved, response.Reason, nil
 }
 
-// elevateWait is the ceiling on one question, well past any sane [elevate]
+// approvalWait is the ceiling on one question, well past any sane [sudo]
 // timeout_sec: the broker is what decides when to give up, and this only stops
 // a lost connection from holding sudo open for ever.
-const elevateWait = 2 * time.Hour
+const approvalWait = 2 * time.Hour

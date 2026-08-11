@@ -22,12 +22,12 @@ import (
 // child among it, atomically.
 //
 // It needs cgroup v2, a unit granted Delegate=, and cgroup.kill (kernel >= 5.14).
-// `init` renders Delegate= on the executor unit for every install, elevation or
+// `init` renders Delegate= on the executor unit for every install, approval or
 // not, so a real host always confines.  A host that cannot -- an old kernel, a
 // container without delegation -- refuses every command rather than reaping by
 // process group, because a silent degrade there is the failure this closes: an
-// elevation's serialization rests on a run leaving no straggler that could sit
-// through the next approval window, and even without elevation an unreaped setsid
+// approval's serialization rests on a run leaving no straggler that could sit
+// through the next approval window, and even without approval an unreaped setsid
 // child is a process outliving the run that spawned it.
 //
 // `faramir doctor` fails a host whose executor unit lost the delegation.
@@ -216,7 +216,7 @@ func (c *runCgroup) close() {
 	c.kill()
 	if !c.drain(5 * time.Second) {
 		// A run whose descendants would not die: reported so an operator sees it, and
-		// on an elevating host it is the quiescence the serialization needs.
+		// on a host that allows sudo it is the quiescence the serialization needs.
 		log.Printf("cgroup %s still holds %d process(es) after kill",
 			filepath.Base(c.path), len(c.pids()))
 	}

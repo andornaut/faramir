@@ -107,14 +107,14 @@ type Layout struct {
 	// was rendered into a pattern.
 	SSHKey string
 
-	// Elevate is whether this host grants the executor a sudoers entry, and is the
-	// switch for the whole arrangement: unset renders no [elevate] section, writes
+	// AllowSudo is whether this host grants the executor a sudoers entry, and is the
+	// switch for the whole arrangement: unset renders no [sudo] section, writes
 	// no sudoers file and no PAM service, so nothing can be asked for.
 	//
 	// There is no credential to place.  sudo authenticates that account against a
 	// PAM service of faramir's own whose auth step asks the broker whether a human
 	// approved this command, so nothing is minted, stored or handed out.
-	Elevate bool
+	AllowSudo bool
 }
 
 // PamHelper is what the PAM service execs, as root, to decide one sudo: a

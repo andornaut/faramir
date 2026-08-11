@@ -69,9 +69,9 @@ exec_group = "{{.ExecGroup}}"
 # Resolved on PATH by init; the broker execs these as its own uid.
 ssh_agent = "{{.SshAgent}}"
 ssh_add = "{{.SshAdd}}"
-{{if .Elevate}}
+{{if .AllowSudo}}
 # How a brokered command becomes root on this host, written because `faramir
-# init --elevate` was run.  It does not authenticate: sudo is pointed at
+# init --allow-sudo` was run.  It does not authenticate: sudo is pointed at
 # {{.PamFile}} -- a PAM service of faramir's own, named by {{.SudoersFile}} --
 # whose authentication step asks the broker whether a human approved the
 # command making the call.
@@ -83,9 +83,9 @@ ssh_add = "{{.SshAdd}}"
 # approve what the agent asked for.
 #
 # All of this is init's.  A drop-in setting any of it is refused: re-run
-# `faramir init --elevate`, or re-run without it to take the grant away.
+# `faramir init --allow-sudo`, or re-run without it to take the grant away.
 # timeout_sec is a plain default and yours.
-[elevate]
+[sudo]
 exec_user = "{{.ExecUser}}"
 pam_service = "{{.PamService}}"
 helper = "{{.PamHelper}}"

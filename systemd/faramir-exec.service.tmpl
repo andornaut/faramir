@@ -42,8 +42,8 @@ SupplementaryGroups={{.ClientGroup}}
 # state directory and PrivateTmp.
 ProtectProc=invisible
 ProcSubset=pid
-{{if .Elevate}}
-# This host was installed with `faramir init --elevate`, so the directives that
+{{if .AllowSudo}}
+# This host was installed with `faramir init --allow-sudo`, so the directives that
 # bound *root* are dropped here.  Not a weakening thrown in with the grant: each
 # one below would otherwise make the grant a lie, either refusing sudo outright
 # or handing back a root that cannot change anything.  What bounds this uid when
@@ -59,7 +59,7 @@ ProcSubset=pid
 # every task and nothing says why.
 NoNewPrivileges=false
 # CapabilityBoundingSet= is not set: an empty one bounds root as well, so an
-# approved elevation would reach uid 0 holding no capability and fail on the
+# approval would reach uid 0 holding no capability and fail on the
 # first chown, mount or bind.  AmbientCapabilities= stays empty, which grants
 # this uid nothing before sudo has run.
 AmbientCapabilities=
@@ -89,7 +89,7 @@ StateDirectory={{.ExecUser}}
 # host's grant is a lie that reports "effective uid is not 0" on every task.
 #
 # So keeping one of them here does not harden this unit.  It silently turns the
-# feature off.  faramir-exec.service on a host without --elevate keeps all of
+# feature off.  faramir-exec.service on a host without --allow-sudo keeps all of
 # them, which is the arrangement to prefer.
 #
 # What is left below is what bounds this uid without seccomp: a namespace, a
@@ -146,7 +146,7 @@ RemoveIPC=true
 # is killed when the run ends, so a child that calls setsid -- escaping a
 # process-group kill -- is reaped all the same.  Delegate= is what hands this
 # service the cgroup subtree it makes those under; without it the executor cannot
-# confine and refuses to run.  On both branches, elevation or not: it is the one
+# confine and refuses to run.  On both branches, a sudo grant or not: it is the one
 # mechanism that ends a run's processes, and `faramir doctor` checks it.
 Delegate=yes
 # 0007 rather than the other two's 0077: children write into the operator's
@@ -156,7 +156,7 @@ Delegate=yes
 UMask=0007
 
 # Every remaining exposure item, and why it is accepted.  Anything flagged that
-# is NOT on this list is a regression.  On a host installed with --elevate the
+# is NOT on this list is a regression.  On a host installed with --allow-sudo the
 # block above adds its own, each stated there.
 #
 #   PrivateNetwork=, IPAddressDeny=

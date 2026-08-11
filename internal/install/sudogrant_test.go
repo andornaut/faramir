@@ -9,13 +9,13 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// elevatingLayout is testLayout with --elevate passed.
-func elevatingLayout(t *testing.T) Layout {
+// sudoGrantLayout is testLayout with --allow-sudo passed.
+func sudoGrantLayout(t *testing.T) Layout {
 	t.Helper()
 	opts := Options{
 		OperatorUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
 		BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex",
-		ConfigDir: "/opt/conf", Elevate: true,
+		ConfigDir: "/opt/conf", AllowSudo: true,
 	}
 	opts.applyDefaults()
 	layout, err := opts.layout()
@@ -38,57 +38,57 @@ func loadRendered(t *testing.T, body []byte) *config.Config {
 	return cfg
 }
 
-// Without --elevate nothing is configured: no [elevate] section, so nothing is
+// Without --allow-sudo nothing is configured: no [sudo] section, so nothing is
 // injected and no question can be raised.  This is the promise the whole
 // arrangement rests on -- an install that did not ask for it is the install
 // that existed before it.
-func TestWithoutElevateTheConfigCarriesNoElevateSection(t *testing.T) {
+func TestWithoutAllowSudoTheConfigCarriesNoSudoSection(t *testing.T) {
 	layout := testLayout()
-	if layout.Elevate {
-		t.Error("Elevate is set with --elevate unset")
+	if layout.AllowSudo {
+		t.Error("AllowSudo is set with --allow-sudo unset")
 	}
 	body, err := render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "[elevate]") {
-		t.Errorf("the config carries an [elevate] section without --elevate:\n%s", body)
+	if strings.Contains(string(body), "[sudo]") {
+		t.Errorf("the config carries a [sudo] section without --allow-sudo:\n%s", body)
 	}
-	if cfg := loadRendered(t, body); cfg.Elevate.ExecUser != "" {
-		t.Errorf("exec_user = %q, want unset", cfg.Elevate.ExecUser)
+	if cfg := loadRendered(t, body); cfg.Sudo.ExecUser != "" {
+		t.Errorf("exec_user = %q, want unset", cfg.Sudo.ExecUser)
 	}
 }
 
 // With it, the section is there and every value points where the install put
 // things.
-func TestElevateRendersTheElevateSection(t *testing.T) {
-	layout := elevatingLayout(t)
+func TestAllowSudoRendersTheSudoSection(t *testing.T) {
+	layout := sudoGrantLayout(t)
 	body, err := render("etc/config.toml.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
 	cfg := loadRendered(t, body)
 	for _, check := range []struct{ name, got, want string }{
-		{"exec_user", cfg.Elevate.ExecUser, layout.ExecUser},
-		{"pam_service", cfg.Elevate.PamService, layout.PamService()},
-		{"helper", cfg.Elevate.Helper, layout.PamHelper()},
+		{"exec_user", cfg.Sudo.ExecUser, layout.ExecUser},
+		{"pam_service", cfg.Sudo.PamService, layout.PamService()},
+		{"helper", cfg.Sudo.Helper, layout.PamHelper()},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s = %q, want %q", check.name, check.got, check.want)
 		}
 	}
 	// Nothing is configured to ask: `faramir approve` is where a question is seen.
-	if len(cfg.Elevate.NotifyCommand) != 0 {
-		t.Errorf("notify_command = %q, want nothing by default", cfg.Elevate.NotifyCommand)
+	if len(cfg.Sudo.NotifyCommand) != 0 {
+		t.Errorf("notify_command = %q, want nothing by default", cfg.Sudo.NotifyCommand)
 	}
 }
 
-// There is no credential anywhere in an elevating install: no file, no
+// There is no credential anywhere in an install that allows sudo: no file, no
 // environment variable, nothing minted at start.  This is the property the
 // design turns on -- an approval that is a decision cannot be carried to a
 // later command, because there is nothing to carry.
-func TestAnElevatingInstallPlacesNoCredential(t *testing.T) {
-	layout := elevatingLayout(t)
+func TestASudoGrantPlacesNoCredential(t *testing.T) {
+	layout := sudoGrantLayout(t)
 	for _, asset := range []string{
 		"etc/config.toml.tmpl", "etc/sudoers.tmpl", "etc/pam.d.tmpl",
 		"agent/hooks/pam-approve.tmpl", units["faramir-broker.service"],
@@ -102,7 +102,7 @@ func TestAnElevatingInstallPlacesNoCredential(t *testing.T) {
 			"elevate.secret", "chpasswd", "elevate-rotate", "SUDO_ASKPASS",
 		} {
 			if strings.Contains(string(body), credential) {
-				t.Errorf("%s mentions %q: elevation holds no credential", asset, credential)
+				t.Errorf("%s mentions %q: approval holds no credential", asset, credential)
 			}
 		}
 	}
@@ -112,7 +112,7 @@ func TestAnElevatingInstallPlacesNoCredential(t *testing.T) {
 // PAM entirely, which is where the question is asked, so it is the one thing
 // that must never appear here.
 func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
-	layout := elevatingLayout(t)
+	layout := sudoGrantLayout(t)
 	body, err := render("etc/sudoers.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
@@ -141,14 +141,14 @@ func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
 // The PAM service is what confines a mistake, and carries the two words that
 // decide whether it gates anything at all.
 func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
-	layout := elevatingLayout(t)
+	layout := sudoGrantLayout(t)
 	body, err := render("etc/pam.d.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
 	}
 	text := string(body)
 	// `requisite`, never `sufficient`.  With sufficient a helper that REFUSES is
-	// not fatal, the stack falls through to pam_permit below, and every elevation
+	// not fatal, the stack falls through to pam_permit below, and every approval
 	// is granted without asking anybody -- demonstrated on a live host before
 	// this design was chosen.
 	if !strings.Contains(text, "auth     requisite  pam_exec.so") {
@@ -163,11 +163,11 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 		}
 	}
 	// `seteuid`.  Without it pam_exec runs the helper with the real uid, which
-	// under setuid sudo is the executor's own, and the broker answers the elevate
-	// op to root alone: the helper is refused and no elevation on the host works.
+	// under setuid sudo is the executor's own, and the broker answers the ask_approval
+	// op to root alone: the helper is refused and no approval on the host works.
 	if !strings.Contains(text, "seteuid") {
 		t.Errorf("the helper runs without seteuid, so the broker refuses it and "+
-			"every elevation on the host fails:\n%s", text)
+			"every approval on the host fails:\n%s", text)
 	}
 	if !strings.Contains(text, layout.PamHelper()) {
 		t.Errorf("the service does not exec %s", layout.PamHelper())
@@ -181,7 +181,7 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 // The helper is what the PAM service execs, and it runs the binary this install
 // put on the host rather than whatever is on PATH.
 func TestThePamHelperExecsTheInstalledBinary(t *testing.T) {
-	layout := elevatingLayout(t)
+	layout := sudoGrantLayout(t)
 	body, err := render("agent/hooks/pam-approve.tmpl", layout)
 	if err != nil {
 		t.Fatal(err)
@@ -201,7 +201,7 @@ func TestThePamHelperExecsTheInstalledBinary(t *testing.T) {
 // filter without CAP_SYS_ADMIN requires NNP.  With NNP on, sudo is inert.
 //
 // Written out rather than grepped for, because this is the check that the
-// elevating unit's NoNewPrivileges=false is not quietly overridden: keeping any
+// granting unit's NoNewPrivileges=false is not quietly overridden: keeping any
 // one of these does not harden the unit, it turns the feature off.
 var nnpImplied = []string{
 	"DynamicUser",
@@ -220,10 +220,10 @@ var nnpImplied = []string{
 	"SystemCallFilter",
 }
 
-// The executor's sandbox has to permit what an approved elevation is for.  Two
+// The executor's sandbox has to permit what an approval is for.  Two
 // halves: the directives that bound root are dropped, and nothing is left that
 // would put NoNewPrivileges= back.
-func TestTheExecutorUnitPermitsAnApprovedElevation(t *testing.T) {
+func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
 	plain := directives(t, "faramir-exec.service", testLayout())
 	for key, want := range map[string]string{
 		"NoNewPrivileges":       "true",
@@ -232,35 +232,35 @@ func TestTheExecutorUnitPermitsAnApprovedElevation(t *testing.T) {
 		"SystemCallFilter":      "@system-service",
 	} {
 		if got, set := plain[key]; !set || got != want {
-			t.Errorf("without --elevate the executor unit has %s=%q (set=%v), want %q",
+			t.Errorf("without --allow-sudo the executor unit has %s=%q (set=%v), want %q",
 				key, got, set, want)
 		}
 	}
 
-	elevating := directives(t, "faramir-exec.service", elevatingLayout(t))
-	if elevating["NoNewPrivileges"] != "false" {
-		t.Errorf("with --elevate NoNewPrivileges=%q: sudo is inert whatever the "+
-			"sudoers file says", elevating["NoNewPrivileges"])
+	granted := directives(t, "faramir-exec.service", sudoGrantLayout(t))
+	if granted["NoNewPrivileges"] != "false" {
+		t.Errorf("with --allow-sudo NoNewPrivileges=%q: sudo is inert whatever the "+
+			"sudoers file says", granted["NoNewPrivileges"])
 	}
 	// The finding this test exists for: an explicit NoNewPrivileges=false that
 	// systemd overrides is worse than none, because the unit reads as though the
 	// grant works.
 	for _, key := range nnpImplied {
-		if value, set := elevating[key]; set {
-			t.Errorf("with --elevate the executor unit sets %s=%q, which systemd "+
+		if value, set := granted[key]; set {
+			t.Errorf("with --allow-sudo the executor unit sets %s=%q, which systemd "+
 				"documents as implying NoNewPrivileges=yes: sudo would be inert and "+
-				"every elevation would fail with 'effective uid is not 0'", key, value)
+				"every approval would fail with 'effective uid is not 0'", key, value)
 		}
 	}
 	// PrivateDevices implies it only when on, and the unit says so explicitly
 	// because a PTY needs the devices either way.
-	if got := elevating["PrivateDevices"]; got != "false" {
-		t.Errorf("with --elevate PrivateDevices=%q, want an explicit false: true "+
+	if got := granted["PrivateDevices"]; got != "false" {
+		t.Errorf("with --allow-sudo PrivateDevices=%q, want an explicit false: true "+
 			"implies NoNewPrivileges and children run on a PTY", got)
 	}
 	for _, gone := range []string{"CapabilityBoundingSet", "ProtectSystem"} {
-		if value, set := elevating[gone]; set {
-			t.Errorf("with --elevate the executor unit still sets %s=%q, so an approved "+
+		if value, set := granted[gone]; set {
+			t.Errorf("with --allow-sudo the executor unit still sets %s=%q, so an approved "+
 				"root cannot do what it was approved for", gone, value)
 		}
 	}
@@ -272,20 +272,20 @@ func TestTheExecutorUnitPermitsAnApprovedElevation(t *testing.T) {
 		"AmbientCapabilities": "",
 		"RemoveIPC":           "true",
 	} {
-		if got, set := elevating[key]; !set || got != want {
-			t.Errorf("with --elevate the executor unit has %s=%q (set=%v), want %q: "+
+		if got, set := granted[key]; !set || got != want {
+			t.Errorf("with --allow-sudo the executor unit has %s=%q (set=%v), want %q: "+
 				"that bounds this uid whether or not anything was approved",
 				key, got, set, want)
 		}
 	}
 }
 
-// The executor unit delegates its cgroup on every install, elevation or not: the
+// The executor unit delegates its cgroup on every install, a sudo grant or not: the
 // executor confines each run to a cgroup of its own and reaps the whole cgroup
 // when the run ends, so a setsid child cannot outlive it.  That is the one
 // mechanism that ends a run, so it is not conditional on the grant.
 func TestTheExecutorUnitDelegatesItsCgroup(t *testing.T) {
-	for _, layout := range []Layout{testLayout(), elevatingLayout(t)} {
+	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
 		if got := directives(t, "faramir-exec.service", layout)["Delegate"]; got != "yes" {
 			t.Errorf("Delegate=%q on the executor unit, want yes: without a delegated "+
 				"cgroup the executor cannot confine a run and refuses to run it", got)
@@ -327,7 +327,7 @@ func directives(t *testing.T, unit string, layout Layout) map[string]string {
 // the hole stays closed, systemd's ask-password directory being root-only and
 // the reason that channel was not used.
 func TestTheBrokerUnitNeedsNoHoleForApprovals(t *testing.T) {
-	for _, layout := range []Layout{testLayout(), elevatingLayout(t)} {
+	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
 		body, err := render(units["faramir-broker.service"], layout)
 		if err != nil {
 			t.Fatal(err)

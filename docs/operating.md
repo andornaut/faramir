@@ -87,25 +87,25 @@ The first decides who can read files sops creates from then on. The second bring
 - **A hand-written `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. Use `sops updatekeys` per file, or `--sops-config` to name a single-rule file.
 - **With the keeper's key as the only recipient there is nothing to keep in step.** `edit` decrypts and re-encrypts with `<config-dir>/age.key` every time, and `rekey` never needs running. The cost is that the key is the only way in: losing it loses every managed value, retroactively, and a second recipient is the backup that avoids it.
 
-## Elevating on the controller
+## Allowing sudo on the controller
 
-A brokered command runs as `faramir-exec`, which has no sudo. That is the boundary, and on most hosts it is the end of it: a playbook that also configures the machine faramir runs on has to leave it out with `--limit '!controller'` and be applied some other way, as root, splitting one secret-bearing run in two. `faramir init --elevate` closes that split without moving the boundary. The full argument for why the mechanism is shaped the way it is — no credential, a PAM callback, per-run serialisation — is in [design.md](design.md#elevating-on-the-controller); this is how you run it.
+A brokered command runs as `faramir-exec`, which has no sudo. That is the boundary, and on most hosts it is the end of it: a playbook that also configures the machine faramir runs on has to leave it out with `--limit '!controller'` and be applied some other way, as root, splitting one secret-bearing run in two. `faramir init --allow-sudo` closes that split without moving the boundary. The full argument for why the mechanism is shaped the way it is — no credential, a PAM callback, per-run serialisation — is in [design.md](design.md#allowing-sudo-on-the-controller); this is how you run it.
 
 ### The decision is made at `init`, per host
 
-Whether a host's brokered commands may elevate at all is chosen when you install it, by passing `--elevate` to `faramir init` or not. It is not a runtime toggle and not a config key a drop-in can set, because saying yes writes files only root may place and changes how the executor is sandboxed:
+Whether a host's brokered commands may sudo at all is chosen when you install it, by passing `--allow-sudo` to `faramir init` or not. It is not a runtime toggle and not a config key a drop-in can set, because saying yes writes files only root may place and changes how the executor is sandboxed:
 
 - a **password-required sudoers entry** for `faramir-exec` in `/etc/sudoers.d/faramir`;
 - a **PAM service of faramir's own**, `/etc/pam.d/faramir-sudo`, that the entry points sudo at;
 - the executor account **locked** (`usermod -L`), so a password is never a second way in;
-- and `faramir-exec.service` **rendered without the sandbox that bounds root** (see [what it costs](#what-elevation-costs-beyond-the-grant)).
+- and `faramir-exec.service` **rendered without the sandbox that bounds root** (see [what it costs](#what-approval-costs-beyond-the-grant)).
 
 So it is a deliberate, host-level choice with two honest positions:
 
-- **Off (the default).** An install that never passed `--elevate` grants nothing. `faramir-exec` has no sudo, the PAM service and sudoers entry do not exist, and the executor keeps the full seccomp sandbox. This is every host but the one controller you mean to configure through faramir.
+- **Off (the default).** An install that never passed `--allow-sudo` grants nothing. `faramir-exec` has no sudo, the PAM service and sudoers entry do not exist, and the executor keeps the full seccomp sandbox. This is every host but the one controller you mean to configure through faramir.
 - **On.** This host's executor is sandboxed as a uid that *can* become root, once, per human-approved command. That is a larger thing to be true of a host than "holds no secret", so choose it only for the controller you meant to, and nowhere else.
 
-The choice is re-made every `init`: **re-running `init` without `--elevate` takes it back** — it removes the sudoers entry and the PAM service, and restores the tighter sandbox. Re-running *with* it keeps the grant. There is nothing to toggle between installs; the flag you pass is the state you get. `faramir doctor` reports which arrangement a host is in.
+The choice is re-made every `init`: **re-running `init` without `--allow-sudo` takes it back** — it removes the sudoers entry and the PAM service, and restores the tighter sandbox. Re-running *with* it keeps the grant. There is nothing to toggle between installs; the flag you pass is the state you get. `faramir doctor` reports which arrangement a host is in.
 
 ### What happens when a command runs `sudo`
 
@@ -115,7 +115,7 @@ Leave a watcher running, as root, somewhere the coding agent cannot type:
 sudo faramir approve --watch
 ```
 
-1. `sudo` reaches the `auth` step of `faramir-sudo` and `pam_exec` runs the helper as **root**. The helper finds the token by walking up its own process ancestry to the brokered command whose environment carries `FARAMIR_ELEVATE_TOKEN`, and sends that to the broker. A token that names no running command is refused without asking anybody.
+1. `sudo` reaches the `auth` step of `faramir-sudo` and `pam_exec` runs the helper as **root**. The helper finds the token by walking up its own process ancestry to the brokered command whose environment carries `FARAMIR_APPROVAL_TOKEN`, and sends that to the broker. A token that names no running command is refused without asking anybody.
 2. The broker files the question and holds the helper's connection open — which is exactly the wait an authentication step is, from `sudo`'s point of view.
 3. Your watcher prints it and reads your answer from **its** terminal:
 
@@ -127,7 +127,7 @@ sudo faramir approve --watch
      approve? [yes/no]
    ```
 
-4. Anything but `yes` is a refusal, and so is silence: the question expires after `[elevate] timeout_sec`.
+4. Anything but `yes` is a refusal, and so is silence: the question expires after `[sudo] timeout_sec`.
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else it exits non-zero, `requisite` makes that fatal at once, and `sudo` reports its own authentication failure. Nothing is written to the helper's stdout, because there is nothing to hand over.
 6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to.
 
@@ -137,7 +137,7 @@ There is no password anywhere: what satisfies `sudo` is a decision, not a creden
 
 **Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one doing the typing. The agent runs as *your* account, and a terminal your account owns is one it can reach — `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `faramir approve --watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention: watch from a console, an ssh session on another machine, or a login as another account. And an operator with `NOPASSWD` sudo, or a warm sudo timestamp in a shell the agent can use, has already handed it that account. The deny rules refuse `sudo faramir approve` from the agent's own shell for that reason, which raises the cost rather than removing it: the hook governs the tool the agent calls, and an account that can sudo can reach the binary another way.
 
-`[elevate] notify_command` optionally announces a pending question (`wall`, a desktop notifier, a push). It carries no answer and nothing waits on it.
+`[sudo] notify_command` optionally announces a pending question (`wall`, a desktop notifier, a push). It carries no answer and nothing waits on it.
 
 ### One question per run, and what an approval does not bound
 
@@ -145,11 +145,11 @@ There is no password anywhere: what satisfies `sudo` is a decision, not a creden
 
 An approval could leak past the one command it was shown for in two ways. One is closed; the other cannot be:
 
-- *A second, unapproved command riding the approval — closed.* Two brokered commands share the `faramir-exec` uid, and `/proc/<pid>/environ` is readable within a uid, so a concurrent command could read the approved run's token and `sudo` on it. The broker shuts that window: **an elevation is approved only when its run is the sole brokered command in flight, and while it holds the approval every other brokered command is refused `busy`.** So expect other `faramir run`s to return `busy` for the length of an approved playbook — that pause is the protection. It rests on no `faramir-exec` process outliving its run, which is what the per-run cgroup guarantees ([design.md](design.md#elevating-on-the-controller) has the mechanism).
-- *The approved command itself persisting root — not closed, ever.* An approved command gets real root and can make it permanent — a setuid-root binary, a `systemd` unit, a `cron` entry, a line in `sudoers` — none of which involves faramir again or expires when the token does. Approving is trusting **that command** with permanent root, identical to typing `sudo ansible-playbook` yourself. So keep the code an approved run executes operator-owned and read-only to brokered commands, or the agent can author what root runs. The audit log shows the elevation; it does not show the persistence a hostile command installs, unless you look.
+- *A second, unapproved command riding the approval — closed.* Two brokered commands share the `faramir-exec` uid, and `/proc/<pid>/environ` is readable within a uid, so a concurrent command could read the approved run's token and `sudo` on it. The broker shuts that window: **an approval is approved only when its run is the sole brokered command in flight, and while it holds the approval every other brokered command is refused `busy`.** So expect other `faramir run`s to return `busy` for the length of an approved playbook — that pause is the protection. It rests on no `faramir-exec` process outliving its run, which is what the per-run cgroup guarantees ([design.md](design.md#allowing-sudo-on-the-controller) has the mechanism).
+- *The approved command itself persisting root — not closed, ever.* An approved command gets real root and can make it permanent — a setuid-root binary, a `systemd` unit, a `cron` entry, a line in `sudoers` — none of which involves faramir again or expires when the token does. Approving is trusting **that command** with permanent root, identical to typing `sudo ansible-playbook` yourself. So keep the code an approved run executes operator-owned and read-only to brokered commands, or the agent can author what root runs. The audit log shows the approval; it does not show the persistence a hostile command installs, unless you look.
 
-### What elevation costs, beyond the grant
+### What approval costs, beyond the grant
 
-`faramir-exec.service` is rendered differently on a host that grants an elevation, because the sandbox that bounds a uid holding nothing also bounds the root a human just approved. `NoNewPrivileges=` makes every setuid binary inert, so with it set `sudo` fails on every task whatever the sudoers file says; an empty `CapabilityBoundingSet=` hands back a root that cannot chown or mount; `ProtectSystem=strict` turns "configure this host" into `EROFS`; and `SystemCallFilter=@system-service` excludes `@mount`, `@swap`, `@module` and `@reboot`. All of those are dropped, along with the `Protect*` family that names things root configures. What is *not* dropped is anything that bounds the uid below the approval: `ProtectProc=invisible`, the supplementary groups, the umask, `AmbientCapabilities=`. The unit states each one and why. Re-running `init` without `--elevate` restores all of them.
+`faramir-exec.service` is rendered differently on a host that grants an approval, because the sandbox that bounds a uid holding nothing also bounds the root a human just approved. `NoNewPrivileges=` makes every setuid binary inert, so with it set `sudo` fails on every task whatever the sudoers file says; an empty `CapabilityBoundingSet=` hands back a root that cannot chown or mount; `ProtectSystem=strict` turns "configure this host" into `EROFS`; and `SystemCallFilter=@system-service` excludes `@mount`, `@swap`, `@module` and `@reboot`. All of those are dropped, along with the `Protect*` family that names things root configures. What is *not* dropped is anything that bounds the uid below the approval: `ProtectProc=invisible`, the supplementary groups, the umask, `AmbientCapabilities=`. The unit states each one and why. Re-running `init` without `--allow-sudo` restores all of them.
 
-`faramir doctor` re-checks the arrangement, on a host that has it and on one that does not: the PAM service must gate rather than fall open (`requisite`, `seteuid`, faramir's own helper), the helper must be unwritable by the executor and by you, `/etc/pam.d/other` must not be a free pass for the case where the service file is ever removed, `faramir-exec` must hold no `NOPASSWD` entry from any source and no password of its own, and the executor unit must be delegated a cgroup so a run is confined and a `setsid` child cannot outlive it — a hard failure on any host, elevation or not, since the cgroup is the one reaper and a run that cannot be confined is refused rather than reaped by the escapable process group.
+`faramir doctor` re-checks the arrangement, on a host that has it and on one that does not: the PAM service must gate rather than fall open (`requisite`, `seteuid`, faramir's own helper), the helper must be unwritable by the executor and by you, `/etc/pam.d/other` must not be a free pass for the case where the service file is ever removed, `faramir-exec` must hold no `NOPASSWD` entry from any source and no password of its own, and the executor unit must be delegated a cgroup so a run is confined and a `setsid` child cannot outlive it — a hard failure on any host, a sudo grant or not, since the cgroup is the one reaper and a run that cannot be confined is refused rather than reaped by the escapable process group.

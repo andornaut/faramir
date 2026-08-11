@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/elevate"
+	"github.com/andornaut/faramir/internal/approval"
 )
 
 // The PAM helper's exit status is the whole authentication: zero authenticates
@@ -65,13 +65,13 @@ func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
 // An unreachable broker is a refusal, not a pass.  This is the shape of every
 // failure below the guards: the daemon being down, the socket being gone, the
 // question expiring.  A helper that failed open here would make stopping the
-// broker the way to elevate.
+// broker the way to sudo.
 //
-// Asked of askBrokerToElevate rather than through cmdPamApprove, which would
+// Asked of askBrokerToApprove rather than through cmdPamApprove, which would
 // stop at the walk: this process's ancestors are the test runner's, and none of
 // them carries a token.
 func TestAnUnreachableBrokerRefuses(t *testing.T) {
-	approved, _, err := askBrokerToElevate(noBroker, "a-token-nothing-is-listening-for")
+	approved, _, err := askBrokerToApprove(noBroker, "a-token-nothing-is-listening-for")
 	if err == nil {
 		t.Fatal("a broker that is not there answered")
 	}
@@ -141,7 +141,7 @@ func walk(t *testing.T, environ []string) string {
 // finding it means the walk crossed the two processes between.  Those are the
 // shell and the sudo that sit between a brokered command and this helper.
 func TestTheTokenIsFoundOnAnAncestor(t *testing.T) {
-	got := walk(t, []string{elevate.TokenEnv + "=walked-to-this"})
+	got := walk(t, []string{approval.TokenEnv + "=walked-to-this"})
 	if got != "walked-to-this" {
 		t.Errorf("the walk found %q, want the ancestor's token: it decides which "+
 			"run the human is asked about", got)

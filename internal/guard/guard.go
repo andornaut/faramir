@@ -92,7 +92,7 @@ var fallback = []string{
 	// does not, so "systemctl restart faramir-keeper" stays allowed.  Only
 	// sudo's own flags may precede the executable name.  journalctl is absent:
 	// the daemons log ref names and counts, never values.
-	// `approve` among them: it is the op that decides an elevation, and the agent
+	// `approve` among them: it is the op that decides an approval, and the agent
 	// must not be able to answer the question it raised.
 	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|approve|pam-approve)\b`,
 	`\bsudo\b.*-u\s+faramir`,
@@ -212,7 +212,7 @@ var faramirCall = regexp.MustCompile(
 
 // sudoFaramirCall is the same for a call under sudo, and sanctions one
 // subcommand fewer.  `approve` is left out so that the deny patterns get to see
-// it: it is the op that decides an elevation, and this hook gates the shell of
+// it: it is the op that decides an approval, and this hook gates the shell of
 // the agent that raised the request.  An operator answers in their own terminal,
 // where no hook runs, so nothing a person does is denied by this.  RE2 has no
 // negative lookahead, hence a second expression over a second list rather than

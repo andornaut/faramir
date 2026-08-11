@@ -1,6 +1,6 @@
 # Installed as /etc/tmpfiles.d/faramir.conf.  {{.RunDir}} holds the three
-# activation sockets plus the ssh-agent socket the broker creates.  Elevation
-# adds nothing here: it binds no socket and holds no file.
+# activation sockets plus the ssh-agent socket the broker creates.  A sudo
+# grant adds nothing here: it binds no socket and holds no file.
 #
 # Created here rather than by RuntimeDirectory= on a service: systemd chowns a
 # RuntimeDirectory recursively when its owner does not match the unit's User=,

@@ -1,4 +1,4 @@
-package elevate
+package approval
 
 import (
 	"strconv"
@@ -10,10 +10,10 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// baseConfig is an enabled elevation with nothing announcing a question: the
+// baseConfig is an enabled approval with nothing announcing a question: the
 // tests answer through the same channel `faramir approve` does.
-func baseConfig() config.ElevateConfig {
-	return config.ElevateConfig{
+func baseConfig() config.SudoConfig {
+	return config.SudoConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
@@ -21,7 +21,7 @@ func baseConfig() config.ElevateConfig {
 	}
 }
 
-func started(t *testing.T, cfg config.ElevateConfig) *Server {
+func started(t *testing.T, cfg config.SudoConfig) *Server {
 	t.Helper()
 	s := New(cfg)
 	t.Cleanup(s.Stop)
@@ -34,7 +34,7 @@ func run() Run {
 
 // mustRegister is Register for the tests that expect the host to be quiet: it
 // asserts the run was not held, which the serialization only does while another
-// command holds an approved elevation.  The tests that exercise the hold call
+// command holds an approval.  The tests that exercise the hold call
 // Register directly.
 func mustRegister(s *Server, r Run) string {
 	token, held := s.Register(r)
@@ -102,7 +102,7 @@ func (h *human) prompts() string {
 // -- disabled by default ----------------------------------------------------
 
 // With no exec_user nothing is granted and nothing is injected, which is the
-// install that never passed --elevate.
+// install that never passed --allow-sudo.
 func TestNoExecUserMeansNothingToAsk(t *testing.T) {
 	cfg := baseConfig()
 	cfg.ExecUser = ""
@@ -117,7 +117,7 @@ func TestNoExecUserMeansNothingToAsk(t *testing.T) {
 		t.Errorf("Env = %v, want empty", env)
 	}
 	if approved, _ := s.Ask("anything"); approved {
-		t.Error("an elevation was approved on a host that grants none")
+		t.Error("an approval was approved on a host that grants none")
 	}
 }
 
@@ -242,7 +242,7 @@ func waitForQuestion(t *testing.T, s *Server) string {
 	return ""
 }
 
-// The serialization, one half: while a run holds an approved elevation and has
+// The serialization, one half: while a run holds an approval and has
 // not ended, no other brokered command may start.  They share the executor's
 // uid, so a second could read the approved run's token from /proc and spend it
 // on the root it was never shown for.  Held, and admitted again once the run
@@ -257,7 +257,7 @@ func TestAnApprovalHoldsEveryOtherCommand(t *testing.T) {
 		t.Fatalf("the first run was the only one, so it should approve: %v", err)
 	}
 	if _, held := s.Register(Run{Argv: []string{"curl", "evil"}, Cwd: "/tmp"}); !held {
-		t.Error("a new command was admitted while an approved elevation was live: it " +
+		t.Error("a new command was admitted while an approval was live: it " +
 			"could read the approved run's token and ride it")
 	}
 	s.Release(first)
@@ -368,7 +368,7 @@ func TestAnUnansweredQuestionExpires(t *testing.T) {
 
 	approved, reason := s.Ask(mustRegister(s, run()))
 	if approved {
-		t.Error("a question nobody answered approved an elevation")
+		t.Error("a question nobody answered approved an approval")
 	}
 	if !strings.Contains(reason, "nobody answered") {
 		t.Errorf("reason = %q, want the timeout named", reason)
@@ -407,7 +407,7 @@ func TestConcurrentRequestsShareOneQuestion(t *testing.T) {
 }
 
 // Every request is recorded, approved or not, and the record names who
-// answered: the audit log is where an operator asks what was elevated, what was
+// answered: the audit log is where an operator asks what was approved, what was
 // turned down, and by whom.
 func TestEveryRequestIsRecorded(t *testing.T) {
 	s := started(t, baseConfig())
@@ -432,8 +432,8 @@ func TestEveryRequestIsRecorded(t *testing.T) {
 	if approved, _ := record["approved"].(bool); approved {
 		t.Error("a refusal was recorded as approved")
 	}
-	if record["op"] != "elevate" {
-		t.Errorf("op = %v, want elevate", record["op"])
+	if record["op"] != "ask_approval" {
+		t.Errorf("op = %v, want ask_approval", record["op"])
 	}
 	if record["exec_log_id"] != "log-1" {
 		t.Errorf("exec_log_id = %v, want the command's own record", record["exec_log_id"])

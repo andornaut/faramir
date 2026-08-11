@@ -198,7 +198,7 @@ func outcome(record map[string]any) (string, bool) {
 	if timedOut, _ := record["timed_out"].(bool); timedOut {
 		return "timed out", true
 	}
-	// An elevation ends in an answer rather than an exit code.  A refusal is the
+	// An approval ends in an answer rather than an exit code.  A refusal is the
 	// one painted as a failure, not because refusing is wrong -- it is the safe
 	// answer -- but because something asked, and that is what an operator is
 	// scanning for.
@@ -248,7 +248,7 @@ func printRecord(record map[string]any, paint palette) {
 	if who := describePeer(record); who != "" {
 		fmt.Printf("  %s %s\n", paint.key(pad("caller", 10)), who)
 	}
-	// outcome is the elevation's own reason -- why it was refused, or that it was
+	// outcome is the approval's own reason -- why it was refused, or that it was
 	// approved -- and exec_log_id is the command's record, so an approval reads
 	// in both directions.
 	for _, field := range []string{"cwd", "error", "outcome", "exec_log_id"} {

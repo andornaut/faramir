@@ -1,7 +1,7 @@
-// Package elevate lets a brokered command become root on this host, once, with
+// Package approval lets a brokered command become root on this host, once, with
 // a human's consent, and holds no credential that could do it again.
 //
-// `faramir init --elevate` grants the executor's uid a sudoers entry and points
+// `faramir init --allow-sudo` grants the executor's uid a sudoers entry and points
 // sudo at a PAM service of faramir's own, whose whole authentication step is a
 // helper that asks the broker whether this command was approved.  There is no
 // password: nothing is minted, nothing is stored, nothing is handed out, and so
@@ -17,7 +17,7 @@
 //
 // How the pieces fit:
 //
-//   - The child's environment carries FARAMIR_ELEVATE_TOKEN and nothing else.
+//   - The child's environment carries FARAMIR_APPROVAL_TOKEN and nothing else.
 //     Inert on its own: the op that spends it is refused to anything but root.
 //   - sudo runs the PAM helper as root (pam_exec's `seteuid`; without it the
 //     helper runs as the *invoking* uid, which is the child's own, and the
@@ -32,10 +32,10 @@
 // the PAM service, replace the helper.  An approval is consent for a command,
 // not a sandbox around it.
 //
-// Optional: with no [elevate] exec_user nothing is granted, no question can be
+// Optional: with no [sudo] exec_user nothing is granted, no question can be
 // raised, and a brokered command's sudo fails as it does on any host that
 // granted nothing.
-package elevate
+package approval
 
 import (
 	"context"
@@ -71,12 +71,12 @@ const (
 	// The value is the name of an environment variable, not a credential: what it
 	// names identifies a run, and the op that spends it is refused to anything but
 	// root.  gosec keys G101 off the "TOKEN" in the identifier, hence the exception.
-	TokenEnv = "FARAMIR_ELEVATE_TOKEN" //nolint:gosec // G101: env var name, not a credential
+	TokenEnv = "FARAMIR_APPROVAL_TOKEN" //nolint:gosec // G101: env var name, not a credential
 )
 
 // Run is the brokered command a request is made on behalf of.  It is what the
 // question names, and naming it is what makes the answer worth anything: a
-// human who approves an elevation they did not initiate has already lost.
+// human who approves an approval they did not initiate has already lost.
 type Run struct {
 	// Argv is the command the broker started, already redacted: a caller can put
 	// a value in argv even though the broker never does, and this reaches a
@@ -84,12 +84,12 @@ type Run struct {
 	Argv []string
 	Cwd  string
 	// LogID is the exec record this belongs to, so the log reads in both
-	// directions: what a command elevated for, and what an approval was spent on.
+	// directions: what a command was approved for, and what an approval was spent on.
 	LogID string
 
 	// approved is set once a human has said yes to this run, and is what makes
 	// the rest of its sudos free of a second question.  Not exported: a caller
-	// registering a run pre-approved would be an elevation nobody answered.
+	// registering a run pre-approved would be an approval nobody answered.
 	approved bool
 }
 
@@ -97,7 +97,7 @@ type Run struct {
 func (r Run) Command() string { return strings.Join(r.Argv, " ") }
 
 type Server struct {
-	config config.ElevateConfig
+	config config.SudoConfig
 
 	// Record writes one audit entry per request.  Set by the broker; nil records
 	// nothing, which is the case in tests.
@@ -132,7 +132,7 @@ type approval struct {
 	reason   string
 }
 
-func New(cfg config.ElevateConfig) *Server {
+func New(cfg config.SudoConfig) *Server {
 	return &Server{
 		config:  cfg,
 		runs:    map[string]Run{},
@@ -143,12 +143,12 @@ func New(cfg config.ElevateConfig) *Server {
 
 // Enabled reports whether this host granted the executor anything to ask about.
 // exec_user names the account the sudoers entry was written for, so its absence
-// is an install that never passed --elevate.
+// is an install that never passed --allow-sudo.
 func (s *Server) Enabled() bool { return s.config.ExecUser != "" }
 
 // Env is what to add to a child's environment: a token, and nothing else.
 //
-// Inert in the child's hands.  Spending it means the `elevate` op, which the
+// Inert in the child's hands.  Spending it means the `ask_approval` op, which the
 // broker refuses to anything but root, so the token identifies a run rather
 // than authorising one.
 func (s *Server) Env(token string) map[string]string {
@@ -162,7 +162,7 @@ func (s *Server) Env(token string) map[string]string {
 // where nothing is granted, which Env reads as nothing to inject.
 //
 // held is the serialization, and the reason an approval is safe on a host that
-// runs other agent work.  While one command holds an approved elevation, no
+// runs other agent work.  While one command holds an approval, no
 // other brokered command may start: they share the executor's uid, so a second
 // process could read the first's token out of /proc and ride the approval it was
 // never shown for.  A held command must not run -- the broker turns it into a
@@ -175,9 +175,9 @@ func (s *Server) Register(run Run) (token string, held bool) {
 	}
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		// Without a token the broker cannot say what it is elevating for, and an
+		// Without a token the broker cannot say what it is approving, and an
 		// unnamed approval is the thing this exists to avoid.
-		log.Printf("elevate: no randomness for a token (%v); this command cannot elevate", err)
+		log.Printf("approval: no randomness for a token (%v); this command cannot sudo", err)
 		return "", false
 	}
 	token = hex.EncodeToString(raw[:])
@@ -187,7 +187,7 @@ func (s *Server) Register(run Run) (token string, held bool) {
 		return "", false
 	}
 	if approved := s.approvalLiveLocked(); approved != "" {
-		log.Printf("elevate: holding a new command while %q holds an approved elevation", approved)
+		log.Printf("approval: holding a new command while %q holds an approval", approved)
 		return "", true
 	}
 	s.runs[token] = run
@@ -249,19 +249,19 @@ func (s *Server) Release(token string) {
 // password prompt from sudo's point of view.
 func (s *Server) Ask(token string) (approved bool, reason string) {
 	if !s.Enabled() {
-		return false, "this host grants no elevation"
+		return false, "this host grants no approval"
 	}
 	s.mu.Lock()
 	run, known := s.runs[token]
 	s.mu.Unlock()
 	if !known {
 		// Refused rather than asked about: without the token the broker cannot say
-		// what it would be elevating for, and an approval that names no command is
+		// what it would be approving, and an approval that names no command is
 		// one a human cannot judge.  This is what a request from outside a brokered
 		// command, or after one ended, looks like.
-		log.Printf("elevate: refusing a request whose token names no running command")
+		log.Printf("approval: refusing a request whose token names no running command")
 		s.record(map[string]any{
-			"log_id": audit.NewLogID(), "op": "elevate", "approved": false,
+			"log_id": audit.NewLogID(), "op": "ask_approval", "approved": false,
 			"outcome": "the token named no running command",
 		})
 		return false, "this request names no brokered command, so there is nothing to approve"
@@ -269,17 +269,17 @@ func (s *Server) Ask(token string) (approved bool, reason string) {
 
 	approved, prompted, reason := s.ask(token, run)
 	s.record(map[string]any{
-		"log_id": audit.NewLogID(), "op": "elevate", "approved": approved,
+		"log_id": audit.NewLogID(), "op": "ask_approval", "approved": approved,
 		"prompted": prompted, "cmd": run.Argv, "cwd": run.Cwd,
 		"exec_log_id": run.LogID, "outcome": reason,
 	})
 	if !approved {
-		log.Printf("elevate: %q was not approved: %s", run.Command(), reason)
+		log.Printf("approval: %q was not approved: %s", run.Command(), reason)
 	}
 	return approved, reason
 }
 
-// ask reports whether this request may elevate, and whether it was the one that
+// ask reports whether this request may sudo, and whether it was the one that
 // put the question.
 //
 // One question per brokered command, not per sudo: ansible-playbook calls sudo
@@ -337,7 +337,7 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 	}
 	s.waiting[token] = pending
 	s.wakeLocked()
-	log.Printf("elevate: %s is waiting to be approved: %s", pending.id, run.Command())
+	log.Printf("approval: %s is waiting to be approved: %s", pending.id, run.Command())
 	return pending, true, ""
 }
 
@@ -414,7 +414,7 @@ func (s *Server) notify(pending *approval) {
 	cmd.WaitDelay = time.Second
 	if err := cmd.Start(); err != nil {
 		cancel()
-		log.Printf("elevate: cannot run the notifier %s: %v", argv[0], err)
+		log.Printf("approval: cannot run the notifier %s: %v", argv[0], err)
 		return
 	}
 	go func() {
@@ -569,7 +569,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// `reason`, and each of those writes a record naming who answered.  One
 	// record per sudo, so the log says how many the approval covered rather than
 	// leaving it to be counted.
-	log.Printf("elevate: %s %s by %s", id,
+	log.Printf("approval: %s %s by %s", id,
 		map[bool]string{true: "approved", false: "refused"}[approve], who)
 	s.finish(pending, approve, reason)
 	return nil

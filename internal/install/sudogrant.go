@@ -1,11 +1,11 @@
 package install
 
-// Elevation: the one place the executor's reach grows, and the arrangement that
+// The sudo grant: the one place the executor's reach grows, and the arrangement that
 // keeps it from growing further.
 //
-// `faramir init --elevate` grants ExecUser a sudoers entry whose authentication
-// is a question put to the broker.  A brokered command can then ask to elevate;
-// it cannot elevate.  The ask is
+// `faramir init --allow-sudo` grants ExecUser a sudoers entry whose authentication
+// is a question put to the broker.  A brokered command can then ask to sudo;
+// it cannot sudo.  The ask is
 // answered out of band by a human who is told which command it is for, on a
 // channel the coding agent is not in.
 //
@@ -23,7 +23,7 @@ package install
 //     so a mistake in it reaches this account and leaves every other sudo on the
 //     host alone.
 //
-// Re-running init without --elevate takes the grant away: the file goes and the
+// Re-running init without --allow-sudo takes the grant away: the file goes and the
 // account's password is locked.  init installs and does not migrate, but this
 // direction removes reach rather than leaving an older layout lying about, and
 // a grant nothing is configured to use is exactly the thing worth removing.
@@ -36,7 +36,7 @@ import (
 	"strings"
 )
 
-// stepElevation writes or removes the grant: a sudoers entry and the PAM
+// stepSudoGrant writes or removes the grant: a sudoers entry and the PAM
 // service it names.
 //
 // There is no credential to place, which is the point of this design.  sudo
@@ -44,14 +44,14 @@ import (
 // the broker, so an approval is a decision rather than a value and cannot be
 // kept, copied or carried to a later command.
 //
-// After stepConfig, which renders [elevate] from the same layout, and before
+// After stepConfig, which renders [sudo] from the same layout, and before
 // anything restarts a daemon.
-func (r *runner) stepElevation() error {
-	if !r.layout.Elevate {
-		return r.revokeElevation()
+func (r *runner) stepSudoGrant() error {
+	if !r.layout.AllowSudo {
+		return r.revokeSudoGrant()
 	}
 	if r.opts.DryRun {
-		r.step("elevation", !exists(sudoersFile), "would grant "+r.layout.ExecUser+
+		r.step("sudo grant", !exists(sudoersFile), "would grant "+r.layout.ExecUser+
 			" sudo, authenticated by "+r.layout.PamFile())
 		return nil
 	}
@@ -59,9 +59,9 @@ func (r *runner) stepElevation() error {
 		// A host with no sudo, or no PAM.  Reported rather than failed: the rest of
 		// the install works, and what does not is named.
 		r.warn("%s or %s does not exist, so no grant was written and brokered "+
-			"commands cannot elevate here. Install sudo, then re-run this install",
+			"commands cannot sudo here. Install sudo, then re-run this install",
 			sudoersDir, pamDir)
-		r.skip("elevation", "no "+sudoersDir+" or "+pamDir)
+		r.skip("sudo grant", "no "+sudoersDir+" or "+pamDir)
 		return nil
 	}
 
@@ -113,23 +113,23 @@ func (r *runner) stepElevation() error {
 			if err := os.Remove(stale); err != nil {
 				return err
 			}
-			r.warn("removed %s, left by an earlier install: elevation no longer uses "+
+			r.warn("removed %s, left by an earlier install: approval no longer uses "+
 				"a password at all", stale)
 		}
 	}
 
 	if granted || authChanged {
-		r.restartFor("elevation")
+		r.restartFor("sudo grant")
 	}
-	r.step("elevation", granted || authChanged, fmt.Sprintf(
+	r.step("sudo grant", granted || authChanged, fmt.Sprintf(
 		"%s may ask to sudo on this host; %s answers, one approval per command",
 		r.layout.ExecUser, r.layout.PamFile()))
 	return nil
 }
 
-// revokeElevation is what an install without --elevate does.  It removes what
+// revokeSudoGrant is what an install without --allow-sudo does.  It removes what
 // an install with it wrote, and leaves the account locked.
-func (r *runner) revokeElevation() error {
+func (r *runner) revokeSudoGrant() error {
 	stale := []string{
 		sudoersFile,
 		pamServiceFile,
@@ -149,8 +149,8 @@ func (r *runner) revokeElevation() error {
 		return nil
 	}
 	if r.opts.DryRun {
-		r.step("elevation", true, "would revoke "+sudoersFile+
-			": --elevate was not passed, and this host has the grant")
+		r.step("sudo grant", true, "would revoke "+sudoersFile+
+			": --allow-sudo was not passed, and this host has the grant")
 		return nil
 	}
 	for _, path := range stale {
@@ -165,12 +165,12 @@ func (r *runner) revokeElevation() error {
 	// one some PAM stacks let in without asking.
 	if _, err := r.command("usermod", "-L", r.layout.ExecUser); err != nil {
 		r.warn("could not lock %s's password (%v); the grant is gone, so nothing "+
-			"elevates, but lock it by hand: usermod -L %s",
+			"can sudo, but lock it by hand: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
-	r.restartFor("elevation")
-	r.step("elevation", true, "revoked: "+sudoersFile+" and the PAM service "+
-		"removed, because --elevate was not passed")
+	r.restartFor("sudo grant")
+	r.step("sudo grant", true, "revoked: "+sudoersFile+" and the PAM service "+
+		"removed, because --allow-sudo was not passed")
 	return nil
 }
 

@@ -79,7 +79,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnoseSockets(report, opts, cfg) },
 		func() { diagnoseSocketPolicy(report, opts, cfg) },
 		func() { diagnoseSSHKey(report, opts, cfg) },
-		func() { diagnoseElevation(report, opts, cfg) },
+		func() { diagnoseSudoGrant(report, opts, cfg) },
 		func() { diagnoseCgroupDelegation(report, opts, cfg) },
 		func() { diagnoseProtectProc(report, opts) },
 		func() { diagnoseBrokered(report, opts, serves) },
@@ -189,7 +189,7 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 		filepath.Join(DefaultLibexecDir, "wrap.sh"),
 		// The PAM helper is here for a different reason from the three above:
 		// nothing reads it to enforce a rule, PAM execs it as root.  An account that
-		// can write it decides every elevation on this host.
+		// can write it decides every approval on this host.
 		filepath.Join(DefaultLibexecDir, "pam-approve"),
 	}
 	for _, path := range enforcers {
@@ -454,18 +454,18 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 		"held by it", opts.OperatorUser, opts.ExecUser)
 }
 
-// diagnoseElevation checks the one grant that widens what a brokered command
+// diagnoseSudoGrant checks the one grant that widens what a brokered command
 // can do, on the host that has it and on the host that does not.
 //
-// Two claims, and the second is made either way.  Where elevation is
+// Two claims, and the second is made either way.  Where approval is
 // configured: the PAM service that authenticates the executor says what it is
 // supposed to say, and nothing the executor can write decides it.  Everywhere:
 // the executor holds no passwordless sudo and no password of its own, which
-// are the two ways it could elevate with the broker out of the way.
-func diagnoseElevation(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
+// are the two ways it could sudo with the broker out of the way.
+func diagnoseSudoGrant(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if nopasswd, known := passwordlessSudo(opts.ExecUser); known && nopasswd != "" {
-		report.add("elevation", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
-			"a brokered command elevates without the broker, the question or a human "+
+		report.add("sudo grant", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
+			"a brokered command runs sudo without the broker, the question or a human "+
 			"in the way. Remove it: NOPASSWD skips PAM, which is where the approval "+
 			"is asked for", opts.ExecUser, nopasswd)
 		return
@@ -474,39 +474,39 @@ func diagnoseElevation(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 	// broker about.  It authenticates through PAM against the broker or not at
 	// all.
 	if shadow, err := os.ReadFile(shadowFile); err == nil && shadowUsable(string(shadow), opts.ExecUser) {
-		report.add("elevation", StatusFailed, "%s has a usable password, so it can "+
+		report.add("sudo grant", StatusFailed, "%s has a usable password, so it can "+
 			"authenticate without the broker being asked anything. Lock it: "+
 			"usermod -L %s", opts.ExecUser, opts.ExecUser)
 		return
 	}
-	if cfg == nil || cfg.Elevate.ExecUser == "" {
+	if cfg == nil || cfg.Sudo.ExecUser == "" {
 		// No grant asked for.  Reported rather than silent: "this host cannot
-		// elevate" is an answer, and the checks above are what stand behind it.
-		report.add("elevation", StatusOK, "%s has no sudo on this host; brokered "+
-			"commands cannot elevate, which is the default arrangement", opts.ExecUser)
+		// sudo" is an answer, and the checks above are what stand behind it.
+		report.add("sudo grant", StatusOK, "%s has no sudo on this host; brokered "+
+			"commands cannot sudo, which is the default arrangement", opts.ExecUser)
 		return
 	}
 
-	pamFile := filepath.Join(pamDir, cfg.Elevate.PamService)
+	pamFile := filepath.Join(pamDir, cfg.Sudo.PamService)
 	body, err := os.ReadFile(pamFile)
 	if err != nil {
-		report.add("elevation", StatusFailed, "%s is configured to authenticate "+
+		report.add("sudo grant", StatusFailed, "%s is configured to authenticate "+
 			"through %s, which cannot be read (%v): sudo falls back to %s/other for "+
-			"that account. Re-run `faramir init --elevate`",
+			"that account. Re-run `faramir init --allow-sudo`",
 			opts.ExecUser, pamFile, err, pamDir)
 		return
 	}
-	if problem := pamStackProblem(string(body), cfg.Elevate.Helper); problem != "" {
-		report.add("elevation", StatusFailed, "%s: %s", pamFile, problem)
+	if problem := pamStackProblem(string(body), cfg.Sudo.Helper); problem != "" {
+		report.add("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
 		return
 	}
 	// The helper the stack execs, as root.  An account that can write it chooses
-	// what decides every elevation on this host.
+	// what decides every approval on this host.
 	for _, account := range []string{opts.ExecUser, opts.OperatorUser} {
-		if canWrite(account, cfg.Elevate.Helper) {
-			report.add("elevation", StatusFailed, "%s can write %s, which is what "+
-				"decides every elevation: it would be choosing its own answer",
-				account, cfg.Elevate.Helper)
+		if canWrite(account, cfg.Sudo.Helper) {
+			report.add("sudo grant", StatusFailed, "%s can write %s, which is what "+
+				"decides every approval: it would be choosing its own answer",
+				account, cfg.Sudo.Helper)
 			return
 		}
 	}
@@ -514,14 +514,14 @@ func diagnoseElevation(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 	// permissive `other` would authenticate anything reaching it.
 	if other, err := os.ReadFile(filepath.Join(pamDir, "other")); err == nil {
 		if permissiveAuth(string(other)) {
-			report.add("elevation", StatusFailed, "%s/other authenticates without "+
+			report.add("sudo grant", StatusFailed, "%s/other authenticates without "+
 				"asking anything, so removing %s would not close this host's "+
-				"elevation but open it. Make the fallback pam_deny",
+				"approval but open it. Make the fallback pam_deny",
 				pamDir, pamFile)
 			return
 		}
 	}
-	report.add("elevation", StatusOK, "%s may ask to sudo and holds no credential "+
+	report.add("sudo grant", StatusOK, "%s may ask to sudo and holds no credential "+
 		"for it; %s asks the broker, and root answers, one approval per command",
 		opts.ExecUser, pamFile)
 }
@@ -572,10 +572,10 @@ func execUnitDelegates() (delegates, known bool) {
 //
 // Two things decide whether it gates anything.  `requisite` on the helper: with
 // `sufficient` a REFUSAL is not fatal, the stack falls through to whatever
-// permits below, and every elevation is granted without asking.  And `seteuid`:
+// permits below, and every approval is granted without asking.  And `seteuid`:
 // without it pam_exec runs the helper with the real uid, which under setuid
-// sudo is the executor's own, and the broker answers the elevate op to root
-// alone -- so the helper is refused and nothing on this host can elevate.
+// sudo is the executor's own, and the broker answers the ask_approval op to root
+// alone -- so the helper is refused and nothing on this host can sudo.
 func pamStackProblem(body, helper string) string {
 	for line := range strings.Lines(body) {
 		line = strings.TrimSpace(line)
@@ -588,20 +588,20 @@ func pamStackProblem(body, helper string) string {
 		switch {
 		case !strings.Contains(line, "requisite"):
 			return "the helper is not `requisite`, so a refusal is not fatal and the " +
-				"stack falls through to whatever permits below: every elevation would " +
-				"be granted without asking. Re-run `faramir init --elevate`"
+				"stack falls through to whatever permits below: every approval would " +
+				"be granted without asking. Re-run `faramir init --allow-sudo`"
 		case !strings.Contains(line, "seteuid"):
 			return "the helper runs without `seteuid`, so pam_exec runs it as the " +
-				"executor rather than root: the broker answers the elevate op to root " +
-				"alone, so every elevation on this host fails. Re-run `faramir init --elevate`"
+				"executor rather than root: the broker answers the ask_approval op to root " +
+				"alone, so every approval on this host fails. Re-run `faramir init --allow-sudo`"
 		case helper != "" && !strings.Contains(line, helper):
 			return "the helper is not " + helper + ", so something other than faramir " +
-				"decides these elevations"
+				"decides these approvals"
 		}
 		return ""
 	}
 	return "no pam_exec auth line, so nothing asks the broker and whatever else " +
-		"is in this file decides. Re-run `faramir init --elevate`"
+		"is in this file decides. Re-run `faramir init --allow-sudo`"
 }
 
 // permissiveAuth reports whether a stack authenticates without asking: a
@@ -807,7 +807,7 @@ func shadowUsable(shadow, account string) bool {
 //
 // NOPASSWD is what this looks for because it skips PAM entirely, and PAM is
 // where the approval is asked for.  An entry with it is a brokered command
-// elevating with the broker, the question and the human all out of the way.
+// sudo with the broker, the question and the human all out of the way.
 func passwordlessSudo(account string) (string, bool) {
 	if account == "" {
 		return "", false

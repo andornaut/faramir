@@ -226,17 +226,17 @@ type SshConfig struct {
 	SshAdd      string
 }
 
-// ElevateConfig is how a brokered command becomes root on this host: it does
+// SudoConfig is how a brokered command becomes root on this host: it does
 // not authenticate, it asks.  sudo is pointed at a PAM service of faramir's
 // own whose authentication step is a helper that asks the broker whether this
 // command was approved, so there is no password to mint, store, hand out or
 // steal.
 //
 // With no ExecUser nothing is granted and no question can be raised, which is
-// the install that never passed --elevate.  Everything here but TimeoutSec is
+// the install that never passed --allow-sudo.  Everything here but TimeoutSec is
 // init's: each value names a file or a program that decides whether an
-// elevation happens.
-type ElevateConfig struct {
+// approval happens.
+type SudoConfig struct {
 	// ExecUser is the account the sudoers entry was written for, and the switch
 	// for the whole arrangement.  The helper checks PAM_USER against it, so a PAM
 	// service reached for some other account authenticates nothing.
@@ -285,7 +285,7 @@ type Config struct {
 	Executor ExecutorConfig
 	Exec     ExecConfig
 	Ssh      SshConfig
-	Elevate  ElevateConfig
+	Sudo     SudoConfig
 	Secrets  SecretsConfig
 	Audit    AuditConfig
 }
@@ -397,7 +397,7 @@ var inventoryLists = map[string]bool{
 //
 // Distinct from systemdOwned, which is what the .socket units decide.
 //
-// All but elevate.notify_command are scalars, which the policy rule below
+// All but approval.notify_command are scalars, which the policy rule below
 // cannot reach: that one refuses a list two sources set, and a scalar simply
 // replaces.  This check runs first either way.  ssh.exec_group
 // is the reason this matters rather than being tidiness, being the group the
@@ -416,17 +416,17 @@ var initOwned = map[string]string{
 	"executor.allowed_user": "--broker-user NAME",
 	// The exec account's primary group, resolved at install time.
 	"ssh.exec_group": "--exec-user NAME",
-	// The whole of [elevate] but timeout_sec.  Every one of these decides whether
-	// an elevation happens rather than being a default to tune: pam_service names
+	// The whole of [sudo] but timeout_sec.  Every one of these decides whether
+	// an approval happens rather than being a default to tune: pam_service names
 	// the file sudo authenticates that account against, helper is the program that
 	// file execs as root, notify_command is a program the broker execs as the uid
 	// holding every plaintext value, and exec_user is the account the whole grant
 	// is written for.  Who may *answer* is not here, being no config key at all:
 	// it is root, checked with SO_PEERCRED, and nothing can widen it.
-	"elevate.exec_user":      "--elevate",
-	"elevate.pam_service":    "",
-	"elevate.helper":         "",
-	"elevate.notify_command": "",
+	"sudo.exec_user":      "--allow-sudo",
+	"sudo.pam_service":    "",
+	"sudo.helper":         "",
+	"sudo.notify_command": "",
 	// Where the master key is read from, and the credential the keeper unit
 	// supplies it under, which that unit renders alongside.
 	"keeper.age_key_file":       "--config-dir PATH",
@@ -554,7 +554,7 @@ func appendNew(existing, incoming []any) []any {
 }
 
 var (
-	sections = []string{"server", "keeper", "executor", "exec", "ssh", "elevate",
+	sections = []string{"server", "keeper", "executor", "exec", "ssh", "sudo",
 		"secrets", "audit"}
 	serverKeys = []string{"socket_path", "max_concurrency",
 		"max_request_bytes", "allowed_group"}
@@ -565,7 +565,7 @@ var (
 		"max_output_bytes", "base_env", "term_cols", "term_rows", "kill_grace_sec"}
 	sshKeys = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
-	elevateKeys = []string{"exec_user", "pam_service", "helper",
+	sudoKeys = []string{"exec_user", "pam_service", "helper",
 		"notify_command", "timeout_sec"}
 	secretsKeys = []string{"files", "decrypt_command", "refresh_interval_sec",
 		"min_length"}
@@ -598,7 +598,7 @@ func fromMap(raw map[string]any, path string) (*Config, error) {
 	if err := loadSsh(raw, path, &cfg.Ssh); err != nil {
 		return nil, err
 	}
-	if err := loadElevate(raw, path, &cfg.Elevate); err != nil {
+	if err := loadSudo(raw, path, &cfg.Sudo); err != nil {
 		return nil, err
 	}
 	if err := loadAudit(raw, path, &cfg.Audit); err != nil {
@@ -838,18 +838,18 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 	return nil
 }
 
-func loadElevate(raw map[string]any, path string, out *ElevateConfig) error {
-	where := fmt.Sprintf("%s: [elevate]", path)
-	sec, err := table(raw, "elevate", path)
+func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
+	where := fmt.Sprintf("%s: [sudo]", path)
+	sec, err := table(raw, "sudo", path)
 	if err != nil {
 		return err
 	}
-	if err := rejectUnknownKeys(sec, elevateKeys, where); err != nil {
+	if err := rejectUnknownKeys(sec, sudoKeys, where); err != nil {
 		return err
 	}
 	// No exec_user by default, which is the install that granted no sudoers
 	// entry: the rest describes where things would go if one ever did.
-	*out = ElevateConfig{
+	*out = SudoConfig{
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
 		// Nothing by default: `faramir approve --watch` is where a question is seen

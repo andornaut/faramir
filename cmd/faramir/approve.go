@@ -1,6 +1,6 @@
 package main
 
-// faramir approve: the channel an elevation is answered on.
+// faramir approve: the channel an approval is answered on.
 //
 // Root, and root only.  The coding agent runs as the operator, so an approval
 // the operator could give is one the agent could give itself; the broker checks
@@ -25,7 +25,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/andornaut/faramir/internal/elevate"
+	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
@@ -47,7 +47,7 @@ func cmdApprove(args []string) int {
 		return 2
 	}
 	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "faramir approve must run as root: an elevation has to "+
+		fmt.Fprintln(os.Stderr, "faramir approve must run as root: an approval has to "+
 			"be answered by an account the coding agent cannot become, and it runs as "+
 			"you. Try 'sudo faramir approve'")
 		return 1
@@ -96,7 +96,7 @@ func listApprovals(socketPath string, asJSON bool) int {
 // and not a pane of a session it shares.
 func watchApprovals(socketPath string) int {
 	warnIfTypeable()
-	fmt.Fprintln(os.Stderr, "waiting for elevation requests; answer each with yes or no. "+
+	fmt.Fprintln(os.Stderr, "waiting for approval requests; answer each with yes or no. "+
 		"Ctrl-C to stop.")
 	answered := map[string]bool{}
 	for {
@@ -216,7 +216,7 @@ func approves(line string) bool {
 	}
 }
 
-func printQuestion(question elevate.Question) {
+func printQuestion(question approval.Question) {
 	fmt.Printf("\n%s\n", question.Prompt)
 	fmt.Printf("  id       %s\n", question.ID)
 	if question.Cwd != "" {
@@ -229,7 +229,7 @@ func printQuestion(question elevate.Question) {
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.
-func pending(socketPath string, waitSec int) ([]elevate.Question, error) {
+func pending(socketPath string, waitSec int) ([]approval.Question, error) {
 	request := map[string]any{"op": "approvals"}
 	if waitSec > 0 {
 		request["wait_sec"] = waitSec
@@ -241,7 +241,7 @@ func pending(socketPath string, waitSec int) ([]elevate.Question, error) {
 		return nil, err
 	}
 	var response struct {
-		Questions []elevate.Question `json:"questions"`
+		Questions []approval.Question `json:"questions"`
 		Error     *struct {
 			Message string `json:"message"`
 		} `json:"error"`

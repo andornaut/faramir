@@ -210,7 +210,7 @@ func running(pid int) bool {
 	return len(fields) > 0 && fields[0] != "Z"
 }
 
-// Confinement is mandatory for every run, elevation or not: with no usable
+// Confinement is mandatory for every run, a sudo grant or not: with no usable
 // cgroup the executor refuses to run rather than reap by process group, which a
 // setsid child escapes.  There is no fallback, so this holds on any host.  Forced
 // by clearing the discovered base, so the refusal is exercised even where a

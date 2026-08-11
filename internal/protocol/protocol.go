@@ -28,8 +28,8 @@ func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
 // SSH_AUTH_SOCK is here because rebinding it would decide what the child
-// authenticates against.  FARAMIR_ELEVATE_TOKEN is here for the same reason one
-// step on: it names the run an elevation is decided about, so a caller
+// authenticates against.  FARAMIR_APPROVAL_TOKEN is here for the same reason one
+// step on: it names the run an approval is decided about, so a caller
 // overwriting it decides which run its sudo asks the broker about (in practice
 // only breaking its own, the value being an opaque stored secret rather than
 // another run's token -- but the broker owns it and no caller sets it).
@@ -41,15 +41,15 @@ var ReservedEnv = map[string]bool{
 	"IFS": true, "BASH_ENV": true, "ENV": true, "SOPS_AGE_KEY": true,
 	"SOPS_AGE_KEY_FILE": true, "CREDENTIALS_DIRECTORY": true,
 	"SSH_AUTH_SOCK": true, "SSH_AGENT_PID": true,
-	"SUDO_ASKPASS": true, "FARAMIR_ELEVATE_TOKEN": true,
+	"SUDO_ASKPASS": true, "FARAMIR_APPROVAL_TOKEN": true,
 }
 
-// approvals and approve are the elevation channel, and the only ops the broker
+// approvals and approve are the approval channel, and the only ops the broker
 // refuses to anything but root.  They are on this socket rather than one of
 // their own because the check that matters is SO_PEERCRED, which every
 // connection here already carries; a second socket would be a second mode to
 // get wrong.
-var ops = []string{"exec", "list_secrets", "redact", "status", "approvals", "approve", "elevate"}
+var ops = []string{"exec", "list_secrets", "redact", "status", "approvals", "approve", "ask_approval"}
 
 type Request struct {
 	Op         string
@@ -61,13 +61,13 @@ type Request struct {
 	// Text is what the redact op scrubs.  Only that op reads it.
 	Text string
 
-	// ID names the elevation question `approve` answers, and Approve is the
+	// ID names the approval question `approve` answers, and Approve is the
 	// answer.  WaitSec is how long `approvals` may block before returning an
 	// empty list, so a watcher costs one connection rather than a poll a second.
 	ID      string
 	Approve bool
 	WaitSec int
-	// Token names the brokered command the `elevate` op asks about.  It is an
+	// Token names the brokered command the `ask_approval` op asks about.  It is an
 	// identifier, not a credential: the op that reads it is refused to anything
 	// but root.
 	Token string
@@ -166,10 +166,10 @@ func Parse(payload map[string]any) (*Request, error) {
 		req.Approve, _ = payload["approve"].(bool)
 	}
 
-	if req.Op == "elevate" {
+	if req.Op == "ask_approval" {
 		token, isStr := payload["token"].(string)
 		if !isStr || token == "" {
-			return nil, fmt.Errorf("'token' must name the brokered command asking to elevate")
+			return nil, fmt.Errorf("'token' must name the brokered command asking to sudo")
 		}
 		req.Token = token
 	}

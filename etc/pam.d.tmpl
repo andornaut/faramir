@@ -1,8 +1,8 @@
 # /etc/pam.d/{{.PamService}} -- how sudo authenticates {{.ExecUser}}, and only
 # {{.ExecUser}}.
 #
-# Written by `faramir init --elevate` and REWRITTEN BY EVERY RUN.  Re-running
-# init without --elevate removes it, along with the sudoers entry that names it.
+# Written by `faramir init --allow-sudo` and REWRITTEN BY EVERY RUN.  Re-running
+# init without --allow-sudo removes it, along with the sudoers entry that names it.
 #
 # A service of faramir's own rather than an edit to /etc/pam.d/sudo, which is
 # what {{.SudoersFile}}'s `pam_service` selects.  Everyone else's sudo reads the
@@ -19,12 +19,12 @@
 #
 #   requisite  -- not `sufficient`.  With `sufficient`, a helper that REFUSES is
 #                 not fatal, the stack falls through to pam_permit below, and
-#                 every elevation is granted without asking anybody.  One word,
+#                 every approval is granted without asking anybody.  One word,
 #                 and the gate is gone.
 #   seteuid    -- pam_exec otherwise runs the helper with the REAL uid, which
 #                 under setuid sudo is {{.ExecUser}}'s own.  The broker answers
-#                 the elevate op to root and to nobody else, so without this the
-#                 helper is refused and EVERY elevation fails: the feature is
+#                 the ask_approval op to root and to nobody else, so without this the
+#                 helper is refused and EVERY approval fails: the feature is
 #                 off rather than loose, but it is off.  It also keeps the
 #                 process doing the deciding out of the reach of the uid being
 #                 decided about, instead of resting on the kernel marking a

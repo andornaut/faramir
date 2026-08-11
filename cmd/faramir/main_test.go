@@ -244,7 +244,7 @@ func TestOnlyYesApproves(t *testing.T) {
 	}
 	for _, line := range []string{"no", "", "\n", "y e s", "sure", "yes please", "ok", "1"} {
 		if approves(line) {
-			t.Errorf("%q approved an elevation", line)
+			t.Errorf("%q approved an approval", line)
 		}
 	}
 }

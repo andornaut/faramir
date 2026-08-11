@@ -5,18 +5,18 @@ import (
 	"testing"
 	"time"
 
+	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/elevate"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// elevating turns on the elevation server the way an install with --elevate
+// allowSudo turns on the approval server the way an install with --allow-sudo
 // does.  Nothing to place: there is no credential in this design.
-func elevating(t *testing.T, s *Server) {
+func allowSudo(t *testing.T, s *Server) {
 	t.Helper()
-	s.Config.Elevate = config.ElevateConfig{
+	s.Config.Sudo = config.SudoConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
@@ -24,8 +24,8 @@ func elevating(t *testing.T, s *Server) {
 	}
 	// New() built the server from the config it was made with, so it is rebuilt
 	// here rather than mutated.
-	s.Elevate = New(s.Config).Elevate
-	t.Cleanup(s.Elevate.Stop)
+	s.Approval = New(s.Config).Approval
+	t.Cleanup(s.Approval.Stop)
 }
 
 // A brokered command is given a token and nothing else.  It names the run so a
@@ -33,13 +33,13 @@ func elevating(t *testing.T, s *Server) {
 // being refused to anything but root.
 func TestExecInjectsTheToken(t *testing.T) {
 	s, rec := execServer(t)
-	elevating(t, s)
+	allowSudo(t, s)
 
 	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
 	env := rec.only(t).Env
 
-	if env[elevate.TokenEnv] == "" {
-		t.Errorf("%s is unset, so a question could name no command", elevate.TokenEnv)
+	if env[approval.TokenEnv] == "" {
+		t.Errorf("%s is unset, so a question could name no command", approval.TokenEnv)
 	}
 	// Nothing that was ever a credential: no askpass helper, no socket, no
 	// password.  A child that finds one of these has something it can keep.
@@ -50,13 +50,13 @@ func TestExecInjectsTheToken(t *testing.T) {
 	}
 }
 
-// Without an install that asked for elevation, nothing is injected and sudo
+// Without an install that asked for approval, nothing is injected and sudo
 // fails the way it does on any host that granted nothing.
-func TestExecInjectsNothingWithoutElevation(t *testing.T) {
+func TestExecInjectsNothingWithoutASudoGrant(t *testing.T) {
 	s, rec := execServer(t)
 	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
-	if value, set := rec.only(t).Env[elevate.TokenEnv]; set {
-		t.Errorf("%s = %q on a host that granted no sudoers entry", elevate.TokenEnv, value)
+	if value, set := rec.only(t).Env[approval.TokenEnv]; set {
+		t.Errorf("%s = %q on a host that granted no sudoers entry", approval.TokenEnv, value)
 	}
 }
 
@@ -65,14 +65,14 @@ func TestExecInjectsNothingWithoutElevation(t *testing.T) {
 // command.
 func TestTheTokenDoesNotOutliveTheCommand(t *testing.T) {
 	s, rec := execServer(t)
-	elevating(t, s)
+	allowSudo(t, s)
 
 	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
-	token := rec.only(t).Env[elevate.TokenEnv]
+	token := rec.only(t).Env[approval.TokenEnv]
 	if token == "" {
 		t.Fatal("no token was injected")
 	}
-	if approved, _ := s.Elevate.Ask(token); approved {
+	if approved, _ := s.Approval.Ask(token); approved {
 		t.Error("a token was approved after its command ended")
 	}
 }
@@ -80,37 +80,37 @@ func TestTheTokenDoesNotOutliveTheCommand(t *testing.T) {
 // There is no credential to redact, and that is the property rather than an
 // omission: an approval is a decision, so nothing a child holds could be
 // printed back or carried anywhere.
-func TestElevationAddsNothingToTheValueSet(t *testing.T) {
+func TestApprovalAddsNothingToTheValueSet(t *testing.T) {
 	s, rec := execServer(t)
-	elevating(t, s)
+	allowSudo(t, s)
 	rec.output = "sudo: authenticating\n"
 
 	response := exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
 	if redactions, _ := response["redactions"].([]redact.Count); len(redactions) != 0 {
-		t.Errorf("redactions = %v, want none: elevation holds no value", redactions)
+		t.Errorf("redactions = %v, want none: approval holds no value", redactions)
 	}
 }
 
-// While one command holds an approved elevation, opExec refuses a second with
+// While one command holds an approval, opExec refuses a second with
 // `busy` rather than running it: the two share the executor's uid, so the new
 // one would be a route to the root approved for the first.  This is the wiring
-// of the serialization the elevate server enforces, checked through real
+// of the serialization the approval server enforces, checked through real
 // dispatch.
-func TestAnApprovedElevationHoldsOtherCommands(t *testing.T) {
+func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 	s, _ := execServer(t)
-	elevating(t, s)
+	allowSudo(t, s)
 
-	// A run approved and left in flight, standing in for a playbook mid-elevation:
+	// A run approved and left in flight, standing in for a playbook mid-approval:
 	// registered directly so it does not release the moment its command exits.
-	held, _ := s.Elevate.Register(elevate.Run{
+	held, _ := s.Approval.Register(approval.Run{
 		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-h",
 	})
-	go s.Elevate.Ask(held)
+	go s.Approval.Ask(held)
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	var id string
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && id == ""; {
 		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
-		if questions, _ := response["questions"].([]elevate.Question); len(questions) > 0 {
+		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
 			id = questions[0].ID
 		}
 	}
@@ -124,7 +124,7 @@ func TestAnApprovedElevationHoldsOtherCommands(t *testing.T) {
 	}
 
 	// It runs again once the approved run ends.
-	s.Elevate.Release(held)
+	s.Approval.Release(held)
 	if response := exec(t, s, map[string]any{"cmd": []any{"/bin/true"}}); response["error"] != nil {
 		t.Errorf("a command was still refused after the approved run ended: %v", response["error"])
 	}
@@ -132,25 +132,25 @@ func TestAnApprovedElevationHoldsOtherCommands(t *testing.T) {
 
 // Whether a brokered command may ask is worth the caller knowing: without it a
 // playbook that touches this host has to leave it out.
-func TestStatusReportsWhetherElevationIsConfigured(t *testing.T) {
+func TestStatusReportsWhetherApprovalIsConfigured(t *testing.T) {
 	s, _ := execServer(t)
 	if body, _ := exec(t, s, map[string]any{"op": "status"})["output"].(string); !strings.Contains(
-		body, `"configured": false`) {
-		t.Errorf("status does not report elevation as unconfigured: %s", body)
+		body, `"enabled": false`) {
+		t.Errorf("status does not report approval as unconfigured: %s", body)
 	}
-	elevating(t, s)
+	allowSudo(t, s)
 	body, _ := exec(t, s, map[string]any{"op": "status"})["output"].(string)
-	if !strings.Contains(body, `"elevate"`) || !strings.Contains(body, `"configured": true`) {
-		t.Errorf("status does not report elevation as configured: %s", body)
+	if !strings.Contains(body, `"sudo"`) || !strings.Contains(body, `"enabled": true`) {
+		t.Errorf("status does not report approval as configured: %s", body)
 	}
 }
 
 // The one check that stands between the coding agent and its own approval: the
 // answer has to come from root, and the agent runs as the operator.  Made at
 // the op rather than by the socket mode, which admits a group by design.
-func TestOnlyRootMayAnswerAnElevation(t *testing.T) {
+func TestOnlyRootMayAnswerAnApproval(t *testing.T) {
 	s, _ := execServer(t)
-	elevating(t, s)
+	allowSudo(t, s)
 
 	// uid 1000: a member of the client group, which is what the socket admits and
 	// what the agent runs as.
@@ -180,23 +180,23 @@ func TestOnlyRootMayAnswerAnElevation(t *testing.T) {
 // the sudo that was blocked on it.
 func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 	s, _ := execServer(t)
-	elevating(t, s)
+	allowSudo(t, s)
 
-	token, _ := s.Elevate.Register(elevate.Run{
+	token, _ := s.Approval.Register(approval.Run{
 		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-9",
 	})
 	granted := make(chan bool, 1)
 	go func() {
-		approved, _ := s.Elevate.Ask(token)
+		approved, _ := s.Approval.Ask(token)
 		granted <- approved
 	}()
 
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
-	var question elevate.Question
+	var question approval.Question
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) && question.ID == "" {
 		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
-		if questions, _ := response["questions"].([]elevate.Question); len(questions) > 0 {
+		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
 			question = questions[0]
 		}
 	}
@@ -214,7 +214,7 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 	if approved := <-granted; !approved {
 		t.Error("the sudo waiting on that answer was not released")
 	}
-	if left := s.Elevate.Questions(); len(left) != 0 {
+	if left := s.Approval.Questions(); len(left) != 0 {
 		t.Errorf("%d questions still waiting after an answer", len(left))
 	}
 }
@@ -223,7 +223,7 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 // operator has typed one that expired.
 func TestAnsweringAnUnknownQuestionIsAnError(t *testing.T) {
 	s, _ := execServer(t)
-	elevating(t, s)
+	allowSudo(t, s)
 	response := s.Handle(map[string]any{"op": "approve", "id": "beef00", "approve": true},
 		&sockutil.Peer{PID: 1, UID: 0, GID: 0})
 	if code := errorCode(t, response); code != "unknown_question" {

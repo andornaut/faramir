@@ -35,21 +35,21 @@ func TestMinimalConfigLoads(t *testing.T) {
 	}
 }
 
-// Elevation is off unless the config says otherwise, which is what makes the
+// The approval server is off unless the config says otherwise, which is what makes the
 // whole arrangement additive: no secret_file, so no socket, no injection and
 // nothing for a brokered command to ask.
-func TestElevationIsOffUnlessConfigured(t *testing.T) {
+func TestApprovalIsOffUnlessConfigured(t *testing.T) {
 	cfg, err := load(t, minimal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Elevate.ExecUser != "" {
-		t.Errorf("exec_user = %q, want unset", cfg.Elevate.ExecUser)
+	if cfg.Sudo.ExecUser != "" {
+		t.Errorf("exec_user = %q, want unset", cfg.Sudo.ExecUser)
 	}
 	// The rest still has values, describing where things would go if one were
 	// ever set.
-	if cfg.Elevate.PamService == "" || cfg.Elevate.TimeoutSec == 0 {
-		t.Errorf("elevate defaults are incomplete: %+v", cfg.Elevate)
+	if cfg.Sudo.PamService == "" || cfg.Sudo.TimeoutSec == 0 {
+		t.Errorf("approval defaults are incomplete: %+v", cfg.Sudo)
 	}
 }
 
@@ -61,10 +61,10 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Elevate.NotifyCommand) != 0 {
-		t.Errorf("notify_command = %q, want nothing by default", cfg.Elevate.NotifyCommand)
+	if len(cfg.Sudo.NotifyCommand) != 0 {
+		t.Errorf("notify_command = %q, want nothing by default", cfg.Sudo.NotifyCommand)
 	}
-	_, err = load(t, minimal+"[elevate]\nnotify_command = [\"wall\", \"something happened\"]\n")
+	_, err = load(t, minimal+"[sudo]\nnotify_command = [\"wall\", \"something happened\"]\n")
 	if err == nil {
 		t.Fatal("accepted a notifier that names neither the command nor the question")
 	}
@@ -72,7 +72,7 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 		t.Errorf("error does not name the key: %v", err)
 	}
 	// One that names either is fine.
-	if _, err := load(t, minimal+"[elevate]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
+	if _, err := load(t, minimal+"[sudo]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
 		t.Errorf("refused a usable notifier: %v", err)
 	}
 }

@@ -21,9 +21,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
-	"github.com/andornaut/faramir/internal/elevate"
 	"github.com/andornaut/faramir/internal/executor"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
@@ -36,11 +36,11 @@ import (
 )
 
 type Server struct {
-	Config  *config.Config
-	Store   *secretstore.Store
-	Audit   *audit.Log
-	Ssh     *sshagent.Agent
-	Elevate *elevate.Server
+	Config   *config.Config
+	Store    *secretstore.Store
+	Audit    *audit.Log
+	Ssh      *sshagent.Agent
+	Approval *approval.Server
 
 	// exec runs one command.  A field so a test can substitute one that records
 	// what it was handed, rather than reaching broker policy through a socket, a
@@ -54,21 +54,21 @@ type Server struct {
 
 func New(cfg *config.Config) *Server {
 	s := &Server{
-		Config:  cfg,
-		Store:   secretstore.New(cfg.Secrets, cfg.Keeper),
-		Audit:   audit.NewLog(cfg.Audit),
-		Ssh:     sshagent.New(cfg.Ssh),
-		Elevate: elevate.New(cfg.Elevate),
-		slots:   make(chan struct{}, cfg.Server.MaxConcurrency),
+		Config:   cfg,
+		Store:    secretstore.New(cfg.Secrets, cfg.Keeper),
+		Audit:    audit.NewLog(cfg.Audit),
+		Ssh:      sshagent.New(cfg.Ssh),
+		Approval: approval.New(cfg.Sudo),
+		slots:    make(chan struct{}, cfg.Server.MaxConcurrency),
 		exec: func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
 			return executor.Run(cfg.Exec, cfg.Executor, r, sink, req)
 		},
 	}
-	// An elevation is a thing that happened on this host, so it is recorded where
+	// An approval is a thing that happened on this host, so it is recorded where
 	// every other op is.  The record holds the command and the answer; the secret
 	// is not in it, and could not be, the audit log being written after redaction
 	// and that value being in the set.
-	s.Elevate.Record = func(entry map[string]any) { s.Audit.Write(entry, "") }
+	s.Approval.Record = func(entry map[string]any) { s.Audit.Write(entry, "") }
 	return s
 }
 
@@ -186,8 +186,8 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 		return s.opApprovals(request, peer)
 	case "approve":
 		return s.opApprove(request, peer)
-	case "elevate":
-		return s.opElevate(request, peer)
+	case "ask_approval":
+		return s.opAskApproval(request, peer)
 	default:
 		return s.opExec(request, peer)
 	}
@@ -210,12 +210,12 @@ func (s *Server) opStatus() protocol.Response {
 		"configs": s.Config.Sources,
 		"secrets": s.Store.Describe(),
 		"ssh":     map[string]any{"configured": configured, "usable": usable},
-		// Whether a brokered command may ask to elevate, which is worth the agent
+		// Whether a brokered command may ask to sudo, which is worth the agent
 		// knowing: without it a playbook that touches this host has to leave it out
 		// and be applied some other way.  Whether, not how: the socket, the helper
 		// and the password are none of a caller's business, and a human answers
 		// every request either way.
-		"elevate": map[string]any{"configured": s.Elevate.Enabled()},
+		"sudo": map[string]any{"enabled": s.Approval.Enabled()},
 	}, "", "  ")
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",
@@ -253,7 +253,7 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protoc
 	}
 }
 
-// opApprovals and opApprove are the elevation channel, and the only two ops
+// opApprovals and opApprove are the approval channel, and the only two ops
 // this socket refuses to a caller it otherwise admits.
 //
 // Root, checked with SO_PEERCRED, and nothing else -- not the client group,
@@ -270,12 +270,12 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 		return nil
 	}
 	out := protocol.ErrorResponse("forbidden", fmt.Sprintf(
-		"%s is root's: an elevation must be answered by an account the coding "+
+		"%s is root's: an approval must be answered by an account the coding "+
 			"agent cannot become. Run `sudo faramir approve`", op), "")
 	return &out
 }
 
-// opElevate is what sudo's PAM helper asks, and the only thing that decides
+// opAskApproval is what sudo's PAM helper asks, and the only thing that decides
 // whether a brokered command becomes root.  It blocks until a human answers.
 //
 // Root, like the other two: the helper reaches it because pam_exec runs it with
@@ -283,15 +283,15 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 // is what makes the token an identifier rather than a credential -- there is no
 // credential anywhere in this, which is the whole point of answering rather
 // than authenticating.
-func (s *Server) opElevate(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	if refused := s.requireRoot("elevate", peer); refused != nil {
+func (s *Server) opAskApproval(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+	if refused := s.requireRoot("ask_approval", peer); refused != nil {
 		return *refused
 	}
 	if request.Token == "" {
 		return protocol.ErrorResponse("bad_request",
-			"'token' must name the brokered command asking to elevate", "")
+			"'token' must name the brokered command asking to sudo", "")
 	}
-	approved, reason := s.Elevate.Ask(request.Token)
+	approved, reason := s.Approval.Ask(request.Token)
 	// A refusal is a response rather than an error: the helper reports it to PAM
 	// as a failed authentication, which is what sudo has to see.
 	return protocol.Response{
@@ -306,7 +306,7 @@ func (s *Server) opApprovals(request *protocol.Request, peer *sockutil.Peer) pro
 		return *refused
 	}
 	wait := min(time.Duration(request.WaitSec)*time.Second, maxApprovalWait)
-	questions := s.Elevate.QuestionsWait(wait)
+	questions := s.Approval.QuestionsWait(wait)
 	body, _ := json.MarshalIndent(map[string]any{"questions": questions}, "", "  ")
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n", "questions": questions,
@@ -327,7 +327,7 @@ func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) proto
 	if peer.PID > 0 {
 		who = fmt.Sprintf("%s (pid %d)", who, peer.PID)
 	}
-	if err := s.Elevate.Answer(request.ID, request.Approve, who); err != nil {
+	if err := s.Approval.Answer(request.ID, request.Approve, who); err != nil {
 		return protocol.ErrorResponse("unknown_question", err.Error(), "")
 	}
 	verdict := "refused"
@@ -448,27 +448,27 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// SSH_AUTH_SOCK: the child can authenticate with the keys, not read them.
 	maps.Copy(env, s.Ssh.Env())
 	// A token, and nothing else: the child can be identified when it asks to
-	// elevate, and a human answers out of band.  Not a capability -- spending it
+	// sudo, and a human answers out of band.  Not a capability -- spending it
 	// is an op the broker refuses to anything but root -- so what the child holds
 	// names its run rather than authorising it.
 	//
 	// Registered before the child starts and dropped when it ends, so a request
 	// that arrives late is refused rather than answered against a finished
 	// command.  The argv is the redacted one, this reaching a terminal and the log.
-	token, held := s.Elevate.Register(elevate.Run{
+	token, held := s.Approval.Register(approval.Run{
 		Argv: redactEach(s.redactor(), cmd), Cwd: cwd, LogID: logID,
 	})
-	// Held while another command holds an approved elevation: the two share the
+	// Held while another command holds an approval: the two share the
 	// executor's uid, so running this one now would give it a route to the root
 	// that was approved for the other.  Busy rather than an error -- the caller
 	// retries, and the wait is bounded by the approved run's own life.
 	if held {
-		return protocol.ErrorResponse("busy", "an approved elevation is running as "+
+		return protocol.ErrorResponse("busy", "an approval is running as "+
 			"the executor's uid; no other brokered command runs until it ends, so "+
 			"nothing can ride its approval. Retry shortly", logID)
 	}
-	defer s.Elevate.Release(token)
-	maps.Copy(env, s.Elevate.Env(token))
+	defer s.Approval.Release(token)
+	maps.Copy(env, s.Approval.Env(token))
 	injected := map[string]string{}
 	for name, uri := range envRefs {
 		ref, err := secretref.Parse(uri)
@@ -563,7 +563,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 // redactor builds a fresh matcher over the whole value set.  Fresh because a
 // Redactor carries per-stream state and counts.
 //
-// Elevation adds nothing here, which is the point of it: an approval is a
+// The sudo grant adds nothing here, which is the point of it: an approval is a
 // decision rather than a value, so there is no credential for a child to print
 // back and none for this to cover.
 func (s *Server) redactor() *redact.Redactor {
@@ -594,11 +594,11 @@ func redactEach(r *redact.Redactor, in []string) []string {
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
 	sshInfo, problems := s.describeSSH()
-	elevateInfo, elevateProblems := s.describeElevation()
+	approvalInfo, approvalProblems := s.describeApproval()
 	policy := s.policyProblems()
 	body, _ := json.MarshalIndent(map[string]any{
 		"configs": s.Config.Sources,
-		"secrets": secrets, "ssh": sshInfo, "elevate": elevateInfo, "policy": policy,
+		"secrets": secrets, "ssh": sshInfo, "sudo": approvalInfo, "policy": policy,
 	}, "", "  ")
 
 	code := 0
@@ -641,30 +641,30 @@ func (s *Server) CheckOutput() ([]byte, int) {
 			"place the key, or leave [ssh] key unset to authenticate some other way")
 		code = 1
 	}
-	// Same weighting as the SSH key: an elevation that cannot be asked for breaks
-	// only the commands that elevate, and those fail at the point of use with
+	// Same weighting as the SSH key: an approval that cannot be asked for breaks
+	// only the commands that sudo, and those fail at the point of use with
 	// sudo's own error.  Here is where an operator finds out without waiting for a
 	// playbook to.
-	if len(elevateProblems) > 0 {
-		log.Printf("this host cannot answer an elevation: %v", elevateProblems)
+	if len(approvalProblems) > 0 {
+		log.Printf("this host cannot answer an approval: %v", approvalProblems)
 		log.Printf("a brokered command that runs sudo will fail to authenticate; " +
-			"re-run `faramir init --elevate`, or re-run without it to take the grant " +
+			"re-run `faramir init --allow-sudo`, or re-run without it to take the grant " +
 			"away entirely")
 		code = 1
 	}
 	return body, code
 }
 
-// describeElevation reports whether this host could answer an elevation, and
+// describeApproval reports whether this host could answer an approval, and
 // why not when it could not.  Files rather than a live probe: putting the
 // question would mean waiting on a human, and `--check` runs from `init`.
-func (s *Server) describeElevation() (map[string]any, []string) {
-	info := map[string]any{"configured": s.Elevate.Enabled()}
-	if !s.Elevate.Enabled() {
+func (s *Server) describeApproval() (map[string]any, []string) {
+	info := map[string]any{"enabled": s.Approval.Enabled()}
+	if !s.Approval.Enabled() {
 		// The install that granted no sudoers entry, which is the default one.
 		return info, nil
 	}
-	cfg := s.Config.Elevate
+	cfg := s.Config.Sudo
 	info["exec_user"] = cfg.ExecUser
 	info["pam_service"] = cfg.PamService
 	info["helper"] = cfg.Helper
@@ -672,10 +672,10 @@ func (s *Server) describeElevation() (map[string]any, []string) {
 
 	var problems []string
 	// The helper is what sudo's PAM service execs, as root.  Absent, every
-	// elevation fails closed, which is safe and useless.
+	// approval fails closed, which is safe and useless.
 	if _, err := os.Stat(cfg.Helper); err != nil {
 		problems = append(problems, cfg.Helper+": "+err.Error()+
-			" (the PAM service execs it, so no elevation can be approved)")
+			" (the PAM service execs it, so no approval can be approved)")
 	}
 	// The PAM service file itself.  Absent, PAM falls back to /etc/pam.d/other,
 	// which on a normal host asks for a password nothing supplies -- but on one
@@ -691,7 +691,7 @@ func (s *Server) describeElevation() (map[string]any, []string) {
 	if len(cfg.NotifyCommand) > 0 {
 		if _, err := osexec.LookPath(cfg.NotifyCommand[0]); err != nil {
 			problems = append(problems, cfg.NotifyCommand[0]+": "+err.Error()+
-				" ([elevate] notify_command names it, so nothing announces a pending request)")
+				" ([sudo] notify_command names it, so nothing announces a pending request)")
 		}
 	}
 	return info, problems

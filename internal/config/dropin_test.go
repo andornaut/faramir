@@ -186,14 +186,14 @@ func TestADropInMayNotSetWhatInitDerives(t *testing.T) {
 		{"[ssh]\nssh_add = \"/tmp/evil\"\n", ""},
 		{"[keeper]\nage_key_file = \"/tmp/other.key\"\n", "--config-dir"},
 		{"[keeper]\nage_key_credential = \"other\"\n", ""},
-		// The whole of the elevation boundary.  secret_file chooses what the broker
+		// The whole of the approval boundary.  secret_file chooses what the broker
 		// hands to sudo, prompt_command is what asks the human -- one that answered
-		// itself would elevate with nobody in the loop -- and exec_group is who may
+		// itself would sudo with nobody in the loop -- and exec_group is who may
 		// ask at all.
-		{"[elevate]\nexec_user = \"root\"\n", "--elevate"},
-		{"[elevate]\npam_service = \"sudo\"\n", ""},
-		{"[elevate]\nhelper = \"/tmp/evil\"\n", ""},
-		{"[elevate]\nnotify_command = [\"/bin/echo\", \"{prompt}\"]\n", ""},
+		{"[sudo]\nexec_user = \"root\"\n", "--allow-sudo"},
+		{"[sudo]\npam_service = \"sudo\"\n", ""},
+		{"[sudo]\nhelper = \"/tmp/evil\"\n", ""},
+		{"[sudo]\nnotify_command = [\"/bin/echo\", \"{prompt}\"]\n", ""},
 	} {
 		t.Run(tc.flag+tc.dropIn, func(t *testing.T) {
 			_, err := write(t, minimal, map[string]string{"10-x.toml": tc.dropIn})

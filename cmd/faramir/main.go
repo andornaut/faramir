@@ -62,7 +62,7 @@ the install is):
   edit          edit a managed sops file
   rekey         re-encrypt the secrets directory to the recipients .sops.yaml now names
   logs          show the audit log: what ran, against which refs, and how it ended
-  approve       answer an elevation a brokered command asked for
+  approve       answer an approval a brokered command asked for
   doctor        report whether the install is doing its job
   reload        drop the daemons onto a changed configuration
   uninstall     remove the broker, keeping the key, the secrets directory and the log
