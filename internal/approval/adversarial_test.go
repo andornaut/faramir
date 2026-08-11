@@ -15,6 +15,7 @@ package approval
 // and the command it names is chosen by the caller.
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -92,15 +93,13 @@ func TestThePromptNamesWhatWillActuallyRun(t *testing.T) {
 // process restarting -- and every live executor-uid process during an approved
 // window can read the run's token and sudo on it.
 //
-// A no refuses the approval without answering the question: the run keeps
-// waiting, so the operator retries rather than the command having to ask again.
+// A no fails the sudo then and there, and closes the question.  Holding it open
+// for another try is the kinder-looking behaviour and the wrong one: it makes
+// the operator poll the one interval in which the host has to be quiet, and
+// leaves a yes standing against a condition that can change under it.
 func TestAnApprovalNeedsMoreThanThisServersOwnBookkeeping(t *testing.T) {
 	s := started(t, baseConfig())
-	quiet := false
 	s.Quiescent = func() (bool, string) {
-		if quiet {
-			return true, "nothing is running as the executor"
-		}
 		return false, "2 process(es) are running as the executor outside any brokered command"
 	}
 
@@ -116,19 +115,18 @@ func TestAnApprovalNeedsMoreThanThisServersOwnBookkeeping(t *testing.T) {
 	if err == nil {
 		t.Fatal("an approval took while processes of the executor's uid were unaccounted for")
 	}
+	if !errors.Is(err, ErrNotQuiescent) {
+		t.Errorf("Answer error = %v, want ErrNotQuiescent so the caller can tell this "+
+			"from an id nobody is waiting on", err)
+	}
 	if !strings.Contains(err.Error(), "running as the executor") {
 		t.Errorf("Answer error = %v, want the executor's own reason carried through", err)
 	}
-	if len(s.Questions()) != 1 {
-		t.Fatal("the question was consumed by an answer that did not take")
+	if approved := <-granted; approved {
+		t.Fatal("the sudo was approved despite the answer being refused")
 	}
-
-	quiet = true
-	if err := s.Answer(id, true, "the test"); err != nil {
-		t.Fatalf("the same question could not be approved once the host was quiet: %v", err)
-	}
-	if !<-granted {
-		t.Error("the sudo waiting on that answer was not released")
+	if len(s.Questions()) != 0 {
+		t.Error("the question was left open after a yes that could not be taken")
 	}
 }
 

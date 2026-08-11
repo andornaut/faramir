@@ -332,6 +332,13 @@ func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) proto
 		who = fmt.Sprintf("%s (pid %d)", who, peer.PID)
 	}
 	if err := s.Approval.Answer(request.ID, request.Approve, who); err != nil {
+		// A yes that was turned into a no because the host was not quiet is a
+		// different answer from an id nobody is waiting on, and the operator acts on
+		// each differently: one means run the command again, the other means the
+		// question had already gone.
+		if errors.Is(err, approval.ErrNotQuiescent) {
+			return protocol.ErrorResponse("not_quiescent", err.Error(), "")
+		}
 		return protocol.ErrorResponse("unknown_question", err.Error(), "")
 	}
 	verdict := "refused"
@@ -478,14 +485,22 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		// agent's working tree.  The question names both when they differ.
 		Argv0Path: s.redactor().RedactText(argv0Path),
 	})
-	// Held while another command holds an approval: the two share the
-	// executor's uid, so running this one now would give it a route to the root
-	// that was approved for the other.  Busy rather than an error: the caller
-	// retries, and the wait is bounded by the approved run's own life.
+	// Held while an approval is live or a question is waiting: this command and
+	// that one share the executor's uid, so running it now would give it a route
+	// to the root the other was approved for.
+	//
+	// A terminal refusal rather than a `busy` to retry.  A retryable answer makes
+	// a caller poll the one window in which the host must be quiet, so the moment
+	// the approval ends the retries land: a caller shaping when its command runs
+	// relative to somebody else's approval, and a stream of attempts against the
+	// exact interval the serialization is protecting.  Failing here says what
+	// happened and leaves the decision to run again with whoever reads it.
 	if held {
-		return protocol.ErrorResponse("busy", "an approval is running as "+
-			"the executor's uid; no other brokered command runs until it ends, so "+
-			"nothing can ride its approval. Retry shortly", logID)
+		return protocol.ErrorResponse("held", "an approval is being decided or held "+
+			"on the executor's uid, and no other brokered command runs while one is: "+
+			"they share that uid, so a second could ride the approval. This command was "+
+			"not run and was not queued. Run it again once the approved command has "+
+			"finished", logID)
 	}
 	defer s.Approval.Release(token)
 	maps.Copy(env, s.Approval.Env(token))

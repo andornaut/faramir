@@ -17,6 +17,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -649,9 +650,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 			log.Printf("approval: %s has no quiescence check, so it is approved on "+
 				"this server's own bookkeeping alone", id)
 		} else if quiet, detail := s.Quiescent(); !quiet {
-			return fmt.Errorf("not approving %s: %s. Every process on the executor's "+
-				"uid can read this run's token and sudo on it, so the host has to be "+
-				"quiet before a yes takes. Retry once it is", id, detail)
+			return s.refuseForNoise(id, detail)
 		}
 	}
 
@@ -677,9 +676,8 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	if approve {
 		if other := s.otherRunLocked(pending.token); other != "" {
 			s.mu.Unlock()
-			return fmt.Errorf("not approving %s while another brokered command runs "+
-				"(%s): it shares the executor's uid and could ride the approval. Retry "+
-				"once the host is quiet", id, other)
+			return s.refuseForNoise(id, "another brokered command is registered ("+
+				other+"), which shares the executor's uid and could ride the approval")
 		}
 		if run, ok := s.runs[pending.token]; ok {
 			run.approved = true
@@ -699,6 +697,37 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		map[bool]string{true: "approved", false: "refused"}[approve], who)
 	s.finish(pending, approve, reason)
 	return nil
+}
+
+// ErrNotQuiescent is what a yes becomes when the host was not quiet enough to
+// take it.  Exported so the broker can give it an error code of its own: an
+// operator who typed yes and got a refusal is owed a different answer from one
+// who typed an id that had expired.
+var ErrNotQuiescent = errors.New("the host was not quiet, so this was refused rather than approved")
+
+// refuseForNoise answers a question no, on behalf of an operator who said yes.
+//
+// Fail early, and do not hold the question open for another try.  Leaving it
+// open reads as the kinder behaviour -- the run keeps waiting, the operator
+// answers again when the host settles -- and it is the wrong shape: it makes the
+// operator poll the one interval in which the host must be quiet, and it leaves a
+// yes standing against a question whose answer depends on a condition that can
+// change under it.  A refusal is a decision that was safe to make at the moment
+// it was made, which is the only kind this design has.  The sudo fails now, the
+// question is closed, and running the command again is a fresh question with a
+// fresh answer.
+func (s *Server) refuseForNoise(id, detail string) error {
+	pending, err := s.find(id)
+	if err != nil {
+		// Answered or expired while the check ran.  Nothing to refuse.
+		return err
+	}
+	log.Printf("approval: %s refused rather than approved: %s", id, detail)
+	s.finish(pending, false, "refused: the host was not quiet when this was "+
+		"answered ("+detail+")")
+	return fmt.Errorf("%w: %s. The sudo waiting on %s has been refused and the "+
+		"question is closed. Run the command again once the host is quiet",
+		ErrNotQuiescent, detail, id)
 }
 
 // find is findLocked for a caller that does not hold the lock.

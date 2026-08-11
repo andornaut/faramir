@@ -109,12 +109,21 @@ func watchApprovals(socketPath string) int {
 	for {
 		questions, err := pending(socketPath, watchWait)
 		if err != nil {
-			// The broker is socket-activated and restarted by an install, so a lost
-			// connection is ordinary.  Reported and retried rather than fatal: a
-			// watcher that exits on the first blip is one nobody notices has gone.
-			fmt.Fprintf(os.Stderr, "faramir approve: %v; retrying\n", err)
-			time.Sleep(2 * time.Second)
-			continue
+			// Out, rather than reconnecting.  A watcher that heals itself is one whose
+			// absence is invisible: every question raised while it was reconnecting
+			// expired unanswered, and the terminal went on saying "waiting for approval
+			// requests" throughout.  Worse, it is a gap somebody else can arrange --
+			// anything that can restart or stall the broker buys a stretch in which no
+			// human is on the other end of the question.  Exiting makes the gap the
+			// operator's to see and to close.
+			//
+			// The cost is real: `faramir init` restarts the broker, so an install ends
+			// a watcher and it has to be started again.
+			fmt.Fprintf(os.Stderr, "faramir approve: %v\n", err)
+			fmt.Fprintln(os.Stderr, "faramir approve: stopping rather than "+
+				"reconnecting -- questions raised while nothing was watching would "+
+				"expire unanswered. Start it again once the broker is back.")
+			return 69 // EX_UNAVAILABLE, as every other broker-facing command
 		}
 		for _, question := range questions {
 			if answered[question.ID] {
@@ -129,15 +138,14 @@ func watchApprovals(socketPath string) int {
 				return 0
 			}
 			if code := answer(socketPath, question.ID, approve, false); code != 0 {
-				// Usually the question expired while it was being read, or the broker
-				// restarted underneath.  Reported and carried on, for the reason the
-				// poll above retries: a watcher that exits on the first of these is one
-				// nobody notices has gone, and every later request then expires
-				// unanswered.  Not marked answered, so a question still waiting is put
-				// again rather than skipped.
-				fmt.Fprintf(os.Stderr, "faramir approve: %s went unanswered; it may have "+
-					"expired while you were reading it\n", question.ID)
-				continue
+				// The question is gone either way: it expired while it was being read, or
+				// a yes was refused because the host was not quiet, which closes it
+				// rather than holding it open.  So it is marked answered -- there is
+				// nothing left to put again -- and the broker's message above this said
+				// which of the two it was.
+				fmt.Fprintf(os.Stderr, "faramir approve: %s was not approved; it is "+
+					"closed either way, so run the command again if it still needs to\n",
+					question.ID)
 			}
 			answered[question.ID] = true
 		}

@@ -96,11 +96,14 @@ func TestApprovalAddsNothingToTheValueSet(t *testing.T) {
 	}
 }
 
-// While one command holds an approval, opExec refuses a second with
-// `busy` rather than running it: the two share the executor's uid, so the new
-// one would be a route to the root approved for the first.  This is the wiring
-// of the serialization the approval server enforces, checked through real
-// dispatch.
+// While one command holds an approval, opExec refuses a second with `held`
+// rather than running it: the two share the executor's uid, so the new one would
+// be a route to the root approved for the first.  This is the wiring of the
+// serialization the approval server enforces, checked through real dispatch.
+//
+// `held` rather than `busy`, and the difference is the point: `busy` invites a
+// retry, and a caller retrying against a live approval is one polling the exact
+// interval the serialization exists to protect.
 func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
@@ -123,9 +126,10 @@ func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 		t.Fatalf("root could not approve the standing run: %v", response["error"])
 	}
 
-	// A second brokered command is now refused busy, and never reaches the executor.
-	if code := errorCode(t, exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})); code != "busy" {
-		t.Errorf("a command during a live approval got %q, want busy", code)
+	// A second brokered command is now refused outright, and never reaches the
+	// executor.
+	if code := errorCode(t, exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})); code != "held" {
+		t.Errorf("a command during a live approval got %q, want held", code)
 	}
 
 	// It runs again once the approved run ends.
@@ -231,9 +235,12 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 // up on, a run this process aborted without waiting for, or this process
 // restarting and forgetting every run.  Any executor-uid process alive through
 // an approved window can read that run's token out of /proc and sudo on it, so
-// the answer that matters is the executor's, and a no from it refuses the
-// approval without answering the question -- the run keeps waiting, and the
-// operator retries once the host is quiet.
+// the answer that matters is the executor's -- and a no from it turns the
+// operator's yes into a refusal there and then rather than holding the question
+// open to be answered again.
+//
+// It gets an error code of its own, because "your yes was refused" and "that id
+// is not waiting" send an operator to different places.
 func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
@@ -244,7 +251,11 @@ func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 	token, _ := s.Approval.Register(approval.Run{
 		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-q",
 	})
-	go s.Approval.Ask(token)
+	granted := make(chan bool, 1)
+	go func() {
+		approved, _ := s.Approval.Ask(token)
+		granted <- approved
+	}()
 
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	var question approval.Question
@@ -260,20 +271,17 @@ func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 
 	response := s.Handle(map[string]any{
 		"op": "approve", "id": question.ID, "approve": true}, root)
-	if response["error"] == nil {
-		t.Fatal("an approval took while the executor said the host was not quiet")
+	if code := errorCode(t, response); code != "not_quiescent" {
+		t.Errorf("code = %q, want not_quiescent: a yes that was refused is not an id "+
+			"nobody is waiting on", code)
 	}
-	if left := s.Approval.Questions(); len(left) != 1 {
-		t.Errorf("%d questions waiting after a refused-for-noise answer, want the "+
-			"question still open: the run keeps waiting rather than having to ask again", len(left))
+	if approved := <-granted; approved {
+		t.Fatal("the sudo was approved while the executor said the host was not quiet")
 	}
-
-	// And takes once the host is quiet, without the run having had to ask again.
-	s.Approval.Quiescent = func() (bool, string) { return true, "the test says so" }
-	if response := s.Handle(map[string]any{
-		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
-		t.Fatalf("the same question could not be approved once the host was quiet: %v",
-			response["error"])
+	if left := s.Approval.Questions(); len(left) != 0 {
+		t.Errorf("%d questions still waiting after a refused-for-noise answer, want "+
+			"it closed: holding it open would make the operator poll the one interval "+
+			"the host has to be quiet in", len(left))
 	}
 }
 

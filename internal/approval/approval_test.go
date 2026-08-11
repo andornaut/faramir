@@ -1,6 +1,7 @@
 package approval
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -299,15 +300,21 @@ func TestAnApprovalAndASecondRunNeverCoexist(t *testing.T) {
 }
 
 // The other half: a run is not approved while any other brokered command is
-// running, because that other command could ride the approval.  Refused without
-// answering the question, so the run keeps waiting and the operator retries once
-// the host is quiet rather than the sudo failing now.
-func TestAnApprovalWaitsForTheHostToBeQuiet(t *testing.T) {
+// registered, because that other command could ride the approval.  The yes is
+// turned into a no there and then rather than the question being held open --
+// holding it open would make the operator poll the one interval in which the
+// host has to be quiet, and leave a yes standing against a condition that can
+// change under it.
+func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, run())
 	other := mustRegister(s, Run{Argv: []string{"go", "build"}, Cwd: "/src", LogID: "log-2"})
 
-	go s.Ask(first)
+	granted := make(chan bool, 1)
+	go func() {
+		approved, _ := s.Ask(first)
+		granted <- approved
+	}()
 	id := waitForQuestion(t, s)
 	err := s.Answer(id, true, "operator")
 	if err == nil {
@@ -316,13 +323,27 @@ func TestAnApprovalWaitsForTheHostToBeQuiet(t *testing.T) {
 	if !strings.Contains(err.Error(), "go build") {
 		t.Errorf("the refusal does not name the command that blocked it: %v", err)
 	}
-	// Not answered: still waiting, so it can be approved once the host drains.
-	if len(s.Questions()) != 1 {
-		t.Error("the refused-for-quiet approval answered the question instead of " +
-			"leaving it to be retried")
+	if !errors.Is(err, ErrNotQuiescent) {
+		t.Errorf("err = %v, want it to say the host was not quiet rather than that "+
+			"the question was unknown", err)
 	}
+	// Answered, no, and closed.  Not held open for another try: that would make
+	// the operator poll the one interval in which the host has to be quiet, and
+	// leave a yes standing against a condition that can change under it.
+	if approved := <-granted; approved {
+		t.Fatal("the sudo was approved while another brokered command was running")
+	}
+	if len(s.Questions()) != 0 {
+		t.Error("the refused-for-quiet approval left its question open rather than " +
+			"answering it no")
+	}
+	// And the next question, from a run started after the host drained, takes.
+	// Both go: the refused run's sudo failed, so that command is over too.
 	s.Release(other)
-	if err := s.Answer(id, true, "operator"); err != nil {
+	s.Release(first)
+	second := mustRegister(s, run())
+	go s.Ask(second)
+	if err := s.Answer(waitForQuestion(t, s), true, "operator"); err != nil {
 		t.Fatalf("still refused after the host went quiet: %v", err)
 	}
 }
