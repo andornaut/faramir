@@ -745,3 +745,91 @@ func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
 		t.Errorf("the line does not say which record it was: %s", data)
 	}
 }
+
+// Every record the tree writes, at the smallest cap the config allows.  Each has
+// to come out whole -- a real record, not the terminal reduction.
+//
+// This is the guard that keeps stubLine from ever being what an operator reads.
+// A record's fields are named in the code, never by a caller, so the question
+// "are there too many of them?" is one this repository can answer for itself:
+// add a field to any record below and this fails here, rather than a host
+// somewhere writing identities in place of records.
+//
+// The widest, an exec that ran, has about fifty bytes to spare at the floor.  It
+// is not much, and it is not meant to be: the floor is the smallest cap anyone
+// can set, and the default is a quarter of a megabyte above it.
+func TestEveryRecordThisTreeWritesFitsTheFloor(t *testing.T) {
+	peer := map[string]any{"pid": 42.0, "uid": 1001.0, "gid": 1002.0}
+	for _, tc := range []struct {
+		name   string
+		record map[string]any
+		output Output
+	}{
+		{"exec that ran", map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec", "peer": peer,
+			"cmd": []string{"ansible-playbook", "site.yml"}, "cwd": "/srv/ansible",
+			"argv0_path": "/usr/bin/ansible-playbook",
+			"env_refs":   map[string]string{"ROUTER_PW": "home/router/admin"},
+			"exit_code":  0.0, "duration_sec": 1.5, "timed_out": false,
+			"started_at": 1786418918.0,
+			"redactions": []any{map[string]any{"token": "«SECRET:home/router/admin»", "count": 2.0}},
+		}, Output{Text: strings.Repeat("x", 100_000), Dropped: 900_000}},
+		{"exec that failed to start", map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000002", "op": "exec", "peer": peer,
+			"cmd": []string{"ansible-playbook", "site.yml"}, "cwd": "/srv/ansible",
+			"argv0_path": "/usr/bin/ansible-playbook",
+			"env_refs":   map[string]string{"ROUTER_PW": "home/router/admin"},
+			"started_at": 1786418918.0, "error": "ssh: connect to host failed",
+		}, Output{Text: strings.Repeat("x", 100_000), Dropped: 900_000}},
+		{"program that did not resolve", map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000003", "op": "exec", "peer": peer,
+			"cmd": []string{"nope"}, "cwd": "/srv/ansible", "error": "not on PATH",
+		}, Output{}},
+		{"redact", map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000004", "op": "redact", "peer": peer,
+			"input_bytes": 1447.0,
+			"redactions":  []any{map[string]any{"token": "«SECRET:a»", "count": 1.0}},
+		}, Output{}},
+		{"refusal", map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000005", "op": "exec",
+			"refused": "no_secrets", "reason": "no managed file was found",
+		}, Output{}},
+		{"approval", map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000006", "op": "ask_approval",
+			"cmd": []string{"ansible-playbook", "site.yml"}, "cwd": "/srv/ansible",
+			"approved": false, "prompted": true, "outcome": "refused by root (pid 19272)",
+			"exec_log_id": "2026-08-11T06:00:00Z-abcd000001",
+		}, Output{}},
+		{"edit", map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000007", "op": "edit", "uid": 0.0,
+			"file": "/etc/faramir/secrets/vault.sops.yml", "editor": "/usr/bin/nano",
+			"sudo": true,
+		}, Output{}},
+		{"rekey", map[string]any{
+			"log_id": "2026-08-11T06:00:00Z-abcd000008", "op": "rekey", "uid": 0.0,
+			"file": "/etc/faramir/secrets/vault.sops.yml",
+			"from": []string{"age1qqqq"}, "to": []string{"age1qqqq", "age1wwww"},
+		}, Output{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "audit.log")
+			NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+				Write(tc.record, tc.output)
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(data, &got); err != nil {
+				t.Fatal(err)
+			}
+			for key := range tc.record {
+				if _, ok := got[key]; !ok {
+					t.Errorf("%q is missing: this record no longer fits the floor cap "+
+						"and is written as its identity. It has %d fields in %d bytes of %d",
+						key, len(tc.record), len(data), config.MinRecordBytes)
+				}
+			}
+		})
+	}
+}
