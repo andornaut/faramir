@@ -116,3 +116,45 @@ func TestCgroupBaseIsARealDirectoryOrNothing(t *testing.T) {
 		t.Errorf("cgroupBase returned %q, which is not a cgroup v2 directory: %v", base, err)
 	}
 }
+
+// A probe under a fixed name is left behind by anything that stops this process
+// between the mkdir and the remove, and by a second instance probing at the same
+// moment.  The next mkdir then fails with EEXIST, which reads as a host that
+// cannot confine: every brokered command is refused, and the reason given is a
+// kernel and a unit that are not what is wrong.
+func TestEachProbeTakesANameOfItsOwn(t *testing.T) {
+	base := t.TempDir()
+	first, err := probePath(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := probePath(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Errorf("two probes took the same name (%s), so one left behind refuses "+
+			"every command until somebody removes it", first)
+	}
+	for _, path := range []string{first, second} {
+		if filepath.Dir(path) != base {
+			t.Errorf("probe %s is not under the cgroup being probed (%s)", path, base)
+		}
+	}
+}
+
+// And the probe cleans up after itself on the path it can: the directory must
+// not survive a call that made one.
+func TestAProbeLeavesNothingBehind(t *testing.T) {
+	base := t.TempDir()
+	// This host's temp directory is not a cgroup, so the answer is false; what is
+	// asserted is what the call left, not what it decided.
+	usableCgroup(base)
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("a probe left %d entry(ies) behind: %v", len(entries), entries)
+	}
+}

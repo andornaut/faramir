@@ -85,6 +85,14 @@ func New(cfg *config.Config) *Server {
 // Short: the answer is a /proc scan, and a human is waiting on it.
 const quiescenceWait = 5 * time.Second
 
+// peerWait bounds what a peer is given to send its request and to take its
+// reply.  It does not bound the op between them, which is a command running.
+//
+// A variable so a test can shorten it: what it guards against is a peer that
+// never reads, and waiting out the real value to prove it is a test that takes
+// half a minute to say so.
+var peerWait = 30 * time.Second
+
 func (s *Server) Listen() (net.Listener, error) {
 	ln, err := sockutil.Listen(s.Config.Server.SocketPath)
 	if err != nil {
@@ -128,13 +136,21 @@ func (s *Server) Close() error {
 func (s *Server) serveConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 
+	// Both directions, and before the first refusal is written: a deadline on the
+	// read alone leaves a peer that connects, asks, and never reads blocked in
+	// Write with nothing left to time it out.  A brokered command's output can be
+	// [exec] max_output_bytes, well past a socket buffer, so the write blocks the
+	// moment the peer stops reading.  This socket admits the account the coding
+	// agent runs as, and the goroutine, the descriptor and the whole response stay
+	// held; Serve waits on those goroutines to shut down, so one of them is also a
+	// broker that will not stop.
+	_ = conn.SetDeadline(time.Now().Add(peerWait))
 	peer, err := s.peer(conn)
 	if err != nil || peer == nil {
 		_ = sockutil.Send(conn, protocol.ErrorResponse("forbidden", "peer not authorized", ""))
 		return
 	}
 
-	_ = conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	line, err := sockutil.ReadLine(conn, s.Config.Server.MaxRequestBytes)
 	if err != nil {
 		if errors.Is(err, sockutil.ErrTooLarge) {
@@ -150,7 +166,6 @@ func (s *Server) serveConnection(conn net.Conn) {
 	if len(line) == 0 {
 		return
 	}
-	_ = conn.SetReadDeadline(time.Time{})
 
 	var payload map[string]any
 	if err := json.Unmarshal(line, &payload); err != nil {
@@ -158,7 +173,13 @@ func (s *Server) serveConnection(conn net.Conn) {
 			fmt.Sprintf("invalid JSON: %v", err), ""))
 		return
 	}
-	_ = sockutil.Send(conn, s.Handle(payload, peer))
+	// Cleared for the op itself, which runs for as long as [exec] max_timeout_sec
+	// allows and is not on the clock one line of JSON is read on.  The reply gets
+	// a fresh one once there is something to write.
+	_ = conn.SetDeadline(time.Time{})
+	response := s.Handle(payload, peer)
+	_ = conn.SetWriteDeadline(time.Now().Add(peerWait))
+	_ = sockutil.Send(conn, response)
 }
 
 // peer performs the SO_PEERCRED check.  The socket mode already restricts this

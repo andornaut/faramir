@@ -24,6 +24,15 @@ import (
 // confine refuses every command rather than degrading to the escapable
 // mechanism.  See docs/design.md for why there is no fallback.  It needs cgroup
 // v2, a unit granted Delegate=, and cgroup.kill (kernel >= 5.14).
+//
+// The unit's own cgroup is the outer one, which is why nothing sweeps run
+// cgroups at startup.  Run cgroups are made under this executor's own delegated
+// subtree, and faramir-exec.service takes systemd's default
+// KillMode=control-group: a dead executor, SIGKILLed included, has that whole
+// subtree stopped and removed before the restart, and a member cannot move out
+// of it.  So a run cgroup never outlives the process that made it, and a startup
+// sweep would find nothing.  A unit edited to KillMode=process or mixed breaks
+// that; the strays an approval is then refused on are the symptom.
 
 // cgroupBase is the cgroup v2 directory this executor may create run cgroups
 // under, or "" when confinement is unavailable.  Probed once at startup: per run
@@ -59,13 +68,30 @@ func cgroupBase() string {
 // Either missing means the host cannot confine, and the executor will refuse to
 // run rather than run unreaped.
 func usableCgroup(base string) bool {
-	probe := filepath.Join(base, "faramir-cgroup-probe")
+	probe, err := probePath(base)
+	if err != nil {
+		return false
+	}
 	if err := os.Mkdir(probe, 0o755); err != nil {
 		return false
 	}
 	_, killErr := os.Stat(filepath.Join(probe, "cgroup.kill"))
 	_ = os.Remove(probe)
 	return killErr == nil
+}
+
+// probePath names one probe, and names it differently every time.  A fixed name
+// is left behind by anything that stops this process between the mkdir above and
+// the remove after it, and by a second instance probing at the same moment; the
+// next mkdir then fails with EEXIST, which reads here as a host that cannot
+// confine.  That refuses every brokered command, and says the host needs cgroup
+// v2, a delegated unit and a 5.14 kernel, none of which is what is wrong.
+func probePath(base string) (string, error) {
+	var raw [8]byte
+	if _, err := rand.Read(raw[:]); err != nil {
+		return "", err
+	}
+	return filepath.Join(base, "faramir-probe-"+hex.EncodeToString(raw[:])), nil
 }
 
 // CanConfine reports whether this executor found a delegated cgroup at startup.
