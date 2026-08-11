@@ -158,8 +158,12 @@ func openAuditLog(path string) (*os.File, error) {
 // lost.  The one unparseable line that is not evidence of a loss is the last,
 // with no newline on the end: nothing finished writing it.  A line that ends
 // properly and will not parse is a record gone.
+//
+// A nil record counts as lost too.  "null" is valid JSON and unmarshals into a
+// map without error, leaving it nil, so testing the error alone drops that line
+// silently: the one line this reader would neither show nor count.
 func parseLine(line []byte) (record map[string]any, lost bool) {
-	if err := json.Unmarshal(line, &record); err != nil {
+	if err := json.Unmarshal(line, &record); err != nil || record == nil {
 		return nil, bytes.HasSuffix(line, []byte("\n"))
 	}
 	return record, false

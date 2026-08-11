@@ -155,6 +155,31 @@ func TestTailRecordsCountsInteriorLinesItSkipped(t *testing.T) {
 	}
 }
 
+// Every line that ends properly and yields no record is counted, whatever shape
+// it is.  "null" is the one that unmarshals without an error and leaves no
+// record behind, so a reader testing only the error shows a listing that looks
+// complete with a line missing from it, which is the failure reportSkipped
+// exists to prevent.
+func TestTailRecordsCountsEveryLineThatIsNotARecord(t *testing.T) {
+	for _, line := range []string{"null", "false", "123", `"text"`, "[1]", "garbage"} {
+		path := writeLog(t,
+			`{"log_id":"a","op":"exec"}`,
+			line,
+			`{"log_id":"b","op":"exec"}`,
+		)
+		records, skipped, err := tailRecords(path, 10)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if skipped != 1 {
+			t.Errorf("skipped = %d for a line of %s, want 1", skipped, line)
+		}
+		if len(records) != 2 {
+			t.Errorf("got %d records around a line of %s, want 2", len(records), line)
+		}
+	}
+}
+
 // The final line is the one an append can be caught halfway through, so it is
 // not evidence of anything.  What marks it is the missing newline: nothing
 // finished writing it.
