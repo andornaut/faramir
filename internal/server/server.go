@@ -72,8 +72,8 @@ func New(cfg *config.Config) *Server {
 	s.Approval.Record = func(entry map[string]any) { s.Audit.Write(entry, "") }
 	// The kernel's answer to the question the approval server can only believe:
 	// is anything running as the executor outside the run being approved?  Asked
-	// of the executor because this process cannot see it -- ProtectProc=invisible
-	// keeps another uid's /proc out of the broker's view -- and failing closed,
+	// of the executor because this process cannot see it (ProtectProc=invisible
+	// keeps another uid's /proc out of the broker's view), and failing closed,
 	// an executor that does not answer having not said the host is quiet.
 	s.Approval.Quiescent = func() (bool, string) {
 		return execserver.Quiescent(cfg.Executor.SocketPath, quiescenceWait)

@@ -225,9 +225,9 @@ func (e *Executor) untrack(c *runCgroup) {
 // That is the fact an approval rests on.  Every brokered command runs as this
 // uid and /proc/<pid>/environ is readable within a uid, so a process the broker
 // does not know about can read an approved run's token, exec with it set, and
-// sudo on it.  The broker's own map cannot see that -- a bounded drain that gave
+// sudo on it.  The broker's own map cannot see that: a bounded drain that gave
 // up, a run whose teardown it did not wait for, or its own restart all leave the
-// map saying one thing and the process table another -- so before an approval
+// map saying one thing and the process table another.  So before an approval
 // takes, the map is checked against the kernel here.
 //
 // Fails closed on every path it cannot answer: an unreadable /proc is not

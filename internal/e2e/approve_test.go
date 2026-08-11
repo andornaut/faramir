@@ -5,7 +5,7 @@ package e2e
 // A broker alone, without the keeper, the executor or a delegated cgroup: the
 // approval channel touches none of them, so this runs where the full harness
 // skips.  What it covers is the wiring between the flags and the ops, which is
-// the part no unit test reaches -- `--deny` with no id has to find the one
+// the part no unit test reaches: `--deny` with no id has to find the one
 // question waiting, refuse it, and release the sudo blocked on it.
 
 import (
@@ -71,7 +71,7 @@ func raise(t *testing.T, s *server.Server, argv ...string) <-chan bool {
 }
 
 // `faramir approve --deny` with no id refuses the one question waiting.  Only
-// one is ever outstanding, so naming it adds a step and nothing else -- and
+// one is ever outstanding, so naming it adds a step and nothing else, and
 // refusing something unseen is safe in a way approving it would not be.
 func TestCLIDenyWithoutAnIDRefusesTheWaitingQuestion(t *testing.T) {
 	s, sock := approvalBroker(t)

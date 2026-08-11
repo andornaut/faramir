@@ -68,7 +68,7 @@ func cmdApprove(args []string) int {
 	}
 	// --deny needs no id, and the asymmetry with approving is the point.  Only one
 	// question is ever outstanding, so "the one that is waiting" names exactly one
-	// thing -- and refusing something unseen is safe in a way approving it is not.
+	// thing, and refusing something unseen is safe in a way approving it is not.
 	// There is deliberately no bare `faramir approve` that says yes to whatever is
 	// there: an approval that names no command is one nobody judged, which is what
 	// this whole channel exists to prevent.  A refusal costs a re-run.
@@ -165,8 +165,8 @@ func watchApprovals(socketPath string, denyAll bool) int {
 	// queue: a question is removed from the broker the moment it is answered,
 	// refused or expired, and only one is ever outstanding, so a question cannot
 	// come back round to be shown twice.  What the set did instead was hold stale
-	// ids -- which are three random bytes, so a later question could draw one and
-	// be skipped in silence -- and swallow the case below.
+	// ids, which are three random bytes, so a later question could draw one and be
+	// skipped in silence, and swallow the case below.
 	for {
 		questions, err := pending(socketPath, watchWait)
 		if err != nil {
@@ -174,7 +174,7 @@ func watchApprovals(socketPath string, denyAll bool) int {
 			// absence is invisible: every question raised while it was reconnecting
 			// expired unanswered, and the terminal went on saying "waiting for approval
 			// requests" throughout.  Worse, it is a gap somebody else can arrange --
-			// anything that can restart or stall the broker buys a stretch in which no
+			// anything that can restart or stall the broker gains a stretch in which no
 			// human is on the other end of the question.  Exiting makes the gap the
 			// operator's to see and to close.
 			//
@@ -182,7 +182,7 @@ func watchApprovals(socketPath string, denyAll bool) int {
 			// a watcher and it has to be started again.
 			fmt.Fprintf(os.Stderr, "faramir approve: %v\n", err)
 			fmt.Fprintln(os.Stderr, "faramir approve: stopping rather than "+
-				"reconnecting -- questions raised while nothing was watching would "+
+				"reconnecting: questions raised while nothing was watching would "+
 				"expire unanswered. Start it again once the broker is back.")
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
 		}
@@ -206,7 +206,7 @@ func watchApprovals(socketPath string, denyAll bool) int {
 			// on saying it was watching while the question it had just shown expired
 			// unanswered.  So it goes the same way the poll does.
 			//
-			// 1 is the broker answering no to the answer -- the question expired while
+			// 1 is the broker answering no to the answer: the question expired while
 			// it was being read, or the yes was refused because the host was not quiet,
 			// which closes it rather than holding it open.  Either way it is settled
 			// and gone, the broker has already said which, and watching continues.
@@ -297,7 +297,7 @@ func readAnswer() (approve, ok bool) {
 // yes approves, and a typo, a stray word or an empty line is a no.
 //
 // The whole word, not "y".  Every prompt says "Type yes", and the threat this
-// answer is guarded against is a keystroke the operator did not make -- a tmux
+// answer is guarded against is a keystroke the operator did not make: a tmux
 // pane the agent can `send-keys` into, a tty the operator's own account owns.
 // Two bytes rather than four is a thin difference to rest anything on, but a
 // tool that accepts less than it asks for is one whose prompt is not the rule.
@@ -305,8 +305,8 @@ func approves(line string) bool {
 	return strings.ToLower(strings.TrimSpace(line)) == "yes"
 }
 
-// printQuestion shows one question.  Every caller-chosen string in it -- the
-// command, the cwd, the program -- was rendered for a terminal by the broker
+// printQuestion shows one question.  Every caller-chosen string in it (the
+// command, the cwd, the program) was rendered for a terminal by the broker
 // (see approval.Command), so what arrives here holds no escape sequence to obey.
 // The fields are printed one per line for the same reason the command is quoted:
 // a question is read before it is answered.

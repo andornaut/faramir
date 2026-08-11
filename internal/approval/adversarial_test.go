@@ -4,12 +4,12 @@ package approval
 // to the question a human is shown, rather than to the answer.
 //
 // These were written as the record of three gaps and now assert that each is
-// closed, which is the shape to keep them in -- a probe that only documents a
+// closed, which is the shape to keep them in: a probe that only documents a
 // weakness stops being read, and one that fails when the weakness comes back is
 // the thing worth having.  What each one is defending, and what closing it cost,
 // is with the mechanism in docs/design.md.
 //
-// The answer channel itself is not probed here -- SO_PEERCRED, `requisite` and
+// The answer channel itself is not probed here.  SO_PEERCRED, `requisite` and
 // `seteuid` are covered by internal/server and internal/install, and they hold.
 // What follows is the other half: the prompt is the whole security argument,
 // and the command it names is chosen by the caller.
@@ -23,7 +23,7 @@ import (
 // The prompt is printed to the operator's terminal with %s, and a terminal obeys
 // what it is sent: "\r" returns the cursor, ESC [ 2K erases the line, ESC [ A
 // moves up one.  Argv is the caller's, and arrives as JSON strings that
-// protocol.Parse takes as given -- so an unrendered prompt would let a run erase
+// protocol.Parse takes as given, so an unrendered prompt would let a run erase
 // the question it is being judged on and paint a more agreeable one.
 //
 // Quoted rather than stripped: an argument that held an escape is one the
@@ -88,9 +88,9 @@ func TestThePromptNamesWhatWillActuallyRun(t *testing.T) {
 }
 
 // An approval takes only where something outside this server's own bookkeeping
-// says the host is quiet.  The map here and the process table can part -- a
+// says the host is quiet.  The map here and the process table can part (a
 // cgroup teardown that gave up, a run aborted from the broker's side, this
-// process restarting -- and every live executor-uid process during an approved
+// process restarting), and every live executor-uid process during an approved
 // window can read the run's token and sudo on it.
 //
 // A no fails the sudo then and there, and closes the question.  Holding it open

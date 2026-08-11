@@ -5,7 +5,7 @@ package main
 // Both matter for the same reason and one of them matters twice.
 //
 // The executor daemon runs as the uid every brokered command runs as, and it is
-// not in any run's cgroup -- it is the one process of that uid that outlives
+// not in any run's cgroup: it is the one process of that uid that outlives
 // every run by construction.  It also receives each run's whole environment over
 // its socket, which is FARAMIR_APPROVAL_TOKEN and every injected value, so it is
 // the single place every run's token can be read from at once.  A brokered
@@ -14,9 +14,9 @@ package main
 // ptrace: /proc/sys/kernel/yama/ptrace_scope is 1 on Debian and Ubuntu, which
 // permits only descendants, and 0 on RHEL, Fedora and Arch, which permits any
 // process of the same uid.  On a host installed with --allow-sudo the executor
-// unit carries no seccomp filter at all -- it cannot, a filter forcing
-// NoNewPrivileges= on and NoNewPrivileges= making sudo inert -- so nothing else
-// refuses the syscall either.
+// unit carries no seccomp filter at all.  It cannot: a filter forces
+// NoNewPrivileges= on, and that makes sudo inert.  So nothing else refuses the
+// syscall either.
 //
 // The broker holds every decrypted value and the SSH agent.  Nothing runs as its
 // uid but itself, so this is defence in depth there rather than a boundary.

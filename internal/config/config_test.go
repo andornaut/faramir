@@ -81,7 +81,7 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 // timeout_sec is bounded at both ends, and the ceiling is not a taste: the PAM
 // helper derives its own deadline from MaxSudoTimeoutSec, so a question the
 // broker would hold for longer than that is one the helper would abandon while
-// it was still open -- and the operator's yes would land on a sudo that had
+// it was still open, and the operator's yes would land on a sudo that had
 // already gone.  The two constants cannot drift, so this is what keeps the
 // relationship between them true.
 func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {

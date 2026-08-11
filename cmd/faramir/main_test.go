@@ -239,7 +239,7 @@ func dispatcherNames(t *testing.T) []string {
 //
 // "y" is among the refusals, not the approvals.  Every prompt says "Type yes",
 // and the keystroke this answer is guarded against is one the operator did not
-// make -- a tmux pane the agent can send-keys into, a tty the operator's account
+// make: a tmux pane the agent can send-keys into, a tty the operator's account
 // owns.  A tool that accepts less than it asks for is one whose prompt is not
 // the rule.
 func TestOnlyYesApproves(t *testing.T) {
@@ -281,12 +281,12 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 
 // --deny needs no id: only one question is ever outstanding, so "the one that
 // is waiting" names exactly one thing.  The asymmetry with approving is
-// deliberate and worth holding in place -- refusing something unseen is safe,
+// deliberate and worth holding in place.  Refusing something unseen is safe,
 // and there is no bare `faramir approve` that says yes to whatever is there,
 // because an approval that names no command is one nobody judged.
 func TestDenyWithoutAnIDIsAccepted(t *testing.T) {
-	// Not root, so it stops at that check rather than dialling a socket -- which
-	// is enough to show --deny is no longer refused as a usage error before it.
+	// Not root, so it stops at that check rather than dialling a socket, which is
+	// enough to show --deny is no longer refused as a usage error before it.
 	for _, args := range [][]string{{"--deny"}, {"--deny", "--watch"}} {
 		if code := cmdApprove(args); code == 2 {
 			t.Errorf("faramir approve %v = 2, want --deny accepted without an id", args)

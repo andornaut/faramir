@@ -85,7 +85,7 @@ const maxCommandChars = 240
 // through `faramir approve`, the refusal messages and [sudo] notify_command.  A
 // terminal acts on what it is sent: "\r" returns the cursor, ESC [ 2K erases the
 // line, ESC [ A moves up one.  Left raw, a run could erase the question it is
-// being judged on and paint a more agreeable one in its place -- which would
+// being judged on and paint a more agreeable one in its place, which would
 // defeat the only thing that makes an approval worth anything, that the prompt
 // names the command.  So each argument is quoted the moment it holds anything
 // but printable text, and the whole is bounded.
@@ -98,8 +98,8 @@ func (r Run) Command() string {
 }
 
 // safeArg renders one caller-chosen string so a terminal displays it rather than
-// obeying it.  Ordinary arguments are left alone -- a prompt full of quotation
-// marks is one that is read less carefully -- and anything holding a control
+// obeying it.  Ordinary arguments are left alone (a prompt full of quotation
+// marks is one that is read less carefully), and anything holding a control
 // character, a space, a quote or a non-printable rune is quoted, which turns
 // every such byte into a visible escape.
 func safeArg(arg string) string {
@@ -147,7 +147,7 @@ type Server struct {
 	// Everything else here is bookkeeping, and bookkeeping is what an approval
 	// must not rest on alone.  /proc/<pid>/environ is readable within a uid, so
 	// any live executor-uid process during an approved window can read the
-	// approved run's token, exec with it set and sudo on it -- which means the
+	// approved run's token, exec with it set and sudo on it, which means the
 	// map below has to agree with the process table, and three things can part
 	// them: a cgroup teardown that does not finish (the drain is bounded and
 	// reports by logging), a run aborted from the broker's side, whose teardown
@@ -166,8 +166,8 @@ type Server struct {
 	runs map[string]Run
 	// waiting is the question a human has not answered yet: at most one, ever.
 	// Keyed by token, so the second task of a playbook joins the question the
-	// first one raised instead of asking again -- one question per command rather
-	// than one per sudo -- and a second *command* is refused rather than queued
+	// first one raised instead of asking again (one question per command rather
+	// than one per sudo), and a second *command* is refused rather than queued
 	// behind it.
 	//
 	// Still a map rather than a single field, because the key is what makes the
@@ -319,7 +319,7 @@ func (s *Server) otherRunLocked(token string) string {
 // The command's unanswered question goes with it.  One left filed would be shown
 // by `faramir approve` and would take a yes for a command that is no longer
 // running, which is an approval a human cannot judge, and it would hold the one
-// question slot -- there is only one -- until it timed out.
+// question slot, of which there is only one, until it timed out.
 func (s *Server) Release(token string) {
 	if token == "" {
 		return
@@ -424,8 +424,8 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 	//
 	// A queue here could only ever hold questions that cannot be answered yes.
 	// Two questions mean two registered runs, and Answer refuses to approve while
-	// any other run is registered -- the second could read the approved run's
-	// token and ride it -- so every queued question's only outcomes were a
+	// any other run is registered (the second could read the approved run's
+	// token and ride it), so every queued question's only outcomes were a
 	// refusal and an expiry.  What it added was prompts: an operator working
 	// through a list of things none of which could be granted, which is the
 	// attention this design is spending carefully.
@@ -626,7 +626,7 @@ func (s *Server) questionsLocked() []Question {
 			ID: pending.id, Prompt: Prompt(pending.run),
 			// Rendered like the command, and for the same reason: these are the
 			// caller's strings and they are printed to a terminal.  Absent stays
-			// absent -- safeArg would render "" as a pair of quotation marks, which
+			// absent: safeArg would render "" as a pair of quotation marks, which
 			// the caller would then print as a field holding nothing.
 			Cmd: pending.run.Command(), Cwd: safeUnlessEmpty(pending.run.Cwd),
 			Program: safeUnlessEmpty(pending.run.Argv0Path), LogID: pending.run.LogID,
@@ -671,7 +671,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	//
 	// Checking first and locking after is sound, and worth saying why.  A process
 	// that appeared between the two would have to have been spawned by something
-	// already running -- which this check would have seen -- or by the run being
+	// already running (which this check would have seen) or by the run being
 	// approved, which is what the approval is for; and a new *run* starting in
 	// that gap is caught by the sole-occupancy check below, under the lock.
 	if approve {
@@ -737,8 +737,9 @@ var ErrNotQuiescent = errors.New("the host was not quiet, so this was refused ra
 // refuseForNoise answers a question no, on behalf of an operator who said yes.
 //
 // Fail early, and do not hold the question open for another try.  Leaving it
-// open reads as the kinder behaviour -- the run keeps waiting, the operator
-// answers again when the host settles -- and it is the wrong shape: it makes the
+// open reads as the kinder behaviour, the run keeping its place while the
+// operator answers again once the host settles, and it is the wrong shape.  It
+// makes the
 // operator poll the one interval in which the host must be quiet, and it leaves a
 // yes standing against a question whose answer depends on a condition that can
 // change under it.  A refusal is a decision that was safe to make at the moment

@@ -878,9 +878,9 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 // It exists to keep one relationship true: the PAM helper's own deadline must
 // outlast any question the broker will hold, or the helper would give up on a
 // question still open and the operator's yes would land on a sudo that had
-// already gone.  The helper cannot read this config -- it runs from PAM with no
+// already gone.  The helper cannot read this config: it runs from PAM with no
 // environment and its argv is fixed at install time, and a value rendered into
-// the service file would go stale the first time a drop-in changed it -- so it
+// the service file would go stale the first time a drop-in changed it.  So it
 // derives its deadline from this constant instead, and the two cannot drift.
 //
 // Ten minutes, which is generous for somebody at a terminal: the question is

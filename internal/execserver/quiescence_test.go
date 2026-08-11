@@ -53,7 +53,7 @@ func names(strays []string, pid int) bool {
 // A member of a run this executor is confining is accounted for: it is the
 // approved command, or one of its descendants, which is what the approval is
 // for.  Tracked through the run's cgroup, so a run still tearing down still
-// counts -- until the cgroup is empty there is no telling the approved run's
+// counts: until the cgroup is empty there is no telling the approved run's
 // processes from a straggler.
 func TestQuiescenceAccountsForAConfinedRun(t *testing.T) {
 	e := &Executor{live: map[*runCgroup]struct{}{}}

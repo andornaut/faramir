@@ -173,7 +173,7 @@ func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 // ever.
 //
 // Derived rather than picked, and that is the whole point of it.  Two rules pull
-// in opposite directions -- it must outlast any question the broker will hold,
+// in opposite directions.  It must outlast any question the broker will hold,
 // or the helper gives up on a question still open and the operator's yes lands
 // on a sudo that has already gone; and it must be short, because until it fires
 // sudo is blocked, the run holds its slot, and the host refuses every other
@@ -183,8 +183,8 @@ func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 // rest of the afternoon.
 //
 // So it is [sudo] timeout_sec's own ceiling plus a margin for the round trip.
-// The helper cannot read the config -- PAM gives it no environment and its argv
-// is fixed at install time -- and config.MaxSudoTimeoutSec is what makes reading
+// The helper cannot read the config (PAM gives it no environment and its argv
+// is fixed at install time), and config.MaxSudoTimeoutSec is what makes reading
 // it unnecessary: the broker refuses to load a longer timeout, so the broker
 // always decides first and this never fires on a question that is still alive.
 const approvalMarginSec = 30

@@ -28,7 +28,7 @@ func allowSudo(t *testing.T, s *Server) {
 	// Quiescence is a round trip to a running executor, which these tests do not
 	// have: they are about what the broker does with an answer, not about how the
 	// host is measured.  Stubbed quiet, so the check is exercised where it is the
-	// subject -- TestAnApprovalIsRefusedWhileTheHostIsNotQuiet, below.
+	// subject: TestAnApprovalIsRefusedWhileTheHostIsNotQuiet, below.
 	s.Approval.Quiescent = func() (bool, string) { return true, "the test says so" }
 	t.Cleanup(s.Approval.Stop)
 }
@@ -235,7 +235,7 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 // up on, a run this process aborted without waiting for, or this process
 // restarting and forgetting every run.  Any executor-uid process alive through
 // an approved window can read that run's token out of /proc and sudo on it, so
-// the answer that matters is the executor's -- and a no from it turns the
+// the answer that matters is the executor's, and a no from it turns the
 // operator's yes into a refusal there and then rather than holding the question
 // open to be answered again.
 //

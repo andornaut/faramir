@@ -522,8 +522,8 @@ func TestStopReleasesWhatIsWaiting(t *testing.T) {
 
 // A command that ends takes its unanswered question with it.  A question left
 // filed would be shown by `faramir approve` and would take a yes for a command
-// that is no longer running, and it would hold one of the maxPending slots until
-// its own timeout.
+// that is no longer running, and it would hold the one question slot until its
+// own timeout.
 func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 	s := started(t, baseConfig()) // TimeoutSec is 10: nothing here may wait that long
 	token := mustRegister(s, run())
@@ -568,7 +568,7 @@ func TestOnlyOneCommandMayBeWaiting(t *testing.T) {
 	s := started(t, baseConfig())
 	// Both tokens before either asks.  A pending question holds a *new*
 	// registration, so the only way two commands ask at once is both registering
-	// while the host was quiet -- which is what a burst of brokered commands looks
+	// while the host was quiet, which is what a burst of brokered commands looks
 	// like, and the case this refuses.
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
 	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})

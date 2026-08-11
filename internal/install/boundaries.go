@@ -535,7 +535,7 @@ const ptraceScopeFile = "/proc/sys/kernel/yama/ptrace_scope"
 // daemon it shares a uid with, on a host that grants an approval.
 //
 // The executor daemon runs as the account every brokered command runs as, is in
-// no run's cgroup, and receives each run's whole environment -- so it is the one
+// no run's cgroup, and receives each run's whole environment, so it is the one
 // process of that uid that outlives every run and can see every run's approval
 // token.  A brokered command that can ptrace it has a foothold no cgroup
 // teardown reaches and no serialisation counts, which is exactly the state the
@@ -543,7 +543,7 @@ const ptraceScopeFile = "/proc/sys/kernel/yama/ptrace_scope"
 //
 // The daemons mark themselves undumpable, which refuses same-uid ptrace whatever
 // this setting says.  This check is about everything else of that uid: with
-// ptrace_scope=0 -- the default on RHEL, Fedora and Arch -- any process may
+// ptrace_scope=0, the default on RHEL, Fedora and Arch, any process may
 // attach to any other of the same uid, so two brokered commands that do overlap
 // can reach into one another, and the --allow-sudo executor unit carries no
 // seccomp filter to refuse the syscall (it cannot: a filter forces

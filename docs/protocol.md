@@ -69,6 +69,7 @@ Code | Meaning
 `unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
 `busy` | At `[server] max_concurrency`; retry
 `held` | An approval is being decided or held on the executor's uid, so no other brokered command runs. **Terminal, not retryable**: the command was neither run nor queued. Only on a host installed with `--allow-sudo`
+`not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the approval. The question is refused rather than held open, so the `sudo` fails and the command is run again once the host is quiet
 `no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `list_secrets` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`)
