@@ -89,9 +89,12 @@ func output(t *testing.T, r protocol.Response) string {
 
 // -- the request limit ------------------------------------------------------
 
-// Produced before a request is parsed.  Its own code rather than a bad_request,
-// because `faramir redact` answers a too_large by passing the text through
-// unredacted and saying so.
+// Produced before a request is parsed, so it has its own code rather than being
+// a bad_request: an oversized request is a client that needs to send less, not
+// one that sent nonsense.  `faramir redact` withholds the text either way, as it
+// does for every other error -- text that reached no redactor is text nobody
+// checked -- and the code is what tells the two apart in the audit and to
+// whoever is reading the failure.
 func TestARequestOverTheLimitIsRefusedAsTooLarge(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	s.Config.Server.MaxRequestBytes = 64

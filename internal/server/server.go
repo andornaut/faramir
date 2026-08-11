@@ -51,6 +51,12 @@ type Server struct {
 	slots chan struct{}
 	ln    net.Listener
 	wg    sync.WaitGroup
+
+	// Every connection still being served, so Close can unblock the ones parked
+	// on a peer.  See Close.
+	connsMu sync.Mutex
+	conns   map[net.Conn]struct{}
+	closing bool
 }
 
 func New(cfg *config.Config) *Server {
@@ -130,15 +136,67 @@ func (s *Server) Serve() error {
 	}
 }
 
+// Close stops the listener and unblocks every connection still being served.
+//
+// Serve waits on those goroutines before it returns, and what a connection
+// waits on is a peer: a redact stream idling between chunks may sit in a read
+// for [exec] max_timeout_sec.  Nothing else would end that wait, so a stop took
+// as long as the slowest peer and systemd killed the broker at TimeoutStopSec
+// rather than it exiting.  A deadline already past fails every read and write on
+// those connections at once, so the goroutines return and the process stops.
+//
+// It does not reach a connection whose command is still running: that one is
+// inside the executor rather than in socket I/O, and shutdown still waits for
+// it.  Ending a brokered command early because the broker is restarting is a
+// different decision from this one.
+//
+// Safe to call twice, which the daemon does: once from the signal handler and
+// once from its own defer.
 func (s *Server) Close() error {
+	s.connsMu.Lock()
+	s.closing = true
+	live := make([]net.Conn, 0, len(s.conns))
+	for conn := range s.conns {
+		live = append(live, conn)
+	}
+	s.connsMu.Unlock()
+	for _, conn := range live {
+		_ = conn.SetDeadline(time.Now().Add(-time.Second))
+	}
 	if s.ln != nil {
 		return s.ln.Close()
 	}
 	return nil
 }
 
+// track registers a connection Close may need to unblock, and reports whether
+// the server is still open: one accepted as Close ran would otherwise be served
+// by a goroutine nothing is going to interrupt.
+func (s *Server) track(conn net.Conn) bool {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	if s.closing {
+		return false
+	}
+	if s.conns == nil {
+		s.conns = map[net.Conn]struct{}{}
+	}
+	s.conns[conn] = struct{}{}
+	return true
+}
+
+func (s *Server) untrack(conn net.Conn) {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	delete(s.conns, conn)
+}
+
 func (s *Server) serveConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
+	if !s.track(conn) {
+		return // accepted as the broker was stopping
+	}
+	defer s.untrack(conn)
 
 	// Both directions, and before the first refusal is written: a deadline on the
 	// read alone leaves a peer that connects, asks, and never reads blocked in
@@ -196,17 +254,24 @@ func (s *Server) serveConnection(conn net.Conn) {
 		// on.  The reply gets a fresh one once there is something to write.
 		_ = conn.SetDeadline(time.Time{})
 		request, parseErr := protocol.Parse(payload)
-		response := protocol.Response(nil)
+		// Answered and done with, rather than carried into the continue test
+		// below: Parse returns no request alongside an error, so anything reading
+		// request.Op after this would depend on the order the test happens to be
+		// written in.
 		if parseErr != nil {
-			response = protocol.ErrorResponse("bad_request", parseErr.Error(), "")
-		} else {
-			response = s.dispatch(request, peer, stream)
+			_ = conn.SetWriteDeadline(time.Now().Add(peerWait))
+			_ = sockutil.Send(conn, protocol.ErrorResponse("bad_request", parseErr.Error(), ""))
+			return
 		}
+		response := s.dispatch(request, peer, stream)
 		_ = conn.SetWriteDeadline(time.Now().Add(peerWait))
 		if err := sockutil.Send(conn, response); err != nil {
 			return
 		}
-		if parseErr != nil || request.Op != opRedactName || !request.More {
+		// The response decides as well as the request: a chunk that was refused
+		// ends the connection rather than waiting out the long deadline below for
+		// a stream that has nothing left to say.
+		if response["error"] != nil || request.Op != opRedactName || !request.More {
 			return
 		}
 		// The next chunk of a stream already in progress, which is the only thing
