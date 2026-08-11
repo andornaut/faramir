@@ -124,7 +124,6 @@ RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
 SystemCallFilter=@system-service
 SystemCallArchitectures=native
 SystemCallErrorNumber=EPERM
-RestrictNamespaces=true
 RestrictRealtime=true
 RestrictSUIDSGID=true
 LockPersonality=true
@@ -164,6 +163,15 @@ UMask=0007
 #       Children are arbitrary operator-chosen programs, some of them JITs.
 #   SystemCallFilter=~@privileged, ~@resources
 #       Ansible's file and user modules call chown and friends.
+#   RestrictNamespaces=
+#       It is a seccomp rule on clone()'s flags argument, and clone3() carries the
+#       same flags behind a pointer seccomp cannot read, so systemd denies clone3()
+#       with ENOSYS wherever this is set at all: glibc's fork() then retries with
+#       clone().  Every run is spawned with CLONE_INTO_CGROUP, which only clone3()
+#       has and which has no such retry, so setting this to any value stops the
+#       executor spawning anything.  Losing it hands a child a full capability set
+#       inside a user namespace it creates; hosts that care set
+#       kernel.apparmor_restrict_unprivileged_userns.
 #   PrivateDevices=, DeviceAllow=
 #       Every child runs on a PTY.
 #   SupplementaryGroups=, ReadWritePaths=

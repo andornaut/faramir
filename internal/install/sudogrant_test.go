@@ -296,6 +296,16 @@ func TestTheExecutorUnitDelegatesItsCgroup(t *testing.T) {
 		t.Errorf("the executor unit sets ProtectControlGroups=%q, which makes cgroupfs "+
 			"read-only and breaks per-run confinement", value)
 	}
+	// Nor RestrictNamespaces=, at any value: systemd implements it as a seccomp rule
+	// on clone()'s flags, cannot read the ones clone3() carries behind a pointer, and
+	// so denies clone3() outright.  The spawn above is CLONE_INTO_CGROUP, which
+	// exists only there, so setting it stops every brokered command with ENOSYS.
+	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
+		if value, set := directives(t, "faramir-exec.service", layout)["RestrictNamespaces"]; set {
+			t.Errorf("the executor unit sets RestrictNamespaces=%q, so systemd denies "+
+				"clone3() and the executor can spawn nothing", value)
+		}
+	}
 }
 
 // directives parses one rendered unit's KEY=VALUE lines, comments dropped.  The
