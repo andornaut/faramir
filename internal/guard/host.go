@@ -15,9 +15,9 @@ type host struct {
 	name string
 
 	// shellTools name the tools this host runs commands through; anything else
-	// is left alone.  wrapTool is the one whose input is rewritten -- Claude
-	// Code's second tool reads a running command's buffer, which is recognised
-	// so it can be skipped deliberately.
+	// is left alone.  wrapTool is the one whose input is rewritten; Claude Code's
+	// second tool reads a running command's buffer, which is recognised so it can
+	// be skipped deliberately.
 	shellTools []string
 	wrapTool   string
 

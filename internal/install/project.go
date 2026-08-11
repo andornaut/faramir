@@ -272,8 +272,8 @@ func (p *project) shareTree() error {
 }
 
 // agentConfig writes each enrolled agent's configuration into the tree.  What
-// the hook costs differs by agent -- Claude Code auto-approves Bash, Gemini CLI
-// has no approval to give -- so the warning below reports the agent it just
+// the hook costs differs by agent (Claude Code auto-approves Bash, Gemini CLI
+// has no approval to give), so the warning below reports the agent it just
 // enrolled.
 //
 // An entry naming a path from an earlier layout is corrected rather than

@@ -5,7 +5,7 @@
 // .kilo/plugin/faramir.js, which Kilo Code loads at startup.
 //
 // It decides nothing: the deny list, the rewrite and what is left alone are
-// `faramir guard`.  This is the translation -- a payload out, a decision back,
+// `faramir guard`.  This is the translation: a payload out, a decision back,
 // applied rather than returned, Kilo Code having no reply document.
 //
 // A separate file from the opencode plugin, which it otherwise matches: the two

@@ -1,4 +1,4 @@
-# /etc/pam.d/{{.PamService}} -- how sudo authenticates {{.ExecUser}}, and only
+# /etc/pam.d/{{.PamService}}: how sudo authenticates {{.ExecUser}}, and only
 # {{.ExecUser}}.
 #
 # Written by `faramir init --allow-sudo` and REWRITTEN BY EVERY RUN.  Re-running
@@ -17,18 +17,17 @@
 #
 # THE TWO WORDS THAT MATTER:
 #
-#   requisite  -- not `sufficient`.  With `sufficient`, a helper that REFUSES is
+#   requisite:  not `sufficient`.  With `sufficient`, a helper that REFUSES is
 #                 not fatal, the stack falls through to pam_permit below, and
-#                 every approval is granted without asking anybody.  One word,
-#                 and the gate is gone.
-#   seteuid    -- pam_exec otherwise runs the helper with the REAL uid, which
+#                 every approval is granted without asking anybody.
+#   seteuid:    pam_exec otherwise runs the helper with the REAL uid, which
 #                 under setuid sudo is {{.ExecUser}}'s own.  The broker answers
 #                 the ask_approval op to root and to nobody else, so without this the
 #                 helper is refused and EVERY approval fails: the feature is
 #                 off rather than loose, but it is off.  It also keeps the
 #                 process doing the deciding out of the reach of the uid being
 #                 decided about, instead of resting on the kernel marking a
-#                 setuid child non-dumpable -- which it does today, and which is
+#                 setuid child non-dumpable, which it does today and which is
 #                 not a thing to build a boundary on.
 #
 # Fail-closed by construction: a missing module, an unparseable line or a

@@ -76,8 +76,8 @@ func TestAdversarialBattery(t *testing.T) {
 			return b.String()
 		}},
 		// NOTE: bash 5.2 `set -x` uses single-quoting, which IS covered (verified
-		// against real bash). Only `printf %q`'s backslash form escapes -- a
-		// deliberate re-quoting, narrower than the accidental xtrace path.
+		// against real bash). Only `printf %q`'s backslash form escapes: a deliberate
+		// re-quoting, narrower than the accidental xtrace path.
 		{"bash-printf-q", richSecret, "DELIBERATE", "bash printf %q (NOT set -x, which is covered)", bashPrintfQ},
 
 		// ---- ADVERSARIAL: deliberate, documented as Not-prevented ----
@@ -109,8 +109,8 @@ func TestAdversarialBattery(t *testing.T) {
 		fmt.Printf("%-18s %-11s %-45s %s\n", p.name, p.kind, p.tool, status)
 
 		// Regression assertions: every ACCIDENTAL/COVERED case must now be
-		// caught. ADVERSARIAL cases are observations -- the threat model documents
-		// them as defeatable, so they are allowed to leak.
+		// caught. ADVERSARIAL cases are observations: the threat model documents them
+		// as defeatable, so they are allowed to leak.
 		switch p.kind {
 		case "COVERED", "ACCIDENTAL":
 			if leaked {
@@ -123,8 +123,8 @@ func TestAdversarialBattery(t *testing.T) {
 
 // TestNewVariantsSurviveChunking feeds the newly-covered encodings one rune at
 // a time. The overlap buffer must hold a variant that is split across Feed
-// calls -- hex doubles the length and a line-wrap inserts newlines mid-value,
-// so both stress the window that New sizes from the longest variant.
+// calls: hex doubles the length and a line-wrap inserts newlines mid-value, so
+// both stress the window that New sizes from the longest variant.
 func TestNewVariantsSurviveChunking(t *testing.T) {
 	secret := "hunter2correcthorsebatteryZ9"
 	hexForm := ""

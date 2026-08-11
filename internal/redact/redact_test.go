@@ -165,10 +165,9 @@ func TestATooShortValueIsRefused(t *testing.T) {
 	}
 }
 
-// How strong a credential is belongs to whoever chose it.  The distinct-character
-// and Shannon-entropy tests that used to sit here graded the operator's secrets
-// and refused to carry the ones they disliked -- and never were the strength
-// check they read as, "password" having cleared all three.
+// How strong a credential is belongs to whoever chose it.  A distinct-character
+// or Shannon-entropy floor would refuse to carry values it graded as weak while
+// not being the strength check it reads as: "password" clears both.
 func TestAWeakButLongValueIsCarried(t *testing.T) {
 	policy := DefaultPolicy()
 	for _, value := range []string{"password", "aaaaaaaaaaaa", "ababababababab"} {

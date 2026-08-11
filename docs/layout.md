@@ -3,9 +3,12 @@
 Every path `faramir init` creates, what owns it, and what each account can reach through it.
 
 ```text
-/usr/local/bin/faramir        the only binary; every role is a subcommand
-/usr/local/libexec/faramir/   the deny list, wrap.sh and (with --allow-sudo) the PAM helper, rendered per install
+/usr/local/bin/faramir        0755 root:root, the only binary; every role is a subcommand
+/usr/local/libexec/faramir/   0755 root:root, the deny list, wrap.sh and (with --allow-sudo) the PAM helper, rendered per install
+/usr/local/share/doc/faramir/ 0755 root:root, the README, the LICENSE and docs/, embedded in the binary and written out
 
+/etc/systemd/system/faramir-* 0644 root:root, the three .service and .socket units
+/etc/tmpfiles.d/faramir.conf  0644 root:root, creates /run/faramir
 /run/faramir/broker.sock      socket-activated, 0660 root:<client-group>
 /run/faramir/keeper.sock      socket-activated, 0660 root:faramir-broker
 /run/faramir/exec.sock        socket-activated, 0660 root:faramir-broker
@@ -14,12 +17,15 @@ Every path `faramir init` creates, what owns it, and what each account can reach
 /etc/pam.d/faramir-sudo       0644 root:root, how sudo authenticates faramir-exec and nobody else; --allow-sudo only
 <config-dir>/age.key          0400 faramir-keeper:faramir-keeper
 <config-dir>/id_ed25519       0600 faramir-broker:faramir-broker, the key it lends; .pub 0644
-<config-dir>/secrets/         2750 root:faramir-keeper, the managed sops files
+<config-dir>/secrets/         2750 root:faramir-keeper, the managed sops files, each 0640 root:faramir-keeper
 <config-dir>/.sops.yaml       0644 root:root, the creation rule; above the secrets directory, not in it
 <config-dir>/config.toml      0644 root:root, faramir's own, rewritten every run
 <config-dir>/config.d/        0755 root:root, yours and each consumer's, merged over it
 <any tree you enrol>          2770 <operator>:<client-group>, setgid; faramir init-project
-~faramir-broker/.ssh/         0700 faramir-broker, the keys it lends through the agent
+/var/lib/faramir-broker/      0700, the broker's home, granted by StateDirectory=
+/var/lib/faramir-broker/.ssh/ 0700 faramir-broker, the keys it lends through the agent
+/var/lib/faramir-keeper/      0700, the keeper's home
+/var/lib/faramir-exec/        0700, the child's HOME; .ssh/ 0700 holds its own known_hosts
 /var/log/faramir/             0750 faramir-broker:faramir-broker, LogsDirectoryMode=
 /var/log/faramir/audit.log    0600 faramir-broker:faramir-broker; faramir logs reads it
 /etc/logrotate.d/faramir      0644 root:root, weekly, 8 kept, early at 16MB
@@ -27,11 +33,11 @@ Every path `faramir init` creates, what owns it, and what each account can reach
 
 `--config-dir` moves the config, the secrets directory and the age key off `/etc` together; the audit log stays where it is. `faramir status` reports the paths in use.
 
-The two `--allow-sudo` files (and the PAM helper beside `wrap.sh`) are `root:root` on purpose: they decide who becomes root, so the account they govern must not be able to write them, and `faramir doctor` checks that. They stay at `/etc`, unmoved by `--config-dir`, being the paths `sudo` and PAM read. Re-running `init` without `--allow-sudo` removes both; see [operating.md](operating.md#allowing-sudo-on-the-controller). Every install, a sudo grant or not, also renders the executor unit with `Delegate=yes` so each run gets its own cgroup and is reaped there — a brokered command leaves no process behind, which is what the serialisation an approval relies on rests on. The cgroup is the one reaper, with no process-group fallback: where a cgroup cannot be made (an old kernel, a container without delegation), the executor refuses to run rather than reap by the escapable process group, and `faramir doctor` fails the host.
+The two `--allow-sudo` files (and the PAM helper beside `wrap.sh`) are `root:root` on purpose: they decide who becomes root, so the account they govern must not be able to write them, and `faramir doctor` checks that. They stay at `/etc`, unmoved by `--config-dir`, being the paths `sudo` and PAM read. Re-running `init` without `--allow-sudo` removes both; see [operating.md](operating.md#allowing-sudo-on-the-controller). Every install, a sudo grant or not, also renders the executor unit with `Delegate=yes` so each run gets its own cgroup and is reaped there, leaving no process behind. That is what the serialisation an approval relies on rests on. The cgroup is the one reaper, with no process-group fallback: where a cgroup cannot be made (an old kernel, a container without delegation), the executor refuses to run rather than reap by the escapable process group, and `faramir doctor` fails the host.
 
 A brokered command can write the working tree and reach the broker socket, its output redacted and audited like any other. It cannot reach the age key by any route: the modes above are what refuse the key file, the secrets directory, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
 
-`0400 faramir-keeper` keeps the operator out of the key wherever it sits: owning the directory is permission to unlink the file, not to read it, so replacing the key buys denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; its unit is triggered only by its socket.
+`0400 faramir-keeper` keeps the operator out of the key wherever it sits: owning the directory is permission to unlink the file, not to read it, so replacing the key yields denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; its unit is triggered only by its socket.
 
 ## Sharing a working tree
 

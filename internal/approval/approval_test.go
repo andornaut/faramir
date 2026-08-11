@@ -202,8 +202,8 @@ func TestOneApprovalCoversTheRestOfTheCommand(t *testing.T) {
 
 // The approval is scoped to the command, not to a stretch of time: the next
 // brokered command is asked about on its own, however soon it starts.  This is
-// what a password could not do -- one could be carried from the approved run to
-// this one -- and what nothing here can be, there being nothing to carry.
+// what a password could not do, one being carriable from the approved run to
+// this one, and what nothing here can be, there being nothing to carry.
 func TestAnotherCommandIsAskedAboutSeparately(t *testing.T) {
 	s := started(t, baseConfig())
 	h := watching(t, s, true)

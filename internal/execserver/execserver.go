@@ -64,14 +64,14 @@ type Executor struct {
 // behind [server] max_concurrency, holding a slot for the whole run, so that
 // number is the one that binds and this one is never reached. It was a config
 // key set four times higher than the cap above it: an operator could raise or
-// lower it and watch nothing change. What it still buys is that a broker with a
+// lower it and watch nothing change. What it still provides is that a broker with a
 // bug cannot fork without limit here, which is a reason to keep the check and
 // no reason to let anyone tune it.
 const maxConcurrent = 16
 
 func New(cfg *config.Config) *Executor {
 	e := &Executor{config: cfg, slots: make(chan struct{}, maxConcurrent)}
-	// Probed once.  Every run is confined to its own cgroup -- that is the one
+	// Probed once.  Every run is confined to its own cgroup: that is the one
 	// reaper, and it is what a setsid child cannot escape.  A run that cannot be
 	// confined is refused rather than reaped by process group, which a setsid child
 	// escapes: there is no fallback, so a host without a delegated cgroup refuses
@@ -283,10 +283,10 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 1}
 
 	// Confine the run to its own cgroup, the one reaper: a descendant that calls
-	// setsid -- which a process-group kill would miss -- is still reaped when the
+	// setsid, which a process-group kill would miss, is still reaped when the
 	// cgroup is torn down.  There is no fallback.  A host with no delegated cgroup,
 	// or a run that cannot be given one, is refused rather than reaped by process
-	// group, which a setsid child escapes -- a silent degrade there is exactly the
+	// group, which a setsid child escapes: a silent degrade there is exactly the
 	// gap this closes.
 	if e.cgroupBase == "" {
 		return errorResponse("exec_failed", "this host has no delegated cgroup (needs "+
@@ -301,7 +301,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	cmd.SysProcAttr.UseCgroupFD = true
 	cmd.SysProcAttr.CgroupFD = rcg.fd
 	// Closed after the run on every path, a normal exit included: it kills whatever
-	// is still in the cgroup -- a setsid grandchild can outlive a zero exit -- waits
+	// is still in the cgroup (a setsid grandchild can outlive a zero exit), waits
 	// for it to empty, and removes it.
 	defer rcg.close()
 

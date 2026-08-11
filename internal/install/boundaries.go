@@ -262,7 +262,7 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // client group, which faramir-exec is in; traversal is execute without read, so
 // only the enrolled tree is shared.  A home that was itself enrolled is
 // group-readable throughout, which carries the operator's SSH keys and the age
-// key under ~/.config/sops -- a second copy of the same authority, which the
+// key under ~/.config/sops: a second copy of the same authority, which the
 // check above cannot see.
 func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// No name to ask about is how doctor was invoked: operatorName falls back to
@@ -428,7 +428,7 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	}
 	if key := cfg.Ssh.Key; exists(key) {
 		if canRead(opts.ExecUser, key) {
-			report.add("ssh key", StatusFailed, "%s can read %s, so the agent buys "+
+			report.add("ssh key", StatusFailed, "%s can read %s, so the agent gains "+
 				"nothing: a brokered command can take the key itself", opts.ExecUser, key)
 			return
 		}
@@ -575,7 +575,7 @@ func execUnitDelegates() (delegates, known bool) {
 // permits below, and every approval is granted without asking.  And `seteuid`:
 // without it pam_exec runs the helper with the real uid, which under setuid
 // sudo is the executor's own, and the broker answers the ask_approval op to root
-// alone -- so the helper is refused and nothing on this host can sudo.
+// alone, so the helper is refused and nothing on this host can sudo.
 func pamStackProblem(body, helper string) string {
 	for line := range strings.Lines(body) {
 		line = strings.TrimSpace(line)
@@ -615,8 +615,8 @@ func permissiveAuth(body string) bool {
 		if strings.Contains(line, "pam_permit.so") {
 			return true
 		}
-		// Anything else in the auth stack -- a unix check, a deny, an include --
-		// means the fallback is not a free pass.
+		// Anything else in the auth stack (a unix check, a deny, an include) means
+		// the fallback is not a free pass.
 		return false
 	}
 	return false
@@ -735,8 +735,8 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 
 // diagnoseRedaction is the end-to-end claim: a managed value injected into a
 // real command comes back as its token.  The value is never in a finding on any
-// path -- a failure means the plaintext is in that output, so what is reported
-// is that no token appeared.
+// path: a failure means the plaintext is in that output, so what is reported is
+// that no token appeared.
 func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
 	faramir := filepath.Join(DefaultBinDir, "faramir")
 	out, err := asOperator(opts, faramir, "list-secrets")
@@ -818,7 +818,7 @@ func passwordlessSudo(account string) (string, bool) {
 	}
 	run := &runner{}
 	// The exit status is not read: sudo exits non-zero for an account with no
-	// entries, which is the healthy default and the same output -- none -- as an
+	// entries, which is the healthy default and the same output (none) as an
 	// account whose entries all authenticate.
 	out, _ := run.command("sudo", "-l", "-U", account)
 	for line := range strings.Lines(out) {

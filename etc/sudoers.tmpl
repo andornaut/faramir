@@ -1,4 +1,4 @@
-# {{.SudoersFile}} -- what a brokered command may sudo to.
+# {{.SudoersFile}}: what a brokered command may sudo to.
 #
 # Written by `faramir init --allow-sudo` and REWRITTEN BY EVERY RUN.  Re-running
 # init without --allow-sudo removes this file: the grant is the one place the
@@ -21,8 +21,8 @@
 #
 # timestamp_timeout=0 turns off sudo's credential cache, leaving the broker to
 # decide what an approval covers.  It scopes one to the brokered command the
-# human was shown -- every `sudo` that one run makes, and nothing after it ends
-# -- where sudo's timestamp would scope it to the next fifteen minutes, which
+# human was shown: every `sudo` that one run makes, and nothing after it ends.
+# sudo's timestamp would instead scope it to the next fifteen minutes, which
 # anything starting a command inside that window could ride.
 Defaults:{{.ExecUser}} pam_service={{.PamService}}
 Defaults:{{.ExecUser}} timestamp_timeout=0

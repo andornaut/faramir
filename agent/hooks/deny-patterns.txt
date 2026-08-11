@@ -6,9 +6,9 @@
 # and the store gets rules naming where they are.  Interpolated paths go through
 # regexQuote.  The guard's built-in fallback carries the compiled defaults.
 #
-# Not the security boundary -- the agent uid cannot read the key material
-# regardless -- but a corrective message naming faramir_run instead of an
-# EACCES, and no encrypted blobs in the context window.  See docs/design.md.
+# Not the security boundary, the agent uid being unable to read the key material
+# regardless, but a corrective message naming faramir_run instead of an EACCES,
+# and no encrypted blobs in the context window.  See docs/design.md.
 #
 # It names credential disclosure plus writes to the paths that are the broker
 # itself.  It is not a general destruction guard.
@@ -50,7 +50,7 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # Two rules, because the targets are not equally certain.  The first names
 # things that are only ever key material or faramir's own install, so it can
 # afford a wide tool list.  The second names words that occur in ordinary
-# projects -- vault, secrets, credentials, .env, .pem -- so it keeps the narrow
+# projects (vault, secrets, credentials, .env, .pem), so it keeps the narrow
 # pager and encoder list, and spells out the suffixes: secrets.md is
 # documentation, .env.example is a template.
 #

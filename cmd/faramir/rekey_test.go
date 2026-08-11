@@ -146,7 +146,7 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 		t.Error("KEY MATERIAL RETURNED AS A RECIPIENT")
 	}
 	// The secrets belong to the secrets group after an install, and a rekey that
-	// reset the mode would hand it back to whatever the umask said -- which is the
+	// reset the mode would hand it back to whatever the umask said, which is the
 	// failure `sops updatekeys` has and this command exists to avoid.
 	info, err := os.Stat(store)
 	if err != nil {

@@ -302,8 +302,8 @@ func editManaged(target, keyPath, editorPath string) (bool, error) {
 
 	// The recipients the file already had, named explicitly: sops resolves
 	// .sops.yaml by walking up from the file, which here is in a tmpfs, and an
-	// edit should preserve who could read the file -- applying a changed
-	// .sops.yaml is what `faramir rekey` is for.
+	// edit should preserve who could read the file; applying a changed .sops.yaml
+	// is what `faramir rekey` is for.
 	//
 	// Read before the editor runs.  It is knowable from the ciphertext, and a
 	// file whose metadata this cannot parse would otherwise be reported only

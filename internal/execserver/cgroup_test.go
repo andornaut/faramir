@@ -49,7 +49,7 @@ func TestCgroup2MountsReturnsEveryUnifiedMount(t *testing.T) {
 }
 
 // pids reads cgroup.procs, which is what drain watches to know a run's whole
-// tree is gone -- the setsid child among it -- before the run is counted done.
+// tree is gone, the setsid child among it, before the run is counted done.
 func TestPidsReadsTheProcsFile(t *testing.T) {
 	dir := t.TempDir()
 	c := &runCgroup{path: dir}
@@ -78,8 +78,8 @@ func TestPidsReadsTheProcsFile(t *testing.T) {
 }
 
 // drain returns as soon as the set is empty, and reports failure rather than
-// blocking for ever when something will not die -- the caller logs a uid that
-// is not quiescent instead of hanging the run's teardown.
+// blocking for ever when something will not die: the caller logs a uid that is
+// not quiescent instead of hanging the run's teardown.
 func TestDrainReturnsWhenEmptyAndBoundsItsWait(t *testing.T) {
 	dir := t.TempDir()
 	c := &runCgroup{path: dir}

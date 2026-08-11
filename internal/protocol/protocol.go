@@ -32,7 +32,7 @@ func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 // step on: it names the run an approval is decided about, so a caller
 // overwriting it decides which run its sudo asks the broker about (in practice
 // only breaking its own, the value being an opaque stored secret rather than
-// another run's token -- but the broker owns it and no caller sets it).
+// another run's token), but the broker owns it and no caller sets it.
 // SUDO_ASKPASS stays reserved defensively: our PAM service does not consult it,
 // but a child pointing sudo's askpass at a helper of its own has no business
 // doing so through an injected value.

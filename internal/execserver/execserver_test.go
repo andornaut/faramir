@@ -88,8 +88,8 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 
 // TestTheExecutorDoesNotSecondGuessArgv0 pins the absence of a check: the
 // executor runs what the broker sends, from wherever the broker says.  What
-// bounds this uid is what it holds -- no key, no audit log, no SSH key -- plus
-// the mode on its socket.
+// bounds this uid is what it holds (no key, no audit log, no SSH key) plus the
+// mode on its socket.
 func TestTheExecutorDoesNotSecondGuessArgv0(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 
@@ -158,8 +158,8 @@ func TestAMissingProgramIsExecFailed(t *testing.T) {
 	}
 }
 
-// The claim the cgroup exists for: a child that calls setsid -- breaking out of
-// the process group a killpg would reach -- is still reaped when the run ends,
+// The claim the cgroup exists for: a child that calls setsid, breaking out of
+// the process group a killpg would reach, is still reaped when the run ends,
 // because it cannot leave the run's cgroup.  The command detaches a grandchild
 // that would outlive it, prints the grandchild's pid, and exits; once the run is
 // done the grandchild must be gone.
@@ -188,7 +188,7 @@ func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
 	// The run has returned, so rcg.close() has already killed and drained the
 	// cgroup.  A process-group kill would have missed this pid; the cgroup did not.
 	// "Running" excludes a zombie: a killed process the reaper has not collected is
-	// dead, holds nothing, and satisfies the claim -- and kill(pid, 0) would call it
+	// dead, holds nothing, and satisfies the claim, and kill(pid, 0) would call it
 	// alive, so the state is read instead.
 	if running(gpid) {
 		t.Errorf("setsid grandchild %d is still running after the run: the cgroup did "+

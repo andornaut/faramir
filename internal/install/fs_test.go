@@ -15,7 +15,7 @@ var (
 	dryFS  = fsys{dryRun: true}
 )
 
-// The directories these walk -- config.d/ and the secrets directory -- can sit
+// The directories these walk (config.d/ and the secrets directory) can sit
 // inside the operator's own home under --config-dir, and the operator is the uid
 // the agent runs as.  A path-based chmod there would take root's mode change to
 // whatever the link points at.

@@ -2,8 +2,8 @@
 // binaries, the systemd units, and the checks that say whether what landed
 // works.
 //
-// A package rather than shell scripts because the same values -- the shared
-// group, the service uids -- have to reach several files that must agree.  All
+// A package rather than shell scripts because the same values (the shared
+// group, the service uids) have to reach several files that must agree.  All
 // of them render from one Layout.
 package install
 
@@ -59,7 +59,7 @@ type Layout struct {
 	// being the only account that opens a managed file; the operator is not in it,
 	// so editing a managed file needs sudo.  One group for both would let every
 	// caller that can ask for a value by name read and replace the file it comes
-	// from.  Defaults to KeeperUser; --secrets-group names another, which buys a
+	// from.  Defaults to KeeperUser; --secrets-group names another, which adds a
 	// second reader.
 	ClientGroup  string
 	SecretsGroup string

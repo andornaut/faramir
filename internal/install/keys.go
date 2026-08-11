@@ -66,8 +66,8 @@ func (r *runner) addRecipient(recipient string) {
 // filepath.Glob matches dotfiles.
 //
 // Kept if it already exists, adding or dropping a recipient meaning every
-// managed value is re-encrypted.  Kept and read back -- see keepSopsConfig --
-// so --age-recipient does not silently mean nothing.
+// managed value is re-encrypted.  Kept and read back (see keepSopsConfig), so
+// --age-recipient does not silently mean nothing.
 func (r *runner) stepSopsConfig() error {
 	path := r.layout.SopsConfigPath()
 	if exists(path) {
@@ -194,8 +194,8 @@ func (r *runner) keepSopsConfig(path string) {
 //
 // One is minted every run, whether or not this host turns out to need it, so
 // there is always a public half to put in an authorized_keys without re-running
-// with a flag.  [ssh] key is init's alone -- a drop-in setting it is refused by
-// the config merge -- so what the broker will load is exactly this path.
+// with a flag.  [ssh] key is init's alone, a drop-in setting it being refused by
+// the config merge, so what the broker will load is exactly this path.
 //
 // Runs after stepConfig, so the file naming the key is already written, and
 // before anything starts a daemon, a key the broker cannot read leaving the

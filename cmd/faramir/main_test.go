@@ -50,7 +50,7 @@ vault_router_password=secret://vault_router_password
 const pasted = "hunter2-correct-horse-battery"
 
 // Every line readEnvFile refuses, and the part of the message that makes it
-// actionable.  Parsing here rather than at the broker buys exactly one thing: a
+// actionable.  Parsing here rather than at the broker provides exactly one thing: a
 // message naming the file and the line.
 func TestRefusedEnvFileLines(t *testing.T) {
 	for _, tc := range []struct {
@@ -175,8 +175,8 @@ func TestOperatorNameResolution(t *testing.T) {
 		{"the flag wins", "flagged", "sudo", "flagged"},
 		{"SUDO_USER when that is all there is", "", "sudo", "sudo"},
 		{"root is not an answer", "root", "sudo", "sudo"},
-		// Nobody named, so the caller is who this is about -- doctor run by
-		// hand would otherwise report them as an account nothing created.
+		// Nobody named, so the caller is who this is about: doctor run by hand would
+		// otherwise report them as an account nothing created.
 		{"nothing at all falls back to the caller", "", "", fallback},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

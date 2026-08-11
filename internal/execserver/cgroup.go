@@ -14,7 +14,7 @@ import (
 
 // Per-run cgroup confinement: a brokered command is spawned into a cgroup of its
 // own and the whole cgroup is torn down when the run ends.  This is the one
-// reaper, with no process-group fallback -- a process group (what Setsid sets up
+// reaper, with no process-group fallback.  A process group (what Setsid sets up
 // and killpg reaches) is escaped by a child that calls setsid(), which starts a
 // new session and group the signal misses, while a cgroup is not escapable: a
 // descendant inherits it and cannot move out without write on another cgroup,
@@ -23,8 +23,8 @@ import (
 //
 // It needs cgroup v2, a unit granted Delegate=, and cgroup.kill (kernel >= 5.14).
 // `init` renders Delegate= on the executor unit for every install, approval or
-// not, so a real host always confines.  A host that cannot -- an old kernel, a
-// container without delegation -- refuses every command rather than reaping by
+// not, so a real host always confines.  A host that cannot (an old kernel, a
+// container without delegation) refuses every command rather than reaping by
 // process group, because a silent degrade there is the failure this closes: an
 // approval's serialization rests on a run leaving no straggler that could sit
 // through the next approval window, and even without approval an unreaped setsid
@@ -59,7 +59,7 @@ func cgroupBase() string {
 
 // usableCgroup reports whether run cgroups can be made under this directory.
 // Two gates in one probe: a sub-cgroup is created and removed.  The mkdir
-// succeeds only where the unit was granted Delegate= -- without it systemd owns
+// succeeds only where the unit was granted Delegate=: without it systemd owns
 // this directory and the uid cannot write here, which is the real delegation
 // check, a mode being able to lie about who may write.  Its cgroup.kill file
 // exists only on a kernel >= 5.14, which is the feature this reaps a tree with.
@@ -161,7 +161,7 @@ func (c *runCgroup) kill() {
 // terminate ends the run's tree gracefully: a SIGTERM to every member first,
 // then cgroup.kill for whatever is left once the grace runs out.  Both phases
 // address the cgroup, so a setsid child that left the process group is reached
-// the same as the rest -- there is no separate process-group signal, this is the
+// the same as the rest.  There is no separate process-group signal; this is the
 // one mechanism.
 func (c *runCgroup) terminate(graceSec int) {
 	for _, pid := range c.pids() {
@@ -210,7 +210,7 @@ func (c *runCgroup) drain(timeout time.Duration) bool {
 
 // close kills whatever is left, waits for the cgroup to empty, and removes it.
 // Run on every exit, a normal one included: the child may have returned zero
-// while a setsid grandchild lives on, and reaping that is the whole point.
+// while a setsid grandchild lives on, and reaping that is what this exists for.
 func (c *runCgroup) close() {
 	_ = syscall.Close(c.fd)
 	c.kill()

@@ -13,7 +13,7 @@ import (
 //      pathological width and that arrives one rune per Feed? (should REDACT)
 //   B. Is a colour code spliced into a value stripped before matching, as the
 //      doc claims? (should REDACT)
-//   C. Where does stage-1 stripping actually end -- what separator splits a
+//   C. Where does stage-1 stripping actually end: what separator splits a
 //      value in the matched text while a terminal collapses it? (boundary;
 //      these are the deliberate class the threat model disclaims, shown to map
 //      the edge, not asserted as covered)
@@ -31,8 +31,8 @@ func feedRuneByRune(r *Redactor, s string) string {
 
 func hexOf(s string) string { return hex.EncodeToString([]byte(s)) }
 
-// wrapEvery inserts a newline after every n runes -- the pathological end of
-// what fold/fmt/pr can do to a value.
+// wrapEvery inserts a newline after every n runes, the pathological end of what
+// fold/fmt/pr can do to a value.
 func wrapEvery(s string, n int) string {
 	var b strings.Builder
 	for i, c := range s {

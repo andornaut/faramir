@@ -1,14 +1,14 @@
 // Package secretstore is the broker's view of the secret values, fetched from
 // the keeper.
 //
-// The value set is every secret the keeper knows, not only the injected ones: a
+// The value set is every secret the keeper manages, not only the injected ones: a
 // managed host can print a credential no command injected.  The broker holds no
 // age key and cannot decrypt; plaintext lives in this heap, never on disk and
 // never in an argv.
 //
 // Cached, and reloaded on start and when a managed file's mtime changes.  The
 // keeper reports those fingerprints too, since the secrets are readable by
-// their group alone, so the poll is a socket round trip rather than a stat --
+// their group alone, so the poll is a socket round trip rather than a stat, and
 // refresh_interval_sec bounds it.  Nothing reloads on a signal: the file list
 // comes from config.toml, which the daemons read once at startup.
 package secretstore
@@ -40,7 +40,7 @@ type Store struct {
 	state   []keeperclient.FileState
 	// retry is set when the keeper could not be reached.  The mtime poll would
 	// never notice, since the files have not changed, and on a cold start the
-	// value set is empty -- nothing redacted.
+	// value set is empty, so nothing is redacted.
 	retry     bool
 	checkedAt time.Time
 

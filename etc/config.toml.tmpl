@@ -1,4 +1,4 @@
-# {{.ConfigFile}} -- broker configuration.
+# {{.ConfigFile}}: broker configuration.
 #
 # Written by `faramir init` and REWRITTEN BY EVERY RUN.  Do not edit it.
 # Your settings go in a drop-in beside it, which init never touches:
@@ -72,9 +72,9 @@ ssh_add = "{{.SshAdd}}"
 {{if .AllowSudo}}
 # How a brokered command becomes root on this host, written because `faramir
 # init --allow-sudo` was run.  It does not authenticate: sudo is pointed at
-# {{.PamFile}} -- a PAM service of faramir's own, named by {{.SudoersFile}} --
-# whose authentication step asks the broker whether a human approved the
-# command making the call.
+# {{.PamFile}}, a PAM service of faramir's own named by {{.SudoersFile}}, whose
+# authentication step asks the broker whether a human approved the command
+# making the call.
 #
 # So there is no password anywhere: nothing minted, nothing stored, nothing
 # handed out, and nothing a command approved once could keep and pass to a
@@ -91,7 +91,7 @@ pam_service = "{{.PamService}}"
 helper = "{{.PamHelper}}"
 # Optional: announce that a question is waiting, "{prompt}" being the line the
 # broker builds and "{id}" the question to answer.  It carries no answer and is
-# not waited on, so anything will do -- wall, a desktop notifier, a push.
+# not waited on, so anything will do: wall, a desktop notifier, a push.
 # Unset, `faramir approve --watch` is the only place a question shows up.
 # notify_command = ["wall", "{prompt}"]
 # How long a question waits for a human before it is refused.

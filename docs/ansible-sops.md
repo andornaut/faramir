@@ -100,7 +100,7 @@ Keep `ANSIBLE_HOST_KEY_CHECKING=True` in `[exec.base_env]`. Turning it off to ma
 
 `become` on a *managed* host is the operator's own arrangement: the account Ansible connects as has passwordless sudo there, and faramir has no part in it.
 
-The controller — the host faramir itself runs on — is different, and by default it has to be left out:
+The controller, the host faramir itself runs on, is different, and by default it has to be left out:
 
 ```bash
 faramir run --env-file faramir.env -- ansible-playbook msmtp.yml --limit '!controller'
@@ -119,14 +119,14 @@ ansible_become_flags: '-H'
 
 Dropping the default `-n` is the whole of it: `-n` tells `sudo` to fail rather than authenticate, and it does so before the PAM stack runs, so the question is never put and every task fails with `sudo: a password is required` even when a human is watching. Nothing here prompts, so there is no `SUDO_ASKPASS` and no `-A`. `-H` sets `HOME` to root's, which is what `become` normally does for you.
 
-And you leave a watcher running, as root, in a terminal the coding agent cannot type into — a console, an ssh session from another machine, or a login as another account. Not a tmux pane on your own account: the agent runs as you, and `tmux send-keys` needs nothing more than that. The command warns when it can tell.
+And you leave a watcher running, as root, in a terminal the coding agent cannot type into: a console, an ssh session from another machine, or a login as another account. Not a tmux pane on your own account, the agent running as you and `tmux send-keys` needing nothing more than that. The command warns when it can tell.
 
 ```bash
 sudo faramir approve --watch
 ```
 
-Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var -- there is no become password. The first task that runs sudo puts a question there naming the playbook; anything but `yes`, including no answer, fails that task with `sudo`'s own error.
+Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. The first task that runs sudo puts a question there naming the playbook; anything but `yes`, including no answer, fails that task with `sudo`'s own error.
 
 - One approval per playbook run, not per task. Ansible calls `sudo` once per become'd task, and a question asked once a task is one nobody reads; a yes covers every `sudo` that `ansible-playbook` invocation makes. It is not a timed cache: the approval is scoped to that one brokered command and is gone when it exits, so a second `faramir run` is asked about separately however soon it follows.
-- A *second* brokered command cannot ride the approval: the broker serialises approved runs, refusing to approve one while anything else runs as the executor and holding new `faramir run`s until it ends. Expect other brokered commands to return `busy` for the length of an approved playbook — that pause is the protection. What is *not* bounded is the approved command itself: it gets real root and can make it permanent (a setuid binary, a `systemd` unit, a line in `sudoers`), exactly as `sudo ansible-playbook` by hand can. So approve only a playbook you trust with permanent root, and keep it operator-owned and read-only to brokered commands so the agent cannot author what root runs. [operating.md](operating.md#allowing-sudo-on-the-controller) has the full argument, and [design.md](design.md#allowing-sudo-on-the-controller) the demonstrated attack.
+- A *second* brokered command cannot ride the approval: the broker serialises approved runs, refusing to approve one while anything else runs as the executor and holding new `faramir run`s until it ends. Expect other brokered commands to return `busy` for the length of an approved playbook. What is *not* bounded is the approved command itself: it gets real root and can make it permanent (a setuid binary, a `systemd` unit, a line in `sudoers`), exactly as `sudo ansible-playbook` by hand can. So approve only a playbook you trust with permanent root, and keep it operator-owned and read-only to brokered commands so the agent cannot author what root runs. [operating.md](operating.md#allowing-sudo-on-the-controller) has the full argument, and [design.md](design.md#allowing-sudo-on-the-controller) the reasoning behind the mechanism.
 - `faramir doctor` reports the arrangement, and reports a `NOPASSWD` entry for `faramir-exec` as a failure whether or not this host was installed with `--allow-sudo`.

@@ -125,8 +125,8 @@ func TestAPolicyListSetTwiceIsRefused(t *testing.T) {
 
 // The section the policy list sits in need not exist in the base file.  A
 // drop-in that introduces one owns everything it put there, so a later drop-in
-// setting a list inside it is refused like any other second owner -- rather
-// than looking unset and overwriting it silently.
+// setting a list inside it is refused like any other second owner, rather than
+// looking unset and overwriting it silently.
 func TestAPolicyListInASectionADropInIntroducedIsStillOwned(t *testing.T) {
 	_, err := write(t, `
 [exec]
@@ -144,7 +144,7 @@ default_timeout_sec = 600
 }
 
 // The .socket units decide what a socket is, so a drop-in setting one of these
-// moves nothing -- and does not fail silently either, because the broker dials
+// moves nothing, and does not fail silently either, because the broker dials
 // the keeper and the executor at the configured path while systemd keeps
 // listening on the old one. That surfaces as "keeper unreachable", which reads
 // as an outage rather than an edit.
@@ -186,10 +186,10 @@ func TestADropInMayNotSetWhatInitDerives(t *testing.T) {
 		{"[ssh]\nssh_add = \"/tmp/evil\"\n", ""},
 		{"[keeper]\nage_key_file = \"/tmp/other.key\"\n", "--config-dir"},
 		{"[keeper]\nage_key_credential = \"other\"\n", ""},
-		// The whole of the approval boundary.  secret_file chooses what the broker
-		// hands to sudo, prompt_command is what asks the human -- one that answered
-		// itself would sudo with nobody in the loop -- and exec_group is who may
-		// ask at all.
+		// The whole of the approval boundary.  exec_user is the account the grant was
+		// written for, pam_service names the file sudo authenticates it through,
+		// helper is the program PAM execs to decide, and notify_command is what the
+		// broker execs to announce a question.
 		{"[sudo]\nexec_user = \"root\"\n", "--allow-sudo"},
 		{"[sudo]\npam_service = \"sudo\"\n", ""},
 		{"[sudo]\nhelper = \"/tmp/evil\"\n", ""},

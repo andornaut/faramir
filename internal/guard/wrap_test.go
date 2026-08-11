@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// These drive the hook through its real contract -- a JSON payload on stdin, a
-// JSON object on stdout -- rather than calling decide() directly.
+// These drive the hook through its real contract (a JSON payload on stdin, a
+// JSON object on stdout) rather than calling decide() directly.
 
 func withStdin(t *testing.T, input string, fn func()) {
 	t.Helper()

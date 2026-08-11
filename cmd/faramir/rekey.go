@@ -70,7 +70,7 @@ func cmdRekey(args []string) int {
 	}
 	// Reported even when enough resolved to proceed, unlike edit, which opens the
 	// one file it was asked for.  Here a pattern that named nothing is a managed
-	// file this run did not reach, and the whole point is to leave none behind.
+	// file this run did not reach, and none may be left behind.
 	for _, reason := range unresolvable {
 		fmt.Fprintf(os.Stderr, "not reached: %s\n", reason)
 	}
@@ -166,7 +166,7 @@ func cmdRekey(args []string) int {
 
 // rekeyTargets is every managed file, or just the ones named.
 //
-// Naming none is the whole point of the command, so it is the default; naming
+// Naming none is the command's usual shape, so it is the default; naming
 // some is for a secrets directory where one file is meant to stay as it is.
 // Either way a path that is not managed is refused by resolveManaged, so a
 // rekey cannot walk out of the secrets directory.
@@ -207,8 +207,8 @@ var ruleCreationRule = regexp.MustCompile(`(?m)^\s*-\s+path_regex\s*:`)
 // *.sops.yml wherever it sits, so every managed file is governed by the same
 // list and reading the whole file is reading that list.  With two rules the
 // answer depends on which one a path matches, which is a path_regex question
-// this cannot answer -- so it refuses rather than re-encrypting half the
-// secrets directory to the wrong set.
+// this cannot answer, so it refuses rather than re-encrypting half the secrets
+// directory to the wrong set.
 func ruleRecipients(path string) ([]string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {

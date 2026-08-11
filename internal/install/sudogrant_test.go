@@ -40,8 +40,8 @@ func loadRendered(t *testing.T, body []byte) *config.Config {
 
 // Without --allow-sudo nothing is configured: no [sudo] section, so nothing is
 // injected and no question can be raised.  This is the promise the whole
-// arrangement rests on -- an install that did not ask for it is the install
-// that existed before it.
+// arrangement rests on: an install that did not ask for it is the install that
+// existed before it.
 func TestWithoutAllowSudoTheConfigCarriesNoSudoSection(t *testing.T) {
 	layout := testLayout()
 	if layout.AllowSudo {
@@ -85,8 +85,8 @@ func TestAllowSudoRendersTheSudoSection(t *testing.T) {
 
 // There is no credential anywhere in an install that allows sudo: no file, no
 // environment variable, nothing minted at start.  This is the property the
-// design turns on -- an approval that is a decision cannot be carried to a
-// later command, because there is nothing to carry.
+// design turns on: an approval that is a decision cannot be carried to a later
+// command, because there is nothing to carry.
 func TestASudoGrantPlacesNoCredential(t *testing.T) {
 	layout := sudoGrantLayout(t)
 	for _, asset := range []string{
@@ -149,8 +149,7 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 	text := string(body)
 	// `requisite`, never `sufficient`.  With sufficient a helper that REFUSES is
 	// not fatal, the stack falls through to pam_permit below, and every approval
-	// is granted without asking anybody -- demonstrated on a live host before
-	// this design was chosen.
+	// is granted without asking anybody.
 	if !strings.Contains(text, "auth     requisite  pam_exec.so") {
 		t.Errorf("the auth line is not `requisite`:\n%s", text)
 	}

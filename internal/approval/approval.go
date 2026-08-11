@@ -5,13 +5,13 @@
 // sudo at a PAM service of faramir's own, whose whole authentication step is a
 // helper that asks the broker whether this command was approved.  There is no
 // password: nothing is minted, nothing is stored, nothing is handed out, and so
-// nothing can be kept.  The broker's answer is the credential, it is spent
-// where it is given, and it names one command.
+// nothing can be kept.  What satisfies sudo is the broker's answer, spent where
+// it is given, naming one command.
 //
 // What that fixes.  A password is a bearer token: whatever holds it can
 // authenticate, so a command approved once could read the value out of the
 // helper it was given and leave it for a later brokered command that was never
-// approved -- same uid, shared PrivateTmp, shared working tree.  One approval
+// approved (same uid, shared PrivateTmp, shared working tree).  One approval
 // became root until the value was replaced.  An approval that is a decision
 // rather than a secret cannot be carried anywhere.
 //
@@ -28,9 +28,9 @@
 //     approve`, and the answer releases every request from that one command.
 //
 // The bound this does not reach, and no design here can: an approved command
-// *is* root, and root can remove the gate -- write its own sudoers file, edit
-// the PAM service, replace the helper.  An approval is consent for a command,
-// not a sandbox around it.
+// *is* root, and root can remove the gate by writing its own sudoers file,
+// editing the PAM service, or replacing the helper.  An approval is consent for
+// a command, not a sandbox around it.
 //
 // Optional: with no [sudo] exec_user nothing is granted, no question can be
 // raised, and a brokered command's sudo fails as it does on any host that
@@ -75,8 +75,9 @@ const (
 )
 
 // Run is the brokered command a request is made on behalf of.  It is what the
-// question names, and naming it is what makes the answer worth anything: a
-// human who approves an approval they did not initiate has already lost.
+// question names, and naming it is what makes the answer worth anything: an
+// approval the human cannot attribute to a command they initiated grants root
+// to whatever asked.
 type Run struct {
 	// Argv is the command the broker started, already redacted: a caller can put
 	// a value in argv even though the broker never does, and this reaches a
@@ -165,7 +166,7 @@ func (s *Server) Env(token string) map[string]string {
 // runs other agent work.  While one command holds an approval, no
 // other brokered command may start: they share the executor's uid, so a second
 // process could read the first's token out of /proc and ride the approval it was
-// never shown for.  A held command must not run -- the broker turns it into a
+// never shown for.  A held command must not run: the broker turns it into a
 // `busy` the caller retries once the approved run ends.  This is one half of a
 // symmetry: registering a run also blocks a *new* approval (Answer requires sole
 // occupancy), so a live approval and any other registered run never coexist.
@@ -284,9 +285,9 @@ func (s *Server) Ask(token string) (approved bool, reason string) {
 //
 // One question per brokered command, not per sudo: ansible-playbook calls sudo
 // once per become'd task, and a question asked twenty times is one nobody reads
-// by the tenth.  That is not sudo's timestamp by another name -- a timestamp is
-// a stretch of time, and anything starting a command inside it rides an
-// approval given for something else.  This is scoped to the command the human
+// by the tenth.  That is not sudo's timestamp by another name: a timestamp is a
+// stretch of time, and anything starting a command inside it rides an approval
+// given for something else.  This is scoped to the command the human
 // was shown, dies when the run ends, and cannot be reached by a second run.
 func (s *Server) ask(token string, run Run) (approved, prompted bool, reason string) {
 	pending, raised, refused := s.pend(token, run)
@@ -383,7 +384,7 @@ func (s *Server) wakeLocked() {
 }
 
 // notify announces a pending question, and reads nothing back.  Whatever it
-// runs -- wall, a desktop notifier, a push -- cannot approve anything: the
+// runs (wall, a desktop notifier, a push) cannot approve anything: the
 // answer comes over the broker socket from a caller SO_PEERCRED says is root.
 func (s *Server) notify(pending *approval) {
 	if len(s.config.NotifyCommand) == 0 {
@@ -539,14 +540,14 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// command running.  Anything else on the executor's uid could read this run's
 	// token and ride the approval, so the host has to be quiet before a yes takes.
 	// Refused without answering the question, so the run keeps waiting and the
-	// operator retries once the others drain -- rather than this sudo failing now
+	// operator retries once the others drain, rather than this sudo failing now
 	// and the run having to ask again.  A refusal (no) needs no such quiet.
 	//
 	// The check and the flag it stands on are set under one lock hold, on purpose:
 	// Register admits a new run whenever no approval is live, so a gap between "no
 	// other run is registered" and "this run is marked approved" is a window in
 	// which a second command starts and then rides this approval.  Marking it here,
-	// still holding mu, is what closes that window -- finish only carries the
+	// still holding mu, is what closes that window; finish only carries the
 	// answer to the waiters.
 	if approve {
 		if other := s.otherRunLocked(pending.token); other != "" {

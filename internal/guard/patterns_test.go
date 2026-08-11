@@ -64,7 +64,7 @@ func shippedLines(t *testing.T) []string {
 //
 // Byte equality is also what makes one compile check enough for both.  RE2 has
 // no lookahead or backreferences, and a pattern that fails to compile is
-// skipped at load rather than reported -- but TestEveryFallbackPatternCompiles
+// skipped at load rather than reported, but TestEveryFallbackPatternCompiles
 // asserts that none of the fallback is skipped, and equality carries that to
 // the shipped file.
 func TestTheFallbackMatchesTheShippedFile(t *testing.T) {

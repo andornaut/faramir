@@ -145,7 +145,7 @@ func cmdInit(args []string) int {
 		"group admitted to the broker socket, and shared with the executor on a working "+
 			"tree (default: what the install uses, then "+install.DefaultClientGroup+")")
 	secretsGroup := fs.String("secrets-group", "",
-		"group owning the ciphertext in <config-dir>/secrets (default: what the install uses, then the keeper's own group, which is the only account that opens one; naming another buys a second reader)")
+		"group owning the ciphertext in <config-dir>/secrets (default: what the install uses, then the keeper's own group, which is the only account that opens one; naming another adds a second reader)")
 	brokerUser := fs.String("broker-user", "",
 		"account that holds the SSH keys and the audit log (default: what the install "+
 			"uses, then "+install.DefaultBrokerUser+")")

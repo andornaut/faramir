@@ -92,8 +92,8 @@ func listApprovals(socketPath string, asJSON bool) int {
 // request arrives, shows it, and reads the answer from this terminal.
 //
 // This terminal, deliberately.  The prompt must not land where the agent can
-// type, so run it somewhere the agent does not reach -- not a shell it drives,
-// and not a pane of a session it shares.
+// type, so run it somewhere the agent does not reach: not a shell it drives, and
+// not a pane of a session it shares.
 func watchApprovals(socketPath string) int {
 	warnIfTypeable()
 	fmt.Fprintln(os.Stderr, "waiting for approval requests; answer each with yes or no. "+
@@ -144,12 +144,12 @@ func watchApprovals(socketPath string) int {
 // Two shapes, and the first is the common one:
 //
 //   - A multiplexer.  tmux and screen keep a per-uid control socket, so any
-//     process running as the operator -- which is what the agent is -- can
+//     process running as the operator, which is what the agent is, can
 //     `tmux send-keys` into this pane.  No sharing is involved and none has to
 //     be intended: same uid is the whole requirement.
 //   - A tty owned by somebody other than root.  `sudo` leaves the terminal
 //     owned by the account that invoked it, so a root process is reading from a
-//     device that account still owns.  What that buys an attacker depends on
+//     device that account still owns.  What that gives an attacker depends on
 //     the kernel and on ptrace_scope, which is exactly why it is a warning
 //     rather than a claim.
 //

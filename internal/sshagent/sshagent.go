@@ -59,7 +59,7 @@ const (
 // signatures, so there is no idle bound to be had here.
 //
 // A refused request does not drop it.  That closes the cheapest way to sit on a
-// relay slot -- one message the proxy will not forward -- and no more: a peer
+// relay slot (one message the proxy will not forward) and no more: a peer
 // that sends a real REQUEST_IDENTITIES first reaches the same idle state, so
 // maxRelays, not this, is what bounds a peer determined to hold slots.
 //

@@ -233,7 +233,7 @@ func (s *Server) opStatus() protocol.Response {
 // Not rate-limited.  A throttle bounds only a guessing attack the same caller
 // need never mount: list_secrets and run are ops on this socket behind the same
 // check, so every managed value can be had by naming it.  Bounding the slower
-// path buys nothing while the faster one is open by design, and would cost a
+// path gains nothing while the faster one is open by design, and would cost a
 // lock on the hot path, the wrapper calling redact once per Bash command.
 func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID()); refused != nil {
@@ -256,9 +256,9 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protoc
 // opApprovals and opApprove are the approval channel, and the only two ops
 // this socket refuses to a caller it otherwise admits.
 //
-// Root, checked with SO_PEERCRED, and nothing else -- not the client group,
-// which holds the account the coding agent runs as, and not the executor, which
-// is the side asking.  This one check is what stands between an agent and its
+// Root, checked with SO_PEERCRED, and nothing else: not the client group, which
+// holds the account the coding agent runs as, and not the executor, which is the
+// side asking.  This one check is what stands between an agent and its
 // own approval, so it is made here rather than left to a file mode: the socket
 // admits a group by design, and only the op knows that this request is
 // different.
@@ -280,9 +280,9 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 //
 // Root, like the other two: the helper reaches it because pam_exec runs it with
 // seteuid inside sudo, and the child that holds the token cannot spend it.  That
-// is what makes the token an identifier rather than a credential -- there is no
-// credential anywhere in this, which is the whole point of answering rather
-// than authenticating.
+// is what makes the token an identifier rather than a credential.  There is no
+// credential anywhere in this, which is why sudo is answered rather than
+// authenticated.
 func (s *Server) opAskApproval(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	if refused := s.requireRoot("ask_approval", peer); refused != nil {
 		return *refused
@@ -448,9 +448,9 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// SSH_AUTH_SOCK: the child can authenticate with the keys, not read them.
 	maps.Copy(env, s.Ssh.Env())
 	// A token, and nothing else: the child can be identified when it asks to
-	// sudo, and a human answers out of band.  Not a capability -- spending it
-	// is an op the broker refuses to anything but root -- so what the child holds
-	// names its run rather than authorising it.
+	// sudo, and a human answers out of band.  Not a capability: spending it is an
+	// op the broker refuses to anything but root, so what the child holds names its
+	// run rather than authorising it.
 	//
 	// Registered before the child starts and dropped when it ends, so a request
 	// that arrives late is refused rather than answered against a finished
@@ -460,7 +460,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	})
 	// Held while another command holds an approval: the two share the
 	// executor's uid, so running this one now would give it a route to the root
-	// that was approved for the other.  Busy rather than an error -- the caller
+	// that was approved for the other.  Busy rather than an error: the caller
 	// retries, and the wait is bounded by the approved run's own life.
 	if held {
 		return protocol.ErrorResponse("busy", "an approval is running as "+
@@ -678,16 +678,15 @@ func (s *Server) describeApproval() (map[string]any, []string) {
 			" (the PAM service execs it, so no approval can be approved)")
 	}
 	// The PAM service file itself.  Absent, PAM falls back to /etc/pam.d/other,
-	// which on a normal host asks for a password nothing supplies -- but on one
-	// whose `other` is permissive would authenticate anything, so doctor checks
-	// that too.
+	// which on a normal host asks for a password nothing supplies, but on one whose
+	// `other` is permissive would authenticate anything, so doctor checks that too.
 	pamFile := "/etc/pam.d/" + cfg.PamService
 	if _, err := os.Stat(pamFile); err != nil {
 		problems = append(problems, pamFile+": "+err.Error()+
 			" (sudo would fall back to /etc/pam.d/other for "+cfg.ExecUser+")")
 	}
-	// The notifier is optional -- `faramir approve --watch` is where a question is
-	// seen -- but one that is configured and absent announces nothing, silently.
+	// The notifier is optional, `faramir approve --watch` being where a question is
+	// seen, but one that is configured and absent announces nothing, silently.
 	if len(cfg.NotifyCommand) > 0 {
 		if _, err := osexec.LookPath(cfg.NotifyCommand[0]); err != nil {
 			problems = append(problems, cfg.NotifyCommand[0]+": "+err.Error()+

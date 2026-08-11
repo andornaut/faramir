@@ -13,7 +13,7 @@ import (
 // The PAM helper's exit status is the whole authentication: zero authenticates
 // the sudo, anything else refuses it.  So every check here is about a path that
 // must NOT return zero, and the socket it would ask is one nothing is listening
-// on -- a helper that reached the broker at all would already have got past the
+// on: a helper that reached the broker at all would already have got past the
 // guard being tested.
 const noBroker = "/nonexistent/faramir-pam-approve-test.sock"
 
@@ -27,8 +27,8 @@ func pamApprove(t *testing.T, env map[string]string, args ...string) int {
 
 // pam_exec runs a module for every stage of the stack it is named in.  This one
 // decides authentication, so a service file that put it on `account` or
-// `session` -- where a non-zero status means something else entirely -- must not
-// be able to authenticate anything.
+// `session`, where a non-zero status means something else entirely, must not be
+// able to authenticate anything.
 func TestOnlyTheAuthStageDecidesAnything(t *testing.T) {
 	for _, stage := range []string{"account", "session", "password", ""} {
 		t.Run(stage, func(t *testing.T) {
@@ -41,8 +41,8 @@ func TestOnlyTheAuthStageDecidesAnything(t *testing.T) {
 }
 
 // The service is for one account.  A sudoers entry pointing another account's
-// sudo at it -- or the file being copied to /etc/pam.d/sudo, where every
-// account reads it -- is a service deciding calls it was not written for.
+// sudo at it, or the file being copied to /etc/pam.d/sudo where every account
+// reads it, is a service deciding calls it was not written for.
 func TestTheServiceAuthenticatesOneAccount(t *testing.T) {
 	env := map[string]string{"PAM_TYPE": "auth", "PAM_USER": "root"}
 	if code := pamApprove(t, env, "--account", "faramir-exec"); code == 0 {
@@ -81,7 +81,7 @@ func TestAnUnreachableBrokerRefuses(t *testing.T) {
 }
 
 // Neither a usage error nor a help flag authenticates anything: PAM reads the
-// status, so both have to be non-zero.  The help flag is the trap -- the flag
+// status, so both have to be non-zero.  The help flag is the trap: the flag
 // parser returns 0 for it, which is success for an ordinary command and an auth
 // pass here, so this helper forces it non-zero.
 func TestNoFlagPathAuthenticates(t *testing.T) {
@@ -110,9 +110,9 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
-// walk runs the probe under `sh -c 'sh -c …'` -- three live processes, no
-// `exec` in the chain, which would collapse them into one and leave nothing to
-// walk -- and reports what findToken saw from the bottom.
+// walk runs the probe under `sh -c 'sh -c …'`: three live processes, no `exec`
+// in the chain, which would collapse them into one and leave nothing to walk.
+// It reports what findToken saw from the bottom.
 func walk(t *testing.T, environ []string) string {
 	t.Helper()
 	if _, err := os.Stat("/proc/self/environ"); err != nil {

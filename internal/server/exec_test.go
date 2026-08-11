@@ -16,9 +16,9 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// These cover what the broker decides around a child process -- the timeout,
-// the environment, the audit record, the concurrency limit -- without a socket,
-// a PTY or a fork.
+// These cover what the broker decides around a child process (the timeout, the
+// environment, the audit record, the concurrency limit) without a socket, a PTY
+// or a fork.
 
 // recorder stands in for the executor: it captures the request and returns a
 // canned result.  Env is snapshotted because the broker wipes the map once the

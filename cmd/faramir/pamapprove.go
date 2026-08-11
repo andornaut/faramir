@@ -4,7 +4,7 @@ package main
 //
 // sudo execs this, as root, and reads nothing from it but the exit status: zero
 // authenticates the call, anything else refuses it.  So every path here fails
-// closed.  There is no password involved anywhere -- what it does is ask the
+// closed.  There is no password involved anywhere: what it does is ask the
 // broker whether the brokered command making this call was approved by a human,
 // which is why an approval cannot be carried to a later command: there is
 // nothing to carry.
@@ -26,8 +26,8 @@ import (
 	"github.com/andornaut/faramir/internal/approval"
 )
 
-// maxAncestors bounds the walk.  A brokered command's tree is a handful deep --
-// sudo, a shell, ansible, the command -- and a cycle in /proc would otherwise
+// maxAncestors bounds the walk.  A brokered command's tree is a handful deep
+// (sudo, a shell, ansible, the command), and a cycle in /proc would otherwise
 // spin.
 const maxAncestors = 32
 
@@ -38,7 +38,7 @@ func cmdPamApprove(args []string) int {
 	if code, ok := parseFlags(fs, args); !ok {
 		// Neither a usage error nor a help flag authenticates anything: PAM reads the
 		// status, so this is forced non-zero.  parseFlags returns 0 for --help (it is
-		// success for an ordinary command), and 0 here would be an auth pass -- the one
+		// success for an ordinary command), and 0 here would be an auth pass: the one
 		// exit-zero-without-approval path in a helper whose whole contract is the
 		// opposite.  Not reachable through the installed stack, whose argv is fixed,
 		// but closed anyway.
@@ -120,8 +120,8 @@ func tokenOf(pid int) string {
 }
 
 // parentOf reads the ppid out of /proc/<pid>/stat.  The fields before it can
-// contain spaces and parentheses -- the executable name is field two, in
-// brackets -- so the scan starts after the last ')'.
+// contain spaces and parentheses (the executable name is field two, in
+// brackets), so the scan starts after the last ')'.
 func parentOf(pid int) (int, bool) {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
 	if err != nil {

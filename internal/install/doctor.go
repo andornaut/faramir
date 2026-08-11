@@ -126,7 +126,7 @@ func (d *DoctorReport) merge(other DoctorReport) {
 	d.NotAsked += other.NotAsked
 }
 
-// Diagnose reports whether an install is doing its job -- the questions the
+// Diagnose reports whether an install is doing its job: the questions the
 // install steps cannot answer, everything having been written correctly and the
 // result still protecting nothing.
 func Diagnose(opts DoctorOptions) DoctorReport {

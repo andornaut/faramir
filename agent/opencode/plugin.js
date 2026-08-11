@@ -5,7 +5,7 @@
 // .opencode/plugins/faramir.js, which opencode loads at startup.
 //
 // It decides nothing: the deny list, the rewrite and what is left alone are
-// `faramir guard`.  This is the translation -- a payload out, a decision back,
+// `faramir guard`.  This is the translation: a payload out, a decision back,
 // applied rather than returned, opencode having no reply document.
 //
 // node:child_process rather than the Bun shell: the guard reads its payload on

@@ -13,7 +13,7 @@ import (
 // the caller. A survivor means the model would have seen a recoverable secret.
 //
 // Every transform here is done with bash builtins only (printf, parameter
-// slicing) -- no exotic tools -- so each is a plain shell script, the kind an
+// slicing) and no exotic tools, so each is a plain shell script, the kind an
 // ordinary task or a lightly-nudged agent runs.
 
 func recoverableHexLower(s string) string {

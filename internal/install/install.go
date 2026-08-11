@@ -383,7 +383,7 @@ func (r *runner) preflight() error {
 //
 // It does not replace the O_NOFOLLOW repair in ensureOwnership.  This runs
 // before the steps, and nothing stops the path being re-pointed in between; what
-// it buys is the diagnosis, not the enforcement.
+// it provides is the diagnosis, not the enforcement.
 func (r *runner) refuseSymlinks() error {
 	dropInDir := filepath.Join(r.layout.ConfigDir, "config.d")
 	secretsDir := r.layout.SecretsDir()

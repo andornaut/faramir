@@ -4,7 +4,7 @@ Three sockets, the same shape on each: newline-delimited JSON, one request, one 
 
 Socket | Who may connect | What it does
 --- | --- | ---
-`/run/faramir/broker.sock` | the agent (`0660 root:dev`) | run commands, list refs
+`/run/faramir/broker.sock` | the agent (`0660 root:<client-group>`) | run commands, list refs
 `/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values
 `/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY
 
@@ -35,7 +35,9 @@ Field | Required | Notes
 
 `{"op": "list_secrets"}` returns ref names only. `{"op": "status"}` returns the broker version, `configs` (the base config and every drop-in that contributed, in merge order), loaded files, the count of secrets loaded, load errors, whether an SSH key is configured and usable, and whether a brokered command may ask to sudo (`sudo.enabled`; whether, never how).
 
-`{"op": "approvals"}` and `{"op": "approve", "id": …, "approve": true}` are the approval channel, and the only ops the broker refuses to a caller it otherwise admits: both require the peer to be root, checked with `SO_PEERCRED`, because the account the coding agent runs as must not be able to approve what the agent asked for. `approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. Neither reports the refs refused at load: that list names exactly the secrets that are never tokenized, so it stays behind `faramir broker --check`. See [redaction.md](redaction.md).
+`{"op": "approvals"}` and `{"op": "approve", "id": …, "approve": true}` are the operator's half of the approval channel, and with `ask_approval` the only ops the broker refuses to a caller it otherwise admits: all three require the peer to be root, checked with `SO_PEERCRED`, because the account the coding agent runs as must not be able to approve what the agent asked for. `approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. `approve` answers a question by `id`, and `unknown_question` means it was already answered or its command gave up. Neither reports the refs refused at load: that list names exactly the secrets that are never tokenized, so it stays behind `faramir broker --check`. See [redaction.md](redaction.md).
+
+`{"op": "ask_approval", "token": …}` is the PAM helper's half: it names the run by the token in the brokered command's environment and blocks until a human answers, the question expires, or the broker stops. `sudo` is blocked on it throughout, which is what makes the wait an authentication step. A token naming no running command is refused without asking anybody.
 
 ### Responses
 
@@ -64,7 +66,8 @@ Code | Meaning
 --- | ---
 `bad_request` | Malformed request, bad or reserved env var name, a malformed `secret://` reference, `cwd` that does not exist
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
-`busy` | At `[server] max_concurrency`; retry
+`unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
+`busy` | At `[server] max_concurrency`, or a brokered command holds an approval; retry
 `no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `list_secrets` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid/gid not permitted (`SO_PEERCRED`)
@@ -126,4 +129,4 @@ The descriptor is the **slave** end of a PTY the broker created. The broker keep
 
 `argv[0]` arrives already resolved to an absolute path and the executor checks nothing about it. What bounds a brokered command is the uid it runs as (no age key, no audit log, no SSH key) and the mode on this socket, which the executor's own uid cannot open.
 
-The executor owns the timeout, because it owns the run's cgroup. **Closing the connection is how the broker says "give up"**, and the whole cgroup is killed and drained — a `setsid` child that broke out of the process group among it, since the cgroup is the one reaper and a run that cannot be confined is refused rather than run. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.
+The executor owns the timeout, because it owns the run's cgroup. **Closing the connection is how the broker cancels a run**, and the whole cgroup is killed and drained, including a `setsid` child that broke out of the process group: the cgroup is the one reaper, and a run that cannot be confined is refused rather than run. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.

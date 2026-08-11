@@ -9,14 +9,14 @@ package install
 // answered out of band by a human who is told which command it is for, on a
 // channel the coding agent is not in.
 //
-// What each half buys, and why neither is enough on its own:
+// What each half provides, and why neither is enough on its own:
 //
 //   - The sudoers entry is PASSWD, never NOPASSWD.  A passwordless grant would
 //     be usable by anything running as this uid with the broker out of the way,
 //     which is a brokered command skipping the approval.
 //   - There is no password.  sudo authenticates that account against a PAM
 //     service of faramir's own whose auth step asks the broker whether a human
-//     approved this command, so nothing is minted, stored or handed out --
+//     approved this command, so nothing is minted, stored or handed out:
 //     nothing at rest, and nothing an approved command could keep and hand to a
 //     later one.
 //   - The PAM service is private, named by the sudoers entry's `pam_service`,

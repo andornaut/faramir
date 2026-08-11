@@ -163,7 +163,7 @@ func jsonEscape(value string) string {
 }
 
 // variants returns every rendering of value the redactor recognises.  Not
-// exhaustive by design -- see docs/redaction.md -- but the encodings ordinary
+// exhaustive by design (see docs/redaction.md), but the encodings ordinary
 // tools produce by accident.
 func variants(value string) map[string]bool {
 	out := map[string]bool{value: true}
@@ -198,7 +198,7 @@ func variants(value string) map[string]bool {
 }
 
 // --------------------------------------------------------------------------
-// Stage 3: eligibility -- refuse to redact values that would eat the output
+// Stage 3: eligibility. Refuse to redact values that would eat the output
 // --------------------------------------------------------------------------
 
 // EligibilityPolicy is the one property of a value this decides: whether it is
@@ -423,8 +423,8 @@ func (r *Redactor) redact(text string) string {
 }
 
 // collapsedView is one haystack with its line breaks taken out, plus what maps
-// a match back onto the original.  A formatter wraps a value across lines --
-// base64 at 76 columns, or `fold`/`fmt`/`openssl -text` on anything -- so the
+// a match back onto the original.  A formatter wraps a value across lines
+// (base64 at 76 columns, or `fold`/`fmt`/`openssl -text` on anything), so the
 // value arrives with newlines inside it; matching happens against view and the
 // replaced span is in the original.
 type collapsedView struct {

@@ -35,7 +35,7 @@ SupplementaryGroups={{.ClientGroup}}
 #   the rest of /home         whatever the mode allows, read-only
 #
 # {{.RunDir}}/broker.sock is reachable, being 0660 root:{{.ClientGroup}}, so a brokered
-# command can call the broker back.  That buys it nothing: the response is
+# command can call the broker back.  That gains it nothing: the response is
 # redacted and audited like the agent's own.
 #
 # No LoadCredential=, and nothing writable but the working tree, this account's
@@ -85,8 +85,8 @@ StateDirectory={{.ExecUser}}
 # ProtectKernelTunables=, RestrictAddressFamilies=, RestrictNamespaces=,
 # RestrictRealtime=, RestrictSUIDSGID=, SystemCallArchitectures= or
 # SystemCallFilter= is set.  A seccomp filter without CAP_SYS_ADMIN requires
-# NNP, so the two cannot both hold -- and with NNP on, sudo is inert and this
-# host's grant is a lie that reports "effective uid is not 0" on every task.
+# NNP, so the two cannot both hold; and with NNP on, sudo is inert and this
+# host's grant reports "effective uid is not 0" on every task.
 #
 # So keeping one of them here does not harden this unit.  It silently turns the
 # feature off.  faramir-exec.service on a host without --allow-sudo keeps all of
@@ -143,8 +143,8 @@ ProtectKernelTunables=true
 RemoveIPC=true
 {{end}}
 # Every brokered command is confined to a cgroup of its own and the whole cgroup
-# is killed when the run ends, so a child that calls setsid -- escaping a
-# process-group kill -- is reaped all the same.  Delegate= is what hands this
+# is killed when the run ends, so a child that calls setsid, escaping a
+# process-group kill, is reaped all the same.  Delegate= is what hands this
 # service the cgroup subtree it makes those under; without it the executor cannot
 # confine and refuses to run.  On both branches, a sudo grant or not: it is the one
 # mechanism that ends a run's processes, and `faramir doctor` checks it.

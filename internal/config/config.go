@@ -306,8 +306,8 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	// Drop-ins carry what belongs to whatever consumes the broker -- which sops
-	// files to manage, which SSH key to lend -- so the two have separate owners.
+	// Drop-ins carry what belongs to whatever consumes the broker (which sops
+	// files to manage, which SSH key to lend), so the two have separate owners.
 	dropIns, err := dropInPaths(filepath.Join(filepath.Dir(path), dropInDirName))
 	if err != nil {
 		return nil, err

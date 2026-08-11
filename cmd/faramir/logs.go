@@ -5,8 +5,8 @@ package main
 // Root only, and not brokered: the log is 0600 faramir-broker, and serving it
 // over the broker socket would hand it to the group the agent runs as.
 //
-// It holds no secret value -- output was recorded after redaction, refs are
-// names, and nothing is substituted into argv -- so this prints what it finds.
+// It holds no secret value (output was recorded after redaction, refs are names,
+// and nothing is substituted into argv), so this prints what it finds.
 // Rotated files are not read; name one to zless.
 
 import (
@@ -199,9 +199,9 @@ func outcome(record map[string]any) (string, bool) {
 		return "timed out", true
 	}
 	// An approval ends in an answer rather than an exit code.  A refusal is the
-	// one painted as a failure, not because refusing is wrong -- it is the safe
-	// answer -- but because something asked, and that is what an operator is
-	// scanning for.
+	// one painted as a failure, not because refusing is wrong (it is the safe
+	// answer) but because something asked, and that is what an operator is scanning
+	// for.
 	if approved, ok := record["approved"].(bool); ok {
 		if approved {
 			return "approved", false
@@ -248,9 +248,9 @@ func printRecord(record map[string]any, paint palette) {
 	if who := describePeer(record); who != "" {
 		fmt.Printf("  %s %s\n", paint.key(pad("caller", 10)), who)
 	}
-	// outcome is the approval's own reason -- why it was refused, or that it was
-	// approved -- and exec_log_id is the command's record, so an approval reads
-	// in both directions.
+	// outcome is the approval's own reason (why it was refused, or that it was
+	// approved) and exec_log_id is the command's record, so an approval reads in
+	// both directions.
 	for _, field := range []string{"cwd", "error", "outcome", "exec_log_id"} {
 		if value := str(record, field); value != "" {
 			fmt.Printf("  %s %s\n", paint.key(pad(field, 10)), value)

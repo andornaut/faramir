@@ -181,8 +181,8 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 // operatorName resolves the account that works in the tree: --operator-user,
 // then SUDO_USER so `sudo faramir init` needs no flag, then the caller.
 //
-// root is not an answer at any position -- the tree belongs to somebody, and
-// chowning a checkout to root would take it from its owner -- so escalating by
+// root is not an answer at any position: the tree belongs to somebody, and
+// chowning a checkout to root would take it from its owner, so escalating by
 // another route means passing --operator-user.
 func operatorName(flagValue string) string {
 	candidates := []string{flagValue, os.Getenv("SUDO_USER")}
@@ -455,7 +455,7 @@ func redactChild(socketPath string, argv []string) int {
 //
 // A chunk that cannot be redacted is never written, and neither is anything
 // after it: the stream stops there and the error says so.  Chunks already
-// written were redacted successfully, so they stay -- holding them back would
+// written were redacted successfully, so they stay: holding them back would
 // protect nothing, and buffering to be able to would mean an unbounded buffer
 // and no incremental output.  So a failure shows as output that stops early,
 // not output that is empty; with the broker down, which fails on the first

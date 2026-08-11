@@ -108,9 +108,9 @@ func (r *runner) stepDirectories() error {
 	}
 
 	// Supplementary groups are taken at exec and never re-read, so a running
-	// keeper and broker hold the old gid until something restarts them --
-	// otherwise a broker healthy at install time refuses at the next activation,
-	// days later.
+	// keeper and broker hold the old gid until something restarts them, so a
+	// broker healthy at install time would otherwise refuse at the next
+	// activation, days later.
 	if storeChanged {
 		r.restartFor("secrets ownership")
 	}
@@ -233,9 +233,9 @@ func (r *runner) installDocs() (bool, error) {
 }
 
 // docTargets maps each embedded doc to the same path under the doc directory.
-// Unchanged, because everything that cites a doc -- Documentation=, the
-// README's own links, the deny list, the plugins, `faramir edit` -- cites it by
-// the checkout's path.
+// Unchanged, because everything that cites a doc (Documentation=, the README's
+// own links, the deny list, the plugins, `faramir edit`) cites it by the
+// checkout's path.
 func docTargets(layout Layout) (map[string]string, error) {
 	targets := map[string]string{
 		"README.md": filepath.Join(layout.DocDir, "README.md"),
