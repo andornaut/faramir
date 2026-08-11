@@ -93,10 +93,12 @@ What is *not* withheld is the part of a stream that was already redacted, on a b
 Left alone rather than rewritten, because buffering would change what they do:
 
 - one this rewrite already produced, so the wrapper is idempotent
-- a read of a running command's output, such as Claude Code's `BashOutput`
-- a backgrounded command, whose output is wanted while it runs
-- one whose last line ends in `\`, `&&`, `||` or `|`
+- a read of a running command's output, such as Claude Code's `BashOutput`, and every tool that is not the shell
+- a backgrounded command, whose output is wanted while it runs: a trailing `&`, or the tool's own background flag
+- an empty command
 - a denied command, which is refused instead
+
+An incomplete command is *not* on that list. One ending in `\`, `&&`, `||` or `;` is wrapped like any other and fails inside the wrapper's `eval`, which re-parses it in isolation, so it fails the way it would have failed unwrapped rather than breaking the wrapper's own syntax.
 
 The first is a prefix test against the whole command, and it is the only thing that counts as already covered. Two forms that look covered and are not:
 

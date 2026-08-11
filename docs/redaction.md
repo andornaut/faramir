@@ -54,7 +54,7 @@ Length is the whole of the test. There is no distinct-character count and no ent
 
 Refusal closes the injection half only. A refused value is absent from the redactor, so reaching the output another way it arrives in plaintext, which is why the list stays operator-side: the broker logs each one at load and `faramir broker --check` reports them under `secrets.not_redactable` and exits non-zero, while `faramir_status` and `faramir_list_secrets` say nothing. Lengthen the secret rather than lowering the threshold.
 
-**6. Stable tokens.** The same secret is always `«SECRET:home/router/admin»`, in every response and session. Two refs holding the same value share a token, the redactor deduplicating by value. Guillemets because they essentially never occur in tool output.
+**6. Stable tokens.** The same secret is always `«SECRET:home/router/admin»`, in every response and session. Two refs holding the same value share one token, the redactor deduplicating by value and keeping the first ref by name, so which of the two names it is does not move between restarts. Guillemets because they essentially never occur in tool output.
 
 ## The age key is not in the value set
 
