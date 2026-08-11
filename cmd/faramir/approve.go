@@ -46,6 +46,16 @@ func cmdApprove(args []string) int {
 		fmt.Fprintln(os.Stderr, "usage: faramir approve [options] [ID]")
 		return 2
 	}
+	// --deny answers one named question, so without an id it answers nothing.
+	// Refused rather than ignored: `--watch --deny` reads like a standing refusal
+	// and is not one -- the watcher would prompt as usual -- and an operator who
+	// believed it was would think they had left the door shut.
+	if *deny && fs.Arg(0) == "" {
+		fmt.Fprintln(os.Stderr, "faramir approve: --deny refuses one named request, so "+
+			"it needs an id: `faramir approve --deny ID`. It is not a mode, and with "+
+			"--watch it would refuse nothing")
+		return 2
+	}
 	if os.Geteuid() != 0 {
 		// Not "try sudo".  Reaching root that way from the account the agent runs as
 		// leaves a warm sudo timestamp in a shell the agent can use, which hands it
@@ -80,6 +90,12 @@ func listApprovals(socketPath string, asJSON bool) int {
 	if asJSON {
 		body, _ := json.MarshalIndent(questions, "", "  ")
 		fmt.Println(string(body))
+		// Same status as the text form.  It said "non-zero on nothing waiting, so a
+		// script can tell the two apart" and then returned 0 either way, which is the
+		// one form a script would actually be reading.
+		if len(questions) == 0 {
+			return 1
+		}
 		return 0
 	}
 	if len(questions) == 0 {
@@ -89,8 +105,12 @@ func listApprovals(socketPath string, asJSON bool) int {
 	}
 	for _, question := range questions {
 		printQuestion(question)
-		fmt.Printf("  answer with: faramir approve %s   (or --deny %s)\n\n",
+		// The answer is a second command, and the question expires while it is being
+		// typed, so the time left is part of the instruction rather than a detail.
+		fmt.Printf("  answer with: faramir approve %s   (or --deny %s)\n",
 			question.ID, question.ID)
+		fmt.Printf("  within %ds, after which it is refused and the command has to "+
+			"be run again\n\n", question.ExpiresInSec)
 	}
 	return 0
 }
@@ -103,9 +123,14 @@ func listApprovals(socketPath string, asJSON bool) int {
 // not a pane of a session it shares.
 func watchApprovals(socketPath string) int {
 	warnIfTypeable()
-	fmt.Fprintln(os.Stderr, "waiting for approval requests; answer each with yes or no. "+
-		"Ctrl-C to stop.")
-	answered := map[string]bool{}
+	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, and "+
+		"anything else refuses. One command is asked about at a time. Ctrl-C to stop.")
+	// No set of ids already answered.  There was one, and it is gone with the
+	// queue: a question is removed from the broker the moment it is answered,
+	// refused or expired, and only one is ever outstanding, so a question cannot
+	// come back round to be shown twice.  What the set did instead was hold stale
+	// ids -- which are three random bytes, so a later question could draw one and
+	// be skipped in silence -- and swallow the case below.
 	for {
 		questions, err := pending(socketPath, watchWait)
 		if err != nil {
@@ -126,9 +151,6 @@ func watchApprovals(socketPath string) int {
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
 		}
 		for _, question := range questions {
-			if answered[question.ID] {
-				continue
-			}
 			printQuestion(question)
 			approve, ok := readAnswer()
 			if !ok {
@@ -137,17 +159,29 @@ func watchApprovals(socketPath string) int {
 				fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
 				return 0
 			}
-			if code := answer(socketPath, question.ID, approve, false); code != 0 {
-				// The question is gone either way: it expired while it was being read, or
-				// a yes was refused because the host was not quiet, which closes it
-				// rather than holding it open.  So it is marked answered -- there is
-				// nothing left to put again -- and the broker's message above this said
-				// which of the two it was.
-				fmt.Fprintf(os.Stderr, "faramir approve: %s was not approved; it is "+
-					"closed either way, so run the command again if it still needs to\n",
-					question.ID)
+			// The two failures are not the same and must not be treated alike.
+			//
+			// 69 is the broker not reached, so the answer was never delivered and the
+			// question is still open with nobody attending it.  Carrying on there is
+			// the silent hole the poll above refuses to leave: this terminal would go
+			// on saying it was watching while the question it had just shown expired
+			// unanswered.  So it goes the same way the poll does.
+			//
+			// 1 is the broker answering no to the answer -- the question expired while
+			// it was being read, or the yes was refused because the host was not quiet,
+			// which closes it rather than holding it open.  Either way it is settled
+			// and gone, the broker has already said which, and watching continues.
+			switch code := answer(socketPath, question.ID, approve, false); code {
+			case 0:
+			case 69:
+				fmt.Fprintf(os.Stderr, "faramir approve: %s could not be answered and is "+
+					"still open with nobody watching it; stopping rather than leaving it "+
+					"that way. Start this again once the broker is back.\n", question.ID)
+				return 69
+			default:
+				fmt.Fprintf(os.Stderr, "faramir approve: %s was not approved and is now "+
+					"closed; run the command again if it still needs to\n", question.ID)
 			}
-			answered[question.ID] = true
 		}
 	}
 }
@@ -252,7 +286,8 @@ func printQuestion(question approval.Question) {
 	if question.LogID != "" {
 		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
-	fmt.Printf("  waiting  %ds\n", question.WaitingSec)
+	fmt.Printf("  waiting  %ds (expires in %ds, then refused)\n",
+		question.WaitingSec, question.ExpiresInSec)
 }
 
 func firstWord(text string) string {

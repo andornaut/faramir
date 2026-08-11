@@ -125,7 +125,7 @@ sudo faramir approve --watch
      cmd      ansible-playbook msmtp.yml
      cwd      /srv/ansible-ctrl
      log_id   2026-08-10T12:04:11Z-3b7e
-     waiting  2s
+     waiting  2s (expires in 118s, then refused)
      approve? [yes/no]
    ```
 
@@ -140,6 +140,12 @@ There is no password anywhere: what satisfies `sudo` is a decision, not a creden
 **Why the answer comes back over the broker socket.** `systemd-ask-password` is the tool this looks like it should use, and it cannot be: asking through it means creating a file in `/run/systemd/ask-password`, which is `0755 root:root`, so a broker running as its own uid is refused and every request would be denied for want of anyone to ask. What that channel offers is a reply socket only root can write to; `faramir approve` replaces it with the same guarantee made by the broker itself, `SO_PEERCRED` on its own socket, uid 0 or nothing. So the account that answers is one the coding agent cannot become.
 
 **Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one doing the typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `faramir approve --watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. And an operator with `NOPASSWD` sudo, or a warm sudo timestamp in a shell the agent can use, has already handed it that account. The deny rules refuse `sudo faramir approve` from the agent's own shell for that reason, which raises the cost rather than removing it: the hook governs the tool the agent calls, and an account that can sudo can reach the binary another way.
+
+**Without `--watch`.** `sudo faramir approve` on its own lists what is waiting and exits — a look rather than a vigil. It prints the same question, the id, and the time left, and answering is a second command: `sudo faramir approve 9f2a1c`, or `--deny 9f2a1c`. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached, so a script can tell them apart; `--json` gives the same in machine form with the same statuses.
+
+Read the "expires in" and mean it: the clock started when the question was raised, not when you looked, and you are typing a second command against what is left of it. At the default 120s that is comfortable and at 15s it is not. If it expires, nothing is lost but time — the `sudo` fails, the command has to be run again, and a fresh question follows.
+
+`--deny` needs an id. It is not a mode, so `--watch --deny` is refused rather than quietly prompting as usual.
 
 And `sudo faramir approve` from your own shell is the last resort rather than the first, which is why the command's own error message no longer suggests it: reaching root that way leaves a warm sudo timestamp in a shell the agent can use, which hands it the account this whole check exists to keep it out of. On a host installed with `--allow-sudo`, consider `Defaults:<you> timestamp_timeout=0` for the same reason.
 

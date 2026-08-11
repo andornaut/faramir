@@ -601,9 +601,14 @@ type Question struct {
 	// against the request's cwd, which the agent writes.
 	Program string `json:"program"`
 	LogID   string `json:"log_id"`
-	// WaitingSec says how long sudo has been sitting on this, so an operator can
-	// tell a question just raised from one about to expire.
+	// WaitingSec says how long sudo has been sitting on this.  Read with
+	// ExpiresInSec it also says whether anything was watching: a question shown at
+	// 40s waited 40 seconds for somebody to arrive.
 	WaitingSec int `json:"waiting_sec"`
+	// ExpiresInSec is what is left of [sudo] timeout_sec, after which the question
+	// is refused.  It matters most where the answer is a second command typed
+	// after this one was read, which is `faramir approve` without --watch.
+	ExpiresInSec int `json:"expires_in_sec"`
 }
 
 // Questions is what is waiting now, longest first.
@@ -616,6 +621,7 @@ func (s *Server) Questions() []Question {
 func (s *Server) questionsLocked() []Question {
 	out := make([]Question, 0, len(s.waiting))
 	for _, pending := range s.waiting {
+		waited := int(time.Since(pending.asked).Seconds())
 		out = append(out, Question{
 			ID: pending.id, Prompt: Prompt(pending.run),
 			// Rendered like the command, and for the same reason: these are the
@@ -624,7 +630,8 @@ func (s *Server) questionsLocked() []Question {
 			// the caller would then print as a field holding nothing.
 			Cmd: pending.run.Command(), Cwd: safeUnlessEmpty(pending.run.Cwd),
 			Program: safeUnlessEmpty(pending.run.Argv0Path), LogID: pending.run.LogID,
-			WaitingSec: int(time.Since(pending.asked).Seconds()),
+			WaitingSec:   waited,
+			ExpiresInSec: max(0, s.config.TimeoutSec-waited),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].WaitingSec > out[j].WaitingSec })

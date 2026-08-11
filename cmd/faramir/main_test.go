@@ -278,3 +278,15 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 		t.Error("readAnswer kept going past the end of its input")
 	}
 }
+
+// --deny answers one named question, so without an id it answers nothing.
+// Refused rather than ignored: `--watch --deny` reads like a standing refusal
+// and is not one, and an operator who believed it was would think they had left
+// the door shut when the watcher was in fact still going to prompt.
+func TestDenyNeedsAnID(t *testing.T) {
+	for _, args := range [][]string{{"--deny"}, {"--deny", "--watch"}} {
+		if code := cmdApprove(args); code != 2 {
+			t.Errorf("faramir approve %v = %d, want 2: --deny is not a mode", args, code)
+		}
+	}
+}

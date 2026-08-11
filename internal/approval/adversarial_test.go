@@ -150,3 +150,31 @@ func TestAQuestionHoldsNewCommandsToo(t *testing.T) {
 		t.Fatalf("the approval did not take on a host nothing else could crowd: %v", err)
 	}
 }
+
+// A question says how much of [sudo] timeout_sec is left, not only how long it
+// has been there.
+//
+// It matters most where the answer is a second command: `faramir approve`
+// without --watch prints the question, and the operator then types `faramir
+// approve <id>` against a clock that started when the question was raised.  How
+// long it has already waited does not tell them whether they have time.
+func TestAQuestionSaysHowLongIsLeftToAnswerIt(t *testing.T) {
+	cfg := baseConfig()
+	cfg.TimeoutSec = 10
+	s := started(t, cfg)
+
+	token := mustRegister(s, run())
+	go func() { _, _ = s.Ask(token) }()
+	waitForQuestion(t, s)
+
+	question := s.Questions()[0]
+	if question.ExpiresInSec <= 0 || question.ExpiresInSec > cfg.TimeoutSec {
+		t.Errorf("expires_in_sec = %d, want what is left of %d",
+			question.ExpiresInSec, cfg.TimeoutSec)
+	}
+	if question.WaitingSec+question.ExpiresInSec != cfg.TimeoutSec {
+		t.Errorf("waiting %ds + expires in %ds != timeout %ds: the two describe one "+
+			"clock and have to agree", question.WaitingSec, question.ExpiresInSec,
+			cfg.TimeoutSec)
+	}
+}
