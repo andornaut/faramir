@@ -57,6 +57,52 @@ func TestTheCountsAreReported(t *testing.T) {
 	}
 }
 
+// n/a is its own total.  Folded into the ok count it would read as a host that
+// passed a check it never had, which is the reason the status exists.
+func TestNotApplicableIsCountedApartFromAPass(t *testing.T) {
+	var out bytes.Buffer
+	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
+		{Name: "sudo credential", Status: install.StatusOK},
+		{Name: "sudo grant", Status: install.StatusNA},
+		{Name: "ptrace scope", Status: install.StatusNA},
+	}})
+	if !strings.Contains(out.String(), "1 ok, 2 n/a") {
+		t.Errorf("no summary telling the two apart:\n%s", out.String())
+	}
+}
+
+// Every status keeps the detail in the same column, or a report is read by
+// scanning a ragged edge.
+func TestNotApplicableAlignsWithEveryOtherStatus(t *testing.T) {
+	for _, locale := range []string{"C.UTF-8", "C"} {
+		t.Setenv("LC_ALL", locale)
+		t.Setenv("LC_CTYPE", "")
+		t.Setenv("LANG", "")
+		var out bytes.Buffer
+		printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
+			{Name: "x", Status: install.StatusOK, Detail: "detail"},
+			{Name: "x", Status: install.StatusNA, Detail: "detail"},
+			{Name: "x", Status: install.StatusWarn, Detail: "detail"},
+			{Name: "x", Status: install.StatusFailed, Detail: "detail"},
+		}})
+		// Counted in columns rather than bytes: the glyphs are not all one byte
+		// wide, and it is the screen the detail lines up on.
+		column := func(line string) int {
+			before, _, found := strings.Cut(line, "detail")
+			if !found {
+				t.Fatalf("no detail on the line:\n%s", line)
+			}
+			return utf8.RuneCountInString(before)
+		}
+		lines := strings.Split(strings.TrimSpace(out.String()), "\n")[:4]
+		for _, line := range lines[1:] {
+			if column(line) != column(lines[0]) {
+				t.Errorf("LC_ALL=%s: columns do not line up:\n%s", locale, out.String())
+			}
+		}
+	}
+}
+
 func TestALongDetailWrapsUnderItself(t *testing.T) {
 	t.Setenv("COLUMNS", "60")
 	t.Setenv("LC_ALL", "C.UTF-8")

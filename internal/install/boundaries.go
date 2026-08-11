@@ -459,33 +459,77 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // diagnoseSudoGrant checks the one grant that widens what a brokered command
 // can do, on the host that has it and on the host that does not.
 //
-// Two claims, and the second is made either way.  Where approval is
-// configured: the PAM service that authenticates the executor says what it is
-// supposed to say, and nothing the executor can write decides it.  Everywhere:
-// the executor holds no passwordless sudo and no password of its own, which
-// are the two ways it could sudo with the broker out of the way.
+// Two claims under two names, because they hold on different hosts and one
+// status covering both would mean a different thing on each.  The credential is
+// checked everywhere; the arrangement that authenticates an approval exists
+// only where one was asked for, and reports n/a where it was not.
 func diagnoseSudoGrant(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	if nopasswd, known := passwordlessSudo(opts.ExecUser); known && nopasswd != "" {
-		report.add("sudo grant", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
+	diagnoseSudoCredential(report, opts)
+	diagnoseSudoArrangement(report, opts, cfg)
+}
+
+// sudoNoPasswd is passwordlessSudo, a variable so a test can answer for it
+// without a sudoers file, as shadowFile is one so a test can supply its own.
+var sudoNoPasswd = passwordlessSudo
+
+// diagnoseSudoCredential checks the two ways the executor could sudo with the
+// broker out of the way: a NOPASSWD entry, which skips PAM entirely, and a
+// password of its own, which authenticates without the broker being asked
+// anything.  Neither may exist on any host, a grant or not, so this is what
+// stands behind "this host cannot sudo" as much as behind the arrangement
+// below.
+//
+// A claim that could not be put is a warning rather than a pass: the accounts
+// this examines are the ones the whole grant rests on, so silence here would
+// report an unread file as an absent credential.
+func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
+	nopasswd, known := sudoNoPasswd(opts.ExecUser)
+	switch {
+	case !known:
+		report.NotAsked++
+		report.add("sudo credential", StatusWarn, "which account runs the executor is not "+
+			"known here, so a NOPASSWD entry for it went unchecked. Pass --exec-user")
+		return
+	case nopasswd != "":
+		report.add("sudo credential", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
 			"a brokered command runs sudo without the broker, the question or a human "+
 			"in the way. Remove it: NOPASSWD skips PAM, which is where the approval "+
 			"is asked for", opts.ExecUser, nopasswd)
 		return
 	}
-	// A password on that account is a second way in, and one nothing asks the
-	// broker about.  It authenticates through PAM against the broker or not at
-	// all.
-	if shadow, err := os.ReadFile(shadowFile); err == nil && shadowUsable(string(shadow), opts.ExecUser) {
-		report.add("sudo grant", StatusFailed, "%s has a usable password, so it can "+
+	shadow, err := os.ReadFile(shadowFile)
+	if err != nil {
+		report.NotAsked++
+		report.add("sudo credential", StatusWarn, "%s cannot be read (%v), so whether %s "+
+			"holds a password it could authenticate with went unchecked. Re-run as root",
+			shadowFile, err, opts.ExecUser)
+		return
+	}
+	if shadowUsable(string(shadow), opts.ExecUser) {
+		report.add("sudo credential", StatusFailed, "%s has a usable password, so it can "+
 			"authenticate without the broker being asked anything. Lock it: "+
 			"usermod -L %s", opts.ExecUser, opts.ExecUser)
 		return
 	}
+	report.add("sudo credential", StatusOK, "%s holds no NOPASSWD entry from any source "+
+		"and no password of its own, which are the two ways it could sudo with the "+
+		"broker out of the way", opts.ExecUser)
+}
+
+// diagnoseSudoArrangement checks what authenticates an approval: the PAM
+// service the executor's sudo reads says what it is supposed to say, nothing
+// the executor can write decides it, and the fallback the service falls back to
+// is not a free pass.
+//
+// All three exist only on a host installed with --allow-sudo, so a host without
+// one reports n/a: there is no file to read, and an ok would claim a stack that
+// gates when there is no stack at all.
+func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		// No grant asked for.  Reported rather than silent: "this host cannot
-		// sudo" is an answer, and the checks above are what stand behind it.
-		report.add("sudo grant", StatusOK, "%s has no sudo on this host; brokered "+
-			"commands cannot sudo, which is the default arrangement", opts.ExecUser)
+		report.add("sudo grant", StatusNA, "no [sudo] section, so nothing here "+
+			"authenticates an approval and there is no PAM service, helper or fallback "+
+			"to read. Brokered commands cannot sudo, which is the default arrangement; "+
+			"`faramir init --allow-sudo` is what writes the three")
 		return
 	}
 
@@ -523,9 +567,8 @@ func diagnoseSudoGrant(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 			return
 		}
 	}
-	report.add("sudo grant", StatusOK, "%s may ask to sudo and holds no credential "+
-		"for it; %s asks the broker, and root answers, one approval per command",
-		opts.ExecUser, pamFile)
+	report.add("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker, and "+
+		"root answers, one approval per command", opts.ExecUser, pamFile)
 }
 
 // ptraceScopeFile is Yama's, and absent on a kernel built without it.
@@ -552,9 +595,19 @@ const ptraceScopeFile = "/proc/sys/kernel/yama/ptrace_scope"
 // A warning rather than a failure: it is a host-wide sysctl that other software
 // has opinions about, and faramir raising it under an operator would be
 // reconfiguring the machine rather than reporting on it.
+//
+// N/a without a grant, and for a reason of the same shape: init renders that
+// host's executor unit with SystemCallFilter=@system-service, which excludes
+// @ptrace, so the syscall is refused whatever the sysctl says.  The setting only
+// decides something on the host that cannot carry the filter.
 func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		return // no grant, so nothing here decides an approval
+		report.add("ptrace scope", StatusNA, "no [sudo] section, so the executor unit is "+
+			"rendered with SystemCallFilter=@system-service, which excludes @ptrace: the "+
+			"syscall is refused whatever %s says. A host that grants an approval cannot "+
+			"carry that filter, which is what makes this setting decide something there",
+			ptraceScopeFile)
+		return
 	}
 	raw, err := os.ReadFile(ptraceScopeFile)
 	if err != nil {

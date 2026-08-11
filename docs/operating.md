@@ -27,6 +27,8 @@ Most of the examination needs another uid: the broker's own `--check`, the compa
 
 Without sudo those report as unchecked rather than as passing, grouped at the end. A skipped check is one warn line whatever it stood for, so a line under the totals counts them: the totals alone would read the same on a host examined in full and on one where most of the questions were never put.
 
+A check whose subject this install does not have reports `n/a` rather than passing or dropping out of the report: the sudo arrangement and `ptrace_scope` on a host with no grant. It is a separate total from `ok`, since a pass would claim a stack that gates where there is no stack at all, and it is not counted as unchecked, re-running as root not being what would answer it.
+
 Two checks run a brokered command rather than reading a mode: the SSH agent probe and the brokered command check.
 
 - Both skip against a broker known to hold no values, and against one that answered nothing when the install was looked up: neither will run the command, and the refusal and the outage are reported by the secrets and socket checks instead.
@@ -172,9 +174,7 @@ An approval could leak past the one command it was shown for in two ways. One is
 
 `faramir doctor` re-checks the arrangement, on a host that has it and on one that does not:
 
-- the PAM service must gate rather than fall open (`requisite`, `seteuid`, faramir's own helper)
-- the helper must be unwritable by the executor and by you
-- `/etc/pam.d/other` must not be a free pass, for the case where the service file is ever removed
-- `faramir-exec` must hold no `NOPASSWD` entry from any source and no password of its own
+- `sudo credential`: `faramir-exec` must hold no `NOPASSWD` entry from any source and no password of its own, which are the two ways it could sudo with the broker out of the way. Checked on every host, a grant or not, and a warning rather than a pass where the sudoers listing or `/etc/shadow` could not be read.
+- `sudo grant`: the PAM service must gate rather than fall open (`requisite`, `seteuid`, faramir's own helper), the helper must be unwritable by the executor and by you, and `/etc/pam.d/other` must not be a free pass, for the case where the service file is ever removed. All three exist only where one was granted, so a host without a grant reports `n/a`. The two names are separate because a credential and a broken gate are different faults, and a host that holds one is still examined for the other.
 - the executor unit must be delegated a cgroup, so a run is confined and a `setsid` child cannot outlive it. A hard failure on any host, a sudo grant or not.
-- on a host that grants an approval, `/proc/sys/kernel/yama/ptrace_scope` must not be `0`, which lets any process of the executor's uid attach to any other of that uid. A warning rather than a failure: `sysctl -w kernel.yama.ptrace_scope=1`, and a line in `/etc/sysctl.d` to keep it. The daemons mark themselves undumpable, so this is about brokered commands with respect to each other rather than about reaching either daemon.
+- `/proc/sys/kernel/yama/ptrace_scope` must not be `0`, which lets any process of the executor's uid attach to any other of that uid. A warning rather than a failure: `sysctl -w kernel.yama.ptrace_scope=1`, and a line in `/etc/sysctl.d` to keep it. The daemons mark themselves undumpable, so this is about brokered commands with respect to each other rather than about reaching either daemon. `n/a` without a grant: that host's executor unit carries `SystemCallFilter=@system-service`, which excludes `@ptrace`, so the syscall is refused whatever the sysctl says.

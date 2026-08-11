@@ -408,7 +408,8 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 		return
 	}
 	var totals []string
-	for _, status := range []install.Status{install.StatusOK, install.StatusWarn, install.StatusFailed} {
+	for _, status := range []install.Status{install.StatusOK, install.StatusNA,
+		install.StatusWarn, install.StatusFailed} {
 		if counts[status] > 0 {
 			totals = append(totals, fmt.Sprintf("%d %s", counts[status], status))
 		}
@@ -443,6 +444,7 @@ func printNotAsked(w io.Writer, paint palette, count int) {
 func statusColumn(status install.Status) string {
 	mark := map[install.Status]string{
 		install.StatusOK:     "✓", // check mark
+		install.StatusNA:     "–", // en dash: neither asserted nor withheld
 		install.StatusWarn:   "!",
 		install.StatusFailed: "✗", // ballot X
 	}[status]
@@ -473,6 +475,10 @@ func paintStatus(paint palette, status install.Status) string {
 	switch status {
 	case install.StatusOK:
 		return paint.ok(text)
+	// Dim rather than a colour of its own: nothing was claimed, so the line is
+	// there to be read past by someone scanning for the one that is not ok.
+	case install.StatusNA:
+		return paint.dim(text)
 	case install.StatusWarn:
 		return paint.warn(text)
 	default:

@@ -36,8 +36,9 @@ type DoctorOptions struct {
 	BrokerVersion string
 }
 
-// Status is a finding's verdict.  Three levels, because a broker that is
-// running and holding nothing is neither a pass nor a fail.
+// Status is a finding's verdict.  Four levels, because a broker that is
+// running and holding nothing is neither a pass nor a fail, and neither is a
+// check whose subject this host does not have.
 //
 // Warn means the question could not be asked, and the reason is how doctor was
 // invoked or what this host is: no root, no runuser, no systemd, nothing
@@ -50,10 +51,18 @@ type DoctorOptions struct {
 // verified, and a broker that will not answer is a broker not doing its job.
 // A confident answer about the wrong thing is worse than no answer, so a check
 // that cannot establish its own subject fails rather than guessing.
+//
+// N/a means the question does not arise here: the subject belongs to an
+// arrangement this host was not installed with, so there is nothing to pass or
+// fail.  It is reported rather than left out, a check that vanishes being
+// indistinguishable from one nobody wrote.  It is not counted in NotAsked:
+// re-running as root is not what would answer it, and nothing about this host
+// is unexamined.
 type Status string
 
 const (
 	StatusOK     Status = "ok"
+	StatusNA     Status = "n/a"
 	StatusWarn   Status = "warn"
 	StatusFailed Status = "failed"
 )
