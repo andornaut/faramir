@@ -588,13 +588,6 @@ func primaryMembers(gid string) ([]string, error) {
 // wrote, as loginDefs and shadowFile are.
 var groupFile = "/etc/group"
 
-// groupMembers reads a group's supplementary members; primary membership does
-// not appear there.
-func groupMembers(name string) ([]string, error) {
-	_, members, err := groupEntry(name)
-	return members, err
-}
-
 // groupEntry is a group's gid and its supplementary members, read from the same
 // line.  Both, because the gid is what the primary members are found by, and
 // looking it up separately through the system would answer for a different file

@@ -62,6 +62,11 @@ func canWrite(account, path string) bool {
 	return err == nil
 }
 
+// ownsMissing is what both report for a path that is not there, and what a test
+// compares against.  One spelling, so a caller cannot check for a word the
+// reporter stopped using.
+const ownsMissing = "missing"
+
 // owns reports a file's mode and owner as "%04o account", or "missing".
 //
 // The owner alone, because the checks that compare this string are about a mode
@@ -72,7 +77,7 @@ func canWrite(account, path string) bool {
 func owns(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
-		return "missing"
+		return ownsMissing
 	}
 	return fmt.Sprintf("%04o %s", info.Mode().Perm(), ownerName(info))
 }
@@ -87,7 +92,7 @@ func owns(path string) string {
 func ownsWithGroup(path string) string {
 	info, err := os.Stat(path)
 	if err != nil {
-		return "missing"
+		return ownsMissing
 	}
 	return fmt.Sprintf("%04o %s:%s", info.Mode().Perm(), ownerName(info), groupName(info))
 }

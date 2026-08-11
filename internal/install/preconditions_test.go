@@ -65,7 +65,7 @@ func TestOwnsReportsOwnerAndGroup(t *testing.T) {
 		t.Errorf("ownsWithGroup() names no group, so a remedy written from it will "+
 			"not satisfy a check that compares one: %q", got)
 	}
-	if ownsWithGroup(filepath.Join(t.TempDir(), "absent")) != "missing" {
+	if ownsWithGroup(filepath.Join(t.TempDir(), "absent")) != ownsMissing {
 		t.Error("an absent file should read as missing")
 	}
 	// owns() is compared against "%04o account" by the age key and audit log

@@ -504,7 +504,11 @@ func (r *runner) refuseInvalidSudoers() error {
 	}
 	defer func() { _ = os.RemoveAll(dir) }()
 	candidate := filepath.Join(dir, "faramir")
-	if err := os.WriteFile(candidate, body, 0o440); err != nil {
+	// 0600, not the 0440 the installed file gets: nothing reads this but the
+	// visudo below, which parses a file it is handed at any mode, and a group-
+	// readable copy of the grant in a temp directory is a copy nobody needs.  The
+	// mode sudo requires is asserted where the real file is written.
+	if err := os.WriteFile(candidate, body, 0o600); err != nil {
 		return err
 	}
 	if out, checkErr := exec.Command(visudo, "-cf", candidate).CombinedOutput(); checkErr != nil {
