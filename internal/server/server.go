@@ -81,6 +81,10 @@ func New(cfg *config.Config) *Server {
 	return s
 }
 
+// opRedactName is the one op a connection may carry more than one of, so it is
+// named in the dispatch and again where the loop decides whether to continue.
+const opRedactName = "redact"
+
 // quiescenceWait bounds the one round trip an approval makes to the executor.
 // Short: the answer is a /proc scan, and a human is waiting on it.
 const quiescenceWait = 5 * time.Second
@@ -151,35 +155,73 @@ func (s *Server) serveConnection(conn net.Conn) {
 		return
 	}
 
-	line, err := sockutil.ReadLine(conn, s.Config.Server.MaxRequestBytes)
-	if err != nil {
-		if errors.Is(err, sockutil.ErrTooLarge) {
-			_ = sockutil.Send(conn, protocol.ErrorResponse("too_large",
-				fmt.Sprintf("request exceeds %d bytes", s.Config.Server.MaxRequestBytes), ""))
+	// One connection carries one request, except a redact stream, which carries
+	// a chunk at a time down the same one.  The redactor is why: it holds back a
+	// tail longer than the longest variant so a value split between two chunks is
+	// still caught, and that tail is only useful to the chunk that follows.  A
+	// connection per chunk would put a seam wherever the client happened to break
+	// the text, and a value across it would be redacted by neither half.
+	stream := &redactStream{}
+	defer stream.finish(s, peer)
+
+	// Buffered across iterations: a plain read would discard whatever it pulled
+	// in past the newline, which for a stream is the start of the next chunk.
+	lines := sockutil.NewLineReader(conn, s.Config.Server.MaxRequestBytes)
+
+	for {
+		line, err := lines.Next()
+		if err != nil {
+			if errors.Is(err, sockutil.ErrTooLarge) {
+				_ = sockutil.Send(conn, protocol.ErrorResponse("too_large",
+					fmt.Sprintf("request exceeds %d bytes", s.Config.Server.MaxRequestBytes), ""))
+				return
+			}
+			if os.IsTimeout(err) {
+				_ = sockutil.Send(conn, protocol.ErrorResponse("timeout", "no request received", ""))
+			}
 			return
 		}
-		if os.IsTimeout(err) {
-			_ = sockutil.Send(conn, protocol.ErrorResponse("timeout", "no request received", ""))
+		if len(line) == 0 {
+			return
 		}
-		return
-	}
-	if len(line) == 0 {
-		return
-	}
 
-	var payload map[string]any
-	if err := json.Unmarshal(line, &payload); err != nil {
-		_ = sockutil.Send(conn, protocol.ErrorResponse("bad_request",
-			fmt.Sprintf("invalid JSON: %v", err), ""))
-		return
+		var payload map[string]any
+		if err := json.Unmarshal(line, &payload); err != nil {
+			_ = sockutil.Send(conn, protocol.ErrorResponse("bad_request",
+				fmt.Sprintf("invalid JSON: %v", err), ""))
+			return
+		}
+		// Cleared for the op itself, which runs for as long as [exec]
+		// max_timeout_sec allows and is not on the clock one line of JSON is read
+		// on.  The reply gets a fresh one once there is something to write.
+		_ = conn.SetDeadline(time.Time{})
+		request, parseErr := protocol.Parse(payload)
+		response := protocol.Response(nil)
+		if parseErr != nil {
+			response = protocol.ErrorResponse("bad_request", parseErr.Error(), "")
+		} else {
+			response = s.dispatch(request, peer, stream)
+		}
+		_ = conn.SetWriteDeadline(time.Now().Add(peerWait))
+		if err := sockutil.Send(conn, response); err != nil {
+			return
+		}
+		if parseErr != nil || request.Op != opRedactName || !request.More {
+			return
+		}
+		// The next chunk of a stream already in progress, which is the only thing
+		// given longer than peerWait: `faramir redact -- command` sends a chunk
+		// when the command has printed one, and a command that is quiet for a
+		// while is ordinary.  Bounded by what a brokered command may take, so an
+		// abandoned stream still ends.  A peer that connects and says nothing
+		// never reaches here.
+		_ = conn.SetDeadline(time.Now().Add(s.streamWait()))
 	}
-	// Cleared for the op itself, which runs for as long as [exec] max_timeout_sec
-	// allows and is not on the clock one line of JSON is read on.  The reply gets
-	// a fresh one once there is something to write.
-	_ = conn.SetDeadline(time.Time{})
-	response := s.Handle(payload, peer)
-	_ = conn.SetWriteDeadline(time.Now().Add(peerWait))
-	_ = sockutil.Send(conn, response)
+}
+
+// streamWait bounds a redact stream between chunks.
+func (s *Server) streamWait() time.Duration {
+	return time.Duration(s.Config.Exec.MaxTimeoutSec) * time.Second
 }
 
 // peer performs the SO_PEERCRED check.  The socket mode already restricts this
@@ -197,21 +239,35 @@ func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 	return peer, nil
 }
 
+// Handle dispatches one request that stands on its own, which is every op but a
+// chunked redact: those need the connection's state, so serveConnection parses
+// and dispatches them itself.
 func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Response {
 	request, err := protocol.Parse(payload)
 	if err != nil {
 		return protocol.ErrorResponse("bad_request", err.Error(), "")
 	}
+	return s.dispatch(request, peer, nil)
+}
 
-	s.Store.RefreshIfStale()
+// dispatch routes a parsed request.  stream is the connection's redact state,
+// nil for a caller that answers one request and is done with it.
+func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
+	stream *redactStream) protocol.Response {
+	// Not on a chunk continuing a stream: that stream's redactor was built when
+	// it started and is what the whole of it is scanned against, so a refresh
+	// here would take a lock per chunk and change nothing.
+	if stream == nil || stream.redactor == nil {
+		s.Store.RefreshIfStale()
+	}
 
 	switch request.Op {
 	case "status":
 		return s.opStatus()
 	case "list_secrets":
 		return s.opListSecrets()
-	case "redact":
-		return s.opRedact(request, peer)
+	case opRedactName:
+		return s.opRedact(request, peer, stream)
 	case "approvals":
 		return s.opApprovals(request, peer)
 	case "approve":
@@ -259,22 +315,64 @@ func (s *Server) opStatus() protocol.Response {
 //
 // A deliberate oracle, and deliberately not rate-limited; docs/design.md has
 // the weighting.  Only the input size and what was found are logged.
-func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID()); refused != nil {
-		return *refused
+func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer,
+	stream *redactStream) protocol.Response {
+	if stream == nil {
+		// A caller with nowhere to keep the redactor cannot be part way through a
+		// stream.  Named rather than quietly completed: feeding text and never
+		// flushing would drop the tail this chunk held back.
+		if request.More {
+			return protocol.ErrorResponse("bad_request",
+				"'more' needs a connection that carries the stream", "")
+		}
+		stream = &redactStream{}
 	}
-	redactor := s.redactor()
-	output := redactor.RedactText(request.Text)
-	summary := redactor.Summary()
-	logID := audit.NewLogID()
-	s.Audit.Write(map[string]any{
-		"log_id": logID, "op": "redact", "peer": peer,
-		"input_bytes": len(request.Text), "redactions": summary,
-	}, audit.Output{})
+	if stream.redactor == nil {
+		if refused := s.refuseUnreadable("redact", "a redact", audit.NewLogID()); refused != nil {
+			return *refused
+		}
+		// Built once for the whole stream, so every chunk of one command's output
+		// is scanned against one value set: a refresh part way through would
+		// otherwise cover the start of it and the end of it differently.
+		stream.redactor = s.redactor()
+		stream.logID = audit.NewLogID()
+	}
+	stream.inputBytes += len(request.Text)
+	output := stream.redactor.Feed(request.Text)
+	if !request.More {
+		output += stream.redactor.Flush()
+		stream.finish(s, peer)
+	}
 	return protocol.Response{
 		"exit_code": 0, "output": output, "truncated": false,
-		"redactions": summary, "log_id": logID,
+		"redactions": stream.redactor.Summary(), "log_id": stream.logID,
 	}
+}
+
+// redactStream is what one connection's redact carries between chunks: the
+// redactor, because the tail it holds back is only useful to the chunk that
+// follows, and the totals for the one audit record the stream writes.
+type redactStream struct {
+	redactor   *redact.Redactor
+	logID      string
+	inputBytes int
+	written    bool
+}
+
+// finish writes the stream's single audit record.  At the end rather than per
+// chunk, because one command's output is one thing that happened and the counts
+// only add up once the last chunk has been through.  Called again from
+// serveConnection for a stream the peer abandoned, so what was redacted before
+// it went away is still recorded.
+func (st *redactStream) finish(s *Server, peer *sockutil.Peer) {
+	if st.redactor == nil || st.written {
+		return
+	}
+	st.written = true
+	s.Audit.Write(map[string]any{
+		"log_id": st.logID, "op": "redact", "peer": peer,
+		"input_bytes": st.inputBytes, "redactions": st.redactor.Summary(),
+	}, audit.Output{})
 }
 
 // opApprovals and opApprove are the operator's half of the approval channel,

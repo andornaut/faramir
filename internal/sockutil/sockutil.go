@@ -4,6 +4,7 @@
 package sockutil
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -236,6 +237,53 @@ func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 }
 
 var ErrTooLarge = errors.New("request too large")
+
+// LineReader reads successive payloads from one connection.
+//
+// ReadLine discards whatever its last read pulled in past the newline, which is
+// right for a connection carrying one request and wrong for one carrying a
+// stream of them: those bytes are the start of the next payload.  Keeping the
+// buffer here is what lets a second call see them, so a peer that writes two
+// payloads before either is read does not lose the second.
+type LineReader struct {
+	reader *bufio.Reader
+	limit  int
+}
+
+func NewLineReader(conn net.Conn, limit int) *LineReader {
+	return &LineReader{reader: bufio.NewReader(conn), limit: limit}
+}
+
+// Next reads one payload, with ReadLine's contract: nil and no error when the
+// peer sent nothing usable, ErrTooLarge past the limit.
+func (lr *LineReader) Next() ([]byte, error) {
+	var buf []byte
+	for {
+		// ReadSlice returns what it has with ErrBufferFull when the payload is
+		// longer than the buffer, so a long one arrives in pieces.
+		chunk, err := lr.reader.ReadSlice('\n')
+		if len(chunk) > 0 {
+			buf = append(buf, chunk...)
+			if len(buf) > lr.limit {
+				return nil, ErrTooLarge
+			}
+		}
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return nil, err
+		}
+		return buf[:len(buf)-1], nil // ReadSlice keeps the delimiter
+	}
+	if len(bytes.TrimSpace(buf)) == 0 {
+		return nil, nil
+	}
+	return buf, nil
+}
 
 // Send writes one JSON response followed by a newline.
 func Send(conn net.Conn, response any) error {

@@ -50,6 +50,8 @@ Cost: a low-entropy value split across a line break can be redacted where its tw
 
 **4. Stream with an overlap buffer.** A tail longer than the longest variant is held back on every `Feed` and released on `Flush`, the margin exceeding that variant because wrapping inserts newlines inside a value. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is output, including the release triggered by the last partial-rune tail, or every command whose last write splits a rune loses its final characters.
 
+The buffer only covers a join it is on both sides of, so **one redactor has to span the whole of a stream**. A brokered command gets that: the broker keeps one for the PTY it is reading. `faramir redact` gets it by sending every chunk of one input down one connection, which is what [`more`](protocol.md#streaming-a-redact) is for. A redactor per chunk would leave the break between two of them scanned by neither, and a client has to break a line longer than one chunk somewhere.
+
 **5. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. `[secrets] min_length` is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
 
 Length is the whole of the test. There is no distinct-character count and no entropy floor: neither is the strength check it reads as (`password` clears both), and how strong a credential is belongs to whoever chose it. Length is different in kind, being a bound on what the redactor can search for without eating the output. A long low-entropy value such as `aaaaaaaa` matches any run of eight, but that mangles the operator's own output rather than letting a value escape.

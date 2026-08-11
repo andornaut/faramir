@@ -60,6 +60,10 @@ type Request struct {
 	TimeoutSec int
 	// Text is what the redact op scrubs.  Only that op reads it.
 	Text string
+	// More marks a redact chunk that is not the last of a stream, so the
+	// redactor holds its tail back for the chunk that follows instead of
+	// flushing it.  Absent on the ordinary one-shot request.
+	More bool
 
 	// ID names the approval question `approve` answers, and Approve is the
 	// answer.  WaitSec is how long `approvals` may block before returning an
@@ -119,6 +123,13 @@ func Parse(payload map[string]any) (*Request, error) {
 			return nil, fmt.Errorf("'text' must be a string")
 		}
 		req.Text = text
+		if raw, ok := payload["more"]; ok && raw != nil {
+			more, isBool := raw.(bool)
+			if !isBool {
+				return nil, fmt.Errorf("'more' must be a boolean")
+			}
+			req.More = more
+		}
 	}
 
 	if raw, ok := payload["cwd"]; ok && raw != nil {

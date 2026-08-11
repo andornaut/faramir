@@ -13,49 +13,92 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// stubBroker answers the redact op by echoing the text back, and records the
-// size of every request it was sent.
-func stubBroker(t *testing.T) (socketPath string, sizes func() []int) {
+// stubBroker answers the redact op by echoing the text back, and records what
+// it was sent.  It carries a stream the way the real broker does: a chunk
+// marked "more" keeps the connection open for the next one, and the chunk
+// without it ends the stream.
+type stubBroker struct {
+	path string
+
+	mu       sync.Mutex
+	sizes    []int
+	more     []bool
+	conns    int
+	chunks   int
+	dieAfter int // drop the connection unanswered at this chunk; 0 never
+}
+
+func newStubBroker(t *testing.T) *stubBroker {
 	t.Helper()
-	socketPath = filepath.Join(t.TempDir(), "b.sock")
-	listener, err := net.Listen("unix", socketPath)
+	b := &stubBroker{path: filepath.Join(t.TempDir(), "b.sock")}
+	listener, err := net.Listen("unix", b.path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { listener.Close(); os.Remove(socketPath) })
+	t.Cleanup(func() { listener.Close(); os.Remove(b.path) })
 
-	var mu sync.Mutex
-	var seen []int
 	go func() {
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
 				return
 			}
-			go func() {
-				defer conn.Close()
-				line, err := sockutil.ReadLine(conn, 1<<26)
-				if err != nil || len(line) == 0 {
-					return
-				}
-				var request struct {
-					Text string `json:"text"`
-				}
-				if err := json.Unmarshal(line, &request); err != nil {
-					return
-				}
-				mu.Lock()
-				seen = append(seen, len(request.Text))
-				mu.Unlock()
-				_ = sockutil.Send(conn, map[string]any{"output": request.Text})
-			}()
+			b.mu.Lock()
+			b.conns++
+			b.mu.Unlock()
+			go b.serve(conn)
 		}
 	}()
-	return socketPath, func() []int {
-		mu.Lock()
-		defer mu.Unlock()
-		return append([]int(nil), seen...)
+	return b
+}
+
+func (b *stubBroker) serve(conn net.Conn) {
+	defer conn.Close()
+	lines := sockutil.NewLineReader(conn, 1<<26)
+	for {
+		line, err := lines.Next()
+		if err != nil || len(line) == 0 {
+			return
+		}
+		var request struct {
+			Text string `json:"text"`
+			More bool   `json:"more"`
+		}
+		if err := json.Unmarshal(line, &request); err != nil {
+			return
+		}
+		b.mu.Lock()
+		b.sizes = append(b.sizes, len(request.Text))
+		b.more = append(b.more, request.More)
+		b.chunks++
+		die := b.dieAfter > 0 && b.chunks >= b.dieAfter
+		b.mu.Unlock()
+		if die {
+			return // gone without answering, which is what a restart looks like
+		}
+		_ = sockutil.Send(conn, map[string]any{"output": request.Text})
+		if !request.More {
+			return
+		}
 	}
+}
+
+func (b *stubBroker) Sizes() []int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]int(nil), b.sizes...)
+}
+
+func (b *stubBroker) More() []bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]bool(nil), b.more...)
+}
+
+func (b *stubBroker) Conns() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.conns
 }
 
 // The broker's limit is on the encoded line, and chunkBytes is chosen so a
@@ -63,20 +106,20 @@ func stubBroker(t *testing.T) (socketPath string, sizes func() []int) {
 // full ReadSlice would put nearly twice that on the wire, and an oversized
 // request comes back as too_large, which passes the text through unredacted.
 func TestNoChunkExceedsTheChunkSize(t *testing.T) {
-	socketPath, sizes := stubBroker(t)
+	broker := newStubBroker(t)
 
 	// Short lines, so the buffer is nearly always partial when the next
 	// ReadSlice lands.
 	input := strings.Repeat(strings.Repeat("x", 60)+"\n", 4000)
 
 	var out bytes.Buffer
-	if err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
+	if err := redactStream(broker.path, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != input {
 		t.Fatalf("output differs from input: %d bytes in, %d out", len(input), out.Len())
 	}
-	requests := sizes()
+	requests := broker.Sizes()
 	if len(requests) < 2 {
 		t.Fatalf("expected the input to be split, got %d request(s)", len(requests))
 	}
@@ -90,21 +133,93 @@ func TestNoChunkExceedsTheChunkSize(t *testing.T) {
 
 // A long line arrives in pieces, each its own chunk.
 func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
-	socketPath, sizes := stubBroker(t)
+	broker := newStubBroker(t)
 
 	input := strings.Repeat("y", 5*chunkBytes) + "\n"
 	var out bytes.Buffer
-	if err := redactStream(socketPath, strings.NewReader(input), &out); err != nil {
+	if err := redactStream(broker.path, strings.NewReader(input), &out); err != nil {
 		t.Fatal(err)
 	}
 	if out.String() != input {
 		t.Fatalf("output differs: %d bytes in, %d out", len(input), out.Len())
 	}
-	for i, size := range sizes() {
+	for i, size := range broker.Sizes() {
 		if size > chunkBytes {
 			t.Errorf("chunk %d carried %d bytes of text, over the %d-byte budget",
 				i, size, chunkBytes)
 		}
+	}
+}
+
+// Every chunk of one stream goes down one connection, and every chunk but the
+// last says another follows.
+//
+// This is what puts the broker's redactor across the joins: it holds back a
+// tail longer than the longest variant, so a value split between two chunks is
+// caught by the one that completes it.  A connection per chunk gave each its
+// own redactor and left the join scanned by neither.
+func TestAStreamIsOneConnectionAndSaysWhereItEnds(t *testing.T) {
+	broker := newStubBroker(t)
+
+	input := strings.Repeat("z", 5*chunkBytes) + "\n"
+	var out bytes.Buffer
+	if err := redactStream(broker.path, strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := broker.Conns(); got != 1 {
+		t.Errorf("the stream took %d connections, want 1: a redactor per connection "+
+			"cannot span the break between two chunks", got)
+	}
+	more := broker.More()
+	if len(more) < 2 {
+		t.Fatalf("expected several chunks, got %d", len(more))
+	}
+	for i, flagged := range more[:len(more)-1] {
+		if !flagged {
+			t.Errorf("chunk %d did not say another follows, so the broker flushed "+
+				"the tail it should have carried", i)
+		}
+	}
+	if more[len(more)-1] {
+		t.Error("the last chunk says another follows, so the tail is never flushed " +
+			"and the end of the stream is lost")
+	}
+}
+
+// One request is still one request: the ordinary short redact must not become a
+// stream, or a caller that sends one thing and reads one answer would hang.
+func TestTextShorterThanAChunkIsASingleRequest(t *testing.T) {
+	broker := newStubBroker(t)
+
+	var out bytes.Buffer
+	if err := redactStream(broker.path, strings.NewReader("one line\n"), &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := broker.Sizes(); len(got) != 1 {
+		t.Errorf("sent %d requests for one short input, want 1", len(got))
+	}
+	if more := broker.More(); len(more) != 1 || more[0] {
+		t.Errorf("a lone chunk said another follows: %v", more)
+	}
+	if out.String() != "one line\n" {
+		t.Errorf("output = %q", out.String())
+	}
+}
+
+// Empty input costs no connection: dialing would write an audit record for a
+// command that printed nothing.
+func TestEmptyInputSendsNothing(t *testing.T) {
+	broker := newStubBroker(t)
+
+	var out bytes.Buffer
+	if err := redactStream(broker.path, strings.NewReader(""), &out); err != nil {
+		t.Fatal(err)
+	}
+	if got := broker.Conns(); got != 0 {
+		t.Errorf("empty input opened %d connection(s), want 0", got)
+	}
+	if out.Len() != 0 {
+		t.Errorf("output = %q, want nothing", out.String())
 	}
 }
 
@@ -128,20 +243,19 @@ func TestABrokerThatIsNotThereWithholdsTheText(t *testing.T) {
 // them protects nothing; buffering the whole stream to be able to withhold them
 // would cost an unbounded buffer and every byte of incremental output. What
 // must not appear is the chunk that failed, or anything after it.
+//
+// The broker goes away by dropping the connection, which is what a restart
+// looks like from here.  Unlinking the socket would not do it: a stream holds
+// one connection, and an established one outlives the name it was dialed by.
 func TestAFailurePartWayThroughKeepsWhatWasRedactedAndStops(t *testing.T) {
-	socketPath, _ := stubBroker(t)
+	broker := newStubBroker(t)
+	broker.dieAfter = 2
 
-	// Two chunks' worth, with the broker taken away after the first: long lines
-	// so the first chunk flushes before the reader reaches the end.
 	first := strings.Repeat("a", chunkBytes) + "\n"
 	rest := strings.Repeat("SENSITIVE\n", 100)
 
 	var out bytes.Buffer
-	err := redactStream(socketPath, &breakAfter{
-		reader: strings.NewReader(first + rest),
-		at:     len(first),
-		onHalf: func() { os.Remove(socketPath) },
-	}, &out)
+	err := redactStream(broker.path, strings.NewReader(first+rest), &out)
 	if err == nil {
 		t.Fatal("a broker that went away mid-stream was reported as a success")
 	}
@@ -151,24 +265,4 @@ func TestAFailurePartWayThroughKeepsWhatWasRedactedAndStops(t *testing.T) {
 	if out.Len() == 0 {
 		t.Error("chunks that were redacted successfully were withheld too")
 	}
-}
-
-// breakAfter runs onHalf once, as soon as at bytes have been read, so the
-// broker can be removed between one chunk and the next.
-type breakAfter struct {
-	reader *strings.Reader
-	at     int
-	read   int
-	onHalf func()
-	fired  bool
-}
-
-func (b *breakAfter) Read(p []byte) (int, error) {
-	n, err := b.reader.Read(p)
-	b.read += n
-	if !b.fired && b.read >= b.at {
-		b.fired = true
-		b.onHalf()
-	}
-	return n, err
 }

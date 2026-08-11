@@ -449,9 +449,14 @@ func redactChild(socketPath string, argv []string) int {
 }
 
 // redactStream sends the input through the broker a chunk at a time, breaking
-// on a newline where it can so a value is not split across two requests.  A
-// multi-line value and a line longer than a chunk still split one.  ReadSlice
-// rather than ReadBytes, which would grow one long line past max_request_bytes.
+// on a newline where it can.  ReadSlice rather than ReadBytes, which would grow
+// one long line past max_request_bytes.
+//
+// Every chunk goes down ONE connection, each but the last marked "more".  The
+// broker keeps one redactor for that connection, so the tail it holds back
+// covers the join: a line longer than a chunk has to be broken mid-line, and a
+// value across that break belongs to neither half on its own.  A connection per
+// chunk put a seam there that nothing scanned.
 //
 // A chunk that cannot be redacted is never written, and neither is anything
 // after it: the stream stops there and the error says so.  Chunks already
@@ -464,13 +469,20 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 	reader := bufio.NewReaderSize(in, chunkBytes)
 	buf := make([]byte, 0, chunkBytes)
 
-	flush := func() error {
-		if len(buf) == 0 {
+	stream := &redactConn{socketPath: socketPath}
+	defer stream.close()
+
+	// more reports whether another chunk follows.  The last one carries "more"
+	// false, which is what makes the broker flush the tail it is holding.
+	flush := func(more bool) error {
+		// An empty buffer is nothing to send, except as the last chunk of a stream
+		// that has already sent something: that one is what releases the tail.
+		if len(buf) == 0 && (more || !stream.open()) {
 			return nil
 		}
 		text := string(buf)
 		buf = buf[:0]
-		redacted, err := redactOnce(socketPath, text)
+		redacted, err := stream.send(text, more)
 		if err != nil {
 			return fmt.Errorf("withheld %d byte(s) that could not be redacted, "+
 				"and stopped there: %w", len(text), err)
@@ -485,25 +497,25 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 		// make one request of nearly twice chunkBytes, and a chunk the broker refuses
 		// is now a refused stream.
 		if len(buf) > 0 && len(buf)+len(line) > chunkBytes {
-			if flushErr := flush(); flushErr != nil {
+			if flushErr := flush(true); flushErr != nil {
 				return flushErr
 			}
 		}
 		buf = append(buf, line...)
 		// A long line arrives in pieces; send what is there.
 		if errors.Is(err, bufio.ErrBufferFull) {
-			if flushErr := flush(); flushErr != nil {
+			if flushErr := flush(true); flushErr != nil {
 				return flushErr
 			}
 			continue
 		}
 		if len(buf) >= chunkBytes {
-			if flushErr := flush(); flushErr != nil {
+			if flushErr := flush(true); flushErr != nil {
 				return flushErr
 			}
 		}
 		if err != nil {
-			if flushErr := flush(); flushErr != nil {
+			if flushErr := flush(false); flushErr != nil {
 				return flushErr
 			}
 			if errors.Is(err, io.EOF) {
@@ -514,19 +526,50 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 	}
 }
 
-func redactOnce(socketPath, text string) (string, error) {
-	conn, err := net.Dial("unix", socketPath)
-	if err != nil {
+// redactConn is the one connection a stream's chunks go down.  Dialed on the
+// first chunk rather than up front, so an input that turns out to be empty
+// costs no connection and writes no audit record.
+type redactConn struct {
+	socketPath string
+	conn       net.Conn
+	lines      *sockutil.LineReader
+}
+
+func (rc *redactConn) open() bool { return rc.conn != nil }
+
+func (rc *redactConn) close() {
+	if rc.conn != nil {
+		_ = rc.conn.Close()
+		rc.conn = nil
+	}
+}
+
+// send writes one chunk and reads its answer.  Strictly alternating, which is
+// what keeps the broker's reads and this one a chunk apart rather than
+// pipelined into each other.
+func (rc *redactConn) send(text string, more bool) (string, error) {
+	if rc.conn == nil {
+		conn, err := net.Dial("unix", rc.socketPath)
+		if err != nil {
+			return "", err
+		}
+		rc.conn, rc.lines = conn, sockutil.NewLineReader(conn, 1<<26)
+	}
+	request := map[string]any{"op": "redact", "text": text}
+	if more {
+		request["more"] = true
+	}
+	if err := sockutil.Send(rc.conn, request); err != nil {
 		return "", err
 	}
-	defer func() { _ = conn.Close() }()
-	if err := sockutil.Send(conn, map[string]any{"op": "redact", "text": text}); err != nil {
-		return "", err
+	if !more {
+		// Nothing more is coming, so the write half closes: the broker is done
+		// with this connection once it has answered.
+		if uc, ok := rc.conn.(*net.UnixConn); ok {
+			_ = uc.CloseWrite()
+		}
 	}
-	if uc, ok := conn.(*net.UnixConn); ok {
-		_ = uc.CloseWrite()
-	}
-	line, err := sockutil.ReadLine(conn, 1<<26)
+	line, err := rc.lines.Next()
 	if err != nil {
 		// Named, not flattened: an oversized request and a reset connection want
 		// different fixes.

@@ -2,6 +2,8 @@
 
 Three sockets, the same shape on each: newline-delimited JSON, one request, one response, one connection, no framing beyond the newline. A request over `[server] max_request_bytes` is refused.
 
+One exception, and it is a repetition rather than a second wire format: a `redact` chunk marked `more` keeps the connection open for the next one. Same framing, same limit, same one response per request; only the count changes. [Streaming a redact](#streaming-a-redact) is why.
+
 Socket | Who may connect | What it does
 --- | --- | ---
 `/run/faramir/broker.sock` | the agent (`0660 root:<client-group>`) | run commands, list refs
@@ -31,7 +33,18 @@ Field | Required | Notes
 `env_refs` | no | `NAME` → `secret://ref`. Values cannot be passed; names are validated, and `PATH`, `HOME`, `LD_PRELOAD`, `SOPS_AGE_KEY`, `SSH_AUTH_SOCK` and similar are reserved.
 `timeout_sec` | no | Positive integer, clamped to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`.
 
-`{"op": "redact", "text": "…"}` scrubs text the caller already holds, so a session outside the broker's uid gets the same redaction a brokered command does. `text` is required, must be a string, and is the only field this op reads. The response is the ordinary shape, `output` carrying the scrubbed text and `exit_code` always 0, no command having run. This is what `faramir redact` and the wrapper send, once per Bash command. It is an oracle by design, and is audited like every other op: the input's size and what was found, never the text.
+`{"op": "redact", "text": "…"}` scrubs text the caller already holds, so a session outside the broker's uid gets the same redaction a brokered command does. `text` is required and must be a string; `more` is the only other field this op reads. The response is the ordinary shape, `output` carrying the scrubbed text and `exit_code` always 0, no command having run. This is what `faramir redact` and the wrapper send. It is an oracle by design, and is audited like every other op: the input's size and what was found, never the text.
+
+#### Streaming a redact
+
+A caller with more text than one request may carry sends it a chunk at a time **down one connection**, every chunk but the last marked `{"more": true}`.
+
+The broker keeps one redactor for that connection. That is the whole point: the redactor holds back a tail longer than the longest rendering of any value, so a secret split between two chunks is caught by the chunk that completes it. A connection per chunk gives each its own redactor, and a value across the join belongs to neither — it comes back in the clear, with `exit_code` 0 and nothing logged. A client must break a line longer than one chunk somewhere, so this is reachable by ordinary output: a single-line JSON document, a minified bundle, `base64 -w0`.
+
+- `more` must be a boolean. A chunk carrying it gets `Feed`'s output, which withholds the tail; the chunk without it gets that plus the flush, and ends the stream.
+- Sent to an endpoint that cannot keep a redactor between chunks, `more` is a `bad_request` rather than a request completed as though it stood alone.
+- A stream writes **one** audit record when it ends, carrying the totals for the whole of it, and one is written for a stream the peer abandoned as well.
+- Between chunks a stream in progress may idle up to `[exec] max_timeout_sec`, because `faramir redact -- command` sends a chunk when the command has printed one. The first request on a connection is on the ordinary short clock.
 
 `{"op": "list_secrets"}` returns ref names only. `{"op": "status"}` returns the broker version, `configs` (the base config and every drop-in that contributed, in merge order), loaded files, the count of secrets loaded, load errors, whether an SSH key is configured and usable (`ssh.configured`, `ssh.usable`; whether, never where), and whether a brokered command may ask to sudo (`sudo.enabled`; whether, never how).
 
