@@ -26,16 +26,23 @@ const (
 
 	// Not derived from a layout field: the path is the distribution's.
 	logrotateConfig = "/etc/logrotate.d/faramir"
-	sudoersDir      = "/etc/sudoers.d"
-	sudoersFile     = sudoersDir + "/faramir"
-	pamDir          = "/etc/pam.d"
 	pamServiceName  = "faramir-sudo"
-	pamServiceFile  = pamDir + "/" + pamServiceName
 
 	DefaultClientGroup = "dev"
 	DefaultBrokerUser  = "faramir-broker"
 	DefaultKeeperUser  = "faramir-keeper"
 	DefaultExecUser    = "faramir-exec"
+)
+
+// Where the distribution keeps the two files a sudo grant needs.  Variables
+// rather than constants so a test can point at directories it wrote: what has
+// to be exercised is a host that has one and not the other, which is a state no
+// test can create at the real paths.
+var (
+	sudoersDir     = "/etc/sudoers.d"
+	pamDir         = "/etc/pam.d"
+	sudoersFile    = sudoersDir + "/faramir"
+	pamServiceFile = pamDir + "/" + pamServiceName
 )
 
 // There is no DefaultSecretsGroup: it defaults to the keeper's own primary

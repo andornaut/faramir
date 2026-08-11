@@ -499,6 +499,19 @@ func classifySSHProbe(out string, err error) sshProbeResult {
 // ciphertext.  Nothing else on this host reports either, and the standing grant
 // is what is left of an account the install has otherwise stopped using.
 func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
+	// Without the operator's name there is no way to tell the account this install
+	// deliberately admitted from one left behind, and the operator IS a member of
+	// the client group by construction.  Reporting it as a leftover would print
+	// `gpasswd -d <the operator> <the client group>` as the remedy, which is the
+	// one change that shuts the agent out of the broker socket.
+	if opts.OperatorUser == "" {
+		report.NotAsked++
+		report.add("group", StatusWarn, "the operator account is not named, so a "+
+			"member of %s cannot be told from an account left behind: pass "+
+			"--operator-user, or run through sudo so SUDO_USER carries it",
+			opts.ClientGroup)
+		return
+	}
 	known := []string{opts.OperatorUser, opts.BrokerUser, opts.KeeperUser, opts.ExecUser}
 	diagnoseGroupOutsiders(report, "group", opts.ClientGroup, known,
 		"reach the broker socket, and enter a tree enrolled with it")
@@ -698,20 +711,52 @@ func unitUser(name string) (string, error) {
 // when there is no unit or it names none.  Read from the unit rather than asked
 // of a running broker: a host whose daemons are down still has an install, and
 // this is the question of where that install is.
+//
+// Drop-ins as well as the unit, in the order systemd reads them: a
+// <unit>.d/*.conf setting Environment=FARAMIR_CONFIG is what the daemons
+// actually load, and uninstall removes those directories, so they are a state
+// this install expects rather than one only an operator could have made.
+// Reading the main file alone would see no move where there is one, and
+// re-provision a directory nothing loads.
 func unitConfigDir(name string) string {
-	body, err := os.ReadFile(filepath.Join(systemUnitDir, name))
-	if err != nil {
-		return ""
-	}
-	for line := range strings.SplitSeq(string(body), "\n") {
-		if path, ok := strings.CutPrefix(strings.TrimSpace(line),
-			"Environment=FARAMIR_CONFIG="); ok {
-			if path = strings.TrimSpace(path); path != "" {
-				return filepath.Dir(path)
+	dir := ""
+	for _, path := range unitFiles(name) {
+		body, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for line := range strings.SplitSeq(string(body), "\n") {
+			if value, ok := strings.CutPrefix(strings.TrimSpace(line),
+				"Environment=FARAMIR_CONFIG="); ok {
+				// An empty assignment is systemd's way of unsetting, so it clears what an
+				// earlier file said rather than being skipped as "names none".
+				if value = strings.TrimSpace(value); value == "" {
+					dir = ""
+					continue
+				}
+				dir = filepath.Dir(value)
 			}
 		}
 	}
-	return ""
+	return dir
+}
+
+// unitFiles is a unit and its drop-ins, in the order systemd applies them: the
+// unit first, then <unit>.d/*.conf sorted by name, later winning.
+func unitFiles(name string) []string {
+	files := []string{filepath.Join(systemUnitDir, name)}
+	entries, err := os.ReadDir(filepath.Join(systemUnitDir, name+".d"))
+	if err != nil {
+		return files
+	}
+	var dropIns []string
+	for _, entry := range entries {
+		if !entry.IsDir() && strings.HasSuffix(entry.Name(), ".conf") {
+			dropIns = append(dropIns, filepath.Join(systemUnitDir, name+".d", entry.Name()))
+		}
+	}
+	slices.Sort(dropIns)
+	return append(files, dropIns...)
 }
 
 // groupOf is the group name owning a path.

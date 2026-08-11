@@ -420,6 +420,16 @@ func (r *runner) refuseConfigMove() error {
 		return nil
 	}
 	if !r.opts.MoveConfig {
+		// A dry run reports and writes nothing, so the move is what it has to
+		// report.  Refusing here would make previewing one impossible without
+		// consenting to it first, which is the wrong way round.
+		if r.opts.DryRun {
+			r.warn("this host's daemons load %s, and this run names %s. A run that "+
+				"was not a dry run would be refused: pass --move-config to move them, "+
+				"or leave --config-dir out to provision the install this host has",
+				installed, r.layout.ConfigDir)
+			return nil
+		}
 		return fmt.Errorf("this host's daemons load %s, and this run names %s.\n"+
 			"There is one set of units, so the second does not stand beside the "+
 			"first: the daemons would move and %s would be left holding its age key "+
@@ -474,7 +484,10 @@ func (r *runner) refuseUnadoptableSSHKey() error {
 // operator's text, so what this catches is a sudo too old for a directive; that
 // is also why a host without visudo is left to the step's own warning.
 func (r *runner) refuseInvalidSudoers() error {
-	if !r.layout.AllowSudo || !exists(sudoersDir) {
+	// The same two directories stepSudoGrant needs.  Gating on sudoers.d alone
+	// would fail the whole install over a grant that step goes on to skip with a
+	// warning, on any host that has sudo and no PAM.
+	if !r.layout.AllowSudo || !exists(sudoersDir) || !exists(pamDir) {
 		return nil
 	}
 	visudo, err := exec.LookPath("visudo")

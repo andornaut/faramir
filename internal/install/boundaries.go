@@ -98,12 +98,18 @@ func ownsWithGroup(path string) string {
 // single warn line below stands for all of them, and a count taken from the
 // list cannot drift from what is in it.
 func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
-	checks := []func(){
+	// Split by what an unnamed operator costs, not by subject.  canRead and
+	// canWrite answer false for an account they cannot name, which is the same
+	// answer a boundary that holds gives, so a check whose verdict turns on the
+	// operator would report an unearned OK.  A check that never asks about the
+	// operator is unaffected and still runs: doctor without SUDO_USER — a root
+	// shell, a cron entry, a configuration manager — has to keep reporting an age
+	// key left 0644 or a socket regrouped by hand.
+	//
+	// The three that ask about the operator alongside other accounts are in the
+	// first list and skip it themselves rather than claiming it was asked.
+	aboutTheHost := []func(){
 		func() { diagnoseAgeKey(report, opts, cfg) },
-		func() { diagnoseOperatorKeys(report, opts) },
-		func() { diagnoseStore(report, opts, cfg) },
-		func() { diagnoseConfigWritable(report, opts) },
-		func() { diagnoseInstalledFiles(report, opts) },
 		func() { diagnoseDenyPatterns(report, opts) },
 		func() { diagnoseAuditLog(report, opts, cfg) },
 		func() { diagnoseSockets(report, opts, cfg) },
@@ -111,32 +117,24 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		func() { diagnoseSSHKey(report, opts, cfg) },
 		func() { diagnoseSudoGrant(report, opts, cfg) },
 		func() { diagnosePtraceScope(report, cfg) },
+		func() { diagnoseUserns(report, opts, cfg) },
 		func() { diagnoseCgroupDelegation(report, opts, cfg) },
+	}
+	aboutTheOperator := []func(){
+		func() { diagnoseOperatorKeys(report, opts) },
+		func() { diagnoseStore(report, opts, cfg) },
+		func() { diagnoseConfigWritable(report, opts) },
+		func() { diagnoseInstalledFiles(report, opts) },
 		func() { diagnoseProtectProc(report, opts) },
 		func() { diagnoseBrokered(report, opts, serves) },
 	}
+	checks := append(append([]func(){}, aboutTheHost...), aboutTheOperator...)
 	if os.Geteuid() != 0 {
 		report.NotAsked += len(checks)
 		report.add("boundaries", StatusWarn, "run doctor as root to check these: %d checks "+
 			"ask what %s, %s, %s and %s can reach, and no account can answer that for "+
 			"another", len(checks), opts.OperatorUser, opts.BrokerUser, opts.KeeperUser,
 			opts.ExecUser)
-		return
-	}
-	// Nearly every check below asks what the operator can reach, and canRead and
-	// canWrite answer false when the account cannot be named at all.  False is the
-	// same answer a boundary that holds gives, so an unnamed operator turns the
-	// checks that pass into unearned OKs and the ones that run a command into
-	// failures blaming a `runuser -u --` nobody wrote.  Neither is a finding about
-	// this host, so none of them is claimed.
-	//
-	// It happens whenever doctor is reached without SUDO_USER: a root shell, a
-	// cron entry, a configuration manager.
-	if opts.OperatorUser == "" {
-		report.NotAsked += len(checks)
-		report.add("boundaries", StatusWarn, "the operator account is not named, and "+
-			"%d of these checks ask what it can reach, so none was made: pass "+
-			"--operator-user, or run through sudo so SUDO_USER carries it", len(checks))
 		return
 	}
 	// The probe itself: every check below reads a refusal as a boundary, so a
@@ -149,9 +147,41 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 			opts.KeeperUser, len(checks))
 		return
 	}
-	for _, check := range checks {
+	for _, check := range aboutTheHost {
 		check()
 	}
+	// Reached without SUDO_USER, and with no --operator-user, there is no account
+	// to put these to.  Named as unasked rather than run: each would otherwise
+	// report the boundary it is about as holding, on the strength of a question
+	// nobody could ask.
+	if opts.OperatorUser == "" {
+		report.NotAsked += len(aboutTheOperator)
+		report.add("boundaries", StatusWarn, "the operator account is not named, so "+
+			"%d checks that ask what it can reach were not made: pass "+
+			"--operator-user, or run through sudo so SUDO_USER carries it. The rest "+
+			"of the examination is unaffected", len(aboutTheOperator))
+		return
+	}
+	for _, check := range aboutTheOperator {
+		check()
+	}
+}
+
+// askable drops the accounts a check cannot put a question to, and reports
+// whether any was dropped.  In practice that is an unnamed operator.
+//
+// A check that dropped one must not go on to claim its boundary holds: canRead
+// answers false for an account it cannot name, which is exactly what it answers
+// for one that is properly shut out.
+func askable(accounts ...string) (named []string, skipped bool) {
+	for _, account := range accounts {
+		if account == "" {
+			skipped = true
+			continue
+		}
+		named = append(named, account)
+	}
+	return named, skipped
 }
 
 // diagnoseStore checks who can reach the ciphertext.  Every account but the
@@ -295,12 +325,20 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 		report.add("age key", StatusFailed, "%s is %s, expected %s", path, got, want)
 		return
 	}
-	for _, account := range []string{opts.OperatorUser, opts.BrokerUser, opts.ExecUser} {
+	accounts, skipped := askable(opts.OperatorUser, opts.BrokerUser, opts.ExecUser)
+	for _, account := range accounts {
 		if canRead(account, path) {
 			report.add("age key", StatusFailed, "%s can read %s, so every file this "+
 				"install has ever encrypted is readable by it", account, path)
 			return
 		}
+	}
+	if skipped {
+		report.NotAsked++
+		report.add("age key", StatusWarn, "%s, and %s cannot read it. The operator "+
+			"account is not named, so whether it can was not asked",
+			want, strings.Join(accounts, " or "))
+		return
 	}
 	report.add("age key", StatusOK, "%s, and only %s can read it", want, opts.KeeperUser)
 }
@@ -378,12 +416,20 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 		report.add("audit log", StatusFailed, "%s is %s, expected %s", path, got, want)
 		return
 	}
-	for _, account := range []string{opts.OperatorUser, opts.ExecUser} {
+	accounts, skipped := askable(opts.OperatorUser, opts.ExecUser)
+	for _, account := range accounts {
 		if canRead(account, path) {
 			report.add("audit log", StatusFailed, "%s can read %s, so it can also "+
 				"truncate what it says", account, path)
 			return
 		}
+	}
+	if skipped {
+		report.NotAsked++
+		report.add("audit log", StatusWarn, "%s, and %s cannot read it. The operator "+
+			"account is not named, so whether it can was not asked",
+			want, strings.Join(accounts, " or "))
+		return
 	}
 	report.add("audit log", StatusOK, "%s, readable by nobody else", want)
 }
@@ -410,23 +456,40 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 		if socket.path == "" || !exists(socket.path) {
 			continue
 		}
+		accounts, skipped := askable(socket.accounts...)
 		reached := false
-		for _, account := range socket.accounts {
+		for _, account := range accounts {
 			if canWrite(account, socket.path) {
 				report.add(socket.name, StatusFailed, "%s can open %s: %s",
 					account, socket.path, socket.cost)
 				reached = true
 			}
 		}
-		if !reached {
-			report.add(socket.name, StatusOK, "%s is closed to %s", socket.path,
-				strings.Join(socket.accounts, " and "))
+		if reached {
+			continue
 		}
+		if skipped {
+			report.NotAsked++
+			report.add(socket.name, StatusWarn, "%s is closed to %s. The operator "+
+				"account is not named, so whether it is closed to that one was not asked",
+				socket.path, strings.Join(accounts, " and "))
+			continue
+		}
+		report.add(socket.name, StatusOK, "%s is closed to %s", socket.path,
+			strings.Join(accounts, " and "))
 	}
 	if path := cfg.Server.SocketPath; path != "" && exists(path) {
-		if canWrite(opts.OperatorUser, path) {
+		switch {
+		case opts.OperatorUser == "":
+			// The only claim here is about the operator, so there is nothing left to
+			// check: an unnamed account cannot open a socket, and reporting that as the
+			// grant being absent would fail every install examined from a root shell.
+			report.NotAsked++
+			report.add("broker socket", StatusWarn, "the operator account is not "+
+				"named, so whether it can open %s was not asked", path)
+		case canWrite(opts.OperatorUser, path):
 			report.add("broker socket", StatusOK, "%s can open %s", opts.OperatorUser, path)
-		} else {
+		default:
 			report.add("broker socket", StatusFailed, "%s cannot open %s, so nothing "+
 				"it runs is brokered. Membership of %s is what grants this",
 				opts.OperatorUser, path, opts.ClientGroup)
@@ -498,8 +561,12 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 			opts.ExecUser, private)
 		return
 	}
-	report.add("ssh key", StatusOK, "%s and %s can use the agent and read no key "+
-		"held by it", opts.OperatorUser, opts.ExecUser)
+	// The executor alone, which is the account the two probes above put the
+	// question to.  Naming the operator here as well claimed a boundary nothing
+	// had asked about, and read as a verdict on an account that may not even be
+	// named.
+	report.add("ssh key", StatusOK, "%s can use the agent and read no key held by it",
+		opts.ExecUser)
 }
 
 // diagnoseSudoGrant checks the one grant that widens what a brokered command
@@ -619,6 +686,82 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 
 // ptraceScopeFile is Yama's, and absent on a kernel built without it.
 const ptraceScopeFile = "/proc/sys/kernel/yama/ptrace_scope"
+
+// usernsSwitches are the kernel controls that decide whether an unprivileged
+// account may create a user namespace, in the order they are looked for.  Two
+// spellings, because the Ubuntu one is an AppArmor restriction and the Debian
+// one is a plain on/off; a host has one or neither.  Variables so a test can
+// point at files it wrote.
+var usernsSwitches = []struct {
+	path string
+	// open is the value that permits it: the Ubuntu file is a restriction, so 0
+	// permits, and the Debian one is a permission, so 1 does.
+	open string
+	// shut is what to set it to, printed in the remedy.
+	shut string
+}{
+	{"/proc/sys/kernel/apparmor_restrict_unprivileged_userns", "0", "1"},
+	{"/proc/sys/kernel/unprivileged_userns_clone", "1", "0"},
+}
+
+// diagnoseUserns reports what the executor unit stopped bounding when
+// RestrictNamespaces= was dropped.
+//
+// It had to go: systemd implements it as a seccomp rule on clone()'s flags, and
+// clone3() carries the same flags behind a pointer seccomp cannot read, so
+// setting it at any value denies clone3() with ENOSYS.  Every brokered command
+// is spawned with CLONE_INTO_CGROUP, which only clone3() has, so the unit could
+// spawn nothing at all.
+//
+// What it cost is that a brokered command can now unshare a user namespace and
+// hold a full capability set inside it.  On the default install those
+// capabilities have little to act on -- SystemCallFilter=@system-service denies
+// the mount family, and ProtectProc= masks procfs so the kernel refuses a fresh
+// /proc in there -- and every boundary that matters is a uid, which the
+// namespace maps only to itself.  On a host installed with --allow-sudo the
+// seccomp filter is gone by design, and the mount family is reachable.
+//
+// So this is reported rather than enforced, and only where the grant makes it
+// worth acting on: init does not set a kernel-wide sysctl on an operator's
+// behalf, that being a switch every other container and browser sandbox on the
+// host also depends on.
+func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
+	if cfg == nil || cfg.Sudo.ExecUser == "" {
+		report.add("user namespaces", StatusNA, "no [sudo] section, so the executor "+
+			"unit is rendered with SystemCallFilter=@system-service, which excludes "+
+			"@mount: a namespace confers capabilities with nothing to act on. A host "+
+			"that grants an approval cannot carry that filter, which is what makes "+
+			"this setting decide something there")
+		return
+	}
+	for _, control := range usernsSwitches {
+		raw, err := os.ReadFile(control.path)
+		if err != nil {
+			continue
+		}
+		value := strings.TrimSpace(string(raw))
+		if value != control.open {
+			report.add("user namespaces", StatusOK, "%s is %s, so %s cannot unshare a "+
+				"user namespace to hold capabilities in", control.path, value, opts.ExecUser)
+			return
+		}
+		report.add("user namespaces", StatusWarn, "%s is %s, so a brokered command may "+
+			"unshare a user namespace and hold a full capability set inside it. The "+
+			"executor unit cannot refuse this: RestrictNamespaces= denies clone3(), "+
+			"which is how every run is spawned into its cgroup. The uid boundaries "+
+			"hold regardless, the namespace mapping only %s's own; what it reaches is "+
+			"the mount family, and this host grants an approval so no seccomp filter "+
+			"is in the way. Close it with: sysctl -w %s=%s, and a line in /etc/sysctl.d",
+			control.path, value, opts.ExecUser, control.path, control.shut)
+		return
+	}
+	report.NotAsked++
+	report.add("user namespaces", StatusWarn, "this kernel exposes no switch for "+
+		"unprivileged user namespaces, so whether a brokered command may unshare "+
+		"one was not asked. The executor unit cannot refuse it either: "+
+		"RestrictNamespaces= denies clone3(), which is how every run is spawned "+
+		"into its cgroup")
+}
 
 // diagnosePtraceScope checks what stands between a brokered command and the
 // daemon it shares a uid with, on a host that grants an approval.

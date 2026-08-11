@@ -92,28 +92,82 @@ func TestBoundariesAreNotAskedWithoutAnOperator(t *testing.T) {
 	if os.Geteuid() != 0 {
 		t.Skip("the no-root guard answers first when this is not root")
 	}
+	// Accounts that exist, so the runuser probe passes and the checks are actually
+	// reached.  root stands in for every role here; what is under test is which
+	// checks run, not what they find.
 	var report DoctorReport
 	diagnoseBoundaries(&report, DoctorOptions{
-		BrokerUser: "faramir-broker", KeeperUser: "faramir-keeper",
-		ExecUser: "faramir-exec", ClientGroup: "dev",
+		BrokerUser: "root", KeeperUser: "root", ExecUser: "root", ClientGroup: "root",
 	}, nil, servesUnknown)
 
-	if len(report.Findings) != 1 {
-		t.Fatalf("expected one warn standing for all of them, got %v", report.Findings)
+	boundaries := findingsNamed(report, "boundaries")
+	if len(boundaries) != 1 {
+		t.Fatalf("expected one warn standing for the operator checks, got %v", report.Findings)
 	}
-	if report.Findings[0].Status != StatusWarn {
+	if boundaries[0].Status != StatusWarn {
 		t.Errorf("an unnamed operator is a question that cannot be put, not a "+
-			"verdict: %v", report.Findings[0])
+			"verdict: %v", boundaries[0])
 	}
 	if report.NotAsked == 0 {
 		t.Error("the unasked checks were not counted, so the totals read as a " +
 			"complete examination")
 	}
 	for _, want := range []string{"--operator-user", "SUDO_USER"} {
-		if !strings.Contains(report.Findings[0].Detail, want) {
+		if !strings.Contains(boundaries[0].Detail, want) {
 			t.Errorf("the warning does not say how to fix it (%q): %s",
-				want, report.Findings[0].Detail)
+				want, boundaries[0].Detail)
 		}
+	}
+	// The point of the split: the checks that never ask about the operator have to
+	// keep running, or a root shell reports a clean host having examined nothing.
+	if len(report.Findings) < 2 {
+		t.Errorf("no check ran besides the warning, so an age key left 0644 or a "+
+			"regrouped socket would go unreported: %v", report.Findings)
+	}
+	// And nothing may claim a boundary it could not ask about.
+	for _, finding := range report.Findings {
+		if finding.Status == StatusOK && strings.Contains(finding.Detail, "operator") {
+			t.Errorf("a check claimed something about an operator it cannot name: %v",
+				finding)
+		}
+	}
+}
+
+// findingsNamed is the findings one check contributed.
+func findingsNamed(report DoctorReport, name string) []Finding {
+	var out []Finding
+	for _, finding := range report.Findings {
+		if finding.Name == name {
+			out = append(out, finding)
+		}
+	}
+	return out
+}
+
+// The client group check cannot tell a member from a leftover without the
+// operator's name, and the operator IS a member by construction.  Reporting it
+// as a leftover prints `gpasswd -d <operator> <client group>` as the remedy,
+// which is the one change that shuts the agent out of the broker socket.
+func TestTheGroupAuditIsNotAskedWithoutAnOperator(t *testing.T) {
+	dir := t.TempDir()
+	group := filepath.Join(dir, "group")
+	if err := os.WriteFile(group, []byte("dev:x:1000:alice,faramir-exec\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	groupFile = group
+	t.Cleanup(func() { groupFile = "/etc/group" })
+
+	var report DoctorReport
+	diagnoseGroup(&report, DoctorOptions{
+		ClientGroup: "dev", BrokerUser: "faramir-broker",
+		KeeperUser: "faramir-keeper", ExecUser: "faramir-exec",
+	})
+	if len(report.Findings) != 1 || report.Findings[0].Status != StatusWarn {
+		t.Fatalf("expected the audit to be reported unasked, got %v", report.Findings)
+	}
+	if strings.Contains(report.Findings[0].Detail, "gpasswd -d") {
+		t.Errorf("an unnamed operator was handed a remedy that would shut the agent "+
+			"out of the broker socket: %s", report.Findings[0].Detail)
 	}
 }
 
