@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -74,6 +75,37 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 	// One that names either is fine.
 	if _, err := load(t, minimal+"[sudo]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
 		t.Errorf("refused a usable notifier: %v", err)
+	}
+}
+
+// timeout_sec is bounded at both ends, and the ceiling is not a taste: the PAM
+// helper derives its own deadline from MaxSudoTimeoutSec, so a question the
+// broker would hold for longer than that is one the helper would abandon while
+// it was still open -- and the operator's yes would land on a sudo that had
+// already gone.  The two constants cannot drift, so this is what keeps the
+// relationship between them true.
+func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
+	for _, tc := range []struct{ name, body string }{
+		{"zero", "[sudo]\ntimeout_sec = 0\n"},
+		{"past the ceiling", fmt.Sprintf("[sudo]\ntimeout_sec = %d\n", MaxSudoTimeoutSec+1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := load(t, minimal+tc.body)
+			if err == nil {
+				t.Fatalf("accepted %s", tc.name)
+			}
+			if !strings.Contains(err.Error(), "timeout_sec") {
+				t.Errorf("error does not name the key: %v", err)
+			}
+		})
+	}
+	// The ceiling itself loads: it is the bound, not the first refusal.
+	cfg, err := load(t, minimal+fmt.Sprintf("[sudo]\ntimeout_sec = %d\n", MaxSudoTimeoutSec))
+	if err != nil {
+		t.Fatalf("refused the ceiling itself: %v", err)
+	}
+	if cfg.Sudo.TimeoutSec != MaxSudoTimeoutSec {
+		t.Errorf("timeout_sec = %d, want %d", cfg.Sudo.TimeoutSec, MaxSudoTimeoutSec)
 	}
 }
 

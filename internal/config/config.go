@@ -862,12 +862,32 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 		return fmt.Errorf("%s: notify_command names neither {prompt} nor {id}, so it "+
 			"would announce that something is waiting without saying what", where)
 	}
-	// 0 would refuse every question the instant it was raised.
-	if out.TimeoutSec, err = atLeast(sec, "timeout_sec", where, out.TimeoutSec, 1); err != nil {
-		return err
+	// 0 would refuse every question the instant it was raised; the ceiling is what
+	// keeps the broker the thing that decides.  See MaxSudoTimeoutSec.
+	if out.TimeoutSec, err = intInRange(sec, "timeout_sec", where, out.TimeoutSec,
+		1, MaxSudoTimeoutSec); err != nil {
+		return fmt.Errorf("%w. A question is a human at a terminal and a host held "+
+			"still while sudo waits on it, so this is bounded; past that, a refusal "+
+			"and a second run is the better answer", err)
 	}
 	return nil
 }
+
+// MaxSudoTimeoutSec is the longest a question may wait for a human.
+//
+// It exists to keep one relationship true: the PAM helper's own deadline must
+// outlast any question the broker will hold, or the helper would give up on a
+// question still open and the operator's yes would land on a sudo that had
+// already gone.  The helper cannot read this config -- it runs from PAM with no
+// environment and its argv is fixed at install time, and a value rendered into
+// the service file would go stale the first time a drop-in changed it -- so it
+// derives its deadline from this constant instead, and the two cannot drift.
+//
+// Ten minutes, which is generous for somebody at a terminal: the question is
+// answered or refused within it, and while it is open sudo blocks and every
+// other brokered command on the host is refused.  A host that wants longer wants
+// a refusal and a second run.
+const MaxSudoTimeoutSec = 600
 
 func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	where := fmt.Sprintf("%s: [audit]", path)

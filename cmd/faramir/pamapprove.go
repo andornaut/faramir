@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/approval"
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // maxAncestors bounds the walk.  A brokered command's tree is a handful deep
@@ -167,7 +168,25 @@ func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 	return response.Approved, response.Reason, nil
 }
 
-// approvalWait is the ceiling on one question, well past any sane [sudo]
-// timeout_sec: the broker is what decides when to give up, and this only stops
-// a lost connection from holding sudo open for ever.
-const approvalWait = 2 * time.Hour
+// approvalWait is the ceiling on one question: the broker is what decides when
+// to give up, and this only stops a lost connection from holding sudo open for
+// ever.
+//
+// Derived rather than picked, and that is the whole point of it.  Two rules pull
+// in opposite directions -- it must outlast any question the broker will hold,
+// or the helper gives up on a question still open and the operator's yes lands
+// on a sudo that has already gone; and it must be short, because until it fires
+// sudo is blocked, the run holds its slot, and the host refuses every other
+// brokered command.  A constant chosen by hand satisfies the first by being
+// absurd about the second: this was two hours against a default question of two
+// minutes, so a broker that died without closing the socket held a sudo for the
+// rest of the afternoon.
+//
+// So it is [sudo] timeout_sec's own ceiling plus a margin for the round trip.
+// The helper cannot read the config -- PAM gives it no environment and its argv
+// is fixed at install time -- and config.MaxSudoTimeoutSec is what makes reading
+// it unnecessary: the broker refuses to load a longer timeout, so the broker
+// always decides first and this never fires on a question that is still alive.
+const approvalMarginSec = 30
+
+var approvalWait = time.Duration(config.MaxSudoTimeoutSec+approvalMarginSec) * time.Second

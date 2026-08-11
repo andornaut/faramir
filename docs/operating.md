@@ -131,7 +131,7 @@ sudo faramir approve --watch
 
    The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted, which is how you tell an argument that means to be read from one that means to redraw your terminal. A `program` line appears when what argv[0] resolved to is not what argv[0] says — a relative program resolves against the cwd, and that is a tree the agent writes.
 
-4. Anything but `yes` is a refusal — the whole word, not `y` — and so is silence: the question expires after `[sudo] timeout_sec`.
+4. Anything but `yes` is a refusal — the whole word, not `y` — and so is silence: the question expires after `[sudo] timeout_sec` (120s by default, at most 600). The clock starts when the question is raised rather than when you see it, which is what the `waiting` line is counting.
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else it exits non-zero, `requisite` makes that fatal at once, and `sudo` reports its own authentication failure. Nothing is written to the helper's stdout, because there is nothing to hand over.
 6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to.
 
