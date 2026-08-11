@@ -312,7 +312,6 @@ func TestAnApprovalAndASecondRunNeverCoexist(t *testing.T) {
 func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, run())
-	other := mustRegister(s, Run{Argv: []string{"go", "build"}, Cwd: "/src", LogID: "log-2"})
 
 	granted := make(chan bool, 1)
 	go func() {
@@ -320,6 +319,15 @@ func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 		granted <- approved
 	}()
 	id := waitForQuestion(t, s)
+	// The other run arrives after the question, which pend refuses to file
+	// alongside one and Register refuses to admit beside one, so this is the
+	// backstop rather than the path a host takes: the check has to hold whatever
+	// admitted the second run, being the one that stands between a live approval
+	// and a command that could ride it.
+	other := "0f0f0f0f0f0f0f0f"
+	s.mu.Lock()
+	s.runs[other] = Run{Argv: []string{"go", "build"}, Cwd: "/src", LogID: "log-2"}
+	s.mu.Unlock()
 	err := s.Answer(id, true, "operator")
 	if err == nil {
 		t.Fatal("approved a run while another brokered command was running")
@@ -562,15 +570,18 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 	}
 }
 
-// One question at a time, and a second command is refused rather than queued.
+// No question is put while another command is registered, and none is queued.
 //
 // A queue could only ever hold questions that cannot be answered yes: two
 // questions mean two registered runs, and Answer refuses to approve while any
 // other run is registered, because the second could read the approved run's
 // token and ride it.  So every queued question's only outcomes were a refusal
-// and an expiry, and what the queue added was prompts.
-func TestOnlyOneCommandMayBeWaiting(t *testing.T) {
+// and an expiry, and what the queue added was prompts.  The same argument keeps
+// the *first* of them from being put: a human interrupted for a question that
+// can only be refused is the cost being avoided, whether it is one or a list.
+func TestNoQuestionIsPutWhileAnotherCommandIsRegistered(t *testing.T) {
 	s := started(t, baseConfig())
+	h := watching(t, s, true)
 	// Both tokens before either asks.  A pending question holds a *new*
 	// registration, so the only way two commands ask at once is both registering
 	// while the host was quiet, which is what a burst of brokered commands looks
@@ -578,19 +589,23 @@ func TestOnlyOneCommandMayBeWaiting(t *testing.T) {
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
 	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
 
-	go s.Ask(first)
-	waitForQuestion(t, s)
-
-	_, raised, reason := s.pend(second, Run{Argv: []string{"playbook", "two"}})
-	if raised {
-		t.Fatal("a second command raised a question of its own while one was waiting")
+	approved, reason := s.Ask(first)
+	if approved {
+		t.Fatal("a sudo was approved while a second command shared the executor's uid")
 	}
-	if !strings.Contains(reason, "playbook one") {
-		t.Errorf("reason = %q, want the command already waiting named", reason)
+	if !strings.Contains(reason, "playbook two") {
+		t.Errorf("reason = %q, want the command in the way named", reason)
 	}
-	if len(s.Questions()) != 1 {
-		t.Errorf("%d questions waiting, want the one: a second is refused, not queued",
+	if _, raised, _ := s.pend(second, Run{Argv: []string{"playbook", "two"}}); raised {
+		t.Fatal("the second command raised a question of its own")
+	}
+	if len(s.Questions()) != 0 {
+		t.Errorf("%d question(s) waiting, want none: neither could be granted",
 			len(s.Questions()))
+	}
+	if h.questions() != 0 {
+		t.Errorf("a human was put to %d question(s) that could only be refused",
+			h.questions())
 	}
 }
 
@@ -620,10 +635,13 @@ func TestARefusalSaysWhichLimitItHit(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
 	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
-	go s.Ask(first)
-	waitForQuestion(t, s)
-	if _, _, reason := s.pend(second, run()); !strings.Contains(reason, "already waiting") {
-		t.Errorf("reason = %q, want the question already outstanding named", reason)
+	// Two commands registered, so neither may be approved whatever a human types:
+	// each could read the other's token.  The refusal names the one in the way.
+	if _, _, reason := s.pend(first, run()); !strings.Contains(reason, "playbook two") {
+		t.Errorf("reason = %q, want the other running command named", reason)
+	}
+	if _, _, reason := s.pend(second, run()); !strings.Contains(reason, "playbook one") {
+		t.Errorf("reason = %q, want the other running command named", reason)
 	}
 
 	// A stopping broker, which Ask reaches when Stop lands between its own lookup
@@ -668,5 +686,38 @@ func TestQuestionsWaitBlocksUntilSomethingIsAsked(t *testing.T) {
 	}
 	if question.Cmd != "ansible-playbook msmtp.yml" {
 		t.Errorf("cmd = %q, want the command being asked about", question.Cmd)
+	}
+}
+
+// And the refusal is this one rather than a wait: the sudo comes back rather
+// than blocking for [sudo] timeout_sec on a question nobody can grant.
+func TestTheEarlyRefusalDoesNotBlock(t *testing.T) {
+	s := started(t, baseConfig())
+	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
+	_ = mustRegister(s, Run{Argv: []string{"playbook", "two"}})
+
+	done := make(chan struct{})
+	go func() { _, _ = s.Ask(first); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the sudo blocked instead of being refused, so it is waiting out a " +
+			"question that was never grantable")
+	}
+}
+
+// Once the other command ends, the same run may ask: the refusal is about the
+// host's state, not about this command.
+func TestTheQuestionIsPutOnceTheOtherCommandEnds(t *testing.T) {
+	s := started(t, baseConfig())
+	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
+	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
+	if _, _, reason := s.pend(first, run()); reason == "" {
+		t.Fatal("a question was filed with two commands registered")
+	}
+	s.Release(second)
+	go func() { _, _ = s.Ask(first) }()
+	if id := waitForQuestion(t, s); id == "" {
+		t.Error("no question was put after the other command ended")
 	}
 }

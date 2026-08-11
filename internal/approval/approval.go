@@ -415,22 +415,32 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 	if s.stopped {
 		return nil, false, "the broker is stopping, so nothing can be approved now"
 	}
-	// One question at a time, and the rest are refused rather than queued.
+	// A question is filed only by a command that is the only one registered, and
+	// the rest are refused rather than queued.
 	//
-	// A queue here could only ever hold questions that cannot be answered yes.
-	// Two questions mean two registered runs, and Answer refuses to approve while
-	// any other run is registered (the second could read the approved run's
-	// token and ride it), so every queued question's only outcomes were a
-	// refusal and an expiry.  What it added was prompts: an operator working
-	// through a list of things none of which could be granted, which is the
-	// attention this design is spending carefully.
+	// The rule is Answer's, asked one step earlier: Answer refuses to approve
+	// while any other run is registered, because the two share the executor's uid
+	// and the other could read this one's token and ride the approval.  So a
+	// question filed while another command runs has exactly one outcome, whatever
+	// a human types: a prompt, a yes, and a refusal.  Asking here spends that
+	// attention for nothing, and this design spends it carefully.
+	//
+	// One check, not two.  "Another question is already waiting" is the narrower
+	// case of this one -- the command that filed it is registered, or it could not
+	// have filed it -- and Register admits nothing new while a question waits, so
+	// a second command cannot arrive to ask.
 	//
 	// Requests from the *same* run joined their question above, before this, so
 	// this refuses another command rather than another sudo.
-	if other := s.waitingLocked(); other != "" {
-		return nil, false, fmt.Sprintf("%s is already waiting to be approved, and "+
-			"one command at a time is the whole of it: a second could ride the first's "+
-			"approval, so it could not be granted while this one waits", other)
+	//
+	// It makes an approval no more available than it was.  What clears this is the
+	// other command ending, which nothing new is admitted alongside once a
+	// question waits, so a host with the grant drains toward an answerable state.
+	if other := s.otherRunLocked(token); other != "" {
+		return nil, false, fmt.Sprintf("%s is also running, and root is handed to a "+
+			"brokered command only when it is the only one: the two share the "+
+			"executor's uid, so the other could read this one's token and ride the "+
+			"approval. Run this again once that one has finished", other)
 	}
 	id := newID()
 	if id == "" {
@@ -695,6 +705,12 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// token and ride the approval, so the host has to be quiet before a yes takes.
 	// Refusing here answers the question no rather than holding it open; see
 	// refuseForNoise.  A refusal (no) needs no such quiet.
+	//
+	// The backstop rather than the binding check.  pend refuses to file a question
+	// while another run is registered, and Register admits none beside one that is
+	// waiting, so a question reaching here is one whose run was alone when it was
+	// put.  This is what that rests on, and it is the check between a live approval
+	// and a command that could ride it, so it is made rather than assumed.
 	//
 	// The check and the flag it stands on are set under one lock hold, on purpose:
 	// Register admits a new run whenever no approval is live, so a gap between "no
