@@ -166,7 +166,8 @@ func cmdInit(args []string) int {
 	var initAgents multiFlag
 	fs.Var(&initAgents, "agent",
 		"install the deny rules into this agent's own settings, repeatable "+
-			"(none by default; known: "+strings.Join(install.KnownAgents(), ", ")+")")
+			"(every agent by default, an agent installed later finding them already "+
+			"in place; known: "+strings.Join(install.KnownAgents(), ", ")+")")
 	allowSudo := fs.Bool("allow-sudo", false,
 		"let a brokered command ASK to sudo on this host; it cannot sudo on its own. "+
 			"The executor gets a password-required sudoers entry pointed at a PAM "+

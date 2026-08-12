@@ -13,11 +13,17 @@ import (
 // per-project, because a rewritten command matches no Bash permission rule, so
 // registering it auto-approves Bash for that project.
 func (r *runner) stepAgentConfig() error {
-	if len(r.opts.Agents) == 0 {
-		r.skip("agent config", "no --agent named")
-		return nil
+	// Every agent unless one is named.  These rules refuse the file tools, and
+	// what they cover is the operator's own key material, which no uid boundary
+	// reaches; writing them only for an agent already installed leaves the next
+	// one unguarded from the moment it arrives until somebody remembers to
+	// re-run this.  A rule file for an agent that is never installed is read by
+	// nothing.
+	names := r.opts.Agents
+	if len(names) == 0 {
+		names = agentNames()
 	}
-	targets, err := resolveAgents(r.opts.Agents)
+	targets, err := resolveAgents(names)
 	if err != nil {
 		return err
 	}
