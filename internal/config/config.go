@@ -616,7 +616,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 	}
 	*out = ServerConfig{
 		SocketPath:     "/run/faramir/broker.sock",
-		MaxConcurrency: 4, MaxRequestBytes: 262144,
+		MaxConcurrency: 10, MaxRequestBytes: 262144,
 		AllowedGroup: "dev",
 	}
 	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
