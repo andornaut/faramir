@@ -153,7 +153,27 @@ func within(home, dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
+// shareTree regroups and widens every entry under root.
+//
+// Each operation goes through an os.Root rather than through the walked path,
+// because this runs as root over a tree the agent's uid can write, so between
+// the walk seeing an entry and the mode being set, that uid can replace it with
+// a symlink.  os.Chmod follows one -- Linux has no lchmod, so there is no
+// symlink-safe spelling of it -- and the walk is over a tree whose contents are
+// exactly what an attacker there controls, so the pair is a way to have root
+// chmod a file of somebody else's choosing.  Under an os.Root a name that
+// resolves outside the tree is refused instead, and the worst a swap can do is
+// act on the link.
+//
+// os.Lchown is already symlink-safe and stays so through the root; it is here
+// for the confinement, not for the follow.
 func shareTree(root string, gid int, keep map[string]bool) error {
+	dir, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = dir.Close() }()
+
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -166,16 +186,21 @@ func shareTree(root string, gid int, keep map[string]bool) error {
 		if info.Mode()&os.ModeSymlink != 0 {
 			return nil
 		}
-		if err := os.Lchown(path, -1, gid); err != nil {
+		// Root's names are relative to it, and the root itself is ".".
+		rel, err := filepath.Rel(root, path)
+		if err != nil {
+			return err
+		}
+		if err := dir.Lchown(rel, -1, gid); err != nil {
 			return err
 		}
 		// Regrouped but not widened: its writer chose that mode, and widening it
 		// here is a mode the writer then narrows again on the next run, which is
 		// two steps of one command undoing each other forever.
-		if rel, relErr := filepath.Rel(root, path); relErr == nil && keep[rel] {
+		if keep[rel] {
 			return nil
 		}
-		return os.Chmod(path, groupShared(info.Mode()))
+		return dir.Chmod(rel, groupShared(info.Mode()))
 	})
 }
 
