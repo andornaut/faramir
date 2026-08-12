@@ -33,9 +33,9 @@ base64, padded and unpadded | `\| base64`, JSON payloads, `Authorization: Basic`
 base64 URL-safe | JWTs, signed URLs
 base32, padded and unpadded | TOTP seeds, `otpauth://` URIs, some token formats
 hex, lower and upper case | `xxd -p`, `od -An -tx1`, `hexdump`, `openssl`, hex BLOB columns
-percent-encoded | any URL carrying a credential
+percent-encoded, with `%20` and with `+` for a space | any URL or form body carrying a credential
 JSON string-escaped, and with `\/` | `-vvv` output, API responses, PHP `json_encode`
-shell single-quoted (`'\''`) | `set -x` traces
+shell single-quoted, both the `'\''` and `'"'"'` escapes | `set -x` traces, Python's `shlex.quote`
 shell double-quoted (`\$`, `` \` ``, `\"`) | `set -x` traces
 
 The set is still not exhaustive: `printf %q`'s backslash re-quoting, and any deliberate transform (`\| rev`, `\| tr a-z A-Z`, a hash), are outside it and always will be, because the child chooses its own output encoding.
