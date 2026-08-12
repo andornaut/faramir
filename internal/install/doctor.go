@@ -238,6 +238,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	report.merge(brokerReport)
 	diagnoseSopsConfig(&report, opts)
 	diagnoseAgentRules(&report, opts)
+	diagnoseAgentRuleDrift(&report, opts)
 	return report
 }
 
