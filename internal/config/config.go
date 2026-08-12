@@ -850,7 +850,7 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 	*out = SudoConfig{
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
-		// Nothing by default: `faramir approve --watch` is where a question is seen
+		// Nothing by default: `faramir approvals --watch` is where a question is seen
 		// and answered, and a host that wants shouting about it as well says so.
 		NotifyCommand: nil,
 		TimeoutSec:    120,

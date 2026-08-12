@@ -279,23 +279,29 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 	}
 }
 
-// --deny needs no id: only one question is ever outstanding, so "the one that
+// `deny` needs no id: only one question is ever outstanding, so "the one that
 // is waiting" names exactly one thing.  The asymmetry with approving is
-// deliberate and worth holding in place.  Refusing something unseen is safe,
-// and there is no bare `faramir approve` that says yes to whatever is there,
-// because an approval that names no command is one nobody judged.
+// deliberate and worth holding in place.  Refusing something unseen is safe, and
+// `approve` requires an id, because an approval that names no command is one
+// nobody judged.
 //
-// It does not combine with --watch, which answers each question as it arrives
-// from its own terminal.  Refused rather than ignored: a flag that silently does
-// nothing reads as a standing refusal to whoever passed it.
-func TestDenyWithoutAnIDIsAcceptedButNotWithWatch(t *testing.T) {
-	// Not root, so it stops at that check rather than dialling a socket, which is
-	// enough to show --deny is no longer refused as a usage error before it.
-	if code := cmdApprove([]string{"--deny"}); code == 2 {
-		t.Error("faramir approve --deny = 2, want it accepted without an id")
+// Each stops at the root check rather than dialling a socket, which is enough to
+// tell a usage error from an argument that was accepted.
+func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
+	if code := cmdDeny(nil); code == 2 {
+		t.Error("faramir deny = 2, want it accepted without an id")
 	}
-	if code := cmdApprove([]string{"--deny", "--watch"}); code != 2 {
-		t.Errorf("faramir approve --deny --watch = %d, want 2: --deny answers one "+
-			"question and has nothing to say to the watcher", code)
+	if code := cmdDeny([]string{"9f2a1c"}); code == 2 {
+		t.Error("faramir deny ID = 2, want an id accepted too")
+	}
+	if code := cmdApprove(nil); code != 2 {
+		t.Errorf("faramir approve = %d, want 2: a yes has to name the command it is for", code)
+	}
+	if code := cmdApprove([]string{"9f2a1c"}); code == 2 {
+		t.Error("faramir approve ID = 2, want it accepted")
+	}
+	// Listing takes no id at all: the verbs are their own commands now.
+	if code := cmdApprovals([]string{"9f2a1c"}); code != 2 {
+		t.Errorf("faramir approvals ID = %d, want 2: it lists and answers nothing", code)
 	}
 }

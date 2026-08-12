@@ -459,7 +459,7 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 	}
 	out := protocol.ErrorResponse("forbidden", fmt.Sprintf(
 		"%s is root's: an approval must be answered by an account the coding "+
-			"agent cannot become. Run `sudo faramir approve`", op), "")
+			"agent cannot become. Run `sudo faramir approvals`", op), "")
 	return &out
 }
 
@@ -968,7 +968,7 @@ func (s *Server) describeApproval() (map[string]any, []string) {
 		problems = append(problems, pamFile+": "+err.Error()+
 			" (sudo would fall back to /etc/pam.d/other for "+cfg.ExecUser+")")
 	}
-	// The notifier is optional, `faramir approve --watch` being where a question is
+	// The notifier is optional, `faramir approvals --watch` being where a question is
 	// seen, but one that is configured and absent announces nothing, silently.
 	if len(cfg.NotifyCommand) > 0 {
 		if _, err := osexec.LookPath(cfg.NotifyCommand[0]); err != nil {

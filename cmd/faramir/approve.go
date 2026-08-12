@@ -1,6 +1,11 @@
 package main
 
-// faramir approve: the channel an approval is answered on.
+// faramir approvals, approve and deny: the channel an approval is answered on.
+//
+// Three commands rather than one with flags, mirroring the ops the broker
+// speaks: `approvals` lists, `approve` says yes, `deny` says no.  One verb
+// carrying all three took `--deny`, which reads as its own contradiction, and
+// listed when given no argument, which is a verb doing a noun's job.
 //
 // Root, and root only.  The coding agent runs as the operator, so an approval
 // the operator could give is one the agent could give itself; the broker checks
@@ -34,59 +39,96 @@ import (
 // broker went away.
 const watchWait = 60
 
-func cmdApprove(args []string) int {
-	fs := newFlagSet("approve", "approve [options] [ID]")
+// requireRootToAnswer refuses a caller that is not root, naming the command it
+// was asked of.  Stated here as well as at the broker, so the message says what
+// to do rather than arriving as a forbidden from a socket the caller could open.
+func requireRootToAnswer(command string) bool {
+	if os.Geteuid() == 0 {
+		return true
+	}
+	// Not "try sudo".  Reaching root that way from the account the agent runs as
+	// leaves a warm sudo timestamp in a shell the agent can use, which hands it
+	// the account this check exists to keep it out of.  The three places named
+	// here are the three warnIfTypeable does not warn about.
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root: an approval has to "+
+		"be answered by an account the coding agent cannot become, and it runs as "+
+		"you. Answer from a console, an ssh session on another machine, or a login "+
+		"as another account. Reaching root with `sudo` from this shell warms a sudo "+
+		"timestamp the agent can spend, so it is the last resort rather than the "+
+		"first.\n", command)
+	return false
+}
+
+// cmdApprovals lists what is waiting, or waits for it with --watch.  It answers
+// nothing: the verbs are their own commands.
+func cmdApprovals(args []string) int {
+	fs := newFlagSet("approvals", "approvals [options]")
 	c := addCommon(fs)
-	watch := fs.Bool("watch", false, "wait for requests and answer them as they arrive")
-	deny := fs.Bool("deny", false, "refuse the named request rather than approving it")
+	watch := fs.Bool("watch", false, "wait for questions and answer them as they arrive")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
-	if fs.NArg() > 1 {
-		fmt.Fprintln(os.Stderr, "usage: faramir approve [options] [ID]")
+	if fs.NArg() > 0 {
+		fmt.Fprintln(os.Stderr, "usage: faramir approvals [options]\n"+
+			"To answer one: faramir approve ID, or faramir deny ID")
 		return 2
 	}
-	// --deny answers the one question outstanding, so it has nothing to say to the
-	// watcher, which answers each as it arrives from the terminal it runs on.
-	// Refused rather than ignored: a flag that silently does nothing reads as a
-	// standing refusal to whoever passed it, and this one would not be.
-	if *deny && *watch {
-		fmt.Fprintln(os.Stderr, "faramir approve: --deny answers one question, so it "+
-			"does not combine with --watch. Use `faramir approve --deny` to refuse "+
-			"what is waiting, or --watch and answer each one")
-		return 2
-	}
-
-	if os.Geteuid() != 0 {
-		// Not "try sudo".  Reaching root that way from the account the agent runs as
-		// leaves a warm sudo timestamp in a shell the agent can use, which hands it
-		// the account this check exists to keep it out of.  The three places named
-		// here are the three warnIfTypeable does not warn about.
-		fmt.Fprintln(os.Stderr, "faramir approve must run as root: an approval has to "+
-			"be answered by an account the coding agent cannot become, and it runs as "+
-			"you. Answer from a console, an ssh session on another machine, or a login "+
-			"as another account. Reaching root with `sudo` from this shell warms a sudo "+
-			"timestamp the agent can spend, so it is the last resort rather than the "+
-			"first.")
+	if !requireRootToAnswer("approvals") {
 		return 1
-	}
-
-	if id := fs.Arg(0); id != "" {
-		return answer(*c.socket, id, !*deny, *c.json)
 	}
 	if *watch {
 		return watchApprovals(*c.socket)
 	}
-	// --deny needs no id, and the asymmetry with approving is the point.  Only one
-	// question is ever outstanding, so "the one that is waiting" names exactly one
-	// thing, and refusing something unseen is safe in a way approving it is not.
-	// There is deliberately no bare `faramir approve` that says yes to whatever is
-	// there: an approval that names no command is one nobody judged, which is what
-	// this whole channel exists to prevent.  A refusal costs a re-run.
-	if *deny {
-		return denyWaiting(*c.socket, *c.json)
-	}
 	return listApprovals(*c.socket, *c.json)
+}
+
+// cmdApprove says yes to one question, which has to be named.  There is
+// deliberately no bare `faramir approve` that says yes to whatever is there: an
+// approval that names no command is one nobody judged, which is what this whole
+// channel exists to prevent.
+func cmdApprove(args []string) int {
+	fs := newFlagSet("approve", "approve [options] ID")
+	c := addCommon(fs)
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+	// The command line before the caller: a malformed one is worth saying
+	// whoever is asking, and the other two commands here check in that order.
+	id := fs.Arg(0)
+	if id == "" || fs.NArg() > 1 {
+		fmt.Fprintln(os.Stderr, "usage: faramir approve [options] ID\n"+
+			"A yes names the command it is for, so there is no form that approves "+
+			"whatever is waiting. `faramir approvals` lists it; `faramir deny` needs "+
+			"no id, one question being outstanding at a time")
+		return 2
+	}
+	if !requireRootToAnswer("approve") {
+		return 1
+	}
+	return answer(*c.socket, id, true, *c.json)
+}
+
+// cmdDeny says no.  The id is optional, and the asymmetry with approving is the
+// point: only one question is ever outstanding, so "the one that is waiting"
+// names exactly one thing, and refusing something unseen is safe in a way
+// approving it is not.  A refusal costs a re-run.
+func cmdDeny(args []string) int {
+	fs := newFlagSet("deny", "deny [options] [ID]")
+	c := addCommon(fs)
+	if code, ok := parseFlags(fs, args); !ok {
+		return code
+	}
+	if fs.NArg() > 1 {
+		fmt.Fprintln(os.Stderr, "usage: faramir deny [options] [ID]")
+		return 2
+	}
+	if !requireRootToAnswer("deny") {
+		return 1
+	}
+	if id := fs.Arg(0); id != "" {
+		return answer(*c.socket, id, false, *c.json)
+	}
+	return denyWaiting(*c.socket, *c.json)
 }
 
 // denyWaiting refuses the one question outstanding, without it having to be
@@ -114,12 +156,12 @@ func denyWaiting(socketPath string, asJSON bool) int {
 func waiting(socketPath, verb string) ([]approval.Question, int) {
 	questions, err := pending(socketPath, 0)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir approve: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
 		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
 	}
 	if len(questions) == 0 {
 		fmt.Fprintf(os.Stderr, "nothing is waiting to be %s. "+
-			"`faramir approve --watch` waits for the next one\n", verb)
+			"`faramir approvals --watch` waits for the next one\n", verb)
 		return nil, 1
 	}
 	return questions, 0
@@ -147,8 +189,8 @@ func listApprovals(socketPath string, asJSON bool) int {
 		printQuestion(question)
 		// The answer is a second command, and the question expires while it is being
 		// typed, so the time left is part of the instruction rather than a detail.
-		fmt.Printf("  answer with: faramir approve %s   (or --deny %s)\n",
-			question.ID, question.ID)
+		fmt.Printf("  approve with: faramir approve %s\n", question.ID)
+		fmt.Printf("  refuse with:  faramir deny %s\n", question.ID)
 		fmt.Printf("  within %ds, after which it is refused and the command has to "+
 			"be run again\n\n", question.ExpiresInSec)
 	}
@@ -184,7 +226,7 @@ func watchApprovals(socketPath string) int {
 			//
 			// The cost is real: `faramir init` restarts the broker, so an install ends
 			// a watcher and it has to be started again.
-			fmt.Fprintf(os.Stderr, "faramir approve: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
 			fmt.Fprintln(os.Stderr, "faramir approve: stopping rather than "+
 				"reconnecting: questions raised while nothing was watching would "+
 				"expire unanswered. Start it again once the broker is back.")

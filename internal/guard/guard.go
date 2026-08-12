@@ -92,9 +92,10 @@ var fallback = []string{
 	// does not, so "systemctl restart faramir-keeper" stays allowed.  Only
 	// sudo's own flags may precede the executable name.  journalctl is absent:
 	// the daemons log ref names and counts, never values.
-	// `approve` among them: it is the op that decides an approval, and the agent
-	// must not be able to answer the question it raised.
-	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|approve|pam-approve)\b`,
+	// The three approval subcommands among them: they read and decide an approval,
+	// and the agent must not be able to answer the question it raised.  `approvals`
+	// precedes `approve` so the longer name is not left half-matched.
+	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|approvals|approve|deny|pam-approve)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Refused for what it costs, not because it hides anything: the wrapper
 	// fails closed, so a stopped broker withholds every command's output in
@@ -210,10 +211,10 @@ var faramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*faramir[ \t]+(` +
 		strings.Join(cli.Operator, "|") + `)\b[^;&|\n]*`)
 
-// sudoFaramirCall is the same for a call under sudo, and sanctions one
-// subcommand fewer.  `approve` is left out so that the deny patterns get to see
-// it: it is the op that decides an approval, and this hook gates the shell of
-// the agent that raised the request.  An operator answers in their own terminal,
+// sudoFaramirCall is the same for a call under sudo, and sanctions three
+// subcommands fewer.  `approvals`, `approve` and `deny` are left out so that the
+// deny patterns get to see them: they are the ops that read and decide an
+// approval, and this hook gates the shell of the agent that raised the request.  An operator answers in their own terminal,
 // where no hook runs, so nothing a person does is denied by this.  RE2 has no
 // negative lookahead, hence a second expression over a second list rather than
 // an exception inside the first.
@@ -221,12 +222,17 @@ var sudoFaramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*sudo\s+faramir[ \t]+(` +
 		strings.Join(sudoSanctioned(), "|") + `)\b[^;&|\n]*`)
 
+// answering is the subcommands that read or decide an approval.  Named once:
+// the deny patterns and sudoSanctioned have to cover the same set, and a
+// command added to one and not the other is a way around the hook.
+var answering = []string{"approvals", "approve", "deny"}
+
 // sudoSanctioned is cli.Operator without the subcommands that must stay visible
 // to the deny patterns when run as root.
 func sudoSanctioned() []string {
 	out := make([]string, 0, len(cli.Operator))
 	for _, name := range cli.Operator {
-		if name != "approve" {
+		if !slices.Contains(answering, name) {
 			out = append(out, name)
 		}
 	}

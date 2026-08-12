@@ -91,7 +91,7 @@ const maxCommandChars = 240
 // Command is the run as one line, rendered for a terminal.
 //
 // Every string in it is the caller's, and this reaches the operator's terminal
-// through `faramir approve`, the refusal messages and [sudo] notify_command.
+// through `faramir approvals`, the refusal messages and [sudo] notify_command.
 // Left raw, a run could return the cursor with a "\r" and overwrite the question
 // it is being judged on, which would defeat the only thing that makes an
 // approval worth anything, that the prompt names the command.  termsafe says
@@ -158,7 +158,7 @@ type Server struct {
 	// says rather than what a comment claims and pend enforces.  Joining and
 	// dropping both compare against the token this already carries.
 	waiting *approval
-	// changed is closed and replaced whenever waiting does, so `faramir approve
+	// changed is closed and replaced whenever waiting does, so `faramir approvals
 	// --watch` can block on the next change rather than poll for it.
 	changed chan struct{}
 	stopped bool
@@ -313,7 +313,7 @@ func (s *Server) otherRunLocked(token string) string {
 // makes an approval die with the run it was given for.
 //
 // The command's unanswered question goes with it.  One left filed would be shown
-// by `faramir approve` and would take a yes for a command that is no longer
+// by `faramir approvals` and would take a yes for a command that is no longer
 // running, which is an approval a human cannot judge, and it would hold the one
 // question slot until it timed out.
 func (s *Server) Release(token string) {
@@ -614,7 +614,7 @@ type Question struct {
 	WaitingSec int `json:"waiting_sec"`
 	// ExpiresInSec is what is left of [sudo] timeout_sec, after which the question
 	// is refused.  It matters most where the answer is a second command typed
-	// after this one was read, which is `faramir approve` without --watch.
+	// after this one was read, which is `faramir approvals` without --watch.
 	ExpiresInSec int `json:"expires_in_sec"`
 }
 

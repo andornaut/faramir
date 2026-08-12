@@ -169,7 +169,7 @@ func Parse(payload map[string]any) (*Request, error) {
 		id, isStr := payload["id"].(string)
 		if !isStr || id == "" {
 			return nil, fmt.Errorf("'id' must name the question to answer; " +
-				"`faramir approve` lists what is waiting")
+				"`faramir approvals` lists what is waiting")
 		}
 		req.ID = id
 		// Absent is a refusal.  Deny by default holds here too: a malformed answer

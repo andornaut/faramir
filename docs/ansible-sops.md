@@ -108,7 +108,7 @@ faramir run --env-file faramir.env -- ansible-playbook msmtp.yml --limit '!contr
 
 because a brokered command runs as `faramir-exec`, which has no sudo. A playbook that touches every host including this one then splits in two: the fleet through the broker, the controller as root some other way, which is a secret-bearing run happening twice.
 
-`sudo faramir init --allow-sudo` closes that. It grants `faramir-exec` a password-required sudoers entry here and points it at a PAM service of faramir's own, whose authentication step asks the broker whether a human approved the brokered command making the call. There is no password: what satisfies `sudo` is a decision, so nothing is minted, stored or handed out. The answer comes from `sudo faramir approve`, which the broker checks with `SO_PEERCRED` to be root, so the account the coding agent runs as cannot approve what the agent asked for. The full argument, including what an approval does *not* bound, is in [operating.md](operating.md#allowing-sudo-on-the-controller).
+`sudo faramir init --allow-sudo` closes that. It grants `faramir-exec` a password-required sudoers entry here and points it at a PAM service of faramir's own, whose authentication step asks the broker whether a human approved the brokered command making the call. There is no password: what satisfies `sudo` is a decision, so nothing is minted, stored or handed out. The answer comes from `sudo faramir approve ID`, which the broker checks with `SO_PEERCRED` to be root, so the account the coding agent runs as cannot approve what the agent asked for. The full argument, including what an approval does *not* bound, is in [operating.md](operating.md#allowing-sudo-on-the-controller).
 
 The Ansible side is one variable, on the controller host only:
 
@@ -122,7 +122,7 @@ Dropping the default `-n` is the whole of it: `-n` tells `sudo` to fail rather t
 And you leave a watcher running, as root, in a terminal the coding agent cannot type into: a console, an ssh session from another machine, or a login as another account. Not a tmux pane on your own account, the agent running as you and `tmux send-keys` needing nothing more than that. The command warns when it can tell.
 
 ```bash
-sudo faramir approve --watch
+sudo faramir approvals --watch
 ```
 
 Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. The first task that runs sudo puts a question there naming the playbook; anything but `yes`, including no answer, fails that task with `sudo`'s own error.

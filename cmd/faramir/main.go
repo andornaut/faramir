@@ -62,7 +62,9 @@ the install is):
   edit          edit a managed sops file
   rekey         re-encrypt the secrets directory to the recipients .sops.yaml now names
   logs          show the audit log: what ran, against which refs, and how it ended
-  approve       answer an approval a brokered command asked for
+  approvals     list the approval a brokered command is waiting on
+  approve       say yes to one, by id
+  deny          say no, to that one or to whatever is waiting
   doctor        report whether the install is doing its job
   reload        drop the daemons onto a changed configuration
   uninstall     remove the broker, keeping the key, the secrets directory and the log
@@ -120,8 +122,12 @@ func run(args []string) int {
 		return cmdRekey(args[1:])
 	case "logs":
 		return cmdLogs(args[1:])
+	case "approvals":
+		return cmdApprovals(args[1:])
 	case "approve":
 		return cmdApprove(args[1:])
+	case "deny":
+		return cmdDeny(args[1:])
 	case "doctor":
 		return cmdDoctor(args[1:])
 	case "reload":
