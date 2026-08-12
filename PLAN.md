@@ -36,6 +36,13 @@ cgroup the test process can subdivide; without one they skip rather than fail.
 The approval end-to-end tests need root, for the same reason the approval
 channel does. A suite that skipped is not a suite that passed.
 
+**`go test` never sees a real install.** It runs in a temp directory under one
+uid, so the uid boundary, the systemd units and the sops store are covered by
+[tests/lab](tests/lab/README.md) instead: eighteen suites against a privileged
+systemd container, run by hand rather than in CI because they need Docker and
+the host's cgroup tree. Run them against anything that changes the install, the
+guard or an agent integration.
+
 ## Conventions
 
 **No em dashes or en dashes.** A comma, a colon or another sentence says the
@@ -71,7 +78,9 @@ already drifted apart. Add a path there and nowhere else;
 **`--agent` defaults to `auto`**, which configures the agents already present:
 `init` asks that of the operator's home and `init-project` of the tree, and
 those are not the same paths. Naming an agent configures it regardless. The two
-compose, because detection only ever adds.
+compose, because detection only ever adds. `init-project` records what it
+enrolled, which is how `doctor` knows a tree depends on rules the home it looks
+at shows no sign of.
 
 **Nothing faramir did not write is ever overwritten.** Files it owns outright
 are replaced whole. Shared JSON is merged by key, which means entries can be

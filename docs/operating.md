@@ -20,7 +20,7 @@ A broker serving zero refs and a client group with members nobody recognises bot
 - `ProtectProc` hiding the broker's environment
 - the `.sops.yaml` creation rule listing the keeper's own recipient rather than one it used to have
 - a managed value injected into a real command coming back as its token
-- each agent's deny rules: present, absent from a home that runs that agent, or carried in the extension an enrolment installs
+- each agent's deny rules: present, absent from a home that runs that agent or that a tree was enrolled for, or carried in the extension an enrolment installs. `init-project` records the enrolment in `<config-dir>/enrolled.json`, because a tree relies on rules kept somewhere else and the agent it was enrolled for may leave no trace in that home at all. An entry naming a tree that is no longer there is warned about rather than forgotten, an unmounted tree not being a deleted one
 - rules an earlier version wrote and this one does not, which are named rather than deleted: an entry in those files is a bare string or a key, so one of ours left behind and one of yours refusing the same path look identical. Extra refusals, so untidy rather than unguarded
 
 It also compares the version the broker reports against its own. They differ when a new binary was installed and the daemons were never restarted onto it, which makes every other finding a report on the build that is not running, so this fails rather than warns and the fix is to re-run `init`. A broker that does not answer at all is a warning instead, `doctor` being for a stopped install as much as a running one.

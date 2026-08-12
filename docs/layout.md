@@ -21,6 +21,7 @@ Every path `faramir init` creates, what owns it, and what each account can reach
 <config-dir>/.sops.yaml       0644 root:root, the creation rule; above the secrets directory, not in it
 <config-dir>/config.toml      0644 root:root, faramir's own, rewritten every run
 <config-dir>/config.d/        0755 root:root, yours and each consumer's, merged over it
+<config-dir>/enrolled.json    0600 root:root, which trees faramir init-project enrolled and for what; advisory, and doctor's
 <any tree you enrol>          2770 <operator>:<client-group>, setgid; faramir init-project
 /var/lib/faramir-broker/      the broker's home, a StateDirectory=
 /var/lib/faramir-broker/.ssh/ 0700 faramir-broker, the keys it lends through the agent
