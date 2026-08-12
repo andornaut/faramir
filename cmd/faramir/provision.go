@@ -458,7 +458,7 @@ func printNotAsked(w io.Writer, paint palette, count int) {
 func statusColumn(status install.Status) string {
 	mark := map[install.Status]string{
 		install.StatusOK:     "✓", // check mark
-		install.StatusNA:     "–", // en dash: neither asserted nor withheld
+		install.StatusNA:     "·", // middle dot: neither asserted nor withheld
 		install.StatusWarn:   "!",
 		install.StatusFailed: "✗", // ballot X
 	}[status]

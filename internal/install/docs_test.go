@@ -77,14 +77,19 @@ func TestTheInstalledReadmeLinksResolve(t *testing.T) {
 	}
 }
 
-// An em dash reads as something nobody here typed, and one arrives whenever a
-// paragraph is written somewhere that substitutes it.  The prose uses a comma,
-// a colon or another sentence instead, so the character itself is the check:
-// what it would mean is always sayable another way.
+// A dashed aside reads as something nobody here typed, and one arrives whenever
+// a paragraph is written somewhere that substitutes the character.  The prose
+// uses a comma, a colon or another sentence instead, so the character itself is
+// the check: what it would have meant is always sayable another way.
+//
+// Both dashes, not only the em: a range reads as well written out, and the one
+// place a glyph is wanted is `doctor`'s status column, which is output.
 //
 // Over the embedded assets, which is the prose that ships.  Go comments spell
-// the same aside "--".
-func TestTheShippedProseHasNoEmDashes(t *testing.T) {
+// the same aside "--", and are not reached from here.
+func TestTheShippedProseHasNoDashedAsides(t *testing.T) {
+	// Spelled by code point, or this file is its own first failure.
+	dashes := map[string]rune{"em dash": 0x2014, "en dash": 0x2013}
 	err := fs.WalkDir(faramir.Assets, ".", func(path string, entry fs.DirEntry, err error) error {
 		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".md") {
 			return err
@@ -94,9 +99,11 @@ func TestTheShippedProseHasNoEmDashes(t *testing.T) {
 			return err
 		}
 		for i, line := range strings.Split(string(body), "\n") {
-			if strings.Contains(line, "—") {
-				t.Errorf("%s:%d has an em dash; use a comma, a colon or a full stop:\n  %s",
-					path, i+1, strings.TrimSpace(line))
+			for name, dash := range dashes {
+				if strings.ContainsRune(line, dash) {
+					t.Errorf("%s:%d has an %s; use a comma, a colon or a full stop:\n  %s",
+						path, i+1, name, strings.TrimSpace(line))
+				}
 			}
 		}
 		return nil
