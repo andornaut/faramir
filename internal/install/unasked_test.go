@@ -163,7 +163,7 @@ func TestEveryWarnThatSaysItDidNotAskCountsItself(t *testing.T) {
 			original := systemdRunning
 			systemdRunning = func() bool { return false }
 			defer func() { systemdRunning = original }()
-			diagnoseUnits(r)
+			diagnoseUnits(r, DoctorOptions{})
 		}},
 		{"no broker", func(r *DoctorReport) { diagnoseVersion(r, DoctorOptions{}) }},
 		{"no operator", func(r *DoctorReport) { diagnoseOperatorKeys(r, DoctorOptions{}) }},

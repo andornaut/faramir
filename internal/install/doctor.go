@@ -35,6 +35,39 @@ type DoctorOptions struct {
 	// answer.  Passed in rather than asked for here, the caller already having
 	// opened the socket to find the install.
 	BrokerVersion string
+
+	// SocketStates is each socket unit's state as it was before the broker was
+	// asked anything, unit name to what `systemctl is-active` said.  Sampled by
+	// the caller because the caller's own round trip changes it: opening the
+	// broker socket activates the service, which Requires= the keeper and
+	// executor sockets, so a socket that was down comes up and the examination
+	// reports the host it made rather than the one it met.
+	//
+	// Empty when the caller did not sample, and then the state is read here.
+	SocketStates map[string]string
+}
+
+// SampleSockets is each socket unit's state now.  Called before anything opens
+// the broker socket; see [DoctorOptions.SocketStates].
+func SampleSockets() map[string]string {
+	if !systemdRunning() {
+		return nil
+	}
+	run := &runner{}
+	states := make(map[string]string, len(sockets))
+	for _, socket := range sockets {
+		out, err := run.command("systemctl", "is-active", socket)
+		state := strings.TrimSpace(out)
+		// systemctl prints the state even when it exits non-zero, so an empty
+		// answer is systemctl itself having failed.  Named, or the finding reads
+		// "<socket> is ;".  An error alongside "active" is the same contradiction
+		// and is not reported as a unit that is up.
+		if state == "" || (err != nil && state == unitActive) {
+			state = "unreportable"
+		}
+		states[socket] = state
+	}
+	return states
 }
 
 // Status is a finding's verdict.  Four levels, because a broker that is
@@ -194,7 +227,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	// account whenever doctor was not run as root.
 	diagnoseGroup(&report, opts)
 	diagnoseLogRotation(&report, cfg)
-	diagnoseUnits(&report)
+	diagnoseUnits(&report, opts)
 	diagnoseSSHAgent(&report, opts, cfg, serves)
 	diagnoseVersion(&report, opts)
 
@@ -514,23 +547,26 @@ func unquoteField(field string) string {
 
 // diagnoseUnits reports the sockets, not the services: all three are socket
 // activated, so an inactive service is ordinary.
-func diagnoseUnits(report *DoctorReport) {
+func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 	if !systemdRunning() {
 		report.unasked("sockets", len(sockets), "systemd is not running here, so whether "+
 			"%d socket unit(s) are listening was not asked", len(sockets))
 		return
 	}
-	run := &runner{}
+	// What the caller saw before it opened the broker socket, where it sampled.
+	// Reading the state here instead would read it after that round trip, which
+	// starts any socket the broker depends on: the fault repairs itself between
+	// arriving and looking, and all three report as listening.
+	states := opts.SocketStates
+	if len(states) == 0 {
+		states = SampleSockets()
+	}
 	for _, socket := range sockets {
-		out, err := run.command("systemctl", "is-active", socket)
-		state := strings.TrimSpace(out)
-		if state == "" {
-			// systemctl prints the state even when it exits non-zero, so an empty
-			// answer is systemctl itself having failed.  Named, or the finding reads
-			// "<socket> is ;".
+		state, sampled := states[socket]
+		if !sampled {
 			state = "unreportable"
 		}
-		if err != nil || state != "active" {
+		if state != unitActive {
 			report.add("sockets", StatusFailed, "%s is %s; check journalctl -u %s",
 				socket, state, socket)
 			continue
@@ -615,11 +651,25 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			check.Secrets.Count, len(check.Secrets.Files))
 		explained = false
 	}
+	// Refs the store read and the redactor refused.  Named here rather than left
+	// to the fallback below, which would report the one condition --check
+	// describes precisely as one it cannot explain.  A warning, not a failure:
+	// they are never injected, so what is wrong is that a ref does not work, not
+	// that the install is failing to hold a boundary.
+	if len(check.Secrets.NotRedactable) > 0 {
+		report.add("redaction", StatusWarn, "%d ref(s) are shorter than [secrets] "+
+			"min_length, so they are never injected and never redacted: %s. Lengthen "+
+			"them with `faramir edit`",
+			len(check.Secrets.NotRedactable), check.refusedRefs())
+		if check.onlyNotRedactable() {
+			explained = true
+		}
+	}
 	// --check fails for reasons the switch does not cover: an unusable [ssh] key,
-	// a ref refused as not redactable, a bound socket with world bits.  Judged on
-	// whether this function accounted for the exit code rather than on whether
-	// anything else in the report failed, which would swallow this one whenever
-	// another check had already failed for reasons of its own.
+	// a bound socket with world bits.  Judged on whether this function accounted
+	// for the exit code rather than on whether anything else in the report
+	// failed, which would swallow this one whenever another check had already
+	// failed for reasons of its own.
 	if checkErr != nil && !explained {
 		report.add("broker", StatusFailed, "--check failed as %s for a reason not "+
 			"reported above: %v", brokerUser, checkErr)

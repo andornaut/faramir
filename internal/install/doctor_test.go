@@ -268,6 +268,111 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 	}
 }
 
+// --check exits non-zero for several states at once, so the exit code cannot
+// say which.  Refs the redactor refused are the one state that is not about the
+// install: the store loaded, the daemons serve, and a value is too short to
+// cover.  Telling it apart is what lets init finish and doctor name it.
+func TestOnlyNotRedactableSeparatesAValueFromAFault(t *testing.T) {
+	loaded := func() checkReport {
+		var r checkReport
+		r.Secrets.Count = 3
+		r.Secrets.Files = []string{"app.sops.yml"}
+		r.Secrets.NotRedactable = map[string]string{"short/pin": "shorter than 8 characters"}
+		return r
+	}
+	for _, tc := range []struct {
+		name   string
+		report func() checkReport
+		want   bool
+	}{
+		{"a short ref and nothing else", loaded, true},
+		{"no short refs at all", func() checkReport {
+			r := loaded()
+			r.Secrets.NotRedactable = nil
+			return r
+		}, false},
+		{"a socket policy problem beside it", func() checkReport {
+			r := loaded()
+			r.Policy = []string{"[keeper] allowed_user names the wrong account"}
+			return r
+		}, false},
+		{"a file that did not load beside it", func() checkReport {
+			r := loaded()
+			r.Secrets.Errors = []string{"app.sops.yml: bad mac"}
+			return r
+		}, false},
+		{"an entry that named no file beside it", func() checkReport {
+			r := loaded()
+			r.Secrets.UnresolvedPatterns = []string{"/etc/faramir/secrets/*.sops.yml"}
+			return r
+		}, false},
+		{"nothing loaded at all", func() checkReport {
+			r := loaded()
+			r.Secrets.Count = 0
+			return r
+		}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := tc.report().onlyNotRedactable(); got != tc.want {
+				t.Errorf("onlyNotRedactable() = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+// The refs are named in both messages, so the operator is told which value to
+// lengthen rather than that something is wrong.
+func TestRefusedRefsNamesEveryRefAndItsReason(t *testing.T) {
+	var r checkReport
+	r.Secrets.NotRedactable = map[string]string{
+		"short/pin": "shorter than 8 characters",
+		"api/kid":   "shorter than 8 characters",
+	}
+	got := r.refusedRefs()
+	for _, want := range []string{"short/pin", "api/kid", "shorter than 8 characters"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("refusedRefs() = %q, missing %q", got, want)
+		}
+	}
+	// Sorted: a map's order would make the message differ between two runs on
+	// one unchanged host.
+	if !strings.HasPrefix(got, "api/kid") {
+		t.Errorf("refusedRefs() = %q, want the refs in a stable order", got)
+	}
+}
+
+// diagnoseUnits reports the states the caller sampled before it opened the
+// broker socket.  Reading them itself would read them after that round trip,
+// which starts the sockets the broker Requires=: the fault repairs itself
+// between doctor arriving and doctor looking.
+func TestUnitsReportTheStateSampledBeforeTheBrokerWasAsked(t *testing.T) {
+	original := systemdRunning
+	systemdRunning = func() bool { return true }
+	defer func() { systemdRunning = original }()
+
+	var report DoctorReport
+	diagnoseUnits(&report, DoctorOptions{SocketStates: map[string]string{
+		"faramir-keeper.socket": "inactive",
+		"faramir-exec.socket":   "active",
+		"faramir-broker.socket": "active",
+	}})
+	var failed, ok int
+	for _, finding := range report.Findings {
+		switch finding.Status {
+		case StatusFailed:
+			failed++
+			if !strings.Contains(finding.Detail, "faramir-keeper.socket is inactive") {
+				t.Errorf("the failure does not name the socket and its state: %q", finding.Detail)
+			}
+		case StatusOK:
+			ok++
+		}
+	}
+	if failed != 1 || ok != 2 {
+		t.Errorf("got %d failed and %d ok, want 1 and 2", failed, ok)
+	}
+}
+
 // An upgrade that installed the binary without restarting the daemons leaves
 // every other finding describing the build that is not running.
 func TestVersionSkewIsAFindingOfItsOwn(t *testing.T) {

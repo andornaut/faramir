@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -21,7 +22,40 @@ type checkReport struct {
 		// UnresolvedPatterns is the entries that named nothing, which the broker
 		// cannot work out for itself: the secrets directory is the keeper's to list.
 		UnresolvedPatterns []string `json:"unresolved_patterns"`
+		// NotRedactable is the refs the store read and the redactor refused, by ref
+		// and reason.  They load and are never injected, so they are a value the
+		// operator has to lengthen rather than anything about the install.
+		NotRedactable map[string]string `json:"not_redactable"`
 	} `json:"secrets"`
+	// Policy is the socket-policy problems, which --check also exits non-zero
+	// for.  Read here so a caller can tell which of the reasons it is looking at.
+	Policy []string `json:"policy"`
+}
+
+// onlyNotRedactable reports whether a non-zero --check is accounted for by refs
+// the redactor refused and nothing else.  --check exits 1 for several states at
+// once, so the exit code alone cannot say which; every other state it fails for
+// is visible in the report, and their absence is what leaves this one.
+//
+// The distinction earns its place because this state is not about the install.
+// The store loaded, the daemons are serving, and one value is too short to
+// cover: nothing an install can do, and the same answer every time it re-runs.
+func (c checkReport) onlyNotRedactable() bool {
+	return len(c.Secrets.NotRedactable) > 0 &&
+		len(c.Policy) == 0 &&
+		len(c.Secrets.Errors) == 0 &&
+		len(c.Secrets.UnresolvedPatterns) == 0 &&
+		c.Secrets.Count > 0
+}
+
+// refusedRefs is the refused refs and their reasons, ordered, for a message.
+func (c checkReport) refusedRefs() string {
+	out := make([]string, 0, len(c.Secrets.NotRedactable))
+	for ref, reason := range c.Secrets.NotRedactable {
+		out = append(out, fmt.Sprintf("%s (%s)", ref, reason))
+	}
+	slices.Sort(out)
+	return strings.Join(out, ", ")
 }
 
 // serves reports whether the broker will run exec and redact: at least one
@@ -75,6 +109,19 @@ func (r *runner) stepValidate() error {
 				strings.Join(absent, ", "),
 				map[bool]string{true: "has", false: "have"}[len(absent) == 1])
 			r.step("validate", false, "no secrets yet")
+			return nil
+		}
+		// Refs the redactor refused, and nothing else wrong.  Reported and carried
+		// on from: the store loaded and the daemons are serving, the values are
+		// never injected so nothing is exposed by continuing, and an install cannot
+		// lengthen a secret.  Failing here ends every future `init` on this host
+		// the same way, including the upgrade that would carry a fix.
+		if report.onlyNotRedactable() {
+			r.warn("%d ref(s) are too short for [secrets] min_length, so they are "+
+				"never injected and never redacted: %s. Lengthen them with `faramir "+
+				"edit`; everything else on this host is installed and serving",
+				len(report.Secrets.NotRedactable), report.refusedRefs())
+			r.step("validate", false, "installed; refs to lengthen")
 			return nil
 		}
 		return fmt.Errorf("the installed config does not work for %s: %w\n"+

@@ -348,12 +348,18 @@ func cmdDoctor(args []string) int {
 		fmt.Fprintf(os.Stderr, "%v\n", err)
 		return 2
 	}
+	// Before the round trip below, which changes what it would report: opening
+	// the broker socket activates the service, and that starts the keeper and
+	// executor sockets it Requires=.  Sampled here, a socket that was down is
+	// still down in the finding.
+	sockets := install.SampleSockets()
 	// One round trip: the same answer decides which install this is and whether
 	// the daemons are running the code that was installed.
 	broker := askBroker(*socket)
 	report := install.Diagnose(install.DoctorOptions{
 		ConfigDir:     configDirFrom(*configDir, broker),
 		BrokerVersion: broker.version,
+		SocketStates:  sockets,
 		OperatorUser:  operatorName(*operatorUser),
 		ClientGroup:   *clientGroup,
 		BrokerUser:    *brokerUser,

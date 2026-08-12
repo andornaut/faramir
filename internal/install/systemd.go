@@ -18,6 +18,10 @@ var sockets = []string{
 	"faramir-broker.socket",
 }
 
+// unitActive is what `systemctl is-active` prints for a unit that is up.  Every
+// other word it prints is one of the states this treats as down.
+const unitActive = "active"
+
 // services in restart order.  The keeper leads: it decrypts the file list the
 // broker is served, so the other order fetches the old value set again.
 var services = []string{
@@ -164,7 +168,7 @@ func (r *runner) stepSystemd() error {
 	if !restart {
 		for _, socket := range sockets {
 			out, err := r.command("systemctl", "is-active", socket)
-			if err != nil || strings.TrimSpace(out) != "active" {
+			if err != nil || strings.TrimSpace(out) != unitActive {
 				restart = true
 				break
 			}
