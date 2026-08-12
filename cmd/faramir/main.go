@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"os/user"
 	"strings"
+	"time"
 
 	"filippo.io/age"
 
@@ -555,12 +556,17 @@ func (rc *redactConn) close() {
 // pipelined into each other.
 func (rc *redactConn) send(text string, more bool) (string, error) {
 	if rc.conn == nil {
-		conn, err := net.Dial("unix", rc.socketPath)
+		conn, err := net.DialTimeout("unix", rc.socketPath, dialWait)
 		if err != nil {
 			return "", err
 		}
 		rc.conn, rc.lines = conn, sockutil.NewLineReader(conn, 1<<26)
 	}
+	// Per chunk, and refreshed for each: a redact runs no command, so an answer
+	// that has not arrived by now is a broker that is not going to send one.  The
+	// deadline covers the write as well, this side being the only one that can
+	// notice the far end never started.
+	_ = rc.conn.SetDeadline(time.Now().Add(quickWait))
 	request := map[string]any{"op": "redact", "text": text}
 	if more {
 		request["more"] = true
@@ -615,15 +621,50 @@ func call(op string, args []string) int {
 	return send(*c.socket, map[string]any{"op": op}, *c.json, true)
 }
 
+// Bounds on how long this side waits for the broker.  The socket is systemd's
+// and stays listening whether or not the service behind it can start, so a
+// broker that never becomes ready accepts the connection and answers nothing:
+// without a deadline the caller waits for ever, and for the coding agent that
+// is a tool call that never returns.
+const (
+	// dialWait is reaching the socket, which is local and immediate or broken.
+	dialWait = 5 * time.Second
+	// quickWait bounds a round trip that runs no command.  Generous next to the
+	// microseconds these take, because being refused `busy` is also an answer and
+	// arrives just as fast.
+	quickWait = 15 * time.Second
+	// execGrace is what a brokered command's own timeout is padded by: the broker
+	// kills at the timeout and still has to write the record and the response.
+	execGrace = 30 * time.Second
+	// execCeiling stands in for [exec] max_timeout_sec, which is the server's and
+	// cannot be read from here.  Only reached when no -t was given, where the
+	// server's own default decides and this is merely the outer bound.
+	execCeiling = 3600 * time.Second
+)
+
+// responseWait is how long to wait for this request's answer.  A command's own
+// timeout is what makes the wait long, so it is what the bound is built from.
+func responseWait(request map[string]any) time.Duration {
+	if request["op"] != "exec" {
+		return quickWait
+	}
+	if seconds, ok := request["timeout_sec"].(int); ok && seconds > 0 {
+		return time.Duration(seconds)*time.Second + execGrace
+	}
+	return execCeiling + execGrace
+}
+
 // send performs one request/response round trip.  Everything on this side of
 // the socket has already been redacted.
 func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
-	conn, err := net.Dial("unix", socketPath)
+	wait := responseWait(request)
+	conn, err := net.DialTimeout("unix", socketPath, dialWait)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %s: %v\n", socketPath, err)
 		return 69 // EX_UNAVAILABLE
 	}
 	defer func() { _ = conn.Close() }()
+	_ = conn.SetDeadline(time.Now().Add(wait))
 
 	if err := sockutil.Send(conn, request); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
@@ -633,6 +674,16 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 		_ = uc.CloseWrite()
 	}
 	line, err := sockutil.ReadLine(conn, 1<<26)
+	if errors.Is(err, os.ErrDeadlineExceeded) {
+		// Named apart from a close: the socket is listening and nothing behind it
+		// answered, which is a broker that did not come up rather than one that
+		// refused.
+		fmt.Fprintf(os.Stderr, "faramir: the broker did not answer within %s. The "+
+			"socket is systemd's and listens whether or not the daemon behind it "+
+			"started: check `systemctl status faramir-broker` and "+
+			"`faramir broker --parse-only`\n", wait)
+		return 69
+	}
 	if err != nil || len(line) == 0 {
 		fmt.Fprintln(os.Stderr, "faramir: broker closed the connection without responding")
 		return 69

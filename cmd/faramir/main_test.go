@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/andornaut/faramir/internal/cli"
 )
@@ -276,6 +277,38 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 	// And only a closed stdin ends the watch.
 	if _, ok := readAnswer(); ok {
 		t.Error("readAnswer kept going past the end of its input")
+	}
+}
+
+// The socket is systemd's and listens whether or not the daemon behind it
+// started, so a broker that never becomes ready accepts the connection and
+// answers nothing.  Without a bound the caller waits for ever, which for the
+// coding agent is a tool call that never returns.
+func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		request map[string]any
+		want    time.Duration
+	}{
+		{"a command's own timeout, plus room to be killed and recorded",
+			map[string]any{"op": "exec", "timeout_sec": 30}, 30*time.Second + execGrace},
+		{"no timeout given, so the server's default decides and this is the outer bound",
+			map[string]any{"op": "exec"}, execCeiling + execGrace},
+		{"a request that runs no command", map[string]any{"op": "status"}, quickWait},
+		{"nor does listing", map[string]any{"op": "list_secrets"}, quickWait},
+		{"nor does a redact", map[string]any{"op": "redact", "text": "x"}, quickWait},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := responseWait(tc.request); got != tc.want {
+				t.Errorf("responseWait = %s, want %s", got, tc.want)
+			}
+		})
+	}
+	// Every bound is finite, which is the whole point.
+	for _, op := range []string{"exec", "status", "list_secrets", "redact", "approve"} {
+		if wait := responseWait(map[string]any{"op": op}); wait <= 0 {
+			t.Errorf("%s waits %s, which is not a bound", op, wait)
+		}
 	}
 }
 
