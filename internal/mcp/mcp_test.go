@@ -177,11 +177,6 @@ func TestEveryToolProducesARequestTheBrokerAccepts(t *testing.T) {
 			args: map[string]any{},
 			want: protocol.Request{Op: "list_secrets", EnvRefs: map[string]string{}},
 		},
-		{
-			tool: "faramir_status",
-			args: map[string]any{},
-			want: protocol.Request{Op: "status", EnvRefs: map[string]string{}},
-		},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
 			b := newFakeBroker(t, map[string]any{"exit_code": 0, "output": ""})
@@ -289,10 +284,17 @@ func TestToolsListAdvertisesEveryTool(t *testing.T) {
 			t.Errorf("%s is missing a description or schema", tl.Name)
 		}
 	}
-	for _, want := range []string{"faramir_run", "faramir_list_secrets", "faramir_status"} {
+	for _, want := range []string{"faramir_run", "faramir_list_secrets"} {
 		if !names[want] {
 			t.Errorf("%s is not advertised", want)
 		}
+	}
+	// Exactly those two, and the count is asserted so a tool added here has to
+	// argue for itself: see the package doc.  Every tool spends a slot in every
+	// session's context, so one an agent would call rarely and act on never costs
+	// more than it answers.
+	if len(listed) != 2 {
+		t.Errorf("%d tools advertised, want 2: %v", len(listed), listed)
 	}
 }
 

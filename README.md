@@ -254,8 +254,9 @@ Command | Does
 Tool | Description
 --- | ---
 `faramir_run(cmd, env_refs, cwd, timeout_sec)` | Run a command with secrets bound to environment variables.
-`faramir_list_secrets()` | Ref names only.
-`faramir_status()` | Config path, loaded files, ref count.
+`faramir_list_secrets()` | Ref names only, and where `faramir_run`'s `env_refs` come from.
+
+Two, and meant to stay two. A tool is for what an agent has to be told: a credential must not go any other way, and `faramir_run`'s arguments are refs. `faramir status` is neither — it answers an operator's questions, and an agent finds out what it may do here by running a command, a refusal naming what failed and where to fix it. Advertised, it would cost a slot in every session's context to be acted on never, so it stays a subcommand. The list is mirrored: Pi ships no MCP and registers the same two from its extension, so both sides are asserted by count.
 
 Wire protocol: [docs/protocol.md](docs/protocol.md).
 

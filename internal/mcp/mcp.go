@@ -2,6 +2,24 @@
 // run as `faramir mcp`.  The tool descriptions carry the weight: a distinct tool
 // is more discoverable to a model than prose in a config file.
 //
+// Which is also where the tool list stops.  A tool is for what an agent has to
+// be told: faramir_run, because a credential must not go any other way, and
+// faramir_list_secrets, because faramir_run's arguments are refs and this is
+// where they come from.
+//
+// `faramir status` is neither.  It answers an operator's questions -- which
+// files loaded, in what order, what failed to, whether this host was installed
+// with a sudo grant -- and an agent acts on none of them.  Nor does it need to
+// ask what it may do here: it finds that out by running a command, a refusal
+// naming what failed and where to fix it, which is the whole point of writing
+// the errors that way.  Advertised, it would cost a slot in every session's
+// context to be acted on never, so it stays a subcommand.
+//
+// This list is mirrored: pi ships no MCP and registers the same tools from its
+// extension, shelling out to the CLI rather than to the socket.  So a tool added
+// or dropped here is one added or dropped there, and both are asserted by count
+// -- a tool on one side and not the other is drift a host-specific bug hides in.
+//
 // Protocol: JSON-RPC 2.0 over stdio, MCP 2025-06-18.
 package mcp
 
@@ -89,13 +107,6 @@ var tools = []tool{
 		Name: "faramir_list_secrets",
 		Description: "List the secret:// references the broker can inject. Returns names only, " +
 			"never values. Use this to find the right ref for faramir_run's env_refs.",
-		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
-	},
-	{
-		Name: "faramir_status",
-		Description: "Show broker configuration: the version, which config files and secret " +
-			"files are loaded, how many refs exist, whether an SSH key is usable, and " +
-			"whether a command may ask to sudo on this host.",
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 	},
 }
@@ -227,8 +238,6 @@ func callTool(name string, arguments map[string]any) map[string]any {
 		}
 	case "faramir_list_secrets":
 		request = map[string]any{"op": "list_secrets"}
-	case "faramir_status":
-		request = map[string]any{"op": "status"}
 	default:
 		return textResult("unknown tool: "+name, true)
 	}

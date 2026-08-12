@@ -429,9 +429,15 @@ func TestPiExtensionRegistersTheTools(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("driver printed %q: %v", out, err)
 	}
-	for _, want := range []string{"faramir_run", "faramir_list_secrets", "faramir_status"} {
+	for _, want := range []string{"faramir_run", "faramir_list_secrets"} {
 		if !slices.Contains(got.Tools, want) {
 			t.Errorf("registered %v, want %s among them", got.Tools, want)
 		}
+	}
+	// The same two internal/mcp advertises, and asserted the same way: this
+	// extension is that tool list for the host with no MCP, so a tool on one side
+	// and not the other is the drift worth failing on.
+	if len(got.Tools) != 2 {
+		t.Errorf("registered %d tools, want 2: %v", len(got.Tools), got.Tools)
 	}
 }

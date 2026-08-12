@@ -9,9 +9,8 @@ faramir_run(cmd=["printenv", "ROUTER_PW"],
             env_refs={"ROUTER_PW": "secret://home/router/admin"})
 ```
 
-`faramir_list_secrets` names what exists, `faramir_status` shows the broker's
-configuration. Commands run in this tree as it is on disk, so a saved edit takes
-effect at once.
+`faramir_list_secrets` names what exists. Commands run in this tree as it is on
+disk, so a saved edit takes effect at once.
 
 ## Rules
 

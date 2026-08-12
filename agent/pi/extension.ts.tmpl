@@ -165,18 +165,6 @@ export default function faramir(pi) {
     },
   })
 
-  pi.registerTool({
-    name: "faramir_status",
-    label: "faramir status",
-    description: "Report what the broker is serving and how it is configured.",
-    parameters: { type: "object", properties: {} },
-    async execute() {
-      const out = runCLI(["status"])
-      if (out.failed) return text(out.failed, true)
-      return text(out.stdout || out.stderr, out.status !== 0)
-    },
-  })
-
   pi.on("tool_call", async (event) => {
     const input = event && event.input
     const command = input && input.command
