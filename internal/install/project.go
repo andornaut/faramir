@@ -481,25 +481,31 @@ func (p *project) instructions() error {
 	if err != nil {
 		return err
 	}
-	block := snippetBegin + "\n" + strings.TrimRight(string(snippet), "\n") + "\n" + snippetEnd + "\n"
+	section := strings.TrimRight(string(snippet), "\n")
+	block := snippetBegin + "\n" + section + "\n" + snippetEnd + "\n"
 
 	current, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	// A copy of the block whose markers are gone: appending would leave two, and
-	// the one already there is the one somebody edited.  So it is left alone and
-	// named, which is the only outcome that neither duplicates the instructions
-	// nor overwrites what was made of them.
-	//
-	// Reachable by ordinary use rather than by tampering: these files are prose,
-	// and asking an agent to tidy one is a thing operators do.  Markers are an
-	// HTML comment, so a rewrite that keeps every word can still drop them.
-	if unmarked(current) {
-		p.warn("%s already carries the credentials section without the %s markers, "+
-			"so it was left as it is: adding the block again would leave two copies, "+
-			"and replacing what is there would overwrite whatever was made of it. "+
-			"Delete that section and re-run to have this manage it again", path, "faramir")
+	switch blockIn(current, section) {
+	case blockCurrent:
+		// Word for word what would be written, with the markers gone.  Nothing to
+		// do, and nothing to say: rewriting it would change only the comments.
+		p.step("instructions", false, path)
+		return nil
+	case blockForeign:
+		// The file knows about faramir and does not carry what is written now. It
+		// may be an older copy of the block with its markers lost, or it may be
+		// somebody's own prose about this tool; the two cannot be told apart, and
+		// both are somebody's writing.  So it is named rather than appended to,
+		// which would leave two sets of instructions, or replaced, which would
+		// overwrite whatever was made of it.
+		p.warn("%s mentions faramir but does not carry the credentials section as it "+
+			"is written now, so it was left as it is. It may be an older copy of the "+
+			"section whose markers were lost, or your own notes. Replace it with the "+
+			"current section, or delete it and re-run, to have this manage it again",
+			path)
 		p.step("instructions", false, path+" (left as it is; see the warning)")
 		return nil
 	}
@@ -511,20 +517,41 @@ func (p *project) instructions() error {
 	return nil
 }
 
-// snippetFingerprint identifies the block by its own content, for a file that
-// carries it without the markers.  A line from the middle of the block rather
-// than its heading: "# Credentials" is a heading anybody might write, and the
-// tool call below it is not.
-const snippetFingerprint = "faramir_run(cmd="
+// What a file shows about the credentials section, which decides what may be
+// done to it.  Three signals, strongest first, because each is sound where the
+// one below it is only a guess.
+type blockState int
 
-// unmarked reports whether current holds the block but not the markers that
-// make it replaceable.  Both markers present is the ordinary case and is not
-// this: spliceBlock replaces between them.
-func unmarked(current []byte) bool {
+const (
+	// blockMine is between faramir's markers, or nowhere in the file at all.
+	// Both are cases where writing is unambiguous: replace what is between them,
+	// or append.
+	blockMine blockState = iota
+	// blockCurrent is the section word for word without the markers, which a
+	// rewrite that kept the prose and dropped an HTML comment leaves behind.
+	blockCurrent
+	// blockForeign is a file that mentions faramir and matches neither.
+	blockForeign
+)
+
+// blockIn reads those signals off the file.
+//
+// Markers first, because they are the only proof of ownership: text between
+// them was put there by this and may be replaced.  Then the section itself, so
+// a copy that lost its markers is recognised as current rather than duplicated.
+// Then the bare word, which proves nothing except that the file is not innocent
+// of faramir -- enough to stop, not enough to edit.
+func blockIn(current []byte, section string) blockState {
 	if bytes.Contains(current, []byte(snippetBegin)) && bytes.Contains(current, []byte(snippetEnd)) {
-		return false
+		return blockMine
 	}
-	return bytes.Contains(current, []byte(snippetFingerprint))
+	if bytes.Contains(current, []byte(section)) {
+		return blockCurrent
+	}
+	if bytes.Contains(bytes.ToLower(current), []byte("faramir")) {
+		return blockForeign
+	}
+	return blockMine
 }
 
 // instructionsFile picks an existing file, or the first name.

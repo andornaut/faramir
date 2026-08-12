@@ -40,40 +40,82 @@ func TestTheBlockIsAppendedToAFileThatLacksIt(t *testing.T) {
 	}
 }
 
-// The case an operator reaches by asking an agent to tidy the file: every word
-// of the block is still there and the markers, being an HTML comment, are not.
-// Appending would leave two copies of the instructions, so this is recognised
-// by the block's own content instead.
-func TestTheBlockIsRecognisedWithoutItsMarkers(t *testing.T) {
-	stripped := strings.NewReplacer(snippetBegin, "", snippetEnd, "").Replace(credentialsBlock(t))
-	current := []byte("# Project\n\n" + stripped)
+// section is the block's body, as blockIn compares it.
+func section(t *testing.T) string {
+	t.Helper()
+	snippet, err := readAsset("agent/instructions.md.snippet")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.TrimRight(string(snippet), "\n")
+}
 
-	if !unmarked(current) {
-		t.Error("a marker-less copy of the block was not recognised")
+// The three signals, strongest first.  Each is sound where the one below it is
+// only a guess, which is why they are read in this order rather than any other.
+func TestWhatAFileShowsAboutTheBlock(t *testing.T) {
+	body := section(t)
+	for _, tc := range []struct {
+		name    string
+		current string
+		want    blockState
+	}{
+		{
+			// Nothing to be careful about: write it.
+			name: "an empty file", current: "", want: blockMine,
+		},
+		{
+			name:    "a file that has never heard of faramir",
+			current: "# Project\n\nSome notes.\n", want: blockMine,
+		},
+		{
+			// The markers are proof: what is between them was put there by this.
+			name:    "the block between its markers",
+			current: "# Project\n\n" + credentialsBlock(t), want: blockMine,
+		},
+		{
+			// The case an agent asked to tidy the file leaves behind: every word
+			// kept, the HTML comment dropped.  Already current, so nothing to do.
+			name:    "the block word for word without its markers",
+			current: "# Project\n\n" + body + "\n", want: blockCurrent,
+		},
+		{
+			// An older copy of the block, or somebody's own notes about this tool.
+			// The two cannot be told apart and both are somebody's writing.
+			name:    "an older copy of the block",
+			current: "# Credentials\n\nRun things with faramir_run, or so we used to.\n",
+			want:    blockForeign,
+		},
+		{
+			name:    "prose that merely mentions the tool",
+			current: "# Project\n\nWe use faramir on this host.\n", want: blockForeign,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := blockIn([]byte(tc.current), body); got != tc.want {
+				t.Errorf("blockIn = %v, want %v", got, tc.want)
+			}
+		})
 	}
-	// And the ordinary states are not mistaken for it, or an enrolment would
-	// stop doing its job on every tree.
-	if unmarked([]byte(credentialsBlock(t))) {
-		t.Error("a properly marked block was reported as unmarked")
-	}
-	if unmarked([]byte("# Project\n\nSome notes.\n")) {
-		t.Error("a file with no block at all was reported as carrying one")
-	}
-	if unmarked(nil) {
-		t.Error("an absent file was reported as carrying the block")
+}
+
+// Markers outrank the body: a file carrying both is one this owns, and the
+// section between them is replaced rather than left alone as already current.
+// Otherwise a snippet that changed would never be updated anywhere.
+func TestMarkersOutrankTheBody(t *testing.T) {
+	current := []byte("# Project\n\n" + credentialsBlock(t))
+	if got := blockIn(current, section(t)); got != blockMine {
+		t.Errorf("blockIn = %v, want %v: markers are what make it replaceable", got, blockMine)
 	}
 }
 
 // The fingerprint has to be in what is shipped, or it recognises nothing: the
 // asset and this check drift apart silently otherwise, and the symptom is a
 // duplicated block rather than an error.
-func TestTheFingerprintIsInTheShippedSnippet(t *testing.T) {
-	snippet, err := readAsset("agent/instructions.md.snippet")
-	if err != nil {
-		t.Fatal(err)
+func TestTheBlockBodyIsWhatIsShipped(t *testing.T) {
+	if !strings.Contains(credentialsBlock(t), section(t)) {
+		t.Error("the block does not contain the body blockIn compares against")
 	}
-	if !strings.Contains(string(snippet), snippetFingerprint) {
-		t.Errorf("the snippet does not contain %q, so nothing recognises a "+
-			"marker-less copy of it", snippetFingerprint)
+	if !strings.Contains(strings.ToLower(section(t)), "faramir") {
+		t.Error("the body does not mention faramir, so the weakest signal never fires")
 	}
 }
