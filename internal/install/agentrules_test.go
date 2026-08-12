@@ -142,48 +142,34 @@ func TestAgentRulesAreOKWhereOnlyTheRulesAreThere(t *testing.T) {
 	}
 }
 
-// An agent faramir writes no rules for, and that is installed here, has a gap
-// today: its extension refuses the shell tools, and nothing refuses its file
-// tools.  Warn rather than n/a, which would read as nothing to see, and rather
-// than failed, which there is no command to clear.
-func TestAgentRulesWarnWhereNothingRefusesTheFileTools(t *testing.T) {
+// An agent that carries its rules in the extension an enrolment installs has
+// nothing in this home to find, and nothing missing from it either.  Reported
+// rather than left out, a check that vanishes being indistinguishable from one
+// nobody wrote -- and not a fault, whether or not the agent is here.
+func TestAgentRulesSayWhereAnExtensionCarriesThem(t *testing.T) {
 	if len(agentTargets["pi"].accountFiles) != 0 {
 		t.Skip("pi now writes account-wide rules; this case has moved")
 	}
-	home := t.TempDir()
-	touch(t, home, ".pi/state.json")
+	for _, name := range []string{"installed here", "not installed here"} {
+		t.Run(name, func(t *testing.T) {
+			home := t.TempDir()
+			if name == "installed here" {
+				touch(t, home, ".pi/state.json")
+			}
+			var report DoctorReport
+			reportAgentRules(&report, home)
 
-	var report DoctorReport
-	reportAgentRules(&report, home)
-
-	got := finding(t, report, "pi")
-	if got.Status != StatusWarn {
-		t.Fatalf("status = %q, want %q: %s", got.Status, StatusWarn, got.Detail)
-	}
-	// Which tools are covered and which are not is the whole finding: "no rules"
-	// alone reads as an agent nobody configured.
-	for _, want := range []string{"file tools", ".ssh"} {
-		if !strings.Contains(got.Detail, want) {
-			t.Errorf("detail does not say %q: %s", want, got.Detail)
-		}
-	}
-	// Warn, not failed: there is no `faramir init --agent pi` that writes these,
-	// so failing the report would leave an operator no way to clear it.
-	if report.Failed {
-		t.Error("a gap with no remedy failed the whole report")
-	}
-}
-
-// The same agent, not installed here: no gap on a host nobody runs it from.
-func TestAgentRulesAreNotAFaultWhereThatAgentIsAbsent(t *testing.T) {
-	if len(agentTargets["pi"].accountFiles) != 0 {
-		t.Skip("pi now writes account-wide rules; this case has moved")
-	}
-	var report DoctorReport
-	reportAgentRules(&report, t.TempDir())
-
-	if got := finding(t, report, "pi"); got.Status != StatusNA {
-		t.Errorf("status = %q, want %q: %s", got.Status, StatusNA, got.Detail)
+			got := finding(t, report, "pi")
+			if got.Status != StatusNA {
+				t.Errorf("status = %q, want %q: %s", got.Status, StatusNA, got.Detail)
+			}
+			if !strings.Contains(got.Detail, "extension") {
+				t.Errorf("detail does not say where its rules are: %s", got.Detail)
+			}
+			if report.Failed {
+				t.Error("an agent whose rules live elsewhere failed the report")
+			}
+		})
 	}
 }
 

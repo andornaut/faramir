@@ -279,23 +279,13 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 func reportAgentRules(report *DoctorReport, home string) {
 	for _, name := range agentNames() {
 		target := agentTargets[name]
-		// An agent faramir writes no rules for.  Its own hook refuses the shell
-		// tools, which is commands, and the rules the others carry refuse the file
-		// tools, which is reads of the operator's key material.  The second is not
-		// the first, so this is reported rather than passed over: warn where the
-		// agent is here, because a host running it has that gap today, and n/a
-		// where it is not, there being no gap on a host nobody runs it from.
+		// An agent with no account-wide file to write.  Its rules are compiled
+		// into the extension `init-project` installs instead, from the same list,
+		// so there is nothing in this home for this check to find and nothing
+		// missing from it either.
 		if len(target.accountFiles) == 0 {
-			if agentInUse(home, target) {
-				report.add("agent rules", StatusWarn, "%s is in this home and faramir "+
-					"writes no rules for it: its extension guards the shell tools, so "+
-					"nothing refuses its file tools. Those are what read the keys under "+
-					"~/.ssh and ~/.config/sops, which this uid can open and no boundary "+
-					"below it refuses", name)
-				continue
-			}
-			report.add("agent rules", StatusNA, "%s: faramir writes no rules for it, "+
-				"and nothing here, so nobody runs it from this account", name)
+			report.add("agent rules", StatusNA, "%s: carries its rules in the "+
+				"extension enrolling a tree installs, so there is none of it here", name)
 			continue
 		}
 		var missing []string

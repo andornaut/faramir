@@ -305,6 +305,10 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 	}
 	body, err := renderData("agent/pi/extension.ts.tmpl", pluginData{
 		BinDir: dir, Agent: "pi", Path: ".pi/extensions/faramir.ts",
+		// The rig drives the shipped bytes, so it renders them the way an
+		// enrolment does: the path rules are compiled in, and one rendered
+		// without them is not the file anybody installs.
+		Dirs: installDirs(Layout{ConfigDir: "/opt/conf"}),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -402,7 +406,12 @@ func TestPiExtensionGuardsByShape(t *testing.T) {
 	if got.Verdict == nil || !got.Verdict.Block {
 		t.Errorf("a tool this list never named ran a command unguarded: %+v", got)
 	}
-	got = call(t, "read", map[string]any{"filePath": "/etc/faramir/age.key"})
+	// A tool carrying no command is not put to the guard, which decides about
+	// commands.  It is still checked against the path rules -- see
+	// TestPiExtensionRefusesKeyMaterial -- so the file named here is an ordinary
+	// one: this case is about the guard not being consulted, not about the call
+	// being waved through.
+	got = call(t, "read", map[string]any{"filePath": "/srv/app/main.go"})
 	if got.Verdict != nil {
 		t.Errorf("a tool carrying no command was blocked: %+v", got.Verdict)
 	}
@@ -439,5 +448,54 @@ func TestPiExtensionRegistersTheTools(t *testing.T) {
 	// and not the other is the drift worth failing on.
 	if len(got.Tools) != 2 {
 		t.Errorf("registered %d tools, want 2: %v", len(got.Tools), got.Tools)
+	}
+}
+
+// pi has no account-wide rule file, so the deny list the other four agents get
+// written into their configs is compiled into this extension instead.  It is
+// applied by shape rather than by tool name, for the same reason the commands
+// are: a file tool whose name this does not know still carries a path.
+func TestPiExtensionRefusesKeyMaterial(t *testing.T) {
+	_, call := newPiRig(t)
+
+	for _, tc := range []struct {
+		name  string
+		tool  string
+		input map[string]any
+		block bool
+	}{
+		{"an SSH private key", "read",
+			map[string]any{"path": "/home/op/.ssh/id_ed25519"}, true},
+		{"the age identity sops reads", "read",
+			map[string]any{"path": "/home/op/.config/sops/age/keys.txt"}, true},
+		{"a managed sops file", "edit",
+			map[string]any{"file_path": "/etc/faramir/secrets/db.sops.yml"}, true},
+		{"this install's own directory", "read",
+			map[string]any{"path": "/opt/conf/config.toml"}, true},
+		// A tool this extension has never heard of, taking a list rather than a
+		// path: the walk is over the whole input for exactly this.
+		{"a key named among several paths", "read_many",
+			map[string]any{"paths": []any{"/srv/README.md", "/home/op/.ssh/id_rsa"}}, true},
+		// The distinction the list makes on purpose.
+		{"a file of refs, which is meant to be read", "read",
+			map[string]any{"path": "/srv/app/faramir.env"}, false},
+		{"an ordinary source file", "read",
+			map[string]any{"path": "/srv/app/main.go"}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := call(t, tc.tool, tc.input)
+			blocked := got.Verdict != nil && got.Verdict.Block
+			if blocked != tc.block {
+				t.Fatalf("block = %v, want %v (verdict %+v)", blocked, tc.block, got.Verdict)
+			}
+			if !tc.block {
+				return
+			}
+			// The refusal names the file and the way round it, so the model has
+			// somewhere to go rather than only a wall.
+			if !strings.Contains(got.Verdict.Reason, "faramir run") {
+				t.Errorf("refusal does not name the way through: %s", got.Verdict.Reason)
+			}
+		})
 	}
 }

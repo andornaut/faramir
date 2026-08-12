@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"text/template"
 
 	faramir "github.com/andornaut/faramir"
@@ -22,6 +23,18 @@ var renderFuncs = template.FuncMap{
 	// is how one of Gemini's rules came to match nothing while its siblings
 	// worked.
 	"list": func(items ...string) []string { return items },
+	// The paths every agent refuses, each in that agent's own spelling.  See
+	// protectedpaths.go: the list is written once in Go, and no template holds a
+	// path of its own.
+	"claudeRules":      claudeRules,
+	"pluginPatterns":   pluginPatterns,
+	"regexAlternation": regexAlternation,
+	"jsFragments":      jsFragments,
+	"installDirs":      installDirs,
+	// The list emitters, so no template counts commas.
+	"jsonLines":   jsonLines,
+	"jsonDenyMap": jsonDenyMap,
+	"quote":       strconv.Quote,
 }
 
 // units maps each installed file name to its embedded template.  One map,

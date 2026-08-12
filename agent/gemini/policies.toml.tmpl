@@ -1,13 +1,19 @@
-{{- $paths := `secrets[^"/]*\.ya?ml|[^"]*\.vault|vault\.yml|[^"]*\.sops\.(ya?ml|json)|/\.env[^"/]*|[^"]*\.config/faramir/|age\.key|sops/age/|\.config/sops/|[^"]*\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519)` -}}
-{{- $globPaths := `secrets[^"/]*\.ya?ml|\.vault|vault\.yml|\.sops\.(ya?ml|json)|/\.env|\.config/faramir/|age\.key|sops/age/|\.config/sops/|\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519)` -}}
-{{- $dirs := printf "%s|%s|%s|%s" (regexQuote .ConfigDir) (regexQuote .SecretsDir) (regexQuote .LogDir) (regexQuote .LibexecDir) -}}
+{{- /* One alternation for both rules: a wildcard inside a file name stays
+inside it, and "not a quote and not a separator" is what that means whether the
+name sits in a JSON value or in a JSON array. */ -}}
+{{- $paths := regexAlternation `[^"/]*` -}}
+{{- $dirs := "" -}}
+{{- range $i, $dir := installDirs . -}}
+  {{- if $i }}{{ $dirs = printf "%s|%s" $dirs (regexQuote $dir) }}{{ else }}{{ $dirs = regexQuote $dir }}{{ end -}}
+{{- end -}}
 # faramir: refuse to open key material, wherever the agent is working.  This
 # takes nothing away: values reach a command through the broker.
 #
-# GENERATED from agent/gemini/policies.toml.tmpl.  The path list is written once
-# and rendered per tool: a list copied per rule is a list that drifts, and one
-# of these rules did, matching nothing for want of a backslash while its
-# siblings worked.
+# GENERATED from agent/gemini/policies.toml.tmpl.  The path list is not here: it
+# is written once in internal/install/protectedpaths.go and rendered into every
+# agent's own spelling, so adding a path is one line there and none here.  A
+# list per agent is a list that drifts, and one of these rules did, matching
+# nothing for want of a backslash while its siblings worked.
 #
 # Gemini CLI matches a regex against the tool's arguments serialised as JSON, so
 # this is one rule per file tool with the paths as an alternation.  Tolerant of
@@ -42,7 +48,7 @@ priority = 1000
 # matching inside a JSON array rather than one value, from the same list.
 [[rule]]
 toolName = "read_many_files"
-argsPattern = '"(include|exclude)"\s*:\s*\[[^\]]*({{$globPaths}})'
+argsPattern = '"(include|exclude)"\s*:\s*\[[^\]]*({{$paths}})'
 decision = "deny"
 priority = 1000
 

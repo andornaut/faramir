@@ -286,15 +286,23 @@ type pluginData struct {
 	Agent         string
 	Path          string
 	DefaultExport bool
+	// Dirs is this install's own directories, for a plugin that carries the
+	// path rules itself rather than writing them into a config the agent reads.
+	// Taken from the enrolment's --config-dir, so a store moved into a home is
+	// the one refused rather than the default.
+	Dirs []string
 }
 
 // assetFor is one agent file's contents.  A .tmpl asset is rendered, which is
 // how the plugins get the installed binary's path compiled in rather than
 // reading it from an environment the host controls; everything else is shipped
 // as it is.
-func assetFor(target *agentTarget, file agentFile) ([]byte, error) {
+func assetFor(target *agentTarget, file agentFile, configDir string) ([]byte, error) {
 	if !strings.HasSuffix(file.asset, ".tmpl") {
 		return readAsset(file.asset)
+	}
+	if configDir == "" {
+		configDir = DefaultConfigDir
 	}
 	return renderData(file.asset, pluginData{
 		// The compiled path, as uninstall and reload already resolve it: a
@@ -303,6 +311,7 @@ func assetFor(target *agentTarget, file agentFile) ([]byte, error) {
 		Agent:         target.name,
 		Path:          file.path,
 		DefaultExport: file.defaultExport,
+		Dirs:          installDirs(Layout{ConfigDir: configDir}),
 	})
 }
 
@@ -389,7 +398,7 @@ func (p *project) agentConfig() error {
 					return err
 				}
 			}
-			data, err := assetFor(target, file)
+			data, err := assetFor(target, file, p.opts.ConfigDir)
 			if err != nil {
 				return err
 			}

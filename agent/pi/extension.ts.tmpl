@@ -37,6 +37,52 @@ const HOST = "pi"
 // known shell tool arriving without one a refusal rather than a shrug.
 const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
 
+// The paths this refuses to open, GENERATED from
+// internal/install/protectedpaths.go: the same list the other four agents get,
+// in the spelling this one can apply.  Nothing here is a path of its own.
+//
+// pi has no account-wide rule file to write them into, so they are applied here
+// instead, and by shape rather than by tool name for the same reason the
+// commands are: a file tool this does not know the name of still carries a path.
+const PROTECTED_PATHS = [
+{{- range $fragment := jsFragments }}
+  {{ printf "%s" (quote $fragment) }},
+{{- end }}
+].map((source) => new RegExp(source))
+
+// This install's own directories, which are literal rather than patterns: a
+// config and store moved by --config-dir are the ones refused rather than the
+// defaults.
+// filter(Boolean) is not decoration: an empty string here would make every
+// absolute path start with it, and refuse the whole filesystem.
+const PROTECTED_DIRS = [
+{{- range $dir := .Dirs }}
+  {{ printf "%s" (quote $dir) }},
+{{- end }}
+].filter(Boolean)
+
+// pathsIn is every string in a tool's input that could name a file, at any
+// depth: a tool taking one path and a tool taking a list of them are the same
+// question, and enumerating tool schemas is how one gets missed.
+function pathsIn(value, depth = 0) {
+  if (depth > 8) return []
+  if (typeof value === "string") return [value]
+  if (Array.isArray(value)) return value.flatMap((v) => pathsIn(v, depth + 1))
+  if (value && typeof value === "object") {
+    return Object.values(value).flatMap((v) => pathsIn(v, depth + 1))
+  }
+  return []
+}
+
+// refusedPath is the first path in this call that names key material, or "".
+function refusedPath(input) {
+  for (const candidate of pathsIn(input)) {
+    if (PROTECTED_PATHS.some((re) => re.test(candidate))) return candidate
+    if (PROTECTED_DIRS.some((dir) => candidate.startsWith(dir + "/"))) return candidate
+  }
+  return ""
+}
+
 // runCLI is one faramir invocation and its raw output.
 function runCLI(args) {
   const result = spawnSync(CLI, args, { encoding: "utf8", timeout: 600000 })
@@ -176,6 +222,20 @@ export default function faramir(pi) {
           reason:
             `faramir: ${event.toolName} was called with no command string, so this ` +
             "extension could not guard it and the call was not made",
+        }
+      }
+      // Not a command, so it is a file tool or something like one.  The other
+      // agents refuse these through a rule file of their own; pi has none, so
+      // the same list is applied here.
+      const refused = refusedPath(input)
+      if (refused) {
+        return {
+          block: true,
+          reason:
+            `faramir: ${refused} is key material or an encrypted store, and reading ` +
+            "or writing it directly is refused. You do not need the value of a " +
+            "secret to use it: name it as secret://<ref> and run the command " +
+            "through `faramir run`, which injects it and redacts the output",
         }
       }
       return
