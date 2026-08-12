@@ -76,3 +76,32 @@ func TestTheInstalledReadmeLinksResolve(t *testing.T) {
 		t.Fatal("no doc links found in the README, so this asserts nothing")
 	}
 }
+
+// An em dash reads as something nobody here typed, and one arrives whenever a
+// paragraph is written somewhere that substitutes it.  The prose uses a comma,
+// a colon or another sentence instead, so the character itself is the check:
+// what it would mean is always sayable another way.
+//
+// Over the embedded assets, which is the prose that ships.  Go comments spell
+// the same aside "--".
+func TestTheShippedProseHasNoEmDashes(t *testing.T) {
+	err := fs.WalkDir(faramir.Assets, ".", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".md") {
+			return err
+		}
+		body, err := faramir.Assets.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(body), "\n") {
+			if strings.Contains(line, "—") {
+				t.Errorf("%s:%d has an em dash; use a comma, a colon or a full stop:\n  %s",
+					path, i+1, strings.TrimSpace(line))
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

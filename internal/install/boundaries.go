@@ -107,8 +107,8 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	// canWrite answer false for an account they cannot name, which is the same
 	// answer a boundary that holds gives, so a check whose verdict turns on the
 	// operator would report an unearned OK.  A check that never asks about the
-	// operator is unaffected and still runs: doctor without SUDO_USER — a root
-	// shell, a cron entry, a configuration manager — has to keep reporting an age
+	// operator is unaffected and still runs: doctor without SUDO_USER -- a root
+	// shell, a cron entry, a configuration manager -- has to keep reporting an age
 	// key left 0644 or a socket regrouped by hand.
 	//
 	// The ones that ask about the operator alongside other accounts are in the

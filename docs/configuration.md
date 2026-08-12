@@ -75,7 +75,7 @@ Fails on | Because
 --- | ---
 An unknown key or `[section]` | A config that reads as though it took effect.
 A value out of range | Same.
-A ref too short to redact | Refused at load, so covered by nothing. When this is the *only* finding, `init` warns and carries on and `doctor` reports a warning under `redaction` — an install cannot lengthen a secret, and a refused value is never injected.
+A ref too short to redact | Refused at load, so covered by nothing. When this is the *only* finding, `init` warns and carries on and `doctor` reports a warning under `redaction`: an install cannot lengthen a secret, and a refused value is never injected.
 A `[secrets] patterns` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
 An `[ssh] key` the agent cannot load, passphrase-protected or not on disk | `ssh-add` refuses it, leaving every host unreachable. `init` catches one missing, unreadable by the broker, or without its `.pub`.
 A `[sudo] helper` or PAM service file that is not there, or a `notify_command` that is not installed | The same weighting as the key: approval is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions that are waiting.

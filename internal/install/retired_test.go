@@ -83,8 +83,8 @@ func TestDiagnoseGroupNamesAccountsTheInstallNoLongerUses(t *testing.T) {
 	}
 }
 
-// doctor reached without SUDO_USER — a root shell, a cron entry, a
-// configuration manager — cannot name the operator.  canRead and canWrite then
+// doctor reached without SUDO_USER -- a root shell, a cron entry, a
+// configuration manager -- cannot name the operator.  canRead and canWrite then
 // answer false, which is the same answer a boundary that holds gives, so the
 // checks that pass become unearned OKs and the ones that run a command fail
 // blaming a `runuser -u --` nobody wrote.  Neither is a finding about the host.
