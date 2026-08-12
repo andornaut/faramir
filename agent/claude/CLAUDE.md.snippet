@@ -1,47 +1,41 @@
 # Credentials
 
 Commands needing credentials run through the `faramir_run` MCP tool (CLI:
-`faramir run`). Secrets are referenced by name; values are never available here
-and output comes back with them replaced by `«SECRET:ref»`.
+`faramir run`). Secrets are named, never valued: output comes back with each one
+replaced by `«SECRET:ref»`.
 
 ```
 faramir_run(cmd=["printenv", "ROUTER_PW"],
             env_refs={"ROUTER_PW": "secret://home/router/admin"})
 ```
 
-`faramir_list_secrets` lists available names and `faramir_status` shows the
-broker's configuration. Commands run in this working tree as it is on disk, so
-an edit takes effect as soon as you save it. There is nothing to commit or
-promote first.
+`faramir_list_secrets` names what exists, `faramir_status` shows the broker's
+configuration. Commands run in this tree as it is on disk, so a saved edit takes
+effect at once.
 
-## What not to do
+## Rules
 
-- **Do not decrypt anything.** `sops -d`, `ansible-vault view`, `age -d` and
-  their equivalents are operator commands, whether or not a key happens to be
-  reachable. To change a stored value, ask the operator to edit it.
-- **Do not read key material.** Private keys, `age` keys and the sops keys file
-  under `~/.config/sops/` are off limits even when the file permissions allow
-  it. Being able to open a file is not permission to.
-- **Do not route around a refusal.** A different tool, an interpreter, a
-  container, another host, or a copy in a new location are all the same
-  disclosure. Transformed output (base64, `rev`, `cut`) is a policy violation
-  rather than a puzzle.
-- **Do not modify the broker's own files:** the secret store, the age keys, the
-  systemd units, or this hook's patterns and binary.
-- **Work with the reference, never the value.** To learn what exists, read the
-  `secret://` refs in code and config, or call `faramir_list_secrets`.
-- **Do not write a value down.** Not in code, config, a test fixture, a `.env`,
-  a scratch file, your own notes, or a commit message. A value written into the
-  tree outlives the command that produced it and reaches everyone who clones it.
-  Write the `secret://` ref instead.
-- **Do not send a value anywhere.** No web request, API call, upload, or paste
-  into an issue or a pull request. This covers what is derived from one too: a
+- **Never decrypt, and never read key material.** `sops -d`, `ansible-vault
+  view`, `age -d` and their equivalents are operator commands; private keys,
+  `age` keys and `~/.config/sops/` are off limits. Being able to open a file is
+  not permission to. To change a stored value, ask the operator.
+- **Never route around a refusal.** Another tool, an interpreter, a container,
+  another host, or a copy in a new location are the same disclosure.
+  Transformed output (base64, `rev`, `cut`) is a policy violation rather than a
+  puzzle.
+- **Never write a value down**, in code, config, a test fixture, a `.env`, a
+  scratch file, your own notes or a commit message. It outlives the command that
+  produced it and reaches everyone who clones the tree. Write the `secret://`
+  ref instead.
+- **Never send one anywhere**: no web request, API call, upload, or paste into
+  an issue or a pull request. This covers what is derived from a value too: a
   hash, a prefix, or a redaction that leaves enough to guess.
+- **Never modify the broker's own files**: the secret store, the age keys, the
+  systemd units, or this hook's patterns and binary.
 
-If a value reaches your context anyway, say so plainly and tell the operator to
-rotate it. Do not carry on as though it were still secret.
+To learn what exists, read the `secret://` refs in code and config. If a value
+reaches you anyway, say so plainly and tell the operator to rotate it.
 
 The pre-execution check that refuses these commands is not the security
-boundary. It is a fixed list of patterns and it does not enumerate every route
-to a credential, so "the hook allowed it" is not a reason to think something is
-permitted.
+boundary. It is a fixed list of patterns, so "the hook allowed it" is not a
+reason to think something is permitted.
