@@ -241,33 +241,39 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	return report
 }
 
-// diagnoseAgentRules asks whether an agent the operator uses has faramir's
-// deny rules in their home.  Those rules are what refuse the file tools, and
-// what they cover is the operator's own key material: ~/.ssh, ~/.config/sops
-// and the like, which no uid boundary reaches because the agent runs as the
-// operator.  Enrolling a tree does not write them; `faramir init --agent` does.
+// diagnoseAgentRules reports every agent, and what is configured for it.  The
+// rules in question are what refuse the file tools, and what they cover is the
+// operator's own key material: ~/.ssh, ~/.config/sops and the like, which no
+// uid boundary reaches because the agent runs as the operator.  Enrolling a
+// tree does not write them; `faramir init --agent` does.
 //
-// An agent is taken as in use when its own directory is in that home, which is
-// the same marker enrolment detects a tree by.  Nothing is reported for an
-// agent the operator does not appear to run: a host is not worse for lacking
-// rules for a tool nobody uses.
+// One row each rather than only for the ones that look in use.  Which agents an
+// operator runs is not a thing this can know, and inferring it from a directory
+// is wrong in both directions: a leftover from an abandoned tool reads as in
+// use, and one not yet opened reads as absent.
+//
+// Only one of the states is a fault.  An agent with nothing here is an agent
+// nobody runs, which is not something a host is worse for; an agent that is
+// here with its rules missing is half an arrangement, and the half that is gone
+// is the one refusing the file tools.
 func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 	if opts.OperatorUser == "" {
-		report.unasked("agent rules", 1, "the operator account is not named, so whether "+
-			"an agent's deny rules are in its home was not asked: pass --operator-user, "+
-			"or run through sudo so SUDO_USER carries it")
+		report.unasked("agent rules", 1, "the operator account is not named, so what "+
+			"each agent has in its home was not asked: pass --operator-user, or run "+
+			"through sudo so SUDO_USER carries it")
 		return
 	}
 	home, err := operatorHomeFor(opts.OperatorUser)
 	if err != nil || home == "" {
-		report.unasked("agent rules", 1, "could not read %s's home, so whether an "+
-			"agent's deny rules are there was not asked", opts.OperatorUser)
+		report.unasked("agent rules", 1, "could not read %s's home, so what each "+
+			"agent has there was not asked", opts.OperatorUser)
 		return
 	}
-	var reported bool
 	for _, name := range agentNames() {
 		target := agentTargets[name]
-		if len(target.accountFiles) == 0 || !agentInUse(home, target) {
+		if len(target.accountFiles) == 0 {
+			report.add("agent rules", StatusNA, "%s: writes no account-wide rules, "+
+				"its own hook being what refuses a tool call", name)
 			continue
 		}
 		var missing []string
@@ -276,32 +282,30 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 				missing = append(missing, "~/"+file.path)
 			}
 		}
-		if len(missing) == 0 {
+		switch {
+		case len(missing) == 0:
 			report.add("agent rules", StatusOK, "%s: %s", name,
 				strings.Join(accountPaths(target), ", "))
-			reported = true
-			continue
+		case agentInUse(home, target):
+			report.add("agent rules", StatusFailed, "%s is in this home and %s is "+
+				"not, so its file tools are refused nothing. Those rules cover the keys "+
+				"under ~/.ssh and ~/.config/sops, which this uid can read. Run `sudo "+
+				"faramir init --agent %s`", name, strings.Join(missing, ", "), name)
+		default:
+			report.add("agent rules", StatusNA, "%s: nothing here, so nobody runs it "+
+				"from this account", name)
 		}
-		report.add("agent rules", StatusFailed, "%s is in use here and %s does not "+
-			"exist, so its file tools are refused nothing. Those rules cover the keys "+
-			"under ~/.ssh and ~/.config/sops, which this uid can read. Run `sudo "+
-			"faramir init --agent %s`", name, strings.Join(missing, ", "), name)
-		reported = true
-	}
-	if !reported {
-		report.add("agent rules", StatusNA, "no agent's own directory is in %s, so "+
-			"there is nothing here to write rules for", home)
 	}
 }
 
-// agentInUse reports whether this agent's own directory is in the home.
+// agentInUse reports whether this agent is present in the home at all: its own
+// directory, or any of the rules faramir writes for it.
 func agentInUse(home string, target *agentTarget) bool {
 	for _, marker := range target.detect {
 		if exists(filepath.Join(home, marker)) {
 			return true
 		}
 	}
-	// An agent whose rules are already there is in use whatever else is absent.
 	for _, file := range target.accountFiles {
 		if exists(filepath.Join(home, file.path)) {
 			return true
