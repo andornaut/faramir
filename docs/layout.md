@@ -4,7 +4,7 @@ Every path `faramir init` creates, what owns it, and what each account can reach
 
 ```text
 /usr/local/bin/faramir        0755 root:root, the only binary; every role is a subcommand
-/usr/local/libexec/faramir/   0755 root:root, the deny list, wrap.sh and (with --allow-sudo) the PAM helper, rendered per install
+/usr/local/libexec/faramir/   0755 root:root, the deny list, wrap.sh and the PAM helper, rendered per install
 /usr/local/share/doc/faramir/ 0755 root:root, the README, the LICENSE and docs/, embedded in the binary and written out
 
 /etc/systemd/system/faramir-* 0644 root:root, the three .service and .socket units
@@ -22,10 +22,10 @@ Every path `faramir init` creates, what owns it, and what each account can reach
 <config-dir>/config.toml      0644 root:root, faramir's own, rewritten every run
 <config-dir>/config.d/        0755 root:root, yours and each consumer's, merged over it
 <any tree you enrol>          2770 <operator>:<client-group>, setgid; faramir init-project
-/var/lib/faramir-broker/      0700, the broker's home, granted by StateDirectory=
+/var/lib/faramir-broker/      the broker's home, a StateDirectory=
 /var/lib/faramir-broker/.ssh/ 0700 faramir-broker, the keys it lends through the agent
-/var/lib/faramir-keeper/      0700, the keeper's home
-/var/lib/faramir-exec/        0700, the child's HOME; .ssh/ 0700 holds its own known_hosts
+/var/lib/faramir-keeper/      the keeper's home, likewise
+/var/lib/faramir-exec/        the child's HOME; .ssh/ 0700 holds its own known_hosts
 /var/log/faramir/             0750 faramir-broker:faramir-broker, LogsDirectoryMode=
 /var/log/faramir/audit.log    0600 faramir-broker:faramir-broker; faramir logs reads it
 /etc/logrotate.d/faramir      0644 root:root, weekly, 8 kept, early at 16MB

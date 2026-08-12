@@ -1,6 +1,6 @@
 # Wire protocol
 
-Three sockets, the same shape on each: newline-delimited JSON, one request, one response, one connection, no framing beyond the newline. A request over `[server] max_request_bytes` is refused.
+Three sockets, the same shape on each: newline-delimited JSON, one request, one response, one connection, no framing beyond the newline. An oversized request is refused: the broker's limit is `[server] max_request_bytes`, the keeper's and the executor's are fixed.
 
 One exception, and it is a repetition rather than a second wire format: a `redact` chunk marked `more` keeps the connection open for the next one. Same framing, same limit, same one response per request; only the count changes. [Streaming a redact](#streaming-a-redact) is why.
 
@@ -39,7 +39,7 @@ Field | Required | Notes
 
 A caller with more text than one request may carry sends it a chunk at a time **down one connection**, every chunk but the last marked `{"more": true}`.
 
-The broker keeps one redactor for that connection. That is the whole point: the redactor holds back a tail longer than the longest rendering of any value, so a secret split between two chunks is caught by the chunk that completes it. A connection per chunk gives each its own redactor, and a value across the join belongs to neither — it comes back in the clear, with `exit_code` 0 and nothing logged. A client must break a line longer than one chunk somewhere, so this is reachable by ordinary output: a single-line JSON document, a minified bundle, `base64 -w0`.
+The broker keeps one redactor for that connection. That is the whole point: the redactor holds back a tail longer than the longest rendering of any value, so a secret split between two chunks is caught by the chunk that completes it. A connection per chunk gives each its own redactor, and a value across the join belongs to neither — it comes back in the clear. A client must break a line longer than one chunk somewhere, so this is reachable by ordinary output: a single-line JSON document, a minified bundle, `base64 -w0`.
 
 - `more` must be a boolean. A chunk carrying it gets `Feed`'s output, which withholds the tail; the chunk without it gets that plus the flush, and ends the stream.
 - Sent to an endpoint that cannot keep a redactor between chunks, `more` is a `bad_request` rather than a request completed as though it stood alone.
@@ -48,7 +48,7 @@ The broker keeps one redactor for that connection. That is the whole point: the 
 
 `{"op": "list_secrets"}` returns ref names only. `{"op": "status"}` returns the broker version, `configs` (the base config and every drop-in that contributed, in merge order), loaded files, the count of secrets loaded, load errors, whether an SSH key is configured and usable (`ssh.configured`, `ssh.usable`; whether, never where), and whether a brokered command may ask to sudo (`sudo.enabled`; whether, never how).
 
-`{"op": "approvals"}` and `{"op": "approve", "id": …, "approve": true}` are the operator's half of the approval channel, and with `ask_approval` the only ops the broker refuses to a caller it otherwise admits: all three require the peer to be root, checked with `SO_PEERCRED`, because the account the coding agent runs as must not be able to approve what the agent asked for. `approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. It returns at most one question, ever: a second command asking to sudo while one is waiting is refused rather than queued behind it. Each carries `waiting_sec` and `expires_in_sec`, the second being what is left of `[sudo] timeout_sec`, which matters because the answer to a question read without `--watch` is a second command typed inside that. `approve` answers a question by `id`, and `unknown_question` means it was already answered or its command gave up. Neither reports the refs refused at load: that list names exactly the secrets that are never tokenized, so it stays behind `faramir broker --check`. See [redaction.md](redaction.md).
+`{"op": "approvals"}` and `{"op": "approve", "id": …, "approve": true}` are the operator's half of the approval channel, and with `ask_approval` the only ops the broker refuses to a caller it otherwise admits: all three require the peer to be root, checked with `SO_PEERCRED`, because the account the coding agent runs as must not be able to approve what the agent asked for. `approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. It returns at most one question, ever — a second command asking to sudo while one is waiting is refused rather than queued — carrying `waiting_sec` and `expires_in_sec`, the second being what is left of `[sudo] timeout_sec`. `approve` answers a question by `id`, and `unknown_question` means it was already answered or its command gave up.
 
 `{"op": "ask_approval", "token": …}` is the PAM helper's half: it names the run by the token in the brokered command's environment and blocks until a human answers, the question expires, or the broker stops. `sudo` is blocked on it throughout, which is what makes the wait an authentication step. A token naming no running command is refused without asking anybody.
 
@@ -116,7 +116,7 @@ The staleness poll, and where `[secrets] patterns` globs are expanded, so a file
 
 A file that could not be stat-ed or decrypted comes back in `errors` rather than as an error response, so one broken file does not blank the whole value set. Key material is stripped from those strings before they cross the socket.
 
-`unresolved_patterns` is separate, and the separation is the point: an entry that named no file is a secrets directory not written yet, which is what every first install looks like, while a file that is there and will not open is a value the redactor is missing without knowing it. Neither stops the daemon: it starts either way and refuses `exec` and `redact` per request, so the state can be diagnosed against a running process. Both fail `faramir broker --check` and `faramir doctor`, which are the operator's audit rather than the daemon's gate. The broker cannot work this out for itself: expanding a glob means listing the secrets directory, and that is the keeper's alone.
+`unresolved_patterns` is separate, and the separation is the point: an entry that named no file is a secrets directory not written yet, which is what every first install looks like, while a file that is there and will not open is a value the redactor is missing without knowing it. Neither stops the daemon: it starts either way and refuses `exec` and `redact` per request, so the state can be diagnosed against a running process. Both fail `faramir broker --check` and `faramir doctor`.
 
 Anything else is refused, and **there is no operation that returns the age key**; adding one would defeat the reason the keeper is a separate service.
 
