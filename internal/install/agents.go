@@ -130,9 +130,9 @@ var agentTargets = map[string]*agentTarget{
 	},
 
 	// pi extends through a TypeScript module loaded from the project, once the
-	// project is trusted.  No MCP ships with it, so there is no faramir_run tool
-	// to register here: a command needing credentials is `faramir run`, which the
-	// hook rewrites like any other.
+	// project is trusted.  No MCP ships with it, so that module registers the
+	// tools the other hosts reach through a server, shelling out to the CLI: see
+	// agent/pi/extension.ts.tmpl, which is internal/mcp's list in another dialect.
 	"pi": {
 		name: "pi",
 		files: []agentFile{
