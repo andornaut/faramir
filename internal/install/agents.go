@@ -233,3 +233,13 @@ func detectedAgents(dir string) []string {
 	}
 	return out
 }
+
+// agentNames are the known agents, sorted, so a report reads the same twice.
+func agentNames() []string {
+	out := make([]string, 0, len(agentTargets))
+	for name := range agentTargets {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}

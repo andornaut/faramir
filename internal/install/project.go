@@ -239,6 +239,45 @@ func (p *project) resolveGroup() error {
 // out of the share for the same reason: see sharetree.Options.Keep.
 const instructionsMode = 0o640
 
+// warnMissingAccountRules says so when an agent's account-wide deny rules are
+// not in the operator's home.  Enrolling a tree writes the per-project hook;
+// the rules that hold wherever the agent works are written by `faramir init
+// --agent`, and a host with one and not the other says nothing about it.
+func warnMissingAccountRules(p *project, target *agentTarget) {
+	if len(target.accountFiles) == 0 {
+		return
+	}
+	home, err := operatorHomeFor(p.opts.OperatorUser)
+	if err != nil || home == "" {
+		return
+	}
+	var missing []string
+	for _, file := range target.accountFiles {
+		if !exists(filepath.Join(home, file.path)) {
+			missing = append(missing, "~/"+file.path)
+		}
+	}
+	if len(missing) == 0 {
+		return
+	}
+	p.warn("%s's deny rules are not in the operator's home (%s), so its file "+
+		"tools are refused nothing: they cover the keys under ~/.ssh and "+
+		"~/.config/sops, which this enrolment does not reach. Run `sudo faramir "+
+		"init --agent %s`", target.name, strings.Join(missing, ", "), target.name)
+}
+
+// operatorHomeFor is the account's home directory.
+func operatorHomeFor(name string) (string, error) {
+	if name == "" {
+		return "", nil
+	}
+	entry, err := user.Lookup(name)
+	if err != nil {
+		return "", err
+	}
+	return entry.HomeDir, nil
+}
+
 // pluginData is what an agent plugin's template is rendered against: the
 // binary it execs, which agent it speaks to, and the path it is written to.
 // Not the install Layout, none of the last two being install-wide.
@@ -373,6 +412,11 @@ func (p *project) agentConfig() error {
 				"matches no permission rule. Its deny list is what refuses one instead",
 				p.opts.Dir, target.name)
 		}
+		// The account-wide half is `faramir init --agent`'s, and an enrolment that
+		// wrote only this half leaves the agent's file tools with no rules at all:
+		// the deny list covers the operator's own ~/.ssh and ~/.config/sops, which
+		// no uid boundary reaches, the agent running as the operator.
+		warnMissingAccountRules(p, target)
 		if target.note != "" && changed {
 			p.warn("%s: %s", target.name, target.note)
 		}

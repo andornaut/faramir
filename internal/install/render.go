@@ -17,6 +17,11 @@ import (
 // not compile.
 var renderFuncs = template.FuncMap{
 	"regexQuote": regexp.QuoteMeta,
+	// list is what lets one rule be written once and rendered per tool it
+	// applies to.  A deny list copied per tool is a deny list that drifts, which
+	// is how one of Gemini's rules came to match nothing while its siblings
+	// worked.
+	"list": func(items ...string) []string { return items },
 }
 
 // units maps each installed file name to its embedded template.  One map,
