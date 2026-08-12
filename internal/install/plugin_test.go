@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -261,11 +262,19 @@ import { pathToFileURL } from "node:url"
 const [, , modulePath] = process.argv
 const module = await import(pathToFileURL(modulePath).href)
 const handlers = {}
-const pi = { on: (name, fn) => { handlers[name] = fn } }
+const tools = []
+const pi = {
+  on: (name, fn) => { handlers[name] = fn },
+  registerTool: (t) => { tools.push(t) },
+}
 module.default(pi)
-const event = JSON.parse(process.env.HOOK_EVENT)
-const verdict = await handlers["tool_call"](event, {})
-console.log(JSON.stringify({ verdict: verdict ?? null, input: event.input }))
+if (process.env.LIST_TOOLS) {
+  console.log(JSON.stringify({ tools: tools.map((t) => t.name) }))
+} else {
+  const event = JSON.parse(process.env.HOOK_EVENT)
+  const verdict = await handlers["tool_call"](event, {})
+  console.log(JSON.stringify({ verdict: verdict ?? null, input: event.input }))
+}
 `
 
 type piResult struct {
@@ -300,12 +309,9 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The type annotations go: node runs JavaScript, and what is under test is
-	// the logic rather than the types pi's own loader strips.
-	source := strings.NewReplacer(
-		"(pi: any)", "(pi)", "(event: any)", "(event)", "let decision: any", "let decision",
-	).Replace(string(body))
-	write(t, rig.modulePath, source, 0o644)
+	// The shipped bytes, unaltered: the extension is a .ts that carries no type
+	// annotations, so node runs it as it is.
+	write(t, rig.modulePath, string(body), 0o644)
 	write(t, filepath.Join(dir, "driver.mjs"), piDriver, 0o644)
 	write(t, rig.cli, "#!/bin/sh\ncat >"+rig.payloadFile+"\ncat "+rig.replyFile+
 		"\nexit \"$(cat "+rig.statusFile+")\"\n", 0o755)
@@ -403,5 +409,29 @@ func TestPiExtensionGuardsByShape(t *testing.T) {
 	got = call(t, "bash", map[string]any{})
 	if got.Verdict == nil || !got.Verdict.Block {
 		t.Errorf("a known shell tool with no command string was not refused: %+v", got)
+	}
+}
+
+// pi ships no MCP, so the tools the other hosts reach through it are the
+// extension's to register.  Without faramir_run the guard's own refusal
+// dead-ends: it tells the model to use a tool that would not exist.
+func TestPiExtensionRegistersTheTools(t *testing.T) {
+	rig, _ := newPiRig(t)
+	cmd := exec.Command("node", filepath.Join(rig.dir, "driver.mjs"), rig.modulePath)
+	cmd.Env = append(os.Environ(), "LIST_TOOLS=1")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("driver failed: %v\n%s", err, out)
+	}
+	var got struct {
+		Tools []string `json:"tools"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("driver printed %q: %v", out, err)
+	}
+	for _, want := range []string{"faramir_run", "faramir_list_secrets", "faramir_status"} {
+		if !slices.Contains(got.Tools, want) {
+			t.Errorf("registered %v, want %s among them", got.Tools, want)
+		}
 	}
 }

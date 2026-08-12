@@ -408,7 +408,9 @@ func (p *project) agentConfig() error {
 // is reachable.
 func (p *project) instructions() error {
 	path := p.instructionsFile()
-	snippet, err := readAsset("agent/claude/CLAUDE.md.snippet")
+	// One block for every agent, so it sits beside the other shared assets
+	// rather than under the directory of the first host that wanted it.
+	snippet, err := readAsset("agent/instructions.md.snippet")
 	if err != nil {
 		return err
 	}
