@@ -122,6 +122,22 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 			return run.report, err
 		}
 	}
+	// Recorded last, and only for a run that changed something: this is the one
+	// place that knows a tree was enrolled and for what, and `doctor` reads it
+	// rather than guessing which agents are in use from what is in a home.  Not
+	// fatal, the enrolment having already succeeded.
+	if !opts.DryRun {
+		names := make([]string, 0, len(targets))
+		for _, target := range targets {
+			names = append(names, target.name)
+		}
+		if err := recordEnrolment(opts.ConfigDir, EnrolledTree{
+			Dir: dir, Operator: opts.OperatorUser, Agents: names,
+		}); err != nil {
+			run.warn("could not record this enrolment in %s, so `faramir doctor` "+
+				"will not know this tree is enrolled: %v", enrolledPath(opts.ConfigDir), err)
+		}
+	}
 	return run.report, nil
 }
 

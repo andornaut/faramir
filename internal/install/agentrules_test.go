@@ -43,7 +43,7 @@ func finding(t *testing.T, report DoctorReport, agent string) Finding {
 // and the states are what differ.
 func TestAgentRulesReportsEveryKnownAgent(t *testing.T) {
 	var report DoctorReport
-	reportAgentRules(&report, t.TempDir())
+	reportAgentRules(&report, t.TempDir(), nil)
 
 	if len(report.Findings) != len(agentNames()) {
 		t.Fatalf("%d rows for %d agents: %+v",
@@ -58,7 +58,7 @@ func TestAgentRulesReportsEveryKnownAgent(t *testing.T) {
 // state a host is worse for.
 func TestAgentRulesAreNotAFaultWhereNobodyRunsTheAgent(t *testing.T) {
 	var report DoctorReport
-	reportAgentRules(&report, t.TempDir())
+	reportAgentRules(&report, t.TempDir(), nil)
 
 	if report.Failed {
 		t.Error("an account that runs no agent failed the report")
@@ -82,7 +82,7 @@ func TestAgentRulesNamesTheFilesWhenTheyAreThere(t *testing.T) {
 	}
 
 	var report DoctorReport
-	reportAgentRules(&report, home)
+	reportAgentRules(&report, home, nil)
 
 	got := finding(t, report, "claude")
 	if got.Status != StatusOK {
@@ -106,7 +106,7 @@ func TestAgentRulesFailWhenTheAgentIsHereAndItsRulesAreNot(t *testing.T) {
 	touch(t, home, ".claude/some-state.json")
 
 	var report DoctorReport
-	reportAgentRules(&report, home)
+	reportAgentRules(&report, home, nil)
 
 	got := finding(t, report, "claude")
 	if got.Status != StatusFailed {
@@ -132,7 +132,7 @@ func TestAgentRulesAreOKWhereOnlyTheRulesAreThere(t *testing.T) {
 	}
 
 	var report DoctorReport
-	reportAgentRules(&report, home)
+	reportAgentRules(&report, home, nil)
 
 	if got := finding(t, report, "gemini"); got.Status != StatusOK {
 		t.Errorf("status = %q, want %q: %s", got.Status, StatusOK, got.Detail)
@@ -157,7 +157,7 @@ func TestAgentRulesSayWhereAnExtensionCarriesThem(t *testing.T) {
 				touch(t, home, ".pi/state.json")
 			}
 			var report DoctorReport
-			reportAgentRules(&report, home)
+			reportAgentRules(&report, home, nil)
 
 			got := finding(t, report, "pi")
 			if got.Status != StatusNA {

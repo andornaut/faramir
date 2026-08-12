@@ -270,14 +270,27 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 			"agent has there was not asked", opts.OperatorUser)
 		return
 	}
-	reportAgentRules(report, home)
+	enrolled, stale := enrolledAgents(opts.ConfigDir)
+	reportAgentRules(report, home, enrolled)
+	// A tree that has moved or been deleted since it was enrolled.  Reported
+	// rather than removed: this record is not the authority on what exists, and
+	// an unmounted tree is not a deleted one.
+	for _, tree := range stale {
+		report.add("agent rules", StatusWarn, "%s was enrolled for %s and is no "+
+			"longer there, so that entry says nothing about this host. Re-run "+
+			"`faramir init-project` where the tree is now, or ignore it",
+			tree.Dir, strings.Join(tree.Agents, ", "))
+	}
 }
 
 // reportAgentRules is diagnoseAgentRules against a home already resolved, so a
 // test can put one somewhere other than a real account's: what is asserted is
 // which state each agent is reported in, and every one of those is a question
 // about files under a directory rather than about the passwd database.
-func reportAgentRules(report *DoctorReport, home string) {
+// enrolled names the agents some tree was enrolled for, which is the half a
+// home cannot show: a tree relies on rules that live somewhere else, and the
+// agent it was enrolled for may leave no trace in this account at all.
+func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 	for _, name := range agentNames() {
 		target := agentTargets[name]
 		// An agent with no account-wide file to write.  Its rules are compiled
@@ -299,6 +312,12 @@ func reportAgentRules(report *DoctorReport, home string) {
 		case len(missing) == 0:
 			report.add("agent rules", StatusOK, "%s: %s", name,
 				strings.Join(accountPaths(target), ", "))
+		case slices.Contains(enrolled, name):
+			report.add("agent rules", StatusFailed, "a tree is enrolled for %s and %s "+
+				"is not there, so its file tools are refused nothing in that tree. Those "+
+				"rules cover the keys under ~/.ssh and ~/.config/sops, which this uid "+
+				"can read. Run `sudo faramir init --agent %s`",
+				name, strings.Join(missing, ", "), name)
 		case agentInUse(home, target):
 			report.add("agent rules", StatusFailed, "%s is in this home and %s is "+
 				"not, so its file tools are refused nothing. Those rules cover the keys "+
