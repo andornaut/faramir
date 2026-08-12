@@ -138,8 +138,13 @@ var agentTargets = map[string]*agentTarget{
 		files: []agentFile{
 			{path: ".pi/extensions/faramir.ts", asset: "agent/pi/extension.ts.tmpl", mode: 0o640},
 		},
-		// Nothing account-wide: pi refuses a tool call through this same
-		// extension, so there is no separate rule file to write.
+		// Nothing account-wide, and that is a gap rather than a design: the
+		// extension refuses a tool call carrying a command, so it covers the
+		// shell tools, and the rules the other targets carry refuse the file
+		// tools against the operator's own key material.  Nothing here does the
+		// second.  `faramir doctor` warns where pi is installed; closing it needs
+		// a path rule the binary can answer, which every rule it has today is
+		// not, each being anchored to a command verb.
 		detect: []string{".pi"},
 		// The extension returns a refusal rather than approving anything, so the
 		// agent prompts as it would have.

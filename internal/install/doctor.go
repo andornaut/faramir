@@ -269,11 +269,33 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 			"agent has there was not asked", opts.OperatorUser)
 		return
 	}
+	reportAgentRules(report, home)
+}
+
+// reportAgentRules is diagnoseAgentRules against a home already resolved, so a
+// test can put one somewhere other than a real account's: what is asserted is
+// which state each agent is reported in, and every one of those is a question
+// about files under a directory rather than about the passwd database.
+func reportAgentRules(report *DoctorReport, home string) {
 	for _, name := range agentNames() {
 		target := agentTargets[name]
+		// An agent faramir writes no rules for.  Its own hook refuses the shell
+		// tools, which is commands, and the rules the others carry refuse the file
+		// tools, which is reads of the operator's key material.  The second is not
+		// the first, so this is reported rather than passed over: warn where the
+		// agent is here, because a host running it has that gap today, and n/a
+		// where it is not, there being no gap on a host nobody runs it from.
 		if len(target.accountFiles) == 0 {
-			report.add("agent rules", StatusNA, "%s: writes no account-wide rules, "+
-				"its own hook being what refuses a tool call", name)
+			if agentInUse(home, target) {
+				report.add("agent rules", StatusWarn, "%s is in this home and faramir "+
+					"writes no rules for it: its extension guards the shell tools, so "+
+					"nothing refuses its file tools. Those are what read the keys under "+
+					"~/.ssh and ~/.config/sops, which this uid can open and no boundary "+
+					"below it refuses", name)
+				continue
+			}
+			report.add("agent rules", StatusNA, "%s: faramir writes no rules for it, "+
+				"and nothing here, so nobody runs it from this account", name)
 			continue
 		}
 		var missing []string
