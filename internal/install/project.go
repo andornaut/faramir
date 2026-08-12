@@ -487,12 +487,44 @@ func (p *project) instructions() error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	// A copy of the block whose markers are gone: appending would leave two, and
+	// the one already there is the one somebody edited.  So it is left alone and
+	// named, which is the only outcome that neither duplicates the instructions
+	// nor overwrites what was made of them.
+	//
+	// Reachable by ordinary use rather than by tampering: these files are prose,
+	// and asking an agent to tidy one is a thing operators do.  Markers are an
+	// HTML comment, so a rewrite that keeps every word can still drop them.
+	if unmarked(current) {
+		p.warn("%s already carries the credentials section without the %s markers, "+
+			"so it was left as it is: adding the block again would leave two copies, "+
+			"and replacing what is there would overwrite whatever was made of it. "+
+			"Delete that section and re-run to have this manage it again", path, "faramir")
+		p.step("instructions", false, path+" (left as it is; see the warning)")
+		return nil
+	}
 	changed, err := p.fs.writeFile(path, spliceBlock(current, block), instructionsMode, p.uid, p.gid)
 	if err != nil {
 		return err
 	}
 	p.step("instructions", changed, path)
 	return nil
+}
+
+// snippetFingerprint identifies the block by its own content, for a file that
+// carries it without the markers.  A line from the middle of the block rather
+// than its heading: "# Credentials" is a heading anybody might write, and the
+// tool call below it is not.
+const snippetFingerprint = "faramir_run(cmd="
+
+// unmarked reports whether current holds the block but not the markers that
+// make it replaceable.  Both markers present is the ordinary case and is not
+// this: spliceBlock replaces between them.
+func unmarked(current []byte) bool {
+	if bytes.Contains(current, []byte(snippetBegin)) && bytes.Contains(current, []byte(snippetEnd)) {
+		return false
+	}
+	return bytes.Contains(current, []byte(snippetFingerprint))
 }
 
 // instructionsFile picks an existing file, or the first name.
