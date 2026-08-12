@@ -28,10 +28,20 @@ type agentTarget struct {
 	accountFiles []agentFile
 
 	// detect names the paths that mean this tree is already configured for this
-	// agent.  Reported, never acted on.  Named rather than derived from files,
-	// which are only what faramir writes; generic names stay out, a .mcp.json
-	// naming no particular agent.
+	// agent.  Named rather than derived from files, which are only what faramir
+	// writes; generic names stay out, a .mcp.json naming no particular agent.
 	detect []string
+
+	// detectHome is the same question about the operator's home rather than a
+	// tree, and a different answer: an agent keeps its per-project configuration
+	// beside the project and its own under a home, and the two are not the same
+	// paths.  opencode is the plain case -- opencode.json in a tree, and
+	// .config/opencode in a home.
+	//
+	// faramir's own rule file counts as evidence here, which is deliberate: it
+	// is what makes a second `init` refresh what the first one wrote instead of
+	// deciding the agent is gone.
+	detectHome []string
 
 	// autoApprovesBash records what enrolling costs on this agent.  Claude Code:
 	// a rewritten command matches no permission rule and the hook must approve
@@ -83,6 +93,7 @@ var agentTargets = map[string]*agentTarget{
 			{path: ".claude/settings.json", asset: "agent/claude/settings.json", mode: 0o640, merge: true},
 		},
 		detect:           []string{".claude"},
+		detectHome:       []string{".claude", ".claude.json"},
 		autoApprovesBash: true,
 	},
 	"gemini": {
@@ -97,6 +108,7 @@ var agentTargets = map[string]*agentTarget{
 			{path: ".gemini/policies/faramir.toml", asset: "agent/gemini/policies.toml.tmpl", mode: 0o640},
 		},
 		detect:           []string{".gemini"},
+		detectHome:       []string{".gemini"},
 		autoApprovesBash: false,
 	},
 
@@ -122,7 +134,8 @@ var agentTargets = map[string]*agentTarget{
 		accountFiles: []agentFile{
 			{path: ".config/opencode/opencode.json", asset: "agent/opencode/permissions.json.tmpl", mode: 0o640, merge: true},
 		},
-		detect: []string{".opencode", "opencode.json", "opencode.jsonc"},
+		detect:     []string{".opencode", "opencode.json", "opencode.jsonc"},
+		detectHome: []string{".config/opencode", ".local/share/opencode"},
 		// No approval is given or asked for: a plugin that has not thrown has
 		// approved nothing, so the agent still prompts as it would have.
 		autoApprovesBash: false,
@@ -142,7 +155,8 @@ var agentTargets = map[string]*agentTarget{
 		// the other targets put in one are compiled into the extension instead,
 		// from the same list.  It refuses a tool call carrying a command through
 		// the guard, and one carrying a path against those rules.
-		detect: []string{".pi"},
+		detect:     []string{".pi"},
+		detectHome: []string{".pi"},
 		// The extension returns a refusal rather than approving anything, so the
 		// agent prompts as it would have.
 		autoApprovesBash: false,
@@ -163,6 +177,7 @@ var agentTargets = map[string]*agentTarget{
 		},
 		// .kilocode is the legacy directory, still read.
 		detect:           []string{".kilo", ".kilocode", "kilo.json", "kilo.jsonc"},
+		detectHome:       []string{".config/kilo", ".config/kilocode", ".kilocode"},
 		autoApprovesBash: false,
 		note:             pluginNote("Kilo Code"),
 	},
@@ -180,8 +195,30 @@ func pluginNote(agent string) string {
 		"rule naming `" + wrapper + " *` is what decides them from then on"
 }
 
-// defaultAgents is what an enrolment naming none writes.
-var defaultAgents = []string{"claude"}
+// AgentAuto is the --agent value that means "whichever ones are here", and the
+// default on both commands.  A name alongside it is configured whether or not
+// it is here, so `--agent auto --agent pi` reads as "what is installed, plus
+// pi".
+const AgentAuto = "auto"
+
+// agentScope is where auto looks for evidence.  The two commands ask the same
+// question of different places: `init` writes into the operator's home, and
+// `init-project` into one tree.
+type agentScope int
+
+const (
+	// scopeHome is the operator's home directory.
+	scopeHome agentScope = iota
+	// scopeTree is one working tree.
+	scopeTree
+)
+
+func (t *agentTarget) markers(scope agentScope) []string {
+	if scope == scopeHome {
+		return t.detectHome
+	}
+	return t.detect
+}
 
 // KnownAgents lists the agents this can enrol, sorted.  Exported so the flag
 // that takes one names them rather than carrying a copy.
@@ -197,36 +234,58 @@ func knownAgents() []string {
 	return out
 }
 
-// resolveAgents turns --agent values into targets.  An unknown name is an error
-// rather than a skip, which would leave a project the operator believes is
-// covered.
-func resolveAgents(names []string) ([]*agentTarget, error) {
+// resolveAgents turns --agent values into targets, resolving "auto" against
+// what dir carries.  An unknown name is an error rather than a skip, which
+// would leave an operator believing something is covered.
+//
+// Naming an agent is what makes it configured whether or not it is here; auto
+// only ever adds what it finds.  So the two compose without a rule about which
+// wins: the result is the union, and an operator who wants an agent configured
+// ahead of installing it says so by name.
+//
+// Returned in a fixed order, so a report reads the same twice and a second run
+// writes the same files in the same sequence.
+func resolveAgents(names []string, scope agentScope, dir string) ([]*agentTarget, error) {
 	if len(names) == 0 {
-		names = defaultAgents
+		names = []string{AgentAuto}
 	}
-	seen := map[string]bool{}
-	var out []*agentTarget
+	wanted := map[string]bool{}
 	for _, name := range names {
-		target, ok := agentTargets[name]
-		if !ok {
-			return nil, fmt.Errorf("unknown --agent %q; known agents are %v",
-				name, knownAgents())
-		}
-		if seen[name] {
+		if name == AgentAuto {
+			for _, found := range detectAgents(scope, dir) {
+				wanted[found] = true
+			}
 			continue
 		}
-		seen[name] = true
-		out = append(out, target)
+		if _, ok := agentTargets[name]; !ok {
+			return nil, fmt.Errorf("unknown --agent %q; known agents are %v, or %q",
+				name, knownAgents(), AgentAuto)
+		}
+		wanted[name] = true
+	}
+	var out []*agentTarget
+	for _, name := range knownAgents() {
+		if wanted[name] {
+			out = append(out, agentTargets[name])
+		}
 	}
 	return out, nil
 }
 
-// detectedAgents reports which known agents this tree already carries
-// configuration for.  Reported, never acted on.
-func detectedAgents(dir string) []string {
+// detectAgents reports which known agents dir carries evidence of, in the sense
+// the scope means: an agent's own configuration in a home, or its per-project
+// configuration in a tree.
+//
+// Evidence, not proof.  A directory left behind by trying an agent once reads
+// the same as one in daily use, which is why naming an agent is what configures
+// it unconditionally and this only ever adds.
+func detectAgents(scope agentScope, dir string) []string {
+	if dir == "" {
+		return nil
+	}
 	var out []string
 	for _, name := range knownAgents() {
-		for _, path := range agentTargets[name].detect {
+		for _, path := range agentTargets[name].markers(scope) {
 			if exists(filepath.Join(dir, path)) {
 				out = append(out, name)
 				break
@@ -235,6 +294,10 @@ func detectedAgents(dir string) []string {
 	}
 	return out
 }
+
+// detectedAgents is detectAgents over a tree, for the report that names what
+// was found and not enrolled.
+func detectedAgents(dir string) []string { return detectAgents(scopeTree, dir) }
 
 // agentNames are the known agents, sorted, so a report reads the same twice.
 func agentNames() []string {

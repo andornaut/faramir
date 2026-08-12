@@ -1,6 +1,7 @@
 package install
 
 import (
+	"fmt"
 	"path/filepath"
 	"strings"
 )
@@ -13,19 +14,28 @@ import (
 // per-project, because a rewritten command matches no Bash permission rule, so
 // registering it auto-approves Bash for that project.
 func (r *runner) stepAgentConfig() error {
-	// Every agent unless one is named.  These rules refuse the file tools, and
-	// what they cover is the operator's own key material, which no uid boundary
-	// reaches; writing them only for an agent already installed leaves the next
-	// one unguarded from the moment it arrives until somebody remembers to
-	// re-run this.  A rule file for an agent that is never installed is read by
-	// nothing.
-	names := r.opts.Agents
-	if len(names) == 0 {
-		names = agentNames()
-	}
-	targets, err := resolveAgents(names)
+	// Whichever agents this home carries, unless one is named.  These rules
+	// refuse the file tools, and what they cover is the operator's own key
+	// material, which no uid boundary reaches.
+	//
+	// The cost of detecting rather than writing them all: an agent installed
+	// after this ran has no rules until somebody re-runs it.  That state is not
+	// silent -- `faramir doctor` reports an agent in the home whose rules are
+	// missing as a failure, and names the command -- and the alternative is
+	// writing configuration into a home for four agents the operator does not
+	// use, which is not this command's to do.
+	targets, err := resolveAgents(r.opts.Agents, scopeHome, r.operatorHome)
 	if err != nil {
 		return err
+	}
+	if len(targets) == 0 {
+		// Not an error and not a silent pass: nothing was written, and the reason
+		// is a home with no agent in it rather than a step that did its job.
+		r.step("agent config", false, fmt.Sprintf(
+			"no coding agent found in %s, so no deny rules were written. "+
+				"`faramir init --agent NAME` writes them anyway (%s)",
+			r.operatorHome, strings.Join(knownAgents(), ", ")))
+		return nil
 	}
 	changed := false
 	var written []string

@@ -312,8 +312,11 @@ func reportAgentRules(report *DoctorReport, home string) {
 
 // agentInUse reports whether this agent is present in the home at all: its own
 // directory, or any of the rules faramir writes for it.
+// The home markers, not the tree ones: this is the same question `init --agent
+// auto` asks, and the two have to agree or doctor reports a gap that re-running
+// init would not close.
 func agentInUse(home string, target *agentTarget) bool {
-	for _, marker := range target.detect {
+	for _, marker := range target.detectHome {
 		if exists(filepath.Join(home, marker)) {
 			return true
 		}

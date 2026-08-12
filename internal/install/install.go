@@ -81,13 +81,14 @@ type Options struct {
 	// No tree is enrolled here: a tree is per project and this runs once per
 	// machine.  See `faramir init-project`.
 
-	// Agents names the coding agents whose settings get the Read deny rules, which
-	// refuse to open key material wherever the agent is working.  Empty writes
-	// nothing.
+	// Agents names the coding agents whose settings get the deny rules, which
+	// refuse to open key material wherever the agent is working.  Empty means
+	// AgentAuto: whichever agents the operator's home already carries.  A name
+	// writes them whether or not the agent is there, and composes with auto.
 	//
 	// The PreToolUse hook is per project, because registering it auto-approves
-	// Bash there.  The same names `faramir init-project --agent` takes, which
-	// unlike this defaults to Claude Code.
+	// Bash there.  The same names and the same default `faramir init-project
+	// --agent` takes, which asks the question of a tree rather than of a home.
 	Agents []string
 
 	// DryRun computes every answer and writes nothing.  A step needing accounts

@@ -165,9 +165,11 @@ func cmdInit(args []string) int {
 			"against /etc/ssh/ssh_known_hosts alone)")
 	var initAgents multiFlag
 	fs.Var(&initAgents, "agent",
-		"install the deny rules into this agent's own settings, repeatable "+
-			"(every agent by default, an agent installed later finding them already "+
-			"in place; known: "+strings.Join(install.KnownAgents(), ", ")+")")
+		"install the deny rules into this agent's own settings, repeatable. "+
+			"Default \""+install.AgentAuto+"\": whichever agents the operator's home "+
+			"already carries. A name writes them whether or not the agent is there, "+
+			"and composes with auto. Known: "+
+			strings.Join(install.KnownAgents(), ", "))
 	allowSudo := fs.Bool("allow-sudo", false,
 		"let a brokered command ASK to sudo on this host; it cannot sudo on its own. "+
 			"The executor gets a password-required sudoers entry pointed at a PAM "+
@@ -268,8 +270,10 @@ func cmdInitProject(args []string) int {
 			"agents have no approval to give, so it costs them nothing")
 	var agents multiFlag
 	fs.Var(&agents, "agent",
-		"coding agent to enrol, repeatable (default claude; known: "+
-			strings.Join(install.KnownAgents(), ", ")+")")
+		"coding agent to enrol, repeatable. Default \""+install.AgentAuto+"\": "+
+			"whichever agents this tree already carries configuration for. A name "+
+			"enrols that agent whether or not it is there, and composes with auto. "+
+			"Known: "+strings.Join(install.KnownAgents(), ", "))
 	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
 	asJSON := fs.Bool("json", false, "print the report as JSON")
 	if code, ok := parseFlags(fs, args); !ok {

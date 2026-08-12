@@ -46,9 +46,10 @@ type ProjectOptions struct {
 	// Bash for the project: a rewritten command matches no permission rule, so the
 	// hook's deny list is what refuses one.
 	Hook bool
-	// Agents names which coding agents to enrol; empty means Claude Code. Named
-	// rather than detected, enrolling costing something on some agents. What a
-	// tree happens to carry is reported instead.
+	// Agents names which coding agents to enrol.  Empty means AgentAuto:
+	// whichever agents this tree already carries configuration for.  A name
+	// enrols that agent whether or not it is there, and composes with auto,
+	// which is how a tree is set up for one before it is installed.
 	Agents []string
 	DryRun bool
 	Log    func(string)
@@ -104,7 +105,9 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		return ProjectReport{}, err
 	}
 
-	targets, err := resolveAgents(opts.Agents)
+	// auto looks at the tree: enrolling costs something here, so what is
+	// configured is what is already set up to run in this project.
+	targets, err := resolveAgents(opts.Agents, scopeTree, dir)
 	if err != nil {
 		return ProjectReport{}, err
 	}
@@ -325,11 +328,10 @@ func (p *project) keepModes() []string {
 	if rel, err := filepath.Rel(p.opts.Dir, p.instructionsFile()); err == nil {
 		keep = append(keep, rel)
 	}
-	targets, err := resolveAgents(p.opts.Agents)
-	if err != nil {
-		return keep
-	}
-	for _, target := range targets {
+	// p.targets, not a second resolution: auto reads the tree, and this runs
+	// after files have been written into it, so resolving again here would
+	// answer about the tree this command just changed.
+	for _, target := range p.targets {
 		for _, file := range target.files {
 			keep = append(keep, file.path)
 		}
@@ -386,6 +388,18 @@ func (p *project) agentConfig() error {
 	if !p.opts.Hook {
 		p.step("agent config", false, "--hook=false, so nothing this agent runs "+
 			"here is redacted and its prompts are untouched")
+		return nil
+	}
+	if len(p.targets) == 0 {
+		// The tree is shared and the instructions are written either way; what is
+		// missing is the hook, and with it the redaction.  Said rather than
+		// passed over, an enrolment that configured nothing being the one case an
+		// operator would read as done.
+		p.step("agent config", false, fmt.Sprintf(
+			"no coding agent is configured in %s, so nothing was registered and "+
+				"nothing this tree runs is redacted. `sudo faramir init-project "+
+				"--agent NAME` enrols one anyway (%s)",
+			p.opts.Dir, strings.Join(knownAgents(), ", ")))
 		return nil
 	}
 	changed := false

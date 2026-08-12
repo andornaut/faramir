@@ -9,38 +9,110 @@ import (
 	"testing"
 )
 
-// Naming no agent enrols Claude Code.
-func TestAgentsDefaultToClaude(t *testing.T) {
-	got, err := resolveAgents(nil)
+// names is what resolveAgents settled on, for a test that cares which agents
+// rather than which targets.
+func names(t *testing.T, values []string, scope agentScope, dir string) []string {
+	t.Helper()
+	targets, err := resolveAgents(values, scope, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || got[0].name != "claude" {
-		t.Errorf("resolveAgents(nil) = %v, want claude alone", got)
+	out := []string{}
+	for _, target := range targets {
+		out = append(out, target.name)
+	}
+	return out
+}
+
+// Naming no agent is naming auto, which configures what is there and nothing
+// else.  An empty directory is therefore no agents, not a default one: writing
+// configuration for an agent the operator does not run is not this command's
+// to do.
+func TestAgentsDefaultToWhatIsThere(t *testing.T) {
+	dir := t.TempDir()
+	if got := names(t, nil, scopeTree, dir); len(got) != 0 {
+		t.Errorf("resolveAgents(nil) in an empty tree = %v, want none", got)
+	}
+	if err := os.Mkdir(filepath.Join(dir, ".gemini"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if got := names(t, nil, scopeTree, dir); !reflect.DeepEqual(got, []string{"gemini"}) {
+		t.Errorf("resolveAgents(nil) = %v, want [gemini]", got)
 	}
 }
 
 // An unknown name stops the run rather than being skipped, which would leave a
 // project the operator believes is covered.
 func TestUnknownAgentIsRefused(t *testing.T) {
-	if _, err := resolveAgents([]string{"claude", "nosuchagent"}); err == nil {
+	if _, err := resolveAgents([]string{"claude", "nosuchagent"}, scopeTree, t.TempDir()); err == nil {
 		t.Error("an unknown agent was accepted")
+	}
+	// The error names auto as well, that being a value the flag takes and not
+	// an agent anybody could look up.
+	_, err := resolveAgents([]string{"nosuchagent"}, scopeTree, t.TempDir())
+	if err == nil || !strings.Contains(err.Error(), "auto") {
+		t.Errorf("the error does not offer auto: %v", err)
 	}
 }
 
-// Repeats collapse: writing twice reports the second as unchanged, which reads
-// as a failure to write.
+// Repeats collapse, and the order is fixed rather than the order given: auto
+// contributes what it detected and the flags contribute what was typed, so
+// "the order given" is not a thing the result has.
 func TestAgentsDeduplicate(t *testing.T) {
-	got, err := resolveAgents([]string{"gemini", "claude", "gemini"})
-	if err != nil {
+	got := names(t, []string{"gemini", "claude", "gemini"}, scopeTree, t.TempDir())
+	if !reflect.DeepEqual(got, []string{"claude", "gemini"}) {
+		t.Errorf("names = %v, want [claude gemini], deduplicated and ordered", got)
+	}
+}
+
+// auto and a name compose: what is installed, plus the one asked for.  No rule
+// about which wins, because naming an agent only ever adds it.
+func TestAutoAndANameAreUnioned(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Mkdir(filepath.Join(dir, ".gemini"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	var names []string
-	for _, target := range got {
-		names = append(names, target.name)
+	got := names(t, []string{AgentAuto, "pi"}, scopeTree, dir)
+	if !reflect.DeepEqual(got, []string{"gemini", "pi"}) {
+		t.Errorf("names = %v, want [gemini pi]", got)
 	}
-	if !reflect.DeepEqual(names, []string{"gemini", "claude"}) {
-		t.Errorf("names = %v, want [gemini claude] in the order given", names)
+}
+
+// A name alone configures that agent whether or not anything is there, which
+// is what makes it possible to set one up before installing it.
+func TestANamedAgentDoesNotHaveToBePresent(t *testing.T) {
+	got := names(t, []string{"pi"}, scopeTree, t.TempDir())
+	if !reflect.DeepEqual(got, []string{"pi"}) {
+		t.Errorf("names = %v, want [pi] in an empty tree", got)
+	}
+}
+
+// The two commands ask the same question of different places.  opencode is the
+// case that separates them: opencode.json beside a project, .config/opencode
+// under a home.
+func TestAutoLooksWhereTheScopeSays(t *testing.T) {
+	tree := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tree, "opencode.json"), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(home, ".config", "opencode"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := names(t, nil, scopeTree, tree); !reflect.DeepEqual(got, []string{"opencode"}) {
+		t.Errorf("tree scope = %v, want [opencode]", got)
+	}
+	if got := names(t, nil, scopeHome, home); !reflect.DeepEqual(got, []string{"opencode"}) {
+		t.Errorf("home scope = %v, want [opencode]", got)
+	}
+	// And neither answers the other's question: a home marker in a tree is not
+	// evidence, nor the other way round.
+	if got := names(t, nil, scopeHome, tree); len(got) != 0 {
+		t.Errorf("home scope found %v in a tree laid out as a project", got)
+	}
+	if got := names(t, nil, scopeTree, home); len(got) != 0 {
+		t.Errorf("tree scope found %v in a home", got)
 	}
 }
 
@@ -191,9 +263,9 @@ func TestDetectionFindsAnAgentsOwnConfiguration(t *testing.T) {
 	}
 }
 
-// Detection reports and never enrols: a directory left behind by trying an
-// agent is not a decision to enrol it.
-func TestDetectionFindsAgentDirectoriesWithoutEnrolling(t *testing.T) {
+// Detection is what auto acts on, so this covers the finding rather than the
+// deciding: an empty tree yields nothing, and a marker yields its agent.
+func TestDetectionFindsAgentDirectories(t *testing.T) {
 	dir := t.TempDir()
 	if got := detectedAgents(dir); len(got) != 0 {
 		t.Errorf("detected %v in an empty tree", got)
@@ -203,15 +275,5 @@ func TestDetectionFindsAgentDirectoriesWithoutEnrolling(t *testing.T) {
 	}
 	if got := detectedAgents(dir); !reflect.DeepEqual(got, []string{"gemini"}) {
 		t.Errorf("detectedAgents = %v, want [gemini]", got)
-	}
-	// Detection feeds a report; resolveAgents decides.
-	targets, err := resolveAgents(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, target := range targets {
-		if target.name == "gemini" {
-			t.Error("a .gemini directory enrolled gemini by itself")
-		}
 	}
 }
