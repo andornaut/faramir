@@ -29,9 +29,26 @@ SUITES=(init project config disclose plugin gemini guard wrap leak stream mcp ex
 die() { printf 'lab: %s\n' "$1" >&2; exit 1; }
 running() { [ "$(docker inspect -f '{{.State.Running}}' $NAME 2>/dev/null)" = true ]; }
 
+# build_skew produces a second binary reporting a version the first one does
+# not, which is what the doctor suite swaps in to make the broker and the CLI
+# disagree.  The version is a constant rather than a linker variable, so another
+# compile is the only way to a different one; -overlay swaps the one file at
+# compile time so that the tree is never edited to build it.
+build_skew() {
+  local work
+  work=$(mktemp -d)
+  sed -E 's/(const Version = )".*"/\1"9.9.9"/' "$REPO/internal/version/version.go" > "$work/version.go"
+  grep -q '9\.9\.9' "$work/version.go" || die "the version constant is not where build_skew looks for it"
+  printf '{"Replace":{"%s":"%s"}}\n' \
+    "$REPO/internal/version/version.go" "$work/version.go" > "$work/overlay.json"
+  ( cd "$REPO" && go build -overlay "$work/overlay.json" -o "$HERE/faramir-skew" ./cmd/faramir )
+  rm -rf "$work"
+}
+
 cmd_up() {
   echo "== building the binary from $REPO"
   ( cd "$REPO" && go build -o "$HERE/faramir" ./cmd/faramir )
+  build_skew
   for tool in sops age age-keygen; do
     [ -f "$HERE/$tool" ] || die "$tool is missing from the build context; copy it in beside faramir"
   done
@@ -96,6 +113,10 @@ cmd_run() {
   local names=("$@")
   [ ${#names[@]} -eq 0 ] && names=("${SUITES[@]}")
   local failed=0
+  # Beside every suite, because each one sources it.  Copied here rather than
+  # baked into the image for the same reason the suites are: editing it takes
+  # effect on the next run, with no rebuild.
+  docker cp "$HERE/lib.sh" $NAME:/root/ >/dev/null
   for n in "${names[@]}"; do
     local script="check-$n.sh"
     [ -f "$HERE/$script" ] || die "no $script here"

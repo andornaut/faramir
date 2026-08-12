@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite S: the redact stream, which is new code carrying the whole redaction
+# The redact stream, which is new code carrying the whole redaction
 # claim for everything the agent runs.
 #
 # The seam this replaced was invisible: exit 0, output byte-identical to input,
@@ -17,15 +17,12 @@ CHUNK=32768
 SOCK=/run/faramir/broker.sock
 RUNDIR=/run/user/$(id -u op)
 
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 redact() { runuser -u op -- /usr/local/bin/faramir redact; }
 
 # --------------------------------------------------------------------------
-head_ "S1. every offset around a chunk boundary, not just the one that failed"
+head_ "1. every offset around a chunk boundary, not just the one that failed"
 # The window is len(value)-1 bytes wide and sits immediately before a boundary.
 # Sweeping it byte by byte is what says the join is covered rather than that one
 # offset happens to work.
@@ -58,7 +55,7 @@ sweep $CHUNK
 sweep $(( CHUNK * 2 ))
 sweep $(( CHUNK * 3 ))
 
-head_ "S2. deep in a long stream, and more than one value"
+head_ "2. deep in a long stream, and more than one value"
 # One line of several MB crosses many joins; the value sits on one of the later
 # ones, so this is the join being covered rather than the first chunk being big
 # enough to hold everything.
@@ -83,7 +80,7 @@ grep -qF "$SECRET" <<<"$out" && bad "the first value leaked" || ok "two values o
 grep -qF "$SECOND" <<<"$out" && bad "the second value leaked" || ok "second redacted"
 [ "$(grep -c "$TOKEN2" <<<"$out")" -ge 1 ] && ok "and both tokens are present" || bad "missing the second token"
 
-head_ "S3. the long renderings across a join"
+head_ "3. the long renderings across a join"
 # The overlap is sized from the LONGEST rendering, not the value: hex is twice
 # the length and base64 is four thirds of it.  Those are what test the margin.
 straddle() { # label python-expression-producing-the-rendering
@@ -109,7 +106,7 @@ straddle "base64" "import base64,os;print(base64.b64encode(os.environ['SECRET'].
 straddle "base32" "import base64,os;print(base64.b32encode(os.environ['SECRET'].encode()).decode())"
 straddle "percent-encoded" "import urllib.parse,os;print(urllib.parse.quote(os.environ['SECRET'],safe=''))"
 
-head_ "S4. what must survive being carried in pieces"
+head_ "4. what must survive being carried in pieces"
 # A stream is now many requests; the bytes still have to come back exactly.
 head -c 3000000 /dev/urandom > /tmp/bin.in
 redact < /tmp/bin.in > /tmp/bin.out
@@ -148,7 +145,7 @@ sys.stdout.write('.'*($CHUNK*2) + os.environ['SECRET'])" > /tmp/tail.in
 redact < /tmp/tail.in | grep -qF "$SECRET" && bad "the final flush missed the value" \
   || ok "a value as the last bytes of a multi-chunk stream is redacted"
 
-head_ "S5. the other shape: faramir redact -- command"
+head_ "5. the other shape: faramir redact -- command"
 # redactStream's second caller, which streams a child rather than a file.
 out=$(runuser -u op -- /usr/local/bin/faramir redact -- /bin/sh -c "echo A-\$0-B" "$SECRET" 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "the command form leaked: $out" || ok "the command form redacts"
@@ -161,7 +158,7 @@ sys.stdout.write('.'*($CHUNK - 12) + os.environ['SECRET'] + '.'*200 + '\n')" 2>&
 grep -qF "$SECRET" <<<"$out" && bad "the command form leaks at the join" \
   || ok "and covers the join the same way"
 
-head_ "S6. a producer that goes quiet mid-stream"
+head_ "6. a producer that goes quiet mid-stream"
 # The case the inter-chunk deadline exists for: the connection is already open
 # with a chunk sent, and the command then says nothing for longer than the
 # 30s a peer gets to send its first request.  Takes ~40s.
@@ -178,7 +175,7 @@ grep -qF "$SECRET" <<<"$out" && bad "the value printed after the quiet spell lea
 grep -qF "$TOKEN" <<<"$out" && ok "and what it printed afterwards is still redacted" \
   || bad "output after the quiet spell was lost: $(tail -c 120 <<<"$out")"
 
-head_ "S7. a broker that goes away mid-stream"
+head_ "7. a broker that goes away mid-stream"
 # Chunks already written came back redacted, so they stay; the chunk that
 # failed and everything after it must not appear.
 python3 -c "
@@ -199,7 +196,7 @@ systemctl start faramir-broker.socket >/dev/null 2>&1; sleep 2
 runuser -u op -- /usr/local/bin/faramir list-secrets >/dev/null 2>&1 \
   && ok "and the broker is usable again afterwards" || bad "the broker did not come back"
 
-head_ "S8. another op arriving in the middle of a stream"
+head_ "8. another op arriving in the middle of a stream"
 # A stream holds a redactor with a tail held back.  Whatever a confused client
 # does next, that tail must not be emitted unredacted.
 out=$(runuser -u op -- /usr/bin/python3 -c "
@@ -232,7 +229,7 @@ grep -q "SECOND_IS_STATUS:True" <<<"$out" && ok "and the interrupting op was ans
 grep -q "THIRD_CLOSED" <<<"$out" && ok "and the connection ended there, not silently continuing the stream" \
   || bad "the stream continued past a foreign op: $(grep '^THIRD' <<<"$out")"
 
-head_ "S9. a stream the client abandons"
+head_ "9. a stream the client abandons"
 out=$(runuser -u op -- /usr/bin/python3 -c "
 import socket,json,os
 s=socket.socket(socket.AF_UNIX); s.connect('$SOCK')
@@ -246,7 +243,7 @@ s.close()
 grep -qF "$SECRET" <<<"$out" && bad "an abandoned stream emitted the held-back value" \
   || ok "a stream dropped part way emits nothing it was holding"
 
-head_ "S10. streams at the same time, and beside a brokered command"
+head_ "10. streams at the same time, and beside a brokered command"
 # Each connection has its own redactor; they must not see each other's state.
 for i in 1 2 3 4 5 6; do
   ( python3 -c "
@@ -272,7 +269,7 @@ wait
 [ "$out" = "brokered" ] && ok "a brokered command runs while a stream is open" \
   || bad "the stream blocked exec: $out"
 
-head_ "S11. the audit log tells the truth about a stream"
+head_ "11. the audit log tells the truth about a stream"
 log=/var/log/faramir/audit.log
 before=$(grep -c '"op":"redact"' $log 2>/dev/null || echo 0)
 python3 -c "
@@ -299,7 +296,7 @@ print(json.loads(sys.stdin.read()).get('input_bytes',0))" <<<"$record" 2>/dev/nu
 [ "$bytes" -gt 100000 ] && ok "and input_bytes is the whole stream ($bytes)" \
   || bad "input_bytes = $bytes, want the whole stream"
 
-head_ "S12. the agent path at the offsets that used to leak"
+head_ "12. the agent path at the offsets that used to leak"
 printf 'nothing here\n' > /home/op/project/probe.txt
 chown op:dev /home/op/project/probe.txt
 wrapped() {
@@ -321,5 +318,4 @@ done
   || bad "the agent path still leaks at a chunk boundary"
 rm -f /home/op/project/probe.txt
 
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

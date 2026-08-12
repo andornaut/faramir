@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite G: the Gemini CLI integration, both halves of it.
+# The Gemini CLI integration, both halves of it.
 #
 # The last agent whose enforcement path had never been driven, and the only one
 # shaped this way: a BeforeTool hook for shell commands, and a separate deny
@@ -18,13 +18,10 @@ OP=op
 PROJECT=/home/op/project
 POLICY=/home/op/.gemini/policies/faramir.toml
 SECRET='hunter2-correct-horse-battery'
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 # --------------------------------------------------------------------------
-head_ "G1. what enrolment writes"
+head_ "1. what enrolment writes"
 
 /usr/local/bin/faramir init-project --operator-user $OP --agent gemini "$PROJECT" >/dev/null 2>&1
 /usr/local/bin/faramir init --operator-user $OP --agent gemini >/dev/null 2>&1
@@ -62,7 +59,7 @@ for tool in read_file read_many_files write_file replace; do
 done
 
 # --------------------------------------------------------------------------
-head_ "G2. the hook it registers, run"
+head_ "2. the hook it registers, run"
 
 hook=$(jq -r '.hooks.BeforeTool[0].hooks[0].command' "$SETTINGS" 2>/dev/null)
 matcher=$(jq -r '.hooks.BeforeTool[0].matcher' "$SETTINGS" 2>/dev/null)
@@ -115,7 +112,7 @@ out=$(printf '{"tool_name":"read_file","tool_input":{"file_path":"/etc/faramir/a
   || bad "the shell hook answered for read_file: ${out:0:110}"
 
 # --------------------------------------------------------------------------
-head_ "G3. the policy regexes, matched the way Gemini matches them"
+head_ "3. the policy regexes, matched the way Gemini matches them"
 #
 # One rule per file tool, a regex against the call's arguments as JSON.  These
 # are the only thing standing between a file tool and the key material, and
@@ -179,7 +176,7 @@ many() { node /tmp/policy-match.mjs "$rules" read_many_files "$1" 2>/dev/null; }
   || bad "a rule matches only one spelling of the JSON"
 
 # --------------------------------------------------------------------------
-head_ "G4. this install's own directories, named rather than guessed"
+head_ "4. this install's own directories, named rather than guessed"
 
 for dir in /etc/faramir /etc/faramir/secrets /var/log/faramir /usr/local/libexec/faramir; do
   denies read_file "$dir/anything" "an install directory"
@@ -188,7 +185,7 @@ done
 allows read_file /etc/faramir-notes/plan.md "a different directory"
 
 # --------------------------------------------------------------------------
-head_ "G5. and nothing here carries a value"
+head_ "5. and nothing here carries a value"
 
 grep -qF "$SECRET" "$POLICY" "$SETTINGS" && bad "a value is written into the gemini configuration" \
   || ok "no value in the policy or the settings"
@@ -196,5 +193,4 @@ grep -q '/usr/local/bin/faramir' "$SETTINGS" && ok "the settings name the instal
   || bad "the settings do not name the binary"
 
 # --------------------------------------------------------------------------
-printf '\n== suite G: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

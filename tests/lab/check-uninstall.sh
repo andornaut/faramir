@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite U: `faramir uninstall`, and what it is right to leave behind.
+# `faramir uninstall`, and what it is right to leave behind.
 #
 # It removes the broker and keeps the age key, the secrets, the config and the
 # log: deleting the key would make every managed sops file unreadable, and no
@@ -16,10 +16,7 @@ KEY=$CFGDIR/age.key
 SECRETS=$CFGDIR/secrets/app.sops.yml
 LOG=/var/log/faramir/audit.log
 PROJECT=/home/op/project
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 gone()   { [ -e "$1" ] && bad "$2 survived: $1" || ok "$2 is gone"; }
 kept()   { [ -e "$1" ] && ok "$2 is kept" || bad "$2 was removed: $1"; }
@@ -44,7 +41,7 @@ refs_before=$(runuser -u op -- faramir list-secrets 2>/dev/null | wc -l)
 echo "before: $refs_before ref(s), $log_lines log line(s), grant installed"
 
 # --------------------------------------------------------------------------
-head_ "U1. it stops what is running, before it removes it"
+head_ "1. it stops what is running, before it removes it"
 
 out=$(faramir uninstall 2>&1); code=$?
 [ $code -eq 0 ] && ok "uninstall exits 0" || bad "uninstall exit $code: $(head -c 200 <<<"$out")"
@@ -62,7 +59,7 @@ done
 [ -z "$strays" ] && ok "and no daemon process is left behind" || bad "processes survived:$strays"
 
 # --------------------------------------------------------------------------
-head_ "U2. what cannot be recreated is kept"
+head_ "2. what cannot be recreated is kept"
 
 [ "$(sha256sum $KEY 2>/dev/null | cut -d' ' -f1)" = "$key_sum" ] \
   && ok "the age key is byte-identical" || bad "the age key was changed or removed"
@@ -84,7 +81,7 @@ done
   || bad "the key is owned by $(stat -c %U $KEY)"
 
 # --------------------------------------------------------------------------
-head_ "U3. the sudo grant goes, all of it"
+head_ "3. the sudo grant goes, all of it"
 #
 # The sudoers entry names the executor's uid and authenticates through a PAM
 # service that execs a helper.  With the broker gone nothing answers that
@@ -103,7 +100,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-head_ "U4. the rest of the install"
+head_ "4. the rest of the install"
 
 gone /etc/systemd/system/faramir-broker.service "the broker unit"
 gone /etc/systemd/system/faramir-keeper.socket "the keeper socket unit"
@@ -117,7 +114,7 @@ systemctl list-unit-files 'faramir-*' 2>/dev/null | grep -q faramir \
   && bad "systemd still lists faramir units" || ok "systemd lists no faramir unit"
 
 # --------------------------------------------------------------------------
-head_ "U5. an enrolled working tree"
+head_ "5. an enrolled working tree"
 #
 # init-project shares a tree with the executor.  Uninstall does not walk the
 # operator's directories, so what it leaves is worth stating: the grant on the
@@ -133,8 +130,8 @@ if [ -d $PROJECT ]; then
   getent group dev >/dev/null && ok "and the group it is shared with still exists" \
     || bad "the client group was removed, orphaning the tree's group"
   id -nG faramir-exec 2>/dev/null | grep -qw dev \
-    && ok "so faramir-exec, which is kept, can still enter it" \
-    || ok "and faramir-exec is not in that group"
+    && note "so faramir-exec, which is kept, can still enter it" \
+    || note "and faramir-exec is not in that group"
   # The agent's own config, which now names a socket that is gone.
   for f in .claude/settings.json .mcp.json; do
     [ -e "$PROJECT/$f" ] && ok "  $f is left, naming a broker that is not there" \
@@ -145,7 +142,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-head_ "U6. running it again"
+head_ "6. running it again"
 
 install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
 out=$(faramir uninstall 2>&1); code=$?
@@ -155,7 +152,7 @@ out=$(faramir uninstall 2>&1); code=$?
   || bad "the second run touched the key"
 
 # --------------------------------------------------------------------------
-head_ "U7. and the host can be rebuilt from what was kept"
+head_ "7. and the host can be rebuilt from what was kept"
 
 install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
 if faramir init --operator-user op >/tmp/reinit.log 2>&1; then
@@ -185,5 +182,4 @@ grep -q '«SECRET:db/password»' <<<"$out" && ok "and a brokered command still g
   || ok "and a plain init does not restore the sudo grant"
 
 # --------------------------------------------------------------------------
-printf '\n== suite U: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

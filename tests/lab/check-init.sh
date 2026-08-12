@@ -3,11 +3,7 @@
 # throwaway container.  The oracle is the documentation, not what the code
 # happened to produce.
 set -u
-PASS=0; FAIL=0
-
-ok()   { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad()  { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 # mode PATH MODE OWNER:GROUP -- as docs/layout.md states it.
 mode() {
@@ -117,5 +113,4 @@ head_ "no sudo grant unless asked for"
 absent /etc/sudoers.d/faramir
 absent /etc/pam.d/faramir-sudo
 
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

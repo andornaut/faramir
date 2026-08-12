@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite M: the MCP server, which is the other half of the agent-facing surface.
+# The MCP server, which is the other half of the agent-facing surface.
 #
 # The guard refuses a command and tells the model to use faramir_run instead.
 # This is faramir_run.  If it is wrong the agent either cannot work at all or
@@ -16,6 +16,9 @@ SECOND = "tok_live_0PENSESAME_9911"
 TOKEN  = "«SECRET:db/password»"
 PASS = FAIL = 0
 
+# The same primitives lib.sh gives the other suites, in the language this one is
+# written in.  A python suite cannot source it, so the output has to match by
+# hand: an operator reads all eighteen as one list.
 def ok(m):
     global PASS; PASS += 1; print("  ok   " + m)
 def bad(m):
@@ -64,7 +67,7 @@ class Server:
             self.p.kill()
 
 # ---------------------------------------------------------------------------
-head("M1. the handshake a client performs before anything else")
+head("1. the handshake a client performs before anything else")
 s = Server()
 r = s.call("initialize", {"protocolVersion": "2025-06-18",
                           "clientInfo": {"name": "probe", "version": "1"}})
@@ -94,7 +97,7 @@ got = r.get("result", {}).get("protocolVersion")
  if got == "2025-06-18" else bad("echoed back %s" % got))
 s2.close()
 
-head("M2. what the model discovers")
+head("2. what the model discovers")
 r = s.call("tools/list")
 tools = r.get("result", {}).get("tools", [])
 names = sorted(t["name"] for t in tools)
@@ -117,7 +120,7 @@ props = schema.get("properties", {})
 (ok("and cmd is required") if "cmd" in schema.get("required", [])
  else bad("required = %s" % schema.get("required")))
 
-head("M3. JSON-RPC conformance")
+head("3. JSON-RPC conformance")
 # A notification has no id and gets no reply, ever.  Proved by what comes back
 # next rather than by waiting: the ping's answer must be the very next line.
 s.send("notifications/initialized", {}, ident=False)
@@ -155,7 +158,7 @@ s.send_raw("   ")
 r = s.call("ping")
 (ok("blank lines are skipped") if r.get("result") == {} else bad("blank line broke it"))
 
-head("M4. running a command")
+head("4. running a command")
 out, is_err = s.text("faramir_run", {"cmd": ["/bin/echo", "hello"]})
 (ok("a plain command runs and returns its output") if out.startswith("hello")
  else bad("output = %r" % out[:80]))
@@ -168,7 +171,7 @@ out, is_err = s.text("faramir_run", {"cmd": ["/bin/sh", "-c", "exit 3"]})
  else bad("a failing command was not flagged"))
 (ok("with the status in the meta line") if "exit_code=3" in out else bad(out[:80]))
 
-head("M5. the thing the whole tool exists for")
+head("5. the thing the whole tool exists for")
 out, _ = s.text("faramir_run", {"cmd": ["printenv", "PW"],
                                 "env_refs": {"PW": "secret://db/password"}})
 (bad("THE VALUE CAME BACK TO THE MODEL: %r" % out[:120]) if SECRET in out
@@ -229,7 +232,7 @@ else:
 (ok("and the description does say so") if "policy violation" in desc
  else bad("nothing warns the model off transforming output"))
 
-head("M6. refs the model may not have")
+head("6. refs the model may not have")
 out, is_err = s.text("faramir_run", {"cmd": ["/bin/echo", "x"],
                                      "env_refs": {"X": "secret://no/such/thing"}})
 (ok("an unknown ref is refused") if is_err else bad("an unknown ref was accepted"))
@@ -255,7 +258,7 @@ out, is_err = s.text("faramir_status")
 (bad("status named the refused ref to the agent") if "short/pin" in out
  else ok("and keeps the refused refs to the operator's own report"))
 
-head("M7. calling it wrong, which a model will")
+head("7. calling it wrong, which a model will")
 cases = [
     ({"cmd": "ls -la"},               "must be an array",     "a shell string instead of an array"),
     ({"cmd": []},                     "must name a program",  "an empty array"),
@@ -280,7 +283,7 @@ r = s.call("tools/call", {"name": "faramir_list_secrets"})   # no arguments key 
 (ok("a call with no arguments object is handled")
  if r.get("result") else bad("missing arguments -> %s" % r))
 
-head("M8. where the command runs")
+head("8. where the command runs")
 out, _ = s.text("faramir_run", {"cmd": ["pwd"]})
 (ok("cwd defaults to where the agent's session is (%s)" % out.splitlines()[0])
  if out.startswith("/home/op/project") else bad("pwd = %r" % out[:80]))
@@ -291,7 +294,7 @@ out, is_err = s.text("faramir_run", {"cmd": ["pwd"], "cwd": "/root"})
  if is_err else bad("running in /root reported success: %r" % out[:80]))
 s.close()
 
-head("M9. limits and failure")
+head("9. limits and failure")
 s = Server()
 s.call("initialize", {"protocolVersion": "2025-06-18"})
 started = time.time()
@@ -313,7 +316,7 @@ out, _ = s.text("faramir_run", {"cmd": ["/bin/sh", "-c", "yes abcdefgh | head -c
  if len(out) > 390000 else bad("large output truncated early: %d" % len(out)))
 s.close()
 
-head("M10. the broker not being there")
+head("10. the broker not being there")
 subprocess.run(["systemctl", "stop", "faramir-broker.socket", "faramir-broker.service"],
                capture_output=True)
 s = Server()
@@ -327,7 +330,7 @@ s.close()
 subprocess.run(["systemctl", "start", "faramir-broker.socket"], capture_output=True)
 time.sleep(2)
 
-head("M11. who may run it")
+head("11. who may run it")
 # The socket admits the client group.  An account outside it gets nothing,
 # whatever it asks the MCP server for.
 subprocess.run(["useradd", "-m", "outsider"], capture_output=True)
@@ -349,7 +352,7 @@ out, _ = s.text("faramir_list_secrets")
  else ok("and cannot even list the ref names"))
 s.close()
 
-head("M12. how the agent is told to start it")
+head("12. how the agent is told to start it")
 reg = json.load(open("/home/op/project/.mcp.json"))
 entry = reg.get("mcpServers", {}).get("faramir", {})
 (ok("init-project registered it as %s %s" % (entry.get("command"), " ".join(entry.get("args", []))))
@@ -361,7 +364,7 @@ proof = subprocess.run([entry["command"], *entry["args"], "--version"],
  if proof.returncode == 0 and "faramir" in proof.stdout
  else bad("the registered command does not run: %s" % proof))
 
-print("\n%d passed, %d failed" % (PASS, FAIL))
+print("\n== mcp: %d passed, %d failed" % (PASS, FAIL))
 sys.exit(1 if FAIL else 0)
 PYEOF
 python3 /tmp/mcp_suite.py

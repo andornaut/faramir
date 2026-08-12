@@ -15,9 +15,15 @@ network, so it installs what it finds in the build context.
 | File | Where it comes from |
 | --- | --- |
 | `faramir` | built by `lab.sh up` from the tree two levels up |
+| `faramir-skew` | the same, at a version the installed one does not report |
 | `sops` | https://github.com/getsops/sops/releases |
 | `age` | https://github.com/FiloSottile/age/releases |
 | `age-keygen` | the same age release |
+
+`faramir-skew` is what the `doctor` suite swaps in to make the CLI and the
+running broker disagree about the build. The version is a compiled-in constant,
+so `lab.sh` builds a second binary with `go build -overlay`, which replaces that
+one file at compile time and leaves the tree alone.
 
 They are gitignored. `up` refuses to build without them rather than producing an
 image whose failures all look like missing tools.
@@ -77,7 +83,8 @@ enrolled project tree.
 
 ## Writing a check
 
-`ok` counts a pass and `bad` counts a failure, and both print. The idiom is:
+Every suite sources [lib.sh](lib.sh), which `lab.sh` copies in beside it. `ok`
+counts a pass and `bad` counts a failure, and both print. The idiom is:
 
 ```sh
 grep -q "$want" <<<"$out" && ok "it says why" || bad "it does not: [$out]"
@@ -87,6 +94,21 @@ grep -q "$want" <<<"$out" && ok "it says why" || bad "it does not: [$out]"
 SC2015 for that reason. Say what was expected in the `bad` message and include
 the output: a failure an operator cannot read is a failure they will rerun by
 hand anyway.
+
+`note` prints without counting, for what a suite observes rather than claims.
+Reaching for `ok` on both sides of a branch writes an assertion that cannot
+fail, and it is counted as a pass; that is what `note` is for.
+
+`waitfor SECONDS COMMAND...` polls until the command succeeds. Prefer it to a
+`sleep` long enough for the slowest case: a fixed sleep is slower than the usual
+case and still too short for the unusual one, and when it is too short the
+failure surfaces as the assertion after it.
+
+`summary` ends the suite. It takes the suite's name from the filename, so the
+name in the output is the one `lab.sh` and the table above use.
+
+`check-mcp.sh` is a Python suite and holds its own copy of the primitives,
+matched by hand.
 
 Assert on what an operator or an agent can observe, not on how it is
 implemented, and prefer a check that would have caught a real bug over one that

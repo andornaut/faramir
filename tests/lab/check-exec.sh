@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite E: the executor boundary.
+# The executor boundary.
 #
 # Everything else in this project rests on one claim: a brokered command runs as
 # a uid that holds no keys, in a cgroup of its own, with an environment the
@@ -9,10 +9,7 @@
 set -u
 export SECRET='hunter2-correct-horse-battery'
 TOKEN='«SECRET:db/password»'
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 run() { runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 "$@" 2>&1; }
 
@@ -36,14 +33,14 @@ runCgroups() { find "$CGPATH" -maxdepth 1 -name 'run-*' -type d 2>/dev/null | wc
 echo "executor daemon pid $EXECD, cgroup base $CGPATH"
 
 # --------------------------------------------------------------------------
-head_ "E1. who the command is"
+head_ "1. who the command is"
 out=$(run -- /usr/bin/id -un)
 [ "$out" = "faramir-exec" ] && ok "it runs as faramir-exec" || bad "id -un = [$out]"
 out=$(run -- /usr/bin/id -u)
 [ "$out" != "0" ] && ok "and not as root (uid $out)" || bad "the command ran as root"
 [ "$out" != "$(id -u op)" ] && ok "and not as the caller" || bad "it ran as the caller's uid"
 
-head_ "E2. what that uid cannot reach"
+head_ "2. what that uid cannot reach"
 refused() { # path label
   local out; out=$(run -- /bin/cat "$1")
   if grep -qiE "permission denied|no such file|cannot open|not found" <<<"$out"; then
@@ -84,8 +81,8 @@ try:
 except Exception as e:
     print('REFUSED %s' % e)")
 grep -q "CONNECTED" <<<"$out" \
-  && ok "reaches the broker socket, being in the client group (see README, blast radius)" \
-  || ok "cannot reach the broker socket: $out"
+  && note "reaches the broker socket, being in the client group (see README, blast radius)" \
+  || note "cannot reach the broker socket: $out"
 # But the ops that decide an approval stay root's, whoever asks.
 out=$(run -- /usr/bin/python3 -c "
 import socket, json
@@ -95,7 +92,7 @@ print(s.recv(400).decode()[:120])")
 grep -q "forbidden" <<<"$out" && ok "and is still refused the approval ops, which are root's" \
   || bad "the executor was answered an approval op: $out"
 
-head_ "E3. the environment the broker chose"
+head_ "3. the environment the broker chose"
 env_out=$(run -- /usr/bin/printenv)
 for want in PATH TERM LANG LC_ALL DEBIAN_FRONTEND; do
   grep -q "^$want=" <<<"$env_out" && ok "base_env carries $want" || bad "$want is missing"
@@ -121,7 +118,7 @@ else
   ok "and a ref that was not asked for is absent"
 fi
 
-head_ "E4. the terminal it runs on"
+head_ "4. the terminal it runs on"
 out=$(run -- /bin/sh -c 'test -t 1 && echo TTY || echo PIPE')
 [ "$out" = "TTY" ] && ok "stdout is a terminal, so programs format as they would for a person" \
   || bad "stdout is not a tty: $out"
@@ -132,7 +129,7 @@ rows=$(grep -oP 'term_rows = \K[0-9]+' /etc/faramir/config.toml)
 out=$(run -- /bin/sh -c 'stty size <&1 2>/dev/null')
 [ "$out" = "$rows $cols" ] && ok "sized from the config ($out)" || bad "stty size = [$out], want [$rows $cols]"
 
-head_ "E5. stdin"
+head_ "5. stdin"
 # A command that reads stdin must not hang until the timeout holding a slot.
 start=$(date +%s)
 out=$(run -- /bin/cat)
@@ -141,7 +138,7 @@ elapsed=$(( $(date +%s) - start ))
   || bad "reading stdin took ${elapsed}s"
 [ -z "$out" ] && ok "and reads nothing" || bad "cat returned [$out]"
 
-head_ "E6. where it runs"
+head_ "6. where it runs"
 out=$(cd /home/op/project && runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/pwd 2>&1)
 [ "$out" = "/home/op/project" ] && ok "a command runs where its caller was" || bad "pwd = [$out]"
 out=$(run --cwd /root -- /bin/pwd)
@@ -151,7 +148,7 @@ out=$(run --cwd relative/path -- /bin/pwd)
 grep -qiE "absolute|invalid|refus" <<<"$out" && ok "a relative cwd is refused" || bad "relative cwd gave [$out]"
 
 # --------------------------------------------------------------------------
-head_ "E7. the kill path, which is the whole of the cgroup argument"
+head_ "7. the kill path, which is the whole of the cgroup argument"
 before_strays=$(strays); before_cgroups=$(runCgroups)
 echo "  (before: cgroups=$before_cgroups strays=[${before_strays:-none}])"
 
@@ -211,7 +208,7 @@ grep -q '"timed_out":true' /var/log/faramir/audit.log 2>/dev/null \
   && ok "and the timed-out run is in the audit log" \
   || bad "no timed_out record: $(tail -1 /var/log/faramir/audit.log | head -c 120)"
 
-head_ "E8. output limits"
+head_ "8. output limits"
 cap=$(grep -oP 'max_output_bytes = \K[0-9]+' /etc/faramir/config.toml)
 out=$(run -- /bin/sh -c "yes abcdefgh | head -c $(( cap * 2 ))")
 [ "${#out}" -lt "$(( cap * 2 ))" ] && ok "output past max_output_bytes ($cap) is cut at ${#out} chars" \
@@ -219,7 +216,7 @@ out=$(run -- /bin/sh -c "yes abcdefgh | head -c $(( cap * 2 ))")
 grep -qi "truncat" <<<"$out" && ok "and the caller is told it was truncated" \
   || bad "truncation was silent"
 
-head_ "E9. finding the program"
+head_ "9. finding the program"
 out=$(run -- /bin/echo absolute)
 [ "$out" = "absolute" ] && ok "an absolute path runs" || bad "[$out]"
 out=$(run -- echo "on the path")
@@ -231,7 +228,7 @@ grep -qi "PATH" <<<"$out" && ok "which names the PATH it looked on" || bad "the 
 out=$(run -- /bin/echo 'a | b > c')
 [ "$out" = "a | b > c" ] && ok "no shell is spawned, so metacharacters are literal" || bad "[$out]"
 
-head_ "E10. exit status"
+head_ "10. exit status"
 for want in 0 1 7 42; do
   runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sh -c "exit $want" >/dev/null 2>&1
   got=$?
@@ -242,7 +239,7 @@ runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sh -c 'kill -9
 got=$?
 [ "$got" = "137" ] && ok "a SIGKILLed command reports 137, as a shell does" || bad "signal exit = $got"
 
-head_ "E11. more commands at once than the broker will take"
+head_ "11. more commands at once than the broker will take"
 limit=$(grep -oP 'max_concurrency = \K[0-9]+' /etc/faramir/config.toml)
 rm -f /tmp/conc.*; for i in $(seq $(( limit + 3 ))); do
   ( runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sleep 6 >/tmp/conc."$i" 2>&1 ) &
@@ -255,7 +252,7 @@ grep -hi "concurrency limit" /tmp/conc.* 2>/dev/null | head -1 | grep -qi "retry
   && ok "and the refusal says it is worth retrying" || bad "the refusal does not say what to do"
 [ -z "$(strays)" ] && ok "and nothing was left running afterwards" || bad "strays: $(strays)"
 
-head_ "E12. what the operator can see and the agent cannot"
+head_ "12. what the operator can see and the agent cannot"
 runuser -u op -- /bin/cat /var/log/faramir/audit.log >/dev/null 2>&1 \
   && bad "the caller's account can read the audit log" || ok "the agent's uid cannot read the audit log"
 [ -r /var/log/faramir/audit.log ] && ok "and root can" || bad "root cannot read the audit log"
@@ -268,5 +265,4 @@ missing=[k for k in ('log_id','op','peer') if k not in r]
 print('MISSING:'+','.join(missing) if missing else 'COMPLETE')" <<<"$last" | grep -q COMPLETE \
   && ok "every record names the op and the peer that asked" || bad "record is missing fields: $last"
 
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

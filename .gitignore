@@ -13,6 +13,7 @@ coverage.txt
 
 # The lab copies these into its build context; see tests/lab/README.md.
 /tests/lab/faramir
+/tests/lab/faramir-skew
 /tests/lab/sops
 /tests/lab/age
 /tests/lab/age-keygen

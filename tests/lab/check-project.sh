@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite P: `faramir init-project`, the enrolment that makes a tree protected.
+# `faramir init-project`, the enrolment that makes a tree protected.
 #
 # The stakes are the reason this is a suite of its own.  Every other command
 # fails loudly; this one fails silently.  If enrolment writes the wrong thing,
@@ -16,10 +16,7 @@ set -u
 OP=op
 HOME_OP=/home/op
 SECRET='hunter2-correct-horse-battery'
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 # tree makes an empty working tree owned by the operator, as a checkout would be.
 tree() {
@@ -45,7 +42,7 @@ absent() { [ -e "$1" ] && bad "$2 was written and should not be: $1" || ok "$2 i
 echo "enrolling as $OP; agents: claude gemini opencode kilocode"
 
 # --------------------------------------------------------------------------
-head_ "P1. each agent's own file set"
+head_ "1. each agent's own file set"
 
 D=$(tree /home/op/p-claude); enrol "$D" --agent claude >/tmp/p-claude.log 2>&1 \
   || bad "claude enrolment failed: $(tail -2 /tmp/p-claude.log)"
@@ -88,7 +85,7 @@ for stray in /root/.claude /root/.gemini /root/.config/opencode /root/.config/ki
 done
 
 # --------------------------------------------------------------------------
-head_ "P2. every file it writes is valid to the tool that reads it"
+head_ "2. every file it writes is valid to the tool that reads it"
 
 for f in /home/op/p-claude/.claude/settings.json /home/op/p-claude/.mcp.json \
          /home/op/p-gemini/.gemini/settings.json \
@@ -120,7 +117,7 @@ for f in /home/op/p-claude/.claude/settings.json /home/op/p-gemini/.gemini/setti
 done
 
 # --------------------------------------------------------------------------
-head_ "P3. the hook it registers actually runs and denies"
+head_ "3. the hook it registers actually runs and denies"
 #
 # The point of enrolment.  A settings.json naming a hook that does not run is
 # the silent failure this whole suite exists for, so the command in the file is
@@ -157,7 +154,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-head_ "P4. it merges into what the operator already had"
+head_ "4. it merges into what the operator already had"
 #
 # Every shared file is merged rather than replaced.  An enrolment that discarded
 # an operator's own settings would be found the hard way, in a project whose
@@ -190,7 +187,7 @@ jq -e '.mcpServers.faramir != null' "$D/.mcp.json" >/dev/null \
 owned "$D/.claude/settings.json" "the merged file is still the operator's"
 
 # --------------------------------------------------------------------------
-head_ "P5. enrolling twice changes nothing"
+head_ "5. enrolling twice changes nothing"
 
 D=/home/op/p-claude
 # Settled first: the first run writes the asset's key order and the second
@@ -219,7 +216,7 @@ n=$(jq '[.hooks.PreToolUse[]?.hooks[]? | select(.command | test("faramir"))] | l
   || bad "$n faramir hooks after two enrolments"
 
 # --------------------------------------------------------------------------
-head_ "P6. several agents in one tree"
+head_ "6. several agents in one tree"
 
 D=$(tree /home/op/p-multi)
 enrol "$D" --agent claude --agent gemini --agent opencode --agent kilocode >/tmp/p-multi.log 2>&1 \
@@ -230,7 +227,7 @@ for f in .claude/settings.json .mcp.json .gemini/settings.json \
 done
 
 # --------------------------------------------------------------------------
-head_ "P7. the tree itself is shared with the executor"
+head_ "7. the tree itself is shared with the executor"
 
 D=/home/op/p-claude
 mode=$(stat -c '%a %U:%G' "$D")
@@ -257,7 +254,7 @@ out=$(runuser -u $OP -- /usr/local/bin/faramir run --quiet -t 20 -C "$U" -- /bin
   || bad "enrolment did not open the private tree: ${out:0:110}"
 
 # --------------------------------------------------------------------------
-head_ "P8. --dry-run writes nothing"
+head_ "8. --dry-run writes nothing"
 
 D=$(tree /home/op/p-dry)
 out=$(enrol "$D" --agent claude --dry-run)
@@ -269,7 +266,7 @@ mode=$(stat -c '%a %U:%G' "$D")
 [ "$mode" = "755 op:op" ] && ok "and did not reshare the tree" || bad "a dry run changed the tree to $mode"
 
 # --------------------------------------------------------------------------
-head_ "P9. the values still do not leak from an enrolled tree"
+head_ "9. the values still do not leak from an enrolled tree"
 
 out=$(runuser -u $OP -- /usr/local/bin/faramir run --quiet -t 20 -C /home/op/p-multi \
   --env PW=secret://db/password -- /bin/sh -c 'echo $PW' 2>&1)
@@ -284,5 +281,4 @@ else
 fi
 
 # --------------------------------------------------------------------------
-printf '\n== suite P: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

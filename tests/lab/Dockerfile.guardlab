@@ -11,5 +11,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Vendored into the image so a run does not depend on the machine that built it.
 COPY sops age age-keygen /usr/local/bin/
 COPY faramir /opt/faramir/faramir
+# A build reporting a version the installed one does not, which is how the
+# doctor suite reaches version skew.  Built by lab.sh, never installed.
+COPY faramir-skew /opt/faramir/faramir-skew
 STOPSIGNAL SIGRTMIN+3
 CMD ["/sbin/init"]

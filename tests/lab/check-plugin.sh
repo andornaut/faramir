@@ -1,11 +1,11 @@
 #!/bin/bash
-# Suite J: the opencode and Kilo Code plugins, executed.
+# The opencode and Kilo Code plugins, executed.
 #
 # Two of the four supported agents do not use a hook that runs a program.  They
 # load JavaScript into their own process, and that file is the whole enforcement
 # path: it calls `faramir guard`, applies what comes back, and refuses when it
-# cannot.  Nothing has ever run it.  Suite P proved the file is written; this
-# one proves it works.
+# cannot.  Nothing has ever run it.  The project suite proved the file is
+# written; this one proves it works.
 #
 # The failure it exists for is silent.  A plugin that throws where it should
 # rewrite stops the agent working, which somebody notices; a plugin that returns
@@ -24,10 +24,7 @@ set -u
 HARNESS=/root/plugin-harness.mjs
 SECRET='hunter2-correct-horse-battery'
 PROJECT=/home/op/project
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 command -v node >/dev/null || { echo "node is not in this image; suite J cannot run"; exit 1; }
 
@@ -65,7 +62,7 @@ for agent in opencode kilocode; do
     kilocode) plugin=$PROJECT/.kilo/plugin/faramir.js ;;
   esac
 
-  head_ "J: $agent"
+  head_ "$agent"
   if [ ! -f "$plugin" ]; then
     /usr/local/bin/faramir init-project --operator-user op --agent "$agent" "$PROJECT" >/dev/null 2>&1
   fi
@@ -93,7 +90,7 @@ for agent in opencode kilocode; do
 done
 
 # --------------------------------------------------------------------------
-head_ "J: pi"
+head_ "pi"
 #
 # pi's extension answers differently in both directions, so it gets a driver of
 # its own.  The matrix lives in the Go tests, which run in CI with a stand-in
@@ -174,7 +171,7 @@ TOOLEOF
 fi
 
 # --------------------------------------------------------------------------
-head_ "J: what the rewrite actually runs"
+head_ "what the rewrite actually runs"
 #
 # The plugin hands the host a command string and the host runs it.  So the
 # rewrite has to be something a shell can run, and running it has to redact:
@@ -211,5 +208,4 @@ grep -q '«SECRET:db/password»' <<<"$out" && ok "it comes back as its token" \
   || bad "no token in the rewritten command's output: $(head -c 100 <<<"$out")"
 
 # --------------------------------------------------------------------------
-printf '\n== suite J: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

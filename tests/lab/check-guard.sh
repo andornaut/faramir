@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite A: the guard's decision surface.
+# The guard's decision surface.
 #
 # `faramir guard` is the PreToolUse hook: it reads an agent's tool-call payload
 # on stdin and answers with a deny, a rewrite, or nothing.  It is explicitly not
@@ -11,10 +11,7 @@
 #
 # Every case here goes through the real binary as the agent's own uid.
 set -u
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 GUARD=/usr/local/bin/faramir
 
@@ -33,7 +30,7 @@ verdict() { # -> deny | rewrite | pass
 }
 
 # --------------------------------------------------------------------------
-head_ "A1. commands that would put a credential in the context are refused"
+head_ "1. commands that would put a credential in the context are refused"
 # One per disclosure route the deny list names.  Each is a real thing an agent
 # would plausibly try while "just looking at the config".
 while IFS='|' read -r label cmd; do
@@ -93,7 +90,7 @@ read the audit log|cat /var/log/faramir/audit.log
 CASES
 
 # --------------------------------------------------------------------------
-head_ "A2. ordinary work is rewritten, not refused"
+head_ "2. ordinary work is rewritten, not refused"
 # The complement, and the more important half: a deny list that refuses real
 # work gets turned off.  Each of these is a command an agent runs constantly,
 # several of them deliberately near a rule's edge.
@@ -122,7 +119,7 @@ answering an approval unprivileged|faramir approve abc123
 CASES
 
 # --------------------------------------------------------------------------
-head_ "A3. a sanctioned call does not launder what follows it"
+head_ "3. a sanctioned call does not launder what follows it"
 # faramir's own arguments are exempt from scanning, or `faramir run -- cat
 # /etc/faramir/...` would refuse itself.  The exemption stops at the first
 # separator; this is the test that it does.
@@ -142,7 +139,7 @@ got=$(verdict 'faramir run --env PW=secret://db/password -- env')
   || bad "the sanctioned exemption does not cover its arguments -> $got"
 
 # --------------------------------------------------------------------------
-head_ "A4. each host gets its answer in its own dialect"
+head_ "4. each host gets its answer in its own dialect"
 # The wrong dialect fails open: a document the agent does not understand is a
 # command it runs unredacted.  So the exact shape matters, per host.
 check_shape() { # host jq-expr want label
@@ -171,7 +168,7 @@ echo "$reason" | grep -q 'matched deny pattern' && ok "and names the pattern tha
 echo "$reason" | grep -q 'hunter2\|tok_live' && bad "the refusal text contains a secret value" \
   || ok "the refusal quotes no value"
 
-head_ "A5. an unknown dialect is an error, not a guess"
+head_ "5. an unknown dialect is an error, not a guess"
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"printenv"}}' \
       | runuser -u op -- "$GUARD" guard --host codex 2>/tmp/g.err; echo "rc=$?")
 grep -q 'rc=2' <<<"$out" && ok "an unknown --host exits 2" || bad "unknown --host: $out"
@@ -192,7 +189,7 @@ got=$(jq -cn '{tool_name:"Bash",tool_input:{command:"printenv"}}' \
   || bad "gemini answered a Bash payload: $got"
 
 # --------------------------------------------------------------------------
-head_ "A6. only the tools that run shell commands are touched"
+head_ "6. only the tools that run shell commands are touched"
 route() { # tool command -> deny|rewrite|pass
   local out
   out=$(jq -cn --arg t "$1" --arg c "$2" '{tool_name:$t,tool_input:{command:$c}}' \
@@ -211,7 +208,7 @@ route() { # tool command -> deny|rewrite|pass
 [ "$(route BashOutput 'ls')" = pass ] && ok "and is not rewritten, having no command to run" \
   || bad "BashOutput was rewritten"
 
-head_ "A7. a payload it cannot use is answered with silence"
+head_ "7. a payload it cannot use is answered with silence"
 try() { echo "$1" | runuser -u op -- "$GUARD" guard 2>/dev/null; echo "rc=$?"; }
 [ "$(try 'not json at all')" = "rc=0" ] && ok "malformed JSON: no decision, exit 0" || bad "malformed JSON was answered"
 [ "$(try '{}')" = "rc=0" ] && ok "an empty object: no decision" || bad "empty object was answered"
@@ -224,7 +221,7 @@ got=$(echo '{"tool_name":"Bash","tool_input":{"args":["cat","/etc/faramir/age.ke
       | runuser -u op -- "$GUARD" guard | jq -r '.hookSpecificOutput.permissionDecision')
 [ "$got" = deny ] && ok "an argv array is scanned too" || bad "argv-array payload -> $got"
 
-head_ "A8. a rewrite hands back every field it was given"
+head_ "8. a rewrite hands back every field it was given"
 out=$(echo '{"tool_name":"Bash","tool_input":{"command":"ls","description":"list","timeout":5000}}' \
       | runuser -u op -- "$GUARD" guard | jq -c '.hookSpecificOutput.updatedInput')
 echo "$out" | jq -e '.description == "list" and .timeout == 5000' >/dev/null \
@@ -232,7 +229,7 @@ echo "$out" | jq -e '.description == "list" and .timeout == 5000' >/dev/null \
 echo "$out" | jq -re '.command' | grep -q "^source /usr/local/libexec/faramir/wrap.sh 'ls'$" \
   && ok "and the command is the wrapped form" || bad "rewrite shape: $(echo "$out" | jq -r .command)"
 
-head_ "A9. what the rewrite must not do"
+head_ "9. what the rewrite must not do"
 wrapped=$(decide 'ls' | jq -r '.hookSpecificOutput.updatedInput.command')
 [ "$(verdict "$wrapped")" = pass ] && ok "an already-wrapped command is not wrapped again" \
   || bad "double wrapping: $(verdict "$wrapped")"
@@ -243,7 +240,7 @@ got=$(echo '{"tool_name":"Bash","tool_input":{"command":"tail -f log","run_in_ba
       | runuser -u op -- "$GUARD" guard; echo "rc=$?")
 [ "$got" = "rc=0" ] && ok "run_in_background is left alone" || bad "background flag ignored: $got"
 
-head_ "A10. quoting into the sourced script survives exactly one round trip"
+head_ "10. quoting into the sourced script survives exactly one round trip"
 for cmd in "echo it's fine" 'echo $(date)' 'echo `id`' 'echo "a\\b"' "echo 'x'\\''y'"; do
   w=$(decide "$cmd" | jq -r '.hookSpecificOutput.updatedInput.command')
   # Recovered by one shell parse, which is what the sourced script's eval does.
@@ -252,7 +249,7 @@ for cmd in "echo it's fine" 'echo $(date)' 'echo `id`' 'echo "a\\b"' "echo 'x'\\
 done
 
 # --------------------------------------------------------------------------
-head_ "A11. the pattern list is the operator's, and a broken one fails closed"
+head_ "11. the pattern list is the operator's, and a broken one fails closed"
 PAT=/usr/local/libexec/faramir/deny-patterns.txt
 cp $PAT /tmp/patterns.bak
 # Missing entirely: the compiled-in fallback has to carry it.
@@ -276,7 +273,7 @@ got=$(jq -cn '{tool_name:"Bash",tool_input:{command:"printenv"}}' \
 [ "$got" = deny ] && ok "a comments-only file falls back rather than allowing everything" \
   || bad "an empty patterns file turned the guard off -> $got"
 
-head_ "A12. a moved install is refused where it actually is"
+head_ "12. a moved install is refused where it actually is"
 # The rules name /etc/faramir literally; an operator who moved the config with
 # --config-dir gets rules naming the new place, resolved the way the daemons
 # resolve it.
@@ -296,5 +293,4 @@ run_moved() {
   && ok "and a sibling path that merely starts the same is not refused" \
   || bad "the moved-dir rule is matching too widely"
 
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

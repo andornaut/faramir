@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite X: what the broker tells the account it exists to keep values from.
+# What the broker tells the account it exists to keep values from.
 #
 # Every other suite asks whether a value escapes.  This one asks what the agent
 # is told when nothing escapes: the names, the counts, the paths, the errors and
@@ -16,10 +16,7 @@ set -u
 SECRET='hunter2-correct-horse-battery'
 TOKEN_API='tok_live_0PENSESAME_9911'
 PROJECT=/home/op/project
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 asop() { runuser -u op -- /usr/local/bin/faramir "$@" 2>&1; }
 # mcp sends one tools/call and prints the result line.
@@ -43,7 +40,7 @@ carries() { # label, text
 echo "probing as op; $(asop list-secrets | wc -l) ref(s) served"
 
 # --------------------------------------------------------------------------
-head_ "X1. what the agent is told"
+head_ "1. what the agent is told"
 
 refs=$(asop list-secrets)
 grep -q '^secret://' <<<"$refs" && ok "list-secrets answers with refs" || bad "no refs: ${refs:0:80}"
@@ -59,7 +56,7 @@ for key in version secrets ssh sudo; do
 done
 
 # --------------------------------------------------------------------------
-head_ "X2. what it is not told"
+head_ "2. what it is not told"
 #
 # The refs the redactor refused name exactly the values that are never
 # tokenised, so an agent that learned the list would learn which values it could
@@ -89,7 +86,7 @@ grep -q 'permission denied' <<<"$own" && ok "  because the keeper socket is clos
 carries "the agent's own broker --check" "$own"
 
 # --------------------------------------------------------------------------
-head_ "X3. asking for a refused ref"
+head_ "3. asking for a refused ref"
 #
 # The list is withheld, and a request for one ref answers for that ref.  The
 # message is written for whoever reads the agent's transcript, and says what to
@@ -113,7 +110,7 @@ grep -q 'unknown_secret' <<<"$nothing" && ok "and a ref that does not exist is a
   || bad "an absent ref answered differently: ${nothing:0:90}"
 
 # --------------------------------------------------------------------------
-head_ "X4. every refusal the agent can provoke"
+head_ "4. every refusal the agent can provoke"
 
 probe() { # label, then argv for faramir run
   local label=$1; shift
@@ -133,7 +130,7 @@ grep -q '«SECRET:' <<<"$out" && ok "  and the value in it came back as a token"
 rm -rf "$d"
 
 # --------------------------------------------------------------------------
-head_ "X5. the same answers through MCP"
+head_ "5. the same answers through MCP"
 
 out=$(mcp faramir_list_secrets '{}')
 grep -q 'secret://' <<<"$out" && ok "faramir_list_secrets answers with refs" || bad "no refs: ${out:0:110}"
@@ -166,7 +163,7 @@ grep -q '«SECRET:db/password»' <<<"$out" && ok "which came back as its token" 
   || bad "no token in the MCP result: ${out:0:130}"
 
 # --------------------------------------------------------------------------
-head_ "X6. the id the agent is given is one it cannot read"
+head_ "6. the id the agent is given is one it cannot read"
 
 out=$(asop run --quiet -t 15 -C $PROJECT --env X=secret://no/such -- /bin/true)
 id=$(sed -n 's/.*log_id=\([^ ]*\).*/\1/p' <<<"$out" | head -1)
@@ -178,7 +175,7 @@ runuser -u op -- head -c1 /var/log/faramir/audit.log >/dev/null 2>&1 \
   && bad "nor the file directly" || ok "nor the file directly"
 
 # --------------------------------------------------------------------------
-head_ "X7. an error from below reaches the agent as text"
+head_ "7. an error from below reaches the agent as text"
 #
 # A managed file that will not load puts sops's own words into an error the
 # broker reports.  That text is written by a program reading ciphertext, so it
@@ -187,17 +184,23 @@ head_ "X7. an error from below reaches the agent as text"
 printf 'not a sops file at all\n' > /etc/faramir/secrets/broken.sops.yml
 chown root:faramir-keeper /etc/faramir/secrets/broken.sops.yml
 chmod 0640 /etc/faramir/secrets/broken.sops.yml
-sleep 7
+# The store is re-read every refresh_interval_sec, so the failure reaches status
+# on a later pass rather than this one.
+reportsLoadError() { jq -e '.secrets.errors[]?' <<<"$(asop status)" >/dev/null 2>&1; }
+waitfor 15 reportsLoadError
 st=$(asop status)
 carries "status with a file that will not load" "$st"
 errs=$(jq -r '.secrets.errors[]?' <<<"$st" 2>/dev/null)
+# Whether the broker passes the loader's own words through to the agent is not
+# this suite's claim to make; that they carry no value is.  Recorded either way,
+# so that a change in what the agent is told is visible here.
 if [ -n "$errs" ]; then
-  ok "status reports the load failure to the agent"
+  note "status reports the load failure to the agent"
   carries "the load error text" "$errs"
-  grep -q 'broken.sops.yml' <<<"$errs" && ok "  and names the file that failed" \
-    || ok "  without naming the file"
+  grep -q 'broken.sops.yml' <<<"$errs" && note "  and names the file that failed" \
+    || note "  without naming the file"
 else
-  ok "status reports no error text to the agent"
+  note "status reports no error text to the agent"
 fi
 # And a brokered command is refused rather than run against a partial value set.
 out=$(asop run --quiet -t 15 -C $PROJECT -- /bin/echo hi)
@@ -205,10 +208,12 @@ grep -q 'no_secrets' <<<"$out" && ok "and a brokered command is refused while a 
   || bad "a command ran against a partial value set: ${out:0:90}"
 carries "that refusal" "$out"
 rm -f /etc/faramir/secrets/broken.sops.yml
-sleep 7
-asop list-secrets >/dev/null 2>&1 && ok "the host recovers when the file is removed" \
-  || bad "the host did not recover"
+# Waiting on the error going away rather than on list-secrets answering: that
+# answers while the store still holds the failure, and every suite after this
+# one runs against a broker that refuses to inject.
+recovered() { [ "$(jq -r '.secrets.errors | length' <<<"$(asop status)" 2>/dev/null)" = 0 ]; }
+waitfor 20 recovered && ok "the host recovers when the file is removed" \
+  || bad "the host still reports the file 20s after it went away"
 
 # --------------------------------------------------------------------------
-printf '\n== suite X: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

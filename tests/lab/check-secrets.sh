@@ -7,10 +7,7 @@
 # leaves the keeper out is not, and neither is losing the key.  So the tests are
 # as much about what the tool REFUSES as about what it does.
 set -u
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 MANAGED=/etc/faramir/secrets/app.sops.yml
 sum() { sha256sum "$MANAGED" | cut -c1-16; }
@@ -197,5 +194,4 @@ reload_daemons || bad "the daemons did not come back"
 runuser -u op -- faramir list-secrets 2>&1 | grep -q "secret://new/ref" \
   && ok "and the broker still decrypts it" || bad "the file is no longer readable"
 
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

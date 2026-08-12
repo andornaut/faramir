@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite A: the --allow-sudo approval channel, the one path that hands out root.
+# The --allow-sudo approval channel, the one path that hands out root.
 #
 # Not "does sudo work" but the claims the design makes about it: root is handed
 # out one command at a time, only a human at a root shell hands it out, the
@@ -13,10 +13,7 @@ set -u
 SECRET='hunter2-correct-horse-battery'
 CFG=/etc/faramir/config.toml
 LOG=/var/log/faramir/audit.log
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 # The outstanding question's id, and a wait for one to appear.
 q() { /usr/local/bin/faramir approvals --json 2>/dev/null | grep -oE '"id"[^,]*' | head -1 | cut -d'"' -f4; }
@@ -55,7 +52,7 @@ echo "grant installed; [sudo] timeout_sec=$(sed -n 's/^timeout_sec *= *\([0-9]*\
 pkill -u faramir-exec 2>/dev/null; sleep 1
 
 # --------------------------------------------------------------------------
-head_ "A1. a yes makes one command root, a no does not"
+head_ "1. a yes makes one command root, a no does not"
 
 sudoRun /tmp/ap.out /usr/bin/sudo /usr/bin/id
 ID=$(waitq)
@@ -79,7 +76,7 @@ grep -q 'uid=0(root)' /tmp/dn.out && bad "a REFUSED command became root anyway" 
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "A2. only a human at a root shell answers"
+head_ "2. only a human at a root shell answers"
 
 sudoRun /tmp/who.out /usr/bin/sudo /usr/bin/id -un
 ID=$(waitq)
@@ -107,7 +104,7 @@ wait $RUN 2>/dev/null
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "A3. the token a child holds is an identifier, not a credential"
+head_ "3. the token a child holds is an identifier, not a credential"
 
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sh -c '
   printf "{\"op\":\"ask_approval\",\"token\":\"$FARAMIR_APPROVAL_TOKEN\"}\n" |
@@ -120,7 +117,7 @@ grep -qi 'forbidden\|root' <<<"$out" && ok "a child spending its own token is re
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "A4. a yes that lands while the host is not quiet is refused"
+head_ "4. a yes that lands while the host is not quiet is refused"
 #
 # The window a yes opens is the executor's uid, which every brokered command
 # shares.  A process of that uid alive outside the run being approved could ride
@@ -151,7 +148,7 @@ wait $RUN 2>/dev/null
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "A5. what one approval covers, and whether the prompt says so"
+head_ "5. what one approval covers, and whether the prompt says so"
 #
 # One question per run, not per sudo: a playbook's twenty become'd tasks are one
 # approval.  So the prompt has to say that is what a yes means.
@@ -173,7 +170,7 @@ covered=$(grep -c '^root' /tmp/scope.out)
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "A6. the question itself carries no value"
+head_ "6. the question itself carries no value"
 
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 \
   --env PW=secret://db/password -- /usr/bin/sudo /usr/bin/id -un >/tmp/val.out 2>&1 </dev/null &
@@ -188,7 +185,7 @@ grep -qF "$SECRET" $LOG && bad "the audit log carries the value" || ok "and neit
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "A7. answering something that is not there"
+head_ "7. answering something that is not there"
 
 out=$(/usr/local/bin/faramir approve deadbeef 2>&1); code=$?
 [ $code -ne 0 ] && ok "an id naming no question is an error (exit $code)" \
@@ -209,7 +206,7 @@ out=$(/usr/local/bin/faramir deny 2>&1); code=$?
 [ $code -ne 0 ] && ok "a bare deny with nothing waiting is an error" || bad "deny with no question: exit $code"
 
 # --------------------------------------------------------------------------
-head_ "A8. a question nobody answers"
+head_ "8. a question nobody answers"
 
 before=$(sed -n 's/^timeout_sec *= *\([0-9]*\).*/\1/p' $CFG | head -1)
 sed -i 's/^timeout_sec = .*/timeout_sec = 5/' $CFG
@@ -233,7 +230,7 @@ systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; 
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "A9. the PAM helper on its own"
+head_ "9. the PAM helper on its own"
 #
 # It is what sudo execs, as root, so what it does when invoked by hand is the
 # question: it decides authentication for one account and one PAM type.
@@ -254,7 +251,7 @@ out=$(env PAM_TYPE=auth PAM_USER=faramir-exec "$HELPER" --account faramir-exec 2
   || bad "the helper authenticated a caller that is not a brokered command"
 
 # --------------------------------------------------------------------------
-head_ "A10. the record"
+head_ "10. the record"
 
 [ "$(grep -c '"approved":true' $LOG)" -ge 1 ] && ok "an approval is recorded" || bad "no approval recorded"
 [ "$(grep -c '"approved":false' $LOG)" -ge 1 ] && ok "a refusal is recorded" || bad "no refusal recorded"
@@ -269,5 +266,4 @@ id=$(jq -r 'select(.op=="ask_approval" and .approved==true) | .exec_log_id' $LOG
   || bad "an approval does not point at the run it authorised"
 
 # --------------------------------------------------------------------------
-printf '\n== suite A: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

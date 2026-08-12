@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite D: `faramir doctor` as a fault detector.
+# `faramir doctor` as a fault detector.
 #
 # Doctor is the only thing that answers "is this install still doing its job",
 # and the way to test a detector is to break the host and ask whether it
@@ -20,10 +20,7 @@ KEY=/etc/faramir/age.key
 SECRETS=/etc/faramir/secrets/app.sops.yml
 LOG=/var/log/faramir/audit.log
 JSON=/tmp/doc.json
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 # settle puts the host back to a running install and waits for the broker to
 # answer.  Called after any group that stops a unit: a later group reading a
@@ -35,10 +32,7 @@ settle() {
   systemctl reset-failed faramir-broker.service faramir-broker.socket \
     faramir-keeper.socket faramir-exec.socket >/dev/null 2>&1
   systemctl start faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
-  for _ in $(seq 30); do
-    runuser -u "$OP" -- /usr/local/bin/faramir status >/dev/null 2>&1 && return 0
-    sleep 1
-  done
+  waitfor 30 runuser -u "$OP" -- /usr/local/bin/faramir status && return 0
   printf '    (settle gave up: %s)\n' \
     "$(for u in faramir-keeper.socket faramir-exec.socket faramir-broker.socket faramir-broker.service; do
          printf '%s=%s ' "$u" "$(systemctl is-active $u)"; done)"
@@ -79,7 +73,7 @@ snap
 echo "baseline: $(jq -r '[.findings[]|.status]|group_by(.)|map("\(length) \(.[0])")|join(", ")' $JSON), $(unasked) not asked"
 
 # --------------------------------------------------------------------------
-head_ "D1. a healthy install"
+head_ "1. a healthy install"
 
 snap
 bad_count=$(jq '[.findings[]|select(.status=="failed")]|length' $JSON)
@@ -102,7 +96,7 @@ snap; withOp=$(unasked)
 snap
 
 # --------------------------------------------------------------------------
-head_ "D2. the files the install owns"
+head_ "2. the files the install owns"
 
 probe "the age key world-readable" "age key" failed \
   "chmod 0644 $KEY" "chmod 0400 $KEY"
@@ -133,7 +127,7 @@ probe "the deny-patterns file emptied" "deny patterns" failed \
   "faramir init --operator-user $OP"
 
 # --------------------------------------------------------------------------
-head_ "D3. the arrangement around them"
+head_ "3. the arrangement around them"
 
 probe "the rotation rule removed" "log rotation" failed \
   "rm -f /etc/logrotate.d/faramir" "faramir init --operator-user $OP"
@@ -203,7 +197,7 @@ snap
   || bad "config stayed [$(st config)]"
 
 # --------------------------------------------------------------------------
-head_ "D4. the broker it is examining"
+head_ "4. the broker it is examining"
 
 # A build the broker is not running.  Two binaries is the only honest way to
 # reach this, the version being compiled in.
@@ -230,7 +224,7 @@ probe "the broker socket closed to the client group" "broker socket" failed \
   "systemctl restart faramir-broker.socket; settle"
 
 # --------------------------------------------------------------------------
-head_ "D5. a value the redactor refused"
+head_ "5. a value the redactor refused"
 #
 # Under [secrets] min_length a value is loaded but never injected and never
 # redacted, so a command that prints it prints it in plaintext.  The broker
@@ -274,7 +268,7 @@ grep -q '^min_length = 8' $CFG && ok "(init rewrote config.toml, as it does)" \
   || bad "init did not rewrite the config"
 
 # --------------------------------------------------------------------------
-head_ "D6. a check that cannot be made is never ok"
+head_ "6. a check that cannot be made is never ok"
 #
 # The claim the whole report rests on.  Each fault below is real while the
 # question is put to a caller that cannot ask it.
@@ -330,7 +324,7 @@ fi
 snap
 
 # --------------------------------------------------------------------------
-head_ "D7. what the report itself promises"
+head_ "7. what the report itself promises"
 
 snap
 total=$(jq '.findings|length' $JSON)
@@ -365,7 +359,7 @@ runuser -u "$OP" -- /usr/local/bin/faramir doctor 2>/dev/null | tail -3 | grep -
   || bad "a partial examination does not say so"
 
 # --------------------------------------------------------------------------
-head_ "D8. uninstall keeps what cannot be recreated"
+head_ "8. uninstall keeps what cannot be recreated"
 
 # From a settled host: everything above injected faults, and an uninstall read
 # against that residue would report this group's findings for another group's
@@ -405,7 +399,7 @@ out=$(/usr/local/bin/faramir uninstall 2>&1); code=$?
 [ $code -eq 0 ] && ok "a second uninstall is not an error" || bad "second uninstall exit $code: $(head -c 150 <<<"$out")"
 
 # --------------------------------------------------------------------------
-head_ "D9. and the secrets survive the round trip"
+head_ "9. and the secrets survive the round trip"
 
 install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
 if /usr/local/bin/faramir init --operator-user "$OP" >/tmp/reinit.log 2>&1; then
@@ -437,5 +431,4 @@ snap
   || bad "after the round trip: $(jq -r '[.findings[]|select(.status=="failed")|.check]|join(",")' $JSON)"
 
 # --------------------------------------------------------------------------
-printf '\n== suite D: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

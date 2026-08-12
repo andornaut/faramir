@@ -1,7 +1,7 @@
 #!/bin/bash
-# Suite B: the rewrite, executed.
+# The rewrite, executed.
 #
-# Suite A stopped at the decision.  This one takes the exact string the guard
+# The guard suite stopped at the decision.  This one takes the exact string the guard
 # hands back and runs it in a shell standing where the agent's shell stands,
 # because everything the wrapper claims is about what happens when it runs: the
 # output is redacted, the exit status is the command's, the shell keeps what the
@@ -9,10 +9,7 @@
 #
 # Run as root; each case drops to the agent's own uid.
 set -u
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 SECRET='hunter2-correct-horse-battery'
 TOKEN='«SECRET:db/password»'
@@ -45,7 +42,7 @@ printf 'DB_PASSWORD=%s\nnote: the api token is %s\n' \
 chown op:dev /home/op/project/notes.txt
 
 # --------------------------------------------------------------------------
-head_ "B1. the case the deny list does not cover"
+head_ "1. the case the deny list does not cover"
 [ "$(jq -cn '{tool_name:"Bash",tool_input:{command:"cat notes.txt"}}' \
      | runuser -u op -- /usr/local/bin/faramir guard \
      | jq -r '.hookSpecificOutput.permissionDecision')" = allow ] \
@@ -59,7 +56,7 @@ grep -q "$TOKEN" <<<"$out" && ok "it came back as its ref token instead" \
 grep -q '«SECRET:api/token»' <<<"$out" && ok "the second value in the same file too" \
   || bad "the api token was not redacted: $out"
 
-head_ "B2. both streams, and the exit status the command returned"
+head_ "2. both streams, and the exit status the command returned"
 out=$(agentRun "printf '%s\n' '$SECRET' >&2")
 grep -q "$TOKEN" <<<"$out" && ok "a secret written to stderr is redacted too" \
   || bad "stderr escaped the redactor: $out"
@@ -81,7 +78,7 @@ else
   bad "a failure was reported as success"
 fi
 
-head_ "B3. the shell keeps what the command set"
+head_ "3. the shell keeps what the command set"
 # The whole reason the rewrite sources a script instead of piping into one: a
 # child process would lose every cd, export and function the agent set up.
 out=$(asAgent "$(rewriteOf 'cd /tmp'); pwd")
@@ -97,7 +94,7 @@ out=$(asAgent "$(rewriteOf 'true'); echo \"[\${__frf:-unset}][\${__fro:-unset}][
 [ "$out" = "[unset][unset][unset]" ] && ok "and its own variables are unset afterwards" \
   || bad "the wrapper left variables in the shell: $out"
 
-head_ "B4. nothing unredacted is left on disk"
+head_ "4. nothing unredacted is left on disk"
 before=$(find "$RUNDIR" -name 'faramir.*' 2>/dev/null | wc -l)
 asAgent "$(rewriteOf 'cat notes.txt')" >/dev/null 2>&1
 after=$(find "$RUNDIR" -name 'faramir.*' 2>/dev/null | wc -l)
@@ -115,7 +112,7 @@ out=$(asAgent "trap 'echo MINE-RAN' EXIT; $(rewriteOf 'true'); trap -p EXIT")
 grep -q "MINE-RAN" <<<"$out" && ok "the caller's own EXIT trap still runs" || bad "the caller's trap was eaten: $out"
 grep -q "echo MINE-RAN" <<<"$out" && ok "and is still installed after the wrapper" || bad "trap not restored: $out"
 
-head_ "B5. one eval, not two"
+head_ "5. one eval, not two"
 # The guard shell-quotes for exactly one round trip through the sourced script.
 # A second expansion would run whatever the model put in a string.
 rm -f /tmp/second-eval
@@ -140,7 +137,7 @@ e;f
 g$h' ] && ok "backslashes, pipes, semicolons and dollars survive" || bad "metacharacters: [$out]"
 
 # --------------------------------------------------------------------------
-head_ "B6. every failure withholds output rather than printing it"
+head_ "6. every failure withholds output rather than printing it"
 # Without a private directory to capture into, the command must not run at all:
 # it would print whatever it found straight through.
 rm -f /tmp/it-ran
@@ -169,7 +166,7 @@ out=$(runuser -u op -- env HOME=/home/op XDG_RUNTIME_DIR=/run/user/9999 bash -c 
 [ -e /tmp/it-ran ] && bad "a directory owned by another account was accepted" \
   || ok "an XDG_RUNTIME_DIR owned by somebody else is refused"
 
-head_ "B7. a redactor that cannot answer withholds the output"
+head_ "7. a redactor that cannot answer withholds the output"
 # The most important failure: the command has already run and its output is
 # sitting in a file.  If the redactor cannot be reached, that output must not
 # be printed.
@@ -188,7 +185,7 @@ out=$(runuser -u op -- env HOME=/home/op XDG_RUNTIME_DIR="$RUNDIR" FARAMIR_CLI=/
 grep -q 'rc=1' <<<"$out" && ok "a successful command with withheld output returns non-zero" \
   || bad "a withheld output read as success: $out"
 
-head_ "B8. the same, with the broker actually stopped"
+head_ "8. the same, with the broker actually stopped"
 systemctl stop faramir-broker.socket faramir-broker.service >/dev/null 2>&1
 sleep 1
 rm -f /tmp/it-ran
@@ -202,7 +199,7 @@ sleep 2
 out=$(agentRun 'cat notes.txt')
 grep -q "$TOKEN" <<<"$out" && ok "and it recovers once the broker is back" || bad "did not recover: $out"
 
-head_ "B9. output the wrapper has to carry unchanged"
+head_ "9. output the wrapper has to carry unchanged"
 out=$(agentRun 'printf "no trailing newline"')
 [ "$out" = "no trailing newline" ] && ok "output with no trailing newline" || bad "trailing newline: [$out]"
 out=$(agentRun 'printf "a\n\n\nb\n"')
@@ -217,5 +214,4 @@ out=$(agentRun 'printf "caf\xc3\xa9 \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e \xf0\x9
 out=$(agentRun 'head -c 4096 /dev/urandom | wc -c')
 [ "$out" = "4096" ] && ok "binary output does not truncate the stream" || bad "binary: [$out]"
 
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

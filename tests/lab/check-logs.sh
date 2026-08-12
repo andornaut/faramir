@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite L: `faramir logs`, the operator's record.
+# `faramir logs`, the operator's record.
 #
 # Every other suite tests what the broker does.  This one tests the only thing
 # that says what it did.  Three claims rest on it and nothing else checks them:
@@ -16,10 +16,7 @@ SECRET='hunter2-correct-horse-battery'
 TOKEN='«SECRET:db/password»'
 LOG=/var/log/faramir/audit.log
 PROJECT=/home/op/project
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 run()  { runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -C "$PROJECT" "$@" 2>&1; }
 logs() { /usr/local/bin/faramir logs --color never "$@" 2>&1; }
@@ -32,7 +29,7 @@ shortOf() { printf '%s' "${1##*Z-}"; }
 echo "log $LOG, $(wc -l <"$LOG") records to start"
 
 # --------------------------------------------------------------------------
-head_ "L1. who may read it"
+head_ "1. who may read it"
 
 out=$(runuser -u op -- head -c1 "$LOG" 2>&1)
 grep -qi "permission denied" <<<"$out" && ok "the agent's uid cannot read the file" \
@@ -67,7 +64,7 @@ dmode=$(stat -c '%a' /var/log/faramir)
 logs -n 1 >/dev/null 2>&1 && ok "root reads it" || bad "root could not read the log"
 
 # --------------------------------------------------------------------------
-head_ "L2. the log_id a refusal hands out resolves"
+head_ "2. the log_id a refusal hands out resolves"
 #
 # `faramir run` prints "log_id=..." on a refusal and the MCP server hands the
 # same id to the model.  An id naming no record sends somebody to look up
@@ -113,7 +110,7 @@ grep -q "op (uid $(id -u op))" <<<"$detail" && ok "and who asked" \
   || bad "the record does not name the caller: [$detail]"
 
 # --------------------------------------------------------------------------
-head_ "L3. the columns say how each record ended"
+head_ "3. the columns say how each record ended"
 
 run -- /bin/true >/dev/null;                     idOK=$(lastID)
 run -- /bin/sh -c 'exit 7' >/dev/null;           idFail=$(lastID)
@@ -198,7 +195,7 @@ last=$(logs -n 3 | grep -v '^[0-9]\{4\}-' | tail -1 | awk '{print $1}')
 [ "$first" != "$last" ] && ok "and the listing is in order" || bad "-n 3 printed one row"
 
 # --------------------------------------------------------------------------
-head_ "L4. -n asks for a count, and gets exactly that"
+head_ "4. -n asks for a count, and gets exactly that"
 
 total=$(wc -l <"$LOG")
 rows() { logs -n "$1" | grep -cE '^[0-9a-f]{10} '; }
@@ -247,7 +244,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-head_ "L5. a long log: the ring wraps, lookup stays flat"
+head_ "5. a long log: the ring wraps, lookup stays flat"
 
 BIG=/tmp/big.log
 python3 - "$BIG" <<'PY'
@@ -288,7 +285,7 @@ grep -q 'record-406 *$' <<<"$out" && ok "and a lookup returns the record asked f
   || bad "bbbb000196 gave [$(head -2 <<<"$out")]"
 
 # --------------------------------------------------------------------------
-head_ "L6. a log that was damaged, or written by something else"
+head_ "6. a log that was damaged, or written by something else"
 
 DMG=/tmp/damaged.log
 {
@@ -338,7 +335,7 @@ out=$(logs --path /tmp/bare.log); code=$?
 [ $code -eq 0 ] && ok "an empty record prints as a row rather than failing" || bad "{} record: exit $code [$out]"
 
 # --------------------------------------------------------------------------
-head_ "L7. rotation: the file moves and the broker does not notice"
+head_ "7. rotation: the file moves and the broker does not notice"
 
 before=$(wc -l <"$LOG")
 oldID=$(head -1 "$LOG" | jq -r .log_id)
@@ -374,7 +371,7 @@ zcat "$LOG.1.gz" | grep -qF "$SECRET" && bad "the rotated log carries a value" \
   || ok "and carries no value"
 
 # --------------------------------------------------------------------------
-head_ "L8. no value reaches the log, whatever the command does with it"
+head_ "8. no value reaches the log, whatever the command does with it"
 
 run --env PW=secret://db/password -- /bin/sh -c '
   echo plain $PW
@@ -406,7 +403,7 @@ grep -qF "$SECRET" "$LOG" && bad "and it reached the log" || ok "and does not re
 rm -rf "$d"
 
 # --------------------------------------------------------------------------
-head_ "L9. the log is the agent's text, printed on the operator's terminal"
+head_ "9. the log is the agent's text, printed on the operator's terminal"
 
 # argv is chosen by the agent.  A row it can forge is a row that lies.
 run -- /bin/echo "$(printf 'x\n9999999999  00:00:00  exec   FORGED')" >/dev/null
@@ -427,7 +424,7 @@ starts=$(logs "$idCtl" | grep -cE '^[0-9a-f]{10} ')
 [ "$starts" -eq 1 ] && ok "one record prints one header line" || bad "$starts header lines for one record"
 
 # --------------------------------------------------------------------------
-head_ "L10. many at once, one line each"
+head_ "10. many at once, one line each"
 
 n=24
 for i in $(seq "$n"); do
@@ -451,7 +448,7 @@ skipped=$(logs -n 40 2>&1 >/dev/null | grep -c 'do not parse')
 [ "$skipped" -eq 0 ] && ok "the reader finds nothing unparseable" || bad "the reader reported damage"
 
 # --------------------------------------------------------------------------
-head_ "L11. one record is bounded, however much the command wrote"
+head_ "11. one record is bounded, however much the command wrote"
 
 maxbytes=$(sed -n 's/^max_record_bytes *= *\([0-9]*\).*/\1/p' /etc/faramir/config.toml)
 maxbytes=${maxbytes:-1048576}
@@ -487,7 +484,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-head_ "L12. where it reads from"
+head_ "12. where it reads from"
 
 out=$(logs --path /var/log/faramir/nope.log); code=$?
 [ $code -eq 1 ] && grep -q 'Nothing has been brokered' <<<"$out" \
@@ -535,7 +532,7 @@ raw=$(/usr/local/bin/faramir logs -n 1 | cat)
 printf '%s' "$raw" | grep -qP '\x1b\[' && bad "auto painted a pipe" || ok "auto leaves a pipe unpainted"
 
 # --------------------------------------------------------------------------
-head_ "L13. record shapes the broker writes but this run did not produce"
+head_ "13. record shapes the broker writes but this run did not produce"
 #
 # Synthetic records, so what is under test is the rendering only: an operator
 # meets these on a host where an approval or a rekey happened.
@@ -566,5 +563,4 @@ grep -q '«SECRET:db/password»×3' <<<"$out" && grep -q '«SECRET:api/token»×
   && ok "the detail view breaks the count down per token" || bad "counts: [$out]"
 
 # --------------------------------------------------------------------------
-printf '\n== suite L: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

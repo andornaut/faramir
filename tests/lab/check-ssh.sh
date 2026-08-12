@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite N: the SSH agent relay, against a real managed host.
+# The SSH agent relay, against a real managed host.
 #
 # The promise: a brokered command authenticates to a managed host with a key it
 # cannot read, and what it is handed is two agent operations rather than the
@@ -15,17 +15,14 @@ KEY=/etc/faramir/id_ed25519
 RELAY=/run/faramir/ssh-agent.sock
 HOST=managed-host
 LOG=/var/log/faramir/audit.log
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 brokered() { runuser -u op -- /usr/local/bin/faramir run --quiet -t 25 -- "$@" 2>&1; }
 # ssh with nothing interactive and nothing inherited from a user's config.
 sshb() { brokered /usr/bin/ssh -o BatchMode=yes -o ConnectTimeout=8 "$@"; }
 
 # --------------------------------------------------------------------------
-head_ "N1. a brokered command reaches the managed host"
+head_ "1. a brokered command reaches the managed host"
 
 out=$(sshb deploy@$HOST /usr/bin/id -un)
 [ "$(tail -1 <<<"$out")" = deploy ] && ok "authenticated as deploy on the managed host" \
@@ -40,7 +37,7 @@ grep -q 'CONN=[0-9]' <<<"$out" && ok "and the managed host sees a real connectio
   || bad "no SSH_CONNECTION on the far side: ${out:0:100}"
 
 # --------------------------------------------------------------------------
-head_ "N2. and it cannot read what it authenticated with"
+head_ "2. and it cannot read what it authenticated with"
 
 runuser -u faramir-exec -- test -r $KEY 2>/dev/null \
   && bad "faramir-exec can read the private key it authenticates with" \
@@ -66,7 +63,7 @@ grep -qi 'permission denied' <<<"$out" && ok "the agent's own uid cannot open th
   || bad "op reached the relay: ${out:0:100}"
 
 # --------------------------------------------------------------------------
-head_ "N3. two operations, and the rest refused"
+head_ "3. two operations, and the rest refused"
 
 out=$(brokered /usr/bin/ssh-add -l)
 grep -q SHA256 <<<"$out" && ok "list identities is served: $(grep -o 'SHA256:[^ ]*' <<<"$out" | head -1 | cut -c1-26)..." \
@@ -105,7 +102,7 @@ out=$(sshb deploy@$HOST /usr/bin/id -un)
   || bad "the relay stopped working: ${out:0:110}"
 
 # --------------------------------------------------------------------------
-head_ "N4. where that key can be used"
+head_ "4. where that key can be used"
 #
 # The blast radius as documented: any host trusting the public key, for as long
 # as the broker holds it.  What bounds it is which accounts trust it.
@@ -120,7 +117,7 @@ grep -q 'faramir-exec@' <<<"$out" && ok "ssh with no user asks for faramir-exec,
   || bad "a userless ssh did something else: ${out:0:110}"
 
 # --------------------------------------------------------------------------
-head_ "N5. the host has to be pinned before the key is offered"
+head_ "5. the host has to be pinned before the key is offered"
 
 # The same host under a name nothing pinned: the executor cannot be prompted to
 # accept a key, so this fails before the broker's key is offered.
@@ -153,7 +150,7 @@ else
 fi
 
 # --------------------------------------------------------------------------
-head_ "N6. a value injected here, printed there, comes back redacted"
+head_ "6. a value injected here, printed there, comes back redacted"
 
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 25 --env DB=secret://db/password -- \
   /bin/sh -c "ssh -o BatchMode=yes -o ConnectTimeout=8 deploy@$HOST \"echo REMOTE=\$DB\"" 2>&1)
@@ -172,7 +169,7 @@ out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 25 --env DB=secret:
   || bad "the remote did not receive the value: ${out:0:110}"
 
 # --------------------------------------------------------------------------
-head_ "N7. several at once"
+head_ "7. several at once"
 #
 # Two descriptors per relayed connection, and a playbook authenticates to as many
 # hosts at once as -f allows.
@@ -194,7 +191,7 @@ brokered /usr/bin/ssh-add -l | grep -q SHA256 && ok "and the agent still holds i
   || bad "the agent lost its key under concurrency"
 
 # --------------------------------------------------------------------------
-head_ "N8. agent forwarding relocates the signing capability"
+head_ "8. agent forwarding relocates the signing capability"
 #
 # Not a defect: -A is the command's own choice, and a brokered command can
 # already sign anything.  Worth stating, because while that connection is open
@@ -213,7 +210,7 @@ grep -qi 'PRIVATE KEY' <<<"$out" && bad "the key crossed to the managed host" \
   || ok "and the key itself does not cross the wire"
 
 # --------------------------------------------------------------------------
-head_ "N9. a prompt the command reads from its terminal"
+head_ "9. a prompt the command reads from its terminal"
 #
 # docs/operating.md: "Interactive prompts fail rather than hang. Stdin is
 # /dev/null."  Stdin is, and a command reading stdin does end.  But the child is
@@ -252,6 +249,11 @@ slots=${slots:-4}
 for _ in $(seq "$slots"); do
   runuser -u op -- /usr/local/bin/faramir run --quiet -t 12 -- /usr/bin/ssh-add -x >/dev/null 2>&1 &
 done
+# A fixed wait rather than a waitfor, because what holds a slot is the executor
+# on the broker's side and not a process of ssh-add's own: the only observable
+# for "the slots are taken" is the busy refusal this is about to ask for.  Long
+# enough that all of them have started, short enough that none of the 12s runs
+# above has ended.
 sleep 4
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 8 -- /bin/echo works 2>&1)
 if grep -q 'busy' <<<"$out"; then
@@ -262,7 +264,7 @@ fi
 wait
 
 # --------------------------------------------------------------------------
-head_ "N10. the audit log"
+head_ "10. the audit log"
 
 records=$(grep -c '"op":"exec"' $LOG)
 [ "$records" -gt 0 ] && ok "$records exec record(s) written" || bad "nothing was recorded"
@@ -272,14 +274,18 @@ grep -q "$HOST" $LOG && ok "the brokered ssh is recorded with its argv" \
   || bad "no record names the managed host"
 # The key never passes through a record, argv or output.
 grep -q 'PRIVATE KEY' $LOG && bad "the log holds key material" || ok "and no key material"
-# The busy refusals from N9 are legible as refusals rather than as blank rows.
+# A busy refusal is legible as a refusal rather than as a blank row.  Whether
+# the run produced one at all is up to how the concurrency gate happened to fall,
+# so say when it did not: an assertion that quietly does not run reads in the
+# counts as one that was never written.
 busy_id=$(jq -r 'select(.refused=="busy") | .log_id' $LOG 2>/dev/null | tail -1)
 if [ -n "$busy_id" ]; then
   faramir logs --color never "$busy_id" | grep -q busy \
     && ok "a busy refusal reads as busy in faramir logs" \
     || bad "a busy refusal renders with no outcome: $(faramir logs --color never "$busy_id" | head -1)"
+else
+  note "nothing hit the concurrency gate this run, so how a busy refusal reads went untested"
 fi
 
 # --------------------------------------------------------------------------
-printf '\n== suite N: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

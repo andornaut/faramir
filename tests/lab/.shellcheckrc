@@ -8,10 +8,10 @@
 # assertion would be four lines instead of two, and what a suite is for is being
 # read as a list of claims.
 #
-# The hazard SC2015 exists for is real and shellcheck cannot see it: writing ok
-# in both branches makes an assertion that always passes.  That has happened
-# here twice.  What catches it is a control -- run the suite against a build
-# where the claim is false and watch it fail -- rather than a linter.
+# The hazard SC2015 exists for is real and shellcheck cannot see it: ok in both
+# branches is an assertion that always passes, and it counts toward the passes
+# as though it were a claim.  Write an observation with note instead, and prove
+# a claim by running the suite against a build where it is false.
 disable=SC2015
 
 # Bodies of node and python heredocs, and jq programs, are single-quoted on

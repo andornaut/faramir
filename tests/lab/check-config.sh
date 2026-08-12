@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite C: changing an install's configuration, which is drop-ins plus reload.
+# Changing an install's configuration, which is drop-ins plus reload.
 #
 # config.toml is init's and is rewritten every run, so everything an operator
 # changes goes in /etc/faramir/config.d/*.toml.  Two things make this worth a
@@ -17,10 +17,7 @@ set -u
 CFG=/etc/faramir/config.toml
 DROPIN=/etc/faramir/config.d
 SECRET='hunter2-correct-horse-battery'
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 drop() { mkdir -p $DROPIN; printf '%s\n' "$2" > "$DROPIN/$1"; }
 undrop() { rm -f $DROPIN/*.toml 2>/dev/null; }
@@ -34,11 +31,7 @@ ckcode(){ runuser -u faramir-broker -- /usr/local/bin/faramir broker -c $CFG --c
 settle() {
   systemctl reset-failed 'faramir-*' >/dev/null 2>&1
   /usr/local/bin/faramir reload >/dev/null 2>&1
-  for _ in $(seq 25); do
-    runuser -u op -- /usr/local/bin/faramir list-secrets >/dev/null 2>&1 && return 0
-    sleep 1
-  done
-  return 1
+  waitfor 25 runuser -u op -- /usr/local/bin/faramir list-secrets
 }
 
 undrop
@@ -46,7 +39,7 @@ mkdir -p $DROPIN
 echo "config.d is $DROPIN; base config $CFG"
 
 # --------------------------------------------------------------------------
-head_ "C1. a drop-in changes a default, and reload is what applies it"
+head_ "1. a drop-in changes a default, and reload is what applies it"
 
 drop 10-tune.toml '[secrets]
 min_length = 12'
@@ -65,7 +58,7 @@ n=$(check | jq -r '.secrets.not_redactable | length' 2>/dev/null)
 undrop; settle || bad "the host did not come back after removing the drop-in"
 
 # --------------------------------------------------------------------------
-head_ "C2. the keys a drop-in may not set"
+head_ "2. the keys a drop-in may not set"
 #
 # Each is init's, derived from a flag or from the install layout.  A drop-in
 # setting one is refused rather than merged, and the refusal names what to run.
@@ -112,7 +105,7 @@ grep -q -- '--exec-user' <<<"$out" && ok "and the refusal names the flag that se
   || bad "the refusal does not name a flag: $(grep -iE 'exec_group' <<<"$out" | head -1 | cut -c1-110)"
 
 # --------------------------------------------------------------------------
-head_ "C3. what a drop-in may set, and how two of them combine"
+head_ "3. what a drop-in may set, and how two of them combine"
 
 # An inventory accumulates: one entry per owner, so a second drop-in adds
 # rather than replacing what the first named.
@@ -162,7 +155,7 @@ grep -qiE 'one owner|both|policy' <<<"$out" \
 undrop
 
 # --------------------------------------------------------------------------
-head_ "C4. a drop-in that is wrong does not take the host down"
+head_ "4. a drop-in that is wrong does not take the host down"
 
 # The running broker holds its value set; a bad file must not be loaded into it.
 refs_before=$(runuser -u op -- /usr/local/bin/faramir list-secrets 2>/dev/null | wc -l)
@@ -203,7 +196,7 @@ refs=$(runuser -u op -- /usr/local/bin/faramir list-secrets 2>/dev/null | wc -l)
   || bad "after recovery the broker serves $refs of $refs_before refs"
 
 # --------------------------------------------------------------------------
-head_ "C5. reload itself"
+head_ "5. reload itself"
 
 out=$(runuser -u op -- /usr/local/bin/faramir reload 2>&1); code=$?
 [ $code -ne 0 ] && grep -qi 'root' <<<"$out" && ok "reload as the agent's uid is refused: it stops the units" \
@@ -222,7 +215,7 @@ ok "and every socket is still listening"
 settle || bad "the host did not settle"
 
 # --------------------------------------------------------------------------
-head_ "C6. init rewrites its own file and leaves a drop-in alone"
+head_ "6. init rewrites its own file and leaves a drop-in alone"
 
 drop 40-mine.toml '[secrets]
 refresh_interval_sec = 9'
@@ -238,7 +231,7 @@ undrop
 settle || bad "the host did not settle after init"
 
 # --------------------------------------------------------------------------
-head_ "C7. and none of this leaked a value"
+head_ "7. and none of this leaked a value"
 
 grep -rqF "$SECRET" $DROPIN /tmp/c1.json /tmp/c4.log 2>/dev/null \
   && bad "a value is in the configuration or in a --check report" \
@@ -247,5 +240,4 @@ grep -qF "$SECRET" /var/log/faramir/audit.log && bad "a value reached the audit 
   || ok "and none in the audit log"
 
 # --------------------------------------------------------------------------
-printf '\n== suite C: %d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary

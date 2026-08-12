@@ -1,5 +1,5 @@
 #!/bin/bash
-# Suite C: the leak hunt.
+# The leak hunt.
 #
 # The guard refuses what someone thought to name; the wrapper is what covers
 # everything else.  So the question that decides whether any of this works is
@@ -9,11 +9,7 @@
 # Every rendering below is produced by a real tool, not by restating the
 # redactor's own variant list, and every one goes through the running broker.
 set -u
-PASS=0; FAIL=0
-ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
-bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
-note() { printf '  --   %s\n' "$1"; }
-head_() { printf '\n== %s\n' "$1"; }
+. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 # Exported, not just set: several producers below are python reading
 # os.environ, so that the value is never interpolated into a program's source
@@ -28,7 +24,7 @@ redact() { runuser -u op -- /usr/local/bin/faramir redact; }
 leaks() { grep -qF "$SECRET"; }
 
 # --------------------------------------------------------------------------
-head_ "C1. the shapes a program prints a value in by accident"
+head_ "1. the shapes a program prints a value in by accident"
 # Each rendering is produced by the tool that actually produces it, so this
 # asserts against the encodings in the world rather than against the list the
 # redactor was written from.
@@ -53,7 +49,7 @@ try "inside a shell double-quote"     "printf '%s\n' \"\\\"\$SECRET\\\"\""
 try "no separator around it"          "printf 'prefix%ssuffix\n' \"\$SECRET\""
 try "repeated on one line"            "printf '%s %s %s\n' \"\$SECRET\" \"\$SECRET\" \"\$SECRET\""
 
-head_ "C2. mangled on the way out"
+head_ "2. mangled on the way out"
 # A value the printing program broke up or coloured in.
 out=$(printf '%s' "$SECRET" | fold -w 6 | redact)
 grep -qF "$TOKEN" <<<"$out" && ok "split across lines by a formatter (fold -w 6)" \
@@ -69,7 +65,7 @@ grep -qF "$TOKEN" <<<"$out" && ok "with escape sequences spliced into the middle
 out=$(printf '%s\r\n' "$SECRET" | redact)
 grep -qF "$TOKEN" <<<"$out" && ok "with CRLF line endings" || bad "CRLF leaked: $out"
 
-head_ "C3. where in the stream it sits"
+head_ "3. where in the stream it sits"
 # The redactor holds back a tail so a value split across two reads is still
 # caught.  These put the value exactly where the seam would be.
 #
@@ -110,7 +106,7 @@ sys.stdout.write('.'*32740 + os.environ['PW'] + '.'*200 + '\n')" 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "faramir run leaks at the chunk offset too" \
   || ok "faramir run has no seam at that offset: one redactor spans the stream"
 
-head_ "C4. volume"
+head_ "4. volume"
 size=$(python3 -c "
 import os,sys
 s=os.environ['SECRET']
@@ -125,7 +121,7 @@ grep -qF "$SECRET" /tmp/big.out && bad "and the raw value is in there too" \
 [ "$(grep -c 'x\{4096\}' /tmp/big.out)" = "6000" ] && ok "and nothing else was dropped" \
   || bad "output was truncated: $(grep -c 'x\{4096\}' /tmp/big.out) blocks of 6000"
 
-head_ "C5. what it must not eat"
+head_ "5. what it must not eat"
 out=$(printf 'the word battery appears here\nand horse too\n' | redact)
 [ "$out" = "the word battery appears here
 and horse too" ] && ok "a word that is part of a secret is not redacted on its own" \
@@ -136,7 +132,7 @@ out=$(head -c 200000 /dev/urandom | redact | wc -c)
 [ "$out" -gt 0 ] && ok "binary input does not hang or empty the stream ($out bytes out)" \
   || bad "binary input produced nothing"
 
-head_ "C6. the value that is too short to redact"
+head_ "6. the value that is too short to redact"
 # A short value matches inside ordinary words, so redacting it would blank
 # unrelated output.  It is refused at load instead -- which means it is also
 # never injected, and the operator has to be told, or they would assume a ref
@@ -167,7 +163,7 @@ grep -qF "$PIN" <<<"$out" && bad "the refused value was injected anyway: $out" \
 grep -qi 'refused\|not redactable\|cannot' <<<"$out" && ok "with a reason the caller can act on" \
   || bad "the refusal does not explain itself: $out"
 
-head_ "C7. the documented edges, pinned so a change is deliberate"
+head_ "7. the documented edges, pinned so a change is deliberate"
 # HTML entity escaping is deliberately not covered: each character has a named,
 # a decimal and a hexadecimal form and an encoder picks which to escape at all,
 # so a variant list would cover one producer and read as coverage of the rest.
@@ -189,7 +185,7 @@ out=$(printf '%s\n' "$SECRET" | redact | redact)
 [ "$out" = "$TOKEN" ] && ok "redaction is idempotent, so a second pass costs nothing" \
   || bad "a second pass changed the output: [$out]"
 
-head_ "C8. the same value through the other path"
+head_ "8. the same value through the other path"
 # `faramir run` injects and redacts on its own PTY; the wrapper redacts a
 # captured file.  A value must not be covered on one path and not the other.
 out=$(runuser -u op -- faramir run --quiet -t 20 --env PW=secret://db/password \
@@ -204,5 +200,4 @@ log=$(tail -3 /var/log/faramir/audit.log)
 grep -qF "$SECRET" <<<"$log" && bad "THE AUDIT LOG CONTAINS THE VALUE" || ok "the audit log holds no value"
 grep -q 'db/password' <<<"$log" && ok "it names the ref that was used" || bad "the ref is not recorded: $log"
 
-printf '\n%d passed, %d failed\n' "$PASS" "$FAIL"
-[ "$FAIL" -eq 0 ]
+summary
