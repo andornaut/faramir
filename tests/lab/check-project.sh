@@ -281,4 +281,171 @@ else
 fi
 
 # --------------------------------------------------------------------------
+head_ "10. the record of what was enrolled"
+#
+# An enrolment writes into the tree and into the operator's home, and neither
+# half names the other: a tree carries an agent's settings without saying which
+# account they were written for, and a home carries deny rules without saying
+# which trees rely on them.  This file is the only thing that can tell `doctor`
+# a tree depends on rules the home it is looking at shows no sign of.
+
+REC=/etc/faramir/enrolled.json
+# agentsOf and operatorOf read one tree's entry.  Empty when there is none,
+# which is itself an assertion below.
+agentsOf()   { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.agents[]]|join(",")' $REC 2>/dev/null; }
+operatorOf() { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.operator]|join(",")' $REC 2>/dev/null; }
+entriesFor() { jq -r --arg d "$1" '[.[]|select(.dir==$d)]|length' $REC 2>/dev/null; }
+
+mode=$(stat -c '%a %U:%G' $REC 2>/dev/null)
+[ "$mode" = "600 root:root" ] && ok "the record is $mode: init-project writes it and doctor reads it, both as root" \
+  || bad "the record is [$mode], want 600 root:root"
+jq -e . $REC >/dev/null 2>&1 && ok "and parses as JSON" \
+  || bad "the record does not parse: $(head -c 120 $REC 2>/dev/null)"
+
+D=$(tree /home/op/p-record)
+enrol "$D" --agent claude --agent gemini >/dev/null 2>&1
+[ "$(agentsOf "$D")" = "claude,gemini" ] && ok "an enrolment records the agents it was made for" \
+  || bad "recorded [$(agentsOf "$D")], want claude,gemini"
+[ "$(operatorOf "$D")" = "$OP" ] && ok "and the account it was made for" \
+  || bad "recorded operator [$(operatorOf "$D")], want $OP"
+
+# Keyed by directory, so re-enrolling says the later thing rather than both.
+enrol "$D" --agent opencode >/dev/null 2>&1
+[ "$(agentsOf "$D")" = "opencode" ] && ok "re-enrolling a tree replaces its entry rather than adding one" \
+  || bad "the entry is [$(agentsOf "$D")], want opencode"
+[ "$(entriesFor "$D")" = 1 ] && ok "and the tree appears once" \
+  || bad "the tree has $(entriesFor "$D") entries"
+
+[ "$(jq -r '[.[].dir] == ([.[].dir]|sort)' $REC)" = true ] \
+  && ok "the entries are sorted by tree, so a second run does not churn the file" \
+  || bad "the entries are not sorted: $(jq -c '[.[].dir]' $REC)"
+
+# Nothing to tell doctor about, and an entry with no agents would report as
+# though there were.
+D=$(tree /home/op/p-noagent)
+enrol "$D" >/dev/null 2>&1
+[ -z "$(agentsOf "$D")" ] && ok "a tree enrolled for no agent leaves no entry" \
+  || bad "an agentless enrolment was recorded as [$(agentsOf "$D")]"
+
+# The half of it that matters: doctor asks this file, not the home.
+D=$(tree /home/op/p-recorded); enrol "$D" --agent kilocode >/dev/null 2>&1
+/usr/local/bin/faramir doctor --operator-user $OP --json >/tmp/p-doctor.json 2>/dev/null
+rules() { jq -r '[.findings[]|select(.check=="agent rules")|.detail]|join(" | ")' /tmp/p-doctor.json; }
+grep -q kilocode <<<"$(rules)" \
+  && ok "doctor examines an agent because a tree was enrolled for it" \
+  || bad "doctor says nothing about kilocode: $(rules | head -c 140)"
+
+# Advisory and allowed to be stale: a tree can be moved or deleted with nothing
+# to tell this file, so a reader reports the entry rather than treating it as a
+# fault, and rather than dropping the record of it.
+rm -rf "$D"
+/usr/local/bin/faramir doctor --operator-user $OP --json >/tmp/p-doctor.json 2>/dev/null
+grep -q "$D" <<<"$(rules)" && ok "a tree that has gone since is named rather than passed over" \
+  || bad "doctor did not report the missing tree: $(rules | head -c 140)"
+[ "$(entriesFor "$D")" = 1 ] && ok "and its entry survives, this file not being the authority on what exists" \
+  || bad "the entry for a missing tree was removed"
+
+# --------------------------------------------------------------------------
+head_ "11. --agent auto, which the two commands ask of different places"
+#
+# The default on both.  `init` asks the operator's home and `init-project` asks
+# the tree, and naming an agent configures it whether or not it is there.  So
+# the two compose into the union, and there is no rule about which wins.
+
+D=$(tree /home/op/p-auto-claude); install -d -o $OP -g $OP "$D/.claude"
+enrol "$D" >/dev/null 2>&1
+[ "$(agentsOf "$D")" = "claude" ] && ok "a tree carrying .claude enrols claude with no --agent given" \
+  || bad "auto found [$(agentsOf "$D")] in a tree carrying .claude"
+
+D=$(tree /home/op/p-auto-none)
+out=$(enrol "$D")
+[ -z "$(agentsOf "$D")" ] && ok "a tree carrying nothing enrols nothing" \
+  || bad "auto found [$(agentsOf "$D")] in an empty tree"
+grep -q 'no coding agent is configured' <<<"$out" \
+  && ok "and says so rather than enrolling it silently" \
+  || bad "an empty tree was enrolled with nothing said: ${out:0:120}"
+grep -q 'claude, gemini, kilocode, opencode, pi' <<<"$out" \
+  && ok "  naming all five it could be told to write for" \
+  || bad "  the message does not name the five: ${out:0:160}"
+
+# Evidence, not proof: what is found is added to what was asked for.
+D=$(tree /home/op/p-auto-plus); install -d -o $OP -g $OP "$D/.gemini"
+enrol "$D" --agent auto --agent pi >/dev/null 2>&1
+[ "$(agentsOf "$D")" = "gemini,pi" ] && ok "auto and a name compose: what was found, plus what was asked for" \
+  || bad "--agent auto --agent pi gave [$(agentsOf "$D")], want gemini,pi"
+
+D=$(tree /home/op/p-named-absent)
+enrol "$D" --agent pi >/dev/null 2>&1
+[ "$(agentsOf "$D")" = "pi" ] && ok "and a name alone enrols an agent the tree shows no sign of" \
+  || bad "naming pi in a bare tree gave [$(agentsOf "$D")]"
+
+# Refused rather than skipped, which would leave an operator believing an agent
+# is covered.
+D=$(tree /home/op/p-unknown)
+out=$(enrol "$D" --agent nosuch); rc=$?
+[ "$rc" -ne 0 ] && ok "an unknown --agent fails (exit $rc) rather than being passed over" \
+  || bad "an unknown --agent exited 0"
+grep -q 'unknown --agent' <<<"$out" && ok "and names the ones it does know" \
+  || bad "the refusal explains nothing: ${out:0:120}"
+[ -z "$(agentsOf "$D")" ] && ok "and nothing was enrolled" \
+  || bad "a failed enrolment recorded [$(agentsOf "$D")]"
+
+# --------------------------------------------------------------------------
+head_ "12. the credentials section in the tree's instructions file"
+#
+# Documentation rather than enforcement: deleting the section changes nothing
+# about what is reachable.  What matters is that it is never written over
+# somebody else's words, the file being prose an operator edits and asks agents
+# to rewrite.
+
+D=$(tree /home/op/p-instr)
+enrol "$D" >/dev/null 2>&1
+owned "$D/AGENTS.md" "the instructions file"
+grep -q '^# Credentials' "$D/AGENTS.md" && ok "  carrying the credentials section" \
+  || bad "  without the credentials section"
+grep -q 'faramir_run' "$D/AGENTS.md" && ok "  which names the tool to use instead" \
+  || bad "  it does not name faramir_run"
+
+sum=$(md5sum "$D/AGENTS.md" | cut -d' ' -f1)
+enrol "$D" >/dev/null 2>&1
+[ "$(md5sum "$D/AGENTS.md" | cut -d' ' -f1)" = "$sum" ] \
+  && ok "a second enrolment leaves a section that is already current byte-identical" \
+  || bad "the instructions file was rewritten on a second run"
+
+D=$(tree /home/op/p-instr-own)
+printf '# House rules\n\nAlways run the tests.\n' > "$D/AGENTS.md"
+chown $OP:$OP "$D/AGENTS.md"
+enrol "$D" >/dev/null 2>&1
+grep -q 'Always run the tests' "$D/AGENTS.md" && ok "an existing file keeps what the operator wrote" \
+  || bad "the operator's own instructions were replaced"
+grep -q '^# Credentials' "$D/AGENTS.md" && ok "and gains the section after it" \
+  || bad "the section was not added to an existing file"
+
+# It may be a section an earlier version wrote, the operator's own notes, or the
+# same words reworded by whatever last tidied the file.  Which of those it is
+# cannot be read off the file, and none of them is faramir's to rewrite.
+D=$(tree /home/op/p-instr-drift)
+printf '# My notes\n\nWe use faramir here somehow.\n' > "$D/AGENTS.md"
+chown $OP:$OP "$D/AGENTS.md"
+sum=$(md5sum "$D/AGENTS.md" | cut -d' ' -f1)
+out=$(enrol "$D")
+[ "$(md5sum "$D/AGENTS.md" | cut -d' ' -f1)" = "$sum" ] \
+  && ok "a file that mentions faramir but has drifted is left byte-identical" \
+  || bad "a drifted instructions file was edited in place"
+grep -q 'mentions faramir but does not carry the credentials section' <<<"$out" \
+  && ok "and the drift is reported rather than reconciled" \
+  || bad "the drift was not reported: ${out:0:140}"
+grep -q 'left as it is' <<<"$out" && ok "  with the step saying the file was left" \
+  || bad "  the step does not say the file was left"
+
+# CLAUDE.md when that is the file the tree has: the first of the two that
+# exists is the one written into, and a second is never created.
+D=$(tree /home/op/p-instr-claude)
+printf '# Notes\n' > "$D/CLAUDE.md"; chown $OP:$OP "$D/CLAUDE.md"
+enrol "$D" >/dev/null 2>&1
+grep -q '^# Credentials' "$D/CLAUDE.md" && ok "CLAUDE.md is written into when that is the file the tree has" \
+  || bad "the section did not go into CLAUDE.md"
+absent "$D/AGENTS.md" "a second instructions file"
+
+# --------------------------------------------------------------------------
 summary

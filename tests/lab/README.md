@@ -62,8 +62,8 @@ enrolled project tree.
 
 | Script | What it covers |
 | --- | --- |
-| `check-init.sh` | `faramir init` against the layout in `docs/layout.md` |
-| `check-project.sh` | `faramir init-project`, the enrolment that protects a tree |
+| `check-init.sh` | `faramir init` against the layout in `docs/layout.md`, and which agents it writes rules for |
+| `check-project.sh` | `faramir init-project`: the enrolment that protects a tree, the record of what was enrolled, and the credentials section |
 | `check-config.sh` | changing a configuration: drop-ins plus reload |
 | `check-disclose.sh` | what the broker tells the account it keeps values from |
 | `check-guard.sh` | the guard's decision surface |

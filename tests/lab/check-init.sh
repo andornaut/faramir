@@ -113,4 +113,55 @@ head_ "no sudo grant unless asked for"
 absent /etc/sudoers.d/faramir
 absent /etc/pam.d/faramir-sudo
 
+head_ "the agents init writes deny rules for"
+#
+# `--agent auto` is the default, and what it asks is which agents this home
+# carries.  Read through --dry-run, which answers without writing: this suite
+# runs before anything has enrolled, and every suite after it examines this
+# account.
+
+agentStep() {
+  /usr/local/bin/faramir init --operator-user op --dry-run --json "$@" 2>/dev/null \
+    | jq -r '[.steps[]|select(.step=="agent config")|.detail]|join(" ")'
+}
+out=$(agentStep)
+grep -q 'no coding agent found in /home/op' <<<"$out" \
+  && ok "a home carrying no agent gets no deny rules, and is told so" \
+  || bad "auto found something in a home with no agent in it: $out"
+grep -q 'claude, gemini, kilocode, opencode, pi' <<<"$out" \
+  && ok "and the message names all five it could be told to write for" \
+  || bad "the message does not name the five: $out"
+
+# The marker is made and removed here: init asks the home, so a directory left
+# behind would answer for every suite after this one.
+#
+# The claim is the pair.  Nothing in the report names what auto found, and the
+# message for finding nothing lists every known agent by name, so matching a
+# name in it would pass whether or not the marker was read.  What says the
+# marker was read is that the same command stops saying it found nothing.
+install -d -o op -g op /home/op/.gemini
+out=$(agentStep)
+rm -rf /home/op/.gemini
+grep -q 'no coding agent found' <<<"$out" \
+  && bad "a home carrying .gemini was still read as carrying no agent: $out" \
+  || ok "and the same home with .gemini in it is not: the marker is what auto reads"
+absent /home/op/.gemini
+
+# Naming an agent configures it whether or not the home shows any sign of it,
+# which is what makes auto safe as the default: it only ever adds.  The step
+# carries no detail when it has rules to write, so what says the name was taken
+# is that the nothing-to-write message is gone.
+out=$(agentStep --agent pi)
+grep -q 'no coding agent found' <<<"$out" \
+  && bad "naming pi in a bare home still reported nothing to write for: $out" \
+  || ok "and naming an agent writes for it whether or not the home shows a sign of it"
+
+# A dry run answers and writes nothing, which is what makes the three checks
+# above safe to run against the account every later suite depends on.
+before=$(find /home/op -maxdepth 2 -name 'settings.json' -o -maxdepth 2 -name 'faramir.toml' 2>/dev/null | sort)
+/usr/local/bin/faramir init --operator-user op --dry-run --agent claude --agent gemini >/dev/null 2>&1
+[ "$before" = "$(find /home/op -maxdepth 2 -name 'settings.json' -o -maxdepth 2 -name 'faramir.toml' 2>/dev/null | sort)" ] \
+  && ok "and a dry run wrote nothing into the home while answering" \
+  || bad "a dry run wrote into the operator's home"
+
 summary
