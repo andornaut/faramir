@@ -5,8 +5,8 @@ package e2e
 // A broker alone, without the keeper, the executor or a delegated cgroup: the
 // approval channel touches none of them, so this runs where the full harness
 // skips.  What it covers is the wiring between the flags and the ops, which is
-// the part no unit test reaches: `--deny` with no id has to find the one
-// question waiting, refuse it, and release the sudo blocked on it.
+// the part no unit test reaches: `deny` with no id has to find the one question
+// waiting, refuse it, and release the sudo blocked on it.
 
 import (
 	"os"
@@ -70,14 +70,14 @@ func raise(t *testing.T, s *server.Server, argv ...string) <-chan bool {
 	return nil
 }
 
-// `faramir approve --deny` with no id refuses the one question waiting.  Only
+// `faramir deny` with no id refuses the one question waiting.  Only
 // one is ever outstanding, so naming it adds a step and nothing else, and
 // refusing something unseen is safe in a way approving it would not be.
 func TestCLIDenyWithoutAnIDRefusesTheWaitingQuestion(t *testing.T) {
 	s, sock := approvalBroker(t)
 	granted := raise(t, s, "ansible-playbook", "site.yml")
 
-	result := runCLI(t, sock, "approve", "--deny")
+	result := runCLI(t, sock, "deny")
 	if result.code != 0 {
 		t.Fatalf("code = %d, want 0\nstdout: %s\nstderr: %s",
 			result.code, result.stdout, result.stderr)
@@ -91,7 +91,7 @@ func TestCLIDenyWithoutAnIDRefusesTheWaitingQuestion(t *testing.T) {
 		t.Errorf("stdout does not say it was refused: %s", result.stdout)
 	}
 	if approved := <-granted; approved {
-		t.Error("the sudo was approved by a --deny")
+		t.Error("the sudo was approved by a deny")
 	}
 	if left := s.Approval.Questions(); len(left) != 0 {
 		t.Errorf("%d questions still waiting after a refusal", len(left))
@@ -103,7 +103,7 @@ func TestCLIDenyWithoutAnIDRefusesTheWaitingQuestion(t *testing.T) {
 func TestCLIDenyWithNothingWaitingSaysSo(t *testing.T) {
 	_, sock := approvalBroker(t)
 
-	result := runCLI(t, sock, "approve", "--deny")
+	result := runCLI(t, sock, "deny")
 	if result.code != 1 {
 		t.Errorf("code = %d, want 1 with nothing waiting\nstderr: %s",
 			result.code, result.stderr)
@@ -119,11 +119,14 @@ func TestCLIListNamesTheIDAndTheTimeLeft(t *testing.T) {
 	s, sock := approvalBroker(t)
 	raise(t, s, "ansible-playbook", "site.yml")
 
-	result := runCLI(t, sock, "approve")
+	result := runCLI(t, sock, "approvals")
 	if result.code != 0 {
 		t.Fatalf("code = %d, want 0\nstderr: %s", result.code, result.stderr)
 	}
-	for _, want := range []string{"ansible-playbook site.yml", "answer with: faramir approve", "within"} {
+	for _, want := range []string{
+		"ansible-playbook site.yml", "approve with: faramir approve",
+		"refuse with:  faramir deny", "within",
+	} {
 		if !strings.Contains(result.stdout, want) {
 			t.Errorf("stdout does not carry %q: %s", want, result.stdout)
 		}
