@@ -1,6 +1,10 @@
 [Unit]
 Description=faramir keeper socket
 Documentation=file:///usr/local/share/doc/faramir/README.md
+# Socket activated and restarted by an install, so repeated starts are ordinary.
+# The default limit reads that as a crash loop and latches the unit into failed,
+# where `systemctl start` will not bring it back and only `reset-failed` does.
+StartLimitIntervalSec=0
 
 [Socket]
 ListenStream={{.RunDir}}/keeper.sock

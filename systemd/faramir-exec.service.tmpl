@@ -4,7 +4,8 @@ Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-exec.socket
 After=faramir-exec.socket network.target
 # Socket activated and restarted by an install, so repeated starts are ordinary.
-# The default limit reads that as a crash loop and fails the socket with it.
+# The default limit reads that as a crash loop and latches this unit into
+# failed.  The socket unit carries the same directive, for the same reason.
 StartLimitIntervalSec=0
 
 [Service]
