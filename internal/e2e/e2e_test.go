@@ -371,9 +371,11 @@ func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
 	}
 }
 
-// The reason for the PTY: ssh and sudo write prompts straight to /dev/tty,
-// which no pipe would see.  Captured is half of it, redacted the other.
-func TestWritesToDevTtyAreCapturedAndRedacted(t *testing.T) {
+// ssh and sudo write prompts straight to /dev/tty, which no pipe would see.
+// The child has no controlling terminal, so that write fails rather than
+// landing somewhere unread: what a failed open cannot do is carry a value
+// anywhere.
+func TestAValueWrittenToDevTtyGoesNowhere(t *testing.T) {
 	h := newHarness(t)
 	r := h.runBash(t, `printenv ROUTER_PW > /dev/tty`)
 	if r.Error != nil {
@@ -382,7 +384,22 @@ func TestWritesToDevTtyAreCapturedAndRedacted(t *testing.T) {
 	if strings.Contains(r.Output, routerPassword) {
 		t.Errorf("PLAINTEXT LEAKED to /dev/tty: %q", r.Output)
 	}
+}
+
+// What the child can still emit is stdout and stderr, which are the PTY, and a
+// value that reaches either comes back as its token.  This is the half of the
+// old /dev/tty test that still has a subject: a program whose prompt falls back
+// to stderr is both seen and redacted.
+func TestAValueOnStderrIsCapturedAndRedacted(t *testing.T) {
+	h := newHarness(t)
+	r := h.runBash(t, `printenv ROUTER_PW >&2`)
+	if r.Error != nil {
+		t.Fatal(r.Error)
+	}
+	if strings.Contains(r.Output, routerPassword) {
+		t.Errorf("PLAINTEXT LEAKED to stderr: %q", r.Output)
+	}
 	if !strings.Contains(r.Output, token) {
-		t.Errorf("a /dev/tty write was not captured: %q", r.Output)
+		t.Errorf("a stderr write was not captured: %q", r.Output)
 	}
 }

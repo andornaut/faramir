@@ -297,7 +297,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 
 	// Nothing writes to the master, so a child reading stdin would block until its
 	// timeout; /dev/null makes that an immediate EOF.  stdout and stderr keep the
-	// PTY, which `test -t 1` and /dev/tty writes depend on.
+	// PTY, which `test -t 1` depends on.
 	devnull, err := os.Open(os.DevNull)
 	if err != nil {
 		return errorResponse("exec_failed", err.Error())
@@ -310,10 +310,20 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	cmd.Stdin = devnull
 	cmd.Stdout = slave
 	cmd.Stderr = slave
-	// Setsid makes the child a session leader so it can take the PTY as its
-	// controlling terminal; Ctty 1 is the slave, so a write to /dev/tty lands on
-	// our PTY.
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 1}
+	// Setsid and no controlling terminal.  A child that has one can open /dev/tty,
+	// and every credential prompt worth the name reads /dev/tty precisely so a
+	// pipe cannot answer it: ssh-add, sudo, gpg, ssh's own passphrase prompt.
+	// Nothing writes to the master, so that read blocks until the timeout, holding
+	// a [server] max_concurrency slot for the whole of it.  Without one the open
+	// fails, the program falls back to stdin, and stdin is /dev/null, so the
+	// prompt fails at once.
+	//
+	// What this gives up is the text of a prompt from a program that writes only
+	// to /dev/tty and has no fallback: that write now fails, so it reaches neither
+	// the operator nor the record.  Nothing escapes either way, a failed open
+	// being a write that never happens, and a program with a fallback prints to
+	// stderr, which is on the PTY and is redacted and recorded like the rest.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	// Confine the run to its own cgroup, the one reaper: a descendant that calls
 	// setsid, which a process-group kill would miss, is still reaped when the

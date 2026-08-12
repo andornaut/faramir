@@ -176,9 +176,11 @@ func TestTheChildDoesNotInheritTheBrokersEnvironment(t *testing.T) {
 	}
 }
 
-// A write to /dev/tty bypasses stdout redirection, which is how ssh and sudo
-// prompt; owning the controlling terminal catches it.
-func TestWritesStraightToDevTtyAreStillCaptured(t *testing.T) {
+// The child gets no controlling terminal, so /dev/tty cannot be opened at all.
+// That is what keeps a prompt from blocking: ssh and sudo read /dev/tty so a
+// pipe cannot answer them, and nothing writes to the master, so the read would
+// last until the timeout.
+func TestTheChildHasNoControllingTerminal(t *testing.T) {
 	_, sock, dir := newExecutor(t)
 	sh := shPath(t)
 	_, output, err := runChild(t, sock,
@@ -186,8 +188,49 @@ func TestWritesStraightToDevTtyAreStillCaptured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(output, "TO_TTY") {
-		t.Errorf("a /dev/tty write was not captured: %q", output)
+	if !strings.Contains(output, "NO_TTY") {
+		t.Errorf("/dev/tty was writable, so a prompt read from it would block: %q", output)
+	}
+}
+
+// And a read of it ends rather than waiting out the timeout, which is the whole
+// point of having no controlling terminal.
+func TestAReadOfDevTtyEndsAtOnce(t *testing.T) {
+	_, sock, dir := newExecutor(t)
+	sh := shPath(t)
+	done := make(chan string, 1)
+	go func() {
+		_, output, err := runChild(t, sock,
+			[]string{sh, "-c", "head -1 /dev/tty 2>/dev/null; echo ENDED"}, dir)
+		if err != nil {
+			done <- "error: " + err.Error()
+			return
+		}
+		done <- output
+	}()
+	select {
+	case output := <-done:
+		if !strings.Contains(output, "ENDED") {
+			t.Errorf("the command did not run to the end: %q", output)
+		}
+	case <-time.After(20 * time.Second):
+		t.Fatal("a read of /dev/tty blocked, so a prompt holds its slot until the timeout")
+	}
+}
+
+// stdout and stderr are still the PTY, so a program that falls back to them
+// when /dev/tty will not open is captured as before.  This is what an operator
+// still sees of a prompt.
+func TestStderrIsStillCaptured(t *testing.T) {
+	_, sock, dir := newExecutor(t)
+	sh := shPath(t)
+	_, output, err := runChild(t, sock,
+		[]string{sh, "-c", "echo TO_STDERR >&2"}, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(output, "TO_STDERR") {
+		t.Errorf("stderr was not captured: %q", output)
 	}
 }
 
