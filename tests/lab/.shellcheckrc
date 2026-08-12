@@ -1,0 +1,19 @@
+# The suites are a few hundred assertions of the shape
+#
+#     [ "$got" = "$want" ] && ok "..." || bad "..."
+#
+# which SC2015 warns is not if-then-else.  It is right in general and safe here:
+# ok and bad are a counter and a printf, so the left branch never fails and the
+# right one runs only when the test does.  Written out as if-then-else the
+# assertion would be four lines instead of two, and what a suite is for is being
+# read as a list of claims.
+#
+# The hazard SC2015 exists for is real and shellcheck cannot see it: writing ok
+# in both branches makes an assertion that always passes.  That has happened
+# here twice.  What catches it is a control -- run the suite against a build
+# where the claim is false and watch it fail -- rather than a linter.
+disable=SC2015
+
+# Bodies of node and python heredocs, and jq programs, are single-quoted on
+# purpose: the expansion they carry is the other language's, not the shell's.
+disable=SC2016

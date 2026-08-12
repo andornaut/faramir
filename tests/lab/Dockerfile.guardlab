@@ -1,0 +1,15 @@
+FROM ubuntu:24.04
+ENV container=docker DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      systemd systemd-sysv dbus sudo logrotate ca-certificates \
+      openssh-client python3 xxd jq less bsdextrautils \
+      nodejs \
+    && rm -rf /var/lib/apt/lists/* \
+    && find /etc/systemd/system /lib/systemd/system \
+         -path '*.wants/*' -name '*getty*' -delete
+# sops and age are how the operator writes the store; the suites drive both.
+# Vendored into the image so a run does not depend on the machine that built it.
+COPY sops age age-keygen /usr/local/bin/
+COPY faramir /opt/faramir/faramir
+STOPSIGNAL SIGRTMIN+3
+CMD ["/sbin/init"]

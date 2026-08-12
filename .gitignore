@@ -10,3 +10,9 @@ coverage.txt
 # named by internal/install/agents.go and embedded from this directory, so an
 # ignore that reaches it leaves the enrolment failing on a host.
 !agent/opencode/opencode.json
+
+# The lab copies these into its build context; see tests/lab/README.md.
+/tests/lab/faramir
+/tests/lab/sops
+/tests/lab/age
+/tests/lab/age-keygen

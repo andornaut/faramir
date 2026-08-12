@@ -1,0 +1,214 @@
+#!/bin/bash
+# Suite X: what the broker tells the account it exists to keep values from.
+#
+# Every other suite asks whether a value escapes.  This one asks what the agent
+# is told when nothing escapes: the names, the counts, the paths, the errors and
+# the refusals.  Those are the answers an agent gets to keep, and each is a
+# choice about what a compromised one learns.
+#
+# The sharpest of them is the list of refs the redactor refused.  Those are
+# exactly the values that would arrive in plaintext if they ever reached output,
+# so the protocol keeps that list behind `broker --check` and out of every
+# agent-facing answer.  Whether it stays there is the centre of this suite.
+#
+# Run as root in the lab container; every probe runs as op.
+set -u
+SECRET='hunter2-correct-horse-battery'
+TOKEN_API='tok_live_0PENSESAME_9911'
+PROJECT=/home/op/project
+PASS=0; FAIL=0
+ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
+bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
+head_() { printf '\n== %s\n' "$1"; }
+
+asop() { runuser -u op -- /usr/local/bin/faramir "$@" 2>&1; }
+# mcp sends one tools/call and prints the result line.
+mcp() { # tool, arguments-json
+  printf '%s\n%s\n' \
+    '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}' \
+    "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"tools/call\",\"params\":{\"name\":\"$1\",\"arguments\":$2}}" \
+  | (cd $PROJECT && timeout 25 runuser -u op -- /usr/local/bin/faramir mcp 2>/dev/null) | tail -1
+}
+# carries fails when a haystack holds any value or key material.
+carries() { # label, text
+  local label=$1 text=$2
+  if grep -qF "$SECRET" <<<"$text"; then bad "$label carries a managed value"; return; fi
+  if grep -qF "$TOKEN_API" <<<"$text"; then bad "$label carries another managed value"; return; fi
+  if grep -qE 'AGE-SECRET-KEY|BEGIN OPENSSH PRIVATE KEY|PRIVATE KEY' <<<"$text"; then
+    bad "$label carries key material"; return
+  fi
+  ok "$label carries no value and no key material"
+}
+
+echo "probing as op; $(asop list-secrets | wc -l) ref(s) served"
+
+# --------------------------------------------------------------------------
+head_ "X1. what the agent is told"
+
+refs=$(asop list-secrets)
+grep -q '^secret://' <<<"$refs" && ok "list-secrets answers with refs" || bad "no refs: ${refs:0:80}"
+carries "list-secrets" "$refs"
+[ "$(grep -cv '^secret://' <<<"$refs")" -eq 0 ] \
+  && ok "and with nothing else on any line" || bad "a line is not a ref: $(grep -v '^secret://' <<<"$refs" | head -1)"
+
+st=$(asop status)
+jq -e . <<<"$st" >/dev/null 2>&1 && ok "status answers with JSON" || bad "status is not JSON: ${st:0:80}"
+carries "status" "$st"
+for key in version secrets ssh sudo; do
+  jq -e --arg k "$key" 'has($k)' <<<"$st" >/dev/null && ok "  status reports $key" || bad "  status omits $key"
+done
+
+# --------------------------------------------------------------------------
+head_ "X2. what it is not told"
+#
+# The refs the redactor refused name exactly the values that are never
+# tokenised, so an agent that learned the list would learn which values it could
+# print without them being caught.
+
+refused=$(/usr/local/bin/faramir broker --check 2>/dev/null | jq -r '.secrets.not_redactable | keys[]' 2>/dev/null)
+if [ -z "$refused" ]; then
+  bad "this host has no refused ref, so the withholding cannot be tested"
+else
+  ok "the operator's own view names $(wc -w <<<"$refused") refused ref(s)"
+  for ref in $refused; do
+    grep -q "$ref" <<<"$st"   && bad "status names the refused ref $ref"   || ok "status does not name $ref"
+    grep -q "$ref" <<<"$refs" && bad "list-secrets names the refused ref $ref" || ok "list-secrets does not name $ref"
+  done
+fi
+
+# And the agent cannot simply run the operator's view itself: it may execute the
+# binary, but the keeper socket is closed to it, so it decrypts nothing.
+own=$(asop broker --check)
+if jq -e '.secrets.not_redactable | length > 0' <<<"$(sed -n '/^{/,$p' <<<"$own")" >/dev/null 2>&1; then
+  bad "the agent ran broker --check and got the refused list"
+else
+  ok "the agent may run broker --check and learns no value set from it"
+fi
+grep -q 'permission denied' <<<"$own" && ok "  because the keeper socket is closed to it" \
+  || bad "  for some other reason: $(head -1 <<<"$own" | cut -c1-90)"
+carries "the agent's own broker --check" "$own"
+
+# --------------------------------------------------------------------------
+head_ "X3. asking for a refused ref"
+#
+# The list is withheld, and a request for one ref answers for that ref.  The
+# message is written for whoever reads the agent's transcript, and says what to
+# fix; it also confirms the ref exists and is not redactable.
+
+for ref in $refused; do
+  out=$(asop run --quiet -t 15 -C $PROJECT --env P="secret://$ref" -- /bin/sh -c 'echo $P')
+  grep -q 'unknown_secret' <<<"$out" && ok "a refused ref is not injectable ($ref)" \
+    || bad "a refused ref was injected: ${out:0:90}"
+  carries "the refusal for $ref" "$out"
+  # What it discloses: that this ref exists and why it was refused.
+  if grep -qi 'refused at load\|cannot be redacted' <<<"$out"; then
+    ok "  and the refusal says why, which also confirms the ref exists"
+  else
+    ok "  and the refusal is indistinguishable from a ref that does not exist"
+  fi
+done
+# A ref nobody has: the two answers are worth comparing, one being an oracle.
+nothing=$(asop run --quiet -t 15 -C $PROJECT --env P=secret://no/such/ref -- /bin/true)
+grep -q 'unknown_secret' <<<"$nothing" && ok "and a ref that does not exist is also unknown_secret" \
+  || bad "an absent ref answered differently: ${nothing:0:90}"
+
+# --------------------------------------------------------------------------
+head_ "X4. every refusal the agent can provoke"
+
+probe() { # label, then argv for faramir run
+  local label=$1; shift
+  local out; out=$(asop run --quiet -t 15 "$@")
+  carries "the $label refusal" "$out"
+}
+probe "unknown ref"     -C $PROJECT --env X=secret://no/such -- /bin/true
+probe "no such program" -C $PROJECT -- /bin/nosuchprogram
+probe "cwd is a file"   -C /etc/hostname -- /bin/true
+probe "timeout"         -C $PROJECT -t 1 -- /bin/sleep 5
+# A value inside the caller's own cwd, which the refusal echoes back.
+d=$(runuser -u op -- mktemp -d); runuser -u op -- mkdir -p "$d/$SECRET"
+out=$(asop run --quiet -t 15 -C "$d/$SECRET/missing" -- /bin/true)
+carries "a refusal naming a cwd that holds a value" "$out"
+grep -q '«SECRET:' <<<"$out" && ok "  and the value in it came back as a token" \
+  || bad "  the value was neither redacted nor present: ${out:0:90}"
+rm -rf "$d"
+
+# --------------------------------------------------------------------------
+head_ "X5. the same answers through MCP"
+
+out=$(mcp faramir_list_secrets '{}')
+grep -q 'secret://' <<<"$out" && ok "faramir_list_secrets answers with refs" || bad "no refs: ${out:0:110}"
+carries "faramir_list_secrets" "$out"
+for ref in $refused; do
+  grep -q "$ref" <<<"$out" && bad "faramir_list_secrets names the refused ref $ref" \
+    || ok "and does not name $ref"
+done
+
+# There is no status tool: what it answered was which config files loaded, in
+# what order, and what failed to load, and no agent acts on any of it.  Dropping
+# it narrowed what an agent is told, so being refused it is the assertion.
+out=$(mcp faramir_status '{}')
+grep -qi 'unknown tool' <<<"$out" && ok "no status tool is offered to the agent" \
+  || bad "faramir_status answered: ${out:0:110}"
+carries "the refusal of faramir_status" "$out"
+tools=$(printf '%s\n%s\n' \
+  '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}' \
+  '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
+  | (cd $PROJECT && timeout 25 runuser -u op -- /usr/local/bin/faramir mcp 2>/dev/null) | tail -1)
+grep -q 'faramir_status' <<<"$tools" && bad "faramir_status is still listed" \
+  || ok "and it is not in the tool list either"
+
+# An MCP error is agent-visible text like any other.
+out=$(mcp faramir_run '{"cmd":["/bin/nosuchprogram"],"cwd":"'$PROJECT'"}')
+carries "an MCP run error" "$out"
+out=$(mcp faramir_run '{"cmd":["/bin/sh","-c","echo $P"],"cwd":"'$PROJECT'","env_refs":{"P":"secret://db/password"}}')
+carries "an MCP run that printed a value" "$out"
+grep -q '«SECRET:db/password»' <<<"$out" && ok "which came back as its token" \
+  || bad "no token in the MCP result: ${out:0:130}"
+
+# --------------------------------------------------------------------------
+head_ "X6. the id the agent is given is one it cannot read"
+
+out=$(asop run --quiet -t 15 -C $PROJECT --env X=secret://no/such -- /bin/true)
+id=$(sed -n 's/.*log_id=\([^ ]*\).*/\1/p' <<<"$out" | head -1)
+[ -n "$id" ] && ok "a refusal cites a log_id ($id)" || bad "no log_id cited"
+out=$(asop logs "$id")
+grep -qi 'must run as root' <<<"$out" && ok "and the agent cannot read the record it names" \
+  || bad "the agent read the audit log: ${out:0:90}"
+runuser -u op -- head -c1 /var/log/faramir/audit.log >/dev/null 2>&1 \
+  && bad "nor the file directly" || ok "nor the file directly"
+
+# --------------------------------------------------------------------------
+head_ "X7. an error from below reaches the agent as text"
+#
+# A managed file that will not load puts sops's own words into an error the
+# broker reports.  That text is written by a program reading ciphertext, so it
+# is the one place arbitrary bytes from the store could travel outward.
+
+printf 'not a sops file at all\n' > /etc/faramir/secrets/broken.sops.yml
+chown root:faramir-keeper /etc/faramir/secrets/broken.sops.yml
+chmod 0640 /etc/faramir/secrets/broken.sops.yml
+sleep 7
+st=$(asop status)
+carries "status with a file that will not load" "$st"
+errs=$(jq -r '.secrets.errors[]?' <<<"$st" 2>/dev/null)
+if [ -n "$errs" ]; then
+  ok "status reports the load failure to the agent"
+  carries "the load error text" "$errs"
+  grep -q 'broken.sops.yml' <<<"$errs" && ok "  and names the file that failed" \
+    || ok "  without naming the file"
+else
+  ok "status reports no error text to the agent"
+fi
+# And a brokered command is refused rather than run against a partial value set.
+out=$(asop run --quiet -t 15 -C $PROJECT -- /bin/echo hi)
+grep -q 'no_secrets' <<<"$out" && ok "and a brokered command is refused while a file went unread" \
+  || bad "a command ran against a partial value set: ${out:0:90}"
+carries "that refusal" "$out"
+rm -f /etc/faramir/secrets/broken.sops.yml
+sleep 7
+asop list-secrets >/dev/null 2>&1 && ok "the host recovers when the file is removed" \
+  || bad "the host did not recover"
+
+# --------------------------------------------------------------------------
+printf '\n== suite X: %d passed, %d failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]

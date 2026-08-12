@@ -1,0 +1,441 @@
+#!/bin/bash
+# Suite D: `faramir doctor` as a fault detector.
+#
+# Doctor is the only thing that answers "is this install still doing its job",
+# and the way to test a detector is to break the host and ask whether it
+# notices.  Every check here injects one fault, reads the verdict, repairs it,
+# and reads the verdict again: the repair half is what proves the check reads
+# the live state rather than reporting a conclusion it reached some other way.
+#
+# The property that matters most is not that a fault is found.  It is that a
+# check which could not be made is never reported as ok: an unearned pass on a
+# boundary is worse than a failure, because it is the answer an operator acts
+# on.  D6 puts every fault to a caller that cannot ask.
+#
+# Run as root inside the lab container.
+set -u
+OP=op
+CFG=/etc/faramir/config.toml
+KEY=/etc/faramir/age.key
+SECRETS=/etc/faramir/secrets/app.sops.yml
+LOG=/var/log/faramir/audit.log
+JSON=/tmp/doc.json
+PASS=0; FAIL=0
+ok()  { PASS=$((PASS+1)); printf '  ok   %s\n' "$1"; }
+bad() { FAIL=$((FAIL+1)); printf '  FAIL %s\n' "$1"; }
+head_() { printf '\n== %s\n' "$1"; }
+
+# settle puts the host back to a running install and waits for the broker to
+# answer.  Called after any group that stops a unit: a later group reading a
+# half-started host would report the residue as its own finding, which is how a
+# fault-injection suite ends up chasing itself.
+settle() {
+  # reset-failed first: a unit stopped and started repeatedly lands in failed,
+  # and systemd refuses to start it again from there.
+  systemctl reset-failed faramir-broker.service faramir-broker.socket \
+    faramir-keeper.socket faramir-exec.socket >/dev/null 2>&1
+  systemctl start faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
+  for _ in $(seq 30); do
+    runuser -u "$OP" -- /usr/local/bin/faramir status >/dev/null 2>&1 && return 0
+    sleep 1
+  done
+  printf '    (settle gave up: %s)\n' \
+    "$(for u in faramir-keeper.socket faramir-exec.socket faramir-broker.socket faramir-broker.service; do
+         printf '%s=%s ' "$u" "$(systemctl is-active $u)"; done)"
+  return 1
+}
+
+# snap is one examination, named to the operator account so the checks that ask
+# what it can reach actually run.
+snap() { /usr/local/bin/faramir doctor --operator-user "$OP" --json >$JSON 2>/dev/null; }
+# st is every status reported under a check name, joined: several findings share
+# one name (the three sockets), and a suite that read only the first would miss
+# the one that broke.
+st() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.status]|join(",")' $JSON; }
+dt() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.detail]|join(" ")' $JSON; }
+broke() { jq -r .failed $JSON; }
+unasked() { jq -r .not_asked $JSON; }
+
+# probe injects a fault, reads the verdict, repairs, and reads it again.
+probe() { # label check want inject repair
+  local label=$1 check=$2 want=$3 inject=$4 repair=$5 got back
+  eval "$inject" >/dev/null 2>&1
+  snap; got=$(st "$check")
+  if [[ "$got" == *"$want"* ]]; then
+    ok "$label -> $check is $got"
+  else
+    bad "$label: $check is [$got], want $want. detail: $(dt "$check" | head -c 130)"
+  fi
+  eval "$repair" >/dev/null 2>&1
+  snap; back=$(st "$check")
+  if [[ "$back" == *failed* ]]; then
+    bad "  $check stayed [$back] after the repair, so the fault was not what it read"
+  else
+    ok "  and back to $back once repaired"
+  fi
+}
+
+snap
+echo "baseline: $(jq -r '[.findings[]|.status]|group_by(.)|map("\(length) \(.[0])")|join(", ")' $JSON), $(unasked) not asked"
+
+# --------------------------------------------------------------------------
+head_ "D1. a healthy install"
+
+snap
+bad_count=$(jq '[.findings[]|select(.status=="failed")]|length' $JSON)
+if [ "$bad_count" -eq 0 ]; then
+  ok "an install straight from init reports nothing failed"
+else
+  bad "$bad_count check(s) failed on an untouched install: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
+fi
+if /usr/local/bin/faramir doctor --operator-user "$OP" >/dev/null 2>&1; then
+  ok "and exits 0"
+else
+  bad "doctor exits $? on a healthy host"
+fi
+
+# Naming the operator is what lets the boundary checks run at all.
+snap; withOp=$(unasked)
+/usr/local/bin/faramir doctor --json >$JSON 2>/dev/null; without=$(unasked)
+[ "$withOp" -lt "$without" ] && ok "--operator-user turns $((without - withOp)) unasked checks into asked ones" \
+  || bad "naming the operator asked nothing more ($withOp vs $without)"
+snap
+
+# --------------------------------------------------------------------------
+head_ "D2. the files the install owns"
+
+probe "the age key world-readable" "age key" failed \
+  "chmod 0644 $KEY" "chmod 0400 $KEY"
+probe "the age key readable by the agent" "age key" failed \
+  "chown $OP $KEY" "chown faramir-keeper $KEY"
+# Not a probe: the writer chmods 0600 on every open (internal/audit), so a log
+# left world-readable is closed again by the next record rather than found by
+# doctor.  What is under test is that self-healing, and that doctor's verdict
+# describes the mode that is there now.
+chmod 0644 $LOG
+runuser -u "$OP" -- /usr/local/bin/faramir run --quiet -C /home/op/project -- /bin/true >/dev/null 2>&1
+mode=$(stat -c %a $LOG)
+[ "$mode" = 600 ] && ok "an audit log left 0644 is closed again by the next record" \
+  || bad "the log stayed $mode after a record was written"
+snap
+[ "$(st 'audit log')" = ok ] && ok "and doctor reports the mode that is there now" \
+  || bad "audit log is [$(st 'audit log')]: $(dt 'audit log')"
+# The directory, not the file: the ciphertext is encrypted to the keeper, and
+# what would let the agent choose a value is replacing the file, which needs
+# write on the directory.  0640 vs 0644 on the file alone changes nothing an
+# attacker can use, and doctor checks the boundary rather than the incidental.
+probe "the secrets directory writable by the agent" "secrets" failed \
+  "chmod 0777 /etc/faramir/secrets" "chmod 2750 /etc/faramir/secrets"
+probe "the ssh key world-readable" "ssh key" failed \
+  "chmod 0644 /etc/faramir/id_ed25519" "chmod 0600 /etc/faramir/id_ed25519"
+probe "the deny-patterns file emptied" "deny patterns" failed \
+  ": > /usr/local/libexec/faramir/deny-patterns.txt" \
+  "faramir init --operator-user $OP"
+
+# --------------------------------------------------------------------------
+head_ "D3. the arrangement around them"
+
+probe "the rotation rule removed" "log rotation" failed \
+  "rm -f /etc/logrotate.d/faramir" "faramir init --operator-user $OP"
+probe "an outsider in the client group" "group" warn \
+  "useradd -M -N stranger 2>/dev/null; usermod -aG dev stranger" \
+  "gpasswd -d stranger dev; userdel stranger"
+# The socket check, put to doctor two ways.  Bare, doctor asks the broker where
+# the install is, and that connection socket-activates the units it is about to
+# examine: the fault is repaired by the examination and the finding describes
+# the host doctor made rather than the one it met.  --config-dir is what stops
+# it asking.
+systemctl stop faramir-broker.service faramir-broker.socket faramir-keeper.socket >/dev/null 2>&1
+/usr/local/bin/faramir doctor --operator-user "$OP" --config-dir /etc/faramir --json >$JSON 2>/dev/null
+if [[ "$(st sockets)" == *failed* ]]; then
+  ok "a stopped socket is reported failed when doctor need not ask the broker"
+else
+  bad "a stopped socket reads [$(st sockets)]: $(dt sockets)"
+fi
+dt sockets | grep -q 'inactive' && ok "and the finding names the state systemd reports" \
+  || bad "the state is not named: $(dt sockets)"
+
+# Back to a live broker first: the block above left it stopped, which is the
+# other case entirely and would make this one pass without testing it.
+settle || bad "the host did not come back before the reactivation case"
+# The narrow case: the broker socket up, a socket it depends on down.  Doctor
+# asks the broker where the install is, that connection activates the chain, and
+# the socket it was about to examine is started by the examination itself.
+systemctl stop faramir-keeper.socket >/dev/null 2>&1
+before=$(systemctl is-active faramir-keeper.socket)
+snap
+after=$(systemctl is-active faramir-keeper.socket)
+if [[ "$(st sockets)" == *failed* ]]; then
+  ok "a stopped keeper socket under a live broker is reported failed ($before -> $after)"
+else
+  bad "with the broker socket up, doctor reported [$(st sockets)] for a socket that was $before"
+fi
+dt sockets | grep -q 'keeper.socket is inactive' && ok "and names the socket and the state it was in" \
+  || bad "the finding does not name it: $(dt sockets)"
+settle || bad "the host did not come back after the socket group"
+snap
+probe "the sops config removed" "sops config" warn \
+  "mv /etc/faramir/.sops.yaml /tmp/sops.bak" \
+  "mv /tmp/sops.bak /etc/faramir/.sops.yaml"
+
+# The config is what every other check reads, so losing it has to be reported
+# as the config rather than as thirty unrelated faults.
+mv $CFG /tmp/config.bak
+snap
+[ "$(st config)" = failed ] && ok "the config removed -> config failed" || bad "config is [$(st config)]"
+# Every other check reads the config, so one finding and a stop is the answer:
+# thirty findings derived from a file that is not there would each be wrong in
+# its own way.
+[ "$(jq '.findings|length' $JSON)" -eq 1 ] && ok "and it is the only finding, the rest having nothing to read" \
+  || bad "$(jq '.findings|length' $JSON) findings with no config"
+crash=$(/usr/local/bin/faramir doctor --operator-user "$OP" 2>&1 >/dev/null | grep -ci 'panic\|goroutine')
+[ "$crash" -eq 0 ] && ok "without a panic" || bad "doctor panicked with no config"
+mv /tmp/config.bak $CFG
+
+printf 'this is not toml at all\n[[[\n' >> $CFG
+snap
+[[ "$(st config)" == *failed* ]] && ok "a config that will not parse -> config failed" \
+  || bad "a corrupt config is [$(st config)]"
+dt config | grep -qi 'does not load\|parse' && ok "and says it did not load" || bad "unclear: $(dt config)"
+head -n -2 $CFG > /tmp/c && mv /tmp/c $CFG
+snap
+[[ "$(st config)" != *failed* ]] && ok "and back to [$(st config)] once repaired" \
+  || bad "config stayed [$(st config)]"
+
+# --------------------------------------------------------------------------
+head_ "D4. the broker it is examining"
+
+# A build the broker is not running.  Two binaries is the only honest way to
+# reach this, the version being compiled in.
+if [ -x /opt/faramir/faramir-skew ]; then
+  # rename, not copy: the daemons are executing this inode, so writing to it is
+  # ETXTBSY.  Replacing the directory entry is what an upgrade does anyway.
+  cp /usr/local/bin/faramir /tmp/faramir.real
+  cp /opt/faramir/faramir-skew /tmp/skew && mv /tmp/skew /usr/local/bin/faramir
+  chmod 0755 /usr/local/bin/faramir
+  snap
+  [ "$(st version)" = failed ] && ok "a binary newer than the running broker -> version failed" \
+    || bad "version skew is [$(st version)]: $(dt version)"
+  dt version | grep -q '9\.9\.9' && ok "and names both builds" || bad "does not name the builds: $(dt version)"
+  mv /tmp/faramir.real /usr/local/bin/faramir; chmod 0755 /usr/local/bin/faramir
+  snap
+  [ "$(st version)" = ok ] && ok "and back to ok on the matching build" || bad "version stayed [$(st version)]"
+else
+  bad "no skewed binary at /opt/faramir/faramir-skew; the lab did not build one"
+fi
+
+# The socket the agent connects to, regrouped so the client group is shut out.
+probe "the broker socket closed to the client group" "broker socket" failed \
+  "chgrp root /run/faramir/broker.sock; chmod 0660 /run/faramir/broker.sock" \
+  "systemctl restart faramir-broker.socket; settle"
+
+# --------------------------------------------------------------------------
+head_ "D5. a value the redactor refused"
+#
+# Under [secrets] min_length a value is loaded but never injected and never
+# redacted, so a command that prints it prints it in plaintext.  The broker
+# reports this and keeps serving.
+
+snap
+short=$(grep -c 'short/pin' <<<"$(dt redaction) $(dt broker) $(dt secrets)")
+if [ "$short" -gt 0 ]; then
+  ok "doctor surfaces the ref the redactor refused"
+else
+  bad "no check mentions short/pin: $(dt redaction | head -c 160)"
+fi
+# Whatever it is called, it must not read as an unexplained failure: the reason
+# is known and is the operator's to act on.
+if dt broker | grep -qi 'reason not reported'; then
+  bad "it is reported as a failure for 'a reason not reported above', with the runuser command line as the detail"
+else
+  ok "and not as a failure nothing explains"
+fi
+# The store itself is fine, which is what makes the verdict wrong rather than
+# harsh: the file loaded, the refs are served, and one value is simply not
+# covered by the redactor.
+/usr/local/bin/faramir broker --check >/tmp/chk.json 2>/dev/null
+[ "$(jq -r '.secrets.errors|length' /tmp/chk.json)" -eq 0 ] \
+  && ok "the store reports no load errors" || bad "the store failed to load"
+[ "$(jq -r '.secrets.count' /tmp/chk.json)" -ge 3 ] \
+  && ok "and serves its other refs" || bad "the store serves nothing"
+[ "$(jq -r '.secrets.not_redactable|length' /tmp/chk.json)" -eq 1 ] \
+  && ok "with one ref named not redactable" || bad "not_redactable is not the one condition here"
+
+# The consequence an operator meets: init cannot finish on this host.  It is the
+# same --check, run as validate, and init rewrites config.toml from its template
+# on the way past, so [secrets] min_length cannot be relaxed to get through it.
+out=$(/usr/local/bin/faramir init --operator-user "$OP" 2>&1); code=$?
+if [ $code -eq 0 ]; then
+  ok "init completes on a host holding a value shorter than min_length"
+else
+  bad "init exits $code on a host whose only fault is one short value: $(grep -o 'validate:.*' <<<"$out" | head -c 150)"
+fi
+grep -q '^min_length = 8' $CFG && ok "(init rewrote config.toml, as it does)" \
+  || bad "init did not rewrite the config"
+
+# --------------------------------------------------------------------------
+head_ "D6. a check that cannot be made is never ok"
+#
+# The claim the whole report rests on.  Each fault below is real while the
+# question is put to a caller that cannot ask it.
+
+asOp() { runuser -u "$OP" -- /usr/local/bin/faramir doctor --json 2>/dev/null > $JSON; }
+
+asOp
+n=$(unasked)
+[ "$n" -ge 10 ] && ok "as the agent's uid, $n checks are reported unasked" \
+  || bad "only $n checks unasked without root"
+liar=$(jq -r '[.findings[]|select(.status=="ok")|.check]|join(",")' $JSON)
+for boundary in "age key" "audit log" "store" "ssh key" "keeper socket" "executor socket"; do
+  if [[ ",$liar," == *",$boundary,"* ]]; then
+    bad "$boundary reports ok to a caller that cannot read it"
+  else
+    ok "$boundary does not report ok to a caller that cannot read it"
+  fi
+done
+
+# And with the host actually broken underneath: the answer must still not be ok.
+# The age key, not the audit log, whose mode the writer restores on its own.
+chmod 0644 $KEY
+asOp
+got=$(st "age key")
+if [[ "$got" == *ok* ]]; then
+  bad "age key is ok to a non-root caller while actually world-readable"
+else
+  ok "age key is [$got] to a non-root caller while broken, not ok"
+fi
+# Root, asking the same host at the same moment, sees the truth.
+snap
+[ "$(st 'age key')" = failed ] && ok "and root, asking the same host, reports it failed" \
+  || bad "root reports age key [$(st 'age key')]"
+chmod 0400 $KEY
+
+# runuser is the mechanism every boundary check uses.  Without it they cannot be
+# asked, and reporting them as holding would be the same unearned pass.
+if [ -x /usr/sbin/runuser ]; then
+  mv /usr/sbin/runuser /usr/sbin/runuser.hidden
+  PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/faramir doctor --operator-user "$OP" --json >$JSON 2>/dev/null
+  if jq -e '[.findings[]|select(.check=="boundaries" and .status!="ok")]|length > 0' $JSON >/dev/null; then
+    ok "with runuser gone, the boundary checks are declared unasked"
+  else
+    bad "with runuser gone, boundaries did not say so: $(dt boundaries | head -c 150)"
+  fi
+  for c in "age key" "audit log" "store"; do
+    [[ "$(st "$c")" == *ok* ]] && bad "$c is ok with no way to ask" || ok "$c is not ok with no way to ask"
+  done
+  mv /usr/sbin/runuser.hidden /usr/sbin/runuser
+else
+  bad "runuser is not at /usr/sbin/runuser; this group did not run"
+fi
+snap
+
+# --------------------------------------------------------------------------
+head_ "D7. what the report itself promises"
+
+snap
+total=$(jq '.findings|length' $JSON)
+[ "$total" -gt 20 ] && ok "the report carries $total findings" || bad "only $total findings"
+jq -e 'all(.findings[]; .check != "" and .status != "" and .detail != "")' $JSON >/dev/null \
+  && ok "every finding names a check, a status and a reason" || bad "a finding is missing a field"
+jq -r '.findings[].status' $JSON | sort -u | while read -r s; do
+  case "$s" in ok|warn|failed|n/a) ;; *) echo "  FAIL unknown status $s";; esac
+done
+[ "$(jq -r '.findings[].status' $JSON | sort -u | grep -cvE '^(ok|warn|failed|n/a)$')" -eq 0 ] \
+  && ok "and every status is one of ok, warn, failed, n/a" || bad "an unknown status appeared"
+
+# failed and the exit code have to agree, an operator scripting this reads one
+# or the other.
+chmod 0644 $KEY; snap
+/usr/local/bin/faramir doctor --operator-user "$OP" >/dev/null 2>&1; code=$?
+withFault=$(jq -r '[.findings[]|select(.status=="failed")|.check]|sort|join(",")' $JSON)
+[ "$(broke)" = true ] && [ $code -eq 1 ] && ok "a failure sets .failed and exit 1 together" \
+  || bad "failed=$(broke) but exit $code"
+chmod 0400 $KEY; snap
+repaired=$(jq -r '[.findings[]|select(.status=="failed")|.check]|sort|join(",")' $JSON)
+# Against the set before the fault rather than against zero: this host carries a
+# standing failure of its own (D5), and a suite that demanded a clean bill here
+# would be asserting that bug away.
+[[ "$withFault" == *"age key"* && "$repaired" != *"age key"* ]] \
+  && ok "and repairing the fault drops exactly that check from the failed set" \
+  || bad "failed set went [$withFault] -> [$repaired]"
+
+# not_asked is the operator's cue that the totals are partial.
+runuser -u "$OP" -- /usr/local/bin/faramir doctor 2>/dev/null | tail -3 | grep -qi 'not made\|not the whole' \
+  && ok "the text report says the totals are partial when checks went unasked" \
+  || bad "a partial examination does not say so"
+
+# --------------------------------------------------------------------------
+head_ "D8. uninstall keeps what cannot be recreated"
+
+# From a settled host: everything above injected faults, and an uninstall read
+# against that residue would report this group's findings for another group's
+# damage.
+settle || bad "the host was not settled before the uninstall group"
+
+cp /usr/local/bin/faramir /tmp/faramir.kept
+sha_secrets=$(sha256sum $SECRETS | cut -d' ' -f1)
+sha_key=$(sha256sum $KEY | cut -d' ' -f1)
+log_lines=$(wc -l <$LOG)
+
+out=$(/usr/local/bin/faramir uninstall 2>&1); code=$?
+[ $code -eq 0 ] && ok "uninstall exits 0" || bad "uninstall exit $code: $(head -c 200 <<<"$out")"
+
+# The three things no re-install can bring back.
+[ "$(sha256sum $KEY 2>/dev/null | cut -d' ' -f1)" = "$sha_key" ] \
+  && ok "the age key is untouched" || bad "the age key was changed or removed"
+[ "$(sha256sum $SECRETS 2>/dev/null | cut -d' ' -f1)" = "$sha_secrets" ] \
+  && ok "the ciphertext is untouched" || bad "the managed sops file was changed or removed"
+[ -f $LOG ] && [ "$(wc -l <$LOG)" -ge "$log_lines" ] \
+  && ok "the audit log is kept" || bad "the audit log was removed or truncated"
+[ -f $CFG ] && ok "and the config is kept" || bad "the config was removed"
+grep -q 'age.key' <<<"$out" && ok "and it names what it left behind" || bad "it does not say what it kept"
+
+# What it is supposed to take away.
+for path in /etc/systemd/system/faramir-broker.service /etc/logrotate.d/faramir \
+            /etc/tmpfiles.d/faramir.conf /run/faramir; do
+  [ -e "$path" ] && bad "$path survived the uninstall" || ok "$path is gone"
+done
+systemctl is-active faramir-broker.service >/dev/null 2>&1 \
+  && bad "the broker is still running" || ok "no daemon is left running"
+[ -x /usr/local/bin/faramir ] && bad "the binary survived" || ok "the binary removes itself last"
+
+# Running it twice is what an operator does when the first was interrupted.
+install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
+out=$(/usr/local/bin/faramir uninstall 2>&1); code=$?
+[ $code -eq 0 ] && ok "a second uninstall is not an error" || bad "second uninstall exit $code: $(head -c 150 <<<"$out")"
+
+# --------------------------------------------------------------------------
+head_ "D9. and the secrets survive the round trip"
+
+install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
+if /usr/local/bin/faramir init --operator-user "$OP" >/tmp/reinit.log 2>&1; then
+  ok "init runs again on a host that was uninstalled"
+else
+  bad "re-init failed: $(tail -3 /tmp/reinit.log)"
+fi
+[ "$(sha256sum $KEY | cut -d' ' -f1)" = "$sha_key" ] \
+  && ok "and does not mint a second age key over the first" \
+  || bad "re-init replaced the age key, so every managed file is now unreadable"
+
+systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
+for _ in $(seq 20); do
+  refs=$(runuser -u "$OP" -- /usr/local/bin/faramir list-secrets 2>/dev/null || true)
+  case "$refs" in *db/password*) break;; esac
+  sleep 1
+done
+grep -q 'db/password' <<<"$refs" && ok "the same secrets load again after the round trip" \
+  || bad "the store does not load after uninstall+init: [$refs]"
+
+out=$(runuser -u "$OP" -- /usr/local/bin/faramir run --quiet -C /home/op/project \
+  --env PW=secret://db/password -- /bin/sh -c 'echo $PW' 2>&1)
+grep -q '«SECRET:db/password»' <<<"$out" && ok "and a brokered command still gets the value, redacted" \
+  || bad "a brokered command after the round trip: [$out]"
+
+snap
+[ "$(jq '[.findings[]|select(.status=="failed" and .check!="broker")]|length' $JSON)" -eq 0 ] \
+  && ok "and doctor is clean again on the rebuilt host" \
+  || bad "after the round trip: $(jq -r '[.findings[]|select(.status=="failed")|.check]|join(",")' $JSON)"
+
+# --------------------------------------------------------------------------
+printf '\n== suite D: %d passed, %d failed\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]
