@@ -106,7 +106,7 @@ func newHarness(t *testing.T) *harness {
 			TermCols: 120, TermRows: 40, KillGraceSec: 2,
 		},
 		Secrets: config.SecretsConfig{
-			Files: []string{secretPath}, DecryptCommand: sopstest.DecryptCommand(t),
+			Patterns: []string{secretPath}, DecryptCommand: sopstest.DecryptCommand(t),
 			RefreshIntervalSec: 0,
 			MinLength:          8,
 		},

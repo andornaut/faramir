@@ -258,7 +258,7 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 			"then: sudo rm %s", stale, current, stale)
 	case exists(stale):
 		report.add("sops config", StatusWarn, "%s is where earlier installs put it, "+
-			"and the secrets directory is globbed by [secrets] files. Move it: sudo mv %s %s",
+			"and the secrets directory is globbed by [secrets] patterns. Move it: sudo mv %s %s",
 			stale, stale, current)
 	case exists(current):
 		diagnoseSopsRecipients(report, opts, current)

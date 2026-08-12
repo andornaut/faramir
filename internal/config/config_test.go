@@ -207,7 +207,7 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 		{"zero min_length", minimal + "\n[secrets]\nmin_length = 0\n"},
 		{"negative max_record_bytes", minimal + "\n[audit]\nmax_record_bytes = -1\n"},
 		// A malformed pattern matches nothing, reading as a missing store.
-		{"unclosed character class", minimal + "\n[secrets]\nfiles = [\"/s/[a-.sops.yml\"]\n"},
+		{"unclosed character class", minimal + "\n[secrets]\npatterns = [\"/s/[a-.sops.yml\"]\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := load(t, tc.text); err == nil {

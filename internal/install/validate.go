@@ -13,7 +13,7 @@ import (
 type checkReport struct {
 	Secrets struct {
 		Count int `json:"count"`
-		// Patterns is [secrets] files as configured, Files what it named on disk.
+		// Patterns is the configured globs, Files what they named on disk.
 		// Entries naming nothing are a host waiting for its secrets; entries naming
 		// files that did not load are a fault.
 		Patterns []string `json:"patterns"`

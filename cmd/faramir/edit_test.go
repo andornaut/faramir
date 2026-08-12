@@ -43,7 +43,7 @@ func TestNoManagedFilesSaysSo(t *testing.T) {
 	if err == nil {
 		t.Fatal("accepted an edit with no managed files")
 	}
-	if !strings.Contains(err.Error(), "[secrets] files named none") {
+	if !strings.Contains(err.Error(), "[secrets] patterns named none") {
 		t.Errorf("unhelpful message: %v", err)
 	}
 }

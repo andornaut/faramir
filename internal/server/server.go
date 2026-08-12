@@ -559,10 +559,10 @@ func (s *Server) opListSecrets() protocol.Response {
 // in the one actionable line here would send the operator somewhere the broker
 // does not read.
 func (s *Server) secretsDir() string {
-	if patterns := s.Config.Secrets.Files; len(patterns) > 0 {
+	if patterns := s.Config.Secrets.Patterns; len(patterns) > 0 {
 		return filepath.Dir(patterns[0])
 	}
-	return "the directory [secrets] files names"
+	return "the directory [secrets] patterns names"
 }
 
 // refuseUnreadable is the gate on the two ops whose output is redacted against

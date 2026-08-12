@@ -20,7 +20,7 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// managedFile is a file for [secrets] files to name, so the store reports one
+// managedFile is a file for [secrets] patterns to name, so the store reports one
 // as present.  Contents are the keeper double's business, not this file's.
 func managedFile(t *testing.T) string {
 	t.Helper()
@@ -44,7 +44,7 @@ func newServer(t *testing.T, values map[string]string, secretFiles ...string) *S
 	return serverWith(t, keepertest.New(t, values, secretFiles...), secretFiles...)
 }
 
-// newUnconfiguredServer names no [secrets] files, which is a broker that cannot
+// newUnconfiguredServer names no [secrets] patterns, which is a broker that cannot
 // promise redaction and refuses exec and redact.
 func newUnconfiguredServer(t *testing.T, values map[string]string) *Server {
 	t.Helper()
@@ -68,7 +68,7 @@ func serverWith(t *testing.T, k *keepertest.Keeper, secretFiles ...string) *Serv
 			BaseEnv: map[string]string{"PATH": "/usr/bin:/bin"},
 		},
 		Secrets: config.SecretsConfig{
-			Files:              secretFiles,
+			Patterns:           secretFiles,
 			RefreshIntervalSec: 0, MinLength: 8,
 		},
 		Audit: config.AuditConfig{LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: 1 << 20},

@@ -159,7 +159,7 @@ type FileState struct {
 	Size  int64  `json:"size"`
 }
 
-// Resolve expands each [secrets] files entry against the filesystem.  Every
+// Resolve expands each [secrets] patterns entry against the filesystem.  Every
 // entry is a glob, a literal path being one with no metacharacters, and an
 // entry naming no file is an error: unmounted and deleted both leave the broker
 // configured for values it does not have.
@@ -225,7 +225,7 @@ func isPattern(entry string) bool { return strings.ContainsAny(entry, `*?[\`) }
 // error rather than a missing entry.
 func StatAll(secrets config.SecretsConfig) ([]FileState, []string, []string) {
 	state := []FileState{}
-	paths, errors, unresolved := Resolve(secrets.Files)
+	paths, errors, unresolved := Resolve(secrets.Patterns)
 	for _, path := range paths {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -242,7 +242,7 @@ func StatAll(secrets config.SecretsConfig) ([]FileState, []string, []string) {
 // errors rather than aborting, so one broken file does not blank the value set.
 func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]string, []string) {
 	values := map[string]string{}
-	paths, errors, _ := Resolve(secrets.Files)
+	paths, errors, _ := Resolve(secrets.Patterns)
 
 	env := []string{
 		"PATH=" + envOr("PATH", "/usr/local/bin:/usr/bin:/bin"),

@@ -207,8 +207,8 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 	// The group is half of it: world-readable secrets are reachable by accounts no
 	// group names.
 	dir := filepath.Join(opts.ConfigDir, "secrets")
-	if cfg != nil && len(cfg.Secrets.Files) > 0 {
-		dir = filepath.Dir(cfg.Secrets.Files[0])
+	if cfg != nil && len(cfg.Secrets.Patterns) > 0 {
+		dir = filepath.Dir(cfg.Secrets.Patterns[0])
 	}
 	if info, err := os.Stat(dir); err == nil && info.Mode().Perm()&0o007 != 0 {
 		report.add("secrets", StatusFailed, "%s is %04o: every account on this host can "+

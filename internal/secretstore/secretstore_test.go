@@ -23,7 +23,7 @@ func newStore(t *testing.T, fake *keepertest.Keeper, files ...string) *Store {
 	fake.SetFiles(files)
 	return New(
 		config.SecretsConfig{
-			Files: files, RefreshIntervalSec: 0,
+			Patterns: files, RefreshIntervalSec: 0,
 			MinLength: 8,
 		},
 		config.KeeperConfig{SocketPath: fake.Path},
@@ -185,7 +185,7 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	sock := filepath.Join(dir, "keeper.sock")
 	s := New(
 		config.SecretsConfig{
-			Files: []string{managed}, RefreshIntervalSec: 0,
+			Patterns: []string{managed}, RefreshIntervalSec: 0,
 			MinLength: 8,
 		},
 		config.KeeperConfig{SocketPath: sock},

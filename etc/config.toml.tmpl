@@ -6,7 +6,7 @@
 #   {{.ConfigDir}}/config.d/50-local.toml     yours
 #   {{.ConfigDir}}/config.d/<consumer>.toml   one per consumer of the broker
 #
-# Drop-ins merge over this file in lexical order.  [secrets] files accumulates
+# Drop-ins merge over this file in lexical order.  [secrets] patterns accumulates
 # rather than replacing, and decrypt_command is refused if a drop-in sets it
 # again.  Every value init derives from a flag or from the install is refused
 # outright: the socket paths, allowed_group, allowed_user, the keeper's
@@ -114,7 +114,7 @@ timeout_sec = 120
 # only the injected ones.  Entries are globs, so naming the directory picks up
 # a file added beside the others; one that matches nothing leaves the broker
 # refusing exec and redact, and fails --check.
-files = ["{{.SecretsDir}}/*.sops.yml"]
+patterns = ["{{.SecretsDir}}/*.sops.yml"]
 decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
 # How often the broker may ask the keeper whether a managed file changed.
 refresh_interval_sec = 5

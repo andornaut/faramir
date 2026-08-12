@@ -23,7 +23,7 @@ the executor's uid | The real bound.
 
 ## Drop-ins
 
-`/etc/faramir/config.d/*.toml` merge over the base in lexical order. `config.toml` is faramir's own and `init` rewrites it every run, so an edit there is replaced without warning; `init` never touches a drop-in. Tables merge key by key, so one `[secrets] files` does not discard `min_length` and one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
+`/etc/faramir/config.d/*.toml` merge over the base in lexical order. `config.toml` is faramir's own and `init` rewrites it every run, so an edit there is replaced without warning; `init` never touches a drop-in. Tables merge key by key, so one `[secrets] patterns` does not discard `min_length` and one `[exec.base_env]` variable does not mean restating `PATH`. Scalars replace.
 
 What a drop-in may set is the defaults `init` does not derive:
 
@@ -61,7 +61,7 @@ Everything else is a default. Lists among them split by what they are:
 
 What | Rule | Why
 --- | --- | ---
-`[secrets] files` | **accumulates**, duplicates collapsed | An inventory with one entry per owner. Replacing would leave the broker holding fewer files than its operator believes, injecting and redacting nothing for the loser. Entries are glob patterns, deduplicated again after expansion, so a drop-in naming a file the base already globs adds nothing.
+`[secrets] patterns` | **accumulates**, duplicates collapsed | An inventory with one entry per owner. Replacing would leave the broker holding fewer files than its operator believes, injecting and redacting nothing for the loser. Entries are glob patterns, deduplicated again after expansion, so a drop-in naming a file the base already globs adds nothing.
 `[secrets] decrypt_command` | **refused** when two sources set it, naming both | Policy, and the only list left that is. Accumulating would hand the keeper a second way to invoke sops by writing a file that never said so; taking the last would make it depend on filename order.
 
 - Validation runs after merging, so a drop-in is held to every rule the base file is. `faramir status` and `faramir broker --check` report `configs`: the base file and every drop-in that contributed, in merge order.
@@ -76,7 +76,7 @@ Fails on | Because
 An unknown key or `[section]` | A config that reads as though it took effect.
 A value out of range | Same.
 A ref too short to redact | Refused at load, so covered by nothing.
-A `[secrets] files` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
+A `[secrets] patterns` entry that named nothing, or a file it named that did not load | Those values are absent from the redactor. A pattern that matches no file is the same failure as a literal path that is not there.
 An `[ssh] key` the agent cannot load, passphrase-protected or not on disk | `ssh-add` refuses it, leaving every host unreachable. `init` catches one missing, unreadable by the broker, or without its `.pub`.
 A `[sudo] helper` or PAM service file that is not there, or a `notify_command` that is not installed | The same weighting as the key: approval is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions that are waiting.
 `[keeper]` or `[executor] allowed_user` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route, and the executor's runs a command with no policy, no redaction and no audit record. The socket modes still stand in the way, so this is the second of two locks, and a gate that waits for both to be open reports the problem afterwards.
@@ -88,7 +88,7 @@ Run it as the broker's own account, `sudo -u faramir-broker faramir broker --che
 
 **The daemon holds itself to the same rules, and on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time.
 
-For the secrets it is one rule, and `exec` is held to it because a brokered command's output is redacted against the same set: **the broker serves `exec` and `redact` only while no managed file went unread.** At least one `[secrets] files` entry matched a file, and every matched file loaded.
+For the secrets it is one rule, and `exec` is held to it because a brokered command's output is redacted against the same set: **the broker serves `exec` and `redact` only while no managed file went unread.** At least one `[secrets] patterns` entry matched a file, and every matched file loaded.
 
 - What those files held does not enter into it. An install whose operator has not written a secret yet serves, and a ref no file defines is answered by `unknown_secret`.
 - Otherwise the broker refuses with `no_secrets`, naming why. It comes up either way, and `status` and `list_secrets` answer regardless, neither depending on the value set.

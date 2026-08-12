@@ -44,7 +44,7 @@ The broker is outside the secrets group deliberately: it holds every decrypted v
 `.sops.yaml` sits in the config directory above the secrets directory rather than in it, for two reasons:
 
 - sops resolves that file from the current working directory upward rather than from the file being encrypted. A parent is found from the secrets directory as well as from itself; the secrets directory would be found only from itself. Encrypting from anywhere else still has to pass `--config`.
-- The secrets directory is a drop zone that `[secrets] files` globs, and Go's `filepath.Glob` matches dotfiles. A rule file among the ciphertext is one glob spelling away from being loaded as a managed file that does not decrypt, which fails `--check` and leaves the broker redacting nothing.
+- The secrets directory is a drop zone that `[secrets] patterns` globs, and Go's `filepath.Glob` matches dotfiles. A rule file among the ciphertext is one glob spelling away from being loaded as a managed file that does not decrypt, which fails `--check` and leaves the broker redacting nothing.
 
 `--config-dir` moves the secrets off `/etc`, along with the config and the age key: one path rather than three, so the key cannot be left on an unencrypted disk while the secrets it opens sit in an encrypted home. What the units can see decides where, not the modes:
 

@@ -246,7 +246,11 @@ type SudoConfig struct {
 }
 
 type SecretsConfig struct {
-	Files []string
+	// Patterns is the managed sops files as globs, which is what the entries are:
+	// each is matched against the secrets directory rather than opened by name.
+	// The --check report calls the paths they resolve to "files", so the two words
+	// stay distinct there.
+	Patterns []string
 	// How the keeper invokes sops; "{file}" is each managed path.  Executed rather
 	// than linked, which would pull every key source sops supports into the
 	// process holding the master key.
@@ -384,7 +388,7 @@ func dropInPaths(dir string) ([]string, error) {
 // accumulating decrypt_command would hand the keeper a second way to invoke
 // sops by writing a file that never said so.
 var inventoryLists = map[string]bool{
-	"secrets.files": true,
+	"secrets.patterns": true,
 }
 
 // initOwned are the keys init derives from a flag or from the install layout,
@@ -565,7 +569,7 @@ var (
 		"ssh_agent", "ssh_add"}
 	sudoKeys = []string{"exec_user", "pam_service", "helper",
 		"notify_command", "timeout_sec"}
-	secretsKeys = []string{"files", "decrypt_command", "refresh_interval_sec",
+	secretsKeys = []string{"patterns", "decrypt_command", "refresh_interval_sec",
 		"min_length"}
 	auditKeys = []string{"log_path", "max_record_bytes"}
 )
@@ -778,15 +782,15 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 		DecryptCommand:     []string{"sops", "--output-type", "json", "--decrypt", "{file}"},
 		RefreshIntervalSec: 5, MinLength: 8,
 	}
-	if out.Files, err = stringList(sec["files"], where, nil); err != nil {
+	if out.Patterns, err = stringList(sec["patterns"], where, nil); err != nil {
 		return err
 	}
 	// Each entry is a glob pattern; a malformed one matches nothing at every later
 	// stage, reading as a missing store.  Matching the empty string touches no
 	// filesystem and reports only ErrBadPattern.
-	for _, pattern := range out.Files {
+	for _, pattern := range out.Patterns {
 		if _, err := filepath.Match(pattern, ""); err != nil {
-			return fmt.Errorf("%s: files entry %q is not a valid glob pattern: %v",
+			return fmt.Errorf("%s: patterns entry %q is not a valid glob pattern: %v",
 				where, pattern, err)
 		}
 	}

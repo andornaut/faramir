@@ -45,19 +45,19 @@ func TestABaseConfigWithNoDropInDirectoryLoads(t *testing.T) {
 func TestADropInAddsToTheInventoryAndIsRecorded(t *testing.T) {
 	cfg, err := write(t, minimal+`
 [secrets]
-files = ["/etc/faramir/secrets/base.sops.yml"]
+patterns = ["/etc/faramir/secrets/base.sops.yml"]
 min_length = 12
 `, map[string]string{
 		"10-consumer.toml": `
 [secrets]
-files = ["/etc/faramir/secrets/consumer.sops.yml"]
+patterns = ["/etc/faramir/secrets/consumer.sops.yml"]
 `})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Accumulated, not replaced.
-	if got := cfg.Secrets.Files; len(got) != 2 {
-		t.Errorf("files = %v, want the base's and the drop-in's", got)
+	if got := cfg.Secrets.Patterns; len(got) != 2 {
+		t.Errorf("patterns = %v, want the base's and the drop-in's", got)
 	}
 	// The table around it merged: naming one file keeps the thresholds.
 	if cfg.Secrets.MinLength != 12 {
@@ -80,19 +80,19 @@ func TestListsAccumulateAcrossDropIns(t *testing.T) {
 	}{
 		{name: "two projects, two stores",
 			dropIns: map[string]string{
-				"ansible-ctrl.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/ansible-ctrl.sops.yml\"]\n",
-				"webapp.toml":       "[secrets]\nfiles = [\"/etc/faramir/secrets/webapp.sops.yml\"]\n",
+				"ansible-ctrl.toml": "[secrets]\npatterns = [\"/etc/faramir/secrets/ansible-ctrl.sops.yml\"]\n",
+				"webapp.toml":       "[secrets]\npatterns = [\"/etc/faramir/secrets/webapp.sops.yml\"]\n",
 			},
-			get: func(c *Config) []string { return c.Secrets.Files }, want: 2,
+			get: func(c *Config) []string { return c.Secrets.Patterns }, want: 2,
 			why: "both projects have to end up managed"},
 		// [ssh] key is deliberately absent from this table: it is one identity rather
 		// than an inventory, and TestADropInMayNotSetWhatInitDerives covers it.
 		{name: "the same store named twice",
 			dropIns: map[string]string{
-				"10-a.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
-				"20-b.toml": "[secrets]\nfiles = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
+				"10-a.toml": "[secrets]\npatterns = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
+				"20-b.toml": "[secrets]\npatterns = [\"/etc/faramir/secrets/shared.sops.yml\"]\n",
 			},
-			get: func(c *Config) []string { return c.Secrets.Files }, want: 1,
+			get: func(c *Config) []string { return c.Secrets.Patterns }, want: 1,
 			why: "named twice is managed once, so a shared store is not decrypted or reported twice"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

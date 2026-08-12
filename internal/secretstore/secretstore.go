@@ -247,7 +247,7 @@ func (s *Store) describeLocked() map[string]any {
 	// patterns is what was configured, files what it named on disk.  A glob
 	// makes them differ, which is how a first install is told apart from secrets
 	// that went missing.  This process cannot expand a pattern itself.
-	patterns := s.config.Files
+	patterns := s.config.Patterns
 	if patterns == nil {
 		patterns = []string{}
 	}
@@ -335,8 +335,8 @@ func (s *Store) Unreadable() string {
 			strings.Join(s.loadErrors, "; ")
 	case len(s.state) > 0:
 		return ""
-	case len(s.config.Files) == 0:
-		return "no [secrets] files are configured"
+	case len(s.config.Patterns) == 0:
+		return "no [secrets] patterns are configured"
 	}
 	return "no managed file was found: " + strings.Join(s.unresolvedPatterns, "; ")
 }

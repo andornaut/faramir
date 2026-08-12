@@ -21,7 +21,7 @@ func fixture(t *testing.T, branch sops.TreeBranch) (config.SecretsConfig, *KeyHo
 	sopstest.WriteEncrypted(t, secretPath, recipient, branch)
 
 	return config.SecretsConfig{
-			Files:          []string{secretPath},
+			Patterns:       []string{secretPath},
 			DecryptCommand: sopstest.DecryptCommand(t),
 		},
 		newKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath})
@@ -77,7 +77,7 @@ func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 	}
 
 	_, errs := DecryptAll(config.SecretsConfig{
-		Files: []string{managed}, DecryptCommand: []string{script, "{file}"},
+		Patterns: []string{managed}, DecryptCommand: []string{script, "{file}"},
 	}, newKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath}))
 	if len(errs) > 0 {
 		t.Fatalf("errors: %v", errs)
@@ -133,7 +133,7 @@ func TestOneBadFileDoesNotBlankTheSet(t *testing.T) {
 	if err := os.WriteFile(broken, []byte("not: sops\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	secrets.Files = append(secrets.Files, broken)
+	secrets.Patterns = append(secrets.Patterns, broken)
 
 	values, errs := DecryptAll(secrets, keys)
 	if len(errs) == 0 {
@@ -172,7 +172,7 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 	}
 	k := &Keeper{
 		config: &config.Config{Secrets: config.SecretsConfig{
-			Files:          []string{path},
+			Patterns:       []string{path},
 			DecryptCommand: []string{"/nonexistent/sops", "{file}"},
 		}},
 		Keys: newKeyHolder(config.KeeperConfig{}),
@@ -199,7 +199,7 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.sops.yaml")
 	k := &Keeper{
-		config: &config.Config{Secrets: config.SecretsConfig{Files: []string{missing}}},
+		config: &config.Config{Secrets: config.SecretsConfig{Patterns: []string{missing}}},
 		Keys:   newKeyHolder(config.KeeperConfig{}),
 	}
 
@@ -225,11 +225,11 @@ func TestGetValuesCarriesTheFileState(t *testing.T) {
 		t.Fatalf("values = %v", resp["values"])
 	}
 	state, ok := resp["state"].([]FileState)
-	if !ok || len(state) != len(secrets.Files) {
+	if !ok || len(state) != len(secrets.Patterns) {
 		t.Fatalf("state = %v, want one per managed file", resp["state"])
 	}
-	if state[0].Path != secrets.Files[0] {
-		t.Errorf("state names %q, want %q", state[0].Path, secrets.Files[0])
+	if state[0].Path != secrets.Patterns[0] {
+		t.Errorf("state names %q, want %q", state[0].Path, secrets.Patterns[0])
 	}
 }
 
@@ -358,7 +358,7 @@ func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 func TestAPatternThatNamesNothingIsReportedAsUnresolved(t *testing.T) {
 	pattern := filepath.Join(t.TempDir(), "*.sops.yml")
 	k := &Keeper{
-		config: &config.Config{Secrets: config.SecretsConfig{Files: []string{pattern}}},
+		config: &config.Config{Secrets: config.SecretsConfig{Patterns: []string{pattern}}},
 		Keys:   newKeyHolder(config.KeeperConfig{}),
 	}
 
@@ -385,7 +385,7 @@ func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
 	}
 	k := &Keeper{
 		config: &config.Config{Secrets: config.SecretsConfig{
-			Files: []string{filepath.Join(dir, "*.sops.yml")},
+			Patterns: []string{filepath.Join(dir, "*.sops.yml")},
 		}},
 		Keys: newKeyHolder(config.KeeperConfig{}),
 	}

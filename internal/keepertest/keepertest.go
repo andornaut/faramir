@@ -69,7 +69,7 @@ func (k *Keeper) accept() {
 		_ = json.Unmarshal(line, &request)
 
 		k.mu.Lock()
-		state, errors, unresolved := keeper.StatAll(config.SecretsConfig{Files: k.files})
+		state, errors, unresolved := keeper.StatAll(config.SecretsConfig{Patterns: k.files})
 		payload := map[string]any{"state": state, "errors": errors, "unresolved_patterns": unresolved}
 		if request.Op != "get_state" {
 			payload["values"] = k.values

@@ -112,7 +112,7 @@ Every managed value, never a subset: the redactor is built from the whole value 
  "errors": [], "unresolved_patterns": []}
 ```
 
-The staleness poll, and where `[secrets] files` globs are expanded, so a file added to the secrets directory appears without a restart. The broker cannot stat those files itself: it is `2750 root:faramir-keeper` and the broker is not in that group. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `refresh_interval_sec` is 0.
+The staleness poll, and where `[secrets] patterns` globs are expanded, so a file added to the secrets directory appears without a restart. The broker cannot stat those files itself: it is `2750 root:faramir-keeper` and the broker is not in that group. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `refresh_interval_sec` is 0.
 
 A file that could not be stat-ed or decrypted comes back in `errors` rather than as an error response, so one broken file does not blank the whole value set. Key material is stripped from those strings before they cross the socket.
 
