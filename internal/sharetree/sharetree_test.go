@@ -83,9 +83,21 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// -1 keeps the group, so no privilege is needed.
-	if err := shareTree(root, -1); err != nil {
+	// A file whose mode the caller asked to keep: shared by group but not
+	// widened, which is what the files an enrolment writes need.
+	kept := filepath.Join(root, "kept.json")
+	if err := os.WriteFile(kept, []byte("{}\n"), 0o640); err != nil {
 		t.Fatal(err)
+	}
+
+	// -1 keeps the group, so no privilege is needed.
+	if err := shareTree(root, -1, map[string]bool{"kept.json": true}); err != nil {
+		t.Fatal(err)
+	}
+	if info, err := os.Stat(kept); err != nil {
+		t.Fatal(err)
+	} else if info.Mode().Perm() != 0o640 {
+		t.Errorf("kept.json is %o, want 640: sharing widened a mode its writer chose", info.Mode().Perm())
 	}
 
 	for path, want := range map[string]os.FileMode{

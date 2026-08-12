@@ -2,6 +2,7 @@ package install
 
 import (
 	"encoding/json"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -137,15 +138,34 @@ func TestMergeJSONIsIdempotent(t *testing.T) {
 	}
 }
 
-// An empty file has nothing to preserve.
-func TestMergeJSONAcceptsEmptyFile(t *testing.T) {
+// An empty file has nothing to preserve, and what is written is still the
+// merged form rather than the asset as authored: the next run merges into what
+// is there, so a first write that skipped the merge would differ from every
+// write after it and settle only on the second run.
+func TestMergeJSONAcceptsEmptyFileAndNormalisesIt(t *testing.T) {
 	ours := []byte(`{"mcpServers":{"faramir":{"command":"/usr/local/bin/faramir"}}}`)
 	merged, err := mergeJSON([]byte("  \n"), ours)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if string(merged) != string(ours) {
-		t.Errorf("merged = %s, want %s", merged, ours)
+	var got, want any
+	if err := json.Unmarshal(merged, &got); err != nil {
+		t.Fatalf("the merge of an empty file is not JSON: %v", err)
+	}
+	if err := json.Unmarshal(ours, &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("merged = %s, want the same content as %s", merged, ours)
+	}
+	// And it is what merging into itself would produce, which is the property
+	// that makes a second run a no-op.
+	again, err := mergeJSON(merged, ours)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(again) != string(merged) {
+		t.Errorf("a second merge changed it:\n%s\nto\n%s", merged, again)
 	}
 }
 

@@ -175,7 +175,15 @@ func (f fsys) mergeFile(path string, data []byte, mode os.FileMode, uid, gid int
 	current, err := os.ReadFile(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return f.writeFile(path, data, mode, uid, gid)
+		// Through the merge even with nothing to merge into, so the first write is
+		// byte-for-byte what the second would produce.  Writing the asset as it was
+		// authored leaves the next run re-serialising it with keys sorted, which is
+		// one real diff on a tree nobody touched.
+		created, mergeErr := mergeJSON(nil, data)
+		if mergeErr != nil {
+			return false, fmt.Errorf("%s: %w", path, mergeErr)
+		}
+		return f.writeFile(path, created, mode, uid, gid)
 	case err != nil:
 		return false, err
 	}

@@ -54,6 +54,11 @@ type agentFile struct {
 	asset string
 	// dirMode creates the parent when the path has one.
 	mode os.FileMode
+	// mode is 0o640 throughout: an enrolled tree is shared with the client group,
+	// so group-readable is what the rest of the tree is, and group-writable is
+	// what these must never be.  .claude/settings.json names the PreToolUse hook
+	// and the executor is in that group.
+	//
 	// merge merges faramir's keys into an existing file rather than replacing
 	// it, and requires the asset to be JSON.  True for every shared config;
 	// false only where the path is faramir's own, so what is there is a previous
@@ -65,14 +70,14 @@ var agentTargets = map[string]*agentTarget{
 	"claude": {
 		name: "claude",
 		files: []agentFile{
-			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json", mode: 0o600, merge: true},
-			{path: ".mcp.json", asset: "agent/claude/mcp.json", mode: 0o644, merge: true},
+			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json", mode: 0o640, merge: true},
+			{path: ".mcp.json", asset: "agent/claude/mcp.json", mode: 0o640, merge: true},
 		},
 		// Read and Edit rules only: Claude Code matches file permission checks
 		// against Edit(path), which covers every file-editing tool, and a
 		// Write(path) rule matches nothing.
 		accountFiles: []agentFile{
-			{path: ".claude/settings.json", asset: "agent/claude/settings.json", mode: 0o600, merge: true},
+			{path: ".claude/settings.json", asset: "agent/claude/settings.json", mode: 0o640, merge: true},
 		},
 		detect:           []string{".claude"},
 		autoApprovesBash: true,
@@ -81,12 +86,12 @@ var agentTargets = map[string]*agentTarget{
 		name: "gemini",
 		files: []agentFile{
 			// Hooks and mcpServers are both top-level keys of this one file.
-			{path: ".gemini/settings.json", asset: "agent/gemini/settings.project.json", mode: 0o600, merge: true},
+			{path: ".gemini/settings.json", asset: "agent/gemini/settings.project.json", mode: 0o640, merge: true},
 		},
 		// Gemini refuses tool calls through a policy engine, and the
 		// settings.json key for this is deprecated in favour of it.
 		accountFiles: []agentFile{
-			{path: ".gemini/policies/faramir.toml", asset: "agent/gemini/policies.toml.tmpl", mode: 0o600},
+			{path: ".gemini/policies/faramir.toml", asset: "agent/gemini/policies.toml.tmpl", mode: 0o640},
 		},
 		detect:           []string{".gemini"},
 		autoApprovesBash: false,
@@ -104,15 +109,15 @@ var agentTargets = map[string]*agentTarget{
 		files: []agentFile{
 			// faramir's own file: what is there is a previous version of this
 			// plugin, so replacing it is the update.
-			{path: ".opencode/plugins/faramir.js", asset: "agent/opencode/plugin.js", mode: 0o644},
-			{path: "opencode.json", asset: "agent/opencode/opencode.json", mode: 0o644, merge: true},
+			{path: ".opencode/plugins/faramir.js", asset: "agent/opencode/plugin.js", mode: 0o640},
+			{path: "opencode.json", asset: "agent/opencode/opencode.json", mode: 0o640, merge: true},
 		},
 		// Deny rules only, and no catch-all.  The last matching wildcard wins
 		// and the merge re-serialises with keys sorted, so an operator's rule
 		// sorting after one of these takes effect.  Sorting puts a catch-all
 		// first, and there is no default this is entitled to replace.
 		accountFiles: []agentFile{
-			{path: ".config/opencode/opencode.json", asset: "agent/opencode/permissions.json.tmpl", mode: 0o600, merge: true},
+			{path: ".config/opencode/opencode.json", asset: "agent/opencode/permissions.json.tmpl", mode: 0o640, merge: true},
 		},
 		detect: []string{".opencode", "opencode.json", "opencode.jsonc"},
 		// No approval is given or asked for: a plugin that has not thrown has
@@ -124,14 +129,14 @@ var agentTargets = map[string]*agentTarget{
 	"kilocode": {
 		name: "kilocode",
 		files: []agentFile{
-			{path: ".kilo/plugin/faramir.js", asset: "agent/kilocode/plugin.js", mode: 0o644},
+			{path: ".kilo/plugin/faramir.js", asset: "agent/kilocode/plugin.js", mode: 0o640},
 			// kilo.json rather than the docs' kilo.jsonc: a merge cannot
 			// preserve the comments a .jsonc is kept for.  Both are read.
-			{path: "kilo.json", asset: "agent/kilocode/kilo.json", mode: 0o644, merge: true},
+			{path: "kilo.json", asset: "agent/kilocode/kilo.json", mode: 0o640, merge: true},
 		},
 		// Deny rules only, and no catch-all, for the reason given on opencode's.
 		accountFiles: []agentFile{
-			{path: ".config/kilo/kilo.json", asset: "agent/kilocode/permissions.json.tmpl", mode: 0o600, merge: true},
+			{path: ".config/kilo/kilo.json", asset: "agent/kilocode/permissions.json.tmpl", mode: 0o640, merge: true},
 		},
 		// .kilocode is the legacy directory, still read.
 		detect:           []string{".kilo", ".kilocode", "kilo.json", "kilo.jsonc"},

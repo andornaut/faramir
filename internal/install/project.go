@@ -235,6 +235,32 @@ func (p *project) resolveGroup() error {
 	return nil
 }
 
+// instructionsMode matches what the agent files are written with, and is kept
+// out of the share for the same reason: see sharetree.Options.Keep.
+const instructionsMode = 0o640
+
+// keepModes is every path this enrolment writes, relative to the tree, so
+// sharing does not widen a mode this command then narrows again.
+//
+// Relative to the tree, which is how sharetree matches them: instructionsFile
+// answers with a path under Dir.
+func (p *project) keepModes() []string {
+	keep := []string{}
+	if rel, err := filepath.Rel(p.opts.Dir, p.instructionsFile()); err == nil {
+		keep = append(keep, rel)
+	}
+	targets, err := resolveAgents(p.opts.Agents)
+	if err != nil {
+		return keep
+	}
+	for _, target := range targets {
+		for _, file := range target.files {
+			keep = append(keep, file.path)
+		}
+	}
+	return keep
+}
+
 func (p *project) shareTree() error {
 	if p.opts.DryRun {
 		p.step("share tree", false, fmt.Sprintf("%s with group %s",
@@ -252,6 +278,7 @@ func (p *project) shareTree() error {
 	p.uid, p.gid = uid, gid
 	if err := sharetree.Share(sharetree.Options{
 		Dir: p.opts.Dir, Operator: p.opts.OperatorUser, Group: p.report.ClientGroup,
+		Keep: p.keepModes(),
 	}); err != nil {
 		return fmt.Errorf("%s: %w", p.opts.Dir, err)
 	}
@@ -363,7 +390,7 @@ func (p *project) instructions() error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	changed, err := p.fs.writeFile(path, spliceBlock(current, block), 0o644, p.uid, p.gid)
+	changed, err := p.fs.writeFile(path, spliceBlock(current, block), instructionsMode, p.uid, p.gid)
 	if err != nil {
 		return err
 	}

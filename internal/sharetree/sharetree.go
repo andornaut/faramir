@@ -25,6 +25,13 @@ type Options struct {
 	Dir      string
 	Operator string
 	Group    string
+	// Keep names paths, relative to Dir, whose mode is not to be widened: the
+	// files an enrolment writes into the tree.  They are still regrouped, so the
+	// group can read them at the mode their writer chose; what they must not
+	// become is group-writable.  .claude/settings.json names the PreToolUse hook,
+	// and the executor is in this group, so a command it runs could otherwise
+	// rewrite the thing that guards the project it runs in.
+	Keep []string
 	// Log receives one line per step, already formatted.
 	Log func(string)
 }
@@ -74,7 +81,11 @@ func Share(opts Options) error {
 	if err := os.Chmod(dir, 0o2770|os.ModeSetgid); err != nil {
 		return err
 	}
-	if err := shareTree(dir, gid); err != nil {
+	keep := make(map[string]bool, len(opts.Keep))
+	for _, rel := range opts.Keep {
+		keep[filepath.Clean(rel)] = true
+	}
+	if err := shareTree(dir, gid, keep); err != nil {
 		return err
 	}
 	opts.logf("shared %s with %s", dir, opts.Group)
@@ -142,7 +153,7 @@ func within(home, dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func shareTree(root string, gid int) error {
+func shareTree(root string, gid int, keep map[string]bool) error {
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -157,6 +168,12 @@ func shareTree(root string, gid int) error {
 		}
 		if err := os.Lchown(path, -1, gid); err != nil {
 			return err
+		}
+		// Regrouped but not widened: its writer chose that mode, and widening it
+		// here is a mode the writer then narrows again on the next run, which is
+		// two steps of one command undoing each other forever.
+		if rel, relErr := filepath.Rel(root, path); relErr == nil && keep[rel] {
+			return nil
 		}
 		return os.Chmod(path, groupShared(info.Mode()))
 	})

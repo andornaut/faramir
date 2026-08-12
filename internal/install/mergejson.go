@@ -17,8 +17,12 @@ import (
 // an error rather than something to overwrite, losing an agent's configuration
 // to a stray comma not being a repair this is entitled to make.
 func mergeJSON(existing, ours []byte) ([]byte, error) {
+	// An absent file still goes through the merge, so what is written the first
+	// time is what a merge would produce the second: returning the asset as it
+	// was authored leaves the next run re-serialising it with keys sorted, which
+	// is one real diff on a tree nobody changed.
 	if len(bytes.TrimSpace(existing)) == 0 {
-		return ours, nil
+		existing = []byte("{}")
 	}
 	var into, from any
 	if err := json.Unmarshal(existing, &into); err != nil {
