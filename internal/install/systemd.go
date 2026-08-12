@@ -216,11 +216,50 @@ func (r *runner) stepSystemd() error {
 // Reload drops the daemons onto a changed configuration.  Exported because a
 // consumer writes its own config.d drop-in, and none of the daemons re-reads
 // its config while running.
+//
+// The config is loaded before anything is stopped.  Reload's own act is to stop
+// the services and leave the sockets listening, so a config the daemons cannot
+// load is not found here at all: it is found by the first brokered command,
+// which connects to a socket systemd is holding open and waits on a service
+// that never becomes ready.  Refusing here leaves the running daemons serving
+// the configuration they already have, which is the one thing that still works.
+//
+// --parse-only rather than --check: the question is whether the daemons can
+// load this, not whether every managed value can be read.  --check also fails
+// for a ref shorter than [secrets] min_length, which is a value to lengthen
+// rather than a reason to refuse a restart.
+// parseInstalledConfig asks the broker's own uid whether the installed config
+// loads, which is the account that will have to load it.
+func parseInstalledConfig(run *runner) error {
+	unit := UnitPath("faramir-broker.service")
+	configFile := UnitConfigFile(unit)
+	if configFile == "" {
+		configFile = filepath.Join(DefaultConfigDir, "config.toml")
+	}
+	brokerUser, err := unitUser(filepath.Base(unit))
+	if err != nil {
+		// No unit to read means nothing is installed to reload; leave that to the
+		// systemctl calls, which name it better than a guess here would.
+		return nil
+	}
+	out, err := run.command("runuser", "-u", brokerUser, "--",
+		filepath.Join(DefaultBinDir, "faramir"), "broker", "-c", configFile, "--parse-only")
+	if err != nil {
+		return fmt.Errorf("%s does not load as %s, so nothing was stopped and the "+
+			"daemons are still serving what they already have: %w\n%s",
+			configFile, brokerUser, err, strings.TrimSpace(out))
+	}
+	return nil
+}
+
 func Reload() error {
 	if !systemdRunning() {
 		return fmt.Errorf("systemd is not running here")
 	}
 	run := &runner{}
+	if err := parseInstalledConfig(run); err != nil {
+		return err
+	}
 	if _, err := run.command("systemctl", "daemon-reload"); err != nil {
 		return err
 	}
