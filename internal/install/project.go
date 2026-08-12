@@ -17,13 +17,6 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// Markers around the instructions block, so a second run replaces what the
-// first wrote instead of appending a duplicate.
-const (
-	snippetBegin = "<!-- BEGIN faramir: credentials -->"
-	snippetEnd   = "<!-- END faramir: credentials -->"
-)
-
 // agentInstructionFiles are the names an agent reads, most specific first; the
 // first is created when there is none.
 var agentInstructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
@@ -481,35 +474,37 @@ func (p *project) instructions() error {
 	if err != nil {
 		return err
 	}
-	section := strings.TrimRight(string(snippet), "\n")
-	block := snippetBegin + "\n" + section + "\n" + snippetEnd + "\n"
+	section := strings.TrimRight(string(snippet), "\n") + "\n"
 
 	current, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
-	switch blockIn(current, section) {
-	case blockCurrent:
-		// Word for word what would be written, with the markers gone.  Nothing to
-		// do, and nothing to say: rewriting it would change only the comments.
+	switch sectionIn(current, section) {
+	case sectionCurrent:
+		// Word for word what would be written.  Nothing to do.
 		p.step("instructions", false, path)
 		return nil
-	case blockForeign:
-		// The file knows about faramir and does not carry what is written now. It
-		// may be an older copy of the block with its markers lost, or it may be
-		// somebody's own prose about this tool; the two cannot be told apart, and
-		// both are somebody's writing.  So it is named rather than appended to,
-		// which would leave two sets of instructions, or replaced, which would
-		// overwrite whatever was made of it.
+	case sectionDrifted:
+		// The file knows about faramir and does not carry what is written now.
+		// It may be a section an earlier version wrote, or somebody's own notes
+		// about this tool, or the same section reworded by whatever last tidied
+		// the file.  Which of those it is cannot be read off the file, and every
+		// one of them is somebody's writing.
+		//
+		// So it is named and left.  Reconciling it here would mean guessing which
+		// paragraphs were ours, and a guess that is wrong edits a file nobody
+		// asked this to edit.
 		p.warn("%s mentions faramir but does not carry the credentials section as it "+
-			"is written now, so it was left as it is. It may be an older copy of the "+
-			"section whose markers were lost, or your own notes. Replace it with the "+
-			"current section, or delete it and re-run, to have this manage it again",
+			"is written now, so it was left as it is. It may be a section an earlier "+
+			"version wrote, or your own notes. Delete that section and re-run to have "+
+			"the current one written, or leave it if it says what you want it to say",
 			path)
 		p.step("instructions", false, path+" (left as it is; see the warning)")
 		return nil
 	}
-	changed, err := p.fs.writeFile(path, spliceBlock(current, block), instructionsMode, p.uid, p.gid)
+	changed, err := p.fs.writeFile(
+		path, appendSection(current, section), instructionsMode, p.uid, p.gid)
 	if err != nil {
 		return err
 	}
@@ -518,43 +513,54 @@ func (p *project) instructions() error {
 }
 
 // What a file shows about the credentials section, which decides what may be
-// done to it.  Three signals, strongest first, because each is sound where the
-// one below it is only a guess.
-type blockState int
+// done to it.
+//
+// There are no markers.  A marker only helps while it survives, and these files
+// are prose an operator edits and asks agents to rewrite; one that comes back
+// with every word kept and an HTML comment dropped is ordinary, and a mechanism
+// that depends on the comment surviving is a mechanism that quietly stops
+// working.  The section's own text is the evidence instead, and it is evidence
+// nothing can strip without changing what the file says.
+type sectionState int
 
 const (
-	// blockMine is between faramir's markers, or nowhere in the file at all.
-	// Both are cases where writing is unambiguous: replace what is between them,
-	// or append.
-	blockMine blockState = iota
-	// blockCurrent is the section word for word without the markers, which a
-	// rewrite that kept the prose and dropped an HTML comment leaves behind.
-	blockCurrent
-	// blockForeign is a file that mentions faramir and matches neither.
-	blockForeign
+	// sectionAbsent is a file with no sign of faramir in it.  Writing is
+	// unambiguous.
+	sectionAbsent sectionState = iota
+	// sectionCurrent is the section word for word.  Nothing to do.
+	sectionCurrent
+	// sectionDrifted is a file that mentions faramir and does not carry the
+	// section as written now.
+	sectionDrifted
 )
 
-// blockIn reads those signals off the file.
+// sectionIn reads that off the file.
 //
-// Markers first, because they are the only proof of ownership: text between
-// them was put there by this and may be replaced.  Then the section itself, so
-// a copy that lost its markers is recognised as current rather than duplicated.
-// Then the bare word, which proves nothing except that the file is not innocent
-// of faramir -- enough to stop, not enough to edit.
-func blockIn(current []byte, section string) blockState {
-	if bytes.Contains(current, []byte(snippetBegin)) && bytes.Contains(current, []byte(snippetEnd)) {
-		return blockMine
-	}
+// The bare word is a weak signal on purpose.  What it has to catch is a section
+// that no longer looks like what is written now, and anything narrower -- a
+// fingerprint, a heading, a distinctive line -- would miss exactly the case that
+// matters, a copy reworded past recognition.  It over-reports a file that merely
+// mentions the tool, which costs a warning; under-reporting costs a second set
+// of instructions contradicting the first.
+func sectionIn(current []byte, section string) sectionState {
 	if bytes.Contains(current, []byte(section)) {
-		return blockCurrent
+		return sectionCurrent
 	}
 	if bytes.Contains(bytes.ToLower(current), []byte("faramir")) {
-		return blockForeign
+		return sectionDrifted
 	}
-	return blockMine
+	return sectionAbsent
 }
 
-// instructionsFile picks an existing file, or the first name.
+// appendSection adds the section to a file that has no sign of it, keeping what
+// is there.
+func appendSection(current []byte, section string) []byte {
+	if len(bytes.TrimSpace(current)) == 0 {
+		return []byte(section)
+	}
+	return append(append(bytes.TrimRight(current, "\n"), "\n\n"...), section...)
+}
+
 func (p *project) instructionsFile() string {
 	for _, name := range agentInstructionFiles {
 		path := filepath.Join(p.opts.Dir, name)
@@ -563,21 +569,4 @@ func (p *project) instructionsFile() string {
 		}
 	}
 	return filepath.Join(p.opts.Dir, agentInstructionFiles[0])
-}
-
-// spliceBlock replaces the marked block in current, or appends it.
-func spliceBlock(current []byte, block string) []byte {
-	begin := bytes.Index(current, []byte(snippetBegin))
-	end := bytes.Index(current, []byte(snippetEnd))
-	if begin >= 0 && end > begin {
-		var out bytes.Buffer
-		out.Write(current[:begin])
-		out.WriteString(block)
-		out.Write(bytes.TrimLeft(current[end+len(snippetEnd):], "\n"))
-		return out.Bytes()
-	}
-	if len(current) == 0 {
-		return []byte(block)
-	}
-	return append(append(bytes.TrimRight(current, "\n"), "\n\n"...), block...)
 }

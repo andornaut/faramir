@@ -4,55 +4,10 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/sharetree"
 )
-
-const block = snippetBegin + "\nnew text\n" + snippetEnd + "\n"
-
-// Enrolling twice must not leave the instructions in twice, which is what the
-// markers are for.
-func TestSpliceBlockIsIdempotent(t *testing.T) {
-	once := spliceBlock(nil, block)
-	twice := spliceBlock(once, block)
-	if string(once) != string(twice) {
-		t.Errorf("a second enrolment changed the file:\n%q\n%q", once, twice)
-	}
-	if strings.Count(string(twice), snippetBegin) != 1 {
-		t.Errorf("the block appears more than once:\n%s", twice)
-	}
-}
-
-// Only what is between the markers belongs to faramir.
-func TestSpliceBlockKeepsSurroundingText(t *testing.T) {
-	existing := []byte("# My project\n\nSome rules.\n")
-	out := string(spliceBlock(existing, block))
-	if !strings.HasPrefix(out, "# My project\n\nSome rules.\n") {
-		t.Errorf("the project's own text was disturbed:\n%s", out)
-	}
-	if !strings.Contains(out, "new text") {
-		t.Error("the block was not added")
-	}
-
-	// Replaced in place, not left as two sets that disagree.
-	updated := strings.Replace(block, "new text", "newer text", 1)
-	out = string(spliceBlock([]byte(out), updated))
-	// Two checks: a splice that added without removing fails only the first.
-	if strings.Contains(out, "new text\n") {
-		t.Errorf("the superseded text survived:\n%s", out)
-	}
-	if !strings.Contains(out, "newer text") {
-		t.Errorf("the block was not replaced:\n%s", out)
-	}
-	if strings.Count(out, snippetBegin) != 1 {
-		t.Errorf("the block appears more than once:\n%s", out)
-	}
-	if !strings.HasPrefix(out, "# My project\n\nSome rules.\n") {
-		t.Errorf("the project's own text was disturbed:\n%s", out)
-	}
-}
 
 // Enrolling grants the client group read and write on the whole tree, and
 // faramir-exec is in that group: for a home that is ~/.ssh and the age key
