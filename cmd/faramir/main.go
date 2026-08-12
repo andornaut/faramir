@@ -59,7 +59,7 @@ Commands:
 Provisioning (require root; they act on files, and ask a running broker where
 the install is):
   init          install or re-install faramir on this host
-  init-project  enrol one working tree: share it, and configure the agent there
+  init-project  enrol one working tree: share it, and configure its agents
   edit          edit a managed sops file
   rekey         re-encrypt the secrets directory to the recipients .sops.yaml now names
   logs          show the audit log: what ran, against which refs, and how it ended

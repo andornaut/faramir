@@ -16,7 +16,7 @@ Agent | Redaction | Registration | Enrolment cost | Mitigation
 [Kilo Code](https://kilo.ai/) | Full | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) under `.kilo/plugin/`, loaded by both the CLI and the VS Code extension. MCP server in `kilo.json`, deny patterns in `~/.config/kilo/kilo.json`. | Same as opencode. | Same as opencode.
 [Pi](https://pi.dev/) | Full | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) under `.pi/extensions/`, TypeScript. Pi ships no MCP, so the extension registers `faramir_run` and `faramir_list_secrets` itself, shelling out to the CLI rather than to the broker socket. | None: the extension blocks or rewrites and approves nothing, so the agent prompts as it would have. Project-local extensions load only once the project is trusted, so a tree Pi has not been trusted in is unguarded. | Confirm project trust when Pi asks, or the extension never loads. It gets no account-wide deny rules because it has nowhere to put them; the extension carries the same path list instead, compiled in.
 
-Enrol with `faramir init-project --agent claude --agent gemini`, repeatable, defaulting to `auto`: whichever agents the tree already carries configuration for. `faramir init` takes the same flag and the same default, asking it of the operator's home instead, and writes the deny rules there. A name configures that agent whether or not it is there, and composes with `auto`, so `--agent auto --agent pi` is "whatever is installed, plus pi". The names are `claude`, `gemini`, `opencode`, `kilocode` and `pi`. [Antigravity](https://antigravity.google/) is not supported: its hooks decide and cannot rewrite.
+Both commands take `--agent`, repeatable, defaulting to `auto`: whichever agents are already there, which `init` asks of your home and `init-project` of the tree. A name configures that agent regardless, and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi". The names are `claude`, `gemini`, `opencode`, `kilocode` and `pi`. [Antigravity](https://antigravity.google/) is not supported: its hooks decide and cannot rewrite.
 
 ## What it protects against
 
@@ -131,7 +131,7 @@ Flag | Default | What to give it
 `--age-recipient KEY` | none | An age **public** key, repeatable, listed in `.sops.yaml` beside the keeper's so a backup of the ciphertext opens without the keeper's key; the private half is yours to hold. An identity is refused, `.sops.yaml` being world-readable. Only read at the install that creates the file; see [Adding a recipient](docs/operating.md#adding-a-recipient).
 `--ssh-key PATH` | [what the install uses](#installation), then `<config-dir>/id_ed25519` | Where the keypair the broker lends to brokered commands lives. One is minted either way, so this relocates rather than enables. Put the public half `init` prints into `authorized_keys` on each managed host. An existing key at the path is adopted, not replaced; it must already be `faramir-broker`-owned `0600` or `init` refuses it.
 `--known-hosts PATH` | none | A `known_hosts` file pinned for the executor, copied to `<exec-home>/.ssh/known_hosts` and replaced whole on each run, so the file you name is the authority. A copy, the executor being unable to read your `0700 ~/.ssh`; one that is not a `known_hosts` file is refused.
-`--agent NAME` | every agent | `claude`, `gemini`, `opencode`, `kilocode` or `pi`, repeatable. Installs that agent's deny rules into your own settings. Naming none installs them for every agent: those rules refuse the file tools, covering the key material under `~/.ssh` and `~/.config/sops` that no uid boundary reaches, and an agent installed later finds them already there. `pi` has none of its own, its extension being what refuses a tool call.
+`--agent NAME` | `auto` | Repeatable, and `auto` here reads your home rather than a tree. Installs that agent's deny rules into its own settings: they refuse the file tools against the key material under `~/.ssh` and `~/.config/sops`, which no uid boundary reaches. Finding no agent writes nothing and says so. `pi` gets no file, the same rules being compiled into the extension `init-project` installs.
 `--allow-sudo` | off | The one place the executor's reach grows: a **password-required** sudoers entry for `faramir-exec` and a private PAM service whose authentication step asks the broker whether a human approved the brokered command. There is no password, so nothing that can sudo on this host exists at rest or in memory. Not passing the flag takes it all back. [What it grants and what it costs](#allowing-sudo-on-the-controller).
 `--dry-run` | off | Reports what would change and writes nothing.
 `--json` | off | Prints the report as JSON, one entry per step with a `changed` flag.
@@ -155,7 +155,7 @@ Reports whether the install is doing its job, and as root what each account can 
 1. Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them. `[secrets] patterns` globs that directory, so it's picked up on the next refresh (`[secrets] refresh_interval_sec`, 5 seconds by default).
 2. Have the project read each credential from an environment variable, rather than from a file or a vault of its own. Nothing in the project decrypts anything: `faramir run` puts the value in the environment and the project reads `$NAME`. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. Write the refs beside the project, one `NAME=secret://ref` per line.
-4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and writes each enrolled agent's settings and the instructions block. This causes Claude Code (the default) to auto-redact in Bash commands (and auto-approve them too). Add `--agent gemini`, `--agent opencode` or `--agent kilocode` for other agents.
+4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries. On Claude Code that auto-redacts Bash commands, and auto-approves them as a consequence. `--agent NAME` enrols one the tree does not carry yet.
 
 Enrol the projects where managed credentials are in play, not every tree. `--hook=false` shares one without the hook. A brokered command runs where its caller was, so nothing needs a tree of its own.
 
@@ -238,7 +238,7 @@ How to install, run and watch it: [docs/operating.md](docs/operating.md#allowing
 
 Command | Does
 --- | ---
-`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current directory. [Shares the tree](docs/layout.md), registers the hook and the MCP server in each enrolled agent's settings, and splices the credentials section into its instructions. `--agent` is repeatable, default `claude`. A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` to every brokered command. `faramir doctor` re-checks it.
+`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current directory. [Shares the tree](docs/layout.md), registers the hook and the MCP server in each enrolled agent's settings, and writes the credentials section into `AGENTS.md` or `CLAUDE.md`. `--agent` is repeatable, default `auto`. A home directory, `/`, and anything above a home are refused, symlinks resolved first: sharing a home would hand `~/.ssh` to every brokered command. `faramir doctor` re-checks it.
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. See [Checking an install](docs/operating.md#checking-an-install).
 `sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] patterns` globs reach, so a file dropped into the secrets directory is editable at once. `--age-key` names the key to decrypt with, `--editor` the editor to run.
 `sudo faramir rekey [FILE...]` | Re-encrypts managed sops files to the recipients `<config-dir>/.sops.yaml` names now — every managed file unless some are named. Preserves each file's owner and mode, skips one already sealed to the rule, and refuses a rule that leaves out the keeper's own key. `--dry-run` writes nothing. See [Adding a recipient](docs/operating.md#adding-a-recipient).
@@ -256,21 +256,15 @@ Tool | Description
 `faramir_run(cmd, env_refs, cwd, timeout_sec)` | Run a command with secrets bound to environment variables.
 `faramir_list_secrets()` | Ref names only, and where `faramir_run`'s `env_refs` come from.
 
-Two, and meant to stay two. A tool is for what an agent has to be told: a credential must not go any other way, and `faramir_run`'s arguments are refs. `faramir status` is neither — it answers an operator's questions, and an agent finds out what it may do here by running a command, a refusal naming what failed and where to fix it. Advertised, it would cost a slot in every session's context to be acted on never, so it stays a subcommand. The list is mirrored: Pi ships no MCP and registers the same two from its extension, so both sides are asserted by count.
+Two, and meant to stay two. A tool is for what an agent has to be told; everything else is a subcommand. `faramir status` answers an operator's questions, and an agent learns what it may do here by running a command and reading the refusal, so advertising it would spend a slot in every session's context to be acted on never. Pi ships no MCP and registers the same two from its extension: both lists are asserted by count.
 
 Wire protocol: [docs/protocol.md](docs/protocol.md).
 
-### Notes
-
-The operational rules that are not obvious from a command's own output, from restart order to what a brokered `ssh` logs in as: [docs/operating.md](docs/operating.md#rules-a-command-does-not-state).
-
 ## Configuration
 
-[etc/config.toml.tmpl](etc/config.toml.tmpl) is what `init` renders, on every run, and it is commented. There is no command allowlist. What bounds a brokered command is the executor's uid, and then `[exec.base_env] PATH`, `[exec] max_timeout_sec`, `[exec] max_output_bytes` and `[secrets] min_length`.
+Settings live in `<config-dir>/config.toml`, which `init` rewrites on every run from [etc/config.toml.tmpl](etc/config.toml.tmpl) and which is commented, and in `config.d/*.toml` drop-ins, which it never touches. Edit a drop-in.
 
-Settings live in `<config-dir>/config.toml`, which `init` rewrites every run, and in `config.d/*.toml` drop-ins, which it never touches. Edit a drop-in.
-
-[docs/configuration.md](docs/configuration.md) is the reference: every setting a drop-in may set and every one it may not, how lists merge, what `faramir broker --check` fails on, and the invariants no setting changes.
+There is no command allowlist. What bounds a brokered command is the executor's uid, and then `[exec.base_env] PATH`, `[exec] max_timeout_sec`, `[exec] max_output_bytes` and `[secrets] min_length`. [docs/configuration.md](docs/configuration.md) is the reference.
 
 ## Documentation
 
@@ -280,7 +274,7 @@ Doc | Covers
 [docs/configuration.md](docs/configuration.md) | Every setting, what a drop-in may set, what `--check` fails on
 [docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what enrolment costs
 [docs/layout.md](docs/layout.md) | Every path the install creates, with its mode and owner
-[docs/operating.md](docs/operating.md) | Checking an install, the operational notes, adding an age recipient
+[docs/operating.md](docs/operating.md) | Checking an install, [the rules a command does not state](docs/operating.md#rules-a-command-does-not-state), adding an age recipient
 [docs/protocol.md](docs/protocol.md) | Request and response shapes on the socket
 [docs/redaction.md](docs/redaction.md) | What the redactor covers, and what it cannot
 

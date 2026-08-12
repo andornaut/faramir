@@ -9,10 +9,10 @@ import (
 // stepAgentConfig registers the broker with the operator's own account, which is
 // what the coding agent runs as.
 //
-// Only the Read deny rules go here: they refuse to open key material wherever
-// the agent is working and take nothing away.  The PreToolUse hook is
-// per-project, because a rewritten command matches no Bash permission rule, so
-// registering it auto-approves Bash for that project.
+// Only the deny rules go here: they refuse to open or overwrite key material
+// wherever the agent is working, and take nothing else away.  The PreToolUse
+// hook is per-project, because a rewritten command matches no Bash permission
+// rule, so registering it auto-approves Bash for that project.
 func (r *runner) stepAgentConfig() error {
 	// Whichever agents this home carries, unless one is named.  These rules
 	// refuse the file tools, and what they cover is the operator's own key

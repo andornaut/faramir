@@ -10,9 +10,9 @@ import (
 // An agentTarget is one coding agent's enrolment: the files faramir writes into
 // a tree so that agent runs its commands through the broker.
 //
-// Explicit rather than discovered: enrolling trades away every Bash prompt in
-// the project on some agents.  Detection is only good for reporting what a tree
-// already carries.
+// Configured for the agents that are there, or for the ones named.  Enrolling
+// trades away every Bash prompt in the project on some agents, so what `auto`
+// will not do is configure one nobody runs: naming it is what says to.
 type agentTarget struct {
 	name string
 

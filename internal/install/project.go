@@ -440,8 +440,9 @@ func (p *project) agentConfig() error {
 	// Named rather than counted, so an operator knows which file to merge.
 	p.step("agent config", changed, strings.Join(written, ", "))
 
-	// Reported, never acted on: a directory left behind by trying an agent is not
-	// a decision to enrol it.
+	// What auto would have taken and this run did not, which only happens when
+	// the operator named agents explicitly: auto enrols what it finds, so the two
+	// lists differ exactly where a name narrowed it.
 	var unenrolled []string
 	for _, name := range detectedAgents(p.opts.Dir) {
 		enrolled := false
