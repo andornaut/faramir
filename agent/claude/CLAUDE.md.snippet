@@ -30,6 +30,13 @@ promote first.
   systemd units, or this hook's patterns and binary.
 - **Work with the reference, never the value.** To learn what exists, read the
   `secret://` refs in code and config, or call `faramir_list_secrets`.
+- **Do not write a value down.** Not in code, config, a test fixture, a `.env`,
+  a scratch file, your own notes, or a commit message. A value written into the
+  tree outlives the command that produced it and reaches everyone who clones it.
+  Write the `secret://` ref instead.
+- **Do not send a value anywhere.** No web request, API call, upload, or paste
+  into an issue or a pull request. This covers what is derived from one too: a
+  hash, a prefix, or a redaction that leaves enough to guess.
 
 If a value reaches your context anyway, say so plainly and tell the operator to
 rotate it. Do not carry on as though it were still secret.
