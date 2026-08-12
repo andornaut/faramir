@@ -44,6 +44,14 @@ func unitNames() []string {
 // the shipped files themselves, and a field named in one and absent from Layout
 // fails in the tests below rather than being ignored at runtime.
 func render(assetPath string, layout Layout) ([]byte, error) {
+	return renderData(assetPath, layout)
+}
+
+// renderData is render for a template whose data is not the install layout.
+// The agent plugins are the case: what they need is the binary's path plus
+// which agent and which file, and the last two are per-target rather than
+// per-install.
+func renderData(assetPath string, data any) ([]byte, error) {
 	text, err := faramir.Assets.ReadFile(assetPath)
 	if err != nil {
 		return nil, fmt.Errorf("embedded asset %s: %w", assetPath, err)
@@ -53,7 +61,7 @@ func render(assetPath string, layout Layout) ([]byte, error) {
 		return nil, fmt.Errorf("%s: %w", assetPath, err)
 	}
 	var out bytes.Buffer
-	if err := tmpl.Execute(&out, layout); err != nil {
+	if err := tmpl.Execute(&out, data); err != nil {
 		return nil, fmt.Errorf("%s: %w", assetPath, err)
 	}
 	return out.Bytes(), nil

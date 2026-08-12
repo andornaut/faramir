@@ -239,6 +239,34 @@ func (p *project) resolveGroup() error {
 // out of the share for the same reason: see sharetree.Options.Keep.
 const instructionsMode = 0o640
 
+// pluginData is what an agent plugin's template is rendered against: the
+// binary it execs, which agent it speaks to, and the path it is written to.
+// Not the install Layout, none of the last two being install-wide.
+type pluginData struct {
+	BinDir        string
+	Agent         string
+	Path          string
+	DefaultExport bool
+}
+
+// assetFor is one agent file's contents.  A .tmpl asset is rendered, which is
+// how the plugins get the installed binary's path compiled in rather than
+// reading it from an environment the host controls; everything else is shipped
+// as it is.
+func assetFor(target *agentTarget, file agentFile) ([]byte, error) {
+	if !strings.HasSuffix(file.asset, ".tmpl") {
+		return readAsset(file.asset)
+	}
+	return renderData(file.asset, pluginData{
+		// The compiled path, as uninstall and reload already resolve it: a
+		// post-install command reads the binary where the install put it.
+		BinDir:        DefaultBinDir,
+		Agent:         target.name,
+		Path:          file.path,
+		DefaultExport: file.defaultExport,
+	})
+}
+
 // keepModes is every path this enrolment writes, relative to the tree, so
 // sharing does not widen a mode this command then narrows again.
 //
@@ -322,7 +350,7 @@ func (p *project) agentConfig() error {
 					return err
 				}
 			}
-			data, err := readAsset(file.asset)
+			data, err := assetFor(target, file)
 			if err != nil {
 				return err
 			}

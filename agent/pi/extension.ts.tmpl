@@ -1,0 +1,98 @@
+// faramir: run every shell command under the redactor, and refuse the ones the
+// deny list names.
+//
+// `faramir init-project --agent pi` writes this into {{.Path}}, which pi loads
+// once the project is trusted.
+//
+// A file of its own rather than the template the opencode and Kilo Code plugins
+// share, because pi answers differently in both directions: a refusal is a
+// value returned rather than an exception thrown, and a rewrite is a mutation
+// of the event's own input rather than of an object the host passed in.  What
+// is shared is the guard call and the fail-closed branches, and folding three
+// dialects into one template would branch it exactly where a bug would live.
+//
+// pi ships no MCP, so there is no `faramir_run` tool here.  A command needing
+// credentials is `faramir run`, which this hook rewrites like any other.
+
+import { spawnSync } from "node:child_process"
+
+// The installed path, not an environment variable: see the note in the
+// opencode plugin.  The file is the operator's to edit, so this closes one
+// route rather than being a boundary.
+const CLI = "{{.BinDir}}/faramir"
+const HOST = "pi"
+
+// Guarded by shape rather than by name: anything carrying a command string is
+// put to the guard whatever the tool is called.  The names are what makes a
+// known shell tool arriving without one a refusal rather than a shrug.
+const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
+
+export default function faramir(pi: any) {
+  pi.on("tool_call", async (event: any) => {
+    const input = event && event.input
+    const command = input && input.command
+
+    if (typeof command !== "string" || command === "") {
+      if (SHELL_TOOLS.has(event && event.toolName)) {
+        return {
+          block: true,
+          reason:
+            `faramir: ${event.toolName} was called with no command string, so this ` +
+            "extension could not guard it and the call was not made",
+        }
+      }
+      return
+    }
+
+    const result = spawnSync(CLI, ["guard", "--host", HOST], {
+      input: JSON.stringify({ tool_name: event.toolName, tool_input: input }),
+      encoding: "utf8",
+      timeout: 10000,
+    })
+
+    // Fail closed: running the command without a decision would print whatever
+    // it found straight into the transcript.
+    if (result.error || result.status !== 0) {
+      return {
+        block: true,
+        reason:
+          `faramir: the guard did not answer, so this command was not run (${CLI} guard --host ${HOST})` +
+          (result.stderr ? `: ${String(result.stderr).trim()}` : ""),
+      }
+    }
+
+    // Nothing to say: a backgrounded command, or one already under the
+    // redactor.  See docs/design.md.
+    const text = (result.stdout || "").trim()
+    if (!text) return
+
+    let decision: any
+    try {
+      decision = JSON.parse(text)
+    } catch {
+      return {
+        block: true,
+        reason: "faramir: the guard's answer was not JSON, so this command was not run",
+      }
+    }
+
+    switch (decision.decision) {
+      case "deny":
+        // Reaches the model, not the operator, and names the tool to use
+        // instead.
+        return { block: true, reason: decision.reason }
+      case "rewrite":
+        // event.input is the object pi executes from, so assigning into it is
+        // how this hook changes a call.  Every field, not only the command.
+        Object.assign(input, decision.tool_input)
+        return
+      default:
+        return {
+          block: true,
+          reason:
+            "faramir: the guard returned a decision this extension does not understand, " +
+            "so this command was not run",
+        }
+    }
+  })
+}

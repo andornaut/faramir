@@ -20,6 +20,12 @@ type host struct {
 	// be skipped deliberately.
 	shellTools []string
 	wrapTool   string
+	// anyShellTool takes every tool as one that runs a command, whatever it is
+	// called.  For faramir's own plugin, which asks only about a call carrying a
+	// command string: the host has established that before the payload is built,
+	// and gating on the name again is what leaves a renamed or newly added shell
+	// tool unguarded.  A hook host cannot do this, being asked about every tool.
+	anyShellTool bool
 
 	// deny refuses the command.  The reason reaches the model, not the operator.
 	deny func(reason string) map[string]any
@@ -77,6 +83,9 @@ var hosts = map[string]*host{
 	// decision itself.  Two names for one contract today, so a divergence has
 	// somewhere to go.
 	"opencode": pluginHost("opencode"),
+	// pi speaks the same dialect: its extension turns a deny into a blocked
+	// tool call and a rewrite into a mutation of the call's own input.
+	"pi":       pluginHost("pi"),
 	"kilocode": pluginHost("kilocode"),
 }
 
@@ -85,9 +94,15 @@ var hosts = map[string]*host{
 // An unrecognised decision fails closed.
 func pluginHost(name string) *host {
 	return &host{
-		name:       name,
-		shellTools: []string{"bash"},
-		wrapTool:   "bash",
+		name: name,
+		// Named for the message and for the wrap, not as a gate.  faramir's own
+		// plugin asks only about a call that carries a command string, so by the
+		// time a payload arrives the host has already established that this runs
+		// one; refusing it here for being called something else is how a renamed
+		// or newly added shell tool would go unguarded.
+		anyShellTool: true,
+		shellTools:   []string{"bash", "shell", "exec"},
+		wrapTool:     "bash",
 		deny: func(reason string) map[string]any {
 			return map[string]any{"decision": "deny", "reason": reason}
 		},
@@ -126,10 +141,15 @@ func lookupHost(name string) (*host, error) {
 }
 
 // wraps reports whether the named tool is the one whose input gets rewritten.
-func (h *host) wraps(toolName string) bool { return toolName == h.wrapTool }
+func (h *host) wraps(toolName string) bool {
+	return h.anyShellTool || toolName == h.wrapTool
+}
 
 // handles reports whether this host runs shell commands through the named tool.
 func (h *host) handles(toolName string) bool {
+	if h.anyShellTool {
+		return true
+	}
 	for _, name := range h.shellTools {
 		if name == toolName {
 			return true

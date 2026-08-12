@@ -59,6 +59,9 @@ type agentFile struct {
 	// what these must never be.  .claude/settings.json names the PreToolUse hook
 	// and the executor is in that group.
 	//
+	// defaultExport renders a plugin as a default-exported { id, server } rather
+	// than a named export.  The one thing the two plugin hosts disagree about.
+	defaultExport bool
 	// merge merges faramir's keys into an existing file rather than replacing
 	// it, and requires the asset to be JSON.  True for every shared config;
 	// false only where the path is faramir's own, so what is there is a previous
@@ -109,7 +112,7 @@ var agentTargets = map[string]*agentTarget{
 		files: []agentFile{
 			// faramir's own file: what is there is a previous version of this
 			// plugin, so replacing it is the update.
-			{path: ".opencode/plugins/faramir.js", asset: "agent/opencode/plugin.js", mode: 0o640},
+			{path: ".opencode/plugins/faramir.js", asset: "agent/plugin.js.tmpl", mode: 0o640},
 			{path: "opencode.json", asset: "agent/opencode/opencode.json", mode: 0o640, merge: true},
 		},
 		// Deny rules only, and no catch-all.  The last matching wildcard wins
@@ -126,10 +129,28 @@ var agentTargets = map[string]*agentTarget{
 		note:             pluginNote("opencode"),
 	},
 
+	// pi extends through a TypeScript module loaded from the project, once the
+	// project is trusted.  No MCP ships with it, so there is no faramir_run tool
+	// to register here: a command needing credentials is `faramir run`, which the
+	// hook rewrites like any other.
+	"pi": {
+		name: "pi",
+		files: []agentFile{
+			{path: ".pi/extensions/faramir.ts", asset: "agent/pi/extension.ts.tmpl", mode: 0o640},
+		},
+		// Nothing account-wide: pi refuses a tool call through this same
+		// extension, so there is no separate rule file to write.
+		detect: []string{".pi"},
+		// The extension returns a refusal rather than approving anything, so the
+		// agent prompts as it would have.
+		autoApprovesBash: false,
+		note:             pluginNote("pi"),
+	},
+
 	"kilocode": {
 		name: "kilocode",
 		files: []agentFile{
-			{path: ".kilo/plugin/faramir.js", asset: "agent/kilocode/plugin.js", mode: 0o640},
+			{path: ".kilo/plugin/faramir.js", asset: "agent/plugin.js.tmpl", mode: 0o640, defaultExport: true},
 			// kilo.json rather than the docs' kilo.jsonc: a merge cannot
 			// preserve the comments a .jsonc is kept for.  Both are read.
 			{path: "kilo.json", asset: "agent/kilocode/kilo.json", mode: 0o640, merge: true},

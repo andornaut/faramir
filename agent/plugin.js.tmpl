@@ -1,15 +1,17 @@
 // faramir: run every shell command under the redactor, and refuse the ones the
 // deny list names.
 //
-// `faramir init-project --agent kilocode` writes this into
-// .kilo/plugin/faramir.js, which Kilo Code loads at startup.
+// `faramir init-project --agent {{.Agent}}` writes this into {{.Path}}, which
+// {{.Agent}} loads at startup.
 //
 // It decides nothing: the deny list, the rewrite and what is left alone are
 // `faramir guard`.  This is the translation: a payload out, a decision back,
-// applied rather than returned, Kilo Code having no reply document.
+// applied rather than returned, the host having no reply document.
 //
-// A separate file from the opencode plugin, which it otherwise matches: the two
-// differ in what a module exports and in which directory it is read from.
+// One template renders this for both hosts, which differ only in what a module
+// exports.  They were two files that had to be kept in step by hand, and a fix
+// to the guard call or to a fail-closed branch reaching one and not the other
+// is the failure that costs a project its redaction silently.
 //
 // node:child_process rather than the Bun shell: the guard reads its payload on
 // stdin, and this never builds a command line out of the model's text.
@@ -17,17 +19,40 @@
 
 import { spawnSync } from "node:child_process"
 
-const CLI = process.env.FARAMIR_CLI || "/usr/local/bin/faramir"
-const HOST = "kilocode"
+// The installed path, not an environment variable.  The plugin is the
+// operator's file to edit, so this is one route closed rather than a boundary:
+// what it stops is a stray FARAMIR_CLI in the host's environment quietly
+// deciding what guards it.
+const CLI = "{{.BinDir}}/faramir"
+const HOST = "{{.Agent}}"
 
-// Every other tool is left alone: only a command has output worth redacting.
-const SHELL_TOOL = "bash"
+// The tools known to run a shell command.  This list is not what decides:
+// anything whose arguments carry a command string is guarded whatever the tool
+// is called, so a host that renames its shell tool or adds a second one stays
+// covered without this being updated.
+//
+// What the list is for is the other direction.  A tool named here arriving with
+// no command string means the shape changed under us, and on a tool known to
+// run commands that is a reason to stop rather than to shrug: the alternative
+// is returning quietly and leaving the project unguarded.
+const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
 
-const faramir = async () => ({
+{{if .DefaultExport}}const faramir{{else}}export const faramir{{end}} = async () => ({
   "tool.execute.before": async (input, output) => {
-    if (input.tool !== SHELL_TOOL) return
-    const args = output.args
-    if (!args || !args.command) return
+    const args = output && output.args
+    const command = args && args.command
+
+    if (typeof command !== "string" || command === "") {
+      if (SHELL_TOOLS.has(input && input.tool)) {
+        throw new Error(
+          `faramir: ${input.tool} was called with no command string, so this ` +
+            "plugin could not guard it and the call was not made",
+        )
+      }
+      // Every other tool: nothing here runs a command, so there is no output
+      // worth redacting and nothing to decide.
+      return
+    }
 
     const result = spawnSync(CLI, ["guard", "--host", HOST], {
       input: JSON.stringify({ tool_name: input.tool, tool_input: args }),
@@ -74,5 +99,6 @@ const faramir = async () => ({
     }
   },
 })
-
+{{if .DefaultExport}}
 export default { id: "faramir", server: faramir }
+{{end}}

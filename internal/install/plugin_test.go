@@ -61,17 +61,28 @@ func newPluginRig(t *testing.T, agent, exportKind string) *pluginRig {
 	}
 	dir := t.TempDir()
 	rig := &pluginRig{
-		dir:         dir,
-		modulePath:  filepath.Join(dir, "plugin.mjs"),
-		exportKind:  exportKind,
-		cli:         filepath.Join(dir, "guard-stand-in"),
+		dir:        dir,
+		modulePath: filepath.Join(dir, "plugin.mjs"),
+		exportKind: exportKind,
+		// Named faramir, being what the rendered plugin execs.
+		cli:         filepath.Join(dir, "faramir"),
 		payloadFile: filepath.Join(dir, "payload.json"),
 		replyFile:   filepath.Join(dir, "reply.json"),
 		statusFile:  filepath.Join(dir, "status"),
 	}
-	// .mjs: a .js is CommonJS to node without a package.json.  The bytes are
-	// the shipped ones.
-	body, err := readAsset("agent/" + agent + "/plugin.js")
+	// Rendered here the way an enrolment renders it, with BinDir pointing at
+	// this test's own directory: the plugin execs the installed path rather than
+	// reading one from the environment, so a stand-in guard has to be installed
+	// where the rendered file will look for it.
+	//
+	// .mjs: a .js is CommonJS to node without a package.json.  The bytes are the
+	// shipped ones otherwise.
+	body, err := renderData("agent/plugin.js.tmpl", pluginData{
+		BinDir:        dir,
+		Agent:         agent,
+		Path:          ".test/plugin.js",
+		DefaultExport: exportKind == "default",
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +115,6 @@ func (r *pluginRig) call(t *testing.T, tool string, args map[string]any) hookRes
 	}
 	cmd := exec.Command("node", filepath.Join(r.dir, "driver.mjs"), r.modulePath, r.exportKind)
 	cmd.Env = append(os.Environ(),
-		"FARAMIR_CLI="+r.cli,
 		"HOOK_INPUT="+string(input),
 		"HOOK_OUTPUT="+string(output))
 	out, err := cmd.CombinedOutput()
@@ -240,4 +250,158 @@ func TestPluginIgnoresEveryOtherTool(t *testing.T) {
 			t.Error("the guard was asked about a tool that runs nothing")
 		}
 	})
+}
+
+// pi answers differently in both directions: a refusal is a value returned
+// rather than an exception, and a rewrite mutates the event's own input.  Its
+// extension is a file of its own, so it needs a driver of its own.
+const piDriver = `
+import { pathToFileURL } from "node:url"
+
+const [, , modulePath] = process.argv
+const module = await import(pathToFileURL(modulePath).href)
+const handlers = {}
+const pi = { on: (name, fn) => { handlers[name] = fn } }
+module.default(pi)
+const event = JSON.parse(process.env.HOOK_EVENT)
+const verdict = await handlers["tool_call"](event, {})
+console.log(JSON.stringify({ verdict: verdict ?? null, input: event.input }))
+`
+
+type piResult struct {
+	Verdict *struct {
+		Block  bool   `json:"block"`
+		Reason string `json:"reason"`
+	} `json:"verdict"`
+	Input map[string]any `json:"input"`
+}
+
+type piCall func(t *testing.T, tool string, input map[string]any) piResult
+
+// newPiRig is the pi extension rendered and loaded, with a stand-in guard where
+// the rendered file will look for it.
+func newPiRig(t *testing.T) (*pluginRig, piCall) {
+	t.Helper()
+	if _, err := exec.LookPath("node"); err != nil {
+		t.Skip("node is not installed")
+	}
+	dir := t.TempDir()
+	rig := &pluginRig{
+		dir:         dir,
+		modulePath:  filepath.Join(dir, "extension.mjs"),
+		cli:         filepath.Join(dir, "faramir"),
+		payloadFile: filepath.Join(dir, "payload.json"),
+		replyFile:   filepath.Join(dir, "reply.json"),
+		statusFile:  filepath.Join(dir, "status"),
+	}
+	body, err := renderData("agent/pi/extension.ts.tmpl", pluginData{
+		BinDir: dir, Agent: "pi", Path: ".pi/extensions/faramir.ts",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The type annotations go: node runs JavaScript, and what is under test is
+	// the logic rather than the types pi's own loader strips.
+	source := strings.NewReplacer(
+		"(pi: any)", "(pi)", "(event: any)", "(event)", "let decision: any", "let decision",
+	).Replace(string(body))
+	write(t, rig.modulePath, source, 0o644)
+	write(t, filepath.Join(dir, "driver.mjs"), piDriver, 0o644)
+	write(t, rig.cli, "#!/bin/sh\ncat >"+rig.payloadFile+"\ncat "+rig.replyFile+
+		"\nexit \"$(cat "+rig.statusFile+")\"\n", 0o755)
+	write(t, rig.replyFile, "", 0o644)
+	write(t, rig.statusFile, "0", 0o644)
+
+	call := func(t *testing.T, tool string, input map[string]any) piResult {
+		t.Helper()
+		event, err := json.Marshal(map[string]any{"toolName": tool, "input": input})
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("node", filepath.Join(dir, "driver.mjs"), rig.modulePath)
+		cmd.Env = append(os.Environ(), "HOOK_EVENT="+string(event))
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("driver failed: %v\n%s", err, out)
+		}
+		var got piResult
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatalf("driver printed %q: %v", out, err)
+		}
+		return got
+	}
+	return rig, call
+}
+
+func TestPiExtensionRewritesAndBlocks(t *testing.T) {
+	rig, call := newPiRig(t)
+
+	// A rewrite is a mutation of the event's own input, every field of it.
+	rig.answers(t, `{"decision":"rewrite","tool_input":`+
+		`{"command":"source /usr/local/libexec/faramir/wrap.sh 'printenv'","description":"look"}}`)
+	got := call(t, "bash", map[string]any{"command": "printenv", "description": "look"})
+	if got.Verdict != nil {
+		t.Fatalf("a rewrite blocked the call: %+v", got.Verdict)
+	}
+	if command, _ := got.Input["command"].(string); !strings.Contains(command, "wrap.sh") {
+		t.Errorf("command = %q, want the wrapper", command)
+	}
+	if got.Input["description"] != "look" {
+		t.Errorf("input = %v, want every field back", got.Input)
+	}
+
+	// A refusal is returned, and carries the guard's reason to the model.
+	rig.answers(t, `{"decision":"deny","reason":"Blocked: use faramir run instead"}`)
+	got = call(t, "bash", map[string]any{"command": "printenv ROUTER_PW"})
+	if got.Verdict == nil || !got.Verdict.Block {
+		t.Fatalf("a denial did not block: %+v", got)
+	}
+	if !strings.Contains(got.Verdict.Reason, "Blocked") {
+		t.Errorf("reason = %q, want the guard's own", got.Verdict.Reason)
+	}
+}
+
+// Every way the guard can fail to answer ends in a blocked call: running the
+// command without a decision would print whatever it found into the transcript.
+func TestPiExtensionFailsClosed(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		reply  string
+		status string
+	}{
+		{"the guard exits non-zero", "", "3"},
+		{"the guard answers with something that is not JSON", "not json at all", "0"},
+		{"the guard returns a decision it does not understand", `{"decision":"levitate"}`, "0"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rig, call := newPiRig(t)
+			rig.answers(t, tc.reply)
+			write(t, rig.statusFile, tc.status, 0o644)
+			got := call(t, "bash", map[string]any{"command": "echo hello"})
+			if got.Verdict == nil || !got.Verdict.Block {
+				t.Fatalf("the call was not blocked: %+v", got)
+			}
+		})
+	}
+}
+
+// Guarded by shape, so a tool nobody listed is covered when it carries a
+// command; and a listed shell tool arriving without one is refused rather than
+// waved through.
+func TestPiExtensionGuardsByShape(t *testing.T) {
+	rig, call := newPiRig(t)
+	rig.answers(t, `{"decision":"deny","reason":"Blocked"}`)
+
+	got := call(t, "some-new-shell", map[string]any{"command": "cat /etc/faramir/age.key"})
+	if got.Verdict == nil || !got.Verdict.Block {
+		t.Errorf("a tool this list never named ran a command unguarded: %+v", got)
+	}
+	got = call(t, "read", map[string]any{"filePath": "/etc/faramir/age.key"})
+	if got.Verdict != nil {
+		t.Errorf("a tool carrying no command was blocked: %+v", got.Verdict)
+	}
+	got = call(t, "bash", map[string]any{})
+	if got.Verdict == nil || !got.Verdict.Block {
+		t.Errorf("a known shell tool with no command string was not refused: %+v", got)
+	}
 }
