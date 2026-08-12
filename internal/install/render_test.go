@@ -373,3 +373,28 @@ func TestTheRenderedConfigLoads(t *testing.T) {
 		t.Fatalf("the config init writes does not load: %v\n%s", err, body)
 	}
 }
+
+// Gemini matches its deny rules with JavaScript, where `[^]` is an empty
+// negated class meaning any character.  So `[^]]*`, which Go and POSIX read as
+// "any run of non-brackets", is one character followed by literal brackets
+// there, and a rule written that way matches nothing at all: the tool it names
+// is left with no policy and nothing says so.
+//
+// Escaped as `[^\]]` it means the same thing in every flavour.  Checked here
+// rather than left to a reader, the two spellings being one character apart and
+// the wrong one looking right.
+func TestGeminiPolicyHasNoBracketClassJavaScriptReadsDifferently(t *testing.T) {
+	body, err := render("agent/gemini/policies.toml.tmpl", testLayout())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i, line := range strings.Split(string(body), "\n") {
+		if !strings.Contains(line, "argsPattern") {
+			continue
+		}
+		if strings.Contains(line, `[^]`) && !strings.Contains(line, `[^\]`) {
+			t.Errorf("line %d has an unescaped [^]]: JavaScript reads that as "+
+				"any-character, so the rule matches nothing:\n  %s", i+1, line)
+		}
+	}
+}

@@ -22,9 +22,16 @@ priority = 1000
 
 # Reading a directory at once. It takes include globs rather than a single
 # path, so a deny covering only read_file would leave this open.
+#
+# `[^\]]`, with the bracket escaped, because Gemini matches these with
+# JavaScript: there `[^]` is an empty negated class meaning any character, so an
+# unescaped `[^]]*` reads as one character followed by literal brackets and the
+# rule matches nothing at all.  Go and POSIX read the same text as "not a
+# bracket", which is how it comes to be written that way and why it looks
+# correct.
 [[rule]]
 toolName = "read_many_files"
-argsPattern = '"(include|exclude)"\s*:\s*\[[^]]*(secrets[^"/]*\.ya?ml|\.vault|vault\.yml|\.sops\.(ya?ml|json)|/\.env|\.config/faramir/|age\.key|sops/age/|\.config/sops/|\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
+argsPattern = '"(include|exclude)"\s*:\s*\[[^\]]*(secrets[^"/]*\.ya?ml|\.vault|vault\.yml|\.sops\.(ya?ml|json)|/\.env|\.config/faramir/|age\.key|sops/age/|\.config/sops/|\.(key|pem)|credentials|id_(rsa|dsa|ecdsa|ed25519))'
 decision = "deny"
 priority = 1000
 
