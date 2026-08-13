@@ -216,6 +216,31 @@ out=$(run -- /bin/sh -c "yes abcdefgh | head -c $(( cap * 2 ))")
 grep -qi "truncat" <<<"$out" && ok "and the caller is told it was truncated" \
   || bad "truncation was silent"
 
+# Output that is not text is altered rather than cut, and the caller is told the
+# same way.  On stderr, unlike the truncation marker: stdout is intact in this
+# case except for the bytes themselves, so a line in it would corrupt what a
+# caller is piping.  Stdout is dropped below so that only the summary is read.
+notice() { { runuser -u op -- /usr/local/bin/faramir run -t 30 "$@" >/dev/null; } 2>&1; }
+out=$(notice -- /bin/sh -c 'head -c 4096 /dev/urandom')
+grep -qE '[0-9]+ non-text byte\(s\) replaced' <<<"$out" \
+  && ok "binary output is reported as non-text, with a count" \
+  || bad "binary output was not reported: [$out]"
+out=$(notice -- /bin/echo hello)
+grep -q 'non-text' <<<"$out" && bad "ordinary text was counted as non-text: [$out]" \
+  || ok "and ordinary text is not"
+# The ordinary case, and the one that must stay quiet: colour is stripped rather
+# than replaced, so a notice on it would fire on most commands an agent runs.
+out=$(notice -- /bin/sh -c 'printf "\033[31mRED\033[0m\n"')
+grep -q 'non-text' <<<"$out" && bad "stripped colour was counted as non-text: [$out]" \
+  || ok "nor is colour, which is stripped rather than replaced"
+out=$({ runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -- \
+  /bin/sh -c 'head -c 4096 /dev/urandom' >/dev/null; } 2>&1)
+[ -z "$out" ] && ok "and --quiet suppresses it with the rest of the summary" \
+  || bad "--quiet still printed: [$out]"
+runuser -u op -- /usr/local/bin/faramir run -t 30 -- /bin/echo hello >/tmp/notice.out 2>/dev/null
+[ "$(cat /tmp/notice.out)" = hello ] && ok "while stdout carries the output and nothing else" \
+  || bad "stdout carried more than the output: [$(cat /tmp/notice.out)]"
+
 head_ "9. finding the program"
 out=$(run -- /bin/echo absolute)
 [ "$out" = "absolute" ] && ok "an absolute path runs" || bad "[$out]"

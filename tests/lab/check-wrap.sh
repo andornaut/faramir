@@ -210,8 +210,27 @@ n=$(agentRun 'seq 1 200000' | wc -l)
 [ "$n" = "200000" ] && ok "200k lines arrive complete" || bad "large output: $n lines"
 out=$(agentRun 'printf "caf\xc3\xa9 \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e \xf0\x9f\x94\x91\n"')
 [ "$out" = "café 日本語 🔑" ] && ok "multi-byte characters survive" || bad "utf-8: [$out]"
-# Binary is what `cat` on the wrong file produces; it must not hang or truncate.
-out=$(agentRun 'head -c 4096 /dev/urandom | wc -c')
-[ "$out" = "4096" ] && ok "binary output does not truncate the stream" || bad "binary: [$out]"
+# Binary is what `cat` on the wrong file produces.  Counted on this side of the
+# wrapper: `wc -c` inside the command counts the bytes before redaction has seen
+# them, so it reports what the command produced whatever came back.
+n=$(agentRun 'head -c 4096 /dev/urandom' | wc -c)
+[ "$n" -gt 0 ] && ok "binary output does not hang or empty the stream ($n bytes back)" \
+  || bad "binary output produced nothing"
+
+# What comes back is normalised terminal text rather than the bytes that were
+# written, and the rule is pinned here so that a change to it is deliberate.
+# Stripping control sequences is what makes a value hidden inside colour codes
+# catchable, which the leak suite asserts; the cost is that a caller piping
+# binary through does not get its bytes back, and 4096 random bytes arrive
+# larger than they went in.
+[ "$n" -gt 4096 ] && ok "  a byte that is not valid UTF-8 arrives as U+FFFD, which is three" \
+  || bad "  4096 random bytes came back as $n, so invalid bytes are not being replaced"
+out=$(agentRun 'printf "A\tB"')
+[ "$out" = "$(printf 'A\tB')" ] && ok "  a tab survives" || bad "  a tab did not survive: [$out]"
+out=$(agentRun 'printf "A\x01B\x07C"')
+[ "$out" = "ABC" ] && ok "  every other C0 control is dropped" || bad "  C0 controls: [$out]"
+out=$(agentRun 'printf "A\x1b[31mB\x1b[0mC"')
+[ "$out" = "ABC" ] && ok "  and an ANSI sequence is removed with the text kept" \
+  || bad "  an ANSI sequence survived: [$out]"
 
 summary

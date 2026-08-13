@@ -830,7 +830,8 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		"exit_code": result.ExitCode, "output": result.Output,
 		"truncated": result.Truncated, "redactions": result.Redactions,
 		"log_id": logID, "timed_out": result.TimedOut,
-		"duration_sec": result.DurationSec,
+		"duration_sec":  result.DurationSec,
+		"invalid_bytes": result.InvalidBytes,
 	}
 }
 

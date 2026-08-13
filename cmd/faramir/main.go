@@ -690,12 +690,13 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 	}
 
 	var response struct {
-		ExitCode   *int   `json:"exit_code"`
-		Output     string `json:"output"`
-		Truncated  bool   `json:"truncated"`
-		TimedOut   bool   `json:"timed_out"`
-		LogID      string `json:"log_id"`
-		Redactions []struct {
+		ExitCode     *int   `json:"exit_code"`
+		Output       string `json:"output"`
+		Truncated    bool   `json:"truncated"`
+		TimedOut     bool   `json:"timed_out"`
+		LogID        string `json:"log_id"`
+		InvalidBytes int    `json:"invalid_bytes"`
+		Redactions   []struct {
 			Token string `json:"token"`
 			Count int    `json:"count"`
 		} `json:"redactions"`
@@ -746,6 +747,15 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 		// Both change what the output means, so they are always reported.
 		if response.Truncated {
 			notes = append(notes, "output truncated")
+		}
+		// So does this: output that was not text does not survive redaction, so
+		// what arrived is not what the command wrote.  Reported here rather than
+		// in the output, which is where an archive would be, and only when a byte
+		// was actually replaced: stripping colour is the ordinary case and says
+		// nothing about the bytes being lost.
+		if response.InvalidBytes > 0 {
+			notes = append(notes,
+				fmt.Sprintf("%d non-text byte(s) replaced", response.InvalidBytes))
 		}
 		if response.TimedOut {
 			notes = append(notes, "timed out")

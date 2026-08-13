@@ -60,6 +60,27 @@ Refusal closes the injection half only. A refused value is absent from the redac
 
 **6. Stable tokens.** The same secret is always `«SECRET:home/router/admin»`, in every response and session. Two refs holding the same value share one token, the redactor deduplicating by value and keeping the first ref by name, so which of the two names it is does not move between restarts. Guillemets because they essentially never occur in tool output.
 
+## What comes back is text, not bytes
+
+Stage 1 is why, and it applies on both paths: `faramir run` and a `faramir redact` stream normalise identically.
+
+Byte | What arrives
+--- | ---
+`\t`, `\n`, a bare `\r` | kept, CRLF normalised to `\n`
+every other C0 control, and `\x7f` | dropped
+a byte that is not valid UTF-8 | `U+FFFD`, which is three bytes
+an ANSI escape sequence | removed, the text around it kept
+
+So a command whose output is not text does not come back as it was written: 4096 random bytes arrive as roughly 7000, and an archive piped through will not open. That is the price of stage 1, and stage 1 is what catches a value spliced with colour codes.
+
+Because a caller cannot see that from the output itself, `run` reports it the way it reports truncation, on stderr and suppressed by `--quiet`:
+
+```
+[faramir] 1735 non-text byte(s) replaced; log_id=...
+```
+
+Only a replaced byte is counted, never a stripped escape: colour is the ordinary case and says nothing about bytes being lost, while an invalid byte is the signal that the output was binary. Redirect stdout to a file and the file is unchanged by any of this; the notice is on the other stream.
+
 ## The age key is not in the value set
 
 No process the broker starts receives the key, can read it (`0400 faramir-keeper`), or can open the keeper's socket, so "no child prints the age key" holds by construction rather than by the matcher catching it. Covering it here would be weaker than it looks: a child holding the key could write it to a file, and redaction only sees output.

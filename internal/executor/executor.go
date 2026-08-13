@@ -38,6 +38,8 @@ type Result struct {
 	DurationSec float64
 	TimedOut    bool
 	Redactions  []redact.Count
+	// Non-zero when the command's output was not text; see redact.InvalidBytes.
+	InvalidBytes int
 }
 
 // Request is one resolved command: Argv[0] is an absolute path and Env is the
@@ -157,12 +159,13 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	}
 
 	return &Result{
-		ExitCode:    exitCode,
-		Output:      output,
-		Truncated:   truncated,
-		DurationSec: round3(time.Since(started).Seconds()),
-		TimedOut:    timedOut,
-		Redactions:  redactor.Summary(),
+		ExitCode:     exitCode,
+		Output:       output,
+		Truncated:    truncated,
+		DurationSec:  round3(time.Since(started).Seconds()),
+		TimedOut:     timedOut,
+		Redactions:   redactor.Summary(),
+		InvalidBytes: redactor.InvalidBytes(),
 	}, nil
 }
 

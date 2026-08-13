@@ -261,6 +261,8 @@ type Redactor struct {
 	entries   []entry
 	ansiCarry []rune
 	buf       []rune
+	// Bytes that were not valid UTF-8, counted rather than acted on; see Feed.
+	invalidBytes int
 }
 
 // Secret is one (ref, value) pair fed to the redactor.
@@ -347,6 +349,12 @@ func (r *Redactor) Feed(text string) string {
 	if text == "" {
 		return ""
 	}
+	// Counted before the conversion below, which is what replaces an invalid
+	// byte and so is the last moment one can be told from a U+FFFD the command
+	// actually wrote.  Callers report the count rather than act on it: it is the
+	// signal that output was binary, where redaction and the terminal-safety
+	// rules together mean the bytes do not survive.
+	r.invalidBytes += invalidUTF8Bytes(text)
 	r.ansiCarry = append(r.ansiCarry, []rune(text)...)
 	clean, carry := stripANSIStream(r.ansiCarry)
 	r.ansiCarry = carry
@@ -373,6 +381,28 @@ func (r *Redactor) RedactText(text string) string { return r.Feed(text) + r.Flus
 
 // Summary is the wire response's "redactions": tokens and counts, never
 // values.
+// InvalidBytes is how many bytes of everything fed in were not valid UTF-8.
+//
+// Non-zero means the output was not text, and what came back is not what the
+// command wrote: an invalid byte becomes U+FFFD, which is three, and the C0
+// controls that fill binary are stripped outright.  A caller that pipes the
+// output somewhere reports this, so that a corrupted archive is visible at the
+// moment it is produced rather than when something later fails to open it.
+func (r *Redactor) InvalidBytes() int { return r.invalidBytes }
+
+// invalidUTF8Bytes counts the bytes in text that do not begin a valid rune.
+func invalidUTF8Bytes(text string) int {
+	n := 0
+	for i := 0; i < len(text); {
+		r, size := utf8.DecodeRuneInString(text[i:])
+		if r == utf8.RuneError && size == 1 {
+			n++
+		}
+		i += size
+	}
+	return n
+}
+
 func (r *Redactor) Summary() []Count {
 	out := []Count{}
 	for token, count := range r.counts {
