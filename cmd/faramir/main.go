@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"regexp"
 	"strings"
 	"time"
 
@@ -232,9 +233,22 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 		_, _ = fmt.Fprint(os.Stdout, captured.String())
 		return 0, false
 	default:
-		fmt.Fprint(os.Stderr, captured.String())
+		fmt.Fprint(os.Stderr, twoDashes(captured.String()))
 		return 2, false
 	}
+}
+
+// oneDashName matches a long flag name spelled with one dash in the standard
+// library's parse errors.  A single-letter shorthand is left alone, because one
+// dash is how faramir spells that.
+var oneDashName = regexp.MustCompile(`((?:flag provided but not defined|flag needs an argument): |for (?:flag )?)-(\w[\w-]+)`)
+
+// twoDashes respells a long flag name in a parse error.  The standard library
+// writes one dash for every flag, which sends the reader to a spelling that does
+// not work: printDefaults exists for the same reason, and every usage line and
+// mention in prose writes two.
+func twoDashes(s string) string {
+	return oneDashName.ReplaceAllString(s, "$1--$2")
 }
 
 // requireRoot refuses a command that must run as root, naming why and how.  The

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"io"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -337,4 +338,65 @@ func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
 	if code := cmdApprovals([]string{"9f2a1c"}); code != 2 {
 		t.Errorf("faramir approvals ID = %d, want 2: it lists and answers nothing", code)
 	}
+}
+
+// A parse error names a flag the way the reader has to type it.  The standard
+// library writes one dash for every flag, so an operator told about "-socket"
+// would try a spelling faramir does not accept; printDefaults exists for the
+// same reason.  A single-letter shorthand keeps its one dash.
+func TestAParseErrorSpellsALongFlagWithTwoDashes(t *testing.T) {
+	tests := map[string]string{
+		"flag provided but not defined: -socket":     "flag provided but not defined: --socket",
+		"flag needs an argument: -socket":            "flag needs an argument: --socket",
+		`invalid boolean value "maybe" for -json: x`: `invalid boolean value "maybe" for --json: x`,
+		`invalid value "abc" for flag -tail: x`:      `invalid value "abc" for flag --tail: x`,
+		"flag provided but not defined: -v":          "flag provided but not defined: -v",
+		"  --socket PATH   broker socket":            "  --socket PATH   broker socket",
+	}
+	for in, want := range tests {
+		if got := twoDashes(in); got != want {
+			t.Errorf("twoDashes(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// The whole path, so that what reaches stderr is what the reader sees.
+func TestABadFlagIsReportedOnStderrWithTwoDashes(t *testing.T) {
+	fs := newFlagSet("status", "status [options]")
+	fs.String("socket", "", "broker socket")
+
+	stderr := captureStderrForTest(t, func() {
+		if code, ok := parseFlags(fs, []string{"--bogus"}); ok || code != 2 {
+			t.Errorf("parseFlags() = %d, %v, want 2, false", code, ok)
+		}
+	})
+
+	if !strings.Contains(stderr, "flag provided but not defined: --bogus") {
+		t.Errorf("parseFlags() wrote %q, want the flag spelled with two dashes", stderr)
+	}
+}
+
+// captureStderrForTest returns what f writes to standard error.
+func captureStderrForTest(t *testing.T, f func()) string {
+	t.Helper()
+	reader, writer, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	original := os.Stderr
+	os.Stderr = writer
+	defer func() { os.Stderr = original }()
+
+	done := make(chan string)
+	go func() {
+		var out strings.Builder
+		_, _ = io.Copy(&out, reader)
+		done <- out.String()
+	}()
+
+	f()
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return <-done
 }
