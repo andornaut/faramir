@@ -1,9 +1,0 @@
-{
-  "mcp": {
-    "faramir": {
-      "type": "local",
-      "command": ["/usr/local/bin/faramir", "mcp"],
-      "enabled": true
-    }
-  }
-}

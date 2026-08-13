@@ -8,7 +8,12 @@ LDFLAGS := -s -w
 # interpreter runs on a host whose Python is older than 3.11.
 export CGO_ENABLED := 0
 
-.PHONY: all build coverage fmt lint test test-unit test-e2e install verify clean
+# The platforms the release ships, so a local cross-compile check covers what
+# GoReleaser will actually build. Linux only: the broker is systemd units, PAM
+# and cgroups.
+PLATFORMS := linux-amd64 linux-arm64
+
+.PHONY: all build coverage fmt lint release test test-unit test-e2e install verify clean $(PLATFORMS)
 
 all: build
 
@@ -18,6 +23,14 @@ build:
 	@for c in $(CMDS); do \
 		go build -ldflags="$(LDFLAGS)" -trimpath -o $(BIN)/$$c ./cmd/$$c || exit 1; \
 	done
+
+## release: cross-compile every platform the release ships, into dist/, to
+## check that they all still build. GoReleaser publishes; this only tests.
+release: $(PLATFORMS)
+
+$(PLATFORMS):
+	GOOS=$(word 1,$(subst -, ,$@)) GOARCH=$(word 2,$(subst -, ,$@)) \
+		go build -ldflags="$(LDFLAGS)" -trimpath -o "dist/faramir-$@" ./cmd/faramir
 
 ## test: the whole suite.  Needs no sops installed: the round trip runs
 ## through a stand-in built from the sops libraries at test time.
