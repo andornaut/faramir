@@ -92,4 +92,4 @@ jobs:
         uses: actions/checkout@v7.0.1
 
       - name: Run shellcheck
-        run: shellcheck tests/*.sh agent/hooks/wrap.sh
+        run: shellcheck tests/*.sh tests/lab/*.sh agent/hooks/wrap.sh

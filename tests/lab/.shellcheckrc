@@ -17,3 +17,10 @@ disable=SC2015
 # Bodies of node and python heredocs, and jq programs, are single-quoted on
 # purpose: the expansion they carry is the other language's, not the shell's.
 disable=SC2016
+
+# Every suite sources lib.sh through "$(dirname "$0")/lib.sh", a path shellcheck
+# cannot resolve, so it cannot follow the source.  That is by design: the driver
+# copies lib.sh in beside the suite at run time.  SC1091 is only shellcheck
+# noting it did not follow, not a defect, so silence it and the suites lint the
+# same from any directory.
+disable=SC1091
