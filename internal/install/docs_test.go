@@ -90,8 +90,12 @@ func TestTheInstalledReadmeLinksResolve(t *testing.T) {
 func TestTheShippedProseHasNoDashedAsides(t *testing.T) {
 	// Spelled by code point, or this file is its own first failure.
 	dashes := map[string]rune{"em dash": 0x2014, "en dash": 0x2013}
+	// Any name carrying .md rather than ending in it, so the instruction
+	// snippets are covered as well as the documents: what ships into an
+	// operator's own CLAUDE.md and a tree's AGENTS.md is prose too, and it is
+	// the prose most likely to be read by somebody who did not write it.
 	err := fs.WalkDir(faramir.Assets, ".", func(path string, entry fs.DirEntry, err error) error {
-		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".md") {
+		if err != nil || entry.IsDir() || !strings.Contains(filepath.Base(path), ".md") {
 			return err
 		}
 		body, err := faramir.Assets.ReadFile(path)

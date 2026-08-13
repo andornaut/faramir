@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/mcp"
 )
 
 // The plugins opencode and Kilo Code load, run.  The one piece of shipped logic
@@ -445,16 +447,22 @@ func TestPiExtensionRegistersTheTools(t *testing.T) {
 	if err := json.Unmarshal(out, &got); err != nil {
 		t.Fatalf("driver printed %q: %v", out, err)
 	}
-	for _, want := range []string{"faramir_run", "faramir_list_secrets"} {
-		if !slices.Contains(got.Tools, want) {
-			t.Errorf("registered %v, want %s among them", got.Tools, want)
-		}
+	// Against internal/mcp's own list rather than a literal here, the extension
+	// being rendered from it: a tool added there and not registered here is a
+	// host where the guard's refusal names a tool the model cannot call.
+	var want []string
+	for _, tool := range mcp.Tools() {
+		want = append(want, tool.Name)
 	}
-	// The same two internal/mcp advertises, and asserted the same way: this
-	// extension is that tool list for the host with no MCP, so a tool on one side
-	// and not the other is the drift worth failing on.
-	if len(got.Tools) != 2 {
-		t.Errorf("registered %d tools, want 2: %v", len(got.Tools), got.Tools)
+	if len(want) == 0 {
+		t.Fatal("internal/mcp advertises nothing, so this asserts nothing")
+	}
+	slices.Sort(want)
+	registered := slices.Clone(got.Tools)
+	slices.Sort(registered)
+	if !slices.Equal(registered, want) {
+		t.Errorf("the extension registers %v and internal/mcp advertises %v",
+			registered, want)
 	}
 }
 

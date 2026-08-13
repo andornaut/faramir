@@ -145,12 +145,31 @@ func TestAgentAssetsExist(t *testing.T) {
 	}
 }
 
-// Every merged file has to be JSON.  A .tmpl is rendered first, an interpolated
-// path holding a quote or backslash being a file the agent cannot load.
+// Every merged file has to be JSON once rendered, an interpolated path holding
+// a quote or backslash being a file the agent cannot load.  Rendered the way
+// each half is in production: a tree's file against the target's own data, an
+// account file against the install layout.
 func TestMergedAgentAssetsAreJSON(t *testing.T) {
 	layout := testLayout()
+	check := func(t *testing.T, name string, file agentFile, body []byte) {
+		t.Helper()
+		var into any
+		if err := json.Unmarshal(body, &into); err != nil {
+			t.Errorf("%s: %s is not JSON: %v", name, file.asset, err)
+		}
+	}
 	for name, target := range agentTargets {
-		for _, file := range append(append([]agentFile{}, target.files...), target.accountFiles...) {
+		for _, file := range target.files {
+			if !file.merge {
+				continue
+			}
+			body, err := assetFor(target, file, layout.ConfigDir)
+			if err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			check(t, name, file, body)
+		}
+		for _, file := range target.accountFiles {
 			if !file.merge {
 				continue
 			}
@@ -158,23 +177,26 @@ func TestMergedAgentAssetsAreJSON(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%s: %v", name, err)
 			}
-			var into any
-			if err := json.Unmarshal(body, &into); err != nil {
-				t.Errorf("%s: %s is not JSON: %v", name, file.asset, err)
-			}
+			check(t, name, file, body)
 		}
 	}
 }
 
-// The plugin ships beside the guard rather than being generated from it, so a
-// name that does not match the target fails closed on every command.
+// A plugin naming another host asks the guard for a dialect that host does not
+// speak, and fails closed on every command in the project.
+//
+// Rendered rather than read, and selected by the file it is installed as rather
+// than by the asset it comes from: the host is interpolated and every asset is
+// now a template, so reading one finds the placeholder and asserts nothing.
 func TestPluginAssetsNameTheirOwnHost(t *testing.T) {
+	hosts := 0
 	for name, target := range agentTargets {
 		for _, file := range target.files {
-			if !strings.HasSuffix(file.asset, ".js") {
+			if !strings.HasSuffix(file.path, ".js") && !strings.HasSuffix(file.path, ".ts") {
 				continue
 			}
-			body, err := readAsset(file.asset)
+			hosts++
+			body, err := assetFor(target, file, testLayout().ConfigDir)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -182,6 +204,12 @@ func TestPluginAssetsNameTheirOwnHost(t *testing.T) {
 				t.Errorf("%s: %s does not name %s", name, file.asset, want)
 			}
 		}
+	}
+	// Counted, so a selector matching nothing fails here rather than passing as
+	// a loop that ran zero times.
+	if want := 3; hosts != want {
+		t.Errorf("checked %d plugin hosts, want %d: the selector no longer matches "+
+			"what is installed", hosts, want)
 	}
 }
 
@@ -213,7 +241,7 @@ func TestAccountRulesNameTheInstalledDirectories(t *testing.T) {
 // Keys inside a config the operator owns, as an object of patterns: a merge
 // that dropped a sibling would take away a rule, a server or a model.
 func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
-	ours, err := render("agent/opencode/permissions.json.tmpl", testLayout())
+	ours, err := render("agent/permissions.json.tmpl", testLayout())
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -5,7 +5,6 @@ package install
 // directory safe to default to here and unsafe there.
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"os/user"
@@ -31,8 +30,16 @@ type ProjectOptions struct {
 	// ConfigDir is where the client group is learned.  A flag could disagree with
 	// what the sockets admit, leaving a tree the executor cannot enter.
 	ConfigDir string
-	// ClientGroup overrides the group read from the config.  For a host whose
-	// config is not readable, not for ordinary use.
+	// ClientGroup overrides the group read from the config, for a tree being
+	// enrolled against an install that is not on this machine: a checkout on
+	// shared storage, or one prepared before its host is provisioned.  Not for
+	// ordinary use.
+	//
+	// Not a way around a config that will not load.  This runs as root and the
+	// config is 0644, so a config that is present is a config that reads; the
+	// three ways the load fails are that faramir was never installed here, that
+	// the config is elsewhere, and that the path given is wrong, and each of
+	// those is an error naming its own fix rather than something to work around.
 	ClientGroup string
 	// Hook registers the PreToolUse hook in the project's agent settings, which
 	// redacts the output of everything the agent runs there.  It auto-approves
@@ -195,6 +202,13 @@ type project struct {
 	report ProjectReport
 	uid    int
 	gid    int
+	// allowSudo is whether this host was installed with --allow-sudo, read off
+	// the config beside the client group.  It decides one paragraph of the
+	// credentials section.  False for an enrolment that named --client-group and
+	// so never read a config: the section then says nothing about approvals,
+	// which is the safe direction, an agent that has not been told to wait
+	// re-running a command rather than working around a pause.
+	allowSudo bool
 	// Before any step runs, so an unknown name stops the run before the tree's
 	// ownership changes.
 	targets []*agentTarget
@@ -227,13 +241,29 @@ func (p *project) warn(format string, args ...any) {
 // allowed_group is what the broker socket admits, so it is the only value that
 // makes a shared tree usable; a flag would leave every mode right and the
 // executor still unable to enter.
+//
+// The sudo grant is read from the same load, [sudo] exec_user being the switch
+// for the whole arrangement, so an empty one is a host where no approval can be
+// raised.  Which install it is read from is the question --client-group raises,
+// and answered below.
 func (p *project) resolveGroup() error {
-	if p.opts.ClientGroup != "" {
-		p.report.ClientGroup = p.opts.ClientGroup
-		return nil
-	}
 	configFile := filepath.Join(p.opts.ConfigDir, "config.toml")
 	cfg, err := config.Load(configFile)
+	if p.opts.ClientGroup != "" {
+		p.report.ClientGroup = p.opts.ClientGroup
+		// The flag names an install this machine need not have, so an unreadable
+		// config here is not an error: that is what the flag is for.  What it does
+		// mean is that nothing else may be taken from this host's config either,
+		// and the grant least of all.  Trusted only where the config loads and
+		// admits the group just named, which is what says the two are one install;
+		// on anything else the section says nothing about approvals, and an agent
+		// that was not told to wait re-runs a refused command rather than looking
+		// for a way past a pause.
+		if err == nil && cfg.Server.AllowedGroup == p.opts.ClientGroup {
+			p.allowSudo = cfg.Sudo.ExecUser != ""
+		}
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("cannot read the client group from %s: %w\n"+
 			"Run faramir init first, pass --config-dir if the config is elsewhere, "+
@@ -244,12 +274,9 @@ func (p *project) resolveGroup() error {
 			"Run `faramir init --client-group NAME`", configFile)
 	}
 	p.report.ClientGroup = cfg.Server.AllowedGroup
+	p.allowSudo = cfg.Sudo.ExecUser != ""
 	return nil
 }
-
-// instructionsMode matches what the agent files are written with, and is kept
-// out of the share for the same reason: see sharetree.Options.Keep.
-const instructionsMode = 0o640
 
 // warnMissingAccountRules says so when an agent's account-wide deny rules are
 // not in the operator's home.  Enrolling a tree writes the per-project hook;
@@ -305,14 +332,11 @@ type pluginData struct {
 	Dirs []string
 }
 
-// assetFor is one agent file's contents.  A .tmpl asset is rendered, which is
-// how the plugins get the installed binary's path compiled in rather than
-// reading it from an environment the host controls; everything else is shipped
-// as it is.
+// assetFor is one agent file's contents, rendered whatever the asset is named,
+// as an account file is.  It is how the plugins and the hook registrations get
+// the installed binary's path compiled in rather than reading it from an
+// environment the host controls.
 func assetFor(target *agentTarget, file agentFile, configDir string) ([]byte, error) {
-	if !strings.HasSuffix(file.asset, ".tmpl") {
-		return readAsset(file.asset)
-	}
 	if configDir == "" {
 		configDir = DefaultConfigDir
 	}
@@ -480,48 +504,23 @@ func (p *project) agentConfig() error {
 }
 
 // instructions writes the credentials section into the project's agent
-// instructions file, between markers so a second run replaces it.
-// Documentation, not enforcement: deleting the block changes nothing about what
-// is reachable.
+// instructions file, between markers so a later run replaces what an earlier one
+// wrote.  Documentation, not enforcement: deleting the block changes nothing
+// about what is reachable.
 func (p *project) instructions() error {
 	path := p.instructionsFile()
 	// One block for every agent, so it sits beside the other shared assets
 	// rather than under the directory of the first host that wanted it.
-	snippet, err := readAsset("agent/instructions.md.snippet")
+	section, err := credentialsSection(p.allowSudo)
 	if err != nil {
 		return err
 	}
-	section := strings.TrimRight(string(snippet), "\n") + "\n"
-
-	current, err := os.ReadFile(path)
-	if err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	switch sectionIn(current, section) {
-	case sectionCurrent:
-		// Word for word what would be written.  Nothing to do.
-		p.step("instructions", false, path)
-		return nil
-	case sectionDrifted:
-		// The file knows about faramir and does not carry what is written now.
-		// It may be a section an earlier version wrote, or somebody's own notes
-		// about this tool, or the same section reworded by whatever last tidied
-		// the file.  Which of those it is cannot be read off the file, and every
-		// one of them is somebody's writing.
-		//
-		// So it is named and left.  Reconciling it here would mean guessing which
-		// paragraphs were ours, and a guess that is wrong edits a file nobody
-		// asked this to edit.
-		p.warn("%s mentions faramir but does not carry the credentials section as it "+
-			"is written now, so it was left as it is. It may be a section an earlier "+
-			"version wrote, or your own notes. Delete that section and re-run to have "+
-			"the current one written, or leave it if it says what you want it to say",
-			path)
+	changed, err := p.fs.sectionFile(path, section, p.uid, p.gid)
+	if leftAlone(err) {
+		p.warn("%s", sectionWarning(err, path, "`sudo faramir init-project`"))
 		p.step("instructions", false, path+" (left as it is; see the warning)")
 		return nil
 	}
-	changed, err := p.fs.writeFile(
-		path, appendSection(current, section), instructionsMode, p.uid, p.gid)
 	if err != nil {
 		return err
 	}
@@ -529,53 +528,20 @@ func (p *project) instructions() error {
 	return nil
 }
 
-// What a file shows about the credentials section, which decides what may be
-// done to it.
+// credentialsSection is the section `init-project` writes into a tree.
 //
-// There are no markers.  A marker only helps while it survives, and these files
-// are prose an operator edits and asks agents to rewrite; one that comes back
-// with every word kept and an HTML comment dropped is ordinary, and a mechanism
-// that depends on the comment surviving is a mechanism that quietly stops
-// working.  The section's own text is the evidence instead, and it is evidence
-// nothing can strip without changing what the file says.
-type sectionState int
-
-const (
-	// sectionAbsent is a file with no sign of faramir in it.  Writing is
-	// unambiguous.
-	sectionAbsent sectionState = iota
-	// sectionCurrent is the section word for word.  Nothing to do.
-	sectionCurrent
-	// sectionDrifted is a file that mentions faramir and does not carry the
-	// section as written now.
-	sectionDrifted
-)
-
-// sectionIn reads that off the file.
-//
-// The bare word is a weak signal on purpose.  What it has to catch is a section
-// that no longer looks like what is written now, and anything narrower -- a
-// fingerprint, a heading, a distinctive line -- would miss exactly the case that
-// matters, a copy reworded past recognition.  It over-reports a file that merely
-// mentions the tool, which costs a warning; under-reporting costs a second set
-// of instructions contradicting the first.
-func sectionIn(current []byte, section string) sectionState {
-	if bytes.Contains(current, []byte(section)) {
-		return sectionCurrent
+// Rendered rather than shipped as it is, for one paragraph: what an agent is
+// told about waiting for an approval only holds on a host installed with
+// --allow-sudo, where a brokered command can raise one.  On any other host that
+// paragraph describes a refusal that never happens, and prose an agent cannot
+// act on is prose that teaches it to skim.
+func credentialsSection(allowSudo bool) (string, error) {
+	body, err := renderData("agent/instructions.md.snippet",
+		struct{ AllowSudo bool }{AllowSudo: allowSudo})
+	if err != nil {
+		return "", err
 	}
-	if bytes.Contains(bytes.ToLower(current), []byte("faramir")) {
-		return sectionDrifted
-	}
-	return sectionAbsent
-}
-
-// appendSection adds the section to a file that has no sign of it, keeping what
-// is there.
-func appendSection(current []byte, section string) []byte {
-	if len(bytes.TrimSpace(current)) == 0 {
-		return []byte(section)
-	}
-	return append(append(bytes.TrimRight(current, "\n"), "\n\n"...), section...)
+	return strings.TrimRight(string(body), "\n") + "\n", nil
 }
 
 func (p *project) instructionsFile() string {

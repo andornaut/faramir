@@ -41,14 +41,19 @@ Every path the install creates, what owns it, and what each account can reach th
 
 `init` also writes into the operator's home, each `0640 <operator>:<operator group>`, with any missing parent created `0700`:
 
-Path | Agent
---- | ---
-`~/.claude/settings.json` | Claude Code
-`~/.gemini/policies/faramir.toml` | Gemini CLI
-`~/.config/opencode/opencode.json` | opencode
-`~/.config/kilo/kilo.json` | Kilo Code
+Agent | Deny rules | Credentials section
+--- | --- | ---
+Claude Code | `~/.claude/settings.json` | `~/.claude/CLAUDE.md`
+Gemini CLI | `~/.gemini/policies/faramir.toml` | `~/.gemini/GEMINI.md`
+opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/AGENTS.md`
+Kilo Code | `~/.config/kilo/kilo.json` | `~/.kilocode/rules/faramir.md`
+Pi | none | `~/.pi/agent/AGENTS.md`
 
-Pi gets none: it has nowhere to put account-wide rules, so the same paths are compiled into the extension `init-project` installs. `~/.bashrc` gets a `umask 002` line, so a file the operator creates in a shared tree stays group-writable.
+Pi gets no rule file: it has nowhere to put account-wide rules, so the same paths are compiled into the extension `init-project` installs. It gets the section like the rest.
+
+The section goes between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`, and only what is between them is faramir's: a later `init` replaces that and nothing else. These are the operator's own files, so the rest is theirs. It says what the deny rules refuse and why, which the rules themselves cannot: a refusal that reaches the model with no reason is the one that gets a second attempt through an interpreter. Kilo Code has no single home instructions file, so it gets one of faramir's own in its global rules directory, every `.md` in which is loaded for every project.
+
+`~/.bashrc` gets a `umask 002` line, so a file the operator creates in a shared tree stays group-writable.
 
 `--config-dir` moves the config, `config.d/`, the secrets directory and the age key off `/etc` together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. The audit log and the two sudo files do not follow: the log is the broker unit's `ReadWritePaths`, and the sudo files are the paths `sudo` and PAM read. `faramir status` reports the paths in use.
 

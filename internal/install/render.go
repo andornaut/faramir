@@ -2,14 +2,17 @@ package install
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
+	"strings"
 	"text/template"
 
 	faramir "github.com/andornaut/faramir"
+	"github.com/andornaut/faramir/internal/mcp"
 )
 
 // renderFuncs are for templates whose output is matched against rather than
@@ -31,10 +34,50 @@ var renderFuncs = template.FuncMap{
 	"regexAlternation": regexAlternation,
 	"jsFragments":      jsFragments,
 	"installDirs":      installDirs,
+	// The tools an agent is offered, for the host that has to register them
+	// itself.  See mcpToolsJS.
+	"mcpToolsJS": mcpToolsJS,
 	// The list emitters, so no template counts commas.
 	"jsonLines":   jsonLines,
 	"jsonDenyMap": jsonDenyMap,
 	"quote":       strconv.Quote,
+}
+
+// mcpToolsJS renders internal/mcp's tool list as a JSON object keyed by tool
+// name, which is also a JavaScript object literal.
+//
+// pi ships no MCP and registers the same tools from the extension faramir
+// installs, so without this the name, the description and the whole input
+// schema of each tool are written twice and kept in step by hand.  What stays
+// per-host is the label and the body that runs the tool, which is what pi
+// differs in; what a model is told a tool is for does not.
+//
+// "parameters" rather than MCP's "inputSchema": the schema is the same document
+// under the name pi's registration takes.
+func mcpToolsJS(indent string) (string, error) {
+	type entry struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Parameters  any    `json:"parameters"`
+	}
+	// Keyed by name so the template names the tool it is registering, rather
+	// than indexing a list by a position this file decides.  Marshalling sorts
+	// the keys, so the rendered extension is the same bytes twice.
+	byName := map[string]entry{}
+	for _, t := range mcp.Tools() {
+		byName[t.Name] = entry{Name: t.Name, Description: t.Description, Parameters: t.InputSchema}
+	}
+	// An encoder rather than MarshalIndent, for SetEscapeHTML(false): the default
+	// escapes ">" to ">", which JavaScript reads correctly and an operator
+	// reading the installed file has to decode.
+	var out bytes.Buffer
+	enc := json.NewEncoder(&out)
+	enc.SetEscapeHTML(false)
+	enc.SetIndent(indent, "  ")
+	if err := enc.Encode(byName); err != nil {
+		return "", fmt.Errorf("rendering the MCP tool list: %w", err)
+	}
+	return strings.TrimRight(out.String(), "\n"), nil
 }
 
 // units maps each installed file name to its embedded template.  One map,

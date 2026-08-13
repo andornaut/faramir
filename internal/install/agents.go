@@ -43,6 +43,21 @@ type agentTarget struct {
 	// deciding the agent is gone.
 	detectHome []string
 
+	// homeInstructions is the file this agent reads as prose wherever it is
+	// working, relative to the operator's home, and is where `init` writes the
+	// account-wide credentials section.  Its own path per agent, and not
+	// derivable from detectHome: opencode keeps its config under
+	// .config/opencode and reads AGENTS.md from there, pi keeps its under .pi
+	// and reads .pi/agent/AGENTS.md, and Kilo Code reads every .md in a rules
+	// directory rather than one named file.
+	//
+	// Written because the deny rules beside it hold wherever the agent works and
+	// arrive at the model as a bare permission error.  A refusal with no reason
+	// is what invites the workaround: another tool, an interpreter, a base64
+	// pipe.  This is what makes the refusal legible, in the one file that is
+	// read in a tree faramir has never been run in.
+	homeInstructions string
+
 	// autoApprovesBash records what enrolling costs on this agent.  Claude Code:
 	// a rewritten command matches no permission rule and the hook must approve
 	// it, so every Bash prompt in the project is gone.  Gemini CLI: there is no
@@ -57,10 +72,13 @@ type agentTarget struct {
 type agentFile struct {
 	// path is relative to the tree.
 	path string
-	// asset is the embedded file to write.  An accountFiles asset is rendered as
-	// a text/template whatever it is named, so agent/claude/settings.json carries
-	// {{.ConfigDir}} without a .tmpl suffix; a files asset is written verbatim,
-	// and none of those holds a marker.
+	// asset is the embedded file to write.  Every asset is rendered as a
+	// text/template whatever it is named: agent/claude/settings.json carries
+	// {{.ConfigDir}} without a .tmpl suffix, and the paths the installed binary
+	// and its libexec sit at are named once in the layout rather than written
+	// into each file that has to exec one.  What each is rendered against
+	// differs: accountFiles against the install Layout, files against the
+	// per-target pluginData.
 	asset string
 	// dirMode creates the parent when the path has one.
 	mode os.FileMode
@@ -83,8 +101,8 @@ var agentTargets = map[string]*agentTarget{
 	"claude": {
 		name: "claude",
 		files: []agentFile{
-			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json", mode: 0o640, merge: true},
-			{path: ".mcp.json", asset: "agent/claude/mcp.json", mode: 0o640, merge: true},
+			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json.tmpl", mode: 0o640, merge: true},
+			{path: ".mcp.json", asset: "agent/claude/mcp.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Read and Edit rules only: Claude Code matches file permission checks
 		// against Edit(path), which covers every file-editing tool, and a
@@ -94,13 +112,14 @@ var agentTargets = map[string]*agentTarget{
 		},
 		detect:           []string{".claude"},
 		detectHome:       []string{".claude", ".claude.json"},
+		homeInstructions: ".claude/CLAUDE.md",
 		autoApprovesBash: true,
 	},
 	"gemini": {
 		name: "gemini",
 		files: []agentFile{
 			// Hooks and mcpServers are both top-level keys of this one file.
-			{path: ".gemini/settings.json", asset: "agent/gemini/settings.project.json", mode: 0o640, merge: true},
+			{path: ".gemini/settings.json", asset: "agent/gemini/settings.project.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Gemini refuses tool calls through a policy engine, and the
 		// settings.json key for this is deprecated in favour of it.
@@ -109,6 +128,7 @@ var agentTargets = map[string]*agentTarget{
 		},
 		detect:           []string{".gemini"},
 		detectHome:       []string{".gemini"},
+		homeInstructions: ".gemini/GEMINI.md",
 		autoApprovesBash: false,
 	},
 
@@ -125,17 +145,18 @@ var agentTargets = map[string]*agentTarget{
 			// faramir's own file: what is there is a previous version of this
 			// plugin, so replacing it is the update.
 			{path: ".opencode/plugins/faramir.js", asset: "agent/plugin.js.tmpl", mode: 0o640},
-			{path: "opencode.json", asset: "agent/opencode/opencode.json", mode: 0o640, merge: true},
+			{path: "opencode.json", asset: "agent/mcp.local.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Deny rules only, and no catch-all.  The last matching wildcard wins
 		// and the merge re-serialises with keys sorted, so an operator's rule
 		// sorting after one of these takes effect.  Sorting puts a catch-all
 		// first, and there is no default this is entitled to replace.
 		accountFiles: []agentFile{
-			{path: ".config/opencode/opencode.json", asset: "agent/opencode/permissions.json.tmpl", mode: 0o640, merge: true},
+			{path: ".config/opencode/opencode.json", asset: "agent/permissions.json.tmpl", mode: 0o640, merge: true},
 		},
-		detect:     []string{".opencode", "opencode.json", "opencode.jsonc"},
-		detectHome: []string{".config/opencode", ".local/share/opencode"},
+		detect:           []string{".opencode", "opencode.json", "opencode.jsonc"},
+		detectHome:       []string{".config/opencode", ".local/share/opencode"},
+		homeInstructions: ".config/opencode/AGENTS.md",
 		// No approval is given or asked for: a plugin that has not thrown has
 		// approved nothing, so the agent still prompts as it would have.
 		autoApprovesBash: false,
@@ -145,7 +166,8 @@ var agentTargets = map[string]*agentTarget{
 	// pi extends through a TypeScript module loaded from the project, once the
 	// project is trusted.  No MCP ships with it, so that module registers the
 	// tools the other hosts reach through a server, shelling out to the CLI: see
-	// agent/pi/extension.ts.tmpl, which is internal/mcp's list in another dialect.
+	// agent/pi/extension.ts.tmpl, whose tool definitions are rendered from
+	// internal/mcp's list rather than written a second time.
 	"pi": {
 		name: "pi",
 		files: []agentFile{
@@ -157,6 +179,9 @@ var agentTargets = map[string]*agentTarget{
 		// the guard, and one carrying a path against those rules.
 		detect:     []string{".pi"},
 		detectHome: []string{".pi"},
+		// pi reads this one from under its own directory rather than beside a
+		// config, and loads it for every project.
+		homeInstructions: ".pi/agent/AGENTS.md",
 		// The extension returns a refusal rather than approving anything, so the
 		// agent prompts as it would have.
 		autoApprovesBash: false,
@@ -169,15 +194,19 @@ var agentTargets = map[string]*agentTarget{
 			{path: ".kilo/plugin/faramir.js", asset: "agent/plugin.js.tmpl", mode: 0o640, defaultExport: true},
 			// kilo.json rather than the docs' kilo.jsonc: a merge cannot
 			// preserve the comments a .jsonc is kept for.  Both are read.
-			{path: "kilo.json", asset: "agent/kilocode/kilo.json", mode: 0o640, merge: true},
+			{path: "kilo.json", asset: "agent/mcp.local.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Deny rules only, and no catch-all, for the reason given on opencode's.
 		accountFiles: []agentFile{
-			{path: ".config/kilo/kilo.json", asset: "agent/kilocode/permissions.json.tmpl", mode: 0o640, merge: true},
+			{path: ".config/kilo/kilo.json", asset: "agent/permissions.json.tmpl", mode: 0o640, merge: true},
 		},
 		// .kilocode is the legacy directory, still read.
-		detect:           []string{".kilo", ".kilocode", "kilo.json", "kilo.jsonc"},
-		detectHome:       []string{".config/kilo", ".config/kilocode", ".kilocode"},
+		detect:     []string{".kilo", ".kilocode", "kilo.json", "kilo.jsonc"},
+		detectHome: []string{".config/kilo", ".config/kilocode", ".kilocode"},
+		// A file of faramir's own in the global rules directory, every .md in
+		// which is loaded for every project.  Kilo Code has no single named home
+		// instructions file to add a section to.
+		homeInstructions: ".kilocode/rules/faramir.md",
 		autoApprovesBash: false,
 		note:             pluginNote("Kilo Code"),
 	},
@@ -187,7 +216,7 @@ var agentTargets = map[string]*agentTarget{
 // permission rules against the command text.  Whether those rules run after the
 // rewrite is documented by neither agent, so this states the symptom.
 func pluginNote(agent string) string {
-	const wrapper = "source /usr/local/libexec/faramir/wrap.sh"
+	const wrapper = "source " + DefaultLibexecDir + "/wrap.sh"
 	return agent + " matches its bash permission rules against the command text, and the " +
 		"guard rewrites every command into `" + wrapper + " '<command>'`. Whether those " +
 		"rules see the command or the rewrite is not documented: if commands start " +

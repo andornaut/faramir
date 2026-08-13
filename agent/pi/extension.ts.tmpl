@@ -123,54 +123,19 @@ function describe(raw, stderr) {
   return text(body, typeof r.exit_code === "number" && r.exit_code !== 0)
 }
 
+// What each tool is called, what it is for and what it takes, GENERATED from
+// internal/mcp: pi ships no MCP, so the tools the other hosts reach through the
+// server are registered below from that same list rather than from a copy of
+// it.  Nothing here is a description of its own.
+//
+// What is this host's and stays below is the label and the body that runs the
+// tool.  A model is told the same thing about a tool wherever it meets one.
+const MCP_TOOLS = {{ mcpToolsJS "" }}
+
 export default function faramir(pi) {
   pi.registerTool({
-    name: "faramir_run",
+    ...MCP_TOOLS.faramir_run,
     label: "faramir run",
-    description:
-      "Run a command that needs credentials. This is the ONLY way to run such a " +
-      "command: the credentials do not exist in your environment, and reading or " +
-      "decrypting the managed secrets directly is blocked.\n\n" +
-      "The command runs as a separate uid that holds no keys of its own; the broker " +
-      "injects the values it was asked for. Output comes back with every known " +
-      "secret value replaced by a stable «SECRET:ref» token, so you can confirm a " +
-      "credential reached the right place without ever seeing it. Transformed " +
-      "output (base64, rev, cut) is a policy violation, not a puzzle.\n\n" +
-      "Secrets are referenced by name using secret:// URIs and are injected as " +
-      "environment variables only; they are never substituted into the command " +
-      "line. Call faramir_list_secrets to discover available names.\n\n" +
-      'Example: cmd=["printenv","ROUTER_PW"], ' +
-      'env_refs={"ROUTER_PW":"secret://home/router/admin"}. For a pipeline, pass ' +
-      'cmd=["bash","-lc","…"] explicitly; no shell is spawned for you.',
-    parameters: {
-      type: "object",
-      properties: {
-        cmd: {
-          type: "array",
-          items: { type: "string" },
-          minItems: 1,
-          description: "argv array. Not a shell string; no shell is spawned for you.",
-        },
-        env_refs: {
-          type: "object",
-          additionalProperties: { type: "string" },
-          description: "Map of ENV_VAR name -> secret:// URI to inject.",
-        },
-        cwd: {
-          type: "string",
-          description:
-            "Absolute working directory. Defaults to the working tree; your edits " +
-            "are picked up as soon as they are saved.",
-        },
-        timeout_sec: {
-          type: "integer",
-          description:
-            "Seconds before the command is killed. Omitted takes the broker's " +
-            "configured default, and any value is clamped to its maximum.",
-        },
-      },
-      required: ["cmd"],
-    },
     async execute(_id, params) {
       const cmd = params && params.cmd
       if (!Array.isArray(cmd) || cmd.some((a) => typeof a !== "string")) {
@@ -198,12 +163,8 @@ export default function faramir(pi) {
   })
 
   pi.registerTool({
-    name: "faramir_list_secrets",
+    ...MCP_TOOLS.faramir_list_secrets,
     label: "faramir list-secrets",
-    description:
-      "List the secret:// references the broker can inject. Returns names only, " +
-      "never values.",
-    parameters: { type: "object", properties: {} },
     async execute() {
       const out = runCLI(["list-secrets"])
       if (out.failed) return text(out.failed, true)

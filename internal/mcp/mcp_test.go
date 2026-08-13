@@ -260,7 +260,7 @@ func TestAnUnknownMethodWithAnIDGetsMethodNotFound(t *testing.T) {
 func TestToolsListAdvertisesEveryTool(t *testing.T) {
 	reply := decodeReply(t, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`)
 	result, _ := reply["result"].(map[string]any)
-	listed, _ := result["tools"].([]tool)
+	listed, _ := result["tools"].([]Tool)
 
 	names := map[string]bool{}
 	for _, tl := range listed {

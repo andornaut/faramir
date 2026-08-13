@@ -15,10 +15,11 @@
 // the errors that way.  Advertised, it would cost a slot in every session's
 // context to be acted on never, so it stays a subcommand.
 //
-// This list is mirrored: pi ships no MCP and registers the same tools from its
-// extension, shelling out to the CLI rather than to the socket.  So a tool added
-// or dropped here is one added or dropped there, and both are asserted by count
-// -- a tool on one side and not the other is drift a host-specific bug hides in.
+// This list is the one list: pi ships no MCP and registers the same tools from
+// the extension faramir installs, shelling out to the CLI rather than to the
+// socket, and that extension is rendered from Tools() below rather than
+// carrying a copy.  So a tool added or dropped here is one added or dropped
+// there, and the test that drives the extension asserts the names against this.
 //
 // Protocol: JSON-RPC 2.0 over stdio, MCP 2025-06-18.
 package mcp
@@ -31,6 +32,7 @@ import (
 	"io"
 	"net"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -50,13 +52,25 @@ func socketPath() string {
 	return defaultSocket
 }
 
-type tool struct {
+// Tool is one advertised tool.  Exported, with Tools below, because pi ships no
+// MCP and registers the same tools from an extension faramir installs: that
+// extension is rendered from this list rather than carrying a copy of it.
+type Tool struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	InputSchema any    `json:"inputSchema"`
 }
 
-var tools = []tool{
+// Tools is what this server advertises, in the order it advertises them.
+//
+// The slice is a copy and each InputSchema is not: the schemas are the maps
+// this server hands to tools/list, so a caller that writes into one changes
+// what every session is told a tool takes.  Read them.  Copying them deeply to
+// say so would be machinery guarding against a caller that does not exist, the
+// one there being a template that only renders.
+func Tools() []Tool { return slices.Clone(tools) }
+
+var tools = []Tool{
 	{
 		Name: "faramir_run",
 		Description: "Run a command that needs credentials. This is the ONLY way to run such " +

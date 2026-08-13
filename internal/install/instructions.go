@@ -153,7 +153,10 @@ func appendSection(current []byte, block string) []byte {
 // outside them.  Shaped like writeFile, which it ends in.
 //
 // Every error it returns of its own leaves the file exactly as it was.
-func (f fsys) sectionFile(path, section string, mode os.FileMode, uid, gid int) (bool, error) {
+func (f fsys) sectionFile(path, section string, uid, gid int) (bool, error) {
+	// The mode for a file this creates.  Not a parameter: there is one kind of
+	// file here, and an existing one keeps its own below.
+	mode := os.FileMode(instructionsMode)
 	// Never through a link.  These are the operator's own prose, and a dotfiles
 	// manager keeps such a file as a link into a repository it owns; writeFile
 	// renames a new file over the path, which would leave a regular file where
@@ -171,6 +174,17 @@ func (f fsys) sectionFile(path, section string, mode os.FileMode, uid, gid int) 
 		return false, nil
 	case err != nil:
 		return false, err
+	default:
+		// The mode is asserted only on a file this creates.  What faramir owns
+		// here is the block between the markers, not the file, and nothing about
+		// it is security sensitive: the section is documentation, and deleting it
+		// changes nothing about what is reachable.  So an existing file keeps the
+		// mode it has, as ensureOperatorUmask leaves .bashrc's alone.
+		//
+		// This is also what keepModes was for.  Sharing is told not to widen the
+		// instructions file so that this command need not narrow it again, and
+		// asserting a mode here would have narrowed it anyway.
+		mode = link.Mode().Perm()
 	}
 	current, err := os.ReadFile(path)
 	switch {

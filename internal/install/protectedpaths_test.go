@@ -2,6 +2,7 @@ package install
 
 import (
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -80,8 +81,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	rendered := map[string]string{}
 	for _, asset := range []string{
 		"agent/claude/settings.json",
-		"agent/opencode/permissions.json.tmpl",
-		"agent/kilocode/permissions.json.tmpl",
+		"agent/permissions.json.tmpl",
 		"agent/gemini/policies.toml.tmpl",
 	} {
 		body, err := render(asset, layout)
@@ -152,20 +152,23 @@ func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 	}
 }
 
-// The two plugin hosts install the same rules; they are one asset rendered
-// twice, and a copy that drifts is the thing this whole file exists to stop.
+// The two plugin hosts install the same rules, and what makes that true is that
+// they name one asset rather than two files kept in step by hand.  Asserted
+// against the targets rather than by rendering both, which after the two were
+// folded into one would be comparing a file with itself.
 func TestBothPluginHostsGetTheSameRules(t *testing.T) {
-	layout := testLayout()
-	a, err := render("agent/opencode/permissions.json.tmpl", layout)
-	if err != nil {
-		t.Fatal(err)
+	assets := map[string][]string{}
+	for _, name := range []string{"opencode", "kilocode"} {
+		for _, file := range agentTargets[name].accountFiles {
+			assets[name] = append(assets[name], file.asset)
+		}
 	}
-	b, err := render("agent/kilocode/permissions.json.tmpl", layout)
-	if err != nil {
-		t.Fatal(err)
+	if len(assets["opencode"]) == 0 {
+		t.Fatal("opencode writes no account-wide rules")
 	}
-	if string(a) != string(b) {
-		t.Error("opencode and Kilo Code no longer get the same rules")
+	if !slices.Equal(assets["opencode"], assets["kilocode"]) {
+		t.Errorf("opencode writes %v and Kilo Code writes %v, so the two lists can "+
+			"drift", assets["opencode"], assets["kilocode"])
 	}
 }
 
