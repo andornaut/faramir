@@ -25,11 +25,14 @@ concurrency:
 jobs:
   # Publishing waits on the same suite that guards main, rather than on the
   # build alone: something that compiles everywhere still ships whatever the
-  # tests would have caught.
+  # tests would have caught. Called only where a release can follow, since the
+  # Test workflow already runs on every push and pull request of its own
+  # accord, and the jobs below are gated the same way.
   test:
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/heads/main')
     uses: ./.github/workflows/test.yml
 
-  build:
+  build-platform:
     runs-on: ubuntu-latest
 
     # The platforms .goreleaser.yaml builds for a tag. Linux only: the broker
@@ -77,6 +80,25 @@ jobs:
         with:
           name: faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}
           path: faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
+
+  # A matrix leg reports as `build-platform (linux, amd64, x86_64)`, a name that
+  # changes whenever the matrix does, and a required check that stops reporting
+  # blocks every pull request forever. This job reports under one stable name,
+  # so branch protection has a single check to require no matter how the matrix
+  # grows.
+  #
+  # `always()` and not `!cancelled()`, which looks tidier and is a hole: a
+  # cancelled run would skip this job, and GitHub counts a skipped required
+  # check as passing, so an unverified commit becomes mergeable. Failing closed
+  # costs a red check on runs that were cancelled anyway.
+  build:
+    needs: build-platform
+    if: always()
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check that every platform built
+        run: '[ "${{ needs.build-platform.result }}" = success ]'
 
   goreleaser:
     needs: [build, test]
