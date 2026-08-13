@@ -27,6 +27,26 @@ reload_daemons() {
   return 1
 }
 
+# This suite rotates db/password, adds a ref, and rewrites .sops.yaml.  Those
+# values are shared: leak, stream, wrap, mcp and disclose all redact the
+# original db/password, so a suite that leaves it rotated makes those fail when
+# they run next against the same box.  Snapshot the store and rule now, restore
+# them on the way out, and reload the daemons onto the restored file, so running
+# this suite composes with the others rather than sabotaging them.  The exit
+# status the counts imply is preserved across the restore.
+BACKUP=$(mktemp -d)
+cp -a "$MANAGED" "$BACKUP/store" 2>/dev/null || true
+cp -a /etc/faramir/.sops.yaml "$BACKUP/sops" 2>/dev/null || true
+restore_baseline() {
+  local rc=$?
+  [ -e "$BACKUP/store" ] && cp -a "$BACKUP/store" "$MANAGED"
+  [ -e "$BACKUP/sops" ] && cp -a "$BACKUP/sops" /etc/faramir/.sops.yaml
+  rm -rf "$BACKUP"
+  reload_daemons >/dev/null 2>&1 || true
+  return "$rc"
+}
+trap restore_baseline EXIT
+
 # --------------------------------------------------------------------------
 head_ "1. edit: the plaintext exists only in a tmpfs, 0600, and is removed"
 # The editor is where a person would be.  It records what it was handed, so the

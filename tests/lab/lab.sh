@@ -10,6 +10,12 @@
 # `up` is safe to re-run: it rebuilds the binary from the current tree and
 # re-bootstraps, which is idempotent.
 #
+# `run` is single-shot.  The suites mutate the shared install (secrets are
+# rotated, a sudo grant is installed, the last suite uninstalls the host), so a
+# second `run` without `up` measures the leftovers of the first and reports
+# failures that are not regressions.  `run` warns when the box is already dirty;
+# `up` is the clean baseline.
+#
 # sops, age and age-keygen must be present beside this script: the image has no
 # network, so they are copied in rather than downloaded.  See README.md.
 set -eu
@@ -77,6 +83,9 @@ cmd_up() {
   docker cp "$HERE/bootstrap-guard.sh" $NAME:/root/
   docker exec $NAME bash /root/bootstrap-guard.sh
   wire_managed_host
+  # The marker cmd_run consumes to tell a first run on a clean box from a re-run
+  # against one the suites have already mutated.
+  docker exec $NAME touch /root/.lab-fresh
 }
 
 # wire_managed_host is the part no container can do for itself: the broker's
@@ -110,6 +119,15 @@ cmd_cp() { for f in "$@"; do docker cp "$HERE/$f" $NAME:/root/; done; }
 
 cmd_run() {
   running || die "the container is not up; run ./lab.sh up"
+  # The suites are single-shot: they mutate the shared install, so a run against
+  # a box a previous run already touched measures leftovers.  `up` stamps a
+  # marker; consume it on the first run and warn on every one after.
+  if docker exec $NAME test -e /root/.lab-fresh 2>/dev/null; then
+    docker exec $NAME rm -f /root/.lab-fresh
+  else
+    printf 'lab: this box has already been run against; the suites have accumulated state.\n' >&2
+    printf 'lab: failures below may be leftovers, not regressions. Run ./lab.sh up for a clean baseline.\n' >&2
+  fi
   local names=("$@")
   [ ${#names[@]} -eq 0 ] && names=("${SUITES[@]}")
   local failed=0
