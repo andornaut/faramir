@@ -69,8 +69,8 @@ func cmdApprovals(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		fmt.Fprintln(os.Stderr, "usage: faramir approvals [options]\n"+
-			"To answer one: faramir approve ID, or faramir deny ID")
+		usageError(fs, "faramir approvals: unexpected argument %q", fs.Arg(0))
+		fmt.Fprintln(os.Stderr, "To answer one: faramir approve ID, or faramir deny ID")
 		return 2
 	}
 	if !requireRootToAnswer("approvals") {
@@ -96,16 +96,16 @@ func cmdApprove(args []string) int {
 	// whoever is asking, and the other two commands here check in that order.
 	id := fs.Arg(0)
 	if id == "" || fs.NArg() > 1 {
-		fmt.Fprintln(os.Stderr, "usage: faramir approve [options] ID\n"+
-			"A yes names the command it is for, so there is no form that approves "+
-			"whatever is waiting. `faramir approvals` lists it; `faramir deny` needs "+
-			"no id, one question being outstanding at a time")
+		usageError(fs, "faramir approve: one id is required")
+		fmt.Fprintln(os.Stderr, "A yes names the command it is for, so there is no form "+
+			"that approves whatever is waiting. `faramir approvals` lists it; `faramir deny` "+
+			"needs no id, one question being outstanding at a time")
 		return 2
 	}
 	if !requireRootToAnswer("approve") {
 		return 1
 	}
-	return answer(*c.socket, id, true, *c.json)
+	return answer("approve", *c.socket, id, true, *c.json)
 }
 
 // cmdDeny says no.  The id is optional, and the asymmetry with approving is the
@@ -119,14 +119,13 @@ func cmdDeny(args []string) int {
 		return code
 	}
 	if fs.NArg() > 1 {
-		fmt.Fprintln(os.Stderr, "usage: faramir deny [options] [ID]")
-		return 2
+		return usageError(fs, "faramir deny: at most one id")
 	}
 	if !requireRootToAnswer("deny") {
 		return 1
 	}
 	if id := fs.Arg(0); id != "" {
-		return answer(*c.socket, id, false, *c.json)
+		return answer("deny", *c.socket, id, false, *c.json)
 	}
 	return denyWaiting(*c.socket, *c.json)
 }
@@ -144,7 +143,7 @@ func denyWaiting(socketPath string, asJSON bool) int {
 	if !asJSON {
 		printQuestion(questions[0])
 	}
-	return answer(socketPath, questions[0].ID, false, asJSON)
+	return answer("deny", socketPath, questions[0].ID, false, asJSON)
 }
 
 // waiting is the question outstanding, or nil and the status to exit with: 69
@@ -253,7 +252,7 @@ func watchApprovals(socketPath string) int {
 			// it was being read, or the yes was refused because the host was not quiet,
 			// which closes it rather than holding it open.  Either way it is settled
 			// and gone, the broker has already said which, and watching continues.
-			switch code := answer(socketPath, question.ID, approve, false); code {
+			switch code := answer("approve", socketPath, question.ID, approve, false); code {
 			case 0:
 			case 69:
 				fmt.Fprintf(os.Stderr, "faramir approve: %s could not be answered and is "+
@@ -401,8 +400,8 @@ func pending(socketPath string, waitSec int) ([]approval.Question, error) {
 	return response.Questions, nil
 }
 
-func answer(socketPath, id string, approve, asJSON bool) int {
-	return send(socketPath, map[string]any{
+func answer(prog, socketPath, id string, approve, asJSON bool) int {
+	return send(prog, socketPath, map[string]any{
 		"op": "approve", "id": id, "approve": approve,
 	}, asJSON, true)
 }

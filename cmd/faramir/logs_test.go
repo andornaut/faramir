@@ -261,7 +261,7 @@ func TestAnAbsentLogIsNamedEvenWhenNothingWasAskedFor(t *testing.T) {
 func TestEmptyReasonSeparatesAskingForNoneFromHavingNone(t *testing.T) {
 	for _, count := range []int{0, -1, -5} {
 		got := emptyReason("/var/log/faramir/audit.log", count)
-		if !strings.Contains(got, fmt.Sprintf("-n %d", count)) {
+		if !strings.Contains(got, fmt.Sprintf("--count %d", count)) {
 			t.Errorf("emptyReason(%d) = %q, want it to name the count that asked for nothing", count, got)
 		}
 		if strings.Contains(got, "holds no records") {

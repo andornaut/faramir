@@ -26,6 +26,7 @@ package mcp
 import (
 	"bufio"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -311,13 +312,17 @@ func handle(m *message) map[string]any {
 
 // Run is the `faramir mcp` subcommand.
 func Run(args []string) int {
-	// No flags: a stdio server started by the agent.  --version excepted, being
+	// A stdio server started by the agent with a fixed argv.  A flag set, rather
+	// than scanning argv, so --version behaves as it does for the daemons; it is
 	// how an operator confirms which build the agent talks to.
-	for _, arg := range args {
-		if arg == "--version" || arg == "-version" {
-			fmt.Println("faramir " + version.Version)
-			return 0
-		}
+	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)
+	showVersion := fs.Bool("version", false, "print the version and exit")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *showVersion {
+		fmt.Println("faramir " + version.Version)
+		return 0
 	}
 	return serve(os.Stdin, os.Stdout)
 }

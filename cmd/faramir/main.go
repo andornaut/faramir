@@ -161,9 +161,61 @@ func newFlagSet(name, synopsis string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.Usage = func() {
 		_, _ = fmt.Fprintf(fs.Output(), "usage: faramir %s\n\noptions:\n", synopsis)
-		fs.PrintDefaults()
+		printDefaults(fs)
 	}
 	return fs
+}
+
+// printDefaults renders a flag set the way the rest of the tool spells flags:
+// one dash for a single-letter shorthand, two for a long name.  The standard
+// library's PrintDefaults writes one dash for every flag, which disagrees with
+// every usage line and every mention in prose.  The layout otherwise follows
+// PrintDefaults, including its rule for showing a non-zero default.
+func printDefaults(fs *flag.FlagSet) {
+	fs.VisitAll(func(f *flag.Flag) {
+		dash := "--"
+		if len(f.Name) == 1 {
+			dash = "-"
+		}
+		var b strings.Builder
+		fmt.Fprintf(&b, "  %s%s", dash, f.Name)
+		name, usage := flag.UnquoteUsage(f)
+		if name != "" {
+			b.WriteString(" " + name)
+		}
+		// A one-letter bool keeps its usage on the same line; everything else wraps.
+		if b.Len() <= 4 {
+			b.WriteString("\t")
+		} else {
+			b.WriteString("\n    \t")
+		}
+		b.WriteString(strings.ReplaceAll(usage, "\n", "\n    \t"))
+		// The zero value of each type is what flag omits: "" for a string, "0" for
+		// a number, "false" for a bool.  A number is printed bare, a string quoted.
+		if d := f.DefValue; d != "" && d != "false" && d != "0" {
+			if looksNumeric(d) {
+				fmt.Fprintf(&b, " (default %s)", d)
+			} else {
+				fmt.Fprintf(&b, " (default %q)", d)
+			}
+		}
+		_, _ = fmt.Fprintln(fs.Output(), b.String())
+	})
+}
+
+// looksNumeric reports whether a default value is an integer, so it is printed
+// without quotes.  Every numeric flag here is an int; a float or a negative is
+// still handled.
+func looksNumeric(s string) bool {
+	for i, r := range s {
+		if r == '-' && i == 0 {
+			continue
+		}
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != "" && s != "-"
 }
 
 // parseFlags runs a subcommand's flag set.  --help is stdout and 0, a bad flag
@@ -183,6 +235,30 @@ func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
 		fmt.Fprint(os.Stderr, captured.String())
 		return 2, false
 	}
+}
+
+// requireRoot refuses a command that must run as root, naming why and how.  The
+// approval commands use requireRootToAnswer instead of this: they must not
+// suggest sudo, because a warm sudo timestamp is what their check exists to keep
+// out of the agent's reach.
+func requireRoot(command, reason string) bool {
+	if os.Geteuid() == 0 {
+		return true
+	}
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root, because %s: try 'sudo faramir %s'\n",
+		command, reason, command)
+	return false
+}
+
+// usageError reports a subcommand used wrongly: a one-line message, then the
+// synopsis and its options.  parseFlags leaves the flag set writing to a
+// discarded buffer, so the output is repointed at stderr first.  Always 2.  A
+// command with extra guidance prints it after this returns, below the options.
+func usageError(fs *flag.FlagSet, format string, args ...any) int {
+	fmt.Fprintf(os.Stderr, format+"\n", args...)
+	fs.SetOutput(os.Stderr)
+	fs.Usage()
+	return 2
 }
 
 // operatorName resolves the account that works in the tree: --operator-user,
@@ -208,7 +284,8 @@ func operatorName(flagValue string) string {
 // does not replace the sops CLI, which is what edits encrypted files.
 func cmdKeygen(args []string) int {
 	fs := newFlagSet("keygen", "keygen [-o FILE]")
-	out := fs.String("o", "", "write the identity to this file instead of stdout")
+	out := fs.String("output", "", "write the identity to this file instead of stdout")
+	fs.StringVar(out, "o", "", "write the identity to this file instead of stdout (shorthand)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
@@ -216,7 +293,7 @@ func cmdKeygen(args []string) int {
 	if *out == "" {
 		id, err := age.GenerateX25519Identity()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir keygen: %v\n", err)
 			return 1
 		}
 		fmt.Print(agekey.Format(id))
@@ -227,14 +304,14 @@ func cmdKeygen(args []string) int {
 	// it was the only recipient for, retroactively.
 	recipient, created, err := agekey.Generate(*out)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir keygen: %v\n", err)
 		return 1
 	}
 	// Non-zero on an existing target, so a caller can tell a fresh identity from
 	// one that was already there.
 	if !created {
 		fmt.Fprintf(os.Stderr,
-			"faramir: %s exists; refusing to overwrite an age key\n", *out)
+			"faramir keygen: %s exists; refusing to overwrite an age key\n", *out)
 		fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
 		return 1
 	}
@@ -277,10 +354,7 @@ func cmdRun(args []string) int {
 		rest = rest[1:]
 	}
 	if len(rest) == 0 {
-		fmt.Fprintln(os.Stderr, "faramir run: no command given")
-		fs.SetOutput(os.Stderr)
-		fs.Usage()
-		return 2
+		return usageError(fs, "faramir run: no command given")
 	}
 
 	// Files first, so an explicit --env overrides the file.
@@ -323,7 +397,7 @@ func cmdRun(args []string) int {
 	if *timeout > 0 {
 		request["timeout_sec"] = *timeout
 	}
-	return send(*c.socket, request, *c.json, *quiet)
+	return send("run", *c.socket, request, *c.json, *quiet)
 }
 
 // checkRef validates one NAME=secret://ref pair, for both --env and --env-file.
@@ -703,11 +777,10 @@ func call(op string, args []string) int {
 		return code
 	}
 	if rest := fs.Args(); len(rest) > 0 {
-		fmt.Fprintf(os.Stderr, "faramir %s: unexpected argument %q\n", name, rest[0])
-		return 2
+		return usageError(fs, "faramir %s: unexpected argument %q", name, rest[0])
 	}
 	// Only run has --quiet.
-	return send(*c.socket, map[string]any{"op": op}, *c.json, true)
+	return send(name, *c.socket, map[string]any{"op": op}, *c.json, true)
 }
 
 // Bounds on how long this side waits for the broker.  The socket is systemd's
@@ -743,20 +816,21 @@ func responseWait(request map[string]any) time.Duration {
 	return execCeiling + execGrace
 }
 
-// send performs one request/response round trip.  Everything on this side of
-// the socket has already been redacted.
-func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
+// send performs one request/response round trip.  prog is the subcommand the
+// caller typed, so a diagnostic reads `faramir <cmd>:` like the rest.  Everything
+// on this side of the socket has already been redacted.
+func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) int {
 	wait := responseWait(request)
 	conn, err := net.DialTimeout("unix", socketPath, dialWait)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %s: %v\n", socketPath, err)
+		fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", prog, socketPath, err)
 		return 69 // EX_UNAVAILABLE
 	}
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(wait))
 
 	if err := sockutil.Send(conn, request); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", prog, err)
 		return 69
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
@@ -767,14 +841,14 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 		// Named apart from a close: the socket is listening and nothing behind it
 		// answered, which is a broker that did not come up rather than one that
 		// refused.
-		fmt.Fprintf(os.Stderr, "faramir: the broker did not answer within %s. The "+
+		fmt.Fprintf(os.Stderr, "faramir %s: the broker did not answer within %s. The "+
 			"socket is systemd's and listens whether or not the daemon behind it "+
 			"started: check `systemctl status faramir-broker` and "+
-			"`faramir broker --parse-only`\n", wait)
+			"`faramir broker --parse-only`\n", prog, wait)
 		return 69
 	}
 	if err != nil || len(line) == 0 {
-		fmt.Fprintln(os.Stderr, "faramir: broker closed the connection without responding")
+		fmt.Fprintf(os.Stderr, "faramir %s: broker closed the connection without responding\n", prog)
 		return 69
 	}
 
@@ -795,7 +869,7 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(line, &response); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: malformed response: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir %s: malformed response: %v\n", prog, err)
 		return 1
 	}
 
@@ -815,9 +889,9 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 	}
 
 	if response.Error != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %s: %s\n", response.Error.Code, response.Error.Message)
+		fmt.Fprintf(os.Stderr, "faramir %s: %s: %s\n", prog, response.Error.Code, response.Error.Message)
 		if response.LogID != "" {
-			fmt.Fprintf(os.Stderr, "faramir: log_id=%s\n", response.LogID)
+			fmt.Fprintf(os.Stderr, "faramir %s: log_id=%s\n", prog, response.LogID)
 		}
 		return 1
 	}
@@ -853,7 +927,7 @@ func send(socketPath string, request map[string]any, asJSON, quiet bool) int {
 			notes = append(notes, "log_id="+response.LogID)
 		}
 		if len(notes) > 0 {
-			fmt.Fprintf(os.Stderr, "[faramir] %s\n", strings.Join(notes, "; "))
+			fmt.Fprintf(os.Stderr, "faramir %s: %s\n", prog, strings.Join(notes, "; "))
 		}
 	}
 

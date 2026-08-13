@@ -45,28 +45,27 @@ var editors = []string{
 func cmdEdit(args []string) int {
 	fs := newFlagSet("edit", "edit [options] FILE")
 	configPath := fs.String("config", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
+	fs.StringVar(configPath, "c", "", "config file (shorthand)")
 	editor := fs.String("editor", "", "absolute path to the editor to run (default: the first of "+
 		strings.Join(editors, ", ")+" that exists)")
 	ageKey := fs.String("age-key", "", "age key file (default: age.key beside the config)")
+	socket := fs.String("socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
 	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "usage: faramir edit [options] FILE")
-		return 2
+		return usageError(fs, "faramir edit: one file is required")
 	}
 
 	// Refused rather than attempted: the bare permission error on the age key does
 	// not say what to do.
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "faramir edit must run as root, because the age key is "+
-			"readable only by the keeper and by root: try 'sudo faramir edit'")
+	if !requireRoot("edit", "the age key is readable only by the keeper and by root") {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(*configPath))
+	cfg, err := config.Load(resolveConfig(*configPath, *socket))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
 		return 1
 	}
 
@@ -79,7 +78,7 @@ func cmdEdit(args []string) int {
 	unresolvable := slices.Concat(failures, absent)
 	target, err := resolveManaged(managed, fs.Arg(0))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
 		for _, reason := range unresolvable {
 			fmt.Fprintf(os.Stderr, "  %s\n", reason)
 		}
@@ -88,7 +87,7 @@ func cmdEdit(args []string) int {
 
 	editorPath, err := resolveEditor(*editor)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
 		return 1
 	}
 
@@ -97,7 +96,7 @@ func cmdEdit(args []string) int {
 		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
 	}
 	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "age key: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir edit: age key: %v\n", err)
 		return 1
 	}
 
@@ -122,14 +121,14 @@ func cmdEdit(args []string) int {
 	audit.NewLog(cfg.Audit).Write(record, audit.Output{})
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
 		return 1
 	}
 	if !changed {
-		fmt.Fprintln(os.Stderr, "unchanged")
+		fmt.Fprintln(os.Stderr, "faramir edit: unchanged")
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s; the broker picks it up within one refresh interval\n", target)
+	fmt.Fprintf(os.Stderr, "faramir edit: wrote %s; the broker picks it up within one refresh interval\n", target)
 	return 0
 }
 
@@ -144,11 +143,11 @@ func cmdEdit(args []string) int {
 // Reaching the unit matters under sudo on an install whose config moved into a
 // home: sudo clears the environment, and the socket goes unanswered whenever
 // the broker is not running.
-func resolveConfig(requested string) string {
+func resolveConfig(requested, socketPath string) string {
 	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
 		return requested
 	}
-	return installedConfig(discoverConfigFile(askBroker(socketDefault())))
+	return installedConfig(discoverConfigFile(askBroker(socketPath)))
 }
 
 // resolveDaemonConfig is resolveConfig for the three daemon entry points, which
@@ -242,7 +241,7 @@ func resolveEditor(requested string) (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("no editor found; install one of %s or pass -editor",
+	return "", fmt.Errorf("no editor found; install one of %s or pass --editor",
 		strings.Join(editors, ", "))
 }
 

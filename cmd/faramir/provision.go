@@ -215,7 +215,7 @@ func cmdInit(args []string) int {
 		// discovered, and an install written somewhere the operator did not expect
 		// is a second install rather than an error: new keys, an empty secrets
 		// directory, and the units pointed at it.
-		fmt.Fprintf(os.Stderr, "provisioning the install at %s\n", opts.ConfigDir)
+		fmt.Fprintf(os.Stderr, "faramir init: provisioning the install at %s\n", opts.ConfigDir)
 	}
 
 	report, err := install.Run(opts)
@@ -226,7 +226,7 @@ func cmdInit(args []string) int {
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
 		return 1
 	}
 	if !*asJSON {
@@ -280,8 +280,7 @@ func cmdInitProject(args []string) int {
 		return code
 	}
 	if fs.NArg() > 1 {
-		fmt.Fprintln(os.Stderr, "faramir: init-project takes one directory")
-		return 2
+		return usageError(fs, "faramir init-project: takes at most one directory")
 	}
 
 	opts := install.ProjectOptions{
@@ -305,7 +304,7 @@ func cmdInitProject(args []string) int {
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
 		return 1
 	}
 	if !*asJSON {
@@ -350,7 +349,7 @@ func cmdDoctor(args []string) int {
 	}
 	paint, err := newPalette(*when)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
 		return 2
 	}
 	// Before the round trip below, which changes what it would report: opening
@@ -375,7 +374,7 @@ func cmdDoctor(args []string) int {
 	if *asJSON {
 		body, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
 			return 1
 		}
 		fmt.Println(string(body))
@@ -542,13 +541,12 @@ func cmdUninstall(args []string) int {
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "faramir: uninstall must run as root")
+	if !requireRoot("uninstall", "it removes the units and the installed files") {
 		return 1
 	}
 	left, err := install.Uninstall(resolveConfigDir(*configDir, *socket))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir uninstall: %v\n", err)
 		return 1
 	}
 	fmt.Fprintln(os.Stderr, "\nLeft in place on purpose:")
@@ -565,12 +563,11 @@ func cmdReload(args []string) int {
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "faramir: reload must run as root: it stops the units")
+	if !requireRoot("reload", "it restarts the daemons") {
 		return 1
 	}
 	if err := install.Reload(); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir reload: %v\n", err)
 		return 1
 	}
 	return 0

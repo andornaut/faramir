@@ -23,7 +23,7 @@ func cmdExec(args []string) int {
 			"usage: faramir exec [-c PATH]\n\n"+
 				"The executor daemon, run by faramir-exec.service.  To run a command\n"+
 				"through the broker, use `faramir run`.\n\noptions:\n")
-		fs.PrintDefaults()
+		printDefaults(fs)
 	}
 	configPath := fs.String("config", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
 	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")

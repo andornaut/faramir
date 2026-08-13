@@ -6,6 +6,7 @@ package guard
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"io"
 	"os"
@@ -252,22 +253,23 @@ func decide(command string) (string, bool) {
 
 // Run is the `faramir guard` subcommand.
 func Run(args []string) int {
-	// Before stdin is read, so running this by hand does not hang on a payload.
-	hostName := ""
-	for i, arg := range args {
-		if arg == "--version" || arg == "-version" {
-			fmt.Println("faramir " + version.Version)
-			return 0
-		}
-		if name, ok := strings.CutPrefix(arg, "--host="); ok {
-			hostName = name
-		} else if arg == "--host" && i+1 < len(args) {
-			hostName = args[i+1]
-		}
+	// Parsed before stdin is read, so running this by hand does not hang on a
+	// payload.  A flag set, rather than scanning argv, so --host and --version
+	// behave as they do elsewhere; the argv is fixed by the agent config faramir
+	// writes, so a flag this refuses never reaches here in practice.
+	fs := flag.NewFlagSet("guard", flag.ContinueOnError)
+	hostName := fs.String("host", "", "the agent whose hook dialect to speak")
+	showVersion := fs.Bool("version", false, "print the version and exit")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if *showVersion {
+		fmt.Println("faramir " + version.Version)
+		return 0
 	}
 	// Also before stdin: an unknown host is a misregistration, and every command
 	// would otherwise be answered in a dialect the agent ignores.
-	activeHost, err := lookupHost(hostName)
+	activeHost, err := lookupHost(*hostName)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir guard: %v\n", err)
 		return 2

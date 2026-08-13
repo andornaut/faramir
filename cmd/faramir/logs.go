@@ -33,35 +33,36 @@ const defaultLogCount = 20
 func cmdLogs(args []string) int {
 	fs := newFlagSet("logs", "logs [options] [LOG-ID]")
 	configPath := fs.String("config", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
+	fs.StringVar(configPath, "c", "", "config file (shorthand)")
 	logPath := fs.String("path", "", "audit log to read (default: the one the config names)")
-	count := fs.Int("n", defaultLogCount, "how many recent records to list")
+	count := fs.Int("count", defaultLogCount, "how many recent records to list")
+	fs.IntVar(count, "n", defaultLogCount, "how many recent records to list (shorthand)")
+	socket := fs.String("socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
+	asJSON := fs.Bool("json", false, "print the records as JSON")
 	when := fs.String("color", "auto", "colourise: auto, always or never")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
 	if fs.NArg() > 1 {
-		fmt.Fprintln(os.Stderr, "usage: faramir logs [options] [LOG-ID]")
-		return 2
+		return usageError(fs, "faramir logs: at most one log-id")
 	}
 	paint, err := newPalette(*when)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 		return 2
 	}
 
 	// Refused rather than attempted: otherwise a bare permission error on a
 	// path the caller did not name.
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "faramir logs must run as root, because the audit log is "+
-			"readable only by the broker and by root: try 'sudo faramir logs'")
+	if !requireRoot("logs", "the audit log is readable only by the broker and by root") {
 		return 1
 	}
 
 	path := *logPath
 	if path == "" {
-		cfg, err := config.Load(resolveConfig(*configPath))
+		cfg, err := config.Load(resolveConfig(*configPath, *socket))
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "config: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 			return 1
 		}
 		path = cfg.Audit.LogPath
@@ -70,15 +71,18 @@ func cmdLogs(args []string) int {
 	if id := fs.Arg(0); id != "" {
 		record, skipped, err := findRecord(path, id)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 			return 1
 		}
 		reportSkipped(path, skipped)
 		if record == nil {
-			fmt.Fprintf(os.Stderr, "no record %s in %s. Rotated files are not searched; "+
-				"a record older than the live log is in %s.1.gz and its siblings\n",
+			fmt.Fprintf(os.Stderr, "faramir logs: no record %s in %s. Rotated files are not "+
+				"searched; a record older than the live log is in %s.1.gz and its siblings\n",
 				id, path, filepath.Base(path))
 			return 1
+		}
+		if *asJSON {
+			return printJSON(record)
 		}
 		printRecord(record, paint)
 		return 0
@@ -86,10 +90,18 @@ func cmdLogs(args []string) int {
 
 	records, skipped, err := tailRecords(path, *count)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 		return 1
 	}
 	reportSkipped(path, skipped)
+	if *asJSON {
+		// An empty listing is a JSON empty array, not null: a caller parsing stdout
+		// gets a value either way.
+		if records == nil {
+			records = []map[string]any{}
+		}
+		return printJSON(records)
+	}
 	if len(records) == 0 {
 		fmt.Fprintln(os.Stderr, emptyReason(path, *count))
 		return 0
@@ -104,6 +116,20 @@ func cmdLogs(args []string) int {
 		}
 		fmt.Println(summarise(record, paint))
 	}
+	return 0
+}
+
+// printJSON writes a record, or a list of them, to stdout as indented JSON: the
+// machine-readable form of what the text listing shows.  The fields hold no
+// secret value (output was recorded after redaction, refs are names, nothing is
+// substituted into argv), which is why logs prints what it finds.
+func printJSON(v any) int {
+	body, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+		return 1
+	}
+	fmt.Println(string(body))
 	return 0
 }
 
@@ -266,7 +292,7 @@ func reportSkipped(path string, skipped int) {
 	if skipped == 0 {
 		return
 	}
-	fmt.Fprintf(os.Stderr, "%s: %d line(s) do not parse and are not shown. "+
+	fmt.Fprintf(os.Stderr, "faramir logs: %s: %d line(s) do not parse and are not shown. "+
 		"The broker writes one record per line and takes back a write that lands "+
 		"short, so a line like this was written by something else or damaged "+
 		"afterwards\n", path, skipped)
@@ -279,7 +305,7 @@ func reportSkipped(path string, skipped int) {
 // this by tailRecords opening it whatever the count was.
 func emptyReason(path string, count int) string {
 	if count <= 0 {
-		return fmt.Sprintf("-n %d asks for no records. Pass a positive count to "+
+		return fmt.Sprintf("--count %d asks for no records. Pass a positive count to "+
 			"list some, or a log-id to look one up", count)
 	}
 	return fmt.Sprintf("%s holds no records to show", path)

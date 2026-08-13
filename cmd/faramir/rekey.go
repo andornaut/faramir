@@ -29,25 +29,25 @@ import (
 func cmdRekey(args []string) int {
 	fs := newFlagSet("rekey", "rekey [options] [FILE...]")
 	configPath := fs.String("config", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
+	fs.StringVar(configPath, "c", "", "config file (shorthand)")
 	ageKey := fs.String("age-key", "", "age key file (default: age.key beside the config)")
 	sopsConfig := fs.String("sops-config", "", "creation rule to read the recipients from "+
 		"(default: .sops.yaml beside the config)")
 	dryRun := fs.Bool("dry-run", false, "report which files would be re-encrypted and write nothing")
+	socket := fs.String("socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	if code, ok := parseFlags(fs, args); !ok {
 		return code
 	}
 
 	// Refused rather than attempted, like edit: as the operator this fails on the
 	// age key with a bare permission error, and the fix is not obvious from it.
-	if os.Geteuid() != 0 {
-		fmt.Fprintln(os.Stderr, "faramir rekey must run as root, because the age key is "+
-			"readable only by the keeper and by root: try 'sudo faramir rekey'")
+	if !requireRoot("rekey", "the age key is readable only by the keeper and by root") {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(*configPath))
+	cfg, err := config.Load(resolveConfig(*configPath, *socket))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
 		return 1
 	}
 
@@ -57,7 +57,7 @@ func cmdRekey(args []string) int {
 	unresolvable := slices.Concat(failures, absent)
 	targets, err := rekeyTargets(managed, fs.Args())
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
 		for _, reason := range unresolvable {
 			fmt.Fprintf(os.Stderr, "  %s\n", reason)
 		}
@@ -67,7 +67,7 @@ func cmdRekey(args []string) int {
 	// one file it was asked for.  Here a pattern that named nothing is a managed
 	// file this run did not reach, and none may be left behind.
 	for _, reason := range unresolvable {
-		fmt.Fprintf(os.Stderr, "not reached: %s\n", reason)
+		fmt.Fprintf(os.Stderr, "faramir rekey: not reached: %s\n", reason)
 	}
 
 	rulePath := *sopsConfig
@@ -76,7 +76,7 @@ func cmdRekey(args []string) int {
 	}
 	wanted, err := ruleRecipients(rulePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
 		return 1
 	}
 
@@ -85,7 +85,7 @@ func cmdRekey(args []string) int {
 		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
 	}
 	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "age key: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir rekey: age key: %v\n", err)
 		return 1
 	}
 	// Checked before anything is decrypted.  Re-encrypting to a rule the keeper is
@@ -93,7 +93,7 @@ func cmdRekey(args []string) int {
 	// can ask, one file at a time, and the failure only shows up at the next
 	// refresh.
 	if err := keeperStaysAReader(keyPath, wanted, rulePath); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
 		return 1
 	}
 
@@ -102,16 +102,16 @@ func cmdRekey(args []string) int {
 	for _, target := range targets {
 		was, err := recipientsOf(target)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", target, err)
+			fmt.Fprintf(os.Stderr, "faramir rekey: %s: %v\n", target, err)
 			failed++
 			continue
 		}
 		if sameRecipients(was, wanted) {
-			fmt.Fprintf(os.Stderr, "unchanged %s\n", target)
+			fmt.Fprintf(os.Stderr, "faramir rekey: unchanged %s\n", target)
 			continue
 		}
 		if *dryRun {
-			fmt.Fprintf(os.Stderr, "would re-encrypt %s: %s -> %s\n",
+			fmt.Fprintf(os.Stderr, "faramir rekey: would re-encrypt %s: %s -> %s\n",
 				target, strings.Join(was, ","), strings.Join(wanted, ","))
 			changed++
 			continue
@@ -131,11 +131,11 @@ func cmdRekey(args []string) int {
 		}
 		log.Write(record, audit.Output{})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: %v\n", target, err)
+			fmt.Fprintf(os.Stderr, "faramir rekey: %s: %v\n", target, err)
 			failed++
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "re-encrypted %s: %s -> %s\n",
+		fmt.Fprintf(os.Stderr, "faramir rekey: re-encrypted %s: %s -> %s\n",
 			target, strings.Join(was, ","), strings.Join(wanted, ","))
 		changed++
 	}
@@ -144,17 +144,17 @@ func cmdRekey(args []string) int {
 	// is the state an operator has to know about, because the rest is still sealed
 	// to the old recipients.
 	if failed > 0 {
-		fmt.Fprintf(os.Stderr, "%d of %d file(s) could not be re-encrypted; "+
+		fmt.Fprintf(os.Stderr, "faramir rekey: %d of %d file(s) could not be re-encrypted; "+
 			"those still open to the recipients they had\n", failed, len(targets))
 		return 1
 	}
 	if *dryRun {
-		fmt.Fprintf(os.Stderr, "%d of %d file(s) would change\n", changed, len(targets))
+		fmt.Fprintf(os.Stderr, "faramir rekey: %d of %d file(s) would change\n", changed, len(targets))
 		return 0
 	}
 	if changed > 0 {
-		fmt.Fprintf(os.Stderr, "%d of %d file(s) re-encrypted; the broker picks them "+
-			"up within one refresh interval\n", changed, len(targets))
+		fmt.Fprintf(os.Stderr, "faramir rekey: %d of %d file(s) re-encrypted; the broker "+
+			"picks them up within one refresh interval\n", changed, len(targets))
 	}
 	return 0
 }
