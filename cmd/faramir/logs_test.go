@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -21,29 +20,9 @@ func writeLog(t *testing.T, lines ...string) string {
 	return path
 }
 
-// A torn final line is what a concurrent append looks like, and must not hide
-// the records before it.
-func TestTailRecordsSkipsUnparseableLines(t *testing.T) {
-	path := writeLog(t,
-		`{"log_id":"a","op":"exec"}`,
-		`{"log_id":"b","op":"exec"}`,
-		`{"log_id":"c","op":`,
-	)
-	records, _, err := tailRecords(path, 10)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(records) != 2 {
-		t.Fatalf("got %d records, want 2", len(records))
-	}
-	if str(records[1], "log_id") != "b" {
-		t.Errorf("second record is %q, want b", str(records[1], "log_id"))
-	}
-}
-
 // A record's line has no length a reader may refuse.  internal/audit holds one
 // to [audit] max_record_bytes, and a ceiling here would be a second opinion
-// about that -- one that withholds every record in the file rather than the one
+// about that: one that withholds every record in the file rather than the one
 // it could not read.
 func TestTailRecordsSurvivesARecordNoCeilingWouldFit(t *testing.T) {
 	huge := strings.Repeat(`<`, 1_600_000) // 9.6MB once escaped, past any buffer
@@ -68,9 +47,9 @@ func TestTailRecordsSurvivesARecordNoCeilingWouldFit(t *testing.T) {
 	}
 }
 
-// -n bounds what is parsed, not only what is printed.  Parsing every record to
-// throw all but a screenful away is what made a listing cost the size of the
-// log; the last count lines are kept as bytes and parsed at the end.
+// --count bounds what is parsed, not only what is printed: the last count lines
+// are kept as bytes and parsed at the end, so a listing does not cost the size
+// of the log.
 func TestTailRecordsParsesOnlyWhatItWillShow(t *testing.T) {
 	var lines []string
 	for i := range 50 {
@@ -97,9 +76,9 @@ func TestTailRecordsParsesOnlyWhatItWillShow(t *testing.T) {
 	}
 }
 
-// -n bounds the listing.  Zero asks for no records, and a guard that skipped the
-// trim for anything non-positive printed the whole log to someone who asked for
-// none of it.
+// --count bounds the listing.  Zero asks for no records, so the trim has to
+// apply to a non-positive count as well: skipping it there prints the whole log
+// to someone who asked for none of it.
 func TestTailRecordsCounts(t *testing.T) {
 	path := writeLog(t,
 		`{"log_id":"a","op":"exec"}`,
@@ -134,10 +113,10 @@ func TestTailRecordsCounts(t *testing.T) {
 	}
 }
 
-// An interior line that does not parse is a record that was lost.  Since the
-// writer takes back a write that lands short, one of these means the log was
-// written by something else or damaged afterwards -- either way the listing must
-// say so rather than look complete.
+// An interior line that does not parse is a record that was lost.  The writer
+// takes back a write that lands short, so one of these means the log was
+// written by something else or damaged afterwards, and either way the listing
+// must say so rather than look complete.
 func TestTailRecordsCountsInteriorLinesItSkipped(t *testing.T) {
 	path := writeLog(t,
 		`{"log_id":"a","op":"exec"}`,
@@ -182,8 +161,8 @@ func TestTailRecordsCountsEveryLineThatIsNotARecord(t *testing.T) {
 }
 
 // The final line is the one an append can be caught halfway through, so it is
-// not evidence of anything.  What marks it is the missing newline: nothing
-// finished writing it.
+// not evidence of anything and must not hide the records before it.  What marks
+// it is the missing newline: nothing finished writing it.
 func TestTailRecordsDoesNotCountALineStillBeingAppended(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	body := `{"log_id":"a","op":"exec"}` + "\n" + `{"log_id":"b","op":`
@@ -198,7 +177,10 @@ func TestTailRecordsDoesNotCountALineStillBeingAppended(t *testing.T) {
 		t.Errorf("skipped = %d, want 0 for a line still being appended", skipped)
 	}
 	if len(records) != 1 {
-		t.Errorf("got %d records, want 1", len(records))
+		t.Fatalf("got %d records, want 1", len(records))
+	}
+	if str(records[0], "log_id") != "a" {
+		t.Errorf("the record kept is %q, want a", str(records[0], "log_id"))
 	}
 }
 
@@ -231,27 +213,17 @@ func TestFindRecordTakesEitherFormOfTheID(t *testing.T) {
 }
 
 // Says the log is absent rather than an ENOENT on a path the caller never
-// named.
-func TestScanAuditLogNamesAnAbsentLog(t *testing.T) {
-	_, _, err := tailRecords(filepath.Join(t.TempDir(), "nope.log"), 10)
-	if err == nil {
-		t.Fatal("no error for an absent log")
-	}
-	if !strings.Contains(err.Error(), "no audit log at") {
-		t.Errorf("unhelpful error: %v", err)
-	}
-}
-
-// And says it for a count that asks for nothing too: "no records to show" on a
-// host with no log at all reads as an empty log rather than an absent one, so
-// the two cases stay distinct whatever -n was passed.
-func TestAnAbsentLogIsNamedEvenWhenNothingWasAskedFor(t *testing.T) {
-	_, _, err := tailRecords(filepath.Join(t.TempDir(), "nope.log"), 0)
-	if err == nil {
-		t.Fatal("no error for an absent log")
-	}
-	if !strings.Contains(err.Error(), "no audit log at") {
-		t.Errorf("unhelpful error: %v", err)
+// named, and says it whatever --count was passed: "no records to show" on a
+// host with no log at all reads as an empty log rather than an absent one.
+func TestTailRecordsNamesAnAbsentLog(t *testing.T) {
+	for _, count := range []int{10, 0} {
+		_, _, err := tailRecords(filepath.Join(t.TempDir(), "nope.log"), count)
+		if err == nil {
+			t.Fatalf("no error for an absent log at --count %d", count)
+		}
+		if !strings.Contains(err.Error(), "no audit log at") {
+			t.Errorf("unhelpful error at --count %d: %v", count, err)
+		}
 	}
 }
 
@@ -508,9 +480,9 @@ func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
 	}
 }
 
-// An op longer than its column ran into the one after it: `ask_approval` and
-// its outcome printed as `ask_approvalrefused`, with every column past it
-// shifted.  A row whose columns have merged is a row that is read wrong.
+// An op longer than its column must not run into the one after it: merged as
+// `ask_approvalrefused`, with every column past it shifted, the row is read
+// wrong.
 func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-4e16","op":"ask_approval",`+
 		`"approved":false,"cmd":["sudo","id","-un"]}`), plain(t))
@@ -533,28 +505,29 @@ func TestSummariseKeepsTheColumnsApartForALongRefusalCode(t *testing.T) {
 	}
 }
 
-// The ring grows to what the log holds rather than to what -n asked for.  Sized
-// up front, `-n` was an allocation the caller named: a number the flag accepts,
-// times a slice header, before a single line had been read.
+// The ring grows to what the log holds rather than to what --count asked for.
+// A slice header is 24 bytes, so sizing to the count up front wants 12GB for the
+// number below, which the flag accepts and two records satisfy.
 func TestTailRecordsDoesNotAllocateWhatWasAskedFor(t *testing.T) {
-	path := writeLog(t,
-		`{"log_id":"a","op":"exec"}`,
-		`{"log_id":"b","op":"exec"}`,
-	)
-	var before, after runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&before)
-	records, _, err := tailRecords(path, 500_000_000)
-	runtime.ReadMemStats(&after)
+	const absurd = 500_000_000
+	if got := ringCap(absurd); got != ringCapMax {
+		t.Errorf("ringCap(%d) = %d, want it bounded at %d", absurd, got, ringCapMax)
+	}
+	// Under the bound the count still decides, so a small listing allocates once.
+	if got := ringCap(3); got != 3 {
+		t.Errorf("ringCap(3) = %d, want 3", got)
+	}
+
+	// And the bound does not cost the caller records: the ring grows past it.
+	var lines []string
+	for i := range ringCapMax + 5 {
+		lines = append(lines, fmt.Sprintf(`{"log_id":"id-%04d","op":"exec"}`, i))
+	}
+	records, _, err := tailRecords(writeLog(t, lines...), absurd)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(records) != 2 {
-		t.Fatalf("got %d records, want 2", len(records))
-	}
-	// A slice header is 24 bytes, so the old form wanted 12GB here.  Anything in
-	// the megabytes means the count was allocated rather than the log.
-	if grew := after.TotalAlloc - before.TotalAlloc; grew > 8<<20 {
-		t.Errorf("reading two records with -n 500000000 allocated %d bytes", grew)
+	if len(records) != len(lines) {
+		t.Errorf("got %d records, want every one of the %d in the log", len(records), len(lines))
 	}
 }

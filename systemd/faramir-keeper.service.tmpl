@@ -12,7 +12,7 @@ StartLimitIntervalSec=0
 Type=notify
 NotifyAccess=main
 User={{.KeeperUser}}
-Group={{.KeeperUser}}
+Group={{.KeeperGroup}}
 ExecStart={{.BinDir}}/faramir keeper
 SyslogIdentifier=faramir-keeper
 Environment=FARAMIR_CONFIG={{.ConfigFile}}

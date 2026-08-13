@@ -381,8 +381,6 @@ func (r *runner) resolveIDs() error {
 		{r.layout.KeeperUser, &r.keeperUID, true},
 		{r.layout.ExecUser, &r.execUID, true},
 		{r.layout.SecretsGroup, &r.secretsGID, false},
-		{r.layout.BrokerUser, &r.brokerGID, false},
-		{r.layout.KeeperUser, &r.keeperGID, false},
 	}
 	for _, lookup := range lookups {
 		var id int
@@ -400,15 +398,27 @@ func (r *runner) resolveIDs() error {
 		}
 		*lookup.into = id
 	}
-	// The exec account's primary group by name, rather than assuming a group
-	// exists called what the account is.  It is what [ssh] exec_group renders to
-	// and what the agent socket is handed to, so a name that resolves to some
-	// other group would admit an account the relay exists to keep out.
-	if gid, name, err := primaryGroup(r.layout.ExecUser); err == nil {
-		r.layout.ExecGroup = name
-		r.execGID = gid
-	} else if !r.opts.DryRun {
-		return err
+	// Each service account's primary group, by gid and by name, rather than
+	// assuming a group exists called what the account is.  An adopted account's
+	// need not, and both halves matter: the name renders into [ssh] exec_group and
+	// into the units' Group= and SocketGroup=, so a wrong one admits an account
+	// the relay exists to keep out or leaves the broker unable to reach a socket;
+	// the gid is what the installed files are chowned to.
+	for _, account := range []struct {
+		user  string
+		group *string
+		gid   *int
+	}{
+		{r.layout.ExecUser, &r.layout.ExecGroup, &r.execGID},
+		{r.layout.BrokerUser, &r.layout.BrokerGroup, &r.brokerGID},
+		{r.layout.KeeperUser, &r.layout.KeeperGroup, &r.keeperGID},
+	} {
+		if gid, name, err := primaryGroup(account.user); err == nil {
+			*account.group = name
+			*account.gid = gid
+		} else if !r.opts.DryRun {
+			return err
+		}
 	}
 	// The operator's own group, by the same reasoning: a directory created under
 	// their home has to end up grouped to them, not to whatever group the process

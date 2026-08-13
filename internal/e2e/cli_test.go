@@ -36,8 +36,11 @@ func faramirCLI(t *testing.T) string {
 		}
 		cliPath = out
 	})
+	// Fatal rather than skipped: this is the repository's own binary, so a build
+	// that fails is a bug here.  Skipped instead, it takes every test below that
+	// drives the CLI with it and the package reports green having run none.
 	if cliErr != nil {
-		t.Skipf("could not build the CLI: %v", cliErr)
+		t.Fatalf("could not build the CLI: %v", cliErr)
 	}
 	return cliPath
 }

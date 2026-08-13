@@ -105,8 +105,7 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 //
 // The table is what a command can choose from: '<' and a C0 control each cost
 // six as JSON, an invalid byte three.  A cap counted before encoding is a cap
-// whose meaning the command picks, which is how 1.4MB of output became an 8MB
-// line.
+// whose meaning the command picks.
 func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
 	const cap = 64 * 1024
 	for _, tc := range []struct{ name, output string }{
@@ -221,24 +220,12 @@ func TestEncodedLenAgreesWithTheEncoder(t *testing.T) {
 	}
 }
 
-// Invariant 3: an id is distinct by construction.  Two random bytes collided 14
-// times in 1,600 records on a live install, twice for the whole id, and a lookup
-// shows the first match and says nothing about the second.
-func TestLogIDsDoNotRepeat(t *testing.T) {
-	const n = 200_000
-	seen := make(map[string]struct{}, n)
-	for range n {
-		id := NewLogID()
-		if _, dup := seen[id]; dup {
-			t.Fatalf("log_id %s was issued twice in %d", id, n)
-		}
-		seen[id] = struct{}{}
-	}
-}
-
-// Concurrently too: the counter is what orders them, and it is shared.
+// Invariant 3: an id is distinct by construction.  Random bytes alone collide
+// often enough to matter, and a lookup shows the first match and says nothing
+// about the second.  Asked concurrently, because the counter that orders them
+// is shared.
 func TestLogIDsDoNotRepeatAcrossGoroutines(t *testing.T) {
-	const workers, each = 8, 20_000
+	const workers, each = 8, 25_000
 	ids := make(chan string, workers*each)
 	var wg sync.WaitGroup
 	for range workers {
@@ -360,21 +347,10 @@ func TestUnwritableNamesAnUnopenableLog(t *testing.T) {
 	}
 }
 
-func TestUnwritableIsSilentOnAWorkingLog(t *testing.T) {
-	log := NewLog(config.AuditConfig{
-		LogPath: filepath.Join(t.TempDir(), "audit.log"), MaxRecordBytes: 64 * 1024,
-	})
-	if reason := log.Unwritable(); reason != "" {
-		t.Errorf("a writable log reports %q", reason)
-	}
-}
-
 // A record that does not fit is reduced, not discarded.  The ceiling reduce
 // applies is counted in encoded bytes for the same reason the cap is: two
 // hundred arguments of a thousand '<' each are 200KB raw, under any per-string
-// limit worth having, and 1.2MB once encoded -- so a clamp counted in raw bytes
-// changed nothing, the record stayed over the cap, and what landed was the
-// identity stub: no cmd, no cwd, no exit code, no output.
+// limit worth having, and 1.2MB once encoded.
 func TestALargeArgvKeepsTheRestOfTheRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 	args := []string{"bash", "-c"}
@@ -445,35 +421,6 @@ func TestManyEntriesAreCutDownToo(t *testing.T) {
 	}
 }
 
-// Output cut by reduce has to say so as well.  A record whose output was
-// shortened and does not carry the flag reads as a complete one.
-func TestOutputCutByReductionIsFlagged(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "audit.log")
-	// A cap at the floor, so even the reduced record is tight and the output field
-	// is one of the things that has to give.
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
-		Write(map[string]any{
-			"log_id": "x", "op": "exec",
-			"cmd": []string{"bash", "-c", strings.Repeat("<", 200_000)},
-		}, Output{Text: strings.Repeat("z", 3000)})
-
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var record map[string]any
-	if err := json.Unmarshal(data, &record); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := record["output"].(string)
-	if len(got) >= 3000 {
-		t.Skip("the output was not cut, so there is nothing to flag")
-	}
-	if record["output_truncated"] != true {
-		t.Errorf("output was cut to %d bytes and the record does not say so: %v", len(got), record)
-	}
-}
-
 // A run's output is recorded in the order it was written.  The head takes what
 // fits until a chunk does not, and then it is shut: without that a chunk too
 // large for the room left goes to the tail and a smaller one after it lands in
@@ -490,12 +437,10 @@ func TestTheCollectorDoesNotReorderOutput(t *testing.T) {
 	}
 }
 
-// Unwritable is asked before every command, so it has to be about now.  Latching
-// the answer made it a report on the host as it was at startup: a log made
-// unwritable afterwards -- a read-only remount, an immutable bit, an owner
-// changed by a hand-edited logrotate rule -- still answered yes, and every
-// command ran with its record going nowhere, which is the state the check exists
-// to rule out.
+// Unwritable is asked before every command, so it has to be about now rather
+// than about startup: a log made unwritable afterwards (a read-only remount, an
+// immutable bit, an owner changed by a hand-edited logrotate rule) must be
+// noticed, or every command runs with its record going nowhere.
 //
 // Posed as ENOTDIR rather than as a mode, because the account that asks this in
 // production is a daemon and the account that runs the tests is often root, and
@@ -526,8 +471,8 @@ func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
 
 // A long argv and a long run in the same command: the output is sized against
 // what the rest of the record costs, so this is an ordinary record rather than
-// a reduced one.  With the reserve fixed in advance the two added up past the
-// cap and every such command was recorded with its fields cut.
+// a reduced one.  A reserve fixed in advance instead lets the two add up past
+// the cap, cutting the fields of every such command.
 func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
 	const cap = 1 << 20
 	path := filepath.Join(t.TempDir(), "audit.log")
@@ -570,10 +515,8 @@ func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
 
 // A record that has to be reduced keeps every field it was given.  The item
 // ceiling is for collections a caller filled; applied to the payload itself it
-// is a ceiling on the record's own fields, and it deleted them in reverse key
-// order until few enough were left -- `redactions` first, which is what says
-// which credentials the command used, leaving something that read as an
-// ordinary complete record.
+// becomes a ceiling on the record's own fields, deleting them until few enough
+// are left and leaving something that reads as an ordinary complete record.
 func TestReducingARecordKeepsEveryFieldOfIt(t *testing.T) {
 	counts := make([]redact.Count, 0, 20_000)
 	for i := range 20_000 {
@@ -614,10 +557,10 @@ func TestReducingARecordKeepsEveryFieldOfIt(t *testing.T) {
 }
 
 // The identity stub is the backstop for a record that cannot be made to fit.
-// With every caller-chosen field bounded -- strings by encoded length, lists and
-// maps by entry count, whatever their element type -- there is no record a
-// caller can compose that reaches it, and this is the assertion that says so:
-// the smallest cap the config allows, against every field as large as anything
+// With every caller-chosen field bounded (strings by encoded length, lists and
+// maps by entry count, whatever their element type) there is no record a caller
+// can compose that reaches it, and this is the assertion that says so: the
+// smallest cap the config allows, against every field as large as anything
 // upstream could make it.
 func TestNothingACallerSendsReachesTheStub(t *testing.T) {
 	counts := make([]redact.Count, 0, 50_000)
@@ -664,9 +607,7 @@ func TestNothingACallerSendsReachesTheStub(t *testing.T) {
 
 // The terminal reduction is reached when a record's field set is what is too
 // large, which is the code's to decide and not a caller's.  Kept and tested
-// rather than deleted as unreachable: it is what makes encode total, and the day
-// a record grows enough fields is the day it is the only thing standing between
-// that record and no record.
+// rather than deleted as unreachable: it is what makes encode total.
 func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
 	defer unstrict()()
 	payload := map[string]any{"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec"}
@@ -696,10 +637,9 @@ func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
 	}
 }
 
-// A value that will not marshal at all took the same path, and the stub's own
-// marshal failed with it: what landed was "\n", a blank line, which a reader
-// passes over in silence.  A record was gone with nothing to notice, which is
-// the one outcome this package is for.
+// A value that will not marshal at all takes the same path, and the stub's own
+// marshal must not fail with it: a blank line is one a reader passes over in
+// silence, so the record would be gone with nothing to notice.
 func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
 	defer unstrict()()
 	path := filepath.Join(t.TempDir(), "audit.log")

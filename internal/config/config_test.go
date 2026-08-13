@@ -109,68 +109,48 @@ func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 	}
 }
 
-// The key is gone, not optional, so a config still setting it is refused by
-// name rather than silently ignored.
-func TestDefaultCwdIsRefusedAsUnknown(t *testing.T) {
-	_, err := load(t, "[exec]\ndefault_cwd = \"/t\"\n")
-	if err == nil || !strings.Contains(err.Error(), "unknown key") {
-		t.Fatalf("err = %v", err)
-	}
-	if !strings.Contains(err.Error(), "default_cwd") {
-		t.Errorf("the message does not name the key: %v", err)
-	}
-}
-
-// Same again for the numeric spelling of a caller: allowed_uids said what
-// allowed_group says, in a form that stopped being true once an account was
-// renumbered.
-func TestAllowedUIDsIsRefusedAsUnknown(t *testing.T) {
-	_, err := load(t, minimal+"\n[server]\nallowed_uids = [1000]\n")
-	if err == nil || !strings.Contains(err.Error(), "unknown key") {
-		t.Fatalf("err = %v", err)
-	}
-	if !strings.Contains(err.Error(), "allowed_group") {
-		t.Errorf("the message does not name the alternative: %v", err)
-	}
-}
-
-// The executor's own cap is gone, the broker holding a [server] max_concurrency
-// slot for the whole of each child and being the only client this socket
-// admits: a number four times above a ceiling that always binds first.
-func TestExecutorMaxConcurrencyIsRefusedAsUnknown(t *testing.T) {
-	_, err := load(t, minimal+"\n[executor]\nmax_concurrency = 8\n")
-	if err == nil || !strings.Contains(err.Error(), "unknown key") {
-		t.Fatalf("err = %v", err)
-	}
-}
-
-// The broker no longer grades a secret's strength, so the two keys that did are
-// refused rather than quietly ignored: a config still setting one is asking for
-// a check that is not made, and reading as though it were.
-func TestTheStrengthThresholdsAreRefusedAsUnknown(t *testing.T) {
-	for _, key := range []string{"min_unique_chars = 4", "min_entropy_bits_per_char = 1.5"} {
-		t.Run(key, func(t *testing.T) {
-			_, err := load(t, minimal+"\n[secrets]\n"+key+"\n")
-			if err == nil || !strings.Contains(err.Error(), "unknown key") {
-				t.Fatalf("err = %v", err)
-			}
-			if !strings.Contains(err.Error(), "min_length") {
-				t.Errorf("the message does not name what is left: %v", err)
-			}
-		})
-	}
-}
-
-// A mistyped key is named, not ignored.
+// A mistyped key is named, not ignored, and so is a retired one: a config still
+// setting a key that is gone is asking for a behaviour that is not there, and
+// reading as though it were.  Where something replaced it, the message names
+// that too, the operator's next move being to write the replacement.
 func TestUnknownKeysAreRefused(t *testing.T) {
-	for _, tc := range []struct{ name, text string }{
-		{"a misspelling in [server]", minimal + "\n[server]\nsoket_path = \"/x\"\n"},
-		{"a singular where the key is plural", "[exec]\nterm_col = 80\n"},
+	for _, tc := range []struct {
+		name, text string
+		wants      []string
+	}{
+		{name: "a misspelling in [server]", text: minimal + "\n[server]\nsoket_path = \"/x\"\n"},
+		{name: "a singular where the key is plural", text: "[exec]\nterm_col = 80\n"},
+		{name: "the retired [exec] default_cwd", text: "[exec]\ndefault_cwd = \"/t\"\n",
+			wants: []string{"default_cwd"}},
+		// The numeric spelling of a caller: allowed_uids said what allowed_group
+		// says, in a form that stopped being true once an account was renumbered.
+		{name: "allowed_uids, replaced by allowed_group",
+			text:  minimal + "\n[server]\nallowed_uids = [1000]\n",
+			wants: []string{"allowed_group"}},
+		// The executor's own cap is gone, the broker holding a [server]
+		// max_concurrency slot for the whole of each child and being the only client
+		// this socket admits.
+		{name: "the executor's own max_concurrency",
+			text:  minimal + "\n[executor]\nmax_concurrency = 8\n",
+			wants: []string{"max_concurrency"}},
+		// The broker no longer grades a secret's strength, so the two keys that did
+		// are refused rather than quietly ignored.
+		{name: "min_unique_chars, a strength threshold",
+			text:  minimal + "\n[secrets]\nmin_unique_chars = 4\n",
+			wants: []string{"min_length"}},
+		{name: "min_entropy_bits_per_char, likewise",
+			text:  minimal + "\n[secrets]\nmin_entropy_bits_per_char = 1.5\n",
+			wants: []string{"min_length"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := load(t, tc.text)
 			if err == nil || !strings.Contains(err.Error(), "unknown key") {
-				t.Errorf("err = %v", err)
+				t.Fatalf("err = %v", err)
+			}
+			for _, want := range tc.wants {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the message does not name %q: %v", want, err)
+				}
 			}
 		})
 	}

@@ -59,22 +59,9 @@ func TestReadLineAcceptsALineEndedByEOF(t *testing.T) {
 
 // -- reading a stream of payloads -------------------------------------------
 
-// The trap LineReader exists for.  ReadLine keeps no buffer, so whatever its
-// last read pulled in past the newline is dropped; called twice on one
-// connection it loses the second payload whenever both arrived together.
-func TestReadLineDropsWhatFollowsTheNewline(t *testing.T) {
-	conn := pipeWriting(t, "first\nsecond\n")
-	if line, err := ReadLine(conn, 64); err != nil || string(line) != "first" {
-		t.Fatalf("first = %q, %v", line, err)
-	}
-	line, err := ReadLine(conn, 64)
-	if err == nil && string(line) == "second" {
-		t.Skip("this read happened to see the second payload; the point is that it " +
-			"may not, which is why a stream uses LineReader")
-	}
-}
-
-// LineReader keeps the buffer, so successive payloads all arrive.
+// LineReader keeps whatever a read pulled in past the newline, so successive
+// payloads all arrive.  ReadLine keeps no buffer and drops it, which is why a
+// stream uses this rather than calling ReadLine twice.
 func TestALineReaderReturnsEveryPayload(t *testing.T) {
 	reader := NewLineReader(pipeWriting(t, "first\nsecond\nthird\n"), 64)
 	for _, want := range []string{"first", "second", "third"} {

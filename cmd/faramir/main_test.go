@@ -256,9 +256,9 @@ func TestOnlyYesApproves(t *testing.T) {
 	}
 }
 
-// A sentence is an answer, not a closed stdin.  Scanln reported "expected
-// newline" for anything past the first word, which the watcher read as end of
-// input and exited on, leaving the question to expire unanswered.
+// A sentence is an answer, not a closed stdin: a reader that treats anything
+// past the first word as end of input exits the watch, leaving the question to
+// expire unanswered.
 func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 	answers = bufio.NewReader(strings.NewReader("yes please\nyes\n\n"))
 	for _, want := range []struct {

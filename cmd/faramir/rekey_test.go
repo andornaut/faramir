@@ -193,7 +193,8 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 		t.Fatal(err)
 	}
 	if string(after) == string(before) {
-		t.Skip("this sops re-encrypts deterministically, so the skip saves nothing here")
+		t.Error("re-encrypting to the same recipients produced the same bytes, so " +
+			"the comparison above saves nothing")
 	}
 }
 

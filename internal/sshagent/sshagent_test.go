@@ -134,8 +134,15 @@ func startedAgent(t *testing.T) (*Agent, string) {
 	a := New(cfg)
 	err := a.Start()
 	t.Cleanup(a.Stop)
-	if err != nil || len(a.Env()) == 0 {
-		t.Skipf("ssh-agent did not come up in this environment: %v", err)
+	// Fatal rather than skipped: requireSSH has already established that the
+	// binaries are here, so a Start that fails now is this package's bug.  Skipped
+	// instead, it takes every proxy and relay test below with it and the suite
+	// reports green having checked none of them.
+	if err != nil {
+		t.Fatalf("the agent did not start: %v", err)
+	}
+	if len(a.Env()) == 0 {
+		t.Fatal("the agent started and handed the child nothing")
 	}
 	return a, key
 }

@@ -42,6 +42,15 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      # The opencode and Kilo Code plugins are JavaScript that node runs, and the
+      # tests exercise the shipped file rather than a description of it. Without
+      # node those tests skip, which is a silent loss of the whole plugin suite:
+      # pinned here rather than relying on what the runner image happens to ship.
+      - name: Set up Node
+        uses: actions/setup-node@v7.0.0
+        with:
+          node-version: "22"
+
       - name: Verify dependencies
         run: go mod verify
 
@@ -69,6 +78,11 @@ jobs:
           sudo mkdir -p "$CG"
           sudo chown -R "$(id -u):$(id -g)" "$CG"
           echo $$ | sudo tee "$CG/cgroup.procs" > /dev/null
+          # Prove it took. Without a delegated cgroup the executor refuses every
+          # command and roughly sixty tests skip, which is a green run that
+          # checked none of the confinement, the executor or the end-to-end path.
+          test -w "$CG/cgroup.procs" && grep -q faramir-test /proc/self/cgroup \
+            || { echo "cgroup delegation failed; the executor tests would all skip"; exit 1; }
           go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...
 
       - name: Upload coverage

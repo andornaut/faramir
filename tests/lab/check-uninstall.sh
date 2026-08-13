@@ -90,8 +90,11 @@ head_ "3. the sudo grant goes, all of it"
 gone /etc/sudoers.d/faramir "the sudoers entry"
 gone /etc/pam.d/faramir-sudo "the PAM service"
 gone /usr/local/libexec/faramir "the libexec directory, helper included"
-# The account it named still exists, so a leftover entry would still be live.
-id faramir-exec >/dev/null 2>&1 && ok "(the account it named still exists, which is why that matters)"
+# Uninstall leaves the accounts, which is what makes the three above matter: a
+# leftover sudoers entry would name a uid that still exists and still be live.
+id faramir-exec >/dev/null 2>&1 \
+  && ok "the account it named is still here, which is why removing them matters" \
+  || bad "faramir-exec is gone, so uninstall removed an account it reports keeping"
 # Nothing anywhere else grants it either.
 if sudo -l -U faramir-exec 2>/dev/null | grep -qiE 'may run|NOPASSWD'; then
   bad "faramir-exec still holds a sudo grant from somewhere: $(sudo -l -U faramir-exec 2>/dev/null | tail -2 | tr '\n' ' ')"

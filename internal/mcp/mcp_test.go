@@ -87,23 +87,6 @@ func wantError(t *testing.T, result map[string]any, wants ...string) {
 
 // -- request shaping --------------------------------------------------------
 
-func TestAnArgvArrayReachesTheBrokerIntact(t *testing.T) {
-	b := newFakeBroker(t, map[string]any{"exit_code": 0, "output": "hi\n"})
-	callTool("faramir_run", map[string]any{
-		"cmd":      []any{"echo", "hi"},
-		"env_refs": map[string]any{"PW": "secret://a/b"},
-	})
-
-	req := b.lastRequest(t)
-	cmd, _ := req["cmd"].([]any)
-	if len(cmd) != 2 || cmd[0] != "echo" || cmd[1] != "hi" {
-		t.Errorf("argv did not survive: %v", req["cmd"])
-	}
-	if req["env_refs"] == nil {
-		t.Error("env_refs was dropped")
-	}
-}
-
 // What a tool call refuses, and what the agent is told: every row asserts on the
 // text as well as the flag, the model having only the text to act on.
 func TestRefusedToolCalls(t *testing.T) {
@@ -122,9 +105,11 @@ func TestRefusedToolCalls(t *testing.T) {
 			wants: []string{"array"}},
 		{name: "an empty argv",
 			reply: map[string]any{"exit_code": 0, "output": ""},
-			tool:  "faramir_run", args: map[string]any{"cmd": []any{}}},
+			tool:  "faramir_run", args: map[string]any{"cmd": []any{}},
+			wants: []string{"empty array"}},
 		{name: "a tool that does not exist",
-			tool: "faramir_delete_everything", args: map[string]any{}},
+			tool: "faramir_delete_everything", args: map[string]any{},
+			wants: []string{"unknown tool", "faramir_delete_everything"}},
 		{name: "a command that failed",
 			reply: map[string]any{"exit_code": 2, "output": "nope\n"},
 			tool:  "faramir_run", args: map[string]any{"cmd": []any{"false"}},

@@ -212,6 +212,14 @@ func parseLine(line []byte) (record map[string]any, lost bool) {
 // `-n 500000000` on a log of ten records costs ten records.  Sized up front it
 // was an allocation the caller named: a number the flag accepts, times a slice
 // header, before a single line had been read.
+// ringCapMax bounds what the ring is sized to up front.  --count is a number the
+// caller names and the flag accepts any int, so sizing to it costs a slice
+// header times that number before a single line has been read; the ring grows to
+// what the log actually holds instead.
+const ringCapMax = 1024
+
+func ringCap(count int) int { return min(count, ringCapMax) }
+
 func tailRecords(path string, count int) ([]map[string]any, int, error) {
 	if count <= 0 {
 		fh, err := openAuditLog(path)
@@ -221,7 +229,7 @@ func tailRecords(path string, count int) ([]map[string]any, int, error) {
 		_ = fh.Close()
 		return nil, 0, nil
 	}
-	ring, next, filled := make([][]byte, 0, min(count, 1024)), 0, false
+	ring, next, filled := make([][]byte, 0, ringCap(count)), 0, false
 	if err := scanAuditLog(path, func(line []byte) bool {
 		// Copied: the reader owns its buffer and reuses it on the next line.
 		kept := append([]byte(nil), line...)

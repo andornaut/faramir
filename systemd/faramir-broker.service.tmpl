@@ -17,11 +17,14 @@ StartLimitIntervalSec=0
 Type=notify
 NotifyAccess=main
 User={{.BrokerUser}}
-Group={{.BrokerUser}}
-# {{.ExecUser}} and nothing else, to chown the ssh-agent socket to the uid that
-# uses it.  {{.SecretsGroup}} is absent: this process holds every decrypted value
-# already, so read on the ciphertext would only add files it never decrypts.
-SupplementaryGroups={{.ExecUser}}
+Group={{.BrokerGroup}}
+# The exec account's own group and nothing else, to chown the ssh-agent socket
+# to the uid that uses it.  Its group rather than its name: an adopted account's
+# primary group need not be called what the account is, and a directive naming
+# the wrong one joins some other group or none.  {{.SecretsGroup}} is absent:
+# this process holds every decrypted value already, so read on the ciphertext
+# would only add files it never decrypts.
+SupplementaryGroups={{.ExecGroup}}
 # SyslogIdentifier= because systemd otherwise takes it from the executable's
 # name, which is the same for all three roles.
 ExecStart={{.BinDir}}/faramir broker
@@ -115,7 +118,7 @@ UMask=0077
 #   RestrictAddressFamilies=~AF_UNIX
 #       The broker's own listening socket.
 #   SupplementaryGroups=
-#       {{.ExecUser}}, to chown the ssh-agent socket.  Not {{.SecretsGroup}}.
+#       {{.ExecGroup}}, to chown the ssh-agent socket.  Not {{.SecretsGroup}}.
 #   ProtectHome=
 #       See above: file modes already bound this uid.
 #   SystemCallFilter=~@privileged, ~@resources

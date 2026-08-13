@@ -118,11 +118,11 @@ func TestTheSudoersPreconditionGatesOnWhatTheStepNeeds(t *testing.T) {
 	}
 }
 
-// Dropping RestrictNamespaces= was forced -- it denies clone3(), which is how
-// every run is spawned into its cgroup -- but it left a brokered command able
-// to unshare a user namespace and hold capabilities in it.  Nothing applies the
-// kernel switch that closes this, so doctor has to report it, and only where
-// the grant makes it worth acting on.
+// The executor unit cannot set RestrictNamespaces=: it denies clone3(), which is
+// how every run is spawned into its cgroup.  That leaves a brokered command able
+// to unshare a user namespace and hold capabilities in it, and nothing applies
+// the kernel switch that closes it, so doctor reports it, and only where the
+// grant makes it worth acting on.
 func TestDiagnoseUsernsReportsWhatTheUnitStoppedBounding(t *testing.T) {
 	dir := t.TempDir()
 	open := filepath.Join(dir, "apparmor_restrict_unprivileged_userns")

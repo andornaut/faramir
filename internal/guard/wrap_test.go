@@ -129,24 +129,34 @@ func TestTheCommandRunsInTheCallersOwnShell(t *testing.T) {
 }
 
 func TestADeniedCommandIsStillDenied(t *testing.T) {
-	hook := hookOutput(t, bashPayload("sops -d secrets/vault.sops.yml"))
-	if hook == nil {
-		t.Fatal("no hook output for a denied command")
-	}
-	if hook["permissionDecision"] != "deny" {
-		t.Errorf("permissionDecision = %v, want deny", hook["permissionDecision"])
-	}
-	if _, wrapped := hook["updatedInput"]; wrapped {
-		t.Error("a denied command was also rewritten")
+	for _, command := range []string{
+		"sops -d secrets/vault.sops.yml",
+		"cat ~/.ssh/id_rsa",
+	} {
+		hook := hookOutput(t, bashPayload(command))
+		if hook == nil {
+			t.Fatalf("no hook output for %q", command)
+		}
+		if hook["permissionDecision"] != "deny" {
+			t.Errorf("%q: permissionDecision = %v, want deny", command, hook["permissionDecision"])
+		}
+		if _, wrapped := hook["updatedInput"]; wrapped {
+			t.Errorf("%q was denied and also rewritten", command)
+		}
 	}
 }
 
 // Only the form the rewrite emits is left alone; everything else below runs
-// some part of itself uncovered if mistaken for one.
+// some part of itself uncovered if mistaken for one, its output reaching the
+// transcript unredacted.
 func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
 	for command, wantRewritten := range map[string]bool{
 		"source " + wrapScript() + " 'ls -la'": false,
 		". " + wrapScript() + " 'ls -la'":      false,
+		// Naming the wrapper is not using it.
+		"cat " + wrapScript():                      true,
+		"echo " + wrapScript() + "; ./leak.sh":     true,
+		"cd /tmp && source " + wrapScript() + " x": true,
 		// A pipe carries stdout, leaving stderr unredacted.
 		"echo hi | faramir redact":                         true,
 		"/usr/local/bin/faramir redact -- /bin/bash -lc x": true,
@@ -202,7 +212,7 @@ func TestTheRewritePreservesTheOtherInputFields(t *testing.T) {
 
 // run_in_background is the tool's own flag rather than shell syntax, so it is
 // the one backgrounding case the rewrite cannot see in the command text.  The
-// trailing-"&" forms are TestABackgroundedCommandIsNotWrappedHoweverItEnds.
+// trailing-"&" forms are TestABackgroundedCommandIsWrappedToStreamHoweverItEnds.
 func TestARunInBackgroundCallIsStreamedNotCaptured(t *testing.T) {
 	// The host backgrounds this one and reads its output later through
 	// BashOutput, so the command is streamed through the redactor: no trailing
@@ -242,25 +252,5 @@ func TestAnIncompleteCommandIsStillWrappedSafely(t *testing.T) {
 		if !strings.HasPrefix(wrapped, "source ") {
 			t.Errorf("%q produced %q", command, wrapped)
 		}
-	}
-}
-
-// The decision is not configurable: "ask" would prompt on every command with
-// no rule able to pre-approve one.
-func TestAnAllowedCommandIsAlwaysAllowed(t *testing.T) {
-	t.Setenv("FARAMIR_WRAP_DECISION", "ask")
-	hook := hookOutput(t, bashPayload("ls -la"))
-	if hook["permissionDecision"] != "allow" {
-		t.Errorf("permissionDecision = %v, want allow", hook["permissionDecision"])
-	}
-	if _, rewritten := hook["updatedInput"]; !rewritten {
-		t.Error("the command was not rewritten, so its output is not redacted")
-	}
-}
-
-func TestADeniedCommandIsNeverAllowed(t *testing.T) {
-	hook := hookOutput(t, bashPayload("cat ~/.ssh/id_rsa"))
-	if hook["permissionDecision"] != "deny" {
-		t.Errorf("permissionDecision = %v, want deny", hook["permissionDecision"])
 	}
 }

@@ -191,6 +191,27 @@ func (s *Server) untrack(conn net.Conn) {
 	delete(s.conns, conn)
 }
 
+// extend pushes a connection's deadline out, and reports whether the server is
+// still open.  Taken under the lock Close sets `closing` in, so an extension
+// either lands before Close snapshots the connections, and Close's sweep
+// overrides it, or sees that Close has begun and does not happen.  Set outside
+// the lock, an extension can land after the sweep and undo it, holding shutdown
+// for as long as the new deadline allows: systemd waits TimeoutStopSec and kills
+// the broker rather than it exiting.
+func (s *Server) extend(conn net.Conn, d time.Duration, writeOnly bool) bool {
+	s.connsMu.Lock()
+	defer s.connsMu.Unlock()
+	if s.closing {
+		return false
+	}
+	if writeOnly {
+		_ = conn.SetWriteDeadline(time.Now().Add(d))
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(d))
+	}
+	return true
+}
+
 func (s *Server) serveConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 	if !s.track(conn) {
@@ -206,7 +227,9 @@ func (s *Server) serveConnection(conn net.Conn) {
 	// agent runs as, and the goroutine, the descriptor and the whole response stay
 	// held; Serve waits on those goroutines to shut down, so one of them is also a
 	// broker that will not stop.
-	_ = conn.SetDeadline(time.Now().Add(peerWait))
+	if !s.extend(conn, peerWait, false) {
+		return // Close swept this connection between track and here
+	}
 	peer, err := s.peer(conn)
 	if err != nil || peer == nil {
 		_ = sockutil.Send(conn, protocol.ErrorResponse("forbidden", "peer not authorized", ""))
@@ -259,12 +282,12 @@ func (s *Server) serveConnection(conn net.Conn) {
 		// request.Op after this would depend on the order the test happens to be
 		// written in.
 		if parseErr != nil {
-			_ = conn.SetWriteDeadline(time.Now().Add(peerWait))
+			s.extend(conn, peerWait, true)
 			_ = sockutil.Send(conn, protocol.ErrorResponse("bad_request", parseErr.Error(), ""))
 			return
 		}
 		response := s.dispatch(request, peer, stream)
-		_ = conn.SetWriteDeadline(time.Now().Add(peerWait))
+		s.extend(conn, peerWait, true)
 		if err := sockutil.Send(conn, response); err != nil {
 			return
 		}
@@ -280,7 +303,9 @@ func (s *Server) serveConnection(conn net.Conn) {
 		// while is ordinary.  Bounded by what a brokered command may take, so an
 		// abandoned stream still ends.  A peer that connects and says nothing
 		// never reaches here.
-		_ = conn.SetDeadline(time.Now().Add(s.streamWait()))
+		if !s.extend(conn, s.streamWait(), false) {
+			return // the broker is stopping; the stream does not get another chunk
+		}
 	}
 }
 

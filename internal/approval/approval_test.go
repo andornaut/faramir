@@ -189,7 +189,9 @@ func TestAnUnknownTokenIsRefusedWithoutAsking(t *testing.T) {
 }
 
 // One question per brokered command: ansible calls sudo once per become'd task,
-// and a question asked twenty times is one nobody reads.
+// and a question asked twenty times is one nobody reads.  The keying is by run,
+// so a later sudo from the same command joins that command's question rather
+// than putting one of its own.
 func TestOneApprovalCoversTheRestOfTheCommand(t *testing.T) {
 	s := started(t, baseConfig())
 	h := watching(t, s, true)
@@ -274,9 +276,8 @@ func TestAnApprovalHoldsEveryOtherCommand(t *testing.T) {
 // The two halves must be decided against the same instant.  Register admits a
 // run while no approval is live; Answer approves while no other run is
 // registered.  A gap between Answer's sole-occupancy check and its marking the
-// run approved is a window a second run starts in and then rides the approval --
-// so run many concurrent rounds and assert the two never both happen.  This is
-// the regression guard for that race; under -race the unguarded version trips.
+// run approved is a window a second run starts in and then rides the approval,
+// so many concurrent rounds assert the two never both happen.
 func TestAnApprovalAndASecondRunNeverCoexist(t *testing.T) {
 	for range 400 {
 		s := New(baseConfig())
@@ -575,10 +576,10 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 // A queue could only ever hold questions that cannot be answered yes: two
 // questions mean two registered runs, and Answer refuses to approve while any
 // other run is registered, because the second could read the approved run's
-// token and ride it.  So every queued question's only outcomes were a refusal
-// and an expiry, and what the queue added was prompts.  The same argument keeps
-// the *first* of them from being put: a human interrupted for a question that
-// can only be refused is the cost being avoided, whether it is one or a list.
+// token and ride it.  A queued question's only outcomes are a refusal and an
+// expiry, so all a queue adds is prompts.  The same argument keeps the *first*
+// of them from being put: a human interrupted for a question that can only be
+// refused is the cost being avoided, whether it is one or a list.
 func TestNoQuestionIsPutWhileAnotherCommandIsRegistered(t *testing.T) {
 	s := started(t, baseConfig())
 	h := watching(t, s, true)
@@ -606,24 +607,6 @@ func TestNoQuestionIsPutWhileAnotherCommandIsRegistered(t *testing.T) {
 	if h.questions() != 0 {
 		t.Errorf("a human was put to %d question(s) that could only be refused",
 			h.questions())
-	}
-}
-
-// The same run's later sudos join its question rather than being refused by the
-// rule above: ansible calls sudo once per become'd task, and one question per
-// command is the point of the keying.
-func TestTheSameRunJoinsItsOwnQuestion(t *testing.T) {
-	s := started(t, baseConfig())
-	h := watching(t, s, true)
-
-	token := mustRegister(s, run())
-	for i := range 3 {
-		if approved, reason := s.Ask(token); !approved {
-			t.Fatalf("sudo %d of one command was refused: %s", i, reason)
-		}
-	}
-	if h.questions() != 1 {
-		t.Errorf("3 sudos from one command put %d questions, want 1", h.questions())
 	}
 }
 
@@ -717,7 +700,5 @@ func TestTheQuestionIsPutOnceTheOtherCommandEnds(t *testing.T) {
 	}
 	s.Release(second)
 	go func() { _, _ = s.Ask(first) }()
-	if id := waitForQuestion(t, s); id == "" {
-		t.Error("no question was put after the other command ended")
-	}
+	waitForQuestion(t, s) // fails if none was put after the other command ended
 }

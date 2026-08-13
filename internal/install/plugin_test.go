@@ -231,7 +231,14 @@ func TestPluginFailsClosed(t *testing.T) {
 			}
 		})
 		t.Run("faramir is not installed", func(t *testing.T) {
-			rig.cli = filepath.Join(rig.dir, "not-installed")
+			// The binary itself, not the field: BinDir is rendered into the plugin,
+			// so what it execs is this path whatever the rig says afterwards.  A
+			// decision it would have obeyed, so the missing binary is the only
+			// reason left for it to refuse.
+			rig.answers(t, `{"decision":"rewrite","tool_input":{"command":"wrapped"}}`)
+			if err := os.Remove(rig.cli); err != nil {
+				t.Fatal(err)
+			}
 			if got := rig.call(t, "bash", map[string]any{"command": "ls"}); got.Ran {
 				t.Error("the command ran with no guard to ask")
 			}

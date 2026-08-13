@@ -367,8 +367,14 @@ func TestAKeeperErrorIsFatal(t *testing.T) {
 			s := newStore(t, k, managed)
 			s.Reload()
 
-			if len(s.LoadErrors()) == 0 {
-				t.Error("reported as a healthy install")
+			errs := s.LoadErrors()
+			if len(errs) == 0 {
+				t.Fatal("reported as a healthy install")
+			}
+			// The keeper's own reason, carried through: an error reported as some
+			// other error sends an operator to the wrong file.
+			if !strings.Contains(strings.Join(errs, "\n"), tc.failure) {
+				t.Errorf("LoadErrors = %v, want the keeper's reason %q", errs, tc.failure)
 			}
 		})
 	}

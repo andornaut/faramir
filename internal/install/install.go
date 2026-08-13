@@ -294,15 +294,17 @@ func (o Options) layout() (Layout, error) {
 		BrokerUser:   o.BrokerUser,
 		KeeperUser:   o.KeeperUser,
 		ExecUser:     o.ExecUser,
-		// Replaced by resolveIDs once the account exists; a dry run keeps it.
-		ExecGroup:  o.ExecUser,
-		ConfigDir:  filepath.Clean(o.ConfigDir),
-		BinDir:     DefaultBinDir,
-		LibexecDir: DefaultLibexecDir,
-		DocDir:     DefaultDocDir,
-		RunDir:     DefaultRunDir,
-		LogDir:     DefaultLogDir,
-		SSHKey:     o.SSHKey,
+		// Replaced by resolveIDs once the accounts exist; a dry run keeps them.
+		ExecGroup:   o.ExecUser,
+		BrokerGroup: o.BrokerUser,
+		KeeperGroup: o.KeeperUser,
+		ConfigDir:   filepath.Clean(o.ConfigDir),
+		BinDir:      DefaultBinDir,
+		LibexecDir:  DefaultLibexecDir,
+		DocDir:      DefaultDocDir,
+		RunDir:      DefaultRunDir,
+		LogDir:      DefaultLogDir,
+		SSHKey:      o.SSHKey,
 		// The broker execs these as the uid holding every plaintext value, so they
 		// are resolved here rather than defaulted in the config parser and left for a
 		// drop-in to point elsewhere.

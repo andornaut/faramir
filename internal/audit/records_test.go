@@ -15,19 +15,14 @@ import (
 )
 
 // The terminal reduction exists for a record whose field set is too large, and a
-// record's fields are named in the code and never by a caller.  So the question
-// "are there too many of them?" is one this repository can answer about itself,
-// and it answers it by reading itself: every record literal in the tree is found
-// here, not listed here.
+// record's fields are named in the code and never by a caller, so this asks the
+// question of the tree itself: every record literal is found here rather than
+// listed here, a list being the same thing it guards against, something a person
+// has to remember to update.
 //
-// A list would be the same failure it is meant to catch -- something a person
-// has to remember to update -- and the thing being guarded is exactly what
-// happens when nobody does.
-//
-// What it asserts is that [config.MinRecordBytes], the smallest cap an operator
-// can set, is larger than the widest record needs.  Add a field anywhere and
-// this recomputes; if the floor no longer covers it, the failure says by how
-// much.
+// It asserts that [config.MinRecordBytes], the smallest cap an operator can set,
+// is larger than the widest record needs.  Add a field anywhere and this
+// recomputes; if the floor no longer covers it, the failure says by how much.
 
 // recordShapes is every map[string]any literal in the tree that carries a
 // log_id, which is what makes a literal a record: the audit log is the only
@@ -133,9 +128,9 @@ func repoRoot(t *testing.T) string {
 }
 
 // The number of record literals below which this test is not looking at the
-// records any more.  A refactor that builds a record some other way -- a struct,
-// a helper, a map assembled key by key -- takes it out of this test's sight, and
-// a guard that has stopped looking must say so rather than pass.
+// records any more.  A refactor that builds a record some other way (a struct, a
+// helper, a map assembled key by key) takes it out of this test's sight, and a
+// guard that has stopped looking must say so rather than pass.
 const knownRecordShapes = 10
 
 func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
@@ -180,8 +175,8 @@ func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 
 // What config.MinRecordBytes buys, reported rather than asserted.
 //
-// The floor is not sized by what a record's fields need -- they survive far
-// below it, cut down to nothing much.  It is sized by the smallest cap at which
+// The floor is not sized by what a record's fields need, which survive far below
+// it, cut down to nothing much.  It is sized by the smallest cap at which
 // an ordinary record is written *normally*: not reduced, and with enough of the
 // command's output left to be worth reading.  Those are different numbers and
 // the first one is the misleading one, so this reports both.

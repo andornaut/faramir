@@ -238,22 +238,31 @@ func TestSopsRecipientsReadsWhatTheRuleLists(t *testing.T) {
 // are all too short reads its files and serves while counting zero.
 func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		files      []string
-		errors     []string
-		unresolved []string
-		count      int
-		want       bool
+		name          string
+		files         []string
+		errors        []string
+		unresolved    []string
+		count         int
+		notRedactable map[string]string
+		want          bool
 	}{
-		{name: "read one file holding nothing", files: []string{"a.sops.yml"}, want: true},
-		{name: "read one file, every value too short",
+		// The count varies across these three and the answer does not, which is
+		// what says it is not being consulted.
+		{name: "read one file holding values",
+			files: []string{"a.sops.yml"}, count: 3, want: true},
+		{name: "read one file holding nothing",
 			files: []string{"a.sops.yml"}, count: 0, want: true},
+		{name: "read one file, every value too short to redact",
+			files: []string{"a.sops.yml"}, count: 0,
+			notRedactable: map[string]string{"pin": "shorter than 8 characters"}, want: true},
 		{name: "one entry named nothing, another loaded",
-			files: []string{"a.sops.yml"}, unresolved: []string{"/b/*.sops.yml"}, want: true},
+			files: []string{"a.sops.yml"}, count: 3,
+			unresolved: []string{"/b/*.sops.yml"}, want: true},
 		{name: "nothing matched", unresolved: []string{"/b/*.sops.yml"}, want: false},
 		{name: "nothing configured", want: false},
 		{name: "a file that did not load",
-			files: []string{"a.sops.yml"}, errors: []string{"a.sops.yml: bad mac"}, want: false},
+			files: []string{"a.sops.yml"}, count: 3,
+			errors: []string{"a.sops.yml: bad mac"}, want: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var report checkReport
@@ -261,6 +270,7 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 			report.Secrets.Errors = tc.errors
 			report.Secrets.UnresolvedPatterns = tc.unresolved
 			report.Secrets.Count = tc.count
+			report.Secrets.NotRedactable = tc.notRedactable
 			if got := report.serves(); got != tc.want {
 				t.Errorf("serves() = %v, want %v", got, tc.want)
 			}

@@ -1,18 +1,15 @@
 package approval
 
 // Adversarial probes against the approval gate: what a brokered command can do
-// to the question a human is shown, rather than to the answer.
+// to the question a human is shown, rather than to the answer.  Each asserts a
+// gap is closed rather than documenting that it is open, a probe that only
+// documents a weakness being one that stops being read.  What each defends, and
+// what it cost, is with the mechanism in docs/design.md.
 //
-// These were written as the record of three gaps and now assert that each is
-// closed, which is the shape to keep them in: a probe that only documents a
-// weakness stops being read, and one that fails when the weakness comes back is
-// the thing worth having.  What each one is defending, and what closing it cost,
-// is with the mechanism in docs/design.md.
-//
-// The answer channel itself is not probed here.  SO_PEERCRED, `requisite` and
-// `seteuid` are covered by internal/server and internal/install, and they hold.
-// What follows is the other half: the prompt is the whole security argument,
-// and the command it names is chosen by the caller.
+// The answer channel itself is not probed here: SO_PEERCRED, `requisite` and
+// `seteuid` are covered by internal/server and internal/install.  This is the
+// other half, the prompt being the whole security argument and the command it
+// names being chosen by the caller.
 
 import (
 	"errors"

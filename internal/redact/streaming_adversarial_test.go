@@ -6,17 +6,10 @@ import (
 	"testing"
 )
 
-// A second adversarial round, aimed at the streaming machine and stage-1
-// stripping rather than the encoding-variant set. Three questions:
-//
-//   A. Does the overlap buffer hold a variant that a formatter wrapped at a
-//      pathological width and that arrives one rune per Feed? (should REDACT)
-//   B. Is a colour code spliced into a value stripped before matching, as the
-//      doc claims? (should REDACT)
-//   C. Where does stage-1 stripping actually end: what separator splits a
-//      value in the matched text while a terminal collapses it? (boundary;
-//      these are the deliberate class the threat model disclaims, shown to map
-//      the edge, not asserted as covered)
+// Aimed at the streaming machine and at stage-1 stripping rather than at the
+// encoding-variant set: the overlap buffer against a pathological line wrap fed
+// one rune at a time, a colour code spliced into a value, and the separator that
+// stage 1 does not strip, which is where the covered set ends.
 
 const streamSecret = "hunter2correcthorsebatteryZ9"
 
@@ -44,11 +37,10 @@ func wrapEvery(s string, n int) string {
 	return b.String()
 }
 
-// A. Overlap sufficiency: even the longest variant, wrapped after every single
+// Overlap sufficiency: even the longest variant, wrapped after every single
 // character, must be caught when it dribbles in one rune at a time. The overlap
-// is 2*longest+16 and the worst wrapped form of the longest variant is < 2*
-// longest, so this should always hold; the test pins that it does after the
-// variant set grew.
+// is 2*longest+16 and the worst wrapped form of the longest variant is under
+// 2*longest, so this pins that the variant set has not outgrown the window.
 func TestOverlapHoldsPathologicalWrap(t *testing.T) {
 	forms := map[string]string{
 		"raw/wrap1":     wrapEvery(streamSecret, 1),
@@ -63,14 +55,14 @@ func TestOverlapHoldsPathologicalWrap(t *testing.T) {
 		if strings.Contains(rejoined, streamSecret) {
 			t.Errorf("%s: secret recoverable after rejoining lines: %q", name, got)
 		}
-		if strings.Contains(strings.ReplaceAll(rejoined, "\n", ""), hexOf(streamSecret)) {
+		if strings.Contains(rejoined, hexOf(streamSecret)) {
 			t.Errorf("%s: hex form survived: %q", name, got)
 		}
 	}
 }
 
-// B. Colour codes spliced into a value: the doc's own claim. Stripped before
-// matching, so the value is caught.
+// Colour codes spliced into a value are stripped before matching, so the value
+// is caught.
 func TestColourSpliceIsStripped(t *testing.T) {
 	spliced := map[string]string{
 		"sgr-mid":   "hunter2correct\x1b[32mhorsebatteryZ9",
@@ -92,10 +84,10 @@ func TestColourSpliceIsStripped(t *testing.T) {
 	}
 }
 
-// C. The boundary.  These splice a separator the terminal collapses (or hides)
-// but ansiRE does not strip, so the value is split in the matched text and
-// escapes.  All require deliberate crafting, the same class as `| rev`, and the
-// threat model documents that class as out of scope.
+// The boundary.  These splice a separator the terminal collapses (or hides) but
+// ansiRE does not strip, so the value is split in the matched text and escapes.
+// All require deliberate crafting, the same class as `| rev`, which the threat
+// model documents as out of scope.
 //
 // Asserted rather than printed, so it is a boundary and not a note: each case
 // pins where stage 1 stops.  A separator that starts being stripped fails here,

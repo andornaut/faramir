@@ -26,6 +26,14 @@ func testLayout() Layout {
 	if err != nil {
 		panic(err)
 	}
+	// Each service account's group, named differently from the account.  layout()
+	// defaults each pair to the same string and stepAccounts resolves the real one
+	// before the units render, so a directive taking a group from the *User* field
+	// passes on this host and names the wrong group on one where an adopted
+	// account's primary group is called something else.
+	layout.ExecGroup = "exgrp"
+	layout.BrokerGroup = "brgrp"
+	layout.KeeperGroup = "kpgrp"
 	return layout
 }
 
@@ -99,10 +107,12 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	}
 	// The broker joins the executor's group to chown the ssh-agent socket, and
 	// nothing else: it holds every decrypted value already, so read on the
-	// ciphertext would only add files it never decrypts.
-	if got := supplementaryGroups(t, "faramir-broker.service", layout); got != layout.ExecUser {
+	// ciphertext would only add files it never decrypts.  Its group, not its
+	// name: the two differ wherever an adopted account's primary group is called
+	// something else.
+	if got := supplementaryGroups(t, "faramir-broker.service", layout); got != layout.ExecGroup {
 		t.Errorf("broker joins %q, want the executor's group %q alone",
-			got, layout.ExecUser)
+			got, layout.ExecGroup)
 	}
 	socket, err := render(units["faramir-broker.socket"], layout)
 	if err != nil {
@@ -125,31 +135,36 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	layout := testLayout()
 	want := map[string]map[string]string{
 		"faramir-broker.service": {
-			"User": "br", "Group": "br", "StateDirectory": "br",
+			"User": "br", "Group": "brgrp", "StateDirectory": "br",
 			// The executor's group and nothing else: the broker holds the plaintext and
-			// asks the keeper what changed.
-			"SupplementaryGroups": "ex",
+			// asks the keeper what changed.  "exgrp" rather than "ex", the account's
+			// group not being assumed to share its name.
+			"SupplementaryGroups": "exgrp",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir broker",
 			"SyslogIdentifier":    "faramir-broker",
 		},
 		"faramir-keeper.service": {
-			"User": "kp", "Group": "kp", "StateDirectory": "kp",
+			"User": "kp", "Group": "kpgrp", "StateDirectory": "kp",
 			"SupplementaryGroups": "store",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir keeper",
 			"SyslogIdentifier":    "faramir-keeper",
 		},
 		"faramir-exec.service": {
-			"User": "ex", "Group": "ex", "StateDirectory": "ex",
+			// Group is the account's own, which is not assumed to be called what the
+			// account is.  StateDirectory is a directory name, so it stays the account's.
+			"User": "ex", "Group": "exgrp", "StateDirectory": "ex",
 			"SupplementaryGroups": "shared",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir exec",
 			"SyslogIdentifier":    "faramir-exec",
 		},
 		"faramir-broker.socket": {"SocketGroup": "shared"},
-		"faramir-keeper.socket": {"SocketGroup": "br"},
-		"faramir-exec.socket":   {"SocketGroup": "br"},
+		// The broker's group: these two admit the broker and nothing else, so a
+		// name that resolved elsewhere would leave it unable to reach them.
+		"faramir-keeper.socket": {"SocketGroup": "brgrp"},
+		"faramir-exec.socket":   {"SocketGroup": "brgrp"},
 	}
 	for unit, directives := range want {
 		body, err := render(units[unit], layout)
@@ -170,7 +185,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	for _, want := range []string{
 		"\nallowed_group = \"shared\"\n",
 		"\nallowed_user = \"br\"\n",
-		"\nexec_group = \"ex\"\n",
+		"\nexec_group = \"exgrp\"\n",
 	} {
 		if !strings.Contains(string(config), want) {
 			t.Errorf("config: want %s", want)
@@ -181,7 +196,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(tmpfiles), "d /run/faramir 0755 br br -") {
+	if !strings.Contains(string(tmpfiles), "d /run/faramir 0755 br brgrp -") {
 		t.Error("tmpfiles does not give the run directory to the broker's account")
 	}
 }

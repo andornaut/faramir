@@ -83,11 +83,19 @@ type Layout struct {
 	BrokerUser   string
 	KeeperUser   string
 	ExecUser     string
-	// ExecGroup is the exec account's own group, resolved from that account at
-	// install time rather than assumed to share its name.  It renders into [ssh]
-	// exec_group, which is the group the agent relay's SO_PEERCRED check admits
-	// and the group its socket is handed to.
-	ExecGroup string
+	// ExecGroup, BrokerGroup and KeeperGroup are the service accounts' own
+	// groups, resolved from those accounts at install time rather than assumed to
+	// share their names: --broker-user and friends may adopt an account whose
+	// primary group is called something else, and a directive naming the wrong one
+	// joins some other group or none.
+	//
+	// ExecGroup renders into [ssh] exec_group, the group the agent relay's
+	// SO_PEERCRED check admits and the group its socket is handed to.  BrokerGroup
+	// is the keeper and executor sockets' SocketGroup=, which is what lets the
+	// broker reach them and nothing else reach them at all.
+	ExecGroup   string
+	BrokerGroup string
+	KeeperGroup string
 
 	ConfigDir  string
 	ConfigFile string

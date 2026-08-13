@@ -8,4 +8,4 @@
 #
 # Owned by the broker, the only uid that creates anything here.  0755 so the
 # other uids can traverse to the sockets, whose own modes decide who connects.
-d {{.RunDir}} 0755 {{.BrokerUser}} {{.BrokerUser}} -
+d {{.RunDir}} 0755 {{.BrokerUser}} {{.BrokerGroup}} -

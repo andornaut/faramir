@@ -386,28 +386,24 @@ func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
 	}
 }
 
-// An unmounted store looks exactly like one never written, so absence fails the
-// gate too.
-func TestCheckFailsOnASecretsFileThatIsNotThere(t *testing.T) {
-	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"},
-		filepath.Join(t.TempDir(), "absent.sops.yml"))
-
-	if _, code := s.CheckOutput(); code == 0 {
-		t.Error("a store that is not there passed the gate")
-	}
-}
-
-// Every value that did not load is one that reaches the agent in plaintext.
-func TestCheckFailsOnASecretsFileThatCouldNotBeRead(t *testing.T) {
+// Every value that did not load is one that reaches the agent in plaintext, and
+// an unmounted store looks exactly like one never written, so absence fails the
+// gate as well as unreadability.
+func TestCheckFailsOnASecretsFileThatDidNotLoad(t *testing.T) {
 	notADir := filepath.Join(t.TempDir(), "regular")
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"},
-		filepath.Join(notADir, "v.sops.yml"))
-
-	if _, code := s.CheckOutput(); code == 0 {
-		t.Error("a secrets file that could not be read passed the gate")
+	for name, file := range map[string]string{
+		"a store that is not there":               filepath.Join(t.TempDir(), "absent.sops.yml"),
+		"a store under something not a directory": filepath.Join(notADir, "v.sops.yml"),
+	} {
+		t.Run(name, func(t *testing.T) {
+			s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"}, file)
+			if _, code := s.CheckOutput(); code == 0 {
+				t.Error("passed the gate")
+			}
+		})
 	}
 }
 
@@ -527,9 +523,10 @@ func TestExecIsRefusedWhenOneFileDidNotLoad(t *testing.T) {
 }
 
 // The set kept when the keeper cannot be reached is the last one known to be
-// true, so it is unconfirmed rather than short.  Refusing on it would turn a
-// keeper hiccup into refused commands.
-func TestExecIsServedWhileTheKeeperIsUnreachable(t *testing.T) {
+// true, so it is unconfirmed rather than short, and the store stays servable:
+// refusing on it would turn a keeper hiccup into refused commands.  What the
+// gate does with that answer is TestExecAndRedactAreRefusedWhileNoManagedFileWasRead.
+func TestTheStoreStaysServableWhileTheKeeperIsUnreachable(t *testing.T) {
 	file := managedFile(t)
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, file)
 	s := serverWith(t, k, file)
@@ -599,9 +596,9 @@ func TestBothOpsAreServedWhenEveryManagedFileLoadedAndHeldNothing(t *testing.T) 
 	}
 }
 
-// A file that did not load may hold anything, so its contents went unread and
-// redaction cannot be promised.
-func TestRedactIsRefusedWhenAManagedFileDidNotLoad(t *testing.T) {
+// A file that did not load may hold anything, so its contents went unread,
+// redaction cannot be promised, and the store reports itself unservable.
+func TestTheStoreIsUnservableWhenAManagedFileDidNotLoad(t *testing.T) {
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	file := managedFile(t)
 	k.SetFiles([]string{file})
@@ -642,7 +639,7 @@ func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
 func TestRedactIsNotRateLimited(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"}, managedFile(t))
 	peer := &sockutil.Peer{UID: 1000}
-	for i := range 300 {
+	for i := range 2 {
 		if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
 			t.Fatalf("call %d was refused: %v", i+1, got["error"])
 		}

@@ -4,8 +4,8 @@ package audit
 // bug in this repository rather than a condition to survive, so a change that
 // puts a record beyond the cap stops here instead of being read about later.
 //
-// The two tests that reach it on purpose -- the ones asserting it still writes a
-// record -- turn this off around themselves with unstrict().
+// The two tests that reach it on purpose, the ones asserting it still writes a
+// record, turn this off around themselves with unstrict().
 func init() { strict = true }
 
 // unstrict restores the shipped behaviour for one test.

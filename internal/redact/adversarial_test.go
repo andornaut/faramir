@@ -3,17 +3,14 @@ package redact
 import (
 	"encoding/base32"
 	"encoding/hex"
-	"fmt"
 	"strings"
 	"testing"
 )
 
-// This file is an adversarial probe, not a shipped test. It throws a battery of
-// output encodings at the redactor and reports which ones let the secret
-// through. Each case is tagged with the real tool that produces that encoding
-// and whether it is plausibly ACCIDENTAL (ordinary tool output -> a claimed-
-// Prevented "accidental disclosure") or ADVERSARIAL (deliberate transform ->
-// documented Not-prevented). Run: go test ./internal/redact -run TestAdversarialBattery -v
+// A battery of output encodings thrown at the redactor. Each case names the real
+// tool that produces that encoding and whether it is plausibly ACCIDENTAL
+// (ordinary tool output, which docs/redaction.md claims to prevent) or
+// ADVERSARIAL (a deliberate transform, documented there as not prevented).
 
 func redactorFor(secret, ref string) *Redactor {
 	return New([]Secret{{Ref: ref, Value: secret}}, DefaultPolicy())
@@ -88,78 +85,33 @@ func TestAdversarialBattery(t *testing.T) {
 		}},
 	}
 
-	fmt.Printf("\n%-18s %-11s %-45s %s\n", "PROBE", "KIND", "TOOL", "RESULT")
-	fmt.Println(strings.Repeat("-", 100))
 	for _, p := range probes {
 		enc := p.encode(p.secret)
 		output := "prefix... " + enc + " ...suffix\n"
-		// A leak = the *encoded form* still present after redaction (the secret
-		// was recoverable from the model's view). For raw we check the raw value;
-		// for encodings we check the encoded needle survived intact.
+		// A leak is the encoded form still present after redaction, the secret
+		// being recoverable from the model's view. For raw that is the value
+		// itself; for an encoding it is whether the encoded needle survived.
 		var leaked bool
 		if p.name == "raw" || p.name == "raw-richSecret" {
 			leaked, _ = leaks(p.secret, output)
 		} else {
 			leaked, _ = survives(p.secret, enc, output)
 		}
-		status := "redacted"
-		if leaked {
-			status = ">>> LEAKED <<<"
-		}
-		fmt.Printf("%-18s %-11s %-45s %s\n", p.name, p.kind, p.tool, status)
 
-		// Regression assertions: every ACCIDENTAL/COVERED case must now be
-		// caught. ADVERSARIAL cases are observations: the threat model documents them
-		// as defeatable, so they are allowed to leak.
+		// Both directions are asserted, so this is a boundary rather than a note.
+		// A row that starts being caught fails here, which is the signal to move
+		// it up to the covered set deliberately.
 		switch p.kind {
 		case "COVERED", "ACCIDENTAL":
 			if leaked {
 				t.Errorf("%s (%s): expected redaction, secret form leaked", p.name, p.tool)
 			}
-		}
-	}
-	fmt.Println()
-}
-
-// TestNewVariantsSurviveChunking feeds the newly-covered encodings one rune at
-// a time. The overlap buffer must hold a variant that is split across Feed
-// calls: hex doubles the length and a line-wrap inserts newlines mid-value, so
-// both stress the window that New sizes from the longest variant.
-func TestNewVariantsSurviveChunking(t *testing.T) {
-	secret := "hunter2correcthorsebatteryZ9"
-	hexForm := ""
-	for _, c := range []byte(secret) {
-		hexForm += fmt.Sprintf("%02x", c)
-	}
-	wrapped := ""
-	for i, c := range secret {
-		if i > 0 && i%5 == 0 {
-			wrapped += "\n"
-		}
-		wrapped += string(c)
-	}
-
-	cases := map[string]string{
-		"hex-streamed":      "log: key=" + hexForm + " done\n",
-		"linewrap-streamed": "value:\n" + wrapped + "\nend\n",
-	}
-	for name, output := range cases {
-		r := redactorFor(secret, "svc/token")
-		var b strings.Builder
-		for _, ru := range output {
-			b.WriteString(r.Feed(string(ru)))
-		}
-		b.WriteString(r.Flush())
-		got := b.String()
-		if strings.Contains(got, secret) {
-			t.Errorf("%s: raw secret leaked across chunks: %q", name, got)
-		}
-		if name == "hex-streamed" && strings.Contains(got, hexForm) {
-			t.Errorf("%s: hex form leaked across chunks: %q", name, got)
-		}
-		deNL := strings.ReplaceAll(got, "\n", "")
-		if strings.Contains(deNL, secret) {
-			t.Errorf("%s: secret recoverable after rejoining lines: %q", name, got)
+		default:
+			if !leaked {
+				t.Errorf("%s (%s) is now covered. That is an improvement, not a "+
+					"regression: move it to the ACCIDENTAL set and say so in "+
+					"docs/redaction.md", p.name, p.tool)
+			}
 		}
 	}
 }

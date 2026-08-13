@@ -12,7 +12,9 @@ StartLimitIntervalSec=0
 Type=notify
 NotifyAccess=main
 User={{.ExecUser}}
-Group={{.ExecUser}}
+# The account's own group, resolved rather than assumed to share its name: an
+# adopted account's primary group need not be called what the account is.
+Group={{.ExecGroup}}
 ExecStart={{.BinDir}}/faramir exec
 SyslogIdentifier=faramir-exec
 Environment=FARAMIR_CONFIG={{.ConfigFile}}

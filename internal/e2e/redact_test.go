@@ -155,8 +155,12 @@ func TestTheWrapperDoesNotRunACommandItCannotCapture(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A private runtime directory, so the wrapper gets past that check and the
+	// shadowed mktemp is the only thing left to refuse on.  Without it a host with
+	// no XDG_RUNTIME_DIR refuses for that reason instead, and the assertions below
+	// hold without the shim having done anything.
 	stdout, stderr, code := runWrapped(t, rewritten, "PATH="+shim+":"+os.Getenv("PATH"),
-		"FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli)
+		"FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli, privateRuntimeEnv(t))
 
 	if _, err := os.Stat(marker); err == nil {
 		t.Error("the command ran even though its output could not be captured")

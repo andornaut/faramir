@@ -66,19 +66,3 @@ func TestARewrittenCommandIsNotRewrittenAgain(t *testing.T) {
 			strings.Count(once, wrapScript()), once)
 	}
 }
-
-// Naming the wrapper is not using it: read as already wrapped, such a command's
-// output reaches the transcript unredacted.
-func TestOnlySourcingTheScriptCountsAsWrapped(t *testing.T) {
-	for command, wantRewritten := range map[string]bool{
-		"cat " + wrapScript():                      true,
-		"echo " + wrapScript() + "; ./leak.sh":     true,
-		"cd /tmp && source " + wrapScript() + " x": true,
-		"source " + wrapScript() + " 'ls -la'":     false,
-		". " + wrapScript() + " 'ls -la'":          false,
-	} {
-		if _, rewritten := wrap(hosts["claude"], command, bashInput()); rewritten != wantRewritten {
-			t.Errorf("wrap(%q) rewritten = %v, want %v", command, rewritten, wantRewritten)
-		}
-	}
-}

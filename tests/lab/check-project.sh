@@ -99,7 +99,7 @@ done
 # an agent that starts with no guard at all.
 for js in /home/op/p-opencode/.opencode/plugins/faramir.js /home/op/p-kilo/.kilo/plugin/faramir.js; do
   if ! command -v node >/dev/null 2>&1; then
-    ok "(no node in the image; $(basename "$js") not parsed)"; continue
+    note "no node in the image, so $(basename "$js") went unparsed"; continue
   fi
   # As a module: these are ESM in a .js, which the hosts' Bun runtime infers and
   # node decides from the nearest package.json, of which a project has none.

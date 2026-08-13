@@ -172,7 +172,8 @@ entity=$(python3 -c "
 import html,os
 print(html.escape(os.environ['SECRET']).replace('-','&#45;'))")
 out=$(printf '%s\n' "$entity" | redact)
-grep -qF "$TOKEN" <<<"$out" && note "HTML entities ARE now redacted; docs/redaction.md says they are not" \
+grep -qF "$TOKEN" <<<"$out" \
+  && bad "HTML entities are now redacted. That is an improvement, not a regression: move this to the covered set and say so in docs/redaction.md" \
   || ok "HTML entity escaping is still out of scope, as documented"
 # A file can contain the token text; the model cannot tell that from a real
 # redaction.  Not a leak, but it is what the transcript looks like.
