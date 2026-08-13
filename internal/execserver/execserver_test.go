@@ -170,9 +170,16 @@ func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
 	}
 
 	// setsid detaches the grandchild into its own session and process group; it
-	// prints its pid and sleeps well past the run.  The main shell exits at once.
+	// prints its pid and sleeps.  The main shell exits at once.
+	//
+	// The sleep outlasts every bound in the teardown by a wide margin, and that
+	// is what makes this an assertion.  Teardown waits for the cgroup to drain,
+	// so with a sleep it can outlast, "dead once the run returned" is satisfied
+	// by the sleep simply finishing, and the test passes with the reaping
+	// disabled entirely.  Longer than any drain, only something killing it can
+	// satisfy it.
 	_, output, err := runChild(t, sock, []string{"/bin/sh", "-c",
-		"setsid sh -c 'echo GPID=$$; exec sleep 60' & sleep 0.3"}, dir)
+		"setsid sh -c 'echo GPID=$$; exec sleep 600' & sleep 0.3"}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,9 +197,30 @@ func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
 	// "Running" excludes a zombie: a killed process the reaper has not collected is
 	// dead, holds nothing, and satisfies the claim, and kill(pid, 0) would call it
 	// alive, so the state is read instead.
-	if running(gpid) {
+	//
+	// Waited for rather than read once.  close() bounds its own drain, so on a
+	// loaded host the last exit can land just after that wait gives up, and what
+	// is being asserted is that the cgroup reaps this pid rather than how many
+	// milliseconds the kernel took.  The grandchild sleeps for a minute, so a
+	// bound of seconds still separates a cgroup that reaped it from a
+	// process-group kill that never reached it.
+	if !diesWithin(gpid, 15*time.Second) {
 		t.Errorf("setsid grandchild %d is still running after the run: the cgroup did "+
 			"not reap it", gpid)
+	}
+}
+
+// diesWithin waits for a pid to stop running, up to a bound.
+func diesWithin(pid int, bound time.Duration) bool {
+	deadline := time.Now().Add(bound)
+	for {
+		if !running(pid) {
+			return true
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 
