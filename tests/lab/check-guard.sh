@@ -233,12 +233,28 @@ head_ "9. what the rewrite must not do"
 wrapped=$(decide 'ls' | jq -r '.hookSpecificOutput.updatedInput.command')
 [ "$(verdict "$wrapped")" = pass ] && ok "an already-wrapped command is not wrapped again" \
   || bad "double wrapping: $(verdict "$wrapped")"
-[ "$(verdict 'sleep 30 &')" = pass ] && ok "a backgrounded command is left alone (nothing to capture)" \
-  || bad "a backgrounded command was wrapped"
+# A backgrounded command is streamed through the redactor rather than left
+# alone: capturing it would buffer a command that never exits, but passing it
+# unwrapped lets its output reach the transcript unredacted.
+bgw=$(decide 'sleep 30 &' | jq -r '.hookSpecificOutput.updatedInput.command')
+grep -q -- '--stream' <<<"$bgw" && ok "a backgrounded command is streamed through the redactor" \
+  || bad "a backgrounded command was not streamed: [$bgw]"
+grep -q ' &$' <<<"$bgw" && ok "  with its backgrounding kept, outside the wrapper" \
+  || bad "  the backgrounding was lost: [$bgw]"
 [ "$(verdict 'a && b')" = rewrite ] && ok "a trailing && is not backgrounding" || bad "&& was read as &"
-got=$(echo '{"tool_name":"Bash","tool_input":{"command":"tail -f log","run_in_background":true}}' \
-      | runuser -u op -- "$GUARD" guard; echo "rc=$?")
-[ "$got" = "rc=0" ] && ok "run_in_background is left alone" || bad "background flag ignored: $got"
+grep -q -- '--stream' <<<"$(decide 'a && b' | jq -r '.hookSpecificOutput.updatedInput.command')" \
+  && bad "&& was streamed as if backgrounded" || ok "  and takes the ordinary capture path"
+bgflag=$(echo '{"tool_name":"Bash","tool_input":{"command":"tail -f log","run_in_background":true}}' \
+      | runuser -u op -- "$GUARD" guard 2>/dev/null | jq -r '.hookSpecificOutput.updatedInput.command')
+grep -q -- '--stream' <<<"$bgflag" && ok "run_in_background is streamed so BashOutput reads redacted" \
+  || bad "run_in_background was not streamed: [$bgflag]"
+grep -q ' &$' <<<"$bgflag" && bad "run_in_background carried its own &: [$bgflag]" \
+  || ok "  and carries no & of its own, the host doing the backgrounding"
+# The deny list still fires on a backgrounded credential read: streaming is not
+# a way around it.
+[ "$(verdict 'cat /etc/faramir/age.key &')" = deny ] \
+  && ok "a backgrounded credential read is still denied" \
+  || bad "backgrounding got a denied command past the guard"
 
 head_ "10. quoting into the sourced script survives exactly one round trip"
 for cmd in "echo it's fine" 'echo $(date)' 'echo `id`' 'echo "a\\b"' "echo 'x'\\''y'"; do

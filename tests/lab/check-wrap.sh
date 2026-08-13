@@ -233,4 +233,44 @@ out=$(agentRun 'printf "A\x1b[31mB\x1b[0mC"')
 [ "$out" = "ABC" ] && ok "  and an ANSI sequence is removed with the text kept" \
   || bad "  an ANSI sequence survived: [$out]"
 
+head_ "10. a backgrounded command is streamed through the redactor"
+# The wrapper cannot capture a backgrounded command's output, so it pipes it
+# through the redactor instead.  Without this a value in a tree file, read by a
+# command ending in "&", would reach the transcript in the clear.
+#
+# Backgrounded, so the rewrite returns at once; its output is collected from a
+# file the wrapped pipeline writes, then read once the job is done.
+# bgRun runs a backgrounded rewrite and returns what it streamed.  exec sends
+# the shell's stdout to a file that the backgrounded pipeline inherits and keeps
+# writing as output arrives; a foreground sleep holds the shell open long enough
+# to collect it, since the rewrite itself returns at once.  A redirect appended
+# after the command would land on the empty command past its "&", not the job.
+bgRun() { # command (ends in &), hold seconds -> streamed output so far
+  local w; w=$(rewriteOf "$1")
+  asAgent "exec >/tmp/bg.out 2>&1; $w sleep ${2:-2}" >/dev/null 2>&1
+  cat /tmp/bg.out 2>/dev/null
+  # The backgrounded pipeline is reparented to init when the shell above exits,
+  # so it outlives this call: end the redactor and the producer feeding it, or a
+  # later suite inherits a process nobody started.
+  pkill -u op -f 'faramir redact' 2>/dev/null || true
+  pkill -u op -f 'clears-the-held-tail' 2>/dev/null || true
+  rm -f /tmp/bg.out
+}
+w=$(rewriteOf 'cat notes.txt &')
+grep -q -- '--stream' <<<"$w" && ok "the guard streams it rather than passing it" \
+  || bad "a backgrounded read was not streamed: [$w]"
+out=$(bgRun 'cat notes.txt &')
+grep -q "$SECRET" <<<"$out" && bad "THE SECRET REACHED THE TRANSCRIPT VIA A BACKGROUNDED READ: $out" \
+  || ok "a value read by a backgrounded command does not reach the transcript"
+grep -q "$TOKEN" <<<"$out" && ok "  it came back as its token instead" \
+  || bad "  no token in the backgrounded output: $out"
+
+# A long-running producer that goes quiet must still show what it printed: the
+# idle flush releases a held line rather than waiting for the command to exit,
+# which a server never does.  The padding clears the tail the broker holds back.
+out=$(bgRun 'yes padding-line-that-clears-the-held-tail | head -40; sleep 5 &' 3)
+lines=$(grep -c padding-line <<<"$out")
+[ "$lines" -gt 0 ] && ok "a quiet backgrounded producer's output appears before it exits ($lines line(s))" \
+  || bad "streamed output was held until the command exits: [$(head -c 80 <<<"$out")]"
+
 summary

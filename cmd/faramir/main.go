@@ -402,7 +402,7 @@ func cmdRedact(args []string) int {
 	if child := fs.Args(); len(child) > 0 {
 		return redactChild(*c.socket, child)
 	}
-	if err := redactStream(*c.socket, os.Stdin, os.Stdout); err != nil {
+	if err := redactStreamLive(*c.socket, os.Stdin, os.Stdout); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
 		return 1
 	}
@@ -472,63 +472,152 @@ func redactChild(socketPath string, argv []string) int {
 // and no incremental output.  So a failure shows as output that stops early,
 // not output that is empty; with the broker down, which fails on the first
 // chunk, those are the same thing.
+// idleFlushInterval bounds how long buffered output waits when a live stream
+// goes quiet below chunkBytes.  Without it a backgrounded command that prints a
+// line and then blocks (a dev server's "listening on ..." banner) holds that
+// line unshown until it produces a whole chunk or exits, which for a server is
+// never.  Short enough to read as immediate, long enough that a burst still
+// coalesces into one request.
+const idleFlushInterval = 200 * time.Millisecond
+
+// streamer carries the redaction of one stream: the pending bytes, the one
+// connection they go down, and where the redacted result is written.  Its rules
+// are in redactStream's comment.
+type streamer struct {
+	stream *redactConn
+	out    io.Writer
+	buf    []byte
+}
+
+func (s *streamer) pending() bool { return len(s.buf) > 0 }
+
+// flush sends the pending bytes.  more false is the last chunk, which releases
+// the tail the broker holds back.
+func (s *streamer) flush(more bool) error {
+	// An empty buffer is nothing to send, except as the last chunk of a stream
+	// that has already sent something: that one is what releases the tail.
+	if len(s.buf) == 0 && (more || !s.stream.open()) {
+		return nil
+	}
+	text := string(s.buf)
+	s.buf = s.buf[:0]
+	redacted, err := s.stream.send(text, more)
+	if err != nil {
+		return fmt.Errorf("withheld %d byte(s) that could not be redacted, "+
+			"and stopped there: %w", len(text), err)
+	}
+	_, writeErr := io.WriteString(s.out, redacted)
+	return writeErr
+}
+
+// feed folds one ReadSlice result into the stream, sending a chunk when one is
+// full.  done is true once the stream is complete or has failed; retErr is what
+// redactStream should then return.  line is copied into buf, so it need only be
+// valid for the call.
+func (s *streamer) feed(line []byte, err error) (done bool, retErr error) {
+	// Flushed before the append: a partial buffer plus a full ReadSlice would
+	// make one request of nearly twice chunkBytes, and a chunk the broker refuses
+	// is now a refused stream.
+	if len(s.buf) > 0 && len(s.buf)+len(line) > chunkBytes {
+		if flushErr := s.flush(true); flushErr != nil {
+			return true, flushErr
+		}
+	}
+	s.buf = append(s.buf, line...)
+	// A long line arrives in pieces; send what is there.
+	if errors.Is(err, bufio.ErrBufferFull) {
+		if flushErr := s.flush(true); flushErr != nil {
+			return true, flushErr
+		}
+		return false, nil
+	}
+	if len(s.buf) >= chunkBytes {
+		if flushErr := s.flush(true); flushErr != nil {
+			return true, flushErr
+		}
+	}
+	if err != nil {
+		if flushErr := s.flush(false); flushErr != nil {
+			return true, flushErr
+		}
+		if errors.Is(err, io.EOF) {
+			return true, nil
+		}
+		return true, err
+	}
+	return false, nil
+}
+
 func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 	reader := bufio.NewReaderSize(in, chunkBytes)
-	buf := make([]byte, 0, chunkBytes)
-
-	stream := &redactConn{socketPath: socketPath}
-	defer stream.close()
-
-	// more reports whether another chunk follows.  The last one carries "more"
-	// false, which is what makes the broker flush the tail it is holding.
-	flush := func(more bool) error {
-		// An empty buffer is nothing to send, except as the last chunk of a stream
-		// that has already sent something: that one is what releases the tail.
-		if len(buf) == 0 && (more || !stream.open()) {
-			return nil
-		}
-		text := string(buf)
-		buf = buf[:0]
-		redacted, err := stream.send(text, more)
-		if err != nil {
-			return fmt.Errorf("withheld %d byte(s) that could not be redacted, "+
-				"and stopped there: %w", len(text), err)
-		}
-		_, writeErr := io.WriteString(out, redacted)
-		return writeErr
-	}
+	s := &streamer{stream: &redactConn{socketPath: socketPath}, out: out}
+	defer s.stream.close()
 
 	for {
 		line, err := reader.ReadSlice('\n')
-		// Flushed before the append: a partial buffer plus a full ReadSlice would
-		// make one request of nearly twice chunkBytes, and a chunk the broker refuses
-		// is now a refused stream.
-		if len(buf) > 0 && len(buf)+len(line) > chunkBytes {
-			if flushErr := flush(true); flushErr != nil {
-				return flushErr
+		if done, retErr := s.feed(line, err); done {
+			return retErr
+		}
+	}
+}
+
+// redactStreamLive is redactStream for a stream that must show output as it
+// arrives, not only when a chunk fills: the redacted stdout of a backgrounded
+// command, which the guard pipes here so its output is scrubbed while it runs.
+//
+// A reader goroutine, because ReadSlice blocks and a pipe inherited as stdin
+// does not take a read deadline (Go leaves it in blocking mode).  It copies each
+// read before sending, the ReadSlice slice being valid only until the next read.
+// The main loop owns buf and the connection; the goroutine touches neither.  On
+// an early return the deferred close(done) frees a goroutine parked on the send,
+// and one still parked in ReadSlice ends with the process, this path never being
+// drained again the way redactChild drains its child.
+func redactStreamLive(socketPath string, in io.Reader, out io.Writer) error {
+	reader := bufio.NewReaderSize(in, chunkBytes)
+	s := &streamer{stream: &redactConn{socketPath: socketPath}, out: out}
+	defer s.stream.close()
+
+	type item struct {
+		data []byte
+		err  error
+	}
+	ch := make(chan item, 1)
+	done := make(chan struct{})
+	defer close(done)
+	go func() {
+		for {
+			line, err := reader.ReadSlice('\n')
+			cp := append([]byte(nil), line...)
+			select {
+			case ch <- item{cp, err}:
+			case <-done:
+				return
+			}
+			// ErrBufferFull is not the end: it means a line longer than the buffer
+			// has more to come.  Any other error, EOF included, ends the read.
+			if err != nil && !errors.Is(err, bufio.ErrBufferFull) {
+				return
 			}
 		}
-		buf = append(buf, line...)
-		// A long line arrives in pieces; send what is there.
-		if errors.Is(err, bufio.ErrBufferFull) {
-			if flushErr := flush(true); flushErr != nil {
-				return flushErr
-			}
-			continue
+	}()
+
+	for {
+		// Armed only when something is waiting, so a silent stream makes no
+		// requests: an empty buffer has nothing to flush and blocks for the next
+		// read instead.
+		var idle <-chan time.Time
+		if s.pending() {
+			idle = time.After(idleFlushInterval)
 		}
-		if len(buf) >= chunkBytes {
-			if flushErr := flush(true); flushErr != nil {
-				return flushErr
+		select {
+		case it := <-ch:
+			if finished, retErr := s.feed(it.data, it.err); finished {
+				return retErr
 			}
-		}
-		if err != nil {
-			if flushErr := flush(false); flushErr != nil {
-				return flushErr
+		case <-idle:
+			if err := s.flush(true); err != nil {
+				return err
 			}
-			if errors.Is(err, io.EOF) {
-				return nil
-			}
-			return err
 		}
 	}
 }

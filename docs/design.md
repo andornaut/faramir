@@ -83,13 +83,14 @@ Every failure fails closed. No temp file and the command does not run, there bei
 
 `faramir redact` does the same, in both its shapes and for the same reason: a chunk it cannot redact is never written, nothing after it is written, and the exit status is non-zero, which is what the wrapper reads when it withholds. What is *not* withheld is the part of a stream that was already redacted, on a broker that dies part way through: those chunks came back covered, so holding them protects nothing, and buffering the whole stream to be able to would cost an unbounded buffer for a guarantee already met. A failure therefore truncates the output rather than emptying it, and on the usual failure, a broker that is not running, which fails on the first chunk, those are the same thing.
 
-Left alone rather than rewritten, because buffering would change what they do:
+Left alone rather than rewritten:
 
 - one this rewrite already produced, so the wrapper is idempotent
-- a read of a running command's output, such as Claude Code's `BashOutput`, and every tool that is not the shell
-- a backgrounded command, whose output is wanted while it runs: a trailing `&`, or the tool's own background flag
+- a read of a running command's output, such as Claude Code's `BashOutput`: it starts nothing, so there is nothing to redact at that point. What it reads was redacted when the command that fills the buffer was started, below.
 - an empty command
 - a denied command, which is refused instead
+
+A backgrounded command, a trailing `&` or the tool's own background flag, takes a third path: it is rewritten to *stream* through the redactor rather than to capture. Its output arrives over the command's life, so the capture path would hold a command that never exits (a dev server) unshown until it did. So the wrapper pipes it through `faramir redact` instead: `{ command; } 2>&1 | faramir redact`, backgrounded as a whole, `pipefail` carrying the command's exit status out past the redactor. The redactor fails closed on its own, so a broker that will not answer withholds the output rather than passing it. This is what keeps a value in a tree file from reaching the transcript when the command that reads it is backgrounded, and what makes `BashOutput` read redacted: the buffer it reads was filled by a streamed command.
 
 An incomplete command is *not* on that list. One ending in `\`, `&&`, `||` or `;` is wrapped like any other and fails inside the wrapper's `eval`, which re-parses it in isolation, so it fails the way it would have failed unwrapped rather than breaking the wrapper's own syntax.
 

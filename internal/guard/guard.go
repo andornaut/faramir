@@ -366,9 +366,16 @@ func wrap(h *host, command string, p *payload) (string, bool) {
 		return "", false
 	case isWrapped(command):
 		return "", false
-	// Both want output as it arrives, which buffering cannot give them.
-	case backgrounded.MatchString(command) || p.ToolInput.InBackgd:
-		return "", false
+	// A trailing "&" backgrounds the command in this same call; the "&" is on the
+	// inner command, so it is stripped and re-added after the redactor.
+	case backgrounded.MatchString(command):
+		return "source " + wrapScript() + " --stream " +
+			shellQuote(stripTrailingAmp(command)) + " &", true
+	// run_in_background hands the whole command to the host to background; it
+	// carries no "&" of its own, and the host reads its output later through
+	// BashOutput, which sees what the redactor already passed.
+	case p.ToolInput.InBackgd:
+		return "source " + wrapScript() + " --stream " + shellQuote(command), true
 	}
 
 	// One simple command rather than a compound statement built from "{ ...; }"
@@ -378,6 +385,16 @@ func wrap(h *host, command string, p *payload) (string, bool) {
 	// Quoted for exactly one round trip through the sourced script's eval; see
 	// agent/hooks/wrap.sh.
 	return "source " + wrapScript() + " " + shellQuote(command), true
+}
+
+// stripTrailingAmp removes the trailing "&" that backgrounded matched, and the
+// space around it, leaving the command the redactor is to run.  Only the last
+// one: an inner "a & b &" keeps its first, which the eval below backgrounds as
+// the caller wrote it.
+func stripTrailingAmp(command string) string {
+	trimmed := strings.TrimRight(command, " \t\r\n")
+	trimmed = strings.TrimSuffix(trimmed, "&")
+	return strings.TrimRight(trimmed, " \t\r\n")
 }
 
 // shellQuote renders a string as one single-quoted shell word.

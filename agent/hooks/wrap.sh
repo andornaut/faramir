@@ -16,6 +16,29 @@
 # Every failure fails closed: output that could not be redacted is never
 # shown.
 
+# A backgrounded command takes the streaming path instead:
+#
+#   source /usr/local/libexec/faramir/wrap.sh --stream '<command>'
+#
+# Its output arrives over the command's life, so the capture-then-redact path
+# below would buffer a long-running one (a dev server, a build) until it exited,
+# which is never.  `faramir redact` is itself a stream and fails closed on its
+# own: with the broker down it withholds the output and exits non-zero, and
+# pipefail carries that out as the pipeline's status.  A subshell so pipefail and
+# the command's own settings do not touch the caller's shell: a backgrounded
+# command has no shell state to persist, unlike the sourced path below.
+if [ "${1:-}" = "--stream" ]; then
+  ( set -o pipefail 2>/dev/null
+    { eval "${2:-}"; } 2>&1 | "${FARAMIR_CLI:-/usr/local/bin/faramir}" redact )
+  # The subshell's status, expanded into the eval before unset runs, then made
+  # the last command so it is what this sourced fragment returns.  return, not
+  # exit: this is sourced, and the streaming form may be backgrounded into the
+  # caller's own shell.
+  __frc=$?
+  eval "unset __frc; ( exit $__frc )"
+  return
+fi
+
 # The capture files hold unredacted output, so they go in a directory no other
 # account can enter, and nowhere else.  XDG_RUNTIME_DIR is that directory: a
 # tmpfs the login session owns at 0700.  There is deliberately no /dev/shm

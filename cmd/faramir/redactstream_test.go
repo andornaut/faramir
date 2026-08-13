@@ -3,15 +3,36 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/andornaut/faramir/internal/sockutil"
 )
+
+// syncBuf is a bytes.Buffer a test can read while redactStreamLive writes it
+// from its own goroutine.
+type syncBuf struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (s *syncBuf) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.Write(p)
+}
+
+func (s *syncBuf) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.buf.String()
+}
 
 // stubBroker answers the redact op by echoing the text back, and records what
 // it was sent.  It carries a stream the way the real broker does: a chunk
@@ -264,5 +285,97 @@ func TestAFailurePartWayThroughKeepsWhatWasRedactedAndStops(t *testing.T) {
 	}
 	if out.Len() == 0 {
 		t.Error("chunks that were redacted successfully were withheld too")
+	}
+}
+
+// A backgrounded command's output is streamed here, and one that prints a line
+// and then goes quiet (a dev server's banner) must not sit unshown until it
+// exits: redactStreamLive flushes what it is holding after a short idle so the
+// line arrives while the command is still running.
+func TestALiveStreamShowsAQuietLineBeforeEOF(t *testing.T) {
+	broker := newStubBroker(t)
+	pr, pw := io.Pipe()
+	out := &syncBuf{}
+	done := make(chan error, 1)
+	go func() { done <- redactStreamLive(broker.path, pr, out) }()
+
+	if _, err := io.WriteString(pw, "listening on :3000\n"); err != nil {
+		t.Fatal(err)
+	}
+	// The pipe is not closed, so the command is still "running".  The idle flush
+	// is what makes the line appear.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "listening on :3000") {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), "listening on :3000") {
+		t.Fatal("a quiet line was held until EOF instead of flushed after the idle")
+	}
+	_ = pw.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The idle flush marks its chunk "more", so the broker keeps holding the tail
+// that catches a value split across chunks: only the final chunk at EOF is
+// "more" false.  A quiet flush that ended the stream would drop that guard.
+func TestAnIdleFlushDoesNotEndTheStream(t *testing.T) {
+	broker := newStubBroker(t)
+	pr, pw := io.Pipe()
+	out := &syncBuf{}
+	done := make(chan error, 1)
+	go func() { done <- redactStreamLive(broker.path, pr, out) }()
+
+	if _, err := io.WriteString(pw, "first\n"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(out.String(), "first") {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, err := io.WriteString(pw, "second\n"); err != nil {
+		t.Fatal(err)
+	}
+	_ = pw.Close()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	more := broker.More()
+	if len(more) == 0 {
+		t.Fatal("no chunks were sent")
+	}
+	// Every chunk but the last keeps the stream open.
+	for i, m := range more[:len(more)-1] {
+		if !m {
+			t.Errorf("chunk %d ended the stream early (more=false before EOF)", i)
+		}
+	}
+	if more[len(more)-1] {
+		t.Error("the last chunk did not release the tail (more=true at EOF)")
+	}
+}
+
+// A line longer than the buffer arrives from the reader as ErrBufferFull before
+// its newline; the live path must keep reading it, not mistake that for the end
+// of the stream.  It is the shape the leak suite's chunk-offset cases take.
+func TestALiveStreamCarriesALineLongerThanAChunk(t *testing.T) {
+	broker := newStubBroker(t)
+	input := strings.Repeat("y", 5*chunkBytes) + "\n"
+
+	out := &syncBuf{}
+	done := make(chan error, 1)
+	go func() { done <- redactStreamLive(broker.path, strings.NewReader(input), out) }()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("redactStreamLive hung on a line longer than a chunk")
+	}
+	if out.String() != input {
+		t.Fatalf("output differs: %d bytes in, %d out", len(input), len(out.String()))
 	}
 }

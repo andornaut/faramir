@@ -203,7 +203,11 @@ func TestTheRewritePreservesTheOtherInputFields(t *testing.T) {
 // run_in_background is the tool's own flag rather than shell syntax, so it is
 // the one backgrounding case the rewrite cannot see in the command text.  The
 // trailing-"&" forms are TestABackgroundedCommandIsNotWrappedHoweverItEnds.
-func TestARunInBackgroundCallIsNotRewritten(t *testing.T) {
+func TestARunInBackgroundCallIsStreamedNotCaptured(t *testing.T) {
+	// The host backgrounds this one and reads its output later through
+	// BashOutput, so the command is streamed through the redactor: no trailing
+	// "&" of its own (the host adds the backgrounding), and BashOutput then sees
+	// what the redactor already passed.
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Bash",
 		"tool_input": map[string]any{
@@ -211,8 +215,17 @@ func TestARunInBackgroundCallIsNotRewritten(t *testing.T) {
 			"run_in_background": true,
 		},
 	})
-	if hook := hookOutput(t, string(payload)); hook != nil {
-		t.Errorf("a run_in_background command was rewritten: %v", hook)
+	hook := hookOutput(t, string(payload))
+	if hook == nil {
+		t.Fatal("a run_in_background command was not rewritten")
+	}
+	updated, _ := hook["updatedInput"].(map[string]any)
+	got, _ := updated["command"].(string)
+	if !strings.Contains(got, "--stream ") {
+		t.Errorf("run_in_background command not streamed: %q", got)
+	}
+	if strings.HasSuffix(got, " &") {
+		t.Errorf("run_in_background command carried its own backgrounding: %q", got)
 	}
 }
 
