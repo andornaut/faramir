@@ -1,8 +1,11 @@
 name: Release
 
+# Every branch, not just main and pull requests: work lands on main directly as
+# often as it arrives through one, so a check that only runs on main is a check
+# that runs after the fact.
 on:
   push:
-    branches: [main]
+    branches: ["**"]
     tags: ["v*"]
   pull_request:
     branches: [main]
@@ -12,11 +15,20 @@ on:
 permissions:
   contents: read
 
+# Keyed on the branch rather than the ref, so the push event and the pull
+# request event for one branch share a group instead of running the same checks
+# twice.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 
 jobs:
+  # Publishing waits on the same suite that guards main, rather than on the
+  # build alone: something that compiles everywhere still ships whatever the
+  # tests would have caught.
+  test:
+    uses: ./.github/workflows/test.yml
+
   build:
     runs-on: ubuntu-latest
 
@@ -67,7 +79,7 @@ jobs:
           path: faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz
 
   goreleaser:
-    needs: build
+    needs: [build, test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
@@ -95,7 +107,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   dev-release:
-    needs: build
+    needs: [build, test]
     runs-on: ubuntu-latest
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
@@ -112,10 +124,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Matched by name, not merged blindly: `files: artifacts/*` publishes
+      # whatever lands here, so the coverage artifact the called test workflow
+      # uploads would otherwise become a dev-release asset no checksum covers.
       - name: Download build artifacts
         uses: actions/download-artifact@v8
         with:
           path: artifacts
+          pattern: faramir_*
           merge-multiple: true
 
       # As goreleaser does for a tag. The consumer can then verify what it
