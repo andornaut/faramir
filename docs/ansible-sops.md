@@ -4,15 +4,15 @@ Playbooks get credentials the way every brokered program does: the caller names 
 
 Ansible does **not** decrypt sops and cannot. That needs the age private key, and no process the broker starts receives it: a playbook runs arbitrary tasks, so one holding the master key means anything that can reach Ansible obtains the key to every managed file, retroactively. A `community.sops` vars plugin or `lookup('pipe', 'sops -d …')` fails for the same reason; `internal/e2e` asserts it.
 
-Nothing here edits faramir's configuration: `[secrets] patterns` globs the secrets directory, so a file put there is managed by being there. A drop-in is needed only for encrypted files kept somewhere the glob does not reach, and for `[exec.base_env]`: a brokered command inherits nothing from the broker, so a variable `ansible-playbook` needs, `ANSIBLE_CONFIG` among them, has to be named there or it is absent.
+Nothing here edits faramir's configuration: `[secrets] patterns` globs the secrets directory, so a file put there is managed by being there. A drop-in is needed only for encrypted files kept where the glob does not reach, and for `[exec.base_env]`: a brokered command inherits nothing from the broker, so a variable `ansible-playbook` needs, `ANSIBLE_CONFIG` among them, has to be named there or it is absent.
 
 ## 1. Encrypt the right file, in the right place
 
-The encrypted file belongs in the secrets directory: `secrets/` under the config directory, so `/etc/faramir/secrets` unless `--config-dir` moved it, `2750 root:faramir-keeper`. The operator is not in that group, so putting a file there and editing it afterwards both go through `sudo faramir edit`.
+The encrypted file belongs in the secrets directory, `/etc/faramir/secrets` unless `--config-dir` moved it. The operator is not in the group that owns it, so putting a file there and editing it afterwards both go through `sudo faramir edit`.
 
-Not in a checkout, which is [absent at boot](design.md) if it sits in an encrypted home, and **never in `group_vars/` or `host_vars/`**. Ansible loads every `.yml` under those as a vars file: a sops file is valid YAML, so it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and a name sorting after `vars.yml` also overwrites the mapping from section 2. Nothing errors; hosts get configured with ciphertext in place of the credential. `faramir init` refuses to finish when a managed file sits under either, naming it and where to move it.
+Not in a checkout, which is absent at boot if it sits in an encrypted home, and **never in `group_vars/` or `host_vars/`**. Ansible loads every `.yml` under those as a vars file: a sops file is valid YAML, so it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and a name sorting after `vars.yml` also overwrites the mapping from section 2. Nothing errors; hosts get configured with ciphertext in place of the credential. `faramir init` refuses to finish when a managed file sits under either, naming it and where to move it.
 
-`.sops.yaml` sits in the config directory above the secrets, `/etc/faramir/.sops.yaml`, written by `faramir init` and left alone thereafter; changing its recipients is [Adding a recipient](operating.md#adding-a-recipient).
+`.sops.yaml` sits in the config directory above the secrets, written by `faramir init` and left alone thereafter; changing its recipients is [Adding a recipient](operating.md#adding-a-recipient).
 
 ```yaml
 creation_rules:
@@ -24,7 +24,7 @@ creation_rules:
 
 The rule matches the suffix rather than a directory, so moving a file does not silently drop it out of encryption.
 
-Creating the first one needs root and two flags. Which rule applies is matched against the file's path, but **which `.sops.yaml` sops reads is resolved from the current working directory upward**, so encrypting into the secrets directory from a checkout finds nothing and fails with `config file not found, or has no creation rules`:
+Creating the first one needs root and two flags. Which rule applies is matched against the file's path, but **which `.sops.yaml` sops reads is resolved from the working directory upward**, so encrypting into the secrets directory from a checkout finds nothing and fails with `config file not found, or has no creation rules`:
 
 ```bash
 sudo sops --config /etc/faramir/.sops.yaml \
@@ -32,7 +32,7 @@ sudo sops --config /etc/faramir/.sops.yaml \
     plain.yml
 ```
 
-Every edit after that is `sudo faramir edit /etc/faramir/secrets/ansible-ctrl.sops.yml`, which needs neither flag: it re-encrypts to the recipients the file already had.
+Every edit after that is `sudo faramir edit /etc/faramir/secrets/ansible-ctrl.sops.yml`, which needs neither flag, re-encrypting to the recipients the file already had.
 
 Key *names* stay readable, so diffs are per-key and the agent sees the file's shape without any value. Nesting maps to `/` in a ref:
 
@@ -62,7 +62,7 @@ faramir run \
     ansible-playbook site.yml --limit routers
 ```
 
-Verify once:
+Verify once, which proves the var resolved *and* that printing it produces a token:
 
 ```bash
 faramir run --env ROUTER_PW=secret://home/router/admin -- \
@@ -70,7 +70,10 @@ faramir run --env ROUTER_PW=secret://home/router/admin -- \
 # -> «SECRET:home/router/admin»
 ```
 
-That proves the var resolved *and* that printing it produces a token. `ENC[AES256_GCM,...]` instead means the encrypted file is somewhere Ansible auto-loads it, per section 1. A var whose ref was not injected resolves to an empty string, usually surfacing as a task failing further along: when a playbook behaves as though a credential were blank, check `env_refs` first.
+Symptom | Cause
+--- | ---
+`ENC[AES256_GCM,...]` | The encrypted file is somewhere Ansible auto-loads it, per section 1
+An empty string, usually a task failing further along | The ref was not injected. Check `env_refs` first when a playbook behaves as though a credential were blank
 
 ## 3. SSH keys
 
@@ -80,21 +83,21 @@ Brokered commands run as `faramir-exec`, which must *use* the key that reaches m
 
 The broker keeps both halves under its own uid, loads the private one into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`. A key the agent cannot load does not stop the broker: it is logged, `--check` and `doctor` fail on it, and only commands that reach a host fail, with ssh's own error. The agent lives and dies with the broker, so nothing outlives the process holding the key in memory. The executor's account cannot read the key, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
 
-Keep `ANSIBLE_HOST_KEY_CHECKING=True` in `[exec.base_env]`. Turning it off to make a broken host work is how a broker with credentials hands them to whatever answers.
+Add `ANSIBLE_HOST_KEY_CHECKING=True` to `[exec.base_env]` in a drop-in. It is not in the shipped defaults, and turning host key checking off to make a broken host work is how a broker with credentials hands them to whatever answers.
 
-`faramir-exec` has its own `known_hosts` and it starts absent, so a play whose hosts are trusted only in the operator's `~/.ssh/known_hosts` fails verification before the key above is offered. `faramir init --known-hosts ~/.ssh/known_hosts` pins yours for it; `/etc/ssh/ssh_known_hosts` is the alternative, being the file every account on the host reads. `faramir doctor` reports how many host keys the executor can verify against.
+`faramir-exec` has its own `known_hosts` and it starts absent, so a play whose hosts are trusted only in the operator's `~/.ssh/known_hosts` fails verification before the key above is offered. `faramir init --known-hosts ~/.ssh/known_hosts` pins yours for it; `/etc/ssh/ssh_known_hosts` is the alternative, being the file every account reads. `faramir doctor` reports how many host keys the executor can verify against.
 
 ## 4. Becoming root on the controller
 
 `become` on a *managed* host is the operator's own arrangement: the account Ansible connects as has passwordless sudo there, and faramir has no part in it.
 
-The controller, the host faramir itself runs on, is different, and by default it has to be left out, because a brokered command runs as `faramir-exec`, which has no sudo:
+The controller is different, and by default it has to be left out, a brokered command running as `faramir-exec`, which has no sudo:
 
 ```bash
 faramir run --env-file faramir.env -- ansible-playbook msmtp.yml --limit '!controller'
 ```
 
-A playbook that touches every host including this one then splits in two: the fleet through the broker, the controller as root some other way. `sudo faramir init --allow-sudo` closes that: a brokered command's `sudo` puts a question to a human, answered per run by `sudo faramir approve ID`, with no password anywhere. How it works and how to run it is [operating.md](operating.md#allowing-sudo-on-the-controller); the reasoning is [design.md](design.md#allowing-sudo-on-the-controller).
+A playbook that touches every host then splits in two: the fleet through the broker, the controller as root some other way. `sudo faramir init --allow-sudo` closes that: a brokered command's `sudo` puts a question to a human, answered per run by `sudo faramir approve ID`, with no password anywhere. How to run it is [operating.md](operating.md#allowing-sudo-on-the-controller); the reasoning is [design.md](design.md#allowing-sudo-on-the-controller).
 
 The Ansible side is one variable, on the controller host only:
 
@@ -105,7 +108,7 @@ ansible_become_flags: '-H'
 
 Dropping the default `-n` is the whole of it: `-n` tells `sudo` to fail rather than authenticate, and it does so before the PAM stack runs, so the question is never put and every task fails with `sudo: a password is required` even when a human is watching. Nothing here prompts, so there is no `SUDO_ASKPASS` and no `-A`. `-H` sets `HOME` to root's, which is what `become` normally does for you.
 
-And you leave a watcher running, as root, in a terminal the coding agent cannot type into ([operating.md](operating.md#what-happens-when-a-command-runs-sudo) says why not a tmux pane on your own account):
+And you leave a watcher running, as root, in a terminal the coding agent cannot type into:
 
 ```bash
 sudo faramir approvals --watch
@@ -113,6 +116,4 @@ sudo faramir approvals --watch
 
 Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. The first task that runs sudo puts a question there naming the playbook; anything but `yes`, including no answer, fails that task with `sudo`'s own error.
 
-- One approval per playbook run, not per task: a yes covers every `sudo` that `ansible-playbook` invocation makes, and is gone when it exits, so a second `faramir run` is asked about separately however soon it follows.
-- A *second* brokered command cannot ride the approval: the broker serialises, refusing every other brokered command with `approval_in_progress` from the moment a question is put until the approved run ends. The refusal is terminal, the command having been neither run nor queued, so run it again once the playbook has finished. What is *not* bounded is the approved command itself: it gets real root and can make it permanent, exactly as `sudo ansible-playbook` by hand can, so approve only a playbook you trust with permanent root, and keep it operator-owned and read-only to brokered commands.
-- `faramir doctor` reports the arrangement, and reports a `NOPASSWD` entry for `faramir-exec` as a failure whether or not this host was installed with `--allow-sudo`.
+One approval covers the whole playbook run rather than one task, and is gone when the run exits. Expect other brokered commands to be refused while a question is open, and approve only a playbook you trust with permanent root: [what an approval does and does not bound](operating.md#one-question-per-run-and-what-to-expect).
