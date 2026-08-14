@@ -7,6 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/server"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -15,19 +17,33 @@ import (
 
 // cmdBroker is the secrets broker daemon: policy, redaction, the audit log and
 // the SSH keys.  systemd runs it as its own uid, which is the boundary.
-func cmdBroker(args []string) int {
-	fs := newFlagSet("broker", "broker [-c PATH] [--check] [--parse-only]")
-	configPath := fs.String("config", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
-	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
-	check := fs.Bool("check", false, "validate config and exit")
+type brokerFlags struct {
+	configPath  string
+	check       bool
+	parseOnly   bool
+	showVersion bool
+}
+
+func newBrokerCmd() *cobra.Command {
+	var f brokerFlags
+	c := &cobra.Command{
+		Use:     "broker",
+		Short:   "the secrets broker daemon",
+		GroupID: groupInternal,
+		Args:    noArgs,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runBroker(f)) },
+	}
+	c.Flags().StringVarP(&f.configPath, "config", "c", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
+	c.Flags().BoolVar(&f.check, "check", false, "validate config and exit")
 	// Whether a config parses, judged by the parser that will judge it later.
 	// Distinct from --check, which also opens the SSH keys and the secrets files
 	// and so needs a running keeper.
-	parseOnly := fs.Bool("parse-only", false, "load the config, report whether it is valid, and exit")
-	showVersion := fs.Bool("version", false, "print the version and exit")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
-	}
+	c.Flags().BoolVar(&f.parseOnly, "parse-only", false, "load the config, report whether it is valid, and exit")
+	c.Flags().BoolVar(&f.showVersion, "version", false, "print the version and exit")
+	return c
+}
+
+func runBroker(f brokerFlags) int {
 
 	// The global logger: the internal packages log through it, and systemd runs
 	// one role per process.
@@ -36,12 +52,12 @@ func cmdBroker(args []string) int {
 	undumpable("faramir-broker")
 
 	// Before the config is loaded, so --version answers on a broken host.
-	if *showVersion {
+	if f.showVersion {
 		fmt.Println("faramir " + version.Version)
 		return 0
 	}
 
-	cfg, err := config.Load(resolveDaemonConfig(*configPath))
+	cfg, err := config.Load(resolveDaemonConfig(f.configPath))
 	if err != nil {
 		log.Printf("%v", err)
 		return 2
@@ -49,7 +65,7 @@ func cmdBroker(args []string) int {
 
 	// Before Reload: the installer calls this before anything is started, and
 	// reaching here means the config loaded.
-	if *parseOnly {
+	if f.parseOnly {
 		return 0
 	}
 
@@ -58,7 +74,7 @@ func cmdBroker(args []string) int {
 
 	// Before starting the agent: --check runs against a live broker, and a second
 	// agent would replace its socket and outlive this process.
-	if *check {
+	if f.check {
 		body, code := s.CheckOutput()
 		fmt.Println(string(body))
 		return code

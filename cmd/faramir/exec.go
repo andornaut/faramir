@@ -7,6 +7,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/execserver"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -16,33 +18,39 @@ import (
 // cmdExec is the executor daemon, which forks brokered commands and holds
 // nothing.  To run one, use `faramir run`, which asks the broker, which asks
 // this.  Named for its account and unit (faramir-exec).
-func cmdExec(args []string) int {
-	fs := newFlagSet("exec", "exec [-c PATH]")
-	fs.Usage = func() {
-		_, _ = fmt.Fprint(fs.Output(),
-			"usage: faramir exec [-c PATH]\n\n"+
-				"The executor daemon, run by faramir-exec.service.  To run a command\n"+
-				"through the broker, use `faramir run`.\n\noptions:\n")
-		printDefaults(fs)
-	}
-	configPath := fs.String("config", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
-	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
-	showVersion := fs.Bool("version", false, "print the version and exit")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
-	}
+type execFlags struct {
+	configPath  string
+	showVersion bool
+}
 
+func newExecCmd() *cobra.Command {
+	var f execFlags
+	c := &cobra.Command{
+		Use:   "exec",
+		Short: "the executor daemon (to run a command, see \"run\" above)",
+		Long: "The executor daemon, run by faramir-exec.service.  To run a command\n" +
+			"through the broker, use `faramir run`.",
+		GroupID: groupInternal,
+		Args:    noArgs,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runExec(f)) },
+	}
+	c.Flags().StringVarP(&f.configPath, "config", "c", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
+	c.Flags().BoolVar(&f.showVersion, "version", false, "print the version and exit")
+	return c
+}
+
+func runExec(f execFlags) int {
 	// See cmdBroker.
 	log.SetFlags(0)
 	log.SetPrefix("faramir-exec: ")
 	undumpable("faramir-exec")
 
-	if *showVersion {
+	if f.showVersion {
 		fmt.Println("faramir " + version.Version)
 		return 0
 	}
 
-	cfg, err := config.Load(resolveDaemonConfig(*configPath))
+	cfg, err := config.Load(resolveDaemonConfig(f.configPath))
 	if err != nil {
 		log.Printf("%v", err)
 		return 2

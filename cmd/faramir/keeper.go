@@ -8,6 +8,8 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -16,26 +18,39 @@ import (
 
 // cmdKeeper holds the age key and serves decrypted values, as a uid of its own
 // that executes nothing but sops.
-func cmdKeeper(args []string) int {
-	fs := newFlagSet("keeper", "keeper [-c PATH] [--check]")
-	configPath := fs.String("config", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
-	fs.StringVar(configPath, "c", "", "path to config.toml (shorthand)")
-	check := fs.Bool("check", false, "decrypt once and exit")
-	showVersion := fs.Bool("version", false, "print the version and exit")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+type keeperFlags struct {
+	configPath  string
+	check       bool
+	showVersion bool
+}
+
+func newKeeperCmd() *cobra.Command {
+	var f keeperFlags
+	c := &cobra.Command{
+		Use:     "keeper",
+		Short:   "holds the age key, serves decrypted values",
+		GroupID: groupInternal,
+		Args:    noArgs,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runKeeper(f)) },
 	}
+	c.Flags().StringVarP(&f.configPath, "config", "c", "", "path to config.toml (default $FARAMIR_CONFIG, then the installed one)")
+	c.Flags().BoolVar(&f.check, "check", false, "decrypt once and exit")
+	c.Flags().BoolVar(&f.showVersion, "version", false, "print the version and exit")
+	return c
+}
+
+func runKeeper(f keeperFlags) int {
 
 	// See cmdBroker.
 	log.SetFlags(0)
 	log.SetPrefix("faramir-keeper: ")
 
-	if *showVersion {
+	if f.showVersion {
 		fmt.Println("faramir " + version.Version)
 		return 0
 	}
 
-	cfg, err := config.Load(resolveDaemonConfig(*configPath))
+	cfg, err := config.Load(resolveDaemonConfig(f.configPath))
 	if err != nil {
 		log.Printf("%v", err)
 		return 2
@@ -43,7 +58,7 @@ func cmdKeeper(args []string) int {
 
 	k := keeper.New(cfg)
 
-	if *check {
+	if f.check {
 		values, errs := keeper.DecryptAll(cfg.Secrets, k.Keys)
 		if errs == nil {
 			errs = []string{}

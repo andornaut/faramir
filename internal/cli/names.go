@@ -16,8 +16,11 @@ var Operator = []string{
 	"list-secrets",
 	"status",
 	"keygen",
+	// version, help and completion are cobra's as much as faramir's: the last
+	// two it generates, and all three answer without reaching the broker.
 	"version",
 	"help",
+	"completion",
 	"init",
 	"init-project",
 	"edit",

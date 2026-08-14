@@ -16,6 +16,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
@@ -131,85 +133,111 @@ func resolveConfigDir(explicit, socketPath string) string {
 	return configDirFrom(explicit, askBroker(socketPath))
 }
 
-func cmdInit(args []string) int {
-	fs := newFlagSet("init", "init [options]")
-	operatorUser := fs.String("operator-user", "",
+type initFlags struct {
+	operatorUser string
+	clientGroup  string
+	secretsGroup string
+	brokerUser   string
+	keeperUser   string
+	execUser     string
+	configDir    string
+	socket       string
+	sshKey       string
+	knownHosts   string
+	initAgents   []string
+	allowSudo    bool
+	moveConfig   bool
+	dryRun       bool
+	asJSON       bool
+	recipients   []string
+}
+
+func newInitCmd() *cobra.Command {
+	var f initFlags
+	c := &cobra.Command{
+		Use:     "init [options]",
+		Short:   "install or re-install faramir on this host",
+		GroupID: groupProvisioning,
+		Args:    noArgs,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInit(f)) },
+	}
+	fl := c.Flags()
+	fl.StringVar(&f.operatorUser, "operator-user", "",
 		"account the coding agent runs as (default $SUDO_USER, then you)")
 	// One admits a caller to the broker socket and shares the working tree, the
 	// other owns the ciphertext; holding one is not holding the other.
-	clientGroup := fs.String("client-group", "",
+	fl.StringVar(&f.clientGroup, "client-group", "",
 		"group admitted to the broker socket, and shared with the executor on a working "+
 			"tree (default: what the install uses, then "+install.DefaultClientGroup+")")
-	secretsGroup := fs.String("secrets-group", "",
+	fl.StringVar(&f.secretsGroup, "secrets-group", "",
 		"group owning the ciphertext in <config-dir>/secrets (default: what the install uses, then the keeper's own group, which is the only account that opens one; naming another adds a second reader)")
-	brokerUser := fs.String("broker-user", "",
+	fl.StringVar(&f.brokerUser, "broker-user", "",
 		"account that holds the SSH keys and the audit log (default: what the install "+
 			"uses, then "+install.DefaultBrokerUser+")")
-	keeperUser := fs.String("keeper-user", "",
+	fl.StringVar(&f.keeperUser, "keeper-user", "",
 		"account that holds the age key (default: what the install uses, then "+
 			install.DefaultKeeperUser+")")
-	execUser := fs.String("exec-user", "",
+	fl.StringVar(&f.execUser, "exec-user", "",
 		"account brokered commands run as (default: what the install uses, then "+
 			install.DefaultExecUser+")")
-	configDir := fs.String("config-dir", "",
+	fl.StringVar(&f.configDir, "config-dir", "",
 		"where config.toml, config.d/, the age key and the managed sops files are "+
 			"installed (default: ask the broker, then read its unit, then "+install.DefaultConfigDir+")")
-	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
-	sshKey := fs.String("ssh-key", "",
+	fl.StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
+	fl.StringVar(&f.sshKey, "ssh-key", "",
 		"where the identity the broker lends to brokered commands lives "+
 			"(default: what the install uses, then id_ed25519 beside the age key; "+
 			"one is minted either way)")
-	knownHosts := fs.String("known-hosts", "",
+	fl.StringVar(&f.knownHosts, "known-hosts", "",
 		"a known_hosts file whose host keys are pinned for the executor, copied to "+
 			"<exec-home>/.ssh/known_hosts (default: none, a brokered ssh then verifying "+
 			"against /etc/ssh/ssh_known_hosts alone)")
-	var initAgents multiFlag
-	fs.Var(&initAgents, "agent",
+	fl.StringArrayVar(&f.initAgents, "agent", nil,
 		"install the deny rules into this agent's own settings, repeatable. "+
 			"Default \""+install.AgentAuto+"\": whichever agents the operator's home "+
 			"already carries. A name writes them whether or not the agent is there, "+
 			"and composes with auto. Known: "+
 			strings.Join(install.KnownAgents(), ", "))
-	allowSudo := fs.Bool("allow-sudo", false,
+	fl.BoolVar(&f.allowSudo, "allow-sudo", false,
 		"let a brokered command ASK to sudo on this host; it cannot sudo on its own. "+
 			"The executor gets a password-required sudoers entry pointed at a PAM "+
 			"service whose auth step asks the broker, so no password exists anywhere "+
 			"and a human approves each command through 'faramir approve'. Off by "+
 			"default, and re-running without it takes the grant away")
-	moveConfig := fs.Bool("move-config", false,
+	fl.BoolVar(&f.moveConfig, "move-config", false,
 		"consent to point this host's daemons at a different --config-dir. There is "+
 			"one set of units, so the new directory replaces the old rather than "+
 			"standing beside it: the refs the old one served leave the value set and "+
 			"stop being redacted, while its age key and ciphertext stay on disk. "+
 			"Refused without this")
-	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
-	asJSON := fs.Bool("json", false, "print the report as JSON")
-	var recipients multiFlag
-	fs.Var(&recipients, "age-recipient",
+	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
+	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
+	fl.StringArrayVar(&f.recipients, "age-recipient", nil,
 		"an age PUBLIC key that may also decrypt the secrets directory, added to .sops.yaml beside the keeper's own so a backup of the ciphertext opens without the keeper's key; repeatable, and only read at the install that creates the file")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
-	}
+	return c
+}
+
+func runInit(f initFlags) int {
 
 	opts := install.Options{
-		OperatorUser:  operatorName(*operatorUser),
-		ClientGroup:   *clientGroup,
-		SecretsGroup:  *secretsGroup,
-		BrokerUser:    *brokerUser,
-		KeeperUser:    *keeperUser,
-		ExecUser:      *execUser,
-		ConfigDir:     resolveConfigDir(*configDir, *socket),
-		AgeRecipients: recipients,
-		SSHKey:        *sshKey,
-		KnownHosts:    *knownHosts,
-		Agents:        initAgents,
-		AllowSudo:     *allowSudo,
-		MoveConfig:    *moveConfig,
-		DryRun:        *dryRun,
+		OperatorUser:  operatorName(f.operatorUser),
+		ClientGroup:   f.clientGroup,
+		SecretsGroup:  f.secretsGroup,
+		BrokerUser:    f.brokerUser,
+		KeeperUser:    f.keeperUser,
+		ExecUser:      f.execUser,
+		ConfigDir:     resolveConfigDir(f.configDir, f.socket),
+		AgeRecipients: f.recipients,
+		SSHKey:        f.sshKey,
+		KnownHosts:    f.knownHosts,
+		Agents:        f.initAgents,
+		AllowSudo:     f.allowSudo,
+		MoveConfig:    f.moveConfig,
+		DryRun:        f.dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
 	// --json entirely.
-	if !*asJSON {
+	if !f.asJSON {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
 		// Named before anything is written.  Without --config-dir this was
 		// discovered, and an install written somewhere the operator did not expect
@@ -219,7 +247,7 @@ func cmdInit(args []string) int {
 	}
 
 	report, err := install.Run(opts)
-	if *asJSON {
+	if f.asJSON {
 		body, marshalErr := json.MarshalIndent(report, "", "  ")
 		if marshalErr == nil {
 			fmt.Println(string(body))
@@ -229,7 +257,7 @@ func cmdInit(args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
 		return 1
 	}
-	if !*asJSON {
+	if !f.asJSON {
 		reportToOperator(report)
 	}
 	return 0
@@ -254,50 +282,66 @@ func reportToOperator(report install.Report) {
 // cmdInitProject enrols one tree, defaulting to the working directory.  Safe
 // here and not on init, which means "provision this host" and would otherwise
 // enrol wherever it was run from.
-func cmdInitProject(args []string) int {
-	fs := newFlagSet("init-project", "init-project [options] [DIR]")
-	operatorUser := fs.String("operator-user", "",
+type initProjectFlags struct {
+	operatorUser string
+	configDir    string
+	socket       string
+	clientGroup  string
+	hook         bool
+	agents       []string
+	dryRun       bool
+	asJSON       bool
+}
+
+func newInitProjectCmd() *cobra.Command {
+	var f initProjectFlags
+	c := &cobra.Command{
+		Use:     "init-project [options] [DIR]",
+		Short:   "enrol one working tree: share it, and configure its agents",
+		GroupID: groupProvisioning,
+		Args:    atMostOneArg("directory"),
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInitProject(f, args)) },
+	}
+	fl := c.Flags()
+	fl.StringVar(&f.operatorUser, "operator-user", "",
 		"account that works in the tree (default $SUDO_USER, then you)")
-	configDir := fs.String("config-dir", "",
+	fl.StringVar(&f.configDir, "config-dir", "",
 		"where the installed config is, which is where the client group is read from "+
 			"(default: ask the broker, then read its unit)")
-	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
-	clientGroup := fs.String("client-group", "",
+	fl.StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
+	fl.StringVar(&f.clientGroup, "client-group", "",
 		"override the client group instead of reading it from the installed config")
-	hook := fs.Bool("hook", true,
+	fl.BoolVar(&f.hook, "hook", true,
 		"register the PreToolUse hook, which redacts this project's command output. "+
 			"On Claude Code that auto-approves Bash here as a consequence; the other "+
 			"agents have no approval to give, so it costs them nothing")
-	var agents multiFlag
-	fs.Var(&agents, "agent",
+	fl.StringArrayVar(&f.agents, "agent", nil,
 		"coding agent to enrol, repeatable. Default \""+install.AgentAuto+"\": "+
 			"whichever agents this tree already carries configuration for. A name "+
 			"enrols that agent whether or not it is there, and composes with auto. "+
 			"Known: "+strings.Join(install.KnownAgents(), ", "))
-	dryRun := fs.Bool("dry-run", false, "report what would change and write nothing")
-	asJSON := fs.Bool("json", false, "print the report as JSON")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
-	}
-	if fs.NArg() > 1 {
-		return usageError(fs, "faramir init-project: takes at most one directory")
-	}
+	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
+	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
+	return c
+}
+
+func runInitProject(f initProjectFlags, args []string) int {
 
 	opts := install.ProjectOptions{
-		Dir:          fs.Arg(0),
-		OperatorUser: operatorName(*operatorUser),
-		ConfigDir:    resolveConfigDir(*configDir, *socket),
-		ClientGroup:  *clientGroup,
-		Hook:         *hook,
-		Agents:       agents,
-		DryRun:       *dryRun,
+		Dir:          firstArg(args),
+		OperatorUser: operatorName(f.operatorUser),
+		ConfigDir:    resolveConfigDir(f.configDir, f.socket),
+		ClientGroup:  f.clientGroup,
+		Hook:         f.hook,
+		Agents:       f.agents,
+		DryRun:       f.dryRun,
 	}
-	if !*asJSON {
+	if !f.asJSON {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
 	}
 
 	report, err := install.Project(opts)
-	if *asJSON {
+	if f.asJSON {
 		body, marshalErr := json.MarshalIndent(report, "", "  ")
 		if marshalErr == nil {
 			fmt.Println(string(body))
@@ -307,7 +351,7 @@ func cmdInitProject(args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
 		return 1
 	}
-	if !*asJSON {
+	if !f.asJSON {
 		for _, warning := range report.Warnings {
 			fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
 		}
@@ -322,32 +366,55 @@ func cmdInitProject(args []string) int {
 	return 0
 }
 
-func cmdDoctor(args []string) int {
-	fs := newFlagSet("doctor", "doctor [options]")
-	configDir := fs.String("config-dir", "", "where config.toml was installed (default: ask the broker)")
-	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
-	operatorUser := fs.String("operator-user", "", "account the coding agent runs as")
+type doctorFlags struct {
+	configDir    string
+	socket       string
+	operatorUser string
+	clientGroup  string
+	secretsGroup string
+	brokerUser   string
+	keeperUser   string
+	execUser     string
+	asJSON       bool
+	when         string
+}
+
+func newDoctorCmd() *cobra.Command {
+	var f doctorFlags
+	c := &cobra.Command{
+		Use:     "doctor [options]",
+		Short:   "report whether the install is doing its job",
+		GroupID: groupProvisioning,
+		Args:    noArgs,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runDoctor(f)) },
+	}
+	fl := c.Flags()
+	fl.StringVar(&f.configDir, "config-dir", "", "where config.toml was installed (default: ask the broker)")
+	fl.StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
+	fl.StringVar(&f.operatorUser, "operator-user", "", "account the coding agent runs as")
 	// Empty rather than the install defaults: doctor reads what this host
 	// actually runs out of the units, the config and the secrets directory, and
 	// a default here would shadow that and answer about accounts a host
 	// installed with other names does not have.  Each names an override for a
 	// host whose install is not the one on this machine.
-	clientGroup := fs.String("client-group", "",
+	fl.StringVar(&f.clientGroup, "client-group", "",
 		"override the group admitted to the broker socket, instead of reading [server] allowed_group")
-	secretsGroup := fs.String("secrets-group", "",
+	fl.StringVar(&f.secretsGroup, "secrets-group", "",
 		"override the group owning the ciphertext, instead of reading it off <config-dir>/secrets")
-	brokerUser := fs.String("broker-user", "",
+	fl.StringVar(&f.brokerUser, "broker-user", "",
 		"override the account the broker runs as, instead of reading faramir-broker.service")
-	keeperUser := fs.String("keeper-user", "",
+	fl.StringVar(&f.keeperUser, "keeper-user", "",
 		"override the account that holds the age key, instead of reading faramir-keeper.service")
-	execUser := fs.String("exec-user", "",
+	fl.StringVar(&f.execUser, "exec-user", "",
 		"override the account brokered commands run as, instead of reading faramir-exec.service")
-	asJSON := fs.Bool("json", false, "print the findings as JSON")
-	when := fs.String("color", "auto", "colourise: auto, always or never")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
-	}
-	paint, err := newPalette(*when)
+	fl.BoolVar(&f.asJSON, "json", false, "print the findings as JSON")
+	fl.StringVar(&f.when, "color", "auto", "colourise: auto, always or never")
+	return c
+}
+
+func runDoctor(f doctorFlags) int {
+
+	paint, err := newPalette(f.when)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
 		return 2
@@ -359,19 +426,19 @@ func cmdDoctor(args []string) int {
 	sockets := install.SampleSockets()
 	// One round trip: the same answer decides which install this is and whether
 	// the daemons are running the code that was installed.
-	broker := askBroker(*socket)
+	broker := askBroker(f.socket)
 	report := install.Diagnose(install.DoctorOptions{
-		ConfigDir:     configDirFrom(*configDir, broker),
+		ConfigDir:     configDirFrom(f.configDir, broker),
 		BrokerVersion: broker.version,
 		SocketStates:  sockets,
-		OperatorUser:  operatorName(*operatorUser),
-		ClientGroup:   *clientGroup,
-		BrokerUser:    *brokerUser,
-		KeeperUser:    *keeperUser,
-		ExecUser:      *execUser,
-		SecretsGroup:  *secretsGroup,
+		OperatorUser:  operatorName(f.operatorUser),
+		ClientGroup:   f.clientGroup,
+		BrokerUser:    f.brokerUser,
+		KeeperUser:    f.keeperUser,
+		ExecUser:      f.execUser,
+		SecretsGroup:  f.secretsGroup,
 	})
-	if *asJSON {
+	if f.asJSON {
 		body, err := json.MarshalIndent(report, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
@@ -533,18 +600,32 @@ func terminalWidth() int {
 	return 80
 }
 
-func cmdUninstall(args []string) int {
-	fs := newFlagSet("uninstall", "uninstall [options]")
-	configDir := fs.String("config-dir", "",
-		"where config.toml was installed (default: ask the broker, then read its unit)")
-	socket := fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+type uninstallFlags struct {
+	configDir string
+	socket    string
+}
+
+func newUninstallCmd() *cobra.Command {
+	var f uninstallFlags
+	c := &cobra.Command{
+		Use:     "uninstall [options]",
+		Short:   "remove the broker, keeping the key, the secrets directory and the log",
+		GroupID: groupProvisioning,
+		Args:    noArgs,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runUninstall(f)) },
 	}
+	c.Flags().StringVar(&f.configDir, "config-dir", "",
+		"where config.toml was installed (default: ask the broker, then read its unit)")
+	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
+	return c
+}
+
+func runUninstall(f uninstallFlags) int {
+
 	if !requireRoot("uninstall", "it removes the units and the installed files") {
 		return 1
 	}
-	left, err := install.Uninstall(resolveConfigDir(*configDir, *socket))
+	left, err := install.Uninstall(resolveConfigDir(f.configDir, f.socket))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir uninstall: %v\n", err)
 		return 1
@@ -558,11 +639,18 @@ func cmdUninstall(args []string) int {
 	return 0
 }
 
-func cmdReload(args []string) int {
-	fs := newFlagSet("reload", "reload")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+func newReloadCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:     "reload",
+		Short:   "drop the daemons onto a changed configuration",
+		GroupID: groupProvisioning,
+		Args:    noArgs,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReload()) },
 	}
+}
+
+func runReload() int {
+
 	if !requireRoot("reload", "it restarts the daemons") {
 		return 1
 	}

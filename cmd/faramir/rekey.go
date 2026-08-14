@@ -20,24 +20,40 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeper"
 )
 
-func cmdRekey(args []string) int {
-	fs := newFlagSet("rekey", "rekey [options] [FILE...]")
-	configPath := fs.String("config", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
-	fs.StringVar(configPath, "c", "", "config file (shorthand)")
-	ageKey := fs.String("age-key", "", "age key file (default: age.key beside the config)")
-	sopsConfig := fs.String("sops-config", "", "creation rule to read the recipients from "+
-		"(default: .sops.yaml beside the config)")
-	dryRun := fs.Bool("dry-run", false, "report which files would be re-encrypted and write nothing")
-	socket := fs.String("socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+type rekeyFlags struct {
+	configPath string
+	ageKey     string
+	sopsConfig string
+	dryRun     bool
+	socket     string
+}
+
+func newRekeyCmd() *cobra.Command {
+	var f rekeyFlags
+	c := &cobra.Command{
+		Use:     "rekey [options] [FILE...]",
+		Short:   "re-encrypt the secrets directory to the recipients .sops.yaml now names",
+		GroupID: groupProvisioning,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runRekey(f, args)) },
 	}
+	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
+	c.Flags().StringVar(&f.ageKey, "age-key", "", "age key file (default: age.key beside the config)")
+	c.Flags().StringVar(&f.sopsConfig, "sops-config", "", "creation rule to read the recipients from "+
+		"(default: .sops.yaml beside the config)")
+	c.Flags().BoolVar(&f.dryRun, "dry-run", false, "report which files would be re-encrypted and write nothing")
+	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
+	return c
+}
+
+func runRekey(f rekeyFlags, args []string) int {
 
 	// Refused rather than attempted, like edit: as the operator this fails on the
 	// age key with a bare permission error, and the fix is not obvious from it.
@@ -45,7 +61,7 @@ func cmdRekey(args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(*configPath, *socket))
+	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
 		return 1
@@ -55,7 +71,7 @@ func cmdRekey(args []string) int {
 	// not among the managed ones, and the operator wants every reason.
 	managed, failures, absent := keeper.Resolve(cfg.Secrets.Patterns)
 	unresolvable := slices.Concat(failures, absent)
-	targets, err := rekeyTargets(managed, fs.Args())
+	targets, err := rekeyTargets(managed, args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
 		for _, reason := range unresolvable {
@@ -70,7 +86,7 @@ func cmdRekey(args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir rekey: not reached: %s\n", reason)
 	}
 
-	rulePath := *sopsConfig
+	rulePath := f.sopsConfig
 	if rulePath == "" {
 		rulePath = filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
 	}
@@ -80,7 +96,7 @@ func cmdRekey(args []string) int {
 		return 1
 	}
 
-	keyPath := *ageKey
+	keyPath := f.ageKey
 	if keyPath == "" {
 		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
 	}
@@ -110,7 +126,7 @@ func cmdRekey(args []string) int {
 			fmt.Fprintf(os.Stderr, "faramir rekey: unchanged %s\n", target)
 			continue
 		}
-		if *dryRun {
+		if f.dryRun {
 			fmt.Fprintf(os.Stderr, "faramir rekey: would re-encrypt %s: %s -> %s\n",
 				target, strings.Join(was, ","), strings.Join(wanted, ","))
 			changed++
@@ -148,7 +164,7 @@ func cmdRekey(args []string) int {
 			"those still open to the recipients they had\n", failed, len(targets))
 		return 1
 	}
-	if *dryRun {
+	if f.dryRun {
 		fmt.Fprintf(os.Stderr, "faramir rekey: %d of %d file(s) would change\n", changed, len(targets))
 		return 0
 	}

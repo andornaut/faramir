@@ -6,10 +6,8 @@ package main
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -17,18 +15,15 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
-	"regexp"
 	"strings"
 	"time"
 
 	"filippo.io/age"
+	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/agekey"
-	"github.com/andornaut/faramir/internal/guard"
-	"github.com/andornaut/faramir/internal/mcp"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
-	"github.com/andornaut/faramir/internal/version"
 )
 
 const defaultSocket = "/run/faramir/broker.sock"
@@ -43,212 +38,10 @@ func socketDefault() string {
 
 func main() { os.Exit(run(os.Args[1:])) }
 
-func usage(w io.Writer) {
-	_, _ = fmt.Fprintf(w, `usage: faramir <command> [options] [-- program [args...]]
-
-A secrets broker for local AI coding agents: it runs the commands that need
-credentials and keeps the values out of the agent's context.
-
-Commands:
-  run           run a command with secrets injected
-  redact        scrub secrets out of text, or out of a command's output
-  list-secrets  list secret refs (names only)
-  status        show broker status
-  keygen        mint an age keypair for the keeper
-  version       print the version and exit
-
-Provisioning (require root; they act on files, and ask a running broker where
-the install is):
-  init          install or re-install faramir on this host
-  init-project  enrol one working tree: share it, and configure its agents
-  edit          edit a managed sops file
-  rekey         re-encrypt the secrets directory to the recipients .sops.yaml now names
-  logs          show the audit log: what ran, against which refs, and how it ended
-  approvals     list the approval a brokered command is waiting on
-  approve       say yes to one, by id
-  deny          say no, to that one or to whatever is waiting
-  doctor        report whether the install is doing its job
-  reload        drop the daemons onto a changed configuration
-  uninstall     remove the broker, keeping the key, the secrets directory and the log
-
-Run by systemd and by the coding agent, not by you:
-  broker        the secrets broker daemon
-  keeper        holds the age key, serves decrypted values
-  exec          the executor daemon (to run a command, see "run" above)
-  mcp           MCP stdio server
-  guard         PreToolUse hook
-  pam-approve   decide one sudo, inside a brokered command (run by PAM)
-
-Run "faramir <command> --help" for that command's own options.
-
-Every command that talks to the broker accepts:
-  --socket PATH   broker socket (default %s; $FARAMIR_SOCKET)
-  --json          print the raw response instead of the output
-
-Name secrets with --env NAME=secret://ref, or --env-file for a file of them.
-
-Secrets are injected as environment variables only; they are never substituted
-into the command line.
-`, socketDefault())
-}
-
 func run(args []string) int {
-	if len(args) == 0 {
-		usage(os.Stderr)
-		return 2
-	}
-	switch args[0] {
-	case "-h", "--help", "help":
-		usage(os.Stdout)
-		return 0
-	case "-V", "--version", "version":
-		fmt.Println("faramir " + version.Version)
-		return 0
-	case "run":
-		return cmdRun(args[1:])
-	case "redact":
-		return cmdRedact(args[1:])
-	case "list-secrets":
-		return call("list_secrets", args[1:])
-	case "status":
-		return call("status", args[1:])
-	case "keygen":
-		return cmdKeygen(args[1:])
-	case "init":
-		return cmdInit(args[1:])
-	case "init-project":
-		return cmdInitProject(args[1:])
-	case "edit":
-		return cmdEdit(args[1:])
-	case "rekey":
-		return cmdRekey(args[1:])
-	case "logs":
-		return cmdLogs(args[1:])
-	case "approvals":
-		return cmdApprovals(args[1:])
-	case "approve":
-		return cmdApprove(args[1:])
-	case "deny":
-		return cmdDeny(args[1:])
-	case "doctor":
-		return cmdDoctor(args[1:])
-	case "reload":
-		return cmdReload(args[1:])
-	case "uninstall":
-		return cmdUninstall(args[1:])
-	// The roles systemd and the coding agent run, each named for its unit and
-	// account so a role is spelled one way everywhere.
-	case "broker":
-		return cmdBroker(args[1:])
-	case "keeper":
-		return cmdKeeper(args[1:])
-	case "exec":
-		return cmdExec(args[1:])
-	case "pam-approve":
-		return cmdPamApprove(args[1:])
-	case "mcp":
-		return mcp.Run(args[1:])
-	case "guard":
-		return guard.Run(args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "faramir: unknown command %q\n", args[0])
-		usage(os.Stderr)
-		return 2
-	}
-}
-
-// newFlagSet builds a subcommand's flag set with a usage line of its own.
-func newFlagSet(name, synopsis string) *flag.FlagSet {
-	fs := flag.NewFlagSet(name, flag.ContinueOnError)
-	fs.Usage = func() {
-		_, _ = fmt.Fprintf(fs.Output(), "usage: faramir %s\n\noptions:\n", synopsis)
-		printDefaults(fs)
-	}
-	return fs
-}
-
-// printDefaults renders a flag set the way the rest of the tool spells flags:
-// one dash for a single-letter shorthand, two for a long name.  The standard
-// library's PrintDefaults writes one dash for every flag, which disagrees with
-// every usage line and every mention in prose.  The layout otherwise follows
-// PrintDefaults, including its rule for showing a non-zero default.
-func printDefaults(fs *flag.FlagSet) {
-	fs.VisitAll(func(f *flag.Flag) {
-		dash := "--"
-		if len(f.Name) == 1 {
-			dash = "-"
-		}
-		var b strings.Builder
-		fmt.Fprintf(&b, "  %s%s", dash, f.Name)
-		name, usage := flag.UnquoteUsage(f)
-		if name != "" {
-			b.WriteString(" " + name)
-		}
-		// A one-letter bool keeps its usage on the same line; everything else wraps.
-		if b.Len() <= 4 {
-			b.WriteString("\t")
-		} else {
-			b.WriteString("\n    \t")
-		}
-		b.WriteString(strings.ReplaceAll(usage, "\n", "\n    \t"))
-		// The zero value of each type is what flag omits: "" for a string, "0" for
-		// a number, "false" for a bool.  A number is printed bare, a string quoted.
-		if d := f.DefValue; d != "" && d != "false" && d != "0" {
-			if looksNumeric(d) {
-				fmt.Fprintf(&b, " (default %s)", d)
-			} else {
-				fmt.Fprintf(&b, " (default %q)", d)
-			}
-		}
-		_, _ = fmt.Fprintln(fs.Output(), b.String())
-	})
-}
-
-// looksNumeric reports whether a default value is an integer, so it is printed
-// without quotes.  Every numeric flag here is an int; a float or a negative is
-// still handled.
-func looksNumeric(s string) bool {
-	for i, r := range s {
-		if r == '-' && i == 0 {
-			continue
-		}
-		if r < '0' || r > '9' {
-			return false
-		}
-	}
-	return s != "" && s != "-"
-}
-
-// parseFlags runs a subcommand's flag set.  --help is stdout and 0, a bad flag
-// is stderr and 2; flag writes both through one handle, so the output is
-// captured and routed afterwards.
-func parseFlags(fs *flag.FlagSet, args []string) (code int, ok bool) {
-	var captured bytes.Buffer
-	fs.SetOutput(&captured)
-	err := fs.Parse(args)
-	switch {
-	case err == nil:
-		return 0, true
-	case errors.Is(err, flag.ErrHelp):
-		_, _ = fmt.Fprint(os.Stdout, captured.String())
-		return 0, false
-	default:
-		fmt.Fprint(os.Stderr, twoDashes(captured.String()))
-		return 2, false
-	}
-}
-
-// oneDashName matches a long flag name spelled with one dash in the standard
-// library's parse errors.  A single-letter shorthand is left alone, because one
-// dash is how faramir spells that.
-var oneDashName = regexp.MustCompile(`((?:flag provided but not defined|flag needs an argument): |for (?:flag )?)-(\w[\w-]+)`)
-
-// twoDashes respells a long flag name in a parse error.  The standard library
-// writes one dash for every flag, which sends the reader to a spelling that does
-// not work: printDefaults exists for the same reason, and every usage line and
-// mention in prose writes two.
-func twoDashes(s string) string {
-	return oneDashName.ReplaceAllString(s, "$1--$2")
+	root := newRootCmd()
+	root.SetArgs(args)
+	return exitCode(root.Execute())
 }
 
 // requireRoot refuses a command that must run as root, naming why and how.  The
@@ -262,17 +55,6 @@ func requireRoot(command, reason string) bool {
 	fmt.Fprintf(os.Stderr, "faramir %s must run as root, because %s: try 'sudo faramir %s'\n",
 		command, reason, command)
 	return false
-}
-
-// usageError reports a subcommand used wrongly: a one-line message, then the
-// synopsis and its options.  parseFlags leaves the flag set writing to a
-// discarded buffer, so the output is repointed at stderr first.  Always 2.  A
-// command with extra guidance prints it after this returns, below the options.
-func usageError(fs *flag.FlagSet, format string, args ...any) int {
-	fmt.Fprintf(os.Stderr, format+"\n", args...)
-	fs.SetOutput(os.Stderr)
-	fs.Usage()
-	return 2
 }
 
 // operatorName resolves the account that works in the tree: --operator-user,
@@ -294,124 +76,132 @@ func operatorName(flagValue string) string {
 	return ""
 }
 
-// cmdKeygen mints an age keypair, so a faramir host needs no age binary.  It
+// newKeygenCmd mints an age keypair, so a faramir host needs no age binary.  It
 // does not replace the sops CLI, which is what edits encrypted files.
-func cmdKeygen(args []string) int {
-	fs := newFlagSet("keygen", "keygen [-o FILE]")
-	out := fs.String("output", "", "write the identity to this file instead of stdout")
-	fs.StringVar(out, "o", "", "write the identity to this file instead of stdout (shorthand)")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+func newKeygenCmd() *cobra.Command {
+	var out string
+	c := &cobra.Command{
+		Use:     "keygen [-o FILE]",
+		Short:   "mint an age keypair for the keeper",
+		GroupID: groupOperator,
+		Args:    noArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			if out == "" {
+				id, err := age.GenerateX25519Identity()
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "faramir keygen: %v\n", err)
+					return codeErr(1)
+				}
+				fmt.Print(agekey.Format(id))
+				fmt.Fprintf(os.Stderr, "Public key: %s\n", id.Recipient())
+				return nil
+			}
+			// Generate refuses to clobber: overwriting an age key destroys every
+			// sops file it was the only recipient for, retroactively.
+			recipient, created, err := agekey.Generate(out)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "faramir keygen: %v\n", err)
+				return codeErr(1)
+			}
+			// Non-zero on an existing target, so a caller can tell a fresh
+			// identity from one that was already there.
+			if !created {
+				fmt.Fprintf(os.Stderr,
+					"faramir keygen: %s exists; refusing to overwrite an age key\n", out)
+				fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
+				return codeErr(1)
+			}
+			fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
+			return nil
+		},
 	}
-
-	if *out == "" {
-		id, err := age.GenerateX25519Identity()
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir keygen: %v\n", err)
-			return 1
-		}
-		fmt.Print(agekey.Format(id))
-		fmt.Fprintf(os.Stderr, "Public key: %s\n", id.Recipient())
-		return 0
-	}
-	// Generate refuses to clobber: overwriting an age key destroys every sops file
-	// it was the only recipient for, retroactively.
-	recipient, created, err := agekey.Generate(*out)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir keygen: %v\n", err)
-		return 1
-	}
-	// Non-zero on an existing target, so a caller can tell a fresh identity from
-	// one that was already there.
-	if !created {
-		fmt.Fprintf(os.Stderr,
-			"faramir keygen: %s exists; refusing to overwrite an age key\n", *out)
-		fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
-		return 1
-	}
-	fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
-	return 0
+	c.Flags().StringVarP(&out, "output", "o", "", "write the identity to this file instead of stdout")
+	return c
 }
 
-// common registers the flags every broker-facing subcommand shares.
-type common struct {
-	socket *string
-	json   *bool
+// brokerOptions are the flags every broker-facing subcommand shares.
+type brokerOptions struct {
+	socket string
+	json   bool
 }
 
-func addCommon(fs *flag.FlagSet) common {
-	return common{
-		socket: fs.String("socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)"),
-		json:   fs.Bool("json", false, "print the raw response"),
-	}
+func (o *brokerOptions) add(c *cobra.Command) {
+	c.Flags().StringVar(&o.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
+	c.Flags().BoolVar(&o.json, "json", false, "print the raw response")
 }
 
-func cmdRun(args []string) int {
-	fs := newFlagSet("run", "run [options] [--] program [args...]")
-	c := addCommon(fs)
-	quiet := fs.Bool("quiet", false, "suppress the redaction summary")
-	cwd := fs.String("cwd", "", "working directory for the command (default: the caller's)")
-	fs.StringVar(cwd, "C", "", "working directory for the command (shorthand)")
-	timeout := fs.Int("timeout", 0, "timeout in seconds")
-	fs.IntVar(timeout, "t", 0, "timeout in seconds (shorthand)")
-	var envRefs multiFlag
-	fs.Var(&envRefs, "env", "NAME=secret://ref (repeatable)")
-	var envFiles multiFlag
-	fs.Var(&envFiles, "env-file", "file of NAME=secret://ref lines (repeatable)")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
-	}
+func newRunCmd() *cobra.Command {
+	var (
+		o        brokerOptions
+		quiet    bool
+		cwd      string
+		timeout  int
+		envRefs  []string
+		envFiles []string
+	)
+	c := &cobra.Command{
+		Use:     "run [options] [--] program [args...]",
+		Short:   "run a command with secrets injected",
+		GroupID: groupOperator,
+		Args: func(c *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				return usagef("faramir run: no command given")
+			}
+			return nil
+		},
+		// The program's own flags are its own: pflag stops at the "--", and
+		// everything after it is passed through untouched.
+		RunE: func(c *cobra.Command, rest []string) error {
+			// Files first, so an explicit --env overrides the file.
+			refs := map[string]string{}
+			for _, path := range envFiles {
+				pairs, err := readEnvFile(path)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
+					return codeErr(2)
+				}
+				maps.Copy(refs, pairs)
+			}
+			for _, pair := range envRefs {
+				name, uri, ok := strings.Cut(pair, "=")
+				if !ok {
+					fmt.Fprintln(os.Stderr, "faramir run: --env expects NAME=secret://ref")
+					return codeErr(2)
+				}
+				if err := checkRef(name, uri); err != nil {
+					fmt.Fprintf(os.Stderr, "faramir run: --env %v\n", err)
+					return codeErr(2)
+				}
+				refs[name] = uri
+			}
 
-	rest := fs.Args()
-	// flag has stopped parsing by the time a leading "--" reaches us.
-	if len(rest) > 0 && rest[0] == "--" {
-		rest = rest[1:]
+			request := map[string]any{"op": "exec", "cmd": rest}
+			if len(refs) > 0 {
+				request["env_refs"] = refs
+			}
+			// The caller's own directory unless -C says otherwise: a brokered
+			// command runs where it was typed.
+			if cwd == "" {
+				if here, err := os.Getwd(); err == nil {
+					cwd = here
+				}
+			}
+			if cwd != "" {
+				request["cwd"] = cwd
+			}
+			if timeout > 0 {
+				request["timeout_sec"] = timeout
+			}
+			return codeErr(send("run", o.socket, request, o.json, quiet))
+		},
 	}
-	if len(rest) == 0 {
-		return usageError(fs, "faramir run: no command given")
-	}
-
-	// Files first, so an explicit --env overrides the file.
-	refs := map[string]string{}
-	for _, path := range envFiles {
-		pairs, err := readEnvFile(path)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
-			return 2
-		}
-		maps.Copy(refs, pairs)
-	}
-	for _, pair := range envRefs {
-		name, uri, ok := strings.Cut(pair, "=")
-		if !ok {
-			fmt.Fprintln(os.Stderr, "faramir run: --env expects NAME=secret://ref")
-			return 2
-		}
-		if err := checkRef(name, uri); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir run: --env %v\n", err)
-			return 2
-		}
-		refs[name] = uri
-	}
-
-	request := map[string]any{"op": "exec", "cmd": rest}
-	if len(refs) > 0 {
-		request["env_refs"] = refs
-	}
-	// The caller's own directory unless -C says otherwise: a brokered command runs
-	// where it was typed.
-	if *cwd == "" {
-		if here, err := os.Getwd(); err == nil {
-			*cwd = here
-		}
-	}
-	if *cwd != "" {
-		request["cwd"] = *cwd
-	}
-	if *timeout > 0 {
-		request["timeout_sec"] = *timeout
-	}
-	return send("run", *c.socket, request, *c.json, *quiet)
+	o.add(c)
+	c.Flags().BoolVar(&quiet, "quiet", false, "suppress the redaction summary")
+	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the caller's)")
+	c.Flags().IntVarP(&timeout, "timeout", "t", 0, "timeout in seconds")
+	c.Flags().StringArrayVar(&envRefs, "env", nil, "NAME=secret://ref (repeatable)")
+	c.Flags().StringArrayVar(&envFiles, "env-file", nil, "file of NAME=secret://ref lines (repeatable)")
+	return c
 }
 
 // checkRef validates one NAME=secret://ref pair, for both --env and --env-file.
@@ -481,20 +271,25 @@ const chunkBytes = 32 << 10
 // One failure policy across both shapes, decided by what redaction could do and
 // not by which shape asked: text that could not be redacted is never written,
 // and the exit status is non-zero.
-func cmdRedact(args []string) int {
-	fs := newFlagSet("redact", "redact [options] [-- command [args...]]")
-	c := addCommon(fs)
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+func newRedactCmd() *cobra.Command {
+	var o brokerOptions
+	c := &cobra.Command{
+		Use:     "redact [options] [-- command [args...]]",
+		Short:   "scrub secrets out of text, or out of a command's output",
+		GroupID: groupOperator,
+		RunE: func(c *cobra.Command, child []string) error {
+			if len(child) > 0 {
+				return codeErr(redactChild(o.socket, child))
+			}
+			if err := redactStreamLive(o.socket, os.Stdin, os.Stdout); err != nil {
+				fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
+				return codeErr(1)
+			}
+			return nil
+		},
 	}
-	if child := fs.Args(); len(child) > 0 {
-		return redactChild(*c.socket, child)
-	}
-	if err := redactStreamLive(*c.socket, os.Stdin, os.Stdout); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
-		return 1
-	}
-	return 0
+	o.add(c)
+	return c
 }
 
 // redactChild runs the command with both its streams merged and filtered.
@@ -783,18 +578,23 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 }
 
 // call runs a subcommand that takes no arguments of its own.
-func call(op string, args []string) int {
+// newCallCmd builds a subcommand that takes no arguments and asks the broker
+// one question.  op is the wire name; the command is spelled with dashes.
+func newCallCmd(op, short string) *cobra.Command {
 	name := strings.ReplaceAll(op, "_", "-")
-	fs := newFlagSet(name, name+" [options]")
-	c := addCommon(fs)
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+	var o brokerOptions
+	c := &cobra.Command{
+		Use:     name,
+		Short:   short,
+		GroupID: groupOperator,
+		Args:    noArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			// Only run has --quiet.
+			return codeErr(send(name, o.socket, map[string]any{"op": op}, o.json, true))
+		},
 	}
-	if rest := fs.Args(); len(rest) > 0 {
-		return usageError(fs, "faramir %s: unexpected argument %q", name, rest[0])
-	}
-	// Only run has --quiet.
-	return send(name, *c.socket, map[string]any{"op": op}, *c.json, true)
+	o.add(c)
+	return c
 }
 
 // Bounds on how long this side waits for the broker.  The socket is systemd's
@@ -950,8 +750,3 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 	}
 	return 0
 }
-
-type multiFlag []string
-
-func (m *multiFlag) String() string     { return strings.Join(*m, ",") }
-func (m *multiFlag) Set(v string) error { *m = append(*m, v); return nil }

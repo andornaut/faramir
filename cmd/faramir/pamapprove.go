@@ -23,6 +23,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/config"
 )
@@ -32,23 +34,53 @@ import (
 // spin.
 const maxAncestors = 32
 
-func cmdPamApprove(args []string) int {
-	fs := newFlagSet("pam-approve", "pam-approve --socket PATH --account NAME")
-	socket := fs.String("socket", socketDefault(), "broker socket to ask")
-	account := fs.String("account", "", "the account this PAM service is for")
-	if code, ok := parseFlags(fs, args); !ok {
-		// Neither a usage error nor a help flag authenticates anything: PAM reads the
-		// status, so this is forced non-zero.  parseFlags returns 0 for --help (it is
-		// success for an ordinary command), and 0 here would be an auth pass: the one
-		// exit-zero-without-approval path in a helper whose whole contract is the
-		// opposite.  Not reachable through the installed stack, whose argv is fixed,
-		// but closed anyway.
-		if code == 0 {
-			code = 2
-		}
-		return code
-	}
+// cmdPamApprove runs pam-approve on its own, which is how the tests reach it.
+func cmdPamApprove(args []string) int { return runPamApproveCommand(args) }
 
+// runPamApproveCommand applies the rule that nothing but a real approval exits
+// 0.  PAM reads the status, so success here is an auth pass: --help and a
+// usage error both leave cobra with 0, and 0 is the one thing this helper must
+// never say without an approval behind it.  The status is therefore taken from
+// whether an approval actually happened, not from how the command returned.
+// Neither is reachable through the installed stack, whose argv is fixed, but
+// both are closed anyway.
+//
+// Every caller goes through here: the root registers a command that forwards
+// its arguments untouched rather than parsing them itself, so there is one
+// path and one place the rule lives.
+func runPamApproveCommand(args []string) int {
+	granted := false
+	code := runCommand(newPamApproveCmd(&granted), args)
+	if code == 0 && !granted {
+		return 2
+	}
+	return code
+}
+
+type pamApproveFlags struct {
+	socket  string
+	account string
+}
+
+// newPamApproveCmd decides one sudo, setting granted only on the path an
+// approval was actually given on.  Run it through runPamApproveCommand, which
+// is what reads that.
+func newPamApproveCmd(granted *bool) *cobra.Command {
+	var f pamApproveFlags
+	c := &cobra.Command{
+		Use:   "pam-approve",
+		Short: "decide one sudo, inside a brokered command (run by PAM)",
+		Args:  noArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			return codeErr(runPamApprove(f, granted))
+		},
+	}
+	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask")
+	c.Flags().StringVar(&f.account, "account", "", "the account this PAM service is for")
+	return c
+}
+
+func runPamApprove(f pamApproveFlags, granted *bool) int {
 	// PAM_TYPE and PAM_USER come from pam_exec.  Checked, so a service file that
 	// somebody pointed at another account, or at the account stage rather than
 	// auth, cannot authenticate anything.
@@ -57,9 +89,9 @@ func cmdPamApprove(args []string) int {
 			"authentication and nothing else\n", kind)
 		return 1
 	}
-	if *account != "" && os.Getenv("PAM_USER") != *account {
+	if f.account != "" && os.Getenv("PAM_USER") != f.account {
 		fmt.Fprintf(os.Stderr, "faramir pam-approve: PAM_USER is %q, not %q: this "+
-			"service authenticates one account\n", os.Getenv("PAM_USER"), *account)
+			"service authenticates one account\n", os.Getenv("PAM_USER"), f.account)
 		return 1
 	}
 
@@ -72,7 +104,7 @@ func cmdPamApprove(args []string) int {
 			"so there is nothing for the broker to approve")
 		return 1
 	}
-	approved, reason, err := askBrokerToApprove(*socket, token)
+	approved, reason, err := askBrokerToApprove(f.socket, token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir pam-approve: %v\n", err)
 		return 1
@@ -81,6 +113,7 @@ func cmdPamApprove(args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir pam-approve: %s\n", reason)
 		return 1
 	}
+	*granted = true
 	return 0
 }
 

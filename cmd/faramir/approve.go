@@ -30,6 +30,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
@@ -59,75 +61,100 @@ func requireRootToAnswer(command string) bool {
 	return false
 }
 
-// cmdApprovals lists what is waiting, or waits for it with --watch.  It answers
-// nothing: the verbs are their own commands.
-func cmdApprovals(args []string) int {
-	fs := newFlagSet("approvals", "approvals [options]")
-	c := addCommon(fs)
-	watch := fs.Bool("watch", false, "wait for questions and answer them as they arrive")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+// cmdApprovals, cmdApprove and cmdDeny run one command on its own, which is
+// how the tests reach them without going through the root.
+func cmdApprovals(args []string) int { return runCommand(newApprovalsCmd(), args) }
+func cmdApprove(args []string) int   { return runCommand(newApproveCmd(), args) }
+func cmdDeny(args []string) int      { return runCommand(newDenyCmd(), args) }
+
+// newApprovalsCmd lists what is waiting, or waits for it with --watch.  It
+// answers nothing: the verbs are their own commands.
+func newApprovalsCmd() *cobra.Command {
+	var (
+		o     brokerOptions
+		watch bool
+	)
+	c := &cobra.Command{
+		Use:     "approvals [options]",
+		Short:   "list the approval a brokered command is waiting on",
+		GroupID: groupProvisioning,
+		Args: func(c *cobra.Command, args []string) error {
+			if len(args) > 0 {
+				return usagef("faramir approvals: unexpected argument %q\n"+
+					"To answer one: faramir approve ID, or faramir deny ID", args[0])
+			}
+			return nil
+		},
+		RunE: func(c *cobra.Command, args []string) error {
+			if !requireRootToAnswer("approvals") {
+				return codeErr(1)
+			}
+			if watch {
+				return codeErr(watchApprovals(o.socket))
+			}
+			return codeErr(listApprovals(o.socket, o.json))
+		},
 	}
-	if fs.NArg() > 0 {
-		usageError(fs, "faramir approvals: unexpected argument %q", fs.Arg(0))
-		fmt.Fprintln(os.Stderr, "To answer one: faramir approve ID, or faramir deny ID")
-		return 2
-	}
-	if !requireRootToAnswer("approvals") {
-		return 1
-	}
-	if *watch {
-		return watchApprovals(*c.socket)
-	}
-	return listApprovals(*c.socket, *c.json)
+	o.add(c)
+	c.Flags().BoolVar(&watch, "watch", false, "wait for questions and answer them as they arrive")
+	return c
 }
 
-// cmdApprove says yes to one question, which has to be named.  There is
+// newApproveCmd says yes to one question, which has to be named.  There is
 // deliberately no bare `faramir approve` that says yes to whatever is there: an
 // approval that names no command is one nobody judged, which is what this whole
 // channel exists to prevent.
-func cmdApprove(args []string) int {
-	fs := newFlagSet("approve", "approve [options] ID")
-	c := addCommon(fs)
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+func newApproveCmd() *cobra.Command {
+	var o brokerOptions
+	c := &cobra.Command{
+		Use:     "approve [options] ID",
+		Short:   "say yes to one, by id",
+		GroupID: groupProvisioning,
+		// The command line before the caller: a malformed one is worth saying
+		// whoever is asking, and the other two commands here check in that order.
+		Args: func(c *cobra.Command, args []string) error {
+			if len(args) != 1 || args[0] == "" {
+				return usagef("faramir approve: one id is required\n" +
+					"A yes names the command it is for, so there is no form that approves " +
+					"whatever is waiting. `faramir approvals` lists it; `faramir deny` needs " +
+					"no id, one question being outstanding at a time")
+			}
+			return nil
+		},
+		RunE: func(c *cobra.Command, args []string) error {
+			if !requireRootToAnswer("approve") {
+				return codeErr(1)
+			}
+			return codeErr(answer("approve", o.socket, args[0], true, o.json))
+		},
 	}
-	// The command line before the caller: a malformed one is worth saying
-	// whoever is asking, and the other two commands here check in that order.
-	id := fs.Arg(0)
-	if id == "" || fs.NArg() > 1 {
-		usageError(fs, "faramir approve: one id is required")
-		fmt.Fprintln(os.Stderr, "A yes names the command it is for, so there is no form "+
-			"that approves whatever is waiting. `faramir approvals` lists it; `faramir deny` "+
-			"needs no id, one question being outstanding at a time")
-		return 2
-	}
-	if !requireRootToAnswer("approve") {
-		return 1
-	}
-	return answer("approve", *c.socket, id, true, *c.json)
+	o.add(c)
+	return c
 }
 
-// cmdDeny says no.  The id is optional, and the asymmetry with approving is the
-// point: only one question is ever outstanding, so "the one that is waiting"
-// names exactly one thing, and refusing something unseen is safe in a way
-// approving it is not.  A refusal costs a re-run.
-func cmdDeny(args []string) int {
-	fs := newFlagSet("deny", "deny [options] [ID]")
-	c := addCommon(fs)
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+// newDenyCmd says no.  The id is optional, and the asymmetry with approving is
+// the point: only one question is ever outstanding, so "the one that is
+// waiting" names exactly one thing, and refusing something unseen is safe in a
+// way approving it is not.  A refusal costs a re-run.
+func newDenyCmd() *cobra.Command {
+	var o brokerOptions
+	c := &cobra.Command{
+		Use:     "deny [options] [ID]",
+		Short:   "say no, to that one or to whatever is waiting",
+		GroupID: groupProvisioning,
+		Args:    atMostOneArg("id"),
+		RunE: func(c *cobra.Command, args []string) error {
+			if !requireRootToAnswer("deny") {
+				return codeErr(1)
+			}
+			if len(args) == 1 && args[0] != "" {
+				return codeErr(answer("deny", o.socket, args[0], false, o.json))
+			}
+			return codeErr(denyWaiting(o.socket, o.json))
+		},
 	}
-	if fs.NArg() > 1 {
-		return usageError(fs, "faramir deny: at most one id")
-	}
-	if !requireRootToAnswer("deny") {
-		return 1
-	}
-	if id := fs.Arg(0); id != "" {
-		return answer("deny", *c.socket, id, false, *c.json)
-	}
-	return denyWaiting(*c.socket, *c.json)
+	o.add(c)
+	return c
 }
 
 // denyWaiting refuses the one question outstanding, without it having to be

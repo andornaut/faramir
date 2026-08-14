@@ -22,6 +22,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/install"
@@ -42,20 +44,31 @@ var editors = []string{
 	"/bin/vi",
 }
 
-func cmdEdit(args []string) int {
-	fs := newFlagSet("edit", "edit [options] FILE")
-	configPath := fs.String("config", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
-	fs.StringVar(configPath, "c", "", "config file (shorthand)")
-	editor := fs.String("editor", "", "absolute path to the editor to run (default: the first of "+
+type editFlags struct {
+	configPath string
+	editor     string
+	ageKey     string
+	socket     string
+}
+
+func newEditCmd() *cobra.Command {
+	var f editFlags
+	c := &cobra.Command{
+		Use:     "edit [options] FILE",
+		Short:   "edit a managed sops file",
+		GroupID: groupProvisioning,
+		Args:    exactlyOneArg("file"),
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runEdit(f, args)) },
+	}
+	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
+	c.Flags().StringVar(&f.editor, "editor", "", "absolute path to the editor to run (default: the first of "+
 		strings.Join(editors, ", ")+" that exists)")
-	ageKey := fs.String("age-key", "", "age key file (default: age.key beside the config)")
-	socket := fs.String("socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
-	}
-	if fs.NArg() != 1 {
-		return usageError(fs, "faramir edit: one file is required")
-	}
+	c.Flags().StringVar(&f.ageKey, "age-key", "", "age key file (default: age.key beside the config)")
+	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
+	return c
+}
+
+func runEdit(f editFlags, args []string) int {
 
 	// Refused rather than attempted: the bare permission error on the age key does
 	// not say what to do.
@@ -63,7 +76,7 @@ func cmdEdit(args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(*configPath, *socket))
+	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
 		return 1
@@ -76,7 +89,7 @@ func cmdEdit(args []string) int {
 	// not among the managed ones, and the operator wants every reason.
 	managed, failures, absent := keeper.Resolve(cfg.Secrets.Patterns)
 	unresolvable := slices.Concat(failures, absent)
-	target, err := resolveManaged(managed, fs.Arg(0))
+	target, err := resolveManaged(managed, args[0])
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
 		for _, reason := range unresolvable {
@@ -85,13 +98,13 @@ func cmdEdit(args []string) int {
 		return 1
 	}
 
-	editorPath, err := resolveEditor(*editor)
+	editorPath, err := resolveEditor(f.editor)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
 		return 1
 	}
 
-	keyPath := *ageKey
+	keyPath := f.ageKey
 	if keyPath == "" {
 		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
 	}

@@ -22,6 +22,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/termsafe"
 )
@@ -30,23 +32,35 @@ import (
 // is asked for by log_id.
 const defaultLogCount = 20
 
-func cmdLogs(args []string) int {
-	fs := newFlagSet("logs", "logs [options] [LOG-ID]")
-	configPath := fs.String("config", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
-	fs.StringVar(configPath, "c", "", "config file (shorthand)")
-	logPath := fs.String("path", "", "audit log to read (default: the one the config names)")
-	count := fs.Int("count", defaultLogCount, "how many recent records to list")
-	fs.IntVar(count, "n", defaultLogCount, "how many recent records to list (shorthand)")
-	socket := fs.String("socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
-	asJSON := fs.Bool("json", false, "print the records as JSON")
-	when := fs.String("color", "auto", "colourise: auto, always or never")
-	if code, ok := parseFlags(fs, args); !ok {
-		return code
+type logsFlags struct {
+	configPath string
+	logPath    string
+	count      int
+	socket     string
+	asJSON     bool
+	when       string
+}
+
+func newLogsCmd() *cobra.Command {
+	var f logsFlags
+	c := &cobra.Command{
+		Use:     "logs [options] [LOG-ID]",
+		Short:   "show the audit log: what ran, against which refs, and how it ended",
+		GroupID: groupProvisioning,
+		Args:    atMostOneArg("log-id"),
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runLogs(f, args)) },
 	}
-	if fs.NArg() > 1 {
-		return usageError(fs, "faramir logs: at most one log-id")
-	}
-	paint, err := newPalette(*when)
+	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
+	c.Flags().StringVar(&f.logPath, "path", "", "audit log to read (default: the one the config names)")
+	c.Flags().IntVarP(&f.count, "count", "n", defaultLogCount, "how many recent records to list")
+	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
+	c.Flags().BoolVar(&f.asJSON, "json", false, "print the records as JSON")
+	c.Flags().StringVar(&f.when, "color", "auto", "colourise: auto, always or never")
+	return c
+}
+
+func runLogs(f logsFlags, args []string) int {
+	paint, err := newPalette(f.when)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 		return 2
@@ -58,9 +72,9 @@ func cmdLogs(args []string) int {
 		return 1
 	}
 
-	path := *logPath
+	path := f.logPath
 	if path == "" {
-		cfg, err := config.Load(resolveConfig(*configPath, *socket))
+		cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 			return 1
@@ -68,7 +82,7 @@ func cmdLogs(args []string) int {
 		path = cfg.Audit.LogPath
 	}
 
-	if id := fs.Arg(0); id != "" {
+	if id := firstArg(args); id != "" {
 		record, skipped, err := findRecord(path, id)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
@@ -81,20 +95,20 @@ func cmdLogs(args []string) int {
 				id, path, filepath.Base(path))
 			return 1
 		}
-		if *asJSON {
+		if f.asJSON {
 			return printJSON(record)
 		}
 		printRecord(record, paint)
 		return 0
 	}
 
-	records, skipped, err := tailRecords(path, *count)
+	records, skipped, err := tailRecords(path, f.count)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 		return 1
 	}
 	reportSkipped(path, skipped)
-	if *asJSON {
+	if f.asJSON {
 		// An empty listing is a JSON empty array, not null: a caller parsing stdout
 		// gets a value either way.
 		if records == nil {
@@ -103,7 +117,7 @@ func cmdLogs(args []string) int {
 		return printJSON(records)
 	}
 	if len(records) == 0 {
-		fmt.Fprintln(os.Stderr, emptyReason(path, *count))
+		fmt.Fprintln(os.Stderr, emptyReason(path, f.count))
 		return 0
 	}
 	// Once per day rather than on every line, which would crowd out the columns

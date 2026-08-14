@@ -2,11 +2,11 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"io"
 	"os"
 	"os/user"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -197,41 +197,45 @@ func TestEverySubcommandIsNamedForTheGuard(t *testing.T) {
 	for _, name := range append(append([]string{}, cli.Operator...), cli.Internal...) {
 		named[name] = true
 	}
-	// Flags, not subcommands.
-	for _, alias := range []string{"-h", "--help", "-V", "--version"} {
-		named[alias] = true
-	}
 
-	for _, name := range dispatcherNames(t) {
-		if !named[name] {
-			t.Errorf("%q is a subcommand but is in neither cli.Operator nor cli.Internal", name)
+	have := map[string]bool{}
+	for _, c := range dispatcherNames(t) {
+		have[c] = true
+		if !named[c] {
+			t.Errorf("%q is a subcommand but is in neither cli.Operator nor cli.Internal", c)
+		}
+	}
+	// And the other way round, which the old source scrape could not check: a
+	// name the lists still carry for a command that no longer exists sanctions
+	// arguments that nothing scans.
+	for name := range named {
+		if !have[name] {
+			t.Errorf("cli names %q, which is no longer a subcommand", name)
 		}
 	}
 }
 
-// dispatcherNames reads the case labels out of run()'s switch.  Parsed from the
-// source, since invoking them would want root and a socket.
+// dispatcherNames returns every subcommand the root carries.  Taken from the
+// assembled command tree rather than from the source, so a command added by
+// any means is seen: the switch this used to read no longer exists, and a
+// scrape could never have seen a command registered anywhere else.
 func dispatcherNames(t *testing.T) []string {
 	t.Helper()
-	src, err := os.ReadFile("main.go")
-	if err != nil {
-		t.Fatal(err)
+	root := newRootCmd()
+	// cobra adds `help` and `completion` while executing, not while building.
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("assembling the root: %s", err)
 	}
+
 	var names []string
-	for _, line := range strings.Split(string(src), "\n") {
-		line = strings.TrimSpace(line)
-		rest, ok := strings.CutPrefix(line, "case ")
-		if !ok || !strings.HasSuffix(rest, ":") {
-			continue
-		}
-		for _, label := range strings.Split(strings.TrimSuffix(rest, ":"), ",") {
-			if name, err := strconv.Unquote(strings.TrimSpace(label)); err == nil {
-				names = append(names, name)
-			}
-		}
+	for _, c := range root.Commands() {
+		names = append(names, c.Name())
 	}
 	if len(names) < 10 {
-		t.Fatalf("found only %d case labels in run(); the switch was not parsed", len(names))
+		t.Fatalf("found only %d subcommands; the root was not assembled", len(names))
 	}
 	return names
 }
@@ -340,63 +344,27 @@ func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
 	}
 }
 
-// A parse error names a flag the way the reader has to type it.  The standard
-// library writes one dash for every flag, so an operator told about "-socket"
-// would try a spelling faramir does not accept; printDefaults exists for the
-// same reason.  A single-letter shorthand keeps its one dash.
-func TestAParseErrorSpellsALongFlagWithTwoDashes(t *testing.T) {
-	tests := map[string]string{
-		"flag provided but not defined: -socket":     "flag provided but not defined: --socket",
-		"flag needs an argument: -socket":            "flag needs an argument: --socket",
-		`invalid boolean value "maybe" for -json: x`: `invalid boolean value "maybe" for --json: x`,
-		`invalid value "abc" for flag -tail: x`:      `invalid value "abc" for flag --tail: x`,
-		"flag provided but not defined: -v":          "flag provided but not defined: -v",
-		"  --socket PATH   broker socket":            "  --socket PATH   broker socket",
+// A parse error names a flag the way the reader has to type it: two dashes for
+// a long name, one for a single-letter shorthand.  Checked through the root,
+// because what matters is the spelling that reaches the operator's stderr, and
+// an operator told about "-socket" would try one faramir does not accept.
+func TestAParseErrorSpellsAFlagTheWayItIsTyped(t *testing.T) {
+	for _, c := range []struct{ name, arg, want string }{
+		{"long name", "--bogus", "unknown flag: --bogus"},
+		{"shorthand", "-Z", "unknown shorthand flag: 'Z' in -Z"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var out bytes.Buffer
+			root := newRootCmd()
+			root.SetOut(&out)
+			root.SetErr(&out)
+			root.SetArgs([]string{"status", c.arg})
+			if code := exitCode(root.Execute()); code != 2 {
+				t.Errorf("exit = %d, want 2 for a wrong invocation", code)
+			}
+			if !strings.Contains(out.String(), c.want) {
+				t.Errorf("wrote %q, want it to contain %q", out.String(), c.want)
+			}
+		})
 	}
-	for in, want := range tests {
-		if got := twoDashes(in); got != want {
-			t.Errorf("twoDashes(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-// The whole path, so that what reaches stderr is what the reader sees.
-func TestABadFlagIsReportedOnStderrWithTwoDashes(t *testing.T) {
-	fs := newFlagSet("status", "status [options]")
-	fs.String("socket", "", "broker socket")
-
-	stderr := captureStderrForTest(t, func() {
-		if code, ok := parseFlags(fs, []string{"--bogus"}); ok || code != 2 {
-			t.Errorf("parseFlags() = %d, %v, want 2, false", code, ok)
-		}
-	})
-
-	if !strings.Contains(stderr, "flag provided but not defined: --bogus") {
-		t.Errorf("parseFlags() wrote %q, want the flag spelled with two dashes", stderr)
-	}
-}
-
-// captureStderrForTest returns what f writes to standard error.
-func captureStderrForTest(t *testing.T, f func()) string {
-	t.Helper()
-	reader, writer, err := os.Pipe()
-	if err != nil {
-		t.Fatal(err)
-	}
-	original := os.Stderr
-	os.Stderr = writer
-	defer func() { os.Stderr = original }()
-
-	done := make(chan string)
-	go func() {
-		var out strings.Builder
-		_, _ = io.Copy(&out, reader)
-		done <- out.String()
-	}()
-
-	f()
-	if err := writer.Close(); err != nil {
-		t.Fatal(err)
-	}
-	return <-done
 }
