@@ -19,9 +19,9 @@ import (
 
 // DoctorOptions is what Diagnose needs to find an install it did not perform.
 type DoctorOptions struct {
-	ConfigDir    string
-	OperatorUser string
-	ClientGroup  string
+	ConfigDir   string
+	AgentUser   string
+	ClientGroup string
 	// The three service accounts, so the group audit recognises the ones this
 	// install created rather than reporting them as intruders.
 	BrokerUser string
@@ -260,16 +260,16 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 // here with its rules missing is half an arrangement, and the half that is gone
 // is the one refusing the file tools.
 func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
-	if opts.OperatorUser == "" {
-		report.unasked("agent rules", 1, "the operator account is not named, so what "+
-			"each agent has in its home was not asked: pass --operator-user, or run "+
+	if opts.AgentUser == "" {
+		report.unasked("agent rules", 1, "the agent account is not named, so what "+
+			"each agent has in its home was not asked: pass --agent-user, or run "+
 			"through sudo so SUDO_USER carries it")
 		return
 	}
-	home, err := operatorHomeFor(opts.OperatorUser)
+	home, err := agentHomeFor(opts.AgentUser)
 	if err != nil || home == "" {
 		report.unasked("agent rules", 1, "could not read %s's home, so what each "+
-			"agent has there was not asked", opts.OperatorUser)
+			"agent has there was not asked", opts.AgentUser)
 		return
 	}
 	enrolled, stale := enrolledAgents(opts.ConfigDir)
@@ -936,14 +936,14 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 	// the client group by construction.  Reporting it as a leftover would print
 	// `gpasswd -d <the operator> <the client group>` as the remedy, which is the
 	// one change that shuts the agent out of the broker socket.
-	if opts.OperatorUser == "" {
-		report.unasked("group", len(groups), "the operator account is not named, so a "+
+	if opts.AgentUser == "" {
+		report.unasked("group", len(groups), "the agent account is not named, so a "+
 			"member of %s cannot be told from an account left behind: pass "+
-			"--operator-user, or run through sudo so SUDO_USER carries it",
+			"--agent-user, or run through sudo so SUDO_USER carries it",
 			opts.ClientGroup)
 		return
 	}
-	known := []string{opts.OperatorUser, opts.BrokerUser, opts.KeeperUser, opts.ExecUser}
+	known := []string{opts.AgentUser, opts.BrokerUser, opts.KeeperUser, opts.ExecUser}
 	for _, group := range groups {
 		diagnoseGroupOutsiders(report, group.label, group.name, known, group.grants)
 	}

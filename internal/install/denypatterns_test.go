@@ -35,7 +35,7 @@ func denyRules(text string) []string {
 // key's own path is named, so where it is put makes no difference.
 func TestTheDenyRulesNameTheConfiguredSSHKey(t *testing.T) {
 	opts := Options{
-		OperatorUser: "operator", ConfigDir: "/etc/faramir",
+		AgentUser: "operator", ConfigDir: "/etc/faramir",
 		SSHKey: "/srv/keys/broker_ed25519",
 	}
 	opts.applyDefaults()

@@ -13,7 +13,7 @@ import (
 func sudoGrantLayout(t *testing.T) Layout {
 	t.Helper()
 	opts := Options{
-		OperatorUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+		AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
 		BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex",
 		ConfigDir: "/opt/conf", AllowSudo: true,
 	}
@@ -352,7 +352,7 @@ func TestTheBrokerUnitNeedsNoHoleForApprovals(t *testing.T) {
 func notifyLayout(t *testing.T, argv ...string) (Layout, error) {
 	t.Helper()
 	opts := Options{
-		OperatorUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+		AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
 		BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex",
 		ConfigDir: "/opt/conf", AllowSudo: true, NotifyCommand: argv,
 	}
@@ -430,7 +430,7 @@ func TestAnUnusableNotifyCommandIsRefusedByInit(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := Options{
-				OperatorUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+				AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
 				BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex",
 				ConfigDir: "/opt/conf", AllowSudo: tc.sudo, NotifyCommand: tc.argv,
 			}

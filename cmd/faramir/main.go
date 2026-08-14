@@ -57,12 +57,12 @@ func requireRoot(command, reason string) bool {
 	return false
 }
 
-// operatorName resolves the account that works in the tree: --operator-user,
+// operatorName resolves the account that works in the tree: --agent-user,
 // then SUDO_USER so `sudo faramir init` needs no flag, then the caller.
 //
 // root is not an answer at any position: the tree belongs to somebody, and
 // chowning a checkout to root would take it from its owner, so escalating by
-// another route means passing --operator-user.
+// another route means passing --agent-user.
 func operatorName(flagValue string) string {
 	candidates := []string{flagValue, os.Getenv("SUDO_USER")}
 	if current, err := user.Current(); err == nil {

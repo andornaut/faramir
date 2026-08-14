@@ -116,7 +116,7 @@ Flag left out | Taken from
 
 Flag | Default | What to give it
 --- | --- | ---
-`--operator-user NAME` | `$SUDO_USER`, then you | The login account your coding agent runs as. It owns the checkouts brokered commands run in, so root is refused
+`--agent-user NAME` | `$SUDO_USER`, then you | The account your coding agent runs as, which need not be yours. It owns the checkouts brokered commands run in, so root is refused
 `--client-group NAME` | the install's, then `dev` | A group, created if missing, doing two jobs: admitting a caller to the broker socket, and group-owning an enrolled tree so the broker can stat a request's cwd and `faramir-exec` can run there
 `--secrets-group NAME` | the install's, then the keeper's own group | A group, created if missing, owning the ciphertext in `<config-dir>/secrets`. The keeper is its only member, so asking for a value by name and reading its file stay different privileges. `doctor` fails if the operator is in it
 `--config-dir DIR` | [found the usual way](docs/operating.md#checking-an-install) | An absolute path for `config.toml`, `config.d/`, the age key and the managed sops files. Left out, it re-provisions the install this host has. A *different* one is refused without `--move-config`. Its parent must exist

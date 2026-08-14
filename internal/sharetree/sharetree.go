@@ -130,7 +130,7 @@ func Share(opts Options) (Result, error) {
 	}
 	opts.logf("shared %s with %s", dir, opts.Group)
 
-	// Only inside the operator's home; outside, the modes already allow it.
+	// Only inside the agent account's home; outside, the modes already allow it.
 	home := resolvedHome(owner)
 	if home == "" || !within(home, dir) {
 		return result, nil

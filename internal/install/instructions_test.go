@@ -596,7 +596,7 @@ func TestEveryHomeInstructionsPathIsRelativeToTheHome(t *testing.T) {
 			continue
 		}
 		if filepath.IsAbs(path) || strings.HasPrefix(path, "..") {
-			t.Errorf("%s: %q is not inside the operator's home", name, path)
+			t.Errorf("%s: %q is not inside the agent account's home", name, path)
 		}
 		if filepath.Ext(path) != ".md" {
 			t.Errorf("%s: %q is not markdown, so an agent reading prose will not load it",

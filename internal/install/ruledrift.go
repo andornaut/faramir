@@ -33,16 +33,16 @@ import (
 // nothing is unguarded, the file is merely untidy and says things faramir would
 // not say now.
 func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
-	if opts.OperatorUser == "" {
-		report.unasked("agent rule drift", 1, "the operator account is not named, so "+
-			"the agent rule files were not read: pass --operator-user, or run through "+
+	if opts.AgentUser == "" {
+		report.unasked("agent rule drift", 1, "the agent account is not named, so "+
+			"the agent rule files were not read: pass --agent-user, or run through "+
 			"sudo so SUDO_USER carries it")
 		return
 	}
-	home, err := operatorHomeFor(opts.OperatorUser)
+	home, err := agentHomeFor(opts.AgentUser)
 	if err != nil || home == "" {
 		report.unasked("agent rule drift", 1, "could not read %s's home, so the agent "+
-			"rule files were not read", opts.OperatorUser)
+			"rule files were not read", opts.AgentUser)
 		return
 	}
 	reportRuleDrift(report, home, opts.ConfigDir)

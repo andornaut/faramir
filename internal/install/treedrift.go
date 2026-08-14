@@ -113,22 +113,22 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 // whatever the last successful run left, and what this names is a file the next
 // run will not be able to update.
 func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
-	if opts.OperatorUser == "" {
+	if opts.AgentUser == "" {
 		report.unasked("agent file ownership", 1, "the operator account is not "+
 			"named, so who owns the files an install edits was not asked: pass "+
-			"--operator-user, or run through sudo so SUDO_USER carries it")
+			"--agent-user, or run through sudo so SUDO_USER carries it")
 		return
 	}
-	home, err := operatorHomeFor(opts.OperatorUser)
+	home, err := agentHomeFor(opts.AgentUser)
 	if err != nil || home == "" {
 		report.unasked("agent file ownership", 1, "could not read %s's home, so "+
-			"who owns the files an install edits was not asked", opts.OperatorUser)
+			"who owns the files an install edits was not asked", opts.AgentUser)
 		return
 	}
-	uid, err := lookupUser(opts.OperatorUser)
+	uid, err := lookupUser(opts.AgentUser)
 	if err != nil {
 		report.unasked("agent file ownership", 1, "could not resolve %s: %v",
-			opts.OperatorUser, err)
+			opts.AgentUser, err)
 		return
 	}
 	reportEditableFiles(report, home, uid, opts)
@@ -149,7 +149,7 @@ func reportEditableFiles(report *DoctorReport, home string, uid int, opts Doctor
 			continue
 		}
 		treeUID := uid
-		if tree.Operator != opts.OperatorUser {
+		if tree.Operator != opts.AgentUser {
 			// The tree was enrolled for somebody else, and this is their file to
 			// own rather than the account doctor was pointed at.
 			if other, err := lookupUser(tree.Operator); err == nil {

@@ -46,7 +46,7 @@ func (r *runner) stepAgentConfig() error {
 	changed := false
 	var written, refused []string
 	for _, target := range targets {
-		// 0700: these sit in the operator's home, which no other account has
+		// 0700: these sit in the agent account's home, which no other account has
 		// business entering.
 		made, paths, err := writeAgentFiles(r.fs, r.operatorHome,
 			r.operatorUID, r.operatorGID, 0o700, false, asLayout, target.accountFiles)
@@ -145,7 +145,7 @@ func (r *runner) writeSections(targets []*agentTarget) (bool, []string, []string
 // homeInstructionFile is one file to write the account-wide section into, and
 // what the section may claim in it.
 type homeInstructionFile struct {
-	// path is relative to the operator's home.
+	// path is relative to the agent account's home.
 	path string
 	// accountRules is whether every agent reading this file has deny rules in
 	// this home.

@@ -20,7 +20,7 @@ type Options struct {
 	// Operator is the account the coding agent runs as.  It has no account of its
 	// own: the work it does is the operator's, and a separate uid could reach none
 	// of it.
-	OperatorUser string
+	AgentUser string
 
 	ClientGroup  string
 	SecretsGroup string
@@ -93,7 +93,7 @@ type Options struct {
 
 	// Agents names the coding agents whose settings get the deny rules, which
 	// refuse to open key material wherever the agent is working.  Empty means
-	// AgentAuto: whichever agents the operator's home already carries.  A name
+	// AgentAuto: whichever agents the agent account's home already carries.  A name
 	// writes them whether or not the agent is there, and composes with auto.
 	//
 	// The PreToolUse hook is per project, because registering it auto-approves
@@ -315,7 +315,7 @@ func (r *runner) steps() []namedStep {
 		// activation.
 		{"sudo grant", r.stepSudoGrant},
 		// Before the units are written: it grants the traversal that lets a service
-		// uid reach a config under the operator's home.
+		// uid reach a config under the agent account's home.
 		{"reachable", r.stepReachable},
 		{"units", r.stepUnits},
 		{"systemd", r.stepSystemd},
@@ -373,7 +373,7 @@ func (o Options) layout() (Layout, error) {
 		SshAdd:   lookPathOr("ssh-add", "/usr/bin/ssh-add"),
 	}
 	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
-	// Beside the config, even inside the operator's home: what keeps the operator
+	// Beside the config, even inside the agent account's home: what keeps the operator
 	// out is the key's 0400 keeper ownership, and owning the directory is
 	// permission to unlink the file, not to read it.  Following the config puts
 	// the key inside an encrypted home when the secrets directory is already
@@ -414,13 +414,13 @@ func (r *runner) preflight() error {
 		return errors.New("faramir init must run as root: it creates accounts, " +
 			"writes under /etc and installs systemd units")
 	}
-	if r.opts.OperatorUser == "" || r.opts.OperatorUser == "root" {
-		return errors.New("name the account the coding agent runs as: pass --operator-user, " +
+	if r.opts.AgentUser == "" || r.opts.AgentUser == "root" {
+		return errors.New("name the account the coding agent runs as: pass --agent-user, " +
 			"or run through sudo so SUDO_USER carries it. It must not be root: " +
 			"the operator owns the checkouts a brokered command runs in")
 	}
-	if !userExists(r.opts.OperatorUser) {
-		return fmt.Errorf("no such user: %s", r.opts.OperatorUser)
+	if !userExists(r.opts.AgentUser) {
+		return fmt.Errorf("no such user: %s", r.opts.AgentUser)
 	}
 	// Before .sops.yaml is written, that file being written once and then kept: a
 	// bad recipient lands in a world-readable rule and breaks every later encrypt,

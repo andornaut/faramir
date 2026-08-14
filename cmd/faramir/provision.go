@@ -134,7 +134,7 @@ func resolveConfigDir(explicit, socketPath string) string {
 }
 
 type initFlags struct {
-	operatorUser  string
+	agentUser     string
 	clientGroup   string
 	secretsGroup  string
 	brokerUser    string
@@ -163,7 +163,7 @@ func newInitCmd() *cobra.Command {
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInit(f)) },
 	}
 	fl := c.Flags()
-	fl.StringVar(&f.operatorUser, "operator-user", "",
+	fl.StringVar(&f.agentUser, "agent-user", "",
 		"account the coding agent runs as (default $SUDO_USER, then you)")
 	// One admits a caller to the broker socket and shares the working tree, the
 	// other owns the ciphertext; holding one is not holding the other.
@@ -195,7 +195,7 @@ func newInitCmd() *cobra.Command {
 			"against /etc/ssh/ssh_known_hosts alone)")
 	fl.StringArrayVar(&f.initAgents, "agent", nil,
 		"install the deny rules into this agent's own settings, repeatable. "+
-			"Default \""+install.AgentAuto+"\": whichever agents the operator's home "+
+			"Default \""+install.AgentAuto+"\": whichever agents the agent account's home "+
 			"already carries. A name writes them whether or not the agent is there, "+
 			"and composes with auto. Known: "+
 			strings.Join(install.KnownAgents(), ", "))
@@ -233,7 +233,7 @@ func newInitCmd() *cobra.Command {
 func runInit(f initFlags) int {
 
 	opts := install.Options{
-		OperatorUser:  operatorName(f.operatorUser),
+		AgentUser:     operatorName(f.agentUser),
 		ClientGroup:   f.clientGroup,
 		SecretsGroup:  f.secretsGroup,
 		BrokerUser:    f.brokerUser,
@@ -297,14 +297,14 @@ func reportToOperator(report install.Report) {
 // here and not on init, which means "provision this host" and would otherwise
 // enrol wherever it was run from.
 type initProjectFlags struct {
-	operatorUser string
-	configDir    string
-	socket       string
-	clientGroup  string
-	hook         bool
-	agents       []string
-	dryRun       bool
-	asJSON       bool
+	agentUser   string
+	configDir   string
+	socket      string
+	clientGroup string
+	hook        bool
+	agents      []string
+	dryRun      bool
+	asJSON      bool
 }
 
 func newInitProjectCmd() *cobra.Command {
@@ -317,7 +317,7 @@ func newInitProjectCmd() *cobra.Command {
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInitProject(f, args)) },
 	}
 	fl := c.Flags()
-	fl.StringVar(&f.operatorUser, "operator-user", "",
+	fl.StringVar(&f.agentUser, "agent-user", "",
 		"account that works in the tree (default $SUDO_USER, then you)")
 	fl.StringVar(&f.configDir, "config-dir", "",
 		"where the installed config is, which is where the client group is read from "+
@@ -342,13 +342,13 @@ func newInitProjectCmd() *cobra.Command {
 func runInitProject(f initProjectFlags, args []string) int {
 
 	opts := install.ProjectOptions{
-		Dir:          firstArg(args),
-		OperatorUser: operatorName(f.operatorUser),
-		ConfigDir:    resolveConfigDir(f.configDir, f.socket),
-		ClientGroup:  f.clientGroup,
-		Hook:         f.hook,
-		Agents:       f.agents,
-		DryRun:       f.dryRun,
+		Dir:         firstArg(args),
+		AgentUser:   operatorName(f.agentUser),
+		ConfigDir:   resolveConfigDir(f.configDir, f.socket),
+		ClientGroup: f.clientGroup,
+		Hook:        f.hook,
+		Agents:      f.agents,
+		DryRun:      f.dryRun,
 	}
 	if !f.asJSON {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
@@ -383,7 +383,7 @@ func runInitProject(f initProjectFlags, args []string) int {
 type doctorFlags struct {
 	configDir    string
 	socket       string
-	operatorUser string
+	agentUser    string
 	clientGroup  string
 	secretsGroup string
 	brokerUser   string
@@ -405,7 +405,7 @@ func newDoctorCmd() *cobra.Command {
 	fl := c.Flags()
 	fl.StringVar(&f.configDir, "config-dir", "", "where config.toml was installed (default: ask the broker)")
 	fl.StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
-	fl.StringVar(&f.operatorUser, "operator-user", "", "account the coding agent runs as")
+	fl.StringVar(&f.agentUser, "agent-user", "", "account the coding agent runs as")
 	// Empty rather than the install defaults: doctor reads what this host
 	// actually runs out of the units, the config and the secrets directory, and
 	// a default here would shadow that and answer about accounts a host
@@ -445,7 +445,7 @@ func runDoctor(f doctorFlags) int {
 		ConfigDir:     configDirFrom(f.configDir, broker),
 		BrokerVersion: broker.version,
 		SocketStates:  sockets,
-		OperatorUser:  operatorName(f.operatorUser),
+		AgentUser:     operatorName(f.agentUser),
 		ClientGroup:   f.clientGroup,
 		BrokerUser:    f.brokerUser,
 		KeeperUser:    f.keeperUser,

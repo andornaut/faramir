@@ -58,7 +58,7 @@ func TestOversharingIsRefusedThroughASymlink(t *testing.T) {
 		t.Errorf("a symlink to %s resolved to %s and was not refused", me.HomeDir, resolved)
 	}
 	// And the whole command, where the resolution has to happen.
-	_, err = Project(ProjectOptions{Dir: link, OperatorUser: me.Username, DryRun: true})
+	_, err = Project(ProjectOptions{Dir: link, AgentUser: me.Username, DryRun: true})
 	if err == nil {
 		t.Error("init-project enrolled a symlink pointing at a home")
 	}

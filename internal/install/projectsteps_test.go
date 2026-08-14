@@ -43,7 +43,7 @@ func TestEveryEnrolmentStepIsNamed(t *testing.T) {
 // an owner, which is what 0 would mean and what `keep` avoids: uid 0 hands the
 // operator's own file to root, and keep leaves ownership alone.
 func TestUnresolvedIDsAreLeftAloneRatherThanTakenByRoot(t *testing.T) {
-	run := &project{opts: ProjectOptions{OperatorUser: "nosuchuser-faramir", DryRun: true}}
+	run := &project{opts: ProjectOptions{AgentUser: "nosuchuser-faramir", DryRun: true}}
 	run.uid, run.gid = 12345, 12345
 
 	if err := run.resolveIDs(); err != nil {
@@ -54,7 +54,7 @@ func TestUnresolvedIDsAreLeftAloneRatherThanTakenByRoot(t *testing.T) {
 	}
 	// And the real path still refuses, an enrolment that cannot name the owner
 	// having nothing to hand the tree to.
-	real := &project{opts: ProjectOptions{OperatorUser: "nosuchuser-faramir"}}
+	real := &project{opts: ProjectOptions{AgentUser: "nosuchuser-faramir"}}
 	if err := real.resolveIDs(); err == nil {
 		t.Error("an enrolment proceeded with an account that does not exist")
 	}
@@ -64,7 +64,7 @@ func TestUnresolvedIDsAreLeftAloneRatherThanTakenByRoot(t *testing.T) {
 // leaves ownership as it is rather than giving the file to root.
 func TestAnEnrolmentStartsWithNoOwnerToImpose(t *testing.T) {
 	report, err := Project(ProjectOptions{
-		Dir: t.TempDir(), OperatorUser: "operator", ClientGroup: "nosuchgroup",
+		Dir: t.TempDir(), AgentUser: "operator", ClientGroup: "nosuchgroup",
 		ConfigDir: t.TempDir(), DryRun: true,
 	})
 	if err != nil {
@@ -157,7 +157,7 @@ func TestAgentDirectoriesInATreeAreSharedLikeTheRest(t *testing.T) {
 	}
 }
 
-// The same directory in the operator's home is not shared with anybody.
+// The same directory in the agent account's home is not shared with anybody.
 func TestAgentDirectoriesInAHomeStayPrivate(t *testing.T) {
 	home := t.TempDir()
 
@@ -260,7 +260,7 @@ func TestPreflightRefusesBeforeAnyStepRuns(t *testing.T) {
 	}
 	run := &project{
 		opts: ProjectOptions{
-			Dir: tree, OperatorUser: me.Username, ClientGroup: "shared",
+			Dir: tree, AgentUser: me.Username, ClientGroup: "shared",
 			Hook: true, DryRun: true,
 		},
 		uid: keep, gid: keep,

@@ -13,7 +13,7 @@ import (
 // shows up in the output.
 func testLayout() Layout {
 	opts := Options{
-		OperatorUser: "operator",
+		AgentUser:    "operator",
 		ClientGroup:  "shared",
 		SecretsGroup: "store",
 		BrokerUser:   "br",
@@ -233,7 +233,7 @@ func TestKeeperBinds(t *testing.T) {
 			want:      nil,
 		},
 		{
-			name:      "in the operator's home",
+			name:      "in the agent account's home",
 			configDir: "/home/operator/.config/faramir",
 			want:      []string{"/home/operator/.config/faramir"},
 		},
@@ -350,7 +350,7 @@ func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 // there too.
 func TestTheSSHKeyDefaultsBesideTheAgeKey(t *testing.T) {
 	opts := Options{
-		OperatorUser: "op", ClientGroup: DefaultClientGroup,
+		AgentUser: "op", ClientGroup: DefaultClientGroup,
 		BrokerUser: DefaultBrokerUser, KeeperUser: DefaultKeeperUser,
 		ExecUser: DefaultExecUser, ConfigDir: "/home/op/.config/faramir",
 	}

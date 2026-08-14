@@ -59,7 +59,7 @@ chmod 0755 /usr/local/bin/lab-notify
 # suites share one install, so this may run after another has already written a
 # [sudo] section without one.
 if ! grep -q '^notify_command' $CFG; then
-  /usr/local/bin/faramir init --allow-sudo --operator-user op \
+  /usr/local/bin/faramir init --allow-sudo --agent-user op \
     --notify-command /usr/local/bin/lab-notify --notify-command '{prompt}' \
     >/tmp/sudo-init.log 2>&1 \
     || { echo "could not install the grant"; tail -3 /tmp/sudo-init.log; exit 1; }

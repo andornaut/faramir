@@ -32,7 +32,7 @@ Four statuses: `ok`, `warn`, `failed`, and `n/a` for a check whose subject this 
 
 **Without sudo**, checks needing another uid report as unchecked rather than passing, grouped at the end, with a line under the totals counting them: the totals alone would read the same on a host examined in full and on one where most questions were never put. One warn line can stand for many unasked checks.
 
-**Without an operator**, most boundary checks cannot be put at all: `access(2)` answers "no" for an account that cannot be named, which is the same answer a boundary that holds gives. Run from a root shell or cron, `doctor` takes the operator from `SUDO_USER`, finds none, and reports those as unasked. Pass `--operator-user` for the whole thing.
+**Without the agent's account**, most boundary checks cannot be put at all: `access(2)` answers "no" for an account that cannot be named, which is the same answer a boundary that holds gives. Run from a root shell or cron, `doctor` takes that account from `SUDO_USER`, finds none, and reports those as unasked. Pass `--agent-user` for the whole thing.
 
 **Finding the install.** `doctor`, `init-project`, `uninstall`, `edit`, `rekey` and `logs` all act on an install they did not perform:
 

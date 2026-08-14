@@ -248,7 +248,7 @@ func TestEditableFilesIsOKWhereThereIsNothingToRefuse(t *testing.T) {
 		t.Errorf("NotAsked = %d, want 1: a check that could not run must not read "+
 			"as one that passed", report.NotAsked)
 	}
-	if !strings.Contains(got[0].Detail, "--operator-user") {
+	if !strings.Contains(got[0].Detail, "--agent-user") {
 		t.Errorf("the finding does not say how to ask it: %s", got[0].Detail)
 	}
 }

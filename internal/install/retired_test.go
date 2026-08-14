@@ -112,7 +112,7 @@ func TestBoundariesAreNotAskedWithoutAnOperator(t *testing.T) {
 		t.Error("the unasked checks were not counted, so the totals read as a " +
 			"complete examination")
 	}
-	for _, want := range []string{"--operator-user", "SUDO_USER"} {
+	for _, want := range []string{"--agent-user", "SUDO_USER"} {
 		if !strings.Contains(boundaries[0].Detail, want) {
 			t.Errorf("the warning does not say how to fix it (%q): %s",
 				want, boundaries[0].Detail)

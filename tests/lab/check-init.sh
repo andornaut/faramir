@@ -121,7 +121,7 @@ head_ "the agents init writes deny rules for"
 # account.
 
 agentStep() {
-  /usr/local/bin/faramir init --operator-user op --dry-run --json "$@" 2>/dev/null \
+  /usr/local/bin/faramir init --agent-user op --dry-run --json "$@" 2>/dev/null \
     | jq -r '[.steps[]|select(.step=="agent config")|.detail]|join(" ")'
 }
 out=$(agentStep)
@@ -159,7 +159,7 @@ grep -q 'no coding agent found' <<<"$out" \
 # A dry run answers and writes nothing, which is what makes the three checks
 # above safe to run against the account every later suite depends on.
 before=$(find /home/op -maxdepth 2 -name 'settings.json' -o -maxdepth 2 -name 'faramir.toml' 2>/dev/null | sort)
-/usr/local/bin/faramir init --operator-user op --dry-run --agent claude --agent opencode >/dev/null 2>&1
+/usr/local/bin/faramir init --agent-user op --dry-run --agent claude --agent opencode >/dev/null 2>&1
 [ "$before" = "$(find /home/op -maxdepth 2 -name 'settings.json' -o -maxdepth 2 -name 'faramir.toml' 2>/dev/null | sort)" ] \
   && ok "and a dry run wrote nothing into the home while answering" \
   || bad "a dry run wrote into the operator's home"

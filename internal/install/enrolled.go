@@ -11,7 +11,7 @@ import (
 // The trees that have been enrolled, and for which agents.
 //
 // Nothing else can answer that question.  An enrolment writes into the tree and
-// into the operator's home, and neither half says where the other went: a tree
+// into the agent account's home, and neither half says where the other went: a tree
 // carries an agent's settings without naming the account they were written for,
 // and a home carries deny rules without naming the trees that need them.  So
 // `doctor`, which examines the install rather than the operator's directories,

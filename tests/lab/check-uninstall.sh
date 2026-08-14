@@ -23,7 +23,7 @@ kept()   { [ -e "$1" ] && ok "$2 is kept" || bad "$2 was removed: $1"; }
 
 # The grant is what makes the interesting half of this suite exist.
 if ! grep -q '^\[sudo\]' $CFGDIR/config.toml; then
-  faramir init --allow-sudo --operator-user op >/tmp/u-init.log 2>&1 \
+  faramir init --allow-sudo --agent-user op >/tmp/u-init.log 2>&1 \
     || { echo "could not install the grant"; tail -3 /tmp/u-init.log; exit 1; }
   systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
   sleep 3
@@ -158,7 +158,7 @@ out=$(faramir uninstall 2>&1); code=$?
 head_ "7. and the host can be rebuilt from what was kept"
 
 install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
-if faramir init --operator-user op >/tmp/reinit.log 2>&1; then
+if faramir init --agent-user op >/tmp/reinit.log 2>&1; then
   ok "init runs again on the uninstalled host"
 else
   bad "re-init failed: $(tail -3 /tmp/reinit.log)"

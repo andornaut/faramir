@@ -26,7 +26,7 @@ step "faramir init"
 if [ -f /etc/faramir/config.toml ]; then
   echo "already installed at /etc/faramir"
 else
-  faramir init --operator-user op >/tmp/init.log 2>&1 || {
+  faramir init --agent-user op >/tmp/init.log 2>&1 || {
     tail -20 /tmp/init.log; exit 1; }
   echo "installed; see /tmp/init.log"
 fi
@@ -65,7 +65,7 @@ fi
 
 step "the tree the agent works in"
 install -d -o op -g op "$PROJECT"
-faramir init-project --operator-user op --agent claude "$PROJECT" >/tmp/project.log 2>&1 || {
+faramir init-project --agent-user op --agent claude "$PROJECT" >/tmp/project.log 2>&1 || {
   tail -20 /tmp/project.log; exit 1; }
 echo "enrolled $PROJECT"
 

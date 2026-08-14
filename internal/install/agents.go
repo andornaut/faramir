@@ -21,7 +21,7 @@ type agentTarget struct {
 	// keep both in one file, and some have no hook to register at all.
 	files []agentFile
 
-	// accountFiles go into the operator's home rather than a tree.  They refuse
+	// accountFiles go into the agent account's home rather than a tree.  They refuse
 	// to open key material wherever the agent is working and take nothing away,
 	// so no project has to opt in.  Rendered, the paths refused being this
 	// install's.
@@ -41,7 +41,7 @@ type agentTarget struct {
 	// writes; generic names stay out, a .mcp.json naming no particular agent.
 	detect []string
 
-	// detectHome is the same question about the operator's home rather than a
+	// detectHome is the same question about the agent account's home rather than a
 	// tree, and a different answer: an agent keeps its per-project configuration
 	// beside the project and its own under a home, and the two are not the same
 	// paths.  opencode is the plain case -- opencode.json in a tree, and
@@ -53,7 +53,7 @@ type agentTarget struct {
 	detectHome []string
 
 	// homeInstructions is the file this agent reads as prose wherever it is
-	// working, relative to the operator's home, and is where `init` writes the
+	// working, relative to the agent account's home, and is where `init` writes the
 	// account-wide credentials section.  Its own path per agent, and not
 	// derivable from detectHome: opencode keeps its config under
 	// .config/opencode and reads AGENTS.md from there, pi keeps its under .pi
@@ -524,12 +524,12 @@ func pluginNote(agent string) string {
 const AgentAuto = "auto"
 
 // agentScope is where auto looks for evidence.  The two commands ask the same
-// question of different places: `init` writes into the operator's home, and
+// question of different places: `init` writes into the agent account's home, and
 // `init-project` into one tree.
 type agentScope int
 
 const (
-	// scopeHome is the operator's home directory.
+	// scopeHome is the agent account's home directory.
 	scopeHome agentScope = iota
 	// scopeTree is one working tree.
 	scopeTree

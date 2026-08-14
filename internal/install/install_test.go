@@ -33,7 +33,7 @@ func TestPreflightRefusesAConfigDirWhoseParentIsAbsent(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			run := &runner{
-				opts:   Options{OperatorUser: me.Username, DryRun: true},
+				opts:   Options{AgentUser: me.Username, DryRun: true},
 				layout: Layout{ConfigDir: tc.configDir},
 			}
 
@@ -111,7 +111,7 @@ func TestPreflightRefusesASymlinkedPath(t *testing.T) {
 			}
 
 			run := &runner{
-				opts: Options{OperatorUser: me.Username, DryRun: true},
+				opts: Options{AgentUser: me.Username, DryRun: true},
 				layout: Layout{ConfigDir: configDir, LogDir: logDir,
 					AgeKeyPath: filepath.Join(configDir, "age.key")},
 			}
@@ -155,7 +155,7 @@ func TestPreflightAllowsATreeWithNoSymlinks(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := &runner{
-		opts:   Options{OperatorUser: me.Username, DryRun: true},
+		opts:   Options{AgentUser: me.Username, DryRun: true},
 		layout: Layout{ConfigDir: configDir, LogDir: logDir},
 	}
 	if err := run.refuseSymlinks(); err != nil {

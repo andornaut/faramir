@@ -27,7 +27,7 @@ tree() {
 }
 enrol() { # dir, then --agent flags
   local d=$1; shift
-  /usr/local/bin/faramir init-project --operator-user $OP "$@" "$d" 2>&1
+  /usr/local/bin/faramir init-project --agent-user $OP "$@" "$d" 2>&1
 }
 # owned asserts a path exists and belongs to the operator, not to root:
 # init-project runs as root over somebody else's checkout.
@@ -76,7 +76,7 @@ owned "$D/kilo.json" "kilocode: MCP registration"
 # The account-wide files are `faramir init --agent`'s half of enrolment, not
 # this command's: init-project writes the per-project hook, init writes the deny
 # rules that hold wherever the agent works.
-/usr/local/bin/faramir init --operator-user $OP --agent claude --agent antigravity \
+/usr/local/bin/faramir init --agent-user $OP --agent claude --agent antigravity \
   --agent opencode --agent kilocode >/tmp/p-init.log 2>&1
 owned "$HOME_OP/.claude/settings.json" "claude: account-wide settings (from init)"
 owned "$HOME_OP/.gemini/GEMINI.md" "antigravity: credentials section (from init)"
@@ -213,7 +213,7 @@ now=$(find "$D" -type f -exec stat -c '%n %i' {} \; | sort)
 [ "$inodes" = "$now" ] && ok "and rewrites none of them" \
   || bad "every file is rewritten on a no-op run (inodes move, bytes do not): $(diff <(echo "$inodes") <(echo "$now") | grep -c '^<') file(s)"
 # Which is what the report tells the operator.
-n=$(/usr/local/bin/faramir init-project --operator-user $OP --agent claude --json "$D" 2>/dev/null \
+n=$(/usr/local/bin/faramir init-project --agent-user $OP --agent claude --json "$D" 2>/dev/null \
   | jq '[.steps[]|select(.changed)]|length')
 [ "$n" -eq 0 ] && ok "and reports nothing changed" \
   || bad "a no-op enrolment reports $n step(s) changed, so an operator cannot tell a real run from this one"
@@ -363,7 +363,7 @@ enrol "$D" >/dev/null 2>&1
 
 # The half of it that matters: doctor asks this file, not the home.
 D=$(tree /home/op/p-recorded); enrol "$D" --agent kilocode >/dev/null 2>&1
-/usr/local/bin/faramir doctor --operator-user $OP --json >/tmp/p-doctor.json 2>/dev/null
+/usr/local/bin/faramir doctor --agent-user $OP --json >/tmp/p-doctor.json 2>/dev/null
 rules() { jq -r '[.findings[]|select(.check=="agent rules")|.detail]|join(" | ")' /tmp/p-doctor.json; }
 grep -q kilocode <<<"$(rules)" \
   && ok "doctor examines an agent because a tree was enrolled for it" \
@@ -373,7 +373,7 @@ grep -q kilocode <<<"$(rules)" \
 # to tell this file, so a reader reports the entry rather than treating it as a
 # fault, and rather than dropping the record of it.
 rm -rf "$D"
-/usr/local/bin/faramir doctor --operator-user $OP --json >/tmp/p-doctor.json 2>/dev/null
+/usr/local/bin/faramir doctor --agent-user $OP --json >/tmp/p-doctor.json 2>/dev/null
 grep -q "$D" <<<"$(rules)" && ok "a tree that has gone since is named rather than passed over" \
   || bad "doctor did not report the missing tree: $(rules | head -c 140)"
 [ "$(entriesFor "$D")" = 1 ] && ok "and its entry survives, this file not being the authority on what exists" \

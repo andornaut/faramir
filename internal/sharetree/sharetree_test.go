@@ -194,7 +194,7 @@ func TestTraversalMode(t *testing.T) {
 	}
 }
 
-// Execute only: read would let these uids list the operator's home rather than
+// Execute only: read would let these uids list the agent account's home rather than
 // pass through it.  The group is the tree's own, so nothing is regrouped and no
 // privilege is needed; TestTraversalAction covers that branch.
 func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
@@ -252,7 +252,7 @@ func TestShareReportsWhatItAltered(t *testing.T) {
 		t.Skip("cannot name this account's group")
 	}
 	// The only test here that drives the exported Share, which grants traversal
-	// from the operator's home down to the tree.  With TMPDIR inside the home,
+	// from the agent account's home down to the tree.  With TMPDIR inside the home,
 	// that is the real home: a 0700 one becomes 0710, and one whose group is not
 	// the primary group is regrouped and loses its group bits.  An environment
 	// guard, not a skip on the branch that would have failed.

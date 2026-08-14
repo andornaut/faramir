@@ -222,7 +222,7 @@ refresh_interval_sec = 9'
 sum_before=$(sha256sum $DROPIN/40-mine.toml | cut -d" " -f1)
 # A hand edit to the base, which init owns and replaces without warning.
 printf '\n# an operator edit that init will discard\n' >> $CFG
-/usr/local/bin/faramir init --operator-user op >/tmp/c6.log 2>&1
+/usr/local/bin/faramir init --agent-user op >/tmp/c6.log 2>&1
 grep -q 'an operator edit' $CFG && bad "init kept a hand edit to its own file" \
   || ok "init rewrote config.toml, discarding the hand edit"
 [ "$(sha256sum $DROPIN/40-mine.toml | cut -d' ' -f1)" = "$sum_before" ] \

@@ -11,12 +11,12 @@ import (
 func TestAgeKeyFollowsTheConfigDir(t *testing.T) {
 	for _, tc := range []struct{ name, configDir, wantKey, wantDir string }{
 		{"the default", DefaultConfigDir, DefaultConfigDir + "/age.key", DefaultConfigDir},
-		{"an operator's home", "/home/op/.config/faramir", "/home/op/.config/faramir/age.key", "/home/op/.config/faramir"},
+		{"an agent account's home", "/home/op/.config/faramir", "/home/op/.config/faramir/age.key", "/home/op/.config/faramir"},
 		{"a trailing slash is cleaned", "/srv/f/", "/srv/f/age.key", "/srv/f"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := Options{
-				OperatorUser: "op", ClientGroup: DefaultClientGroup,
+				AgentUser: "op", ClientGroup: DefaultClientGroup,
 				BrokerUser: DefaultBrokerUser, KeeperUser: DefaultKeeperUser,
 				ExecUser:  DefaultExecUser,
 				ConfigDir: tc.configDir,
@@ -50,7 +50,7 @@ func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			opts := Options{
-				OperatorUser: "op", KeeperUser: tc.keeperUser, SecretsGroup: tc.storeGroup,
+				AgentUser: "op", KeeperUser: tc.keeperUser, SecretsGroup: tc.storeGroup,
 			}
 			opts.applyDefaults()
 			if opts.SecretsGroup != tc.want {
@@ -89,7 +89,7 @@ func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 // Asking for a value by name and reading the file it comes from are different
 // privileges, and the agent's account holds the first.
 func TestStoreGroupIsNotTheClientGroup(t *testing.T) {
-	opts := Options{OperatorUser: "op"}
+	opts := Options{AgentUser: "op"}
 	opts.applyDefaults()
 	if opts.SecretsGroup == opts.ClientGroup {
 		t.Errorf("secrets group and client group are both %q", opts.ClientGroup)

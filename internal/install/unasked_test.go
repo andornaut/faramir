@@ -33,7 +33,7 @@ func TestTheSSHKeyCheckDoesNotPassOnAnUnaskedOperator(t *testing.T) {
 
 	// Named, the same host is a pass: the skip is about the question, not the key.
 	var named DoctorReport
-	diagnoseSSHKey(&named, DoctorOptions{ExecUser: "ex", OperatorUser: "op"}, cfg)
+	diagnoseSSHKey(&named, DoctorOptions{ExecUser: "ex", AgentUser: "op"}, cfg)
 	if got := only(t, named); got.Status != StatusOK {
 		t.Errorf("status %q, want %q: %s", got.Status, StatusOK, got.Detail)
 	}
@@ -71,7 +71,7 @@ func TestTheSudoArrangementDoesNotPassOnAnUnaskedOperator(t *testing.T) {
 	}
 
 	var named DoctorReport
-	diagnoseSudoArrangement(&named, DoctorOptions{ExecUser: "ex", OperatorUser: "op"}, cfg)
+	diagnoseSudoArrangement(&named, DoctorOptions{ExecUser: "ex", AgentUser: "op"}, cfg)
 	if got := only(t, named); got.Status != StatusOK {
 		t.Errorf("status %q, want %q: %s", got.Status, StatusOK, got.Detail)
 	}

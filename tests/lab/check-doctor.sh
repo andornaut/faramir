@@ -41,7 +41,7 @@ settle() {
 
 # snap is one examination, named to the operator account so the checks that ask
 # what it can reach actually run.
-snap() { /usr/local/bin/faramir doctor --operator-user "$OP" --json >$JSON 2>/dev/null; }
+snap() { /usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null; }
 # st is every status reported under a check name, joined: several findings share
 # one name (the three sockets), and a suite that read only the first would miss
 # the one that broke.
@@ -82,7 +82,7 @@ if [ "$bad_count" -eq 0 ]; then
 else
   bad "$bad_count check(s) failed on an untouched install: $(jq -r '[.findings[]|select(.status=="failed")|"\(.check): \(.detail)"]|join(" | ")' $JSON | head -c 400)"
 fi
-if /usr/local/bin/faramir doctor --operator-user "$OP" >/dev/null 2>&1; then
+if /usr/local/bin/faramir doctor --agent-user "$OP" >/dev/null 2>&1; then
   ok "and exits 0"
 else
   bad "doctor exits $? on a healthy host"
@@ -91,7 +91,7 @@ fi
 # Naming the operator is what lets the boundary checks run at all.
 snap; withOp=$(unasked)
 /usr/local/bin/faramir doctor --json >$JSON 2>/dev/null; without=$(unasked)
-[ "$withOp" -lt "$without" ] && ok "--operator-user turns $((without - withOp)) unasked checks into asked ones" \
+[ "$withOp" -lt "$without" ] && ok "--agent-user turns $((without - withOp)) unasked checks into asked ones" \
   || bad "naming the operator asked nothing more ($withOp vs $without)"
 snap
 
@@ -124,13 +124,13 @@ probe "the ssh key world-readable" "ssh key" failed \
   "chmod 0644 /etc/faramir/id_ed25519" "chmod 0600 /etc/faramir/id_ed25519"
 probe "the deny-patterns file emptied" "deny patterns" failed \
   ": > /usr/local/libexec/faramir/deny-patterns.txt" \
-  "faramir init --operator-user $OP"
+  "faramir init --agent-user $OP"
 
 # --------------------------------------------------------------------------
 head_ "3. the arrangement around them"
 
 probe "the rotation rule removed" "log rotation" failed \
-  "rm -f /etc/logrotate.d/faramir" "faramir init --operator-user $OP"
+  "rm -f /etc/logrotate.d/faramir" "faramir init --agent-user $OP"
 probe "an outsider in the client group" "group" warn \
   "useradd -M -N stranger 2>/dev/null; usermod -aG dev stranger" \
   "gpasswd -d stranger dev; userdel stranger"
@@ -140,7 +140,7 @@ probe "an outsider in the client group" "group" warn \
 # the host doctor made rather than the one it met.  --config-dir is what stops
 # it asking.
 systemctl stop faramir-broker.service faramir-broker.socket faramir-keeper.socket >/dev/null 2>&1
-/usr/local/bin/faramir doctor --operator-user "$OP" --config-dir /etc/faramir --json >$JSON 2>/dev/null
+/usr/local/bin/faramir doctor --agent-user "$OP" --config-dir /etc/faramir --json >$JSON 2>/dev/null
 if [[ "$(st sockets)" == *failed* ]]; then
   ok "a stopped socket is reported failed when doctor need not ask the broker"
 else
@@ -182,7 +182,7 @@ snap
 # its own way.
 [ "$(jq '.findings|length' $JSON)" -eq 1 ] && ok "and it is the only finding, the rest having nothing to read" \
   || bad "$(jq '.findings|length' $JSON) findings with no config"
-crash=$(/usr/local/bin/faramir doctor --operator-user "$OP" 2>&1 >/dev/null | grep -ci 'panic\|goroutine')
+crash=$(/usr/local/bin/faramir doctor --agent-user "$OP" 2>&1 >/dev/null | grep -ci 'panic\|goroutine')
 [ "$crash" -eq 0 ] && ok "without a panic" || bad "doctor panicked with no config"
 mv /tmp/config.bak $CFG
 
@@ -258,7 +258,7 @@ fi
 # The consequence an operator meets: init cannot finish on this host.  It is the
 # same --check, run as validate, and init rewrites config.toml from its template
 # on the way past, so [secrets] min_length cannot be relaxed to get through it.
-out=$(/usr/local/bin/faramir init --operator-user "$OP" 2>&1); code=$?
+out=$(/usr/local/bin/faramir init --agent-user "$OP" 2>&1); code=$?
 if [ $code -eq 0 ]; then
   ok "init completes on a host holding a value shorter than min_length"
 else
@@ -308,7 +308,7 @@ chmod 0400 $KEY
 # asked, and reporting them as holding would be the same unearned pass.
 if [ -x /usr/sbin/runuser ]; then
   mv /usr/sbin/runuser /usr/sbin/runuser.hidden
-  PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/faramir doctor --operator-user "$OP" --json >$JSON 2>/dev/null
+  PATH=/usr/local/bin:/usr/bin:/bin /usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null
   if jq -e '[.findings[]|select(.check=="boundaries" and .status!="ok")]|length > 0' $JSON >/dev/null; then
     ok "with runuser gone, the boundary checks are declared unasked"
   else
@@ -340,7 +340,7 @@ done
 # failed and the exit code have to agree, an operator scripting this reads one
 # or the other.
 chmod 0644 $KEY; snap
-/usr/local/bin/faramir doctor --operator-user "$OP" >/dev/null 2>&1; code=$?
+/usr/local/bin/faramir doctor --agent-user "$OP" >/dev/null 2>&1; code=$?
 withFault=$(jq -r '[.findings[]|select(.status=="failed")|.check]|sort|join(",")' $JSON)
 [ "$(broke)" = true ] && [ $code -eq 1 ] && ok "a failure sets .failed and exit 1 together" \
   || bad "failed=$(broke) but exit $code"
@@ -402,7 +402,7 @@ out=$(/usr/local/bin/faramir uninstall 2>&1); code=$?
 head_ "9. and the secrets survive the round trip"
 
 install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
-if /usr/local/bin/faramir init --operator-user "$OP" >/tmp/reinit.log 2>&1; then
+if /usr/local/bin/faramir init --agent-user "$OP" >/tmp/reinit.log 2>&1; then
   ok "init runs again on a host that was uninstalled"
 else
   bad "re-init failed: $(tail -3 /tmp/reinit.log)"

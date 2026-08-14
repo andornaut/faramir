@@ -78,3 +78,75 @@ func TestTheFallbackMatchesTheShippedFile(t *testing.T) {
 		}
 	}
 }
+
+// Every refusal explains itself with the reason it was actually refused for.
+//
+// One message used to serve the whole list: "this command would put a
+// credential into the conversation... Use the faramir_run tool instead". True
+// of the read rules and wrong about the rest, which are about faramir's own
+// files, accounts and units and disclose nothing. The remedy was worse than the
+// reason: faramir_run runs as an account with less reach, so an agent following
+// that advice either hits a permission error or, where the executor does have
+// reach, does the thing that was just refused.
+func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		own     bool
+	}{
+		// Disclosure: what the command would put in the conversation.
+		{"cat ~/.ssh/id_ed25519", false},
+		{"sops -d secrets.sops.yml", false},
+		{"printenv", false},
+		{"cat /home/op/.config/sops/age/keys.txt", false},
+		{"age-keygen", false},
+		// Running a daemon, or running as one of faramir's accounts, does
+		// disclose: the keeper opens the store and the broker holds every value.
+		// Split from the approval subcommands, which decide rather than disclose.
+		{"sudo faramir keeper", false},
+		{"sudo -u faramir-keeper cat /etc/faramir/age.key", false},
+		// faramir's own. Nothing here is disclosed; something is changed or stopped.
+		{"rm /etc/faramir/age.key", true},
+		{"echo x > /etc/faramir/config.toml", true},
+		{"systemctl stop faramir-broker.socket", true},
+		{"sudo faramir approve abc123", true},
+		{"sudo faramir approvals", true},
+		{"sudo faramir deny abc123", true},
+		{"rm .opencode/plugins/faramir.js", true},
+		{"sed -i s/x/y/ .pi/extensions/faramir.ts", true},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			pattern, denied := decide(tc.command)
+			if !denied {
+				t.Fatalf("%q was not refused, so this says nothing about its message", tc.command)
+			}
+			got := adviceFor(pattern)
+			switch {
+			case tc.own && got != adviceOwn:
+				t.Errorf("%q is about faramir's own things and was explained as a "+
+					"disclosure, which sends the agent to faramir_run: %s", tc.command, pattern)
+			case !tc.own && got != advice:
+				t.Errorf("%q would disclose and was explained as faramir's own: %s",
+					tc.command, pattern)
+			}
+		})
+	}
+}
+
+// A pattern added to the list gets classified by this test rather than by
+// whichever branch it happens to fall into. The count is the forcing function:
+// changing the list fails here until somebody says which half the new rule is.
+func TestEveryPatternIsClassifiedOnPurpose(t *testing.T) {
+	own := 0
+	for _, pattern := range fallback {
+		if adviceFor(pattern) == adviceOwn {
+			own++
+		}
+	}
+	const wantOwn = 6
+	if own != wantOwn {
+		t.Errorf("%d of %d patterns explain themselves as faramir's own, want %d. "+
+			"A rule was added or moved: decide which message it should carry, add it "+
+			"to TestARefusalExplainsWhyItWasRefused, and update this count",
+			own, len(fallback), wantOwn)
+	}
+}

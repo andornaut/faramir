@@ -71,7 +71,7 @@ func Uninstall(configDir string) ([]string, error) {
 		"a shared tree's group and setgid bits, and the traversal granted to reach it",
 		"each enrolled agent's configuration in a project: the settings naming the " +
 			"hook, the plugin that calls it, and the MCP registration",
-		"each agent's account-wide configuration in the operator's home: the deny " +
+		"each agent's account-wide configuration in the agent account's home: the deny " +
 			"rules, and the credentials section between " + sectionBegin + " and " +
 			sectionEnd + " in the file that agent reads for every project. Both are " +
 			"in files the operator owns and edits, so removing the section is " +

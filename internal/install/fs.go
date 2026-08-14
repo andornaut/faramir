@@ -499,7 +499,7 @@ func ownerOf(info os.FileInfo) (int, int) {
 //
 // Through a descriptor opened on the parent, so the directory is resolved once
 // and the temp and the rename below cannot land in two different places: some
-// of what this writes sits in the operator's home, in an enrolled tree, or in
+// of what this writes sits in the agent account's home, in an enrolled tree, or in
 // the executor's own, and those are directories an account other than root can
 // replace while a run is in progress.
 func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {

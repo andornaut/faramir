@@ -27,7 +27,7 @@ type ProjectOptions struct {
 	Dir string
 	// Operator owns the tree and keeps owning it; this grants group access for the
 	// executor's uid.
-	OperatorUser string
+	AgentUser string
 	// ConfigDir is where the client group is learned.  A flag could disagree with
 	// what the sockets admit, leaving a tree the executor cannot enter.
 	ConfigDir string
@@ -125,7 +125,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 			names = append(names, target.name)
 		}
 		if err := recordEnrolment(opts.ConfigDir, EnrolledTree{
-			Dir: dir, Operator: opts.OperatorUser, Agents: names,
+			Dir: dir, Operator: opts.AgentUser, Agents: names,
 		}); err != nil {
 			run.warn("could not record this enrolment in %s, so `faramir doctor` "+
 				"will not know this tree is enrolled: %v", enrolledPath(opts.ConfigDir), err)
@@ -155,9 +155,9 @@ func (p *project) steps() []namedStep {
 // reason: a check that fails at the step it belongs to leaves a half-enrolled
 // tree to reason about.
 func (p *project) preflight() error {
-	if p.opts.OperatorUser == "" || p.opts.OperatorUser == "root" {
+	if p.opts.AgentUser == "" || p.opts.AgentUser == "root" {
 		return fmt.Errorf("name the account that works in %s: pass "+
-			"--operator-user, or run through sudo so SUDO_USER carries it. The tree "+
+			"--agent-user, or run through sudo so SUDO_USER carries it. The tree "+
 			"belongs to somebody, and root here would chown a checkout away from "+
 			"its owner", p.opts.Dir)
 	}
@@ -165,7 +165,7 @@ func (p *project) preflight() error {
 		return fmt.Errorf("faramir init-project must run as root: it " +
 			"changes group ownership and modes on directories you do not own")
 	}
-	if err := refuseOversharing(p.opts.Dir, p.opts.OperatorUser); err != nil {
+	if err := refuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
 		return err
 	}
 	// auto looks at the tree: enrolling costs something here, so what is
@@ -241,7 +241,7 @@ func (p *project) refuseUnenterableDirs(paths []string) []string {
 // about on a host that has not been provisioned yet.  The ids stay keep, and
 // nothing a dry run reaches writes.
 func (p *project) resolveIDs() error {
-	uid, err := lookupUser(p.opts.OperatorUser)
+	uid, err := lookupUser(p.opts.AgentUser)
 	if err != nil {
 		if p.opts.DryRun {
 			return nil
@@ -398,14 +398,14 @@ func (p *project) resolveGroup() error {
 }
 
 // warnMissingAccountRules says so when an agent's account-wide deny rules are
-// not in the operator's home.  Enrolling a tree writes the per-project hook;
+// not in the agent account's home.  Enrolling a tree writes the per-project hook;
 // the rules that hold wherever the agent works are written by `faramir init
 // --agent`, and a host with one and not the other says nothing about it.
 func warnMissingAccountRules(p *project, target *agentTarget) {
 	if len(target.accountFiles) == 0 {
 		return
 	}
-	home, err := operatorHomeFor(p.opts.OperatorUser)
+	home, err := agentHomeFor(p.opts.AgentUser)
 	if err != nil || home == "" {
 		return
 	}
@@ -418,14 +418,14 @@ func warnMissingAccountRules(p *project, target *agentTarget) {
 	if len(missing) == 0 {
 		return
 	}
-	p.warn("%s's deny rules are not in the operator's home (%s), so its file "+
+	p.warn("%s's deny rules are not in the agent account's home (%s), so its file "+
 		"tools are refused nothing: they cover the keys under ~/.ssh and "+
 		"~/.config/sops, which this enrolment does not reach. Run `sudo faramir "+
 		"init --agent %s`", target.name, strings.Join(missing, ", "), target.name)
 }
 
-// operatorHomeFor is the account's home directory.
-func operatorHomeFor(name string) (string, error) {
+// agentHomeFor is the account's home directory.
+func agentHomeFor(name string) (string, error) {
 	if name == "" {
 		return "", nil
 	}
@@ -498,7 +498,7 @@ func (p *project) shareTree() error {
 		return nil
 	}
 	result, err := sharetree.Share(sharetree.Options{
-		Dir: p.opts.Dir, Operator: p.opts.OperatorUser, Group: p.report.ClientGroup,
+		Dir: p.opts.Dir, Operator: p.opts.AgentUser, Group: p.report.ClientGroup,
 		Keep: p.keepModes(),
 	})
 	if err != nil {

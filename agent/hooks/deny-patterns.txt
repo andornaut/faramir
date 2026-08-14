@@ -93,9 +93,15 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 
 # Reaching the broker's private state.  Reading the audit log is covered above;
 # listing the directory is not.  journalctl is absent: the daemons log ref names
-# and counts, never values.  The three approval subcommands are among them
-# because they read and decide an approval, and the agent must not be able to
-# answer the question it raised.
-\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|approvals|approve|deny|pam-approve)\b
+# and counts, never values.
+#
+# Two lines rather than one, because the halves are refused for different
+# reasons and the guard says which: running a daemon or running as one of these
+# accounts DISCLOSES, the keeper opening the store and the broker holding every
+# value; answering an approval discloses nothing and is refused because the
+# agent must not answer the question it raised.  `approvals` precedes `approve`
+# so the longer name is not left half-matched.
+\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|pam-approve)\b
+\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(approvals|approve|deny)\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-

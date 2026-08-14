@@ -185,7 +185,7 @@ func TestAgentRulesAreUnaskedWithoutAnOperator(t *testing.T) {
 	if report.Failed {
 		t.Error("a question that could not be put failed the report")
 	}
-	if len(report.Findings) != 1 || !strings.Contains(report.Findings[0].Detail, "--operator-user") {
+	if len(report.Findings) != 1 || !strings.Contains(report.Findings[0].Detail, "--agent-user") {
 		t.Errorf("finding does not say how to ask it: %+v", report.Findings)
 	}
 }

@@ -130,7 +130,7 @@ func (r *runner) stepAccounts() error {
 
 	// The secrets group is what makes editing a secret need sudo.  Reported rather
 	// than removed, a membership this did not add being somebody else's decision.
-	for _, who := range []string{r.layout.ExecUser, r.opts.OperatorUser} {
+	for _, who := range []string{r.layout.ExecUser, r.opts.AgentUser} {
 		if who == "" {
 			continue
 		}
@@ -161,7 +161,7 @@ func (r *runner) stepAccounts() error {
 	if err != nil {
 		return err
 	}
-	r.step("operator group", joined, fmt.Sprintf("%s in %s", r.opts.OperatorUser, r.layout.ClientGroup))
+	r.step("operator group", joined, fmt.Sprintf("%s in %s", r.opts.AgentUser, r.layout.ClientGroup))
 
 	umask, err := r.ensureOperatorUmask()
 	if err != nil {
@@ -252,19 +252,19 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 }
 
 func (r *runner) joinOperatorToGroup() (bool, error) {
-	in, err := inGroup(r.opts.OperatorUser, r.layout.ClientGroup)
+	in, err := inGroup(r.opts.AgentUser, r.layout.ClientGroup)
 	if err != nil || in {
 		return false, err
 	}
 	if r.opts.DryRun {
 		return true, nil
 	}
-	if _, err := r.command("usermod", "-aG", r.layout.ClientGroup, r.opts.OperatorUser); err != nil {
+	if _, err := r.command("usermod", "-aG", r.layout.ClientGroup, r.opts.AgentUser); err != nil {
 		return false, err
 	}
 	// New group membership does not reach a session that is already open.
 	r.warn("%s must log out and back in for membership of %s to take effect",
-		r.opts.OperatorUser, r.layout.ClientGroup)
+		r.opts.AgentUser, r.layout.ClientGroup)
 	return true, nil
 }
 
@@ -272,7 +272,7 @@ func (r *runner) joinOperatorToGroup() (bool, error) {
 // which the operator and a brokered command fight over every new file in a
 // shared tree.  Here rather than in share-tree, belonging to the account.
 func (r *runner) ensureOperatorUmask() (bool, error) {
-	home, err := homeDir(r.opts.OperatorUser)
+	home, err := homeDir(r.opts.AgentUser)
 	if err != nil {
 		return false, err
 	}
@@ -330,9 +330,9 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		skip("could not read %s (%v)", profile, err)
 		return false, nil
 	}
-	operatorUID, err := lookupUser(r.opts.OperatorUser)
+	operatorUID, err := lookupUser(r.opts.AgentUser)
 	if err != nil {
-		skip("cannot resolve %s (%v)", r.opts.OperatorUser, err)
+		skip("cannot resolve %s (%v)", r.opts.AgentUser, err)
 		return false, nil
 	}
 	if !info.Mode().IsRegular() {
@@ -343,7 +343,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		return false, err
 	} else if wrong {
 		skip("%s resolves to a file %s does not own, and appending to it as "+
-			"root would write wherever it points", profile, r.opts.OperatorUser)
+			"root would write wherever it points", profile, r.opts.AgentUser)
 		return false, nil
 	}
 	current, err := io.ReadAll(handle)
@@ -376,7 +376,7 @@ func (r *runner) resolveIDs() error {
 		into *int
 		user bool
 	}{
-		{r.opts.OperatorUser, &r.operatorUID, true},
+		{r.opts.AgentUser, &r.operatorUID, true},
 		{r.layout.BrokerUser, &r.brokerUID, true},
 		{r.layout.KeeperUser, &r.keeperUID, true},
 		{r.layout.ExecUser, &r.execUID, true},
@@ -423,12 +423,12 @@ func (r *runner) resolveIDs() error {
 	// The operator's own group, by the same reasoning: a directory created under
 	// their home has to end up grouped to them, not to whatever group the process
 	// creating it happened to run with.
-	if gid, _, err := primaryGroup(r.opts.OperatorUser); err == nil {
+	if gid, _, err := primaryGroup(r.opts.AgentUser); err == nil {
 		r.operatorGID = gid
 	} else if !r.opts.DryRun {
 		return err
 	}
-	home, err := homeDir(r.opts.OperatorUser)
+	home, err := homeDir(r.opts.AgentUser)
 	if err != nil {
 		return err
 	}

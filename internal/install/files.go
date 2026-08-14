@@ -375,7 +375,7 @@ func (r *runner) stepReachable() error {
 		return nil
 	}
 	result, err := sharetree.Reachable(sharetree.Options{
-		Dir: dir, Operator: r.opts.OperatorUser, Group: r.layout.ClientGroup,
+		Dir: dir, Operator: r.opts.AgentUser, Group: r.layout.ClientGroup,
 	})
 	if err != nil {
 		return fmt.Errorf("%s: %w", dir, err)

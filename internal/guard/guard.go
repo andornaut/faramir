@@ -106,7 +106,10 @@ var fallback = []string{
 	// The three approval subcommands among them: they read and decide an approval,
 	// and the agent must not be able to answer the question it raised.  `approvals`
 	// precedes `approve` so the longer name is not left half-matched.
-	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|approvals|approve|deny|pam-approve)\b`,
+	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|pam-approve)\b`,
+	// Answering discloses nothing; it decides. Split from the line above so
+	// each half is refused with the reason that fits it.
+	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(approvals|approve|deny)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Refused for what it costs, not because it hides anything: the wrapper
 	// fails closed, so a stopped broker withholds every command's output in
@@ -123,6 +126,48 @@ const advice = "Blocked: this command would put a credential (or an encrypted bl
 	"                env_refs={\"ROUTER_PW\": \"secret://home/router/admin\"})\n\n" +
 	"Call faramir_list_secrets to see the available names. You do not need the " +
 	"value of a secret to use it, and you will not be given one."
+
+// adviceOwn is for the rules that are not about disclosure.  Acting on
+// faramir's own files, accounts or units discloses nothing, so the disclosure
+// advice would name a consequence that is not the reason and, worse, offer
+// faramir_run as the way to proceed: a brokered command runs as an account with
+// less reach rather than more, so following it either fails on a permission or
+// does the very thing that was refused.
+const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
+	"because the command would disclose anything, but because it would change or " +
+	"stop what keeps credentials out of this conversation.\n\n" +
+	"faramir_run is not a way round it: a brokered command runs as an account " +
+	"with less reach than yours, not more.\n\n" +
+	"If this is deliberate, it is the operator's to do. Say what you were trying " +
+	"to achieve and let them decide."
+
+// ownershipMarkers are the substrings that identify a pattern as being about
+// faramir's own things rather than about disclosure.
+//
+// Matched against the pattern's own text, which is the same string in the
+// compiled fallback and in the shipped file, so a host reading either
+// classifies alike.  A prefix of writeCommands rather than the constant, the
+// shipped file carrying the expansion rather than the name.
+var ownershipMarkers = []string{
+	`(?-i:rm|shred|truncate`,     // writeCommands: editing or destroying
+	`>\s*\S*`,                    // a redirect into one of those paths
+	`\bsystemctl\b`,              // stopping or masking a unit
+	`(approvals|approve|deny)\b`, // answering a question the agent raised
+}
+
+// adviceFor picks the explanation that matches why the command was refused.
+//
+// Unclassified means disclosure, which is the larger half and the safer
+// default: telling an agent it put a credential at risk when it did not is a
+// smaller error than telling it nothing was at risk when something was.
+func adviceFor(pattern string) string {
+	for _, marker := range ownershipMarkers {
+		if strings.Contains(pattern, marker) {
+			return adviceOwn
+		}
+	}
+	return advice
+}
 
 type compiled struct {
 	source string
@@ -308,7 +353,7 @@ func Run(args []string) int {
 	}
 
 	if pattern, denied := decide(command); denied {
-		return emit(activeHost.deny(advice + "\n\n(matched deny pattern: " + pattern + ")"))
+		return emit(activeHost.deny(adviceFor(pattern) + "\n\n(matched deny pattern: " + pattern + ")"))
 	}
 
 	// A deny list only covers what someone thought to name, so everything else

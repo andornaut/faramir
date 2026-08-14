@@ -182,7 +182,7 @@ check:
 ##
 ## Pass anything else through INIT_ARGS, e.g. --config-dir or --allow-sudo.
 install:
-	sudo $(BIN)/faramir init --operator-user "$$(id -un)" $(INIT_ARGS)
+	sudo $(BIN)/faramir init --agent-user "$$(id -un)" $(INIT_ARGS)
 
 ## verify: examine a live deployment (root).  Asks each account what it can
 ## reach, which is a question only root can put to another uid.
