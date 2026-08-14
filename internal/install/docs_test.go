@@ -3,6 +3,7 @@ package install
 import (
 	"io/fs"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -115,4 +116,81 @@ func TestTheShippedProseHasNoDashedAsides(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+}
+
+// Every link between the shipped documents resolves, anchors included.  These
+// install onto a host and are read there, where a link to a heading that was
+// renamed is a dead end with no way to look it up.
+//
+// Anchors are matched the way a renderer builds them: lowercased, spaces to
+// hyphens, and anything else dropped.
+func TestTheShippedDocsLinkToWhatIsThere(t *testing.T) {
+	pages := map[string][]byte{}
+	err := fs.WalkDir(faramir.Assets, "docs", func(path string, entry fs.DirEntry, err error) error {
+		if err != nil || entry.IsDir() || !strings.HasSuffix(path, ".md") {
+			return err
+		}
+		body, err := faramir.Assets.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		pages[filepath.Base(path)] = body
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pages) == 0 {
+		t.Fatal("no shipped documents found, so this asserts nothing")
+	}
+	checked := 0
+	for name, body := range pages {
+		for _, part := range strings.Split(string(body), "](")[1:] {
+			link, _, found := strings.Cut(part, ")")
+			// Only links to a sibling document: a URL, an anchor within this page,
+			// and a path back into the checkout are not this test's business.
+			if !found || !strings.HasSuffix(strings.SplitN(link, "#", 2)[0], ".md") ||
+				strings.Contains(link, "://") || strings.HasPrefix(link, "../") {
+				continue
+			}
+			file, anchor, _ := strings.Cut(link, "#")
+			target, ok := pages[file]
+			if !ok {
+				t.Errorf("%s links to %s, which is not a shipped document", name, file)
+				continue
+			}
+			checked++
+			if anchor == "" {
+				continue
+			}
+			if !slices.Contains(headingSlugs(string(target)), anchor) {
+				t.Errorf("%s links to %s#%s, and %s has no such heading", name, file, anchor, file)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no links between shipped documents found, so this asserts nothing")
+	}
+}
+
+// headingSlugs is every heading in a document, as a renderer would anchor it.
+func headingSlugs(body string) []string {
+	var out []string
+	for _, line := range strings.Split(body, "\n") {
+		if !strings.HasPrefix(line, "#") {
+			continue
+		}
+		text := strings.TrimSpace(strings.TrimLeft(line, "#"))
+		var slug strings.Builder
+		for _, r := range strings.ToLower(text) {
+			switch {
+			case r >= 'a' && r <= 'z', r >= '0' && r <= '9':
+				slug.WriteRune(r)
+			case r == ' ' || r == '-':
+				slug.WriteRune('-')
+			}
+		}
+		out = append(out, slug.String())
+	}
+	return out
 }

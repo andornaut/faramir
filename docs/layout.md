@@ -39,7 +39,7 @@ Every path the install creates, what owns it, and what each account can reach th
 <any tree you enrol>            2770 <operator>:<client-group>, setgid
 ```
 
-`init` also writes into the operator's home, any file it creates being `0640 <operator>:<operator group>` and any missing parent `0700`. A file already there keeps its owner, its group and, for the credentials section, its mode; it must be a regular file the operator owns, or a symlink landing on one, and anything else fails the run:
+`init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>` and a missing parent `0700`; one already there keeps its own owner, group and mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
 
 Agent | Deny rules | Credentials section
 --- | --- | ---
@@ -49,15 +49,13 @@ opencode | `~/.config/opencode/opencode.json` | `~/.config/opencode/AGENTS.md`
 Kilo Code | `~/.config/kilo/kilo.json` | `~/.kilocode/rules/faramir.md`
 Pi | none | `~/.pi/agent/AGENTS.md`
 
-Pi gets no rule file: it has nowhere to put account-wide rules, so the same paths are compiled into the extension `init-project` installs. It gets the section like the rest.
+Pi gets no rule file, having nowhere to put account-wide rules: the same paths are compiled into the extension `init-project` installs. It gets the section like the rest. Kilo Code has no single home instructions file, so its section is a file of faramir's own in the global rules directory, every `.md` in which is loaded for every project.
 
-The section goes between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`, and only what is between them is faramir's: a later `init` replaces that and nothing else. These are the operator's own files, so the rest is theirs. It says what the deny rules refuse and why, which the rules themselves cannot: a refusal that reaches the model with no reason is the one that gets a second attempt through an interpreter. Kilo Code has no single home instructions file, so it gets one of faramir's own in its global rules directory, every `.md` in which is loaded for every project.
+The section is what the deny rules cannot say: why they refuse, which a bare refusal reaching the model does not, and that is the refusal it tries to get around.
 
 `~/.bashrc` gets a `umask 002` line, so a file the operator creates in a shared tree stays group-writable.
 
-Each agent's own directory under the tree is `3770` rather than `2770`: sticky as well as setgid, so unlink and rename inside it are the file's owner's. That is what keeps a brokered command from deleting the settings that name the hook and writing its own, the file's `0640` saying nothing about being unlinked.
-
-The tree's own root is not sticky, deliberately. Sticky there would stop a brokered command renaming over or deleting any operator-owned file at the top level, which is what a tool rewriting a lock file or `go.mod` by rename does. The cost of leaving it open is most of what the sticky bit below it buys: renaming a directory needs write on its parent, and the root is group-writable, so a brokered command can move `.claude` aside and put its own there. `faramir doctor` reports a tree whose agent files stopped carrying what the enrolment wrote.
+Each agent's own directory in an enrolled tree is `3770` rather than `2770`: sticky as well as setgid, so unlink and rename inside it belong to the file's owner. The tree root is `2770` deliberately, and what that costs is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config).
 
 `--config-dir` moves the config, `config.d/`, the secrets directory and the age key off `/etc` together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. The audit log and the two sudo files do not follow: the log is the broker unit's `ReadWritePaths`, and the sudo files are the paths `sudo` and PAM read. `faramir status` reports the paths in use.
 
@@ -76,4 +74,4 @@ A tree inside a 0700 home needs traversal for `faramir-exec`, which `faramir ini
 - Everyone in the group gets that traversal, so keep membership to the accounts that need it.
 - A directory already traversable by `other` is left alone. One whose group is something else is taken over, costing that group whatever the group bits gave it, and `init-project` says so.
 - Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
-- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings files faramir manages are regrouped but deliberately left not group-writable, and each agent's own directory is sticky, so a brokered command cannot get at those files by unlinking one and writing its own.
+- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings faramir manages are regrouped and deliberately not group-writable.
