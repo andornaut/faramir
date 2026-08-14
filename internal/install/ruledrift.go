@@ -54,7 +54,7 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 	layout := Layout{ConfigDir: configDir}
 
 	var stale, unread []string
-	read := 0
+	read, ruleCount := 0, 0
 	for _, name := range agentNames() {
 		for _, file := range agentTargets[name].accountFiles {
 			path := filepath.Join(home, file.path)
@@ -65,14 +65,19 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 			if err != nil {
 				continue
 			}
-			found, err := staleRules(path, current)
+			found, err := staleRules(path, current, configDir)
 			if err != nil {
 				unread = append(unread, fmt.Sprintf("~/%s (%v)", file.path, err))
 				continue
 			}
 			read++
-			for _, rule := range found {
-				stale = append(stale, fmt.Sprintf("~/%s: %s", file.path, rule))
+			ruleCount += len(found)
+			if len(found) > 0 {
+				// The file named once with its rules under it.  "file: rule" reads as
+				// two paths, and the reader has to guess which of the two the finding
+				// wants removed; it is neither, it is the entry inside the file.
+				stale = append(stale, fmt.Sprintf("in ~/%s: %s",
+					file.path, strings.Join(found, ", ")))
 			}
 		}
 	}
@@ -90,13 +95,14 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 	}
 	report.add("agent rule drift", StatusWarn, "%d rule(s) faramir no longer writes "+
 		"are still in place, left rather than deleted because an entry carries no "+
-		"sign of who added it and yours would look the same. Remove them if they "+
-		"are not yours: %s", len(stale), strings.Join(stale, ", "))
+		"sign of who added it and yours would look the same. Remove the rules "+
+		"below from the file rather than the file itself, and only where they are "+
+		"not yours: %s", ruleCount, strings.Join(stale, "; "))
 }
 
 // staleRules is the entries in path that name something faramir manages and are
 // not in what it writes now.
-func staleRules(path string, current []byte) ([]string, error) {
+func staleRules(path string, current []byte, configDir string) ([]string, error) {
 	onDisk, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -111,7 +117,7 @@ func staleRules(path string, current []byte) ([]string, error) {
 	}
 	var out []string
 	for entry := range have {
-		if want[entry] || !looksManaged(entry) {
+		if want[entry] || !looksManaged(entry, configDir) {
 			continue
 		}
 		out = append(out, entry)
@@ -172,18 +178,37 @@ func isDecision(value string) bool {
 
 // looksManaged reports whether an entry names something on faramir's list.
 //
+// Nothing here is a record of what earlier versions wrote, and none should be:
+// a stored list goes stale the first time somebody edits the file by hand, and
+// acting on a stale record is the one outcome worth avoiding.  So this infers,
+// and the name is the strongest thing it has to infer from.  A rule naming a
+// layout faramir has stopped using names it by that name, and nothing else
+// does: ~/.faramir after the config moved under ~/.config, or a --config-dir
+// that has since changed.  Matching the compiled-in defaults alone sees only the
+// installs that never moved.
+//
 // Deliberately generous in one direction and never the other: an operator's own
 // rule refusing a path faramir also refuses is reported alongside the leftovers,
 // because the two cannot be told apart, and the finding says so.  A rule about
 // anything else is not reported at all, which is what keeps this from naming
 // every line of somebody's settings.
-func looksManaged(entry string) bool {
+//
+// configDir is the install being examined rather than the default, the caller
+// having resolved it already: a stale rule naming a non-default directory that
+// is still in use is exactly what this is for, and reading it off Layout{} threw
+// that answer away.
+func looksManaged(entry, configDir string) bool {
+	// Its own name.  Anything under a path with "faramir" in it is faramir's to
+	// ask about, whatever layout put it there.
+	if strings.Contains(entry, "faramir") {
+		return true
+	}
 	for _, p := range protectedPaths {
 		if strings.Contains(entry, strings.TrimSuffix(p.value, "/")) {
 			return true
 		}
 	}
-	for _, dir := range installDirs(Layout{}) {
+	for _, dir := range installDirs(Layout{ConfigDir: configDir}) {
 		if strings.Contains(entry, dir) {
 			return true
 		}

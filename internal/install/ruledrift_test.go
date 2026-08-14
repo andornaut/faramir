@@ -49,16 +49,16 @@ func TestRuleEntriesReadsBothShapes(t *testing.T) {
 // An entry about anything faramir does not manage is not reported, which is
 // what keeps this from naming every line of somebody's settings.
 func TestOnlyRulesAboutManagedPathsAreConsidered(t *testing.T) {
-	if looksManaged("Read(**/notes.md)") {
+	if looksManaged("Read(**/notes.md)", "/etc/faramir") {
 		t.Error("an unrelated rule was treated as faramir's business")
 	}
-	if looksManaged("Bash(git status)") {
+	if looksManaged("Bash(git status)", "/etc/faramir") {
 		t.Error("a command rule was treated as faramir's business")
 	}
-	if !looksManaged("Read(**/id_ed25519)") {
+	if !looksManaged("Read(**/id_ed25519)", "/etc/faramir") {
 		t.Error("a rule about an SSH private key was not recognised")
 	}
-	if !looksManaged("*sops/age/*") {
+	if !looksManaged("*sops/age/*", "/etc/faramir") {
 		t.Error("a rule about the age identities was not recognised")
 	}
 }
@@ -81,7 +81,7 @@ func TestAStaleRuleIsFound(t *testing.T) {
 	  ]}
 	}`)
 
-	got, err := staleRules(filepath.Join(home, ".claude/settings.json"), current)
+	got, err := staleRules(filepath.Join(home, ".claude/settings.json"), current, "/etc/faramir")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestAFreshlyWrittenFileHasNoStaleRules(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := staleRules(path, current)
+	got, err := staleRules(path, current, "/etc/faramir")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,5 +174,41 @@ func TestTheDriftFindingReportsACleanHome(t *testing.T) {
 	}
 	if report.Failed || report.NotAsked != 0 {
 		t.Errorf("a clean home was not reported as clean: %+v", report)
+	}
+}
+
+// A rule naming a layout faramir has stopped using is what this check exists to
+// find, and the name is the only thing that identifies one.
+//
+// Nothing records what earlier versions wrote, and nothing should: a stored list
+// goes stale the moment somebody edits the file by hand. So the inference has to
+// recognise faramir's own name rather than only the directories this build
+// happens to use. Matching the compiled-in defaults alone sees an install that
+// never moved and nothing else, which is the case least likely to have drifted.
+func TestARuleFromAnEarlierLayoutIsRecognised(t *testing.T) {
+	const configDir = "/home/op/.config/faramir"
+	for _, entry := range []string{
+		// The config directory faramir shipped before it moved under ~/.config.
+		"Read(/home/op/.faramir/**)",
+		"Edit(/home/op/.faramir/secrets/**)",
+		"Read(**/.faramir/**)",
+		// The compiled-in default, on a host that is no longer using it.
+		"Read(/etc/faramir/**)",
+		// A --config-dir somebody moved away from.
+		"Read(/opt/faramir/**)",
+		// And the one this install actually uses.
+		"Read(" + configDir + "/**)",
+	} {
+		if !looksManaged(entry, configDir) {
+			t.Errorf("%q names a faramir layout and was not recognised, so a leftover "+
+				"from it is never reported", entry)
+		}
+	}
+	// Still narrow in the other direction: an unrelated rule is not this check's
+	// business, or every line of somebody's settings ends up in the finding.
+	for _, entry := range []string{"Read(**/notes.md)", "Bash(git status)", "Edit(src/**)"} {
+		if looksManaged(entry, configDir) {
+			t.Errorf("%q is nothing to do with faramir and was reported", entry)
+		}
 	}
 }
