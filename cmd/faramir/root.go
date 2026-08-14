@@ -73,8 +73,12 @@ func runCommand(c *cobra.Command, args []string) int {
 // organised by, and cli.Operator and cli.Internal name the same set for the
 // guard; TestEverySubcommandIsNamedForTheGuard holds the two together.
 func newRootCmd() *cobra.Command {
+	// The listing follows the order the commands are added, which groups them
+	// by what they are for: run first, because it is what faramir is for.
+	cobra.EnableCommandSorting = false
+
 	root := &cobra.Command{
-		Use:   "faramir <command> [options] [-- program [args...]]",
+		Use:   "faramir",
 		Short: "A secrets broker for local AI coding agents",
 		Long: "A secrets broker for local AI coding agents: it runs the commands that need\n" +
 			"credentials and keeps the values out of the agent's context.\n\n" +
@@ -112,26 +116,25 @@ func newRootCmd() *cobra.Command {
 		&cobra.Group{ID: groupInternal, Title: "Run by systemd and by the coding agent, not by you:"},
 	)
 
-	// `faramir version` as well as --version, because it was a subcommand
-	// before cobra and is written down as one.
 	root.SetVersionTemplate("faramir {{.Version}}\n")
-	root.AddCommand(&cobra.Command{
-		Use:     "version",
-		Short:   "print the version and exit",
-		GroupID: groupOperator,
-		Args:    noArgs,
-		RunE: func(c *cobra.Command, args []string) error {
-			fmt.Println("faramir " + version.Version)
-			return nil
-		},
-	})
-
 	root.AddCommand(
 		newRunCmd(),
 		newRedactCmd(),
 		newCallCmd("list_secrets", "list secret refs (names only)"),
 		newCallCmd("status", "show broker status"),
 		newKeygenCmd(),
+		// `faramir version` as well as --version, because it was a subcommand
+		// before cobra and is written down as one.
+		&cobra.Command{
+			Use:     "version",
+			Short:   "print the version and exit",
+			GroupID: groupOperator,
+			Args:    noArgs,
+			RunE: func(c *cobra.Command, args []string) error {
+				fmt.Println("faramir " + version.Version)
+				return nil
+			},
+		},
 	)
 	root.AddCommand(
 		newInitCmd(),
@@ -150,11 +153,19 @@ func newRootCmd() *cobra.Command {
 		newBrokerCmd(),
 		newKeeperCmd(),
 		newExecCmd(),
-		newPamApproveRootCmd(),
 		newMCPCmd(),
 		newGuardCmd(),
+		newPamApproveRootCmd(),
 	)
 
+	// Registered here so that cobra does not add it with a "-v" shorthand of its
+	// own.  -v is --vault in mrs, and a letter that means two things across the
+	// tools is a trap for the person typing, not for the parser.
+	root.Flags().Bool("version", false, "version for faramir")
+	// help and completion are cobra's, and land under "Additional Commands"
+	// unless they are told which group they belong to.
+	root.SetHelpCommandGroupID(groupOperator)
+	root.SetCompletionCommandGroupID(groupOperator)
 	// A flag cobra could not parse is a wrong invocation, and exits 2 like one.
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error { return usageError{err} })
 	// The generated completion command is not one of the three groups, and
