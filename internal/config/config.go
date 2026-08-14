@@ -406,8 +406,20 @@ var inventoryLists = map[string]bool{
 // identity to the account the relay exists to keep it from.
 //
 // The value is the flag that sets each, so the refusal says what to run
-// instead.  Empty for a value rendered from a compiled-in path, which no flag
-// moves: naming one would send the operator to a command that changes nothing.
+// instead.  Three forms, and every one of them is reachable, which
+// TestEveryInitOwnedRemedyIsReachable is what holds: a flag, noFlagResolved for
+// a value init works out at install time, and empty for one rendered from a
+// path fixed at build time that no flag moves.
+//
+// The distinction is the whole point of saying anything.  An operator told
+// "no flag moves this" about a value init resolves on PATH has been sent away
+// from the one thing that would have changed it.
+// noFlagResolved marks a key init works out at install time rather than taking
+// from a flag.  A sentinel rather than prose in the map, so the remedy is
+// matched exactly and a typo cannot silently fall through to the build-time
+// wording, which is what left this branch unreachable before.
+const noFlagResolved = "\x00resolved-at-install"
+
 var initOwned = map[string]string{
 	// A second identity reaches the same hosts and is one no account has ever
 	// held; a key of your own is adopted rather than replaced.
@@ -436,8 +448,12 @@ var initOwned = map[string]string{
 	// The binaries the broker execs as the uid holding every plaintext value. init
 	// resolves them on PATH; a drop-in pointing either elsewhere is code execution
 	// as that uid.
-	"ssh.ssh_agent": "",
-	"ssh.ssh_add":   "",
+	//
+	// Resolved rather than fixed, so the remedy is a re-run and not "no flag moves
+	// this": what init finds on PATH is what these become, and an operator who
+	// wants another ssh-agent installs it and runs init again.
+	"ssh.ssh_agent": noFlagResolved,
+	"ssh.ssh_add":   noFlagResolved,
 	// From LogDir and RunDir.  audit.log_path is rendered into logrotate.conf
 	// beside it, and the agent socket into the unit's RuntimeDirectory, so moving
 	// one here leaves the other pointed where it was.
@@ -489,8 +505,9 @@ func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, s
 			if flag, owned := initOwned[full]; owned {
 				remedy := "It is rendered from a path fixed at build time, which no flag moves"
 				switch {
-				case strings.HasPrefix(flag, "(no flag"):
-					remedy = "Re-run `faramir init`, which resolves it, rather than naming it here"
+				case flag == noFlagResolved:
+					remedy = "No flag names it: init resolves it on PATH at install time, so " +
+						"install what you want it to find and re-run `faramir init`"
 				case flag != "":
 					remedy = "Change it with `faramir init " + flag + "`"
 				}

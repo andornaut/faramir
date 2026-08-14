@@ -182,8 +182,11 @@ func TestADropInMayNotSetWhatInitDerives(t *testing.T) {
 		{"[keeper]\nallowed_user = \"root\"\n", "--broker-user"},
 		{"[executor]\nallowed_user = \"root\"\n", "--broker-user"},
 		{"[audit]\nlog_path = \"/tmp/audit.log\"\n", ""},
-		{"[ssh]\nssh_agent = \"/tmp/evil\"\n", ""},
-		{"[ssh]\nssh_add = \"/tmp/evil\"\n", ""},
+		// Not "" like the rest: init resolves these two on PATH rather than
+		// rendering them from a fixed path, so the remedy is a re-run and telling
+		// the operator no flag moves it would send them away from what does.
+		{"[ssh]\nssh_agent = \"/tmp/evil\"\n", noFlagResolved},
+		{"[ssh]\nssh_add = \"/tmp/evil\"\n", noFlagResolved},
 		{"[keeper]\nage_key_file = \"/tmp/other.key\"\n", "--config-dir"},
 		{"[keeper]\nage_key_credential = \"other\"\n", ""},
 		// The whole of the approval boundary.  exec_user is the account the grant was
@@ -200,10 +203,14 @@ func TestADropInMayNotSetWhatInitDerives(t *testing.T) {
 			if err == nil {
 				t.Fatal("a drop-in set a value init derives")
 			}
-			// The file to edit, and the remedy: a flag when there is one, and otherwise
-			// that no flag moves it.
+			// The file to edit, and the remedy that matches how the key is actually
+			// set: a flag, a re-run for one init resolves at install time, and
+			// otherwise that no flag moves it.
 			remedy := "no flag moves"
-			if tc.flag != "" {
+			switch {
+			case tc.flag == noFlagResolved:
+				remedy = "resolves it on PATH"
+			case tc.flag != "":
 				remedy = "faramir init " + tc.flag
 			}
 			if !strings.Contains(err.Error(), "10-x.toml") ||
@@ -311,5 +318,60 @@ func TestOnlyTomlFilesAreRead(t *testing.T) {
 	}
 	if len(cfg.Sources) != 2 {
 		t.Errorf("sources = %v, want the base and the one .toml", cfg.Sources)
+	}
+}
+
+// Every remedy initOwned can produce is one some key actually produces.
+//
+// The branch for a value init resolves at install time sat unreachable: no
+// entry carried the prefix it keyed off, so ssh_agent and ssh_add, which init
+// finds on PATH, were refused with "rendered from a path fixed at build time,
+// which no flag moves". That is the one wording that sends an operator away
+// from the thing that would have changed it, and nothing failed while it was
+// wrong. A refusal is only worth writing if it routes.
+func TestEveryInitOwnedRemedyIsReachable(t *testing.T) {
+	seen := map[string]string{}
+	for key, flag := range initOwned {
+		switch {
+		case flag == noFlagResolved:
+			seen["resolved"] = key
+		case flag != "":
+			seen["flag"] = key
+		default:
+			seen["fixed"] = key
+		}
+	}
+	for _, form := range []string{"flag", "resolved", "fixed"} {
+		if seen[form] == "" {
+			t.Errorf("no initOwned key produces the %q remedy, so that branch of the "+
+				"refusal is unreachable: delete it or give it the key it was written for",
+				form)
+		}
+	}
+}
+
+// And each form says something an operator can act on, against the key it is
+// written for.
+func TestTheRemedyMatchesHowTheKeyIsSet(t *testing.T) {
+	for _, tc := range []struct {
+		dropIn, wants string
+	}{
+		// Resolved on PATH: a re-run is what changes it.
+		{"[ssh]\nssh_agent = \"/tmp/evil\"\n", "resolves it on PATH"},
+		{"[ssh]\nssh_add = \"/tmp/evil\"\n", "re-run `faramir init`"},
+		// Fixed at build time: no re-run helps, and saying so is the honest answer.
+		{"[audit]\nlog_path = \"/tmp/audit.log\"\n", "no flag moves"},
+		// A flag: name it.
+		{"[ssh]\nkey = \"/tmp/other\"\n", "faramir init --ssh-key"},
+	} {
+		t.Run(tc.wants, func(t *testing.T) {
+			_, err := write(t, minimal, map[string]string{"10-x.toml": tc.dropIn})
+			if err == nil {
+				t.Fatal("a drop-in set a value init derives")
+			}
+			if !strings.Contains(err.Error(), tc.wants) {
+				t.Errorf("error does not say %q: %v", tc.wants, err)
+			}
+		})
 	}
 }

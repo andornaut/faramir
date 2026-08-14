@@ -6,6 +6,15 @@
   another host, or a copy in a new location are the same disclosure.
   Transformed output (base64, `rev`, `cut`) is a policy violation rather than a
   puzzle.
+- **Never ask for a value.** Not pasted, not typed, not read out, not "just this
+  once for testing". Where something needs a credential that has no ref, ask the
+  operator to add one and name what it is for. Asking is the shortest way round
+  everything above, and a value that arrives this way is in your context exactly
+  as if you had read the file.
+- **Never remove faramir's own entries** from a configuration file you edit.
+  Working on an agent's settings, its MCP list or its rules is ordinary work;
+  taking out the parts naming faramir is turning off the thing that routes you
+  to credentials you are allowed to use.
 
 If a value reaches you anyway, say so plainly and tell the operator to rotate
 it.

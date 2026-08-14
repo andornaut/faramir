@@ -87,6 +87,9 @@ refuse whatever is waiting|sudo faramir deny
 stop the broker|systemctl stop faramir-broker.socket
 mask the units|systemctl mask faramir-exec.service
 read the audit log|cat /var/log/faramir/audit.log
+delete the opencode plugin|rm .opencode/plugins/faramir.js
+edit the pi extension|sed -i s/x/y/ .pi/extensions/faramir.ts
+overwrite the kilo plugin|echo x > .kilo/plugin/faramir.js
 CASES
 
 # --------------------------------------------------------------------------
@@ -94,6 +97,14 @@ head_ "2. ordinary work is rewritten, not refused"
 # The complement, and the more important half: a deny list that refuses real
 # work gets turned off.  Each of these is a command an agent runs constantly,
 # several of them deliberately near a rule's edge.
+#
+# The last four are the agent config files an enrolment MERGES into, which carry
+# the operator's own settings and other tools' servers beside faramir's entries.
+# Editing them is ordinary work; only the plugin and extension files faramir
+# writes in full are refused, and those are in the block above.
+#
+# No comments inside the heredoc: a #-line there is read as a case, the loop
+# skipping an empty label rather than a comment.
 while IFS='|' read -r label cmd; do
   [ -z "$label" ] && continue
   got=$(verdict "$cmd")
@@ -116,6 +127,10 @@ the sanctioned CLI|faramir list-secrets
 the sanctioned CLI under sudo|sudo faramir doctor
 a brokered command|faramir run --env P=secret://db/password -- ./deploy.sh
 answering an approval unprivileged|faramir approve abc123
+edit claude's settings|sed -i s/a/b/ .claude/settings.json
+replace the MCP list|rm .mcp.json
+back up the kilo config|cp kilo.json kilo.json.bak
+edit the opencode config|sed -i s/a/b/ opencode.json
 CASES
 
 # --------------------------------------------------------------------------

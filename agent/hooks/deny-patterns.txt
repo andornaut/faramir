@@ -75,6 +75,22 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 \b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(age\.key|sops/age|\.config/faramir\b{{if .SSHKey}}|{{.SSHKey | regexQuote}}{{end}}|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|{{.BinDir | regexQuote}}/faramir\b|\.sops\.ya?ml|\.vault\b)
 >\s*\S*(age\.key|sops/age|\.config/faramir\b{{if .SSHKey}}|{{.SSHKey | regexQuote}}{{end}}|{{.ConfigDir | regexQuote}}|{{.SecretsDir | regexQuote}}|{{.LibexecDir | regexQuote}}|{{.BinDir | regexQuote}}/faramir\b|\.sops\.ya?ml)
 
+# The plugin and extension an enrolment installs, which are faramir's own files
+# rather than shared ones: init-project overwrites each in full on every run, so
+# an edit here is discarded rather than kept, and what a removal buys in the
+# meantime is an agent whose commands stop being routed through the guard.
+#
+# The merged files are deliberately absent: .claude/settings.json, .mcp.json,
+# opencode.json, kilo.json and .agents/mcp_config.json carry the operator's own
+# settings and other tools' servers beside faramir's entries, which is why
+# init-project merges into them instead of replacing them.  Editing those is
+# ordinary work.  What covers them instead is `faramir doctor`, which reports a
+# registration that went missing, and the rule in the credentials section
+# against removing faramir's own entries from a file you are otherwise free to
+# change.
+\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|setfacl|ln)\b[^|]*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)
+>\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)
+
 # Reaching the broker's private state.  Reading the audit log is covered above;
 # listing the directory is not.  journalctl is absent: the daemons log ref names
 # and counts, never values.  The three approval subcommands are among them

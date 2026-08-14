@@ -89,6 +89,16 @@ var fallback = []string{
 	writeCommands + `[^|]*` +
 		`(age\.key|sops/age|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml|\.vault\b)`,
 	`>\s*\S*(age\.key|sops/age|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml)`,
+	// The plugin and extension an enrolment installs, which are faramir's own
+	// files: init-project overwrites each in full every run, so an edit is
+	// discarded, and a removal only stops that agent's commands reaching the
+	// guard.  The merged files (.claude/settings.json, .mcp.json, opencode.json,
+	// kilo.json, .agents/mcp_config.json) are deliberately absent: they carry the
+	// operator's own settings beside faramir's, so editing them is ordinary work.
+	// `faramir doctor` reports a registration that went missing from any of them.
+	writeCommands + `[^|]*` +
+		`(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
+	`>\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
 	// Running a daemon, or running as its account, discloses; managing the unit
 	// does not, so "systemctl restart faramir-keeper" stays allowed.  Only
 	// sudo's own flags may precede the executable name.  journalctl is absent:
