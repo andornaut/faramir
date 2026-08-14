@@ -167,7 +167,7 @@ jobs:
       # download that straddles a re-cut would otherwise install a mixed set
       # silently.
       - name: Write checksums
-        run: cd artifacts && sha256sum *.tar.gz > checksums.txt
+        run: cd artifacts && sha256sum -- *.tar.gz > checksums.txt
 
       # A release follows its tag, and updating one below does not move the tag
       # GitHub already has, so `dev` has to be repointed here or the release's
