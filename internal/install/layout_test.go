@@ -95,3 +95,46 @@ func TestStoreGroupIsNotTheClientGroup(t *testing.T) {
 		t.Errorf("secrets group and client group are both %q", opts.ClientGroup)
 	}
 }
+
+// A path holding a control character is refused on the way in.
+//
+// These reach three formats with three escape sets: the agents' JSON settings,
+// config.toml, and the deny patterns. A renderer that escapes for the wrong one
+// writes a file its reader rejects, and for the settings that reads as an
+// enrolment that worked with every rule in it missing. Refusing the input is one
+// check instead of three, and it is the only one that cannot be got wrong
+// somewhere new.
+func TestAPathWithAControlCharacterIsRefused(t *testing.T) {
+	for _, tc := range []struct{ name, dir, key string }{
+		{"bell in the config dir", "/etc/far\amir", ""},
+		{"vertical tab in the config dir", "/etc/far\vmir", ""},
+		{"a C0 byte in the config dir", "/etc/far\x01mir", ""},
+		{"DEL in the config dir", "/etc/far\x7fmir", ""},
+		{"invalid UTF-8 in the config dir", "/etc/far\xffmir", ""},
+		{"bell in the ssh key path", "/etc/faramir", "/etc/faramir/id\aed25519"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := Options{
+				AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+				BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex",
+				ConfigDir: tc.dir, SSHKey: tc.key,
+			}
+			opts.applyDefaults()
+			if _, err := opts.layout(); err == nil {
+				t.Fatalf("accepted %q / %q, which no rendered format takes literally",
+					tc.dir, tc.key)
+			} else if !strings.Contains(err.Error(), "control character") {
+				t.Errorf("refused for the wrong reason: %v", err)
+			}
+		})
+	}
+	// And an ordinary path still passes, or this refuses every install.
+	opts := Options{
+		AgentUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+		BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex", ConfigDir: "/opt/conf",
+	}
+	opts.applyDefaults()
+	if _, err := opts.layout(); err != nil {
+		t.Errorf("an ordinary config dir was refused: %v", err)
+	}
+}

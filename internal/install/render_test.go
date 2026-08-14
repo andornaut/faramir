@@ -1,8 +1,10 @@
 package install
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -386,5 +388,44 @@ func TestTheRenderedConfigLoads(t *testing.T) {
 	}
 	if _, err := config.Load(path); err != nil {
 		t.Fatalf("the config init writes does not load: %v\n%s", err, body)
+	}
+}
+
+// The rendered agent files are JSON, and Go's escape set is not JSON's.
+//
+// Every path in them is the operator's, from --config-dir or --ssh-key, and
+// nothing on the way here refuses a control character in one. Rendered with
+// Go's quoting, such a path produces a settings file the agent cannot parse:
+// the enrolment reports success and every rule in that file is absent, which is
+// the failure mode worth a test rather than the syntax error.
+func TestTheRenderedAgentFilesAreParseableJSON(t *testing.T) {
+	for _, awkward := range []string{
+		"/etc/faramir",
+		"/etc/far\amir",
+		"/etc/far\vmir",
+		"/etc/far\x01mir",
+		"/etc/far\"mir",
+		"/etc/far\\mir",
+	} {
+		t.Run(strconv.Quote(awkward), func(t *testing.T) {
+			for _, tc := range []struct{ open, body, close string }{
+				{"[", jsonLines("", []string{awkward}), "]"},
+				{"{", jsonDenyMap("", []string{awkward}), "}"},
+			} {
+				var into any
+				body := tc.open + strings.TrimSpace(tc.body) + tc.close
+				if err := json.Unmarshal([]byte(body), &into); err != nil {
+					t.Errorf("renders JSON nothing can parse: %v\n%s", err, body)
+				}
+			}
+			// And the value survives rather than merely parsing.
+			var got []string
+			if err := json.Unmarshal([]byte("["+strings.TrimSpace(jsonLines("", []string{awkward}))+"]"), &got); err != nil {
+				t.Fatal(err)
+			}
+			if len(got) != 1 || got[0] != awkward {
+				t.Errorf("round trip = %q, want %q", got, awkward)
+			}
+		})
 	}
 }

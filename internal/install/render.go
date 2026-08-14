@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"text/template"
 
@@ -41,8 +40,34 @@ var renderFuncs = template.FuncMap{
 	// The list emitters, so no template counts commas.
 	"jsonLines":   jsonLines,
 	"jsonDenyMap": jsonDenyMap,
-	"quote":       strconv.Quote,
+	"quote":       jsonString,
 	"tomlList":    tomlList,
+}
+
+// jsonString is one JSON string, and the only thing that should render one.
+//
+// Not strconv.Quote: it emits Go's escape set, and \a, \v and \xNN are none of
+// them JSON.  What that renders is an agent settings file the agent cannot
+// parse, so the enrolment reads as done and every rule in it is absent.  Any
+// path this interpolates is the operator's, from --config-dir or --ssh-key, and
+// nothing on the way here refuses a control character in one.
+//
+// A JSON string is also a valid TypeScript string literal, so pi's extension
+// template takes the same function.
+//
+// SetEscapeHTML(false) so <, > and & stay literal: escaping them is valid JSON
+// and changes nothing semantically, but it would rewrite every file that
+// contains one for no reason.  Encode appends a newline, hence the trim.
+func jsonString(text string) string {
+	var out bytes.Buffer
+	encoder := json.NewEncoder(&out)
+	encoder.SetEscapeHTML(false)
+	if err := encoder.Encode(text); err != nil {
+		// Encoding a string cannot fail; a quoted empty string keeps the rendered
+		// file parseable if it ever does.
+		return `""`
+	}
+	return strings.TrimRight(out.String(), "\n")
 }
 
 // tomlList renders a string list as a TOML array.

@@ -2,7 +2,6 @@ package install
 
 import (
 	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -196,7 +195,7 @@ func jsonLines(indent string, items []string) string {
 	var b strings.Builder
 	for i, item := range items {
 		b.WriteString(indent)
-		b.WriteString(strconv.Quote(item))
+		b.WriteString(jsonString(item))
 		if i < len(items)-1 {
 			b.WriteString(",\n")
 		}
@@ -210,7 +209,7 @@ func jsonDenyMap(indent string, items []string) string {
 	var b strings.Builder
 	for i, item := range items {
 		b.WriteString(indent)
-		b.WriteString(strconv.Quote(item))
+		b.WriteString(jsonString(item))
 		b.WriteString(": \"deny\"")
 		if i < len(items)-1 {
 			b.WriteString(",\n")

@@ -131,7 +131,7 @@ grep -qi 'are you sure you want to continue' <<<"$out" \
 
 # The operator's own known_hosts is not what the executor reads.  0700 and
 # removed again afterwards: a ~/.ssh the executor can read is a finding of its
-# own (doctor's "operator keys"), and a suite that leaves one behind hands the
+# own (doctor's "agent keys"), and a suite that leaves one behind hands the
 # next suite a fault to report.
 had_ssh_dir=$([ -d /home/op/.ssh ] && echo yes || echo no)
 runuser -u op -- mkdir -p -m 0700 /home/op/.ssh

@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // Default paths.  Only ConfigDir is meant to be moved; the rest are here so the
@@ -263,6 +264,20 @@ func (l Layout) validate() error {
 	if strings.Contains(dir, "%") {
 		return fmt.Errorf("config dir must not contain '%%': %s", dir)
 	}
+	// Refused here rather than left to whatever renders it.  These paths are
+	// interpolated into the agents' JSON settings, into config.toml and into the
+	// deny patterns, and each of those formats escapes a different set: a
+	// renderer that got it wrong would write a settings file the agent cannot
+	// parse, which reads as an enrolment that worked with every rule in it
+	// missing.  One check on the way in beats three on the way out.
+	if name, bad := hasControlChar(dir); bad {
+		return fmt.Errorf("config dir must not contain a control character (%s): %q",
+			name, dir)
+	}
+	if name, bad := hasControlChar(l.SSHKey); bad {
+		return fmt.Errorf("ssh key path must not contain a control character (%s): %q",
+			name, l.SSHKey)
+	}
 	for name, account := range map[string]string{
 		"group":       l.ClientGroup,
 		"broker user": l.BrokerUser,
@@ -293,6 +308,23 @@ func (l Layout) validate() error {
 		seen[account] = name
 	}
 	return l.validateNotifyCommand()
+}
+
+// hasControlChar reports whether a path holds a character no rendered format
+// takes literally, naming it so the refusal says which.  DEL as well as the C0
+// range, and an invalid UTF-8 byte with them: ranging over a string yields
+// U+FFFD for one, which is not what the operator typed and not what any later
+// comparison against the path would match.
+func hasControlChar(text string) (string, bool) {
+	for _, r := range text {
+		switch {
+		case r == utf8.RuneError:
+			return "an invalid UTF-8 byte", true
+		case r < 0x20 || r == 0x7f:
+			return fmt.Sprintf("U+%04X", r), true
+		}
+	}
+	return "", false
 }
 
 // validateNotifyCommand holds the announcement to what the loader will accept,

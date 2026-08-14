@@ -14,7 +14,7 @@ Group | Checks | What they answer
 --- | --- | ---
 Install identity | `config`, `identities`, `group`, `secrets group` | Is there an install, do the accounts and groups exist, is the secrets group the keeper's alone. The first two are hard failures that stop the run
 Daemons | `sockets`, `broker`, `version`, `protectproc` | Are the units listening, does `--check` pass, do the CLI and the running broker report the same build, is the broker's environment hidden
-Key material | `age key`, `operator keys`, `audit log`, `ssh key` | The age key readable only by the keeper; the operator's `~/.ssh`, `~/.config/sops` and `~/.gnupg` unreadable and unlistable by the executor; the log and SSH keys likewise, the executor still able to authenticate
+Key material | `age key`, `agent keys`, `audit log`, `ssh key` | The age key readable only by the keeper; the agent account's `~/.ssh`, `~/.config/sops` and `~/.gnupg` unreadable and unlistable by the executor; the log and SSH keys likewise, the executor still able to authenticate
 Files | `config ownership`, `installed files`, `deny patterns` | The config, `.sops.yaml`, the binary, `wrap.sh` and the PAM helper not writable by the operator, and the deny list rendered for *this* config directory
 Sockets | `keeper socket`, `executor socket`, `broker socket`, and a `policy` check for each of the first two | The internal sockets closed to the accounts that must not open them, the broker's open to the operator, and each `allowed_user` naming the broker
 Behaviour | `brokered command`, `ssh agent`, `redaction`, `known hosts` | A managed value injected into a real command comes back as its token, the relay answers, and how many host keys a brokered `ssh` can verify against

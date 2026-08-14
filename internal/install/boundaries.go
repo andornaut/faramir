@@ -356,7 +356,7 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// SUDO_USER and then to the caller, and a root login shell, a cron job or a
 	// systemd timer has neither.  Nothing about the install is wrong.
 	if opts.AgentUser == "" {
-		report.unasked("operator keys", 1, "no agent account to ask about: "+
+		report.unasked("agent keys", 1, "no agent account to ask about: "+
 			"run under sudo so SUDO_USER carries it, or pass --agent-user")
 		return
 	}
@@ -364,7 +364,7 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// every other finding here is about, so a pass below would be about nobody.
 	entry, err := user.Lookup(opts.AgentUser)
 	if err != nil || entry.HomeDir == "" {
-		report.add("operator keys", StatusFailed, "%s does not resolve to an account "+
+		report.add("agent keys", StatusFailed, "%s does not resolve to an account "+
 			"with a home (%v), and it is the name every check here is about. Pass "+
 			"--agent-user", opts.AgentUser, err)
 		return
@@ -373,12 +373,12 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	if !exists(home) {
 		// An encrypted home is absent until its owner logs in, which is a state
 		// this install is designed for rather than a fault.
-		report.unasked("operator keys", 1, "%s does not exist, so what a brokered "+
+		report.unasked("agent keys", 1, "%s does not exist, so what a brokered "+
 			"command can read in it was not checked", home)
 		return
 	}
 	if canRead(opts.ExecUser, home) {
-		report.add("operator keys", StatusFailed, "%s can list %s: the home was enrolled "+
+		report.add("agent keys", StatusFailed, "%s can list %s: the home was enrolled "+
 			"rather than a project inside it, so every credential in it is group-shared. "+
 			"init-project grants traversal, not read", opts.ExecUser, home)
 		return
@@ -391,12 +391,12 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 			continue
 		}
 		if canRead(opts.ExecUser, path) {
-			report.add("operator keys", StatusFailed, "%s can read %s, so a brokered "+
+			report.add("agent keys", StatusFailed, "%s can read %s, so a brokered "+
 				"command holds whatever is in it", opts.ExecUser, path)
 			return
 		}
 	}
-	report.add("operator keys", StatusOK, "%s can traverse %s and read nothing in it",
+	report.add("agent keys", StatusOK, "%s can traverse %s and read nothing in it",
 		opts.ExecUser, home)
 }
 
