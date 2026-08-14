@@ -42,9 +42,9 @@ jobs:
       - name: Scan for AI attributions
         uses: andornaut/ai-attributions@v1
         with:
-          # Agent instruction files are local-only: a branch that ships one
-          # fails here.
+          # Agent instruction files are local-only, so a branch that ships one
+          # fails here rather than waiting for a nightly sweep to notice.
           agents-files: true
-          # Rejects the whole dash family: figure dash, en dash, emdash,
-          # horizontal bar.
+          # An emdash is house style rather than an ad, so a message carrying
+          # one fails beside the attributions instead of being left alone.
           emdashes: true
