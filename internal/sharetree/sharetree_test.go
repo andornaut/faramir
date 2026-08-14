@@ -2,6 +2,7 @@ package sharetree
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"reflect"
 	"syscall"
@@ -91,7 +92,7 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 	}
 
 	// -1 keeps the group, so no privilege is needed.
-	if err := shareTree(root, -1, map[string]bool{"kept.json": true}); err != nil {
+	if _, err := shareTree(root, -1, map[string]bool{"kept.json": true}, nil); err != nil {
 		t.Fatal(err)
 	}
 	if info, err := os.Stat(kept); err != nil {
@@ -213,7 +214,7 @@ func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
 		}
 	}
 
-	if err := grantTraversal(home, tree, Options{Group: "shared"}, int(st.Gid)); err != nil {
+	if _, err := grantTraversal(home, tree, Options{Group: "shared"}, int(st.Gid)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -233,5 +234,207 @@ func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0o700 {
 		t.Errorf("the tree itself was changed to %o", got)
+	}
+}
+
+// What Share reports is what it altered, not that it ran.  The first run
+// rewrites the ownership and mode of every file in a tree; every run after it
+// re-applies what is already there.  A caller reporting "changed" reads this,
+// so answering the same both times says a tree it just regrouped was left
+// alone.
+func TestShareReportsWhatItAltered(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip("cannot name this account")
+	}
+	group, err := user.LookupGroupId(me.Gid)
+	if err != nil {
+		t.Skip("cannot name this account's group")
+	}
+	// The only test here that drives the exported Share, which grants traversal
+	// from the operator's home down to the tree.  With TMPDIR inside the home,
+	// that is the real home: a 0700 one becomes 0710, and one whose group is not
+	// the primary group is regrouped and loses its group bits.  An environment
+	// guard, not a skip on the branch that would have failed.
+	if home, err := Resolve(me.HomeDir); err == nil {
+		if tmp, err := Resolve(os.TempDir()); err == nil && within(home, tmp) {
+			t.Skipf("TMPDIR (%s) is inside %s, and this grants traversal from the "+
+				"home down: running it here would chmod the real home", tmp, home)
+		}
+	}
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "src", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	opts := Options{Dir: root, Operator: me.Username, Group: group.Name}
+
+	first, err := Share(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Three paths need widening here: the root, src, and main.go. A bound
+	// rather than "more than nothing", which the root alone satisfies and which
+	// would pass with the walk counting nothing at all.
+	if first.Changed < 3 {
+		t.Errorf("sharing a tree for the first time reported %d path(s) altered, "+
+			"want at least the root, src and src/main.go", first.Changed)
+	}
+
+	second, err := Share(opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Changed != 0 {
+		t.Errorf("re-applying reported %d path(s) altered, want 0: a second run "+
+			"finds what the first left", second.Changed)
+	}
+}
+
+// A path needing both a regroup and a widen is one path.  Counting the
+// operations instead would report a hundred files as two hundred, and the count
+// is what an operator reads.
+func TestASharedPathIsCountedOnceHoweverManyThingsItNeeds(t *testing.T) {
+	groups, err := os.Getgroups()
+	if err != nil || len(groups) < 2 {
+		t.Skip("this account has no second group to move a file into")
+	}
+	var gid = -1
+	for _, candidate := range groups {
+		if candidate != os.Getgid() {
+			gid = candidate
+			break
+		}
+	}
+	if gid < 0 {
+		t.Skip("this account has no second group to move a file into")
+	}
+
+	root := t.TempDir()
+	file := filepath.Join(root, "notes.txt")
+	if err := os.WriteFile(file, []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// Both paths need both things: the group is not the one being shared with,
+	// and neither mode carries the group bits.
+	changed, err := shareTree(root, gid, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != 2 {
+		t.Errorf("counted %d, want 2: the root and notes.txt, each needing a "+
+			"regroup and a widen and each being one path", changed)
+	}
+}
+
+// chown's "leave it as it is" alters nothing, so it counts as nothing.
+func TestKeepingTheGroupIsNotAChange(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Chmod(root, 0o2770|os.ModeSetgid); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := shareTree(root, -1, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != 0 {
+		t.Errorf("counted %d, want 0: nothing was regrouped and the mode was "+
+			"already what sharing wants", changed)
+	}
+}
+
+// The bits Chmod applies, which is what a comparison deciding "did this run
+// alter the path" has to look at.  Permissions alone would miss a setuid or
+// sticky bit the chmod is about to clear, and report a path it changed as one
+// it left alone; whole modes would count ModeDir and call every run a change.
+func TestChmodBitsAreTheOnesChmodApplies(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   os.FileMode
+		want os.FileMode
+	}{
+		{"permissions survive", 0o751, 0o751},
+		{"setgid survives", os.ModeSetgid | 0o770, os.ModeSetgid | 0o770},
+		{"setuid survives", os.ModeSetuid | 0o755, os.ModeSetuid | 0o755},
+		{"sticky survives", os.ModeSticky | 0o777, os.ModeSticky | 0o777},
+		{"the directory bit is not a permission", os.ModeDir | 0o755, 0o755},
+		{"nor is the symlink bit", os.ModeSymlink | 0o777, 0o777},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := chmodBits(tc.in); got != tc.want {
+				t.Errorf("chmodBits(%v) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
+// A directory holding a file an enrolment wrote is sticky, so unlink and rename
+// there are the file's owner's alone.  Without it the client group has rwx on
+// the directory and can delete .claude/settings.json and put its own there,
+// whatever mode the file itself carries.
+func TestDirectoriesHoldingAKeptFileAreSticky(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, rel := range []string{".claude/settings.json", ".mcp.json"} {
+		if err := os.WriteFile(filepath.Join(root, rel), []byte("{}\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(root, "src"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	keep := map[string]bool{".claude/settings.json": true, ".mcp.json": true}
+	sticky := map[string]bool{".claude": true, ".": true}
+	if _, err := shareTree(root, -1, keep, sticky); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		dir  string
+		want bool
+	}{
+		{root, true},                           // holds .mcp.json
+		{filepath.Join(root, ".claude"), true}, // holds settings.json
+		{filepath.Join(root, "src"), false},    // ordinary work goes on here
+	} {
+		info, err := os.Stat(tc.dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode()&os.ModeSticky != 0; got != tc.want {
+			t.Errorf("%s sticky = %v, want %v (mode %v)",
+				filepath.Base(tc.dir), got, tc.want, info.Mode())
+		}
+		// Still shared: sticky restricts unlink, it does not close the directory.
+		if info.Mode().Perm()&0o070 != 0o070 {
+			t.Errorf("%s is %04o: the client group cannot work in it",
+				filepath.Base(tc.dir), info.Mode().Perm())
+		}
+	}
+}
+
+// Applied once and not again: a second run finds the sticky bit already there.
+func TestStickyIsNotAChangeOnASecondRun(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".mcp.json"), []byte("{}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	keep := map[string]bool{".mcp.json": true}
+	sticky := map[string]bool{".": true}
+
+	if _, err := shareTree(root, -1, keep, sticky); err != nil {
+		t.Fatal(err)
+	}
+	changed, err := shareTree(root, -1, keep, sticky)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed != 0 {
+		t.Errorf("a second run altered %d path(s), want 0", changed)
 	}
 }

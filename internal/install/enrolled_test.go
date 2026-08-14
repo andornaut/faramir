@@ -8,15 +8,34 @@ import (
 	"testing"
 )
 
-// An enrolment is the one thing that knows a tree was enrolled and for what.
-// Keyed by directory, so re-enrolling says the later thing rather than both.
-func TestRecordingAnEnrolmentIsKeyedByTree(t *testing.T) {
-	dir := t.TempDir()
+// enrolledTree is a tree carrying the evidence each named agent leaves in one,
+// which is what an entry is bounded by.
+func enrolledTree(t *testing.T, dir string, agents ...string) string {
+	t.Helper()
 	tree := filepath.Join(dir, "project")
 	if err := os.MkdirAll(tree, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	for _, agents := range [][]string{{"claude"}, {"gemini", "pi"}} {
+	for _, name := range agents {
+		for _, marker := range agentTargets[name].detect {
+			if err := os.MkdirAll(filepath.Join(tree, marker), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	return tree
+}
+
+// An enrolment is the one thing that knows a tree was enrolled and for what.
+// One entry per directory, and enrolling one agent by name does not drop the
+// others: their hook and MCP registration are still in the tree, and an entry
+// dropped here is a tree doctor stops checking those agents' account-wide rules
+// for, which nothing would report.
+func TestRecordingAnEnrolmentKeepsTheAgentsATreeStillCarries(t *testing.T) {
+	dir := t.TempDir()
+	tree := enrolledTree(t, dir, "claude", "gemini", "pi")
+
+	for _, agents := range [][]string{{"claude"}, {"gemini", "pi"}, {"gemini"}} {
 		if err := recordEnrolment(dir, EnrolledTree{
 			Dir: tree, Operator: "op", Agents: agents,
 		}); err != nil {
@@ -27,8 +46,63 @@ func TestRecordingAnEnrolmentIsKeyedByTree(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("recorded %d entries for one tree, want 1: %+v", len(got), got)
 	}
-	if !slices.Equal(got[0].Agents, []string{"gemini", "pi"}) {
-		t.Errorf("agents = %v, want the later enrolment's", got[0].Agents)
+	// Sorted, and each named once however many enrolments named it.
+	if want := []string{"claude", "gemini", "pi"}; !slices.Equal(got[0].Agents, want) {
+		t.Errorf("agents = %v, want %v: every agent this tree still carries",
+			got[0].Agents, want)
+	}
+}
+
+// What it is bounded by, and why the entry is not simply cumulative: an
+// enrolled agent whose rules are missing from the home is a doctor failure and
+// a non-zero exit, so a name that could never leave would fail the command for
+// ever on an agent the operator had removed.
+func TestRecordingAnEnrolmentDropsAnAgentTheTreeNoLongerCarries(t *testing.T) {
+	dir := t.TempDir()
+	tree := enrolledTree(t, dir, "claude", "pi")
+
+	if err := recordEnrolment(dir, EnrolledTree{
+		Dir: tree, Operator: "op", Agents: []string{"claude", "pi"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// The operator takes pi out of the tree and re-enrols for claude alone.
+	for _, marker := range agentTargets["pi"].detect {
+		if err := os.RemoveAll(filepath.Join(tree, marker)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := recordEnrolment(dir, EnrolledTree{
+		Dir: tree, Operator: "op", Agents: []string{"claude"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got := readEnrolled(dir)
+	if len(got) != 1 || !slices.Equal(got[0].Agents, []string{"claude"}) {
+		t.Errorf("agents = %+v, want [claude]: an agent whose configuration is gone "+
+			"from the tree would otherwise fail doctor for ever", got)
+	}
+}
+
+// The operator is the later enrolment's, not accumulated: a tree has one owner,
+// and re-enrolling under another account is that account taking it over.
+func TestRecordingAnEnrolmentTakesTheLaterOperator(t *testing.T) {
+	dir := t.TempDir()
+	tree := filepath.Join(dir, "project")
+	if err := os.MkdirAll(tree, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, operator := range []string{"first", "second"} {
+		if err := recordEnrolment(dir, EnrolledTree{
+			Dir: tree, Operator: operator, Agents: []string{"claude"},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := readEnrolled(dir)
+	if len(got) != 1 || got[0].Operator != "second" {
+		t.Errorf("operator = %+v, want the later enrolment's", got)
 	}
 }
 

@@ -36,7 +36,7 @@ Every path the install creates, what owns it, and what each account can reach th
 /etc/logrotate.d/faramir        0644 root:root, weekly, 8 kept, early at 16MB
 
 <config-dir>/enrolled.json      0600 root:root, which trees were enrolled and for what; advisory, and doctor's
-<any tree you enrol>            2770 <operator>:<client-group>, setgid
+<any tree you enrol>            3770 <operator>:<client-group>, setgid and sticky
 ```
 
 `init` also writes into the operator's home, each `0640 <operator>:<operator group>`, with any missing parent created `0700`:
@@ -55,6 +55,8 @@ The section goes between `<!-- BEGIN faramir: credentials -->` and `<!-- END far
 
 `~/.bashrc` gets a `umask 002` line, so a file the operator creates in a shared tree stays group-writable.
 
+The tree root and each agent's own directory under it are `3770` rather than `2770`: sticky as well as setgid, so unlink and rename there are the file's owner's. That is what keeps a brokered command from replacing the settings that name the hook, whose own `0640` says nothing about being unlinked. A brokered command therefore gets `EPERM` renaming over or deleting an operator-owned file at the top level of the tree; everywhere else in it is unchanged.
+
 `--config-dir` moves the config, `config.d/`, the secrets directory and the age key off `/etc` together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. The audit log and the two sudo files do not follow: the log is the broker unit's `ReadWritePaths`, and the sudo files are the paths `sudo` and PAM read. `faramir status` reports the paths in use.
 
 The `--allow-sudo` files are `root:root` because they decide who becomes root, so the account they govern must not be able to write them. Re-running `init` without the flag removes both. Every install renders the executor unit with `Delegate=yes` so each run gets its own cgroup and is reaped there.
@@ -72,4 +74,4 @@ A tree inside a 0700 home needs traversal for `faramir-exec`, which `faramir ini
 - Everyone in the group gets that traversal, so keep membership to the accounts that need it.
 - A directory already traversable by `other` is left alone. One whose group is something else is taken over, costing that group whatever the group bits gave it, and `init-project` says so.
 - Membership is a permission, not a mount, so an encrypted home still unmounts at logout, though a brokered command running at the time holds it open.
-- The tree itself gets `2770`, group-readable and group-writable, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings files faramir manages are regrouped but deliberately left not group-writable.
+- The tree itself gets `3770`, group-readable and group-writable, because a brokered command runs in it and writes to it. A whole tree, so a `.env` or a `.pem` sitting in the checkout is shared along with the code. The agent settings files faramir manages are regrouped but deliberately left not group-writable, and the directories holding them are sticky, so a brokered command cannot get at them by unlinking one and writing its own.

@@ -60,9 +60,10 @@ func readEnrolled(configDir string) []EnrolledTree {
 	return trees
 }
 
-// recordEnrolment adds or replaces this tree's entry.  Keyed by directory, so
-// re-enrolling a tree for different agents says the later thing rather than
-// both, and sorted so the file does not churn between runs.
+// recordEnrolment adds or updates this tree's entry.  One entry per directory,
+// sorted so the file does not churn between runs, and the agents are the ones
+// this run enrolled plus the ones an earlier run did that the tree still
+// carries.
 //
 // 0600: `init-project` writes it and `doctor` reads it, both as root, so
 // nothing else has cause to open it.  What it holds is the paths of an
@@ -73,6 +74,29 @@ func recordEnrolment(configDir string, tree EnrolledTree) error {
 		return nil
 	}
 	trees := readEnrolled(configDir)
+	// Kept from the earlier entry, but only where the tree still shows the
+	// agent.  Enrolling one by name does not say the others have gone: their
+	// hook and MCP registration are still in the tree, and dropping them here is
+	// a tree `doctor` stops checking those agents' account-wide rules for.
+	//
+	// Bounded by what is actually there, because the entry is not only read.  An
+	// enrolled agent whose rules are missing from the home is a `doctor` failure
+	// and a non-zero exit, so a name that accumulated and could never leave
+	// would fail the command for ever on an agent the operator had removed.
+	// Every agent this enrols leaves something detect names, so evidence gone is
+	// configuration gone.
+	present := detectAgents(scopeTree, tree.Dir)
+	for _, existing := range trees {
+		if existing.Dir != tree.Dir {
+			continue
+		}
+		for _, name := range existing.Agents {
+			if slices.Contains(tree.Agents, name) || !slices.Contains(present, name) {
+				continue
+			}
+			tree.Agents = append(tree.Agents, name)
+		}
+	}
 	trees = slices.DeleteFunc(trees, func(other EnrolledTree) bool {
 		return other.Dir == tree.Dir
 	})

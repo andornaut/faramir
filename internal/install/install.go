@@ -108,15 +108,58 @@ type Step struct {
 	Detail  string `json:"detail,omitempty"`
 }
 
-// Report is the whole run.
-type Report struct {
-	Version string `json:"version"`
+// runReport is what every command's report carries, and the one place the
+// recording is written.  Embedded by Report and ProjectReport, which had a copy
+// of these fields and a copy of the three methods below; the copies had already
+// drifted, an enrolment having no way to record a step it could not evaluate.
+type runReport struct {
 	Changed bool   `json:"changed"`
-	DryRun  bool   `json:"dry_run,omitempty"`
 	Steps   []Step `json:"steps"`
 	// Warnings are the things that install cleanly and then do not work.  Not
 	// failures, each having a legitimate shape.
 	Warnings []string `json:"warnings,omitempty"`
+	// log receives one line per step.  Unexported, so it is no part of the
+	// document either report serialises to.
+	log func(string)
+}
+
+// step records one unit of work and its outcome.
+func (r *runReport) step(name string, changed bool, detail string) {
+	r.Steps = append(r.Steps, Step{Name: name, Changed: changed, Detail: detail})
+	if changed {
+		r.Changed = true
+	}
+	if r.log == nil {
+		return
+	}
+	mark := "ok"
+	if changed {
+		mark = "changed"
+	}
+	line := fmt.Sprintf("%-9s %s", mark, name)
+	if detail != "" {
+		line += ": " + detail
+	}
+	r.log(line)
+}
+
+// skip records a step that could not be evaluated.  Only under DryRun.
+func (r *runReport) skip(name, why string) {
+	r.Steps = append(r.Steps, Step{Name: name, Skipped: true, Detail: why})
+	if r.log != nil {
+		r.log(fmt.Sprintf("%-9s %s: %s", "skipped", name, why))
+	}
+}
+
+func (r *runReport) warn(format string, args ...any) {
+	r.Warnings = append(r.Warnings, fmt.Sprintf(format, args...))
+}
+
+// Report is the whole run.
+type Report struct {
+	Version string `json:"version"`
+	DryRun  bool   `json:"dry_run,omitempty"`
+	runReport
 	// BrokerPublicKey has to be in authorized_keys on every managed host. Reported
 	// every run, not only when it was generated.
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
@@ -193,10 +236,14 @@ func Run(opts Options) (Report, error) {
 		return Report{}, err
 	}
 	run := &runner{
-		opts:    opts,
-		layout:  layout,
-		fs:      fsys{dryRun: opts.DryRun},
-		report:  Report{Version: version.Version, DryRun: opts.DryRun},
+		opts:   opts,
+		layout: layout,
+		fs:     fsys{dryRun: opts.DryRun},
+		report: Report{
+			Version:   version.Version,
+			DryRun:    opts.DryRun,
+			runReport: runReport{log: opts.Log},
+		},
 		adopted: adopted,
 	}
 	if self, err := os.Executable(); err == nil {
@@ -575,33 +622,13 @@ func (r *runner) refuseSymlinks() error {
 	return nil
 }
 
-// step records one unit of work and its outcome.
+// step, skip and warn are the report's, forwarded so every caller in this
+// package spells them the same way whichever command it belongs to.
 func (r *runner) step(name string, changed bool, detail string) {
-	r.report.Steps = append(r.report.Steps, Step{Name: name, Changed: changed, Detail: detail})
-	if changed {
-		r.report.Changed = true
-	}
-	if r.opts.Log == nil {
-		return
-	}
-	mark := "ok"
-	if changed {
-		mark = "changed"
-	}
-	line := fmt.Sprintf("%-9s %s", mark, name)
-	if detail != "" {
-		line += ": " + detail
-	}
-	r.opts.Log(line)
+	r.report.step(name, changed, detail)
 }
 
-// skip records a step that could not be evaluated.  Only under DryRun.
-func (r *runner) skip(name, why string) {
-	r.report.Steps = append(r.report.Steps, Step{Name: name, Skipped: true, Detail: why})
-	if r.opts.Log != nil {
-		r.opts.Log(fmt.Sprintf("%-9s %s: %s", "skipped", name, why))
-	}
-}
+func (r *runner) skip(name, why string) { r.report.skip(name, why) }
 
 // reportPresence is the dry-run answer for a step that only asks whether a file
 // is there.  Nothing is opened: several are key material.
@@ -626,7 +653,7 @@ func (r *runner) restartFor(what string) {
 }
 
 func (r *runner) warn(format string, args ...any) {
-	r.report.Warnings = append(r.report.Warnings, fmt.Sprintf(format, args...))
+	r.report.warn(format, args...)
 }
 
 // command runs a program and returns its standard output.  stdout alone: the

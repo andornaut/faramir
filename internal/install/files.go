@@ -374,13 +374,24 @@ func (r *runner) stepReachable() error {
 		r.skip("reachable", "nothing the daemons read is inside a home")
 		return nil
 	}
-	if err := sharetree.Reachable(sharetree.Options{
+	result, err := sharetree.Reachable(sharetree.Options{
 		Dir: dir, Operator: r.opts.OperatorUser, Group: r.layout.ClientGroup,
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("%s: %w", dir, err)
 	}
-	// Reported as no change: after the first run it re-applies what is already
-	// there.
-	r.step("reachable", false, dir)
+	// What it granted, not whether it ran: after the first run it re-applies
+	// what is already there, and reporting that as a change every time would
+	// make Changed useless to anything reading it.
+	r.step("reachable", result.Changed > 0, detailWithCount(dir, result.Changed))
 	return nil
+}
+
+// detailWithCount names the path and, when this run altered something, how many
+// paths that was.  A count rather than a list: a tree is thousands of entries.
+func detailWithCount(path string, changed int) string {
+	if changed == 0 {
+		return path
+	}
+	return fmt.Sprintf("%s (%d path(s) regrouped or rechmodded)", path, changed)
 }

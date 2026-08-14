@@ -57,13 +57,11 @@ type ProjectOptions struct {
 
 // ProjectReport is one enrolment's outcome.
 type ProjectReport struct {
-	Version     string   `json:"version"`
-	Dir         string   `json:"dir"`
-	ClientGroup string   `json:"group"`
-	Changed     bool     `json:"changed"`
-	DryRun      bool     `json:"dry_run,omitempty"`
-	Steps       []Step   `json:"steps"`
-	Warnings    []string `json:"warnings,omitempty"`
+	Version     string `json:"version"`
+	Dir         string `json:"dir"`
+	ClientGroup string `json:"group"`
+	DryRun      bool   `json:"dry_run,omitempty"`
+	runReport
 }
 
 // Project enrols one tree: the group and modes that let a brokered command run
@@ -91,51 +89,38 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	if opts.ConfigDir == "" {
 		opts.ConfigDir = DefaultConfigDir
 	}
-	if opts.OperatorUser == "" || opts.OperatorUser == "root" {
-		return ProjectReport{}, fmt.Errorf("name the account that works in %s: pass "+
-			"--operator-user, or run through sudo so SUDO_USER carries it. The tree "+
-			"belongs to somebody, and root here would chown a checkout away from "+
-			"its owner", dir)
-	}
-	if os.Geteuid() != 0 && !opts.DryRun {
-		return ProjectReport{}, fmt.Errorf("faramir init-project must run as root: it " +
-			"changes group ownership and modes on directories you do not own")
-	}
-	if err := refuseOversharing(dir, opts.OperatorUser); err != nil {
-		return ProjectReport{}, err
-	}
 
-	// auto looks at the tree: enrolling costs something here, so what is
-	// configured is what is already set up to run in this project.
-	targets, err := resolveAgents(opts.Agents, scopeTree, dir)
-	if err != nil {
-		return ProjectReport{}, err
+	// uid and gid keep rather than 0 until preflight resolves them.  Nothing
+	// should write before that, and if something does, the failure is "leave
+	// ownership as it is" rather than "hand the operator's file to root".
+	run := &project{opts: opts, fs: fsys{dryRun: opts.DryRun}, uid: keep, gid: keep}
+	run.report = ProjectReport{
+		Version:   version.Version,
+		Dir:       dir,
+		DryRun:    opts.DryRun,
+		runReport: runReport{log: opts.Log},
 	}
-	run := &project{opts: opts, fs: fsys{dryRun: opts.DryRun}, targets: targets}
-	run.report = ProjectReport{Version: version.Version, Dir: dir, DryRun: opts.DryRun}
 	// The tree being changed is not the one that was named.
 	if dir != named {
 		run.warn("%s resolves to %s, which is the tree being enrolled", named, dir)
 	}
-	if err := run.resolveGroup(); err != nil {
+	if err := run.preflight(); err != nil {
 		return run.report, err
 	}
-	for _, step := range []func() error{
-		run.shareTree,
-		run.agentConfig,
-		run.instructions,
-	} {
-		if err := step(); err != nil {
-			return run.report, err
+	for _, step := range run.steps() {
+		if err := step.run(); err != nil {
+			// Named, for the reason `init` names its own: a run that stops partway
+			// has applied everything before it and nothing after, and the first
+			// step here is the one that cannot be undone.
+			return run.report, fmt.Errorf("%s: %w", step.name, err)
 		}
 	}
-	// Recorded last, and only for a run that changed something: this is the one
-	// place that knows a tree was enrolled and for what, and `doctor` reads it
-	// rather than guessing which agents are in use from what is in a home.  Not
-	// fatal, the enrolment having already succeeded.
+	// Recorded last: this is the one place that knows a tree was enrolled and for
+	// what, and `doctor` reads it rather than guessing which agents are in use
+	// from what is in a home.  Not fatal, the enrolment having already succeeded.
 	if !opts.DryRun {
-		names := make([]string, 0, len(targets))
-		for _, target := range targets {
+		names := make([]string, 0, len(run.targets))
+		for _, target := range run.targets {
 			names = append(names, target.name)
 		}
 		if err := recordEnrolment(opts.ConfigDir, EnrolledTree{
@@ -146,6 +131,104 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		}
 	}
 	return run.report, nil
+}
+
+// steps is the order an enrolment is applied in.  The boundary is at the top
+// rather than in the middle: shareTree walks the tree chowning and chmodding
+// every file in it and nothing undoes that, so everything here runs after the
+// irreversible part, and a refusal that can be asked at all belongs in
+// preflight rather than in a step.
+//
+// The share goes first because what follows writes into the tree, and a file
+// written before the walk is a file the walk then regroups.
+func (p *project) steps() []namedStep {
+	return []namedStep{
+		{"share tree", p.shareTree},
+		{"agent config", p.agentConfig},
+		{"instructions", p.instructions},
+	}
+}
+
+// preflight is every refusal this command can make, asked before the walk that
+// cannot be undone.  `init` collects its own the same way and for the same
+// reason: a check that fails at the step it belongs to leaves a half-enrolled
+// tree to reason about.
+func (p *project) preflight() error {
+	if p.opts.OperatorUser == "" || p.opts.OperatorUser == "root" {
+		return fmt.Errorf("name the account that works in %s: pass "+
+			"--operator-user, or run through sudo so SUDO_USER carries it. The tree "+
+			"belongs to somebody, and root here would chown a checkout away from "+
+			"its owner", p.opts.Dir)
+	}
+	if os.Geteuid() != 0 && !p.opts.DryRun {
+		return fmt.Errorf("faramir init-project must run as root: it " +
+			"changes group ownership and modes on directories you do not own")
+	}
+	if err := refuseOversharing(p.opts.Dir, p.opts.OperatorUser); err != nil {
+		return err
+	}
+	// auto looks at the tree: enrolling costs something here, so what is
+	// configured is what is already set up to run in this project.  Resolved
+	// before anything is written, so an unknown name stops the run before the
+	// tree's ownership changes.
+	targets, err := resolveAgents(p.opts.Agents, scopeTree, p.opts.Dir)
+	if err != nil {
+		return err
+	}
+	p.targets = targets
+	if err := p.resolveGroup(); err != nil {
+		return err
+	}
+	if err := p.resolveIDs(); err != nil {
+		return err
+	}
+	p.warnMissingBinary(filepath.Join(DefaultBinDir, "faramir"))
+	return nil
+}
+
+// resolveIDs turns the operator and the client group into ids, before anything
+// is written with them.
+//
+// A dry run is allowed to fail here and carry on: it needs no privilege, and
+// the group it would share with is one `init` creates, so a tree can be asked
+// about on a host that has not been provisioned yet.  The ids stay keep, and
+// nothing a dry run reaches writes.
+func (p *project) resolveIDs() error {
+	uid, err := lookupUser(p.opts.OperatorUser)
+	if err != nil {
+		if p.opts.DryRun {
+			return nil
+		}
+		return err
+	}
+	gid, err := lookupGroup(p.report.ClientGroup)
+	if err != nil {
+		if p.opts.DryRun {
+			return nil
+		}
+		return err
+	}
+	p.uid, p.gid = uid, gid
+	return nil
+}
+
+// warnMissingBinary says so when the binary every agent's hook and plugin is
+// about to be pointed at is not installed.
+//
+// Warned rather than refused: --client-group enrols a tree for an install that
+// need not be on this machine, and that tree is enrolled correctly for the host
+// that will run it.  On the host that runs it, though, this is the failure
+// docs/design.md predicts: the hook and the plugins fail closed, so a missing
+// or too-old binary refuses every command in the project rather than running
+// one unredacted.
+func (p *project) warnMissingBinary(binary string) {
+	if exists(binary) {
+		return
+	}
+	p.warn("%s is not installed, and it is what every hook and plugin written "+
+		"here execs. They fail closed, so on this host the agents would refuse "+
+		"every command in %s rather than run one unredacted. Run `sudo faramir "+
+		"init` on the host that runs this tree", binary, p.opts.Dir)
 }
 
 // refuseOversharing stops an enrolment that would share far more than a
@@ -214,27 +297,16 @@ type project struct {
 	targets []*agentTarget
 }
 
+// step, skip and warn are the report's, forwarded so a step here spells them
+// the way a step in `init` does.
 func (p *project) step(name string, changed bool, detail string) {
-	p.report.Steps = append(p.report.Steps, Step{Name: name, Changed: changed, Detail: detail})
-	if changed {
-		p.report.Changed = true
-	}
-	if p.opts.Log == nil {
-		return
-	}
-	mark := "ok"
-	if changed {
-		mark = "changed"
-	}
-	line := fmt.Sprintf("%-9s %s", mark, name)
-	if detail != "" {
-		line += ": " + detail
-	}
-	p.opts.Log(line)
+	p.report.step(name, changed, detail)
 }
 
+func (p *project) skip(name, why string) { p.report.skip(name, why) }
+
 func (p *project) warn(format string, args ...any) {
-	p.report.Warnings = append(p.report.Warnings, fmt.Sprintf(format, args...))
+	p.report.warn(format, args...)
 }
 
 // resolveGroup reads the shared group out of the installed config.
@@ -378,19 +450,11 @@ func (p *project) shareTree() error {
 			p.opts.Dir, p.report.ClientGroup))
 		return nil
 	}
-	uid, err := lookupUser(p.opts.OperatorUser)
-	if err != nil {
-		return err
-	}
-	gid, err := lookupGroup(p.report.ClientGroup)
-	if err != nil {
-		return err
-	}
-	p.uid, p.gid = uid, gid
-	if err := sharetree.Share(sharetree.Options{
+	result, err := sharetree.Share(sharetree.Options{
 		Dir: p.opts.Dir, Operator: p.opts.OperatorUser, Group: p.report.ClientGroup,
 		Keep: p.keepModes(),
-	}); err != nil {
+	})
+	if err != nil {
 		return fmt.Errorf("%s: %w", p.opts.Dir, err)
 	}
 	// The executor runs under ProtectSystem=strict with /home as its only writable
@@ -402,10 +466,12 @@ func (p *project) shareTree() error {
 			"Add a drop-in extending ReadWritePaths= on faramir-exec.service",
 			p.opts.Dir)
 	}
-	// Reported as no change: after the first run it re-applies what is already
-	// there.
-	p.step("share tree", false, fmt.Sprintf("%s with group %s",
-		p.opts.Dir, p.report.ClientGroup))
+	// What it altered, not whether it ran.  After the first run this re-applies
+	// what is already there, but the first run rewrites the ownership and mode
+	// of every file in the tree, and reporting that as no change tells anything
+	// reading Changed that a tree it just regrouped was left alone.
+	p.step("share tree", result.Changed > 0, detailWithCount(
+		fmt.Sprintf("%s with group %s", p.opts.Dir, p.report.ClientGroup), result.Changed))
 	return nil
 }
 
@@ -438,31 +504,29 @@ func (p *project) agentConfig() error {
 	changed := false
 	var written []string
 	for _, target := range p.targets {
-		for _, file := range target.files {
-			path := filepath.Join(p.opts.Dir, file.path)
-			if parent := filepath.Dir(path); parent != p.opts.Dir {
-				if _, err := p.fs.ensureDir(parent, 0o700, p.uid, p.gid, false); err != nil {
-					return err
-				}
-			}
-			data, err := assetFor(target, file, p.opts.ConfigDir)
-			if err != nil {
-				return err
-			}
-			// Merged, not overwritten: the file is the project's to edit, and only the
-			// keys faramir writes are touched.
-			write := p.fs.writeFile
-			if file.merge {
-				write = p.fs.mergeFile
-			}
-			made, err := write(path, data, file.mode, p.uid, p.gid)
-			if err != nil {
-				return err
-			}
-			changed = changed || made
-			written = append(written, path)
+		// Against the target's own data: what a tree's file interpolates is the
+		// installed binary, which agent it speaks to, and where it is written.
+		asTarget := func(file agentFile) ([]byte, error) {
+			return assetFor(target, file, p.opts.ConfigDir)
 		}
-		if target.autoApprovesBash && changed {
+		// Shared and setgid, as the walk leaves every other directory in the
+		// tree.  0700 would make a directory created here the one place in an
+		// enrolled tree the client group cannot enter, so the group-readable mode
+		// the files are written with would reach nothing until a later run's walk
+		// widened it, and that run would then report a change on a re-enrolment
+		// an operator reads as a no-op.
+		made, paths, err := writeAgentFiles(p.fs, p.opts.Dir,
+			p.uid, p.gid, 0o2770|os.ModeSetgid, asTarget, target.files)
+		written = append(written, paths...)
+		if err != nil {
+			return err
+		}
+		changed = changed || made
+		// Each warning is about this agent, so each asks whether this agent's
+		// files changed rather than whether any have: enrolling two, where the
+		// first was written and the second was already current, would otherwise
+		// report the second's cost as though it had just been taken on.
+		if target.autoApprovesBash && made {
 			p.warn("Bash is now auto-approved in %s for %s: the hook rewrites every "+
 				"command so its output can be redacted, and a rewritten command "+
 				"matches no permission rule. Its deny list is what refuses one instead",
@@ -473,7 +537,7 @@ func (p *project) agentConfig() error {
 		// the deny list covers the operator's own ~/.ssh and ~/.config/sops, which
 		// no uid boundary reaches, the agent running as the operator.
 		warnMissingAccountRules(p, target)
-		if target.note != "" && changed {
+		if target.note != "" && made {
 			p.warn("%s: %s", target.name, target.note)
 		}
 	}

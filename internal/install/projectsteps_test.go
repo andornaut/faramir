@@ -1,0 +1,172 @@
+package install
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+// Every step is named, so a run that stops partway says where.  An enrolment's
+// first step chowns and chmods every file in the tree and nothing undoes it, so
+// "which steps ran" is the first thing to establish when one fails.
+func TestEveryEnrolmentStepIsNamed(t *testing.T) {
+	steps := (&project{}).steps()
+	if len(steps) == 0 {
+		t.Fatal("an enrolment has no steps")
+	}
+	seen := map[string]bool{}
+	for i, step := range steps {
+		if strings.TrimSpace(step.name) == "" {
+			t.Errorf("step %d has no name", i)
+		}
+		if step.run == nil {
+			t.Errorf("step %q runs nothing", step.name)
+		}
+		if seen[step.name] {
+			t.Errorf("two steps are called %q, so an error naming one is ambiguous", step.name)
+		}
+		seen[step.name] = true
+	}
+	// The irreversible one goes first, and everything else runs after it: the
+	// share is what the rest writes into.
+	if steps[0].name != "share tree" {
+		t.Errorf("the first step is %q, want the share: a file written before the "+
+			"walk is one the walk then regroups", steps[0].name)
+	}
+}
+
+// The ids are resolved in preflight, and a dry run is allowed to reach it on a
+// host that has not been provisioned: it needs no privilege, and the group it
+// would share with is one `init` creates. What it must not do is fall back to
+// an owner, which is what 0 would mean and what `keep` avoids: uid 0 hands the
+// operator's own file to root, and keep leaves ownership alone.
+func TestUnresolvedIDsAreLeftAloneRatherThanTakenByRoot(t *testing.T) {
+	run := &project{opts: ProjectOptions{OperatorUser: "nosuchuser-faramir", DryRun: true}}
+	run.uid, run.gid = 12345, 12345
+
+	if err := run.resolveIDs(); err != nil {
+		t.Fatalf("a dry run against an unprovisioned host failed: %v", err)
+	}
+	if run.uid != 12345 || run.gid != 12345 {
+		t.Errorf("uid, gid = %d, %d: a lookup that failed overwrote them", run.uid, run.gid)
+	}
+	// And the real path still refuses, an enrolment that cannot name the owner
+	// having nothing to hand the tree to.
+	real := &project{opts: ProjectOptions{OperatorUser: "nosuchuser-faramir"}}
+	if err := real.resolveIDs(); err == nil {
+		t.Error("an enrolment proceeded with an account that does not exist")
+	}
+}
+
+// Project starts them at keep, so a write that somehow lands before preflight
+// leaves ownership as it is rather than giving the file to root.
+func TestAnEnrolmentStartsWithNoOwnerToImpose(t *testing.T) {
+	report, err := Project(ProjectOptions{
+		Dir: t.TempDir(), OperatorUser: "operator", ClientGroup: "nosuchgroup",
+		ConfigDir: t.TempDir(), DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("a dry run against an unprovisioned host failed: %v\n%+v", err, report)
+	}
+	if !strings.Contains(strings.Join(stepNames(report), " "), "share tree") {
+		t.Errorf("a dry run reported no share step: %v", stepNames(report))
+	}
+}
+
+func stepNames(report ProjectReport) []string {
+	var out []string
+	for _, step := range report.Steps {
+		out = append(out, step.Name)
+	}
+	return out
+}
+
+// The hook and every plugin exec this binary, and all of them fail closed. A
+// tree enrolled where it is absent has agents that refuse every command in it
+// rather than running one unredacted, so the enrolment says so.
+func TestEnrolmentWarnsWhenTheBinaryTheHookExecsIsAbsent(t *testing.T) {
+	tree := t.TempDir()
+
+	absent := &project{opts: ProjectOptions{Dir: tree}}
+	absent.warnMissingBinary(filepath.Join(t.TempDir(), "faramir"))
+	warnings := strings.Join(absent.report.Warnings, "\n")
+	if !strings.Contains(warnings, "not installed") || !strings.Contains(warnings, tree) {
+		t.Errorf("a missing binary was not reported: %v", absent.report.Warnings)
+	}
+
+	installed := filepath.Join(t.TempDir(), "faramir")
+	if err := os.WriteFile(installed, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	present := &project{opts: ProjectOptions{Dir: tree}}
+	present.warnMissingBinary(installed)
+	if len(present.report.Warnings) != 0 {
+		t.Errorf("an installed binary was reported as missing: %v", present.report.Warnings)
+	}
+}
+
+// Both commands record through one reporter now, so an enrolment can say a step
+// could not be evaluated. It had no way to before, the two copies of this
+// having drifted.
+func TestAnEnrolmentCanRecordASkippedStep(t *testing.T) {
+	run := &project{}
+	run.skip("share tree", "dry run")
+
+	if len(run.report.Steps) != 1 || !run.report.Steps[0].Skipped {
+		t.Fatalf("skip recorded %+v, want one skipped step", run.report.Steps)
+	}
+	if run.report.Changed {
+		t.Error("a skipped step marked the report changed")
+	}
+}
+
+// A directory created for an agent's files in a tree is shared like the rest of
+// it.  The files go in group-readable because the tree is shared with the
+// client group; 0700 above them would make an enrolled tree's own configuration
+// the one thing in it that group cannot reach, until a later run's walk widened
+// it and reported a change on what reads as a no-op re-enrolment.
+//
+// Through agentConfig rather than through writeAgentFiles, so what is asserted
+// is the mode this command asks for and not the one the test passed in.
+func TestAgentDirectoriesInATreeAreSharedLikeTheRest(t *testing.T) {
+	tree := t.TempDir()
+	run := &project{
+		opts:    ProjectOptions{Dir: tree, Hook: true, ConfigDir: t.TempDir()},
+		uid:     keep,
+		gid:     keep,
+		targets: []*agentTarget{agentTargets["claude"]},
+	}
+
+	if err := run.agentConfig(); err != nil {
+		t.Fatal(err)
+	}
+
+	info, err := os.Stat(filepath.Join(tree, ".claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm() & 0o070; got != 0o070 {
+		t.Errorf(".claude is %04o: the client group cannot enter it, so the "+
+			"group-readable file inside reaches nothing", info.Mode().Perm())
+	}
+	if info.Mode()&os.ModeSetgid == 0 {
+		t.Errorf(".claude is %v, want setgid as the share leaves every other "+
+			"directory in the tree", info.Mode())
+	}
+}
+
+// The same directory in the operator's home is not shared with anybody.
+func TestAgentDirectoriesInAHomeStayPrivate(t *testing.T) {
+	home := t.TempDir()
+
+	initHome(t, home, "claude")
+
+	info, err := os.Stat(filepath.Join(home, ".claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o700 {
+		t.Errorf(".claude is %04o, want 0700: nothing else has business in it", got)
+	}
+}

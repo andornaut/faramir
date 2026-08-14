@@ -231,8 +231,20 @@ head_ "7. the tree itself is shared with the executor"
 
 D=/home/op/p-claude
 mode=$(stat -c '%a %U:%G' "$D")
-[ "$mode" = "2770 op:dev" ] && ok "the tree is $mode: setgid, group-shared" \
-  || bad "the tree is $mode, want 2770 op:dev"
+# Sticky as well as setgid: unlink and rename in the root are the file's
+# owner's, so a brokered command cannot replace the settings naming the hook by
+# deleting them, which the file's own 0640 says nothing about.
+[ "$mode" = "3770 op:dev" ] && ok "the tree is $mode: setgid, sticky, group-shared" \
+  || bad "the tree is $mode, want 3770 op:dev"
+mode=$(stat -c '%a' "$D/.claude")
+[ "$mode" = "3770" ] && ok "and the agent's own directory is $mode too" \
+  || bad ".claude is $mode, want 3770: a brokered command can unlink the hook settings"
+# What that buys, asked of the account it is meant to stop.
+if runuser -u faramir-exec -- rm -f "$D/.mcp.json" 2>/dev/null; then
+  bad "the executor deleted .mcp.json from the tree root"
+else
+  ok "and the executor cannot delete an operator-owned file in the root"
+fi
 id -nG faramir-exec | grep -qw dev && ok "and the executor is in that group" \
   || bad "the executor is not in the tree's group"
 # Which is what lets a brokered command run there at all.

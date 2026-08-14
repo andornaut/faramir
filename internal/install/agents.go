@@ -80,13 +80,14 @@ type agentFile struct {
 	// differs: accountFiles against the install Layout, files against the
 	// per-target pluginData.
 	asset string
-	// dirMode creates the parent when the path has one.
-	mode os.FileMode
 	// mode is 0o640 throughout: an enrolled tree is shared with the client group,
 	// so group-readable is what the rest of the tree is, and group-writable is
 	// what these must never be.  .claude/settings.json names the PreToolUse hook
 	// and the executor is in that group.
 	//
+	// It keeps the group from writing through the file, and not from replacing
+	// it: unlink is a permission on the directory.  See sharetree.Options.Keep.
+	mode os.FileMode
 	// defaultExport renders a plugin as a default-exported { id, server } rather
 	// than a named export.  The one thing the two plugin hosts disagree about.
 	defaultExport bool
@@ -210,6 +211,57 @@ var agentTargets = map[string]*agentTarget{
 		autoApprovesBash: false,
 		note:             pluginNote("Kilo Code"),
 	},
+}
+
+// writeAgentFiles writes one list of an agent's files under root, and reports
+// whether it changed anything and what it wrote.
+//
+// One function for both commands: `init` writes the account-wide rules into a
+// home and `init-project` the hook and the MCP registration into a tree, and
+// what differs is which list, what each file is rendered against, and who ends
+// up owning it.  Everything else was written twice, which is how the two came
+// to disagree about when to create a parent directory.
+//
+// render is supplied by the caller, the two having different things to render
+// against: the install layout for an account file, the target's own data for a
+// tree's.
+func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
+	render func(agentFile) ([]byte, error), files []agentFile) (bool, []string, error) {
+	changed := false
+	var written []string
+	for _, file := range files {
+		path := filepath.Join(root, file.path)
+		// Only created, never re-owned: the directory is the account's or the
+		// project's.  With the operator's own group, not keep: `init` runs as
+		// root, so a ~/.config that does not exist yet would be created
+		// operator:root and break every other tool that keeps state there.
+		// preflight refuses to create ConfigDir's parent for the same reason.
+		//
+		// Skipped where the file sits at the root, which has an owner already and
+		// is not this command's to assert.
+		if parent := filepath.Dir(path); parent != filepath.Clean(root) {
+			if _, err := fs.ensureDir(parent, dirMode, uid, gid, false); err != nil {
+				return changed, written, err
+			}
+		}
+		data, err := render(file)
+		if err != nil {
+			return changed, written, err
+		}
+		// Merged, not overwritten: the file is the operator's or the project's to
+		// edit, and only the keys faramir writes are touched.
+		write := fs.writeFile
+		if file.merge {
+			write = fs.mergeFile
+		}
+		made, err := write(path, data, file.mode, uid, gid)
+		if err != nil {
+			return changed, written, err
+		}
+		changed = changed || made
+		written = append(written, path)
+	}
+	return changed, written, nil
 }
 
 // pluginNote is what an enrolment says about an agent that matches its bash
