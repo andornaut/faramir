@@ -433,6 +433,9 @@ func initHomeErr(t *testing.T, home string, agents ...string) (*runner, error) {
 		operatorGID:  keep,
 		operatorHome: home,
 	}
+	if err := run.refuseUnwritableAgentFiles(); err != nil {
+		return run, err
+	}
 	return run, run.stepAgentConfig()
 }
 
@@ -862,6 +865,13 @@ func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 		operatorHome: home,
 	}
 
+	if err := run.refuseUnwritableAgentFiles(); err == nil {
+		t.Fatal("preconditions passed a rule file the step then refused")
+	}
+	// Asked again at the step, which is where the collecting is: preconditions
+	// stop a run before anything is written, and this asserts what the step does
+	// when it is reached anyway.
+	run.agentTargets, _ = resolveAgents(run.opts.Agents, scopeHome, run.operatorHome)
 	err := run.stepAgentConfig()
 
 	if err == nil {
@@ -1093,5 +1103,89 @@ func TestAFollowedLinkKeepsTheTempAndRename(t *testing.T) {
 		t.Fatal(readErr)
 	} else if string(body) != "# Mine\n" {
 		t.Errorf("the target was changed by a write that failed:\n%s", body)
+	}
+}
+
+// The bound is on the directory, not the file.  Lstat declines to follow only
+// the last component, so a symlinked parent carries the write out of the tree
+// before the leaf is ever looked at, and the tree's group and mode would land
+// on a file the enrolment was never pointed at.
+func TestASymlinkedParentCannotCarryTheWriteOutOfTheTree(t *testing.T) {
+	outside := t.TempDir()
+	const before = "{}\n"
+	if err := os.WriteFile(filepath.Join(outside, "settings.json"), []byte(before), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+
+	tree := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(tree, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := writeAgentFiles(fsys{}, tree, os.Getuid(), os.Getgid(),
+		0o2770|os.ModeSetgid, true, render, files)
+
+	if !errors.Is(err, errNotOperators) {
+		t.Fatalf("err = %v, want the write refused", err)
+	}
+	info, statErr := os.Stat(filepath.Join(outside, "settings.json"))
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if info.Mode().Perm() != 0o600 {
+		t.Errorf("the file outside the tree is %04o, want the 0600 it had: the "+
+			"tree's mode reached it", info.Mode().Perm())
+	}
+}
+
+// Creation is bounded the same way: a file this run makes lands in that
+// directory as surely as one it edits.
+func TestASymlinkedParentCannotCarryACreationOutOfTheTree(t *testing.T) {
+	outside := t.TempDir()
+	tree := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(tree, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+
+	_, _, err := writeAgentFiles(fsys{}, tree, os.Getuid(), os.Getgid(),
+		0o2770|os.ModeSetgid, true, render, files)
+
+	if !errors.Is(err, errNotOperators) {
+		t.Fatalf("err = %v, want the write refused", err)
+	}
+	if exists(filepath.Join(outside, "settings.json")) {
+		t.Error("a file was created outside the tree being enrolled")
+	}
+}
+
+// A home has no such bound, a dotfiles repository being wherever the operator
+// keeps it, and that is what makes the case above a bound rather than a ban.
+func TestASymlinkedParentIsFollowedInAHome(t *testing.T) {
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "settings.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := t.TempDir()
+	if err := os.Symlink(outside, filepath.Join(home, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	render := func(agentFile) ([]byte, error) { return []byte(`{"a":1}` + "\n"), nil }
+	files := []agentFile{{path: ".claude/settings.json", mode: 0o640, merge: true}}
+
+	if _, _, err := writeAgentFiles(fsys{}, home, os.Getuid(), os.Getgid(),
+		0o700, false, render, files); err != nil {
+		t.Fatal(err)
+	}
+
+	body, err := os.ReadFile(filepath.Join(outside, "settings.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"a": 1`) {
+		t.Errorf("the dotfiles copy did not get faramir's keys:\n%s", body)
 	}
 }

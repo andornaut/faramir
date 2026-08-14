@@ -397,7 +397,7 @@ func grantTraversal(home, dir string, opts Options, gid int) (int, error) {
 	defer func() { _ = handle.Close() }()
 
 	changed := 0
-	apply := func(name string, info os.FileInfo, chown, chmod func(os.FileMode) error) error {
+	apply := func(name string, info os.FileInfo, chown func() error, chmod func(os.FileMode) error) error {
 		action, err := traversalAction(info, gid)
 		if err != nil || action == leaveAlone {
 			return err
@@ -405,7 +405,7 @@ func grantTraversal(home, dir string, opts Options, gid int) (int, error) {
 		if action == regroup {
 			// The previous group loses whatever the group bits gave it.
 			opts.logf("%s: group %s -> %s", name, groupName(info), opts.Group)
-			if err := chown(0); err != nil {
+			if err := chown(); err != nil {
 				return err
 			}
 		}
@@ -422,7 +422,7 @@ func grantTraversal(home, dir string, opts Options, gid int) (int, error) {
 		return changed, err
 	}
 	if err := apply(home, info,
-		func(os.FileMode) error { return handle.Chown(-1, gid) },
+		func() error { return handle.Chown(-1, gid) },
 		handle.Chmod); err != nil {
 		return changed, err
 	}
@@ -439,7 +439,7 @@ func grantTraversal(home, dir string, opts Options, gid int) (int, error) {
 			return changed, err
 		}
 		if err := apply(component, info,
-			func(os.FileMode) error { return root.Chown(name, -1, gid) },
+			func() error { return root.Chown(name, -1, gid) },
 			func(mode os.FileMode) error { return root.Chmod(name, mode) }); err != nil {
 			return changed, err
 		}

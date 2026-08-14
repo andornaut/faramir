@@ -25,10 +25,9 @@ func (r *runner) stepAgentConfig() error {
 	// missing as a failure, and names the command -- and the alternative is
 	// writing configuration into a home for four agents the operator does not
 	// use, which is not this command's to do.
-	targets, err := resolveAgents(r.opts.Agents, scopeHome, r.operatorHome)
-	if err != nil {
-		return err
-	}
+	// Resolved in stepPreconditions, which asked of these same files the question
+	// this one is about to answer.
+	targets := r.agentTargets
 	if len(targets) == 0 {
 		// Not an error and not a silent pass: nothing was written, and the reason
 		// is a home with no agent in it rather than a step that did its job.
@@ -67,12 +66,16 @@ func (r *runner) stepAgentConfig() error {
 	}
 	r.step("agent config", changed, strings.Join(written, ", "))
 	// The sections first, so one refused rule file does not cost every agent its
-	// instructions, and then everything this run could not put right.
-	sections := r.agentInstructions(targets)
+	// instructions, and then everything this run could not put right, both halves
+	// together: an operator who fixes the rule files and re-runs should not then
+	// meet the section failures they were never shown.
+	if err := r.agentInstructions(targets); err != nil {
+		refused = append(refused, err.Error())
+	}
 	if len(refused) > 0 {
 		return errors.New(strings.Join(refused, "\n"))
 	}
-	return sections
+	return nil
 }
 
 // agentInstructions writes the account-wide credentials section into each

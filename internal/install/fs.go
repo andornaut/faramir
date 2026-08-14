@@ -254,18 +254,19 @@ func (e *edited) read() ([]byte, error) {
 // where the operator's was, which is the opposite of leaving it alone.
 func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
 	link, err := os.Lstat(path)
+	exists := true
 	switch {
 	case errors.Is(err, os.ErrNotExist):
-		return &edited{path: path}, nil
+		exists = false
 	// A dry run is the one form that does not need root, so a path it cannot
-	// look at is left to the write below, which writes nothing either way.
+	// look at is left to the write, which writes nothing either way.
 	case f.dryRun && errors.Is(err, os.ErrPermission):
 		return &edited{path: path}, nil
 	case err != nil:
 		return nil, err
 	}
 	target := path
-	if link.Mode()&os.ModeSymlink != 0 {
+	if exists && link.Mode()&os.ModeSymlink != 0 {
 		resolved, err := filepath.EvalSymlinks(path)
 		switch {
 		case f.dryRun && errors.Is(err, os.ErrPermission):
@@ -277,29 +278,44 @@ func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
 		case err != nil:
 			return nil, err
 		}
-		// Kept inside the tree where there is one.  Following a link out of it
-		// would apply the tree's group and mode to a file the enrolment was never
-		// pointed at, so a dotfiles copy would come out readable by the account
-		// brokered commands run as.  sharetree refuses to follow one out for the
-		// same reason.  No such bound in a home: a dotfiles repository is
-		// wherever the operator keeps it.
-		if within != "" && !encloses(within, resolved) {
-			return nil, errNotOperators
-		}
 		target = resolved
 	}
-	// Pinned whether or not a link was followed.  What the checks below decide
-	// has to be decided about the file the write then lands on, and a path
-	// checked and then written by path is resolved twice, with room between the
-	// two for the account the agent runs as to replace a directory it owns.
-	root, err := os.OpenRoot(filepath.Dir(target))
+	// The directory, resolved, and the bound applied to it rather than to the
+	// file.  Lstat declines to follow only the last component, so a symlinked
+	// directory carries the write wherever it points before the leaf is ever
+	// looked at, and asking the question of the leaf alone answers about the
+	// wrong path.  Creation goes through here too: a file this run makes lands
+	// in that directory as surely as one it edits.
+	dir, err := filepath.EvalSymlinks(filepath.Dir(target))
+	switch {
+	// Nothing there yet.  The write creates the file and its caller the
+	// directory, both inside the tree, so there is nothing here that could be
+	// somebody else's.  It is also what a precondition sees, asking this of a
+	// home before anything has been written to it.
+	case errors.Is(err, os.ErrNotExist):
+		return &edited{path: path}, nil
+	case f.dryRun && errors.Is(err, os.ErrPermission):
+		return &edited{path: path}, nil
+	case err != nil:
+		return nil, err
+	}
+	if within != "" && !encloses(within, dir) {
+		return nil, errNotOperators
+	}
+	root, err := os.OpenRoot(dir)
 	if err != nil {
 		if f.dryRun {
 			return &edited{path: path}, nil
 		}
 		return nil, err
 	}
-	out := &edited{path: target, root: root, name: filepath.Base(target)}
+	name := filepath.Base(target)
+	out := &edited{path: filepath.Join(dir, name), root: root, name: name}
+	if !exists {
+		// Nothing to check and nothing to keep: the caller creates it, and
+		// creation is where ownership is faramir's to set.
+		return out, nil
+	}
 	info, err := out.stat()
 	switch {
 	// A path that cannot be read is a different problem from one somebody else

@@ -2,6 +2,7 @@ package install
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -168,5 +169,118 @@ func TestAgentDirectoriesInAHomeStayPrivate(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0o700 {
 		t.Errorf(".claude is %04o, want 0700: nothing else has business in it", got)
+	}
+}
+
+// The refusals are asked before the share, which chowns and chmods every file
+// in the tree and cannot be undone.  Finding out afterwards that a settings
+// file is not the operator's is finding out too late.
+func TestAnEnrolmentRefusesAnUnwritableFileBeforeSharing(t *testing.T) {
+	tree := t.TempDir()
+	// A link out of the tree, which the write would refuse.
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "settings.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tree, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "settings.json"),
+		filepath.Join(tree, ".claude", "settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	run := &project{
+		opts:    ProjectOptions{Dir: tree, Hook: true},
+		uid:     os.Getuid(),
+		gid:     keep,
+		targets: []*agentTarget{agentTargets["claude"]},
+	}
+
+	err := run.refuseUnwritableFiles()
+
+	if err == nil {
+		t.Fatal("an enrolment accepted a file its own write would refuse")
+	}
+	if !strings.Contains(err.Error(), ".claude/settings.json") {
+		t.Errorf("the error does not name the file: %v", err)
+	}
+	// Nothing was written and nothing shared: this ran before either.
+	if body, readErr := os.ReadFile(filepath.Join(outside, "settings.json")); readErr != nil {
+		t.Fatal(readErr)
+	} else if string(body) != "{}\n" {
+		t.Errorf("the file outside the tree was written:\n%s", body)
+	}
+}
+
+// --hook=false writes none of the agent files, so refusing over one it will not
+// touch would stop an enrolment for a reason it does not have.
+func TestAnEnrolmentWithoutTheHookIgnoresTheAgentFiles(t *testing.T) {
+	tree := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "settings.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tree, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "settings.json"),
+		filepath.Join(tree, ".claude", "settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	run := &project{
+		opts:    ProjectOptions{Dir: tree, Hook: false},
+		uid:     os.Getuid(),
+		gid:     keep,
+		targets: []*agentTarget{agentTargets["claude"]},
+	}
+
+	if err := run.refuseUnwritableFiles(); err != nil {
+		t.Errorf("an enrolment writing no agent files was refused over one: %v", err)
+	}
+}
+
+// And preflight is where it is asked, which is what puts it before the share.
+// Asserting the function alone would pass with nothing calling it.
+func TestPreflightRefusesBeforeAnyStepRuns(t *testing.T) {
+	me, err := user.Current()
+	if err != nil {
+		t.Skip("cannot name this account")
+	}
+	tree := t.TempDir()
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "settings.json"), []byte("{}\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(tree, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(outside, "settings.json"),
+		filepath.Join(tree, ".claude", "settings.json")); err != nil {
+		t.Fatal(err)
+	}
+	run := &project{
+		opts: ProjectOptions{
+			Dir: tree, OperatorUser: me.Username, ClientGroup: "shared",
+			Hook: true, DryRun: true,
+		},
+		uid: keep, gid: keep,
+	}
+	run.report = ProjectReport{ClientGroup: "shared"}
+
+	err = run.preflight()
+
+	if err == nil {
+		t.Fatal("preflight accepted a tree whose settings file the write would refuse")
+	}
+	if !strings.Contains(err.Error(), ".claude/settings.json") {
+		t.Errorf("the error does not name the file: %v", err)
+	}
+	// The share is step one and this ran before any step: the tree is untouched.
+	info, statErr := os.Stat(tree)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if info.Mode()&os.ModeSetgid != 0 {
+		t.Error("the tree was shared before the refusal")
 	}
 }

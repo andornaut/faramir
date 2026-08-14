@@ -136,3 +136,65 @@ func TestTreeConfigPassesOverATreeThatIsGone(t *testing.T) {
 		t.Errorf("a tree that is gone was named here as well: %s", got[0].Detail)
 	}
 }
+
+// A file an install would refuse to write is named before a run stops on it.
+func TestEditableFilesReportsWhatAnInstallWouldRefuse(t *testing.T) {
+	home := t.TempDir()
+	// A dangling link at a path init edits, which editedFile refuses.
+	path := filepath.Join(home, agentTargets["claude"].homeInstructions)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(home, "nothing-here.md"), path); err != nil {
+		t.Fatal(err)
+	}
+
+	var report DoctorReport
+	reportEditableFiles(&report, home, os.Getuid(), DoctorOptions{ConfigDir: t.TempDir()})
+
+	got := findings(report, "agent file ownership")
+	if len(got) != 1 || got[0].Status != StatusWarn {
+		t.Fatalf("findings = %+v, want one warning", got)
+	}
+	if !strings.Contains(got[0].Detail, path) {
+		t.Errorf("the finding does not name the file: %s", got[0].Detail)
+	}
+	// Warned, not failed: nothing is unguarded, and what is named is a file the
+	// next run cannot update.
+	if report.Failed {
+		t.Error("a file an install would refuse failed the report")
+	}
+}
+
+// A home whose files are all the operator's, or not there yet, is the ordinary
+// answer and must not read as a warning.
+func TestEditableFilesIsOKWhereEveryFileIsTheOperatorsOwn(t *testing.T) {
+	var report DoctorReport
+	reportEditableFiles(&report, t.TempDir(), os.Getuid(), DoctorOptions{ConfigDir: t.TempDir()})
+
+	got := findings(report, "agent file ownership")
+	if len(got) != 1 || got[0].Status != StatusOK {
+		t.Errorf("findings = %+v, want one OK", got)
+	}
+}
+
+// An account with nothing of faramir's in its home has nothing to report.
+func TestEditableFilesIsOKWhereThereIsNothingToRefuse(t *testing.T) {
+	var report DoctorReport
+	diagnoseEditableFiles(&report, DoctorOptions{ConfigDir: t.TempDir()})
+
+	got := findings(report, "agent file ownership")
+	if len(got) != 1 {
+		t.Fatalf("findings = %+v, want one", got)
+	}
+	// With no operator named it cannot be asked at all, which is counted as
+	// unasked rather than passed: a check that could not run is not a check
+	// that found nothing.
+	if report.NotAsked != 1 {
+		t.Errorf("NotAsked = %d, want 1: a check that could not run must not read "+
+			"as one that passed", report.NotAsked)
+	}
+	if !strings.Contains(got[0].Detail, "--operator-user") {
+		t.Errorf("the finding does not say how to ask it: %s", got[0].Detail)
+	}
+}

@@ -184,6 +184,34 @@ func (p *project) preflight() error {
 		return err
 	}
 	p.warnMissingBinary(filepath.Join(DefaultBinDir, "faramir"))
+	return p.refuseUnwritableFiles()
+}
+
+// refuseUnwritableFiles asks, before the share, the question every write into
+// this tree will ask.  The share chowns and chmods every file in the tree and
+// nothing undoes it, so finding out afterwards that a settings file is not the
+// operator's is finding out too late.
+//
+// Only where the hook is being registered: --hook=false writes none of those
+// files, and refusing over one it will not touch would stop an enrolment for a
+// reason it does not have.  The instructions are written either way.
+func (p *project) refuseUnwritableFiles() error {
+	var refused []string
+	instructions, err := filepath.Rel(p.opts.Dir, p.instructionsFile())
+	if err != nil {
+		return err
+	}
+	refused = append(refused, refuseUnwritable(
+		p.fs, p.opts.Dir, p.uid, p.opts.Dir, []string{instructions})...)
+	if p.opts.Hook {
+		for _, target := range p.targets {
+			refused = append(refused, refuseUnwritable(p.fs, p.opts.Dir, p.uid, p.opts.Dir,
+				editedPaths(target, true, ""))...)
+		}
+	}
+	if len(refused) > 0 {
+		return errors.New(strings.Join(refused, "\n"))
+	}
 	return nil
 }
 

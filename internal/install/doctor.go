@@ -240,6 +240,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseAgentRules(&report, opts)
 	diagnoseAgentRuleDrift(&report, opts)
 	diagnoseTreeConfig(&report, opts)
+	diagnoseEditableFiles(&report, opts)
 	return report
 }
 

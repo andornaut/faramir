@@ -101,3 +101,78 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 	}
 	return bytes.Equal(merged, onDisk), nil
 }
+
+// What `init` and `init-project` would refuse to write, asked without writing.
+//
+// Both commands now stop rather than take over a file faramir edits but does
+// not own, or follow a link out of the tree. That is the right answer at the
+// time, and it is a poor way to learn: the operator finds out when a run they
+// wanted stops. `doctor` exists to answer this before it costs anybody a run.
+//
+// Warned, not failed. Nothing is unguarded: the deny rules and the hook are
+// whatever the last successful run left, and what this names is a file the next
+// run will not be able to update.
+func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
+	if opts.OperatorUser == "" {
+		report.unasked("agent file ownership", 1, "the operator account is not "+
+			"named, so who owns the files an install edits was not asked: pass "+
+			"--operator-user, or run through sudo so SUDO_USER carries it")
+		return
+	}
+	home, err := operatorHomeFor(opts.OperatorUser)
+	if err != nil || home == "" {
+		report.unasked("agent file ownership", 1, "could not read %s's home, so "+
+			"who owns the files an install edits was not asked", opts.OperatorUser)
+		return
+	}
+	uid, err := lookupUser(opts.OperatorUser)
+	if err != nil {
+		report.unasked("agent file ownership", 1, "could not resolve %s: %v",
+			opts.OperatorUser, err)
+		return
+	}
+	reportEditableFiles(report, home, uid, opts)
+}
+
+// reportEditableFiles is diagnoseEditableFiles against a home and an operator
+// already resolved, so a test can put one somewhere other than a real account's
+// rather than skipping wherever the developer has a ~/.claude of their own.
+func reportEditableFiles(report *DoctorReport, home string, uid int, opts DoctorOptions) {
+	fs := fsys{}
+	var refused []string
+	for _, name := range agentNames() {
+		target := agentTargets[name]
+		refused = append(refused, refuseUnwritable(fs, home, uid, "",
+			editedPaths(target, false, target.homeInstructions))...)
+	}
+	for _, tree := range readEnrolled(opts.ConfigDir) {
+		if !exists(tree.Dir) {
+			continue
+		}
+		treeUID := uid
+		if tree.Operator != opts.OperatorUser {
+			// The tree was enrolled for somebody else, and this is their file to
+			// own rather than the account doctor was pointed at.
+			if other, err := lookupUser(tree.Operator); err == nil {
+				treeUID = other
+			}
+		}
+		for _, name := range tree.Agents {
+			target, known := agentTargets[name]
+			if !known {
+				continue
+			}
+			refused = append(refused, refuseUnwritable(fs, tree.Dir, treeUID, tree.Dir,
+				editedPaths(target, true, ""))...)
+		}
+	}
+	sort.Strings(refused)
+	if len(refused) == 0 {
+		report.add("agent file ownership", StatusOK, "every file an install edits "+
+			"is the operator's, or is not there yet")
+		return
+	}
+	report.add("agent file ownership", StatusWarn, "%d file(s) `faramir init` or "+
+		"`faramir init-project` would refuse to write, so the next run stops rather "+
+		"than taking one over: %s", len(refused), strings.Join(refused, "; "))
+}

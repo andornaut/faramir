@@ -190,6 +190,10 @@ type runner struct {
 	// ask a broker that was never given one.
 	sshKey string
 
+	// The agents this run configures, resolved in stepPreconditions so the
+	// question asked there and the files written later are about the same set.
+	agentTargets []*agentTarget
+
 	// The keeper's own age recipient, empty when it could not be read.  A
 	// .sops.yaml written without it encrypts every later value to everyone except
 	// the account that has to decrypt them.
@@ -504,6 +508,13 @@ func (r *runner) refuseConfigMove() error {
 // It reports nothing when it passes.  A step in the list that says "ok" on every
 // healthy host is noise, and these are preconditions rather than work.
 func (r *runner) stepPreconditions() error {
+	// Asked whether or not this is a dry run: a dry run answering "this would
+	// work" about a home where it would not is the one answer a dry run must not
+	// give.  editedFile reports nothing it cannot read unprivileged, so what a
+	// dry run cannot see it does not claim about.
+	if err := r.refuseUnwritableAgentFiles(); err != nil {
+		return err
+	}
 	if r.opts.DryRun {
 		return nil
 	}
@@ -511,6 +522,30 @@ func (r *runner) stepPreconditions() error {
 		return err
 	}
 	return r.refuseInvalidSudoers()
+}
+
+// refuseUnwritableAgentFiles asks the question stepAgentConfig asks of every
+// file it edits, before anything has been handed to an account.  Failing there
+// leaves a host whose units are installed and whose daemons have been reloaded;
+// failing here leaves one nothing has been written to.
+//
+// The targets are resolved here and kept, so the question and the writing agree
+// on which agents this run is about.
+func (r *runner) refuseUnwritableAgentFiles() error {
+	targets, err := resolveAgents(r.opts.Agents, scopeHome, r.operatorHome)
+	if err != nil {
+		return err
+	}
+	r.agentTargets = targets
+	var refused []string
+	for _, target := range targets {
+		refused = append(refused, refuseUnwritable(r.fs, r.operatorHome, r.operatorUID, "",
+			editedPaths(target, false, target.homeInstructions))...)
+	}
+	if len(refused) > 0 {
+		return errors.New(strings.Join(refused, "\n"))
+	}
+	return nil
 }
 
 // refuseUnadoptableSSHKey asks the question stepSSHKey asks, at a point where

@@ -313,6 +313,46 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 	return changed, written, nil
 }
 
+// refuseUnwritable asks, of every file a run is about to edit, the question the
+// write will ask, and answers with what it would refuse.
+//
+// Asked before anything is written, which is the rule `init` states of its own
+// preconditions: a refusal that can be put earlier belongs earlier, and these
+// can.  An enrolment's first step chowns and chmods every file in the tree and
+// nothing undoes that, so finding out afterwards that a settings file is not
+// the operator's is finding out too late.
+//
+// Every path, not the first refusal: an operator fixing these wants the list.
+func refuseUnwritable(fs fsys, root string, uid int, within string, paths []string) []string {
+	var refused []string
+	for _, rel := range paths {
+		path := filepath.Join(root, rel)
+		spot, err := fs.editedFile(path, uid, within)
+		spot.close()
+		if err != nil {
+			refused = append(refused, fmt.Sprintf("%s: %v", path, err))
+		}
+	}
+	return refused
+}
+
+// editedPaths are the files one agent's enrolment edits at this scope, relative
+// to the root, which is what refuseUnwritable is asked about.
+func editedPaths(target *agentTarget, inTree bool, instructions string) []string {
+	var out []string
+	files := target.accountFiles
+	if inTree {
+		files = target.files
+	}
+	for _, file := range files {
+		out = append(out, file.path)
+	}
+	if instructions != "" {
+		out = append(out, instructions)
+	}
+	return out
+}
+
 // pluginNote is what an enrolment says about an agent that matches its bash
 // permission rules against the command text.  Whether those rules run after the
 // rewrite is documented by neither agent, so this states the symptom.

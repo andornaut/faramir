@@ -21,6 +21,11 @@ func agentStep(t *testing.T, home string, agents ...string) Step {
 		operatorGID:  keep,
 		operatorHome: home,
 	}
+	// The ordering a run uses: preconditions resolve the targets and ask of
+	// every file the question the step then answers.
+	if err := run.refuseUnwritableAgentFiles(); err != nil {
+		t.Fatal(err)
+	}
 	if err := run.stepAgentConfig(); err != nil {
 		t.Fatal(err)
 	}
