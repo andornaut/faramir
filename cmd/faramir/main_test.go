@@ -11,6 +11,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/spf13/cobra"
+
 	"github.com/andornaut/faramir/internal/cli"
 )
 
@@ -341,6 +343,32 @@ func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
 	// Listing takes no id at all: the verbs are their own commands now.
 	if code := cmdApprovals([]string{"9f2a1c"}); code != 2 {
 		t.Errorf("faramir approvals ID = %d, want 2: it lists and answers nothing", code)
+	}
+}
+
+// A command that ran and failed says nothing of its own.  exitCodeError carries
+// a status the command has already explained on its own stderr, so a second line
+// naming it is faramir talking over the output the caller came for: a brokered
+// command that exited 3 would otherwise have "Error: exit status 3" appended to
+// what it printed.  The status still reaches the caller as the exit code.
+func TestAFailedCommandPrintsNoErrorOfItsOwn(t *testing.T) {
+	var out bytes.Buffer
+	root := newRootCmd()
+	root.SetOut(&out)
+	root.SetErr(&out)
+	// `version` is reached without a broker, and its RunE is replaced with the
+	// one thing under test: a status returned once the arguments are accepted.
+	for _, c := range root.Commands() {
+		if c.Name() == "version" {
+			c.RunE = func(*cobra.Command, []string) error { return codeErr(3) }
+		}
+	}
+	root.SetArgs([]string{"version"})
+	if code := exitCode(root.Execute()); code != 3 {
+		t.Errorf("exit = %d, want 3: the child's status is what the caller reads", code)
+	}
+	if out.Len() != 0 {
+		t.Errorf("wrote %q, want nothing: the command has already explained itself", out.String())
 	}
 }
 

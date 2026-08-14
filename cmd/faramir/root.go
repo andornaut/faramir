@@ -87,7 +87,9 @@ func newRootCmd() *cobra.Command {
 			"Name secrets with --env NAME=secret://ref, or --env-file for a file of them.\n\n" +
 			"Secrets are injected as environment variables only; they are never substituted\n" +
 			"into the command line.",
-		Version:       version.Version,
+		Version: version.Version,
+		// A wrong invocation is cobra's to print, and is refused before
+		// PersistentPreRunE runs; what comes after it is silenced there.
 		SilenceErrors: false,
 		// Naming a command is how anything happens, and --help is how help is
 		// asked for, so a bare `faramir` is a wrong invocation rather than a
@@ -103,9 +105,15 @@ func newRootCmd() *cobra.Command {
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 		// Runs once the arguments have been accepted and before any command does
 		// its work, which is where a failure stops being a wrong invocation worth
-		// printing usage for.
+		// printing usage for, and stops being an error worth printing at all.
+		// Every RunE past this point returns exitCodeError, which carries a status
+		// the command has already explained on its own stderr; cobra printing it
+		// again adds "Error: exit status N" to what the caller is reading, and a
+		// brokered command that merely exited non-zero is not an error of
+		// faramir's to report.
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			c.SilenceUsage = true
+			c.SilenceErrors = true
 			return nil
 		},
 	}
