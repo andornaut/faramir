@@ -17,8 +17,8 @@ type agentTarget struct {
 	name string
 
 	// files are written relative to the tree.  A list rather than named fields,
-	// since Claude Code splits its hook settings from its MCP registration and
-	// Gemini CLI puts both in one file.
+	// since an agent may split its hook settings from its MCP registration or
+	// keep both in one file, and some have no hook to register at all.
 	files []agentFile
 
 	// accountFiles go into the operator's home rather than a tree.  They refuse
@@ -26,6 +26,15 @@ type agentTarget struct {
 	// so no project has to opt in.  Rendered, the paths refused being this
 	// install's.
 	accountFiles []agentFile
+
+	// withoutAccountRules is why this agent has none, for the report that would
+	// otherwise have to infer it.  Two agents get no rule file and not for the
+	// same reason: pi's are compiled into the extension an enrolment installs,
+	// and Antigravity has none anywhere.  A check that says the wrong one of
+	// those is a check telling an operator a project is covered when it is not.
+	//
+	// Required of every target with no accountFiles, and empty for the rest.
+	withoutAccountRules string
 
 	// detect names the paths that mean this tree is already configured for this
 	// agent.  Named rather than derived from files, which are only what faramir
@@ -56,17 +65,47 @@ type agentTarget struct {
 	// is what invites the workaround: another tool, an interpreter, a base64
 	// pipe.  This is what makes the refusal legible, in the one file that is
 	// read in a tree faramir has never been run in.
+	//
+	// Two agents may name the same file, and what is written there then has to
+	// hold for both.  See runner.agentInstructions.
 	homeInstructions string
 
-	// autoApprovesBash records what enrolling costs on this agent.  Claude Code:
-	// a rewritten command matches no permission rule and the hook must approve
-	// it, so every Bash prompt in the project is gone.  Gemini CLI: there is no
-	// allow to return, so the prompts are untouched.
+	// treeInstructions is where this agent reads prose in one tree, for an agent
+	// that reads none of the names at the tree's root.  Antigravity is the case:
+	// it loads .agents/rules and no documented file beside them, so the section
+	// `init-project` writes into a tree's AGENTS.md never reaches it.
+	//
+	// Empty for every other agent, which reads the tree's own file.
+	treeInstructions treeRules
+
+	// autoApprovesBash records what enrolling costs on this agent.  Claude Code
+	// is the one that pays it: a rewritten command matches no permission rule and
+	// the hook must approve it, so every Bash prompt in the project is gone.
+	// Every other agent has no allow to return, so its prompts are untouched.
 	autoApprovesBash bool
 
 	// note is warned about on enrolment, for anything that is not the Bash
 	// trade.
 	note string
+
+	// noteStands says the note describes what this tree is rather than what this
+	// run just did, so it is warned about on every enrolment and not only the one
+	// that wrote the files.  A cost taken on is news once; a tree nothing redacts
+	// is true every time somebody asks, and re-running an enrolment is the
+	// ordinary case.
+	noteStands bool
+}
+
+// treeRules is one agent's own instructions file inside a tree, and what has to
+// head it for the agent to load it at all.
+type treeRules struct {
+	// path is relative to the tree.  Empty where the tree's own AGENTS.md is
+	// what this agent reads.
+	path string
+	// head is written before the markers in a file this creates, and only there:
+	// an existing file's first line is its own, this having no way to tell one
+	// faramir wrote from one the operator did.
+	head string
 }
 
 type agentFile struct {
@@ -103,7 +142,7 @@ var agentTargets = map[string]*agentTarget{
 		name: "claude",
 		files: []agentFile{
 			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json.tmpl", mode: 0o640, merge: true},
-			{path: ".mcp.json", asset: "agent/claude/mcp.json.tmpl", mode: 0o640, merge: true},
+			{path: ".mcp.json", asset: "agent/mcp.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Read and Edit rules only: Claude Code matches file permission checks
 		// against Edit(path), which covers every file-editing tool, and a
@@ -116,23 +155,6 @@ var agentTargets = map[string]*agentTarget{
 		homeInstructions: ".claude/CLAUDE.md",
 		autoApprovesBash: true,
 	},
-	"gemini": {
-		name: "gemini",
-		files: []agentFile{
-			// Hooks and mcpServers are both top-level keys of this one file.
-			{path: ".gemini/settings.json", asset: "agent/gemini/settings.project.json.tmpl", mode: 0o640, merge: true},
-		},
-		// Gemini refuses tool calls through a policy engine, and the
-		// settings.json key for this is deprecated in favour of it.
-		accountFiles: []agentFile{
-			{path: ".gemini/policies/faramir.toml", asset: "agent/gemini/policies.toml.tmpl", mode: 0o640},
-		},
-		detect:           []string{".gemini"},
-		detectHome:       []string{".gemini"},
-		homeInstructions: ".gemini/GEMINI.md",
-		autoApprovesBash: false,
-	},
-
 	// opencode and Kilo Code extend through in-process plugins rather than a
 	// hook that runs a program, so what is installed is a JavaScript file that
 	// calls `faramir guard` and applies what it answers.  The deny list and the
@@ -178,6 +200,8 @@ var agentTargets = map[string]*agentTarget{
 		// the other targets put in one are compiled into the extension instead,
 		// from the same list.  It refuses a tool call carrying a command through
 		// the guard, and one carrying a path against those rules.
+		withoutAccountRules: "carries its rules in the extension enrolling a tree " +
+			"installs, so there is none of it here",
 		detect:     []string{".pi"},
 		detectHome: []string{".pi"},
 		// pi reads this one from under its own directory rather than beside a
@@ -210,6 +234,65 @@ var agentTargets = map[string]*agentTarget{
 		homeInstructions: ".kilocode/rules/faramir.md",
 		autoApprovesBash: false,
 		note:             pluginNote("Kilo Code"),
+	},
+
+	// Antigravity is the weak one, and enrolling it says so.  Its PreToolUse
+	// hooks decide -- deny, allow, ask, force_ask -- and cannot change a tool
+	// call's arguments, so no command it runs can be routed through the broker
+	// and nothing redacts what comes back.  Its permission lists are the IDE's
+	// own state rather than a file an install may write, so there are no deny
+	// rules to put in a home either.
+	//
+	// What an enrolment leaves is a route and the prose telling it to take one:
+	// the MCP tools, and the credentials section in the two files it reads.  An
+	// agent that skips the prose runs the command itself and the value reaches
+	// the model, which is the whole of what makes this weaker than the rest.
+	//
+	// Configured anyway rather than declined, because the route is worth having
+	// where it is taken, and an agent nothing was written for is one the operator
+	// is not told about at all.  What holds the claim honest is that the reports
+	// and the docs say which half is missing.
+	"antigravity": {
+		name: "antigravity",
+		files: []agentFile{
+			{path: ".agents/mcp_config.json", asset: "agent/mcp.json.tmpl", mode: 0o640, merge: true},
+		},
+		// Nothing account-wide: its permission lists are the IDE's own state and
+		// its hooks can only decide, so there is no file an install may write here
+		// that would refuse a file tool anything.
+		withoutAccountRules: "has no file an install can write rules into, its " +
+			"permission lists being the IDE's own state, so nothing on this host " +
+			"refuses its file tools key material: it is told the policy and nothing " +
+			"enforces it",
+		// The workspace and legacy customization directories, named by the files
+		// in them rather than by the directory: .agents is a name other tools may
+		// come to keep their own things under.
+		detect: []string{".agents/rules", ".agents/mcp_config.json", ".agent/rules"},
+		// Its own directories, and the customization directory the whole
+		// Antigravity family reads.
+		detectHome: []string{".antigravity", ".config/Antigravity", ".gemini/config"},
+		// Antigravity's global rules, applied in every workspace.  Under ~/.gemini,
+		// which is the family directory rather than a second agent's.
+		homeInstructions: ".gemini/GEMINI.md",
+		// It loads .agents/rules and no documented file at the root of a tree, so
+		// the section in the tree's AGENTS.md would not reach it.
+		treeInstructions: treeRules{
+			path: ".agents/rules/faramir.md",
+			// A rule's activation is frontmatter and always-on is not the default,
+			// so a file without this is one the model may never be shown.
+			head: "---\ntrigger: always_on\n---\n",
+		},
+		// Nothing is approved on its behalf, there being no approval to give.
+		autoApprovesBash: false,
+		// Said on every enrolment: what is missing here is missing for as long as
+		// the tree is enrolled, and a re-run that said nothing would read as a tree
+		// covered the way the others are.
+		noteStands: true,
+		note: "nothing written here redacts what Antigravity runs. Its hooks decide " +
+			"and cannot rewrite a command, so the broker is a route it has to take " +
+			"rather than one it is put on: what was installed is the MCP tools and the " +
+			"instructions to use them, and a command it runs itself reaches the model " +
+			"with the value in it",
 	},
 }
 
@@ -245,8 +328,21 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 		//
 		// Skipped where the file sits at the root, which has an owner already and
 		// is not this command's to assert.
+		//
+		// In a tree, every level: see ensureDirs.  In a home the leaf only, an
+		// ancestor there being ~/.config, which 0755 is right for and this
+		// command's 0700 is not.
 		if parent := filepath.Dir(path); parent != filepath.Clean(root) {
-			if _, err := fs.ensureDir(parent, dirMode, uid, gid, false); err != nil {
+			ensure := func() error {
+				_, err := fs.ensureDir(parent, dirMode, uid, gid, false)
+				return err
+			}
+			if inTree {
+				ensure = func() error {
+					return fs.ensureDirsIn(root, parent, dirMode, uid, gid)
+				}
+			}
+			if err := ensure(); err != nil {
 				return changed, written, err
 			}
 		}
@@ -323,17 +419,55 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 // the operator's is finding out too late.
 //
 // Every path, not the first refusal: an operator fixing these wants the list.
+//
+// One call per root, and every path a run writes there in it: two of them
+// resolving to one file is a refusal, and a caller that asks in several calls
+// asks about a smaller set each time and finds fewer of them.
 func refuseUnwritable(fs fsys, root string, uid int, within string, paths []string) []string {
 	var refused []string
+	// The file each path resolves to, against the path that named it first.  A
+	// link is followed, so two of these can be one file: see oneFileTwice.
+	claimed := map[string]string{}
 	for _, rel := range paths {
 		path := filepath.Join(root, rel)
 		spot, err := fs.editedFile(path, uid, within)
+		target := ""
+		if spot != nil {
+			target = spot.path
+		}
 		spot.close()
 		if err != nil {
 			refused = append(refused, fmt.Sprintf("%s: %v", path, err))
+			continue
+		}
+		// The same path twice is one file written once, which is what two agents
+		// reading one file of their own is.  Only two different paths landing on
+		// one are two writes with one survivor.
+		switch first, taken := claimed[target]; {
+		case !taken:
+			claimed[target] = path
+		case first != path:
+			refused = append(refused, fmt.Sprintf("%s: %s", path, oneFileTwice(first)))
 		}
 	}
 	return refused
+}
+
+// oneFileTwice is what a run says about two of its paths resolving to one file.
+//
+// Refused rather than written, and refused rather than reconciled: each of
+// these files is written for the agent that reads it, so one file standing in
+// for two carries what was meant for the other and keeps whichever was written
+// last.  What that leaves is an agent whose configuration is another agent's,
+// reported as a run that succeeded.
+//
+// Naming the path that claimed it first, since the refusal is about the pair
+// and neither half of it is wrong on its own.
+func oneFileTwice(first string) string {
+	return "this and " + first + " are one file, and each is written for the " +
+		"agent that reads it, so nothing was written: what one holds would be " +
+		"what was written for the other, and only the last write would survive. " +
+		"A link between them is what makes this, so point one at a file of its own"
 }
 
 // editedPaths are the files one agent's enrolment edits at this scope, relative
@@ -349,6 +483,24 @@ func editedPaths(target *agentTarget, inTree bool, instructions string) []string
 	}
 	if instructions != "" {
 		out = append(out, instructions)
+	}
+	return out
+}
+
+// homeEditedPaths are the files `init` edits in a home for these agents, each
+// named once: two agents can read one instructions file, and an operator given
+// the list of what to fix does not need it twice.
+func homeEditedPaths(targets []*agentTarget) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, target := range targets {
+		for _, path := range editedPaths(target, false, target.homeInstructions) {
+			if seen[path] {
+				continue
+			}
+			seen[path] = true
+			out = append(out, path)
+		}
 	}
 	return out
 }

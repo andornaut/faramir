@@ -39,7 +39,7 @@ owned() { # path, label
 }
 absent() { [ -e "$1" ] && bad "$2 was written and should not be: $1" || ok "$2 is absent"; }
 
-echo "enrolling as $OP; agents: claude gemini opencode kilocode"
+echo "enrolling as $OP; agents: claude antigravity opencode kilocode"
 
 # --------------------------------------------------------------------------
 head_ "1. each agent's own file set"
@@ -50,9 +50,15 @@ owned "$D/.claude/settings.json" "claude: project settings"
 owned "$D/.mcp.json" "claude: MCP registration"
 
 
-D=$(tree /home/op/p-gemini); enrol "$D" --agent gemini >/tmp/p-gemini.log 2>&1 \
-  || bad "gemini enrolment failed: $(tail -2 /tmp/p-gemini.log)"
-owned "$D/.gemini/settings.json" "gemini: project settings (hooks and mcpServers)"
+# Antigravity gets no hook, there being none it could register: the MCP
+# registration and a rules file of prose are the whole of its enrolment.
+D=$(tree /home/op/p-antigravity); enrol "$D" --agent antigravity >/tmp/p-anti.log 2>&1 \
+  || bad "antigravity enrolment failed: $(tail -2 /tmp/p-anti.log)"
+owned "$D/.agents/mcp_config.json" "antigravity: MCP registration"
+owned "$D/.agents/rules/faramir.md" "antigravity: rules file"
+grep -q 'trigger: always_on' "$D/.agents/rules/faramir.md" \
+  && ok "antigravity: the rules file is headed so the agent loads it" \
+  || bad "the rules file carries no always-on frontmatter, so it may never be read"
 
 
 D=$(tree /home/op/p-opencode); enrol "$D" --agent opencode >/tmp/p-opencode.log 2>&1 \
@@ -70,10 +76,10 @@ owned "$D/kilo.json" "kilocode: MCP registration"
 # The account-wide files are `faramir init --agent`'s half of enrolment, not
 # this command's: init-project writes the per-project hook, init writes the deny
 # rules that hold wherever the agent works.
-/usr/local/bin/faramir init --operator-user $OP --agent claude --agent gemini \
+/usr/local/bin/faramir init --operator-user $OP --agent claude --agent antigravity \
   --agent opencode --agent kilocode >/tmp/p-init.log 2>&1
 owned "$HOME_OP/.claude/settings.json" "claude: account-wide settings (from init)"
-owned "$HOME_OP/.gemini/policies/faramir.toml" "gemini: account-wide policy (from init)"
+owned "$HOME_OP/.gemini/GEMINI.md" "antigravity: credentials section (from init)"
 owned "$HOME_OP/.config/opencode/opencode.json" "opencode: account-wide deny rules (from init)"
 owned "$HOME_OP/.config/kilo/kilo.json" "kilocode: account-wide deny rules (from init)"
 
@@ -88,7 +94,7 @@ done
 head_ "2. every file it writes is valid to the tool that reads it"
 
 for f in /home/op/p-claude/.claude/settings.json /home/op/p-claude/.mcp.json \
-         /home/op/p-gemini/.gemini/settings.json \
+         /home/op/p-antigravity/.agents/mcp_config.json \
          /home/op/p-opencode/opencode.json /home/op/p-kilo/kilo.json \
          $HOME_OP/.claude/settings.json $HOME_OP/.config/opencode/opencode.json \
          $HOME_OP/.config/kilo/kilo.json; do
@@ -111,7 +117,8 @@ for js in /home/op/p-opencode/.opencode/plugins/faramir.js /home/op/p-kilo/.kilo
   fi
 done
 # And each names the binary that is actually installed.
-for f in /home/op/p-claude/.claude/settings.json /home/op/p-gemini/.gemini/settings.json; do
+for f in /home/op/p-claude/.claude/settings.json \
+         /home/op/p-antigravity/.agents/mcp_config.json; do
   grep -q '/usr/local/bin/faramir' "$f" && ok "names the installed binary: ${f#/home/op/}" \
     || bad "does not name the binary: $f"
 done
@@ -219,9 +226,9 @@ n=$(jq '[.hooks.PreToolUse[]?.hooks[]? | select(.command | test("faramir"))] | l
 head_ "6. several agents in one tree"
 
 D=$(tree /home/op/p-multi)
-enrol "$D" --agent claude --agent gemini --agent opencode --agent kilocode >/tmp/p-multi.log 2>&1 \
+enrol "$D" --agent claude --agent antigravity --agent opencode --agent kilocode >/tmp/p-multi.log 2>&1 \
   || bad "multi-agent enrolment failed: $(tail -2 /tmp/p-multi.log)"
-for f in .claude/settings.json .mcp.json .gemini/settings.json \
+for f in .claude/settings.json .mcp.json .agents/mcp_config.json \
          .opencode/plugins/faramir.js opencode.json .kilo/plugin/faramir.js kilo.json; do
   [ -e "$D/$f" ] && ok "  $f" || bad "  $f was not written by the multi-agent enrolment"
 done
@@ -316,9 +323,9 @@ jq -e . $REC >/dev/null 2>&1 && ok "and parses as JSON" \
   || bad "the record does not parse: $(head -c 120 $REC 2>/dev/null)"
 
 D=$(tree /home/op/p-record)
-enrol "$D" --agent claude --agent gemini >/dev/null 2>&1
-[ "$(agentsOf "$D")" = "claude,gemini" ] && ok "an enrolment records the agents it was made for" \
-  || bad "recorded [$(agentsOf "$D")], want claude,gemini"
+enrol "$D" --agent claude --agent antigravity >/dev/null 2>&1
+[ "$(agentsOf "$D")" = "antigravity,claude" ] && ok "an enrolment records the agents it was made for" \
+  || bad "recorded [$(agentsOf "$D")], want antigravity,claude"
 [ "$(operatorOf "$D")" = "$OP" ] && ok "and the account it was made for" \
   || bad "recorded operator [$(operatorOf "$D")], want $OP"
 
@@ -377,15 +384,15 @@ out=$(enrol "$D")
 grep -q 'no coding agent is configured' <<<"$out" \
   && ok "and says so rather than enrolling it silently" \
   || bad "an empty tree was enrolled with nothing said: ${out:0:120}"
-grep -q 'claude, gemini, kilocode, opencode, pi' <<<"$out" \
+grep -q 'antigravity, claude, kilocode, opencode, pi' <<<"$out" \
   && ok "  naming all five it could be told to write for" \
   || bad "  the message does not name the five: ${out:0:160}"
 
 # Evidence, not proof: what is found is added to what was asked for.
-D=$(tree /home/op/p-auto-plus); install -d -o $OP -g $OP "$D/.gemini"
+D=$(tree /home/op/p-auto-plus); install -d -o $OP -g $OP "$D/.claude"
 enrol "$D" --agent auto --agent pi >/dev/null 2>&1
-[ "$(agentsOf "$D")" = "gemini,pi" ] && ok "auto and a name compose: what was found, plus what was asked for" \
-  || bad "--agent auto --agent pi gave [$(agentsOf "$D")], want gemini,pi"
+[ "$(agentsOf "$D")" = "claude,pi" ] && ok "auto and a name compose: what was found, plus what was asked for" \
+  || bad "--agent auto --agent pi gave [$(agentsOf "$D")], want claude,pi"
 
 D=$(tree /home/op/p-named-absent)
 enrol "$D" --agent pi >/dev/null 2>&1

@@ -176,18 +176,3 @@ func TestTheDriftFindingReportsACleanHome(t *testing.T) {
 		t.Errorf("a clean home was not reported as clean: %+v", report)
 	}
 }
-
-// An agent whose rule file faramir owns outright is not compared: it is
-// replaced whole on every run, so it cannot carry anything faramir stopped
-// writing, and reading it would only find its own current contents.
-func TestTheDriftCheckSkipsFilesFaramirOwns(t *testing.T) {
-	home := writeRules(t, ".gemini/policies/faramir.toml", "# not JSON at all\n")
-
-	var report DoctorReport
-	reportRuleDrift(&report, home, testLayout().ConfigDir)
-
-	// Read as JSON it would error; skipped, it reports a clean home.
-	if len(report.Findings) != 1 || report.Findings[0].Status != StatusOK {
-		t.Fatalf("findings = %+v, want one ok row", report.Findings)
-	}
-}

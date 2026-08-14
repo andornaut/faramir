@@ -7,22 +7,24 @@ import (
 	"testing"
 )
 
-// enrolTree writes what `init-project` writes for one agent into a tree, and
+// enrolTree writes what `init-project` writes for these agents into a tree, and
 // records the enrolment, so the check below is comparing against a tree an
 // enrolment actually produced rather than one a test hand-built.
-func enrolTree(t *testing.T, configDir, name string) string {
+func enrolTree(t *testing.T, configDir string, names ...string) string {
 	t.Helper()
 	tree := t.TempDir()
-	target := agentTargets[name]
-	render := func(file agentFile) ([]byte, error) {
-		return assetFor(target, file, configDir)
-	}
-	if _, _, err := writeAgentFiles(
-		fsys{}, tree, keep, keep, 0o2770|os.ModeSetgid, true, render, target.files); err != nil {
-		t.Fatal(err)
+	for _, name := range names {
+		target := agentTargets[name]
+		render := func(file agentFile) ([]byte, error) {
+			return assetFor(target, file, configDir)
+		}
+		if _, _, err := writeAgentFiles(
+			fsys{}, tree, keep, keep, 0o2770|os.ModeSetgid, true, render, target.files); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := recordEnrolment(configDir, EnrolledTree{
-		Dir: tree, Operator: "op", Agents: []string{name},
+		Dir: tree, Operator: "op", Agents: names,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +165,58 @@ func TestEditableFilesReportsWhatAnInstallWouldRefuse(t *testing.T) {
 	// next run cannot update.
 	if report.Failed {
 		t.Error("a file an install would refuse failed the report")
+	}
+}
+
+// The tree's own instructions file is asked about too.  Every enrolment writes
+// it whatever the tree was enrolled for, and no target names it, so a tree
+// whose AGENTS.md is a link out of it would pass this check clean and then stop
+// the next `init-project`.
+func TestEditableFilesReportsATreesOwnInstructionsFile(t *testing.T) {
+	configDir := t.TempDir()
+	tree := enrolTree(t, configDir, "claude")
+	path := filepath.Join(tree, "AGENTS.md")
+	if err := os.Symlink(filepath.Join(tree, "nothing-here.md"), path); err != nil {
+		t.Fatal(err)
+	}
+
+	var report DoctorReport
+	reportEditableFiles(&report, t.TempDir(), os.Getuid(), DoctorOptions{ConfigDir: configDir})
+
+	got := findings(report, "agent file ownership")
+	if len(got) != 1 || got[0].Status != StatusWarn {
+		t.Fatalf("findings = %+v, want one warning", got)
+	}
+	if !strings.Contains(got[0].Detail, path) {
+		t.Errorf("the finding does not name the tree's instructions file: %s", got[0].Detail)
+	}
+}
+
+// Two of a tree's files that are one file are found here as well, which takes
+// asking about every path an enrolment writes there together: agent by agent,
+// each call sees one half of the pair and reports nothing.
+func TestEditableFilesReportsTwoTreeFilesThatAreOneFile(t *testing.T) {
+	configDir := t.TempDir()
+	tree := enrolTree(t, configDir, "antigravity", "claude")
+	// Antigravity's MCP registration pointed at Claude Code's, the two reading
+	// the same shape out of a file each.
+	linked := filepath.Join(tree, ".agents", "mcp_config.json")
+	if err := os.Remove(linked); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(tree, ".mcp.json"), linked); err != nil {
+		t.Fatal(err)
+	}
+
+	var report DoctorReport
+	reportEditableFiles(&report, t.TempDir(), os.Getuid(), DoctorOptions{ConfigDir: configDir})
+
+	got := findings(report, "agent file ownership")
+	if len(got) != 1 || got[0].Status != StatusWarn {
+		t.Fatalf("findings = %+v, want one warning", got)
+	}
+	if !strings.Contains(got[0].Detail, "are one file") {
+		t.Errorf("the finding does not report the pair: %s", got[0].Detail)
 	}
 }
 

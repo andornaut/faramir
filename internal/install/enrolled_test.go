@@ -33,9 +33,9 @@ func enrolledTree(t *testing.T, dir string, agents ...string) string {
 // for, which nothing would report.
 func TestRecordingAnEnrolmentKeepsTheAgentsATreeStillCarries(t *testing.T) {
 	dir := t.TempDir()
-	tree := enrolledTree(t, dir, "claude", "gemini", "pi")
+	tree := enrolledTree(t, dir, "claude", "opencode", "pi")
 
-	for _, agents := range [][]string{{"claude"}, {"gemini", "pi"}, {"gemini"}} {
+	for _, agents := range [][]string{{"claude"}, {"opencode", "pi"}, {"opencode"}} {
 		if err := recordEnrolment(dir, EnrolledTree{
 			Dir: tree, Operator: "op", Agents: agents,
 		}); err != nil {
@@ -47,7 +47,7 @@ func TestRecordingAnEnrolmentKeepsTheAgentsATreeStillCarries(t *testing.T) {
 		t.Fatalf("recorded %d entries for one tree, want 1: %+v", len(got), got)
 	}
 	// Sorted, and each named once however many enrolments named it.
-	if want := []string{"claude", "gemini", "pi"}; !slices.Equal(got[0].Agents, want) {
+	if want := []string{"claude", "opencode", "pi"}; !slices.Equal(got[0].Agents, want) {
 		t.Errorf("agents = %v, want %v: every agent this tree still carries",
 			got[0].Agents, want)
 	}
@@ -115,7 +115,7 @@ func TestEnrolledAgentsSeparatesWhatIsThereFromWhatIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tree := range []EnrolledTree{
-		{Dir: here, Operator: "op", Agents: []string{"gemini"}},
+		{Dir: here, Operator: "op", Agents: []string{"opencode"}},
 		{Dir: filepath.Join(dir, "gone"), Operator: "op", Agents: []string{"claude"}},
 	} {
 		if err := recordEnrolment(dir, tree); err != nil {
@@ -123,7 +123,7 @@ func TestEnrolledAgentsSeparatesWhatIsThereFromWhatIsGone(t *testing.T) {
 		}
 	}
 	agents, stale := enrolledAgents(dir)
-	if !slices.Equal(agents, []string{"gemini"}) {
+	if !slices.Equal(agents, []string{"opencode"}) {
 		t.Errorf("agents = %v, want only the tree that is still there", agents)
 	}
 	if len(stale) != 1 || stale[0].Agents[0] != "claude" {
@@ -151,11 +151,11 @@ func TestAnUnreadableRecordIsEmptyRatherThanFatal(t *testing.T) {
 // home alone cannot see, and the one this record exists for.
 func TestAnEnrolledAgentIsAFaultEvenWithNothingInTheHome(t *testing.T) {
 	var report DoctorReport
-	reportAgentRules(&report, t.TempDir(), []string{"gemini"})
+	reportAgentRules(&report, t.TempDir(), []string{"opencode"})
 
 	var found bool
 	for _, finding := range report.Findings {
-		if finding.Status == StatusFailed && strings.Contains(finding.Detail, "gemini") {
+		if finding.Status == StatusFailed && strings.Contains(finding.Detail, "opencode") {
 			found = true
 		}
 	}

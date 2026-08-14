@@ -33,11 +33,11 @@ func TestAgentsDefaultToWhatIsThere(t *testing.T) {
 	if got := names(t, nil, scopeTree, dir); len(got) != 0 {
 		t.Errorf("resolveAgents(nil) in an empty tree = %v, want none", got)
 	}
-	if err := os.Mkdir(filepath.Join(dir, ".gemini"), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := names(t, nil, scopeTree, dir); !reflect.DeepEqual(got, []string{"gemini"}) {
-		t.Errorf("resolveAgents(nil) = %v, want [gemini]", got)
+	if got := names(t, nil, scopeTree, dir); !reflect.DeepEqual(got, []string{"claude"}) {
+		t.Errorf("resolveAgents(nil) = %v, want [claude]", got)
 	}
 }
 
@@ -59,9 +59,9 @@ func TestUnknownAgentIsRefused(t *testing.T) {
 // contributes what it detected and the flags contribute what was typed, so
 // "the order given" is not a thing the result has.
 func TestAgentsDeduplicate(t *testing.T) {
-	got := names(t, []string{"gemini", "claude", "gemini"}, scopeTree, t.TempDir())
-	if !reflect.DeepEqual(got, []string{"claude", "gemini"}) {
-		t.Errorf("names = %v, want [claude gemini], deduplicated and ordered", got)
+	got := names(t, []string{"pi", "claude", "pi"}, scopeTree, t.TempDir())
+	if !reflect.DeepEqual(got, []string{"claude", "pi"}) {
+		t.Errorf("names = %v, want [claude pi], deduplicated and ordered", got)
 	}
 }
 
@@ -69,12 +69,12 @@ func TestAgentsDeduplicate(t *testing.T) {
 // about which wins, because naming an agent only ever adds it.
 func TestAutoAndANameAreUnioned(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.Mkdir(filepath.Join(dir, ".gemini"), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	got := names(t, []string{AgentAuto, "pi"}, scopeTree, dir)
-	if !reflect.DeepEqual(got, []string{"gemini", "pi"}) {
-		t.Errorf("names = %v, want [gemini pi]", got)
+	if !reflect.DeepEqual(got, []string{"claude", "pi"}) {
+		t.Errorf("names = %v, want [claude pi]", got)
 	}
 }
 
@@ -117,13 +117,15 @@ func TestAutoLooksWhereTheScopeSays(t *testing.T) {
 }
 
 // What enrolling costs differs by agent: Claude Code's hook must approve a
-// rewritten command, Gemini CLI has no approval to give.
+// rewritten command, and no other agent has an approval to give.
 func TestOnlyClaudeAutoApprovesBash(t *testing.T) {
 	if !agentTargets["claude"].autoApprovesBash {
 		t.Error("claude does not record that it auto-approves Bash")
 	}
-	if agentTargets["gemini"].autoApprovesBash {
-		t.Error("gemini claims to auto-approve Bash; it has no allow to return")
+	for _, name := range knownAgents() {
+		if name != "claude" && agentTargets[name].autoApprovesBash {
+			t.Errorf("%s claims to auto-approve Bash; it has no allow to return", name)
+		}
 	}
 }
 
@@ -298,10 +300,32 @@ func TestDetectionFindsAgentDirectories(t *testing.T) {
 	if got := detectedAgents(dir); len(got) != 0 {
 		t.Errorf("detected %v in an empty tree", got)
 	}
-	if err := os.Mkdir(filepath.Join(dir, ".gemini"), 0o700); err != nil {
+	if err := os.Mkdir(filepath.Join(dir, ".claude"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if got := detectedAgents(dir); !reflect.DeepEqual(got, []string{"gemini"}) {
-		t.Errorf("detectedAgents = %v, want [gemini]", got)
+	if got := detectedAgents(dir); !reflect.DeepEqual(got, []string{"claude"}) {
+		t.Errorf("detectedAgents = %v, want [claude]", got)
+	}
+}
+
+// Every account-wide rule file is merged into what is already there, which is
+// what the drift check rests on: it asks whether a file still carries what this
+// version writes, and one faramir owned outright would be compared against its
+// own contents.  Add one that is not merged and the skip that used to stand
+// there has to come back with it.
+func TestEveryAccountRuleFileIsMerged(t *testing.T) {
+	seen := 0
+	for _, name := range knownAgents() {
+		for _, file := range agentTargets[name].accountFiles {
+			seen++
+			if !file.merge {
+				t.Errorf("%s writes %s whole, and the drift check reads every account "+
+					"rule file as one it merged into: restore the skip in reportRuleDrift",
+					name, file.path)
+			}
+		}
+	}
+	if seen == 0 {
+		t.Error("no agent writes account-wide rules, so this asserts nothing")
 	}
 }

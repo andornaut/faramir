@@ -61,23 +61,6 @@ var hosts = map[string]*host{
 		},
 	},
 
-	// Gemini CLI puts the refusal at the top level and has no allow to return,
-	// so its own prompts are unaffected.  tool_input merges over the model's
-	// arguments rather than replacing them, so one shape serves both hosts.
-	"gemini": {
-		name:       "gemini",
-		shellTools: []string{"run_shell_command"},
-		wrapTool:   "run_shell_command",
-		deny: func(reason string) map[string]any {
-			return map[string]any{"decision": "deny", "reason": reason}
-		},
-		rewrite: func(updated map[string]any) map[string]any {
-			return map[string]any{"hookSpecificOutput": map[string]any{
-				"tool_input": updated,
-			}}
-		},
-	},
-
 	// opencode and Kilo Code extend through in-process plugins rather than a
 	// hook that runs a program, so the plugin faramir installs applies the
 	// decision itself.  Two names for one contract today, so a divergence has

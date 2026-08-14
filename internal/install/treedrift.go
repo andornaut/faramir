@@ -139,12 +139,11 @@ func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
 // rather than skipping wherever the developer has a ~/.claude of their own.
 func reportEditableFiles(report *DoctorReport, home string, uid int, opts DoctorOptions) {
 	fs := fsys{}
-	var refused []string
+	var targets []*agentTarget
 	for _, name := range agentNames() {
-		target := agentTargets[name]
-		refused = append(refused, refuseUnwritable(fs, home, uid, "",
-			editedPaths(target, false, target.homeInstructions))...)
+		targets = append(targets, agentTargets[name])
 	}
+	refused := refuseUnwritable(fs, home, uid, "", homeEditedPaths(targets))
 	for _, tree := range readEnrolled(opts.ConfigDir) {
 		if !exists(tree.Dir) {
 			continue
@@ -157,14 +156,23 @@ func reportEditableFiles(report *DoctorReport, home string, uid int, opts Doctor
 				treeUID = other
 			}
 		}
+		// Every path this tree's enrolment writes, asked in one call: two of them
+		// resolving to one file is refuseUnwritable's to find, and it finds it
+		// only among the paths it is given together.
+		var paths []string
+		// The tree's own instructions file, which every enrolment writes whatever
+		// it was enrolled for, and which no target names.
+		if rel, err := filepath.Rel(tree.Dir, treeInstructionsFile(tree.Dir)); err == nil {
+			paths = append(paths, rel)
+		}
 		for _, name := range tree.Agents {
 			target, known := agentTargets[name]
 			if !known {
 				continue
 			}
-			refused = append(refused, refuseUnwritable(fs, tree.Dir, treeUID, tree.Dir,
-				editedPaths(target, true, ""))...)
+			paths = append(paths, editedPaths(target, true, target.treeInstructions.path)...)
 		}
+		refused = append(refused, refuseUnwritable(fs, tree.Dir, treeUID, tree.Dir, paths)...)
 	}
 	sort.Strings(refused)
 	if len(refused) == 0 {
@@ -174,5 +182,6 @@ func reportEditableFiles(report *DoctorReport, home string, uid int, opts Doctor
 	}
 	report.add("agent file ownership", StatusWarn, "%d file(s) `faramir init` or "+
 		"`faramir init-project` would refuse to write, so the next run stops rather "+
-		"than taking one over: %s", len(refused), strings.Join(refused, "; "))
+		"than taking one over or writing one of them twice: %s",
+		len(refused), strings.Join(refused, "; "))
 }

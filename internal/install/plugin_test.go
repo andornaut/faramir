@@ -466,7 +466,7 @@ func TestPiExtensionRegistersTheTools(t *testing.T) {
 	}
 }
 
-// pi has no account-wide rule file, so the deny list the other four agents get
+// pi has no account-wide rule file, so the deny list the other agents get
 // written into their configs is compiled into this extension instead.  It is
 // applied by shape rather than by tool name, for the same reason the commands
 // are: a file tool whose name this does not know still carries a path.

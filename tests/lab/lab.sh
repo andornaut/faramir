@@ -30,7 +30,7 @@ NETWORK=faramirnet
 HERE=$(cd "$(dirname "$0")" && pwd)
 # The tree under test, two levels up from tests/lab.
 REPO=${REPO:-$(cd "$HERE/../.." && pwd)}
-SUITES=(init project config disclose plugin gemini guard wrap leak stream mcp exec logs ssh doctor approval secrets uninstall)
+SUITES=(init project config disclose plugin guard wrap leak stream mcp exec logs ssh doctor approval secrets uninstall)
 
 die() { printf 'lab: %s\n' "$1" >&2; exit 1; }
 running() { [ "$(docker inspect -f '{{.State.Running}}' $NAME 2>/dev/null)" = true ]; }

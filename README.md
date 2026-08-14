@@ -13,21 +13,22 @@ faramir run: redacted «SECRET:home/router/admin»×1; log_id=2026-08-05T14:22:0
 
 ## Supported agents
 
-All five get full redaction. What differs is where the rules are registered and what enrolling costs.
+Four get full redaction: what the agent runs in an enrolled project is rewritten into a brokered command, and its output comes back with every value replaced. What differs between them is where the rules are registered and what enrolling costs. Antigravity is the fifth, and gets less.
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
 [Claude Code](https://claude.com/product/claude-code) | `PreToolUse` hook and MCP server in the tree; deny rules in `~/.claude/settings.json` | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive, so whatever prompting stood between the agent and `rm -rf` is gone. [Cost per permission mode](docs/design.md#what-this-gives-up)
-[Gemini CLI](https://geminicli.com/docs/hooks/reference/) | Hooks and `mcpServers` in `.gemini/settings.json`; deny rules in `~/.gemini/policies/faramir.toml` | None: there is no allow to return, so a hook that has not denied has not approved
-[opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) and `opencode.json` in the tree; deny patterns in `~/.config/opencode/opencode.json` | None, as Gemini. Whether its `bash` rules see the command or the rewrite is undocumented
+[opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) and `opencode.json` in the tree; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved. Whether its `bash` rules see the command or the rewrite is undocumented
 [Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) under `.kilo/plugin/`, loaded by the CLI and the VS Code extension; `kilo.json`, and `~/.config/kilo/kilo.json` | Same as opencode
 [Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) under `.pi/extensions/`. Pi ships no MCP, so the extension registers the two tools itself and shells out to the CLI | None. Project-local extensions load only once the project is trusted, so a tree Pi has not been trusted in is unguarded
+[Antigravity](https://antigravity.google/) | MCP server in `.agents/mcp_config.json`; the credentials section in `.agents/rules/faramir.md` and `~/.gemini/GEMINI.md`. Nothing else: [its hooks](https://antigravity.google/docs/hooks) decide and cannot change a tool call's arguments | None, and no redaction either. **Partial support**, see below
 
-`--agent` is repeatable on `init` and `init-project`, defaulting to `auto`: whichever agents are already there, which `init` asks of your home and `init-project` of the tree. A name configures that agent regardless and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi". The names are `claude`, `gemini`, `opencode`, `kilocode` and `pi`. Pi gets no account-wide rule file, having nowhere to put one; the same rules are compiled into its extension.
+`--agent` is repeatable on `init` and `init-project`, defaulting to `auto`: whichever agents are already there, which `init` asks of your home and `init-project` of the tree. A name configures that agent regardless and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi". The names are `antigravity`, `claude`, `kilocode`, `opencode` and `pi`. Pi gets no account-wide rule file, having nowhere to put one; the same rules are compiled into its extension. Antigravity gets none either, its permission lists being the IDE's own state rather than a file an install may write.
 
 Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). A refusal that reaches the model with no reason is the one it tries to get around.
 
-[Antigravity](https://antigravity.google/) is not supported: its hooks decide and cannot rewrite.
+> [!WARNING]
+> **Antigravity is partial support.** On the other four, redaction is not a decision the agent makes: what it runs in an enrolled project is rewritten whether or not it meant to use faramir. Antigravity's hooks allow, deny or ask and cannot change a tool call's arguments, so there is nothing to rewrite with. What an enrolment leaves it is the broker's tools and the instructions to use them, and a command it runs itself reaches the model with the value in it. Enrolling one warns that this is what was installed.
 
 ## What it protects against
 

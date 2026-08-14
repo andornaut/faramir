@@ -9,14 +9,9 @@ import (
 // The paths an agent's file tools are refused, written once here and rendered
 // into each agent's own syntax.
 //
-// Four agents carried a copy of this list, in four spellings, and they had
-// already drifted: Gemini refused editing an SSH private key while Claude Code
-// and the two plugin hosts refused only reading one, and a fifth agent arrived
-// with no list at all.  A list per agent is a list that drifts, and the drift is
-// silent -- a rule that covers nothing looks exactly like a rule that covers
-// everything until somebody tests it.  One of Gemini's did cover nothing, for
-// want of a backslash, and nothing said so for as long as it took to notice by
-// eye.
+// A list per agent is a list that drifts, and the drift is silent: a rule that
+// covers nothing looks exactly like a rule that covers everything until
+// somebody tests it, and one character is the difference.
 //
 // So each entry says how it matches rather than what it looks like in any one
 // agent's config, and each agent's spelling is derived.  Adding a path is one
@@ -162,36 +157,6 @@ func pluginGlobs() []string {
 		}
 	}
 	return out
-}
-
-// regexAlternation renders the list as one regex alternation, for an agent that
-// matches its rules against the tool's arguments serialised as JSON.
-//
-// notQuote is what stands for "any run of characters that is still inside this
-// JSON string": the caller supplies it, the two rules that need one matching
-// inside a value and inside an array and so excluding different characters.
-func regexAlternation(notQuote string) string {
-	parts := make([]string, 0, len(protectedPaths))
-	for _, p := range protectedPaths {
-		q := regexp.QuoteMeta(p.value)
-		switch p.kind {
-		case kindName:
-			parts = append(parts, q)
-		case kindSuffix:
-			parts = append(parts, q)
-		case kindPrefix:
-			// Anchored on a separator, so ".env" is a dotfile rather than the tail
-			// of faramir.env.
-			parts = append(parts, "/"+q)
-		case kindGlobName:
-			// The one wildcard becomes "any run of characters that is not a
-			// separator and not a quote", so it stays within one file name.
-			parts = append(parts, strings.Replace(q, regexp.QuoteMeta("*"), notQuote, 1))
-		case kindDir:
-			parts = append(parts, q)
-		}
-	}
-	return strings.Join(parts, "|")
 }
 
 // claudeRules is the deny list Claude Code reads: one Read and one Edit rule

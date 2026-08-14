@@ -151,8 +151,6 @@ check_shape() { # host jq-expr want label
 }
 check_shape claude   '.hookSpecificOutput.permissionDecision' deny  "deny"    'printenv' Bash
 check_shape claude   '.hookSpecificOutput.permissionDecision' allow "rewrite" 'ls'       Bash
-check_shape gemini   '.decision'                              deny  "deny"    'printenv' run_shell_command
-check_shape gemini   '.hookSpecificOutput.tool_input.command|startswith("source ")' true "rewrite" 'ls' run_shell_command
 check_shape opencode '.decision'                              deny    "deny"    'printenv' bash
 check_shape opencode '.decision'                              rewrite "rewrite" 'ls'       bash
 check_shape kilocode '.decision'                              deny    "deny"    'printenv' bash
@@ -176,17 +174,17 @@ grep -q 'rc=2' <<<"$out" && ok "an unknown --host exits 2" || bad "unknown --hos
   || bad "it emitted a decision anyway: $out"
 grep -q 'known hosts are' /tmp/g.err && ok "and lists the dialects it does speak" \
   || bad "no help on stderr: $(cat /tmp/g.err)"
-# --host=NAME as well as --host NAME.  The payload names gemini's own shell
-# tool: a host is only asked about the tools it runs commands through.
-got=$(jq -cn '{tool_name:"run_shell_command",tool_input:{command:"printenv"}}' \
-      | runuser -u op -- "$GUARD" guard --host=gemini 2>/dev/null | jq -r '.decision')
+# --host=NAME as well as --host NAME.  The payload names the plugin hosts' own
+# shell tool: a host is only asked about the tools it runs commands through.
+got=$(jq -cn '{tool_name:"bash",tool_input:{command:"printenv"}}' \
+      | runuser -u op -- "$GUARD" guard --host=opencode 2>/dev/null | jq -r '.decision')
 [ "$got" = deny ] && ok "--host=NAME is read the same as --host NAME" || bad "--host=NAME: $got"
-# And one host's tool name is not another's: Claude's Bash reaching a gemini
-# registration is a misregistration, and answering it would be the wrong dialect.
-got=$(jq -cn '{tool_name:"Bash",tool_input:{command:"printenv"}}' \
-      | runuser -u op -- "$GUARD" guard --host=gemini 2>/dev/null; echo "rc=$?")
+# And a hook host answers only for the tools it runs commands through: a payload
+# naming anything else is a call with no output to redact.
+got=$(jq -cn '{tool_name:"Read",tool_input:{command:"printenv"}}' \
+      | runuser -u op -- "$GUARD" guard --host=claude 2>/dev/null; echo "rc=$?")
 [ "$got" = "rc=0" ] && ok "a tool this host does not run commands through is left alone" \
-  || bad "gemini answered a Bash payload: $got"
+  || bad "claude answered a Read payload: $got"
 
 # --------------------------------------------------------------------------
 head_ "6. only the tools that run shell commands are touched"

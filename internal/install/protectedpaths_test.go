@@ -70,7 +70,8 @@ func matchesAnyPath(res []*regexp.Regexp, path string) bool {
 	return false
 }
 
-// The point of the exercise: five agents, one list.  Each rendering is checked
+// The point of the exercise: one list, and every agent that has a rule file
+// for it rendering the same paths.  Each rendering is checked
 // for a token from every entry, so an agent whose spelling drops one fails here
 // rather than in somebody's home directory.
 //
@@ -82,7 +83,6 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	for _, asset := range []string{
 		"agent/claude/settings.json",
 		"agent/permissions.json.tmpl",
-		"agent/gemini/policies.toml.tmpl",
 	} {
 		body, err := render(asset, layout)
 		if err != nil {

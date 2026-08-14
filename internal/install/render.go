@@ -22,18 +22,17 @@ import (
 var renderFuncs = template.FuncMap{
 	"regexQuote": regexp.QuoteMeta,
 	// list is what lets one rule be written once and rendered per tool it
-	// applies to.  A deny list copied per tool is a deny list that drifts, which
-	// is how one of Gemini's rules came to match nothing while its siblings
-	// worked.
+	// applies to.  A deny list copied per tool is a deny list that drifts, and a
+	// rule that has drifted into matching nothing looks exactly like one that
+	// matches everything.
 	"list": func(items ...string) []string { return items },
 	// The paths every agent refuses, each in that agent's own spelling.  See
 	// protectedpaths.go: the list is written once in Go, and no template holds a
 	// path of its own.
-	"claudeRules":      claudeRules,
-	"pluginPatterns":   pluginPatterns,
-	"regexAlternation": regexAlternation,
-	"jsFragments":      jsFragments,
-	"installDirs":      installDirs,
+	"claudeRules":    claudeRules,
+	"pluginPatterns": pluginPatterns,
+	"jsFragments":    jsFragments,
+	"installDirs":    installDirs,
 	// The tools an agent is offered, for the host that has to register them
 	// itself.  See mcpToolsJS.
 	"mcpToolsJS": mcpToolsJS,

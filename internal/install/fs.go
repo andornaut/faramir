@@ -9,6 +9,7 @@ import (
 	"os/user"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"syscall"
 )
 
@@ -89,6 +90,79 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 		return changed, nil
 	}
 	return true, chmodAndChown(path, mode, uid, gid)
+}
+
+// ensureDirsIn creates every missing directory between root and path, each with
+// mode and owner, and leaves the ones already there alone.
+//
+// Pinned to root rather than walked by path, unlike ensureDir.  A directory
+// already there is left as it is, and where that directory is a symlink the
+// next level lands on the far side of it: this runs as root in a tree the
+// account the agent runs as can write, so what it would create is a directory
+// outside the tree, handed to the client group.  A root refuses to traverse a
+// symlink at all, whether or not it escapes, which is what closes that.
+//
+// The symlink case below changes no outcome, then: it is what says which
+// component is a link and what to do about it, the pin answering "path escapes
+// from parent" and a bare Lstat "exists and is not a directory".
+//
+// A dry run answers the same question and writes nothing, which is what lets
+// preflight ask it before the share that cannot be undone.
+func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) error {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return err
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("%s is outside %s", path, root)
+	}
+	if rel == "." {
+		return nil
+	}
+	handle, err := os.OpenRoot(root)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = handle.Close() }()
+
+	at := ""
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		at = filepath.Join(at, part)
+		here := filepath.Join(root, at)
+		// Lstat, so a symlink is seen as itself rather than as what it points at.
+		info, err := handle.Lstat(at)
+		switch {
+		case err == nil && info.Mode()&os.ModeSymlink != 0:
+			return fmt.Errorf("%s is a symlink, and a directory created inside it "+
+				"would land wherever it points rather than in %s: replace it with a "+
+				"real directory", here, root)
+		case err == nil && info.IsDir():
+			// The project's own, and not this command's to re-own: the share is
+			// what settles the mode of a directory that was already there.
+			continue
+		case err == nil:
+			return fmt.Errorf("%s exists and is not a directory", here)
+		case !errors.Is(err, os.ErrNotExist):
+			return err
+		}
+		if f.dryRun {
+			// Nothing below it can be there either, so there is nothing left to ask.
+			return nil
+		}
+		if err := handle.Mkdir(at, mode.Perm()); err != nil {
+			return err
+		}
+		// Mkdir applies the umask and ignores setgid, as MkdirAll does.
+		if err := handle.Chmod(at, mode); err != nil {
+			return err
+		}
+		if uid != keep || gid != keep {
+			if err := handle.Lchown(at, uid, gid); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // ensureOwnership fixes an existing file's owner, group and mode without

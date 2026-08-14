@@ -57,11 +57,6 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 	read := 0
 	for _, name := range agentNames() {
 		for _, file := range agentTargets[name].accountFiles {
-			// Only the shared ones.  A file that is faramir's own is replaced whole
-			// on every run, so it cannot carry anything faramir has stopped writing.
-			if !file.merge {
-				continue
-			}
 			path := filepath.Join(home, file.path)
 			if !exists(path) {
 				continue

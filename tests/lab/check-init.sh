@@ -128,7 +128,7 @@ out=$(agentStep)
 grep -q 'no coding agent found in /home/op' <<<"$out" \
   && ok "a home carrying no agent gets no deny rules, and is told so" \
   || bad "auto found something in a home with no agent in it: $out"
-grep -q 'claude, gemini, kilocode, opencode, pi' <<<"$out" \
+grep -q 'antigravity, claude, kilocode, opencode, pi' <<<"$out" \
   && ok "and the message names all five it could be told to write for" \
   || bad "the message does not name the five: $out"
 
@@ -139,13 +139,13 @@ grep -q 'claude, gemini, kilocode, opencode, pi' <<<"$out" \
 # message for finding nothing lists every known agent by name, so matching a
 # name in it would pass whether or not the marker was read.  What says the
 # marker was read is that the same command stops saying it found nothing.
-install -d -o op -g op /home/op/.gemini
+install -d -o op -g op /home/op/.claude
 out=$(agentStep)
-rm -rf /home/op/.gemini
+rm -rf /home/op/.claude
 grep -q 'no coding agent found' <<<"$out" \
-  && bad "a home carrying .gemini was still read as carrying no agent: $out" \
-  || ok "and the same home with .gemini in it is not: the marker is what auto reads"
-absent /home/op/.gemini
+  && bad "a home carrying .claude was still read as carrying no agent: $out" \
+  || ok "and the same home with .claude in it is not: the marker is what auto reads"
+absent /home/op/.claude
 
 # Naming an agent configures it whether or not the home shows any sign of it,
 # which is what makes auto safe as the default: it only ever adds.  The step
@@ -159,7 +159,7 @@ grep -q 'no coding agent found' <<<"$out" \
 # A dry run answers and writes nothing, which is what makes the three checks
 # above safe to run against the account every later suite depends on.
 before=$(find /home/op -maxdepth 2 -name 'settings.json' -o -maxdepth 2 -name 'faramir.toml' 2>/dev/null | sort)
-/usr/local/bin/faramir init --operator-user op --dry-run --agent claude --agent gemini >/dev/null 2>&1
+/usr/local/bin/faramir init --operator-user op --dry-run --agent claude --agent opencode >/dev/null 2>&1
 [ "$before" = "$(find /home/op -maxdepth 2 -name 'settings.json' -o -maxdepth 2 -name 'faramir.toml' 2>/dev/null | sort)" ] \
   && ok "and a dry run wrote nothing into the home while answering" \
   || bad "a dry run wrote into the operator's home"

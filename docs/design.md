@@ -99,13 +99,13 @@ Two forms that look already-covered and are not, which is why the test is a pref
 
 ## Agents
 
-The guard is one program speaking each agent's contract. What varies is the tool that runs a command, the shape of the reply and where it is registered; what does not is that the command is rewritten to redact its own output. Which agents, and what enrolling each costs, is the table in the [README](../README.md).
+The guard is one program speaking each agent's contract. What varies is the tool that runs a command, the shape of the reply and where it is registered; what does not is that the command is rewritten to redact its own output. Antigravity has no contract to speak, and is the last section here. Which agents, and what enrolling each costs, is the table in the [README](../README.md).
 
 `--agent` defaults to `auto`, which configures the agents already there and nothing else: `init` asks that of the operator's home, `init-project` of the tree, and they are not the same paths, opencode keeping `opencode.json` beside a project and `.config/opencode` under a home. Naming one configures it regardless, which is how a tree is set up for an agent before it is installed. Detection only ever adds, so the two need no rule about which wins.
 
 Beside the rules goes prose saying what they refuse and why, in the file each agent reads for every project. A rule is a refusal with no reason attached, and a model that gets one and no explanation tries the next route: another tool, an interpreter, a base64 pipe. The section is what closes that off, and it is also the only thing faramir says in a tree `init-project` has never been run in, where the deny rules still hold and there is no broker to name. The tree's own section is the longer one, there being a route there to point at.
 
-The paths those rules refuse are written once, in [internal/install/protectedpaths.go](../internal/install/protectedpaths.go), and rendered into each agent's own spelling. Four agents held a copy before, in four spellings, and they had already drifted: one refused writing an SSH private key while the others refused only reading one, and one of Gemini's covered nothing for want of a backslash. A rule that covers nothing looks exactly like a rule that covers everything, so the drift is silent. Pi has no rule file to write, so its rules are compiled into the extension and applied by shape, a file tool whose name it does not know still carrying a path.
+The paths those rules refuse are written once, in [internal/install/protectedpaths.go](../internal/install/protectedpaths.go), and rendered into each agent's own spelling. A copy per agent is a copy that drifts, and the drift is silent: a rule that covers nothing looks exactly like a rule that covers everything, and one character is the difference. Pi has no rule file to write, so its rules are compiled into the extension and applied by shape, a file tool whose name it does not know still carrying a path.
 
 opencode and Kilo Code have no hook that runs a program. A plugin in the agent's own process blocks a call by throwing and changes one by mutating its arguments, so it asks the guard and applies the answer:
 
@@ -116,7 +116,9 @@ opencode and Kilo Code have no hook that runs a program. A plugin in the agent's
 
 The rewrite carries back every field of the original tool input with only `command` replaced. Nothing written is a call left alone. Every other answer fails closed: a guard that cannot be run, a non-zero exit, an answer that is not JSON, a decision the plugin does not know. That covers version skew, so run `faramir init` before enrolling one of these: a binary too old to know the agent refuses every command in that project rather than running it unredacted.
 
-Antigravity is declined, not pending. A deny list without redaction is the weaker half of this, and shipping it under the same name would say a project is covered when the thing that covers it is absent.
+Antigravity gets one half of this and is told so. Its hooks decide and cannot change a tool call's arguments, so nothing rewrites a command into a brokered one and nothing redacts what comes back; its permission lists are the IDE's own state rather than a file an install may write, so there are no deny rules to put in a home either. What an enrolment leaves is the MCP tools and the credentials section in the two files it reads: `~/.gemini/GEMINI.md`, which is the Antigravity family's global rules file, and `.agents/rules/faramir.md` in the tree, Antigravity reading no documented file at its root. Prose is weaker than a hook, and shipping it silently would say a project is covered when the thing that covers it is absent, so the enrolment warns and the README's table says which half is missing.
+
+A file two agents read is written once, and claims only what holds for both: a file that told one of them its file tools are refused everywhere would be telling the other something false. No two share one today, and the rule stays because the failure it prevents is silent. A rules file faramir creates carries the frontmatter that makes it always-on, that being what decides whether the model is shown it at all.
 
 ## What this gives up
 

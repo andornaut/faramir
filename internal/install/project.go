@@ -196,23 +196,41 @@ func (p *project) preflight() error {
 // files, and refusing over one it will not touch would stop an enrolment for a
 // reason it does not have.  The instructions are written either way.
 func (p *project) refuseUnwritableFiles() error {
-	var refused []string
-	instructions, err := filepath.Rel(p.opts.Dir, p.instructionsFile())
+	paths, err := p.relativeInstructions()
 	if err != nil {
 		return err
 	}
-	refused = append(refused, refuseUnwritable(
-		p.fs, p.opts.Dir, p.uid, p.opts.Dir, []string{instructions})...)
 	if p.opts.Hook {
 		for _, target := range p.targets {
-			refused = append(refused, refuseUnwritable(p.fs, p.opts.Dir, p.uid, p.opts.Dir,
-				editedPaths(target, true, ""))...)
+			paths = append(paths, editedPaths(target, true, "")...)
 		}
 	}
+	refused := refuseUnwritable(p.fs, p.opts.Dir, p.uid, p.opts.Dir, paths)
+	refused = append(refused, p.refuseUnenterableDirs(paths)...)
 	if len(refused) > 0 {
 		return errors.New(strings.Join(refused, "\n"))
 	}
 	return nil
+}
+
+// refuseUnenterableDirs asks, of every directory these files sit in, the
+// question creating it will ask: see fsys.ensureDirsIn.  A component that is a
+// symlink is a directory this would make outside the tree, and refuseUnwritable
+// cannot answer for one that is not there yet -- a parent that does not exist
+// has no resolved path to hold against the bound.
+//
+// Asked in a dry run, so the answer arrives before the share rather than after.
+func (p *project) refuseUnenterableDirs(paths []string) []string {
+	var refused []string
+	ask := fsys{dryRun: true}
+	for _, rel := range paths {
+		dir := filepath.Dir(filepath.Join(p.opts.Dir, rel))
+		if err := ask.ensureDirsIn(
+			p.opts.Dir, dir, 0o2770|os.ModeSetgid, p.uid, p.gid); err != nil {
+			refused = append(refused, err.Error())
+		}
+	}
+	return refused
 }
 
 // resolveIDs turns the operator and the client group into ids, before anything
@@ -455,12 +473,12 @@ func assetFor(target *agentTarget, file agentFile, configDir string) ([]byte, er
 // keepModes is every path this enrolment writes, relative to the tree, so
 // sharing does not widen a mode this command then narrows again.
 //
-// Relative to the tree, which is how sharetree matches them: instructionsFile
-// answers with a path under Dir.
+// Relative to the tree, which is how sharetree matches them: the instructions
+// files are named absolute, under Dir.
 func (p *project) keepModes() []string {
 	keep := []string{}
-	if rel, err := filepath.Rel(p.opts.Dir, p.instructionsFile()); err == nil {
-		keep = append(keep, rel)
+	if rel, err := p.relativeInstructions(); err == nil {
+		keep = append(keep, rel...)
 	}
 	// p.targets, not a second resolution: auto reads the tree, and this runs
 	// after files have been written into it, so resolving again here would
@@ -505,9 +523,8 @@ func (p *project) shareTree() error {
 }
 
 // agentConfig writes each enrolled agent's configuration into the tree.  What
-// the hook costs differs by agent (Claude Code auto-approves Bash, Gemini CLI
-// has no approval to give), so the warning below reports the agent it just
-// enrolled.
+// the hook costs differs by agent, Claude Code being the only one with an
+// approval to give, so the warning below reports the agent it just enrolled.
 //
 // An entry naming a path from an earlier layout is corrected rather than
 // reported: a PreToolUse hook that cannot exec fails every command the agent
@@ -566,7 +583,9 @@ func (p *project) agentConfig() error {
 		// the deny list covers the operator's own ~/.ssh and ~/.config/sops, which
 		// no uid boundary reaches, the agent running as the operator.
 		warnMissingAccountRules(p, target)
-		if target.note != "" && made {
+		// Where the note stands, whether or not this run wrote anything: see
+		// agentTarget.noteStands.
+		if target.note != "" && (made || target.noteStands) {
 			p.warn("%s: %s", target.name, target.note)
 		}
 	}
@@ -596,28 +615,98 @@ func (p *project) agentConfig() error {
 	return nil
 }
 
-// instructions writes the credentials section into the project's agent
-// instructions file, between markers so a later run replaces what an earlier one
-// wrote.  Documentation, not enforcement: deleting the block changes nothing
+// instructions writes the credentials section into the files this project's
+// agents read as prose, between markers so a later run replaces what an earlier
+// one wrote.  Documentation, not enforcement: deleting the block changes nothing
 // about what is reachable.
 func (p *project) instructions() error {
-	path := p.instructionsFile()
 	// One block for every agent, so it sits beside the other shared assets
 	// rather than under the directory of the first host that wanted it.
 	section, err := credentialsSection(p.allowSudo)
 	if err != nil {
 		return err
 	}
-	changed, err := p.fs.sectionFile(path, section, p.uid, p.gid, p.opts.Dir)
+	changed, written, stale, err := p.writeSections(section)
+	// Recorded before the failure, so a report says what was written as well as
+	// what was not.  Every return below it, including the ones that stop the run
+	// outright, leaves a report that names what did land.
+	p.step("instructions", changed, strings.Join(written, ", "))
 	switch {
-	case outOfDate(err):
-		p.step("instructions", false, path+" (not written; see the error)")
-		return errors.New(sectionProblem(err, path, "`sudo faramir init-project`"))
 	case err != nil:
 		return err
+	case len(stale) > 0:
+		return errors.New(strings.Join(stale, "\n"))
 	}
-	p.step("instructions", changed, path)
 	return nil
+}
+
+// writeSections writes the section into each file, and reports what it wrote,
+// what it left as it is, and what stopped it.
+func (p *project) writeSections(section string) (bool, []string, []string, error) {
+	changed := false
+	var written, stale []string
+	for _, file := range p.instructionsFiles() {
+		// Shared and setgid at every level, as the walk leaves the rest of the
+		// tree: see agentConfig and ensureDirs.  --hook=false writes none of the
+		// agent files, so this is the only thing that creates the directory an
+		// agent's own rules file sits in.
+		if err := p.fs.ensureDirsIn(p.opts.Dir, filepath.Dir(file.path),
+			0o2770|os.ModeSetgid, p.uid, p.gid); err != nil {
+			return changed, written, stale, err
+		}
+		made, err := p.fs.sectionFile(
+			file.path, section, file.head, p.uid, p.gid, p.opts.Dir)
+		switch {
+		case outOfDate(err):
+			// Collected rather than returned, as `init` collects its own: an
+			// operator fixing these wants every file named, and one agent's rules
+			// file cannot cost the tree its own instructions.
+			stale = append(stale, sectionProblem(err, file.path, "`sudo faramir init-project`"))
+			written = append(written, file.path+" (not written; see the error)")
+			continue
+		case err != nil:
+			return changed, written, stale, err
+		}
+		changed = changed || made
+		written = append(written, file.path)
+	}
+	return changed, written, stale, nil
+}
+
+// instructionsFiles are the files this enrolment writes the credentials section
+// into: the tree's own, and one per agent that reads none of the names at the
+// tree's root.  Absolute, and in a fixed order.
+func (p *project) instructionsFiles() []sectionTarget {
+	out := []sectionTarget{{path: p.instructionsFile()}}
+	for _, target := range p.targets {
+		if rules := target.treeInstructions; rules.path != "" {
+			out = append(out, sectionTarget{
+				path: filepath.Join(p.opts.Dir, rules.path), head: rules.head,
+			})
+		}
+	}
+	return out
+}
+
+// relativeInstructions is instructionsFiles as sharetree and refuseUnwritable
+// take them: relative to the tree.
+func (p *project) relativeInstructions() ([]string, error) {
+	var out []string
+	for _, file := range p.instructionsFiles() {
+		rel, err := filepath.Rel(p.opts.Dir, file.path)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, rel)
+	}
+	return out, nil
+}
+
+// sectionTarget is one file the section goes into, with what heads it where
+// this creates it.  See fsys.sectionFile.
+type sectionTarget struct {
+	path string
+	head string
 }
 
 // credentialsSection is the section `init-project` writes into a tree.
@@ -636,12 +725,18 @@ func credentialsSection(allowSudo bool) (string, error) {
 	return strings.TrimRight(string(body), "\n") + "\n", nil
 }
 
-func (p *project) instructionsFile() string {
+func (p *project) instructionsFile() string { return treeInstructionsFile(p.opts.Dir) }
+
+// treeInstructionsFile is the file a tree carries the credentials section in:
+// the first name an agent reads that is already there, and the first name when
+// none is.  Answered from the tree alone, so `doctor` can ask about a tree it
+// did not enrol.
+func treeInstructionsFile(dir string) string {
 	for _, name := range agentInstructionFiles {
-		path := filepath.Join(p.opts.Dir, name)
+		path := filepath.Join(dir, name)
 		if exists(path) {
 			return path
 		}
 	}
-	return filepath.Join(p.opts.Dir, agentInstructionFiles[0])
+	return filepath.Join(dir, agentInstructionFiles[0])
 }

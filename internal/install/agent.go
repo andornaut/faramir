@@ -78,8 +78,9 @@ func (r *runner) stepAgentConfig() error {
 	return nil
 }
 
-// agentInstructions writes the account-wide credentials section into each
-// enrolled agent's home instructions file.
+// agentInstructions writes the account-wide credentials section into the file
+// each enrolled agent reads, once per file rather than once per agent: two of
+// them can name the same one.
 //
 // The rules written above are what refuse the file tools; this is what an agent
 // is told about them.  Without it a refusal on ~/.ssh/id_ed25519 reaches the
@@ -91,25 +92,39 @@ func (r *runner) stepAgentConfig() error {
 // route that does exist is named where it exists, in the enrolled tree's own
 // instructions.
 func (r *runner) agentInstructions(targets []*agentTarget) error {
+	changed, written, stale, err := r.writeSections(targets)
+	// Recorded before the failure, so a report says what was written as well as
+	// what was not.  Every return below it, including the ones that stop the run
+	// outright, leaves a report that names what did land.
+	r.step("agent instructions", changed, strings.Join(written, ", "))
+	switch {
+	case err != nil:
+		return err
+	case len(stale) > 0:
+		return errors.New(strings.Join(stale, "\n"))
+	}
+	return nil
+}
+
+// writeSections writes the section into each file, and reports what it wrote,
+// what it left as it is, and what stopped it.
+func (r *runner) writeSections(targets []*agentTarget) (bool, []string, []string, error) {
 	changed := false
 	var written, stale []string
-	for _, target := range targets {
-		if target.homeInstructions == "" {
-			continue
-		}
-		section, err := homeSection(target)
+	for _, file := range homeInstructionFiles(targets) {
+		section, err := homeSection(file.accountRules)
 		if err != nil {
-			return err
+			return changed, written, stale, err
 		}
-		path := filepath.Join(r.operatorHome, target.homeInstructions)
+		path := filepath.Join(r.operatorHome, file.path)
 		// The operator's own group, not keep, and never re-owned: same reason as
 		// the rule files above.  A .pi/agent or .kilocode/rules that does not
 		// exist yet would otherwise be created operator:root.
 		if _, err := r.fs.ensureDir(
 			filepath.Dir(path), 0o700, r.operatorUID, r.operatorGID, false); err != nil {
-			return err
+			return changed, written, stale, err
 		}
-		made, err := r.fs.sectionFile(path, section, r.operatorUID, r.operatorGID, "")
+		made, err := r.fs.sectionFile(path, section, "", r.operatorUID, r.operatorGID, "")
 		switch {
 		case outOfDate(err):
 			// Collected rather than returned here, so every other agent's section
@@ -119,35 +134,80 @@ func (r *runner) agentInstructions(targets []*agentTarget) error {
 			written = append(written, path+" (not written; see the error)")
 			continue
 		case err != nil:
-			return err
+			return changed, written, stale, err
 		}
 		changed = changed || made
 		written = append(written, path)
 	}
-	// Recorded before the failure, so a report says what was written as well as
-	// what was not.
-	r.step("agent instructions", changed, strings.Join(written, ", "))
-	if len(stale) > 0 {
-		return errors.New(strings.Join(stale, "\n"))
+	return changed, written, stale, nil
+}
+
+// homeInstructionFile is one file to write the account-wide section into, and
+// what the section may claim in it.
+type homeInstructionFile struct {
+	// path is relative to the operator's home.
+	path string
+	// accountRules is whether every agent reading this file has deny rules in
+	// this home.
+	accountRules bool
+}
+
+// homeInstructionFiles are the files these agents read, one entry per file.
+//
+// Grouped rather than written per agent, two agents being able to name the same
+// one: an agent's global instructions file is whatever that agent reads, and
+// nothing stops two of them reading one.  Written per agent, the same span
+// would be rewritten twice in one run and the last agent's claim about the deny
+// rules would be the one left, whichever agent then read it.
+//
+// No two share one today.  The rule stays because the failure it prevents is
+// silent: the file would carry a claim, the run would report success, and the
+// agent reading it is the one that finds out.
+//
+// This is the same path named twice, which is one file written once.  Two
+// different paths that a link makes one file are refused instead, before
+// anything is written: see oneFileTwice.  What can be reconciled is, and what
+// cannot stops the run.
+//
+// So the claim is the weaker of the two: asserted only where every agent
+// reading the file has rules in this home.  An agent told it is refused
+// everywhere, and finding it is not, has no reason to believe the next claim;
+// one told to assume nothing stops it has been told the truth either way.
+//
+// In the order the targets came in, so a report reads the same twice.
+func homeInstructionFiles(targets []*agentTarget) []homeInstructionFile {
+	var out []homeInstructionFile
+	at := map[string]int{}
+	for _, target := range targets {
+		path := target.homeInstructions
+		if path == "" {
+			continue
+		}
+		rules := len(target.accountFiles) > 0
+		if i, seen := at[path]; seen {
+			out[i].accountRules = out[i].accountRules && rules
+			continue
+		}
+		at[path] = len(out)
+		out = append(out, homeInstructionFile{path: path, accountRules: rules})
 	}
-	return nil
+	return out
 }
 
 // homeSection is the section `init` writes into a home.
 //
-// Rendered per agent, for one sentence.  Four of the five get deny rules in
-// this home that refuse their file tools wherever they are working, and pi gets
-// none: it has nowhere to put them, so the same list is compiled into the
-// extension `init-project` installs, which loads per project.  Telling pi its
-// file tools are refused everywhere would be telling it about a rule that is
-// not there, and an agent that finds one claim false has no reason to trust the
-// next.
+// Rendered rather than shipped as it is, for one sentence.  Three agents get
+// deny rules in this home that refuse their file tools wherever they are
+// working; pi has nowhere to put them, so the same list is compiled into the
+// extension `init-project` installs, and Antigravity has no file that would
+// refuse a file tool anything.  Telling either that its file tools are refused
+// everywhere would be telling it about a rule that is not there.
 //
 // It names no path this install decides, the rules it explains being rendered
 // into each agent's own config from protectedpaths.go.
-func homeSection(target *agentTarget) (string, error) {
+func homeSection(accountRules bool) (string, error) {
 	body, err := renderData("agent/instructions.home.md.snippet",
-		struct{ AccountRules bool }{AccountRules: len(target.accountFiles) > 0})
+		struct{ AccountRules bool }{AccountRules: accountRules})
 	if err != nil {
 		return "", err
 	}

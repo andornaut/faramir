@@ -53,7 +53,6 @@ Each suite prints one line per check and exits non-zero if any failed.
 | `check-guard.sh` | the guard's decision surface |
 | `check-wrap.sh` | the rewrite the guard hands back, executed |
 | `check-plugin.sh` | the opencode and Kilo Code plugins, executed |
-| `check-gemini.sh` | the Gemini hook, and its deny policy matched the way Gemini matches it |
 | `check-mcp.sh` | the MCP server |
 | `check-exec.sh` | the executor boundary |
 | `check-leak.sh` | the leak hunt: every place a value could come back out |

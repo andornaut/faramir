@@ -127,14 +127,14 @@ func TestAgentRulesFailWhenTheAgentIsHereAndItsRulesAreNot(t *testing.T) {
 // agent nobody has installed is the ordinary state and not a finding.
 func TestAgentRulesAreOKWhereOnlyTheRulesAreThere(t *testing.T) {
 	home := t.TempDir()
-	for _, file := range agentTargets["gemini"].accountFiles {
+	for _, file := range agentTargets["opencode"].accountFiles {
 		touch(t, home, file.path)
 	}
 
 	var report DoctorReport
 	reportAgentRules(&report, home, nil)
 
-	if got := finding(t, report, "gemini"); got.Status != StatusOK {
+	if got := finding(t, report, "opencode"); got.Status != StatusOK {
 		t.Errorf("status = %q, want %q: %s", got.Status, StatusOK, got.Detail)
 	}
 	if report.Failed {

@@ -295,13 +295,13 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 	for _, name := range agentNames() {
 		target := agentTargets[name]
-		// An agent with no account-wide file to write.  Its rules are compiled
-		// into the extension `init-project` installs instead, from the same list,
-		// so there is nothing in this home for this check to find and nothing
-		// missing from it either.
+		// An agent with no account-wide file to write, which the target says why
+		// of: pi's rules are compiled into the extension an enrolment installs,
+		// and Antigravity's are nowhere.  Either way there is nothing in this home
+		// for this check to find and nothing missing from it, and the difference
+		// between the two is the difference between covered and not.
 		if len(target.accountFiles) == 0 {
-			report.add("agent rules", StatusNA, "%s: carries its rules in the "+
-				"extension enrolling a tree installs, so there is none of it here", name)
+			report.add("agent rules", StatusNA, "%s: %s", name, target.withoutAccountRules)
 			continue
 		}
 		var missing []string

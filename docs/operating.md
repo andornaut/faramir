@@ -50,15 +50,16 @@ Order | Source
 
 Two kinds, and which one a file is decides what a run may do to it.
 
-**Faramir's own** are replaced whole and owned outright: the plugins, Gemini's policy file, Kilo Code's rules file.
+**Faramir's own** are replaced whole and owned outright: the plugins, and Pi's extension. Nothing else is, the MCP registrations included: those are yours, and a re-enrolment merges into them.
 
-**Yours** are edited and left yours. Each agent's settings get only faramir's keys merged in; your agent instructions file gets only the block between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`. A file already there keeps its owner and its mode, and its group except in a tree, where the client group has to read what the hook is written into. Only a file a run creates takes an owner from it.
+**Yours** are edited and left yours. Each agent's settings get only faramir's keys merged in; your agent instructions file gets only the block between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`. A file already there keeps its owner and its mode, and its group except in a tree, where the client group has to read what the hook is written into. Only a file a run creates takes an owner from it, and only one it creates in a rules directory is given the frontmatter that agent needs to load it.
 
 A run stops rather than write one it should not, leaving it exactly as it is:
 
 - **Not yours.** These commands run as root on paths in directories the account your agent runs as can write. Editing somebody else's file would be root writing what it was never asked to, and chowning it to make that true would take it from them.
 - **A link this will not follow.** A link is followed and what it points at written, so a dotfiles-managed `CLAUDE.md` or `settings.json` is updated in place rather than replaced by a regular file. Only to a regular file you own, and in a tree only inside the tree: otherwise the tree's group and mode would land on a dotfiles copy outside it.
 - **Markers it cannot delimit.** One marker without the other, or a credentials section that is not between markers and is not what is written now, which would leave two sets of instructions contradicting each other. Restore the markers or delete the section, then run again.
+- **One file twice.** Two paths in the same run that a link makes one file, such as `~/.gemini/GEMINI.md` pointing at `~/.claude/CLAUDE.md`. Each of these files is written for the agent that reads it, so one file standing in for two would hold what was written for the other and keep only the last write, and the run would report success. Point one at a file of its own. Two agents that read the same file *by name* are not this: that is one file written once, and the section it gets claims only what holds for both.
 
 Each is asked before anything is written, so a refusal costs nothing: `init` stops before it has handed a file to any account, `init-project` before it has shared the tree. `init` names every file it refused rather than the first. `doctor` asks the same questions under `agent file ownership`, so a run you wanted is not how you find out.
 

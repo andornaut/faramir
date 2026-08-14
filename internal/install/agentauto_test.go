@@ -59,14 +59,12 @@ func TestInitWritesNoRulesForAHomeWithNoAgent(t *testing.T) {
 // The agents that are there get their rules, and the ones that are not do not.
 func TestInitWritesRulesForTheAgentsInTheHome(t *testing.T) {
 	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	touch(t, home, ".config/opencode/opencode.json")
 
 	got := agentStep(t, home)
 
-	if !strings.Contains(got.Detail, ".gemini/policies/faramir.toml") {
-		t.Errorf("gemini's rules were not written: %s", got.Detail)
+	if !strings.Contains(got.Detail, ".config/opencode/opencode.json") {
+		t.Errorf("opencode's rules were not written: %s", got.Detail)
 	}
 	if strings.Contains(got.Detail, ".claude") {
 		t.Errorf("claude's rules were written into a home with no claude: %s", got.Detail)
@@ -87,13 +85,11 @@ func TestInitWritesRulesForANamedAgentThatIsAbsent(t *testing.T) {
 // the one asked for.
 func TestInitUnionsAutoWithANamedAgent(t *testing.T) {
 	home := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(home, ".gemini"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	touch(t, home, ".config/opencode/opencode.json")
 
 	got := agentStep(t, home, AgentAuto, "claude")
 
-	for _, want := range []string{".gemini/policies/faramir.toml", ".claude/settings.json"} {
+	for _, want := range []string{".config/opencode/opencode.json", ".claude/settings.json"} {
 		if !strings.Contains(got.Detail, want) {
 			t.Errorf("detail does not name %s: %s", want, got.Detail)
 		}

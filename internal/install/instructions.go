@@ -150,8 +150,13 @@ func appendSection(current []byte, block string) []byte {
 // sectionFile writes section into path between the markers, keeping everything
 // outside them.  Shaped like writeFile, which it ends in.
 //
+// head goes before the markers in a file this creates, for a file an agent
+// loads only where it carries one: Antigravity's rules take their activation
+// from frontmatter, and one without it may never be shown to the model.  Only
+// where there is nothing there, an existing file's first line being its own.
+//
 // Every error it returns of its own leaves the file exactly as it was.
-func (f fsys) sectionFile(path, section string, uid, gid int, within string) (bool, error) {
+func (f fsys) sectionFile(path, section, head string, uid, gid int, within string) (bool, error) {
 	// The mode for a file this creates.  Not a parameter: there is one kind of
 	// file here, and an existing one keeps its own below.
 	mode := os.FileMode(instructionsMode)
@@ -183,6 +188,12 @@ func (f fsys) sectionFile(path, section string, uid, gid int, within string) (bo
 		return false, nil
 	default:
 		return false, err
+	}
+	// What a file this creates opens with.  Only where there is nothing there:
+	// an existing file's own first line stays its own, this having no way to
+	// tell one faramir wrote from one the operator did.
+	if head != "" && len(bytes.TrimSpace(current)) == 0 {
+		current = []byte(head)
 	}
 	place, start, end := placeSection(current, section)
 	switch place {

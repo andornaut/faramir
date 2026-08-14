@@ -68,29 +68,6 @@ func TestHostDialects(t *testing.T) {
 		}
 	})
 
-	t.Run("gemini rewrites through tool_input and approves nothing", func(t *testing.T) {
-		got := guardOutput(t, []string{"--host", "gemini"},
-			`{"tool_name":"run_shell_command","tool_input":{"command":"echo hi"}}`)
-		out, ok := got["hookSpecificOutput"].(map[string]any)
-		if !ok {
-			t.Fatalf("no hookSpecificOutput: %v", got)
-		}
-		if _, wrong := out["updatedInput"]; wrong {
-			t.Error("gemini was sent Claude's updatedInput")
-		}
-		updated, ok := out["tool_input"].(map[string]any)
-		if !ok {
-			t.Fatalf("no tool_input: %v", out)
-		}
-		if !strings.Contains(updated["command"].(string), "wrap.sh") {
-			t.Errorf("command was not wrapped: %v", updated["command"])
-		}
-		// There is no allow to return on this host.
-		if _, wrong := out["permissionDecision"]; wrong {
-			t.Error("gemini was sent a permissionDecision")
-		}
-	})
-
 	// The plugin applies the decision itself, so the reply is faramir's own
 	// shape; both halves are pinned because the plugin is a separate file.
 	t.Run("the plugin hosts are answered in faramir's own shape", func(t *testing.T) {
@@ -127,15 +104,6 @@ func TestHostDialects(t *testing.T) {
 			t.Errorf("claude: permissionDecision = %v, want deny", out["permissionDecision"])
 		}
 
-		gemini := guardOutput(t, []string{"--host=gemini"},
-			strings.Replace(denied, "%s", "run_shell_command", 1))
-		if gemini["decision"] != "deny" {
-			t.Errorf("gemini: decision = %v, want deny at the top level", gemini["decision"])
-		}
-		if gemini["reason"] == nil || gemini["reason"] == "" {
-			t.Error("gemini: deny carried no reason, which it requires")
-		}
-
 		for _, host := range []string{"opencode", "kilocode"} {
 			plugin := guardOutput(t, []string{"--host", host},
 				strings.Replace(denied, "%s", "bash", 1))
@@ -150,16 +118,16 @@ func TestHostDialects(t *testing.T) {
 	})
 }
 
-// A tool that does not run a shell command has no output to redact, and the
-// name differs per host.
+// A tool that does not run a shell command has no output to redact.  A hook
+// host is asked about every tool and answers only for its own, which is what
+// keeps a rewrite off a call that carries no command.
 func TestHostHandlesOnlyItsOwnShellTool(t *testing.T) {
-	if got := guardOutput(t, []string{"--host", "gemini"},
-		`{"tool_name":"Bash","tool_input":{"command":"echo hi"}}`); got != nil {
-		t.Errorf("gemini guard acted on Claude's tool name: %v", got)
-	}
-	if got := guardOutput(t, nil,
-		`{"tool_name":"run_shell_command","tool_input":{"command":"echo hi"}}`); got != nil {
-		t.Errorf("claude guard acted on Gemini's tool name: %v", got)
+	for _, tool := range []string{"Read", "run_shell_command"} {
+		if got := guardOutput(t, nil,
+			`{"tool_name":"`+tool+`","tool_input":{"command":"echo hi"}}`); got != nil {
+			t.Errorf("claude guard acted on %s, which is not a tool it runs commands "+
+				"through: %v", tool, got)
+		}
 	}
 	// A plugin sees every tool call, so this arises on every read and edit.
 	if got := guardOutput(t, []string{"--host", "opencode"},

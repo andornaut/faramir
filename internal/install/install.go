@@ -537,11 +537,8 @@ func (r *runner) refuseUnwritableAgentFiles() error {
 		return err
 	}
 	r.agentTargets = targets
-	var refused []string
-	for _, target := range targets {
-		refused = append(refused, refuseUnwritable(r.fs, r.operatorHome, r.operatorUID, "",
-			editedPaths(target, false, target.homeInstructions))...)
-	}
+	refused := refuseUnwritable(r.fs, r.operatorHome, r.operatorUID, "",
+		homeEditedPaths(targets))
 	if len(refused) > 0 {
 		return errors.New(strings.Join(refused, "\n"))
 	}
