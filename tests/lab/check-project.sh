@@ -329,12 +329,26 @@ enrol "$D" --agent claude --agent antigravity >/dev/null 2>&1
 [ "$(operatorOf "$D")" = "$OP" ] && ok "and the account it was made for" \
   || bad "recorded operator [$(operatorOf "$D")], want $OP"
 
-# Keyed by directory, so re-enrolling says the later thing rather than both.
+# Keyed by directory, so a tree has one entry however often it is enrolled.  Its
+# agents are the ones this run named plus the ones an earlier run did that the
+# tree still carries: enrolling one by name does not say the others have gone,
+# their hook and MCP registration still being there for doctor to check.
 enrol "$D" --agent opencode >/dev/null 2>&1
-[ "$(agentsOf "$D")" = "opencode" ] && ok "re-enrolling a tree replaces its entry rather than adding one" \
-  || bad "the entry is [$(agentsOf "$D")], want opencode"
+[ "$(agentsOf "$D")" = "antigravity,claude,opencode" ] \
+  && ok "re-enrolling keeps the agents the tree still carries, and adds the new one" \
+  || bad "the entry is [$(agentsOf "$D")], want antigravity,claude,opencode"
 [ "$(entriesFor "$D")" = 1 ] && ok "and the tree appears once" \
   || bad "the tree has $(entriesFor "$D") entries"
+
+# Bounded by what is in the tree, because the entry is not only read: an
+# enrolled agent whose rules are missing is a doctor failure, so a name that
+# accumulated and could never leave would fail the command for ever on an agent
+# the operator had removed.  Evidence gone is configuration gone.
+rm -rf "$D/.claude"
+enrol "$D" --agent opencode >/dev/null 2>&1
+[ "$(agentsOf "$D")" = "antigravity,opencode" ] \
+  && ok "and an agent whose configuration has left the tree drops out of the entry" \
+  || bad "the entry is [$(agentsOf "$D")], want antigravity,opencode"
 
 [ "$(jq -r '[.[].dir] == ([.[].dir]|sort)' $REC)" = true ] \
   && ok "the entries are sorted by tree, so a second run does not churn the file" \
@@ -441,22 +455,38 @@ grep -q 'Always run the tests' "$D/AGENTS.md" && ok "an existing file keeps what
 grep -q '^# Credentials' "$D/AGENTS.md" && ok "and gains the section after it" \
   || bad "the section was not added to an existing file"
 
-# It may be a section an earlier version wrote, the operator's own notes, or the
-# same words reworded by whatever last tidied the file.  Which of those it is
-# cannot be read off the file, and none of them is faramir's to rewrite.
-D=$(tree /home/op/p-instr-drift)
+# Naming faramir is not carrying its section.  A tree whose instructions mention
+# the tool for any other reason still receives one, and keeps what was there.
+D=$(tree /home/op/p-instr-mentions)
 printf '# My notes\n\nWe use faramir here somehow.\n' > "$D/AGENTS.md"
+chown $OP:$OP "$D/AGENTS.md"
+enrol "$D" >/dev/null 2>&1
+grep -q 'We use faramir here somehow' "$D/AGENTS.md" \
+  && ok "a file that only mentions faramir keeps what the operator wrote" \
+  || bad "the operator's words were replaced: [$(head -c 140 "$D/AGENTS.md")]"
+grep -q '<!-- BEGIN faramir: credentials -->' "$D/AGENTS.md" \
+  && ok "  and still receives the section, between markers" \
+  || bad "  a file naming faramir was passed over: [$(head -c 140 "$D/AGENTS.md")]"
+
+# A credentials section of faramir's in words that are not these, with no
+# markers around it: what a version whose snippet read differently wrote, or a
+# copy something reworded.  Which of those it is cannot be read off the file,
+# appending would leave two sections contradicting each other, and neither is
+# faramir's to rewrite.  So it is named and left.
+D=$(tree /home/op/p-instr-drift)
+printf '# Credentials\n\nWe use faramir here somehow.\n' > "$D/AGENTS.md"
 chown $OP:$OP "$D/AGENTS.md"
 sum=$(md5sum "$D/AGENTS.md" | cut -d' ' -f1)
 out=$(enrol "$D")
 [ "$(md5sum "$D/AGENTS.md" | cut -d' ' -f1)" = "$sum" ] \
-  && ok "a file that mentions faramir but has drifted is left byte-identical" \
+  && ok "a drifted section is left byte-identical" \
   || bad "a drifted instructions file was edited in place"
-grep -q 'mentions faramir but does not carry the credentials section' <<<"$out" \
+grep -q 'already carries a credentials section that is not between markers' <<<"$out" \
   && ok "and the drift is reported rather than reconciled" \
   || bad "the drift was not reported: ${out:0:140}"
-grep -q 'left as it is' <<<"$out" && ok "  with the step saying the file was left" \
-  || bad "  the step does not say the file was left"
+grep -q 'not written; see the error' <<<"$out" \
+  && ok "  with the step naming the file it did not write" \
+  || bad "  the step does not name the file it left: ${out:0:140}"
 
 # CLAUDE.md when that is the file the tree has: the first of the two that
 # exists is the one written into, and a second is never created.
