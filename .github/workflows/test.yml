@@ -129,3 +129,53 @@ jobs:
       # shellcheck is preinstalled on the runner image.
       - name: Run ShellCheck
         run: shellcheck tests/*.sh tests/lab/*.sh agent/hooks/wrap.sh
+
+  # The functional suites, against a real install in a container: systemd units,
+  # three uids, a sops store and an agent working in a project tree. Go covers
+  # the code; these cover what an operator gets after `faramir init`.
+  #
+  # Kept out of CI until now because it needs Docker, a privileged container and
+  # the host's cgroup tree. What that cost was a base-image bump merging on a
+  # green run that never built the image: Ubuntu 25.10 replaced GNU coreutils
+  # with uutils, whose `test` ignores supplementary groups, and every one of
+  # doctor's group-based findings was wrong on it. Nothing but the lab asks
+  # doctor a question against a real install.
+  lab:
+    name: Lab
+    runs-on: ubuntu-latest
+    # Longer than the default in case a suite hangs rather than fails: the
+    # runner should report it rather than sit for six hours.
+    timeout-minutes: 30
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # sops, age and age-keygen, pinned by version and sha256 in lab.sh. The
+      # image has no network, so it installs what it finds in the build context.
+      - name: Fetch the third-party binaries
+        working-directory: tests/lab
+        run: ./lab.sh fetch
+
+      # Builds the image, starts the containers and bootstraps an install. The
+      # container needs --privileged and --cgroupns=host, which is what a
+      # socket-activated Type=notify unit needs to behave as it does on a host.
+      - name: Bring the lab up
+        working-directory: tests/lab
+        run: ./lab.sh up
+
+      - name: Run every suite
+        working-directory: tests/lab
+        run: ./lab.sh run
+
+      # The suites print one line per check and the failing ones are what a
+      # reader wants; `run` already exits non-zero, so this only tidies up.
+      - name: Tear the lab down
+        if: always()
+        working-directory: tests/lab
+        run: ./lab.sh down

@@ -110,6 +110,11 @@ var fallback = []string{
 	// Answering discloses nothing; it decides. Split from the line above so
 	// each half is refused with the reason that fits it.
 	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(approvals|approve|deny)\b`,
+	// doctor's own helper, which answers access(2) as the account it is run
+	// under. Nothing an operator types: under sudo it answers for root, which
+	// is yes to everything and says nothing about the boundary being asked
+	// about.
+	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+access\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Refused for what it costs, not because it hides anything: the wrapper
 	// fails closed, so a stopped broker withholds every command's output in
@@ -153,6 +158,7 @@ var ownershipMarkers = []string{
 	`>\s*\S*`,                    // a redirect into one of those paths
 	`\bsystemctl\b`,              // stopping or masking a unit
 	`(approvals|approve|deny)\b`, // answering a question the agent raised
+	`faramir[-\s]+access\b`,      // doctor's own access(2) helper
 }
 
 // adviceFor picks the explanation that matches why the command was refused.

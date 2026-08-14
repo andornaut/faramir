@@ -52,14 +52,40 @@ func asOperator(opts DoctorOptions, args ...string) (string, error) {
 
 // canRead and canWrite answer access(2) as that account.  Connecting to a unix
 // socket needs write, so a socket left 0620 passes a read check.
+//
+// Through faramir's own binary rather than the host's `test`.  access(2)
+// answers for the calling process and supplementary groups are per-process, so
+// the question has to be put by something running as that account; what that
+// something is used to be coreutils, and Ubuntu 25.10 replaced GNU coreutils
+// with uutils, whose `test` ignores supplementary group membership.  Every
+// group-based finding was then wrong in both directions: a socket the client
+// group reaches read as closed to it, and a boundary group membership had
+// opened read as holding.  See cmd/faramir/access.go.
 func canRead(account, path string) bool {
-	_, err := asUser(account, "test", "-r", path)
+	_, err := asUser(account, selfPath(), "access", "--read", path)
 	return err == nil
 }
 
 func canWrite(account, path string) bool {
-	_, err := asUser(account, "test", "-w", path)
+	_, err := asUser(account, selfPath(), "access", "--write", path)
 	return err == nil
+}
+
+// selfPath is the binary to re-run as another account: this process's own,
+// which is the build being asked about.
+//
+// /proc/self/exe rather than the installed path, so a doctor run from a build
+// that is not the installed one asks itself rather than whatever is in
+// /usr/local/bin.  It is a path the target account has to be able to execute,
+// which the installed binary is (0755) and a build in an operator's home may
+// not be; DefaultBinDir is the fallback for that, being where every install
+// puts it.
+func selfPath() string {
+	exe, err := os.Executable()
+	if err != nil || exe == "" {
+		return filepath.Join(DefaultBinDir, "faramir")
+	}
+	return exe
 }
 
 // ownsMissing is what both report for a path that is not there, and what a test

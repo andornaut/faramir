@@ -110,6 +110,7 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		{"sudo faramir approve abc123", true},
 		{"sudo faramir approvals", true},
 		{"sudo faramir deny abc123", true},
+		{"sudo faramir access --read /etc/faramir/age.key", true},
 		{"rm .opencode/plugins/faramir.js", true},
 		{"sed -i s/x/y/ .pi/extensions/faramir.ts", true},
 	} {
@@ -141,7 +142,7 @@ func TestEveryPatternIsClassifiedOnPurpose(t *testing.T) {
 			own++
 		}
 	}
-	const wantOwn = 6
+	const wantOwn = 7
 	if own != wantOwn {
 		t.Errorf("%d of %d patterns explain themselves as faramir's own, want %d. "+
 			"A rule was added or moved: decide which message it should carry, add it "+

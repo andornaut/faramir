@@ -103,5 +103,9 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # so the longer name is not left half-matched.
 \bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|pam-approve)\b
 \bsudo\b(\s+-\S+)*\s+faramir[-\s]+(approvals|approve|deny)\b
+# doctor's own helper, which answers access(2) as the account it is run under.
+# Nothing an operator types: under sudo it answers for root, which is yes to
+# everything and says nothing about the boundary being asked about.
+\bsudo\b(\s+-\S+)*\s+faramir[-\s]+access\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-

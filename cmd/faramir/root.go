@@ -164,6 +164,7 @@ func newRootCmd() *cobra.Command {
 		newMCPCmd(),
 		newGuardCmd(),
 		newPamApproveRootCmd(),
+		newAccessCmd(),
 	)
 
 	// Registered here so that cobra does not add it with a "-v" shorthand of its

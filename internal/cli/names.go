@@ -44,4 +44,6 @@ var Internal = []string{
 	"mcp",
 	"guard",
 	"pam-approve",
+	// What doctor runs under runuser to answer access(2) as another account.
+	"access",
 }
