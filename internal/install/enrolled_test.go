@@ -37,7 +37,7 @@ func TestRecordingAnEnrolmentKeepsTheAgentsATreeStillCarries(t *testing.T) {
 
 	for _, agents := range [][]string{{"claude"}, {"opencode", "pi"}, {"opencode"}} {
 		if err := recordEnrolment(dir, EnrolledTree{
-			Dir: tree, Operator: "op", Agents: agents,
+			Dir: tree, AgentUser: "op", Agents: agents,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -62,7 +62,7 @@ func TestRecordingAnEnrolmentDropsAnAgentTheTreeNoLongerCarries(t *testing.T) {
 	tree := enrolledTree(t, dir, "claude", "pi")
 
 	if err := recordEnrolment(dir, EnrolledTree{
-		Dir: tree, Operator: "op", Agents: []string{"claude", "pi"},
+		Dir: tree, AgentUser: "op", Agents: []string{"claude", "pi"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -73,7 +73,7 @@ func TestRecordingAnEnrolmentDropsAnAgentTheTreeNoLongerCarries(t *testing.T) {
 		}
 	}
 	if err := recordEnrolment(dir, EnrolledTree{
-		Dir: tree, Operator: "op", Agents: []string{"claude"},
+		Dir: tree, AgentUser: "op", Agents: []string{"claude"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -95,13 +95,13 @@ func TestRecordingAnEnrolmentTakesTheLaterOperator(t *testing.T) {
 	}
 	for _, operator := range []string{"first", "second"} {
 		if err := recordEnrolment(dir, EnrolledTree{
-			Dir: tree, Operator: operator, Agents: []string{"claude"},
+			Dir: tree, AgentUser: operator, Agents: []string{"claude"},
 		}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	got := readEnrolled(dir)
-	if len(got) != 1 || got[0].Operator != "second" {
+	if len(got) != 1 || got[0].AgentUser != "second" {
 		t.Errorf("operator = %+v, want the later enrolment's", got)
 	}
 }
@@ -115,8 +115,8 @@ func TestEnrolledAgentsSeparatesWhatIsThereFromWhatIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tree := range []EnrolledTree{
-		{Dir: here, Operator: "op", Agents: []string{"opencode"}},
-		{Dir: filepath.Join(dir, "gone"), Operator: "op", Agents: []string{"claude"}},
+		{Dir: here, AgentUser: "op", Agents: []string{"opencode"}},
+		{Dir: filepath.Join(dir, "gone"), AgentUser: "op", Agents: []string{"claude"}},
 	} {
 		if err := recordEnrolment(dir, tree); err != nil {
 			t.Fatal(err)

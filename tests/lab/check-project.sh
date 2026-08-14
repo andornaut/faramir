@@ -310,10 +310,10 @@ head_ "10. the record of what was enrolled"
 # a tree depends on rules the home it is looking at shows no sign of.
 
 REC=/etc/faramir/enrolled.json
-# agentsOf and operatorOf read one tree's entry.  Empty when there is none,
+# agentsOf and agentUserOf read one tree's entry.  Empty when there is none,
 # which is itself an assertion below.
-agentsOf()   { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.agents[]]|join(",")' $REC 2>/dev/null; }
-operatorOf() { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.operator]|join(",")' $REC 2>/dev/null; }
+agentsOf()    { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.agents[]]|join(",")' $REC 2>/dev/null; }
+agentUserOf() { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.agent_user]|join(",")' $REC 2>/dev/null; }
 entriesFor() { jq -r --arg d "$1" '[.[]|select(.dir==$d)]|length' $REC 2>/dev/null; }
 
 mode=$(stat -c '%a %U:%G' $REC 2>/dev/null)
@@ -326,8 +326,8 @@ D=$(tree /home/op/p-record)
 enrol "$D" --agent claude --agent antigravity >/dev/null 2>&1
 [ "$(agentsOf "$D")" = "antigravity,claude" ] && ok "an enrolment records the agents it was made for" \
   || bad "recorded [$(agentsOf "$D")], want antigravity,claude"
-[ "$(operatorOf "$D")" = "$OP" ] && ok "and the account it was made for" \
-  || bad "recorded operator [$(operatorOf "$D")], want $OP"
+[ "$(agentUserOf "$D")" = "$OP" ] && ok "and the account it was made for" \
+  || bad "recorded agent_user [$(agentUserOf "$D")], want $OP"
 
 # Keyed by directory, so a tree has one entry however often it is enrolled.  Its
 # agents are the ones this run named plus the ones an earlier run did that the

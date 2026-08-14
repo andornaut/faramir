@@ -125,7 +125,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 			names = append(names, target.name)
 		}
 		if err := recordEnrolment(opts.ConfigDir, EnrolledTree{
-			Dir: dir, Operator: opts.AgentUser, Agents: names,
+			Dir: dir, AgentUser: opts.AgentUser, Agents: names,
 		}); err != nil {
 			run.warn("could not record this enrolment in %s, so `faramir doctor` "+
 				"will not know this tree is enrolled: %v", enrolledPath(opts.ConfigDir), err)

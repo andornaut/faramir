@@ -31,10 +31,14 @@ const enrolledFile = "enrolled.json"
 
 // EnrolledTree is one enrolment: the tree, the account working in it, and the
 // agents it was enrolled for.
+// The account field is agent_user, and a file written before that rename reads
+// with it empty: this is a record of convenience rather than an authority, and
+// `faramir init-project` rewrites the whole file, so re-enrolling repairs it.
+// Nothing here reads the older spelling.
 type EnrolledTree struct {
-	Dir      string   `json:"dir"`
-	Operator string   `json:"operator"`
-	Agents   []string `json:"agents"`
+	Dir       string   `json:"dir"`
+	AgentUser string   `json:"agent_user"`
+	Agents    []string `json:"agents"`
 }
 
 // enrolledPath is where the record lives, beside the config it belongs to.

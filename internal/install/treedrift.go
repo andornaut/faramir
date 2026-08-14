@@ -149,10 +149,10 @@ func reportEditableFiles(report *DoctorReport, home string, uid int, opts Doctor
 			continue
 		}
 		treeUID := uid
-		if tree.Operator != opts.AgentUser {
+		if tree.AgentUser != opts.AgentUser {
 			// The tree was enrolled for somebody else, and this is their file to
 			// own rather than the account doctor was pointed at.
-			if other, err := lookupUser(tree.Operator); err == nil {
+			if other, err := lookupUser(tree.AgentUser); err == nil {
 				treeUID = other
 			}
 		}

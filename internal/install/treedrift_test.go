@@ -24,7 +24,7 @@ func enrolTree(t *testing.T, configDir string, names ...string) string {
 		}
 	}
 	if err := recordEnrolment(configDir, EnrolledTree{
-		Dir: tree, Operator: "op", Agents: names,
+		Dir: tree, AgentUser: "op", Agents: names,
 	}); err != nil {
 		t.Fatal(err)
 	}
