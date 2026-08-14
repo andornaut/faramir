@@ -114,7 +114,7 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 // run will not be able to update.
 func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
-		report.unasked("agent file ownership", 1, "the operator account is not "+
+		report.unasked("agent file ownership", 1, "the agent account is not "+
 			"named, so who owns the files an install edits was not asked: pass "+
 			"--agent-user, or run through sudo so SUDO_USER carries it")
 		return

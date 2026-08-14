@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -361,9 +362,10 @@ func notifyLayout(t *testing.T, argv ...string) (Layout, error) {
 }
 
 // --notify-command is the flag the ownership implies.  notify_command is init's,
-// so a drop-in setting it is refused; without a flag that refusal named no way to
-// set it at all and the value was unreachable on any host init runs on, which is
-// every host managed by configuration management.
+// so a drop-in setting it is refused and an edit to config.toml is rewritten by
+// the next run; the flag is what is left, and without one the value is
+// unreachable on any host init runs on, which is every host under configuration
+// management.
 func TestNotifyCommandIsRenderedAndLoadsBack(t *testing.T) {
 	layout, err := notifyLayout(t, "/usr/bin/wall", "{prompt}")
 	if err != nil {
@@ -388,8 +390,26 @@ func TestNotifyCommandIsRenderedAndLoadsBack(t *testing.T) {
 // An argument the operator wrote reaches a TOML file, and a file the loader
 // cannot parse is a broker that will not start.  The quoting is the renderer's
 // rather than each template's, so this holds it to surviving the round trip.
+//
+// TOML takes a shorter set of escapes than Go: \a and \v are rejected rather
+// than misread, so a renderer using strconv.Quote writes a file the loader
+// refuses for an argument a shell hands over without complaint.
 func TestNotifyCommandSurvivesQuotingItsArguments(t *testing.T) {
-	awkward := `it said "{prompt}" \ here`
+	for _, awkward := range []string{
+		"it said \"{prompt}\" \\ here",
+		"bell \a {prompt}",
+		"vertical \v {prompt}",
+		"tab \t and newline \n {prompt}",
+		"del \x7f and nul-adjacent \x01 {prompt}",
+	} {
+		t.Run(strconv.Quote(awkward), func(t *testing.T) {
+			checkNotifyRoundTrip(t, awkward)
+		})
+	}
+}
+
+func checkNotifyRoundTrip(t *testing.T, awkward string) {
+	t.Helper()
 	layout, err := notifyLayout(t, "/usr/bin/wall", awkward)
 	if err != nil {
 		t.Fatal(err)
@@ -426,6 +446,18 @@ func TestAnUnusableNotifyCommandIsRefusedByInit(t *testing.T) {
 		{
 			name: "a program that is not on PATH", argv: []string{"no-such-notifier", "{prompt}"},
 			sudo: true, wants: "is not on PATH",
+		},
+		{
+			// The same typo spelled absolutely. Resolution cannot catch this one, an
+			// absolute path being taken as given, so it is refused for not being
+			// there instead: one mistake must not have a spelling that gets through.
+			name: "an absolute path that is not there",
+			argv: []string{"/usr/bin/no-such-notifier", "{prompt}"},
+			sudo: true, wants: "is not there",
+		},
+		{
+			name: "a directory", argv: []string{"/tmp", "{prompt}"},
+			sudo: true, wants: "not an executable file",
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

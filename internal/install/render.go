@@ -45,16 +45,56 @@ var renderFuncs = template.FuncMap{
 	"tomlList":    tomlList,
 }
 
-// tomlList renders a string list as a TOML array.  strconv.Quote per element,
-// TOML's basic strings taking the same escapes as Go's, so an argument holding
-// a quotation mark or a backslash survives the round trip rather than producing
-// a file the loader rejects.
+// tomlList renders a string list as a TOML array.
 func tomlList(items []string) string {
 	quoted := make([]string, 0, len(items))
 	for _, item := range items {
-		quoted = append(quoted, strconv.Quote(item))
+		quoted = append(quoted, tomlString(item))
 	}
 	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+// tomlString is one TOML basic string.
+//
+// Not strconv.Quote: TOML takes a shorter set of escapes than Go, and the ones
+// Go adds are rejected rather than misread.  \a and \v are the two a shell
+// argument realistically carries, and either renders a config.toml the loader
+// refuses, which is the failure the caller validates against precisely so it
+// cannot happen after the files are written.  Everything else below \x20 goes
+// out as \uXXXX, which TOML does accept.
+func tomlString(text string) string {
+	var out strings.Builder
+	out.WriteByte('"')
+	for _, r := range text {
+		switch r {
+		case '"':
+			out.WriteString(`\"`)
+		case '\\':
+			out.WriteString(`\\`)
+		case '\b':
+			out.WriteString(`\b`)
+		case '\t':
+			out.WriteString(`\t`)
+		case '\n':
+			out.WriteString(`\n`)
+		case '\f':
+			out.WriteString(`\f`)
+		case '\r':
+			out.WriteString(`\r`)
+		default:
+			// DEL as well as the C0 range: TOML allows neither raw.  A byte that is
+			// not valid UTF-8 arrives here as U+FFFD, which is what ranging over a
+			// string yields, and is escaped like any other rune rather than being
+			// written out as an invalid sequence the loader would reject.
+			if r < 0x20 || r == 0x7f {
+				fmt.Fprintf(&out, `\u%04X`, r)
+				continue
+			}
+			out.WriteRune(r)
+		}
+	}
+	out.WriteByte('"')
+	return out.String()
 }
 
 // credentialRules is the part of the credentials policy both sections state:

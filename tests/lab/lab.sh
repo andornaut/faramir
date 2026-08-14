@@ -66,9 +66,6 @@ build_skew() {
   rm -rf "$work"
 }
 
-# verified puts a downloaded file in place, and only the one pinned above.  A
-# digest that does not match is a different binary whatever the reason, and the
-# rig that decides whether a secrets broker ships is not where to find out which.
 # digest_of is the sha256 of a file, or empty where there is none.
 digest_of() { sha256sum "$1" 2>/dev/null | cut -d' ' -f1; }
 

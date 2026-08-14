@@ -66,7 +66,13 @@ jobs:
       # so an import added anywhere reaches it: worth a gate rather than a
       # comment.
       - name: The shipped binary must not link sops
-        run: "! go list -deps ./cmd/faramir | grep -q getsops"
+        # Two commands, not a pipeline: `! cmd | grep -q` passes when cmd
+        # FAILS, grep finding nothing in no output and `!` inverting that into
+        # success, so a go list that could not run reports the invariant as
+        # held. Assigning first makes the failure the step's.
+        run: |
+          deps=$(go list -deps ./cmd/faramir)
+          ! grep -q getsops <<<"$deps"
 
       # Every brokered command is confined to its own cgroup and reaped there,
       # with no process-group fallback, so the executor refuses to run where it

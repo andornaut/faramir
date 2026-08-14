@@ -81,13 +81,12 @@ func TestTheFallbackMatchesTheShippedFile(t *testing.T) {
 
 // Every refusal explains itself with the reason it was actually refused for.
 //
-// One message used to serve the whole list: "this command would put a
-// credential into the conversation... Use the faramir_run tool instead". True
-// of the read rules and wrong about the rest, which are about faramir's own
-// files, accounts and units and disclose nothing. The remedy was worse than the
-// reason: faramir_run runs as an account with less reach, so an agent following
-// that advice either hits a permission error or, where the executor does have
-// reach, does the thing that was just refused.
+// The deny list holds two kinds of rule and they need different messages. A
+// read rule is about what the command would disclose, and faramir_run is the
+// way to proceed. A rule about faramir's own files, accounts or units discloses
+// nothing, and faramir_run is not a remedy there: it runs as an account with
+// less reach, so following that advice either hits a permission error or, where
+// the executor does have reach, does the thing that was refused.
 func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 	for _, tc := range []struct {
 		command string

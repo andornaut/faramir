@@ -34,14 +34,20 @@ DELEGATE = $(shell systemd-run --user --scope --quiet true >/dev/null 2>&1 \
 # suite worked.  Dropping it by line shape does not work, since that output is
 # arbitrary; so each test's own lines are held until its result is known and
 # kept only where that result was not a pass.
+#
+# Only a top-level `--- PASS` clears the buffer.  A subtest's is indented and
+# clears nothing, because a parent writes before its first subtest and after its
+# last, and that output belongs to the parent's verdict rather than to whichever
+# subtest happened to run next.  `=== RUN` and `=== NAME` mark those switches
+# and are dropped without clearing, for the same reason.
 QUIET := awk ' \
-	/^=== RUN/          { buf = ""; next } \
-	/^=== (PAUSE|CONT)/ { next } \
-	/^PASS$$/           { next } \
-	/--- PASS/          { buf = ""; next } \
-	/--- (SKIP|FAIL)/   { printf "%s", buf; print; buf = ""; next } \
-	/^(ok|FAIL|\?)/     { print; buf = ""; next } \
-	                    { buf = buf $$0 "\n" }'
+	/^=== (RUN|NAME|PAUSE|CONT)/ { next } \
+	/^PASS$$/                    { next } \
+	/^--- PASS/                  { buf = ""; next } \
+	/^[[:space:]]+--- PASS/      { next } \
+	/--- (SKIP|FAIL)/            { printf "%s", buf; print; buf = ""; next } \
+	/^(ok|FAIL|\?)/              { print; buf = ""; next } \
+	                             { buf = buf $$0 "\n" }'
 
 # REPORT names what a green run did not check.  A skipped test reports nothing
 # of its own, so a suite that skipped a third of itself and one that ran every
@@ -159,10 +165,14 @@ lab:
 ## the binary.  The last is a shipping invariant rather than a style rule: the
 ## keeper execs sops instead of linking it, which is what keeps every cloud KMS
 ## SDK it supports out of what we ship.
+## The linkage check is two commands rather than a pipeline: `! cmd | grep -q`
+## passes when cmd FAILS, grep finding nothing in no output and `!` inverting
+## that into success, so a go list that could not run reports the invariant as
+## held. Assigning first makes the failure the recipe's.
 gate:
 	go mod verify
 	go build -v ./...
-	! go list -deps ./cmd/faramir | grep -q getsops
+	deps=$$(go list -deps ./cmd/faramir) && ! grep -q getsops <<<"$$deps"
 
 ## check: what CI checks, and the lab CI cannot run.  The race detector is the
 ## exception, being slow enough to want asking for: `make coverage`.

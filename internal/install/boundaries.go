@@ -356,7 +356,7 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// SUDO_USER and then to the caller, and a root login shell, a cron job or a
 	// systemd timer has neither.  Nothing about the install is wrong.
 	if opts.AgentUser == "" {
-		report.unasked("operator keys", 1, "no operator account to ask about: "+
+		report.unasked("operator keys", 1, "no agent account to ask about: "+
 			"run under sudo so SUDO_USER carries it, or pass --agent-user")
 		return
 	}
@@ -483,7 +483,7 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 			// The only claim here is about the operator, so there is nothing left to
 			// check: an unnamed account cannot open a socket, and reporting that as the
 			// grant being absent would fail every install examined from a root shell.
-			report.unasked("broker socket", 1, "the operator account is not "+
+			report.unasked("broker socket", 1, "the agent account is not "+
 				"named, so whether it can open %s was not asked", path)
 		case canWrite(opts.AgentUser, path):
 			report.add("broker socket", StatusOK, "%s can open %s", opts.AgentUser, path)

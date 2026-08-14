@@ -391,6 +391,12 @@ var inventoryLists = map[string]bool{
 	"secrets.patterns": true,
 }
 
+// noFlagResolved marks a key init works out at install time rather than taking
+// from a flag.  A sentinel rather than prose, so the remedy is matched exactly:
+// a near-miss would fall through to the build-time wording, which is the one
+// answer that sends an operator away from what would have changed the value.
+const noFlagResolved = "\x00resolved-at-install"
+
 // initOwned are the keys init derives from a flag or from the install layout,
 // which a drop-in may not set.  The rule that decides membership: a key init
 // computes is init's, and a key it writes as a plain default is a starting
@@ -406,20 +412,15 @@ var inventoryLists = map[string]bool{
 // identity to the account the relay exists to keep it from.
 //
 // The value is the flag that sets each, so the refusal says what to run
-// instead.  Three forms, and every one of them is reachable, which
-// TestEveryInitOwnedRemedyIsReachable is what holds: a flag, noFlagResolved for
-// a value init works out at install time, and empty for one rendered from a
-// path fixed at build time that no flag moves.
+// instead.  Three forms: a flag, noFlagResolved for a value init works out at
+// install time, and empty for one rendered from a path fixed at build time that
+// no flag moves.  TestEveryInitOwnedRemedyIsReachable holds every form to being
+// produced by some key, a form nothing reaches being a refusal that cannot
+// route.
 //
-// The distinction is the whole point of saying anything.  An operator told
-// "no flag moves this" about a value init resolves on PATH has been sent away
-// from the one thing that would have changed it.
-// noFlagResolved marks a key init works out at install time rather than taking
-// from a flag.  A sentinel rather than prose in the map, so the remedy is
-// matched exactly and a typo cannot silently fall through to the build-time
-// wording, which is what left this branch unreachable before.
-const noFlagResolved = "\x00resolved-at-install"
-
+// The distinction is the whole point of saying anything: an operator told "no
+// flag moves this" about a value init resolves on PATH has been sent away from
+// the one thing that would have changed it.
 var initOwned = map[string]string{
 	// A second identity reaches the same hosts and is one no account has ever
 	// held; a key of your own is adopted rather than replaced.

@@ -323,12 +323,10 @@ func TestOnlyTomlFilesAreRead(t *testing.T) {
 
 // Every remedy initOwned can produce is one some key actually produces.
 //
-// The branch for a value init resolves at install time sat unreachable: no
-// entry carried the prefix it keyed off, so ssh_agent and ssh_add, which init
-// finds on PATH, were refused with "rendered from a path fixed at build time,
-// which no flag moves". That is the one wording that sends an operator away
-// from the thing that would have changed it, and nothing failed while it was
-// wrong. A refusal is only worth writing if it routes.
+// A form nothing reaches is a refusal that cannot route: the keys that should
+// carry it get whichever wording is left, and the operator is sent to a command
+// that changes nothing. A refusal is only worth writing if it routes, and
+// nothing else here fails when one stops.
 func TestEveryInitOwnedRemedyIsReachable(t *testing.T) {
 	seen := map[string]string{}
 	for key, flag := range initOwned {

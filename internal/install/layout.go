@@ -327,6 +327,22 @@ func (l Layout) validateNotifyCommand() error {
 			"file it reaches is the install's to decide rather than the broker's PATH's",
 			l.NotifyCommand[0])
 	}
+	// And it has to be there.  Absolute is not the same question as present: a
+	// path resolves on PATH or it does not, but one written out by hand is taken
+	// as given, so `--notify-command /usr/bin/wal` would otherwise reach the
+	// config and fail at the --check that follows, after every file was written.
+	// One typo, two spellings, and they must be refused alike.
+	info, err := os.Stat(l.NotifyCommand[0])
+	if err != nil {
+		return fmt.Errorf("--notify-command %q is not there (%v): install it, or name "+
+			"a program that exists. It announces a pending approval, so an install "+
+			"that wrote it would come up with nothing announcing anything",
+			l.NotifyCommand[0], err)
+	}
+	if info.IsDir() || info.Mode().Perm()&0o111 == 0 {
+		return fmt.Errorf("--notify-command %q is not an executable file: the broker "+
+			"execs it directly rather than through a shell", l.NotifyCommand[0])
+	}
 	return nil
 }
 
