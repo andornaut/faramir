@@ -49,7 +49,7 @@ jobs:
       # tests exercise the shipped file rather than a description of it. Without
       # node those tests skip, which is a silent loss of the whole plugin suite:
       # pinned here rather than relying on what the runner image happens to ship.
-      - name: Set up Node
+      - name: Set up Node.js
         uses: actions/setup-node@v7.0.0
         with:
           node-version: "22"
@@ -113,5 +113,5 @@ jobs:
           version: v2.10.1
 
       # shellcheck is preinstalled on the runner image.
-      - name: Run shellcheck
+      - name: Run ShellCheck
         run: shellcheck tests/*.sh tests/lab/*.sh agent/hooks/wrap.sh
