@@ -32,12 +32,15 @@ type Options struct {
 	//
 	// What that stops is a write through the file, and not a replacement of it.
 	// Sharing gives the group rwx on every directory in the tree, and unlink and
-	// rename are permissions on the directory rather than on the file, so a
-	// brokered command can still delete one of these and put its own there:
-	// .claude/settings.json names the PreToolUse hook, and the executor is in
-	// this group.  This narrows what a shared tree grants; it is not a boundary,
-	// and the invariant the install rests on is that no instruction the agent is
-	// given can move a secret, hook or no hook.
+	// rename are permissions on the directory rather than on the file.  The
+	// directory each of these sits in is made sticky for that reason, which
+	// restricts unlink there to the file's owner; see stickyDirs, and what it
+	// deliberately leaves open at the tree's root.
+	//
+	// This narrows what a shared tree grants; it is not a boundary, and the
+	// invariant the install rests on is that no instruction the agent is given
+	// can move a secret, hook or no hook.  `faramir doctor` reports a tree whose
+	// agent files stopped carrying what the enrolment wrote.
 	Keep []string
 	// Log receives one line per step, already formatted.
 	Log func(string)
@@ -94,16 +97,14 @@ func Share(opts Options) (Result, error) {
 		return result, err
 	}
 	keep := make(map[string]bool, len(opts.Keep))
-	sticky := make(map[string]bool, len(opts.Keep))
 	for _, rel := range opts.Keep {
-		clean := filepath.Clean(rel)
-		keep[clean] = true
-		sticky[filepath.Dir(clean)] = true
+		keep[filepath.Clean(rel)] = true
 	}
+	sticky := stickyDirs(opts.Keep)
 	// Asked before each operation and the operation still made unconditionally:
 	// what is counted is whether this run altered the host, and deciding that
 	// separately from doing it keeps the repair itself exactly as it was.
-	rootMode := stickyIf(0o2770|os.ModeSetgid, sticky["."])
+	const rootMode = 0o2770 | os.ModeSetgid
 	if info, err := os.Stat(dir); err == nil {
 		// One per path, not one per operation: a path needing both a regroup and
 		// a widen is still one path, and counting twice would report a hundred
@@ -258,21 +259,38 @@ func shareTree(root string, gid int, keep, sticky map[string]bool) (int, error) 
 	return changed, err
 }
 
-// stickyIf adds the sticky bit to a directory that holds a file an enrolment
-// wrote.
+// stickyDirs are the directories under the tree that hold a file an enrolment
+// wrote, and so get the sticky bit.
 //
 // Sharing gives the client group rwx on every directory, and unlink and rename
 // are permissions on the directory, so without this a brokered command can
 // delete .claude/settings.json and put its own there: the file's own mode never
-// enters into it.  Sticky is the one thing that does, restricting unlink and
-// rename to the file's owner, which is the operator and not the uid a brokered
-// command runs as.
+// enters into it.  Sticky restricts unlink and rename to the file's owner,
+// which is the operator and not the uid a brokered command runs as.
 //
-// What it costs is real and lands on the tree's root, which holds .mcp.json and
-// the instructions file: a brokered command can no longer rename over or delete
-// an operator-owned file there, so a tool that rewrites one by rename gets
-// EPERM.  Subdirectories other than an agent's own are untouched.  See
-// docs/operating.md.
+// The tree's own root is deliberately not among them, and that is a trade
+// rather than an oversight.  Sticky there would stop a brokered command
+// renaming over or deleting any operator-owned file at the top level, which is
+// what a tool rewriting a lock file or go.mod by rename does, and that cost was
+// judged the higher one.
+//
+// What it gives up is most of what the rest of this buys.  Renaming a directory
+// needs write on its parent, and the root is group-writable, so a brokered
+// command can move .claude aside and put its own directory there; the sticky
+// bit below only ever protected the file inside it.  So this narrows the window
+// and does not close it, and `faramir doctor` reports an enrolled tree whose
+// agent files no longer carry what the enrolment wrote.
+func stickyDirs(keep []string) map[string]bool {
+	out := make(map[string]bool, len(keep))
+	for _, rel := range keep {
+		if dir := filepath.Dir(filepath.Clean(rel)); dir != "." {
+			out[dir] = true
+		}
+	}
+	return out
+}
+
+// stickyIf adds the sticky bit to a directory in that set.
 func stickyIf(mode os.FileMode, yes bool) os.FileMode {
 	if !yes {
 		return mode

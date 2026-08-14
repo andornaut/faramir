@@ -389,7 +389,7 @@ func TestDirectoriesHoldingAKeptFileAreSticky(t *testing.T) {
 	}
 
 	keep := map[string]bool{".claude/settings.json": true, ".mcp.json": true}
-	sticky := map[string]bool{".claude": true, ".": true}
+	sticky := stickyDirs([]string{".claude/settings.json", ".mcp.json"})
 	if _, err := shareTree(root, -1, keep, sticky); err != nil {
 		t.Fatal(err)
 	}
@@ -398,9 +398,12 @@ func TestDirectoriesHoldingAKeptFileAreSticky(t *testing.T) {
 		dir  string
 		want bool
 	}{
-		{root, true},                           // holds .mcp.json
 		{filepath.Join(root, ".claude"), true}, // holds settings.json
-		{filepath.Join(root, "src"), false},    // ordinary work goes on here
+		// The root holds .mcp.json and is left alone anyway: sticky there would
+		// stop a brokered command renaming over any operator-owned file at the
+		// top level, which is what a tool rewriting a lock file does.
+		{root, false},
+		{filepath.Join(root, "src"), false}, // ordinary work goes on here
 	} {
 		info, err := os.Stat(tc.dir)
 		if err != nil {
@@ -418,14 +421,38 @@ func TestDirectoriesHoldingAKeptFileAreSticky(t *testing.T) {
 	}
 }
 
+// The tree's own root is not in the set, so nothing at the top level of an
+// enrolled tree stops being renamable by a brokered command.  Stated as a test
+// because it is a trade and not an oversight: what it costs is that the
+// directory holding an agent's settings can itself be moved aside from a root
+// the client group can write.
+func TestTheTreeRootIsNotSticky(t *testing.T) {
+	got := stickyDirs([]string{".mcp.json", "AGENTS.md", ".claude/settings.json",
+		".opencode/plugins/faramir.js"})
+
+	if got["."] {
+		t.Error("the tree root is sticky, which stops a brokered command renaming " +
+			"over any operator-owned file at the top level")
+	}
+	for _, want := range []string{".claude", ".opencode/plugins"} {
+		if !got[want] {
+			t.Errorf("%s is not sticky, so its settings can be unlinked", want)
+		}
+	}
+}
+
 // Applied once and not again: a second run finds the sticky bit already there.
 func TestStickyIsNotAChangeOnASecondRun(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ".mcp.json"), []byte("{}\n"), 0o640); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	keep := map[string]bool{".mcp.json": true}
-	sticky := map[string]bool{".": true}
+	if err := os.WriteFile(
+		filepath.Join(root, ".claude", "settings.json"), []byte("{}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	keep := map[string]bool{".claude/settings.json": true}
+	sticky := stickyDirs([]string{".claude/settings.json"})
 
 	if _, err := shareTree(root, -1, keep, sticky); err != nil {
 		t.Fatal(err)
