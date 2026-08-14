@@ -6,13 +6,21 @@ The suites do not run in CI. They need Docker, a privileged container and the ho
 
 ## Prerequisites
 
-Copy three binaries beside `lab.sh` before the first `up`. The image has no network, so it installs what it finds in the build context.
+Three binaries must be beside `lab.sh` before the first `up`. The image has no network, so it installs what it finds in the build context.
+
+```sh
+./lab.sh fetch              # downloads all three, x86_64
+```
 
 | File | Where it comes from |
 | --- | --- |
 | `sops` | https://github.com/getsops/sops/releases |
 | `age` | https://github.com/FiloSottile/age/releases |
 | `age-keygen` | the same age release |
+
+`fetch` takes upstream's own builds, which are static, so the image needs no libc to match. Both the version and the sha256 are pinned in `lab.sh`: these are what the lab decrypts and generates keys with, so a run that says a release is fit to ship says it about a tool named there. A digest that does not match is refused and nothing is written. Bumping a version means changing its digest too, which the refusal prints.
+
+`fetch` skips what is already there, so it is safe before every `up`; delete a file to replace it. It pins x86_64 digests only, and says so on another architecture: copy the three in by hand there.
 
 `lab.sh up` builds two more into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a compiled-in constant, so `lab.sh` builds it with `go build -overlay`, which replaces that one file at compile time and leaves the tree alone.
 
@@ -27,6 +35,8 @@ All five are gitignored. `up` refuses to build without the three you supply, rat
 ./lab.sh sh                 # a root shell in the container
 ./lab.sh down               # remove the containers, images and network
 ```
+
+`make lab` from the repository root is `fetch`, `up` and `run` in one command, and `make check` is that after the linters and the Go suite.
 
 `up` is idempotent and rebuilds the binary from the current tree, so it is how you pick up a change. `run` copies each script in fresh, so editing a suite needs no rebuild.
 
