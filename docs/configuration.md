@@ -55,7 +55,8 @@ Key | Derived from
 `[ssh] exec_group` | `--exec-user`, resolved to that account's own group
 `[ssh] ssh_agent`, `[ssh] ssh_add` | resolved on `PATH` at install time; the broker execs them as its own uid
 `[ssh] agent_socket`, `[audit] log_path` | no flag: `/run/faramir` and `/var/log/faramir`, fixed at build time
-`[sudo] exec_user`, `pam_service`, `helper`, `notify_command` | `--allow-sudo`
+`[sudo] exec_user`, `pam_service`, `helper` | `--allow-sudo`
+`[sudo] notify_command` | `--notify-command`, repeatable, one argument each
 
 Three of these cost something rather than being tidiness:
 
@@ -63,7 +64,17 @@ Three of these cost something rather than being tidiness:
 - `ssh_agent` and `ssh_add` are binaries the broker execs as the uid holding every plaintext value.
 - `log_path` is rendered into `logrotate.conf` alongside, so moving one leaves rotation pointed at a file nothing writes, which `doctor` fails on. The audit log does not follow `--config-dir`, `{{.LogDir}}` being the broker unit's `ReadWritePaths`.
 
-The whole of `[sudo]` but `timeout_sec` is the approval boundary itself, decided per host at install time. `pam_service` names the file `sudo` authenticates through, so a drop-in pointing it at a service the operator wrote would choose what decides every approval; `helper` is the program PAM execs as root to make that decision. Re-run `init` with or without `--allow-sudo` to change the arrangement. `notify_command` announces a pending question and carries no answer; it must name `{prompt}` or `{id}`. Keep `{id}` off anything that broadcasts: `wall` reaches every terminal on the host, and the coding agent has one.
+The whole of `[sudo]` but `timeout_sec` is the approval boundary itself, decided per host at install time. `pam_service` names the file `sudo` authenticates through, so a drop-in pointing it at a service the operator wrote would choose what decides every approval; `helper` is the program PAM execs as root to make that decision. Re-run `init` with or without `--allow-sudo` to change the arrangement.
+
+`notify_command` announces a pending question and carries no answer, and it is here for the same reason as the other three: the broker execs it as the uid holding every decrypted value, so a file another account could write would be choosing what that uid runs. Being init's, it has a flag, `init` resolving the program on `PATH` as it does `ssh_agent` and `ssh_add`:
+
+```sh
+faramir init --allow-sudo \
+    --notify-command /usr/bin/wall \
+    --notify-command '{prompt}'
+```
+
+One argument per flag, so nothing has to be word-split. It must name `{prompt}` or `{id}`, and `init` refuses it otherwise rather than leaving the broker unable to load its config. Keep `{id}` off anything that broadcasts: `wall` reaches every terminal on the host, and the coding agent has one.
 
 ## The sockets belong to their units
 

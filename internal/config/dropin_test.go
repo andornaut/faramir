@@ -193,7 +193,7 @@ func TestADropInMayNotSetWhatInitDerives(t *testing.T) {
 		{"[sudo]\nexec_user = \"root\"\n", "--allow-sudo"},
 		{"[sudo]\npam_service = \"sudo\"\n", ""},
 		{"[sudo]\nhelper = \"/tmp/evil\"\n", ""},
-		{"[sudo]\nnotify_command = [\"/bin/echo\", \"{prompt}\"]\n", ""},
+		{"[sudo]\nnotify_command = [\"/bin/echo\", \"{prompt}\"]\n", "--allow-sudo --notify-command"},
 	} {
 		t.Run(tc.flag+tc.dropIn, func(t *testing.T) {
 			_, err := write(t, minimal, map[string]string{"10-x.toml": tc.dropIn})

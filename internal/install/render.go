@@ -42,6 +42,19 @@ var renderFuncs = template.FuncMap{
 	"jsonLines":   jsonLines,
 	"jsonDenyMap": jsonDenyMap,
 	"quote":       strconv.Quote,
+	"tomlList":    tomlList,
+}
+
+// tomlList renders a string list as a TOML array.  strconv.Quote per element,
+// TOML's basic strings taking the same escapes as Go's, so an argument holding
+// a quotation mark or a backslash survives the round trip rather than producing
+// a file the loader rejects.
+func tomlList(items []string) string {
+	quoted := make([]string, 0, len(items))
+	for _, item := range items {
+		quoted = append(quoted, strconv.Quote(item))
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
 // credentialRules is the part of the credentials policy both sections state:

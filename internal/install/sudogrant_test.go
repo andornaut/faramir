@@ -347,3 +347,119 @@ func TestTheBrokerUnitNeedsNoHoleForApprovals(t *testing.T) {
 		}
 	}
 }
+
+// notifyLayout is sudoGrantLayout with an announcement asked for.
+func notifyLayout(t *testing.T, argv ...string) (Layout, error) {
+	t.Helper()
+	opts := Options{
+		OperatorUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+		BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex",
+		ConfigDir: "/opt/conf", AllowSudo: true, NotifyCommand: argv,
+	}
+	opts.applyDefaults()
+	return opts.layout()
+}
+
+// --notify-command is the flag the ownership implies.  notify_command is init's,
+// so a drop-in setting it is refused; without a flag that refusal named no way to
+// set it at all and the value was unreachable on any host init runs on, which is
+// every host managed by configuration management.
+func TestNotifyCommandIsRenderedAndLoadsBack(t *testing.T) {
+	layout, err := notifyLayout(t, "/usr/bin/wall", "{prompt}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := render("etc/config.toml.tmpl", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadRendered(t, body)
+	want := []string{"/usr/bin/wall", "{prompt}"}
+	if len(cfg.Sudo.NotifyCommand) != len(want) {
+		t.Fatalf("notify_command = %q, want %q", cfg.Sudo.NotifyCommand, want)
+	}
+	for i := range want {
+		if cfg.Sudo.NotifyCommand[i] != want[i] {
+			t.Errorf("notify_command[%d] = %q, want %q", i, cfg.Sudo.NotifyCommand[i], want[i])
+		}
+	}
+}
+
+// An argument the operator wrote reaches a TOML file, and a file the loader
+// cannot parse is a broker that will not start.  The quoting is the renderer's
+// rather than each template's, so this holds it to surviving the round trip.
+func TestNotifyCommandSurvivesQuotingItsArguments(t *testing.T) {
+	awkward := `it said "{prompt}" \ here`
+	layout, err := notifyLayout(t, "/usr/bin/wall", awkward)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := render("etc/config.toml.tmpl", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := loadRendered(t, body)
+	if len(cfg.Sudo.NotifyCommand) != 2 || cfg.Sudo.NotifyCommand[1] != awkward {
+		t.Errorf("notify_command = %q, want the second argument back as %q",
+			cfg.Sudo.NotifyCommand, awkward)
+	}
+}
+
+// Refused at install rather than at the daemon's next start.  init is the only
+// writer of this key, so a value it accepts and the loader will not is an install
+// that reported success and left the broker unable to come up.
+func TestAnUnusableNotifyCommandIsRefusedByInit(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		argv  []string
+		sudo  bool
+		wants string
+	}{
+		{
+			name: "names neither placeholder", argv: []string{"/usr/bin/wall", "something"},
+			sudo: true, wants: "neither {prompt} nor {id}",
+		},
+		{
+			name: "without a grant to announce", argv: []string{"/usr/bin/wall", "{prompt}"},
+			sudo: false, wants: "--allow-sudo",
+		},
+		{
+			name: "a program that is not on PATH", argv: []string{"no-such-notifier", "{prompt}"},
+			sudo: true, wants: "is not on PATH",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts := Options{
+				OperatorUser: "operator", ClientGroup: "shared", SecretsGroup: "store",
+				BrokerUser: "br", KeeperUser: "kp", ExecUser: "ex",
+				ConfigDir: "/opt/conf", AllowSudo: tc.sudo, NotifyCommand: tc.argv,
+			}
+			opts.applyDefaults()
+			_, err := opts.layout()
+			if err == nil {
+				t.Fatalf("init accepted %q, which the broker cannot use", tc.argv)
+			}
+			if !strings.Contains(err.Error(), tc.wants) {
+				t.Errorf("error does not say %q: %v", tc.wants, err)
+			}
+		})
+	}
+}
+
+// Resolved at install time, as ssh_agent and ssh_add are and for the same
+// reason: the broker execs this as the uid holding every decrypted value, so
+// which file a bare name reaches is decided here rather than by the broker's
+// PATH at the moment a question is raised.
+func TestNotifyCommandIsPinnedToAPathAtInstallTime(t *testing.T) {
+	layout, err := notifyLayout(t, "sh", "{prompt}")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := layout.NotifyCommand[0]; !filepath.IsAbs(got) {
+		t.Errorf("notify_command[0] = %q, want it resolved to a path", got)
+	}
+	// The arguments are the operator's and are left alone.
+	if got := layout.NotifyCommand[1]; got != "{prompt}" {
+		t.Errorf("notify_command[1] = %q, want it untouched", got)
+	}
+}

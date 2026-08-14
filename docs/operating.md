@@ -166,7 +166,17 @@ There is no password anywhere: what satisfies `sudo` is a decision, so nothing i
 
 Approving from your own shell is the last resort rather than the first: reaching root that way leaves a warm sudo timestamp in a shell the agent can use. Consider `Defaults:<you> timestamp_timeout=0`.
 
-`[sudo] notify_command` optionally announces a pending question (`wall`, a desktop notifier, a push). It carries no answer and nothing waits on it. **Keep `{id}` off a broadcast channel.** `wall` writes to every terminal on the host including the agent's: the id is not a credential, but publishing it is the difference between an agent that would have to guess what to type into your watcher and one that knows. `{prompt}` says what is waiting without saying what to type.
+`[sudo] notify_command` optionally announces a pending question. It carries no answer and nothing waits on it. Set it at install time, one argument per flag:
+
+```sh
+faramir init --allow-sudo \
+    --notify-command /usr/bin/wall \
+    --notify-command '{prompt}'
+```
+
+**Keep `{id}` off a broadcast channel.** `wall` writes to every terminal on the host including the agent's: the id is not a credential, but publishing it is the difference between an agent that would have to guess what to type into your watcher and one that knows. `{prompt}` says what is waiting without saying what to type.
+
+**It runs as the broker, which reaches less than you do.** The environment is a fixed `PATH` and nothing else, and the uid is the broker's own, so anything needing your session is out: a desktop notifier wants `DBUS_SESSION_BUS_ADDRESS` and a path through `/run/user/<uid>`, which is `0700` and yours. What works from there is what needs neither, `wall` (setgid `tty`) or a request to something on the network. For a notification on your desktop, run a watcher on your own side instead: `sudo faramir approvals --watch` reads the same questions and is already in your session.
 
 ### One question per run, and what to expect
 

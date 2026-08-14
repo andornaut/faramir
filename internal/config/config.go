@@ -428,7 +428,7 @@ var initOwned = map[string]string{
 	"sudo.exec_user":      "--allow-sudo",
 	"sudo.pam_service":    "",
 	"sudo.helper":         "",
-	"sudo.notify_command": "",
+	"sudo.notify_command": "--allow-sudo --notify-command PROGRAM --notify-command ARG",
 	// Where the master key is read from, and the credential the keeper unit
 	// supplies it under, which that unit renders alongside.
 	"keeper.age_key_file":       "--config-dir PATH",

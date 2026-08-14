@@ -42,12 +42,31 @@ s=socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
 s.sendall(sys.argv[1].encode()+b'\n')
 print(s.recv(65536).decode()[:160])" "$2" 2>&1; }
 
-if ! grep -q '^\[sudo\]' $CFG; then
-  /usr/local/bin/faramir init --allow-sudo --operator-user op >/tmp/sudo-init.log 2>&1 \
+# The notifier the grant is installed with.  A script rather than wall, which
+# writes to terminals a container has none of; what is being checked is that the
+# broker runs the thing at all and what it hands it, not what wall does with it.
+# It writes into the log directory because that is one of the two places the
+# broker's own unit can write, PrivateTmp= putting its /tmp somewhere nothing
+# else sees.
+NOTIFY=/var/log/faramir/notify.log
+cat >/usr/local/bin/lab-notify <<'EOS'
+#!/bin/sh
+printf '%s\n' "$*" >>/var/log/faramir/notify.log
+EOS
+chmod 0755 /usr/local/bin/lab-notify
+
+# Re-installed when the grant is absent OR when it carries no notifier: the
+# suites share one install, so this may run after another has already written a
+# [sudo] section without one.
+if ! grep -q '^notify_command' $CFG; then
+  /usr/local/bin/faramir init --allow-sudo --operator-user op \
+    --notify-command /usr/local/bin/lab-notify --notify-command '{prompt}' \
+    >/tmp/sudo-init.log 2>&1 \
     || { echo "could not install the grant"; tail -3 /tmp/sudo-init.log; exit 1; }
   systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
   sleep 3
 fi
+rm -f "$NOTIFY"
 echo "grant installed; [sudo] timeout_sec=$(sed -n 's/^timeout_sec *= *\([0-9]*\).*/\1/p' $CFG | head -1)"
 pkill -u faramir-exec 2>/dev/null; sleep 1
 
@@ -264,6 +283,33 @@ head_ "10. the record"
 id=$(jq -r 'select(.op=="ask_approval" and .approved==true) | .exec_log_id' $LOG 2>/dev/null | tail -1)
 [ -n "$id" ] && [ "$id" != null ] && ok "and names the command's own record ($id)" \
   || bad "an approval does not point at the run it authorised"
+
+# --------------------------------------------------------------------------
+head_ "11. the notifier"
+#
+# [sudo] notify_command is what says a question is waiting, and it is init's:
+# a drop-in setting it is refused, so `faramir init --notify-command` is the
+# only way onto a host, and this is the check that the flag reaches the broker
+# rather than only the file.
+
+grep -q '^notify_command = \["/usr/local/bin/lab-notify", "{prompt}"\]' $CFG \
+  && ok "init wrote the notifier the flag named" \
+  || bad "the config does not carry it: $(grep '^notify_command' $CFG || echo none)"
+[ -s "$NOTIFY" ] && ok "the broker ran it, $(wc -l <"$NOTIFY") announcement(s)" \
+  || bad "nothing was announced, though questions were raised"
+grep -q 'approve every sudo' "$NOTIFY" && ok "and handed it the prompt, expanded" \
+  || bad "the announcement is not the prompt: $(head -1 "$NOTIFY" | cut -c1-90)"
+grep -q '{prompt}' "$NOTIFY" && bad "the placeholder was passed through unexpanded" \
+  || ok "with the placeholder substituted rather than passed through"
+# {prompt} was asked for and {id} was not, so the id must not be in there: it is
+# what a reader types to approve, and this channel reaches whoever can see it.
+if grep -qE '\b[0-9a-f]{6}\b' "$NOTIFY"; then
+  bad "an announcement carries a question id, which {prompt} alone must not: $(grep -oE '\b[0-9a-f]{6}\b' "$NOTIFY" | head -1)"
+else
+  ok "and no question id, {id} not having been asked for"
+fi
+grep -q "$SECRET" "$NOTIFY" && bad "*** an announcement carries the plaintext value ***" \
+  || ok "and no secret value"
 
 # --------------------------------------------------------------------------
 summary

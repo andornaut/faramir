@@ -134,22 +134,23 @@ func resolveConfigDir(explicit, socketPath string) string {
 }
 
 type initFlags struct {
-	operatorUser string
-	clientGroup  string
-	secretsGroup string
-	brokerUser   string
-	keeperUser   string
-	execUser     string
-	configDir    string
-	socket       string
-	sshKey       string
-	knownHosts   string
-	initAgents   []string
-	allowSudo    bool
-	moveConfig   bool
-	dryRun       bool
-	asJSON       bool
-	recipients   []string
+	operatorUser  string
+	clientGroup   string
+	secretsGroup  string
+	brokerUser    string
+	keeperUser    string
+	execUser      string
+	configDir     string
+	socket        string
+	sshKey        string
+	knownHosts    string
+	initAgents    []string
+	allowSudo     bool
+	notifyCommand []string
+	moveConfig    bool
+	dryRun        bool
+	asJSON        bool
+	recipients    []string
 }
 
 func newInitCmd() *cobra.Command {
@@ -204,6 +205,18 @@ func newInitCmd() *cobra.Command {
 			"service whose auth step asks the broker, so no password exists anywhere "+
 			"and a human approves each command through 'faramir approve'. Off by "+
 			"default, and re-running without it takes the grant away")
+	fl.StringArrayVar(&f.notifyCommand, "notify-command", nil,
+		// The backquoted word is cobra's placeholder for the value, taken from the
+		// first one in the string; without it the help reads "stringArray", and any
+		// other backquoted phrase in here becomes the placeholder instead.
+		"announce a waiting approval: one `ARG` each, repeatable, "+
+			"--notify-command /usr/bin/wall --notify-command '{prompt}'. \"{prompt}\" "+
+			"is the line the broker builds and \"{id}\" the question to answer, and one "+
+			"of the two must appear. Keep \"{id}\" off anything that broadcasts: wall "+
+			"reaches every terminal on the host and the coding agent has one. The "+
+			"program is resolved on PATH here, being run as the account holding every "+
+			"decrypted value. Needs --allow-sudo; unset, 'faramir approvals --watch' "+
+			"is the only place a question shows up")
 	fl.BoolVar(&f.moveConfig, "move-config", false,
 		"consent to point this host's daemons at a different --config-dir. There is "+
 			"one set of units, so the new directory replaces the old rather than "+
@@ -232,6 +245,7 @@ func runInit(f initFlags) int {
 		KnownHosts:    f.knownHosts,
 		Agents:        f.initAgents,
 		AllowSudo:     f.allowSudo,
+		NotifyCommand: f.notifyCommand,
 		MoveConfig:    f.moveConfig,
 		DryRun:        f.dryRun,
 	}

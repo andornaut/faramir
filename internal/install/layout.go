@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -136,6 +137,16 @@ type Layout struct {
 	// section, writes no sudoers file and no PAM service, so nothing can be asked
 	// for.
 	AllowSudo bool
+
+	// NotifyCommand announces that a question is waiting.  Empty is the default
+	// and means `faramir approvals --watch` is the only place one shows up.
+	//
+	// Written by init rather than left to a drop-in, and the reason is the same
+	// one that owns pam_service and helper: the broker execs this as the uid
+	// holding every plaintext value, so a file another account could write would
+	// be choosing what that uid runs.  Being init's, it needs a flag, or the
+	// ownership only says where it cannot be set.
+	NotifyCommand []string
 }
 
 // PamHelper is what the PAM service execs, as root, to decide one sudo: a
@@ -280,6 +291,41 @@ func (l Layout) validate() error {
 				"the broker runs, and sharing one removes it", other, name, account)
 		}
 		seen[account] = name
+	}
+	return l.validateNotifyCommand()
+}
+
+// validateNotifyCommand holds the announcement to what the loader will accept,
+// so a bad one is refused before anything is written rather than at the daemon's
+// next start.  The rules are the loader's, restated here because init is the
+// only writer: see config.parseSudo.
+func (l Layout) validateNotifyCommand() error {
+	if len(l.NotifyCommand) == 0 {
+		return nil
+	}
+	if !l.AllowSudo {
+		return fmt.Errorf("--notify-command announces a pending approval, and this "+
+			"install grants none: pass --allow-sudo as well, or drop it. Without the "+
+			"grant no [sudo] section is written and there is nothing to announce (%s)",
+			strings.Join(l.NotifyCommand, " "))
+	}
+	if !slices.ContainsFunc(l.NotifyCommand, func(arg string) bool {
+		return strings.Contains(arg, "{prompt}") || strings.Contains(arg, "{id}")
+	}) {
+		return fmt.Errorf("--notify-command names neither {prompt} nor {id}, so it "+
+			"would announce that something is waiting without saying what: %s",
+			strings.Join(l.NotifyCommand, " "))
+	}
+	// Absolute by the time this runs: Options.layout resolves argv[0] on PATH, as
+	// it does ssh_agent and ssh_add and for the same reason.  Checked rather than
+	// assumed, a name that resolved to nothing otherwise reaching the config as
+	// itself and being looked up again later, by the broker's PATH rather than
+	// the install's.
+	if !filepath.IsAbs(l.NotifyCommand[0]) {
+		return fmt.Errorf("--notify-command %q is not on PATH and is not an absolute "+
+			"path: it is run as the account holding every decrypted value, so which "+
+			"file it reaches is the install's to decide rather than the broker's PATH's",
+			l.NotifyCommand[0])
 	}
 	return nil
 }

@@ -67,6 +67,16 @@ type Options struct {
 	// grant, which is the direction that takes reach away.
 	AllowSudo bool
 
+	// NotifyCommand announces a pending approval, "{prompt}" being the line the
+	// broker builds and "{id}" the question to answer.  Empty leaves `faramir
+	// approvals --watch` as the only place a question shows up.
+	//
+	// A flag rather than a drop-in because the broker execs it as the uid holding
+	// every decrypted value, which is the same reason ssh_agent and ssh_add are
+	// resolved here.  Requires AllowSudo: without the grant there is no [sudo]
+	// section and nothing to announce.
+	NotifyCommand []string
+
 	// MoveConfig is consent to point this host's daemons at a different
 	// ConfigDir.  Required because the units are one set with fixed names, so a
 	// second directory does not stand beside the first: it replaces it, and what
@@ -376,7 +386,25 @@ func (o Options) layout() (Layout, error) {
 	// section off it: an install that never passed --allow-sudo renders no section,
 	// writes no PAM service and grants no sudoers entry.
 	layout.AllowSudo = o.AllowSudo
+	layout.NotifyCommand = resolveNotifyCommand(o.NotifyCommand)
 	return layout, layout.validate()
+}
+
+// resolveNotifyCommand pins argv[0] to the file it names now, leaving the
+// arguments alone.  The same treatment ssh_agent and ssh_add get: the broker
+// execs this as the uid holding every decrypted value, so which file a bare name
+// lands on is decided by the install rather than by whatever the broker's PATH
+// reaches at the moment a question is raised.
+//
+// A name that resolves to nothing is left as it was, for validateNotifyCommand
+// to refuse by name.
+func resolveNotifyCommand(argv []string) []string {
+	if len(argv) == 0 {
+		return nil
+	}
+	out := slices.Clone(argv)
+	out[0] = lookPathOr(out[0], out[0])
+	return out
 }
 
 // preflight refuses the run before anything is written, each of these otherwise

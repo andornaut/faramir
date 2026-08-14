@@ -98,11 +98,13 @@ helper = "{{.PamHelper}}"
 # broker builds and "{id}" the question to answer.  It carries no answer and is
 # not waited on, so anything will do: wall, a desktop notifier, a push.
 # Unset, `faramir approvals --watch` is the only place a question shows up.
+# Set it with `faramir init --allow-sudo --notify-command PROGRAM --notify-command ARG`,
+# which resolves the program on PATH; a drop-in setting it here is refused.
 #
 # Keep "{id}" off anything that broadcasts: wall reaches every terminal on this
 # host, and the coding agent has one.  "{prompt}" says what is waiting without
 # saying what to type.
-# notify_command = ["wall", "{prompt}"]
+{{if .NotifyCommand}}notify_command = {{tomlList .NotifyCommand}}{{else}}# notify_command = ["/usr/bin/wall", "{prompt}"]{{end}}
 # How long a question waits for a human before it is refused.  Between 1 and
 # 600: the PAM helper derives its own deadline from that ceiling, so a question
 # held longer than it would be one the helper had already abandoned.  While a
