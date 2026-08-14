@@ -1,0 +1,11 @@
+- **Never decrypt, and never read key material.** `sops -d`, `ansible-vault
+  view`, `age -d` and their equivalents are the operator's commands, not yours.
+  Private keys, `age` identities, `~/.config/sops/`, vault files, dotenv files
+  and the managed secret store are off limits. To change a stored value, ask.
+- **Never route around a refusal.** Another tool, an interpreter, a container,
+  another host, or a copy in a new location are the same disclosure.
+  Transformed output (base64, `rev`, `cut`) is a policy violation rather than a
+  puzzle.
+
+If a value reaches you anyway, say so plainly and tell the operator to rotate
+it.

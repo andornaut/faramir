@@ -152,7 +152,7 @@ func TestTraversalAction(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, err := traversalAction(info, tc.gid, dir)
+			got, err := traversalAction(info, tc.gid)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -463,5 +463,83 @@ func TestStickyIsNotAChangeOnASecondRun(t *testing.T) {
 	}
 	if changed != 0 {
 		t.Errorf("a second run altered %d path(s), want 0", changed)
+	}
+}
+
+// Traversal is granted through descriptors, so a component swapped after it was
+// looked at reaches nothing.  These directories are the operator's and this
+// runs as root: chmod and chown follow a link, so a path checked and then acted
+// on by name is root regrouping a directory of somebody else's choosing.
+func TestGrantTraversalDoesNotFollowASwappedComponent(t *testing.T) {
+	home := t.TempDir()
+	real := filepath.Join(home, "src")
+	tree := filepath.Join(real, "work")
+	if err := os.MkdirAll(tree, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// What an attacker would aim at: a directory of somebody else's, not
+	// traversable by the group, outside everything being shared.
+	prize := filepath.Join(t.TempDir(), "prize")
+	if err := os.MkdirAll(prize, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(prize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The component is replaced by a link to it, as its owner could at any time.
+	if err := os.Rename(real, filepath.Join(home, "moved")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(prize, real); err != nil {
+		t.Fatal(err)
+	}
+
+	var st syscall.Stat_t
+	if err := syscall.Stat(home, &st); err != nil {
+		t.Fatal(err)
+	}
+	// It fails rather than following: os.Root refuses a name that resolves
+	// outside the directory it was opened on.
+	if _, err := grantTraversal(home, tree, Options{Group: "shared"}, int(st.Gid)); err == nil {
+		t.Error("a swapped component was walked into")
+	}
+
+	after, err := os.Stat(prize)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Mode() != before.Mode() {
+		t.Errorf("the directory the link pointed at is now %v, was %v: root "+
+			"chmodded somewhere it was never pointed", after.Mode(), before.Mode())
+	}
+}
+
+// A tree that is the home has nothing above it to walk.  components answers
+// with none, and asking for the tail of that is asking for element one of an
+// empty list.
+func TestGrantTraversalOnTheHomeItselfDoesNothing(t *testing.T) {
+	home := t.TempDir()
+	if err := os.Chmod(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var st syscall.Stat_t
+	if err := syscall.Stat(home, &st); err != nil {
+		t.Fatal(err)
+	}
+
+	changed, err := grantTraversal(home, home, Options{Group: "shared"}, int(st.Gid))
+	if err != nil {
+		t.Fatalf("granting traversal on the home itself: %v", err)
+	}
+	if changed != 0 {
+		t.Errorf("granted %d, want 0", changed)
+	}
+	info, err := os.Stat(home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode().Perm() != 0o700 {
+		t.Errorf("the home is %04o, want the 0700 it had", info.Mode().Perm())
 	}
 }

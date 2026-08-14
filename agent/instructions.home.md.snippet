@@ -1,16 +1,14 @@
 # Credentials
 
+{{if .AccountRules -}}
 Your file tools are refused key material on this machine, wherever you are
-working: private keys, `age` identities, `~/.config/sops/`, dotenv files and the
-managed secret store. Being able to reach a file is not permission to open it.
-
-Never decrypt anything. `sops -d`, `ansible-vault view`, `age -d` and their
-equivalents are the operator's commands, not yours. To change a stored value,
-ask.
-
-Never route around a refusal. Another tool, an interpreter, a container, another
-host, or a copy in a new location are the same disclosure, and transformed
-output (base64, `rev`, `cut`) is a policy violation rather than a puzzle.
+working. Being able to reach a file is not permission to open it.
+{{- else -}}
+Nothing on this machine refuses your file tools key material, except in a
+project enrolled with `faramir init-project`, where the extension that
+enrolment installs does. The rules below stand either way. Being able to reach
+a file is not permission to open it.
+{{- end}}
 
 In a project enrolled with `faramir init-project` there is a route that does not
 need the value: commands run through the broker, which injects what they asked
@@ -18,5 +16,4 @@ for and redacts it from the output. That project's own instructions say how. In
 a project that is not enrolled there is no such route, so ask the operator
 rather than looking for one.
 
-If a value reaches you anyway, say so plainly and tell the operator to rotate
-it.
+{{ credentialRules }}

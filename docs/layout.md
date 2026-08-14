@@ -39,7 +39,7 @@ Every path the install creates, what owns it, and what each account can reach th
 <any tree you enrol>            2770 <operator>:<client-group>, setgid
 ```
 
-`init` also writes into the operator's home, each `0640 <operator>:<operator group>`, with any missing parent created `0700`:
+`init` also writes into the operator's home, any file it creates being `0640 <operator>:<operator group>` and any missing parent `0700`. A file already there keeps its owner, its group and, for the credentials section, its mode; it must be a regular file the operator owns, or a symlink landing on one, and anything else fails the run:
 
 Agent | Deny rules | Credentials section
 --- | --- | ---

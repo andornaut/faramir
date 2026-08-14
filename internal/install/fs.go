@@ -169,37 +169,191 @@ func chmodAndChown(path string, mode os.FileMode, uid, gid int) error {
 	return handle.Chown(uid, gid)
 }
 
-// mergeFile merges faramir's keys into an existing JSON file, or writes data
-// whole.  Handed to writeFile, so it is owned and renamed the same way.
-func (f fsys) mergeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
-	current, err := os.ReadFile(path)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		// Through the merge even with nothing to merge into, so the first write is
-		// byte-for-byte what the second would produce.  Writing the asset as it was
-		// authored leaves the next run re-serialising it with keys sorted, which is
-		// one real diff on a tree nobody touched.
-		created, mergeErr := mergeJSON(nil, data)
-		if mergeErr != nil {
-			return false, fmt.Errorf("%s: %w", path, mergeErr)
-		}
-		return f.writeFile(path, created, mode, uid, gid)
-	case err != nil:
-		return false, err
-	}
-	merged, err := mergeJSON(current, data)
-	if err != nil {
-		return false, fmt.Errorf("%s: %w", path, err)
-	}
-	return f.writeFile(path, merged, mode, uid, gid)
+// errNotOperators is a file faramir edits rather than owns whose owner is not
+// the account it is being edited for, or a link that lands on one.
+//
+// The message carries what to do, because this surfaces in two places: through
+// sectionProblem for a credentials section, and wrapped with its path for an
+// agent's settings.  Naming no command, the two having different ones.
+var errNotOperators = errors.New("this is a file faramir edits rather than owns, " +
+	"and it is not the operator's, so nothing was written: editing it would be root " +
+	"writing a file it was never asked to, and chowning it to make that true would " +
+	"take it from whoever has it. A symlink here is followed, so this also names one " +
+	"landing on a file the operator does not own, on nothing, or outside the tree " +
+	"being enrolled. Give it to the operator, or point the link at their own file")
+
+// edited is where a file faramir edits rather than owns is to be written.
+//
+// A link that was followed leaves root open on the target's directory and name
+// set to the file inside it, and everything after that goes through that
+// descriptor.  The point is that the resolution happens once: a path checked
+// and then written by path is resolved twice, and between the two the account
+// the agent runs as can replace a directory it owns with a link, which would
+// have root renaming a file into somewhere of its choosing.  Pinned to the
+// descriptor, a swap afterwards reaches nothing.
+//
+// The temp-and-rename is kept, so a write that fails partway leaves the file it
+// found rather than half of a new one.
+type edited struct {
+	// path is where to write, and is what is used when root is nil.
+	path string
+	// root is the target's directory and name the file inside it, both set only
+	// where a link was followed.
+	root *os.Root
+	name string
+	// info is the file as it is, or nil where there is nothing there yet.
+	info os.FileInfo
 }
 
-// writeFile writes data when the file is absent or differs.  Compared by
-// content, so an unchanged re-run reports nothing.
-func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
-	current, err := os.ReadFile(path)
+func (e *edited) close() {
+	if e != nil && e.root != nil {
+		_ = e.root.Close()
+	}
+}
+
+// read is what the file holds now, or nil where there is nothing there.
+func (e *edited) read() ([]byte, error) {
+	var (
+		body []byte
+		err  error
+	)
+	if e.root != nil {
+		body, err = e.root.ReadFile(e.name)
+	} else {
+		body, err = os.ReadFile(e.path)
+	}
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return body, err
+}
+
+// editedFile is where to write a file faramir edits rather than owns: the
+// agent's settings, the credentials section.  The caller closes it.
+//
+// These commands run as root on paths inside directories the account the agent
+// runs as can write, which is what makes each check here worth its cost:
+//
+//   - A link is followed, so a dotfiles manager's file is updated in place
+//     rather than replaced by a regular file.  Only to a regular file the
+//     operator owns: a link re-pointed anywhere else would have root writing,
+//     or a merge reading, a file it was never asked to.  within bounds where it
+//     may land, naming the enrolled tree where there is one and empty in a home.
+//   - An existing file must be the operator's.  Root would otherwise edit
+//     somebody else's file, and chowning it away from them to make that true is
+//     the more surprising of the two.
+//   - Nothing there is no error: the caller creates it, and creation is where
+//     ownership is faramir's to set.
+//
+// uid == keep asks nothing, for a caller with no operator in hand.
+//
+// A nil info means there is nothing there.  Otherwise it is the file's, and the
+// caller keeps its mode and its ownership from it rather than passing keep: a
+// write renames a new file over the path, so the replacement takes the writing
+// process's own ids, which are root's.  keep would leave a root-owned file
+// where the operator's was, which is the opposite of leaving it alone.
+func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
+	link, err := os.Lstat(path)
+	switch {
+	case errors.Is(err, os.ErrNotExist):
+		return &edited{path: path}, nil
+	// A dry run is the one form that does not need root, so a path it cannot
+	// look at is left to the write below, which writes nothing either way.
+	case f.dryRun && errors.Is(err, os.ErrPermission):
+		return &edited{path: path}, nil
+	case err != nil:
+		return nil, err
+	}
+	target := path
+	if link.Mode()&os.ModeSymlink != 0 {
+		resolved, err := filepath.EvalSymlinks(path)
+		switch {
+		case f.dryRun && errors.Is(err, os.ErrPermission):
+			return &edited{path: path}, nil
+		// A dangling link names a path that is not there, and creating it would
+		// put a root-made file wherever the link happens to aim.
+		case errors.Is(err, os.ErrNotExist):
+			return nil, errNotOperators
+		case err != nil:
+			return nil, err
+		}
+		// Kept inside the tree where there is one.  Following a link out of it
+		// would apply the tree's group and mode to a file the enrolment was never
+		// pointed at, so a dotfiles copy would come out readable by the account
+		// brokered commands run as.  sharetree refuses to follow one out for the
+		// same reason.  No such bound in a home: a dotfiles repository is
+		// wherever the operator keeps it.
+		if within != "" && !encloses(within, resolved) {
+			return nil, errNotOperators
+		}
+		target = resolved
+	}
+	// Pinned whether or not a link was followed.  What the checks below decide
+	// has to be decided about the file the write then lands on, and a path
+	// checked and then written by path is resolved twice, with room between the
+	// two for the account the agent runs as to replace a directory it owns.
+	root, err := os.OpenRoot(filepath.Dir(target))
+	if err != nil {
+		if f.dryRun {
+			return &edited{path: path}, nil
+		}
+		return nil, err
+	}
+	out := &edited{path: target, root: root, name: filepath.Base(target)}
+	info, err := out.stat()
+	switch {
+	// A path that cannot be read is a different problem from one somebody else
+	// owns, and saying the wrong one sends an operator after the wrong fix.
+	case f.dryRun && errors.Is(err, os.ErrPermission):
+		out.close()
+		return &edited{path: path}, nil
+	case errors.Is(err, os.ErrNotExist):
+		out.close()
+		return nil, errNotOperators
+	case err != nil:
+		out.close()
+		return nil, err
+	case !info.Mode().IsRegular():
+		out.close()
+		return nil, errNotOperators
+	}
+	switch wrong, err := wrongOwner(info, uid, keep); {
+	case err != nil, wrong:
+		out.close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, errNotOperators
+	}
+	out.info = info
+	return out, nil
+}
+
+// stat asks the descriptor where there is one, so what is checked is what is
+// written rather than whatever the path names by then.
+func (e *edited) stat() (os.FileInfo, error) {
+	if e.root != nil {
+		return e.root.Stat(e.name)
+	}
+	return os.Stat(e.path)
+}
+
+// writeEdited writes data where editedFile said, through the descriptor where
+// one was opened.
+func (f fsys) writeEdited(e *edited, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
+	if e.root == nil {
+		return f.writeFile(e.path, data, mode, uid, gid)
+	}
+	return f.writeInto(e.root, e.name, data, mode, uid, gid)
+}
+
+// writeInto is writeFile relative to an open directory: same comparison, same
+// temp-and-rename, and no path resolved twice.  The temp is created O_EXCL, so
+// one already sitting there is an error rather than something to truncate.
+func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
+	current, err := root.ReadFile(name)
 	if err == nil && bytes.Equal(current, data) {
-		info, statErr := os.Stat(path)
+		info, statErr := root.Stat(name)
 		if statErr != nil {
 			return false, statErr
 		}
@@ -216,27 +370,61 @@ func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int
 	if f.dryRun {
 		return true, nil
 	}
-	// Written and renamed, never truncated in place: a failed write would leave an
-	// empty config that a caller keeping what it finds preserves forever.
-	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*")
+	tmp := name + ".faramir-tmp"
+	handle, err := root.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
+		return false, fmt.Errorf("%s: %w", tmp, err)
+	}
+	defer func() { _ = root.Remove(tmp) }()
+	if _, err := handle.Write(data); err != nil {
+		_ = handle.Close()
 		return false, err
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
+	if err := handle.Close(); err != nil {
 		return false, err
 	}
-	if err := tmp.Close(); err != nil {
+	// The open applied the umask; these do not.
+	if err := root.Chmod(tmp, mode); err != nil {
 		return false, err
 	}
-	if err := os.Chmod(tmp.Name(), mode); err != nil {
+	if uid != keep || gid != keep {
+		if err := root.Lchown(tmp, uid, gid); err != nil {
+			return false, err
+		}
+	}
+	return true, root.Rename(tmp, name)
+}
+
+// ownerOf is a file's uid and gid, or keep for both where they cannot be read.
+func ownerOf(info os.FileInfo) (int, int) {
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return keep, keep
+	}
+	return int(st.Uid), int(st.Gid)
+}
+
+// writeFile writes data when the file is absent or differs.  Compared by
+// content, so an unchanged re-run reports nothing.
+//
+// Through a descriptor opened on the parent, so the directory is resolved once
+// and the temp and the rename below cannot land in two different places: some
+// of what this writes sits in the operator's home, in an enrolled tree, or in
+// the executor's own, and those are directories an account other than root can
+// replace while a run is in progress.
+func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
+	root, err := os.OpenRoot(filepath.Dir(path))
+	if err != nil {
+		// A dry run creates no directories, so the parent of a file it would
+		// create is not there to open.  Reported as it always was: this would
+		// write something.
+		if f.dryRun {
+			return true, nil
+		}
 		return false, err
 	}
-	if err := chown(tmp.Name(), uid, gid); err != nil {
-		return false, err
-	}
-	return true, os.Rename(tmp.Name(), path)
+	defer func() { _ = root.Close() }()
+	return f.writeInto(root, filepath.Base(path), data, mode, uid, gid)
 }
 
 // copyFile writes src's contents to dst under dst's own mode and ownership.

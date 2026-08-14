@@ -5,6 +5,7 @@ package install
 // directory safe to default to here and unsafe there.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -516,7 +517,7 @@ func (p *project) agentConfig() error {
 		// widened it, and that run would then report a change on a re-enrolment
 		// an operator reads as a no-op.
 		made, paths, err := writeAgentFiles(p.fs, p.opts.Dir,
-			p.uid, p.gid, 0o2770|os.ModeSetgid, asTarget, target.files)
+			p.uid, p.gid, 0o2770|os.ModeSetgid, true, asTarget, target.files)
 		written = append(written, paths...)
 		if err != nil {
 			return err
@@ -579,13 +580,12 @@ func (p *project) instructions() error {
 	if err != nil {
 		return err
 	}
-	changed, err := p.fs.sectionFile(path, section, p.uid, p.gid)
-	if leftAlone(err) {
-		p.warn("%s", sectionWarning(err, path, "`sudo faramir init-project`"))
-		p.step("instructions", false, path+" (left as it is; see the warning)")
-		return nil
-	}
-	if err != nil {
+	changed, err := p.fs.sectionFile(path, section, p.uid, p.gid, p.opts.Dir)
+	switch {
+	case outOfDate(err):
+		p.step("instructions", false, path+" (not written; see the error)")
+		return errors.New(sectionProblem(err, path, "`sudo faramir init-project`"))
+	case err != nil:
 		return err
 	}
 	p.step("instructions", changed, path)

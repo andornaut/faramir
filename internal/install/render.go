@@ -37,10 +37,32 @@ var renderFuncs = template.FuncMap{
 	// The tools an agent is offered, for the host that has to register them
 	// itself.  See mcpToolsJS.
 	"mcpToolsJS": mcpToolsJS,
+	// The rules both credentials sections state.  See credentialRules.
+	"credentialRules": credentialRules,
 	// The list emitters, so no template counts commas.
 	"jsonLines":   jsonLines,
 	"jsonDenyMap": jsonDenyMap,
 	"quote":       strconv.Quote,
+}
+
+// credentialRules is the part of the credentials policy both sections state:
+// what must never be decrypted or read, that a refusal is not to be worked
+// around, and what to do when a value arrives anyway.
+//
+// One asset rendered into both, rather than a paragraph written twice.  In an
+// enrolled tree an agent loads both sections at once, `init` having written one
+// into its home and `init-project` the other into the tree, so two copies are
+// read together; copies that had drifted would read as two policies that do not
+// quite agree, which is worse than reading one twice.  Neither section can
+// simply drop it, either: `init` writes the home one only for the agents it
+// finds or is named, and an enrolment leaves a tree's file alone when it cannot
+// delimit the block, so each has to stand alone.
+func credentialRules() (string, error) {
+	body, err := readAsset("agent/instructions.rules.md.snippet")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimRight(string(body), "\n"), nil
 }
 
 // mcpToolsJS renders internal/mcp's tool list as a JSON object keyed by tool

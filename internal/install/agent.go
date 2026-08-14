@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -44,20 +45,34 @@ func (r *runner) stepAgentConfig() error {
 	asLayout := func(file agentFile) ([]byte, error) { return render(file.asset, r.layout) }
 
 	changed := false
-	var written []string
+	var written, refused []string
 	for _, target := range targets {
 		// 0700: these sit in the operator's home, which no other account has
 		// business entering.
 		made, paths, err := writeAgentFiles(r.fs, r.operatorHome,
-			r.operatorUID, r.operatorGID, 0o700, asLayout, target.accountFiles)
+			r.operatorUID, r.operatorGID, 0o700, false, asLayout, target.accountFiles)
 		written = append(written, paths...)
-		if err != nil {
+		switch {
+		case errors.Is(err, errNotOperators):
+			// Collected rather than returned, as the sections below are.  Every
+			// other agent's rules are still written, the step is still reported,
+			// and the run fails once at the end naming all of them: returning here
+			// would leave a report that never says what did land, and would take
+			// the sections with it, including for the agents whose files were fine.
+			refused = append(refused, err.Error())
+		case err != nil:
 			return err
 		}
 		changed = changed || made
 	}
 	r.step("agent config", changed, strings.Join(written, ", "))
-	return r.agentInstructions(targets)
+	// The sections first, so one refused rule file does not cost every agent its
+	// instructions, and then everything this run could not put right.
+	sections := r.agentInstructions(targets)
+	if len(refused) > 0 {
+		return errors.New(strings.Join(refused, "\n"))
+	}
+	return sections
 }
 
 // agentInstructions writes the account-wide credentials section into each
@@ -73,15 +88,15 @@ func (r *runner) stepAgentConfig() error {
 // route that does exist is named where it exists, in the enrolled tree's own
 // instructions.
 func (r *runner) agentInstructions(targets []*agentTarget) error {
-	section, err := homeSection()
-	if err != nil {
-		return err
-	}
 	changed := false
-	var written []string
+	var written, stale []string
 	for _, target := range targets {
 		if target.homeInstructions == "" {
 			continue
+		}
+		section, err := homeSection(target)
+		if err != nil {
+			return err
 		}
 		path := filepath.Join(r.operatorHome, target.homeInstructions)
 		// The operator's own group, not keep, and never re-owned: same reason as
@@ -91,29 +106,45 @@ func (r *runner) agentInstructions(targets []*agentTarget) error {
 			filepath.Dir(path), 0o700, r.operatorUID, r.operatorGID, false); err != nil {
 			return err
 		}
-		made, err := r.fs.sectionFile(path, section, r.operatorUID, r.operatorGID)
-		if leftAlone(err) {
-			// Not fatal: the rules are written and hold either way, and what is
-			// missing is the paragraph explaining them.
-			r.warn("%s", sectionWarning(err, path, "`sudo faramir init`"))
-			written = append(written, path+" (left as it is; see the warning)")
+		made, err := r.fs.sectionFile(path, section, r.operatorUID, r.operatorGID, "")
+		switch {
+		case outOfDate(err):
+			// Collected rather than returned here, so every other agent's section
+			// is still brought up to date and the run fails once at the end naming
+			// all of them.  An operator fixing these wants the whole list.
+			stale = append(stale, sectionProblem(err, path, "`sudo faramir init`"))
+			written = append(written, path+" (not written; see the error)")
 			continue
-		}
-		if err != nil {
+		case err != nil:
 			return err
 		}
 		changed = changed || made
 		written = append(written, path)
 	}
+	// Recorded before the failure, so a report says what was written as well as
+	// what was not.
 	r.step("agent instructions", changed, strings.Join(written, ", "))
+	if len(stale) > 0 {
+		return errors.New(strings.Join(stale, "\n"))
+	}
 	return nil
 }
 
-// homeSection is the section `init` writes into a home.  Shipped as it is: it
-// names no path this install decides, the rules it explains being written into
-// each agent's own config from protectedpaths.go.
-func homeSection() (string, error) {
-	body, err := readAsset("agent/instructions.home.md.snippet")
+// homeSection is the section `init` writes into a home.
+//
+// Rendered per agent, for one sentence.  Four of the five get deny rules in
+// this home that refuse their file tools wherever they are working, and pi gets
+// none: it has nowhere to put them, so the same list is compiled into the
+// extension `init-project` installs, which loads per project.  Telling pi its
+// file tools are refused everywhere would be telling it about a rule that is
+// not there, and an agent that finds one claim false has no reason to trust the
+// next.
+//
+// It names no path this install decides, the rules it explains being rendered
+// into each agent's own config from protectedpaths.go.
+func homeSection(target *agentTarget) (string, error) {
+	body, err := renderData("agent/instructions.home.md.snippet",
+		struct{ AccountRules bool }{AccountRules: len(target.accountFiles) > 0})
 	if err != nil {
 		return "", err
 	}

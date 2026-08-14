@@ -17,6 +17,8 @@ func agentStep(t *testing.T, home string, agents ...string) Step {
 		opts:         Options{Agents: agents, DryRun: true},
 		layout:       testLayout(),
 		fs:           fsys{dryRun: true},
+		operatorUID:  keep,
+		operatorGID:  keep,
 		operatorHome: home,
 	}
 	if err := run.stepAgentConfig(); err != nil {

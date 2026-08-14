@@ -36,7 +36,7 @@ const (
 // kept out of a shared tree for the same reason: see sharetree.Options.Keep.
 const instructionsMode = 0o640
 
-// The three files that are left alone.  Returned rather than repaired, so each
+// The files that are left alone.  Returned rather than repaired, so each
 // caller can name the command that would write the section afresh.
 var (
 	// errHalfMarked is a file carrying one marker without the other.
@@ -44,8 +44,6 @@ var (
 	// errStaleSection is a file with no markers already carrying a credentials
 	// section in words that are not these.
 	errStaleSection = errors.New("an undelimited credentials section is already there")
-	// errSymlinked is a path that is a symlink.
-	errSymlinked = errors.New("the instructions file is a symlink")
 )
 
 // Where a section goes, which is also what decides whether it can be written at
@@ -153,42 +151,34 @@ func appendSection(current []byte, block string) []byte {
 // outside them.  Shaped like writeFile, which it ends in.
 //
 // Every error it returns of its own leaves the file exactly as it was.
-func (f fsys) sectionFile(path, section string, uid, gid int) (bool, error) {
+func (f fsys) sectionFile(path, section string, uid, gid int, within string) (bool, error) {
 	// The mode for a file this creates.  Not a parameter: there is one kind of
 	// file here, and an existing one keeps its own below.
 	mode := os.FileMode(instructionsMode)
-	// Never through a link.  These are the operator's own prose, and a dotfiles
-	// manager keeps such a file as a link into a repository it owns; writeFile
-	// renames a new file over the path, which would leave a regular file where
-	// the link was and the repository's copy stale and no longer read.  Refused
-	// rather than followed, for the reason ensureDir and ensureOwnership refuse
-	// one: what is on the other end is not this command's to decide.
-	switch link, err := os.Lstat(path); {
-	case err == nil && link.Mode()&os.ModeSymlink != 0:
-		return false, errSymlinked
-	case errors.Is(err, os.ErrNotExist):
-	// A dry run is the one form that does not need root, so a file it cannot
-	// look at is reported as no change rather than stopping the run, as
-	// ensureDir and ensurePrivateFile do.
-	case f.dryRun && errors.Is(err, os.ErrPermission):
-		return false, nil
-	case err != nil:
+	// A link followed, the owner checked, and nothing there left to the write
+	// below.  See fsys.editedFile.
+	spot, err := f.editedFile(path, uid, within)
+	if err != nil {
 		return false, err
-	default:
-		// The mode is asserted only on a file this creates.  What faramir owns
-		// here is the block between the markers, not the file, and nothing about
-		// it is security sensitive: the section is documentation, and deleting it
-		// changes nothing about what is reachable.  So an existing file keeps the
-		// mode it has, as ensureOperatorUmask leaves .bashrc's alone.
-		//
-		// This is also what keepModes was for.  Sharing is told not to widen the
-		// instructions file so that this command need not narrow it again, and
-		// asserting a mode here would have narrowed it anyway.
-		mode = link.Mode().Perm()
 	}
-	current, err := os.ReadFile(path)
+	defer spot.close()
+	if info := spot.info; info != nil {
+		// Its own mode and its own owner, both.  What faramir owns here is the
+		// block between the markers and not the file, and nothing about the block
+		// is security sensitive: it is documentation, and deleting it changes
+		// nothing about what is reachable.  So an existing file keeps the mode it
+		// has, as ensureOperatorUmask leaves .bashrc's alone, and keeps its
+		// ownership, editedFile having established it is already the operator's.
+		//
+		// The mode half is also what keepModes was for.  Sharing is told not to
+		// widen the instructions file so that this command need not narrow it
+		// again, and asserting a mode here would have narrowed it anyway.
+		mode = info.Mode().Perm()
+		uid, gid = ownerOf(info)
+	}
+	current, err := spot.read()
 	switch {
-	case err == nil, errors.Is(err, os.ErrNotExist):
+	case err == nil:
 	case f.dryRun && errors.Is(err, os.ErrPermission):
 		return false, nil
 	default:
@@ -201,43 +191,51 @@ func (f fsys) sectionFile(path, section string, uid, gid int) (bool, error) {
 	case placeStale:
 		return false, errStaleSection
 	}
-	return f.writeFile(path, writeSection(current, section, place, start, end), mode, uid, gid)
+	return f.writeEdited(spot, writeSection(current, section, place, start, end), mode, uid, gid)
 }
 
-// sectionWarning is what an operator is told about a file that was left as it
+// sectionProblem is what an operator is told about a file that was left as it
 // is.  One wording per reason for both scopes, the file being the same kind of
 // thing either way, and each says what to do rather than only what happened.
-func sectionWarning(err error, path, command string) string {
+func sectionProblem(err error, path, command string) string {
 	switch {
 	case errors.Is(err, errHalfMarked):
 		return path + " carries faramir's section markers incompletely: " +
 			sectionBegin + " and " + sectionEnd + ", in that order, are what delimit " +
 			"the credentials section, and this file does not have both. Where the " +
-			"section starts or stops cannot be read off it, so it was left as it is. " +
-			"Restore the markers around the section, or delete the one that is there " +
-			"and run " + command + " to have the section written afresh"
+			"section starts or stops cannot be read off it, so nothing was written. " +
+			"Restore the markers around the section, or delete the one that is there, " +
+			"and run " + command + " again"
 	case errors.Is(err, errStaleSection):
 		return path + " already carries a credentials section that is not between " +
-			"markers and is not what is written now, so it was left as it is and " +
-			"nothing was added: two sets of credentials instructions in one file " +
-			"contradict each other. It may be what an earlier version wrote, or your " +
-			"own notes. Delete it and run " + command + ", which writes the current " +
-			"section between " + sectionBegin + " and " + sectionEnd + " so later runs " +
-			"can keep it up to date"
-	case errors.Is(err, errSymlinked):
-		return path + " is a symlink, so it was left as it is: writing the " +
-			"credentials section would replace the link with a regular file and leave " +
-			"whatever it points at unread. Add the section to the file it points at, " +
-			"or replace the link with a regular file and run " + command
+			"markers and is not what is written now, so nothing was written: two sets " +
+			"of credentials instructions in one file contradict each other. It may be " +
+			"what an earlier version wrote, or your own notes. Delete it and run " +
+			command + " again, which writes the current section between " +
+			sectionBegin + " and " + sectionEnd + " so later runs can keep it current"
+	case errors.Is(err, errNotOperators):
+		return path + " is not the operator's, so nothing was written. This file is " +
+			"one faramir edits rather than owns, and " + command + " runs as root: " +
+			"editing somebody else's would be root writing a file it was never asked " +
+			"to, and chowning it to make that true would take it from its owner. A " +
+			"symlink here is followed, so this also names one landing on a file the " +
+			"operator does not own, or on nothing at all. Give it to the operator, or " +
+			"point the link at their own file, and run " + command + " again"
 	}
 	return err.Error()
 }
 
-// leftAlone reports whether an error is one of sectionFile's own, which leave
-// the file untouched and are warned about rather than fatal: the deny rules are
-// the enforcement, and what is missing is the paragraph explaining them.
-func leftAlone(err error) bool {
+// outOfDate reports whether an error left the section saying something other
+// than what this version writes.  Every error sectionFile returns of its own is
+// one of these, and every one leaves the file exactly as it was.
+//
+// Fatal in both commands.  What these files carry is the policy an agent is
+// held to, and a run that reports success having failed to update it leaves an
+// operator believing a host says something it does not.  A warning is the wrong
+// weight for that: it scrolls past, and nothing asks again until somebody reads
+// `faramir doctor`.
+func outOfDate(err error) bool {
 	return errors.Is(err, errHalfMarked) ||
 		errors.Is(err, errStaleSection) ||
-		errors.Is(err, errSymlinked)
+		errors.Is(err, errNotOperators)
 }

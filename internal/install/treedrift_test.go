@@ -18,7 +18,7 @@ func enrolTree(t *testing.T, configDir, name string) string {
 		return assetFor(target, file, configDir)
 	}
 	if _, _, err := writeAgentFiles(
-		fsys{}, tree, keep, keep, 0o2770|os.ModeSetgid, render, target.files); err != nil {
+		fsys{}, tree, keep, keep, 0o2770|os.ModeSetgid, true, render, target.files); err != nil {
 		t.Fatal(err)
 	}
 	if err := recordEnrolment(configDir, EnrolledTree{

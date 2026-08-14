@@ -10,6 +10,7 @@
 package sharetree
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/user"
@@ -370,31 +371,84 @@ func components(home, dir string) []string {
 // Execute only, never read, so these uids pass through without listing.  Not
 // "chmod o+x", which grants the same to every account on the machine.
 func grantTraversal(home, dir string, opts Options, gid int) (int, error) {
+	// Walked through descriptors rather than by path, the way shareTree walks
+	// the tree, and for the same reason turned up one level: these directories
+	// are the operator's, this runs as root, and os.Chmod and os.Chown follow a
+	// link.  Stat-ing a component and then chmodding it by name is two
+	// resolutions of a path the account the agent runs as can re-point in
+	// between, and what it would buy is root regrouping a directory of its
+	// choosing to the group brokered commands run as.  A directory that is not
+	// world-traversable is exactly the interesting kind to aim at.
+	//
+	// The home itself is opened O_NOFOLLOW and repaired through the descriptor;
+	// everything under it is named inside an os.Root, which refuses a name
+	// resolving outside the directory it was opened on.
+	parts := components(home, dir)
+	if len(parts) == 0 {
+		// The tree is the home, so there is nothing above it to walk and nothing
+		// to grant: components answers with none, and the home itself is not a
+		// component of its own path.
+		return 0, nil
+	}
+	handle, err := os.OpenFile(home, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_DIRECTORY, 0)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = handle.Close() }()
+
 	changed := 0
-	for _, component := range components(home, dir) {
-		info, err := os.Stat(component)
-		if err != nil {
-			return changed, err
-		}
-		action, err := traversalAction(info, gid, component)
-		if err != nil {
-			return changed, err
-		}
-		if action == leaveAlone {
-			continue
+	apply := func(name string, info os.FileInfo, chown, chmod func(os.FileMode) error) error {
+		action, err := traversalAction(info, gid)
+		if err != nil || action == leaveAlone {
+			return err
 		}
 		if action == regroup {
 			// The previous group loses whatever the group bits gave it.
-			opts.logf("%s: group %s -> %s", component, groupName(info), opts.Group)
-			if err := os.Chown(component, -1, gid); err != nil {
-				return changed, err
+			opts.logf("%s: group %s -> %s", name, groupName(info), opts.Group)
+			if err := chown(0); err != nil {
+				return err
 			}
 		}
-		if err := os.Chmod(component, traversalMode(info.Mode(), action == regroup)); err != nil {
-			return changed, err
+		if err := chmod(traversalMode(info.Mode(), action == regroup)); err != nil {
+			return err
 		}
 		changed++
-		opts.logf("%s: %s may now traverse it", component, opts.Group)
+		opts.logf("%s: %s may now traverse it", name, opts.Group)
+		return nil
+	}
+
+	info, err := handle.Stat()
+	if err != nil {
+		return changed, err
+	}
+	if err := apply(home, info,
+		func(os.FileMode) error { return handle.Chown(-1, gid) },
+		handle.Chmod); err != nil {
+		return changed, err
+	}
+
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		return changed, err
+	}
+	defer func() { _ = root.Close() }()
+	for _, component := range parts[1:] {
+		name := filepath.Base(component)
+		info, err := root.Stat(name)
+		if err != nil {
+			return changed, err
+		}
+		if err := apply(component, info,
+			func(os.FileMode) error { return root.Chown(name, -1, gid) },
+			func(mode os.FileMode) error { return root.Chmod(name, mode) }); err != nil {
+			return changed, err
+		}
+		next, err := root.OpenRoot(name)
+		if err != nil {
+			return changed, err
+		}
+		_ = root.Close()
+		root = next
 	}
 	return changed, nil
 }
@@ -420,32 +474,27 @@ const (
 )
 
 // traversalAction decides what one directory on the path needs.
-func traversalAction(info os.FileInfo, gid int, path string) (traversal, error) {
+func traversalAction(info os.FileInfo, gid int) (traversal, error) {
 	mode := info.Mode().Perm()
 	// Already open to everyone.  Tightening a directory the operator left open
 	// is not this command's business.
 	if mode&0o001 != 0 {
 		return leaveAlone, nil
 	}
-	owned, err := ownedByGroup(path, gid)
-	if err != nil {
-		return leaveAlone, err
+	// Read off the same FileInfo the mode came from, rather than stat-ing the
+	// path a second time: two answers about one directory are two chances for
+	// it to have been a different directory in between.
+	st, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return leaveAlone, errors.New("cannot read ownership")
 	}
-	if owned {
+	if int(st.Gid) == gid {
 		if mode&0o010 != 0 {
 			return leaveAlone, nil
 		}
 		return addExecute, nil
 	}
 	return regroup, nil
-}
-
-func ownedByGroup(path string, gid int) (bool, error) {
-	var st syscall.Stat_t
-	if err := syscall.Stat(path, &st); err != nil {
-		return false, err
-	}
-	return int(st.Gid) == gid, nil
 }
 
 func groupName(info os.FileInfo) string {

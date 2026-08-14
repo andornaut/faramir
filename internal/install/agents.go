@@ -225,8 +225,14 @@ var agentTargets = map[string]*agentTarget{
 // render is supplied by the caller, the two having different things to render
 // against: the install layout for an account file, the target's own data for a
 // tree's.
+// inTree says which root this is.  A tree's files are group-owned so the client
+// group can read what the hook and the MCP registration are written into, and a
+// link out of the tree would carry that group to a file the enrolment was never
+// pointed at.  A home's decide neither, so an existing file keeps its group and
+// a link may land wherever the operator keeps their dotfiles.
 func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
-	render func(agentFile) ([]byte, error), files []agentFile) (bool, []string, error) {
+	inTree bool, render func(agentFile) ([]byte, error),
+	files []agentFile) (bool, []string, error) {
 	changed := false
 	var written []string
 	for _, file := range files {
@@ -244,17 +250,60 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 				return changed, written, err
 			}
 		}
+		// A link followed, the owner checked, and nothing there left to the write
+		// below.  These are the operator's and the project's files, and both
+		// commands run as root on a path the account the agent runs as can write.
+		// See fsys.editedFile.
+		bound := ""
+		if inTree {
+			bound = root
+		}
+		spot, err := fs.editedFile(path, uid, bound)
+		if err != nil {
+			return changed, written, fmt.Errorf("%s: %w", path, err)
+		}
 		data, err := render(file)
 		if err != nil {
+			spot.close()
 			return changed, written, err
 		}
 		// Merged, not overwritten: the file is the operator's or the project's to
-		// edit, and only the keys faramir writes are touched.
-		write := fs.writeFile
+		// edit, and only the keys faramir writes are touched.  Through the merge
+		// even with nothing to merge into, so the first write is byte-for-byte
+		// what the second would produce.
 		if file.merge {
-			write = fs.mergeFile
+			was, err := spot.read()
+			if err != nil {
+				spot.close()
+				return changed, written, err
+			}
+			merged, err := mergeJSON(was, data)
+			if err != nil {
+				spot.close()
+				return changed, written, fmt.Errorf("%s: %w", path, err)
+			}
+			data = merged
 		}
-		made, err := write(path, data, file.mode, uid, gid)
+		// Ownership is set on a file this creates and left alone on one that is
+		// already there, editedFile having established that it is the operator's.
+		// The group is asserted either way in a tree, where the client group has
+		// to read them; in a home it decides nothing, and asserting it would be
+		// one more thing a run changes without being asked to.
+		//
+		// The mode is asserted throughout, unlike the credentials section's: these
+		// carry the hook, and group-writable is what they must never be.
+		writeUID, writeGID := uid, gid
+		if spot.info != nil {
+			// Its own, read off the file: a write renames a new file over the
+			// path, so anything not named here comes out owned by root.
+			ownerUID, ownerGID := ownerOf(spot.info)
+			writeUID = ownerUID
+			if !inTree {
+				writeGID = ownerGID
+			}
+		}
+		made, err := fs.writeEdited(spot, data, file.mode, writeUID, writeGID)
+		spot.close()
 		if err != nil {
 			return changed, written, err
 		}
