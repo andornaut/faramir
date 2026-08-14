@@ -12,3 +12,11 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+  # The lab images the integration tests build. A gomod entry at "/" does not
+  # reach a Dockerfile, and a docker entry at "/" does not reach a subdirectory.
+  - package-ecosystem: "docker"
+    directory: "/tests/lab"
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
