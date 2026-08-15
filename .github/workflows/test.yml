@@ -126,9 +126,19 @@ jobs:
           # way, so what this gives up is schema advice, not enforcement.
           verify: false
 
-      # shellcheck is preinstalled on the runner image.
+      # The whole tree rather than a list of paths, so a script added outside
+      # tests/ and agent/hooks/ is linted without anyone remembering to add it
+      # here. tests/lab/.shellcheckrc still applies to the suites, shellcheck
+      # reading one from the directory of each file it checks.
       - name: Run ShellCheck
-        run: shellcheck tests/*.sh tests/lab/*.sh agent/hooks/wrap.sh
+        uses: ludeeus/action-shellcheck@2.0.0
+        with:
+          scandir: "."
+          # A Go text/template, shell only once `faramir init` has rendered it:
+          # the {{ }} placeholders are literal braces to shellcheck and every
+          # one of them is an SC1083. Nothing here renders it, so there is no
+          # point at which it is shell this job could read.
+          ignore_names: pam-approve.tmpl
 
   # The functional suites, against a real install in a container: systemd units,
   # three uids, a sops store and an agent working in a project tree. Go covers
