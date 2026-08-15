@@ -126,13 +126,19 @@ jobs:
           # way, so what this gives up is schema advice, not enforcement.
           verify: false
 
-      # The whole tree rather than a list of paths, so a script added outside
-      # tests/ and agent/hooks/ is linted without anyone remembering to add it
-      # here. tests/lab/.shellcheckrc still applies to the suites, shellcheck
-      # reading one from the directory of each file it checks.
+      # -x follows a `source` into the file it names and -P SCRIPTDIR looks for
+      # it beside the script doing the sourcing, which shellcheck cannot resolve
+      # on its own. Set everywhere rather than only where something sources
+      # today, so a script that starts to is already covered.
+      #
+      # node_modules is skipped because a Lint job that installs dependencies
+      # would otherwise answer for shell a dependency ships.
       - name: Run ShellCheck
         uses: ludeeus/action-shellcheck@2.0.0
+        env:
+          SHELLCHECK_OPTS: -x -P SCRIPTDIR
         with:
+          ignore_paths: node_modules
           scandir: "."
 
   # The functional suites, against a real install in a container: systemd units,
