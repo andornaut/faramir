@@ -83,7 +83,7 @@ Brokered commands run as `faramir-exec`, which must *use* the key that reaches m
 
 The broker keeps both halves under its own uid, loads the private one into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`. A key the agent cannot load does not stop the broker: it is logged, `--check` and `doctor` fail on it, and only commands that reach a host fail, with ssh's own error. The agent lives and dies with the broker, so nothing outlives the process holding the key in memory. The executor's account cannot read the key, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
 
-Add `ANSIBLE_HOST_KEY_CHECKING=True` to `[exec.base_env]` in a drop-in. It is not in the shipped defaults, and turning host key checking off to make a broken host work is how a broker with credentials hands them to whatever answers.
+Add `ANSIBLE_HOST_KEY_CHECKING=True` to `[exec.base_env]` in a drop-in. It is not in the shipped defaults. With it off, a broker holding credentials offers them to whatever answers on that address.
 
 `faramir-exec` has its own `known_hosts` and it starts absent, so a play whose hosts are trusted only in the operator's `~/.ssh/known_hosts` fails verification before the key above is offered. `faramir init --known-hosts ~/.ssh/known_hosts` pins yours for it; `/etc/ssh/ssh_known_hosts` is the alternative, being the file every account reads. `faramir doctor` reports how many host keys the executor can verify against.
 
@@ -108,12 +108,10 @@ ansible_become_flags: '-H'
 
 Dropping the default `-n` is the whole of it: `-n` tells `sudo` to fail rather than authenticate, and it does so before the PAM stack runs, so the question is never put and every task fails with `sudo: a password is required` even when a human is watching. Nothing here prompts, so there is no `SUDO_ASKPASS` and no `-A`. `-H` sets `HOME` to root's, which is what `become` normally does for you.
 
-And you leave a watcher running, as root, in a terminal the coding agent cannot type into:
+Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. Leave a watcher running as root, in a terminal the coding agent cannot type into, and the first task that runs sudo puts its question there naming the playbook:
 
 ```bash
 sudo faramir approvals --watch
 ```
 
-Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. The first task that runs sudo puts a question there naming the playbook; anything but `yes`, including no answer, fails that task with `sudo`'s own error.
-
-One approval covers the whole playbook run rather than one task, and is gone when the run exits. Expect other brokered commands to be refused while a question is open, and approve only a playbook you trust with permanent root: [what an approval does and does not bound](operating.md#one-question-per-run-and-what-to-expect).
+One approval covers the whole playbook run rather than one task. [What it does and does not bound](operating.md#one-question-per-run-and-what-to-expect), including which other commands are refused meanwhile.

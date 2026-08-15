@@ -59,7 +59,7 @@ SSH_AUTH_SOCK  SSH_AGENT_PID  SUDO_ASKPASS  FARAMIR_APPROVAL_TOKEN
 
 `{"op": "redact", "text": "…"}` returns the ordinary response shape with `output` carrying the scrubbed text and `exit_code` 0, no command having run. `text` is required; `more` is the only other field the op reads.
 
-A caller with more text than one request may carry sends it a chunk at a time **down one connection**, every chunk but the last marked `{"more": true}`. The broker keeps one redactor for that connection, which is the whole point: it holds back a tail longer than the longest rendering of any value, so a secret split between two chunks is caught by the chunk that completes it. A connection per chunk gives each its own redactor, and a value across the join comes back in the clear. A client has to break a line longer than one chunk somewhere, so this is reachable by ordinary output: a single-line JSON document, a minified bundle, `base64 -w0`.
+A caller with more text than one request may carry sends it a chunk at a time **down one connection**, every chunk but the last marked `{"more": true}`. The broker keeps one redactor for that connection, holding back a tail longer than the longest rendering of any value, so a secret split between two chunks is caught by the chunk that completes it. A connection per chunk gives each its own redactor, and a value across the join comes back in the clear. Ordinary output reaches this: a single-line JSON document, a minified bundle, `base64 -w0`, all have to be broken somewhere.
 
 - `more` must be a boolean. Sent where no stream state exists, it is a `bad_request` rather than a request completed as though it stood alone.
 - One audit record per stream, written when it ends, carrying the totals for the whole of it. A stream the peer abandoned still writes one.
@@ -129,7 +129,7 @@ Peer uid is checked against `[keeper] allowed_user` on top of the mode. There is
  "errors": [], "unresolved_patterns": []}
 ```
 
-Every managed value, never a subset: the redactor is built from the whole value set, because a managed host can print a credential no command injected. The `state` is the fingerprint of each file this decrypt read, returned with the values so the two describe the same moment. Fetched separately it could fingerprint a file edited after the decrypt, and that edit would then never be noticed.
+Every managed value, never a subset: the redactor is built from the whole value set, because a managed host can print a credential no command injected. The `state` is the fingerprint of each file this decrypt read, returned with the values so the two describe the same moment. Fetched separately it could fingerprint a file edited after the decrypt, and that edit would never be noticed.
 
 ```json
 {"op": "get_state"}

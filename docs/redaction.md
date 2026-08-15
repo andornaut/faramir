@@ -1,6 +1,6 @@
 # How the redactor works
 
-[internal/redact](../internal/redact). Each stage exists for a case that is not obvious from the stage itself.
+[internal/redact](../internal/redact). Each stage exists for a case the stage itself does not make obvious.
 
 ## The value set is everything the keeper manages
 
@@ -40,13 +40,13 @@ shell double-quoted (`\\`, `\$`, `` \` ``, `\"`) | `set -x` traces
 
 Outside it and always will be: `printf %q`'s backslash re-quoting, and any deliberate transform (`\| rev`, `\| tr a-z A-Z`, a hash), because the child chooses its own output encoding.
 
-HTML and XML entity escaping is outside it deliberately. Every encoding above has one spelling or a closed set of them, which is what makes enumerating it possible; entity escaping has a named, a decimal and a hexadecimal form per character, and the encoder chooses which characters to escape at all, so `&#112;` for a plain `p` is as valid as leaving it alone. A list of renderings would cover whichever producer it was written against and read as covering the rest.
+HTML and XML entity escaping is outside it deliberately. Every encoding above has one spelling or a closed set of them, which is what makes enumerating it possible. Entity escaping has a named, a decimal and a hexadecimal form per character, and the encoder chooses which characters to escape at all, so `&#112;` for a plain `p` is as valid as leaving it alone: a list of renderings would cover whichever producer it was written against and read as covering the rest.
 
 **3. A wrapped rendering needs a second pass.** `base64` wraps at 76 columns, and `fold` wraps the raw value and every other variant the same way, so the rendering arrives with newlines inside it and matches nothing line by line. The redactor matches the whole variant set against a view with the line breaks removed and maps hits back to spans in the original; a guard keeps this pass to matches that genuinely straddle a break.
 
 Line breaks are all that is removed, `\n` and a bare `\r`. A continuation the formatter **indents** keeps its leading whitespace between the fragments and is not caught: `pr`, and the nested fields of `openssl -text`, wrap that way. Collapsing indentation as well would join any two words straddling an indented break, corrupting more output than the wrapping it would catch.
 
-Cost: a low-entropy value split across a line break can be redacted where its two halves were unrelated words, the same fail-toward-redaction tradeoff the length gate makes, never a leak. The token replaces the whole span including the break, so such a match also joins the two lines: with `password` managed, `"the pass\nword list is here"` comes back as `"the «SECRET:ref» list is here"`.
+Cost: a low-entropy value split across a line break can be redacted where its two halves were unrelated words. That fails toward redaction rather than toward a leak, as the length gate does. The token replaces the whole span including the break, so such a match also joins the two lines: with `password` managed, `"the pass\nword list is here"` comes back as `"the «SECRET:ref» list is here"`.
 
 **4. Stream with an overlap buffer.** A tail of twice the longest variant plus a margin is held back on every `Feed` and released on `Flush`, the margin exceeding that variant because wrapping inserts newlines inside a value. The tail is already redacted, so re-scanning cannot double-count. Everything `Feed` returns is output, including the release triggered by the last partial-rune tail, or every command whose last write splits a rune loses its final characters.
 

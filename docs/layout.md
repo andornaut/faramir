@@ -53,7 +53,7 @@ Pi gets no rule file, having nowhere to put account-wide rules: the same paths a
 
 Every agent but one reads the enrolled tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Antigravity reads no documented file at a tree's root, so it gets `.agents/rules/faramir.md` there instead, headed with the frontmatter that makes a rule always-on where this creates it.
 
-The section is what the deny rules cannot say: why they refuse, which a bare refusal reaching the model does not, and that is the refusal it tries to get around.
+The section is what the deny rules cannot say: why they refuse, and what to do instead.
 
 `~/.bashrc` gets a `umask 002` line, so a file the operator creates in a shared tree stays group-writable.
 

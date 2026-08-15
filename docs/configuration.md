@@ -38,7 +38,7 @@ Section | Keys | Bounds
 `[audit]` | `max_record_bytes` | at least 4096, counted in encoded bytes
 `[sudo]` | `timeout_sec` | 1 to 600
 
-`[sudo] timeout_sec` is how long a question waits for a human. The ceiling is not a taste: the PAM helper cannot read this config (PAM gives it no environment and its argv is fixed at install time), so it derives its own deadline from the same constant and the two cannot drift. While a question is open every other brokered command on the host is refused, so past ten minutes a refusal and a second run is the better answer. On a host with no sudo grant the key still loads and does nothing.
+`[sudo] timeout_sec` is how long a question waits for a human. The 600 ceiling is load-bearing: the PAM helper cannot read this config (PAM gives it no environment and its argv is fixed at install time), so it derives its own deadline from the same constant and the two cannot drift. While a question is open every other brokered command on the host is refused, so past ten minutes a refusal and a second run is the better answer. On a host with no sudo grant the key still loads and does nothing.
 
 ## What init derives, a drop-in may not set
 
@@ -58,15 +58,14 @@ Key | Derived from
 `[sudo] exec_user`, `pam_service`, `helper` | `--allow-sudo`
 `[sudo] notify_command` | `--notify-command`, repeatable, one argument each
 
-Three of these cost something rather than being tidiness:
+Four of these are refused for what a drop-in could reach, not for tidiness:
 
 - `exec_group` is the group the agent relay's `SO_PEERCRED` check admits, so a drop-in naming the client group there hands the broker's SSH identity to the account the relay exists to keep it from.
-- `ssh_agent` and `ssh_add` are binaries the broker execs as the uid holding every plaintext value.
+- `ssh_agent`, `ssh_add` and `notify_command` are programs the broker execs as the uid holding every plaintext value.
 - `log_path` is rendered into `logrotate.conf` alongside, so moving one leaves rotation pointed at a file nothing writes, which `doctor` fails on. The audit log does not follow `--config-dir`, `{{.LogDir}}` being the broker unit's `ReadWritePaths`.
+- The whole of `[sudo]` but `timeout_sec` is the approval boundary itself. `pam_service` names the file `sudo` authenticates through, so a drop-in pointing it at a service the operator wrote would choose what decides every approval; `helper` is the program PAM execs as root to make that decision. Re-run `init` with or without `--allow-sudo` to change the arrangement.
 
-The whole of `[sudo]` but `timeout_sec` is the approval boundary itself, decided per host at install time. `pam_service` names the file `sudo` authenticates through, so a drop-in pointing it at a service the operator wrote would choose what decides every approval; `helper` is the program PAM execs as root to make that decision. Re-run `init` with or without `--allow-sudo` to change the arrangement.
-
-`notify_command` announces a pending question and carries no answer, and it is here for the same reason as the other three: the broker execs it as the uid holding every decrypted value, so a file another account could write would be choosing what that uid runs. Being init's, it has a flag, `init` resolving the program on `PATH` as it does `ssh_agent` and `ssh_add`:
+`notify_command` has a flag, `init` resolving the program on `PATH` as it does `ssh_agent` and `ssh_add`:
 
 ```sh
 faramir init --allow-sudo \

@@ -35,9 +35,12 @@ The boundaries are around the secrets, not the agent. The operator reaches the k
 
 ## The secrets live in a directory, not a tree
 
-`/etc/faramir/secrets`, `2750 root:<secrets-group>`, never in a checkout, which a clone or a branch could move. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir edit`. The broker socket admits a different group: asking for a value by name is not permission to read the file it came from. The broker is outside the secrets group deliberately, holding every decrypted value already; it asks the keeper when a file changed instead, over `get_state`, which touches neither the key nor sops.
+`/etc/faramir/secrets`, `2750 root:<secrets-group>`, never in a checkout, which a clone or a branch could move. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir edit`. The broker socket admits a different group: asking for a value by name is not permission to read the file it came from. The broker holds every decrypted value already, so it stays outside the secrets group and asks the keeper when a file changed over `get_state`, which touches neither the key nor sops.
 
-`.sops.yaml` sits in the config directory above the secrets directory for two reasons: sops resolves that file from the working directory upward, so a parent is found from the secrets directory as well as from itself; and the secrets directory is a drop zone that `[secrets] patterns` globs, `filepath.Glob` matching dotfiles, so a rule file among the ciphertext is one glob spelling away from being loaded as a managed file that does not decrypt.
+`.sops.yaml` sits in the config directory above the secrets directory for two reasons:
+
+- sops resolves that file from the working directory upward, so a parent is found from the secrets directory as well as from itself.
+- `[secrets] patterns` globs the secrets directory and `filepath.Glob` matches dotfiles, so a rule file among the ciphertext is one glob spelling away from being loaded as a managed file that does not decrypt.
 
 `--config-dir` moves the secrets, the config and the age key together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. What the units can see decides where, not the modes:
 
@@ -47,7 +50,7 @@ Placement | Result
 `/tmp`, `/var/tmp` | Installs, then finds nothing: `PrivateTmp=true` gives each unit its own. Nothing refuses this at install time; it surfaces when a daemon starts.
 inside a home | Works. `init` drops the keeper's `ProtectHome=` to `tmpfs` and binds that directory back. An *unmounted encrypted* home is refused, the write landing in the backing directory and being shadowed the moment the home mounts.
 
-A home is not mounted until its owner logs in, so the secrets are absent at boot and to cron. A file may be missing because it was never written or because the filesystem holding it is not mounted, and only the second is dangerous, so both are refused. Checked per request rather than at startup, which is what makes this placement survivable: `--check` runs from `init` and `doctor`, neither of which is around at boot. The rule and its one exception are with [the gate](configuration.md#the-install-gate-and-the-same-gate-at-startup).
+A home is not mounted until its owner logs in, so the secrets are absent at boot and to cron. A file may be missing because it was never written or because the filesystem holding it is not mounted, and only the second is dangerous, so both are refused, per request rather than at startup. The rule and its one exception are with [the gate](configuration.md#the-install-gate-and-the-same-gate-at-startup).
 
 ## Three layers
 
@@ -77,7 +80,7 @@ inline `{ <cmd>; } >"$f" 2>&1` | kept | complete | no
 
 Every failure fails closed. No `XDG_RUNTIME_DIR` and the command does not run, there being nowhere private to capture what it would print; output captured but not redacted is withheld. Both say so on stderr and return non-zero, so a withheld output cannot read as a command that printed nothing.
 
-`faramir redact` fails the same way in both its shapes. What is *not* withheld is the part of a stream already redacted when the broker dies part way through: those chunks came back covered, so holding them protects nothing, and buffering the whole stream to be able to would cost an unbounded buffer for a guarantee already met. A failure truncates rather than empties.
+`faramir redact` fails the same way in both its shapes. What is *not* withheld is the part of a stream already redacted when the broker died part way through: those chunks came back covered, and buffering the whole stream to withhold them would cost an unbounded buffer for a guarantee already met.
 
 Left alone rather than rewritten:
 
@@ -88,24 +91,24 @@ A read of a running command's output, such as Claude Code's `BashOutput` | It st
 An empty command | Nothing to cover
 A denied command | Refused instead
 
-A **backgrounded** command takes a third path: `source wrap.sh --stream '<cmd>'`, which streams through the redactor rather than capturing, because the capture path would hold a dev server unshown until it exited, which is never. The wrapper runs `{ eval "$cmd"; } 2>&1 | faramir redact` under `set -o pipefail`, carrying the command's exit status out past the redactor. A trailing `&` is moved outside the rewrite; a tool's own background flag gets no `&` appended, the host backgrounding it. This is also what makes `BashOutput` read redacted.
+A **backgrounded** command takes a third path: `source wrap.sh --stream '<cmd>'`, which streams through the redactor rather than capturing, the capture path otherwise holding a dev server unshown until it exited. The wrapper runs `{ eval "$cmd"; } 2>&1 | faramir redact` under `set -o pipefail`, carrying the command's exit status out past the redactor. A trailing `&` is moved outside the rewrite; a tool's own background flag gets no `&` appended, the host backgrounding it. This is also what makes `BashOutput` read redacted.
 
 An incomplete command is *not* left alone. One ending in `\`, `&&`, `||` or `;` is wrapped like any other and fails inside the wrapper's `eval`, which re-parses it in isolation, so it fails the way it would have failed unwrapped rather than breaking the wrapper's syntax.
 
-Two forms that look already-covered and are not, which is why the test is a prefix rather than a match anywhere:
+The already-covered test is a prefix rather than a match anywhere, because two forms look covered and are not:
 
 - **A command that merely names the wrap script.** The path is in this project's documentation and in the wrapper itself, so a match anywhere would leave `echo /usr/local/libexec/faramir/wrap.sh; cat secrets` unrewritten.
-- **A command piping into the redactor.** A pipe carries stdout, so whatever the upstream wrote to stderr reaches the transcript unredacted, and chaining past it with `;`, `&&` or `||` runs the rest of the line uncovered. Wrapping one costs a second redaction pass, which changes nothing because a token is not a value, and captures both streams.
+- **A command piping into the redactor.** A pipe carries stdout, so whatever the upstream wrote to stderr reaches the transcript unredacted, and chaining past it with `;`, `&&` or `||` runs the rest of the line uncovered. Wrapping one captures both streams and costs a second redaction pass, which changes nothing because a token is not a value.
 
 ## Agents
 
-The guard is one program speaking each agent's contract. What varies is the tool that runs a command, the shape of the reply and where it is registered; what does not is that the command is rewritten to redact its own output. Antigravity has no contract to speak, and is the last section here. Which agents, and what enrolling each costs, is the table in the [README](../README.md).
+The guard is one program speaking each agent's contract. What varies is the tool that runs a command, the shape of the reply and where it is registered; what does not is that the command is rewritten to redact its own output. Which agents, and what enrolling each costs, is the table in the [README](../README.md#supported-agents).
 
 `--agent` defaults to `auto`, which configures the agents already there and nothing else: `init` asks that of the operator's home, `init-project` of the tree, and they are not the same paths, opencode keeping `opencode.json` beside a project and `.config/opencode` under a home. Naming one configures it regardless, which is how a tree is set up for an agent before it is installed. Detection only ever adds, so the two need no rule about which wins.
 
-Beside the rules goes prose saying what they refuse and why, in the file each agent reads for every project. A rule is a refusal with no reason attached, and a model that gets one and no explanation tries the next route: another tool, an interpreter, a base64 pipe. The section is what closes that off, and it is also the only thing faramir says in a tree `init-project` has never been run in, where the deny rules still hold and there is no broker to name. The tree's own section is the longer one, there being a route there to point at.
+Beside the rules goes prose saying what they refuse and why, in the file each agent reads for every project. A model given a refusal and no explanation tries the next route: another tool, an interpreter, a base64 pipe. The section is also the only thing faramir says in a tree `init-project` has never been run in, where the deny rules still hold and there is no broker to name. The tree's own section is the longer one, there being a route there to point at.
 
-The paths those rules refuse are written once, in [internal/install/protectedpaths.go](../internal/install/protectedpaths.go), and rendered into each agent's own spelling. A copy per agent is a copy that drifts, and the drift is silent: a rule that covers nothing looks exactly like a rule that covers everything, and one character is the difference. Pi has no rule file to write, so its rules are compiled into the extension and applied by shape, a file tool whose name it does not know still carrying a path.
+The paths those rules refuse are written once, in [internal/install/protectedpaths.go](../internal/install/protectedpaths.go), and rendered into each agent's own spelling. A copy per agent drifts silently: a rule that covers nothing looks exactly like a rule that covers everything, and one character is the difference. Pi has no rule file to write, so its rules are compiled into the extension and applied by shape, a file tool whose name it does not know still carrying a path.
 
 opencode and Kilo Code have no hook that runs a program. A plugin in the agent's own process blocks a call by throwing and changes one by mutating its arguments, so it asks the guard and applies the answer:
 
@@ -116,7 +119,7 @@ opencode and Kilo Code have no hook that runs a program. A plugin in the agent's
 
 The rewrite carries back every field of the original tool input with only `command` replaced. Nothing written is a call left alone. Every other answer fails closed: a guard that cannot be run, a non-zero exit, an answer that is not JSON, a decision the plugin does not know. That covers version skew, so run `faramir init` before enrolling one of these: a binary too old to know the agent refuses every command in that project rather than running it unredacted.
 
-Antigravity gets one half of this and is told so. Its hooks decide and cannot change a tool call's arguments, so nothing rewrites a command into a brokered one and nothing redacts what comes back; its permission lists are the IDE's own state rather than a file an install may write, so there are no deny rules to put in a home either. What an enrolment leaves is the MCP tools and the credentials section in the two files it reads: `~/.gemini/GEMINI.md`, which is the Antigravity family's global rules file, and `.agents/rules/faramir.md` in the tree, Antigravity reading no documented file at its root. Prose is weaker than a hook, and shipping it silently would say a project is covered when the thing that covers it is absent, so the enrolment warns and the README's table says which half is missing.
+Antigravity gets one half of this ([which half](../README.md#supported-agents)) and is told so: shipping prose silently would say a project is covered when the thing that covers it is absent, so the enrolment warns.
 
 A file two agents read is written once, and claims only what holds for both: a file that told one of them its file tools are refused everywhere would be telling the other something false. No two share one today, and the rule stays because the failure it prevents is silent. A rules file faramir creates carries the frontmatter that makes it always-on, that being what decides whether the model is shown it at all.
 
@@ -127,7 +130,7 @@ Cost | Detail
 No kernel boundary around the agent process | Hooks and the deny list, which is the trade for an agent that can do the operator's work.
 For Bash on Claude Code, the deny list replaces the permission prompt | Matching runs against the rewritten command, so a rule keyed on the program name no longer fires, and the wrapper cannot be allow-listed. There is no `ask` to return instead: it would prompt on every command including `ls`, show the rewritten text rather than what was typed, and strand an unattended run on the first command.
 The shipped deny list names credential disclosure and nothing destructive | Enrolling drops whatever Bash prompting stood between the agent and `rm -rf` and puts nothing in its place. Prompts on `Write` and `Edit` do not cover it, Bash writing and deleting without them.
-A killed command loses its output | Redaction happens after the command finishes, so a timeout or interrupt yields nothing where an unwrapped command would have shown partial output. The cost of buffering, which the persistent shell forces.
+A killed command loses its output | Redaction happens after the command finishes, so a timeout or interrupt yields nothing where an unwrapped command would have shown partial output. The cost of the buffering the persistent shell forces.
 The wrapper needs a private `XDG_RUNTIME_DIR` | It captures output before redacting it, so that file holds plaintext and belongs where no other account can enter. `/dev/shm` is 1777, where a name nothing has created yet is one another account can create first. A session without one, which includes `sudo` and `cron`, gets a refusal on every Bash command.
 The wrapper takes the caller's `EXIT` trap | A command that runs `exit` ends the sourced shell at the `eval`, before the cleanup, and an `EXIT` trap is what bash still runs there. The caller's is saved and put back afterwards. Two ways past it, both leaving a `0600` capture file only the operator can reach: `SIGKILL`, which runs no trap, and a command that installs an `EXIT` trap of its own.
 
@@ -136,7 +139,7 @@ Hooks fire in every Claude Code permission mode and a `deny` is enforced in each
 Mode | Cost
 --- | ---
 `default` | Bash would have prompted and now does not. This is what the warning is about.
-`acceptEdits` | Auto-accepts `Write` and `Edit`, leaves Bash prompting. Same cost as default, and the mode that looks like it should exempt a project and does not.
+`acceptEdits` | Auto-accepts `Write` and `Edit`, leaves Bash prompting. Same cost as default.
 `bypassPermissions` | Bash never prompted, so approving it removes nothing. Enrolment is purely additive.
 
 Rewriting rather than denying is the point: a deny list covers what somebody thought to name, and the command that leaks a credential is usually one nobody would have.
@@ -147,23 +150,23 @@ Rewriting rather than denying is the point: a deny list covers what somebody tho
 
 How to install and run this is in [operating.md](operating.md#allowing-sudo-on-the-controller); this is the reasoning.
 
-**An approval is the same kind of oracle as `redact`, weighted the other way.** A question a human can answer wrongly is a boundary made of attention. It survives that weighting by being deny-by-default: silence is a refusal, an unreachable answer channel is a refusal, and anything that is not `yes` is a refusal.
+**An approval is the same kind of oracle as `redact`, weighted the other way.** A human can answer wrongly, so it survives that weighting by being deny-by-default: silence is a refusal, an unreachable answer channel is a refusal, and anything that is not `yes` is a refusal.
 
 What makes the answer worth anything is that the prompt names the command. The broker writes the question itself, from the argv it started, and refuses a request it cannot attribute to a running command; the prompt string `sudo` passes to the helper is ignored, coming from the child, which is the side being asked about.
 
-**Naming the command means rendering it, not printing it.** The argv is the caller's and the question goes to a terminal, which obeys what it is sent. Most of it has been through the redactor. Two things survive that, and either is enough: a bare `\r`, which returns the cursor so the rest of the line overwrites what came before it, and `ESC` followed by a byte outside `@-Z` and `\-_`, including `ESC c`, a terminal reset that on many emulators takes the scrollback with it. So every caller-chosen part of a question is quoted the moment it holds anything but printable text, ordinary arguments are left bare (a prompt full of quotation marks is read less carefully), and the command is bounded, the audit record keeping the whole of it. [internal/termsafe](../internal/termsafe/termsafe.go) holds the same rule for `faramir logs`, where recorded output is escaped rather than quoted and never bounded, being the text an operator came to read.
+**Naming the command means rendering it, not printing it.** The argv is the caller's and the question goes to a terminal, which obeys what it is sent. Most of it has been through the redactor. Two things survive that, and either is enough: a bare `\r`, which returns the cursor so the rest of the line overwrites what came before it, and `ESC` followed by a byte outside `@-Z` and `\-_`, including `ESC c`, a terminal reset that on many emulators takes the scrollback with it. So every caller-chosen part of a question is quoted the moment it holds anything but printable text, ordinary arguments are left bare, and the command is bounded, the audit record keeping the whole of it. [internal/termsafe](../internal/termsafe/termsafe.go) holds the same rule for `faramir logs`, where recorded output is escaped rather than quoted and never bounded, being the text an operator came to read.
 
 Five easier designs, and why each was not taken:
 
 Rejected | Why
 --- | ---
 A time window | `timestamp_timeout=0`, so sudo's own credential cache never decides this. A window in which approval is assumed is one an agent can start a brokered command inside, riding an approval a human gave for something else.
-The caller's terminal | Passing stdin through so `--ask-become-pass` prompts where `faramir run` was typed is the first fix that suggests itself and the worst available: the agent owns that process tree, so a password typed into it is one the agent can read.
+The caller's terminal | The agent owns that process tree, so a password typed into it is one the agent can read.
 `systemd-ask-password` | Asking through it means creating a file in `/run/systemd/ask-password`, `0755 root:root`, so a broker running as its own uid is refused and every request is denied for want of anybody to ask. What that channel offers is a reply socket only root can write to, which `SO_PEERCRED` provides directly.
 A managed secret | The executor can request the same injection the agent can, so anything injectable is agent-reachable, and a sudo password in the store is root for the asking.
-A password at all | A bearer credential, so wherever it is kept, a command approved once can read it, keep it, and leave it for a later command that was not approved: same uid, shared `PrivateTmp`, shared working tree, `sudo -S`, root. What satisfies `sudo` here is a decision, and a decision cannot be carried because there is nothing to carry.
+A password at all | A bearer credential, so wherever it is kept, a command approved once can read it, keep it, and leave it for a later command that was not approved: same uid, shared `PrivateTmp`, shared working tree, `sudo -S`, root. What satisfies `sudo` here is a decision, and a decision cannot be carried.
 
-**How the PAM stack fails matters more than how it works.** Two words decide whether it gates anything:
+**How the PAM stack fails matters more than how it works.** Two settings decide whether it gates anything:
 
 - `requisite`, never `sufficient`. With `sufficient`, a helper that *refuses* is not fatal: the stack falls through to the `pam_permit` beneath it and every approval is granted without asking anybody.
 - `seteuid`, because `pam_exec` otherwise runs the helper with the real uid, which under setuid `sudo` is the executor's own. The broker answers `ask_approval` to root alone, so the helper would be refused and nothing on the host could sudo. It also keeps the deciding process out of reach of the uid being decided about.

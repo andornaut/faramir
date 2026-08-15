@@ -30,7 +30,7 @@ Four statuses: `ok`, `warn`, `failed`, and `n/a` for a check whose subject this 
 - **`agent rule drift` names rather than deletes.** An entry in those files is a bare string or a key, so one of ours left behind and one of yours refusing the same path look identical. Extra refusals, so untidy rather than unguarded.
 - **Two checks run a brokered command** rather than reading a mode: `ssh agent` and `brokered command`. Both skip against a broker known to hold no values. `brokered command` needs root; the `ssh agent` probe runs as the caller. A refusal from a broker whose `--check` read every managed file fails rather than skips: a daemon refusing what those files cover came up before they were written.
 
-**Without sudo**, checks needing another uid report as unchecked rather than passing, grouped at the end, with a line under the totals counting them: the totals alone would read the same on a host examined in full and on one where most questions were never put. One warn line can stand for many unasked checks.
+**Without sudo**, checks needing another uid report as unchecked rather than passing, grouped at the end, with a line under the totals counting them: the totals alone would read the same on a host examined in full and on one where most questions were never put.
 
 **Without the agent's account**, most boundary checks cannot be put at all: `access(2)` answers "no" for an account that cannot be named, which is the same answer a boundary that holds gives. Run from a root shell or cron, `doctor` takes that account from `SUDO_USER`, finds none, and reports those as unasked. Pass `--agent-user` for the whole thing.
 
@@ -61,7 +61,7 @@ A run stops rather than write one it should not, leaving it exactly as it is:
 - **Markers it cannot delimit.** One marker without the other, or a credentials section that is not between markers and is not what is written now, which would leave two sets of instructions contradicting each other. Restore the markers or delete the section, then run again.
 - **One file twice.** Two paths in the same run that a link makes one file, such as `~/.gemini/GEMINI.md` pointing at `~/.claude/CLAUDE.md`. Each of these files is written for the agent that reads it, so one file standing in for two would hold what was written for the other and keep only the last write, and the run would report success. Point one at a file of its own. Two agents that read the same file *by name* are not this: that is one file written once, and the section it gets claims only what holds for both.
 
-Each is asked before anything is written, so a refusal costs nothing: `init` stops before it has handed a file to any account, `init-project` before it has shared the tree. `init` names every file it refused rather than the first. `doctor` asks the same questions under `agent file ownership`, so a run you wanted is not how you find out.
+Each is asked before anything is written, so a refusal costs nothing: `init` stops before it has handed a file to any account, `init-project` before it has shared the tree. `init` names every file it refused rather than the first. `doctor` asks the same questions under `agent file ownership`.
 
 The section tells an agent to wait for an approval only where one can be raised, `init-project` reading `[sudo] exec_user` from the config.
 

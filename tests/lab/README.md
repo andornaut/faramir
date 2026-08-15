@@ -42,7 +42,7 @@ All five are gitignored. `up` refuses to build without the three you supply, rat
 
 **`run` is single-shot.** The suites share one install and mutate it: a sudo grant is installed, agent configuration is written into the operator's home, and the last suite uninstalls the host. A second `run` without an `up` measures those leftovers and reports failures that are not regressions. `up` stamps a marker that `run` consumes, so a run against an already-used box warns and says what the failures below may be. `up` is the clean baseline.
 
-`check-secrets.sh` is the exception that was worth fixing: it rotates the shared `db/password` that five other suites redact against, so it snapshots the store and `.sops.yaml` on the way in and restores them on the way out.
+`check-secrets.sh` is the one exception: it rotates the shared `db/password` that five other suites redact against, so it snapshots the store and `.sops.yaml` on the way in and restores them on the way out.
 
 Each suite prints one line per check and exits non-zero if any failed.
 
