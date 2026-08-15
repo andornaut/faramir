@@ -1,6 +1,6 @@
 # faramir
 
-[![CI](https://github.com/andornaut/faramir/actions/workflows/test.yml/badge.svg)](https://github.com/andornaut/faramir/actions/workflows/test.yml)
+[![CI](https://github.com/andornaut/faramir/actions/workflows/release.yml/badge.svg)](https://github.com/andornaut/faramir/actions/workflows/release.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A secrets broker for local AI coding agents: it runs the commands that need credentials and keeps the values out of the agent's context. Those commands run as a uid that holds nothing.
