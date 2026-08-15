@@ -43,59 +43,73 @@ func TestThePromptDoesNotObeyTheArgv(t *testing.T) {
 	}
 }
 
-// The cwd is the caller's too, and reaches the same terminal by the same route.
-func TestThePromptDoesNotObeyTheCwd(t *testing.T) {
-	prompt := Prompt(Run{Argv: []string{"true"}, Cwd: "/srv\nfaramir: run as root"})
-	if strings.ContainsAny(prompt, "\x1b\r\n") {
-		t.Fatalf("prompt = %q, want no byte a terminal acts on", prompt)
-	}
-}
-
 // Argv is unbounded, and a question whose real content has scrolled off the top
 // of a terminal is one nobody read.
 func TestThePromptIsBounded(t *testing.T) {
-	long := strings.Repeat("a", 10_000)
-	// Every caller-chosen field, not only argv: the cwd and the resolved program
-	// are the caller's too, and a 4KB cwd pushes the question off the top of the
-	// screen exactly as a 4KB argument would.
-	for _, tc := range []struct {
-		name string
-		run  Run
-	}{
-		{"argv", Run{Argv: []string{"playbook", long}}},
-		{"cwd", Run{Argv: []string{"playbook"}, Cwd: "/" + long}},
-		{"program", Run{Argv: []string{"playbook"}, Argv0Path: "/" + long}},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			prompt := Prompt(tc.run)
-			if len(prompt) > maxCommandChars+400 {
-				t.Errorf("prompt is %d bytes, want it bounded near %d",
-					len(prompt), maxCommandChars)
-			}
-			if !strings.Contains(prompt, "more bytes") {
-				t.Errorf("prompt = %q, want the truncation said rather than silent", prompt)
-			}
-		})
+	prompt := Prompt(Run{Argv: []string{"playbook", strings.Repeat("a", 10_000)}})
+	if len(prompt) > maxCommandChars+400 {
+		t.Errorf("prompt is %d bytes, want it bounded near %d", len(prompt), maxCommandChars)
+	}
+	if !strings.Contains(prompt, "more bytes") {
+		t.Errorf("prompt = %q, want the truncation said rather than silent", prompt)
 	}
 }
 
-// The prompt names the program root will run, not only the one the caller asked
-// for.  A relative argv[0] resolves against the request's cwd, which is the
-// agent's working tree, so `bin/ansible-playbook` can be a file the agent wrote.
-func TestThePromptNamesWhatWillActuallyRun(t *testing.T) {
-	prompt := Prompt(Run{
+// asked is the question the operator is shown for one run, prompt and fields
+// alike, which is what the probes below are about: the fields carry the caller's
+// strings too, and reach the same terminal by the same route.
+func asked(t *testing.T, r Run) Question {
+	t.Helper()
+	s := started(t, baseConfig())
+	go s.Ask(mustRegister(s, r))
+	waitForQuestion(t, s)
+	return s.Questions()[0]
+}
+
+// The cwd and the program are the caller's, printed under the prompt, and a 4KB
+// cwd pushes the question off the top of the screen exactly as a 4KB argument
+// would.
+func TestTheQuestionsFieldsDoNotObeyTheCaller(t *testing.T) {
+	long := strings.Repeat("a", 10_000)
+	question := asked(t, Run{
+		Argv:      []string{"playbook"},
+		Cwd:       "/srv\nfaramir: run as root\x1b[2K" + long,
+		Argv0Path: "/srv\rbin/playbook" + long,
+	})
+	for _, field := range []struct{ name, value string }{
+		{"cwd", question.Cwd}, {"program", question.Program},
+	} {
+		if strings.ContainsAny(field.value, "\x1b\r\n") {
+			t.Errorf("%s = %q, want no byte a terminal acts on", field.name, field.value)
+		}
+		if len(field.value) > maxCommandChars+400 {
+			t.Errorf("%s is %d bytes, want it bounded near %d",
+				field.name, len(field.value), maxCommandChars)
+		}
+		if !strings.Contains(field.value, "more bytes") {
+			t.Errorf("%s = %q, want the truncation said rather than silent",
+				field.name, field.value)
+		}
+	}
+}
+
+// The question names the program root will run, not only the one the caller
+// asked for.  A relative argv[0] resolves against the request's cwd, which is
+// the agent's working tree, so `bin/ansible-playbook` can be a file the agent
+// wrote.
+func TestTheQuestionNamesWhatWillActuallyRun(t *testing.T) {
+	question := asked(t, Run{
 		Argv: []string{"bin/ansible-playbook", "site.yml"}, Cwd: "/srv/ctrl",
 		Argv0Path: "/srv/ctrl/bin/ansible-playbook",
 	})
-	if !strings.Contains(prompt, "/srv/ctrl/bin/ansible-playbook") {
-		t.Errorf("prompt = %q, want the resolved program named", prompt)
+	if question.Program != "/srv/ctrl/bin/ansible-playbook" {
+		t.Errorf("program = %q, want the resolved program named", question.Program)
 	}
-	// And says nothing extra when the two agree, which is the ordinary case.
-	plain := Prompt(Run{
-		Argv: []string{"ansible-playbook"}, Argv0Path: "ansible-playbook",
-	})
-	if strings.Contains(plain, "which is") {
-		t.Errorf("prompt = %q, want no note where argv[0] is what runs", plain)
+	// And says nothing where the two agree, which is the ordinary case: a field
+	// repeating the command is one more line between the reader and the command.
+	plain := asked(t, Run{Argv: []string{"ansible-playbook"}, Argv0Path: "ansible-playbook"})
+	if plain.Program != "" {
+		t.Errorf("program = %q, want no field where argv[0] is what runs", plain.Program)
 	}
 }
 

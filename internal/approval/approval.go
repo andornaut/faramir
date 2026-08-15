@@ -72,8 +72,7 @@ type Run struct {
 }
 
 // resolvedProgram is what argv[0] resolved to when that is not what argv[0]
-// says, and "" when the two agree.  One rule, applied here, so the prompt line
-// and the question's own fields cannot disagree about it and no caller has to
+// says, and "" when the two agree.  One rule, applied here, so no caller has to
 // re-derive it from rendered text.
 func (r Run) resolvedProgram() string {
 	if len(r.Argv) == 0 || r.Argv0Path == "" || r.Argv0Path == r.Argv[0] {
@@ -560,31 +559,24 @@ func newID() string {
 // README can agree on it, and because it is the whole security argument in one
 // line: the command is named, so the answer means something.
 //
-// It says what the answer covers, too.  A yes is spent on every sudo this one
-// command makes, so a question that read as though it covered a single task
-// would be asking for something other than what it grants.
-// Every caller-chosen part of it is rendered through safeArg, for the reason
-// given on Command: this string is printed to a terminal, and a terminal obeys
-// escape sequences.
+// One line and the command, nothing else.  The host, the cwd, the program root
+// will run and what a yes covers are fields of the Question, printed under it,
+// and repeating them here made the line long enough to be skimmed.  Every
+// caller-chosen part of it is rendered through Command, for the reason given
+// there: this string is printed to a terminal, and a terminal obeys escape
+// sequences.
 func Prompt(run Run) string {
+	return fmt.Sprintf("faramir: Approve this command to run as root? `%s`", run.Command())
+}
+
+// hostname is what the question says it is about, and never empty: a question
+// that names no host is one an operator watching two of them cannot place.
+func hostname() string {
 	host, err := os.Hostname()
 	if err != nil || host == "" {
-		host = "this host"
+		return "this host"
 	}
-	where := ""
-	if run.Cwd != "" {
-		where = " in " + safeField(run.Cwd)
-	}
-	// Named only when it is not what the command says, which is the case worth a
-	// human's attention: a relative argv[0] resolves against the request's cwd,
-	// so `bin/ansible-playbook` can be a file the agent wrote.  Saying it every
-	// time would make the line longer and the difference harder to notice.
-	program := ""
-	if resolved := run.resolvedProgram(); resolved != "" {
-		program = " (which is " + safeField(resolved) + ")"
-	}
-	return fmt.Sprintf("faramir: run as root on %s: %s%s%s -- approve every sudo "+
-		"this command makes until it ends? Type yes", host, run.Command(), program, where)
+	return safeField(host)
 }
 
 func (s *Server) record(entry map[string]any) {
@@ -602,7 +594,11 @@ type Question struct {
 	ID     string `json:"id"`
 	Prompt string `json:"prompt"`
 	Cmd    string `json:"cmd"`
-	Cwd    string `json:"cwd"`
+	// Host is where the command would become root.  A field rather than part of
+	// the prompt, because an operator watching two hosts reads it off the same
+	// block as everything else the question is about.
+	Host string `json:"host"`
+	Cwd  string `json:"cwd"`
 	// Program is what argv[0] resolved to, and so what root will run.  Shown
 	// separately from Cmd because they can differ: a relative argv[0] resolves
 	// against the request's cwd, which the agent writes.
@@ -638,10 +634,11 @@ func (s *Server) questionsLocked() []Question {
 		// caller's strings and they are printed to a terminal.  Absent stays
 		// absent: safeArg would render "" as a pair of quotation marks, which the
 		// caller would then print as a field holding nothing.
-		Cmd: pending.run.Command(), Cwd: safeUnlessEmpty(pending.run.Cwd),
-		// Only when it says something the command does not.  The same rule as
-		// Prompt's, made once here so the field block and the prompt line cannot
-		// disagree, and so the CLI needs no second opinion about it.
+		Cmd: pending.run.Command(), Host: hostname(), Cwd: safeUnlessEmpty(pending.run.Cwd),
+		// Only when it says something the command does not, which is the case worth
+		// a human's attention: a relative argv[0] resolves against the request's
+		// cwd, so `bin/ansible-playbook` can be a file the agent wrote.  Decided
+		// here rather than in the CLI, which would be a second opinion about it.
 		Program: safeUnlessEmpty(pending.run.resolvedProgram()), LogID: pending.run.LogID,
 		WaitingSec:   waited,
 		ExpiresInSec: max(0, s.config.TimeoutSec-waited),

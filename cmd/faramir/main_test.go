@@ -245,8 +245,8 @@ func dispatcherNames(t *testing.T) []string {
 // Deny by default, at the last place a human's answer is read: only an explicit
 // yes approves, so a typo, a stray word or an empty line refuses.
 //
-// "y" is among the refusals, not the approvals.  Every prompt says "Type yes",
-// and the keystroke this answer is guarded against is one the operator did not
+// "y" is among the refusals, not the approvals.  The watcher asks for `yes` and
+// the keystroke this answer is guarded against is one the operator did not
 // make: a tmux pane the agent can send-keys into, a tty the operator's account
 // owns.  A tool that accepts less than it asks for is one whose prompt is not
 // the rule.

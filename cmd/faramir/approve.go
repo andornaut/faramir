@@ -213,12 +213,11 @@ func listApprovals(socketPath string, asJSON bool) int {
 	}
 	for _, question := range questions {
 		printQuestion(question)
-		// The answer is a second command, and the question expires while it is being
-		// typed, so the time left is part of the instruction rather than a detail.
+		// The answer is a second command here, so the question says how to type it.
+		// What is left of the clock is in the question's own `expires` field, which
+		// this form is read against the same as `--watch` is.
 		fmt.Printf("  approve with: faramir approve %s\n", question.ID)
-		fmt.Printf("  refuse with:  faramir deny %s\n", question.ID)
-		fmt.Printf("  within %ds, after which it is refused and the command has to "+
-			"be run again\n\n", question.ExpiresInSec)
+		fmt.Printf("  refuse with:  faramir deny %s\n\n", question.ID)
 	}
 	return 0
 }
@@ -365,7 +364,7 @@ func readAnswer() (approve, ok bool) {
 // approves is deny by default, as every other answer path is: only an explicit
 // yes approves, and a typo, a stray word or an empty line is a no.
 //
-// The whole word, not "y".  Every prompt says "Type yes", and the threat this
+// The whole word, not "y".  The prompt above asks for `yes`, and the threat this
 // answer is guarded against is a keystroke the operator did not make: a tmux
 // pane the agent can `send-keys` into, a tty the operator's own account owns.
 // Two bytes rather than four is a thin difference to rest anything on, but a
@@ -383,6 +382,9 @@ func printQuestion(question approval.Question) {
 	fmt.Printf("\n%s\n", question.Prompt)
 	fmt.Printf("  id       %s\n", question.ID)
 	fmt.Printf("  cmd      %s\n", question.Cmd)
+	if question.Host != "" {
+		fmt.Printf("  host     %s\n", question.Host)
+	}
 	// Set only when it says something the command does not, which the broker
 	// decides: a relative argv[0] resolves against the cwd, and that is a tree the
 	// coding agent writes.  Re-deriving the rule here from the rendered command
@@ -396,8 +398,14 @@ func printQuestion(question approval.Question) {
 	if question.LogID != "" {
 		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
-	fmt.Printf("  waiting  %ds (expires in %ds, then refused)\n",
-		question.WaitingSec, question.ExpiresInSec)
+	fmt.Printf("  waiting  %ds\n", question.WaitingSec)
+	// A field of its own, printed for the watcher as well as the listing: the
+	// answer is typed against what is left of it either way.
+	fmt.Printf("  expires  %ds, after which it is rejected\n", question.ExpiresInSec)
+	// A yes is spent on every sudo the command makes, not on the one request being
+	// shown, so the question has to say so: an answer given for something narrower
+	// than what it grants is not the answer that was asked for.
+	fmt.Print("  grants   every sudo this command makes until it exits\n")
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.

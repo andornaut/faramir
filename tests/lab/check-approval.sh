@@ -167,23 +167,28 @@ wait $RUN 2>/dev/null
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "5. what one approval covers, and whether the prompt says so"
+head_ "5. what one approval covers, and whether the question says so"
 #
 # One question per run, not per sudo: a playbook's twenty become'd tasks are one
-# approval.  So the prompt has to say that is what a yes means.
+# approval.  So the question has to say that is what a yes means, which is the
+# `grants` field the operator reads under the prompt.
 
 sudoRun /tmp/scope.out /bin/sh -c 'sudo /usr/bin/id -un; sudo /bin/cat /etc/shadow | head -1; sudo /usr/bin/whoami'
 ID=$(waitq)
-prompt=$(/usr/local/bin/faramir approvals --json 2>/dev/null | grep -o '"prompt"[^,]*' | head -1)
-grep -qi 'every sudo this command makes until it ends' <<<"$prompt" \
-  && ok "the prompt says a yes covers every sudo the command makes" \
-  || bad "the prompt does not say what a yes covers: ${prompt:0:150}"
-grep -q 'cat /etc/shadow' <<<"$prompt" && ok "and shows the whole argv, second sudo included" \
-  || bad "the prompt hides part of the command: ${prompt:0:150}"
+question=$(/usr/local/bin/faramir approvals 2>/dev/null)
+grep -qi 'every sudo this command makes until it exits' <<<"$question" \
+  && ok "the question says a yes covers every sudo the command makes" \
+  || bad "the question does not say what a yes covers: ${question:0:150}"
+grep -q 'cat /etc/shadow' <<<"$question" && ok "and shows the whole argv, second sudo included" \
+  || bad "the question hides part of the command: ${question:0:150}"
+# The host is a field rather than part of the prompt, and an operator watching
+# two of them has nothing else to place the question by.
+grep -qE '^  host +[^ ]' <<<"$question" && ok "and names the host it would become root on" \
+  || bad "the question names no host: ${question:0:150}"
 /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 covered=$(grep -c '^root' /tmp/scope.out)
-[ "$covered" -ge 2 ] && ok "one yes covered all $covered sudos in that run, as the prompt said" \
+[ "$covered" -ge 2 ] && ok "one yes covered all $covered sudos in that run, as the question said" \
   || bad "only $covered sudo(s) ran: $(tr '\n' ' ' </tmp/scope.out | cut -c1-110)"
 [ "$(q)" = "" ] && ok "and no further question was filed for the later ones" || bad "a second question was filed"
 quiesce
@@ -297,7 +302,7 @@ grep -q '^notify_command = \["/usr/local/bin/lab-notify", "{prompt}"\]' $CFG \
   || bad "the config does not carry it: $(grep '^notify_command' $CFG || echo none)"
 [ -s "$NOTIFY" ] && ok "the broker ran it, $(wc -l <"$NOTIFY") announcement(s)" \
   || bad "nothing was announced, though questions were raised"
-grep -q 'approve every sudo' "$NOTIFY" && ok "and handed it the prompt, expanded" \
+grep -q 'Approve this command to run as root?' "$NOTIFY" && ok "and handed it the prompt, expanded" \
   || bad "the announcement is not the prompt: $(head -1 "$NOTIFY" | cut -c1-90)"
 grep -q '{prompt}' "$NOTIFY" && bad "the placeholder was passed through unexpanded" \
   || ok "with the placeholder substituted rather than passed through"

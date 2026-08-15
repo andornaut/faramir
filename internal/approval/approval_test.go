@@ -104,6 +104,18 @@ func (h *human) prompts() string {
 	return out.String()
 }
 
+// first is the question the human was put first, for a test reading the fields
+// printed under the prompt rather than the prompt line itself.
+func (h *human) first(t *testing.T) Question {
+	t.Helper()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if len(h.asked) == 0 {
+		t.Fatal("the human was asked nothing")
+	}
+	return h.asked[0]
+}
+
 // -- disabled by default ----------------------------------------------------
 
 // With no exec_user nothing is granted and nothing is injected, which is the
@@ -144,10 +156,18 @@ func TestAnApprovedRequestIsAllowed(t *testing.T) {
 	}
 	// The whole argument for this feature is in the question: an approval that
 	// names no command is one nobody can judge.
-	for _, want := range []string{"ansible-playbook msmtp.yml", "/srv/ctrl", "root"} {
+	for _, want := range []string{"ansible-playbook msmtp.yml", "root"} {
 		if !strings.Contains(h.prompts(), want) {
 			t.Errorf("the human was asked %q, which does not mention %q", h.prompts(), want)
 		}
+	}
+	// Where it would run is a field of the question, printed under the prompt.
+	asked := h.first(t)
+	if asked.Cwd != "/srv/ctrl" {
+		t.Errorf("question.Cwd = %q, want the request's cwd", asked.Cwd)
+	}
+	if asked.Host == "" {
+		t.Error("question.Host is empty; the question names no host to become root on")
 	}
 }
 

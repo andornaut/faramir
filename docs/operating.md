@@ -141,16 +141,19 @@ sudo faramir approvals --watch
 3. Your watcher prints it and reads your answer from **its** terminal:
 
    ```text
-   faramir: run as root on controller: ansible-playbook msmtp.yml in /srv/ansible-ctrl -- approve every sudo this command makes until it ends? Type yes
+   faramir: Approve this command to run as root? `ansible-playbook msmtp.yml`
      id       9f2a1c
      cmd      ansible-playbook msmtp.yml
+     host     controller
      cwd      /srv/ansible-ctrl
      log_id   2026-08-10T12:04:11Z-3b7e000119
-     waiting  2s (expires in 118s, then refused)
+     waiting  2s
+     expires  118s, after which it is rejected
+     grants   every sudo this command makes until it exits
      approve? [yes/no]
    ```
 
-   The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes.
+   The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. Read `grants` as it is written: a yes is spent on every `sudo` that command makes until it exits, not on the one request being shown.
 
 4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `waiting` counts.
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else `requisite` makes the non-zero exit fatal at once, and `sudo` reports its own authentication failure.
@@ -160,7 +163,7 @@ There is no password anywhere: what satisfies `sudo` is a decision, so nothing i
 
 **Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `--watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. The deny rules refuse `sudo faramir approvals`, `approve` and `deny` from the agent's own shell, which raises the cost rather than removing it.
 
-**Without `--watch`.** `sudo faramir approvals` lists what is waiting and exits. Answering is a second command: `sudo faramir approve 9f2a1c`, or `sudo faramir deny 9f2a1c`. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached; `--json` gives the same in machine form. Read the "expires in" and mean it: you are typing against what is left of it. If it expires, the `sudo` fails and a re-run asks afresh.
+**Without `--watch`.** `sudo faramir approvals` lists what is waiting and exits. Answering is a second command: `sudo faramir approve 9f2a1c`, or `sudo faramir deny 9f2a1c`. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached; `--json` gives the same in machine form. Read `expires` and mean it: you are typing against what is left of it. If it expires, the `sudo` fails and a re-run asks afresh.
 
 `deny` needs no id, only one question ever being outstanding, so a bare `sudo faramir deny` refuses the one waiting and prints what it refused. `approve` requires one: an approval that names no command is one nobody judged.
 
