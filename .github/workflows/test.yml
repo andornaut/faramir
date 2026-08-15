@@ -134,12 +134,11 @@ jobs:
   # three uids, a sops store and an agent working in a project tree. Go covers
   # the code; these cover what an operator gets after `faramir init`.
   #
-  # Kept out of CI until now because it needs Docker, a privileged container and
-  # the host's cgroup tree. What that cost was a base-image bump merging on a
-  # green run that never built the image: Ubuntu 25.10 replaced GNU coreutils
-  # with uutils, whose `test` ignores supplementary groups, and every one of
-  # doctor's group-based findings was wrong on it. Nothing but the lab asks
-  # doctor a question against a real install.
+  # Required rather than left to run on its own, expensive as it is: it needs
+  # Docker, a privileged container and the host's cgroup tree, and nothing else
+  # here builds the image or asks doctor a question against a real install. A
+  # base-image bump changes the userland every group and permission check reads,
+  # so without this a bump merges on a green run that never built it.
   lab:
     name: Lab
     runs-on: ubuntu-latest

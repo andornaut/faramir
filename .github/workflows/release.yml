@@ -87,7 +87,7 @@ jobs:
       # a consumer has to be told about out of band.
       - name: Archive
         run: |
-          cp README.md bin/
+          cp README.md LICENSE bin/
           tar -czf faramir_${{ matrix.goos }}_${{ matrix.asset_arch }}.tar.gz -C bin .
 
       - name: Upload build artifact
