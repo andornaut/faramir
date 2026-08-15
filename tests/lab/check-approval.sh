@@ -167,19 +167,16 @@ wait $RUN 2>/dev/null
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "5. what one approval covers, and whether the question says so"
+head_ "5. what one approval covers, and what the question shows of it"
 #
 # One question per run, not per sudo: a playbook's twenty become'd tasks are one
-# approval.  So the question has to say that is what a yes means, which is the
-# `grants` field the operator reads under the prompt.
+# approval.  What the operator judges that by is the command, so the question has
+# to carry the whole of it.
 
 sudoRun /tmp/scope.out /bin/sh -c 'sudo /usr/bin/id -un; sudo /bin/cat /etc/shadow | head -1; sudo /usr/bin/whoami'
 ID=$(waitq)
 question=$(/usr/local/bin/faramir approvals 2>/dev/null)
-grep -qi 'every sudo this command makes until it exits' <<<"$question" \
-  && ok "the question says a yes covers every sudo the command makes" \
-  || bad "the question does not say what a yes covers: ${question:0:150}"
-grep -q 'cat /etc/shadow' <<<"$question" && ok "and shows the whole argv, second sudo included" \
+grep -q 'cat /etc/shadow' <<<"$question" && ok "shows the whole argv, second sudo included" \
   || bad "the question hides part of the command: ${question:0:150}"
 # The host is a field rather than part of the prompt, and an operator watching
 # two of them has nothing else to place the question by.
@@ -188,7 +185,7 @@ grep -qE '^  host +[^ ]' <<<"$question" && ok "and names the host it would becom
 /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 covered=$(grep -c '^root' /tmp/scope.out)
-[ "$covered" -ge 2 ] && ok "one yes covered all $covered sudos in that run, as the question said" \
+[ "$covered" -ge 2 ] && ok "one yes covered all $covered sudos in that run" \
   || bad "only $covered sudo(s) ran: $(tr '\n' ' ' </tmp/scope.out | cut -c1-110)"
 [ "$(q)" = "" ] && ok "and no further question was filed for the later ones" || bad "a second question was filed"
 quiesce

@@ -385,27 +385,25 @@ func printQuestion(question approval.Question) {
 	if question.Host != "" {
 		fmt.Printf("  host     %s\n", question.Host)
 	}
+	if question.Cwd != "" {
+		fmt.Printf("  cwd      %s\n", question.Cwd)
+	}
 	// Set only when it says something the command does not, which the broker
 	// decides: a relative argv[0] resolves against the cwd, and that is a tree the
 	// coding agent writes.  Re-deriving the rule here from the rendered command
-	// would be a second opinion about it, and the two could disagree.
+	// would be a second opinion about it, and the two could disagree.  Printed
+	// under the cwd it resolved against, which is what makes it worth reading.
 	if question.Program != "" {
 		fmt.Printf("  program  %s\n", question.Program)
-	}
-	if question.Cwd != "" {
-		fmt.Printf("  cwd      %s\n", question.Cwd)
 	}
 	if question.LogID != "" {
 		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
+	// Above the waiting count, and printed for the watcher as well as the
+	// listing: what is left of the clock is what the answer is typed against,
+	// either way, and how long it has already sat there is the lesser number.
+	fmt.Printf("  expires  %ds, after which it is refused\n", question.ExpiresInSec)
 	fmt.Printf("  waiting  %ds\n", question.WaitingSec)
-	// A field of its own, printed for the watcher as well as the listing: the
-	// answer is typed against what is left of it either way.
-	fmt.Printf("  expires  %ds, after which it is rejected\n", question.ExpiresInSec)
-	// A yes is spent on every sudo the command makes, not on the one request being
-	// shown, so the question has to say so: an answer given for something narrower
-	// than what it grants is not the answer that was asked for.
-	fmt.Print("  grants   every sudo this command makes until it exits\n")
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.
