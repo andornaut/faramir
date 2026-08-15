@@ -27,7 +27,11 @@ linters:
     govet:
       disable:
         - fieldalignment
-        - shadow # `if err := f(); err != nil` inside a function with an outer err is idiomatic
+        # Local to this repository. Every other Go repository here runs shadow
+        # and passes; this one uses `if err := f(); err != nil` inside functions
+        # that already hold an err often enough that the check reports 88 of
+        # them, none a bug. Re-enable if those are ever unwound.
+        - shadow
       enable-all: true
     revive:
       rules:
@@ -36,14 +40,23 @@ linters:
   exclusions:
     generated: lax
     rules:
-      # Tests get a shorter leash: cleanup errors, repeated fixture literals and
-      # fixture helpers that return more than one caller needs are all normal.
+      # Tests get a longer leash than the code they exercise: fixture literals
+      # repeat by nature (goconst), helpers take parameters only some cases use
+      # (unparam), and the untrusted input gosec warns about is input the test
+      # wrote itself.
       - linters:
-          - errcheck
           - goconst
           - gosec
           - unparam
         path: _test\.go
+      # errcheck stays narrow. Tearing down what a test set up is
+      # fire-and-forget, and so is a write that cannot fail; a dropped error
+      # anywhere else in a test is a test that passes without checking anything.
+      # os.Setenv rather than t.Setenv because TestMain holds no *testing.T.
+      - linters:
+          - errcheck
+        path: _test\.go
+        text: Error return value of `([\w.]+\.(Close|Serve)|os\.(Remove|RemoveAll|Setenv)|fmt\.Fprint)` is not checked
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
