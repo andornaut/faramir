@@ -134,11 +134,6 @@ jobs:
         uses: ludeeus/action-shellcheck@2.0.0
         with:
           scandir: "."
-          # A Go text/template, shell only once `faramir init` has rendered it:
-          # the {{ }} placeholders are literal braces to shellcheck and every
-          # one of them is an SC1083. Nothing here renders it, so there is no
-          # point at which it is shell this job could read.
-          ignore_names: pam-approve.tmpl
 
   # The functional suites, against a real install in a container: systemd units,
   # three uids, a sops store and an agent working in a project tree. Go covers
