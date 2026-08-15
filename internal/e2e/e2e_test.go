@@ -117,8 +117,8 @@ func newHarness(t *testing.T) *harness {
 	if _, err := k.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	go k.Serve()
-	t.Cleanup(func() { k.Close() })
+	go func() { _ = k.Serve() }()
+	t.Cleanup(func() { _ = k.Close() })
 
 	e := execserver.New(cfg)
 	// Every brokered command is confined to its own cgroup, so an executor without
@@ -131,16 +131,16 @@ func newHarness(t *testing.T) *harness {
 	if _, err := e.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	go e.Serve()
-	t.Cleanup(func() { e.Close() })
+	go func() { _ = e.Serve() }()
+	t.Cleanup(func() { _ = e.Close() })
 
 	s := server.New(cfg)
 	s.Store.Reload()
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	go s.Serve()
-	t.Cleanup(func() { s.Close() })
+	go func() { _ = s.Serve() }()
+	t.Cleanup(func() { _ = s.Close() })
 
 	return &harness{
 		dir: dir, brokerSock: cfg.Server.SocketPath, auditLog: auditLog,
@@ -173,7 +173,7 @@ func (h *harness) call(t *testing.T, request map[string]any) response {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	if err := sockutil.Send(conn, request); err != nil {
 		t.Fatal(err)
 	}

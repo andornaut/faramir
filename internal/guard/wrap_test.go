@@ -19,8 +19,8 @@ func withStdin(t *testing.T, input string, fn func()) {
 	}
 	original := os.Stdin
 	os.Stdin = r
-	defer func() { os.Stdin = original; r.Close() }()
-	go func() { _, _ = io.WriteString(w, input); w.Close() }()
+	defer func() { os.Stdin = original; _ = r.Close() }()
+	go func() { _, _ = io.WriteString(w, input); _ = w.Close() }()
 	fn()
 }
 
@@ -38,7 +38,7 @@ func captureStdout(t *testing.T, fn func()) string {
 		done <- string(out)
 	}()
 	fn()
-	w.Close()
+	_ = w.Close()
 	os.Stdout = original
 	return <-done
 }

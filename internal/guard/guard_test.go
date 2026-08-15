@@ -15,10 +15,10 @@ func TestMain(m *testing.M) {
 	cleanup := func() {}
 	if data, err := renderShippedBytes(); err == nil {
 		if dir, err := os.MkdirTemp("", "faramir-guard-patterns"); err == nil {
-			cleanup = func() { os.RemoveAll(dir) }
+			cleanup = func() { _ = os.RemoveAll(dir) }
 			path := filepath.Join(dir, "deny-patterns.txt")
 			if os.WriteFile(path, data, 0o644) == nil {
-				os.Setenv("FARAMIR_DENY_PATTERNS", path)
+				_ = os.Setenv("FARAMIR_DENY_PATTERNS", path)
 			}
 		}
 	}

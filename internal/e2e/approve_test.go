@@ -42,7 +42,7 @@ func approvalBroker(t *testing.T) (*server.Server, string) {
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	go s.Serve()
+	go func() { _ = s.Serve() }()
 	t.Cleanup(func() { _ = s.Close() })
 	return s, cfg.Server.SocketPath
 }

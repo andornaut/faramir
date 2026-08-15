@@ -51,8 +51,8 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 	if _, err := e.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	go e.Serve()
-	t.Cleanup(func() { e.Close() })
+	go func() { _ = e.Serve() }()
+	t.Cleanup(func() { _ = e.Close() })
 	return &harness{execCfg: cfg.Exec, executorCfg: cfg.Executor, dir: dir}
 }
 

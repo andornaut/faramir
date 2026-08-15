@@ -56,7 +56,7 @@ func newStubBroker(t *testing.T) *stubBroker {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { listener.Close(); os.Remove(b.path) })
+	t.Cleanup(func() { _ = listener.Close(); _ = os.Remove(b.path) })
 
 	go func() {
 		for {
@@ -74,7 +74,7 @@ func newStubBroker(t *testing.T) *stubBroker {
 }
 
 func (b *stubBroker) serve(conn net.Conn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	lines := sockutil.NewLineReader(conn, 1<<26)
 	for {
 		line, err := lines.Next()

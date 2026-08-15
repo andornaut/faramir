@@ -103,5 +103,5 @@ func TestPrintRecordRendersTerminalControlsInCallerText(t *testing.T) {
 	if strings.Contains(got, "\x1b[2J") {
 		t.Errorf("an escape from the record reached the terminal: %q", got)
 	}
-	fmt.Fprint(io.Discard, got)
+	_, _ = fmt.Fprint(io.Discard, got)
 }

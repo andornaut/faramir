@@ -36,8 +36,8 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 	if _, err := e.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	go e.Serve()
-	t.Cleanup(func() { e.Close() })
+	go func() { _ = e.Serve() }()
+	t.Cleanup(func() { _ = e.Close() })
 	return e, sock, dir
 }
 
@@ -254,8 +254,8 @@ func TestAnExecutorWithoutACgroupRefusesEveryCommand(t *testing.T) {
 	if _, err := e.Listen(); err != nil {
 		t.Fatal(err)
 	}
-	go e.Serve()
-	t.Cleanup(func() { e.Close() })
+	go func() { _ = e.Serve() }()
+	t.Cleanup(func() { _ = e.Close() })
 
 	if _, _, err := runChild(t, sock, []string{"/bin/sh", "-c", "true"}, dir); err == nil ||
 		!strings.Contains(err.Error(), "cgroup") {

@@ -27,7 +27,7 @@ func newFakeBroker(t *testing.T, reply map[string]any) *fakeBroker {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { ln.Close() })
+	t.Cleanup(func() { _ = ln.Close() })
 	t.Setenv("FARAMIR_SOCKET", path)
 
 	b := &fakeBroker{requests: make(chan map[string]any, 8), reply: reply}

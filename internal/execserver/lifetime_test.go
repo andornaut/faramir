@@ -74,7 +74,7 @@ func TestAChildIsKilledWhenTheBrokerHangsUp(t *testing.T) {
 	pidFile := filepath.Join(dir, "pid")
 
 	client, master := startChild(t, sock, []string{sh, "-c", "echo $$ > " + pidFile + "; sleep 60"}, dir, 120)
-	defer master.Close()
+	defer func() { _ = master.Close() }()
 
 	pid, err := strconv.Atoi(waitForFile(t, pidFile, 10*time.Second))
 	if err != nil {
@@ -242,7 +242,7 @@ func TestAMissingSocketIsAClearError(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer master.Close()
+	defer func() { _ = master.Close() }()
 	err = client.Start([]string{"/bin/true"}, "/tmp", nil, 5, 1, slave.Fd())
 	_ = slave.Close()
 	if err == nil {
