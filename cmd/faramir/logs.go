@@ -7,7 +7,9 @@ package main
 //
 // It holds no secret value (output was recorded after redaction, refs are names,
 // and nothing is substituted into argv), so this prints what it finds.
-// Rotated files are not read; name one to zless.
+// Rotated files are not read; name one to zless.  --watch is the one place
+// rotation is followed rather than ignored: a watcher left running across a
+// logrotate run reopens the path and carries on.
 
 import (
 	"bufio"
@@ -32,12 +34,20 @@ import (
 // is asked for by log_id.
 const defaultLogCount = 20
 
+// watchPoll is how often a watcher looks for what has been appended.  Records
+// arrive when a brokered command finishes, so this is a human's idea of "as it
+// happens" rather than a rate anything depends on: an interval short enough that
+// a row follows the command that wrote it, and long enough that a terminal left
+// open overnight is not a stat per hundredth of a second.
+const watchPoll = 500 * time.Millisecond
+
 type logsFlags struct {
 	configPath string
 	logPath    string
 	count      int
 	socket     string
 	asJSON     bool
+	watch      bool
 	when       string
 }
 
@@ -55,6 +65,7 @@ func newLogsCmd() *cobra.Command {
 	c.Flags().IntVarP(&f.count, "count", "n", defaultLogCount, "how many recent records to list")
 	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	c.Flags().BoolVar(&f.asJSON, "json", false, "print the records as JSON")
+	c.Flags().BoolVar(&f.watch, "watch", false, "keep printing records as they are appended")
 	c.Flags().StringVar(&f.when, "color", "auto", "colourise: auto, always or never")
 	return c
 }
@@ -63,6 +74,16 @@ func runLogs(f logsFlags, args []string) int {
 	paint, err := newPalette(f.when)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+		return 2
+	}
+
+	// A log-id is one record, already written; there is nothing to wait for, and a
+	// command that printed it and then sat there would look like it had hung.
+	// Refused here rather than below the root check, so the answer is the same
+	// whoever typed it.
+	if f.watch && firstArg(args) != "" {
+		fmt.Fprintln(os.Stderr, "faramir logs: --watch prints records as they arrive, "+
+			"so it takes no log-id. Drop one or the other")
 		return 2
 	}
 
@@ -102,6 +123,10 @@ func runLogs(f logsFlags, args []string) int {
 		return 0
 	}
 
+	if f.watch {
+		return runWatch(path, f, paint)
+	}
+
 	records, skipped, err := tailRecords(path, f.count)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
@@ -120,17 +145,120 @@ func runLogs(f logsFlags, args []string) int {
 		fmt.Fprintln(os.Stderr, emptyReason(path, f.count))
 		return 0
 	}
-	// Once per day rather than on every line, which would crowd out the columns
-	// that differ.
-	day := ""
+	printer := logPrinter{paint: paint}
 	for _, record := range records {
-		if at := startedAt(record); !at.IsZero() && at.Format(dateLayout) != day {
-			day = at.Format(dateLayout)
-			fmt.Println(paint.dim(day))
-		}
-		fmt.Println(summarise(record, paint))
+		printer.row(record)
 	}
 	return 0
+}
+
+// logPrinter is the listing's rows and the date header above the first row of
+// each day.  The header is once per day rather than on every line, which would
+// crowd out the columns that differ, and the day it last printed is state: a
+// watcher left running prints a new header when the day turns under it.
+type logPrinter struct {
+	paint palette
+	day   string
+}
+
+func (p *logPrinter) row(record map[string]any) {
+	if at := startedAt(record); !at.IsZero() && at.Format(dateLayout) != p.day {
+		p.day = at.Format(dateLayout)
+		fmt.Println(p.paint.dim(p.day))
+	}
+	fmt.Println(summarise(record, p.paint))
+}
+
+// runWatch prints the last count records and then the records appended after
+// them, until it is interrupted.  It returns only on an error it cannot read
+// past: there is no end to a log that is still being written.
+//
+// One reader throughout, positioned at the end of the file the backlog was read
+// from, so a record written while the backlog is being printed is shown once
+// rather than twice or not at all.
+func runWatch(path string, f logsFlags, paint palette) int {
+	follow, err := openFollower(path)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+		return 1
+	}
+	defer follow.close()
+
+	printer := logPrinter{paint: paint}
+	skipped := 0
+	// A record on the way past.  --json prints one value per record rather than the
+	// array the listing prints: there is no last record to close an array after, and
+	// a stream of values is what a decoder reading stdout can consume as they
+	// arrive.
+	emit := func(line []byte) {
+		record, lost := parseLine(line)
+		switch {
+		case record == nil:
+			if lost {
+				skipped++
+			}
+		case f.asJSON:
+			_ = printJSON(record)
+		default:
+			printer.row(record)
+		}
+	}
+
+	// The backlog, read through the same reader: what is already in the log, kept
+	// as bytes and parsed at the end, exactly as the listing does it.
+	backlog := newLineRing(f.count)
+	if err := follow.drain(backlog.add); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+		return 1
+	}
+	records, lost := parseLines(backlog.ordered())
+	reportSkipped(path, lost)
+	// Said only where the count asked for records: `--watch -n 0` asked for the
+	// arriving ones alone, and emptyReason's advice would be an answer to a
+	// question nobody put.
+	if len(records) == 0 && f.count > 0 {
+		fmt.Fprintln(os.Stderr, emptyReason(path, f.count))
+	}
+	for _, record := range records {
+		if f.asJSON {
+			_ = printJSON(record)
+			continue
+		}
+		printer.row(record)
+	}
+	fmt.Fprintf(os.Stderr, "watching %s for new records. Ctrl-C to stop.\n", path)
+
+	for {
+		if err := follow.drain(emit); err != nil {
+			fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+			return 1
+		}
+		// Per pass rather than per line: a run of lines that will not parse is one
+		// report, and the count is what makes it a report worth reading.
+		reportSkipped(path, skipped)
+		skipped = 0
+
+		rotated, err := follow.rotated()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+			return 1
+		}
+		if rotated {
+			switch err := follow.reopen(); {
+			case err == nil:
+				// Straight round again rather than waiting a poll: the file at the path is
+				// a new one, read from its start.
+				continue
+			case !os.IsNotExist(err):
+				fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+				return 1
+			}
+			// Nothing at the path: logrotate has renamed the file and no record has been
+			// written since, the broker creating the log as it writes.  The next pass
+			// opens it.
+		}
+		time.Sleep(watchPoll)
+	}
 }
 
 // printJSON writes a record, or a list of them, to stdout as indented JSON: the
@@ -188,10 +316,17 @@ func scanAuditLog(path string, visit func(line []byte) bool) error {
 func openAuditLog(path string) (*os.File, error) {
 	fh, err := os.Open(path)
 	if err != nil && os.IsNotExist(err) {
-		return nil, fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
-			"this host, or [audit] log_path names somewhere else", path)
+		return nil, missingLog(path)
 	}
 	return fh, err
+}
+
+// missingLog is that message on its own, for a caller that opens the log itself
+// because it has to tell "not there" from every other reason a file will not
+// open: os.IsNotExist does not survive being rewritten into a sentence.
+func missingLog(path string) error {
+	return fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
+		"this host, or [audit] log_path names somewhere else", path)
 }
 
 // parseLine is one line as a record, and whether losing it means a record was
@@ -234,6 +369,60 @@ const ringCapMax = 1024
 
 func ringCap(count int) int { return min(count, ringCapMax) }
 
+// lineRing keeps the last count lines it was given.  A count of zero or less
+// keeps nothing, which is what --count asked for.
+type lineRing struct {
+	count  int
+	lines  [][]byte
+	next   int
+	filled bool
+}
+
+func newLineRing(count int) *lineRing {
+	return &lineRing{count: count, lines: make([][]byte, 0, max(ringCap(count), 0))}
+}
+
+func (r *lineRing) add(line []byte) {
+	if r.count <= 0 {
+		return
+	}
+	// Copied: the reader owns its buffer and reuses it on the next line.
+	kept := append([]byte(nil), line...)
+	if !r.filled && len(r.lines) < r.count {
+		r.lines = append(r.lines, kept)
+		r.filled = len(r.lines) == r.count
+		return
+	}
+	r.lines[r.next] = kept
+	if r.next++; r.next == r.count {
+		r.next = 0
+	}
+}
+
+// ordered is what it holds, oldest first.
+func (r *lineRing) ordered() [][]byte {
+	if !r.filled {
+		return r.lines
+	}
+	return append(append([][]byte{}, r.lines[r.next:]...), r.lines[:r.next]...)
+}
+
+// parseLines is the records in a batch of lines, and how many of them were lost.
+func parseLines(lines [][]byte) ([]map[string]any, int) {
+	var records []map[string]any
+	skipped := 0
+	for _, line := range lines {
+		record, lost := parseLine(line)
+		switch {
+		case record != nil:
+			records = append(records, record)
+		case lost:
+			skipped++
+		}
+	}
+	return records, skipped
+}
+
 func tailRecords(path string, count int) ([]map[string]any, int, error) {
 	if count <= 0 {
 		fh, err := openAuditLog(path)
@@ -243,42 +432,118 @@ func tailRecords(path string, count int) ([]map[string]any, int, error) {
 		_ = fh.Close()
 		return nil, 0, nil
 	}
-	ring, next, filled := make([][]byte, 0, ringCap(count)), 0, false
+	ring := newLineRing(count)
 	if err := scanAuditLog(path, func(line []byte) bool {
-		// Copied: the reader owns its buffer and reuses it on the next line.
-		kept := append([]byte(nil), line...)
-		if !filled && len(ring) < count {
-			ring = append(ring, kept)
-			if len(ring) == count {
-				filled = true
-			}
-			return true
-		}
-		ring[next] = kept
-		if next++; next == count {
-			next = 0
-		}
+		ring.add(line)
 		return true
 	}); err != nil {
 		return nil, 0, err
 	}
+	records, skipped := parseLines(ring.ordered())
+	return records, skipped, nil
+}
 
-	ordered := ring
-	if filled {
-		ordered = append(append([][]byte{}, ring[next:]...), ring[:next]...)
+// follower reads a log that is still being written.  It holds the reader open
+// between passes, so what it costs on a quiet host is a stat per poll rather
+// than a re-read of the file.
+//
+// Complete lines only: a record still being appended is held until its newline
+// arrives.  scanAuditLog does the opposite -- it hands the last line over
+// whether or not it ends -- because a listing is a reading of a file as it
+// stands, while a watcher is going to see the rest of that line in a moment.
+type follower struct {
+	path    string
+	fh      *os.File
+	reader  *bufio.Reader
+	info    os.FileInfo
+	pending []byte
+	offset  int64
+}
+
+func openFollower(path string) (*follower, error) {
+	f := &follower{path: path}
+	if err := f.open(); err != nil {
+		if os.IsNotExist(err) {
+			return nil, missingLog(path)
+		}
+		return nil, err
 	}
-	var records []map[string]any
-	skipped := 0
-	for _, line := range ordered {
-		record, lost := parseLine(line)
-		switch {
-		case record != nil:
-			records = append(records, record)
-		case lost:
-			skipped++
+	return f, nil
+}
+
+// open is the raw error, not openAuditLog's sentence: reopen has to tell a path
+// that logrotate has just emptied of any file from a path that cannot be opened
+// at all, and the first of those is a pass to wait rather than a failure.
+func (f *follower) open() error {
+	fh, err := os.Open(f.path)
+	if err != nil {
+		return err
+	}
+	info, err := fh.Stat()
+	if err != nil {
+		_ = fh.Close()
+		return fmt.Errorf("%s: %w", f.path, err)
+	}
+	f.fh, f.info = fh, info
+	f.reader = bufio.NewReaderSize(fh, 64*1024)
+	f.pending, f.offset = nil, 0
+	return nil
+}
+
+// reopen is the file the path names now, read from its start.  The half-written
+// line held from the file before it is dropped with it: it belongs to a record
+// that is in the rotated file, and pasting it onto the first line of the new one
+// would make a line that is neither.
+func (f *follower) reopen() error {
+	_ = f.fh.Close()
+	return f.open()
+}
+
+func (f *follower) close() { _ = f.fh.Close() }
+
+// drain calls visit with each line completed since the last pass, and returns
+// when it reaches the end of what has been written.  Blank lines are skipped, as
+// in scanAuditLog: they carry no record either way.
+func (f *follower) drain(visit func(line []byte)) error {
+	for {
+		chunk, err := f.reader.ReadBytes('\n')
+		f.offset += int64(len(chunk))
+		f.pending = append(f.pending, chunk...)
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				return nil
+			}
+			return fmt.Errorf("%s: %w", f.path, err)
+		}
+		line := f.pending
+		f.pending = nil
+		if len(bytes.TrimSpace(line)) > 0 {
+			visit(line)
 		}
 	}
-	return records, skipped, nil
+}
+
+// rotated is whether the file being read is no longer the log.
+//
+// Two ways it stops being the log.  logrotate's rule renames it and the broker
+// creates the next one by writing a record, so the path comes to name a
+// different file; and anything that empties the log in place leaves the same
+// file shorter than what has already been read.  Either way the reader is on a
+// file nothing will append to again, and every record written from here lands
+// somewhere it is not looking.
+//
+// A path with nothing at it is neither: that is the gap between logrotate's
+// rename and the next record, and the file it is reading is still the one those
+// records were written to.
+func (f *follower) rotated() (bool, error) {
+	info, err := os.Stat(f.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return false, nil
+		}
+		return false, fmt.Errorf("%s: %w", f.path, err)
+	}
+	return !os.SameFile(info, f.info) || info.Size() < f.offset, nil
 }
 
 // findRecord is the first record whose id matches, or nil.  It parses one line

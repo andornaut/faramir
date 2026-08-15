@@ -563,4 +563,78 @@ grep -q '«SECRET:db/password»×3' <<<"$out" && grep -q '«SECRET:api/token»×
   && ok "the detail view breaks the count down per token" || bad "counts: [$out]"
 
 # --------------------------------------------------------------------------
+head_ "14. --watch: the log as it is written"
+#
+# On a log of this suite's own making rather than the live one, so what is under
+# test is the reader and not what the broker happened to do while it ran.
+
+WATCH=/tmp/watch.log
+OUT=/tmp/watch.out
+synth() { printf '{"log_id":"2026-08-12T02:00:%02dZ-eeee%06d","op":"exec","cmd":["/bin/echo","%s"],"exit_code":0}\n' "$2" "$2" "$1"; }
+
+synth backlog 1 > "$WATCH"
+/usr/local/bin/faramir logs --color never --path "$WATCH" --watch -n 1 >"$OUT" 2>&1 &
+watcher=$!
+sleep 2
+
+grep -q backlog "$OUT" && ok "the records already in the log are printed first" \
+  || bad "no backlog after 2s: [$(cat "$OUT")]"
+synth arrived 2 >> "$WATCH"
+sleep 2
+grep -q arrived "$OUT" && ok "and a record appended after that arrives on its own" \
+  || bad "an appended record did not arrive: [$(cat "$OUT")]"
+
+# Half a record is half a line: held until its newline, and not reported as
+# damage in the meantime.
+printf '{"log_id":"2026-08-12T02:00:03Z-eeee000003","op":"exec","cmd":["/bin/echo","half' >> "$WATCH"
+sleep 2
+grep -q half "$OUT" && bad "a record still being written was printed: [$(cat "$OUT")]" \
+  || ok "a line still being appended is held rather than shown"
+grep -q 'do not parse' "$OUT" && bad "and it was reported as damage: [$(cat "$OUT")]" \
+  || ok "and is not counted as a record lost"
+printf 'finished"],"exit_code":0}\n' >> "$WATCH"
+sleep 2
+grep -q halffinished "$OUT" && ok "it prints whole once its line ends" \
+  || bad "the finished record did not print: [$(cat "$OUT")]"
+
+# Rotation, the way logrotate does it here: rename, then the next write creates
+# the file again.  A watcher left running has to follow the path.
+mv "$WATCH" "$WATCH.1"
+sleep 2
+kill -0 "$watcher" 2>/dev/null && ok "the gap where the path has no file is waited out" \
+  || bad "the watcher stopped when the log was renamed: [$(cat "$OUT")]"
+synth after-rotation 4 > "$WATCH"
+sleep 2
+grep -q after-rotation "$OUT" && ok "and the new file is picked up with no restart" \
+  || bad "nothing after rotation: [$(cat "$OUT")]"
+
+kill "$watcher" 2>/dev/null
+wait "$watcher" 2>/dev/null
+rows=$(grep -cE '^[0-9a-f]{10} ' "$OUT")
+[ "$rows" -eq 4 ] && ok "four records written, four rows printed, none twice" \
+  || bad "$rows rows for four records: [$(cat "$OUT")]"
+[ "$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2} ' "$OUT")" -eq 1 ] \
+  && ok "with one date header across the whole run" \
+  || bad "the date header repeated: [$(cat "$OUT")]"
+
+# A log-id is one record that is already written, so there is nothing to wait
+# for.  Refused rather than printed-and-then-hung.
+out=$(logs --path "$WATCH" --watch eeee000004); code=$?
+[ $code -eq 2 ] && grep -q 'takes no log-id' <<<"$out" \
+  && ok "--watch with a log-id is refused as usage, exit 2" || bad "--watch with an id: exit $code [$out]"
+
+# --json cannot close an array it has no last record for, so it streams values.
+synth streamed 5 >> "$WATCH"
+/usr/local/bin/faramir logs --path "$WATCH" --watch --json -n 1 >"$OUT" 2>/dev/null &
+watcher=$!
+sleep 2
+synth also-streamed 6 >> "$WATCH"
+sleep 2
+kill "$watcher" 2>/dev/null
+wait "$watcher" 2>/dev/null
+[ "$(jq -s length "$OUT")" -eq 2 ] && ok "--json --watch prints one value per record" \
+  || bad "--json --watch: [$(cat "$OUT")]"
+rm -f "$WATCH" "$WATCH.1" "$OUT"
+
+# --------------------------------------------------------------------------
 summary

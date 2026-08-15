@@ -212,6 +212,180 @@ func TestFindRecordTakesEitherFormOfTheID(t *testing.T) {
 	}
 }
 
+// appendLog adds lines to a log that is already there, the way the broker does:
+// one record per line, opened per write.
+func appendLog(t *testing.T, path string, lines ...string) {
+	t.Helper()
+	fh, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = fh.Close() }()
+	for _, line := range lines {
+		if _, err := fh.WriteString(line + "\n"); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+// appendPartial adds bytes with no newline after them: a record caught halfway
+// through being written.
+func appendPartial(t *testing.T, path, text string) {
+	t.Helper()
+	fh, err := os.OpenFile(path, os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = fh.Close() }()
+	if _, err := fh.WriteString(text); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// drained is the log_ids a pass over the follower yields.
+func drained(t *testing.T, f *follower) []string {
+	t.Helper()
+	var ids []string
+	if err := f.drain(func(line []byte) {
+		record, _ := parseLine(line)
+		ids = append(ids, str(record, "log_id"))
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return ids
+}
+
+// The point of --watch: the backlog and the records that arrive after it come
+// through one reader, positioned where the backlog ended.  A second reader
+// opened afterwards would show a record written in between twice, or not at all.
+func TestFollowerShowsWhatArrivesAfterTheBacklog(t *testing.T) {
+	path := writeLog(t, `{"log_id":"a","op":"exec"}`, `{"log_id":"b","op":"exec"}`)
+	f, err := openFollower(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.close()
+
+	backlog := newLineRing(1)
+	if err := f.drain(backlog.add); err != nil {
+		t.Fatal(err)
+	}
+	records, _ := parseLines(backlog.ordered())
+	if len(records) != 1 || str(records[0], "log_id") != "b" {
+		t.Fatalf("backlog = %v, want the last record only", records)
+	}
+
+	appendLog(t, path, `{"log_id":"c","op":"exec"}`)
+	if ids := drained(t, f); !slices.Equal(ids, []string{"c"}) {
+		t.Errorf("the pass after the backlog yielded %v, want the appended record alone", ids)
+	}
+	if ids := drained(t, f); ids != nil {
+		t.Errorf("a pass over an unchanged log yielded %v, want nothing", ids)
+	}
+}
+
+// A record caught midway through its append is held, not shown and not counted
+// as lost: the rest of the line is coming, and half a record parses as no
+// record.  A listing hands that line over instead, being a reading of the file
+// as it stands.
+func TestFollowerHoldsALineStillBeingAppended(t *testing.T) {
+	path := writeLog(t, `{"log_id":"a","op":"exec"}`)
+	f, err := openFollower(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.close()
+	drained(t, f)
+
+	appendPartial(t, path, `{"log_id":"b","op":`)
+	if ids := drained(t, f); ids != nil {
+		t.Errorf("a half-written record was shown as %v", ids)
+	}
+	appendLog(t, path, `"exec"}`)
+	if ids := drained(t, f); !slices.Equal(ids, []string{"b"}) {
+		t.Errorf("the finished record came out as %v, want it whole once its line ended", ids)
+	}
+}
+
+// logrotate renames the log and the broker creates the next one by writing to
+// it, so a watcher has to notice that the path names a different file.  What was
+// written to the old one before the rename is drained first: those are records.
+func TestFollowerReopensAfterRotation(t *testing.T) {
+	path := writeLog(t, `{"log_id":"a","op":"exec"}`)
+	f, err := openFollower(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.close()
+	drained(t, f)
+
+	appendLog(t, path, `{"log_id":"last-before-rotation","op":"exec"}`)
+	if err := os.Rename(path, path+".1"); err != nil {
+		t.Fatal(err)
+	}
+	if ids := drained(t, f); !slices.Equal(ids, []string{"last-before-rotation"}) {
+		t.Errorf("the rotated file's last records came out as %v, want them before the switch", ids)
+	}
+	rotated, err := f.rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated {
+		t.Error("a path with no file at it was read as a rotation: that is the gap " +
+			"between the rename and the next record, and the file being read is still the log")
+	}
+
+	appendLog(t, path, `{"log_id":"first-after-rotation","op":"exec"}`)
+	rotated, err = f.rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rotated {
+		t.Fatal("a new file at the path was not read as a rotation")
+	}
+	if err := f.reopen(); err != nil {
+		t.Fatal(err)
+	}
+	if ids := drained(t, f); !slices.Equal(ids, []string{"first-after-rotation"}) {
+		t.Errorf("after reopening, the new log read as %v", ids)
+	}
+}
+
+// The other way the file stops being the log: emptied in place, leaving the
+// reader past the end of what it now holds.  Nothing the install does this, but
+// a watcher that keeps reading from an offset the file no longer reaches shows
+// nothing again, ever.
+func TestFollowerNoticesTheLogEmptiedInPlace(t *testing.T) {
+	path := writeLog(t, `{"log_id":"a","op":"exec"}`)
+	f, err := openFollower(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.close()
+	drained(t, f)
+
+	if err := os.Truncate(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	rotated, err := f.rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rotated {
+		t.Error("a log emptied in place was not noticed")
+	}
+}
+
+// A log-id names one record that is already written, so there is nothing to
+// wait for.  Refused before the root check, so an operator who typed both is
+// told which is wrong rather than told to use sudo and then told this.
+func TestLogsRefusesAWatchWithALogID(t *testing.T) {
+	f := logsFlags{when: "never", watch: true, count: 20, logPath: writeLog(t, `{"log_id":"a"}`)}
+	if code := runLogs(f, []string{"a"}); code != 2 {
+		t.Errorf("faramir logs --watch a91f000002 = %d, want 2 (usage)", code)
+	}
+}
+
 // Says the log is absent rather than an ENOENT on a path the caller never
 // named, and says it whatever --count was passed: "no records to show" on a
 // host with no log at all reads as an empty log rather than an absent one.
