@@ -219,9 +219,9 @@ func TestADaemonDoesNotAskTheBroker(t *testing.T) {
 
 // The recipients come out of the sops metadata block, which is cleartext.  sops
 // writes that block in the shape of the file it encrypted, so a managed dotenv
-// or ini file spells the same field with "=" and a flattened key.  A regex that
-// matched only the YAML and JSON forms reported "names no age recipient" for
-// one of those, after the editor had exited, discarding the edit.
+// or ini file spells the same field with "=" and a flattened key.  Every shape
+// has to be read: an unrecognised one reports "names no age recipient" after the
+// editor has exited, which discards the edit.
 func TestRecipientsOfReadsEverySopsEncoding(t *testing.T) {
 	const one = "age1qqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqqsdqf6nl"
 	const two = "age1zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzsdqf6nl"

@@ -52,8 +52,8 @@ func TestClosingDoesNotWaitOutAStreamIdlingBetweenChunks(t *testing.T) {
 	}
 }
 
-// The same for a connection that has sent nothing at all, which is the case
-// peerWait already covered; it must not have regressed.
+// The same for a connection that has sent nothing at all, where what ends the
+// read is peerWait rather than the inter-chunk deadline.
 func TestClosingDoesNotWaitOutASilentPeer(t *testing.T) {
 	s := newServer(t, map[string]string{"db/password": "hunter2-correct-horse"})
 	if _, err := s.Listen(); err != nil {

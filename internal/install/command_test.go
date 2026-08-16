@@ -56,17 +56,20 @@ func TestEnsureDirCreatesEveryLevel(t *testing.T) {
 	}
 	// Ancestors get traversal, the leaf what was asked for: the secrets directory's
 	// 2770 on its parent would let the shared group rename the secrets directory.
-	for dir, want := range map[string]os.FileMode{
-		filepath.Join(root, "config"):         0o755,
-		filepath.Join(root, "config", "sops"): 0o755,
-		leaf:                                  0o700,
+	for _, tc := range []struct {
+		dir  string
+		want os.FileMode
+	}{
+		{filepath.Join(root, "config"), 0o755},
+		{filepath.Join(root, "config", "sops"), 0o755},
+		{leaf, 0o700},
 	} {
-		info, err := os.Stat(dir)
+		info, err := os.Stat(tc.dir)
 		if err != nil {
-			t.Fatalf("%s: %v", dir, err)
+			t.Fatalf("%s: %v", tc.dir, err)
 		}
-		if info.Mode().Perm() != want {
-			t.Errorf("%s is %o, want %o", dir, info.Mode().Perm(), want)
+		if info.Mode().Perm() != tc.want {
+			t.Errorf("%s is %o, want %o", tc.dir, info.Mode().Perm(), tc.want)
 		}
 	}
 }

@@ -216,11 +216,11 @@ head_ "4. -n asks for a count, and gets exactly that"
 total=$(wc -l <"$LOG")
 rows() { logs -n "$1" | grep -cE '^[0-9a-f]{10} '; }
 
-[ "$(rows 1)" -eq 1 ]  && ok "-n 1 prints one record"  || bad "-n 1 printed $(rows 1)"
-[ "$(rows 5)" -eq 5 ]  && ok "-n 5 prints five"        || bad "-n 5 printed $(rows 5)"
-[ "$(rows "$total")" -eq "$total" ] && ok "-n <every record> prints all $total" \
-  || bad "-n $total printed $(rows "$total")"
-[ "$(rows $((total + 10)))" -eq "$total" ] && ok "-n past the end prints what there is" \
+# That the count itself is honoured is a table in cmd/faramir's own tests.  What
+# only a real log shows is the flag reaching it, and a count past the end coming
+# back as what there is rather than as an error.
+[ "$(rows 5)" -eq 5 ] && ok "-n 5 prints five" || bad "-n 5 printed $(rows 5)"
+[ "$(rows $((total + 10)))" -eq "$total" ] && ok "-n past the end prints the $total there are" \
   || bad "-n $((total+10)) printed $(rows $((total+10)))"
 
 out=$(logs -n 0); code=$?

@@ -171,9 +171,9 @@ func TestTheGroupAuditIsNotAskedWithoutAnOperator(t *testing.T) {
 	}
 }
 
-// asUser is what turned an unnamed account into "runuser: user does not exist",
-// reported as a boundary that does not hold.  Guarded at the source so a new
-// caller cannot reintroduce it.
+// runuser reads an empty account name as the account, so asUser refuses one
+// rather than reporting "runuser: user does not exist" as a boundary that does
+// not hold.  Guarded at the source, so no caller has to remember it.
 func TestAsUserRefusesAnUnnamedAccount(t *testing.T) {
 	if _, err := asUser("", "true"); err == nil {
 		t.Fatal("an empty account was passed to runuser, which reads it as the " +

@@ -136,135 +136,142 @@ func (r *pluginRig) answers(t *testing.T, reply string) {
 	write(t, r.replyFile, reply, 0o644)
 }
 
-// Both plugins, being separate files.
-func eachPlugin(t *testing.T, run func(t *testing.T, rig *pluginRig)) {
-	t.Helper()
-	for agent, exportKind := range map[string]string{
-		"opencode": "named",
-		"kilocode": "default",
-	} {
-		t.Run(agent, func(t *testing.T) { run(t, newPluginRig(t, agent, exportKind)) })
-	}
+// plugins are the two hosts whose plugin is a shipped file of its own.  Each
+// test loops over them itself rather than through a helper, so a failure is
+// reported against the assertion that made it.
+var plugins = []struct{ agent, exportKind string }{
+	{"opencode", "named"},
+	{"kilocode", "default"},
 }
 
 // Applied to the arguments the host handed in, there being no document to
 // return.
 func TestPluginAppliesARewrite(t *testing.T) {
-	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
-		t.Helper()
-		rig.answers(t, `{"decision":"rewrite","tool_input":`+
-			`{"command":"source /usr/local/libexec/faramir/wrap.sh 'printenv'","description":"look"}}`)
-		got := rig.call(t, "bash", map[string]any{"command": "printenv", "description": "look"})
-		if !got.Ran {
-			t.Fatalf("the command was refused: %s", got.Error)
-		}
-		if command, _ := got.Args["command"].(string); !strings.Contains(command, "wrap.sh") {
-			t.Errorf("command = %q, want the wrapper", command)
-		}
-		if got.Args["description"] != "look" {
-			t.Errorf("args = %v, want every field back", got.Args)
-		}
-		// The guard decides against what the model sent.
-		payload, err := os.ReadFile(rig.payloadFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var sent struct {
-			ToolName  string         `json:"tool_name"`
-			ToolInput map[string]any `json:"tool_input"`
-		}
-		if err := json.Unmarshal(payload, &sent); err != nil {
-			t.Fatalf("the guard was sent %q: %v", payload, err)
-		}
-		if sent.ToolName != "bash" || sent.ToolInput["command"] != "printenv" {
-			t.Errorf("the guard was sent %+v", sent)
-		}
-	})
+	for _, plugin := range plugins {
+		t.Run(plugin.agent, func(t *testing.T) {
+			rig := newPluginRig(t, plugin.agent, plugin.exportKind)
+			rig.answers(t, `{"decision":"rewrite","tool_input":`+
+				`{"command":"source /usr/local/libexec/faramir/wrap.sh 'printenv'","description":"look"}}`)
+			got := rig.call(t, "bash", map[string]any{"command": "printenv", "description": "look"})
+			if !got.Ran {
+				t.Fatalf("the command was refused: %s", got.Error)
+			}
+			if command, _ := got.Args["command"].(string); !strings.Contains(command, "wrap.sh") {
+				t.Errorf("command = %q, want the wrapper", command)
+			}
+			if got.Args["description"] != "look" {
+				t.Errorf("args = %v, want every field back", got.Args)
+			}
+			// The guard decides against what the model sent.
+			payload, err := os.ReadFile(rig.payloadFile)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var sent struct {
+				ToolName  string         `json:"tool_name"`
+				ToolInput map[string]any `json:"tool_input"`
+			}
+			if err := json.Unmarshal(payload, &sent); err != nil {
+				t.Fatalf("the guard was sent %q: %v", payload, err)
+			}
+			if sent.ToolName != "bash" || sent.ToolInput["command"] != "printenv" {
+				t.Errorf("the guard was sent %+v", sent)
+			}
+		})
+	}
 }
 
 // A refusal reaches the model as the error the tool call failed with.
 func TestPluginThrowsADenial(t *testing.T) {
-	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
-		t.Helper()
-		rig.answers(t, `{"decision":"deny","reason":"Blocked: use faramir_run instead"}`)
-		got := rig.call(t, "bash", map[string]any{"command": "printenv ROUTER_PW"})
-		if got.Ran {
-			t.Fatal("a denied command was allowed to run")
-		}
-		if !strings.Contains(got.Error, "faramir_run") {
-			t.Errorf("error = %q, want the guard's reason", got.Error)
-		}
-	})
+	for _, plugin := range plugins {
+		t.Run(plugin.agent, func(t *testing.T) {
+			rig := newPluginRig(t, plugin.agent, plugin.exportKind)
+			rig.answers(t, `{"decision":"deny","reason":"Blocked: use faramir_run instead"}`)
+			got := rig.call(t, "bash", map[string]any{"command": "printenv ROUTER_PW"})
+			if got.Ran {
+				t.Fatal("a denied command was allowed to run")
+			}
+			if !strings.Contains(got.Error, "faramir_run") {
+				t.Errorf("error = %q, want the guard's reason", got.Error)
+			}
+		})
+	}
 }
 
 // Nothing written is a call the guard left alone, which runs unchanged.
 func TestPluginLeavesAnUnansweredCallAlone(t *testing.T) {
-	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
-		t.Helper()
-		got := rig.call(t, "bash", map[string]any{"command": "tail -f log &"})
-		if !got.Ran {
-			t.Fatalf("the command was refused: %s", got.Error)
-		}
-		if got.Args["command"] != "tail -f log &" {
-			t.Errorf("command = %v, want it untouched", got.Args["command"])
-		}
-	})
+	for _, plugin := range plugins {
+		t.Run(plugin.agent, func(t *testing.T) {
+			rig := newPluginRig(t, plugin.agent, plugin.exportKind)
+			got := rig.call(t, "bash", map[string]any{"command": "tail -f log &"})
+			if !got.Ran {
+				t.Fatalf("the command was refused: %s", got.Error)
+			}
+			if got.Args["command"] != "tail -f log &" {
+				t.Errorf("command = %v, want it untouched", got.Args["command"])
+			}
+		})
+	}
 }
 
 // Every way of not getting a decision fails closed: running the command anyway
 // would print whatever it found into the transcript.
 func TestPluginFailsClosed(t *testing.T) {
-	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
-		t.Helper()
-		t.Run("the guard exits non-zero", func(t *testing.T) {
-			write(t, rig.statusFile, "2", 0o644)
-			got := rig.call(t, "bash", map[string]any{"command": "ls"})
-			if got.Ran {
-				t.Error("the command ran after the guard refused to answer")
-			}
+	for _, plugin := range plugins {
+		t.Run(plugin.agent, func(t *testing.T) {
+			rig := newPluginRig(t, plugin.agent, plugin.exportKind)
+			t.Run("the guard exits non-zero", func(t *testing.T) {
+				write(t, rig.statusFile, "2", 0o644)
+				got := rig.call(t, "bash", map[string]any{"command": "ls"})
+				if got.Ran {
+					t.Error("the command ran after the guard refused to answer")
+				}
+			})
+			t.Run("the answer is not JSON", func(t *testing.T) {
+				write(t, rig.statusFile, "0", 0o644)
+				rig.answers(t, "not a decision\n")
+				if got := rig.call(t, "bash", map[string]any{"command": "ls"}); got.Ran {
+					t.Error("the command ran on an answer that could not be read")
+				}
+			})
+			t.Run("the answer is a decision it does not know", func(t *testing.T) {
+				rig.answers(t, `{"decision":"allow"}`)
+				if got := rig.call(t, "bash", map[string]any{"command": "ls"}); got.Ran {
+					t.Error("the command ran on a decision the plugin does not understand")
+				}
+			})
+			t.Run("faramir is not installed", func(t *testing.T) {
+				// The binary itself, not the field: BinDir is rendered into the plugin,
+				// so what it execs is this path whatever the rig says afterwards.  A
+				// decision it would have obeyed, so the missing binary is the only
+				// reason left for it to refuse.
+				rig.answers(t, `{"decision":"rewrite","tool_input":{"command":"wrapped"}}`)
+				if err := os.Remove(rig.cli); err != nil {
+					t.Fatal(err)
+				}
+				if got := rig.call(t, "bash", map[string]any{"command": "ls"}); got.Ran {
+					t.Error("the command ran with no guard to ask")
+				}
+			})
 		})
-		t.Run("the answer is not JSON", func(t *testing.T) {
-			write(t, rig.statusFile, "0", 0o644)
-			rig.answers(t, "not a decision\n")
-			if got := rig.call(t, "bash", map[string]any{"command": "ls"}); got.Ran {
-				t.Error("the command ran on an answer that could not be read")
-			}
-		})
-		t.Run("the answer is a decision it does not know", func(t *testing.T) {
-			rig.answers(t, `{"decision":"allow"}`)
-			if got := rig.call(t, "bash", map[string]any{"command": "ls"}); got.Ran {
-				t.Error("the command ran on a decision the plugin does not understand")
-			}
-		})
-		t.Run("faramir is not installed", func(t *testing.T) {
-			// The binary itself, not the field: BinDir is rendered into the plugin,
-			// so what it execs is this path whatever the rig says afterwards.  A
-			// decision it would have obeyed, so the missing binary is the only
-			// reason left for it to refuse.
-			rig.answers(t, `{"decision":"rewrite","tool_input":{"command":"wrapped"}}`)
-			if err := os.Remove(rig.cli); err != nil {
-				t.Fatal(err)
-			}
-			if got := rig.call(t, "bash", map[string]any{"command": "ls"}); got.Ran {
-				t.Error("the command ran with no guard to ask")
-			}
-		})
-	})
+	}
 }
 
 // A plugin sees every tool, and only a command has output worth redacting.
 func TestPluginIgnoresEveryOtherTool(t *testing.T) {
-	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
-		t.Helper()
-		rig.answers(t, `{"decision":"deny","reason":"this should never be asked for"}`)
-		got := rig.call(t, "read", map[string]any{"filePath": "/etc/hosts"})
-		if !got.Ran {
-			t.Fatalf("a read was refused: %s", got.Error)
-		}
-		if _, err := os.Stat(rig.payloadFile); err == nil {
-			t.Error("the guard was asked about a tool that runs nothing")
-		}
-	})
+	for _, plugin := range plugins {
+		t.Run(plugin.agent, func(t *testing.T) {
+			rig := newPluginRig(t, plugin.agent, plugin.exportKind)
+			rig.answers(t, `{"decision":"deny","reason":"this should never be asked for"}`)
+			got := rig.call(t, "read", map[string]any{"filePath": "/etc/hosts"})
+			if !got.Ran {
+				t.Fatalf("a read was refused: %s", got.Error)
+			}
+			if _, err := os.Stat(rig.payloadFile); err == nil {
+				t.Error("the guard was asked about a tool that runs nothing")
+			}
+		})
+	}
 }
 
 // pi answers differently in both directions: a refusal is a value returned

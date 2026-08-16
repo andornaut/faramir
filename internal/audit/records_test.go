@@ -58,7 +58,7 @@ func recordShapes(t *testing.T) map[string][]string {
 				return true
 			}
 			keys := literalKeys(lit)
-			if len(keys) == 0 || !contains(keys, "log_id") {
+			if len(keys) == 0 || !slices.Contains(keys, "log_id") {
 				return true
 			}
 			where := fset.Position(lit.Pos())
@@ -105,10 +105,6 @@ func literalKeys(lit *ast.CompositeLit) []string {
 		keys = append(keys, text)
 	}
 	return keys
-}
-
-func contains(haystack []string, needle string) bool {
-	return slices.Contains(haystack, needle)
 }
 
 func repoRoot(t *testing.T) string {
@@ -169,14 +165,14 @@ func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 	}
 }
 
-// What config.MinRecordBytes buys, reported rather than asserted.
+// An ordinary record is written unreduced at config.MinRecordBytes.
 //
 // The floor is not sized by what a record's fields need, which survive far below
-// it, cut down to nothing much.  It is sized by the smallest cap at which
-// an ordinary record is written *normally*: not reduced, and with enough of the
+// it, cut down to nothing much.  It is sized by the smallest cap at which an
+// ordinary record is written *normally*: not reduced, and with enough of the
 // command's output left to be worth reading.  Those are different numbers and
-// the first one is the misleading one, so this reports both.
-func TestReportWhatTheFloorBuys(t *testing.T) {
+// the first one is the misleading one, so both are logged beside the failure.
+func TestAnOrdinaryRecordIsUnreducedAtTheFloor(t *testing.T) {
 	// It writes below the cap that fits, on purpose: that is the boundary it is
 	// looking for.
 	defer unstrict()()

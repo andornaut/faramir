@@ -207,9 +207,8 @@ func TestEverySubcommandIsNamedForTheGuard(t *testing.T) {
 			t.Errorf("%q is a subcommand but is in neither cli.Operator nor cli.Internal", c)
 		}
 	}
-	// And the other way round, which the old source scrape could not check: a
-	// name the lists still carry for a command that no longer exists sanctions
-	// arguments that nothing scans.
+	// And the other way round: a name the lists still carry for a command that
+	// no longer exists sanctions arguments that nothing scans.
 	for name := range named {
 		if !have[name] {
 			t.Errorf("cli names %q, which is no longer a subcommand", name)
@@ -218,9 +217,8 @@ func TestEverySubcommandIsNamedForTheGuard(t *testing.T) {
 }
 
 // dispatcherNames returns every subcommand the root carries.  Taken from the
-// assembled command tree rather than from the source, so a command added by
-// any means is seen: the switch this used to read no longer exists, and a
-// scrape could never have seen a command registered anywhere else.
+// assembled command tree rather than from the source, so a command registered
+// anywhere is seen.
 func dispatcherNames(t *testing.T) []string {
 	t.Helper()
 	root := newRootCmd()
@@ -268,6 +266,8 @@ func TestOnlyYesApproves(t *testing.T) {
 // past the first word as end of input exits the watch, leaving the question to
 // expire unanswered.
 func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
+	original := answers
+	t.Cleanup(func() { answers = original })
 	answers = bufio.NewReader(strings.NewReader("yes please\nyes\n\n"))
 	for _, want := range []struct {
 		approve bool

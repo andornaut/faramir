@@ -18,22 +18,25 @@ func TestOversharingIsRefused(t *testing.T) {
 		t.Skip("no current user to take a home from")
 	}
 	home := filepath.Clean(me.HomeDir)
-	for dir, wantRefused := range map[string]bool{
-		"/":                true,
-		"/home":            true,
-		"/home/someone":    true,
-		"/root":            true,
-		home:               true,
-		filepath.Dir(home): true,
+	for _, tc := range []struct {
+		dir         string
+		wantRefused bool
+	}{
+		{"/", true},
+		{"/home", true},
+		{"/home/someone", true},
+		{"/root", true},
+		{home, true},
+		{filepath.Dir(home), true},
 		// The ordinary case, which the refusals must not reach.
-		filepath.Join(home, "src/project"): false,
-		"/home/someone/src/project":        false,
-		"/srv/project":                     false,
+		{filepath.Join(home, "src/project"), false},
+		{"/home/someone/src/project", false},
+		{"/srv/project", false},
 	} {
-		err := refuseOversharing(dir, me.Username)
-		if refused := err != nil; refused != wantRefused {
+		err := refuseOversharing(tc.dir, me.Username)
+		if refused := err != nil; refused != tc.wantRefused {
 			t.Errorf("refuseOversharing(%q) refused = %v (%v), want %v",
-				dir, refused, err, wantRefused)
+				tc.dir, refused, err, tc.wantRefused)
 		}
 	}
 }

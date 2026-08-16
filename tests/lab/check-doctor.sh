@@ -51,14 +51,22 @@ broke() { jq -r .failed $JSON; }
 unasked() { jq -r .not_asked $JSON; }
 
 # probe injects a fault, reads the verdict, repairs, and reads it again.
-probe() { # label check want inject repair
-  local label=$1 check=$2 want=$3 inject=$4 repair=$5 got back
+#
+# says is an optional extended regex the detail must match while the fault is
+# live.  It has to be asserted here rather than after the call: the repair below
+# re-snapshots, so a caller reading the detail afterwards reads the healed one.
+probe() { # label check want inject repair [says]
+  local label=$1 check=$2 want=$3 inject=$4 repair=$5 says=${6:-} got back
   eval "$inject" >/dev/null 2>&1
   snap; got=$(st "$check")
   if [[ "$got" == *"$want"* ]]; then
     ok "$label -> $check is $got"
   else
     bad "$label: $check is [$got], want $want. detail: $(dt "$check" | head -c 130)"
+  fi
+  if [ -n "$says" ]; then
+    dt "$check" | grep -qiE "$says" && ok "  and the detail says what it costs" \
+      || bad "  the detail matches no /$says/: $(dt "$check" | head -c 130)"
   fi
   eval "$repair" >/dev/null 2>&1
   snap; back=$(st "$check")
@@ -179,9 +187,8 @@ probe "the sops config removed" "sops config" warn \
 cp /etc/faramir/.sops.yaml /tmp/sops-baseline.yaml
 probe "an age identity pasted where a recipient belongs" "sops config" failed \
   'printf "creation_rules:\n  - path_regex: .*\n    key_groups:\n      - age:\n          - AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ\n" > /etc/faramir/.sops.yaml' \
-  'cp /tmp/sops-baseline.yaml /etc/faramir/.sops.yaml'
-dt "sops config" | grep -qi 'world-readable\|will not take' \
-  && note "and the finding says what it costs" || true
+  'cp /tmp/sops-baseline.yaml /etc/faramir/.sops.yaml' \
+  'world-readable|will not take'
 
 # A rule reaching none of the managed files leaves a store neither `faramir
 # edit` nor `faramir rekey` can write back, and nothing else on the host says

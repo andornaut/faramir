@@ -109,8 +109,8 @@ func TestAnExistingRulesFileKeepsItsOwnHead(t *testing.T) {
 }
 
 // A file two agents read is named once when a run refuses it: an operator gets
-// a list of what to fix, and one file listed twice reads as two.  No two agents
-// share one today; the rule outlives the pair that prompted it.
+// a list of what to fix, and one file listed twice reads as two.  No shipped
+// pair shares a file, so the targets here are built rather than looked up.
 func TestAFileTwoAgentsReadIsNamedOnce(t *testing.T) {
 	const shared = "AGENTS.md"
 	first := &agentTarget{name: "first", homeInstructions: shared}

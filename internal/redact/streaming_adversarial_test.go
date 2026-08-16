@@ -42,45 +42,46 @@ func wrapEvery(s string, n int) string {
 // is 2*longest+16 and the worst wrapped form of the longest variant is under
 // 2*longest, so this pins that the variant set has not outgrown the window.
 func TestOverlapHoldsPathologicalWrap(t *testing.T) {
-	forms := map[string]string{
-		"raw/wrap1":     wrapEvery(streamSecret, 1),
-		"raw/wrap3":     wrapEvery(streamSecret, 3),
-		"hex/wrap1":     wrapEvery(hexOf(streamSecret), 1),
-		"percent/wrap1": wrapEvery(percentEncode(streamSecret, false), 1),
-	}
-	for name, form := range forms {
-		r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
-		got := feedRuneByRune(r, "head\n"+form+"\ntail")
-		rejoined := strings.ReplaceAll(got, "\n", "")
-		if strings.Contains(rejoined, streamSecret) {
-			t.Errorf("%s: secret recoverable after rejoining lines: %q", name, got)
-		}
-		if strings.Contains(rejoined, hexOf(streamSecret)) {
-			t.Errorf("%s: hex form survived: %q", name, got)
-		}
+	for _, tc := range []struct{ name, form string }{
+		{"raw/wrap1", wrapEvery(streamSecret, 1)},
+		{"raw/wrap3", wrapEvery(streamSecret, 3)},
+		{"hex/wrap1", wrapEvery(hexOf(streamSecret), 1)},
+		{"percent/wrap1", wrapEvery(percentEncode(streamSecret, false), 1)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
+			got := feedRuneByRune(r, "head\n"+tc.form+"\ntail")
+			rejoined := strings.ReplaceAll(got, "\n", "")
+			if strings.Contains(rejoined, streamSecret) {
+				t.Errorf("secret recoverable after rejoining lines: %q", got)
+			}
+			if strings.Contains(rejoined, hexOf(streamSecret)) {
+				t.Errorf("hex form survived: %q", got)
+			}
+		})
 	}
 }
 
 // Colour codes spliced into a value are stripped before matching, so the value
 // is caught.
 func TestColourSpliceIsStripped(t *testing.T) {
-	spliced := map[string]string{
-		"sgr-mid":   "hunter2correct\x1b[32mhorsebatteryZ9",
-		"reset-mid": "hunter2\x1b[0mcorrecthorsebatteryZ9",
-		"osc-mid":   "hunter2\x1b]0;title\x07correcthorsebatteryZ9",
-		"per-char":  spliceEveryChar(streamSecret, "\x1b[32m"),
-	}
-	for name, s := range spliced {
-		r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
-		got := r.RedactText("x " + s + " y")
-		if strings.Contains(got, streamSecret) {
-			t.Errorf("%s: raw secret leaked despite stripping: %q", name, got)
-		}
-		// Fed one rune at a time, the escape splits across chunks too.
-		r2 := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
-		if got2 := feedRuneByRune(r2, "x "+s+" y"); strings.Contains(got2, streamSecret) {
-			t.Errorf("%s (streamed): raw secret leaked: %q", name, got2)
-		}
+	for _, tc := range []struct{ name, spliced string }{
+		{"sgr-mid", "hunter2correct\x1b[32mhorsebatteryZ9"},
+		{"reset-mid", "hunter2\x1b[0mcorrecthorsebatteryZ9"},
+		{"osc-mid", "hunter2\x1b]0;title\x07correcthorsebatteryZ9"},
+		{"per-char", spliceEveryChar(streamSecret, "\x1b[32m")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
+			if got := r.RedactText("x " + tc.spliced + " y"); strings.Contains(got, streamSecret) {
+				t.Errorf("raw secret leaked despite stripping: %q", got)
+			}
+			// Fed one rune at a time, the escape splits across chunks too.
+			streamed := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
+			if got := feedRuneByRune(streamed, "x "+tc.spliced+" y"); strings.Contains(got, streamSecret) {
+				t.Errorf("streamed: raw secret leaked: %q", got)
+			}
+		})
 	}
 }
 
@@ -104,8 +105,8 @@ func TestZeroWidthSplicingSurvivesStage1(t *testing.T) {
 			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())
 			got := r.RedactText(spliceEveryChar(streamSecret, tc.sep))
 
-			// Whole in the output once the separator is taken back out, which is what
-			// a reader of that output does for free.
+			// Whole in the output once the separator is taken back out, which any
+			// reader of that output does without trying.
 			stripped := strings.ReplaceAll(got, tc.sep, "")
 			if !strings.Contains(stripped, streamSecret) {
 				t.Errorf("%s is now handled by stage 1: %q.\nThat is an improvement, "+

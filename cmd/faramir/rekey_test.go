@@ -12,18 +12,23 @@ import (
 	"github.com/andornaut/faramir/internal/sopstest"
 )
 
+// Two arbitrary age recipients, so a rule can name one, both, or neither.
+const (
+	recipientA = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
+	recipientB = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
+)
+
 // writeRule writes a .sops.yaml naming these recipients, in the shape init
 // renders: one creation rule, keys under "- age:".
 func writeRule(t *testing.T, dir string, recipients ...string) string {
 	t.Helper()
-	body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n"
-	var bodySb20 strings.Builder
+	var body strings.Builder
+	body.WriteString("creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n")
 	for _, recipient := range recipients {
-		bodySb20.WriteString("          - " + recipient + "\n")
+		body.WriteString("          - " + recipient + "\n")
 	}
-	body += bodySb20.String()
 	path := filepath.Join(dir, ".sops.yaml")
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -31,15 +36,13 @@ func writeRule(t *testing.T, dir string, recipients ...string) string {
 
 func TestTheRuleRecipientsAreReadInOrder(t *testing.T) {
 	dir := t.TempDir()
-	first := "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
-	second := "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
-	got, err := ruleRecipients(writeRule(t, dir, first, second, first))
+	got, err := ruleRecipients(writeRule(t, dir, recipientA, recipientB, recipientA))
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Deduplicated, because a file listing one twice still says one reader.
-	if len(got) != 2 || got[0] != first || got[1] != second {
-		t.Errorf("ruleRecipients = %v, want [%s %s]", got, first, second)
+	if len(got) != 2 || got[0] != recipientA || got[1] != recipientB {
+		t.Errorf("ruleRecipients = %v, want [%s %s]", got, recipientA, recipientB)
 	}
 }
 
@@ -48,57 +51,24 @@ func TestTheRuleRecipientsAreReadInOrder(t *testing.T) {
 // part of the secrets directory to a set that never governed it, which widens
 // who can read it.
 //
-// However the rules are written.  A rule is a list entry whose keys are in
-// whatever order somebody typed them and may be in flow style, so counting them
-// by looking for a leading path_regex reads most of these as one rule and merges
-// both lists of recipients into every managed file.
+// One shape here; that every way of writing a rule is counted as one is
+// internal/sopsrule's TestEveryRuleIsCounted.
 func TestASecondCreationRuleIsRefused(t *testing.T) {
-	const first = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
-	const second = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
-	for name, body := range map[string]string{
-		"path_regex first": `creation_rules:
-  - path_regex: prod/.*\.sops\.ya?ml$
-    key_groups:
-      - age:
-          - ` + first + `
-  - path_regex: \.sops\.ya?ml$
-    key_groups:
-      - age:
-          - ` + second + `
-`,
-		"age first": `creation_rules:
-  - age: ` + first + `
-    path_regex: prod/.*\.sops\.ya?ml$
-  - age: ` + second + `
-    path_regex: \.sops\.ya?ml$
-`,
-		"key_groups first": `creation_rules:
-  - key_groups:
-      - age:
-          - ` + first + `
-    path_regex: prod/.*\.sops\.ya?ml$
-  - key_groups:
-      - age:
-          - ` + second + `
-    path_regex: \.sops\.ya?ml$
-`,
-		"flow style": `creation_rules: [{path_regex: "prod/.*", age: "` + first +
-			`"}, {path_regex: ".*", age: "` + second + `"}]
-`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), ".sops.yaml")
-			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			got, err := ruleRecipients(path)
-			if err == nil {
-				t.Fatalf("a file with two creation rules was accepted, merging %v", got)
-			}
-			if !strings.Contains(err.Error(), "updatekeys") {
-				t.Errorf("the error does not say what to do instead: %v", err)
-			}
-		})
+	path := filepath.Join(t.TempDir(), ".sops.yaml")
+	body := "creation_rules:\n" +
+		"  - path_regex: prod/.*\\.sops\\.ya?ml$\n" +
+		"    key_groups:\n      - age:\n          - " + recipientA + "\n" +
+		"  - path_regex: \\.sops\\.ya?ml$\n" +
+		"    key_groups:\n      - age:\n          - " + recipientB + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ruleRecipients(path)
+	if err == nil {
+		t.Fatalf("a file with two creation rules was accepted, merging %v", got)
+	}
+	if !strings.Contains(err.Error(), "updatekeys") {
+		t.Errorf("the error does not say what to do instead: %v", err)
 	}
 }
 
@@ -106,13 +76,11 @@ func TestASecondCreationRuleIsRefused(t *testing.T) {
 // re-encrypting to one list of recipients turns "N of these groups together"
 // into "any one of these keys", which undoes what the rule was written to do.
 func TestAShamirSplitIsRefused(t *testing.T) {
-	const first = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
-	const second = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
 	path := filepath.Join(t.TempDir(), ".sops.yaml")
 	body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n" +
 		"    shamir_threshold: 2\n" +
-		"    key_groups:\n      - age:\n          - " + first +
-		"\n      - age:\n          - " + second + "\n"
+		"    key_groups:\n      - age:\n          - " + recipientA +
+		"\n      - age:\n          - " + recipientB + "\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -131,8 +99,7 @@ func TestAShamirSplitIsRefused(t *testing.T) {
 // the rule does not grant, and a hand-edited `age:` left behind after the
 // installer wrote key_groups is exactly how a file comes to carry both.
 func TestKeyGroupsWinOverTheAgeShorthand(t *testing.T) {
-	const shorthand = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
-	const grouped = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
+	const shorthand, grouped = recipientA, recipientB
 	path := filepath.Join(t.TempDir(), ".sops.yaml")
 	body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n" +
 		"    age: " + shorthand + "\n" +
@@ -150,43 +117,13 @@ func TestKeyGroupsWinOverTheAgeShorthand(t *testing.T) {
 	}
 }
 
-// The shorthand a hand-edited file often carries, rather than the key_groups
-// the installer writes: one recipient, several comma-separated, or a list.
-func TestTheAgeShorthandIsReadInEveryShape(t *testing.T) {
-	const first = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
-	const second = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
-	for name, rule := range map[string]string{
-		"one":         "    age: " + first + "\n",
-		"two, commas": "    age: " + first + "," + second + "\n",
-		"a list":      "    age:\n      - " + first + "\n      - " + second + "\n",
-	} {
-		t.Run(name, func(t *testing.T) {
-			path := filepath.Join(t.TempDir(), ".sops.yaml")
-			body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n" + rule
-			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			got, err := ruleRecipients(path)
-			if err != nil {
-				t.Fatalf("ruleRecipients: %v", err)
-			}
-			if got[0] != first {
-				t.Errorf("ruleRecipients = %v, want it to start with %s", got, first)
-			}
-			if name != "one" && (len(got) != 2 || got[1] != second) {
-				t.Errorf("ruleRecipients = %v, want both recipients", got)
-			}
-		})
-	}
-}
-
 // Re-encrypting to a rule the host's own key is not in produces a secrets
 // directory nothing on the machine can open, and re-running cannot undo it.
 // Checked before the first file is decrypted.
 func TestARuleWithoutTheKeepersKeyIsRefusedBeforeAnythingIsWritten(t *testing.T) {
 	dir := t.TempDir()
 	keyPath, recipient := sopstest.NewIdentity(t, dir)
-	stranger := "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
+	stranger := recipientB
 	if stranger == recipient {
 		t.Fatal("the fixture minted the hard-coded key")
 	}

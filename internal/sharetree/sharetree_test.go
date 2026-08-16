@@ -101,17 +101,20 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 		t.Errorf("kept.json is %o, want 640: sharing widened a mode its writer chose", info.Mode().Perm())
 	}
 
-	for path, want := range map[string]os.FileMode{
-		sub:    os.ModeDir | os.ModeSetgid | 0o770,
-		plain:  0o660,
-		script: 0o770,
+	for _, tc := range []struct {
+		path string
+		want os.FileMode
+	}{
+		{sub, os.ModeDir | os.ModeSetgid | 0o770},
+		{plain, 0o660},
+		{script, 0o770},
 	} {
-		info, err := os.Stat(path)
+		info, err := os.Stat(tc.path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if info.Mode() != want {
-			t.Errorf("%s = %v, want %v", filepath.Base(path), info.Mode(), want)
+		if info.Mode() != tc.want {
+			t.Errorf("%s = %v, want %v", filepath.Base(tc.path), info.Mode(), tc.want)
 		}
 	}
 }
@@ -301,7 +304,7 @@ func TestASharedPathIsCountedOnceHoweverManyThingsItNeeds(t *testing.T) {
 	if err != nil || len(groups) < 2 {
 		t.Skip("this account has no second group to move a file into")
 	}
-	var gid = -1
+	gid := -1
 	for _, candidate := range groups {
 		if candidate != os.Getgid() {
 			gid = candidate

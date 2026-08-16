@@ -131,7 +131,15 @@ func TestOnlyClaudeAutoApprovesBash(t *testing.T) {
 
 // A typo here is an enrolment that fails after the tree's ownership has already
 // changed.
+//
+// The roster is pinned here as well, and this is the one place it is: tests
+// across this package loop over knownAgents() and agentTargets, and an empty
+// roster would turn every one of them into a pass having checked nothing.
 func TestAgentAssetsExist(t *testing.T) {
+	if len(agentTargets) == 0 || len(knownAgents()) != len(agentTargets) {
+		t.Fatalf("knownAgents() has %d entries and agentTargets %d: every loop over "+
+			"either checks that many agents", len(knownAgents()), len(agentTargets))
+	}
 	for name, target := range agentTargets {
 		if len(target.files) == 0 {
 			t.Errorf("%s writes nothing", name)
@@ -284,49 +292,54 @@ func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
 	}
 }
 
-// Configured for an agent is not the same as written to by faramir: an opencode
-// project has its directory long before the plugin file.
-func TestDetectionFindsAnAgentsOwnConfiguration(t *testing.T) {
-	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "opencode.json"), []byte("{}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, ".kilo"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if got := detectedAgents(dir); !reflect.DeepEqual(got, []string{"kilocode", "opencode"}) {
-		t.Errorf("detectedAgents = %v, want [kilocode opencode]", got)
-	}
-}
-
 // Detection is what auto acts on, so this covers the finding rather than the
-// deciding: an empty tree yields nothing, and a marker yields its agent.
-func TestDetectionFindsAgentDirectories(t *testing.T) {
-	dir := t.TempDir()
-	if got := detectedAgents(dir); len(got) != 0 {
-		t.Errorf("detected %v in an empty tree", got)
-	}
-	if err := os.Mkdir(filepath.Join(dir, ".claude"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if got := detectedAgents(dir); !reflect.DeepEqual(got, []string{"claude"}) {
-		t.Errorf("detectedAgents = %v, want [claude]", got)
+// deciding.  A marker is the agent's own configuration rather than anything
+// faramir wrote: an opencode project has its directory long before the plugin
+// file.
+func TestDetectionFindsAnAgentsOwnConfiguration(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		markers []string
+		want    []string
+	}{
+		{"an empty tree", nil, nil},
+		{"a directory", []string{".claude/"}, []string{"claude"}},
+		{"a config file", []string{"opencode.json"}, []string{"opencode"}},
+		{"both, sorted", []string{"opencode.json", ".kilo/"}, []string{"kilocode", "opencode"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			for _, marker := range tc.markers {
+				var err error
+				if name, isDir := strings.CutSuffix(marker, "/"); isDir {
+					err = os.Mkdir(filepath.Join(dir, name), 0o700)
+				} else {
+					err = os.WriteFile(filepath.Join(dir, marker), []byte("{}\n"), 0o644)
+				}
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			got := detectedAgents(dir)
+			if strings.Join(got, ",") != strings.Join(tc.want, ",") {
+				t.Errorf("detectedAgents = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
 // Every account-wide rule file is merged into what is already there, which is
 // what the drift check rests on: it asks whether a file still carries what this
 // version writes, and one faramir owned outright would be compared against its
-// own contents.  Add one that is not merged and the skip that used to stand
-// there has to come back with it.
+// own contents.
 func TestEveryAccountRuleFileIsMerged(t *testing.T) {
 	seen := 0
 	for _, name := range knownAgents() {
 		for _, file := range agentTargets[name].accountFiles {
 			seen++
 			if !file.merge {
-				t.Errorf("%s writes %s whole, and the drift check reads every account "+
-					"rule file as one it merged into: restore the skip in reportRuleDrift",
+				t.Errorf("%s writes %s whole, and reportRuleDrift reads every account "+
+					"rule file as one faramir merged into: it needs a skip for this one",
 					name, file.path)
 			}
 		}

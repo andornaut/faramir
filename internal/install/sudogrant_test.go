@@ -225,15 +225,15 @@ var nnpImplied = []string{
 // would put NoNewPrivileges= back.
 func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
 	plain := directives(t, "faramir-exec.service", testLayout())
-	for key, want := range map[string]string{
-		"NoNewPrivileges":       "true",
-		"CapabilityBoundingSet": "",
-		"ProtectSystem":         "strict",
-		"SystemCallFilter":      "@system-service",
+	for _, tc := range []struct{ key, want string }{
+		{"NoNewPrivileges", "true"},
+		{"CapabilityBoundingSet", ""},
+		{"ProtectSystem", "strict"},
+		{"SystemCallFilter", "@system-service"},
 	} {
-		if got, set := plain[key]; !set || got != want {
+		if got, set := plain[tc.key]; !set || got != tc.want {
 			t.Errorf("without --allow-sudo the executor unit has %s=%q (set=%v), want %q",
-				key, got, set, want)
+				tc.key, got, set, tc.want)
 		}
 	}
 
@@ -242,9 +242,8 @@ func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
 		t.Errorf("with --allow-sudo NoNewPrivileges=%q: sudo is inert whatever the "+
 			"sudoers file says", granted["NoNewPrivileges"])
 	}
-	// The finding this test exists for: an explicit NoNewPrivileges=false that
-	// systemd overrides is worse than none, because the unit reads as though the
-	// grant works.
+	// An explicit NoNewPrivileges=false that systemd overrides is worse than
+	// none: the unit reads as though the grant works.
 	for _, key := range nnpImplied {
 		if value, set := granted[key]; set {
 			t.Errorf("with --allow-sudo the executor unit sets %s=%q, which systemd "+
@@ -265,17 +264,17 @@ func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
 		}
 	}
 	// What bounds the uid below the approval is unchanged.
-	for key, want := range map[string]string{
-		"ProtectProc":         "invisible",
-		"UMask":               "0007",
-		"SupplementaryGroups": "shared",
-		"AmbientCapabilities": "",
-		"RemoveIPC":           "true",
+	for _, tc := range []struct{ key, want string }{
+		{"ProtectProc", "invisible"},
+		{"UMask", "0007"},
+		{"SupplementaryGroups", "shared"},
+		{"AmbientCapabilities", ""},
+		{"RemoveIPC", "true"},
 	} {
-		if got, set := granted[key]; !set || got != want {
+		if got, set := granted[tc.key]; !set || got != tc.want {
 			t.Errorf("with --allow-sudo the executor unit has %s=%q (set=%v), want %q: "+
 				"that bounds this uid whether or not anything was approved",
-				key, got, set, want)
+				tc.key, got, set, tc.want)
 		}
 	}
 }

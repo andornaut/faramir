@@ -2,7 +2,7 @@ package install
 
 import (
 	"encoding/json"
-	"slices"
+	"strings"
 	"testing"
 )
 
@@ -80,27 +80,34 @@ func TestAStepMarksTheReportChanged(t *testing.T) {
 	}
 }
 
-// Every step a run reports has a name, or a report reads as a list of blanks.
-func TestEveryStepInBothCommandsIsNamed(t *testing.T) {
-	steps := (&runner{}).steps()
-	names := make([]string, 0, len(steps))
-	for _, step := range steps {
-		names = append(names, step.name)
-	}
-	for _, step := range (&project{}).steps() {
-		names = append(names, step.name)
-	}
-	if len(names) == 0 {
-		t.Fatal("neither command has any steps")
-	}
-	seen := map[string]bool{}
-	for _, name := range names {
-		if name == "" {
-			t.Error("a step has no name")
-		}
-		if seen[name] && !slices.Contains([]string{"agent config"}, name) {
-			t.Errorf("two steps are called %q", name)
-		}
-		seen[name] = true
+// Every step a run reports has a name, and no two share one: a report reads as
+// a list of blanks otherwise, and an error naming a step is ambiguous.  Per
+// command, the two being free to use the same name for the same work.
+func TestEveryStepIsNamedAndRunsSomething(t *testing.T) {
+	for _, tc := range []struct {
+		command string
+		steps   []namedStep
+	}{
+		{"init", (&runner{}).steps()},
+		{"init-project", (&project{}).steps()},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			if len(tc.steps) == 0 {
+				t.Fatal("the command has no steps")
+			}
+			seen := map[string]bool{}
+			for i, s := range tc.steps {
+				if strings.TrimSpace(s.name) == "" {
+					t.Errorf("step %d has no name", i)
+				}
+				if s.run == nil {
+					t.Errorf("step %q runs nothing", s.name)
+				}
+				if seen[s.name] {
+					t.Errorf("two steps are called %q, so an error naming one is ambiguous", s.name)
+				}
+				seen[s.name] = true
+			}
+		})
 	}
 }

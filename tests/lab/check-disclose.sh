@@ -151,6 +151,7 @@ tools=$(printf '%s\n%s\n' \
   '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"x","version":"1"}}}' \
   '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' \
   | (cd $PROJECT && timeout 25 runuser -u op -- /usr/local/bin/faramir mcp 2>/dev/null) | tail -1)
+grep -q 'faramir_run' <<<"$tools" || bad "tools/list answered nothing, so the check below has no subject"
 grep -q 'faramir_status' <<<"$tools" && bad "faramir_status is still listed" \
   || ok "and it is not in the tool list either"
 

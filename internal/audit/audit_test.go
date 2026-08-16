@@ -100,7 +100,7 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 	}
 }
 
-// Invariant 1: one record is one line, and no line exceeds max_record_bytes,
+// One record is one line, and no line exceeds max_record_bytes,
 // counted in the bytes the line spends rather than the bytes a command wrote.
 //
 // The table is what a command can choose from: '<' and a C0 control each cost
@@ -220,7 +220,7 @@ func TestEncodedLenAgreesWithTheEncoder(t *testing.T) {
 	}
 }
 
-// Invariant 3: an id is distinct by construction.  Random bytes alone collide
+// An id is distinct by construction.  Random bytes alone collide
 // often enough to matter, and a lookup shows the first match and says nothing
 // about the second.  Asked concurrently, because the counter that orders them
 // is shared.
@@ -246,7 +246,7 @@ func TestLogIDsDoNotRepeatAcrossGoroutines(t *testing.T) {
 	}
 }
 
-// Invariant 2: an append is exclusive, so concurrent writers cannot interleave
+// An append is exclusive, so concurrent writers cannot interleave
 // and every line parses.  Two Logs over one path is what `faramir edit` beside a
 // running broker looks like.
 func TestConcurrentWritersLeaveEveryLineParseable(t *testing.T) {

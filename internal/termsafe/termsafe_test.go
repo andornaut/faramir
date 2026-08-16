@@ -20,12 +20,15 @@ func TestWhatSurvivesRedactionIsRendered(t *testing.T) {
 		{"terminal reset", "site.yml\x1bc"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			for what, got := range map[string]string{
-				"Arg":  Arg(tc.in),
-				"Line": Line(tc.in),
+			for _, r := range []struct {
+				what string
+				got  string
+			}{
+				{"Arg", Arg(tc.in)},
+				{"Line", Line(tc.in)},
 			} {
-				if strings.ContainsAny(got, "\r\x1b") {
-					t.Errorf("%s(%q) = %q, want no byte a terminal acts on", what, tc.in, got)
+				if strings.ContainsAny(r.got, "\r\x1b") {
+					t.Errorf("%s(%q) = %q, want no byte a terminal acts on", r.what, tc.in, r.got)
 				}
 			}
 		})

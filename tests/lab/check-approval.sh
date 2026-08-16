@@ -198,6 +198,9 @@ runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 \
 RUN=$!
 ID=$(waitq)
 body=$(/usr/local/bin/faramir approvals --json 2>/dev/null)
+# The listing answered, or the absence below is an op that failed rather than a
+# question that holds no value.
+grep -qF "$ID" <<<"$body" || bad "approvals --json did not name the waiting question"
 grep -qF "$SECRET" <<<"$body" && bad "the question carries the plaintext value" \
   || ok "the question an operator reads carries no value"
 /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1

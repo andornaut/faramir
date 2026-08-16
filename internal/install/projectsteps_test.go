@@ -8,32 +8,17 @@ import (
 	"testing"
 )
 
-// Every step is named, so a run that stops partway says where.  An enrolment's
-// first step chowns and chmods every file in the tree and nothing undoes it, so
-// "which steps ran" is the first thing to establish when one fails.
-func TestEveryEnrolmentStepIsNamed(t *testing.T) {
+// The irreversible step goes first and everything else runs after it: the share
+// chowns and chmods every file in the tree, so a file written before the walk
+// is one the walk then regroups.  That every step is named is
+// TestEveryStepIsNamedAndRunsSomething.
+func TestTheShareIsAnEnrolmentsFirstStep(t *testing.T) {
 	steps := (&project{}).steps()
 	if len(steps) == 0 {
 		t.Fatal("an enrolment has no steps")
 	}
-	seen := map[string]bool{}
-	for i, step := range steps {
-		if strings.TrimSpace(step.name) == "" {
-			t.Errorf("step %d has no name", i)
-		}
-		if step.run == nil {
-			t.Errorf("step %q runs nothing", step.name)
-		}
-		if seen[step.name] {
-			t.Errorf("two steps are called %q, so an error naming one is ambiguous", step.name)
-		}
-		seen[step.name] = true
-	}
-	// The irreversible one goes first, and everything else runs after it: the
-	// share is what the rest writes into.
 	if steps[0].name != "share tree" {
-		t.Errorf("the first step is %q, want the share: a file written before the "+
-			"walk is one the walk then regroups", steps[0].name)
+		t.Errorf("the first step is %q, want the share", steps[0].name)
 	}
 }
 
@@ -107,9 +92,9 @@ func TestEnrolmentWarnsWhenTheBinaryTheHookExecsIsAbsent(t *testing.T) {
 	}
 }
 
-// Both commands record through one reporter now, so an enrolment can say a step
-// could not be evaluated. It had no way to before, the two copies of this
-// having drifted.
+// An enrolment can say a step was not evaluated, which is what a dry run and a
+// step with no subject both need: a step missing from the report reads as one
+// that never existed.
 func TestAnEnrolmentCanRecordASkippedStep(t *testing.T) {
 	run := &project{}
 	run.skip("share tree", "dry run")

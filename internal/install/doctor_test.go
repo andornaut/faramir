@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -84,13 +85,12 @@ func writeRule(t *testing.T, path string, recipients ...string) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n"
-	var bodySb94 strings.Builder
+	var body strings.Builder
+	body.WriteString("creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n")
 	for _, recipient := range recipients {
-		bodySb94.WriteString("          - " + recipient + "\n")
+		body.WriteString("          - " + recipient + "\n")
 	}
-	body += bodySb94.String()
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(body.String()), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -237,7 +237,7 @@ func TestSopsRecipientsReadsWhatTheRuleLists(t *testing.T) {
 			"recipient listed twice is one recipient", got, want)
 	}
 	for _, recipient := range want {
-		if !strings.Contains(strings.Join(got, " "), recipient) {
+		if !slices.Contains(got, recipient) {
 			t.Errorf("recipients = %q, missing %q", got, recipient)
 		}
 	}

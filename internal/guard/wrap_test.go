@@ -177,30 +177,33 @@ func TestADeniedCommandIsStillDenied(t *testing.T) {
 // some part of itself uncovered if mistaken for one, its output reaching the
 // transcript unredacted.
 func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
-	for command, wantRewritten := range map[string]bool{
-		"source " + wrapScript() + " 'ls -la'": false,
-		". " + wrapScript() + " 'ls -la'":      false,
+	for _, tc := range []struct {
+		command       string
+		wantRewritten bool
+	}{
+		{"source " + wrapScript() + " 'ls -la'", false},
+		{". " + wrapScript() + " 'ls -la'", false},
 		// Naming the wrapper is not using it.
-		"cat " + wrapScript():                      true,
-		"echo " + wrapScript() + "; ./leak.sh":     true,
-		"cd /tmp && source " + wrapScript() + " x": true,
+		{"cat " + wrapScript(), true},
+		{"echo " + wrapScript() + "; ./leak.sh", true},
+		{"cd /tmp && source " + wrapScript() + " x", true},
 		// A pipe carries stdout, leaving stderr unredacted.
-		"echo hi | faramir redact":                         true,
-		"/usr/local/bin/faramir redact -- /bin/bash -lc x": true,
-		"faramir redact":                                   true,
+		{"echo hi | faramir redact", true},
+		{"/usr/local/bin/faramir redact -- /bin/bash -lc x", true},
+		{"faramir redact", true},
 		// The redactor covers its own element, not what is chained after it.
-		"faramir redact -- true; ./leak.sh":     true,
-		"faramir redact -- true && ./leak.sh":   true,
-		"echo hi | faramir redact || ./leak.sh": true,
-		"faramir redact -- true & ./leak.sh":    true,
-		"faramir redact -- true\n./leak.sh":     true,
+		{"faramir redact -- true; ./leak.sh", true},
+		{"faramir redact -- true && ./leak.sh", true},
+		{"echo hi | faramir redact || ./leak.sh", true},
+		{"faramir redact -- true & ./leak.sh", true},
+		{"faramir redact -- true\n./leak.sh", true},
 		// Merely naming it, which is what documentation and a grep do.
-		`echo "run faramir redact next"`: true,
-		"grep -r 'faramir redact' docs/": true,
+		{`echo "run faramir redact next"`, true},
+		{"grep -r 'faramir redact' docs/", true},
 	} {
-		hook := hookOutput(t, bashPayload(t, command))
-		if rewritten := hook != nil; rewritten != wantRewritten {
-			t.Errorf("%q rewritten = %v, want %v", command, rewritten, wantRewritten)
+		hook := hookOutput(t, bashPayload(t, tc.command))
+		if rewritten := hook != nil; rewritten != tc.wantRewritten {
+			t.Errorf("%q rewritten = %v, want %v", tc.command, rewritten, tc.wantRewritten)
 		}
 	}
 }

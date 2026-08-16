@@ -208,10 +208,11 @@ for _ in $(seq 4); do
   /usr/local/bin/faramir reload >/dev/null 2>&1 || fine=no
 done
 [ "$fine" = yes ] && ok "four reloads in a row all succeed" || bad "a repeated reload failed"
+listening=yes
 for u in faramir-keeper.socket faramir-exec.socket faramir-broker.socket; do
-  [ "$(systemctl is-active $u)" = active ] || bad "$u is $(systemctl is-active $u) after repeated reloads"
+  [ "$(systemctl is-active $u)" = active ] || { listening=no; bad "$u is $(systemctl is-active $u) after repeated reloads"; }
 done
-ok "and every socket is still listening"
+[ "$listening" = yes ] && ok "and every socket is still listening"
 settle || bad "the host did not settle"
 
 # --------------------------------------------------------------------------

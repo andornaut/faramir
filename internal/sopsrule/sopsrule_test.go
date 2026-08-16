@@ -47,13 +47,13 @@ func TestKeyGroupsWinOverTheShorthand(t *testing.T) {
 // these somebody typed, and a reader that takes only one of them reports a
 // present key as absent, or refuses a file sops reads.
 func TestTheShorthandIsReadInEveryShape(t *testing.T) {
-	for name, rule := range map[string]string{
-		"one":         "    age: " + first + "\n",
-		"two, commas": "    age: " + first + ", " + second + "\n",
-		"a list":      "    age:\n      - " + first + "\n      - " + second + "\n",
+	for _, tc := range []struct{ name, rule string }{
+		{"one", "    age: " + first + "\n"},
+		{"two, commas", "    age: " + first + ", " + second + "\n"},
+		{"a list", "    age:\n      - " + first + "\n      - " + second + "\n"},
 	} {
-		t.Run(name, func(t *testing.T) {
-			rules := load(t, "creation_rules:\n  - path_regex: .*\n"+rule)
+		t.Run(tc.name, func(t *testing.T) {
+			rules := load(t, "creation_rules:\n  - path_regex: .*\n"+tc.rule)
 			if len(rules) != 1 {
 				t.Fatalf("rules = %d, want 1", len(rules))
 			}
@@ -61,7 +61,7 @@ func TestTheShorthandIsReadInEveryShape(t *testing.T) {
 			if got[0] != first {
 				t.Fatalf("recipients = %v, want them to start with %s", got, first)
 			}
-			if name != "one" && !slices.Equal(got, []string{first, second}) {
+			if tc.name != "one" && !slices.Equal(got, []string{first, second}) {
 				t.Errorf("recipients = %v, want both", got)
 			}
 		})
@@ -73,21 +73,21 @@ func TestTheShorthandIsReadInEveryShape(t *testing.T) {
 // reads most of these as one rule.  What a caller does with the count is its
 // own, but it has to be the real one.
 func TestEveryRuleIsCounted(t *testing.T) {
-	for name, body := range map[string]string{
-		"path_regex first": "creation_rules:\n" +
+	for _, tc := range []struct{ name, body string }{
+		{"path_regex first", "creation_rules:\n" +
 			"  - path_regex: prod/.*\n    age: " + first + "\n" +
-			"  - path_regex: .*\n    age: " + second + "\n",
-		"age first": "creation_rules:\n" +
+			"  - path_regex: .*\n    age: " + second + "\n"},
+		{"age first", "creation_rules:\n" +
 			"  - age: " + first + "\n    path_regex: prod/.*\n" +
-			"  - age: " + second + "\n    path_regex: .*\n",
-		"key_groups first": "creation_rules:\n" +
+			"  - age: " + second + "\n    path_regex: .*\n"},
+		{"key_groups first", "creation_rules:\n" +
 			"  - key_groups:\n      - age:\n          - " + first + "\n    path_regex: prod/.*\n" +
-			"  - key_groups:\n      - age:\n          - " + second + "\n    path_regex: .*\n",
-		"flow style": `creation_rules: [{path_regex: "prod/.*", age: "` + first +
-			`"}, {path_regex: ".*", age: "` + second + `"}]` + "\n",
+			"  - key_groups:\n      - age:\n          - " + second + "\n    path_regex: .*\n"},
+		{"flow style", `creation_rules: [{path_regex: "prod/.*", age: "` + first +
+			`"}, {path_regex: ".*", age: "` + second + `"}]` + "\n"},
 	} {
-		t.Run(name, func(t *testing.T) {
-			if rules := load(t, body); len(rules) != 2 {
+		t.Run(tc.name, func(t *testing.T) {
+			if rules := load(t, tc.body); len(rules) != 2 {
 				t.Errorf("rules = %d, want 2: %+v", len(rules), rules)
 			}
 		})
@@ -156,15 +156,15 @@ func TestAKeyGroupTakesNoCommaSeparatedString(t *testing.T) {
 // is what supplies it, so a YAML body under a .json or .env name is rejected
 // before sops has said anything about creation rules.
 func TestTheProbeBodyMatchesTheTargetsStore(t *testing.T) {
-	for target, want := range map[string]string{
-		"store.sops.yml":  "faramir_rule_check: probe",
-		"store.sops.yaml": "faramir_rule_check: probe",
-		"store.sops.json": `{"faramir_rule_check": "probe"}`,
-		"store.env":       "faramir_rule_check=probe",
-		"store.ini":       "[faramir]",
+	for _, tc := range []struct{ target, want string }{
+		{"store.sops.yml", "faramir_rule_check: probe"},
+		{"store.sops.yaml", "faramir_rule_check: probe"},
+		{"store.sops.json", `{"faramir_rule_check": "probe"}`},
+		{"store.env", "faramir_rule_check=probe"},
+		{"store.ini", "[faramir]"},
 	} {
-		if got := string(probeBody(target)); !strings.Contains(got, want) {
-			t.Errorf("probeBody(%q) = %q, want it to carry %q", target, got, want)
+		if got := string(probeBody(tc.target)); !strings.Contains(got, tc.want) {
+			t.Errorf("probeBody(%q) = %q, want it to carry %q", tc.target, got, tc.want)
 		}
 	}
 }

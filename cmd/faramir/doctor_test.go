@@ -15,7 +15,7 @@ func TestTheStatusColumnIsFixedAndTheDetailAligns(t *testing.T) {
 	var out bytes.Buffer
 	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
 		{Name: "config", Status: install.StatusOK, Detail: "/etc/faramir/config.toml"},
-		{Name: "age key", Status: install.StatusFailed, Detail: "readable by andornaut"},
+		{Name: "age key", Status: install.StatusFailed, Detail: "readable by operator"},
 	}})
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
 	if len(lines) < 2 {
@@ -156,7 +156,7 @@ func TestWithoutAUnicodeLocaleTheWordStandsAlone(t *testing.T) {
 	var out bytes.Buffer
 	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
 		{Name: "config", Status: install.StatusOK, Detail: "/etc/faramir/config.toml"},
-		{Name: "age key", Status: install.StatusFailed, Detail: "readable by andornaut"},
+		{Name: "age key", Status: install.StatusFailed, Detail: "readable by operator"},
 	}})
 	if strings.ContainsAny(out.String(), "\u2713\u2717") {
 		t.Errorf("printed a glyph under a non-UTF-8 locale:\n%s", out.String())

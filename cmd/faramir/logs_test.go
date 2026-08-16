@@ -184,26 +184,28 @@ func TestTailRecordsDoesNotCountALineStillBeingAppended(t *testing.T) {
 	}
 }
 
-// findRecord keeps the match and nothing else, so a lookup costs the same on a
-// log of any length.
-func TestFindRecordTakesEitherFormOfTheID(t *testing.T) {
+// findRecord scans the log and keeps the match and nothing else, so a lookup
+// costs the same on a log of any length.  Which spellings of an id match is
+// TestMatchesIDAcceptsBothForms.
+func TestFindRecordScansForTheMatchingLine(t *testing.T) {
 	path := writeLog(t,
 		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec"}`,
 		`{"log_id":"2026-08-08T20:15:04Z-a91f000002","op":"exec"}`,
 	)
-	for _, id := range []string{"2026-08-08T20:15:04Z-a91f000002", "a91f000002"} {
-		record, _, err := findRecord(path, id)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if record == nil {
-			t.Fatalf("no record found for %q", id)
-		}
-		if str(record, "log_id") != "2026-08-08T20:15:04Z-a91f000002" {
-			t.Errorf("found %q for %q", str(record, "log_id"), id)
-		}
+	record, _, err := findRecord(path, "a91f000002")
+	if err != nil {
+		t.Fatal(err)
 	}
-	record, _, err := findRecord(path, "nothing")
+	if record == nil {
+		t.Fatal("no record found")
+	}
+	if str(record, "log_id") != "2026-08-08T20:15:04Z-a91f000002" {
+		t.Errorf("found %q, want the second record", str(record, "log_id"))
+	}
+
+	// Nothing, rather than the first line or an error: an id nobody wrote is a
+	// question with an answer.
+	record, _, err = findRecord(path, "nothing")
 	if err != nil {
 		t.Fatal(err)
 	}

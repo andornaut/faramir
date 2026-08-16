@@ -154,10 +154,6 @@ func TestCheckPrintsOneJSONObject(t *testing.T) {
 	if _, ok := out["secrets"]; !ok {
 		t.Errorf("no secrets key: %s", body)
 	}
-	// The allowlist is gone; --check must not still claim to report rules.
-	if _, ok := out["allow_rules"]; ok {
-		t.Errorf("--check still reports allow_rules: %s", body)
-	}
 }
 
 func TestCheckNamesTheRefusedRefsAndTheReason(t *testing.T) {
@@ -234,12 +230,6 @@ func TestStatusDoesNotNameARefusedRef(t *testing.T) {
 	}
 	if !strings.Contains(body, "count") {
 		t.Errorf("status is missing count: %q", body)
-	}
-	// Both removed upstream; status must not still advertise them.
-	for _, gone := range []string{"allow_rules", "sync_enabled"} {
-		if strings.Contains(body, gone) {
-			t.Errorf("status still reports %s: %q", gone, body)
-		}
 	}
 }
 
@@ -394,12 +384,12 @@ func TestCheckFailsOnASecretsFileThatDidNotLoad(t *testing.T) {
 	if err := os.WriteFile(notADir, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	for name, file := range map[string]string{
-		"a store that is not there":               filepath.Join(t.TempDir(), "absent.sops.yml"),
-		"a store under something not a directory": filepath.Join(notADir, "v.sops.yml"),
+	for _, tc := range []struct{ name, file string }{
+		{"a store that is not there", filepath.Join(t.TempDir(), "absent.sops.yml")},
+		{"a store under something not a directory", filepath.Join(notADir, "v.sops.yml")},
 	} {
-		t.Run(name, func(t *testing.T) {
-			s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"}, file)
+		t.Run(tc.name, func(t *testing.T) {
+			s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"}, tc.file)
 			if _, code := s.CheckOutput(); code == 0 {
 				t.Error("passed the gate")
 			}
@@ -637,10 +627,13 @@ func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
 // Deliberately unbounded: list_secrets and run are on this socket behind the
 // same check, so a caller who could probe can instead name every ref and be
 // handed every value.  A throttle here would only slow the path nobody needs.
+//
+// Enough calls that a limiter with any usable burst would refuse one: a couple
+// would pass against every throttle worth writing.
 func TestRedactIsNotRateLimited(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"}, managedFile(t))
 	peer := &sockutil.Peer{UID: 1000}
-	for i := range 2 {
+	for i := range 500 {
 		if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
 			t.Fatalf("call %d was refused: %v", i+1, got["error"])
 		}

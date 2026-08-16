@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -66,14 +67,15 @@ func newHarness(t *testing.T) *harness {
 		{Key: "tiny", Value: "abc"},
 	})
 
-	// The directories the test's programs live in.
-	dirs := map[string]bool{}
+	// The directories the test's programs live in, deduplicated in the order they
+	// were found: a PATH assembled from a map is a different PATH on every run,
+	// and which file a bare name resolves to depends on that order.
+	var binDirs []string
 	for _, name := range []string{"bash", "printenv", "base64", "rev", "cut", "cat", "echo", "true"} {
-		dirs[binDir(t, name)] = true
-	}
-	binDirs := make([]string, 0, len(dirs))
-	for d := range dirs {
-		binDirs = append(binDirs, d)
+		found := binDir(t, name)
+		if !slices.Contains(binDirs, found) {
+			binDirs = append(binDirs, found)
+		}
 	}
 
 	auditLog := filepath.Join(dir, "audit.log")
@@ -207,8 +209,7 @@ func (h *harness) runBash(t *testing.T, script string) response {
 
 const token = "«SECRET:home/router/admin»"
 
-// Matrix 3: the credential reaches the right variable, tokenized on the way
-// out.
+// The credential reaches the named variable, tokenized on the way out.
 func TestExecInjectsAndRedacts(t *testing.T) {
 	h := newHarness(t)
 	r := h.call(t, map[string]any{
@@ -261,26 +262,6 @@ func TestNoAgeKeyInChildEnvironment(t *testing.T) {
 	}
 	if strings.Contains(dump.Output, "SOPS_AGE") {
 		t.Errorf("a SOPS_AGE_* variable reached a child: %q", dump.Output)
-	}
-}
-
-// base64, wrapped and unwrapped, is still caught.
-func TestBase64IsRedacted(t *testing.T) {
-	h := newHarness(t)
-	for _, script := range []string{
-		`printenv ROUTER_PW | base64`,
-		`printenv ROUTER_PW | base64 -w0`,
-	} {
-		r := h.runBash(t, script)
-		if r.Error != nil {
-			t.Fatalf("%s: %v", script, r.Error)
-		}
-		if strings.Contains(r.Output, routerPassword) {
-			t.Errorf("%s: PLAINTEXT LEAKED: %q", script, r.Output)
-		}
-		if !strings.Contains(r.Output, token) {
-			t.Errorf("%s: not redacted: %q", script, r.Output)
-		}
 	}
 }
 
@@ -375,25 +356,11 @@ func TestABrokeredCommandCannotDecryptTheStore(t *testing.T) {
 	}
 }
 
-// ssh and sudo write prompts straight to /dev/tty, which no pipe would see.
-// The child has no controlling terminal, so that write fails rather than
-// landing somewhere unread: what a failed open cannot do is carry a value
-// anywhere.
-func TestAValueWrittenToDevTtyGoesNowhere(t *testing.T) {
-	h := newHarness(t)
-	r := h.runBash(t, `printenv ROUTER_PW > /dev/tty`)
-	if r.Error != nil {
-		t.Fatal(r.Error)
-	}
-	if strings.Contains(r.Output, routerPassword) {
-		t.Errorf("PLAINTEXT LEAKED to /dev/tty: %q", r.Output)
-	}
-}
-
-// What the child can still emit is stdout and stderr, which are the PTY, and a
-// value that reaches either comes back as its token.  This is the half of the
-// old /dev/tty test that still has a subject: a program whose prompt falls back
-// to stderr is both seen and redacted.
+// ssh and sudo write prompts straight to /dev/tty, and the child has no
+// controlling terminal for that to reach; internal/execserver asserts the open
+// fails.  What the child can still emit is stdout and stderr, which are the
+// PTY, so a program whose prompt falls back to stderr is both captured and
+// redacted.
 func TestAValueOnStderrIsCapturedAndRedacted(t *testing.T) {
 	h := newHarness(t)
 	r := h.runBash(t, `printenv ROUTER_PW >&2`)

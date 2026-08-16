@@ -46,12 +46,13 @@ func TestExecInjectsTheToken(t *testing.T) {
 	if env[approval.TokenEnv] == "" {
 		t.Errorf("%s is unset, so a question could name no command", approval.TokenEnv)
 	}
-	// Nothing that was ever a credential: no askpass helper, no socket, no
-	// password.  A child that finds one of these has something it can keep.
-	for _, gone := range []string{"SUDO_ASKPASS", "FARAMIR_ASKPASS_SOCKET", "FARAMIR_ASKPASS_TOKEN"} {
-		if value, set := env[gone]; set {
-			t.Errorf("%s = %q: this design hands the child no credential", gone, value)
-		}
+	// base_env and the token, and nothing else at all.  Asserted as a count
+	// rather than against a list of names, so a credential added under a name
+	// nobody thought to look for fails here too: an askpass helper, a socket to
+	// answer on, a password.  A child that finds one of those has something it
+	// can keep, and this design gives it nothing.
+	if want := len(s.Config.Exec.BaseEnv) + 1; len(env) != want {
+		t.Errorf("environment = %v, want base_env plus %s alone", env, approval.TokenEnv)
 	}
 }
 
@@ -112,20 +113,12 @@ func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 	allowSudo(t, s)
 
 	// A run approved and left in flight, standing in for a playbook mid-approval:
-	// registered directly so it does not release the moment its command exits.
-	held, _ := s.Approval.Register(approval.Run{
-		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-h",
-	})
-	go s.Approval.Ask(held)
+	// raiseAndWait registers it without an exec behind it, so it stays held until
+	// this test releases it.
+	held, question, _ := raiseAndWait(t, s, "log-h")
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
-	var id string
-	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline) && id == ""; {
-		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
-		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
-			id = questions[0].ID
-		}
-	}
-	if response := s.Handle(map[string]any{"op": "approve", "id": id, "approve": true}, root); response["error"] != nil {
+	if response := s.Handle(map[string]any{
+		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
 		t.Fatalf("root could not approve the standing run: %v", response["error"])
 	}
 
@@ -194,7 +187,7 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
 
-	question, granted := raiseAndWait(t, s, "log-9")
+	_, question, granted := raiseAndWait(t, s, "log-9")
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	if !strings.Contains(question.Prompt, "ansible-playbook site.yml") {
 		t.Errorf("the question does not name the command: %q", question.Prompt)
@@ -212,19 +205,11 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 	}
 }
 
-// An approval is granted only where the kernel agrees the host is quiet, not
-// where the broker's own map says so.
-//
-// The map and the process table can part: a cgroup teardown the executor gave
-// up on, a run this process aborted without waiting for, or this process
-// restarting and forgetting every run.  Any executor-uid process alive through
-// an approved window can read that run's token out of /proc and sudo on it, so
-// the answer that matters is the executor's, and a no from it turns the
-// operator's yes into a refusal there and then rather than holding the question
-// open to be answered again.
-//
-// It gets an error code of its own, because "your yes was refused" and "that id
-// is not waiting" send an operator to different places.
+// The executor's answer, not the broker's own map, decides whether a yes takes;
+// why that is the answer that matters is with the mechanism in
+// internal/approval.  Here it is the wiring: a refused yes reaches root through
+// the op with a code of its own, because "your yes was refused" and "that id is
+// not waiting" send an operator to different places.
 func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
@@ -232,7 +217,7 @@ func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 		return false, "1 process(es) are running as the executor outside any brokered command"
 	}
 
-	question, granted := raiseAndWait(t, s, "log-q")
+	_, question, granted := raiseAndWait(t, s, "log-q")
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 
 	response := s.Handle(map[string]any{
@@ -272,11 +257,10 @@ func errorDetail(response protocol.Response) string {
 	return ""
 }
 
-// raiseAndWait registers a run, puts its question, and returns the question as
-// root sees it together with the channel the blocked sudo answers on.  Both
-// approval tests below drive the same protocol; one copy of the poll means one
-// place to change when the channel's shape does.
-func raiseAndWait(t *testing.T, s *Server, logID string) (approval.Question, <-chan bool) {
+// raiseAndWait registers a run and puts its question, returning the run's token,
+// the question as root sees it, and the channel the blocked sudo answers on.
+// One copy of the poll, so every test here drives the protocol the same way.
+func raiseAndWait(t *testing.T, s *Server, logID string) (string, approval.Question, <-chan bool) {
 	t.Helper()
 	token, _ := s.Approval.Register(approval.Run{
 		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: logID,
@@ -290,9 +274,9 @@ func raiseAndWait(t *testing.T, s *Server, logID string) (approval.Question, <-c
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
 		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
-			return questions[0], granted
+			return token, questions[0], granted
 		}
 	}
 	t.Fatal("no question reached root")
-	return approval.Question{}, nil
+	return "", approval.Question{}, nil
 }

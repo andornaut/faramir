@@ -105,12 +105,13 @@ func TestDrainReturnsWhenEmptyAndBoundsItsWait(t *testing.T) {
 // delegated subtree it can write, so a host missing either refuses every run
 // rather than reaping by the escapable process group.  Where a base is found it
 // must be a real, writable cgroup directory, since a run is spawned into a child
-// of it; where it is "" the discovery simply declined, which is a host to fix,
-// not a state this test asserts.
+// of it; where it is "" the discovery declined, which is a host to fix and not
+// a state this test asserts.  Skipped rather than returned there, so a run on
+// such a host says it checked nothing instead of reporting a pass.
 func TestCgroupBaseIsARealDirectoryOrNothing(t *testing.T) {
 	base := cgroupBase()
 	if base == "" {
-		return // no v2, or no delegated subtree: the executor would refuse to run here
+		t.Skip("no delegated cgroup v2 subtree; the executor would refuse every command here")
 	}
 	if _, err := os.Stat(filepath.Join(base, "cgroup.procs")); err != nil {
 		t.Errorf("cgroupBase returned %q, which is not a cgroup v2 directory: %v", base, err)

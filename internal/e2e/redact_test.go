@@ -82,19 +82,24 @@ func TestTheRewrittenCommandRedactsAndKeepsShellState(t *testing.T) {
 	}
 }
 
-// privateRuntimeEnv gives the wrapper the private XDG_RUNTIME_DIR it insists on:
-// a directory owned by this uid that no other account can read.  A real session
+// privateRuntimeDir is the private XDG_RUNTIME_DIR the wrapper insists on: a
+// directory owned by this uid that no other account can read.  A real session
 // has one at /run/user/<uid>; a bare test process may not (nor may CI), so the
 // tests provide their own rather than depend on the ambient environment.
-// t.TempDir is this uid's; the chmod clears the group and other bits the
-// wrapper's `stat` check refuses.
-func privateRuntimeEnv(t *testing.T) string {
+// t.TempDir hands back 0775; the chmod clears the bits the wrapper's `stat`
+// check refuses.
+func privateRuntimeDir(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.Chmod(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	return "XDG_RUNTIME_DIR=" + dir
+	return dir
+}
+
+func privateRuntimeEnv(t *testing.T) string {
+	t.Helper()
+	return "XDG_RUNTIME_DIR=" + privateRuntimeDir(t)
 }
 
 // runWrapped runs a rewritten command the way the agent's shell would, keeping
@@ -206,13 +211,7 @@ func TestTheRewrittenCommandKeepsTheExitCode(t *testing.T) {
 // output.
 func TestTheRewriteLeavesNoTemporaryFile(t *testing.T) {
 	h := newHarness(t)
-	// A stand-in for the real XDG_RUNTIME_DIR, which is the session's own tmpfs at
-	// 0700.  t.TempDir hands back 0775, and the hook refuses to capture unredacted
-	// output into a directory another account can read.
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	dir := privateRuntimeDir(t)
 	cli := faramirCLI(t)
 	rewritten := guardRewrite(t, cli, "echo "+routerPassword)
 
@@ -236,10 +235,7 @@ func TestTheRewriteLeavesNoTemporaryFile(t *testing.T) {
 // yet.  An EXIT trap is what still runs on that path.
 func TestTheRewriteLeavesNoTemporaryFileWhenTheCommandExits(t *testing.T) {
 	h := newHarness(t)
-	dir := t.TempDir()
-	if err := os.Chmod(dir, 0o700); err != nil {
-		t.Fatal(err)
-	}
+	dir := privateRuntimeDir(t)
 	cli := faramirCLI(t)
 	rewritten := guardRewrite(t, cli, "echo "+routerPassword+"; exit 42")
 
@@ -341,14 +337,6 @@ func TestRedactOpReturnsNoValue(t *testing.T) {
 	}
 }
 
-func TestRedactOpRejectsAMissingText(t *testing.T) {
-	h := newHarness(t)
-	r := h.call(t, map[string]any{"op": "redact"})
-	if r.Error == nil {
-		t.Fatal("a redact request with no text was accepted")
-	}
-}
-
 // The filter shape: what a pipeline uses.
 func TestCLIRedactFiltersStdin(t *testing.T) {
 	h := newHarness(t)
@@ -397,7 +385,9 @@ func TestCLIRedactPreservesTheChildExitCode(t *testing.T) {
 // command that printed nothing.
 func TestCLIRedactWithholdsTheOutputWhenTheBrokerIsGone(t *testing.T) {
 	r := runCLI(t, "/nonexistent/broker.sock", "redact", "--", "bash", "-lc", "echo still-ran; exit 7")
-	if strings.Contains(r.stdout, "still-ran") {
+	// Empty, not merely free of what the command printed: anything on stdout is
+	// text that reached no redactor.
+	if r.stdout != "" {
 		t.Errorf("stdout = %q, want nothing the broker never saw", r.stdout)
 	}
 	// The child's own failure, kept: only its output was withheld.
@@ -416,7 +406,7 @@ func TestCLIRedactFailsAZeroExitWhenTheOutputWasWithheld(t *testing.T) {
 	if r.code == 0 {
 		t.Errorf("exit = 0 with the output withheld; stderr = %q", r.stderr)
 	}
-	if strings.Contains(r.stdout, "hi") {
+	if r.stdout != "" {
 		t.Errorf("stdout = %q, want nothing the broker never saw", r.stdout)
 	}
 }

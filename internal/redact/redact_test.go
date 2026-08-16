@@ -13,7 +13,8 @@ func newTestRedactor() *Redactor {
 	return New([]Secret{{Ref: "home/router/admin", Value: secret}}, DefaultPolicy())
 }
 
-func want() string { return TokenFor("home/router/admin") }
+// routerToken is the token the default redactor replaces `secret` with.
+func routerToken() string { return TokenFor("home/router/admin") }
 
 // One redactor, one text, and three questions: is the value gone, is its token
 // there, did the surrounding output survive.  Each encoding is a separate way
@@ -37,25 +38,25 @@ func TestRedactText(t *testing.T) {
 	}{
 		{name: "plain",
 			text: "password is " + secret + " ok",
-			gone: []string{secret}, want: []string{want()}},
+			gone: []string{secret}, want: []string{routerToken()}},
 		// The token as well as the disappearance: a redactor that dropped the
 		// match would leave no sign anything had been there.
 		{name: "base64 std",
 			text: "blob: " + base64.StdEncoding.EncodeToString([]byte(secret)),
 			gone: []string{base64.StdEncoding.EncodeToString([]byte(secret))},
-			want: []string{want()}},
+			want: []string{routerToken()}},
 		{name: "base64 std unpadded",
 			text: "blob: " + unpadded(base64.StdEncoding.EncodeToString([]byte(secret))),
 			gone: []string{unpadded(base64.StdEncoding.EncodeToString([]byte(secret)))},
-			want: []string{want()}},
+			want: []string{routerToken()}},
 		{name: "base64 url",
 			text: "blob: " + base64.URLEncoding.EncodeToString([]byte(secret)),
 			gone: []string{base64.URLEncoding.EncodeToString([]byte(secret))},
-			want: []string{want()}},
+			want: []string{routerToken()}},
 		{name: "base64 url unpadded",
 			text: "blob: " + unpadded(base64.URLEncoding.EncodeToString([]byte(secret))),
 			gone: []string{unpadded(base64.URLEncoding.EncodeToString([]byte(secret)))},
-			want: []string{want()}},
+			want: []string{routerToken()}},
 		// base64 wraps at 76 columns, which splits a value across lines.
 		{name: "base64 wrapped at 76 columns",
 			secrets: []Secret{{Ref: "big", Value: long}},
@@ -65,7 +66,7 @@ func TestRedactText(t *testing.T) {
 		// A colour code spliced into the middle.
 		{name: "ANSI spliced into the middle",
 			text: secret[:len(secret)/2] + "\x1b[31m" + secret[len(secret)/2:],
-			gone: []string{secret[:len(secret)/2]}, want: []string{want()}},
+			gone: []string{secret[:len(secret)/2]}, want: []string{routerToken()}},
 		{name: "percent and JSON encodings",
 			secrets: []Secret{{Ref: "k", Value: specials}},
 			text: "url=" + percentEncode(specials, false) +
@@ -84,6 +85,13 @@ func TestRedactText(t *testing.T) {
 			secrets: []Secret{{Ref: "k", Value: apostrophe}},
 			text:    `+ curl --user 'it'"'"'s-a-long-secret-value' https://host` + "\n",
 			gone:    []string{`'it'"'"'s-a-long-secret-value'`},
+			want:    []string{TokenFor("k"), "https://host"}},
+		// The other escape for the same character: bash prints one, Python's
+		// shlex.quote the other, and docs/redaction.md claims both.
+		{name: `shell single-quoted, the '\'' escape`,
+			secrets: []Secret{{Ref: "k", Value: apostrophe}},
+			text:    `+ curl --user 'it'\''s-a-long-secret-value' https://host` + "\n",
+			gone:    []string{`'it'\''s-a-long-secret-value'`},
 			want:    []string{TokenFor("k"), "https://host"}},
 		{name: "shell double-quoted, with the escapes the shell adds",
 			secrets: []Secret{{Ref: "k", Value: dollars}},
@@ -145,7 +153,7 @@ func TestValueSplitAcrossChunks(t *testing.T) {
 	if strings.Contains(got, secret) {
 		t.Fatalf("split value survived: %q", got)
 	}
-	if !strings.Contains(got, want()) {
+	if !strings.Contains(got, routerToken()) {
 		t.Fatalf("token missing: %q", got)
 	}
 }

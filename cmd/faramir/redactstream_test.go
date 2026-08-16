@@ -177,8 +177,8 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 //
 // This is what puts the broker's redactor across the joins: it holds back a
 // tail longer than the longest variant, so a value split between two chunks is
-// caught by the one that completes it.  A connection per chunk gave each its
-// own redactor and left the join scanned by neither.
+// caught by the one that completes it.  A connection per chunk would give each
+// its own redactor and leave the join scanned by neither.
 func TestAStreamIsOneConnectionAndSaysWhereItEnds(t *testing.T) {
 	broker := newStubBroker(t)
 
@@ -358,7 +358,8 @@ func TestAnIdleFlushDoesNotEndTheStream(t *testing.T) {
 
 // A line longer than the buffer arrives from the reader as ErrBufferFull before
 // its newline; the live path must keep reading it, not mistake that for the end
-// of the stream.  It is the shape the leak suite's chunk-offset cases take.
+// of the stream.  It is the shape tests/lab/check-leak.sh's chunk-offset cases
+// take.
 func TestALiveStreamCarriesALineLongerThanAChunk(t *testing.T) {
 	broker := newStubBroker(t)
 	input := strings.Repeat("y", 5*chunkBytes) + "\n"

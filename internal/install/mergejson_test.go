@@ -129,13 +129,18 @@ func TestMergeJSONUnionsDenyRules(t *testing.T) {
 		}
 		counts[text]++
 	}
-	for rule, want := range map[string]int{
-		"Read(**/*.sops.yml)":   1, // in both, must not double
-		"Read(/srv/private/**)": 1, // the operator's, must survive
-		"Read(**/age.key)":      1, // faramir's, must be added
+	for _, tc := range []struct {
+		rule string
+		want int
+		why  string
+	}{
+		{"Read(**/*.sops.yml)", 1, "in both, must not double"},
+		{"Read(/srv/private/**)", 1, "the operator's, must survive"},
+		{"Read(**/age.key)", 1, "faramir's, must be added"},
 	} {
-		if counts[rule] != want {
-			t.Errorf("%q appears %d times, want %d: %s", rule, counts[rule], want, merged)
+		if counts[tc.rule] != tc.want {
+			t.Errorf("%q appears %d times, want %d (%s): %s",
+				tc.rule, counts[tc.rule], tc.want, tc.why, merged)
 		}
 	}
 }

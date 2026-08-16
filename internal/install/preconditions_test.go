@@ -32,7 +32,7 @@ func TestTheSSHKeyRefusalNamesBothHalvesAndTheGroup(t *testing.T) {
 	says := err.Error()
 	for _, want := range []string{
 		key,           // the private half
-		key + ".pub",  // and the public one, which is checked and used to go unnamed
+		key + ".pub",  // and the public one, which the check reads too
 		"chown ",      // the remedy
 		":",           // with a group in it
 		"chmod 0600 ", // and the modes the two halves need
@@ -42,7 +42,8 @@ func TestTheSSHKeyRefusalNamesBothHalvesAndTheGroup(t *testing.T) {
 			t.Errorf("the refusal does not mention %q:\n%s", want, says)
 		}
 	}
-	// The specific regression: a remedy that sets the owner and leaves the group.
+	// The remedy has to satisfy the check that printed it, so it sets the group
+	// as well as the owner.
 	if strings.Contains(says, "chown faramir-broker2 ") {
 		t.Errorf("the remedy chowns the owner alone, which does not satisfy the "+
 			"check that printed it:\n%s", says)
@@ -101,7 +102,7 @@ func TestPreconditionsRunBeforeAnythingIsChowned(t *testing.T) {
 		"directories", // chowns the secrets directory to the secrets group
 		"age key",     // chowns the key to the keeper
 		"config",      // rewrites who the sockets admit
-		"ssh key",     // where the refusal used to be raised
+		"ssh key",     // mints a key and hands it to the broker
 		"units",
 	} {
 		if got := index(destructive); got < preconditions {

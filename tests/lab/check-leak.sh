@@ -105,6 +105,10 @@ import os,sys
 sys.stdout.write('.'*32740 + os.environ['PW'] + '.'*200 + '\n')" 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "faramir run leaks at the chunk offset too" \
   || ok "faramir run has no seam at that offset: one redactor spans the stream"
+# The absence above is only evidence if the value was there to redact: a run
+# that failed prints an error, holds no value, and would pass it.
+grep -qF "$TOKEN" <<<"$out" && ok "  and the value was injected, so the check had a subject" \
+  || bad "faramir run printed no token, so the line above asserts nothing: ${out:0:120}"
 
 head_ "4. volume"
 size=$(python3 -c "
@@ -141,12 +145,16 @@ out=$(printf 'the pin is %s\n' "$PIN" | redact)
 grep -q "$PIN" <<<"$out" && ok "a value under min_length is not redacted (by design)" \
   || bad "the short value was redacted after all: $out"
 refs=$(runuser -u op -- faramir list-secrets)
+# A ref that is served, so an empty answer fails here rather than passing the
+# absence below.
+grep -q 'db/password' <<<"$refs" || bad "list-secrets answered nothing, so the check below has no subject"
 grep -q 'short/pin' <<<"$refs" && bad "it is offered as an injectable ref" \
   || ok "and it is not offered as a ref that can be injected"
 # The operator has to be told, or a ref they can see in the file reads as
 # covered.  The agent must not be: status is answered to any member of the
 # client group, so what goes in it lands in a model's context.
 status=$(runuser -u op -- faramir status)
+grep -q 'count' <<<"$status" || bad "status answered nothing, so the check below has no subject"
 grep -q 'short/pin' <<<"$status" && bad "the agent-facing status op names a refused ref" \
   || ok "the agent-facing status op does not name it"
 doctor=$(faramir doctor 2>&1)

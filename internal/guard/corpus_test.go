@@ -19,6 +19,8 @@ var corpus = []denyCase{
 	{"sops --decrypt secrets.sops.yml", true, "the long spelling decrypts too"},
 	{"age -d < file", true, "age decrypts what sops encrypted"},
 	{"vault kv get secret/foo", true, "a different vault, still a credential store"},
+	{"op read op://vault/item/field", true, "1Password's CLI is a credential store too"},
+	{"pass show personal/router", true, "and so is pass"},
 	{"age-keygen", true, "prints a fresh private key to stdout"},
 	{"age-keygen -o /tmp/throwaway.key", false, "-o writes a key without printing one"},
 
@@ -28,6 +30,7 @@ var corpus = []denyCase{
 	{"env", true, "the same dump by another name"},
 	{"env -i", true, "still a dump"},
 	{"declare -x", true, "bash's own spelling of the dump"},
+	{"set", true, "the bare builtin dumps every variable, exported or not"},
 	{"cat /proc/self/environ", true, "the environment through the filesystem"},
 	{"env | grep PATH", false, "a pipe narrows the dump rather than spilling it"},
 	{"env FOO=1 make build", false, "env with assignments sets, it does not dump"},
@@ -35,6 +38,8 @@ var corpus = []denyCase{
 
 	// -- key material, through any tool -------------------------------------
 	{"cat /home/op/.config/sops/age/keys.txt", true, "the reachable age key"},
+	{"less /etc/faramir/age.key", true, "a pager puts it on the screen as surely as cat"},
+	{"xxd /etc/faramir/age.key", true, "so does a hex dump"},
 	{"awk '{print}' ~/.config/sops/age/keys.txt", true, "awk prints as well as cat"},
 	{`python3 -c "print(open('/home/op/.config/sops/age/keys.txt').read())"`, true, "an interpreter is a reader"},
 	{"jq . /home/op/.config/sops/age/keys.txt", true, "so is a parser"},
@@ -64,6 +69,7 @@ var corpus = []denyCase{
 
 	// Writes, not reads.
 	{"rm -f /etc/faramir/age.key", true, "deleting the key breaks every value"},
+	{"truncate -s 0 /etc/faramir/age.key", true, "emptying it in place is the same loss"},
 	{"rm -f ~/.config/faramir/secrets/ansible-ctrl.sops.yml", true, "deleting a store"},
 	{"chmod 0644 /etc/faramir/age.key", true, "widening the key's mode"},
 	{"chown op /etc/faramir/age.key", true, "handing the key to another uid"},
@@ -140,6 +146,7 @@ var corpus = []denyCase{
 	{"git status", false, ""},
 	{"ansible-playbook site.yml --check", false, "the tool faramir exists to run"},
 	{"grep -r TODO .", false, ""},
+	{"go test ./...", false, "the command an agent runs most"},
 	{"echo hello", false, ""},
 }
 

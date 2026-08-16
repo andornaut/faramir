@@ -136,8 +136,11 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 // deriving that from the executable's name.
 func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	layout := testLayout()
-	want := map[string]map[string]string{
-		"faramir-broker.service": {
+	for _, tc := range []struct {
+		unit       string
+		directives map[string]string
+	}{
+		{"faramir-broker.service", map[string]string{
 			"User": "br", "Group": "brgrp", "StateDirectory": "br",
 			// The executor's group and nothing else: the broker holds the plaintext and
 			// asks the keeper what changed.  "exgrp" rather than "ex", the account's
@@ -146,15 +149,15 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir broker",
 			"SyslogIdentifier":    "faramir-broker",
-		},
-		"faramir-keeper.service": {
+		}},
+		{"faramir-keeper.service", map[string]string{
 			"User": "kp", "Group": "kpgrp", "StateDirectory": "kp",
 			"SupplementaryGroups": "store",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir keeper",
 			"SyslogIdentifier":    "faramir-keeper",
-		},
-		"faramir-exec.service": {
+		}},
+		{"faramir-exec.service", map[string]string{
 			// Group is the account's own, which is not assumed to be called what the
 			// account is.  StateDirectory is a directory name, so it stays the account's.
 			"User": "ex", "Group": "exgrp", "StateDirectory": "ex",
@@ -162,21 +165,20 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
 			"ExecStart":           DefaultBinDir + "/faramir exec",
 			"SyslogIdentifier":    "faramir-exec",
-		},
-		"faramir-broker.socket": {"SocketGroup": "shared"},
+		}},
+		{"faramir-broker.socket", map[string]string{"SocketGroup": "shared"}},
 		// The broker's group: these two admit the broker and nothing else, so a
 		// name that resolved elsewhere would leave it unable to reach them.
-		"faramir-keeper.socket": {"SocketGroup": "brgrp"},
-		"faramir-exec.socket":   {"SocketGroup": "brgrp"},
-	}
-	for unit, directives := range want {
-		body, err := render(units[unit], layout)
+		{"faramir-keeper.socket", map[string]string{"SocketGroup": "brgrp"}},
+		{"faramir-exec.socket", map[string]string{"SocketGroup": "brgrp"}},
+	} {
+		body, err := render(units[tc.unit], layout)
 		if err != nil {
 			t.Fatal(err)
 		}
-		for directive, value := range directives {
+		for directive, value := range tc.directives {
 			if !strings.Contains(string(body), directive+"="+value+"\n") {
-				t.Errorf("%s: want %s=%s", unit, directive, value)
+				t.Errorf("%s: want %s=%s", tc.unit, directive, value)
 			}
 		}
 	}

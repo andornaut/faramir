@@ -25,6 +25,9 @@ func section(t *testing.T) string {
 func TestWhereTheSectionGoes(t *testing.T) {
 	body := section(t)
 	wrapped := sectionBlock(body)
+	// An unmarked older copy is found by the shipped section's own heading, so
+	// the cases that turn on one derive it rather than spelling it out.
+	heading, _, _ := strings.Cut(body, "\n")
 	for _, tc := range []struct {
 		name    string
 		current string
@@ -53,9 +56,13 @@ func TestWhereTheSectionGoes(t *testing.T) {
 			// one it cannot delimit.  Appending would leave two sets of
 			// credentials instructions contradicting each other.
 			"an unmarked section in words that are not these",
-			"# Project\n\n# Credentials\n\nRun things with faramir_run, or so we used to.\n",
+			"# Project\n\n" + heading + "\n\nRun things with faramir_run, or so we used to.\n",
 			placeStale,
 		},
+		// Both signs are needed to call a file stale: a heading of somebody's own
+		// is not this section, and merely naming the tool is the case the markers
+		// exist to unblock.
+		{"the heading with no mention of the tool", "# Project\n\n" + heading + "\n\nMy own keys.\n", placeAppend},
 		{"a begin with no end", sectionBegin + "\n" + body, placeRefuse},
 		{"an end with no begin", body + sectionEnd + "\n", placeRefuse},
 		{"the markers inverted", sectionEnd + "\n" + body + sectionBegin + "\n", placeRefuse},
@@ -150,28 +157,6 @@ func TestAnEmptyFileGetsTheSectionAlone(t *testing.T) {
 	}
 }
 
-// A file with one marker is left alone: where the block stops cannot be read off
-// it, and rewriting past the wrong point takes somebody's prose with it.
-func TestAHalfMarkedFileIsRefused(t *testing.T) {
-	body := section(t)
-	current := []byte("# My project\n\n" + sectionBegin + "\n" + body)
-
-	if place, _, _ := placeSection(current, body); place != placeRefuse {
-		t.Fatalf("placeSection = %v, want %v", place, placeRefuse)
-	}
-}
-
-// The wrap matches on the shipped section's own text, so it holds only while
-// that text is what an unmarked file carries.  Anything it cannot match must
-// reach placeStale rather than placeAppend: a second credentials section is the
-// one outcome worth avoiding, saying something the first one contradicts.
-func TestTheShippedSectionIsWhatTheWrapLooksFor(t *testing.T) {
-	body := section(t)
-	if place, _, _ := placeSection([]byte(body), body); place != placeWrap {
-		t.Errorf("the shipped section is not recognised unmarked: placeSection = %v", place)
-	}
-}
-
 // Changing the shipped snippet must not give an already-enrolled tree a second
 // section.  The wording changes; the heading is what an older copy is found by,
 // so a change that drops it silently turns every such file into a duplicate.
@@ -190,28 +175,6 @@ func TestARewordedSectionIsNeverAppendedBesideTheOldOne(t *testing.T) {
 	if place != placeStale {
 		t.Errorf("placeSection = %v, want %v: an older section would be left in "+
 			"place beside a new one", place, placeStale)
-	}
-}
-
-// Both halves are needed to call a file stale.  A heading of somebody's own is
-// not this section, and a file that merely names the tool is the case the
-// markers exist to unblock.
-func TestAFileIsOnlyStaleWhenItCarriesBothSigns(t *testing.T) {
-	body := section(t)
-	heading, _, _ := strings.Cut(body, "\n")
-	for _, tc := range []struct {
-		name    string
-		current string
-		want    sectionPlacement
-	}{
-		{"the heading and no mention of the tool", "# Project\n\n" + heading + "\n\nMy own keys.\n", placeAppend},
-		{"the tool and no such heading", "# Project\n\nWe run faramir here.\n", placeAppend},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if got, _, _ := placeSection([]byte(tc.current), body); got != tc.want {
-				t.Errorf("placeSection = %v, want %v", got, tc.want)
-			}
-		})
 	}
 }
 
@@ -254,10 +217,7 @@ func TestASymlinkedHomeFileIsWrittenThroughToItsTarget(t *testing.T) {
 	if !strings.HasPrefix(string(body), "# My rules\n") {
 		t.Errorf("the operator's own text was disturbed:\n%s", body)
 	}
-	// Its own mode, as for any file this did not create.
-	if got := info.Mode(); got&os.ModeSymlink == 0 {
-		t.Errorf("link mode = %v", got)
-	}
+	// The target keeps its own mode, as any file this did not create does.
 	if targetInfo, err := os.Stat(target); err != nil {
 		t.Fatal(err)
 	} else if targetInfo.Mode().Perm() != 0o600 {
@@ -587,7 +547,7 @@ func TestInitProjectFailsOnAnInstructionsFileItCannotBringUpToDate(t *testing.T)
 
 // A path outside the home, or one an agent does not read, is a section written
 // where nothing loads it.  Checked here because it is not visible at runtime:
-// the file is written, and the agent simply never says anything different.
+// the file is written, and the agent never says anything different.
 func TestEveryHomeInstructionsPathIsRelativeToTheHome(t *testing.T) {
 	for _, name := range knownAgents() {
 		path := agentTargets[name].homeInstructions

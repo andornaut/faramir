@@ -113,8 +113,7 @@ func TestTheExecutorDoesNotSecondGuessArgv0(t *testing.T) {
 // concurrency slot until its timeout.
 func TestABareShellExitsInsteadOfWaiting(t *testing.T) {
 	_, sock, dir := newExecutor(t)
-	sh, err := os.Stat("/bin/bash")
-	if err != nil || sh.IsDir() {
+	if info, err := os.Stat("/bin/bash"); err != nil || info.IsDir() {
 		t.Skip("no /bin/bash")
 	}
 	result, _, err := runChild(t, sock, []string{"/bin/bash"}, dir)
@@ -133,11 +132,8 @@ func TestABareShellExitsInsteadOfWaiting(t *testing.T) {
 // broker's master.
 func TestTheChildGetsATerminal(t *testing.T) {
 	_, sock, dir := newExecutor(t)
-	if _, err := os.Stat("/bin/sh"); err != nil {
-		t.Skip("no /bin/sh")
-	}
 	_, output, err := runChild(t, sock,
-		[]string{"/bin/sh", "-c", "test -t 1 && echo IS_TTY || echo NOT_TTY"}, dir)
+		[]string{shPath(t), "-c", "test -t 1 && echo IS_TTY || echo NOT_TTY"}, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,9 +160,7 @@ func TestAMissingProgramIsExecFailed(t *testing.T) {
 // done the grandchild must be gone.
 func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
 	_, sock, dir := newExecutor(t)
-	if _, err := os.Stat("/bin/sh"); err != nil {
-		t.Skip("no /bin/sh")
-	}
+	sh := shPath(t)
 
 	// setsid detaches the grandchild into its own session and process group; it
 	// prints its pid and sleeps.  The main shell exits at once.
@@ -174,10 +168,10 @@ func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
 	// The sleep outlasts every bound in the teardown by a wide margin, and that
 	// is what makes this an assertion.  Teardown waits for the cgroup to drain,
 	// so with a sleep it can outlast, "dead once the run returned" is satisfied
-	// by the sleep simply finishing, and the test passes with the reaping
+	// by the sleep finishing on its own, and the test passes with the reaping
 	// disabled entirely.  Longer than any drain, only something killing it can
 	// satisfy it.
-	_, output, err := runChild(t, sock, []string{"/bin/sh", "-c",
+	_, output, err := runChild(t, sock, []string{sh, "-c",
 		"setsid sh -c 'echo GPID=$$; exec sleep 600' & sleep 0.3"}, dir)
 	if err != nil {
 		t.Fatal(err)

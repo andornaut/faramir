@@ -81,7 +81,7 @@ func TestProgram(t *testing.T) {
 		// -- explicit paths --------------------------------------------------
 		{name: "an absolute path anywhere is fine",
 			arg: script, cwd: dir, want: realpath(script),
-			why: "no allowed_bin_dirs any more: a script in the working tree never lived in /usr/bin"},
+			why: "there is no allowlist: a script in the working tree never lived in /usr/bin"},
 		{name: "a relative path resolves against the request cwd",
 			arg: "./deploy.sh", cwd: dir, want: realpath(script),
 			why: "not the broker's own cwd, which would be a different file of the same name"},

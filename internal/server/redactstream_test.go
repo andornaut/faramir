@@ -94,13 +94,11 @@ func TestAStreamReassemblesToTheWholeInput(t *testing.T) {
 	conn, lines := dial()
 
 	pieces := []string{"alpha ", "bravo ", "charlie ", "delta"}
-	got := ""
-	var gotSb98 strings.Builder
+	var out strings.Builder
 	for i, piece := range pieces {
-		gotSb98.WriteString(chunk(t, conn, lines, piece, i < len(pieces)-1))
+		out.WriteString(chunk(t, conn, lines, piece, i < len(pieces)-1))
 	}
-	got += gotSb98.String()
-	if want := strings.Join(pieces, ""); got != want {
+	if got, want := out.String(), strings.Join(pieces, ""); got != want {
 		t.Errorf("stream reassembled to %q, want %q", got, want)
 	}
 }
@@ -146,11 +144,24 @@ func TestAChunkedRequestWithNoConnectionIsRefused(t *testing.T) {
 	}
 }
 
-func TestMoreMustBeABoolean(t *testing.T) {
+// A malformed redact request is refused rather than answered with whatever the
+// missing or mistyped field defaults to: an accepted request returns text the
+// caller then treats as redacted.
+func TestAMalformedRedactRequestIsRefused(t *testing.T) {
 	s := newServer(t, map[string]string{"db/password": "hunter2-correct-horse"})
-	got := s.Handle(map[string]any{"op": "redact", "text": "x", "more": "yes"}, &sockutil.Peer{UID: 1000})
-	if got["error"] == nil {
-		t.Errorf("'more' as a string was accepted: %v", got)
+	for _, tc := range []struct {
+		name    string
+		request map[string]any
+	}{
+		{"no text at all", map[string]any{"op": "redact"}},
+		{"text that is not a string", map[string]any{"op": "redact", "text": 42}},
+		{"more as a string", map[string]any{"op": "redact", "text": "x", "more": "yes"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := s.Handle(tc.request, &sockutil.Peer{UID: 1000}); got["error"] == nil {
+				t.Errorf("accepted: %v", got)
+			}
+		})
 	}
 }
 

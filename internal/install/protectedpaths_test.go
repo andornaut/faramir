@@ -79,7 +79,8 @@ func matchesAnyPath(res []*regexp.Regexp, path string) bool {
 // what must not differ is which paths appear at all.
 func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	layout := testLayout()
-	rendered := map[string]string{}
+	type rendering struct{ asset, body string }
+	rendered := make([]rendering, 0, 3)
 	for _, asset := range []string{
 		"agent/claude/settings.json",
 		"agent/permissions.json.tmpl",
@@ -88,7 +89,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", asset, err)
 		}
-		rendered[asset] = string(body)
+		rendered = append(rendered, rendering{asset, string(body)})
 	}
 	// pi's rules are in the extension it installs rather than in a config file.
 	body, err := renderData("agent/pi/extension.ts.tmpl", pluginData{
@@ -98,24 +99,24 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rendered["agent/pi/extension.ts.tmpl"] = string(body)
+	rendered = append(rendered, rendering{"agent/pi/extension.ts.tmpl", string(body)})
 
-	for asset, body := range rendered {
+	for _, r := range rendered {
 		// Two of these spellings are regexes, where "." arrives escaped, so the
 		// backslashes come out before the search: what is being asserted is that
 		// the path is in there at all, not how it had to be written.
-		flat := strings.ReplaceAll(body, `\`, "")
+		flat := strings.ReplaceAll(r.body, `\`, "")
 		for _, p := range protectedPaths {
 			// The literal part of the entry, which every spelling keeps: the
 			// wildcard and the anchoring are what they are free to differ about.
 			token := strings.TrimSuffix(strings.SplitN(p.value, "*", 2)[0], "/")
 			if !strings.Contains(flat, token) {
-				t.Errorf("%s covers no path matching %q (%s)", asset, p.value, p.why)
+				t.Errorf("%s covers no path matching %q (%s)", r.asset, p.value, p.why)
 			}
 		}
 		for _, dir := range installDirs(layout) {
 			if !strings.Contains(flat, dir) {
-				t.Errorf("%s does not refuse %s", asset, dir)
+				t.Errorf("%s does not refuse %s", r.asset, dir)
 			}
 		}
 	}
@@ -154,8 +155,8 @@ func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 
 // The two plugin hosts install the same rules, and what makes that true is that
 // they name one asset rather than two files kept in step by hand.  Asserted
-// against the targets rather than by rendering both, which after the two were
-// folded into one would be comparing a file with itself.
+// against the targets: rendering both and comparing would compare one file with
+// itself and pass however the targets were wired.
 func TestBothPluginHostsGetTheSameRules(t *testing.T) {
 	assets := map[string][]string{}
 	for _, name := range []string{"opencode", "kilocode"} {
@@ -173,9 +174,8 @@ func TestBothPluginHostsGetTheSameRules(t *testing.T) {
 }
 
 // An empty directory in the list is a rule that refuses every absolute path.
-// Layout is built field by field and most callers fill only what they needed,
-// so this is reachable by writing installDirs(Layout{ConfigDir: x}) and nothing
-// else -- which is what one caller did.
+// Layout is built field by field and a caller filling only what it needs is the
+// ordinary way to reach one, so the partial layouts below are the cases.
 func TestInstallDirsAreNeverEmpty(t *testing.T) {
 	for _, layout := range []Layout{
 		{},

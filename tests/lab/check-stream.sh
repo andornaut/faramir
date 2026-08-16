@@ -149,6 +149,10 @@ head_ "5. the other shape: faramir redact -- command"
 # redactStream's second caller, which streams a child rather than a file.
 out=$(runuser -u op -- /usr/local/bin/faramir redact -- /bin/sh -c "echo A-\$0-B" "$SECRET" 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "the command form leaked: $out" || ok "the command form redacts"
+# The absence is only evidence where the value was there to redact: a command
+# that did not run prints an error and would pass the line above.
+grep -qF "$TOKEN" <<<"$out" && ok "  and the token is there, so the check had a subject" \
+  || bad "the command form printed no token: ${out:0:110}"
 runuser -u op -- /usr/local/bin/faramir redact -- /bin/sh -c 'exit 7' >/dev/null 2>&1
 [ $? -eq 7 ] && ok "and preserves the child's exit status" || bad "exit status through the command form"
 # The same straddle, produced by a child rather than read from a file.
@@ -157,6 +161,8 @@ import os,sys
 sys.stdout.write('.'*($CHUNK - 12) + os.environ['SECRET'] + '.'*200 + '\n')" 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "the command form leaks at the join" \
   || ok "and covers the join the same way"
+grep -qF "$TOKEN" <<<"$out" && ok "  with the value tokenised, so the join was reached" \
+  || bad "no token at the join, so the line above asserts nothing: ${out:0:110}"
 
 head_ "6. a producer that goes quiet mid-stream"
 # The case the inter-chunk deadline exists for: the connection is already open
@@ -242,6 +248,10 @@ s.close()
 " 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "an abandoned stream emitted the held-back value" \
   || ok "a stream dropped part way emits nothing it was holding"
+# A chunk that was answered at all, or the absence above is a round trip that
+# never happened.
+grep -q '^OUT:' <<<"$out" && ok "  and the chunk before it was answered" \
+  || bad "the broker answered no chunk, so the line above asserts nothing: ${out:0:110}"
 
 head_ "10. streams at the same time, and beside a brokered command"
 # Each connection has its own redactor; they must not see each other's state.

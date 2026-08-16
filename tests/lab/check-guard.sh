@@ -31,8 +31,11 @@ verdict() { # -> deny | rewrite | pass
 
 # --------------------------------------------------------------------------
 head_ "1. commands that would put a credential in the context are refused"
-# One per disclosure route the deny list names.  Each is a real thing an agent
-# would plausibly try while "just looking at the config".
+# A sample, not the surface: every pattern is decided case by case in
+# internal/guard's corpus test.  What only this can show is that the list
+# `init` rendered and installed, driven through the real binary as the agent's
+# own uid, decides the same way.  So the cases here are the ones that turn on
+# an interpolated path or on this host's own accounts and units.
 while IFS='|' read -r label cmd; do
   [ -z "$label" ] && continue
   got=$(verdict "$cmd")
@@ -40,68 +43,35 @@ while IFS='|' read -r label cmd; do
 done <<'CASES'
 read the age key|cat /etc/faramir/age.key
 page the age key|less /etc/faramir/age.key
-hexdump the age key|xxd /etc/faramir/age.key
-base64 the age key|base64 /etc/faramir/age.key
-strings the age key|strings /etc/faramir/age.key
-read it with python|python3 -c "print(open('/etc/faramir/age.key').read())"
 copy it somewhere else|cp /etc/faramir/age.key /tmp/k
 tar the whole config dir|tar cf /tmp/c.tar /etc/faramir
-rsync the config dir|rsync -a /etc/faramir/ /tmp/c/
-decrypt with sops|sops -d /etc/faramir/secrets/app.sops.yml
-decrypt with sops (long)|sops --decrypt /etc/faramir/secrets/app.sops.yml
-re-encrypt with sops|sops --encrypt /tmp/x.yml
-decrypt with age|age -d -i /etc/faramir/age.key /tmp/x
-mint and print a private key|age-keygen
-ansible-vault view|ansible-vault view group_vars/all/vault.yml
-1password read|op read op://vault/item/field
-pass show|pass show personal/router
-vault kv get|vault kv get secret/data/app
+decrypt a managed store|sops -d /etc/faramir/secrets/app.sops.yml
 dump the environment|printenv
-dump the environment (env)|env
-dump the environment (set)|set
-dump exported vars|declare -x
-read a process environ|cat /proc/self/environ
-read another process environ|cat /proc/1234/environ
 read the operator's sops key|cat ~/.config/sops/age/keys.txt
 read an ssh private key|cat ~/.ssh/id_ed25519
-read an rsa key|head -20 /home/op/.ssh/id_rsa
-read a .env file|cat .env
-read a production .env|cat .env.production
-read a secrets.yaml|head -5 config/secrets.yaml
-read a credentials file|cat ~/.aws/credentials
-read a pem|cat /etc/ssl/private/server.pem
-find private keys|find / -name id_ed25519 2>/dev/null
-find .env files|find . -name '*.env'
 delete the age key|rm /etc/faramir/age.key
-truncate the age key|truncate -s 0 /etc/faramir/age.key
-chmod the config dir|chmod -R 777 /etc/faramir
 redirect over the age key|echo x > /etc/faramir/age.key
 overwrite the binary|cp /tmp/evil /usr/local/bin/faramir
 rewrite the deny list|sed -i /d/ /usr/local/libexec/faramir/deny-patterns.txt
 run the keeper as root|sudo faramir keeper
 run as the broker's uid|sudo -u faramir-broker id
 answer its own approval|sudo faramir approve abc123
-list what is waiting|sudo faramir approvals
-refuse its own approval|sudo faramir deny abc123
 refuse whatever is waiting|sudo faramir deny
 stop the broker|systemctl stop faramir-broker.socket
-mask the units|systemctl mask faramir-exec.service
 read the audit log|cat /var/log/faramir/audit.log
 delete the opencode plugin|rm .opencode/plugins/faramir.js
 edit the pi extension|sed -i s/x/y/ .pi/extensions/faramir.ts
-overwrite the kilo plugin|echo x > .kilo/plugin/faramir.js
 CASES
 
 # --------------------------------------------------------------------------
 head_ "2. ordinary work is rewritten, not refused"
 # The complement, and the more important half: a deny list that refuses real
-# work gets turned off.  Each of these is a command an agent runs constantly,
-# several of them deliberately near a rule's edge.
+# work gets turned off.  A sample again, chosen the same way.
 #
-# The last four are the agent config files an enrolment MERGES into, which carry
-# the operator's own settings and other tools' servers beside faramir's entries.
-# Editing them is ordinary work; only the plugin and extension files faramir
-# writes in full are refused, and those are in the block above.
+# The last three are the agent config files an enrolment MERGES into, which
+# carry the operator's own settings and other tools' servers beside faramir's
+# entries.  Editing them is ordinary work; only the plugin and extension files
+# faramir writes in full are refused, and those are in the block above.
 #
 # No comments inside the heredoc: a #-line there is read as a case, the loop
 # skipping an empty label rather than a comment.
@@ -111,25 +81,15 @@ while IFS='|' read -r label cmd; do
   [ "$got" = rewrite ] && ok "allowed: $label" || bad "$label -> $got (wanted rewrite): $cmd"
 done <<'CASES'
 list files|ls -la
-read a source file|cat internal/server/server.go
 grep the tree|grep -rn TODO .
-grep for a secret name|grep -rn ROUTER_PW .
 run the tests|go test ./...
-git status|git status
 env as a prefix, not a dump|env FOO=bar ./run.sh
-env piped into a filter|env | grep -c PATH
-a file whose name ends in .env|cat faramir.env.example
-keygen to a file, not to stdout|age-keygen -o /tmp/new.key
-sed editing a source file|sed -i s/a/b/ README.md
 restart a faramir unit|systemctl restart faramir-keeper.socket
-check a faramir unit|systemctl status faramir-broker.service
-the sanctioned CLI|faramir list-secrets
 the sanctioned CLI under sudo|sudo faramir doctor
 a brokered command|faramir run --env P=secret://db/password -- ./deploy.sh
 answering an approval unprivileged|faramir approve abc123
 edit claude's settings|sed -i s/a/b/ .claude/settings.json
 replace the MCP list|rm .mcp.json
-back up the kilo config|cp kilo.json kilo.json.bak
 edit the opencode config|sed -i s/a/b/ opencode.json
 CASES
 

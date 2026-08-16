@@ -12,7 +12,9 @@ The fingerprints come from the keeper rather than a stat, the secrets being grou
 
 ## Why a PTY and not a pipe
 
-Programs behave differently when stdout is not a terminal: colour, progress meters and buffering all change. More to the point, **a process can write straight to `/dev/tty`**, which no stdout redirection sees and the controlling terminal does; `ssh` and `sudo` do it for password prompts. `internal/e2e` pins it: a secret written to `/dev/tty` comes back as a token.
+Programs behave differently when stdout is not a terminal: colour, progress meters and buffering all change. More to the point, **a process can write straight to `/dev/tty`**, which no stdout redirection sees; `ssh` and `sudo` do it for password prompts.
+
+The child gets a PTY for stdout and stderr and no controlling terminal, so `/dev/tty` cannot be opened at all and a prompt falls back to stderr, which the redactor is reading. `internal/execserver` pins the failed open; `internal/e2e` pins the fallback coming back as a token.
 
 The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the master, so redaction runs with no extra hop. Stdin is `/dev/null`, or any command reading it blocks until timeout holding a concurrency slot. Cost: stdout and stderr arrive merged.
 
@@ -21,6 +23,8 @@ The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the 
 Each stage assumes the previous one has run.
 
 **1. Strip ANSI escapes.** A colour code spliced into a value defeats matching while rendering identically (`hunte\x1b[32mr2-correct-horse`). The response carries the stripped text. An escape can split across two reads, so a bounded trailing partial sequence is held back.
+
+Escapes only. A zero-width separator spliced between the characters (`U+200B`, `U+200D`, `U+2060`, `U+00AD`) renders identically too and is not removed, so a value written that way is not matched. Stripping them would be stripping ordinary text, which soft hyphens and joiners are in the languages that use them; and it needs deliberate crafting, the same class as `| rev`.
 
 This stage has a second reader. CSI, OSC and the C0 controls go here, which is why an approval prompt and `faramir logs` are not full of them. What it leaves is a bare `\r` (only CRLF is normalised), `ESC` followed by a byte outside `@-Z` and `\-_`, and the C1 controls `U+0080` to `U+009F`, the patterns matching CSI as `ESC [` while `U+009B` is the single-character form of the same introducer. [internal/termsafe](../internal/termsafe/termsafe.go) renders all three before any reaches a terminal, so narrowing what is stripped here widens what termsafe has to catch.
 

@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"io"
 	"os"
 	"strings"
@@ -124,5 +123,4 @@ func TestPrintRecordRendersTerminalControlsInCallerText(t *testing.T) {
 	if strings.Contains(got, "\x1b[2J") {
 		t.Errorf("an escape from the record reached the terminal: %q", got)
 	}
-	_, _ = fmt.Fprint(io.Discard, got)
 }

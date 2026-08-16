@@ -131,8 +131,10 @@ func TestTreeConfigPassesOverATreeThatIsGone(t *testing.T) {
 	diagnoseTreeConfig(&report, DoctorOptions{ConfigDir: configDir})
 
 	got := findings(report, "tree config")
+	// Fatal, since the assertion below indexes it: a check that produced no
+	// finding would otherwise panic here rather than report.
 	if len(got) != 1 || got[0].Status != StatusOK {
-		t.Errorf("findings = %+v, want one OK", got)
+		t.Fatalf("findings = %+v, want one OK", got)
 	}
 	if strings.Contains(got[0].Detail, tree) {
 		t.Errorf("a tree that is gone was named here as well: %s", got[0].Detail)
