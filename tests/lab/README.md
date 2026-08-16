@@ -2,7 +2,9 @@
 
 Functional tests that drive a real `faramir` install: systemd units, three uids, a sops store, and an agent's account working in a project tree. `go test` covers the code; these cover what an operator gets after `faramir init`.
 
-The suites do not run in CI. They need Docker, a privileged container and the host's cgroup tree, so they are run by hand against a tree you are about to release. CI does lint them with shellcheck.
+CI runs them as a required job, on a push to any branch and on a pull request against main: `fetch`, `up`, `run` over every suite, then `down`. A GitHub runner supplies what they need, Docker with a privileged container and the host's cgroup tree. The Lint job beside it reads them with shellcheck.
+
+Run them by hand as well, against a tree you are about to release or while changing a suite, which is what the rest of this page is for.
 
 ## Prerequisites
 
