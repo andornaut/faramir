@@ -183,8 +183,9 @@ jobs:
   lab:
     name: Lab
     runs-on: ubuntu-latest
-    # Longer than the default in case a suite hangs rather than fails: the
-    # runner should report it rather than sit for six hours.
+    # A cap, not an extension: the default is six hours and this job runs in
+    # about five minutes. A suite that hangs rather than fails is reported
+    # within the half hour instead of holding a runner for the rest of the day.
     timeout-minutes: 30
     steps:
       - name: Checkout code
