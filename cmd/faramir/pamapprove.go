@@ -213,9 +213,9 @@ func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 // on a sudo that has already gone; and it must be short, because until it fires
 // sudo is blocked, the run holds its slot, and the host refuses every other
 // brokered command.  A constant chosen by hand satisfies the first by being
-// absurd about the second: this was two hours against a default question of two
-// minutes, so a broker that died without closing the socket held a sudo for the
-// rest of the afternoon.
+// absurd about the second: a value long enough to outlast every question the
+// broker might hold is the same value a broker that died without closing the
+// socket holds a sudo open for.
 //
 // So it is [sudo] timeout_sec's own ceiling plus a margin for the round trip.
 // The helper cannot read the config (PAM gives it no environment and its argv

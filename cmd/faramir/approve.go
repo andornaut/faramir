@@ -199,23 +199,11 @@ func waiting(socketPath, verb string) ([]approval.Question, int) {
 // vigil.  Non-zero on nothing waiting, so a script can tell the two apart.
 func listApprovals(socketPath string, asJSON bool) int {
 	questions, code := waiting(socketPath, "approved")
+	if asJSON {
+		return listAsJSON(questions, code)
+	}
 	if questions == nil {
 		return code
-	}
-	if asJSON {
-		body, err := json.MarshalIndent(questions, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
-			return 1
-		}
-		fmt.Println(string(body))
-		// Same status as the text form.  It said "non-zero on nothing waiting, so a
-		// script can tell the two apart" and then returned 0 either way, which is the
-		// one form a script would actually be reading.
-		if len(questions) == 0 {
-			return 1
-		}
-		return 0
 	}
 	for _, question := range questions {
 		printQuestion(question)
@@ -228,6 +216,32 @@ func listApprovals(socketPath string, asJSON bool) int {
 	return 0
 }
 
+// listAsJSON is the listing for a caller parsing stdout, carrying the same
+// status as the text form.
+//
+// Nothing waiting is an empty array rather than an empty stdout: a caller
+// reading this form gets a value whatever the answer, which is what `faramir
+// logs --json` does with a log holding no records.  The status is what says
+// which of the two it is, so the array does not have to.
+//
+// A broker that could not be reached prints nothing at all.  There is no
+// listing to report, and an empty array there would say the host is quiet.
+func listAsJSON(questions []approval.Question, code int) int {
+	if code == 69 {
+		return code
+	}
+	if questions == nil {
+		questions = []approval.Question{}
+	}
+	body, err := json.MarshalIndent(questions, "", "  ")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
+		return 1
+	}
+	fmt.Println(string(body))
+	return code
+}
+
 // watchApprovals is the shape an operator leaves running: it blocks until a
 // request arrives, shows it, and reads the answer from this terminal.
 //
@@ -238,12 +252,11 @@ func watchApprovals(socketPath string) int {
 	warnIfTypeable()
 	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, and "+
 		"anything else refuses. One command is asked about at a time. Ctrl-C to stop.")
-	// No set of ids already answered.  There was one, and it is gone with the
-	// queue: a question is removed from the broker the moment it is answered,
-	// refused or expired, and only one is ever outstanding, so a question cannot
-	// come back round to be shown twice.  What the set did instead was hold stale
-	// ids, which are three random bytes, so a later question could draw one and be
-	// skipped in silence, and swallow the case below.
+	// No set of ids already answered, and none is wanted.  The broker drops a
+	// question the moment it is answered, refused or expired, and only one is ever
+	// outstanding, so a question cannot come back round to be shown twice.  A set
+	// would be worse than unnecessary: an id is three random bytes, so a later
+	// question can draw one a stale entry still holds and be skipped in silence.
 	for {
 		questions, err := pending(socketPath, watchWait)
 		if err != nil {

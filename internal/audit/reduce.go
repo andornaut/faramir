@@ -41,12 +41,12 @@ func (l *Log) encode(payload map[string]any) []byte {
 		before, _ := payload["output"].(string)
 		for _, step := range reductions {
 			// Each field, not the record.  reduce() bounds how many entries a
-			// collection keeps, and applied to the payload itself that ceiling is a
-			// ceiling on the record's own fields: it deleted them in reverse key
-			// order until few enough were left, so `redactions` -- what says which
-			// credentials the command used -- went first, and what landed looked like
-			// an ordinary complete record.  The field set is the code's, not a
-			// caller's, and is never what is too large.
+			// collection keeps, so applied to the payload itself that ceiling would
+			// bound the record's own fields: it keeps the first entries in sorted key
+			// order, which drops `redactions` -- what says which credentials the
+			// command used -- and leaves a line that reads as an ordinary complete
+			// record.  The field set is the code's, not a caller's, and is never what
+			// is too large.
 			for key, value := range payload {
 				payload[key] = reduce(value, step[0], step[1])
 			}
@@ -158,38 +158,50 @@ func stubLine(payload map[string]any) []byte {
 // spends, so a ceiling counted any other way is a ceiling in the wrong unit --
 // two hundred arguments of a thousand '<' each are 200KB raw, under any
 // per-string limit worth having, and 1.2MB once encoded.
+//
+// Every collection it returns is a new one, and none of the ones it is given is
+// written through.  A record's fields are the caller's own live state -- the
+// approval server hands over the argv it holds for a run, and goes on rendering
+// that argv into the question, the refusal messages and every later record -- so
+// a reduction that clamped a string in place would cut the caller's copy of it
+// too.  Recording something must not change it.
 func reduce(value any, strLimit, items int) any {
 	switch typed := value.(type) {
 	case string:
 		return clamp(typed, strLimit)
 	case map[string]any:
+		out := make(map[string]any, len(typed))
 		for key, inner := range typed {
-			typed[key] = reduce(inner, strLimit, items)
+			out[key] = reduce(inner, strLimit, items)
 		}
-		return dropEntries(typed, items)
+		return dropEntries(out, items)
 	case map[string]string:
+		out := make(map[string]string, len(typed))
 		for key, inner := range typed {
-			typed[key] = clamp(inner, strLimit)
+			out[key] = clamp(inner, strLimit)
 		}
-		return dropEntries(typed, items)
+		return dropEntries(out, items)
 	case []string:
+		out := make([]string, len(typed))
 		for i, inner := range typed {
-			typed[i] = clamp(inner, strLimit)
+			out[i] = clamp(inner, strLimit)
 		}
-		if len(typed) > items {
-			return append(typed[:items:items], more(len(typed)-items))
+		if len(out) > items {
+			return append(out[:items:items], more(len(out)-items))
 		}
+		return out
 	case []any:
+		out := make([]any, len(typed))
 		for i, inner := range typed {
-			typed[i] = reduce(inner, strLimit, items)
+			out[i] = reduce(inner, strLimit, items)
 		}
-		if len(typed) > items {
-			return append(typed[:items:items], any(more(len(typed)-items)))
+		if len(out) > items {
+			return append(out[:items:items], any(more(len(out)-items)))
 		}
+		return out
 	default:
 		return reduceTyped(value, strLimit, items)
 	}
-	return value
 }
 
 // reduceTyped bounds a slice whose element type this package cannot name.
@@ -236,6 +248,9 @@ func more(n int) string { return fmt.Sprintf("… (%d more, cut to fit the recor
 // survive is the same on every run rather than whatever the map iterated to
 // first.  A map is generic over its value type, so this is written twice rather
 // than reached through reflection.
+//
+// It deletes in place, and is called only on a map reduce has just built, so
+// what it edits is nobody else's.
 func dropEntries[V any](entries map[string]V, items int) map[string]V {
 	if len(entries) <= items {
 		return entries

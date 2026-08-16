@@ -168,13 +168,13 @@ func (l *Log) roomForOutput(payload map[string]any) int {
 
 // open returns the log open for append, creating it 0600 if it is not there.
 //
-// Nothing is cached across calls.  A latch here made "can this be written?" a
-// question answered once, at startup, about a host that had not run anything
-// yet -- and every answer after that was about the past: a read-only remount, an
-// immutable bit, an owner changed by a hand-edited logrotate rule, none of them
-// seen, and Unwritable saying yes to all of them.  That is the state
-// refuseUnauditable exists to rule out, so it is asked again every time, for the
-// price of an open and a close.
+// Nothing is cached across calls.  A cached answer is a claim about the host as
+// it was when the answer was taken, and what makes the log unwritable happens
+// after that: a read-only remount, an immutable bit, an owner changed by a
+// hand-edited logrotate rule.  A latch would report none of them, and would have
+// Unwritable saying yes to all of them, which is the state refuseUnauditable
+// exists to rule out.  So it is asked again every time, for the price of an open
+// and a close.
 //
 // O_CREATE though the file usually exists: logrotate renames it away, and the
 // next record makes the new one rather than waiting for anything to notice.

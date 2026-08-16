@@ -553,6 +553,56 @@ func TestReducingARecordKeepsEveryFieldOfIt(t *testing.T) {
 	}
 }
 
+// Writing a record must not change what it is a record of.  The reductions cut
+// strings and drop entries, and the fields they cut are the caller's own live
+// state: internal/approval hands over the argv it holds for a run and keeps
+// rendering that argv into the question, the refusal messages and every later
+// record.  A reduction reaching back into it would truncate the command
+// everywhere it is named, on the strength of one record having been too long.
+func TestWritingARecordLeavesTheCallersFieldsAlone(t *testing.T) {
+	defer unstrict()()
+	argv := []string{"ansible-playbook", "--extra-vars", strings.Repeat("x", 8*1024)}
+	refs := map[string]string{"ROUTER_PW": "home/router/admin"}
+	peer := map[string]any{"uid": 1001.0, "pid": 42.0}
+	nested := []any{map[string]any{"deep": strings.Repeat("y", 8*1024)}}
+
+	path := filepath.Join(t.TempDir(), "audit.log")
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+		Write(map[string]any{
+			"log_id": "x", "op": "ask_approval", "cmd": argv,
+			"env_refs": refs, "peer": peer, "nested": nested,
+		}, Output{Text: strings.Repeat("z", 8*1024)})
+
+	// The record was reduced, or this asserts nothing.
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record map[string]any
+	if err := json.Unmarshal(data, &record); err != nil {
+		t.Fatal(err)
+	}
+	if reduced, _ := record["record_reduced"].(bool); !reduced {
+		t.Fatalf("this record was not reduced, so it says nothing about reduction: %s", data)
+	}
+
+	if len(argv) != 3 || len(argv[2]) != 8*1024 {
+		t.Errorf("the caller's argv was cut to %d args, the last %d bytes",
+			len(argv), len(argv[len(argv)-1]))
+	}
+	if len(refs) != 1 || refs["ROUTER_PW"] != "home/router/admin" {
+		t.Errorf("the caller's env_refs was rewritten: %v", refs)
+	}
+	if len(peer) != 2 || peer["uid"] != 1001.0 {
+		t.Errorf("the caller's peer was rewritten: %v", peer)
+	}
+	inner, _ := nested[0].(map[string]any)
+	deep, _ := inner["deep"].(string)
+	if len(inner) != 1 || len(deep) != 8*1024 {
+		t.Errorf("a nested map the caller owns was rewritten: %v", nested)
+	}
+}
+
 // The identity stub is the backstop for a record that cannot be made to fit.
 // With every caller-chosen field bounded (strings by encoded length, lists and
 // maps by entry count, whatever their element type) there is no record a caller

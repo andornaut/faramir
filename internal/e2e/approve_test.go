@@ -9,6 +9,7 @@ package e2e
 // waiting, refuse it, and release the sudo blocked on it.
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -110,6 +111,42 @@ func TestCLIDenyWithNothingWaitingSaysSo(t *testing.T) {
 	}
 	if !strings.Contains(result.stderr, "nothing is waiting") {
 		t.Errorf("stderr does not say nothing was waiting: %s", result.stderr)
+	}
+}
+
+// The machine-readable listing answers in JSON whether or not anything is
+// waiting, so a caller parsing stdout always has a value to parse.  The status
+// is what says which of the two it got, the array not having to.
+func TestCLIListAsJSONIsAnArrayEitherWay(t *testing.T) {
+	s, sock := approvalBroker(t)
+
+	empty := runCLI(t, sock, "approvals", "--json")
+	if empty.code != 1 {
+		t.Errorf("code = %d, want 1 with nothing waiting\nstderr: %s",
+			empty.code, empty.stderr)
+	}
+	var none []map[string]any
+	if err := json.Unmarshal([]byte(empty.stdout), &none); err != nil {
+		t.Fatalf("stdout is not JSON with nothing waiting: %q (%v)", empty.stdout, err)
+	}
+	if len(none) != 0 {
+		t.Errorf("nothing is waiting, but the listing holds %d: %s", len(none), empty.stdout)
+	}
+
+	raise(t, s, "ansible-playbook", "site.yml")
+	listed := runCLI(t, sock, "approvals", "--json")
+	if listed.code != 0 {
+		t.Fatalf("code = %d, want 0\nstderr: %s", listed.code, listed.stderr)
+	}
+	var questions []map[string]any
+	if err := json.Unmarshal([]byte(listed.stdout), &questions); err != nil {
+		t.Fatalf("stdout is not JSON: %q (%v)", listed.stdout, err)
+	}
+	if len(questions) != 1 {
+		t.Fatalf("the listing holds %d questions, want 1: %s", len(questions), listed.stdout)
+	}
+	if cmd, _ := questions[0]["cmd"].(string); cmd != "ansible-playbook site.yml" {
+		t.Errorf("the question does not name the command: %s", listed.stdout)
 	}
 }
 

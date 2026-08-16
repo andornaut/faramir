@@ -354,23 +354,6 @@ func parseLine(line []byte) (record map[string]any, lost bool) {
 	return record, false
 }
 
-// tailRecords is the last count records, parsed.
-//
-// The last count *lines* are kept as bytes and parsed at the end, so what this
-// holds is bounded by what was asked for rather than by how long the log is.
-// Parsing every record to throw all but twenty away is what made `faramir logs
-// -n 3` cost a gigabyte on a log an agent had grown; scanning bytes is cheap and
-// bounded, and the parse is what is not.
-//
-// A count of zero or less asks for nothing and gets nothing: treating it as "no
-// limit" would print the whole log to somebody who asked for none of it.  The
-// log is still opened, so a host with no log at all says so rather than
-// reporting the count the caller passed as an empty log.
-//
-// The ring grows to what the log holds rather than to what -n asked for, so
-// `-n 500000000` on a log of ten records costs ten records.  Sized up front it
-// was an allocation the caller named: a number the flag accepts, times a slice
-// header, before a single line had been read.
 // ringCapMax bounds what the ring is sized to up front.  --count is a number the
 // caller names and the flag accepts any int, so sizing to it costs a slice
 // header times that number before a single line has been read; the ring grows to
@@ -433,6 +416,17 @@ func parseLines(lines [][]byte) ([]map[string]any, int) {
 	return records, skipped
 }
 
+// tailRecords is the last count records, parsed.
+//
+// The last count *lines* are kept as bytes and parsed at the end, so what this
+// holds is bounded by what was asked for rather than by how long the log is.
+// Scanning bytes is cheap and bounded; parsing every record to throw all but
+// twenty away is what is not, and costs the whole log on one an agent has grown.
+//
+// A count of zero or less asks for nothing and gets nothing: treating it as "no
+// limit" would print the whole log to somebody who asked for none of it.  The
+// log is still opened, so a host with no log at all says so rather than
+// reporting the count the caller passed as an empty log.
 func tailRecords(path string, count int) ([]map[string]any, int, error) {
 	if count <= 0 {
 		fh, err := openAuditLog(path)
@@ -1002,9 +996,9 @@ func list(record map[string]any, key string) []string {
 }
 
 // pad is one column of the listing, widened to width.  A value that is already
-// that wide still gets a space: without one it runs into the column after it,
-// which is what an op name longer than its column did (`ask_approvalrefused`),
-// and a row whose columns have merged is a row that is read wrong.
+// that wide still gets a space: without one it runs into the column after it
+// (`ask_approval` overruns the op column, and the row reads
+// `ask_approvalrefused`), and a row whose columns have merged is read wrong.
 // Counted in runes, not bytes: a value carrying the ellipsis a cut record's
 // fields end with is three bytes and one column, and a column padded by its
 // byte count is one that does not line up with the row above it.
