@@ -71,7 +71,7 @@ Each suite prints one line per check and exits non-zero if any failed.
 | `check-approval.sh` | the `--allow-sudo` approval channel |
 | `check-logs.sh` | `faramir logs`, the operator's record |
 | `check-doctor.sh` | `faramir doctor` as a fault detector |
-| `check-secrets.sh` | the secret lifecycle: edit, rekey, and a store that will not open |
+| `check-secrets.sh` | the secret lifecycle: edit, rekey, the `.sops.yaml` shapes that seal a store to the wrong people, and a store that will not open |
 | `check-uninstall.sh` | `faramir uninstall`, and what it is right to leave behind |
 
 ## Writing a check

@@ -57,6 +57,28 @@ jobs:
         with:
           node-version-file: .nvmrc
 
+      # `faramir edit` and `faramir rekey` hand sops the install's creation rules
+      # rather than letting it search from the working directory, and the tests
+      # that hold that line assert how sops itself resolves and matches a rule.
+      # The stand-in built from the sops libraries models no creation rules, so
+      # those tests skip without the real binary, and what would go unrun is the
+      # guard against a .sops.yaml planted in the agent's tree writing managed
+      # values in cleartext. `make test` still needs no sops: this installs it
+      # for CI alone.
+      #
+      # The version and digest are read out of lab.sh rather than restated here,
+      # so a bump moves both at once: two copies with nothing tying them together
+      # is CI testing one binary while the lab tests another, and no run says so.
+      - name: Install sops
+        run: |
+          eval "$(grep -E '^SOPS_(VERSION|SHA256)=' tests/lab/lab.sh)"
+          test -n "${SOPS_VERSION}" && test -n "${SOPS_SHA256}"
+          curl -sSfLo /tmp/sops \
+            "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
+          echo "${SOPS_SHA256}  /tmp/sops" | sha256sum -c -
+          sudo install -m 0755 /tmp/sops /usr/local/bin/sops
+          sops --version --disable-version-check
+
       - name: Verify dependencies
         run: go mod verify
 

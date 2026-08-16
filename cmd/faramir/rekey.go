@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -26,12 +25,12 @@ import (
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeper"
+	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
 type rekeyFlags struct {
 	configPath string
 	ageKey     string
-	sopsConfig string
 	dryRun     bool
 	socket     string
 }
@@ -46,8 +45,6 @@ func newRekeyCmd() *cobra.Command {
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().StringVar(&f.ageKey, "age-key", "", "age key file (default: age.key beside the config)")
-	c.Flags().StringVar(&f.sopsConfig, "sops-config", "", "creation rule to read the recipients from "+
-		"(default: .sops.yaml beside the config)")
 	c.Flags().BoolVar(&f.dryRun, "dry-run", false, "report which files would be re-encrypted and write nothing")
 	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	return c
@@ -86,10 +83,14 @@ func runRekey(f rekeyFlags, args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir rekey: not reached: %s\n", reason)
 	}
 
-	rulePath := f.sopsConfig
-	if rulePath == "" {
-		rulePath = filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
-	}
+	// This install's own rules, and no flag naming another.  What this command is
+	// for is making the ciphertext agree with what <config-dir>/.sops.yaml says,
+	// so a run sealing the secrets directory to some other file's recipients
+	// produces the state it exists to remove: a host whose ciphertext and whose
+	// rule name different readers, with `doctor` and every file sops creates from
+	// then on still reading the rule.  --config moves the whole install, which is
+	// the honest way to act on another one.
+	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
 	wanted, err := ruleRecipients(rulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
@@ -118,6 +119,20 @@ func runRekey(f rekeyFlags, args []string) int {
 	for _, target := range targets {
 		was, err := recipientsOf(target)
 		if err != nil {
+			// Recorded like every other outcome of this loop.  A file this run could
+			// not read is one it did not reach, and a log that says nothing about it
+			// reads as a rekey that covered the whole secrets directory.
+			//
+			// Not on a dry run, which writes nothing at all: the log is a record of
+			// what a run did to this host, and a run that was asked to do nothing did
+			// nothing to it.
+			if !f.dryRun {
+				log.Write(map[string]any{
+					"op": "rekey", "log_id": audit.NewLogID(), "file": target,
+					"error": err.Error(),
+					"uid":   os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
+				}, audit.Output{})
+			}
 			fmt.Fprintf(os.Stderr, "faramir rekey: %s: %v\n", target, err)
 			failed++
 			continue
@@ -133,7 +148,7 @@ func runRekey(f rekeyFlags, args []string) int {
 			continue
 		}
 
-		err = reencrypt(target, keyPath, wanted)
+		err = reencrypt(keyPath, rulePath, wanted, target)
 		// One record per file, naming the recipients on both sides and never the
 		// values: who can read the secrets directory is exactly what an operator
 		// needs the log to be able to answer afterwards.
@@ -201,41 +216,40 @@ func rekeyTargets(managed, named []string) ([]string, error) {
 	return out, nil
 }
 
-// ruleAgeRecipient matches the age keys listed under a creation rule.  Read
-// with a regex for the reason recipientsOf is: the sops libraries are kept out
-// of this binary deliberately, and a YAML parser for one cleartext list would
-// undo that.
-var ruleAgeRecipient = regexp.MustCompile(`(age1[0-9a-z]+)`)
-
-// ruleCreationRule counts the rules in the file, because the regex above reads
-// the whole of it.
-var ruleCreationRule = regexp.MustCompile(`(?m)^\s*-\s+path_regex\s*:`)
-
 // ruleRecipients reads who .sops.yaml says a managed file should be encrypted
 // to.
 //
 // One creation rule only.  The shipped file has exactly one, matching any
 // *.sops.yml wherever it sits, so every managed file is governed by the same
-// list and reading the whole file is reading that list.  With two rules the
-// answer depends on which one a path matches, which is a path_regex question
-// this cannot answer, so it refuses rather than re-encrypting half the secrets
-// directory to the wrong set.
+// list.  With two rules the answer depends on which one a path matches, which is
+// a path_regex question this cannot answer, so it refuses rather than
+// re-encrypting half the secrets directory to the wrong set.
 func ruleRecipients(path string) ([]string, error) {
-	body, err := os.ReadFile(path)
+	rules, err := sopsrule.Load(path)
 	if err != nil {
 		return nil, fmt.Errorf("creation rule: %w", err)
 	}
-	if rules := len(ruleCreationRule.FindAll(body, -1)); rules > 1 {
+	if len(rules) > 1 {
 		return nil, fmt.Errorf("%s has %d creation rules, and which one governs a "+
 			"file depends on its path_regex: re-key those with 'sops updatekeys' "+
-			"per file, or name a single-rule file with --sops-config", path, rules)
+			"per file, which is the only thing that can answer it", path, len(rules))
 	}
-	var out []string
-	for _, match := range ruleAgeRecipient.FindAllSubmatch(body, -1) {
-		if recipient := string(match[1]); !slices.Contains(out, recipient) {
-			out = append(out, recipient)
+	for _, rule := range rules {
+		// A split data key is refused rather than flattened.  shamir_threshold means
+		// N of the key groups have to come together to open the file, and this
+		// re-encrypts to one list of recipients, which is one group holding every
+		// key: any one of them would then open what took N of them before.  That is
+		// the same mistake as widening the recipient list, made to a rule that was
+		// written to narrow it.
+		if rule.ShamirThreshold > 0 {
+			return nil, fmt.Errorf("%s sets shamir_threshold, so the data key is "+
+				"split across key groups and %d of them are needed together: "+
+				"re-encrypting here would seal it to one group holding every key, and "+
+				"any one of them would open it. Re-key with 'sops updatekeys' per file",
+				path, rule.ShamirThreshold)
 		}
 	}
+	out := sopsrule.Recipients(rules)
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%s names no age recipient, so there is nothing to "+
 			"re-encrypt to; faramir manages age-encrypted files only", path)
@@ -280,10 +294,11 @@ func sameRecipients(was, wanted []string) bool {
 //
 // The plaintext goes through a 0600 file in a tmpfs rather than through this
 // process's memory and back, because sops encrypts a file and takes its name:
-// the creation rule selects by path_regex, so the temporary copy has to keep
-// the target's own name to match the rule at all.
-func reencrypt(target, keyPath string, recipients []string) error {
-	decrypted, err := runSops(keyPath, "--decrypt", target)
+// the file's own name is what decides its format, so the copy keeps it.  Which
+// creation rule governs it is settled by --filename-override rather than by
+// where the copy sits; see sealTo.
+func reencrypt(keyPath, rulePath string, recipients []string, target string) error {
+	decrypted, err := runSops(keyPath, rulePath, "--decrypt", target)
 	if err != nil {
 		return fmt.Errorf("decrypt: %w", err)
 	}
@@ -299,10 +314,7 @@ func reencrypt(target, keyPath string, recipients []string) error {
 	if err := os.WriteFile(plain, decrypted, 0o600); err != nil {
 		return err
 	}
-	// The recipients are named on the command line rather than found by sops,
-	// which resolves .sops.yaml by walking up from the file being encrypted and
-	// would walk out of /dev/shm and match no rule at all.
-	sealed, err := runSops(keyPath, "--encrypt", "--age", strings.Join(recipients, ","), plain)
+	sealed, err := sealTo(keyPath, rulePath, target, recipients, plain)
 	if err != nil {
 		return fmt.Errorf("encrypt: %w", err)
 	}

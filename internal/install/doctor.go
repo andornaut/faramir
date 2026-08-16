@@ -2,7 +2,9 @@ package install
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"os/user"
@@ -14,6 +16,8 @@ import (
 
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/keeper"
+	"github.com/andornaut/faramir/internal/sopsrule"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -30,6 +34,17 @@ type DoctorOptions struct {
 	// SecretsGroup owns the managed sops files, defaulting to the keeper's own
 	// group as install leaves it.
 	SecretsGroup string
+
+	// SecretsPatterns is [secrets] patterns, for the rule coverage check.  Read
+	// from the config Diagnose already loads and set on the way past, so it is
+	// filled in for every caller rather than being a field each one has to
+	// remember to pass, and there is no second load free to disagree with the
+	// first.  A test may set it to reach the check without a config.
+	//
+	// Empty where the config did not load, and the check reports as unasked rather
+	// than as a pass: a rule reaching none of the files looks exactly like a rule
+	// reaching all of nothing.
+	SecretsPatterns []string
 
 	// BrokerVersion is what the running broker reported, empty when it did not
 	// answer.  Passed in rather than asked for here, the caller already having
@@ -207,6 +222,13 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 		report.addf("config", StatusFailed, "%s does not load: %v", configFile, err)
 		return report
 	}
+	// Taken from the config that just loaded rather than from the caller: the
+	// patterns are this install's, and a caller passing its own would be a second
+	// reading of the same file.  A test that set them keeps them, having no
+	// config to take them from.
+	if len(opts.SecretsPatterns) == 0 {
+		opts.SecretsPatterns = cfg.Secrets.Patterns
+	}
 
 	// Before every other check, which each name an account: a wrong name here
 	// would be repeated as a confident answer by all of them.
@@ -382,6 +404,7 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 			stale, stale, current)
 	case exists(current):
 		diagnoseSopsRecipients(report, opts, current)
+		diagnoseSopsRuleCoverage(report, opts, current)
 	default:
 		report.addf("sops config", StatusWarn, "no %s, so sops has no creation rule "+
 			"and refuses to encrypt a new file in the secrets directory", current)
@@ -408,6 +431,16 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 			"encrypts a new file in the secrets directory to nobody and refuses", path)
 		return
 	}
+	// What is written here has to be something sops will take, and the file is
+	// 0644.  `init` validates what --age-recipient names, but adding a recipient
+	// afterwards is editing this file by hand, and nothing on that path looks at
+	// what was typed: a private half pasted here is the key that opens the secrets
+	// directory, readable by every account on the host.  Asked before the keeper's
+	// own recipient, which is a question about a file that at least parses as
+	// recipients.
+	if !recipientsAreWellFormed(report, listed, path) {
+		return
+	}
 	// The key is 0400 and the keeper's, so this answers only under sudo, and is
 	// reported as unchecked rather than as a pass.
 	keyPath := filepath.Join(opts.ConfigDir, "age.key")
@@ -430,6 +463,134 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	}
 	report.addf("sops config", StatusOK, "%s, %d recipient(s) including %s's",
 		path, len(listed), opts.KeeperUser)
+}
+
+// recipientsAreWellFormed reports every entry sops would refuse, and whether
+// there were none.  Failed rather than a warning: sops encrypts nothing into
+// this directory while one is there, and the private-half case is a key
+// disclosed to the host rather than a key that opens nothing.
+func recipientsAreWellFormed(report *DoctorReport, listed []string, path string) bool {
+	ok := true
+	for _, recipient := range listed {
+		err := agekey.ValidateRecipient(recipient)
+		if err == nil {
+			continue
+		}
+		ok = false
+		// The message names what to do, including the rotation a private half
+		// needs, so it is carried rather than summarised.
+		report.addf("sops config", StatusFailed, "%s lists something sops will not "+
+			"take as a recipient: %v", path, err)
+	}
+	return ok
+}
+
+// diagnoseSopsRuleCoverage asks whether the creation rules reach every managed
+// file, which decides whether `faramir edit` and `faramir rekey` can write one
+// back at all: both hand sops this rule and match it against the file's real
+// path, and sops refuses a file no rule covers.
+//
+// Asked of sops rather than answered here.  Which files a rule governs is sops'
+// question -- it matches path_regex against the path taken relative to the rule
+// file, falling back to the absolute one -- and a second implementation of that
+// is free to disagree with the first, which would tell an operator their store
+// is covered right up until an edit fails on it.  So each file is put to sops as
+// an encryption of a throwaway document under its own name, and what sops says
+// is the answer.
+func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath string) {
+	if len(opts.SecretsPatterns) == 0 {
+		report.unaskedf("rule coverage", 1, "[secrets] patterns could not be read, so "+
+			"which files %s has to cover is unknown here", rulePath)
+		return
+	}
+	// Asked whatever was matched, not only when nothing was.  The secrets
+	// directory is 2750 and the group is the keeper's, and filepath.Glob reports a
+	// directory it cannot list as no matches and no error, so a caller who can
+	// read one pattern's directory and not another's gets a confident answer about
+	// half a store.  Reported and then carried on from: what did resolve is still
+	// worth checking, and the count says the rest was not.
+	unlistable := unlistableDirs(opts.SecretsPatterns)
+	if len(unlistable) > 0 {
+		report.unaskedf("rule coverage", 1, "the directories [secrets] patterns "+
+			"names cannot be listed by this account (%s), so any managed file under "+
+			"them went unchecked. Re-run as root",
+			strings.Join(unlistable, ", "))
+	}
+	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
+	if len(managed) == 0 {
+		if len(unlistable) > 0 {
+			// Nothing resolved and a door was closed, so the count above stands on its
+			// own: saying there is nothing to cover would report the closed door as an
+			// empty store.
+			return
+		}
+		report.addf("rule coverage", StatusNA, "no managed file matches [secrets] "+
+			"patterns yet, so there is nothing for %s to cover", rulePath)
+		return
+	}
+	sops, err := exec.LookPath("sops")
+	if err != nil {
+		report.unaskedf("rule coverage", 1, "sops is not on this PATH, and it is what "+
+			"decides which rule governs a file: %v", err)
+		return
+	}
+	// The rule's own recipients, named on the command line, so what is being asked
+	// is whether a rule matches rather than whether its keys work: a recipient
+	// sops will not take is the check above's to report.
+	recipients, err := sopsRecipients(rulePath)
+	if err != nil {
+		report.unaskedf("rule coverage", 1, "%s could not be read, so which files it "+
+			"covers went unchecked: %v", rulePath, err)
+		return
+	}
+	covered := 0
+	for _, target := range managed {
+		switch matched, err := sopsrule.Covers(sops, rulePath, recipients, target); {
+		case err != nil:
+			report.unaskedf("rule coverage", 1, "whether %s covers %s went unchecked: %v",
+				rulePath, target, err)
+		case matched:
+			covered++
+		default:
+			report.addf("rule coverage", StatusFailed, "%s has no creation rule "+
+				"matching %s, so `faramir edit` and `faramir rekey` cannot write it back: "+
+				"sops refuses a file no rule covers. Widen path_regex to reach it, or keep "+
+				"the store where the rule already looks", rulePath, target)
+		}
+	}
+	// Only where every one of them was asked about and answered yes.  With a
+	// directory closed to this caller the sentence would claim the whole store,
+	// and the files behind that door are the ones nobody looked at.
+	if covered == len(managed) && len(unlistable) == 0 {
+		report.addf("rule coverage", StatusOK, "%s covers all %d managed file(s)",
+			rulePath, covered)
+	}
+}
+
+// unlistableDirs names the directories behind these patterns that this account
+// cannot read, which is the difference between a store with no files in it and
+// a store this caller cannot see into.
+func unlistableDirs(patterns []string) []string {
+	var out []string
+	for _, pattern := range patterns {
+		dir := filepath.Dir(pattern)
+		handle, err := os.Open(dir)
+		if err != nil {
+			// Only a directory that is there and closed to this account.  One that is
+			// absent is a store not written yet, which is the case the caller reports
+			// as nothing to cover.
+			if os.IsPermission(err) && !slices.Contains(out, dir) {
+				out = append(out, dir)
+			}
+			continue
+		}
+		_, err = handle.Readdirnames(1)
+		_ = handle.Close()
+		if err != nil && !errors.Is(err, io.EOF) && !slices.Contains(out, dir) {
+			out = append(out, dir)
+		}
+	}
+	return out
 }
 
 // diagnoseLogRotation asks whether anything bounds the audit log.

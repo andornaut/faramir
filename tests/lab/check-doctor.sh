@@ -172,6 +172,33 @@ probe "the sops config removed" "sops config" warn \
   "mv /etc/faramir/.sops.yaml /tmp/sops.bak" \
   "mv /tmp/sops.bak /etc/faramir/.sops.yaml"
 
+# .sops.yaml is 0644 and the documented way to add a recipient is to edit it by
+# hand, so nothing between the operator and the file looks at what was typed.
+# An identity written where a recipient belongs is the key that opens the store,
+# readable by every account on this host.
+cp /etc/faramir/.sops.yaml /tmp/sops-baseline.yaml
+probe "an age identity pasted where a recipient belongs" "sops config" failed \
+  'printf "creation_rules:\n  - path_regex: .*\n    key_groups:\n      - age:\n          - AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ\n" > /etc/faramir/.sops.yaml' \
+  'cp /tmp/sops-baseline.yaml /etc/faramir/.sops.yaml'
+dt "sops config" | grep -qi 'world-readable\|will not take' \
+  && note "and the finding says what it costs" || true
+
+# A rule reaching none of the managed files leaves a store neither `faramir
+# edit` nor `faramir rekey` can write back, and nothing else on the host says
+# so: the values still decrypt and the broker still serves them, so the failure
+# waits until somebody edits one.
+probe "a rule that reaches no managed file" "rule coverage" failed \
+  'printf "creation_rules:\n  - path_regex: ^nowhere-near-the-store/.*\n    key_groups:\n      - age:\n          - %s\n" "$(age-keygen -y /etc/faramir/age.key)" > /etc/faramir/.sops.yaml' \
+  'cp /tmp/sops-baseline.yaml /etc/faramir/.sops.yaml'
+
+# The keeper named only in the bare `age:` beside a key group is not a reader:
+# sops seals to the groups alone, so every value written from then on is one the
+# broker cannot open.  Reported as the rule drifting off the keeper's key, which
+# is what it is.
+probe "the keeper named only in the shorthand sops ignores" "sops config" warn \
+  'printf "creation_rules:\n  - path_regex: .*\n    age: %s\n    key_groups:\n      - age:\n          - age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p\n" "$(age-keygen -y /etc/faramir/age.key)" > /etc/faramir/.sops.yaml' \
+  'cp /tmp/sops-baseline.yaml /etc/faramir/.sops.yaml'
+
 # The config is what every other check reads, so losing it has to be reported
 # as the config rather than as thirty unrelated faults.
 mv $CFG /tmp/config.bak

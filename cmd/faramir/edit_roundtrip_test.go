@@ -51,7 +51,7 @@ func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
 	}
 
 	editor := editorScript(t, `sed -i 's/the-original-value-long-enough/a-replacement-value-long-enough/' "$1"`)
-	changed, err := editManaged(store, keyPath, editor)
+	changed, err := editManaged(keyPath, "", editor, store)
 	if err != nil {
 		t.Fatalf("editManaged: %v", err)
 	}
@@ -75,7 +75,7 @@ func TestAnEditIsDecryptedEditedAndReEncrypted(t *testing.T) {
 	}
 
 	// And it decrypts to what the editor wrote.
-	plain, err := runSops(keyPath, "--decrypt", store)
+	plain, err := runSops(keyPath, "", "--decrypt", store)
 	if err != nil {
 		t.Fatalf("decrypting the result: %v", err)
 	}
@@ -94,7 +94,7 @@ func TestAnUnchangedEditRewritesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	changed, err := editManaged(store, keyPath, editorScript(t, "true"))
+	changed, err := editManaged(keyPath, "", editorScript(t, "true"), store)
 	if err != nil {
 		t.Fatalf("editManaged: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestAFailedEditorLeavesTheStoreAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := editManaged(store, keyPath, editorScript(t, "exit 1")); err == nil {
+	if _, err := editManaged(keyPath, "", editorScript(t, "exit 1"), store); err == nil {
 		t.Error("an editor that failed was reported as a successful edit")
 	}
 	after, err := os.ReadFile(store)
@@ -142,7 +142,7 @@ func TestTheReplacementKeepsTheOriginalMode(t *testing.T) {
 	}
 
 	editor := editorScript(t, `sed -i 's/the-original-value-long-enough/another-value-long-enough-here/' "$1"`)
-	if _, err := editManaged(store, keyPath, editor); err != nil {
+	if _, err := editManaged(keyPath, "", editor, store); err != nil {
 		t.Fatalf("editManaged: %v", err)
 	}
 	info, err := os.Stat(store)
@@ -163,7 +163,7 @@ func TestThePlaintextIsRemovedAndWasNotOnDisk(t *testing.T) {
 	recorded := filepath.Join(t.TempDir(), "where")
 	editor := editorScript(t, `printf '%s' "$1" > `+recorded+`
 sed -i 's/the-original-value-long-enough/yet-another-value-long-enough/' "$1"`)
-	if _, err := editManaged(store, keyPath, editor); err != nil {
+	if _, err := editManaged(keyPath, "", editor, store); err != nil {
 		t.Fatalf("editManaged: %v", err)
 	}
 	where, err := os.ReadFile(recorded)

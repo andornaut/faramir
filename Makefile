@@ -96,7 +96,9 @@ $(PLATFORMS):
 		go build -ldflags="$(LDFLAGS)" -trimpath -o "dist/faramir-$@" ./cmd/faramir
 
 ## test: the whole suite.  Needs no sops installed: the round trip runs
-## through a stand-in built from the sops libraries at test time.
+## through a stand-in built from the sops libraries at test time.  The tests
+## that assert how sops resolves a creation rule skip without the real binary,
+## the stand-in modelling none, so CI installs it pinned and they run there.
 test: test-unit test-e2e
 
 ## test-unit: everything except the end-to-end suite.  Derived rather than

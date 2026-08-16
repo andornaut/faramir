@@ -6,7 +6,7 @@
 // Usage, matching the two shapes faramir invokes:
 //
 //	stub [--output-type json] --decrypt <file>
-//	stub --encrypt --age <recipient>[,<recipient>...] <file>
+//	stub --encrypt --age <recipient>[,<recipient>...] [--filename-override <path>] <file>
 package main
 
 import (
@@ -43,8 +43,12 @@ func main() {
 				i++
 				recipients = os.Args[i]
 			}
-		case "-c", "--config":
-			i++ // consume the value
+		case "-c", "--config", "--filename-override":
+			// Consumed rather than read.  Both name where the creation rules come
+			// from and which name they are judged against, and this stand-in has no
+			// creation rules; what matters is that the value is not mistaken for the
+			// file to encrypt.
+			i++
 		case "--encrypt", "-e":
 			encrypting = true
 		case "--decrypt", "-d":

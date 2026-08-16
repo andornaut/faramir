@@ -44,31 +44,139 @@ func TestTheRuleRecipientsAreReadInOrder(t *testing.T) {
 }
 
 // Two rules mean the recipients depend on which path_regex a file matches, and
-// reading the whole file cannot answer that.  Refused rather than guessed: a
-// guess re-encrypts part of the secrets directory to a set that never governed
-// it.
+// this cannot answer that.  Refused rather than guessed: a guess re-encrypts
+// part of the secrets directory to a set that never governed it, which widens
+// who can read it.
+//
+// However the rules are written.  A rule is a list entry whose keys are in
+// whatever order somebody typed them and may be in flow style, so counting them
+// by looking for a leading path_regex reads most of these as one rule and merges
+// both lists of recipients into every managed file.
 func TestASecondCreationRuleIsRefused(t *testing.T) {
-	dir := t.TempDir()
-	body := `creation_rules:
+	const first = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
+	const second = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
+	for name, body := range map[string]string{
+		"path_regex first": `creation_rules:
   - path_regex: prod/.*\.sops\.ya?ml$
     key_groups:
       - age:
-          - age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn
+          - ` + first + `
   - path_regex: \.sops\.ya?ml$
     key_groups:
       - age:
-          - age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2
-`
-	path := filepath.Join(dir, ".sops.yaml")
+          - ` + second + `
+`,
+		"age first": `creation_rules:
+  - age: ` + first + `
+    path_regex: prod/.*\.sops\.ya?ml$
+  - age: ` + second + `
+    path_regex: \.sops\.ya?ml$
+`,
+		"key_groups first": `creation_rules:
+  - key_groups:
+      - age:
+          - ` + first + `
+    path_regex: prod/.*\.sops\.ya?ml$
+  - key_groups:
+      - age:
+          - ` + second + `
+    path_regex: \.sops\.ya?ml$
+`,
+		"flow style": `creation_rules: [{path_regex: "prod/.*", age: "` + first +
+			`"}, {path_regex: ".*", age: "` + second + `"}]
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), ".sops.yaml")
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := ruleRecipients(path)
+			if err == nil {
+				t.Fatalf("a file with two creation rules was accepted, merging %v", got)
+			}
+			if !strings.Contains(err.Error(), "updatekeys") {
+				t.Errorf("the error does not say what to do instead: %v", err)
+			}
+		})
+	}
+}
+
+// A rule that splits the data key across key groups is refused, not flattened:
+// re-encrypting to one list of recipients turns "N of these groups together"
+// into "any one of these keys", which undoes what the rule was written to do.
+func TestAShamirSplitIsRefused(t *testing.T) {
+	const first = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
+	const second = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
+	path := filepath.Join(t.TempDir(), ".sops.yaml")
+	body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n" +
+		"    shamir_threshold: 2\n" +
+		"    key_groups:\n      - age:\n          - " + first +
+		"\n      - age:\n          - " + second + "\n"
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	_, err := ruleRecipients(path)
+	got, err := ruleRecipients(path)
 	if err == nil {
-		t.Fatal("a file with two creation rules was accepted")
+		t.Fatalf("a split data key was flattened into %v", got)
 	}
 	if !strings.Contains(err.Error(), "updatekeys") {
 		t.Errorf("the error does not say what to do instead: %v", err)
+	}
+}
+
+// A rule carrying both spellings seals to its key groups and to nobody else,
+// which is what sops does with one: the `age` shorthand is read only where there
+// are no groups.  Reading both would re-encrypt the secrets directory to a key
+// the rule does not grant, and a hand-edited `age:` left behind after the
+// installer wrote key_groups is exactly how a file comes to carry both.
+func TestKeyGroupsWinOverTheAgeShorthand(t *testing.T) {
+	const shorthand = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
+	const grouped = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
+	path := filepath.Join(t.TempDir(), ".sops.yaml")
+	body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n" +
+		"    age: " + shorthand + "\n" +
+		"    key_groups:\n      - age:\n          - " + grouped + "\n"
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ruleRecipients(path)
+	if err != nil {
+		t.Fatalf("ruleRecipients: %v", err)
+	}
+	if len(got) != 1 || got[0] != grouped {
+		t.Errorf("ruleRecipients = %v, want just %s: sops seals to the key groups "+
+			"alone, so anything else here grants a reader the rule does not", got, grouped)
+	}
+}
+
+// The shorthand a hand-edited file often carries, rather than the key_groups
+// the installer writes: one recipient, several comma-separated, or a list.
+func TestTheAgeShorthandIsReadInEveryShape(t *testing.T) {
+	const first = "age1zvkyg2lc7fyx45ycem9wp2qzcvhhrn6pnhwzcpr0v0y5ea6lyzhs7wcxzn"
+	const second = "age1dn0q2089z2hrlvlmh7pu8ujn478lehkvw7esqysag0zwea7ffflsd9thv2"
+	for name, rule := range map[string]string{
+		"one":         "    age: " + first + "\n",
+		"two, commas": "    age: " + first + "," + second + "\n",
+		"a list":      "    age:\n      - " + first + "\n      - " + second + "\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), ".sops.yaml")
+			body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n" + rule
+			if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			got, err := ruleRecipients(path)
+			if err != nil {
+				t.Fatalf("ruleRecipients: %v", err)
+			}
+			if got[0] != first {
+				t.Errorf("ruleRecipients = %v, want it to start with %s", got, first)
+			}
+			if name != "one" && (len(got) != 2 || got[1] != second) {
+				t.Errorf("ruleRecipients = %v, want both recipients", got)
+			}
+		})
 	}
 }
 
@@ -126,7 +234,7 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := reencrypt(store, keyPath, []string{keeper, extra}); err != nil {
+	if err := reencrypt(keyPath, "", []string{keeper, extra}, store); err != nil {
 		t.Fatalf("reencrypt: %v", err)
 	}
 
@@ -137,7 +245,7 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 	if !sameRecipients(got, []string{keeper, extra}) {
 		t.Errorf("recipients after the rekey = %v, want both %s and %s", got, keeper, extra)
 	}
-	plain, err := runSops(keyPath, "--decrypt", store)
+	plain, err := runSops(keyPath, "", "--decrypt", store)
 	if err != nil {
 		t.Fatalf("decrypting the result: %v", err)
 	}
@@ -187,7 +295,7 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 	}
 
 	// And what the skip avoids: the same recipients still produce different bytes.
-	if err := reencrypt(store, keyPath, []string{keeper}); err != nil {
+	if err := reencrypt(keyPath, "", []string{keeper}, store); err != nil {
 		t.Fatalf("reencrypt: %v", err)
 	}
 	after, err := os.ReadFile(store)

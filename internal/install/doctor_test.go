@@ -59,13 +59,7 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 			var report DoctorReport
 			diagnoseSopsConfig(&report, DoctorOptions{ConfigDir: dir, KeeperUser: "faramir-keeper"})
 
-			if len(report.Findings) != 1 {
-				t.Fatalf("findings = %+v, want exactly one", report.Findings)
-			}
-			finding := report.Findings[0]
-			if finding.Name != "sops config" {
-				t.Errorf("check name = %q", finding.Name)
-			}
+			finding := onlyFinding(t, report, "sops config")
 			if finding.Status != tc.want {
 				t.Errorf("status = %q, want %q: %s", finding.Status, tc.want, finding.Detail)
 			}
@@ -99,6 +93,24 @@ func writeRule(t *testing.T, path string, recipients ...string) {
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// onlyFinding is the one finding under a check name.  Selected by name rather
+// than taken as the whole report, so a test about one check keeps passing when
+// a neighbouring check is added beside it.
+func onlyFinding(t *testing.T, report DoctorReport, name string) Finding {
+	t.Helper()
+	var found []Finding
+	for _, finding := range report.Findings {
+		if finding.Name == name {
+			found = append(found, finding)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("findings named %q = %+v, want exactly one; the whole report is %+v",
+			name, found, report.Findings)
+	}
+	return found[0]
 }
 
 // mintKey puts an age key where diagnoseSopsConfig looks and returns the
@@ -173,10 +185,7 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 			var report DoctorReport
 			diagnoseSopsConfig(&report, DoctorOptions{ConfigDir: dir, KeeperUser: "faramir-keeper"})
 
-			if len(report.Findings) != 1 {
-				t.Fatalf("findings = %+v, want exactly one", report.Findings)
-			}
-			finding := report.Findings[0]
+			finding := onlyFinding(t, report, "sops config")
 			if finding.Status != tc.want {
 				t.Errorf("status = %q, want %q: %s", finding.Status, tc.want, finding.Detail)
 			}

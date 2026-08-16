@@ -6,6 +6,12 @@
 # is recoverable by re-running something; re-encrypting to a recipient set that
 # leaves the keeper out is not, and neither is losing the key.  So the tests are
 # as much about what the tool REFUSES as about what it does.
+#
+# Sections 8 to 13 are the .sops.yaml a reader would not think to write: a rule
+# taken from a directory that is not this install's, and shapes sops reads
+# differently from how they look.  Each is a way the store ends up sealed to the
+# wrong people, or written in the clear, with every command reporting success --
+# which is why they are put to a real install rather than to a parser.
 set -u
 . "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
@@ -213,5 +219,189 @@ grep -q "$KEEPER" "$MANAGED" && ok "the keeper is still a recipient after editin
 reload_daemons || bad "the daemons did not come back"
 runuser -u op -- faramir list-secrets 2>&1 | grep -q "secret://new/ref" \
   && ok "and the broker still decrypts it" || bad "the file is no longer readable"
+
+# --------------------------------------------------------------------------
+# The shapes below are the ones a reader would not think to try: a .sops.yaml
+# written in a way an earlier version read differently from sops, and a rule
+# taken from somewhere that is not this install.  Each is a way the store gets
+# sealed to the wrong people, or written in the clear, with every command
+# reporting success.
+
+# rule writes .sops.yaml from the creation rules on stdin, so the cases below
+# differ only in the rule and not in the plumbing around them.
+rule() { { printf 'creation_rules:\n'; cat; } > /etc/faramir/.sops.yaml; }
+
+# editor installs a one-line editor that leaves a mark when it runs, so a test
+# can assert an edit was refused BEFORE anything was typed rather than after.
+editor() {
+  printf '#!/bin/bash\ntouch /tmp/editor-ran\n%s\n' "$1" > /usr/local/sbin/spy-editor
+  chmod 0755 /usr/local/sbin/spy-editor
+  rm -f /tmp/editor-ran
+}
+ran() { [ -e /tmp/editor-ran ]; }
+recipients() { grep -c 'recipient:' "$MANAGED"; }
+
+head_ "8. a .sops.yaml where the command was RUN does not govern the edit"
+# sops resolves creation rules by walking up from the working directory, and an
+# operator runs `sudo faramir edit` from wherever they are standing, which on
+# this host is an enrolled tree the agent writes.  A rule found there deciding
+# how the store is written is `unencrypted_regex` putting managed values on disk
+# in the clear.
+rule <<YAML
+  - path_regex: \.sops\.ya?ml\$
+    key_groups:
+      - age:
+          - $KEEPER
+          - $SECOND
+YAML
+PLANTED=$(mktemp -d)
+cat > "$PLANTED/.sops.yaml" <<YAML
+creation_rules:
+  - path_regex: .*
+    unencrypted_regex: '^(password|token|ref)\$'
+    key_groups:
+      - age:
+          - $SECOND
+YAML
+editor "sed -i 's/edited-again-under-a-changed-rule/planted-rule-must-not-expose-me/' \"\$1\""
+if (cd "$PLANTED" && faramir edit --editor /usr/local/sbin/spy-editor "$MANAGED") \
+    >/tmp/planted.log 2>&1; then
+  ok "the edit completed from a directory carrying a .sops.yaml of its own"
+else
+  bad "edit failed: $(tail -2 /tmp/planted.log)"
+fi
+if grep -q 'planted-rule-must-not-expose-me' "$MANAGED"; then
+  bad "PLAINTEXT ON DISK: a .sops.yaml in the working directory decided how the store was written"
+else
+  ok "the planted rule did not reach the encryption: the value is not in the file"
+fi
+rm -rf "$PLANTED"
+
+head_ "9. rekey keeps a recipient named only under a merged key group"
+# A key group may pull in others with `merge:`, and their keys seal the file
+# exactly like the ones written inline.  A reader that stops at the top level
+# re-encrypts the store without them, which takes a backup key's access away for
+# good: re-running does not give it back.
+rule <<YAML
+  - path_regex: \.sops\.ya?ml\$
+    key_groups:
+      - age:
+          - $KEEPER
+YAML
+faramir rekey >/tmp/narrow.log 2>&1 || bad "narrowing to the keeper alone failed: $(tail -2 /tmp/narrow.log)"
+[ "$(recipients)" -eq 1 ] && ok "narrowed to the keeper alone, so the merged rule has something to add" \
+  || note "the store already had $(recipients) recipients before the merge case"
+rule <<YAML
+  - path_regex: \.sops\.ya?ml\$
+    key_groups:
+      - age:
+          - $KEEPER
+        merge:
+          - age:
+              - $SECOND
+YAML
+faramir rekey >/tmp/merge.log 2>&1 && ok "rekey completed under a merged key group" \
+  || bad "rekey failed: $(tail -2 /tmp/merge.log)"
+grep -q "$SECOND" "$MANAGED" \
+  && ok "the recipient named only under merge: is in the file, so it can still read the store" \
+  || bad "UNRECOVERABLE: rekey dropped the merged recipient, and re-running does not restore its access"
+grep -q "$KEEPER" "$MANAGED" && ok "and so is the keeper's" || bad "the keeper was dropped"
+
+head_ "10. a bare age: beside key_groups is the one sops ignores"
+# sops reads a rule's `age` shorthand only where it has no key groups.  Reading
+# both names a reader the rule does not grant, and would let a check report the
+# keeper as still listed on a rule that seals the file without it.
+rule <<YAML
+  - path_regex: \.sops\.ya?ml\$
+    age: $SECOND
+    key_groups:
+      - age:
+          - $KEEPER
+YAML
+faramir rekey >/tmp/shorthand.log 2>&1 && ok "rekey completed" \
+  || bad "rekey failed: $(tail -2 /tmp/shorthand.log)"
+[ "$(recipients)" -eq 1 ] && ok "the file names one recipient, which is what sops would have sealed it to" \
+  || bad "the file names $(recipients) recipients, so the ignored shorthand was applied"
+grep -q "$SECOND" "$MANAGED" \
+  && bad "the store is readable by a key the rule does not actually grant" \
+  || ok "the key named only in the ignored shorthand is not a reader"
+reload_daemons || bad "the daemons did not come back"
+runuser -u op -- faramir list-secrets 2>&1 | grep -q "secret://new/ref" \
+  && ok "and the keeper still decrypts the store" || bad "the store is no longer readable"
+
+head_ "11. THE REFUSAL: two creation rules, whatever order the keys are in"
+# Which rule governs a file is a path_regex question this cannot answer, so it
+# refuses rather than sealing half the store to a set that never governed it.
+# Written with `age:` first, which is the spelling a reader anchored on
+# path_regex counts as one rule.
+rule <<YAML
+  - age: $KEEPER
+    path_regex: prod/.*\.sops\.ya?ml\$
+  - age: $KEEPER,$SECOND
+    path_regex: \.sops\.ya?ml\$
+YAML
+before=$(sum)
+if faramir rekey >/tmp/tworule.log 2>&1; then
+  bad "a two-rule .sops.yaml was accepted, so the store can be sealed to a set no rule names"
+else
+  ok "refused: $(grep -oE 'creation rules|updatekeys' /tmp/tworule.log | head -1)"
+fi
+[ "$(sum)" = "$before" ] && ok "and the file is byte-identical" || bad "the refused rekey wrote to the file"
+
+head_ "12. THE REFUSAL: a rule that splits the data key"
+# shamir_threshold means N key groups have to come together to open a file.
+# Re-encrypting to one flat list of recipients turns that into any one of them,
+# which is the protection removed by the command meant to preserve it.
+rule <<YAML
+  - path_regex: \.sops\.ya?ml\$
+    shamir_threshold: 2
+    key_groups:
+      - age:
+          - $KEEPER
+      - age:
+          - $SECOND
+YAML
+before=$(sum)
+if faramir rekey >/tmp/shamir.log 2>&1; then
+  bad "rekey flattened a split data key, so any single key now opens what took two"
+else
+  ok "rekey refused: $(grep -oE 'shamir_threshold' /tmp/shamir.log | head -1)"
+fi
+editor "sed -i 's/edited/edited/' \"\$1\""
+if faramir edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/shamir-edit.log 2>&1; then
+  bad "edit wrote a split-key store back as one group, which removes the split silently"
+else
+  ok "edit refused it too: $(grep -oE 'shamir_threshold' /tmp/shamir-edit.log | head -1)"
+fi
+ran && bad "the editor ran before the refusal" || ok "and the editor never ran"
+[ "$(sum)" = "$before" ] && ok "the store is byte-identical after both refusals" \
+  || bad "a refused command still wrote to the file"
+
+head_ "13. an edit no rule covers is refused before the editor opens"
+# sops refuses a file no creation rule matches, and it refuses it at the encrypt,
+# which is after the editor has exited.  Learning then costs the operator
+# everything they typed, so the question is put while there is nothing to lose.
+rule <<YAML
+  - path_regex: ^nowhere-near-the-store/.*\.sops\.yml\$
+    key_groups:
+      - age:
+          - $KEEPER
+YAML
+before=$(sum)
+editor "sed -i 's/edited/rewritten/' \"\$1\""
+if faramir edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/uncovered.log 2>&1; then
+  bad "an edit went ahead under a rule that cannot write the file back"
+else
+  ok "refused: $(grep -oE 'no creation rule matching' /tmp/uncovered.log | head -1)"
+fi
+ran && bad "the editor ran first, so what was typed was discarded at the encrypt" \
+  || ok "and the editor never ran, so nothing was typed and thrown away"
+[ "$(sum)" = "$before" ] && ok "the store is untouched" || bad "the refused edit wrote to the file"
+# What doctor says about the same host, which is where an operator would meet
+# this before an edit does.
+faramir doctor --agent-user op --json >/tmp/doc-cover.json 2>/dev/null
+cover=$(jq -r '[.findings[]|select(.check=="rule coverage")|.status]|join(",")' /tmp/doc-cover.json)
+[ "$cover" = failed ] && ok "doctor reports it under rule coverage before anybody edits" \
+  || bad "doctor says rule coverage is [$cover] for a rule that reaches no managed file"
 
 summary
