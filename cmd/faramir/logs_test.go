@@ -38,7 +38,7 @@ func TestTailRecordsSurvivesARecordNoCeilingWouldFit(t *testing.T) {
 	if skipped != 0 {
 		t.Errorf("skipped %d lines, want 0: every line here parses", skipped)
 	}
-	var ids []string
+	ids := make([]string, 0, len(records))
 	for _, record := range records {
 		ids = append(ids, str(record, "log_id"))
 	}
@@ -51,7 +51,7 @@ func TestTailRecordsSurvivesARecordNoCeilingWouldFit(t *testing.T) {
 // are kept as bytes and parsed at the end, so a listing does not cost the size
 // of the log.
 func TestTailRecordsParsesOnlyWhatItWillShow(t *testing.T) {
-	var lines []string
+	lines := make([]string, 0, 50)
 	for i := range 50 {
 		lines = append(lines, fmt.Sprintf(`{"log_id":"id-%02d","op":"exec"}`, i))
 	}
@@ -67,7 +67,7 @@ func TestTailRecordsParsesOnlyWhatItWillShow(t *testing.T) {
 	if skipped != 0 {
 		t.Errorf("skipped = %d: a line outside the tail was parsed", skipped)
 	}
-	var ids []string
+	ids := make([]string, 0, len(records))
 	for _, record := range records {
 		ids = append(ids, str(record, "log_id"))
 	}
@@ -376,11 +376,92 @@ func TestFollowerNoticesTheLogEmptiedInPlace(t *testing.T) {
 	}
 }
 
+// A watcher started before the first brokered command has no file to read: the
+// broker creates the log by writing its first record.  Waiting for it is the
+// whole of --watch on a fresh host, so a follower opens detached rather than
+// failing, reads nothing while it is, and attaches when the log appears.
+func TestFollowerWaitsForALogThatIsNotThereYet(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	f, err := openFollower(path)
+	if err != nil {
+		t.Fatalf("openFollower on a path with no log = %v, want a detached follower", err)
+	}
+	defer f.close()
+	if f.following() {
+		t.Error("a follower with no file at its path reports it is following one")
+	}
+	if ids := drained(t, f); ids != nil {
+		t.Errorf("a detached follower yielded %v", ids)
+	}
+	rotated, err := f.rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rotated {
+		t.Error("a path that still has no file read as a rotation")
+	}
+
+	appendLog(t, path, `{"log_id":"first","op":"exec"}`)
+	rotated, err = f.rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rotated {
+		t.Fatal("the log appearing was not noticed, so nothing would ever attach to it")
+	}
+	if err := f.reopen(); err != nil {
+		t.Fatal(err)
+	}
+	if ids := drained(t, f); !slices.Equal(ids, []string{"first"}) {
+		t.Errorf("the first record read as %v, want it whole once the log existed", ids)
+	}
+}
+
+// The file can go between the stat that reports a rotation and the open that
+// follows it: a second logrotate pass, or a hand removing it.  That leaves the
+// follower detached rather than holding a closed reader, so the watcher waits
+// out the gap instead of failing on every pass after it.
+func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
+	path := writeLog(t, `{"log_id":"a","op":"exec"}`)
+	f, err := openFollower(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.close()
+	drained(t, f)
+
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.reopen(); !os.IsNotExist(err) {
+		t.Fatalf("reopen with no file at the path = %v, want a not-exist error", err)
+	}
+	if ids := drained(t, f); ids != nil {
+		t.Errorf("a pass after the failed reopen yielded %v", ids)
+	}
+
+	appendLog(t, path, `{"log_id":"b","op":"exec"}`)
+	rotated, err := f.rotated()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !rotated {
+		t.Fatal("the log coming back was not noticed")
+	}
+	if err := f.reopen(); err != nil {
+		t.Fatal(err)
+	}
+	if ids := drained(t, f); !slices.Equal(ids, []string{"b"}) {
+		t.Errorf("after the log came back the watcher read %v, want it to carry on", ids)
+	}
+}
+
 // A log-id names one record that is already written, so there is nothing to
-// wait for.  Refused before the root check, so an operator who typed both is
-// told which is wrong rather than told to use sudo and then told this.
+// wait for.  Refused before the root check and before the config is read, so an
+// operator who typed both is told which is wrong rather than told to use sudo
+// and then told this.
 func TestLogsRefusesAWatchWithALogID(t *testing.T) {
-	f := logsFlags{when: "never", watch: true, count: 20, logPath: writeLog(t, `{"log_id":"a"}`)}
+	f := logsFlags{when: "never", watch: true, count: 20}
 	if code := runLogs(f, []string{"a"}); code != 2 {
 		t.Errorf("faramir logs --watch a91f000002 = %d, want 2 (usage)", code)
 	}
@@ -434,8 +515,15 @@ func rec(t *testing.T, line string) map[string]any {
 }
 
 // plain is colour off, so the assertions are about content rather than escapes.
-func plain(t *testing.T) palette  { return mustPalette(t, "never") }
-func always(t *testing.T) palette { return mustPalette(t, "always") }
+func plain(t *testing.T) palette {
+	t.Helper()
+	return mustPalette(t, "never")
+}
+
+func always(t *testing.T) palette {
+	t.Helper()
+	return mustPalette(t, "always")
+}
 
 func mustPalette(t *testing.T, when string) palette {
 	t.Helper()
@@ -693,7 +781,7 @@ func TestTailRecordsDoesNotAllocateWhatWasAskedFor(t *testing.T) {
 	}
 
 	// And the bound does not cost the caller records: the ring grows past it.
-	var lines []string
+	lines := make([]string, 0, ringCapMax+5)
 	for i := range ringCapMax + 5 {
 		lines = append(lines, fmt.Sprintf(`{"log_id":"id-%04d","op":"exec"}`, i))
 	}

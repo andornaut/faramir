@@ -35,11 +35,15 @@ func renderRecord(t *testing.T, line string, paint palette) string {
 }
 
 // The detail view is every field a record can carry, in one rendering: the
-// labelled rows, the two list fields, the redaction counts and the output.
+// labelled rows, the two list fields, the refs object, the redaction counts and
+// the output.  Every field is spelled the way the writer spells it, env_refs
+// included -- internal/server records NAME -> ref, not a list of refs.
 const detailFixture = `{"log_id":"2026-08-08T20:15:03Z-a91f000007","op":"exec",` +
 	`"peer":{"uid":0,"pid":4242},"cmd":["ansible-playbook","site.yml"],` +
+	`"argv0_path":"/usr/bin/ansible-playbook",` +
 	`"cwd":"/srv/project","exit_code":0,"duration_sec":1.5,` +
-	`"env_refs":["db/password","api/token"],"from":["age1aaa"],"to":["age1bbb"],` +
+	`"env_refs":{"PW":"db/password","TOKEN":"api/token"},` +
+	`"from":["age1aaa"],"to":["age1bbb"],"record_reduced":true,` +
 	`"redactions":[{"token":"FARAMIR_REDACTED_1","count":3},` +
 	`{"token":"FARAMIR_REDACTED_2","count":1}],` +
 	`"output":"ok: [host.example.com]\nchanged=0\n","output_truncated":true}`
@@ -48,9 +52,11 @@ func TestPrintRecordRendersEveryField(t *testing.T) {
 	got := renderRecord(t, detailFixture, plain(t))
 	for _, want := range []string{
 		"id         2026-08-08T20:15:03Z-a91f000007",
+		"reduced    fields were cut to fit [audit] max_record_bytes",
 		"caller     root (uid 0), pid 4242",
 		"cwd        /srv/project",
-		"refs       db/password, api/token",
+		"program    /usr/bin/ansible-playbook",
+		"refs       PW=db/password, TOKEN=api/token",
 		"from       age1aaa",
 		"to         age1bbb",
 		"redacted   FARAMIR_REDACTED_1×3, FARAMIR_REDACTED_2×1",
@@ -65,12 +71,27 @@ func TestPrintRecordRendersEveryField(t *testing.T) {
 	}
 }
 
+// The refs row is the one field whose shape a reader can get wrong silently: a
+// list where the record holds an object prints nothing at all, and a record
+// with no refs prints nothing either, so the view looks the same both ways.
+func TestRefsRowReadsTheShapeTheBrokerWrites(t *testing.T) {
+	got := renderRecord(t, `{"log_id":"x","op":"exec",`+
+		`"env_refs":{"TOKEN":"api/token","PW":"db/password"}}`, plain(t))
+	// Sorted by variable name rather than by whatever the map iterated to first.
+	if !strings.Contains(got, "refs       PW=db/password, TOKEN=api/token") {
+		t.Errorf("the refs row is not the record's pairs in order:\n%s", got)
+	}
+}
+
 // A field the record does not have prints no row at all: a labelled row with
 // nothing after it reads as a value that is empty rather than one that is
 // absent.
 func TestPrintRecordOmitsAbsentFields(t *testing.T) {
 	got := renderRecord(t, `{"log_id":"x","op":"redact","input_bytes":2048}`, plain(t))
-	for _, absent := range []string{"caller", "cwd", "refs", "from", "to", "redacted", "output"} {
+	for _, absent := range []string{
+		"caller", "cwd", "program", "reason", "reduced",
+		"refs", "from", "to", "redacted", "output",
+	} {
 		if strings.Contains(got, absent) {
 			t.Errorf("a row was printed for the absent %q field:\n%s", absent, got)
 		}

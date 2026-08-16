@@ -21,6 +21,21 @@ PROJECT=/home/op/project
 run()  { runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -C "$PROJECT" "$@" 2>&1; }
 logs() { /usr/local/bin/faramir logs --color never "$@" 2>&1; }
 
+# configFor writes a config naming a log of this suite's own making, and prints
+# its path.  `faramir logs` reads the log the config names and takes no path of
+# its own, so this is how a case is given a log to read: a synthetic one, a
+# damaged one, or none at all.
+configFor() {
+  local log=$1 cfg=/tmp/logcfg-$2.toml
+  sed 's#^log_path = .*#log_path = "'"$log"'"#' /etc/faramir/config.toml > "$cfg"
+  printf '%s' "$cfg"
+}
+# logsAt is logs() against that config.
+logsAt() {
+  local cfg=$1; shift
+  /usr/local/bin/faramir logs --color never --config "$cfg" "$@" 2>&1
+}
+
 # lastID is the id of the record written most recently.
 lastID() { tail -1 "$LOG" | jq -r .log_id; }
 # shortOf is the tail an operator pastes back from the listing.
@@ -46,13 +61,14 @@ grep -q "$SECRET" <<<"$out" && bad "the refusal carried a value" || ok "and it p
 # The check is on the command, not on the file: a log the caller could read is
 # still refused, so a copy left somewhere permissive does not become a way in.
 cp "$LOG" /tmp/pub.log && chmod 0644 /tmp/pub.log
-out=$(runuser -u op -- /usr/local/bin/faramir logs --path /tmp/pub.log 2>&1); code=$?
+PUBCFG=$(configFor /tmp/pub.log pub); chmod 0644 "$PUBCFG"
+out=$(runuser -u op -- /usr/local/bin/faramir logs --config "$PUBCFG" 2>&1); code=$?
 if [ $code -eq 1 ] && grep -q "must run as root" <<<"$out"; then
   ok "and refused even for a log that uid can read"
 else
   bad "op read /tmp/pub.log: exit $code [$(head -c 120 <<<"$out")]"
 fi
-rm -f /tmp/pub.log
+rm -f /tmp/pub.log "$PUBCFG"
 
 mode=$(stat -c '%a %U:%G' "$LOG")
 [ "$mode" = "600 faramir-broker:faramir-broker" ] && ok "the log is $mode" \
@@ -225,12 +241,13 @@ grep -q 'asks for no records' <<<"$(logs -n -5)" && ok "-n -5 says the same" \
   || bad "-n -5: [$(logs -n -5)]"
 # And an empty log still says that, so the two remain distinguishable.
 : > /tmp/none.log
-grep -q 'holds no records' <<<"$(logs --path /tmp/none.log)" \
+NONECFG=$(configFor /tmp/none.log none)
+grep -q 'holds no records' <<<"$(logsAt "$NONECFG")" \
   && ok "while an actually empty log still reads as empty" \
-  || bad "an empty log: [$(logs --path /tmp/none.log)]"
-grep -q 'asks for no records' <<<"$(logs --path /tmp/none.log -n 0)" \
+  || bad "an empty log: [$(logsAt "$NONECFG")]"
+grep -q 'asks for no records' <<<"$(logsAt "$NONECFG" -n 0)" \
   && ok "and -n 0 on an empty log answers the question that was asked" \
-  || bad "-n 0 on an empty log: [$(logs --path /tmp/none.log -n 0)]"
+  || bad "-n 0 on an empty log: [$(logsAt "$NONECFG" -n 0)]"
 
 # A count the flag accepts must not be a size the caller can allocate: the ring
 # grows to what the log holds, so this costs the log, not the number.
@@ -257,7 +274,8 @@ with open(sys.argv[1], "w") as fh:
             "cmd": ["/bin/echo", "record-%d" % i], "exit_code": 0, "duration_sec": 0.01,
             "output": "record-%d\n" % i}) + "\n")
 PY
-bigrows() { logs --path "$BIG" -n "$1" | grep -cE '^[0-9a-f]{10} '; }
+BIGCFG=$(configFor "$BIG" big)
+bigrows() { logsAt "$BIGCFG" -n "$1" | grep -cE '^[0-9a-f]{10} '; }
 
 # 1024 is where the ring stops being sized to the count and starts growing.
 for n in 1 1023 1024 1025 1030; do
@@ -267,20 +285,20 @@ done
 [ "$(bigrows 2000)" -eq 1030 ] && ok "-n 2000 prints the 1030 there are" || bad "-n 2000 printed $(bigrows 2000)"
 
 # The last N are the last N, not the first N.
-tailrow=$(logs --path "$BIG" -n 1 | grep -E '^[0-9a-f]{10} ')
+tailrow=$(logsAt "$BIGCFG" -n 1 | grep -E '^[0-9a-f]{10} ')
 grep -q 'record-1030' <<<"$tailrow" && ok "and -n 1 is the newest record, not the oldest" \
   || bad "-n 1 gave [$tailrow]"
 
 # Looking up the first record must not cost more than looking up the last.
-t0=$(date +%s%N); logs --path "$BIG" bbbb000001 >/dev/null; t1=$(date +%s%N)
-logs --path "$BIG" bbbb000406 >/dev/null; t2=$(date +%s%N)
+t0=$(date +%s%N); logsAt "$BIGCFG" bbbb000001 >/dev/null; t1=$(date +%s%N)
+logsAt "$BIGCFG" bbbb000406 >/dev/null; t2=$(date +%s%N)
 [ $(( (t1-t0)/1000000 )) -lt 3000 ] && [ $(( (t2-t1)/1000000 )) -lt 3000 ] \
   && ok "lookup costs the same at either end ($(( (t1-t0)/1000000 ))ms, $(( (t2-t1)/1000000 ))ms)" \
   || bad "lookup: $(( (t1-t0)/1000000 ))ms then $(( (t2-t1)/1000000 ))ms"
 
 # bbbb000196 is record 406: the ids are hex, so a decimal reading of one is a
 # different record, which is exactly the mistake a lookup must not make.
-out=$(logs --path "$BIG" bbbb000196)
+out=$(logsAt "$BIGCFG" bbbb000196)
 grep -q 'record-406 *$' <<<"$out" && ok "and a lookup returns the record asked for" \
   || bad "bbbb000196 gave [$(head -2 <<<"$out")]"
 
@@ -301,7 +319,8 @@ DMG=/tmp/damaged.log
   printf '{"log_id":"no-newline-yet","op":"exec"'
 } > "$DMG"
 
-out=$(logs --path "$DMG"); code=$?
+DMGCFG=$(configFor "$DMG" dmg)
+out=$(logsAt "$DMGCFG"); code=$?
 [ $code -eq 0 ] && ok "a damaged log still lists, exit 0" || bad "exit $code on a damaged log"
 grep -q '/bin/one' <<<"$out" && grep -q '/bin/two' <<<"$out" \
   && ok "the records either side of the damage are shown" || bad "a good record was lost: [$out]"
@@ -318,20 +337,20 @@ grep -q 'no-newline-yet' <<<"$out" && bad "the half-written last line was shown"
 # The warning is the operator's, and must not be mistaken for a record.  The
 # binary directly, not logs(): that helper merges the two streams, which is the
 # thing under test here.
-warn=$(/usr/local/bin/faramir logs --color never --path "$DMG" 2>&1 >/dev/null)
+warn=$(/usr/local/bin/faramir logs --color never --config "$DMGCFG" 2>&1 >/dev/null)
 grep -q 'do not parse' <<<"$warn" && ok "the warning goes to stderr, clear of the listing" \
   || bad "nothing on stderr: [$warn]"
-body=$(/usr/local/bin/faramir logs --color never --path "$DMG" 2>/dev/null)
+body=$(/usr/local/bin/faramir logs --color never --config "$DMGCFG" 2>/dev/null)
 grep -q 'do not parse' <<<"$body" && bad "the warning is mixed into the listing" \
   || ok "and stdout is records only, so a pipe into a parser stays clean"
 
-out=$(logs --path "$DMG" cccc000002); code=$?
+out=$(logsAt "$DMGCFG" cccc000002); code=$?
 [ $code -eq 0 ] && grep -q '/bin/two' <<<"$out" \
   && ok "and a lookup past the damage still finds its record" || bad "lookup: exit $code [$out]"
 
 # A record with nothing in it is a row, not a crash.
 echo '{}' > /tmp/bare.log
-out=$(logs --path /tmp/bare.log); code=$?
+out=$(logsAt "$(configFor /tmp/bare.log bare)"); code=$?
 [ $code -eq 0 ] && ok "an empty record prints as a row rather than failing" || bad "{} record: exit $code [$out]"
 
 # --------------------------------------------------------------------------
@@ -486,35 +505,40 @@ fi
 # --------------------------------------------------------------------------
 head_ "12. where it reads from"
 
-out=$(logs --path /var/log/faramir/nope.log); code=$?
+NOPECFG=$(configFor /var/log/faramir/nope.log nope)
+out=$(logsAt "$NOPECFG"); code=$?
 [ $code -eq 1 ] && grep -q 'Nothing has been brokered' <<<"$out" \
   && ok "an absent log says what that means, not 'no such file'" || bad "absent log: exit $code [$out]"
 
 : > /tmp/empty.log
-out=$(logs --path /tmp/empty.log); code=$?
+out=$(logsAt "$(configFor /tmp/empty.log empty)"); code=$?
 [ $code -eq 0 ] && grep -q 'holds no records' <<<"$out" \
   && ok "an empty log is not an error" || bad "empty log: exit $code [$out]"
 
 # An absent log outranks the count: -n 0 on a host where nothing has been
 # brokered must say that, not answer a question about the count.
-out=$(logs --path /var/log/faramir/nope.log -n 0); code=$?
+out=$(logsAt "$NOPECFG" -n 0); code=$?
 [ $code -eq 1 ] && grep -q 'Nothing has been brokered' <<<"$out" \
   && ok "an absent log is named even when -n asked for nothing" \
   || bad "-n 0 on an absent log: exit $code [$out]"
 
-out=$(logs --path /var/log/faramir); code=$?
+out=$(logsAt "$(configFor /var/log/faramir dir)"); code=$?
 [ $code -eq 1 ] && ok "a directory named as the log fails rather than printing junk" \
-  || bad "--path <dir>: exit $code [$(head -c 100 <<<"$out")]"
+  || bad "a directory as log_path: exit $code [$(head -c 100 <<<"$out")]"
 
-# The config is where the path comes from when --path is absent.
+# The config is the only thing that says which log is read.  A flag naming a
+# path by hand is one typo away from reporting a host as quiet, and --watch
+# would wait on that path for ever.
 cp /etc/faramir/config.toml /tmp/alt.toml
 sed -i 's#^log_path = .*#log_path = "'"$BIG"'"#' /tmp/alt.toml
 out=$(logs --config /tmp/alt.toml -n 1)
 grep -q 'record-1030' <<<"$out" && ok "--config sends it to that config's log" || bad "--config: [$out]"
 out=$(FARAMIR_CONFIG=/tmp/alt.toml logs -n 1)
 grep -q 'record-1030' <<<"$out" && ok "and FARAMIR_CONFIG does the same" || bad "FARAMIR_CONFIG: [$out]"
-out=$(logs --config /tmp/alt.toml --path "$LOG" -n 1)
-grep -q 'record-1030' <<<"$out" && bad "--path lost to --config" || ok "--path wins over the config"
+out=$(logs --path "$BIG" -n 1); code=$?
+[ $code -eq 2 ] && grep -q 'unknown flag: --path' <<<"$out" \
+  && ok "and there is no --path to override either, exit 2" \
+  || bad "--path: exit $code [$(head -c 100 <<<"$out")]"
 
 out=$(logs --config /tmp/nosuch.toml); code=$?
 [ $code -eq 1 ] && grep -q 'config' <<<"$out" && ok "a config that is not there is named as such" \
@@ -544,23 +568,35 @@ cat > "$SYN" <<'BODY'
 {"log_id":"2026-08-11T01:00:04Z-dddd000004","op":"edit","file":"/etc/faramir/secrets/app.sops.yml","peer":{"uid":0,"pid":12}}
 {"log_id":"2026-08-11T01:00:05Z-dddd000005","op":"rekey","file":"/etc/faramir/secrets/app.sops.yml","from":["age1old"],"to":["age1old","age1new"],"peer":{"uid":0,"pid":13}}
 {"log_id":"2026-08-11T01:00:06Z-dddd000006","op":"exec","cmd":["/bin/sh"],"exit_code":0,"redactions":[{"token":"«SECRET:db/password»","count":3},{"token":"«SECRET:api/token»","count":1}]}
+{"log_id":"2026-08-11T01:00:07Z-dddd000007","op":"exec","cmd":["bin/deploy"],"argv0_path":"/home/op/project/bin/deploy","cwd":"/home/op/project","env_refs":{"PW":"db/password","TOKEN":"api/token"},"exit_code":0,"record_reduced":true}
 BODY
 
-out=$(logs --path "$SYN")
+SYNCFG=$(configFor "$SYN" syn)
+out=$(logsAt "$SYNCFG")
 grep -q 'approved' <<<"$out"  && ok "an approval that was granted reads as approved" || bad "approval row: [$out]"
 grep -q 'refused'  <<<"$out"  && ok "and one that was not reads as refused" || bad "refusal row: [$out]"
 grep -q 'app.sops.yml' <<<"$out" && ok "an edit names the file it changed" || bad "edit row: [$out]"
 grep -q '4 redacted' <<<"$out" && ok "the listing sums the per-token counts" || bad "sum row: [$out]"
 
-out=$(logs --path "$SYN" dddd000001)
+out=$(logsAt "$SYNCFG" dddd000001)
 grep -q 'dddd000002' <<<"$out" && ok "an approval points at the command it authorised" || bad "no exec_log_id: [$out]"
 grep -q 'approved at the console' <<<"$out" && ok "and says how it was answered" || bad "no outcome: [$out]"
-out=$(logs --path "$SYN" dddd000005)
+out=$(logsAt "$SYNCFG" dddd000005)
 grep -q 'age1old' <<<"$out" && grep -q 'age1new' <<<"$out" \
   && ok "a rekey shows who could read the file and who can now" || bad "rekey detail: [$out]"
-out=$(logs --path "$SYN" dddd000006)
+out=$(logsAt "$SYNCFG" dddd000006)
 grep -q '«SECRET:db/password»×3' <<<"$out" && grep -q '«SECRET:api/token»×1' <<<"$out" \
   && ok "the detail view breaks the count down per token" || bad "counts: [$out]"
+
+# The fields a record carries that the command line does not: which variable
+# carried which ref, what argv[0] resolved to, and that the record was cut.
+out=$(logsAt "$SYNCFG" dddd000007)
+grep -qE '^ +refs +PW=db/password, TOKEN=api/token$' <<<"$out" \
+  && ok "the refs row is the record's NAME=ref pairs" || bad "refs row: [$out]"
+grep -qE '^ +program +/home/op/project/bin/deploy$' <<<"$out" \
+  && ok "and a relative argv[0] shows what actually ran" || bad "program row: [$out]"
+grep -qE '^ +reduced +fields were cut' <<<"$out" \
+  && ok "and a reduced record says it was cut" || bad "reduced row: [$out]"
 
 # --------------------------------------------------------------------------
 head_ "14. --watch: the log as it is written"
@@ -570,10 +606,29 @@ head_ "14. --watch: the log as it is written"
 
 WATCH=/tmp/watch.log
 OUT=/tmp/watch.out
+WATCHCFG=$(configFor "$WATCH" watch)
 synth() { printf '{"log_id":"2026-08-12T02:00:%02dZ-eeee%06d","op":"exec","cmd":["/bin/echo","%s"],"exit_code":0}\n' "$2" "$2" "$1"; }
 
+# A host where nothing has been brokered has no log at all: the broker makes it
+# by writing the first record, so a watcher started before that waits for it
+# rather than exiting on a file that is about to exist.
+rm -f "$WATCH"
+/usr/local/bin/faramir logs --color never --config "$WATCHCFG" --watch -n 1 >"$OUT" 2>&1 &
+watcher=$!
+sleep 2
+kill -0 "$watcher" 2>/dev/null && ok "a watcher on a host with no log yet keeps waiting" \
+  || bad "the watcher exited before the log existed: [$(cat "$OUT")]"
+grep -q 'no audit log at' "$OUT" && ok "and says so rather than watching in silence" \
+  || bad "nothing said about the absent log: [$(cat "$OUT")]"
+synth first-ever 0 > "$WATCH"
+sleep 2
+grep -q first-ever "$OUT" && ok "and picks the log up when the first record creates it" \
+  || bad "the first record did not arrive: [$(cat "$OUT")]"
+kill "$watcher" 2>/dev/null
+wait "$watcher" 2>/dev/null
+
 synth backlog 1 > "$WATCH"
-/usr/local/bin/faramir logs --color never --path "$WATCH" --watch -n 1 >"$OUT" 2>&1 &
+/usr/local/bin/faramir logs --color never --config "$WATCHCFG" --watch -n 1 >"$OUT" 2>&1 &
 watcher=$!
 sleep 2
 
@@ -619,13 +674,13 @@ rows=$(grep -cE '^[0-9a-f]{10} ' "$OUT")
 
 # A log-id is one record that is already written, so there is nothing to wait
 # for.  Refused rather than printed-and-then-hung.
-out=$(logs --path "$WATCH" --watch eeee000004); code=$?
+out=$(logsAt "$WATCHCFG" --watch eeee000004); code=$?
 [ $code -eq 2 ] && grep -q 'takes no log-id' <<<"$out" \
   && ok "--watch with a log-id is refused as usage, exit 2" || bad "--watch with an id: exit $code [$out]"
 
 # --json cannot close an array it has no last record for, so it streams values.
 synth streamed 5 >> "$WATCH"
-/usr/local/bin/faramir logs --path "$WATCH" --watch --json -n 1 >"$OUT" 2>/dev/null &
+/usr/local/bin/faramir logs --config "$WATCHCFG" --watch --json -n 1 >"$OUT" 2>/dev/null &
 watcher=$!
 sleep 2
 synth also-streamed 6 >> "$WATCH"

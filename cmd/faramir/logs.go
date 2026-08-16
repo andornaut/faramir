@@ -7,9 +7,16 @@ package main
 //
 // It holds no secret value (output was recorded after redaction, refs are names,
 // and nothing is substituted into argv), so this prints what it finds.
-// Rotated files are not read; name one to zless.  --watch is the one place
-// rotation is followed rather than ignored: a watcher left running across a
-// logrotate run reopens the path and carries on.
+//
+// Which file it reads is the config's to say, through [audit] log_path, and
+// there is no flag naming another: a reader pointed at a path by hand is a
+// typo away from reporting a host as quiet, and --watch would wait on that
+// path for ever.  --config and FARAMIR_CONFIG move it, and both name a file
+// that has to exist.  Rotated files are not read; name one to zless.
+//
+// --watch is the one place rotation is followed rather than ignored: a watcher
+// left running across a logrotate run reopens the path and carries on, and one
+// started before the first brokered command waits for the log to be created.
 
 import (
 	"bufio"
@@ -21,8 +28,11 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -43,7 +53,6 @@ const watchPoll = 500 * time.Millisecond
 
 type logsFlags struct {
 	configPath string
-	logPath    string
 	count      int
 	socket     string
 	asJSON     bool
@@ -61,7 +70,6 @@ func newLogsCmd() *cobra.Command {
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runLogs(f, args)) },
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
-	c.Flags().StringVar(&f.logPath, "path", "", "audit log to read (default: the one the config names)")
 	c.Flags().IntVarP(&f.count, "count", "n", defaultLogCount, "how many recent records to list")
 	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	c.Flags().BoolVar(&f.asJSON, "json", false, "print the records as JSON")
@@ -93,15 +101,12 @@ func runLogs(f logsFlags, args []string) int {
 		return 1
 	}
 
-	path := f.logPath
-	if path == "" {
-		cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
-			return 1
-		}
-		path = cfg.Audit.LogPath
+	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+		return 1
 	}
+	path := cfg.Audit.LogPath
 
 	if id := firstArg(args); id != "" {
 		record, skipped, err := findRecord(path, id)
@@ -215,8 +220,13 @@ func runWatch(path string, f logsFlags, paint palette) int {
 	reportSkipped(path, lost)
 	// Said only where the count asked for records: `--watch -n 0` asked for the
 	// arriving ones alone, and emptyReason's advice would be an answer to a
-	// question nobody put.
-	if len(records) == 0 && f.count > 0 {
+	// question nobody put.  A log that is not there yet is its own answer, and
+	// not the listing's: this waits for it rather than reporting it.
+	switch {
+	case !follow.following():
+		fmt.Fprintf(os.Stderr, "no audit log at %s yet: nothing has been brokered "+
+			"on this host, and the first record creates it\n", path)
+	case len(records) == 0 && f.count > 0:
 		fmt.Fprintln(os.Stderr, emptyReason(path, f.count))
 	}
 	for _, record := range records {
@@ -253,9 +263,9 @@ func runWatch(path string, f logsFlags, paint palette) int {
 				fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 				return 1
 			}
-			// Nothing at the path: logrotate has renamed the file and no record has been
-			// written since, the broker creating the log as it writes.  The next pass
-			// opens it.
+			// The file went between the stat and the open, so the follower is detached
+			// and reads nothing until one is back at the path.  A pass that finds one
+			// reports a rotation again and reopens onto it.
 		}
 		time.Sleep(watchPoll)
 	}
@@ -451,6 +461,11 @@ func tailRecords(path string, count int) ([]map[string]any, int, error) {
 // arrives.  scanAuditLog does the opposite -- it hands the last line over
 // whether or not it ends -- because a listing is a reading of a file as it
 // stands, while a watcher is going to see the rest of that line in a moment.
+//
+// A follower with no file is a state rather than a failure: the path holds
+// none between logrotate's rename and the next record, and none at all on a
+// host where nothing has been brokered yet.  Detached, it reads nothing and
+// reports no rotation until a file is there, and the next pass attaches to it.
 type follower struct {
 	path    string
 	fh      *os.File
@@ -460,21 +475,25 @@ type follower struct {
 	offset  int64
 }
 
+// openFollower is a follower on path, attached if there is a file there and
+// detached if there is not.
 func openFollower(path string) (*follower, error) {
 	f := &follower{path: path}
-	if err := f.open(); err != nil {
-		if os.IsNotExist(err) {
-			return nil, missingLog(path)
-		}
+	if err := f.open(); err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
 	return f, nil
 }
 
-// open is the raw error, not openAuditLog's sentence: reopen has to tell a path
-// that logrotate has just emptied of any file from a path that cannot be opened
-// at all, and the first of those is a pass to wait rather than a failure.
+// open is the raw error, not openAuditLog's sentence: the caller has to tell a
+// path with no file at it from a path that cannot be opened at all, and the
+// first of those is a pass to wait rather than a failure.
+//
+// Every field is cleared first, so a failure leaves a detached follower rather
+// than one still holding the reader it just closed.
 func (f *follower) open() error {
+	f.fh, f.reader, f.info = nil, nil, nil
+	f.pending, f.offset = nil, 0
 	fh, err := os.Open(f.path)
 	if err != nil {
 		return err
@@ -486,25 +505,37 @@ func (f *follower) open() error {
 	}
 	f.fh, f.info = fh, info
 	f.reader = bufio.NewReaderSize(fh, 64*1024)
-	f.pending, f.offset = nil, 0
 	return nil
 }
+
+// following is whether there is a file open to read from.
+func (f *follower) following() bool { return f.reader != nil }
 
 // reopen is the file the path names now, read from its start.  The half-written
 // line held from the file before it is dropped with it: it belongs to a record
 // that is in the rotated file, and pasting it onto the first line of the new one
 // would make a line that is neither.
 func (f *follower) reopen() error {
-	_ = f.fh.Close()
+	f.close()
 	return f.open()
 }
 
-func (f *follower) close() { _ = f.fh.Close() }
+func (f *follower) close() {
+	if f.fh != nil {
+		_ = f.fh.Close()
+	}
+}
 
 // drain calls visit with each line completed since the last pass, and returns
 // when it reaches the end of what has been written.  Blank lines are skipped, as
 // in scanAuditLog: they carry no record either way.
+//
+// Nothing to read while detached, which is not an error: the caller polls on,
+// and rotated() is what says a file has appeared.
 func (f *follower) drain(visit func(line []byte)) error {
+	if !f.following() {
+		return nil
+	}
 	for {
 		chunk, err := f.reader.ReadBytes('\n')
 		f.offset += int64(len(chunk))
@@ -535,6 +566,11 @@ func (f *follower) drain(visit func(line []byte)) error {
 // A path with nothing at it is neither: that is the gap between logrotate's
 // rename and the next record, and the file it is reading is still the one those
 // records were written to.
+//
+// A file at a path a detached follower holds counts, which is what attaches it:
+// os.SameFile is false against the nil info of a follower that has none, so the
+// first record written on a host where nothing had been brokered reads as a
+// rotation and the caller reopens onto it.
 func (f *follower) rotated() (bool, error) {
 	info, err := os.Stat(f.path)
 	if err != nil {
@@ -595,7 +631,7 @@ func emptyReason(path string, count int) string {
 		return fmt.Sprintf("--count %d asks for no records. Pass a positive count to "+
 			"list some, or a log-id to look one up", count)
 	}
-	return fmt.Sprintf("%s holds no records to show", path)
+	return path + " holds no records to show"
 }
 
 // shortIDWidth is the hex tail of a log_id: the writer's nonce and its counter,
@@ -746,20 +782,39 @@ func printField(paint palette, label, value string) {
 func printRecord(record map[string]any, paint palette) {
 	fmt.Println(summarise(record, paint))
 	printField(paint, "id", str(record, "log_id"))
+	// Above the fields it qualifies rather than under them: what a reduced record
+	// holds was cut to fit the cap, so a reader has to know that before believing
+	// a short argv or a list of refs that ends where the record ran out of room.
+	if reduced, _ := boolean(record, "record_reduced"); reduced {
+		printField(paint, "reduced", paint.dim(
+			"fields were cut to fit [audit] max_record_bytes"))
+	}
 	printField(paint, "caller", describePeer(record))
+	// The labels are not all the field names.  argv0_path is what root or the
+	// executor actually ran, which can differ from the command: a relative argv[0]
+	// resolves against the cwd, and that is a tree the coding agent writes.  It
+	// reads as `program`, the word the approval question uses for the same thing,
+	// and sits under the cwd it resolved against.
+	//
 	// outcome is the approval's own reason (why it was refused, or that it was
-	// approved) and exec_log_id is the command's record, so an approval reads in
-	// both directions.
-	// Rendered, not printed: cwd is the caller's, error and outcome quote what
-	// failed (an approval's reason carries the command it was refused for, and the
-	// names of the processes that held the host), so all three carry text chosen
-	// by the account this log exists to hold to account.
-	for _, field := range []string{"cwd", "error", "outcome", "exec_log_id"} {
-		if value := str(record, field); value != "" {
-			printField(paint, field, termsafe.Line(value))
+	// approved), reason is why a refusal that never reached a command refused it,
+	// and exec_log_id is the command's record, so an approval reads in both
+	// directions.
+	//
+	// Rendered, not printed: all of these carry text chosen by the account this
+	// log exists to hold to account -- the cwd and the program are the caller's,
+	// and error and outcome quote what failed (an approval's reason carries the
+	// command it was refused for, and the names of the processes that held the
+	// host).
+	for _, row := range []struct{ field, label string }{
+		{"cwd", "cwd"}, {"argv0_path", "program"}, {"error", "error"},
+		{"outcome", "outcome"}, {"reason", "reason"}, {"exec_log_id", "exec_log_id"},
+	} {
+		if value := str(record, row.field); value != "" {
+			printField(paint, row.label, termsafe.Line(value))
 		}
 	}
-	printField(paint, "refs", paint.ref(strings.Join(list(record, "env_refs"), ", ")))
+	printField(paint, "refs", paint.ref(envRefs(record)))
 	// A rekey's recipients, which are the whole of what it changed: who could
 	// read that file before, and who can now.  Public keys, so printing them
 	// discloses nothing the ciphertext does not already carry.
@@ -784,10 +839,38 @@ func printRecord(record map[string]any, paint palette) {
 	}
 }
 
+// envRefs is what the command asked to be injected, as NAME=ref.
+//
+// The record holds an object rather than a list, NAME -> ref, and the pairing
+// is the whole of what an operator checks an injection against: which variable
+// carried which ref.  Neither half is a value -- the ref names a secret and the
+// store holds it -- so this prints what the record carries.
+//
+// Sorted by variable name, so the same command reads the same way every time
+// rather than in whatever order the map iterated.
+func envRefs(record map[string]any) string {
+	fields, ok := record["env_refs"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	pairs := make([]string, 0, len(fields))
+	for name, ref := range fields {
+		if text, ok := ref.(string); ok {
+			pairs = append(pairs, name+"="+text)
+		}
+	}
+	sort.Strings(pairs)
+	// Rendered like every other field taken from a record: both halves are
+	// bounded by what the protocol accepts, but a log written by something else
+	// is one of the things this reader is for.
+	return termsafe.Line(strings.Join(pairs, ", "))
+}
+
 // redactionCounts is per token, for the detail view; the listing sums them.
 func redactionCounts(record map[string]any) string {
-	var out []string
-	for _, entry := range redactions(record) {
+	counts := redactions(record)
+	out := make([]string, 0, len(counts))
+	for _, entry := range counts {
 		out = append(out, fmt.Sprintf("%s×%d", entry.token, entry.count))
 	}
 	return strings.Join(out, ", ")
@@ -817,7 +900,9 @@ func startedAt(record map[string]any) time.Time {
 	id := str(record, "log_id")
 	if stamp, _, found := strings.Cut(id, "Z-"); found {
 		if at, err := time.Parse("2006-01-02T15:04:05", stamp); err == nil {
-			return at.UTC().Local()
+			// Local on purpose: the log_id is UTC and the listing is read against
+			// what somebody remembers doing on this host, which is its own clock.
+			return at.UTC().Local() //nolint:gosmopolitan // the operator's own clock is the point
 		}
 	}
 	return time.Time{}
@@ -859,7 +944,7 @@ func describePeer(record map[string]any) string {
 	uid, _ := num(fields, "uid")
 	pid, _ := num(fields, "pid")
 	who := fmt.Sprintf("uid %d", int(uid))
-	if account, err := user.LookupId(fmt.Sprint(int(uid))); err == nil {
+	if account, err := user.LookupId(strconv.Itoa(int(uid))); err == nil {
 		who = fmt.Sprintf("%s (uid %d)", account.Username, int(uid))
 	}
 	return fmt.Sprintf("%s, pid %d", who, int(pid))
@@ -920,9 +1005,13 @@ func list(record map[string]any, key string) []string {
 // that wide still gets a space: without one it runs into the column after it,
 // which is what an op name longer than its column did (`ask_approvalrefused`),
 // and a row whose columns have merged is a row that is read wrong.
+// Counted in runes, not bytes: a value carrying the ellipsis a cut record's
+// fields end with is three bytes and one column, and a column padded by its
+// byte count is one that does not line up with the row above it.
 func pad(text string, width int) string {
-	if len(text) >= width {
+	spent := utf8.RuneCountInString(text)
+	if spent >= width {
 		return text + " "
 	}
-	return text + strings.Repeat(" ", width-len(text))
+	return text + strings.Repeat(" ", width-spent)
 }
