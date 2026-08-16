@@ -143,8 +143,11 @@ coverage:
 fmt:
 	golangci-lint fmt
 
-## lint: the same golangci-lint run CI does
+## lint: the checks CI runs, both of them. `run` accepts an unknown key inside
+## `linters.settings` and exits 0, which leaves that setting disabled while CI
+## stays green, so `config verify` is what rejects a misspelled one.
 lint:
+	golangci-lint config verify
 	golangci-lint run
 
 ## shellcheck: the same shellcheck run CI does
