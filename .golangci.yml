@@ -43,6 +43,13 @@ linters:
     - paralleltest
     # Bans fmt.Print. These are command line tools; printing is the interface.
     - forbidigo
+    # Wants every exec.Command to carry a context. These are synchronous
+    # command line tools with no cancellation story, so satisfying it would
+    # mean context.Background() at every call site: ceremony, not cancellation.
+    - noctx
+    # init() is how cobra registers commands and their flags, and the ones here
+    # say in a comment why a flag is registered where it is.
+    - gochecknoinits
   enable:
     - bodyclose
     - copyloopvar
@@ -54,6 +61,10 @@ linters:
     - unconvert
     - unparam
   settings:
+    # A default clause handles the cases not named, which is how these switches
+    # are written; without this the linter wants every case spelled out anyway.
+    exhaustive:
+      default-signifies-exhaustive: true
     gosec:
       excludes:
         - G109 # strconv.Atoi to int32 - uid and gid values from the passwd database
@@ -62,7 +73,6 @@ linters:
         - G301 # directory permissions 0755 are standard and appropriate
         - G304 # file operations with user paths are the tool's purpose
         - G703 # path traversal - validating user paths is the tool's purpose
-        - G704 # SSRF taint analysis - the only dials are to unix sockets
         - G705 # XSS taint analysis - the only writes are to a terminal and to stdio
         - G706 # log injection - logging environment variables
     govet:
