@@ -161,7 +161,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	}
 	checks := append(append([]func(){}, aboutTheHost...), aboutTheOperator...)
 	if os.Geteuid() != 0 {
-		report.unasked("boundaries", len(checks), "run doctor as root to check these: %d checks "+
+		report.unaskedf("boundaries", len(checks), "run doctor as root to check these: %d checks "+
 			"ask what %s, %s, %s and %s can reach, and no account can answer that for "+
 			"another", len(checks), opts.AgentUser, opts.BrokerUser, opts.KeeperUser,
 			opts.ExecUser)
@@ -171,7 +171,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	// runuser that cannot run would report all of them as holding.  Every account
 	// can read /, so a refusal here is the mechanism.
 	if !canRead(opts.KeeperUser, "/") {
-		report.unasked("boundaries", len(checks), "cannot ask %s what it can reach, so none "+
+		report.unaskedf("boundaries", len(checks), "cannot ask %s what it can reach, so none "+
 			"of these %d checks were made: runuser has to be installed for this",
 			opts.KeeperUser, len(checks))
 		return
@@ -184,7 +184,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	// report the boundary it is about as holding, on the strength of a question
 	// nobody could ask.
 	if opts.AgentUser == "" {
-		report.unasked("boundaries", len(aboutTheOperator), "the agent account is not named, so "+
+		report.unaskedf("boundaries", len(aboutTheOperator), "the agent account is not named, so "+
 			"%d checks that ask what it can reach were not made: pass "+
 			"--agent-user, or run through sudo so SUDO_USER carries it. The rest "+
 			"of the examination is unaffected", len(aboutTheOperator))
@@ -218,13 +218,13 @@ func askable(accounts ...string) (named []string, skipped bool) {
 // because read here would only add files no [secrets] list names.
 func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if !holds(opts.KeeperUser, opts.SecretsGroup) {
-		report.add("secrets", StatusFailed, "%s is not in %s, so it can neither decrypt "+
+		report.addf("secrets", StatusFailed, "%s is not in %s, so it can neither decrypt "+
 			"the secrets directory nor tell when it changed", opts.KeeperUser, opts.SecretsGroup)
 		return
 	}
 	for _, account := range []string{opts.AgentUser, opts.ExecUser, opts.BrokerUser} {
 		if holds(account, opts.SecretsGroup) {
-			report.add("secrets", StatusFailed, "%s is in %s, so it can read and replace "+
+			report.addf("secrets", StatusFailed, "%s is in %s, so it can read and replace "+
 				"the managed files. Drop it with: gpasswd -d %s %s",
 				account, opts.SecretsGroup, account, opts.SecretsGroup)
 			return
@@ -237,17 +237,17 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 		dir = filepath.Dir(cfg.Secrets.Patterns[0])
 	}
 	if info, err := os.Stat(dir); err == nil && info.Mode().Perm()&0o007 != 0 {
-		report.add("secrets", StatusFailed, "%s is %04o: every account on this host can "+
+		report.addf("secrets", StatusFailed, "%s is %04o: every account on this host can "+
 			"reach the ciphertext", dir, info.Mode().Perm())
 		return
 	}
 	if canRead(opts.AgentUser, dir) {
-		report.add("secrets", StatusFailed, "%s can list %s; the split between asking for "+
+		report.addf("secrets", StatusFailed, "%s can list %s; the split between asking for "+
 			"a value and reading the file it comes from is not in effect",
 			opts.AgentUser, dir)
 		return
 	}
-	report.add("secrets", StatusOK, "%s is the keeper's, and %s cannot list %s",
+	report.addf("secrets", StatusOK, "%s is the keeper's, and %s cannot list %s",
 		opts.SecretsGroup, opts.AgentUser, dir)
 }
 
@@ -263,7 +263,7 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 			continue
 		}
 		if canWrite(opts.AgentUser, path) {
-			report.add("config ownership", StatusFailed, "%s can write %s, which is "+
+			report.addf("config ownership", StatusFailed, "%s can write %s, which is "+
 				"where [exec.base_env] PATH comes from: an edit there chooses what the "+
 				"executor runs", opts.AgentUser, path)
 			return
@@ -274,12 +274,12 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 	// chooses which age keys every value encrypted from now on is readable by.
 	sopsConfig := filepath.Join(opts.ConfigDir, ".sops.yaml")
 	if exists(sopsConfig) && canWrite(opts.AgentUser, sopsConfig) {
-		report.add("config ownership", StatusFailed, "%s can write %s, which names the "+
+		report.addf("config ownership", StatusFailed, "%s can write %s, which names the "+
 			"age recipients: an edit there chooses who can decrypt every value written "+
 			"after it", opts.AgentUser, sopsConfig)
 		return
 	}
-	report.add("config ownership", StatusOK, "%s cannot write the config, its drop-ins "+
+	report.addf("config ownership", StatusOK, "%s cannot write the config, its drop-ins "+
 		"or the creation rule", opts.AgentUser)
 }
 
@@ -300,18 +300,18 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 	}
 	for _, path := range enforcers {
 		if !exists(path) {
-			report.add("installed files", StatusFailed, "%s is missing", path)
+			report.addf("installed files", StatusFailed, "%s is missing", path)
 			return
 		}
 		// The directory too: write there is permission to replace what is in it.
 		if canWrite(opts.AgentUser, path) {
-			report.add("installed files", StatusFailed, "%s can write %s, so it can "+
+			report.addf("installed files", StatusFailed, "%s can write %s, so it can "+
 				"replace what enforces the deny list rather than having to get past it",
 				opts.AgentUser, path)
 			return
 		}
 	}
-	report.add("installed files", StatusOK, "%s cannot write the binary, the deny list "+
+	report.addf("installed files", StatusOK, "%s cannot write the binary, the deny list "+
 		"or the wrapper", opts.AgentUser)
 }
 
@@ -322,17 +322,17 @@ func diagnoseDenyPatterns(report *DoctorReport, opts DoctorOptions) {
 	path := filepath.Join(DefaultLibexecDir, "deny-patterns.txt")
 	body, err := os.ReadFile(path)
 	if err != nil {
-		report.add("deny patterns", StatusFailed, "%s is missing, so the hook refuses "+
+		report.addf("deny patterns", StatusFailed, "%s is missing, so the hook refuses "+
 			"nothing: %v", path, err)
 		return
 	}
 	// Interpolated through regexQuote, so the comparison is against that form.
 	if !strings.Contains(string(body), regexp.QuoteMeta(opts.ConfigDir)) {
-		report.add("deny patterns", StatusFailed, "%s does not name %s, so it was copied "+
+		report.addf("deny patterns", StatusFailed, "%s does not name %s, so it was copied "+
 			"from another install rather than rendered for this one", path, opts.ConfigDir)
 		return
 	}
-	report.add("deny patterns", StatusOK, "%s names this install's directories", path)
+	report.addf("deny patterns", StatusOK, "%s names this install's directories", path)
 }
 
 // holds is inGroup with the error folded in: an unknown account is in no group.
@@ -350,24 +350,24 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	}
 	want := "0400 " + opts.KeeperUser
 	if got := owns(path); got != want {
-		report.add("age key", StatusFailed, "%s is %s, expected %s", path, got, want)
+		report.addf("age key", StatusFailed, "%s is %s, expected %s", path, got, want)
 		return
 	}
 	accounts, skipped := askable(opts.AgentUser, opts.BrokerUser, opts.ExecUser)
 	for _, account := range accounts {
 		if canRead(account, path) {
-			report.add("age key", StatusFailed, "%s can read %s, so every file this "+
+			report.addf("age key", StatusFailed, "%s can read %s, so every file this "+
 				"install has ever encrypted is readable by it", account, path)
 			return
 		}
 	}
 	if skipped {
-		report.unasked("age key", 1, "%s, and %s cannot read it. The operator "+
+		report.unaskedf("age key", 1, "%s, and %s cannot read it. The operator "+
 			"account is not named, so whether it can was not asked",
 			want, strings.Join(accounts, " or "))
 		return
 	}
-	report.add("age key", StatusOK, "%s, and only %s can read it", want, opts.KeeperUser)
+	report.addf("age key", StatusOK, "%s, and only %s can read it", want, opts.KeeperUser)
 }
 
 // diagnoseOperatorKeys checks what enrolling a tree granted.  init-project
@@ -382,7 +382,7 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// SUDO_USER and then to the caller, and a root login shell, a cron job or a
 	// systemd timer has neither.  Nothing about the install is wrong.
 	if opts.AgentUser == "" {
-		report.unasked("agent keys", 1, "no agent account to ask about: "+
+		report.unaskedf("agent keys", 1, "no agent account to ask about: "+
 			"run under sudo so SUDO_USER carries it, or pass --agent-user")
 		return
 	}
@@ -390,7 +390,7 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	// every other finding here is about, so a pass below would be about nobody.
 	entry, err := user.Lookup(opts.AgentUser)
 	if err != nil || entry.HomeDir == "" {
-		report.add("agent keys", StatusFailed, "%s does not resolve to an account "+
+		report.addf("agent keys", StatusFailed, "%s does not resolve to an account "+
 			"with a home (%v), and it is the name every check here is about. Pass "+
 			"--agent-user", opts.AgentUser, err)
 		return
@@ -399,12 +399,12 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 	if !exists(home) {
 		// An encrypted home is absent until its owner logs in, which is a state
 		// this install is designed for rather than a fault.
-		report.unasked("agent keys", 1, "%s does not exist, so what a brokered "+
+		report.unaskedf("agent keys", 1, "%s does not exist, so what a brokered "+
 			"command can read in it was not checked", home)
 		return
 	}
 	if canRead(opts.ExecUser, home) {
-		report.add("agent keys", StatusFailed, "%s can list %s: the home was enrolled "+
+		report.addf("agent keys", StatusFailed, "%s can list %s: the home was enrolled "+
 			"rather than a project inside it, so every credential in it is group-shared. "+
 			"init-project grants traversal, not read", opts.ExecUser, home)
 		return
@@ -417,12 +417,12 @@ func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
 			continue
 		}
 		if canRead(opts.ExecUser, path) {
-			report.add("agent keys", StatusFailed, "%s can read %s, so a brokered "+
+			report.addf("agent keys", StatusFailed, "%s can read %s, so a brokered "+
 				"command holds whatever is in it", opts.ExecUser, path)
 			return
 		}
 	}
-	report.add("agent keys", StatusOK, "%s can traverse %s and read nothing in it",
+	report.addf("agent keys", StatusOK, "%s can traverse %s and read nothing in it",
 		opts.ExecUser, home)
 }
 
@@ -434,30 +434,30 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 	}
 	path := cfg.Audit.LogPath
 	if !exists(path) {
-		report.add("audit log", StatusWarn, "%s does not exist yet; nothing has been "+
+		report.addf("audit log", StatusWarn, "%s does not exist yet; nothing has been "+
 			"brokered on this host", path)
 		return
 	}
 	want := "0600 " + opts.BrokerUser
 	if got := owns(path); got != want {
-		report.add("audit log", StatusFailed, "%s is %s, expected %s", path, got, want)
+		report.addf("audit log", StatusFailed, "%s is %s, expected %s", path, got, want)
 		return
 	}
 	accounts, skipped := askable(opts.AgentUser, opts.ExecUser)
 	for _, account := range accounts {
 		if canRead(account, path) {
-			report.add("audit log", StatusFailed, "%s can read %s, so it can also "+
+			report.addf("audit log", StatusFailed, "%s can read %s, so it can also "+
 				"truncate what it says", account, path)
 			return
 		}
 	}
 	if skipped {
-		report.unasked("audit log", 1, "%s, and %s cannot read it. The operator "+
+		report.unaskedf("audit log", 1, "%s, and %s cannot read it. The operator "+
 			"account is not named, so whether it can was not asked",
 			want, strings.Join(accounts, " or "))
 		return
 	}
-	report.add("audit log", StatusOK, "%s, readable by nobody else", want)
+	report.addf("audit log", StatusOK, "%s, readable by nobody else", want)
 }
 
 // diagnoseSockets asks who can open each one.  The keeper's is the age key by
@@ -486,7 +486,7 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 		reached := false
 		for _, account := range accounts {
 			if canWrite(account, socket.path) {
-				report.add(socket.name, StatusFailed, "%s can open %s: %s",
+				report.addf(socket.name, StatusFailed, "%s can open %s: %s",
 					account, socket.path, socket.cost)
 				reached = true
 			}
@@ -495,12 +495,12 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 			continue
 		}
 		if skipped {
-			report.unasked(socket.name, 1, "%s is closed to %s. The operator "+
+			report.unaskedf(socket.name, 1, "%s is closed to %s. The operator "+
 				"account is not named, so whether it is closed to that one was not asked",
 				socket.path, strings.Join(accounts, " and "))
 			continue
 		}
-		report.add(socket.name, StatusOK, "%s is closed to %s", socket.path,
+		report.addf(socket.name, StatusOK, "%s is closed to %s", socket.path,
 			strings.Join(accounts, " and "))
 	}
 	if path := cfg.Server.SocketPath; path != "" && exists(path) {
@@ -509,12 +509,12 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 			// The only claim here is about the operator, so there is nothing left to
 			// check: an unnamed account cannot open a socket, and reporting that as the
 			// grant being absent would fail every install examined from a root shell.
-			report.unasked("broker socket", 1, "the agent account is not "+
+			report.unaskedf("broker socket", 1, "the agent account is not "+
 				"named, so whether it can open %s was not asked", path)
 		case canWrite(opts.AgentUser, path):
-			report.add("broker socket", StatusOK, "%s can open %s", opts.AgentUser, path)
+			report.addf("broker socket", StatusOK, "%s can open %s", opts.AgentUser, path)
 		default:
-			report.add("broker socket", StatusFailed, "%s cannot open %s, so nothing "+
+			report.addf("broker socket", StatusFailed, "%s cannot open %s, so nothing "+
 				"it runs is brokered. Membership of %s is what grants this",
 				opts.AgentUser, path, opts.ClientGroup)
 		}
@@ -542,14 +542,14 @@ func diagnoseSocketPolicy(report *DoctorReport, opts DoctorOptions, cfg *config.
 	} {
 		switch {
 		case socket.account == "":
-			report.add(socket.name, StatusWarn, "allowed_user is unset, so only %s's "+
+			report.addf(socket.name, StatusWarn, "allowed_user is unset, so only %s's "+
 				"own uid and root are admitted; name %s so the config says what it "+
 				"allows", opts.BrokerUser, opts.BrokerUser)
 		case socket.account != opts.BrokerUser:
-			report.add(socket.name, StatusFailed, "allowed_user names %s rather than "+
+			report.addf(socket.name, StatusFailed, "allowed_user names %s rather than "+
 				"%s: %s", socket.account, opts.BrokerUser, socket.cost)
 		default:
-			report.add(socket.name, StatusOK, "allowed_user is %s alone", opts.BrokerUser)
+			report.addf(socket.name, StatusOK, "allowed_user is %s alone", opts.BrokerUser)
 		}
 	}
 }
@@ -568,13 +568,13 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	operator, skipped := askable(opts.AgentUser)
 	if key := cfg.Ssh.Key; exists(key) {
 		if canRead(opts.ExecUser, key) {
-			report.add("ssh key", StatusFailed, "%s can read %s, so the agent gains "+
+			report.addf("ssh key", StatusFailed, "%s can read %s, so the agent gains "+
 				"nothing: a brokered command can take the key itself", opts.ExecUser, key)
 			return
 		}
 		for _, account := range operator {
 			if canRead(account, key) {
-				report.add("ssh key", StatusFailed, "%s can read %s, and the coding agent "+
+				report.addf("ssh key", StatusFailed, "%s can read %s, and the coding agent "+
 					"runs as that account: the key is readable by the thing the agent "+
 					"was meant to keep it from", account, key)
 				return
@@ -583,13 +583,13 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	}
 	if private := cfg.Ssh.AgentSocket + ".private"; exists(private) &&
 		canWrite(opts.ExecUser, private) {
-		report.add("ssh key", StatusFailed, "%s can open %s, which is ssh-agent's own "+
+		report.addf("ssh key", StatusFailed, "%s can open %s, which is ssh-agent's own "+
 			"socket: that bypasses the relay and the whole agent protocol is reachable",
 			opts.ExecUser, private)
 		return
 	}
 	if skipped {
-		report.unasked("ssh key", 1, "%s can use the agent and read no key held "+
+		report.unaskedf("ssh key", 1, "%s can use the agent and read no key held "+
 			"by it. The agent account is not named, so whether it can read %s was "+
 			"not asked", opts.ExecUser, cfg.Ssh.Key)
 		return
@@ -598,7 +598,7 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	// question to.  Naming the operator here as well claimed a boundary nothing
 	// had asked about, and read as a verdict on an account that may not even be
 	// named.
-	report.add("ssh key", StatusOK, "%s can use the agent and read no key held by it",
+	report.addf("ssh key", StatusOK, "%s can use the agent and read no key held by it",
 		opts.ExecUser)
 }
 
@@ -632,11 +632,11 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 	nopasswd, known := sudoNoPasswd(opts.ExecUser)
 	switch {
 	case !known:
-		report.unasked("sudo credential", 1, "which account runs the executor is not "+
+		report.unaskedf("sudo credential", 1, "which account runs the executor is not "+
 			"known here, so a NOPASSWD entry for it went unchecked. Pass --exec-user")
 		return
 	case nopasswd != "":
-		report.add("sudo credential", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
+		report.addf("sudo credential", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
 			"a brokered command runs sudo without the broker, the question or a human "+
 			"in the way. Remove it: NOPASSWD skips PAM, which is where the approval "+
 			"is asked for", opts.ExecUser, nopasswd)
@@ -644,18 +644,18 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 	}
 	shadow, err := os.ReadFile(shadowFile)
 	if err != nil {
-		report.unasked("sudo credential", 1, "%s cannot be read (%v), so whether %s "+
+		report.unaskedf("sudo credential", 1, "%s cannot be read (%v), so whether %s "+
 			"holds a password it could authenticate with went unchecked. Re-run as root",
 			shadowFile, err, opts.ExecUser)
 		return
 	}
 	if shadowUsable(string(shadow), opts.ExecUser) {
-		report.add("sudo credential", StatusFailed, "%s has a usable password, so it can "+
+		report.addf("sudo credential", StatusFailed, "%s has a usable password, so it can "+
 			"authenticate without the broker being asked anything. Lock it: "+
 			"usermod -L %s", opts.ExecUser, opts.ExecUser)
 		return
 	}
-	report.add("sudo credential", StatusOK, "%s holds no NOPASSWD entry from any source "+
+	report.addf("sudo credential", StatusOK, "%s holds no NOPASSWD entry from any source "+
 		"and no password of its own, which are the two ways it could sudo with the "+
 		"broker out of the way", opts.ExecUser)
 }
@@ -670,7 +670,7 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 // gates when there is no stack at all.
 func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.add("sudo grant", StatusNA, "no [sudo] section, so nothing here "+
+		report.addf("sudo grant", StatusNA, "no [sudo] section, so nothing here "+
 			"authenticates an approval and there is no PAM service, helper or fallback "+
 			"to read. Brokered commands cannot sudo, which is the default arrangement; "+
 			"`faramir init --allow-sudo` is what writes the three")
@@ -680,14 +680,14 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	pamFile := filepath.Join(pamDir, cfg.Sudo.PamService)
 	body, err := os.ReadFile(pamFile)
 	if err != nil {
-		report.add("sudo grant", StatusFailed, "%s is configured to authenticate "+
+		report.addf("sudo grant", StatusFailed, "%s is configured to authenticate "+
 			"through %s, which cannot be read (%v): sudo falls back to %s/other for "+
 			"that account. Re-run `faramir init --allow-sudo`",
 			opts.ExecUser, pamFile, err, pamDir)
 		return
 	}
 	if problem := pamStackProblem(string(body), cfg.Sudo.Helper); problem != "" {
-		report.add("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
+		report.addf("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
 		return
 	}
 	// The helper the stack execs, as root.  An account that can write it chooses
@@ -695,7 +695,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	accounts, skipped := askable(opts.ExecUser, opts.AgentUser)
 	for _, account := range accounts {
 		if canWrite(account, cfg.Sudo.Helper) {
-			report.add("sudo grant", StatusFailed, "%s can write %s, which is what "+
+			report.addf("sudo grant", StatusFailed, "%s can write %s, which is what "+
 				"decides every approval: it would be choosing its own answer",
 				account, cfg.Sudo.Helper)
 			return
@@ -705,7 +705,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	// permissive `other` would authenticate anything reaching it.
 	if other, err := os.ReadFile(filepath.Join(pamDir, "other")); err == nil {
 		if permissiveAuth(string(other)) {
-			report.add("sudo grant", StatusFailed, "%s/other authenticates without "+
+			report.addf("sudo grant", StatusFailed, "%s/other authenticates without "+
 				"asking anything, so removing %s would not close this host's "+
 				"approval but open it. Make the fallback pam_deny",
 				pamDir, pamFile)
@@ -713,12 +713,12 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		}
 	}
 	if skipped {
-		report.unasked("sudo grant", 1, "%s asks the broker, and %s cannot write "+
+		report.unaskedf("sudo grant", 1, "%s asks the broker, and %s cannot write "+
 			"%s. The agent account is not named, so whether it can was not asked",
 			pamFile, strings.Join(accounts, " or "), cfg.Sudo.Helper)
 		return
 	}
-	report.add("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker, and "+
+	report.addf("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker, and "+
 		"root answers, one approval per command", opts.ExecUser, pamFile)
 }
 
@@ -765,7 +765,7 @@ var usernsSwitches = []struct {
 // host also depends on.
 func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.add("user namespaces", StatusNA, "no [sudo] section, so the executor "+
+		report.addf("user namespaces", StatusNA, "no [sudo] section, so the executor "+
 			"unit is rendered with SystemCallFilter=@system-service, which excludes "+
 			"@mount: a namespace confers capabilities with nothing to act on. A host "+
 			"that grants an approval cannot carry that filter, which is what makes "+
@@ -779,11 +779,11 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 		}
 		value := strings.TrimSpace(string(raw))
 		if value != control.open {
-			report.add("user namespaces", StatusOK, "%s is %s, so %s cannot unshare a "+
+			report.addf("user namespaces", StatusOK, "%s is %s, so %s cannot unshare a "+
 				"user namespace to hold capabilities in", control.path, value, opts.ExecUser)
 			return
 		}
-		report.add("user namespaces", StatusWarn, "%s is %s, so a brokered command may "+
+		report.addf("user namespaces", StatusWarn, "%s is %s, so a brokered command may "+
 			"unshare a user namespace and hold a full capability set inside it. The "+
 			"executor unit cannot refuse this: RestrictNamespaces= denies clone3(), "+
 			"which is how every run is spawned into its cgroup. The uid boundaries "+
@@ -793,7 +793,7 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 			control.path, value, opts.ExecUser, control.path, control.shut)
 		return
 	}
-	report.unasked("user namespaces", 1, "this kernel exposes no switch for "+
+	report.unaskedf("user namespaces", 1, "this kernel exposes no switch for "+
 		"unprivileged user namespaces, so whether a brokered command may unshare "+
 		"one was not asked. The executor unit cannot refuse it either: "+
 		"RestrictNamespaces= denies clone3(), which is how every run is spawned "+
@@ -828,7 +828,7 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // decides something on the host that cannot carry the filter.
 func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.add("ptrace scope", StatusNA, "no [sudo] section, so the executor unit is "+
+		report.addf("ptrace scope", StatusNA, "no [sudo] section, so the executor unit is "+
 			"rendered with SystemCallFilter=@system-service, which excludes @ptrace: the "+
 			"syscall is refused whatever %s says. A host that grants an approval cannot "+
 			"carry that filter, which is what makes this setting decide something there",
@@ -837,7 +837,7 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 	}
 	raw, err := os.ReadFile(ptraceScopeFile)
 	if err != nil {
-		report.unasked("ptrace scope", 1, "%s cannot be read (%v), so it is not "+
+		report.unaskedf("ptrace scope", 1, "%s cannot be read (%v), so it is not "+
 			"known whether one process running as %s can ptrace another. On a host "+
 			"that grants an approval, that is the difference between a run's "+
 			"processes being separate and being one",
@@ -846,7 +846,7 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 	}
 	scope := strings.TrimSpace(string(raw))
 	if scope == "0" {
-		report.add("ptrace scope", StatusWarn, "%s is 0, so any process running as %s "+
+		report.addf("ptrace scope", StatusWarn, "%s is 0, so any process running as %s "+
 			"may ptrace any other of that uid. This host grants an approval, and the "+
 			"executor unit carries no seccomp filter to refuse it (a filter would "+
 			"force NoNewPrivileges= on, which makes sudo inert). Set it to 1 or "+
@@ -854,7 +854,7 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 			"/etc/sysctl.d to keep it", ptraceScopeFile, cfg.Sudo.ExecUser)
 		return
 	}
-	report.add("ptrace scope", StatusOK, "%s is %s, so one process running as %s "+
+	report.addf("ptrace scope", StatusOK, "%s is %s, so one process running as %s "+
 		"cannot attach to another that is not its own descendant",
 		ptraceScopeFile, scope, cfg.Sudo.ExecUser)
 }
@@ -874,12 +874,12 @@ func diagnoseCgroupDelegation(report *DoctorReport, _ DoctorOptions, _ *config.C
 		// checks already speak to that, and this cannot add to it.
 		return
 	case !delegates:
-		report.add("cgroup delegation", StatusFailed, "the executor unit does not set "+
+		report.addf("cgroup delegation", StatusFailed, "the executor unit does not set "+
 			"Delegate=, so it cannot confine a run and the executor refuses to run one: "+
 			"every brokered command fails until this is fixed. Reinstall with `faramir "+
 			"init` on a host running cgroup v2 (kernel >= 5.14)")
 	default:
-		report.add("cgroup delegation", StatusOK, "the executor unit is delegated a "+
+		report.addf("cgroup delegation", StatusOK, "the executor unit is delegated a "+
 			"cgroup subtree, so each run is confined and reaped and a setsid child "+
 			"cannot outlive it")
 	}
@@ -963,18 +963,18 @@ func diagnoseProtectProc(report *DoctorReport, opts DoctorOptions) {
 		// Warn, not fail: the unit is socket-activated, so idle is its resting
 		// state, and a broker that cannot be reached at all is already reported by
 		// the socket check and the broker probe.
-		report.unasked("protectproc", 1, "the broker is not running, so what "+
+		report.unaskedf("protectproc", 1, "the broker is not running, so what "+
 			"/proc shows of it cannot be checked")
 		return
 	}
 	environ := filepath.Join("/proc", pid, "environ")
 	if canRead(opts.AgentUser, environ) {
-		report.add("protectproc", StatusFailed, "%s can read %s; ProtectProc is not "+
+		report.addf("protectproc", StatusFailed, "%s can read %s; ProtectProc is not "+
 			"in effect and a running command's value is readable there",
 			opts.AgentUser, environ)
 		return
 	}
-	report.add("protectproc", StatusOK, "%s cannot read the broker's environ", opts.AgentUser)
+	report.addf("protectproc", StatusOK, "%s cannot read the broker's environ", opts.AgentUser)
 }
 
 // mainPID asks systemd rather than matching a process name.
@@ -1007,16 +1007,18 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 	// reported rather than the broker's answer.
 	switch serves {
 	case servesNothing:
-		report.unasked("brokered command", 1, "not asked: the broker has read "+
+		report.unaskedf("brokered command", 1, "not asked: the broker has read "+
 			"no managed file, so it refuses the command this would run")
 		return
 	case servesUnknown:
-		report.unasked("brokered command", 1, "not asked: --check did not report, "+
+		report.unaskedf("brokered command", 1, "not asked: --check did not report, "+
 			"so whether the broker would refuse the command this runs is unknown")
 		return
+	case servesValues:
+		// The command is sent, which is the rest of this function.
 	}
 	if opts.BrokerVersion == "" {
-		report.unasked("brokered command", 1, "not asked: the broker did not "+
+		report.unaskedf("brokered command", 1, "not asked: the broker did not "+
 			"answer, so the command this runs cannot be sent")
 		return
 	}
@@ -1026,12 +1028,12 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 	}
 	out, err := brokered("id", "-un")
 	if err != nil {
-		report.add("brokered command", StatusFailed, "%s could not run one: %v",
+		report.addf("brokered command", StatusFailed, "%s could not run one: %v",
 			opts.AgentUser, err)
 		return
 	}
 	if got := strings.TrimSpace(out); got != opts.ExecUser {
-		report.add("brokered command", StatusFailed, "runs as %s, expected %s: it is "+
+		report.addf("brokered command", StatusFailed, "runs as %s, expected %s: it is "+
 			"holding whatever that account can reach", got, opts.ExecUser)
 		return
 	}
@@ -1047,18 +1049,18 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 		got := strings.TrimSpace(out)
 		switch {
 		case leak.want != "" && got != leak.want:
-			report.add("brokered command", StatusFailed, "the age key reaches a child "+
+			report.addf("brokered command", StatusFailed, "the age key reaches a child "+
 				"through %s", leak.name)
 			return
 		// Without the output: a finding that quotes it has published it.
 		case leak.want == "" && got != "" && !strings.Contains(strings.ToLower(got), "no such file") &&
 			!strings.Contains(strings.ToLower(got), "permission denied"):
-			report.add("brokered command", StatusFailed, "a child read something from "+
+			report.addf("brokered command", StatusFailed, "a child read something from "+
 				"%s; inspect /run/credentials by hand", leak.name)
 			return
 		}
 	}
-	report.add("brokered command", StatusOK, "runs as %s, and the age key reaches it "+
+	report.addf("brokered command", StatusOK, "runs as %s, and the age key reaches it "+
 		"through neither the environment nor a credential", opts.ExecUser)
 	diagnoseRedaction(report, opts)
 }
@@ -1071,28 +1073,28 @@ func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
 	faramir := filepath.Join(DefaultBinDir, "faramir")
 	out, err := asOperator(opts, faramir, "list-secrets")
 	if err != nil {
-		report.add("redaction", StatusFailed, "could not list the refs to probe with: %v", err)
+		report.addf("redaction", StatusFailed, "could not list the refs to probe with: %v", err)
 		return
 	}
 	ref := strings.TrimSpace(strings.SplitN(strings.TrimSpace(out), "\n", 2)[0])
 	if ref == "" {
-		report.unasked("redaction", 1, "no managed refs to probe with, so nothing "+
+		report.unaskedf("redaction", 1, "no managed refs to probe with, so nothing "+
 			"here proves redaction runs")
 		return
 	}
 	probe, err := asOperator(opts, faramir, "run", "--quiet",
 		"--env", "FARAMIR_DOCTOR_PROBE="+ref, "--", "printenv", "FARAMIR_DOCTOR_PROBE")
 	if err != nil {
-		report.add("redaction", StatusFailed, "could not run the probe: %v", err)
+		report.addf("redaction", StatusFailed, "could not run the probe: %v", err)
 		return
 	}
 	if !strings.Contains(probe, "«SECRET:") {
-		report.add("redaction", StatusFailed, "a command printing %s returned something "+
+		report.addf("redaction", StatusFailed, "a command printing %s returned something "+
 			"that is not its token, which is the value itself. Not quoted here: read it "+
 			"with `faramir run --env X=%s -- printenv X`", ref, ref)
 		return
 	}
-	report.add("redaction", StatusOK, "an injected value comes back as its token")
+	report.addf("redaction", StatusOK, "an injected value comes back as its token")
 }
 
 // ownerName is the account a file belongs to, or the numeric uid.

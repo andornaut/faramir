@@ -58,8 +58,9 @@ func TestTemplatesRender(t *testing.T) {
 }
 
 func unitValues() []string {
-	var out []string
-	for _, name := range unitNames() {
+	names := unitNames()
+	out := make([]string, 0, len(names))
+	for _, name := range names {
 		out = append(out, units[name])
 	}
 	return out

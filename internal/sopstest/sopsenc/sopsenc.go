@@ -5,6 +5,7 @@
 package sopsenc
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -23,7 +24,7 @@ import (
 // touches a private identity.
 func Encrypt(format sopsformats.Format, recipients []string, branches sops.TreeBranches) ([]byte, error) {
 	if len(recipients) == 0 {
-		return nil, fmt.Errorf("no age recipients to encrypt to")
+		return nil, errors.New("no age recipients to encrypt to")
 	}
 	var group sops.KeyGroup
 	for _, recipient := range recipients {

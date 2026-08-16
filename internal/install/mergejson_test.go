@@ -17,6 +17,27 @@ func decode(t *testing.T, data []byte) map[string]any {
 	return out
 }
 
+// object and array are one value of a decoded document at the type the test
+// expects.  Checked rather than asserted: a merge that produced another shape
+// is the failure under test, and it has to read as one rather than as a panic.
+func object(t *testing.T, doc map[string]any, key string) map[string]any {
+	t.Helper()
+	value, ok := doc[key].(map[string]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want an object", key, doc[key])
+	}
+	return value
+}
+
+func array(t *testing.T, doc map[string]any, key string) []any {
+	t.Helper()
+	value, ok := doc[key].([]any)
+	if !ok {
+		t.Fatalf("%s = %#v, want an array", key, doc[key])
+	}
+	return value
+}
+
 // The reason for merging: a registration faramir knows nothing about survives
 // enrolment.
 func TestMergeJSONKeepsOtherServers(t *testing.T) {
@@ -64,7 +85,7 @@ func TestMergeJSONReplacesStaleFaramirHook(t *testing.T) {
 	if strings.Contains(string(merged), "faramir-guard") {
 		t.Errorf("the stale hook survived the merge: %s", merged)
 	}
-	hooks := decode(t, merged)["hooks"].(map[string]any)["PreToolUse"].([]any)
+	hooks := array(t, object(t, decode(t, merged), "hooks"), "PreToolUse")
 	if len(hooks) != 1 {
 		t.Errorf("PreToolUse has %d entries, want 1: %s", len(hooks), merged)
 	}
@@ -81,7 +102,7 @@ func TestMergeJSONKeepsForeignHook(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooks := decode(t, merged)["hooks"].(map[string]any)["PreToolUse"].([]any)
+	hooks := array(t, object(t, decode(t, merged), "hooks"), "PreToolUse")
 	if len(hooks) != 2 {
 		t.Fatalf("PreToolUse has %d entries, want 2: %s", len(hooks), merged)
 	}
@@ -99,10 +120,14 @@ func TestMergeJSONUnionsDenyRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	deny := decode(t, merged)["permissions"].(map[string]any)["deny"].([]any)
+	deny := array(t, object(t, decode(t, merged), "permissions"), "deny")
 	counts := map[string]int{}
 	for _, rule := range deny {
-		counts[rule.(string)]++
+		text, ok := rule.(string)
+		if !ok {
+			t.Fatalf("a deny rule is %#v, want a string", rule)
+		}
+		counts[text]++
 	}
 	for rule, want := range map[string]int{
 		"Read(**/*.sops.yml)":   1, // in both, must not double

@@ -313,8 +313,9 @@ func alternation(vs []string) *regexp.Regexp {
 }
 
 func compile(ref, value string) entry {
-	var vs []string
-	for v := range variants(value) {
+	encodings := variants(value)
+	vs := make([]string, 0, len(encodings))
+	for v := range encodings {
 		vs = append(vs, v)
 	}
 	sort.Strings(vs) // deterministic before the length sort
@@ -379,8 +380,6 @@ func (r *Redactor) Flush() string {
 // RedactText is a one-shot convenience for text that is already complete.
 func (r *Redactor) RedactText(text string) string { return r.Feed(text) + r.Flush() }
 
-// Summary is the wire response's "redactions": tokens and counts, never
-// values.
 // InvalidBytes is how many bytes of everything fed in were not valid UTF-8.
 //
 // Non-zero means the output was not text, and what came back is not what the
@@ -403,6 +402,7 @@ func invalidUTF8Bytes(text string) int {
 	return n
 }
 
+// Summary is the wire response's "redactions": tokens and counts, never values.
 func (r *Redactor) Summary() []Count {
 	out := []Count{}
 	for token, count := range r.counts {

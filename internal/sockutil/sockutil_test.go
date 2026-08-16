@@ -144,7 +144,7 @@ func otherAccount(t *testing.T) (string, int32) {
 	if err != nil {
 		t.Skipf("cannot read /etc/passwd: %v", err)
 	}
-	for _, line := range strings.Split(string(body), "\n") {
+	for line := range strings.SplitSeq(string(body), "\n") {
 		fields := strings.Split(line, ":")
 		if len(fields) < 3 {
 			continue

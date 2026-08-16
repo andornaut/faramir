@@ -20,7 +20,9 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -201,7 +203,11 @@ func listApprovals(socketPath string, asJSON bool) int {
 		return code
 	}
 	if asJSON {
-		body, _ := json.MarshalIndent(questions, "", "  ")
+		body, err := json.MarshalIndent(questions, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
+			return 1
+		}
 		fmt.Println(string(body))
 		// Same status as the text form.  It said "non-zero on nothing waiting, so a
 		// script can tell the two apart" and then returned 0 either way, which is the
@@ -442,7 +448,8 @@ func answer(prog, socketPath, id string, approve, asJSON bool) int {
 // roundTrip is send() for a caller that reads the body itself, and with a
 // deadline of its own: the approvals op holds the connection open on purpose.
 func roundTrip(socketPath string, request map[string]any, timeout time.Duration) ([]byte, error) {
-	conn, err := net.DialTimeout("unix", socketPath, 5*time.Second)
+	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(
+		context.Background(), "unix", socketPath)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", socketPath, err)
 	}
@@ -460,7 +467,7 @@ func roundTrip(socketPath string, request map[string]any, timeout time.Duration)
 		return nil, fmt.Errorf("reading the response: %w", err)
 	}
 	if len(line) == 0 {
-		return nil, fmt.Errorf("the broker closed the connection without answering")
+		return nil, errors.New("the broker closed the connection without answering")
 	}
 	return line, nil
 }

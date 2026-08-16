@@ -107,7 +107,7 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 // six as JSON, an invalid byte three.  A cap counted before encoding is a cap
 // whose meaning the command picks.
 func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
-	const cap = 64 * 1024
+	const limit = 64 * 1024
 	for _, tc := range []struct{ name, output string }{
 		{"plain text", strings.Repeat("ok: [host.example.com]\n", 200_000)},
 		{"angle brackets", strings.Repeat("<", 4_000_000)},
@@ -119,15 +119,15 @@ func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "audit.log")
-			NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: cap}).
+			NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: limit}).
 				Write(map[string]any{"log_id": "x", "op": "exec"}, Output{Text: tc.output})
 
 			data, err := os.ReadFile(path)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(data) > cap {
-				t.Errorf("the record is %d bytes for a cap of %d", len(data), cap)
+			if len(data) > limit {
+				t.Errorf("the record is %d bytes for a limit of %d", len(data), limit)
 			}
 			if n := strings.Count(string(data), "\n"); n != 1 {
 				t.Errorf("the record is %d lines, want 1", n)
@@ -147,9 +147,9 @@ func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
 // will take two megabytes of it, and nothing between the agent and this record
 // shortens it.
 func TestAnEnormousArgvStillFitsTheCap(t *testing.T) {
-	const cap = 64 * 1024
+	const limit = 64 * 1024
 	path := filepath.Join(t.TempDir(), "audit.log")
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: cap}).Write(map[string]any{
+	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: limit}).Write(map[string]any{
 		"log_id": "x", "op": "exec",
 		"cmd": []string{"bash", "-c", strings.Repeat("<", 2_000_000)},
 		"cwd": strings.Repeat("d", 100_000),
@@ -159,8 +159,8 @@ func TestAnEnormousArgvStillFitsTheCap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data) > cap {
-		t.Fatalf("the record is %d bytes for a cap of %d", len(data), cap)
+	if len(data) > limit {
+		t.Fatalf("the record is %d bytes for a limit of %d", len(data), limit)
 	}
 	var record map[string]any
 	if err := json.Unmarshal(data, &record); err != nil {
@@ -229,13 +229,11 @@ func TestLogIDsDoNotRepeatAcrossGoroutines(t *testing.T) {
 	ids := make(chan string, workers*each)
 	var wg sync.WaitGroup
 	for range workers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for range each {
 				ids <- NewLogID()
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(ids)
@@ -258,9 +256,7 @@ func TestConcurrentWritersLeaveEveryLineParseable(t *testing.T) {
 	const writers, each = 6, 40
 	var wg sync.WaitGroup
 	for w := range writers {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			log := NewLog(cfg) // its own Log, as another process would have
 			for i := range each {
 				log.Write(map[string]any{
@@ -268,7 +264,7 @@ func TestConcurrentWritersLeaveEveryLineParseable(t *testing.T) {
 					"cmd": []string{"echo", fmt.Sprintf("w%d-i%d", w, i)},
 				}, Output{Text: strings.Repeat("<", 20_000)})
 			}
-		}()
+		})
 	}
 	wg.Wait()
 
@@ -353,7 +349,8 @@ func TestUnwritableNamesAnUnopenableLog(t *testing.T) {
 // limit worth having, and 1.2MB once encoded.
 func TestALargeArgvKeepsTheRestOfTheRecord(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
-	args := []string{"bash", "-c"}
+	args := make([]string, 0, 202)
+	args = append(args, "bash", "-c")
 	for range 200 {
 		args = append(args, strings.Repeat("<", 1000))
 	}
@@ -474,9 +471,9 @@ func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
 // a reduced one.  A reserve fixed in advance instead lets the two add up past
 // the cap, cutting the fields of every such command.
 func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
-	const cap = 1 << 20
+	const limit = 1 << 20
 	path := filepath.Join(t.TempDir(), "audit.log")
-	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: cap})
+	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: limit})
 
 	// argv at what [server] max_request_bytes would let through, and output at
 	// what Collector streams against, which is the pair that has to coexist.
@@ -493,8 +490,8 @@ func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(data) > cap {
-		t.Fatalf("the record is %d bytes for a cap of %d", len(data), cap)
+	if len(data) > limit {
+		t.Fatalf("the record is %d bytes for a limit of %d", len(data), limit)
 	}
 	var record map[string]any
 	if err := json.Unmarshal(data, &record); err != nil {
@@ -573,7 +570,7 @@ func TestNothingACallerSendsReachesTheStub(t *testing.T) {
 	for i := range 20_000 {
 		refs[fmt.Sprintf("VAR_%05d_%s", i, strings.Repeat("N", 200))] = strings.Repeat("r", 500)
 	}
-	var args []string
+	args := make([]string, 0, 5_000)
 	for range 5_000 {
 		args = append(args, strings.Repeat("<", 2_000))
 	}

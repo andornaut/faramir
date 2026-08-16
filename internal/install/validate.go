@@ -102,7 +102,7 @@ func (r *runner) stepValidate() error {
 			// What it does is refuse, not run bare.  The sentence used to say the
 			// opposite, which reads as an exposure an operator has to hurry out of and
 			// teaches the wrong reflex for the day a value set really does fail to load.
-			r.warn("the broker is configured for %s, which %s named no file yet, "+
+			r.warnf("the broker is configured for %s, which %s named no file yet, "+
 				"so it is serving nothing: with no value set it refuses every brokered "+
 				"command rather than running one unredacted. Write the secrets directory "+
 				"with sops and re-run",
@@ -117,7 +117,7 @@ func (r *runner) stepValidate() error {
 		// lengthen a secret.  Failing here ends every future `init` on this host
 		// the same way, including the upgrade that would carry a fix.
 		if report.onlyNotRedactable() {
-			r.warn("%d ref(s) are too short for [secrets] min_length, so they are "+
+			r.warnf("%d ref(s) are too short for [secrets] min_length, so they are "+
 				"never injected and never redacted: %s. Lengthen them with `faramir "+
 				"edit`; everything else on this host is installed and serving",
 				len(report.Secrets.NotRedactable), report.refusedRefs())
@@ -168,7 +168,7 @@ func (r *runner) stepValidate() error {
 	// Skipped while the broker is refusing, which is what a first install looks
 	// like: this probe would report the refusal as an SSH fault.
 	if r.sshKey != "" && !report.serves() {
-		r.warn("the broker has read no managed file yet, so it refuses brokered " +
+		r.warnf("the broker has read no managed file yet, so it refuses brokered " +
 			"commands and what its ssh-agent holds could not be asked. Write a " +
 			"secret, then: faramir doctor")
 		r.step("broker ssh agent", false, "not asked")

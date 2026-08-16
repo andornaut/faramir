@@ -13,6 +13,7 @@ package install
 // this direction removes reach rather than leaving an older layout lying about.
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -42,7 +43,7 @@ func (r *runner) stepSudoGrant() error {
 	if !exists(sudoersDir) || !exists(pamDir) {
 		// A host with no sudo, or no PAM.  Reported rather than failed: the rest of
 		// the install works, and what does not is named.
-		r.warn("%s or %s does not exist, so no grant was written and brokered "+
+		r.warnf("%s or %s does not exist, so no grant was written and brokered "+
 			"commands cannot sudo here. Install sudo, then re-run this install",
 			sudoersDir, pamDir)
 		r.skip("sudo grant", "no "+sudoersDir+" or "+pamDir)
@@ -82,7 +83,7 @@ func (r *runner) stepSudoGrant() error {
 	// it must not have one: a usable hash would be a second way in, and one the
 	// broker is not asked about.  Re-asserted every run.
 	if _, err := r.command("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warn("could not lock %s's password (%v); it authenticates through the "+
+		r.warnf("could not lock %s's password (%v); it authenticates through the "+
 			"broker and should hold no password of its own: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
@@ -97,7 +98,7 @@ func (r *runner) stepSudoGrant() error {
 			if err := os.Remove(stale); err != nil {
 				return err
 			}
-			r.warn("removed %s, left by an earlier install: approval no longer uses "+
+			r.warnf("removed %s, left by an earlier install: approval no longer uses "+
 				"a password at all", stale)
 		}
 	}
@@ -148,7 +149,7 @@ func (r *runner) revokeSudoGrant() error {
 	// Locking rather than clearing: an account with an empty password field is
 	// one some PAM stacks let in without asking.
 	if _, err := r.command("usermod", "-L", r.layout.ExecUser); err != nil {
-		r.warn("could not lock %s's password (%v); the grant is gone, so nothing "+
+		r.warnf("could not lock %s's password (%v); the grant is gone, so nothing "+
 			"can sudo, but lock it by hand: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
@@ -167,13 +168,14 @@ func (r *runner) validateSudoers() error {
 		// Reported rather than failed: the file is generated from a template with no
 		// operator input in it, so the risk this covers is a sudo too old for a
 		// directive rather than a typo.
-		r.warn("visudo is not installed, so %s went unchecked; verify it with "+
+		r.warnf("visudo is not installed, so %s went unchecked; verify it with "+
 			"`visudo -cf %s` on a host that has it", sudoersFile, sudoersFile)
-		return nil
+		return nil //nolint:nilerr // no visudo is a warning, not a failed install
 	}
-	if out, err := exec.Command(path, "-cf", sudoersFile).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(context.Background(), path, "-cf", sudoersFile).
+		CombinedOutput(); err != nil {
 		removeErr := os.Remove(sudoersFile)
-		return fmt.Errorf("visudo rejected %s, so it was removed again (%v): %w: %s",
+		return fmt.Errorf("visudo rejected %s, so it was removed again (%w): %w: %s",
 			sudoersFile, removeErr, err, strings.TrimSpace(string(out)))
 	}
 	return nil

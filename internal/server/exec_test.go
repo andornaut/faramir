@@ -16,6 +16,17 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
+// errorMessage is the message of a refusal response.  Checked rather than
+// asserted: a response of another shape is the failure under test.
+func errorMessage(t *testing.T, r map[string]any) string {
+	t.Helper()
+	fields, ok := r["error"].(map[string]string)
+	if !ok {
+		t.Fatalf("error = %#v, want map[string]string", r["error"])
+	}
+	return fields["message"]
+}
+
 // These cover what the broker decides around a child process (the timeout, the
 // environment, the audit record, the concurrency limit) without a socket, a PTY
 // or a fork.
@@ -141,8 +152,8 @@ func TestTimeoutDefaultsAndClamps(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			s, rec := execServer(t)
 			request := map[string]any{"cmd": []any{"true"}}
-			if tc.asked != nil {
-				request["timeout_sec"] = float64(tc.asked.(int))
+			if asked, ok := tc.asked.(int); ok {
+				request["timeout_sec"] = float64(asked)
 			}
 			if r := exec(t, s, request); r["error"] != nil {
 				t.Fatalf("error: %v", r["error"])
@@ -220,7 +231,7 @@ func TestUnknownAndRefusedRefsAreDistinguished(t *testing.T) {
 			if code := errorCode(t, r); code != "unknown_secret" {
 				t.Fatalf("code = %q", code)
 			}
-			msg := r["error"].(map[string]string)["message"]
+			msg := errorMessage(t, r)
 			if !strings.Contains(msg, tc.want) {
 				t.Errorf("message %q does not say %q", msg, tc.want)
 			}
@@ -306,11 +317,9 @@ func TestOverTheConcurrencyLimitIsRefusedAsBusy(t *testing.T) {
 
 	var wg sync.WaitGroup
 	for range s.Config.Server.MaxConcurrency {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			exec(t, s, map[string]any{"cmd": []any{"true"}})
-		}()
+		})
 	}
 	// Both slots are held before the next request is made.
 	for range s.Config.Server.MaxConcurrency {
@@ -370,7 +379,10 @@ func TestTheAuditRecordNamesEverythingButTheValues(t *testing.T) {
 	}
 	record := lastRecord(t, s)
 
-	body, _ := json.Marshal(record)
+	body, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if strings.Contains(string(body), goodValue) {
 		t.Errorf("PLAINTEXT IN THE RECORD: %s", body)
 	}
@@ -380,7 +392,10 @@ func TestTheAuditRecordNamesEverythingButTheValues(t *testing.T) {
 		t.Errorf("output was not recorded tokenized: %q", out)
 	}
 	// Legible, which is the point of redacting rather than dropping it.
-	cmd, _ := json.Marshal(record["cmd"])
+	cmd, err := json.Marshal(record["cmd"])
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(string(cmd), "--password="+token) {
 		t.Errorf("the command line was not recorded legibly: %s", cmd)
 	}
@@ -408,7 +423,7 @@ func TestAResolveFailureIsRecordedAndReported(t *testing.T) {
 	if code := errorCode(t, r); code != "exec_failed" {
 		t.Fatalf("code = %q", code)
 	}
-	msg := r["error"].(map[string]string)["message"]
+	msg := errorMessage(t, r)
 	// The failure an operator actually hits, so it says what to do.
 	for _, want := range []string{"not found on the broker's PATH", "base_env"} {
 		if !strings.Contains(msg, want) {
@@ -454,7 +469,7 @@ func TestAnExecutorFailureIsRedactedBeforeItIsReported(t *testing.T) {
 	if code := errorCode(t, r); code != "exec_failed" {
 		t.Fatalf("code = %q", code)
 	}
-	msg := r["error"].(map[string]string)["message"]
+	msg := errorMessage(t, r)
 	if strings.Contains(msg, goodValue) {
 		t.Errorf("PLAINTEXT LEAKED through an error: %q", msg)
 	}

@@ -9,6 +9,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -215,7 +216,7 @@ func loadPatterns() []compiled {
 	}
 	if data, err := os.ReadFile(patternsFile()); err == nil {
 		var lines []string
-		for _, line := range strings.Split(string(data), "\n") {
+		for line := range strings.SplitSeq(string(data), "\n") {
 			line = strings.TrimSpace(line)
 			if line != "" && !strings.HasPrefix(line, "#") {
 				lines = append(lines, line)
@@ -371,9 +372,7 @@ func Run(args []string) int {
 	}
 	// Every field back, with only "command" changed.
 	updated := map[string]any{}
-	for k, v := range p.RawInput {
-		updated[k] = v
-	}
+	maps.Copy(updated, p.RawInput)
 	updated["command"] = wrapped
 
 	// The rewrite approves as well as rewrites: a wrapper that redacts output

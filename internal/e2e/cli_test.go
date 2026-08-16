@@ -13,7 +13,7 @@ import (
 var (
 	cliOnce sync.Once
 	cliPath string
-	cliErr  error
+	errCLI  error
 )
 
 // faramirCLI builds the real CLI once per run.  The flag surface is a contract
@@ -22,15 +22,17 @@ var (
 func faramirCLI(t *testing.T) string {
 	t.Helper()
 	cliOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "faramir-cli-")
+		// Not t.TempDir: the binary is built once and driven by every test after
+		// this one, and a directory removed when this test ends takes it with it.
+		dir, err := os.MkdirTemp("", "faramir-cli-") //nolint:usetesting // outlives this test on purpose
 		if err != nil {
-			cliErr = err
+			errCLI = err
 			return
 		}
 		out := filepath.Join(dir, "faramir")
-		cmd := exec.Command("go", "build", "-o", out, "github.com/andornaut/faramir/cmd/faramir")
+		cmd := exec.CommandContext(t.Context(), "go", "build", "-o", out, "github.com/andornaut/faramir/cmd/faramir")
 		if combined, err := cmd.CombinedOutput(); err != nil {
-			cliErr = err
+			errCLI = err
 			t.Logf("building the CLI: %s", combined)
 			return
 		}
@@ -39,8 +41,8 @@ func faramirCLI(t *testing.T) string {
 	// Fatal rather than skipped: this is the repository's own binary, so a build
 	// that fails is a bug here.  Skipped instead, it takes every test below that
 	// drives the CLI with it and the package reports green having run none.
-	if cliErr != nil {
-		t.Fatalf("could not build the CLI: %v", cliErr)
+	if errCLI != nil {
+		t.Fatalf("could not build the CLI: %v", errCLI)
 	}
 	return cliPath
 }
@@ -61,7 +63,7 @@ func runCLI(t *testing.T, sock string, args ...string) cliResult {
 // outright.
 func runCLIEnv(t *testing.T, env []string, args ...string) cliResult {
 	t.Helper()
-	cmd := exec.Command(faramirCLI(t), args...)
+	cmd := exec.CommandContext(t.Context(), faramirCLI(t), args...)
 	if env != nil {
 		cmd.Env = append(os.Environ(), env...)
 	}

@@ -17,9 +17,11 @@ import (
 func writeRule(t *testing.T, dir string, recipients ...string) string {
 	t.Helper()
 	body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n"
+	var bodySb20 strings.Builder
 	for _, recipient := range recipients {
-		body += "          - " + recipient + "\n"
+		bodySb20.WriteString("          - " + recipient + "\n")
 	}
+	body += bodySb20.String()
 	path := filepath.Join(dir, ".sops.yaml")
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)

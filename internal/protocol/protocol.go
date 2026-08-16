@@ -12,6 +12,7 @@ package protocol
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
@@ -78,130 +79,184 @@ type Request struct {
 }
 
 // Parse validates a decoded request payload.
+//
+// One step per field, in the order the errors are worth reading in: what the op
+// is, then what it needs, then what any op may carry.  Each step reports the
+// first thing wrong with its own field and nothing about the others, so a
+// caller fixes one thing at a time.
 func Parse(payload map[string]any) (*Request, error) {
 	req := &Request{Op: "exec", EnvRefs: map[string]string{}}
+	for _, step := range []func(map[string]any, *Request) error{
+		parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
+		parseApprove, parseAskApproval, parseWaits,
+	} {
+		if err := step(payload, req); err != nil {
+			return nil, err
+		}
+	}
+	return req, nil
+}
 
+// parseOp settles which op this is, every other step being about what that op
+// carries.  Absent means exec, which is what a caller sending only a command
+// means.
+func parseOp(payload map[string]any, req *Request) error {
 	if raw, ok := payload["op"]; ok && raw != nil {
 		op, isStr := raw.(string)
 		if !isStr {
-			return nil, fmt.Errorf("unknown op %v; expected one of %s", raw, strings.Join(ops, ", "))
+			return fmt.Errorf("unknown op %v; expected one of %s", raw, strings.Join(ops, ", "))
 		}
 		req.Op = op
 	}
 	if !slices.Contains(ops, req.Op) {
-		return nil, fmt.Errorf("unknown op %q; expected one of %s", req.Op, strings.Join(ops, ", "))
+		return fmt.Errorf("unknown op %q; expected one of %s", req.Op, strings.Join(ops, ", "))
 	}
+	return nil
+}
 
+// parseCmd takes the command an exec must carry.  Every other op may carry one
+// too -- it is what the audit record names the request by -- and there it is
+// read for what it holds rather than required.
+func parseCmd(payload map[string]any, req *Request) error {
 	rawCmd, hasCmd := payload["cmd"]
-	if req.Op == "exec" {
-		if _, isStr := rawCmd.(string); isStr {
-			return nil, fmt.Errorf("'cmd' must be an array, not a string; the broker never " +
-				"invokes a shell for you -- send ['bash', '-lc', '…']")
-		}
-		list, isList := rawCmd.([]any)
-		if !hasCmd || !isList || len(list) == 0 {
-			return nil, fmt.Errorf("'cmd' must be a non-empty array of strings")
-		}
-		for _, a := range list {
-			s, isStr := a.(string)
-			if !isStr {
-				return nil, fmt.Errorf("'cmd' must contain only strings")
-			}
-			req.Cmd = append(req.Cmd, s)
-		}
-	} else if list, isList := rawCmd.([]any); isList {
-		for _, a := range list {
-			if s, isStr := a.(string); isStr {
-				req.Cmd = append(req.Cmd, s)
+	if req.Op != "exec" {
+		if list, isList := rawCmd.([]any); isList {
+			for _, a := range list {
+				if s, isStr := a.(string); isStr {
+					req.Cmd = append(req.Cmd, s)
+				}
 			}
 		}
+		return nil
 	}
-
-	if req.Op == "redact" {
-		text, isStr := payload["text"].(string)
+	if _, isStr := rawCmd.(string); isStr {
+		return errors.New("'cmd' must be an array, not a string; the broker never " +
+			"invokes a shell for you -- send ['bash', '-lc', '…']")
+	}
+	list, isList := rawCmd.([]any)
+	if !hasCmd || !isList || len(list) == 0 {
+		return errors.New("'cmd' must be a non-empty array of strings")
+	}
+	for _, a := range list {
+		s, isStr := a.(string)
 		if !isStr {
-			return nil, fmt.Errorf("'text' must be a string")
+			return errors.New("'cmd' must contain only strings")
 		}
-		req.Text = text
-		if raw, ok := payload["more"]; ok && raw != nil {
-			more, isBool := raw.(bool)
-			if !isBool {
-				return nil, fmt.Errorf("'more' must be a boolean")
-			}
-			req.More = more
-		}
+		req.Cmd = append(req.Cmd, s)
 	}
+	return nil
+}
 
-	if raw, ok := payload["cwd"]; ok && raw != nil {
-		cwd, isStr := raw.(string)
-		if !isStr || !strings.HasPrefix(cwd, "/") {
-			return nil, fmt.Errorf("'cwd' must be an absolute path")
-		}
-		req.Cwd, req.HasCwd = cwd, true
+// parseRedact takes the text a redact scrubs, and whether more of the stream
+// follows it.
+func parseRedact(payload map[string]any, req *Request) error {
+	if req.Op != "redact" {
+		return nil
 	}
-
-	if raw, ok := payload["env_refs"]; ok && raw != nil {
-		m, isMap := raw.(map[string]any)
-		if !isMap {
-			return nil, fmt.Errorf("'env_refs' must be an object of NAME -> secret:// URI")
-		}
-		for name, uri := range m {
-			if !envNameRe.MatchString(name) {
-				return nil, fmt.Errorf("invalid environment variable name: %q", name)
-			}
-			if ReservedEnv[name] {
-				return nil, fmt.Errorf("%s is reserved and cannot be overwritten", name)
-			}
-			s, isStr := uri.(string)
-			if !isStr {
-				return nil, fmt.Errorf("env_refs[%s] must be a secret:// URI string", name)
-			}
-			// Shape, not existence: a well-formed ref naming nothing is
-			// unknown_secret.
-			if _, err := secretref.Parse(s); err != nil {
-				return nil, fmt.Errorf("env_refs[%s]: %v", name, err)
-			}
-			req.EnvRefs[name] = s
-		}
+	text, isStr := payload["text"].(string)
+	if !isStr {
+		return errors.New("'text' must be a string")
 	}
-
-	if req.Op == "approve" {
-		id, isStr := payload["id"].(string)
-		if !isStr || id == "" {
-			return nil, fmt.Errorf("'id' must name the question to answer; " +
-				"`faramir approvals` lists what is waiting")
+	req.Text = text
+	if raw, ok := payload["more"]; ok && raw != nil {
+		more, isBool := raw.(bool)
+		if !isBool {
+			return errors.New("'more' must be a boolean")
 		}
-		req.ID = id
-		// Absent is a refusal.  Deny by default holds here too: a malformed answer
-		// must not read as a yes.
-		req.Approve, _ = payload["approve"].(bool)
+		req.More = more
 	}
+	return nil
+}
 
-	if req.Op == "ask_approval" {
-		token, isStr := payload["token"].(string)
-		if !isStr || token == "" {
-			return nil, fmt.Errorf("'token' must name the brokered command asking to sudo")
+func parseCwd(payload map[string]any, req *Request) error {
+	raw, ok := payload["cwd"]
+	if !ok || raw == nil {
+		return nil
+	}
+	cwd, isStr := raw.(string)
+	if !isStr || !strings.HasPrefix(cwd, "/") {
+		return errors.New("'cwd' must be an absolute path")
+	}
+	req.Cwd, req.HasCwd = cwd, true
+	return nil
+}
+
+func parseEnvRefs(payload map[string]any, req *Request) error {
+	raw, ok := payload["env_refs"]
+	if !ok || raw == nil {
+		return nil
+	}
+	m, isMap := raw.(map[string]any)
+	if !isMap {
+		return errors.New("'env_refs' must be an object of NAME -> secret:// URI")
+	}
+	for name, uri := range m {
+		if !envNameRe.MatchString(name) {
+			return fmt.Errorf("invalid environment variable name: %q", name)
 		}
-		req.Token = token
+		if ReservedEnv[name] {
+			return fmt.Errorf("%s is reserved and cannot be overwritten", name)
+		}
+		s, isStr := uri.(string)
+		if !isStr {
+			return fmt.Errorf("env_refs[%s] must be a secret:// URI string", name)
+		}
+		// Shape, not existence: a well-formed ref naming nothing is
+		// unknown_secret.
+		if _, err := secretref.Parse(s); err != nil {
+			return fmt.Errorf("env_refs[%s]: %w", name, err)
+		}
+		req.EnvRefs[name] = s
 	}
+	return nil
+}
 
+func parseApprove(payload map[string]any, req *Request) error {
+	if req.Op != "approve" {
+		return nil
+	}
+	id, isStr := payload["id"].(string)
+	if !isStr || id == "" {
+		return errors.New("'id' must name the question to answer; " +
+			"`faramir approvals` lists what is waiting")
+	}
+	req.ID = id
+	// Absent is a refusal.  Deny by default holds here too: a malformed answer
+	// must not read as a yes.
+	req.Approve, _ = payload["approve"].(bool)
+	return nil
+}
+
+func parseAskApproval(payload map[string]any, req *Request) error {
+	if req.Op != "ask_approval" {
+		return nil
+	}
+	token, isStr := payload["token"].(string)
+	if !isStr || token == "" {
+		return errors.New("'token' must name the brokered command asking to sudo")
+	}
+	req.Token = token
+	return nil
+}
+
+// parseWaits takes the two durations any op may carry: how long a watcher may
+// block, and how long a command may run.
+func parseWaits(payload map[string]any, req *Request) error {
 	if raw, ok := payload["wait_sec"]; ok && raw != nil {
 		n, isNum := toInt(raw)
 		if !isNum || n < 0 {
-			return nil, fmt.Errorf("'wait_sec' must be a non-negative integer")
+			return errors.New("'wait_sec' must be a non-negative integer")
 		}
 		req.WaitSec = n
 	}
-
 	if raw, ok := payload["timeout_sec"]; ok && raw != nil {
 		n, isNum := toInt(raw)
 		if !isNum || n <= 0 {
-			return nil, fmt.Errorf("'timeout_sec' must be a positive integer")
+			return errors.New("'timeout_sec' must be a positive integer")
 		}
 		req.TimeoutSec = n
 	}
-
-	return req, nil
+	return nil
 }
 
 // toInt accepts an integral JSON number.

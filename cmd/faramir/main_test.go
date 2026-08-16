@@ -232,8 +232,9 @@ func dispatcherNames(t *testing.T) []string {
 		t.Fatalf("assembling the root: %s", err)
 	}
 
-	var names []string
-	for _, c := range root.Commands() {
+	commands := root.Commands()
+	names := make([]string, 0, len(commands))
+	for _, c := range commands {
 		names = append(names, c.Name())
 	}
 	if len(names) < 10 {

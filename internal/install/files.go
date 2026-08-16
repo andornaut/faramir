@@ -347,7 +347,7 @@ func (r *runner) stepLogrotate() error {
 	// installed and has no ceiling on the log at all.  Said here and checked again
 	// by `faramir doctor`.
 	if _, err := exec.LookPath("logrotate"); err != nil {
-		r.warn("logrotate is not installed, so %s is inert and %s grows without a "+
+		r.warnf("logrotate is not installed, so %s is inert and %s grows without a "+
 			"ceiling: [audit] max_record_bytes bounds one record, not the file. "+
 			"Install logrotate, or manage that file some other way",
 			logrotateConfig, r.layout.AuditLogPath())

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"net"
 	"strings"
 	"testing"
@@ -40,7 +41,7 @@ func TestAPeerThatNeverReadsDoesNotHoldTheBroker(t *testing.T) {
 		close(served)
 	}()
 
-	conn, err := net.Dial("unix", s.Config.Server.SocketPath)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", s.Config.Server.SocketPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -103,7 +104,7 @@ func TestALongOpDoesNotRunOutTheRequestDeadline(t *testing.T) {
 	go func() { _ = s.Serve() }()
 	t.Cleanup(func() { _ = s.Close() })
 
-	conn, err := net.Dial("unix", s.Config.Server.SocketPath)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", s.Config.Server.SocketPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,8 +129,8 @@ func readReply(conn net.Conn) (string, error) {
 	for {
 		n, err := conn.Read(chunk)
 		buf = append(buf, chunk[:n]...)
-		if i := strings.IndexByte(string(buf), '\n'); i >= 0 {
-			return string(buf[:i]), nil
+		if line, _, found := bytes.Cut(buf, []byte{'\n'}); found {
+			return string(line), nil
 		}
 		if err != nil {
 			return "", err

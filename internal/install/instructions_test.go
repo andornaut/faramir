@@ -836,7 +836,11 @@ func TestTheGroupIsAssertedOnlyWhereItIsLoadBearing(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := int(info.Sys().(*syscall.Stat_t).Gid); got != tc.want {
+			stat, ok := info.Sys().(*syscall.Stat_t)
+			if !ok {
+				t.Fatalf("FileInfo.Sys() = %T, want a *syscall.Stat_t", info.Sys())
+			}
+			if got := int(stat.Gid); got != tc.want {
 				t.Errorf("gid = %d, want %d", got, tc.want)
 			}
 		})

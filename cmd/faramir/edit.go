@@ -11,6 +11,7 @@ package main
 // set; and an audit record.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -333,7 +334,7 @@ func editManaged(target, keyPath, editorPath string) (bool, error) {
 		return false, err
 	}
 
-	cmd := exec.Command(editorPath, plain)
+	cmd := exec.CommandContext(context.Background(), editorPath, plain)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	// Fixed: the editor runs as root, and the operator can set every variable one
 	// reads for configuration.
@@ -390,7 +391,7 @@ func writeBack(target string, data []byte) error {
 // supplies it, so it is absent from any environment block in /proc.  A fixed
 // environment, since sops reads several variables naming a key or key source.
 func runSops(keyPath string, args ...string) ([]byte, error) {
-	cmd := exec.Command(sopsBinary, args...)
+	cmd := exec.CommandContext(context.Background(), sopsBinary, args...)
 	cmd.Env = []string{
 		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
 		"HOME=" + envOr("HOME", "/tmp"),

@@ -10,6 +10,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -97,7 +98,7 @@ func decrypt(file, outputType string) error {
 	originalMac, err := cipher.Decrypt(tree.Metadata.MessageAuthenticationCode, key,
 		tree.Metadata.LastModified.Format(time.RFC3339))
 	if err != nil || originalMac != mac {
-		return fmt.Errorf("failed to verify data integrity")
+		return errors.New("failed to verify data integrity")
 	}
 
 	// Without --output-type the plaintext keeps the file's own format, which is
@@ -116,7 +117,7 @@ func decrypt(file, outputType string) error {
 
 func encrypt(file, recipients string) error {
 	if recipients == "" {
-		return fmt.Errorf("--encrypt needs --age")
+		return errors.New("--encrypt needs --age")
 	}
 	data, err := os.ReadFile(file)
 	if err != nil {

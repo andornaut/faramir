@@ -17,7 +17,7 @@ func names(t *testing.T, values []string, scope agentScope, dir string) []string
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := []string{}
+	out := make([]string, 0, len(targets))
 	for _, target := range targets {
 		out = append(out, target.name)
 	}
@@ -260,11 +260,17 @@ func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
 	if got["model"] != "anthropic/claude-opus-4" {
 		t.Errorf("the operator's model was lost: %s", merged)
 	}
-	permission := got["permission"].(map[string]any)
+	permission, ok := got["permission"].(map[string]any)
+	if !ok {
+		t.Fatalf("permission = %#v, want an object: %s", got["permission"], merged)
+	}
 	if _, kept := permission["bash"]; !kept {
 		t.Errorf("the operator's bash rules were lost: %s", merged)
 	}
-	read := permission["read"].(map[string]any)
+	read, ok := permission["read"].(map[string]any)
+	if !ok {
+		t.Fatalf("permission.read = %#v, want an object: %s", permission["read"], merged)
+	}
 	// Their catch-all survives, and faramir writes none of its own.
 	if read["*"] != "allow" {
 		t.Errorf("the operator's catch-all was lost: %s", merged)

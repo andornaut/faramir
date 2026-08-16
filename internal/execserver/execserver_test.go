@@ -1,6 +1,7 @@
 package execserver
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -59,9 +60,7 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 
 	var wg sync.WaitGroup
 	var output strings.Builder
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		// One deadline for the whole drain; resetting it inside the loop races with
 		// the close below.
 		_ = master.SetReadDeadline(time.Now().Add(30 * time.Second))
@@ -75,7 +74,7 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 				return // EIO is the normal EOF on a PTY
 			}
 		}
-	}()
+	})
 
 	result, err := client.Result(20 * time.Second)
 	// Drain to EOF first: the child's last write can still be in the terminal
@@ -184,7 +183,7 @@ func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
 		t.Fatal(err)
 	}
 	var gpid int
-	for _, field := range strings.Fields(output) {
+	for field := range strings.FieldsSeq(output) {
 		if after, ok := strings.CutPrefix(field, "GPID="); ok {
 			gpid, _ = strconv.Atoi(strings.TrimSpace(after))
 		}
@@ -233,7 +232,7 @@ func running(pid int) bool {
 	}
 	// The state is the field after the comm, which is parenthesised and may itself
 	// hold spaces or ')', so the scan starts past the last ')'.
-	end := strings.LastIndexByte(string(data), ')')
+	end := bytes.LastIndexByte(data, ')')
 	fields := strings.Fields(string(data)[end+1:])
 	return len(fields) > 0 && fields[0] != "Z"
 }

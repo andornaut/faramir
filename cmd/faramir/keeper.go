@@ -64,9 +64,13 @@ func runKeeper(f keeperFlags) int {
 			errs = []string{}
 		}
 		// Names only, even for the operator.
-		out, _ := json.MarshalIndent(map[string]any{
+		out, err := json.MarshalIndent(map[string]any{
 			"refs": keeper.SortedRefs(values), "errors": errs,
 		}, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "faramir keeper: %v\n", err)
+			return 1
+		}
 		fmt.Println(string(out))
 		if len(errs) > 0 {
 			return 1

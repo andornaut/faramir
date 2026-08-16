@@ -54,8 +54,8 @@ func TestUnresolvedIDsAreLeftAloneRatherThanTakenByRoot(t *testing.T) {
 	}
 	// And the real path still refuses, an enrolment that cannot name the owner
 	// having nothing to hand the tree to.
-	real := &project{opts: ProjectOptions{AgentUser: "nosuchuser-faramir"}}
-	if err := real.resolveIDs(); err == nil {
+	named := &project{opts: ProjectOptions{AgentUser: "nosuchuser-faramir"}}
+	if err := named.resolveIDs(); err == nil {
 		t.Error("an enrolment proceeded with an account that does not exist")
 	}
 }
@@ -76,7 +76,7 @@ func TestAnEnrolmentStartsWithNoOwnerToImpose(t *testing.T) {
 }
 
 func stepNames(report ProjectReport) []string {
-	var out []string
+	out := make([]string, 0, len(report.Steps))
 	for _, step := range report.Steps {
 		out = append(out, step.Name)
 	}

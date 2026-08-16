@@ -6,6 +6,7 @@ package sockutil
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +16,7 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -83,8 +85,13 @@ func Listen(path string) (net.Listener, error) {
 	}
 	// Bind under a umask that yields bindMode: a socket created world-writable and
 	// narrowed afterwards is reachable in between.
+	//
+	// ListenConfig rather than net.Listen, and the background context rather than
+	// one of the caller's: a unix bind resolves nothing and connects to nothing,
+	// so there is no wait for a context to cut short.  What bounds this is the
+	// umask around it.
 	previous := unix.Umask(0o777 &^ int(bindMode))
-	ln, err := net.Listen("unix", path)
+	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", path)
 	unix.Umask(previous)
 	if err != nil {
 		return nil, err
@@ -180,12 +187,7 @@ func inGroup(peer *Peer, group string) bool {
 	if name == "" {
 		return false
 	}
-	for _, member := range groupMembers(group) {
-		if member == name {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(groupMembers(group), name)
 }
 
 // groupMembers reads a group's supplementary members; os/user exposes no
@@ -195,7 +197,7 @@ func groupMembers(name string) []string {
 	if err != nil {
 		return nil
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		fields := strings.Split(line, ":")
 		if len(fields) >= 4 && fields[0] == name {
 			return strings.Split(fields[3], ",")
@@ -227,8 +229,8 @@ func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 			return nil, err
 		}
 	}
-	if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
-		return buf[:idx], nil
+	if before, _, ok := bytes.Cut(buf, []byte{'\n'}); ok {
+		return before, nil
 	}
 	if len(bytes.TrimSpace(buf)) == 0 {
 		return nil, nil
@@ -304,7 +306,9 @@ func NotifyReady() {
 	if addr[0] == '@' {
 		addr = "\x00" + addr[1:]
 	}
-	conn, err := net.Dial("unixgram", addr)
+	// A datagram socket, so this connects to nothing and cannot block; the
+	// context is what the dial takes rather than a deadline on anything.
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "unixgram", addr)
 	if err != nil {
 		return
 	}

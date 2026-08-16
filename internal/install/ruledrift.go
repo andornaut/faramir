@@ -34,14 +34,14 @@ import (
 // not say now.
 func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
-		report.unasked("agent rule drift", 1, "the agent account is not named, so "+
+		report.unaskedf("agent rule drift", 1, "the agent account is not named, so "+
 			"the agent rule files were not read: pass --agent-user, or run through "+
 			"sudo so SUDO_USER carries it")
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)
 	if err != nil || home == "" {
-		report.unasked("agent rule drift", 1, "could not read %s's home, so the agent "+
+		report.unaskedf("agent rule drift", 1, "could not read %s's home, so the agent "+
 			"rule files were not read", opts.AgentUser)
 		return
 	}
@@ -83,17 +83,17 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 	}
 
 	if len(unread) > 0 {
-		report.unasked("agent rule drift", len(unread), "could not read %s, so what "+
+		report.unaskedf("agent rule drift", len(unread), "could not read %s, so what "+
 			"they carry was not compared with what faramir writes now",
 			strings.Join(unread, ", "))
 		return
 	}
 	if len(stale) == 0 {
-		report.add("agent rule drift", StatusOK, "%d agent rule file(s) carry nothing "+
+		report.addf("agent rule drift", StatusOK, "%d agent rule file(s) carry nothing "+
 			"faramir has stopped writing", read)
 		return
 	}
-	report.add("agent rule drift", StatusWarn, "%d rule(s) faramir no longer writes "+
+	report.addf("agent rule drift", StatusWarn, "%d rule(s) faramir no longer writes "+
 		"are still in place, left rather than deleted because an entry carries no "+
 		"sign of who added it and yours would look the same. Remove the rules "+
 		"below from the file rather than the file itself, and only where they are "+

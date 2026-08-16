@@ -21,7 +21,7 @@ func serving(t *testing.T, s *Server) func() (net.Conn, *sockutil.LineReader) {
 	t.Cleanup(func() { _ = s.Close() })
 
 	return func() (net.Conn, *sockutil.LineReader) {
-		conn, err := net.Dial("unix", s.Config.Server.SocketPath)
+		conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", s.Config.Server.SocketPath)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -95,9 +95,11 @@ func TestAStreamReassemblesToTheWholeInput(t *testing.T) {
 
 	pieces := []string{"alpha ", "bravo ", "charlie ", "delta"}
 	got := ""
+	var gotSb98 strings.Builder
 	for i, piece := range pieces {
-		got += chunk(t, conn, lines, piece, i < len(pieces)-1)
+		gotSb98.WriteString(chunk(t, conn, lines, piece, i < len(pieces)-1))
 	}
+	got += gotSb98.String()
 	if want := strings.Join(pieces, ""); got != want {
 		t.Errorf("stream reassembled to %q, want %q", got, want)
 	}
@@ -173,11 +175,18 @@ func TestAStreamWritesOneAuditRecord(t *testing.T) {
 		t.Errorf("op = %v", record["op"])
 	}
 	// The totals are the stream's, not the last chunk's.
-	if got := record["input_bytes"].(float64); int(got) != len("one "+value+" ")+
+	got, ok := record["input_bytes"].(float64)
+	if !ok {
+		t.Fatalf("input_bytes = %#v, want a number", record["input_bytes"])
+	}
+	if int(got) != len("one "+value+" ")+
 		len("two "+value+" ")+len("three") {
 		t.Errorf("input_bytes = %v, want the whole stream", got)
 	}
-	body, _ := json.Marshal(record["redactions"])
+	body, err := json.Marshal(record["redactions"])
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !strings.Contains(string(body), `"count":2`) {
 		t.Errorf("redactions = %s, want both occurrences counted once for the stream", body)
 	}
@@ -211,7 +220,7 @@ func auditRecords(t *testing.T, s *Server, want int) []map[string]any {
 		var records []map[string]any
 		body, err := os.ReadFile(s.Config.Audit.LogPath)
 		if err == nil {
-			for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+			for line := range strings.SplitSeq(strings.TrimSpace(string(body)), "\n") {
 				if line == "" {
 					continue
 				}

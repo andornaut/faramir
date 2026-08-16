@@ -2,6 +2,7 @@ package install
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -161,15 +162,16 @@ func (r *runReport) skip(name, why string) {
 	}
 }
 
-func (r *runReport) warn(format string, args ...any) {
+func (r *runReport) warnf(format string, args ...any) {
 	r.Warnings = append(r.Warnings, fmt.Sprintf(format, args...))
 }
 
 // Report is the whole run.
 type Report struct {
+	runReport
+
 	Version string `json:"version"`
 	DryRun  bool   `json:"dry_run,omitempty"`
-	runReport
 	// BrokerPublicKey has to be in authorized_keys on every managed host. Reported
 	// every run, not only when it was generated.
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
@@ -348,7 +350,7 @@ func (o *Options) applyDefaults() {
 }
 
 // layout derives the paths from the options and checks them.
-func (o Options) layout() (Layout, error) {
+func (o *Options) layout() (Layout, error) {
 	layout := Layout{
 		ClientGroup:  o.ClientGroup,
 		SecretsGroup: o.SecretsGroup,
@@ -506,7 +508,7 @@ func (r *runner) refuseConfigMove() error {
 		// report.  Refusing here would make previewing one impossible without
 		// consenting to it first, which is the wrong way round.
 		if r.opts.DryRun {
-			r.warn("this host's daemons load %s, and this run names %s. A run that "+
+			r.warnf("this host's daemons load %s, and this run names %s. A run that "+
 				"was not a dry run would be refused: pass --move-config to move them, "+
 				"or leave --config-dir out to provision the install this host has",
 				installed, r.layout.ConfigDir)
@@ -523,7 +525,7 @@ func (r *runner) refuseConfigMove() error {
 	}
 	// Consented to, and still worth naming: what is left behind is key material,
 	// and the run that moves away from it is the last moment anybody is looking.
-	r.warn("the daemons now load %s. %s is left as it stands, including %s and "+
+	r.warnf("the daemons now load %s. %s is left as it stands, including %s and "+
 		"the secrets directory: nothing there is managed or redacted from now on. "+
 		"Retire it when its values are re-encrypted where the daemons look",
 		r.layout.ConfigDir, installed, filepath.Join(installed, "age.key"))
@@ -621,7 +623,8 @@ func (r *runner) refuseInvalidSudoers() error {
 	if err := os.WriteFile(candidate, body, 0o600); err != nil {
 		return err
 	}
-	if out, checkErr := exec.Command(visudo, "-cf", candidate).CombinedOutput(); checkErr != nil {
+	if out, checkErr := exec.CommandContext(context.Background(), visudo, "-cf", candidate).
+		CombinedOutput(); checkErr != nil {
 		return fmt.Errorf("visudo rejects the grant --allow-sudo would install, so "+
 			"nothing was written: %w: %s", checkErr, strings.TrimSpace(string(out)))
 	}
@@ -712,8 +715,8 @@ func (r *runner) restartFor(what string) {
 	}
 }
 
-func (r *runner) warn(format string, args ...any) {
-	r.report.warn(format, args...)
+func (r *runner) warnf(format string, args ...any) {
+	r.report.warnf(format, args...)
 }
 
 // command runs a program and returns its standard output.  stdout alone: the
@@ -722,7 +725,7 @@ func (r *runner) warn(format string, args ...any) {
 // the error.
 func (r *runner) command(name string, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(context.Background(), name, args...)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -735,7 +738,7 @@ func (r *runner) command(name string, args ...string) (string, error) {
 // commandCombined is command for the programs whose answer is on stderr.
 // systemd-analyze verify reports there and exits 0 either way.
 func (r *runner) commandCombined(name string, args ...string) (string, error) {
-	cmd := exec.Command(name, args...)
+	cmd := exec.CommandContext(context.Background(), name, args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return string(out), fmt.Errorf("%s %s: %w: %s",

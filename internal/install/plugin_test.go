@@ -116,7 +116,7 @@ func (r *pluginRig) call(t *testing.T, tool string, args map[string]any) hookRes
 	if err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("node", filepath.Join(r.dir, "driver.mjs"), r.modulePath, r.exportKind)
+	cmd := exec.CommandContext(t.Context(), "node", filepath.Join(r.dir, "driver.mjs"), r.modulePath, r.exportKind)
 	cmd.Env = append(os.Environ(),
 		"HOOK_INPUT="+string(input),
 		"HOOK_OUTPUT="+string(output))
@@ -151,6 +151,7 @@ func eachPlugin(t *testing.T, run func(t *testing.T, rig *pluginRig)) {
 // return.
 func TestPluginAppliesARewrite(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
+		t.Helper()
 		rig.answers(t, `{"decision":"rewrite","tool_input":`+
 			`{"command":"source /usr/local/libexec/faramir/wrap.sh 'printenv'","description":"look"}}`)
 		got := rig.call(t, "bash", map[string]any{"command": "printenv", "description": "look"})
@@ -184,6 +185,7 @@ func TestPluginAppliesARewrite(t *testing.T) {
 // A refusal reaches the model as the error the tool call failed with.
 func TestPluginThrowsADenial(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
+		t.Helper()
 		rig.answers(t, `{"decision":"deny","reason":"Blocked: use faramir_run instead"}`)
 		got := rig.call(t, "bash", map[string]any{"command": "printenv ROUTER_PW"})
 		if got.Ran {
@@ -198,6 +200,7 @@ func TestPluginThrowsADenial(t *testing.T) {
 // Nothing written is a call the guard left alone, which runs unchanged.
 func TestPluginLeavesAnUnansweredCallAlone(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
+		t.Helper()
 		got := rig.call(t, "bash", map[string]any{"command": "tail -f log &"})
 		if !got.Ran {
 			t.Fatalf("the command was refused: %s", got.Error)
@@ -212,6 +215,7 @@ func TestPluginLeavesAnUnansweredCallAlone(t *testing.T) {
 // would print whatever it found into the transcript.
 func TestPluginFailsClosed(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
+		t.Helper()
 		t.Run("the guard exits non-zero", func(t *testing.T) {
 			write(t, rig.statusFile, "2", 0o644)
 			got := rig.call(t, "bash", map[string]any{"command": "ls"})
@@ -251,6 +255,7 @@ func TestPluginFailsClosed(t *testing.T) {
 // A plugin sees every tool, and only a command has output worth redacting.
 func TestPluginIgnoresEveryOtherTool(t *testing.T) {
 	eachPlugin(t, func(t *testing.T, rig *pluginRig) {
+		t.Helper()
 		rig.answers(t, `{"decision":"deny","reason":"this should never be asked for"}`)
 		got := rig.call(t, "read", map[string]any{"filePath": "/etc/hosts"})
 		if !got.Ran {
@@ -337,7 +342,7 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		cmd := exec.Command("node", filepath.Join(dir, "driver.mjs"), rig.modulePath)
+		cmd := exec.CommandContext(t.Context(), "node", filepath.Join(dir, "driver.mjs"), rig.modulePath)
 		cmd.Env = append(os.Environ(), "HOOK_EVENT="+string(event))
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -435,7 +440,7 @@ func TestPiExtensionGuardsByShape(t *testing.T) {
 // dead-ends: it tells the model to use a tool that would not exist.
 func TestPiExtensionRegistersTheTools(t *testing.T) {
 	rig, _ := newPiRig(t)
-	cmd := exec.Command("node", filepath.Join(rig.dir, "driver.mjs"), rig.modulePath)
+	cmd := exec.CommandContext(t.Context(), "node", filepath.Join(rig.dir, "driver.mjs"), rig.modulePath)
 	cmd.Env = append(os.Environ(), "LIST_TOOLS=1")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -450,8 +455,9 @@ func TestPiExtensionRegistersTheTools(t *testing.T) {
 	// Against internal/mcp's own list rather than a literal here, the extension
 	// being rendered from it: a tool added there and not registered here is a
 	// host where the guard's refusal names a tool the model cannot call.
-	var want []string
-	for _, tool := range mcp.Tools() {
+	tools := mcp.Tools()
+	want := make([]string, 0, len(tools))
+	for _, tool := range tools {
 		want = append(want, tool.Name)
 	}
 	if len(want) == 0 {

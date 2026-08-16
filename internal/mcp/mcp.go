@@ -26,7 +26,9 @@ package mcp
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -151,7 +153,7 @@ func textResult(content string, isError bool) map[string]any {
 
 // call performs one request/response round trip against the broker socket.
 func call(request map[string]any) (*brokerResponse, error) {
-	conn, err := net.Dial("unix", socketPath())
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", socketPath())
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", socketPath(), err)
 	}
@@ -168,7 +170,7 @@ func call(request map[string]any) (*brokerResponse, error) {
 		return nil, err
 	}
 	if len(line) == 0 {
-		return nil, fmt.Errorf("broker closed the connection without responding")
+		return nil, errors.New("broker closed the connection without responding")
 	}
 	var response brokerResponse
 	if err := json.Unmarshal(line, &response); err != nil {

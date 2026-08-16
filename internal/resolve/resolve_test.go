@@ -1,7 +1,8 @@
+package resolve
+
 // Turning cmd[0] into the path the executor runs.  There is no allowlist; what
 // matters is resolving a name to the file the child would itself have run, since
 // getting it wrong runs a different file.
-package resolve
 
 import (
 	"os"

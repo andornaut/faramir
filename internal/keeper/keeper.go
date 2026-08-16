@@ -353,7 +353,8 @@ func (k *Keeper) Serve() error {
 	for {
 		conn, err := k.ln.Accept()
 		if err != nil {
-			return nil // listener closed
+			// A closed listener is how this ends: Stop closes it.
+			return nil //nolint:nilerr // the close is the stop signal
 		}
 		k.serveConnection(conn)
 	}

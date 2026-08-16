@@ -110,7 +110,7 @@ func TestALongDetailWrapsUnderItself(t *testing.T) {
 	printDiagnosis(&out, palette{}, install.DoctorReport{Findings: []install.Finding{
 		{Name: "broker", Status: install.StatusWarn, Detail: strings.Repeat("word ", 40)},
 	}})
-	for _, line := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(out.String()), "\n") {
 		if width := utf8.RuneCountInString(line); width > 60 {
 			t.Errorf("line is %d columns wide:\n%s", width, line)
 		}

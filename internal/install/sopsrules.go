@@ -46,7 +46,7 @@ func sopsRecipients(path string) ([]string, error) {
 		found = append(found, recipient)
 	}
 	for _, rule := range rules.CreationRules {
-		for _, recipient := range strings.Split(rule.Age, ",") {
+		for recipient := range strings.SplitSeq(rule.Age, ",") {
 			add(recipient)
 		}
 		for _, group := range rule.KeyGroups {

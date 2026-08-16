@@ -44,7 +44,7 @@ func New(t *testing.T, values map[string]string, files ...string) *Keeper {
 // has already tried and failed to reach it.
 func Serve(t *testing.T, path string, values map[string]string, files ...string) *Keeper {
 	t.Helper()
-	ln, err := net.Listen("unix", path)
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -200,14 +200,14 @@ func TestEveryWarnThatSaysItDidNotAskCountsItself(t *testing.T) {
 // warn added any other way cannot quietly claim a check was skipped.
 func TestUnaskedCountsAndWarnsTogether(t *testing.T) {
 	var report DoctorReport
-	report.unasked("probe", 3, "three checks stood behind this line")
+	report.unaskedf("probe", 3, "three checks stood behind this line")
 	if report.NotAsked != 3 {
 		t.Errorf("NotAsked = %d, want 3", report.NotAsked)
 	}
 	if len(report.Findings) != 1 || report.Findings[0].Status != StatusWarn {
 		t.Errorf("want one warn finding, got %+v", report.Findings)
 	}
-	report.add("finding", StatusWarn, "something this host has")
+	report.addf("finding", StatusWarn, "something this host has")
 	if report.NotAsked != 3 {
 		t.Errorf("a plain warn changed the unasked count: %d", report.NotAsked)
 	}

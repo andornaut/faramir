@@ -10,6 +10,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -49,9 +51,7 @@ func mergeValue(into, from any) (any, error) {
 	intoMap, intoIsMap := into.(map[string]any)
 	if fromIsMap && intoIsMap {
 		out := make(map[string]any, len(intoMap)+len(fromMap))
-		for key, value := range intoMap {
-			out[key] = value
-		}
+		maps.Copy(out, intoMap)
 		for key, value := range fromMap {
 			if current, ok := out[key]; ok {
 				merged, err := mergeValue(current, value)
@@ -105,12 +105,7 @@ func mergeList(into, from []any) ([]any, error) {
 }
 
 func containsValue(list []any, want any) bool {
-	for _, element := range list {
-		if element == want {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(list, want)
 }
 
 // mentionsFaramir reports whether an element names this project at any depth.

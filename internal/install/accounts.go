@@ -118,7 +118,7 @@ func (r *runner) stepAccounts() error {
 	// it there deliberately.
 	if gid, err := lookupGroup(r.layout.SecretsGroup); err == nil {
 		if first := firstLoginGID(); gid >= first {
-			r.warn("group %s has gid %d, in the range login.defs reserves for "+
+			r.warnf("group %s has gid %d, in the range login.defs reserves for "+
 				"login accounts; it holds only service accounts and belongs "+
 				"below %d, where a host's own numbering will not reach it. "+
 				"Move it with `groupdel %s && groupadd -r %s`, then re-run this "+
@@ -138,7 +138,7 @@ func (r *runner) stepAccounts() error {
 		if err != nil || !in {
 			continue
 		}
-		r.warn("%s is in group %s, so it can read and replace the managed sops "+
+		r.warnf("%s is in group %s, so it can read and replace the managed sops "+
 			"files directly; remove it, or the secrets directory is only as protected as "+
 			"whatever runs as that account", who, r.layout.SecretsGroup)
 	}
@@ -151,7 +151,7 @@ func (r *runner) stepAccounts() error {
 			continue
 		}
 		if in {
-			r.warn("%s is in group %s; remove it, that is the boundary between "+
+			r.warnf("%s is in group %s; remove it, that is the boundary between "+
 				"a brokered command and the age key or the audit log",
 				r.layout.ExecUser, forbidden)
 		}
@@ -263,7 +263,7 @@ func (r *runner) joinOperatorToGroup() (bool, error) {
 		return false, err
 	}
 	// New group membership does not reach a session that is already open.
-	r.warn("%s must log out and back in for membership of %s to take effect",
+	r.warnf("%s must log out and back in for membership of %s to take effect",
 		r.opts.AgentUser, r.layout.ClientGroup)
 	return true, nil
 }
@@ -291,7 +291,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 	// the run over a profile leaves the host with no broker at all.  Reported the
 	// way the group-membership checks above report what they will not fix.
 	skip := func(format string, args ...any) {
-		r.warn(format+". Add `umask 002` to your shell profile by hand if you share "+
+		r.warnf(format+". Add `umask 002` to your shell profile by hand if you share "+
 			"a tree with brokered commands", args...)
 	}
 	// What it is, before opening it.  Opening has side effects of its own on
@@ -449,7 +449,7 @@ func firstLoginGID() int {
 	if err != nil {
 		return fallback
 	}
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		// A commented-out setting keeps its name prefixed, so it never matches.
 		fields := strings.Fields(line)
 		if len(fields) != 2 || fields[0] != "GID_MIN" {
@@ -481,7 +481,7 @@ func inGroup(name, group string) (bool, error) {
 	// A group that does not exist is one nobody is in, which is the dry-run case.
 	target, err := user.LookupGroup(group)
 	if err != nil {
-		return false, nil
+		return false, nil //nolint:nilerr // an absent group is an answer, not a failure
 	}
 	ids, err := entry.GroupIds()
 	if err != nil {

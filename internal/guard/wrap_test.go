@@ -61,16 +61,43 @@ func hookOutput(t *testing.T, payload string) map[string]any {
 	return out.Hook
 }
 
-func bashPayload(command string) string {
-	b, _ := json.Marshal(map[string]any{
+func bashPayload(t *testing.T, command string) string {
+	t.Helper()
+	b, err := json.Marshal(map[string]any{
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": command},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	return string(b)
 }
 
+// updatedInput is the tool input a rewrite handed back, and wrappedCommand the
+// command inside it.  Checked rather than asserted: what these tests are about
+// is the shape of that answer, so a hook that returned another one has to fail
+// as a test rather than as a panic in the middle of one.
+func updatedInput(t *testing.T, hook map[string]any) map[string]any {
+	t.Helper()
+	updated, ok := hook["updatedInput"].(map[string]any)
+	if !ok {
+		t.Fatalf("no updatedInput: %v", hook)
+	}
+	return updated
+}
+
+func wrappedCommand(t *testing.T, hook map[string]any) string {
+	t.Helper()
+	updated := updatedInput(t, hook)
+	command, ok := updated["command"].(string)
+	if !ok {
+		t.Fatalf("no command in updatedInput: %v", updated)
+	}
+	return command
+}
+
 func TestAnAllowedCommandIsRewrittenThroughTheRedactor(t *testing.T) {
-	hook := hookOutput(t, bashPayload("ansible-playbook site.yml -vvv"))
+	hook := hookOutput(t, bashPayload(t, "ansible-playbook site.yml -vvv"))
 	if hook == nil {
 		t.Fatal("no hook output; the command was neither denied nor wrapped")
 	}
@@ -100,8 +127,8 @@ func TestAnAllowedCommandIsRewrittenThroughTheRedactor(t *testing.T) {
 
 func TestTheCommandIsEmbeddedVerbatim(t *testing.T) {
 	original := `echo "it's" $HOME 'and' a\ space  # trailing comment`
-	hook := hookOutput(t, bashPayload(original))
-	command := hook["updatedInput"].(map[string]any)["command"].(string)
+	hook := hookOutput(t, bashPayload(t, original))
+	command := wrappedCommand(t, hook)
 
 	// Undo the shell's single-quote rule and compare with what went in.
 	i := strings.Index(command, "'")
@@ -117,7 +144,7 @@ func TestTheCommandIsEmbeddedVerbatim(t *testing.T) {
 // The agent's shell persists between calls, so a subshell would lose every cd
 // and export.
 func TestTheCommandRunsInTheCallersOwnShell(t *testing.T) {
-	command := hookOutput(t, bashPayload("cd /var"))["updatedInput"].(map[string]any)["command"].(string)
+	command := wrappedCommand(t, hookOutput(t, bashPayload(t, "cd /var")))
 	for _, forbidden := range []string{"bash -lc", "bash -c", "| " + "faramir"} {
 		if strings.Contains(command, forbidden) {
 			t.Errorf("command = %q, must not run the command through %q", command, forbidden)
@@ -133,7 +160,7 @@ func TestADeniedCommandIsStillDenied(t *testing.T) {
 		"sops -d secrets/vault.sops.yml",
 		"cat ~/.ssh/id_rsa",
 	} {
-		hook := hookOutput(t, bashPayload(command))
+		hook := hookOutput(t, bashPayload(t, command))
 		if hook == nil {
 			t.Fatalf("no hook output for %q", command)
 		}
@@ -171,7 +198,7 @@ func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
 		`echo "run faramir redact next"`: true,
 		"grep -r 'faramir redact' docs/": true,
 	} {
-		hook := hookOutput(t, bashPayload(command))
+		hook := hookOutput(t, bashPayload(t, command))
 		if rewritten := hook != nil; rewritten != wantRewritten {
 			t.Errorf("%q rewritten = %v, want %v", command, rewritten, wantRewritten)
 		}
@@ -181,10 +208,13 @@ func TestOnlyTheEmittedFormIsLeftAlone(t *testing.T) {
 // BashOutput reads an already-running command's buffer, so there is nothing to
 // wrap.
 func TestBashOutputIsNotRewritten(t *testing.T) {
-	payload, _ := json.Marshal(map[string]any{
+	payload, err := json.Marshal(map[string]any{
 		"tool_name":  "BashOutput",
 		"tool_input": map[string]any{"command": "echo hi"},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	if hook := hookOutput(t, string(payload)); hook != nil {
 		t.Errorf("BashOutput produced %v, want no rewrite", hook)
 	}
@@ -193,7 +223,7 @@ func TestBashOutputIsNotRewritten(t *testing.T) {
 // A rewrite replaces the tool input, so a field it does not hand back is one
 // the tool never sees.
 func TestTheRewritePreservesTheOtherInputFields(t *testing.T) {
-	payload, _ := json.Marshal(map[string]any{
+	payload, err := json.Marshal(map[string]any{
 		"tool_name": "Bash",
 		"tool_input": map[string]any{
 			"command":     "ls",
@@ -201,7 +231,10 @@ func TestTheRewritePreservesTheOtherInputFields(t *testing.T) {
 			"timeout":     120000,
 		},
 	})
-	updated := hookOutput(t, string(payload))["updatedInput"].(map[string]any)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated := updatedInput(t, hookOutput(t, string(payload)))
 	if updated["description"] != "list files" {
 		t.Errorf("description = %v, want it carried through", updated["description"])
 	}
@@ -218,13 +251,16 @@ func TestARunInBackgroundCallIsStreamedNotCaptured(t *testing.T) {
 	// BashOutput, so the command is streamed through the redactor: no trailing
 	// "&" of its own (the host adds the backgrounding), and BashOutput then sees
 	// what the redactor already passed.
-	payload, _ := json.Marshal(map[string]any{
+	payload, err := json.Marshal(map[string]any{
 		"tool_name": "Bash",
 		"tool_input": map[string]any{
 			"command":           "npm run dev",
 			"run_in_background": true,
 		},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	hook := hookOutput(t, string(payload))
 	if hook == nil {
 		t.Fatal("a run_in_background command was not rewritten")
@@ -243,12 +279,12 @@ func TestARunInBackgroundCallIsStreamedNotCaptured(t *testing.T) {
 // have failed unwrapped rather than breaking the wrapper's own syntax.
 func TestAnIncompleteCommandIsStillWrappedSafely(t *testing.T) {
 	for _, command := range []string{`echo hi \\`, "make build &&", "ls |", "echo hi;"} {
-		hook := hookOutput(t, bashPayload(command))
+		hook := hookOutput(t, bashPayload(t, command))
 		if hook == nil {
 			t.Errorf("%q was not rewritten", command)
 			continue
 		}
-		wrapped := hook["updatedInput"].(map[string]any)["command"].(string)
+		wrapped := wrappedCommand(t, hook)
 		if !strings.HasPrefix(wrapped, "source ") {
 			t.Errorf("%q produced %q", command, wrapped)
 		}

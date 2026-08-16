@@ -2,6 +2,7 @@ package guard
 
 import (
 	"fmt"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -133,10 +134,5 @@ func (h *host) handles(toolName string) bool {
 	if h.anyShellTool {
 		return true
 	}
-	for _, name := range h.shellTools {
-		if name == toolName {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(h.shellTools, toolName)
 }

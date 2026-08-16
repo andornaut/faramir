@@ -348,11 +348,11 @@ func readTOML(path string) (map[string]any, error) {
 		if os.IsNotExist(err) {
 			return nil, fmt.Errorf("config not found: %s", path)
 		}
-		return nil, fmt.Errorf("%s: %v", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	var raw map[string]any
 	if err := toml.Unmarshal(data, &raw); err != nil {
-		return nil, fmt.Errorf("%s: %v", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	return raw, nil
 }
@@ -367,7 +367,7 @@ func dropInPaths(dir string) ([]string, error) {
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("%s: %v", dir, err)
+		return nil, fmt.Errorf("%s: %w", dir, err)
 	}
 	var paths []string
 	for _, entry := range entries {
@@ -628,7 +628,7 @@ func fromMap(raw map[string]any, path string) (*Config, error) {
 }
 
 func loadServer(raw map[string]any, path string, out *ServerConfig) error {
-	where := fmt.Sprintf("%s: [server]", path)
+	where := path + ": [server]"
 	sec, err := table(raw, "server", path)
 	if err != nil {
 		return err
@@ -659,7 +659,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 }
 
 func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
-	where := fmt.Sprintf("%s: [keeper]", path)
+	where := path + ": [keeper]"
 	sec, err := table(raw, "keeper", path)
 	if err != nil {
 		return err
@@ -687,7 +687,7 @@ func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
 }
 
 func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
-	where := fmt.Sprintf("%s: [executor]", path)
+	where := path + ": [executor]"
 	sec, err := table(raw, "executor", path)
 	if err != nil {
 		return err
@@ -709,7 +709,7 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 }
 
 func loadExec(raw map[string]any, path string, out *ExecConfig) error {
-	where := fmt.Sprintf("%s: [exec]", path)
+	where := path + ": [exec]"
 	sec, err := table(raw, "exec", path)
 	if err != nil {
 		return err
@@ -788,7 +788,7 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 }
 
 func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
-	where := fmt.Sprintf("%s: [secrets]", path)
+	where := path + ": [secrets]"
 	sec, err := table(raw, "secrets", path)
 	if err != nil {
 		return err
@@ -808,7 +808,7 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 	// filesystem and reports only ErrBadPattern.
 	for _, pattern := range out.Patterns {
 		if _, err := filepath.Match(pattern, ""); err != nil {
-			return fmt.Errorf("%s: patterns entry %q is not a valid glob pattern: %v",
+			return fmt.Errorf("%s: patterns entry %q is not a valid glob pattern: %w",
 				where, pattern, err)
 		}
 	}
@@ -828,7 +828,7 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 }
 
 func loadSsh(raw map[string]any, path string, out *SshConfig) error {
-	where := fmt.Sprintf("%s: [ssh]", path)
+	where := path + ": [ssh]"
 	sec, err := table(raw, "ssh", path)
 	if err != nil {
 		return err
@@ -859,7 +859,7 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 }
 
 func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
-	where := fmt.Sprintf("%s: [sudo]", path)
+	where := path + ": [sudo]"
 	sec, err := table(raw, "sudo", path)
 	if err != nil {
 		return err
@@ -926,7 +926,7 @@ func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
 const MaxSudoTimeoutSec = 600
 
 func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
-	where := fmt.Sprintf("%s: [audit]", path)
+	where := path + ": [audit]"
 	sec, err := table(raw, "audit", path)
 	if err != nil {
 		return err

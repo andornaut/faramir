@@ -82,8 +82,9 @@ func TestAStepMarksTheReportChanged(t *testing.T) {
 
 // Every step a run reports has a name, or a report reads as a list of blanks.
 func TestEveryStepInBothCommandsIsNamed(t *testing.T) {
-	var names []string
-	for _, step := range (&runner{}).steps() {
+	steps := (&runner{}).steps()
+	names := make([]string, 0, len(steps))
+	for _, step := range steps {
 		names = append(names, step.name)
 	}
 	for _, step := range (&project{}).steps() {

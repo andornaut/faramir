@@ -82,7 +82,7 @@ func TestQuiescenceAccountsForAConfinedRun(t *testing.T) {
 // sleeper starts a child of this uid and returns its pid, reaped by the test.
 func sleeper(t *testing.T) int {
 	t.Helper()
-	cmd := exec.Command("sleep", "60")
+	cmd := exec.CommandContext(t.Context(), "sleep", "60")
 	if err := cmd.Start(); err != nil {
 		t.Skipf("this host cannot start a child to stand in for a stray: %v", err)
 	}

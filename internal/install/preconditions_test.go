@@ -82,8 +82,9 @@ func TestOwnsReportsOwnerAndGroup(t *testing.T) {
 // and written no unit to match: the daemons keep running as the old uids and the
 // host only discovers it at the next restart.
 func TestPreconditionsRunBeforeAnythingIsChowned(t *testing.T) {
-	var order []string
-	for _, step := range (&runner{}).steps() {
+	steps := (&runner{}).steps()
+	order := make([]string, 0, len(steps))
+	for _, step := range steps {
 		order = append(order, step.name)
 	}
 	index := func(name string) int {

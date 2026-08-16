@@ -71,7 +71,7 @@ func newHarness(t *testing.T) *harness {
 	for _, name := range []string{"bash", "printenv", "base64", "rev", "cut", "cat", "echo", "true"} {
 		dirs[binDir(t, name)] = true
 	}
-	var binDirs []string
+	binDirs := make([]string, 0, len(dirs))
 	for d := range dirs {
 		binDirs = append(binDirs, d)
 	}
@@ -169,7 +169,7 @@ func (h *harness) call(t *testing.T, request map[string]any) response {
 	if _, ok := request["cwd"]; !ok && request["op"] == "exec" {
 		request["cwd"] = h.dir
 	}
-	conn, err := net.Dial("unix", h.brokerSock)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", h.brokerSock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,11 @@ func (h *harness) call(t *testing.T, request map[string]any) response {
 	if err := sockutil.Send(conn, request); err != nil {
 		t.Fatal(err)
 	}
-	_ = conn.(*net.UnixConn).CloseWrite()
+	unixConn, ok := conn.(*net.UnixConn)
+	if !ok {
+		t.Fatalf("dialled %T, want a *net.UnixConn", conn)
+	}
+	_ = unixConn.CloseWrite()
 	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	line, err := sockutil.ReadLine(conn, 1<<26)
 	if err != nil {

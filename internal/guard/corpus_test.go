@@ -146,9 +146,11 @@ var corpus = []denyCase{
 // keyReaderCases is the cross product a character class gets wrong: every
 // private key name against every tool that would print one.
 func keyReaderCases() []denyCase {
-	var out []denyCase
-	for _, name := range []string{"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"} {
-		for _, tool := range []string{"cat", "base64", "strings"} {
+	names := []string{"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519"}
+	tools := []string{"cat", "base64", "strings"}
+	out := make([]denyCase, 0, len(names)*len(tools))
+	for _, name := range names {
+		for _, tool := range tools {
 			out = append(out, denyCase{
 				tool + " ~/.ssh/" + name, true, "every private key name, through every reader",
 			})

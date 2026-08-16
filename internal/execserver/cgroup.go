@@ -117,7 +117,7 @@ func cgroup2Mounts() []string {
 // table this host does not have.
 func cgroup2MountsIn(mounts string) []string {
 	var out []string
-	for _, line := range strings.Split(mounts, "\n") {
+	for line := range strings.SplitSeq(mounts, "\n") {
 		if fields := strings.Fields(line); len(fields) >= 3 && fields[2] == "cgroup2" {
 			out = append(out, fields[1])
 		}
@@ -130,7 +130,7 @@ func cgroup2MountsIn(mounts string) []string {
 // host that mounts v2 at all has this line (it is "/" for a process in the root
 // of the hierarchy); a pure cgroup v1 host has only controller lines and none.
 func unifiedCgroupPath(procCgroup string) string {
-	for _, line := range strings.Split(procCgroup, "\n") {
+	for line := range strings.SplitSeq(procCgroup, "\n") {
 		if after, ok := strings.CutPrefix(line, "0::"); ok {
 			return after
 		}
@@ -203,7 +203,7 @@ func (c *runCgroup) pids() []int {
 		return nil
 	}
 	var out []int
-	for _, field := range strings.Fields(string(data)) {
+	for field := range strings.FieldsSeq(string(data)) {
 		if pid, err := strconv.Atoi(field); err == nil {
 			out = append(out, pid)
 		}

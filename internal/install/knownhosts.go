@@ -120,7 +120,7 @@ func (r *runner) stepKnownHosts() error {
 	path := r.layout.ExecKnownHosts()
 	// The file is replaced whole, so pinning an empty one removes what is there.
 	if entries == 0 {
-		r.warn("%s holds no host keys, so this removes whatever %s had pinned and "+
+		r.warnf("%s holds no host keys, so this removes whatever %s had pinned and "+
 			"leaves a brokered ssh verifying against %s alone. Re-run with a file that "+
 			"holds the fleet's host keys, or leave --known-hosts out to keep what is pinned",
 			r.opts.KnownHosts, path, globalKnownHosts)
@@ -169,7 +169,7 @@ func diagnoseKnownHosts(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	layout := Layout{ExecUser: opts.ExecUser}
 	path := layout.ExecKnownHosts()
 	if os.Geteuid() != 0 {
-		report.unasked("known hosts", 1, "not asked: reading %s needs root, "+
+		report.unaskedf("known hosts", 1, "not asked: reading %s needs root, "+
 			"the executor's home being 0700", path)
 		return
 	}
@@ -201,12 +201,12 @@ func diagnoseKnownHosts(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 			strings.Join(unreadable, " "))
 	}
 	if own+global == 0 {
-		report.add("known hosts", StatusOK, "neither %s nor %s holds a host key the "+
+		report.addf("known hosts", StatusOK, "neither %s nor %s holds a host key the "+
 			"executor can read, so a brokered ssh refuses a managed host before the "+
 			"broker's key is offered. Pin them with `init --known-hosts`, or write %s, "+
 			"which every account reads%s", globalKnownHosts, path, globalKnownHosts, ignored)
 		return
 	}
-	report.add("known hosts", StatusOK, "%d host key(s) a brokered ssh verifies against "+
+	report.addf("known hosts", StatusOK, "%d host key(s) a brokered ssh verifies against "+
 		"(%d in %s, %d in %s)%s", own+global, global, globalKnownHosts, own, path, ignored)
 }

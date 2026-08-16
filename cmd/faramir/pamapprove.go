@@ -15,7 +15,9 @@ package main
 // ancestry is right there.
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -145,7 +147,7 @@ func tokenOf(pid int) string {
 	if err != nil {
 		return ""
 	}
-	for _, entry := range strings.Split(string(data), "\x00") {
+	for entry := range strings.SplitSeq(string(data), "\x00") {
 		if value, found := strings.CutPrefix(entry, approval.TokenEnv+"="); found {
 			return value
 		}
@@ -161,7 +163,7 @@ func parentOf(pid int) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
-	end := strings.LastIndexByte(string(data), ')')
+	end := bytes.LastIndexByte(data, ')')
 	if end < 0 {
 		return 0, false
 	}
@@ -193,7 +195,7 @@ func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(line, &response); err != nil {
-		return false, "", fmt.Errorf("malformed response")
+		return false, "", errors.New("malformed response")
 	}
 	if response.Error != nil {
 		return false, "", fmt.Errorf("%s", response.Error.Message)

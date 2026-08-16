@@ -122,7 +122,7 @@ func walk(t *testing.T, environ []string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command("/bin/sh", "-c", "/bin/sh -c '\""+self+"\"'")
+	command := exec.CommandContext(t.Context(), "/bin/sh", "-c", "/bin/sh -c '\""+self+"\"'")
 	command.Env = append([]string{walkProbeEnv + "=1"}, environ...)
 	// stdout only, kept apart from stderr: the probe prints the token to stdout,
 	// and a coverage-instrumented re-exec of the test binary (as CI builds it)

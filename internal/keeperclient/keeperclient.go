@@ -4,7 +4,9 @@
 package keeperclient
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -46,9 +48,9 @@ type response struct {
 
 // call sends one request and decodes the reply.
 func call(socketPath, op string) (*response, error) {
-	conn, err := net.Dial("unix", socketPath)
+	conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
-		return nil, fmt.Errorf("keeper socket %s: %v", socketPath, err)
+		return nil, fmt.Errorf("keeper socket %s: %w", socketPath, err)
 	}
 	defer func() { _ = conn.Close() }()
 	// The caller is the broker serving a request whose own read deadline has
@@ -58,22 +60,22 @@ func call(socketPath, op string) (*response, error) {
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
 	if err := sockutil.Send(conn, map[string]any{"op": op}); err != nil {
-		return nil, fmt.Errorf("keeper: %v", err)
+		return nil, fmt.Errorf("keeper: %w", err)
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
 		_ = uc.CloseWrite()
 	}
 	line, err := sockutil.ReadLine(conn, 1<<24)
 	if err != nil {
-		return nil, fmt.Errorf("keeper: %v", err)
+		return nil, fmt.Errorf("keeper: %w", err)
 	}
 	if len(line) == 0 {
-		return nil, fmt.Errorf("keeper closed the connection without responding")
+		return nil, errors.New("keeper closed the connection without responding")
 	}
 
 	var out response
 	if err := json.Unmarshal(line, &out); err != nil {
-		return nil, fmt.Errorf("malformed response from keeper: %v", err)
+		return nil, fmt.Errorf("malformed response from keeper: %w", err)
 	}
 	if out.Error != nil {
 		return nil, fmt.Errorf("keeper: %s: %s", out.Error.Code, out.Error.Message)
@@ -92,7 +94,7 @@ func FetchValues(socketPath string) (map[string]string, []FileState, []string, [
 		return nil, nil, nil, nil, err
 	}
 	if out.Values == nil {
-		return nil, nil, nil, nil, fmt.Errorf("keeper response has no 'values' object")
+		return nil, nil, nil, nil, errors.New("keeper response has no 'values' object")
 	}
 	return out.Values, out.State, out.Errors, out.UnresolvedPatterns, nil
 }

@@ -23,7 +23,7 @@ type fakeBroker struct {
 func newFakeBroker(t *testing.T, reply map[string]any) *fakeBroker {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "broker.sock")
-	ln, err := net.Listen("unix", path)
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -331,7 +331,8 @@ func TestUnparseableInputDrawsAParseErrorAndTheLoopContinues(t *testing.T) {
 	var first map[string]any
 	_ = json.Unmarshal([]byte(lines[0]), &first)
 	errObj, _ := first["error"].(map[string]any)
-	if errObj == nil || errObj["code"].(float64) != -32700 {
+	code, _ := errObj["code"].(float64)
+	if errObj == nil || code != -32700 {
 		t.Errorf("want a -32700 parse error, got %s", lines[0])
 	}
 }

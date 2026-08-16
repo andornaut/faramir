@@ -13,12 +13,15 @@ import (
 // guardRewrite returns what the hook would replace a Bash command with.
 func guardRewrite(t *testing.T, cliPath, command string) string {
 	t.Helper()
-	payload, _ := json.Marshal(map[string]any{
+	payload, err := json.Marshal(map[string]any{
 		"tool_name":  "Bash",
 		"tool_input": map[string]any{"command": command},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	// The same binary the settings file registers.
-	hook := exec.Command(cliPath, "guard")
+	hook := exec.CommandContext(t.Context(), cliPath, "guard")
 	hook.Stdin = strings.NewReader(string(payload))
 	wrap, err := filepath.Abs("../../agent/hooks/wrap.sh")
 	if err != nil {
@@ -54,7 +57,7 @@ func TestTheRewrittenCommandRedactsAndKeepsShellState(t *testing.T) {
 	first := guardRewrite(t, cli, "cd /var; export FR_KEPT=yes; echo leaked:"+routerPassword)
 	second := guardRewrite(t, cli, `echo "pwd=$PWD kept=${FR_KEPT:-lost}"`)
 
-	session := exec.Command("bash", "-c", first+"\n"+second+"\n")
+	session := exec.CommandContext(t.Context(), "bash", "-c", first+"\n"+second+"\n")
 	session.Dir = "/tmp"
 	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli,
 		privateRuntimeEnv(t))
@@ -98,7 +101,7 @@ func privateRuntimeEnv(t *testing.T) string {
 // stdout and stderr apart: the agent reads stdout.
 func runWrapped(t *testing.T, rewritten string, env ...string) (stdout, stderr string, code int) {
 	t.Helper()
-	session := exec.Command("bash", "-c", rewritten)
+	session := exec.CommandContext(t.Context(), "bash", "-c", rewritten)
 	session.Env = append(os.Environ(), env...)
 	var out, errs strings.Builder
 	session.Stdout, session.Stderr = &out, &errs
@@ -183,7 +186,7 @@ func TestTheRewrittenCommandKeepsTheExitCode(t *testing.T) {
 	cli := faramirCLI(t)
 	rewritten := guardRewrite(t, cli, "echo before; (exit 33)")
 
-	session := exec.Command("bash", "-c", rewritten)
+	session := exec.CommandContext(t.Context(), "bash", "-c", rewritten)
 	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock, "FARAMIR_CLI="+cli,
 		privateRuntimeEnv(t))
 	out, err := session.CombinedOutput()
@@ -213,7 +216,7 @@ func TestTheRewriteLeavesNoTemporaryFile(t *testing.T) {
 	cli := faramirCLI(t)
 	rewritten := guardRewrite(t, cli, "echo "+routerPassword)
 
-	session := exec.Command("bash", "-c", rewritten)
+	session := exec.CommandContext(t.Context(), "bash", "-c", rewritten)
 	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock,
 		"FARAMIR_CLI="+cli, "XDG_RUNTIME_DIR="+dir)
 	if out, err := session.CombinedOutput(); err != nil {
@@ -240,7 +243,7 @@ func TestTheRewriteLeavesNoTemporaryFileWhenTheCommandExits(t *testing.T) {
 	cli := faramirCLI(t)
 	rewritten := guardRewrite(t, cli, "echo "+routerPassword+"; exit 42")
 
-	session := exec.Command("bash", "-c", rewritten)
+	session := exec.CommandContext(t.Context(), "bash", "-c", rewritten)
 	session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock,
 		"FARAMIR_CLI="+cli, "XDG_RUNTIME_DIR="+dir)
 	out, err := session.CombinedOutput()
@@ -284,7 +287,7 @@ func TestTheRewriteRefusesWithoutAPrivateRuntimeDir(t *testing.T) {
 		{"a directory other accounts can write", shared},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			session := exec.Command("bash", "-c", rewritten)
+			session := exec.CommandContext(t.Context(), "bash", "-c", rewritten)
 			session.Env = append(os.Environ(), "FARAMIR_SOCKET="+h.brokerSock,
 				"FARAMIR_CLI="+cli, "XDG_RUNTIME_DIR="+tc.dir)
 			out, err := session.CombinedOutput()
@@ -349,7 +352,7 @@ func TestRedactOpRejectsAMissingText(t *testing.T) {
 // The filter shape: what a pipeline uses.
 func TestCLIRedactFiltersStdin(t *testing.T) {
 	h := newHarness(t)
-	cmd := exec.Command(faramirCLI(t), "redact", "--socket", h.brokerSock)
+	cmd := exec.CommandContext(t.Context(), faramirCLI(t), "redact", "--socket", h.brokerSock)
 	cmd.Stdin = strings.NewReader("leaked: " + routerPassword + "\n")
 	out, err := cmd.Output()
 	if err != nil {
@@ -423,7 +426,7 @@ func TestCLIRedactFailsAZeroExitWhenTheOutputWasWithheld(t *testing.T) {
 func TestALineLongerThanAChunkIsStillRedacted(t *testing.T) {
 	h := newHarness(t)
 	long := strings.Repeat("x", 200_000)
-	cmd := exec.Command(faramirCLI(t), "redact", "--socket", h.brokerSock)
+	cmd := exec.CommandContext(t.Context(), faramirCLI(t), "redact", "--socket", h.brokerSock)
 	cmd.Stdin = strings.NewReader(
 		long + " " + routerPassword + " " + long + "\ntrailing: " + routerPassword + "\n")
 	out, err := cmd.Output()
@@ -443,7 +446,7 @@ func TestTheCLIRunsInTheCallersDirectory(t *testing.T) {
 	h := newHarness(t)
 	elsewhere := t.TempDir()
 
-	cmd := exec.Command(faramirCLI(t), "run", "--socket", h.brokerSock, "--quiet",
+	cmd := exec.CommandContext(t.Context(), faramirCLI(t), "run", "--socket", h.brokerSock, "--quiet",
 		"--", "bash", "-lc", "pwd")
 	cmd.Dir = elsewhere
 	out, err := cmd.Output()
@@ -463,7 +466,7 @@ func TestTheCLIHonoursAnExplicitDirectory(t *testing.T) {
 	h := newHarness(t)
 	elsewhere, explicit := t.TempDir(), t.TempDir()
 
-	cmd := exec.Command(faramirCLI(t), "run", "--socket", h.brokerSock, "--quiet",
+	cmd := exec.CommandContext(t.Context(), faramirCLI(t), "run", "--socket", h.brokerSock, "--quiet",
 		"-C", explicit, "--", "bash", "-lc", "pwd")
 	cmd.Dir = elsewhere
 	out, err := cmd.Output()

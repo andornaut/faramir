@@ -126,7 +126,7 @@ func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) er
 	defer func() { _ = handle.Close() }()
 
 	at := ""
-	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+	for part := range strings.SplitSeq(rel, string(filepath.Separator)) {
 		at = filepath.Join(at, part)
 		here := filepath.Join(root, at)
 		// Lstat, so a symlink is seen as itself rather than as what it points at.

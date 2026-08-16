@@ -119,16 +119,7 @@ func (r *runner) stepSopsConfig() error {
 	for _, recipient := range r.opts.AgeRecipients {
 		fmt.Fprintf(&recipients, "          - %s\n", recipient)
 	}
-	body := fmt.Sprintf(`# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits:
-# a rule naming one layout refuses to encrypt a file kept anywhere else, and
-# reports it as "no matching creation rules found".
-# 'encrypted_regex' leaves keys readable and encrypts only values, so diffs
-# stay per-key and reviewable.
-creation_rules:
-  - path_regex: \.sops\.ya?ml$
-    key_groups:
-      - age:
-%s`, recipients.String())
+	body := "# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# 'encrypted_regex' leaves keys readable and encrypts only values, so diffs\n# stay per-key and reviewable.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n" + recipients.String()
 	// Root-owned like the rest of the config directory, or the recipients could be
 	// rewritten by an account the secrets group exists to keep out.
 	// World-readable, holding public keys and a rule and no value.
@@ -153,7 +144,7 @@ func (r *runner) keepSopsConfig(path string) {
 	if err != nil {
 		// The file is the operator's to edit and sops is what parses it, so a shape
 		// this does not understand is a question that went unasked.
-		r.warn("%s could not be read (%v), so who can decrypt the secrets directory went "+
+		r.warnf("%s could not be read (%v), so who can decrypt the secrets directory went "+
 			"unchecked. sops is what has to parse this file: if it cannot either, "+
 			"encrypting a new value into the secrets directory fails", path, err)
 		r.step("sops config", false, "keeping "+path)
@@ -168,7 +159,7 @@ func (r *runner) keepSopsConfig(path string) {
 	// open.  Skipped when the recipient is unknown, which is reported where it
 	// happens.
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
-		r.warn("%s does not list the keeper's own recipient (%s), so every value "+
+		r.warnf("%s does not list the keeper's own recipient (%s), so every value "+
 			"encrypted into the secrets directory from now on is one %s cannot decrypt: the broker "+
 			"starts, loads nothing, and redacts nothing. This is what replacing %s "+
 			"leaves behind. Add it under `- age:` and re-key the existing files:\n"+
@@ -185,7 +176,7 @@ func (r *runner) keepSopsConfig(path string) {
 		}
 	}
 	if len(missing) > 0 {
-		r.warn("--age-recipient named %s, and %s already exists and is kept, so "+
+		r.warnf("--age-recipient named %s, and %s already exists and is kept, so "+
 			"nothing was added: that key decrypts no managed value. Applying it means "+
 			"re-encrypting each file, which is two steps as root:\n"+
 			"  sudoedit %s\n"+

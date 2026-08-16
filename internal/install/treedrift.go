@@ -24,7 +24,7 @@ import (
 func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 	trees := readEnrolled(opts.ConfigDir)
 	if len(trees) == 0 {
-		report.add("tree config", StatusOK, "no tree is recorded as enrolled")
+		report.addf("tree config", StatusOK, "no tree is recorded as enrolled")
 		return
 	}
 	checked := 0
@@ -55,17 +55,17 @@ func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 	sort.Strings(unread)
 
 	if len(drifted) == 0 && len(unread) == 0 {
-		report.add("tree config", StatusOK, "%d enrolled tree(s) carry what "+
+		report.addf("tree config", StatusOK, "%d enrolled tree(s) carry what "+
 			"`faramir init-project` wrote", checked)
 		return
 	}
 	if len(unread) > 0 {
-		report.unasked("tree config", len(unread), "could not read %s, so what "+
+		report.unaskedf("tree config", len(unread), "could not read %s, so what "+
 			"they carry was not compared with what `faramir init-project` writes",
 			strings.Join(unread, ", "))
 	}
 	if len(drifted) > 0 {
-		report.add("tree config", StatusWarn, "%d file(s) an enrolment wrote no "+
+		report.addf("tree config", StatusWarn, "%d file(s) an enrolment wrote no "+
 			"longer carry what it writes, so nothing those agents run in that tree "+
 			"is redacted: %s. Re-run `sudo faramir init-project` in the tree. A tree "+
 			"enrolled with --hook=false reads the same way and is not a fault",
@@ -114,20 +114,20 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 // run will not be able to update.
 func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
-		report.unasked("agent file ownership", 1, "the agent account is not "+
+		report.unaskedf("agent file ownership", 1, "the agent account is not "+
 			"named, so who owns the files an install edits was not asked: pass "+
 			"--agent-user, or run through sudo so SUDO_USER carries it")
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)
 	if err != nil || home == "" {
-		report.unasked("agent file ownership", 1, "could not read %s's home, so "+
+		report.unaskedf("agent file ownership", 1, "could not read %s's home, so "+
 			"who owns the files an install edits was not asked", opts.AgentUser)
 		return
 	}
 	uid, err := lookupUser(opts.AgentUser)
 	if err != nil {
-		report.unasked("agent file ownership", 1, "could not resolve %s: %v",
+		report.unaskedf("agent file ownership", 1, "could not resolve %s: %v",
 			opts.AgentUser, err)
 		return
 	}
@@ -139,8 +139,9 @@ func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
 // rather than skipping wherever the developer has a ~/.claude of their own.
 func reportEditableFiles(report *DoctorReport, home string, uid int, opts DoctorOptions) {
 	fs := fsys{}
-	var targets []*agentTarget
-	for _, name := range agentNames() {
+	names := agentNames()
+	targets := make([]*agentTarget, 0, len(names))
+	for _, name := range names {
 		targets = append(targets, agentTargets[name])
 	}
 	refused := refuseUnwritable(fs, home, uid, "", homeEditedPaths(targets))
@@ -176,11 +177,11 @@ func reportEditableFiles(report *DoctorReport, home string, uid int, opts Doctor
 	}
 	sort.Strings(refused)
 	if len(refused) == 0 {
-		report.add("agent file ownership", StatusOK, "every file an install edits "+
+		report.addf("agent file ownership", StatusOK, "every file an install edits "+
 			"is the operator's, or is not there yet")
 		return
 	}
-	report.add("agent file ownership", StatusWarn, "%d file(s) `faramir init` or "+
+	report.addf("agent file ownership", StatusWarn, "%d file(s) `faramir init` or "+
 		"`faramir init-project` would refuse to write, so the next run stops rather "+
 		"than taking one over or writing one of them twice: %s",
 		len(refused), strings.Join(refused, "; "))

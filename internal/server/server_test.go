@@ -104,7 +104,7 @@ func TestARequestOverTheLimitIsRefusedAsTooLarge(t *testing.T) {
 	go func() { _ = s.Serve() }()
 	t.Cleanup(func() { _ = s.Close() })
 
-	conn, err := net.Dial("unix", s.Config.Server.SocketPath)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "unix", s.Config.Server.SocketPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -205,7 +205,7 @@ func TestListSecretsEndsEveryLine(t *testing.T) {
 	if !strings.HasSuffix(body, "\n") {
 		t.Errorf("the last line is unterminated: %q", body)
 	}
-	for _, line := range strings.Split(strings.TrimSuffix(body, "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSuffix(body, "\n"), "\n") {
 		if !strings.HasPrefix(line, "secret://") {
 			t.Errorf("unexpected line: %q", line)
 		}
@@ -379,7 +379,7 @@ func TestTheKeyReportContainsNoKeyMaterial(t *testing.T) {
 		t.Fatal(err)
 	}
 	body, _ := s.CheckOutput()
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		if len(line) > 20 && strings.Contains(string(body), line) {
 			t.Fatalf("the report quotes the key file: %q", line)
 		}
@@ -436,7 +436,8 @@ func TestCheckFailsOnASocketOpenedToAnotherAccount(t *testing.T) {
 		// The bound socket, not a config key describing it: systemd's SocketMode= is
 		// what the mode ends up as under activation.
 		{"the broker socket is world-reachable", func(t *testing.T, c *config.Config) {
-			ln, err := net.Listen("unix", c.Server.SocketPath)
+			t.Helper()
+			ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", c.Server.SocketPath)
 			if err != nil {
 				t.Fatal(err)
 			}

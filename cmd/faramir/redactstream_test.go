@@ -52,7 +52,7 @@ type stubBroker struct {
 func newStubBroker(t *testing.T) *stubBroker {
 	t.Helper()
 	b := &stubBroker{path: filepath.Join(t.TempDir(), "b.sock")}
-	listener, err := net.Listen("unix", b.path)
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", b.path)
 	if err != nil {
 		t.Fatal(err)
 	}

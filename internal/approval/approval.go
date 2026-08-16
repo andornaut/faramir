@@ -43,7 +43,7 @@ const (
 	// The value is the name of an environment variable, not a credential: what it
 	// names identifies a run, and the op that spends it is refused to anything but
 	// root.  gosec keys G101 off the "TOKEN" in the identifier, hence the exception.
-	TokenEnv = "FARAMIR_APPROVAL_TOKEN" //nolint:gosec // G101: env var name, not a credential
+	TokenEnv = "FARAMIR_APPROVAL_TOKEN"
 )
 
 // Run is the brokered command a request is made on behalf of.  It is what the
@@ -257,10 +257,10 @@ func (s *Server) Register(run Run) (token, heldBy string) {
 // holdLocked says why a new brokered command may not start now, or "".
 func (s *Server) holdLocked() string {
 	if approved := s.approvalLiveLocked(); approved != "" {
-		return fmt.Sprintf("%s holds an approval", approved)
+		return approved + " holds an approval"
 	}
 	if waiting := s.waitingLocked(); waiting != "" {
-		return fmt.Sprintf("%s is waiting to be approved", waiting)
+		return waiting + " is waiting to be approved"
 	}
 	return ""
 }

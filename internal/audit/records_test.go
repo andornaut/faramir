@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -107,12 +108,7 @@ func literalKeys(lit *ast.CompositeLit) []string {
 }
 
 func contains(haystack []string, needle string) bool {
-	for _, straw := range haystack {
-		if straw == needle {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(haystack, needle)
 }
 
 func repoRoot(t *testing.T) string {
@@ -204,9 +200,9 @@ func TestReportWhatTheFloorBuys(t *testing.T) {
 	output := Output{Text: strings.Repeat("ok: [host.example.com]\n", 100_000)}
 
 	fieldsSurviveAt, normalAt, keptAtFloor := 0, 0, 0
-	for cap := 256; cap <= 16*config.MinRecordBytes; cap += 64 {
+	for limit := 256; limit <= 16*config.MinRecordBytes; limit += 64 {
 		path := filepath.Join(t.TempDir(), "audit.log")
-		NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: cap}).Write(record(), output)
+		NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: limit}).Write(record(), output)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -216,12 +212,12 @@ func TestReportWhatTheFloorBuys(t *testing.T) {
 			t.Fatal(err)
 		}
 		if fieldsSurviveAt == 0 && strings.Count(string(data), "field_") == widest-1 {
-			fieldsSurviveAt = cap
+			fieldsSurviveAt = limit
 		}
 		if normalAt == 0 && got["record_reduced"] != true {
-			normalAt = cap
+			normalAt = limit
 		}
-		if cap >= config.MinRecordBytes && keptAtFloor == 0 {
+		if limit >= config.MinRecordBytes && keptAtFloor == 0 {
 			kept, _ := got["output"].(string)
 			keptAtFloor = len(kept)
 		}
@@ -230,9 +226,9 @@ func TestReportWhatTheFloorBuys(t *testing.T) {
 		}
 	}
 	t.Logf("widest record: %d fields at %s", widest, widestAt)
-	t.Logf("its fields survive from a cap of %d, which is not the number to judge "+
+	t.Logf("its fields survive from a limit of %d, which is not the number to judge "+
 		"the floor by: everything is cut to nothing much down there", fieldsSurviveAt)
-	t.Logf("it is written unreduced from a cap of %d, and config.MinRecordBytes is %d",
+	t.Logf("it is written unreduced from a limit of %d, and config.MinRecordBytes is %d",
 		normalAt, config.MinRecordBytes)
 	t.Logf("at the floor a record keeps %d bytes of a command's output", keptAtFloor)
 	if normalAt > config.MinRecordBytes {

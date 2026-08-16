@@ -201,6 +201,8 @@ func (f fsys) sectionFile(path, section, head string, uid, gid int, within strin
 		return false, errHalfMarked
 	case placeStale:
 		return false, errStaleSection
+	case placeAppend, placeReplace, placeWrap:
+		// Every placement that writes, which is what the call below does with it.
 	}
 	return f.writeEdited(spot, writeSection(current, section, place, start, end), mode, uid, gid)
 }

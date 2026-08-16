@@ -16,7 +16,7 @@ import (
 func statusBroker(t *testing.T, configs []string) string {
 	t.Helper()
 	socketPath := filepath.Join(t.TempDir(), "b.sock")
-	listener, err := net.Listen("unix", socketPath)
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socketPath)
 	if err != nil {
 		t.Fatal(err)
 	}

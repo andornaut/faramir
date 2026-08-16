@@ -50,7 +50,7 @@ func shippedLines(t *testing.T) []string {
 	t.Helper()
 	data := []byte(renderShipped(t))
 	var out []string
-	for _, line := range strings.Split(string(data), "\n") {
+	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
 		if line != "" && !strings.HasPrefix(line, "#") {
 			out = append(out, line)

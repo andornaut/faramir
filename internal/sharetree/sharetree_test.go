@@ -472,8 +472,8 @@ func TestStickyIsNotAChangeOnASecondRun(t *testing.T) {
 // on by name is root regrouping a directory of somebody else's choosing.
 func TestGrantTraversalDoesNotFollowASwappedComponent(t *testing.T) {
 	home := t.TempDir()
-	real := filepath.Join(home, "src")
-	tree := filepath.Join(real, "work")
+	realDir := filepath.Join(home, "src")
+	tree := filepath.Join(realDir, "work")
 	if err := os.MkdirAll(tree, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -488,10 +488,10 @@ func TestGrantTraversalDoesNotFollowASwappedComponent(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The component is replaced by a link to it, as its owner could at any time.
-	if err := os.Rename(real, filepath.Join(home, "moved")); err != nil {
+	if err := os.Rename(realDir, filepath.Join(home, "moved")); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(prize, real); err != nil {
+	if err := os.Symlink(prize, realDir); err != nil {
 		t.Fatal(err)
 	}
 

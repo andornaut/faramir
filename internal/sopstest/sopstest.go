@@ -48,34 +48,37 @@ func WriteEncrypted(t *testing.T, path, recipient string, branch sops.TreeBranch
 var (
 	stubOnce sync.Once
 	stubPath string
-	stubErr  error
+	errStub  error
 )
 
 // SopsBinary returns a sops-compatible binary for the keeper to exec: the real
 // one when installed, otherwise the stub, built once per run.
 func SopsBinary(t *testing.T) string {
 	t.Helper()
-	if real, err := exec.LookPath("sops"); err == nil {
-		return real
+	if installed, err := exec.LookPath("sops"); err == nil {
+		return installed
 	}
 	stubOnce.Do(func() {
-		dir, err := os.MkdirTemp("", "faramir-sops-stub-")
+		// Not t.TempDir: the stub is built once and used by every test after this
+		// one, and a directory removed when this test ends takes the binary with
+		// it.
+		dir, err := os.MkdirTemp("", "faramir-sops-stub-") //nolint:usetesting // outlives this test on purpose
 		if err != nil {
-			stubErr = err
+			errStub = err
 			return
 		}
 		out := filepath.Join(dir, "sops")
-		cmd := exec.Command("go", "build", "-o", out,
+		cmd := exec.CommandContext(t.Context(), "go", "build", "-o", out,
 			"github.com/andornaut/faramir/internal/sopstest/stub")
 		if combined, err := cmd.CombinedOutput(); err != nil {
-			stubErr = err
+			errStub = err
 			t.Logf("building sops stub: %s", combined)
 			return
 		}
 		stubPath = out
 	})
-	if stubErr != nil {
-		t.Skipf("no sops binary and the stub would not build: %v", stubErr)
+	if errStub != nil {
+		t.Skipf("no sops binary and the stub would not build: %v", errStub)
 	}
 	return stubPath
 }

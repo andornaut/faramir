@@ -13,6 +13,37 @@ import (
 	"github.com/andornaut/faramir/internal/sopstest"
 )
 
+// states, errorsIn and unresolved are one field of a keeper response at the
+// type it is documented to carry.  Checked rather than asserted: a response of
+// another shape is a failure of the op under test, and a panic mid-test says
+// less about it than a message naming what came back.
+func states(t *testing.T, resp map[string]any) []FileState {
+	t.Helper()
+	value, ok := resp["state"].([]FileState)
+	if !ok {
+		t.Fatalf("state = %#v, want []FileState", resp["state"])
+	}
+	return value
+}
+
+func errorsIn(t *testing.T, resp map[string]any) []string {
+	t.Helper()
+	value, ok := resp["errors"].([]string)
+	if !ok {
+		t.Fatalf("errors = %#v, want []string", resp["errors"])
+	}
+	return value
+}
+
+func unresolved(t *testing.T, resp map[string]any) []string {
+	t.Helper()
+	value, ok := resp["unresolved_patterns"].([]string)
+	if !ok {
+		t.Fatalf("unresolved_patterns = %#v, want []string", resp["unresolved_patterns"])
+	}
+	return value
+}
+
 func fixture(t *testing.T, branch sops.TreeBranch) (config.SecretsConfig, *KeyHolder) {
 	t.Helper()
 	dir := t.TempDir()
@@ -189,7 +220,7 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 	if state[0].Path != path || state[0].Size != int64(len("ciphertext")) || state[0].MTime == 0 {
 		t.Errorf("state = %+v", state[0])
 	}
-	if errs := resp["errors"].([]string); len(errs) != 0 {
+	if errs := errorsIn(t, resp); len(errs) != 0 {
 		t.Errorf("errors = %v, want none: nothing was decrypted", errs)
 	}
 }
@@ -204,10 +235,10 @@ func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	}
 
 	resp := k.Handle(map[string]any{"op": "get_state"})
-	if state := resp["state"].([]FileState); len(state) != 0 {
+	if state := states(t, resp); len(state) != 0 {
 		t.Errorf("state = %v, want empty", state)
 	}
-	absent := resp["unresolved_patterns"].([]string)
+	absent := unresolved(t, resp)
 	if len(absent) != 1 || !strings.Contains(absent[0], missing) {
 		t.Errorf("unresolved = %v, want one naming %s", absent, missing)
 	}
@@ -242,7 +273,7 @@ func TestScrubRemovesKeyMaterial(t *testing.T) {
 		t.Fatal(err)
 	}
 	var identity string
-	for _, line := range strings.Split(string(raw), "\n") {
+	for line := range strings.SplitSeq(string(raw), "\n") {
 		if strings.HasPrefix(line, "AGE-SECRET-KEY") {
 			identity = line
 		}
@@ -363,13 +394,13 @@ func TestAPatternThatNamesNothingIsReportedAsUnresolved(t *testing.T) {
 	}
 
 	resp := k.Handle(map[string]any{"op": "get_state"})
-	if state := resp["state"].([]FileState); len(state) != 0 {
+	if state := states(t, resp); len(state) != 0 {
 		t.Errorf("state = %v, want empty", state)
 	}
-	if errs := resp["errors"].([]string); len(errs) != 0 {
+	if errs := errorsIn(t, resp); len(errs) != 0 {
 		t.Errorf("errors = %v, want none: naming nothing is not a load failure", errs)
 	}
-	absent := resp["unresolved_patterns"].([]string)
+	absent := unresolved(t, resp)
 	if len(absent) != 1 || !strings.Contains(absent[0], "matched no files") {
 		t.Errorf("unresolved = %v, want one saying the pattern matched no files", absent)
 	}
@@ -390,13 +421,13 @@ func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
 		Keys: newKeyHolder(config.KeeperConfig{}),
 	}
 
-	if state := k.Handle(map[string]any{"op": "get_state"})["state"].([]FileState); len(state) != 1 {
+	if state := states(t, k.Handle(map[string]any{"op": "get_state"})); len(state) != 1 {
 		t.Fatalf("state = %v, want the one file", state)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "b.sops.yml"), []byte("y"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	state := k.Handle(map[string]any{"op": "get_state"})["state"].([]FileState)
+	state := states(t, k.Handle(map[string]any{"op": "get_state"}))
 	if len(state) != 2 {
 		t.Errorf("state = %v, want both files without a reload of the config", state)
 	}

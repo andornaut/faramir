@@ -1,6 +1,7 @@
 package install
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,7 +140,7 @@ func (r *runner) stepSystemd() error {
 		return nil
 	}
 	if !systemdRunning() {
-		r.warn("systemd is not running here; the units are installed but nothing " +
+		r.warnf("systemd is not running here; the units are installed but nothing " +
 			"has been started")
 		r.skip("systemd", "not running")
 		return nil
@@ -152,7 +153,7 @@ func (r *runner) stepSystemd() error {
 	}
 	// The keeper reads the age key at startup and exits without one.
 	if !exists(r.layout.AgeKeyPath) {
-		r.warn("%s does not exist, so the services are installed but not "+
+		r.warnf("%s does not exist, so the services are installed but not "+
 			"started", r.layout.AgeKeyPath)
 		r.skip("systemd", "no age key")
 		return nil
@@ -240,7 +241,7 @@ func parseInstalledConfig(run *runner) error {
 	if err != nil {
 		// No unit to read means nothing is installed to reload; leave that to the
 		// systemctl calls, which name it better than a guess here would.
-		return nil
+		return nil //nolint:nilerr // nothing installed is not a parse failure
 	}
 	out, err := run.command("runuser", "-u", brokerUser, "--",
 		filepath.Join(DefaultBinDir, "faramir"), "broker", "-c", configFile, "--parse-only")
@@ -254,7 +255,7 @@ func parseInstalledConfig(run *runner) error {
 
 func Reload() error {
 	if !systemdRunning() {
-		return fmt.Errorf("systemd is not running here")
+		return errors.New("systemd is not running here")
 	}
 	run := &runner{}
 	if err := parseInstalledConfig(run); err != nil {

@@ -38,7 +38,7 @@ func requireSSH(t *testing.T) {
 func newKey(t *testing.T, dir string) string {
 	t.Helper()
 	path := filepath.Join(dir, "id_ed25519")
-	cmd := exec.Command("ssh-keygen", "-t", "ed25519", "-N", "", "-C", "faramir-test", "-f", path)
+	cmd := exec.CommandContext(t.Context(), "ssh-keygen", "-t", "ed25519", "-N", "", "-C", "faramir-test", "-f", path)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("ssh-keygen: %v: %s", err, out)
 	}
@@ -150,7 +150,7 @@ func startedAgent(t *testing.T) (*Agent, string) {
 // sshAdd runs ssh-add against the proxy, the only route to the agent here.
 func sshAdd(t *testing.T, a *Agent, args ...string) (string, error) {
 	t.Helper()
-	cmd := exec.Command("ssh-add", args...)
+	cmd := exec.CommandContext(t.Context(), "ssh-add", args...)
 	cmd.Env = append(os.Environ(), "SSH_AUTH_SOCK="+a.Env()["SSH_AUTH_SOCK"])
 	out, err := cmd.CombinedOutput()
 	return string(out), err
@@ -159,7 +159,7 @@ func sshAdd(t *testing.T, a *Agent, args ...string) (string, error) {
 // dialProxy dials with a deadline, so a stuck relay fails rather than hangs.
 func dialProxy(t *testing.T, sock string) net.Conn {
 	t.Helper()
-	client, err := net.Dial("unix", sock)
+	client, err := (&net.Dialer{}).DialContext(t.Context(), "unix", sock)
 	if err != nil {
 		t.Fatalf("dial the proxy: %v", err)
 	}

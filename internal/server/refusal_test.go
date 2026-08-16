@@ -18,7 +18,7 @@ func records(t *testing.T, s *Server) []map[string]any {
 		return nil
 	}
 	var out []map[string]any
-	for _, line := range strings.Split(strings.TrimSpace(string(body)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(body)), "\n") {
 		if line == "" {
 			continue
 		}

@@ -442,13 +442,11 @@ func TestConcurrentRequestsShareOneQuestion(t *testing.T) {
 	var wg sync.WaitGroup
 	refused := make(chan string, 3)
 	for range 3 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			if approved, reason := s.Ask(token); !approved {
 				refused <- reason
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	close(refused)

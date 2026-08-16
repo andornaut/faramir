@@ -12,6 +12,7 @@ package execserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -124,11 +125,9 @@ func (e *Executor) Serve() error {
 			continue
 		}
 		delay = 0
-		e.wg.Add(1)
-		go func() {
-			defer e.wg.Done()
+		e.wg.Go(func() {
 			e.serveConnection(conn)
-		}()
+		})
 	}
 }
 
@@ -304,7 +303,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	}
 	defer func() { _ = devnull.Close() }()
 
-	cmd := exec.Command(req.Argv[0], req.Argv[1:]...)
+	cmd := exec.CommandContext(context.Background(), req.Argv[0], req.Argv[1:]...)
 	cmd.Dir = cwd
 	cmd.Env = env
 	cmd.Stdin = devnull
@@ -477,7 +476,7 @@ func NewClient(socketPath string) *Client { return &Client{socketPath: socketPat
 // understood has not said the host is quiet, and an approval granted on silence
 // is the thing this check exists to prevent.
 func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
-	conn, err := net.DialTimeout("unix", socketPath, timeout)
+	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
 	if err != nil {
 		return false, fmt.Sprintf("the executor could not be asked whether this host "+
 			"is quiet (%s: %v)", socketPath, err)
@@ -517,11 +516,11 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	timeoutSec, killGraceSec int, slaveFD uintptr) error {
 	addr, err := net.ResolveUnixAddr("unix", c.socketPath)
 	if err != nil {
-		return fmt.Errorf("executor socket %s: %v", c.socketPath, err)
+		return fmt.Errorf("executor socket %s: %w", c.socketPath, err)
 	}
 	conn, err := net.DialUnix("unix", nil, addr)
 	if err != nil {
-		return fmt.Errorf("executor socket %s: %v", c.socketPath, err)
+		return fmt.Errorf("executor socket %s: %w", c.socketPath, err)
 	}
 	c.conn = conn
 
@@ -531,14 +530,14 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	})
 	if err != nil {
 		c.Close()
-		return fmt.Errorf("executor: %v", err)
+		return fmt.Errorf("executor: %w", err)
 	}
 	line = append(line, '\n')
 
 	rights := unix.UnixRights(int(slaveFD))
 	if _, _, err := conn.WriteMsgUnix(line, rights, nil); err != nil {
 		c.Close()
-		return fmt.Errorf("executor: %v", err)
+		return fmt.Errorf("executor: %w", err)
 	}
 	return nil
 }
@@ -548,7 +547,7 @@ func (c *Client) Abort() { c.Close() }
 
 func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 	if c.conn == nil {
-		return nil, fmt.Errorf("executor: no command in flight")
+		return nil, errors.New("executor: no command in flight")
 	}
 	defer c.Close()
 	_ = c.conn.SetReadDeadline(time.Now().Add(timeout))
@@ -564,14 +563,14 @@ func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 			if errors.Is(err, io.EOF) {
 				break
 			}
-			return nil, fmt.Errorf("executor: %v", err)
+			return nil, fmt.Errorf("executor: %w", err)
 		}
 	}
 	if idx := bytes.IndexByte(buf, '\n'); idx >= 0 {
 		buf = buf[:idx]
 	}
 	if len(buf) == 0 {
-		return nil, fmt.Errorf("executor closed the connection without responding")
+		return nil, errors.New("executor closed the connection without responding")
 	}
 
 	var response struct {
@@ -583,13 +582,13 @@ func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(buf, &response); err != nil {
-		return nil, fmt.Errorf("malformed response from executor: %v", err)
+		return nil, fmt.Errorf("malformed response from executor: %w", err)
 	}
 	if response.Error != nil {
 		return nil, fmt.Errorf("%s: %s", response.Error.Code, response.Error.Message)
 	}
 	if response.ExitCode == nil {
-		return nil, fmt.Errorf("executor response has no exit_code")
+		return nil, errors.New("executor response has no exit_code")
 	}
 	return &ChildResult{ExitCode: *response.ExitCode, TimedOut: response.TimedOut}, nil
 }

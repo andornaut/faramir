@@ -5,6 +5,7 @@ package main
 // askBroker.  init also runs its own checks through it at the end.
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -38,7 +39,8 @@ type status struct {
 // askBroker asks a running broker about itself in one round trip, and returns a
 // zero status on any failure, every caller having something to fall back on.
 func askBroker(socketPath string) status {
-	conn, err := net.DialTimeout("unix", socketPath, 2*time.Second)
+	conn, err := (&net.Dialer{Timeout: 2 * time.Second}).DialContext(
+		context.Background(), "unix", socketPath)
 	if err != nil {
 		return status{}
 	}
@@ -575,7 +577,10 @@ func paintStatus(paint palette, status install.Status) string {
 		return paint.dim(text)
 	case install.StatusWarn:
 		return paint.warn(text)
+	case install.StatusFailed:
+		return paint.bad(text)
 	default:
+		// A status this build does not know is the one worth looking at.
 		return paint.bad(text)
 	}
 }

@@ -128,11 +128,9 @@ func (s *Server) Serve() error {
 			continue
 		}
 		delay = 0
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
+		s.wg.Go(func() {
 			s.serveConnection(conn)
-		}()
+		})
 	}
 }
 
@@ -231,7 +229,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 		return // Close swept this connection between track and here
 	}
 	peer, err := s.peer(conn)
-	if err != nil || peer == nil {
+	if err != nil {
 		_ = sockutil.Send(conn, protocol.ErrorResponse("forbidden", "peer not authorized", ""))
 		return
 	}
@@ -314,6 +312,12 @@ func (s *Server) streamWait() time.Duration {
 	return time.Duration(s.Config.Exec.MaxTimeoutSec) * time.Second
 }
 
+// errPeerNotAllowed is a caller the socket admitted and the group check did
+// not.  A sentinel rather than a nil peer with no error: the two failures here
+// are "the kernel would not say who this is" and "it said, and they are not in
+// the group", and a caller reading one return has to be able to tell them apart.
+var errPeerNotAllowed = errors.New("peer is not in the client group")
+
 // peer performs the SO_PEERCRED check.  The socket mode already restricts this
 // to the client group; this also gives the audit log a real uid.
 func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
@@ -324,7 +328,7 @@ func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 	}
 	cfg := s.Config.Server
 	if !sockutil.Allowed(peer, "", cfg.AllowedGroup) {
-		return nil, nil
+		return nil, errPeerNotAllowed
 	}
 	return peer, nil
 }
@@ -380,7 +384,7 @@ func (s *Server) opStatus() protocol.Response {
 		data, err := os.ReadFile(s.Config.Ssh.Key)
 		usable = err == nil && unusableReason(data) == ""
 	}
-	body, _ := json.MarshalIndent(map[string]any{
+	body, err := json.MarshalIndent(map[string]any{
 		"version": version.Version,
 		// Every file that contributed, in merge order.
 		"configs": s.Config.Sources,
@@ -393,6 +397,10 @@ func (s *Server) opStatus() protocol.Response {
 		// every request either way.
 		"sudo": map[string]any{"enabled": s.Approval.Enabled()},
 	}, "", "  ")
+	if err != nil {
+		return protocol.ErrorResponse("internal", "the status could not be "+
+			"rendered: "+err.Error(), "")
+	}
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n",
 		"truncated": false, "redactions": []any{}, "log_id": nil,
@@ -520,7 +528,11 @@ func (s *Server) opApprovals(request *protocol.Request, peer *sockutil.Peer) pro
 	}
 	wait := min(time.Duration(request.WaitSec)*time.Second, maxApprovalWait)
 	questions := s.Approval.QuestionsWait(wait)
-	body, _ := json.MarshalIndent(map[string]any{"questions": questions}, "", "  ")
+	body, err := json.MarshalIndent(map[string]any{"questions": questions}, "", "  ")
+	if err != nil {
+		return protocol.ErrorResponse("internal", "the questions could not be "+
+			"rendered: "+err.Error(), "")
+	}
 	return protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n", "questions": questions,
 		"truncated": false, "redactions": []any{}, "log_id": nil,
@@ -896,10 +908,15 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	sshInfo, problems := s.describeSSH()
 	approvalInfo, approvalProblems := s.describeApproval()
 	policy := s.policyProblems()
-	body, _ := json.MarshalIndent(map[string]any{
+	body, err := json.MarshalIndent(map[string]any{
 		"configs": s.Config.Sources,
 		"secrets": secrets, "ssh": sshInfo, "sudo": approvalInfo, "policy": policy,
 	}, "", "  ")
+	if err != nil {
+		// Non-zero, like every other reason this report is not the whole answer: a
+		// report that cannot be rendered is a broker nobody can check.
+		return []byte("the --check report could not be rendered: " + err.Error() + "\n"), 1
+	}
 
 	code := 0
 	if len(policy) > 0 {

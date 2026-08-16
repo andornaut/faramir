@@ -11,6 +11,7 @@
 package resolve
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -48,7 +49,7 @@ func executable(path string) bool { return unix.Access(path, unix.X_OK) == nil }
 // Program returns the absolute, symlink-resolved path for argv0.
 func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 	if argv0 == "" {
-		return "", fmt.Errorf("empty command")
+		return "", errors.New("empty command")
 	}
 
 	if strings.Contains(argv0, "/") {

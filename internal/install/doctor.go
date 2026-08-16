@@ -152,7 +152,7 @@ type DoctorReport struct {
 	Findings []Finding `json:"findings"`
 }
 
-func (d *DoctorReport) add(name string, status Status, format string, args ...any) {
+func (d *DoctorReport) addf(name string, status Status, format string, args ...any) {
 	d.Findings = append(d.Findings, Finding{
 		Name: name, Status: status, Detail: fmt.Sprintf(format, args...),
 	})
@@ -170,9 +170,9 @@ func (d *DoctorReport) add(name string, status Status, format string, args ...an
 // reporting and short of a failure -- an open sysctl, a stale rule, a group with
 // members nobody recognises -- and re-running as root would not change it.  Which
 // kind a warn is, is now which call it goes through.
-func (d *DoctorReport) unasked(name string, count int, format string, args ...any) {
+func (d *DoctorReport) unaskedf(name string, count int, format string, args ...any) {
 	d.NotAsked += count
-	d.add(name, StatusWarn, format, args...)
+	d.addf(name, StatusWarn, format, args...)
 }
 
 // merge appends another report's findings, carrying its verdict and its unasked
@@ -194,17 +194,17 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	configFile := filepath.Join(opts.ConfigDir, "config.toml")
 
 	if !exists(configFile) {
-		report.add("config", StatusFailed, "%s is missing; the daemons read it at "+
+		report.addf("config", StatusFailed, "%s is missing; the daemons read it at "+
 			"startup and exit without one", configFile)
 		return report
 	}
-	report.add("config", StatusOK, "%s", configFile)
+	report.addf("config", StatusOK, "%s", configFile)
 
 	// The daemons' own paths rather than the defaults, or a host whose store and
 	// sockets moved is examined at addresses nothing uses.
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		report.add("config", StatusFailed, "%s does not load: %v", configFile, err)
+		report.addf("config", StatusFailed, "%s does not load: %v", configFile, err)
 		return report
 	}
 
@@ -261,14 +261,14 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 // is the one refusing the file tools.
 func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
-		report.unasked("agent rules", 1, "the agent account is not named, so what "+
+		report.unaskedf("agent rules", 1, "the agent account is not named, so what "+
 			"each agent has in its home was not asked: pass --agent-user, or run "+
 			"through sudo so SUDO_USER carries it")
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)
 	if err != nil || home == "" {
-		report.unasked("agent rules", 1, "could not read %s's home, so what each "+
+		report.unaskedf("agent rules", 1, "could not read %s's home, so what each "+
 			"agent has there was not asked", opts.AgentUser)
 		return
 	}
@@ -278,7 +278,7 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 	// rather than removed: this record is not the authority on what exists, and
 	// an unmounted tree is not a deleted one.
 	for _, tree := range stale {
-		report.add("agent rules", StatusWarn, "%s was enrolled for %s and is no "+
+		report.addf("agent rules", StatusWarn, "%s was enrolled for %s and is no "+
 			"longer there, so that entry says nothing about this host. Re-run "+
 			"`faramir init-project` where the tree is now, or ignore it",
 			tree.Dir, strings.Join(tree.Agents, ", "))
@@ -301,7 +301,7 @@ func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 		// for this check to find and nothing missing from it, and the difference
 		// between the two is the difference between covered and not.
 		if len(target.accountFiles) == 0 {
-			report.add("agent rules", StatusNA, "%s: %s", name, target.withoutAccountRules)
+			report.addf("agent rules", StatusNA, "%s: %s", name, target.withoutAccountRules)
 			continue
 		}
 		var missing []string
@@ -312,21 +312,21 @@ func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 		}
 		switch {
 		case len(missing) == 0:
-			report.add("agent rules", StatusOK, "%s: %s", name,
+			report.addf("agent rules", StatusOK, "%s: %s", name,
 				strings.Join(accountPaths(target), ", "))
 		case slices.Contains(enrolled, name):
-			report.add("agent rules", StatusFailed, "a tree is enrolled for %s and %s "+
+			report.addf("agent rules", StatusFailed, "a tree is enrolled for %s and %s "+
 				"is not there, so its file tools are refused nothing in that tree. Those "+
 				"rules cover the keys under ~/.ssh and ~/.config/sops, which this uid "+
 				"can read. Run `sudo faramir init --agent %s`",
 				name, strings.Join(missing, ", "), name)
 		case agentInUse(home, target):
-			report.add("agent rules", StatusFailed, "%s is in this home and %s is "+
+			report.addf("agent rules", StatusFailed, "%s is in this home and %s is "+
 				"not, so its file tools are refused nothing. Those rules cover the keys "+
 				"under ~/.ssh and ~/.config/sops, which this uid can read. Run `sudo "+
 				"faramir init --agent %s`", name, strings.Join(missing, ", "), name)
 		default:
-			report.add("agent rules", StatusNA, "%s: nothing here, so nobody runs it "+
+			report.addf("agent rules", StatusNA, "%s: nothing here, so nobody runs it "+
 				"from this account", name)
 		}
 	}
@@ -373,17 +373,17 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 	current, stale := layout.SopsConfigPath(), layout.StaleSopsConfigPath()
 	switch {
 	case exists(stale) && exists(current):
-		report.add("sops config", StatusWarn, "%s shadows %s for anything run from "+
+		report.addf("sops config", StatusWarn, "%s shadows %s for anything run from "+
 			"the secrets directory, sops taking the nearest one walking up. Compare the recipients, "+
 			"then: sudo rm %s", stale, current, stale)
 	case exists(stale):
-		report.add("sops config", StatusWarn, "%s is where earlier installs put it, "+
+		report.addf("sops config", StatusWarn, "%s is where earlier installs put it, "+
 			"and the secrets directory is globbed by [secrets] patterns. Move it: sudo mv %s %s",
 			stale, stale, current)
 	case exists(current):
 		diagnoseSopsRecipients(report, opts, current)
 	default:
-		report.add("sops config", StatusWarn, "no %s, so sops has no creation rule "+
+		report.addf("sops config", StatusWarn, "no %s, so sops has no creation rule "+
 			"and refuses to encrypt a new file in the secrets directory", current)
 	}
 }
@@ -399,12 +399,12 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path string) {
 	listed, err := sopsRecipients(path)
 	if err != nil {
-		report.add("sops config", StatusFailed, "%s does not parse (%v), so who can "+
+		report.addf("sops config", StatusFailed, "%s does not parse (%v), so who can "+
 			"decrypt the secrets directory is unknown here. sops has to read this file too", path, err)
 		return
 	}
 	if len(listed) == 0 {
-		report.add("sops config", StatusWarn, "%s lists no age recipient, so sops "+
+		report.addf("sops config", StatusWarn, "%s lists no age recipient, so sops "+
 			"encrypts a new file in the secrets directory to nobody and refuses", path)
 		return
 	}
@@ -413,7 +413,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	keyPath := filepath.Join(opts.ConfigDir, "age.key")
 	keeper, err := agekey.Recipient(keyPath)
 	if err != nil {
-		report.unasked("sops config", 1, "%s lists %s, and whether %s is among "+
+		report.unaskedf("sops config", 1, "%s lists %s, and whether %s is among "+
 			"them went unchecked: %v. Re-run as root", path, strings.Join(listed, ", "),
 			keyPath, err)
 		return
@@ -421,14 +421,14 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	// Warn, not failed: the values already in the secrets directory still decrypt,
 	// so this is a host that works today and cannot take a new value tomorrow.
 	if !slices.Contains(listed, keeper) {
-		report.add("sops config", StatusWarn, "%s lists %s, none of which is the "+
+		report.addf("sops config", StatusWarn, "%s lists %s, none of which is the "+
 			"recipient of %s (%s). Every value encrypted into the secrets directory from now on is "+
 			"one %s cannot decrypt, and a broker that loads nothing still starts. Add it "+
 			"under `- age:`, then re-key each existing file with sops updatekeys",
 			path, strings.Join(listed, ", "), keyPath, keeper, opts.KeeperUser)
 		return
 	}
-	report.add("sops config", StatusOK, "%s, %d recipient(s) including %s's",
+	report.addf("sops config", StatusOK, "%s, %d recipient(s) including %s's",
 		path, len(listed), opts.KeeperUser)
 }
 
@@ -460,13 +460,13 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	}
 	logPath := cfg.Audit.LogPath
 	if !exists(logrotateConfig) {
-		report.add("log rotation", StatusFailed, "%s does not exist, so nothing "+
+		report.addf("log rotation", StatusFailed, "%s does not exist, so nothing "+
 			"bounds %s. Re-run `faramir init`, or bound it some other way",
 			logrotateConfig, logPath)
 		return
 	}
 	if _, err := exec.LookPath("logrotate"); err != nil {
-		report.add("log rotation", StatusFailed, "%s exists and logrotate does not, "+
+		report.addf("log rotation", StatusFailed, "%s exists and logrotate does not, "+
 			"so it is inert and %s grows without a ceiling. Install logrotate, or "+
 			"bound that file some other way", logrotateConfig, logPath)
 		return
@@ -479,16 +479,16 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	named, err := logrotateLogs(logrotateConfig)
 	switch {
 	case err != nil:
-		report.add("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
+		report.addf("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
 			"anything bounds %s cannot be established", logrotateConfig, err, logPath)
 		return
 	case len(named) == 0:
-		report.add("log rotation", StatusWarn, "%s names no log file, so it is empty "+
+		report.addf("log rotation", StatusWarn, "%s names no log file, so it is empty "+
 			"or written in a form this check cannot read. Confirm it covers %s with "+
 			"`logrotate -d %s`", logrotateConfig, logPath, logrotateConfig)
 		return
 	case !logrotateCovers(named, logPath):
-		report.add("log rotation", StatusFailed, "%s bounds %s and the broker appends "+
+		report.addf("log rotation", StatusFailed, "%s bounds %s and the broker appends "+
 			"to %s, so nothing bounds the log this host writes. Point [audit] "+
 			"log_path back at the rotated file, or re-run `faramir init` to rewrite "+
 			"the rule", logrotateConfig, strings.Join(named, ", "), logPath)
@@ -501,7 +501,7 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	// abandons, is skipped every run and says nothing about it anywhere else.
 	statePath := firstExisting(logrotateStatePaths)
 	if statePath == "" {
-		report.add("log rotation", StatusWarn, "logrotate keeps no state at %s, so it "+
+		report.addf("log rotation", StatusWarn, "logrotate keeps no state at %s, so it "+
 			"has not run on this host and %s is bounded by a rule nothing has applied. "+
 			"Check the logrotate timer or cron job",
 			strings.Join(logrotateStatePaths, " or "), logPath)
@@ -510,19 +510,19 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	rotated, err := logrotateStateLogs(statePath)
 	switch {
 	case os.IsPermission(err):
-		report.unasked("log rotation", 1, "run doctor as root to ask the rest: %s "+
+		report.unaskedf("log rotation", 1, "run doctor as root to ask the rest: %s "+
 			"says which logs logrotate has processed and %s is the broker's, so "+
 			"whether the rule is being applied and how large the log has grown are "+
 			"both root's to read. %s does name %s",
 			statePath, logPath, logrotateConfig, logPath)
 		return
 	case err != nil:
-		report.add("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
+		report.addf("log rotation", StatusFailed, "%s cannot be read (%v), so whether "+
 			"logrotate has ever applied %s cannot be established",
 			statePath, err, logrotateConfig)
 		return
 	case !slices.Contains(rotated, logPath):
-		report.add("log rotation", StatusWarn, "%s names %d logs and not %s, so "+
+		report.addf("log rotation", StatusWarn, "%s names %d logs and not %s, so "+
 			"logrotate has not applied the rule to it. A host whose first run has not "+
 			"come round yet is the ordinary reason; past that, %s is not being read. "+
 			"Check the logrotate timer or cron job",
@@ -538,7 +538,7 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	info, err := os.Stat(logPath)
 	switch {
 	case os.IsPermission(err):
-		report.unasked("log rotation", 1, "run doctor as root to ask the last of "+
+		report.unaskedf("log rotation", 1, "run doctor as root to ask the last of "+
 			"this: %s is the broker's, so its size is root's to read. %s does name "+
 			"it, and %s records that logrotate has applied the rule",
 			logPath, logrotateConfig, statePath)
@@ -546,13 +546,13 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	// Absent is not a fault: the rule is missingok and the broker opens the file
 	// with O_CREATE, so the next record makes it again.
 	case err == nil && info.Size() > 4*rotateSize:
-		report.add("log rotation", StatusWarn, "%s is %d bytes, well past the %d "+
+		report.addf("log rotation", StatusWarn, "%s is %d bytes, well past the %d "+
 			"the rule rotates at, so logrotate is installed and is not being run on "+
 			"it. Check the logrotate timer or cron job",
 			logPath, info.Size(), rotateSize)
 		return
 	}
-	report.add("log rotation", StatusOK, "%s bounds %s, logrotate is installed to "+
+	report.addf("log rotation", StatusOK, "%s bounds %s, logrotate is installed to "+
 		"apply it, and %s records that it has", logrotateConfig, logPath, statePath)
 }
 
@@ -577,10 +577,10 @@ func logrotateLogs(path string) ([]string, error) {
 		if comment := strings.IndexByte(line, '#'); comment >= 0 {
 			line = line[:comment]
 		}
-		for _, field := range strings.Fields(line) {
+		for field := range strings.FieldsSeq(line) {
 			// logrotate lexes the brace as its own token, so a path can carry one
 			// with no space between them.
-			if trimmed := strings.TrimSuffix(field, "{"); trimmed != field {
+			if trimmed, ok := strings.CutSuffix(field, "{"); ok {
 				if depth == 0 && trimmed != "" {
 					logs = append(logs, unquoteField(trimmed))
 				}
@@ -669,7 +669,7 @@ func unquoteField(field string) string {
 // activated, so an inactive service is ordinary.
 func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 	if !systemdRunning() {
-		report.unasked("sockets", len(sockets), "systemd is not running here, so whether "+
+		report.unaskedf("sockets", len(sockets), "systemd is not running here, so whether "+
 			"%d socket unit(s) are listening was not asked", len(sockets))
 		return
 	}
@@ -687,11 +687,11 @@ func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 			state = "unreportable"
 		}
 		if state != unitActive {
-			report.add("sockets", StatusFailed, "%s is %s; check journalctl -u %s",
+			report.addf("sockets", StatusFailed, "%s is %s; check journalctl -u %s",
 				socket, state, socket)
 			continue
 		}
-		report.add("sockets", StatusOK, "%s is listening", socket)
+		report.addf("sockets", StatusOK, "%s is listening", socket)
 	}
 }
 
@@ -706,15 +706,15 @@ func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 	switch {
 	case opts.BrokerVersion == "":
-		report.unasked("version", 1, "the broker did not answer, so which build "+
+		report.unaskedf("version", 1, "the broker did not answer, so which build "+
 			"is running is unknown; this binary is %s", version.Version)
 	case opts.BrokerVersion != version.Version:
-		report.add("version", StatusFailed, "the broker is running %s and this binary "+
+		report.addf("version", StatusFailed, "the broker is running %s and this binary "+
 			"is %s, so the daemons were never restarted onto what is installed and "+
 			"every finding below describes the wrong build. Run `sudo faramir init`",
 			opts.BrokerVersion, version.Version)
 	default:
-		report.add("version", StatusOK, "broker and binary are both %s", version.Version)
+		report.addf("version", StatusOK, "broker and binary are both %s", version.Version)
 	}
 }
 
@@ -727,7 +727,7 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 // ordinary account each get a different answer.
 func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerServes {
 	if os.Geteuid() != 0 {
-		report.unasked("broker", 1, "run doctor as root to ask this: --check "+
+		report.unaskedf("broker", 1, "run doctor as root to ask this: --check "+
 			"has to run as %s, and any other account gets an answer that is not "+
 			"the broker's", brokerUser)
 		return servesUnknown
@@ -741,10 +741,10 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	var check checkReport
 	if err := json.Unmarshal([]byte(out), &check); err != nil {
 		if checkErr != nil {
-			report.add("broker", StatusFailed, "--check failed as %s: %v", brokerUser, checkErr)
+			report.addf("broker", StatusFailed, "--check failed as %s: %v", brokerUser, checkErr)
 			return servesUnknown
 		}
-		report.add("broker", StatusFailed, "could not read the --check report: %v", err)
+		report.addf("broker", StatusFailed, "could not read the --check report: %v", err)
 		return servesUnknown
 	}
 	// Every one of these fails.  The daemon is more forgiving on purpose, coming
@@ -754,20 +754,20 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	explained := true
 	switch {
 	case len(check.Secrets.Patterns) == 0:
-		report.add("secrets", StatusFailed, "no managed sops files are configured, so "+
+		report.addf("secrets", StatusFailed, "no managed sops files are configured, so "+
 			"nothing is injectable and nothing is redacted")
 	case len(check.Secrets.UnresolvedPatterns) > 0:
 		// The unresolved entries alone: another pattern beside them may have
 		// matched and loaded, and naming that one too would say the untrue thing.
-		report.add("secrets", StatusFailed, "%s. Either the secrets have not been "+
+		report.addf("secrets", StatusFailed, "%s. Either the secrets have not been "+
 			"written yet, or they are on a filesystem that is not mounted; %d ref(s) "+
 			"loaded from what did resolve",
 			strings.Join(check.Secrets.UnresolvedPatterns, "; "), check.Secrets.Count)
 	case check.Secrets.Count == 0:
-		report.add("secrets", StatusFailed, "read %s and loaded no refs. %s",
+		report.addf("secrets", StatusFailed, "read %s and loaded no refs. %s",
 			strings.Join(check.Secrets.Files, ", "), loadErrorDetail(check.Secrets.Errors))
 	default:
-		report.add("secrets", StatusOK, "%d ref(s) from %d file(s)",
+		report.addf("secrets", StatusOK, "%d ref(s) from %d file(s)",
 			check.Secrets.Count, len(check.Secrets.Files))
 		explained = false
 	}
@@ -777,7 +777,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// they are never injected, so what is wrong is that a ref does not work, not
 	// that the install is failing to hold a boundary.
 	if len(check.Secrets.NotRedactable) > 0 {
-		report.add("redaction", StatusWarn, "%d ref(s) are shorter than [secrets] "+
+		report.addf("redaction", StatusWarn, "%d ref(s) are shorter than [secrets] "+
 			"min_length, so they are never injected and never redacted: %s. Lengthen "+
 			"them with `faramir edit`",
 			len(check.Secrets.NotRedactable), check.refusedRefs())
@@ -791,7 +791,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// failed, which would swallow this one whenever another check had already
 	// failed for reasons of its own.
 	if checkErr != nil && !explained {
-		report.add("broker", StatusFailed, "--check failed as %s for a reason not "+
+		report.addf("broker", StatusFailed, "--check failed as %s for a reason not "+
 			"reported above: %v", brokerUser, checkErr)
 	}
 	// A probe that ran a brokered command against a refusing broker would report
@@ -815,12 +815,12 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 // are split out so both can be tested without a broker.
 func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
 	if cfg == nil || cfg.Ssh.Key == "" {
-		report.add("ssh agent", StatusOK, "no [ssh] key configured, so no agent runs "+
+		report.addf("ssh agent", StatusOK, "no [ssh] key configured, so no agent runs "+
 			"and none is expected")
 		return
 	}
 	if reason := skipSSHProbe(serves, opts.BrokerVersion); reason != "" {
-		report.unasked("ssh agent", 1, "%s", reason)
+		report.unaskedf("ssh agent", 1, "%s", reason)
 		return
 	}
 	out, err := asOperator(opts, filepath.Join(DefaultBinDir, "faramir"),
@@ -855,23 +855,23 @@ func skipSSHProbe(serves brokerServes, brokerVersion string) string {
 func reportSSHProbe(report *DoctorReport, cfg *config.Config, serves brokerServes, out string, err error) {
 	switch classifySSHProbe(out, err) {
 	case sshProbeHasKey:
-		report.add("ssh agent", StatusOK, "holds a usable key")
+		report.addf("ssh agent", StatusOK, "holds a usable key")
 	case sshProbeRefused:
 		if serves == servesValues {
-			report.add("ssh agent", StatusFailed, "the broker refuses brokered commands "+
+			report.addf("ssh agent", StatusFailed, "the broker refuses brokered commands "+
 				"though --check read every managed file as the broker: the running daemon "+
 				"came up before the values were there and has not read them since. "+
 				"Restart faramir-broker")
 			return
 		}
-		report.unasked("ssh agent", 1, "%s", sshAgentRefused)
+		report.unaskedf("ssh agent", 1, "%s", sshAgentRefused)
 	case sshProbeEmpty:
-		report.add("ssh agent", StatusFailed, "the agent holds nothing, though [ssh] "+
+		report.addf("ssh agent", StatusFailed, "the agent holds nothing, though [ssh] "+
 			"key names %s, so every brokered command that reaches a managed host "+
 			"fails to authenticate. Place the key and restart faramir-broker",
 			cfg.Ssh.Key)
-	default:
-		report.add("ssh agent", StatusFailed, "could not ask the broker: %v: %s",
+	case sshProbeUnreachable:
+		report.addf("ssh agent", StatusFailed, "could not ask the broker: %v: %s",
 			err, strings.TrimSpace(out))
 	}
 }
@@ -937,7 +937,7 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 	// `gpasswd -d <the operator> <the client group>` as the remedy, which is the
 	// one change that shuts the agent out of the broker socket.
 	if opts.AgentUser == "" {
-		report.unasked("group", len(groups), "the agent account is not named, so a "+
+		report.unaskedf("group", len(groups), "the agent account is not named, so a "+
 			"member of %s cannot be told from an account left behind: pass "+
 			"--agent-user, or run through sudo so SUDO_USER carries it",
 			opts.ClientGroup)
@@ -960,12 +960,12 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 func diagnoseGroupOutsiders(report *DoctorReport, label, name string, known []string, grants string) {
 	gid, members, err := groupEntry(name)
 	if err != nil {
-		report.add(label, StatusFailed, "no group %q, so nothing can %s", name, grants)
+		report.addf(label, StatusFailed, "no group %q, so nothing can %s", name, grants)
 		return
 	}
 	primary, err := primaryMembers(gid)
 	if err != nil {
-		report.add(label, StatusFailed, "could not read who holds %s as a primary "+
+		report.addf(label, StatusFailed, "could not read who holds %s as a primary "+
 			"group (%v), so who can %s went unverified", name, err, grants)
 		return
 	}
@@ -977,10 +977,10 @@ func diagnoseGroupOutsiders(report *DoctorReport, label, name string, known []st
 		}
 	}
 	if len(outsiders) == 0 {
-		report.add(label, StatusOK, "%s has no unexpected members", name)
+		report.addf(label, StatusOK, "%s has no unexpected members", name)
 		return
 	}
-	report.add(label, StatusWarn, "%s has members this install does not use: %s. "+
+	report.addf(label, StatusWarn, "%s has members this install does not use: %s. "+
 		"Membership is what lets them %s, so an account the install has stopped "+
 		"naming is a standing grant. Drop one with: gpasswd -d <account> %s, or "+
 		"usermod -g <other> <account> where it is the primary group",
@@ -1067,7 +1067,7 @@ func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 		}
 		account, err := unitUser(role.unit)
 		if err != nil {
-			report.add("identities", StatusFailed, "cannot tell which account runs "+
+			report.addf("identities", StatusFailed, "cannot tell which account runs "+
 				"%s (%v), so nothing below could be asked about the right one. Reinstall, "+
 				"or pass %s", role.unit, err, role.flag)
 			return opts, false
@@ -1077,7 +1077,7 @@ func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 
 	if opts.ClientGroup == "" {
 		if cfg.Server.AllowedGroup == "" {
-			report.add("identities", StatusFailed, "[server] allowed_group is unset, so "+
+			report.addf("identities", StatusFailed, "[server] allowed_group is unset, so "+
 				"the broker admits nobody but root and itself. Run `faramir init "+
 				"--client-group NAME`, or pass --client-group to examine anyway")
 			return opts, false
@@ -1088,7 +1088,7 @@ func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 		dir := filepath.Join(opts.ConfigDir, "secrets")
 		group, err := groupOf(dir)
 		if err != nil {
-			report.add("identities", StatusFailed, "cannot read the group owning %s "+
+			report.addf("identities", StatusFailed, "cannot read the group owning %s "+
 				"(%v), which is what keeps every account but the keeper out of the "+
 				"ciphertext. Reinstall, or pass --secrets-group", dir, err)
 			return opts, false
@@ -1096,7 +1096,7 @@ func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 		opts.SecretsGroup = group
 	}
 
-	report.add("identities", StatusOK, "%s, %s, %s, in %s, secrets owned by %s",
+	report.addf("identities", StatusOK, "%s, %s, %s, in %s, secrets owned by %s",
 		opts.BrokerUser, opts.KeeperUser, opts.ExecUser, opts.ClientGroup, opts.SecretsGroup)
 	return opts, true
 }

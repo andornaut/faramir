@@ -134,14 +134,14 @@ func stubLine(payload map[string]any) []byte {
 	// as they are -- the one thing this function exists to rule out.  Printing
 	// them also leaves the map holding strings and a bool, neither of which can
 	// fail to marshal, so there is no second failure to fall back from.
-	line, _ := json.Marshal(map[string]any{
+	line, err := json.Marshal(map[string]any{
 		"log_id":         clamp(fmt.Sprint(payload["log_id"]), 256),
 		"op":             clamp(fmt.Sprint(payload["op"]), 256),
 		"peer":           clamp(fmt.Sprint(payload["peer"]), 256),
 		"error":          why,
 		"record_reduced": true,
 	})
-	if len(line) == 0 {
+	if err != nil || len(line) == 0 {
 		// Unreachable, and the belt to the braces: the invariant is that this
 		// function returns a record, so it does not depend on being right about that.
 		line = []byte(`{"error":"` + why + `"}`)

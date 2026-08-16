@@ -151,7 +151,11 @@ func TestARefusalDoesNotSurviveAReloadThatFixesIt(t *testing.T) {
 		t.Fatalf("the lengthened value is still refused: %v", err)
 	}
 	out := s.DescribeForOperator()
-	if refused := out["not_redactable"].(map[string]string); len(refused) != 0 {
+	refused, ok := out["not_redactable"].(map[string]string)
+	if !ok {
+		t.Fatalf("not_redactable = %#v, want map[string]string", out["not_redactable"])
+	}
+	if len(refused) != 0 {
 		t.Errorf("the stale refusal survived: %v", refused)
 	}
 }
@@ -225,7 +229,7 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 	serving := make(chan struct{})
 	release := make(chan struct{})
 
-	ln, err := net.Listen("unix", sock)
+	ln, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", sock)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,20 +256,16 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 	}()
 
 	var winner sync.WaitGroup
-	winner.Add(1)
-	go func() {
-		defer winner.Done()
+	winner.Go(func() {
 		s.RefreshIfStale()
-	}()
+	})
 	<-serving // the winner now holds the guard, mid-keeper-call
 
 	var others sync.WaitGroup
 	for range 7 {
-		others.Add(1)
-		go func() {
-			defer others.Done()
+		others.Go(func() {
 			s.RefreshIfStale()
-		}()
+		})
 	}
 	// All must return while the winner is still blocked; one that dialled the
 	// keeper would block on release.

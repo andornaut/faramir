@@ -32,7 +32,7 @@ func TestMain(m *testing.M) {
 // Both spellings, since an unconverged host still has the old per-role
 // binaries.
 func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
-	var cmds []string
+	cmds := make([]string, 0, len(cli.Internal)*2)
 	for _, role := range cli.Internal {
 		cmds = append(cmds,
 			"sudo faramir "+role+" --check",

@@ -6,6 +6,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -296,7 +297,7 @@ func newRedactCmd() *cobra.Command {
 // Merged because the agent reads them as one transcript; separating them would
 // reorder what it sees.  stdin is passed through.
 func redactChild(socketPath string, argv []string) int {
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 	cmd.Stdin = os.Stdin
 	output, err := cmd.StdoutPipe()
 	if err != nil {
@@ -528,7 +529,8 @@ func (rc *redactConn) close() {
 // pipelined into each other.
 func (rc *redactConn) send(text string, more bool) (string, error) {
 	if rc.conn == nil {
-		conn, err := net.DialTimeout("unix", rc.socketPath, dialWait)
+		conn, err := (&net.Dialer{Timeout: dialWait}).DialContext(
+			context.Background(), "unix", rc.socketPath)
 		if err != nil {
 			return "", err
 		}
@@ -560,7 +562,7 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 		return "", fmt.Errorf("reading the response: %w", err)
 	}
 	if len(line) == 0 {
-		return "", fmt.Errorf("broker closed the connection without responding")
+		return "", errors.New("broker closed the connection without responding")
 	}
 	var response struct {
 		Output string `json:"output"`
@@ -635,7 +637,8 @@ func responseWait(request map[string]any) time.Duration {
 // on this side of the socket has already been redacted.
 func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) int {
 	wait := responseWait(request)
-	conn, err := net.DialTimeout("unix", socketPath, dialWait)
+	conn, err := (&net.Dialer{Timeout: dialWait}).DialContext(
+		context.Background(), "unix", socketPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", prog, socketPath, err)
 		return 69 // EX_UNAVAILABLE
@@ -694,7 +697,11 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetEscapeHTML(false)
 			enc.SetIndent("", "  ")
-			_ = enc.Encode(raw)
+			// The line came back from Unmarshal, so a round trip cannot fail; printing
+			// it as it arrived is the answer if it somehow does.
+			if err := enc.Encode(raw); err != nil {
+				fmt.Println(string(line))
+			}
 		}
 		if response.Error != nil {
 			return 1

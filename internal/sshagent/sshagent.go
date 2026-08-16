@@ -13,6 +13,7 @@
 package sshagent
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -133,7 +134,7 @@ func (a *Agent) Start() error {
 
 	// -D keeps it a child of this process, so it dies with it rather than
 	// lingering with the key loaded.
-	cmd := exec.Command(a.config.SshAgent, "-D", "-a", private)
+	cmd := exec.CommandContext(context.Background(), a.config.SshAgent, "-D", "-a", private)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = nil, nil, nil
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("cannot start %s: %w", a.config.SshAgent, err)
@@ -172,7 +173,8 @@ func (a *Agent) Start() error {
 
 func removeStale(path string) error {
 	if _, err := os.Lstat(path); err != nil {
-		return nil
+		// Nothing at the path is nothing to remove.
+		return nil //nolint:nilerr // an absent socket is the wanted state
 	}
 	return os.Remove(path)
 }
@@ -183,7 +185,7 @@ func removeStale(path string) error {
 func listen(path string) (net.Listener, error) {
 	previous := syscall.Umask(0o177)
 	defer syscall.Umask(previous)
-	return net.Listen("unix", path)
+	return (&net.ListenConfig{}).Listen(context.Background(), "unix", path)
 }
 
 func (a *Agent) serve(listener net.Listener, private string) {
@@ -237,7 +239,7 @@ func (a *Agent) relay(client net.Conn, private string) {
 	if !a.permitted(client) {
 		return
 	}
-	upstream, err := net.Dial("unix", private)
+	upstream, err := (&net.Dialer{}).DialContext(context.Background(), "unix", private)
 	if err != nil {
 		log.Printf("ssh-agent proxy cannot reach %s: %v", private, err)
 		return
@@ -387,7 +389,7 @@ func (a *Agent) grantExecutorAccess(path string) {
 }
 
 func (a *Agent) add(key, socketPath string) bool {
-	cmd := exec.Command(a.config.SshAdd, key)
+	cmd := exec.CommandContext(context.Background(), a.config.SshAdd, key)
 	cmd.Env = []string{
 		"SSH_AUTH_SOCK=" + socketPath,
 		"PATH=/usr/local/bin:/usr/bin:/bin",

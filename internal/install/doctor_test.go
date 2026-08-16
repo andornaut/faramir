@@ -91,9 +91,11 @@ func writeRule(t *testing.T, path string, recipients ...string) {
 		t.Fatal(err)
 	}
 	body := "creation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n"
+	var bodySb94 strings.Builder
 	for _, recipient := range recipients {
-		body += "          - " + recipient + "\n"
+		bodySb94.WriteString("          - " + recipient + "\n")
 	}
+	body += bodySb94.String()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -376,6 +378,8 @@ func TestUnitsReportTheStateSampledBeforeTheBrokerWasAsked(t *testing.T) {
 			}
 		case StatusOK:
 			ok++
+		case StatusNA, StatusWarn:
+			// Neither is what this fixture produces; counted nowhere on purpose.
 		}
 	}
 	if failed != 1 || ok != 2 {
@@ -743,6 +747,10 @@ func TestLogRotationSaysWhichQuestionsNeededRoot(t *testing.T) {
 // read as a path reports a rule covering files nothing writes, and a path
 // missed reports a covered log as unbounded.
 func TestLogrotateLogsReadsTheFileListAndNotTheDirectives(t *testing.T) {
+	// `su user group` and `create mode user group` name the same account twice
+	// here because the broker's group has its name; that is logrotate's syntax,
+	// not a repeated word.
+	//nolint:dupword // logrotate's su and create directives take a user and a group
 	rule := `# The audit log, and a second file to show two on one block.
 "/var/log/faramir/audit.log" /var/log/faramir/other.log {
     su faramir-broker faramir-broker

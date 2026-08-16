@@ -59,8 +59,12 @@ func TestHostDialects(t *testing.T) {
 		if !ok {
 			t.Fatalf("no updatedInput: %v", out)
 		}
-		if !strings.Contains(updated["command"].(string), "wrap.sh") {
-			t.Errorf("command was not wrapped: %v", updated["command"])
+		command, ok := updated["command"].(string)
+		if !ok {
+			t.Fatalf("no command in updatedInput: %v", updated)
+		}
+		if !strings.Contains(command, "wrap.sh") {
+			t.Errorf("command was not wrapped: %v", command)
 		}
 		// updatedInput replaces the tool input, so every field comes back.
 		if updated["timeout"] == nil {
@@ -81,8 +85,12 @@ func TestHostDialects(t *testing.T) {
 			if !ok {
 				t.Fatalf("%s: no tool_input: %v", host, got)
 			}
-			if !strings.Contains(updated["command"].(string), "wrap.sh") {
-				t.Errorf("%s: command was not wrapped: %v", host, updated["command"])
+			command, ok := updated["command"].(string)
+			if !ok {
+				t.Fatalf("%s: no command in tool_input: %v", host, updated)
+			}
+			if !strings.Contains(command, "wrap.sh") {
+				t.Errorf("%s: command was not wrapped: %v", host, command)
 			}
 			// Assigned over the arguments the model sent.
 			if updated["description"] != "greet" {
@@ -99,7 +107,10 @@ func TestHostDialects(t *testing.T) {
 		denied := `{"tool_name":"%s","tool_input":{"command":"cat ~/.config/sops/age/keys.txt"}}`
 
 		claude := guardOutput(t, nil, strings.Replace(denied, "%s", "Bash", 1))
-		out := claude["hookSpecificOutput"].(map[string]any)
+		out, ok := claude["hookSpecificOutput"].(map[string]any)
+		if !ok {
+			t.Fatalf("no hookSpecificOutput: %v", claude)
+		}
 		if out["permissionDecision"] != "deny" {
 			t.Errorf("claude: permissionDecision = %v, want deny", out["permissionDecision"])
 		}

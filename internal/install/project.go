@@ -58,11 +58,12 @@ type ProjectOptions struct {
 
 // ProjectReport is one enrolment's outcome.
 type ProjectReport struct {
+	runReport
+
 	Version     string `json:"version"`
 	Dir         string `json:"dir"`
 	ClientGroup string `json:"group"`
 	DryRun      bool   `json:"dry_run,omitempty"`
-	runReport
 }
 
 // Project enrols one tree: the group and modes that let a brokered command run
@@ -103,7 +104,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	}
 	// The tree being changed is not the one that was named.
 	if dir != named {
-		run.warn("%s resolves to %s, which is the tree being enrolled", named, dir)
+		run.warnf("%s resolves to %s, which is the tree being enrolled", named, dir)
 	}
 	if err := run.preflight(); err != nil {
 		return run.report, err
@@ -127,7 +128,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		if err := recordEnrolment(opts.ConfigDir, EnrolledTree{
 			Dir: dir, AgentUser: opts.AgentUser, Agents: names,
 		}); err != nil {
-			run.warn("could not record this enrolment in %s, so `faramir doctor` "+
+			run.warnf("could not record this enrolment in %s, so `faramir doctor` "+
 				"will not know this tree is enrolled: %v", enrolledPath(opts.ConfigDir), err)
 		}
 	}
@@ -162,7 +163,7 @@ func (p *project) preflight() error {
 			"its owner", p.opts.Dir)
 	}
 	if os.Geteuid() != 0 && !p.opts.DryRun {
-		return fmt.Errorf("faramir init-project must run as root: it " +
+		return errors.New("faramir init-project must run as root: it " +
 			"changes group ownership and modes on directories you do not own")
 	}
 	if err := refuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
@@ -272,7 +273,7 @@ func (p *project) warnMissingBinary(binary string) {
 	if exists(binary) {
 		return
 	}
-	p.warn("%s is not installed, and it is what every hook and plugin written "+
+	p.warnf("%s is not installed, and it is what every hook and plugin written "+
 		"here execs. They fail closed, so on this host the agents would refuse "+
 		"every command in %s rather than run one unredacted. Run `sudo faramir "+
 		"init` on the host that runs this tree", binary, p.opts.Dir)
@@ -352,8 +353,8 @@ func (p *project) step(name string, changed bool, detail string) {
 
 func (p *project) skip(name, why string) { p.report.skip(name, why) }
 
-func (p *project) warn(format string, args ...any) {
-	p.report.warn(format, args...)
+func (p *project) warnf(format string, args ...any) {
+	p.report.warnf(format, args...)
 }
 
 // resolveGroup reads the shared group out of the installed config.
@@ -418,7 +419,7 @@ func warnMissingAccountRules(p *project, target *agentTarget) {
 	if len(missing) == 0 {
 		return
 	}
-	p.warn("%s's deny rules are not in the agent account's home (%s), so its file "+
+	p.warnf("%s's deny rules are not in the agent account's home (%s), so its file "+
 		"tools are refused nothing: they cover the keys under ~/.ssh and "+
 		"~/.config/sops, which this enrolment does not reach. Run `sudo faramir "+
 		"init --agent %s`", target.name, strings.Join(missing, ", "), target.name)
@@ -508,7 +509,7 @@ func (p *project) shareTree() error {
 	// tree, so a tree outside it takes the group and then refuses every write with
 	// EROFS.
 	if homeOf(p.opts.Dir) == "" {
-		p.warn("%s is outside /home, which is the only tree faramir-exec may write. "+
+		p.warnf("%s is outside /home, which is the only tree faramir-exec may write. "+
 			"A brokered command can enter it and still gets EROFS on every write. "+
 			"Add a drop-in extending ReadWritePaths= on faramir-exec.service",
 			p.opts.Dir)
@@ -573,7 +574,7 @@ func (p *project) agentConfig() error {
 		// first was written and the second was already current, would otherwise
 		// report the second's cost as though it had just been taken on.
 		if target.autoApprovesBash && made {
-			p.warn("Bash is now auto-approved in %s for %s: the hook rewrites every "+
+			p.warnf("Bash is now auto-approved in %s for %s: the hook rewrites every "+
 				"command so its output can be redacted, and a rewritten command "+
 				"matches no permission rule. Its deny list is what refuses one instead",
 				p.opts.Dir, target.name)
@@ -586,7 +587,7 @@ func (p *project) agentConfig() error {
 		// Where the note stands, whether or not this run wrote anything: see
 		// agentTarget.noteStands.
 		if target.note != "" && (made || target.noteStands) {
-			p.warn("%s: %s", target.name, target.note)
+			p.warnf("%s: %s", target.name, target.note)
 		}
 	}
 	// Named rather than counted, so an operator knows which file to merge.
@@ -608,7 +609,7 @@ func (p *project) agentConfig() error {
 		}
 	}
 	if len(unenrolled) > 0 {
-		p.warn("this tree also has configuration for %v, which was not enrolled: "+
+		p.warnf("this tree also has configuration for %v, which was not enrolled: "+
 			"nothing those agents run here is redacted. Pass --agent to include one",
 			unenrolled)
 	}
