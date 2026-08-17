@@ -50,8 +50,8 @@ jobs:
   build-platform:
     runs-on: ubuntu-latest
     # Capped well under the six-hour default: nothing here runs longer than
-    # six minutes, so a job still going at fifteen has hung rather than failed.
-    timeout-minutes: 15
+    # six minutes, so a job still going at thirty has hung rather than failed.
+    timeout-minutes: 30
 
     # The platforms .goreleaser.yaml builds for a tag. Linux only: the broker
     # reads peer credentials with SO_PEERCRED and the executor allocates PTYs
@@ -118,7 +118,7 @@ jobs:
     needs: build-platform
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
 
     steps:
       - name: Check that every platform built
@@ -127,7 +127,7 @@ jobs:
   goreleaser:
     needs: [build, test, attributions]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     permissions:
       contents: write
@@ -156,7 +156,7 @@ jobs:
   dev-release:
     needs: [build, test, attributions]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
