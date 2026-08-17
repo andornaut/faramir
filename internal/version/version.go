@@ -4,4 +4,4 @@
 package version
 
 // Version is the build version reported by --version and by the status op.
-const Version = "0.1.4"
+const Version = "0.1.3"
