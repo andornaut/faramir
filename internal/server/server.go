@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"maps"
+	"math"
 	"net"
 	"os"
 	osexec "os/exec"
@@ -712,6 +713,39 @@ const (
 	recordExecStarted = "exec_started"
 )
 
+// execApproval is what the approval server has to say about a run that has
+// ended: whether a sudo inside it was turned down, and how much of its duration
+// was the question rather than the command.
+type execApproval struct {
+	// code and reason are the last no a sudo was given, empty where it was given
+	// none.  Without them a refusal and an expiry reach the caller alike, as
+	// sudo's own authentication failure, and running the command again is worth
+	// something in one case and nothing in the other.
+	code, reason string
+	// waited is seconds the child spent blocked inside sudo.  The duration is
+	// wall time from fork to exit, so an approval answered slowly reads as a slow
+	// command without it.
+	waited float64
+}
+
+func (s *Server) approvalOf(token string) execApproval {
+	code, reason := s.Approval.Refusal(token)
+	return execApproval{code: code, reason: reason, waited: s.Approval.Waited(token).Seconds()}
+}
+
+// fields is what a record carries of it, each present only where it says
+// something: a command that never asked was not refused and waited for nobody.
+func (a execApproval) fields() map[string]any {
+	out := map[string]any{}
+	if a.code != "" {
+		out["approval_code"], out["approval"] = a.code, a.reason
+	}
+	if a.waited > 0 {
+		out["waited_sec"] = math.Round(a.waited*1000) / 1000
+	}
+	return out
+}
+
 // execResponse is what the caller is told about a command that ran.
 //
 // The approval pair is present only where a sudo inside it was refused, so the
@@ -952,22 +986,18 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
 
+	// Read before the deferred Release drops the run.
+	judged := s.approvalOf(token)
+
 	outcome.ExitCode = &result.ExitCode
 	outcome.DurationSec, outcome.TimedOut = result.DurationSec, result.TimedOut
-
-	// Why a sudo inside it was turned down, where one was.  Without this a
-	// refusal and an expiry reach the caller alike, as sudo's own authentication
-	// failure, and running the command again is worth something in one case and
-	// nothing in the other.  Read before the deferred Release drops the run.
-	refusedCode, refusedReason := s.Approval.Refusal(token)
+	outcome.WaitedSec = judged.waited
 
 	record := s.execFields(audited)
 	record["op"] = recordExec
 	record["exit_code"], record["duration_sec"] = result.ExitCode, result.DurationSec
 	record["timed_out"], record["redactions"] = result.TimedOut, result.Redactions
-	if refusedCode != "" {
-		record["approval_code"], record["approval"] = refusedCode, refusedReason
-	}
+	maps.Copy(record, judged.fields())
 	s.Audit.Write(record, collector.Output())
 
 	total := 0
@@ -977,7 +1007,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	log.Printf("%s %s exit=%d dur=%.1fs redactions=%d",
 		logID, filepath.Base(argv0Path), result.ExitCode, result.DurationSec, total)
 
-	return execResponse(logID, refusedCode, refusedReason, result)
+	return execResponse(logID, judged.code, judged.reason, result)
 }
 
 // redactor builds a fresh matcher over the whole value set.  Fresh because a

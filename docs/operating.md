@@ -179,10 +179,10 @@ sudo faramir approvals --watch
 
    ```text
      w5vq7dbf000119 started
-     w5vq7dbf000119 exited 0 after 12.4s
+     w5vq7dbf000119 exited 0 after 41.0s, waited 40s of it
    ```
 
-   Every line names its run, the ending arriving after the terminal has moved on. `exited 2 after 3.1s, timed out` when `[exec] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
+   Every line names its run, the ending arriving after the terminal has moved on. The duration is wall time and the command sits inside `sudo` for the whole question, so the part that was the approval is named rather than subtracted; under a second it is left off, every approved run waiting a little. `exited 2 after 3.1s, timed out` when `[exec] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
 
    A refusal prints `<log_id> refused` with the line it read, quoted, and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question, and the terminal has to be back on the poll for it. Its `exec` record lands when it ends like any other command's.
 

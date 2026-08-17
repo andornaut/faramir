@@ -79,6 +79,12 @@ type Run struct {
 	// caller is owed is why the one it just made was turned down.
 	refusedCode   string
 	refusedReason string
+
+	// waited is how long this run's sudos spent blocked on a question, summed.
+	// The command's own duration is wall time from fork to exit, so an approval
+	// answered slowly is inside it: without this the log reads as though the
+	// command were slow, when what was slow was somebody reaching a terminal.
+	waited time.Duration
 }
 
 // resolvedProgram is what argv[0] resolved to when that is not what argv[0]
@@ -195,7 +201,12 @@ type Outcome struct {
 	// one that succeeded.
 	ExitCode    *int    `json:"exit_code"`
 	DurationSec float64 `json:"duration_sec"`
-	TimedOut    bool    `json:"timed_out"`
+	// WaitedSec is how much of DurationSec the command spent blocked on its own
+	// approval.  Reported beside it rather than subtracted from it: the exec
+	// timeout is enforced against the same wall clock the duration measures, and
+	// a duration that no longer matched it would be a second, quieter number.
+	WaitedSec float64 `json:"waited_sec"`
+	TimedOut  bool    `json:"timed_out"`
 	// Error is the broker's own failure, and is already through the redaction the
 	// audit record gets: this is printed to a terminal by the same route the
 	// question was.
@@ -429,7 +440,9 @@ func (s *Server) Ask(token string) (approved bool, code, reason string) {
 			"this request names no brokered command, so there is nothing to approve"
 	}
 
+	asked := time.Now()
 	approved, prompted, code, reason := s.ask(token, run)
+	s.waited(token, time.Since(asked))
 	if !approved {
 		s.refuse(token, code, reason)
 	}
@@ -453,6 +466,24 @@ func (s *Server) refuse(token, code, reason string) {
 		run.refusedCode, run.refusedReason = code, reason
 		s.runs[token] = run
 	}
+}
+
+// waited adds to what this run's sudos have spent waiting to be answered.
+func (s *Server) waited(token string, took time.Duration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if run, known := s.runs[token]; known {
+		run.waited += took
+		s.runs[token] = run
+	}
+}
+
+// Waited is how long this run has spent blocked on its questions, for the
+// broker to report beside the duration that contains it.
+func (s *Server) Waited(token string) time.Duration {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.runs[token].waited
 }
 
 // Refusal is the last no a run was given, or empty where it was given none.

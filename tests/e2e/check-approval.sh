@@ -316,6 +316,9 @@ ID=$(waitq)
 LOGID=$(/usr/local/bin/faramir approvals --json 2>/dev/null | grep -oE '"log_id"[^,]*' | head -1 | cut -d'"' -f4)
 [ -n "$LOGID" ] && ok "the question names the exec record it belongs to ($LOGID)" \
   || bad "the question carries no log_id, so there is nothing to wait on"
+# Answered after a pause, so the wait is a number worth reporting: the command's
+# own duration is wall time and it is blocked inside sudo for all of it.
+sleep 3
 /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 
@@ -328,6 +331,13 @@ if sys.argv[1]: request['await_log_id']=sys.argv[1]
 s.sendall(json.dumps(request).encode()+b'\n')
 f=json.loads(s.recv(65536).decode()).get('finished')
 print('none' if f is None else '%s %s' % (f.get('log_id'), f.get('exit_code')))" "$1"; }
+
+# What of that duration was the question rather than the command.  The answer
+# below is deliberately slow, so the number has something to report.
+waited=$(jq -r --arg id "$LOGID" 'select(.log_id==$id and .op=="exec") | .waited_sec' $LOG 2>/dev/null | tail -1)
+awk -v w="${waited:-0}" 'BEGIN { exit !(w >= 2) }' \
+  && ok "and the record says ${waited}s of it was waiting to be approved" \
+  || bad "waited_sec is [$waited], want the seconds the answer took"
 
 [ "$(ending "$LOGID")" = "$LOGID 3" ] \
   && ok "and its ending reached root: exit 3, the status the command left" \

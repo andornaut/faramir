@@ -366,6 +366,21 @@ func watchApprovals(socketPath string) int {
 	}
 }
 
+// waitedIn is how much of the duration was the question rather than the
+// command, where that is worth saying.  The duration is wall time from fork to
+// exit and the child sits inside sudo for the whole approval, so a run answered
+// after a trip to the kitchen reads as a slow command without it.
+//
+// Said rather than subtracted: [exec] max_timeout_sec is enforced against the
+// same clock the duration measures, and a duration that no longer matched it
+// would be a second, quieter number.
+func waitedIn(outcome approval.Outcome) string {
+	if outcome.WaitedSec < 1 {
+		return ""
+	}
+	return fmt.Sprintf(", waited %.0fs of it", outcome.WaitedSec)
+}
+
 // printOutcome says how the approved run ended, in one line naming the record
 // rather than reproducing it: the log holds the command, the refs and the
 // output, and this terminal is where the next question has to be readable.
@@ -381,11 +396,11 @@ func printOutcome(outcome approval.Outcome) {
 	case outcome.ExitCode == nil:
 		fmt.Printf("  %s ended, no exit status\n", id)
 	case outcome.TimedOut:
-		fmt.Printf("  %s exited %d after %.1fs, timed out\n",
-			id, *outcome.ExitCode, outcome.DurationSec)
+		fmt.Printf("  %s exited %d after %.1fs, timed out%s\n",
+			id, *outcome.ExitCode, outcome.DurationSec, waitedIn(outcome))
 	default:
-		fmt.Printf("  %s exited %d after %.1fs\n",
-			id, *outcome.ExitCode, outcome.DurationSec)
+		fmt.Printf("  %s exited %d after %.1fs%s\n",
+			id, *outcome.ExitCode, outcome.DurationSec, waitedIn(outcome))
 	}
 }
 

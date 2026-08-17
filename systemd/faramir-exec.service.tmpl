@@ -48,8 +48,12 @@ SupplementaryGroups={{.ClientGroup}}
 #
 # No LoadCredential=, and nothing writable but the working tree, this account's
 # state directory and PrivateTmp.
+# ProcSubset=pid is deliberately not set alongside this.  It hides every non-pid
+# top-level procfs entry, /proc/sys among them, and a command that reads a kernel
+# tunable then fails on a file that is merely absent, naming nothing that explains
+# why.  ostree opens /proc/sys/kernel/random/boot_id, so flatpak cannot run at all
+# under it.  The broker and keeper units, which run no arbitrary command, keep it.
 ProtectProc=invisible
-ProcSubset=pid
 {{if .AllowSudo}}
 # This host was installed with `faramir init --allow-sudo`, so the directives that
 # bound *root* are dropped here.  Not a weakening thrown in with the grant: each

@@ -1034,3 +1034,35 @@ func TestAYesClearsTheNoBeforeIt(t *testing.T) {
 		t.Errorf("an approved run still reports %q: %s", code, reason)
 	}
 }
+
+// A run's duration is wall time and its child sits inside sudo for the whole
+// question, so how long the question waited is kept apart: without it a run
+// answered after a trip to the kitchen reads as a slow command.
+func TestARunKeepsHowLongItWaitedToBeApproved(t *testing.T) {
+	cfg := baseConfig()
+	cfg.TimeoutSec = 10
+	s := started(t, cfg)
+	token := mustRegister(s, run())
+
+	if waited := s.Waited(token); waited != 0 {
+		t.Errorf("a run that has asked nothing waited %v", waited)
+	}
+
+	// Answered after a beat, which is what the number is for.
+	go func() {
+		time.Sleep(300 * time.Millisecond)
+		if id := waitForQuestion(t, s); id != "" {
+			_ = s.Answer(id, true, "the test")
+		}
+	}()
+	if approved, _, reason := s.Ask(token); !approved {
+		t.Fatalf("the run was not approved: %s", reason)
+	}
+	waited := s.Waited(token)
+	if waited < 200*time.Millisecond {
+		t.Errorf("waited = %v, want about the time the answer took", waited)
+	}
+	if waited > 5*time.Second {
+		t.Errorf("waited = %v, which is more than the question was open", waited)
+	}
+}

@@ -102,9 +102,9 @@ func (e *Executor) CanConfine() bool { return e.cgroupBase != "" }
 // /proc/self/mounts lists it.  It is /sys/fs/cgroup on a pure-v2 host and a
 // subdirectory of it on a hybrid one, so the location is looked up rather than
 // assumed, and a namespace can show more than one.  Read the per-process file,
-// never /proc/mounts: the executor unit sets ProcSubset=pid, which mounts procfs
-// with subset=pid and hides every non-pid top-level entry, /proc/mounts among
-// them, while /proc/self/mounts stays readable.
+// never /proc/mounts: a unit setting ProcSubset=pid mounts procfs with subset=pid
+// and hides every non-pid top-level entry, /proc/mounts among them, while
+// /proc/self/mounts stays readable.
 func cgroup2Mounts() []string {
 	data, err := os.ReadFile("/proc/self/mounts")
 	if err != nil {

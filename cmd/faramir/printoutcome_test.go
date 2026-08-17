@@ -26,6 +26,25 @@ func TestPrintOutcomeSaysHowTheRunEnded(t *testing.T) {
 			absent:  []string{"timed out", "failed"},
 		},
 		{
+			// The duration is wall time and the child sits inside sudo for the whole
+			// approval, so a run answered slowly would read as a slow command.
+			name: "an approval that took a while to answer",
+			outcome: approval.Outcome{
+				LogID: "log-6", ExitCode: new(0), DurationSec: 41.03, WaitedSec: 40.01,
+			},
+			want:   []string{"log-6 exited 0 after 41.0s", "waited 40s of it"},
+			absent: []string{"failed", "timed out"},
+		},
+		{
+			// Under a second is not worth a clause: every approved run waits a little.
+			name: "an approval answered at once",
+			outcome: approval.Outcome{
+				LogID: "log-7", ExitCode: new(0), DurationSec: 12.44, WaitedSec: 0.4,
+			},
+			want:   []string{"log-7 exited 0 after 12.4s"},
+			absent: []string{"waited"},
+		},
+		{
 			name:    "a non-zero exit",
 			outcome: approval.Outcome{LogID: "log-2", ExitCode: new(2), DurationSec: 3.1},
 			want:    []string{"log-2 exited 2 after 3.1s"},
