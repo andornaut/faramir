@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sort"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // Rules faramir wrote once and no longer writes.
@@ -51,7 +53,9 @@ func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
 // reportRuleDrift is diagnoseAgentRuleDrift against a home already resolved, so
 // a test can put one somewhere other than a real account's.
 func reportRuleDrift(report *DoctorReport, home, configDir string) {
-	layout := Layout{ConfigDir: configDir}
+	// With the linked paths, or each one is a rule faramir writes and this render
+	// does not, which is exactly what staleRules reports as drift to delete.
+	layout := Layout{ConfigDir: configDir, LinkedPaths: configuredLinkPaths(configDir)}
 
 	var stale, unread []string
 	read, ruleCount := 0, 0
@@ -98,6 +102,146 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 		"sign of who added it and yours would look the same. Remove the rules "+
 		"below from the file rather than the file itself, and only where they are "+
 		"not yours: %s", ruleCount, strings.Join(stale, "; "))
+}
+
+// diagnoseLinkedFiles asks whether the account-wide deny rules refuse every
+// file a [[secrets.link]] entry reads.
+//
+// The two are written by different commands and that is what makes this a
+// check rather than an invariant: links are the operator's, in config.d, which
+// init never touches, and the rules are init's, rewritten every run.  So a link
+// added since the last run is a value in the redactor whose plaintext the agent
+// may still open directly, which is the disclosure linking exists to close.
+//
+// Failed rather than a warning, unlike rule drift beside it: a stale rule
+// refuses more than the current list asks for, while this refuses less than the
+// operator was promised.
+func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
+	const name = "linked files"
+	links := make([]string, 0, len(cfg.Secrets.Links))
+	for _, link := range cfg.Secrets.Links {
+		links = append(links, link.Path)
+	}
+	if len(links) == 0 {
+		report.addf(name, StatusOK, "no [[secrets.link]] entries are configured")
+		return
+	}
+	if opts.AgentUser == "" {
+		report.unaskedf(name, len(links), "the agent account is not named, so the "+
+			"deny rules were not compared with the %d linked file(s): pass "+
+			"--agent-user, or run through sudo so SUDO_USER carries it", len(links))
+		return
+	}
+	home, err := agentHomeFor(opts.AgentUser)
+	if err != nil || home == "" {
+		report.unaskedf(name, len(links), "could not read %s's home, so the deny "+
+			"rules were not compared with the %d linked file(s)", opts.AgentUser, len(links))
+		return
+	}
+	reportLinkedFiles(report, home, links)
+}
+
+// reportLinkedFiles is diagnoseLinkedFiles against a home already resolved, so
+// a test can put one somewhere other than a real account's.
+func reportLinkedFiles(report *DoctorReport, home string, links []string) {
+	const name = "linked files"
+	files, uncovered := 0, []string{}
+	for _, agent := range agentNames() {
+		for _, file := range agentTargets[agent].accountFiles {
+			path := filepath.Join(home, file.path)
+			if !exists(path) {
+				continue
+			}
+			onDisk, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			entries, err := ruleEntries(onDisk)
+			if err != nil {
+				continue
+			}
+			files++
+			var missing []string
+			for _, link := range links {
+				if !named(entries, link) {
+					missing = append(missing, link)
+				}
+			}
+			if len(missing) > 0 {
+				sort.Strings(missing)
+				// The file named once with the paths under it, as the drift report
+				// does: "file: path" reads as two paths and the reader has to guess
+				// which one the finding is about.
+				uncovered = append(uncovered, fmt.Sprintf("in ~/%s: %s",
+					file.path, strings.Join(missing, ", ")))
+			}
+		}
+	}
+
+	switch {
+	case files == 0:
+		report.unaskedf(name, len(links), "no agent rule file is installed under %s, "+
+			"so there is nothing the %d linked file(s) could be refused by", home, len(links))
+	case len(uncovered) == 0:
+		report.addf(name, StatusOK, "%d linked file(s) are refused to the agent's "+
+			"file tools in %d rule file(s)", len(links), files)
+	default:
+		report.addf(name, StatusFailed, "a linked file is not refused to the agent's "+
+			"file tools, so its value is in the redactor while the plaintext is still "+
+			"one read away. Links are yours, in config.d, and the rules are init's, so "+
+			"a link added since the last run is not covered until `faramir init` runs "+
+			"again: %s", strings.Join(uncovered, "; "))
+	}
+}
+
+// configuredLinkPaths is every linked file the install names, merged view, or
+// nothing when the config cannot be read.  Nothing here fails on that: a config
+// that does not load is reported by the check that loads it.
+func configuredLinkPaths(configDir string) []string {
+	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
+	if err != nil {
+		return nil
+	}
+	out := make([]string, 0, len(cfg.Secrets.Links))
+	for _, link := range cfg.Secrets.Links {
+		out = append(out, link.Path)
+	}
+	return out
+}
+
+// named reports whether any rule in a file names this path.  Containment rather
+// than equality, because each agent spells the same path its own way: Claude
+// Code writes "Read(/path)" and "Edit(/path)" while the plugin hosts key on the
+// path itself, and asking each renderer what it would have written would tie
+// this check to the spellings rather than to the question.
+//
+// The match ends at a path character, so a longer path does not vouch for a
+// shorter one: with ~/.npmrc and ~/.npmrc-work both linked, a rule naming only
+// the second must not report the first as refused.
+func named(entries map[string]bool, path string) bool {
+	for entry := range entries {
+		_, rest, found := strings.Cut(entry, path)
+		if !found {
+			continue
+		}
+		if rest == "" || !isPathRune(rune(rest[0])) {
+			return true
+		}
+	}
+	return false
+}
+
+// isPathRune reports whether a byte could continue a filename, which is what
+// decides whether a match was the whole path or a prefix of a longer one.  The
+// separators each agent wraps a path in -- ")", quotes, whitespace, a glob --
+// are not path characters, so a rule ends the match and a longer sibling does
+// not.
+func isPathRune(r rune) bool {
+	switch {
+	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		return true
+	}
+	return strings.ContainsRune("-_.~+@,:/", r)
 }
 
 // staleRules is the entries in path that name something faramir manages and are

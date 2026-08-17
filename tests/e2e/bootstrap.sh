@@ -35,7 +35,7 @@ step "the first managed file"
 # Creating one needs sops and two flags: which .sops.yaml applies is resolved
 # from the working directory upward, so encrypting into the secrets directory
 # from anywhere else finds no creation rules.  Every edit after this is
-# `faramir edit`, which needs neither flag.
+# `faramir sops edit`, which needs neither flag.
 #
 # short/pin is deliberately under [secrets] min_length: it is the value the
 # redactor refuses to cover, and several checks are about how that is reported.

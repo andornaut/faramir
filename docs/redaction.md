@@ -10,6 +10,8 @@ So the broker holds every managed value, not the subset the current command name
 
 The fingerprints come from the keeper rather than a stat, the secrets being group-readable by the keeper alone, and `[secrets] patterns` globs are expanded there per request, so a file dropped into the secrets directory is picked up within `refresh_interval_sec` with no daemon to restart.
 
+`[[secrets.link]]` values are in the same set, and the same refetch covers them. Those files the broker stats itself, being the operator's own and reachable from this uid, so noticing an edit costs a stat rather than a round trip. Linking is mostly *for* this: the file is one the agent could read directly, and a value in the set is one a brokered command cannot print in the clear. See [configuration.md](configuration.md#linked-secrets).
+
 ## Why a PTY and not a pipe
 
 Programs behave differently when stdout is not a terminal: colour, progress meters and buffering all change. More to the point, **a process can write straight to `/dev/tty`**, which no stdout redirection sees; `ssh` and `sudo` do it for password prompts.

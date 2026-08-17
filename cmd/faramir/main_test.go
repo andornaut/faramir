@@ -231,9 +231,24 @@ func dispatcherNames(t *testing.T) []string {
 		t.Fatalf("assembling the root: %s", err)
 	}
 
-	commands := root.Commands()
-	names := make([]string, 0, len(commands))
-	for _, c := range commands {
+	// A command that groups others contributes its children rather than itself,
+	// spelled the way cli.Operator spells them: the guard matches what a person
+	// types, and nobody types a bare `faramir sops`.  One level, which is as deep
+	// as the CLI nests.
+	var names []string
+	for _, c := range root.Commands() {
+		// cobra's own, and the only two whose children are not faramir's: the
+		// shells `completion` generates for are not subcommands anybody names here.
+		if c.Name() == "completion" || c.Name() == "help" {
+			names = append(names, c.Name())
+			continue
+		}
+		if children := c.Commands(); len(children) > 0 {
+			for _, child := range children {
+				names = append(names, c.Name()+" "+child.Name())
+			}
+			continue
+		}
 		names = append(names, c.Name())
 	}
 	if len(names) < 10 {

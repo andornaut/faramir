@@ -116,5 +116,30 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 		o.SSHKey = cfg.Ssh.Key
 		keep("--ssh-key", o.SSHKey, filepath.Join(dir, "id_ed25519"))
 	}
+	// The links this file declares, read again from the base file alone rather
+	// than taken off the load above.  init renders them back into config.toml, so
+	// reading the merged view would copy a drop-in's link into the base file and
+	// the next load would refuse both as one ref claimed twice.
+	//
+	// Adoption in the same sense the others are: a re-run keeps what the install
+	// already has.  Unlike them, no flag reaches it; `faramir link` is what
+	// changes the list, and this is what stops a plain `init` from erasing it.
+	links, err := config.BaseLinks(configFile)
+	if err != nil {
+		return fmt.Errorf("%s: %w", configFile, err)
+	}
+	if !o.linksSet {
+		o.links = links
+	}
+	// The deny rules refuse every linked file, wherever it was declared, so this
+	// one comes off the merged load.  A drop-in's link is not config.toml's to
+	// render and is still the agent's to be refused.
+	o.linkedPaths = nil
+	for _, link := range cfg.Secrets.Links {
+		o.linkedPaths = append(o.linkedPaths, link.Path)
+	}
+	for _, link := range o.links {
+		o.linkedPaths = append(o.linkedPaths, link.Path)
+	}
 	return nil
 }

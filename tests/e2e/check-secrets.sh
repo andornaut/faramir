@@ -80,7 +80,7 @@ EOF
 chmod 0755 /usr/local/sbin/spy-editor
 
 before=$(sum)
-if faramir edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/edit.log 2>&1; then
+if faramir sops edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/edit.log 2>&1; then
   ok "edit completed"
 else
   bad "edit failed: $(tail -2 /tmp/edit.log)"
@@ -153,14 +153,14 @@ creation_rules:
           - $SECOND
 YAML
 before=$(sum)
-faramir rekey --dry-run >/tmp/dry.log 2>&1
+faramir sops rekey --dry-run >/tmp/dry.log 2>&1
 [ "$(sum)" = "$before" ] && ok "the file is byte-identical after a dry run" \
   || bad "a dry run rewrote the file"
 grep -qiE "would|dry" /tmp/dry.log && ok "it reported what it would do: $(grep -iE 'would|dry' /tmp/dry.log | head -1 | cut -c1-70)" \
   || bad "a dry run said nothing useful: $(head -2 /tmp/dry.log)"
 
 head_ "5. rekey to a second recipient, and the keeper can still read"
-faramir rekey >/tmp/rekey.log 2>&1 && ok "rekey completed" || bad "rekey failed: $(tail -2 /tmp/rekey.log)"
+faramir sops rekey >/tmp/rekey.log 2>&1 && ok "rekey completed" || bad "rekey failed: $(tail -2 /tmp/rekey.log)"
 [ "$(sum)" != "$before" ] && ok "the file was re-encrypted" || bad "the file did not change"
 if grep -q "$SECOND" "$MANAGED"; then ok "the second recipient is now in the file's metadata"; else
   bad "the new recipient is not in the file"; fi
@@ -178,7 +178,7 @@ creation_rules:
           - $SECOND
 YAML
 before=$(sum)
-if faramir rekey >/tmp/bad-rekey.log 2>&1; then
+if faramir sops rekey >/tmp/bad-rekey.log 2>&1; then
   bad "re-encrypting to a set without the keeper's key SUCCEEDED, which is unrecoverable"
 else
   ok "refused: $(grep -oE 'does not list|would leave' /tmp/bad-rekey.log | head -1)"
@@ -206,7 +206,7 @@ cat > /usr/local/sbin/spy-editor <<'EOF'
 sed -i 's/rotated-by-the-editor-9999/edited-again-under-a-changed-rule/' "$1"
 EOF
 chmod 0755 /usr/local/sbin/spy-editor
-if faramir edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/edit2.log 2>&1; then
+if faramir sops edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/edit2.log 2>&1; then
   ok "the edit went through with a rule naming somebody else"
 else
   bad "edit failed: $(tail -2 /tmp/edit2.log)"
@@ -243,7 +243,7 @@ recipients() { grep -c 'recipient:' "$MANAGED"; }
 
 head_ "8. a .sops.yaml where the command was RUN does not govern the edit"
 # sops resolves creation rules by walking up from the working directory, and an
-# operator runs `sudo faramir edit` from wherever they are standing, which on
+# operator runs `sudo faramir sops edit` from wherever they are standing, which on
 # this host is an enrolled tree the agent writes.  A rule found there deciding
 # how the store is written is `unencrypted_regex` putting managed values on disk
 # in the clear.
@@ -264,7 +264,7 @@ creation_rules:
           - $SECOND
 YAML
 editor "sed -i 's/edited-again-under-a-changed-rule/planted-rule-must-not-expose-me/' \"\$1\""
-if (cd "$PLANTED" && faramir edit --editor /usr/local/sbin/spy-editor "$MANAGED") \
+if (cd "$PLANTED" && faramir sops edit --editor /usr/local/sbin/spy-editor "$MANAGED") \
     >/tmp/planted.log 2>&1; then
   ok "the edit completed from a directory carrying a .sops.yaml of its own"
 else
@@ -288,7 +288,7 @@ rule <<YAML
       - age:
           - $KEEPER
 YAML
-faramir rekey >/tmp/narrow.log 2>&1 || bad "narrowing to the keeper alone failed: $(tail -2 /tmp/narrow.log)"
+faramir sops rekey >/tmp/narrow.log 2>&1 || bad "narrowing to the keeper alone failed: $(tail -2 /tmp/narrow.log)"
 [ "$(recipients)" -eq 1 ] && ok "narrowed to the keeper alone, so the merged rule has something to add" \
   || note "the store already had $(recipients) recipients before the merge case"
 rule <<YAML
@@ -300,7 +300,7 @@ rule <<YAML
           - age:
               - $SECOND
 YAML
-faramir rekey >/tmp/merge.log 2>&1 && ok "rekey completed under a merged key group" \
+faramir sops rekey >/tmp/merge.log 2>&1 && ok "rekey completed under a merged key group" \
   || bad "rekey failed: $(tail -2 /tmp/merge.log)"
 grep -q "$SECOND" "$MANAGED" \
   && ok "the recipient named only under merge: is in the file, so it can still read the store" \
@@ -318,7 +318,7 @@ rule <<YAML
       - age:
           - $KEEPER
 YAML
-faramir rekey >/tmp/shorthand.log 2>&1 && ok "rekey completed" \
+faramir sops rekey >/tmp/shorthand.log 2>&1 && ok "rekey completed" \
   || bad "rekey failed: $(tail -2 /tmp/shorthand.log)"
 [ "$(recipients)" -eq 1 ] && ok "the file names one recipient, which is what sops would have sealed it to" \
   || bad "the file names $(recipients) recipients, so the ignored shorthand was applied"
@@ -341,7 +341,7 @@ rule <<YAML
     path_regex: \.sops\.ya?ml\$
 YAML
 before=$(sum)
-if faramir rekey >/tmp/tworule.log 2>&1; then
+if faramir sops rekey >/tmp/tworule.log 2>&1; then
   bad "a two-rule .sops.yaml was accepted, so the store can be sealed to a set no rule names"
 else
   ok "refused: $(grep -oE 'creation rules|updatekeys' /tmp/tworule.log | head -1)"
@@ -362,13 +362,13 @@ rule <<YAML
           - $SECOND
 YAML
 before=$(sum)
-if faramir rekey >/tmp/shamir.log 2>&1; then
+if faramir sops rekey >/tmp/shamir.log 2>&1; then
   bad "rekey flattened a split data key, so any single key now opens what took two"
 else
   ok "rekey refused: $(grep -oE 'shamir_threshold' /tmp/shamir.log | head -1)"
 fi
 editor "sed -i 's/edited/edited/' \"\$1\""
-if faramir edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/shamir-edit.log 2>&1; then
+if faramir sops edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/shamir-edit.log 2>&1; then
   bad "edit wrote a split-key store back as one group, which removes the split silently"
 else
   ok "edit refused it too: $(grep -oE 'shamir_threshold' /tmp/shamir-edit.log | head -1)"
@@ -389,7 +389,7 @@ rule <<YAML
 YAML
 before=$(sum)
 editor "sed -i 's/edited/rewritten/' \"\$1\""
-if faramir edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/uncovered.log 2>&1; then
+if faramir sops edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/uncovered.log 2>&1; then
   bad "an edit went ahead under a rule that cannot write the file back"
 else
   ok "refused: $(grep -oE 'no creation rule matching' /tmp/uncovered.log | head -1)"

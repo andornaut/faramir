@@ -80,7 +80,7 @@ var corpus = []denyCase{
 	{"tee /usr/local/libexec/faramir/deny-patterns.txt < /dev/null", true, "tee writes where echo would"},
 	{"mv /etc/faramir/age.key /tmp/k", true, "so does mv"},
 	{"rm -f /etc/faramir/secrets/x.sops.yml", true, "so does rm"},
-	{"sops set ~/.config/faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'", true, "editing a store outside faramir edit"},
+	{"sops set ~/.config/faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'", true, "editing a store outside faramir sops edit"},
 	{"sops -e -i secrets.yml", true, "re-encrypting in place"},
 	{"systemctl edit faramir-broker", true, "a drop-in changes what the daemon is"},
 	{"cp /bin/true /usr/local/bin/jq", false, "the binary is named as a path, not as its directory"},

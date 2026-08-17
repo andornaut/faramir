@@ -39,6 +39,13 @@ Every path the install creates, what owns it, and what each account can reach th
 <any tree you enrol>            2770 <operator>:<client-group>, setgid
 ```
 
+`init` also grants access to any file a `[[secrets.link]]` entry names, which is a file it does not own and does not create:
+
+```text
+<any file you link>             group-readable by <broker's group>, owner and owner bits kept
+<the directories above it>      <client-group> and execute only, down from the home
+```
+
 `init` also writes into the operator's home. A file it creates is `0640 <operator>:<operator group>` and a missing parent `0700`; one already there keeps its own owner, group and mode. What a run refuses to write, and why, is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config):
 
 Agent | Deny rules | Credentials section

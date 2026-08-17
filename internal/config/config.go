@@ -16,6 +16,9 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/andornaut/faramir/internal/secretlink"
+	"github.com/andornaut/faramir/internal/secretref"
 )
 
 const (
@@ -257,6 +260,37 @@ type SecretsConfig struct {
 	DecryptCommand     []string
 	RefreshIntervalSec int
 	MinLength          int
+	// Links is the secrets read from files the operator's own tools maintain,
+	// each named individually rather than matched by a glob.  See Link.
+	Links []Link
+}
+
+// Link is one secret the broker reads from a file outside the managed store: an
+// API token in a tool's own dotfile, kept where that tool expects it so that
+// rotating it is that tool's business and nothing here goes stale.
+//
+// The broker reads these, not the keeper.  The keeper exists to hold the age
+// key, and it runs with the homes taken away entirely; a linked file needs no
+// key, so widening the account that holds the one thing that decrypts everything
+// would buy nothing.  The broker already holds every plaintext value and already
+// sees the homes, having to stat a request's cwd.
+//
+// One entry is one ref with one selector.  Flattening a whole file would put its
+// ordinary strings in the value set, and a config file is mostly not secret: a
+// registry URL is long enough to clear min_length and common enough to turn
+// unrelated output into tokens.
+type Link struct {
+	// Ref is the name a caller asks by, in the same flat namespace the sops store
+	// uses.  Nothing marks a ref as linked: where a secret is kept is not part of
+	// its name, or moving one into the store later would rename it.
+	Ref string `json:"ref"`
+	// Path is the file, absolute.  No "~": a config file has no home to expand.
+	Path string `json:"path"`
+	// Type is how the file is read.  See internal/secretlink.
+	Type string `json:"type"`
+	// Key selects one value out of a structured file, and is required for exactly
+	// the types that select.
+	Key string `json:"key,omitempty"`
 }
 
 // AuditConfig is the operator-only record of what the broker ran.  Output is
@@ -340,6 +374,35 @@ func Load(path string) (*Config, error) {
 	return cfg, nil
 }
 
+// BaseLinks is the [[secrets.link]] entries in one file, with no drop-in
+// merged over it.
+//
+// The base file alone, and that is the whole point of the function.  init
+// renders the links it manages back into config.toml, so if it read the merged
+// view a link written in a drop-in would be copied into the base file and then
+// refused on the next load as two entries claiming one ref.  A link a drop-in
+// declares stays the drop-in's; `faramir link` owns the ones in config.toml.
+//
+// A file that is not there yields nothing, which is a first install.
+func BaseLinks(path string) ([]Link, error) {
+	raw, err := readTOML(path)
+	if err != nil {
+		if os.IsNotExist(err) || strings.HasPrefix(err.Error(), "config not found") {
+			return nil, nil
+		}
+		return nil, err
+	}
+	sec, err := table(raw, "secrets", path)
+	if err != nil {
+		return nil, err
+	}
+	return loadLinks(sec["link"], path+": [secrets]")
+}
+
+// ValidateLink holds one entry to what the loader would accept, for a command
+// that builds one before anything writes it.
+func ValidateLink(link Link) error { return validateLink(link, "[[secrets.link]]") }
+
 const dropInDirName = "config.d"
 
 func readTOML(path string) (map[string]any, error) {
@@ -390,6 +453,12 @@ func dropInPaths(dir string) ([]string, error) {
 var inventoryLists = map[string]bool{
 	"secrets.patterns": true,
 }
+
+// linkList is the other inventory, and the only array of tables in the file.
+// Handled apart from inventoryLists because TOML decodes an array of tables as
+// []map[string]any rather than []any, so it reaches neither list branch, and
+// because its entries are deduplicated by ref rather than by equality.
+const linkList = "secrets.link"
 
 // noFlagResolved marks a key init works out at install time rather than taking
 // from a flag.  A sentinel rather than prose, so the remedy is matched exactly:
@@ -535,6 +604,16 @@ func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, s
 			continue
 		}
 
+		if entries, ok := value.([]map[string]any); ok && full == linkList {
+			existing, _ := base[key].([]map[string]any)
+			merged, err := appendLinks(existing, entries, source, setBy)
+			if err != nil {
+				return err
+			}
+			base[key] = merged
+			continue
+		}
+
 		if list, ok := value.([]any); ok {
 			if inventoryLists[full] {
 				existing, _ := base[key].([]any)
@@ -553,6 +632,32 @@ func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, s
 		setBy[full] = source
 	}
 	return nil
+}
+
+// appendLinks accumulates [[secrets.link]] entries across sources, refusing two
+// that claim one ref.  An inventory like patterns, with one difference: a ref is
+// the name a caller asks by, so two definitions are not a duplicate to collapse
+// but a question of which file wins, and that would come down to filename order.
+func appendLinks(existing, incoming []map[string]any, source string,
+	setBy map[string]string) ([]map[string]any, error) {
+	out := append([]map[string]any{}, existing...)
+	for _, entry := range incoming {
+		// A ref that is absent or not a string is loadLinks' to report, which names
+		// the entry and the reason.  Here it only has to not collide.
+		ref, _ := entry["ref"].(string)
+		if ref != "" {
+			marker := linkList + ":" + ref
+			if prior, seen := setBy[marker]; seen {
+				return nil, fmt.Errorf("%s: two [[secrets.link]] entries claim ref %q, one "+
+					"in %s and one in %s. A ref is the name a caller asks by, so it has "+
+					"one definition: name it in one of them and not the other",
+					source, ref, prior, source)
+			}
+			setBy[marker] = source
+		}
+		out = append(out, entry)
+	}
+	return out, nil
 }
 
 // appendNew adds what is not already there, preserving contribution order.
@@ -588,7 +693,8 @@ var (
 	sudoKeys = []string{"exec_user", "pam_service", "helper",
 		"notify_command", "timeout_sec"}
 	secretsKeys = []string{"patterns", "decrypt_command", "refresh_interval_sec",
-		"min_length"}
+		"min_length", "link"}
+	linkKeys  = []string{"ref", "path", "type", "key"}
 	auditKeys = []string{"log_path", "max_record_bytes"}
 )
 
@@ -812,6 +918,9 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 				where, pattern, err)
 		}
 	}
+	if out.Links, err = loadLinks(sec["link"], where); err != nil {
+		return err
+	}
 	if out.DecryptCommand, err = stringList(sec["decrypt_command"], where, out.DecryptCommand); err != nil {
 		return err
 	}
@@ -825,6 +934,104 @@ func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
 		return err
 	}
 	return nil
+}
+
+// loadLinks validates every [[secrets.link]] entry.  Checked at load rather than
+// where the file is read, so a typo stops the daemon with its own name on it
+// instead of surfacing later as a value the redactor turns out not to have.
+func loadLinks(value any, where string) ([]Link, error) {
+	if value == nil {
+		return nil, nil
+	}
+	entries, ok := value.([]map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%s: expected [[secrets.link]] tables, got %T "+
+			"(write each entry as its own [[secrets.link]] header)", where, value)
+	}
+	out := make([]Link, 0, len(entries))
+	for i, entry := range entries {
+		at := fmt.Sprintf("%s: [[secrets.link]] #%d", where, i+1)
+		if err := rejectUnknownKeys(entry, linkKeys, at); err != nil {
+			return nil, err
+		}
+		link := Link{}
+		var err error
+		if link.Ref, err = str(entry["ref"], at, ""); err != nil {
+			return nil, err
+		}
+		if link.Path, err = str(entry["path"], at, ""); err != nil {
+			return nil, err
+		}
+		if link.Type, err = str(entry["type"], at, ""); err != nil {
+			return nil, err
+		}
+		if link.Key, err = str(entry["key"], at, ""); err != nil {
+			return nil, err
+		}
+		if err := validateLink(link, at); err != nil {
+			return nil, err
+		}
+		out = append(out, link)
+	}
+	return out, nil
+}
+
+func validateLink(link Link, at string) error {
+	// The same pattern a secret:// URI is parsed against.  A ref outside it would
+	// load and then be unreachable, no caller being able to spell it.
+	if link.Ref == "" {
+		return fmt.Errorf("%s: ref is required; it is the name a caller asks by", at)
+	}
+	if !secretref.Valid(link.Ref) {
+		return fmt.Errorf("%s: ref %q is not a name a secret:// reference can carry; "+
+			"letters, digits, and then any of . _ - /", at, link.Ref)
+	}
+	if link.Path == "" {
+		return fmt.Errorf("%s: path is required", at)
+	}
+	// A leading ~ is named separately from "not absolute": the daemons run as
+	// their own accounts, so a home there would be the wrong one even if
+	// something expanded it.
+	if strings.HasPrefix(link.Path, "~") {
+		return fmt.Errorf("%s: path %q starts with ~, which nothing expands here: the "+
+			"broker runs as its own account, so a home would be the wrong one. Write "+
+			"the path in full", at, link.Path)
+	}
+	if !filepath.IsAbs(link.Path) {
+		return fmt.Errorf("%s: path %q is relative, and the broker's working "+
+			"directory is not the operator's. Write it in full", at, link.Path)
+	}
+	if link.Type == "" {
+		return fmt.Errorf("%s: type is required; one of %s", at,
+			strings.Join(secretlink.Kinds(), ", "))
+	}
+	if !slices.Contains(secretlink.Kinds(), link.Type) {
+		return fmt.Errorf("%s: unknown type %q; one of %s", at, link.Type,
+			strings.Join(secretlink.Kinds(), ", "))
+	}
+	// Required and refused, rather than ignored where it means nothing: a key on
+	// a whole-file link is an operator who believes something is being selected.
+	if secretlink.NeedsKey(link.Type) && link.Key == "" {
+		return fmt.Errorf("%s: type %q selects one value out of the file, so key is "+
+			"required", at, link.Type)
+	}
+	if !secretlink.NeedsKey(link.Type) && link.Key != "" {
+		return fmt.Errorf("%s: type %q is the whole file, so key selects nothing; "+
+			"remove it, or name a type that selects: %s", at, link.Type,
+			strings.Join(selectingKinds(), ", "))
+	}
+	return nil
+}
+
+// selectingKinds is the types that take a key, for the message above.
+func selectingKinds() []string {
+	var out []string
+	for _, kind := range secretlink.Kinds() {
+		if secretlink.NeedsKey(kind) {
+			out = append(out, kind)
+		}
+	}
+	return out
 }
 
 func loadSsh(raw map[string]any, path string, out *SshConfig) error {

@@ -83,7 +83,7 @@ One call, end to end:
 
 ### Redaction
 
-The value set is **every managed secret**, not only the injected ones, so a managed host printing a credential nothing injected is still covered. Children run on a PTY, so programs behave normally and writes to `/dev/tty` are captured; the cost is that stdout and stderr arrive merged. ANSI escapes are stripped before matching, an expanded set of encodings is matched (base64, base32, hex, URL, JSON, shell quoting), and a streaming overlap buffer catches a value split across reads. Tokens are stable, so the model can reason about a secret across turns.
+The value set is **every managed secret**, not only the injected ones, so a managed host printing a credential nothing injected is still covered. A `[[secrets.link]]` entry adds a credential another tool owns, read out of that tool's own file rather than copied into the store, and its path is refused to the agent's file tools. Children run on a PTY, so programs behave normally and writes to `/dev/tty` are captured; the cost is that stdout and stderr arrive merged. ANSI escapes are stripped before matching, an expanded set of encodings is matched (base64, base32, hex, URL, JSON, shell quoting), and a streaming overlap buffer catches a value split across reads. Tokens are stable, so the model can reason about a secret across turns.
 
 Two things are not in the value set: a value shorter than `[secrets] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing to it, approval minting no credential. Detail in [docs/redaction.md](docs/redaction.md).
 
@@ -189,6 +189,7 @@ A database task | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv
 A registry push | `bash -lc 'printf %s "$TOKEN" \| docker login -u me --password-stdin'`
 An HTTP call | `curl -H "Authorization: Bearer $TOKEN"` inside `bash -lc`, so the shell expands it
 A tool needing a credentials *file* | Have the command write it, use it, remove it. Injection is environment-only
+A credential another tool already owns (`~/.npmrc`, `gh`) | Skip step 1. Link it instead of copying it in, so rotating it stays that tool's business: [linked secrets](docs/configuration.md#linked-secrets)
 Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the child gets `SSH_AUTH_SOCK`. Name the remote login, a bare `ssh host` asking for `faramir-exec`, and pin the host keys with `init --known-hosts`
 Redaction only, no secret | Skip steps 3 and 4. `faramir redact -- ./script.sh`, or use it as a filter
 
@@ -228,14 +229,20 @@ How to run it: [docs/operating.md](docs/operating.md#allowing-sudo-on-the-contro
 
 ### Operator commands
 
-All need root except `doctor`, which degrades.
+All need root except `doctor`, which degrades, and the two that read nothing of the install: `sops keygen` and `link ls`.
+
+Two of them group: `faramir sops` is what is done to the managed store, `faramir link` what is done to a secret another tool owns. What they share is one ref namespace, not a mechanism, so nothing marks a ref as linked and moving a secret between the two does not rename it.
 
 Command | Does
 --- | ---
 `sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. [Shares the tree](docs/layout.md), registers the hook and the MCP server in each enrolled agent's settings, and writes the credentials section into the tree's agent instructions file. A home directory, `/`, and anything above a home are refused, symlinks resolved first
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach
-`sudo faramir edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] patterns` globs reach. `--editor` names the editor, `--age-key` the key
-`sudo faramir rekey [FILE...]` | Re-encrypts to the recipients `<config-dir>/.sops.yaml` names now: every managed file unless some are named. `--dry-run` writes nothing. [What it preserves and refuses](docs/operating.md#adding-a-recipient)
+`sudo faramir sops edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] patterns` globs reach. `--editor` names the editor, `--age-key` the key
+`sudo faramir sops rekey [FILE...]` | Re-encrypts to the recipients `<config-dir>/.sops.yaml` names now: every managed file unless some are named. `--dry-run` writes nothing. [What it preserves and refuses](docs/operating.md#adding-a-recipient)
+`faramir sops keygen [-o FILE]` | Mints an age keypair, so a host needs no `age` binary. The one command in this group needing neither root nor an install: `init` mints the keeper's key itself, and this is for a second recipient or a backup identity. Refuses to overwrite
+`sudo faramir link add REF FILE` | Reads a secret out of a file another tool maintains, instead of copying it into the store. `--type` and `--key` say how. The file is read once as the broker's own account before anything is written, so a selector that names nothing is an error here rather than a broker refusing every command later. Grants the broker read, refuses the file to the agent's file tools, and writes the entry into `config.toml`. [Detail](docs/configuration.md#linked-secrets)
+`sudo faramir link rm REF` | Drops the entry and the deny rule. Leaves the access granted to the broker, and says what the file is now and what would narrow it
+`faramir link ls` | The linked secrets this install declares, and whether each file is there
 `sudo faramir logs [LOG-ID]` | Recent audit records, one row each: the log id, local time, op, outcome, values stood in for, and the command. With an id, one record in full. `--count`/`-n` bounds what is parsed as well as printed; `--json` prints records rather than rows; `--watch` prints the last `-n` and then each record as it is written, following the log across a rotation and waiting for it on a host where nothing has been brokered yet. It reads the log `[audit] log_path` names and takes no path of its own. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched
 `sudo faramir approvals [--watch]` | Lists the approval a brokered command is waiting on. `--watch` waits for questions, answers them from that terminal, and reports how each approved run ended
 `sudo faramir approve ID` | Say yes. The id is required: an approval that names no command is one nobody judged

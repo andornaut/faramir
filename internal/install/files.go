@@ -126,7 +126,7 @@ func (r *runner) stepDirectories() error {
 	changed = changed || made
 
 	// The log file itself, not only the directory it sits in: whoever writes the
-	// first record creates it, and `faramir edit` runs as root, so on a fresh host
+	// first record creates it, and `faramir sops edit` runs as root, so on a fresh host
 	// the log lands root-owned and every later append from the broker fails.
 	// audit.Write deliberately never fails a request, so that is silent.
 	// logrotate re-creates it broker-owned, which covers every file after this
@@ -235,7 +235,7 @@ func (r *runner) installDocs() (bool, error) {
 
 // docTargets maps each embedded doc to the same path under the doc directory.
 // Unchanged, because everything that cites a doc (Documentation=, the README's
-// own links, the deny list, the plugins, `faramir edit`) cites it by the
+// own links, the deny list, the plugins, `faramir sops edit`) cites it by the
 // checkout's path.
 func docTargets(layout Layout) (map[string]string, error) {
 	targets := map[string]string{

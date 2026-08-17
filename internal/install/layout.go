@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // Default paths.  Only ConfigDir is meant to be moved; the rest are here so the
@@ -133,6 +135,31 @@ type Layout struct {
 	// so a copy of it is refused wherever it turns up, not only where ConfigDir
 	// was rendered into a pattern.
 	SSHKey string
+
+	// Links is the [[secrets.link]] entries, read off the config rather than given
+	// by a flag.  They render back into config.toml, which is what makes them
+	// install state rather than a drop-in's: init asserts them, and the grant they
+	// need, on every run.
+	//
+	// Base file only: rendering back what a drop-in declared would copy it into
+	// config.toml, and the next load would refuse both as one ref claimed twice.
+	Links []config.Link
+
+	// LinkedPaths is what the deny rules refuse, and it is the *merged* set, a
+	// drop-in's links included.  A linked value joins the redactor, and leaving
+	// the file itself readable would mean the agent could still print the
+	// plaintext one Read away, which is the disclosure linking exists to close;
+	// where the entry was declared has nothing to do with that.
+	//
+	// Separate from Links for that reason alone: one renders a file this run
+	// owns, the other refuses a path this run merely knows about.
+	//
+	// The account-wide lists only.  A linked file is one host's operator's own, so
+	// putting it in the per-project assets would change every enrolled tree's
+	// files whenever a link was added, and report drift in all of them until each
+	// was enrolled again.  Pi has no account-wide file, so its extension does not
+	// carry these; that is the same gap it already has.
+	LinkedPaths []string
 
 	// AllowSudo is the switch for the whole arrangement: unset renders no [sudo]
 	// section, writes no sudoers file and no PAM service, so nothing can be asked

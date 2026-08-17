@@ -8,7 +8,7 @@ Nothing here edits faramir's configuration: `[secrets] patterns` globs the secre
 
 ## 1. Encrypt the right file, in the right place
 
-The encrypted file belongs in the secrets directory, `/etc/faramir/secrets` unless `--config-dir` moved it. The operator is not in the group that owns it, so putting a file there and editing it afterwards both go through `sudo faramir edit`.
+The encrypted file belongs in the secrets directory, `/etc/faramir/secrets` unless `--config-dir` moved it. The operator is not in the group that owns it, so putting a file there and editing it afterwards both go through `sudo faramir sops edit`.
 
 Not in a checkout, which is absent at boot if it sits in an encrypted home, and **never in `group_vars/` or `host_vars/`**. Ansible loads every `.yml` under those as a vars file: a sops file is valid YAML, so it binds each var to its `ENC[AES256_GCM,...]` ciphertext, and a name sorting after `vars.yml` also overwrites the mapping from section 2. Nothing errors; hosts get configured with ciphertext in place of the credential. `faramir init` refuses to finish when a managed file sits under either, naming it and where to move it.
 
@@ -32,7 +32,7 @@ sudo sops --config /etc/faramir/.sops.yaml \
     plain.yml
 ```
 
-Every edit after that is `sudo faramir edit /etc/faramir/secrets/ansible-ctrl.sops.yml`, which needs neither flag, re-encrypting to the recipients the file already had.
+Every edit after that is `sudo faramir sops edit /etc/faramir/secrets/ansible-ctrl.sops.yml`, which needs neither flag, re-encrypting to the recipients the file already had.
 
 Key *names* stay readable, so diffs are per-key and the agent sees the file's shape without any value. Nesting maps to `/` in a ref:
 

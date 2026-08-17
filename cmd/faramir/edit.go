@@ -56,11 +56,10 @@ type editFlags struct {
 func newEditCmd() *cobra.Command {
 	var f editFlags
 	c := &cobra.Command{
-		Use:     "edit [options] FILE",
-		Short:   "edit a managed sops file",
-		GroupID: groupProvisioning,
-		Args:    exactlyOneArg("file"),
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runEdit(f, args)) },
+		Use:   "edit [options] FILE",
+		Short: "edit a managed sops file",
+		Args:  exactlyOneArg("file"),
+		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runEdit(f, args)) },
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().StringVar(&f.editor, "editor", "", "absolute path to the editor to run (default: the first of "+

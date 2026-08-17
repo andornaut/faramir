@@ -130,7 +130,6 @@ func newRootCmd() *cobra.Command {
 		newRedactCmd(),
 		newCallCmd("list_secrets", "list secret refs (names only)"),
 		newCallCmd("status", "show broker status"),
-		newKeygenCmd(),
 		// `faramir version` as well as --version, because it was a subcommand
 		// before cobra and is written down as one.
 		&cobra.Command{
@@ -147,8 +146,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newInitCmd(),
 		newInitProjectCmd(),
-		newEditCmd(),
-		newRekeyCmd(),
+		newSopsCmd(),
+		newLinkCmd(),
 		newLogsCmd(),
 		newApprovalsCmd(),
 		newApproveCmd(),
@@ -165,6 +164,7 @@ func newRootCmd() *cobra.Command {
 		newGuardCmd(),
 		newPamApproveRootCmd(),
 		newAccessCmd(),
+		newReadLinkCmd(),
 	)
 
 	// Registered here so that cobra does not add it with a "-v" shorthand of its
@@ -215,6 +215,17 @@ func exactlyOneArg(what string) cobra.PositionalArgs {
 	return func(c *cobra.Command, args []string) error {
 		if len(args) != 1 {
 			return usagef("%s requires one %s", c.CommandPath(), what)
+		}
+		return nil
+	}
+}
+
+// exactlyArgs is exactlyOneArg for a command taking more than one, naming what
+// the operands are together rather than counting them.
+func exactlyArgs(n int, what string) cobra.PositionalArgs {
+	return func(c *cobra.Command, args []string) error {
+		if len(args) != n {
+			return usagef("%s requires %s", c.CommandPath(), what)
 		}
 		return nil
 	}

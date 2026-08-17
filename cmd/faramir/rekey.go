@@ -38,10 +38,9 @@ type rekeyFlags struct {
 func newRekeyCmd() *cobra.Command {
 	var f rekeyFlags
 	c := &cobra.Command{
-		Use:     "rekey [options] [FILE...]",
-		Short:   "re-encrypt the secrets directory to the recipients .sops.yaml now names",
-		GroupID: groupProvisioning,
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runRekey(f, args)) },
+		Use:   "rekey [options] [FILE...]",
+		Short: "re-encrypt the secrets directory to the recipients .sops.yaml now names",
+		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runRekey(f, args)) },
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().StringVar(&f.ageKey, "age-key", "", "age key file (default: age.key beside the config)")

@@ -210,7 +210,7 @@ probe "an age identity pasted where a recipient belongs" "sops config" failed \
   'world-readable|will not take'
 
 # A rule reaching none of the managed files leaves a store neither `faramir
-# edit` nor `faramir rekey` can write back, and nothing else on the host says
+# edit` nor `faramir sops rekey` can write back, and nothing else on the host says
 # so: the values still decrypt and the broker still serves them, so the failure
 # waits until somebody edits one.
 probe "a rule that reaches no managed file" "rule coverage" failed \

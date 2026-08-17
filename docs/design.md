@@ -23,6 +23,7 @@ Who forks the child | A third uid, given the PTY slave over `SCM_RIGHTS`. | Anyt
 Command allowlist | None. | Any rule permitting an interpreter is reachable in one step through `bash`, which a usable policy must permit.
 How a program gets values | `env_refs`, read from the environment. | The alternative is handing the program the master key.
 Secrets at rest | sops plus age. | Encrypted YAML, per-key diffs, no network round trip.
+Credentials another tool owns | Linked by path, not copied in. | A copy is a second thing to rotate. The tool keeps its own file; the broker reads one value out of it. See [below](#linked-secrets-are-read-by-the-broker).
 Redaction | Custom, over the whole value set. | Off-the-shelf injectors mask only what they injected; a managed host can print a credential the broker never injected.
 Agent interface | Unix socket exposed as MCP tools plus a CLI. | A distinct tool is more discoverable to a model than a documented convention.
 Enforcement | Hook plus filesystem permissions. | Instructions to the agent are ergonomics, not a boundary.
@@ -35,7 +36,7 @@ The boundaries are around the secrets, not the agent. The operator reaches the k
 
 ## The secrets live in a directory, not a tree
 
-`/etc/faramir/secrets`, `2750 root:<secrets-group>`, never in a checkout, which a clone or a branch could move. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir edit`. The broker socket admits a different group: asking for a value by name is not permission to read the file it came from. The broker holds every decrypted value already, so it stays outside the secrets group and asks the keeper when a file changed over `get_state`, which touches neither the key nor sops.
+`/etc/faramir/secrets`, `2750 root:<secrets-group>`, never in a checkout, which a clone or a branch could move. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir sops edit`. The broker socket admits a different group: asking for a value by name is not permission to read the file it came from. The broker holds every decrypted value already, so it stays outside the secrets group and asks the keeper when a file changed over `get_state`, which touches neither the key nor sops.
 
 `.sops.yaml` sits in the config directory above the secrets directory for two reasons:
 
@@ -51,6 +52,35 @@ Placement | Result
 inside a home | Works. `init` drops the keeper's `ProtectHome=` to `tmpfs` and binds that directory back. An *unmounted encrypted* home is refused, the write landing in the backing directory and being shadowed the moment the home mounts.
 
 A home is not mounted until its owner logs in, so the secrets are absent at boot and to cron. A file may be missing because it was never written or because the filesystem holding it is not mounted, and only the second is dangerous, so both are refused, per request rather than at startup. The rule and its one exception are with [the gate](configuration.md#the-install-gate-and-the-same-gate-at-startup).
+
+## Linked secrets are read by the broker
+
+An `~/.npmrc` token and a `gh` OAuth token are the tools' own files, and copying them into the store would mean re-encrypting on every rotation. A `[[secrets.link]]` entry names one instead. How to write one is in [configuration.md](configuration.md#linked-secrets); this is why it is shaped that way.
+
+**The broker reads them, not the keeper.** The keeper holds the age key, which decrypts every managed file retroactively, so it runs with the homes taken away entirely and one `BindReadOnlyPaths` at most. A linked file needs no key, so putting these behind it would widen the one account worth keeping narrow, and would make every link change a unit re-render. The broker already holds every plaintext value, already reads key material at rest for `[ssh] key`, and deliberately has no `ProtectHome=`, having to stat a request's cwd. What bounds it is the file's own mode.
+
+**The grant is modes and ownership, and `init` makes it.** The file becomes the broker's own group and group-readable; the directories above it become the client group, execute only, which is what `sharetree` already grants an enrolled tree. Not an ACL, and the reason is not taste:
+
+Rejected | Why
+--- | ---
+An ACL | A stacked filesystem does not carry one. An eCryptfs home takes `setfacl` without error and reads the entry back from its own cache, so the grant looks applied, cannot be removed, and is not what decides the read.
+A default ACL, for durability | It does not survive the case it was reached for. A tool that renames a temp file over the original creates it fresh, and the `0600` creation mode masks the inherited entry to nothing. Neither mechanism survives a rename, and both survive an in-place rewrite, so durability does not choose between them.
+The client group on the file | The executor is in it, so every brokered command could read the file directly rather than asking for the ref.
+Leaving it to the operator | A grant nobody re-applies is one a tool silently takes away.
+
+What catches a lost grant is `faramir doctor`, which asks the broker's own account whether it can still read each file, and the executor's whether it can. Asking rather than reading the mode is what makes it answer correctly whatever the filesystem is.
+
+**What linking buys is redaction, and it only applies to values the agent could already reach.** The agent runs as the operator, so `~/.npmrc` is one `Read` away; linking puts that value in the redactor and renders the path into the deny rules, closing both halves. Pointed at a file the agent *cannot* read, it inverts: every managed value is reachable through `env_refs` by any brokered command, so the value becomes agent-obtainable and no disclosure path is closed in exchange. A root-owned LUKS keyfile belongs outside the store for that reason.
+
+**One ref per entry, with an explicit selector.** There is no whole-file flatten. A config file is mostly not secret, and a value in the set is a value the redactor searches output for: `https://registry.npmjs.org/` clears `min_length` and would tokenize unrelated output. `min_length` is a bound on what can be searched for safely, not a filter for what is secret.
+
+**A ref does not say where it is kept.** One flat namespace, and a cross-source collision refused at load naming both sides. Tagging the source into the name (`secret://sops/...`) would make moving a secret between the store and a link a rename, breaking every `faramir.env` and playbook naming it, which is the drift linking exists to avoid.
+
+**A link that is there and will not read refuses `exec` and `redact`**, the same gate a managed file that did not decrypt gets, because it is the same state: a value on disk that the redactor does not have. The cost is that a tool rewriting its own file can drop the ACL and stop brokered work on the host until it is restored. A default ACL on the containing directory is what survives such a rewrite, and `doctor` is what says the link went unreadable. A link whose *path* is gone is not that state, the credential having left the machine, and is reported rather than fatal.
+
+**A link is install state, not a drop-in's.** The entries live in `config.toml`, which `init` rewrites every run and reads its links back out of first, so every grant and every deny rule is re-asserted on every run. That is what heals a grant a tool took away, and it is why `faramir link add` applies the same steps rather than a private copy of them. The links are read from the base file alone: reading the merged view would copy a drop-in's link into `config.toml`, and the next load would refuse both as one ref claimed twice.
+
+A `[[secrets.link]]` written by hand into a drop-in still works, and is the one case where the deny rules can lag the links, `init` being what renders them. `faramir doctor` fails on such a link until `init` runs again. Rendering linked paths into the per-project assets instead would change every enrolled tree's files whenever a link was added, and report drift in all of them until each was enrolled again. Pi has no account-wide rule file, so its extension does not carry linked paths; that is the gap it already has.
 
 ## Three layers
 

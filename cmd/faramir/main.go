@@ -82,10 +82,9 @@ func operatorName(flagValue string) string {
 func newKeygenCmd() *cobra.Command {
 	var out string
 	c := &cobra.Command{
-		Use:     "keygen [-o FILE]",
-		Short:   "mint an age keypair for the keeper",
-		GroupID: groupOperator,
-		Args:    noArgs,
+		Use:   "keygen [-o FILE]",
+		Short: "mint an age keypair for the keeper",
+		Args:  noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			if out == "" {
 				id, err := age.GenerateX25519Identity()

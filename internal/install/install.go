@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/agekey"
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -77,6 +78,19 @@ type Options struct {
 	// resolved here.  Requires AllowSudo: without the grant there is no [sudo]
 	// section and nothing to announce.
 	NotifyCommand []string
+
+	// links is the [[secrets.link]] entries, read off the installed config's base
+	// file during adoption.  Unexported: no flag names one, and `faramir link` is
+	// what adds and removes them.
+	links []config.Link
+	// linkedPaths is every linked file the merged config names, a drop-in's
+	// included.  What the deny rules refuse, which is a different question from
+	// what config.toml renders; see Layout.LinkedPaths.
+	linkedPaths []string
+	// linksSet says the list above is deliberate, empty included.  Without it,
+	// removing the last link would read as "nothing was named" and adoption would
+	// put the old list straight back.
+	linksSet bool
 
 	// MoveConfig is consent to point this host's daemons at a different
 	// ConfigDir.  Required because the units are one set with fixed names, so a
@@ -239,17 +253,27 @@ type runner struct {
 // Run provisions the host.  Idempotent: a second run with the same options
 // changes nothing and reports so.
 func Run(opts Options) (Report, error) {
+	run, err := newRunner(opts)
+	if err != nil {
+		return Report{}, err
+	}
+	return run.apply(run.steps())
+}
+
+// newRunner builds what every run shares: adoption, defaults, the layout, and
+// the refusals that must happen before anything is written.
+func newRunner(opts Options) (*runner, error) {
 	// Before the defaults: adoption is what keeps a flag left out from reverting
 	// the install, and applyDefaults cannot tell an omitted flag from one that
 	// named the compiled-in value.
 	adopted, err := opts.adoptInstalled()
 	if err != nil {
-		return Report{}, err
+		return nil, err
 	}
 	opts.applyDefaults()
 	layout, err := opts.layout()
 	if err != nil {
-		return Report{}, err
+		return nil, err
 	}
 	run := &runner{
 		opts:   opts,
@@ -266,20 +290,23 @@ func Run(opts Options) (Report, error) {
 		run.binaries = filepath.Dir(self)
 	}
 	if err := run.preflight(); err != nil {
-		return run.report, err
+		return nil, err
 	}
-	for _, step := range run.steps() {
+	return run, nil
+}
+
+// apply runs the steps given, in order.
+func (r *runner) apply(steps []namedStep) (Report, error) {
+	for _, step := range steps {
 		if err := step.run(); err != nil {
 			// Named, because a run that stops partway has applied everything before it
 			// and nothing after, and which steps those were is the first thing to
 			// establish.  The steps that hand a file to an account are all after
 			// stepPreconditions, so a refusal there has changed no ownership.
-			return run.report, fmt.Errorf("%s: %w", step.name, err)
+			return r.report, fmt.Errorf("%s: %w", step.name, err)
 		}
 	}
-	// Set by the sops config step, the only thing here that read the file, not
-	// restated from the options, which are only the request.
-	return run.report, nil
+	return r.report, nil
 }
 
 // namedStep is one step and what to call it when a run stops there.
@@ -319,6 +346,10 @@ func (r *runner) steps() []namedStep {
 		// Before the units are written: it grants the traversal that lets a service
 		// uid reach a config under the agent account's home.
 		{"reachable", r.stepReachable},
+		// After it, and for the same reason one step later than it looks: this
+		// grants traversal down to a file in the same home, so the two must not
+		// race to regroup the directories they share.
+		{"linked files", r.stepLinkAccess},
 		{"units", r.stepUnits},
 		{"systemd", r.stepSystemd},
 		{"agent config", r.stepAgentConfig},
@@ -389,6 +420,8 @@ func (o *Options) layout() (Layout, error) {
 	// writes no PAM service and grants no sudoers entry.
 	layout.AllowSudo = o.AllowSudo
 	layout.NotifyCommand = resolveNotifyCommand(o.NotifyCommand)
+	layout.Links = o.links
+	layout.LinkedPaths = o.linkedPaths
 	return layout, layout.validate()
 }
 

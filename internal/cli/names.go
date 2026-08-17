@@ -10,12 +10,16 @@ package cli
 // denial rather than a hole.  Under sudo the guard sanctions all of these but
 // `approve`, which it denies: that one decides an approval, and the account
 // the agent runs as must not answer the question the agent raised.
+//
+// A grouped command is named in full, both tokens, rather than by its parent.
+// Naming the parent alone would sanction every subcommand added under it later,
+// which is a widening nobody decides and nobody sees in a diff; spelled out,
+// adding one is a line here.
 var Operator = []string{
 	"run",
 	"redact",
 	"list-secrets",
 	"status",
-	"keygen",
 	// version, help and completion are cobra's as much as faramir's: the last
 	// two it generates, and all three answer without reaching the broker.
 	"version",
@@ -23,8 +27,12 @@ var Operator = []string{
 	"completion",
 	"init",
 	"init-project",
-	"edit",
-	"rekey",
+	"sops edit",
+	"sops rekey",
+	"sops keygen",
+	"link add",
+	"link rm",
+	"link ls",
 	"logs",
 	"approvals",
 	"approve",
@@ -46,4 +54,7 @@ var Internal = []string{
 	"pam-approve",
 	// What doctor runs under runuser to answer access(2) as another account.
 	"access",
+	// What `link add` runs under runuser to ask whether the broker's own account
+	// can read a linked file, before the entry is written.
+	"read-link",
 }

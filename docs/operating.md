@@ -96,13 +96,13 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 
 ## Adding a recipient
 
-`--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which a re-run of the installer should not do unasked. A run that keeps the file reads it back, reports the recipients it lists as `age_recipients`, and warns naming any key you asked for that is not there. `faramir edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
+`--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which a re-run of the installer should not do unasked. A run that keeps the file reads it back, reports the recipients it lists as `age_recipients`, and warns naming any key you asked for that is not there. `faramir sops edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
 
 Applying one is two steps, both as root:
 
 ```bash
 sudoedit /etc/faramir/.sops.yaml   # add the key under `- age:`
-sudo faramir rekey                 # re-encrypt the secrets to what it now says
+sudo faramir sops rekey                 # re-encrypt the secrets to what it now says
 ```
 
 The first decides who can read files sops creates from then on. The second brings existing files into line. Name files to do only some; `--dry-run` writes nothing.

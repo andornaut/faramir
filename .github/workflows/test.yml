@@ -65,7 +65,7 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      # `faramir edit` and `faramir rekey` hand sops the install's creation rules
+      # `faramir sops edit` and `faramir sops rekey` hand sops the install's creation rules
       # rather than letting it search from the working directory, and the tests
       # that hold that line assert how sops itself resolves and matches a rule.
       # The stand-in built from the sops libraries models no creation rules, so

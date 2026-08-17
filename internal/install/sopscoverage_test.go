@@ -111,8 +111,8 @@ func requireSops(t *testing.T) {
 	}
 }
 
-// A rule that reaches none of the managed files is a store `faramir edit` and
-// `faramir rekey` cannot write back, and nothing else on the host says so: the
+// A rule that reaches none of the managed files is a store `faramir sops edit` and
+// `faramir sops rekey` cannot write back, and nothing else on the host says so: the
 // values still decrypt, the broker still serves them, and the failure waits
 // until somebody edits one.
 func TestRuleCoverageIsCheckedAgainstTheManagedFiles(t *testing.T) {

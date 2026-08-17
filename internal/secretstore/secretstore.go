@@ -38,6 +38,11 @@ type Store struct {
 	values  map[string]string
 	refused map[string]string
 	state   []keeperclient.FileState
+	// linkState is the same fingerprint for the [[secrets.link]] files.  Kept
+	// apart from state because the broker stats these itself: they are the
+	// operator's own files, reachable from this uid, so noticing a change costs a
+	// stat rather than a round trip.
+	linkState []keeperclient.FileState
 	// retry is set when the keeper could not be reached.  The mtime poll would
 	// never notice, since the files have not changed, and on a cold start the
 	// value set is empty, so nothing is redacted.
@@ -79,7 +84,9 @@ func (s *Store) Reload() {
 	if err != nil {
 		// Keep the previous set rather than dropping to empty, which would
 		// redact nothing.  The previous state goes with it, being the last
-		// thing known to be true.
+		// thing known to be true.  The linked values are kept with them and are
+		// not re-read: this is one set, and half of it refreshed against a keeper
+		// that could not answer would be a set that never existed on disk.
 		s.mu.Lock()
 		s.loadErrors = []string{err.Error()}
 		s.unresolvedPatterns = nil
@@ -90,6 +97,25 @@ func (s *Store) Reload() {
 			"and retrying on the next request: %v", err)
 		return
 	}
+	// The links, read here rather than asked of the keeper.  Merged before the
+	// length gate, so a linked value is held to what a managed one is.
+	linkValues, linkState, linkErrors, linkUnresolved := loadLinks(s.config.Links)
+	for _, ref := range sortedKeys(linkValues) {
+		// Refused rather than resolved either way.  A link shadowing a managed
+		// value would leave one of them rotating with nothing reading it, and which
+		// won would be an implementation detail of this loop.
+		if _, ok := values[ref]; ok {
+			linkErrors = append(linkErrors, fmt.Sprintf("%s: a [[secrets.link]] entry "+
+				"claims a ref the managed store already defines; one of the two is "+
+				"then rotated with nothing reading it, so rename the link or remove "+
+				"the managed value", ref))
+			continue
+		}
+		values[ref] = linkValues[ref]
+	}
+	errors = append(errors, linkErrors...)
+	unresolved = append(unresolved, linkUnresolved...)
+
 	// A value the redactor cannot cover is not loaded: serving it would put it
 	// in a child's environment with nothing to catch it on the way out.
 	redactable := map[string]string{}
@@ -106,6 +132,7 @@ func (s *Store) Reload() {
 	s.values = redactable
 	s.refused = refused
 	s.state = state
+	s.linkState = linkState
 	s.retry = false
 	s.loadErrors = errors
 	s.unresolvedPatterns = unresolved
@@ -151,6 +178,10 @@ func (s *Store) RefreshIfStale() {
 	for _, st := range s.state {
 		previous[st] = true
 	}
+	previousLinks := make(map[keeperclient.FileState]bool, len(s.linkState))
+	for _, st := range s.linkState {
+		previousLinks[st] = true
+	}
 	s.mu.Unlock()
 
 	if !s.refreshing.CompareAndSwap(false, true) {
@@ -160,6 +191,18 @@ func (s *Store) RefreshIfStale() {
 
 	if retry {
 		log.Printf("the last load did not reach the keeper; retrying")
+		s.Reload()
+		return
+	}
+
+	// The links first, being a stat rather than a round trip.  A reload refetches
+	// the managed values anyway, so noticing here saves asking the keeper.
+	currentLinks := make(map[keeperclient.FileState]bool, len(s.config.Links))
+	for _, st := range statLinks(s.config.Links) {
+		currentLinks[st] = true
+	}
+	if !sameSet(previousLinks, currentLinks) {
+		log.Printf("a linked secret file changed on disk; reloading")
 		s.Reload()
 		return
 	}
@@ -261,6 +304,11 @@ func (s *Store) describeLocked() map[string]any {
 		"count":               len(s.values),
 		"errors":              errs,
 		"unresolved_patterns": absent,
+		// A count, not the paths.  A linked file is one of the operator's own, in
+		// their home and refused to the agent's file tools, so naming it here would
+		// be handing over the location of a credential the rules exist to keep the
+		// agent away from.  DescribeForOperator carries the paths.
+		"links": len(s.config.Links),
 	}
 }
 
@@ -277,6 +325,13 @@ func (s *Store) DescribeForOperator() map[string]any {
 	refused := make(map[string]string, len(s.refused))
 	maps.Copy(refused, s.refused)
 	out["not_redactable"] = refused
+	// Ref to file, so `--check` and doctor can say which link is broken and where
+	// to go and fix it.  Operator-only for the reason describeLocked gives.
+	linked := make(map[string]string, len(s.config.Links))
+	for _, link := range s.config.Links {
+		linked[link.Ref] = link.Path
+	}
+	out["linked_files"] = linked
 	return out
 }
 
@@ -325,7 +380,10 @@ func (s *Store) Unreadable() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	switch {
-	case s.retry && len(s.state) > 0:
+	// linkState as well as state: an install whose only secrets are linked holds
+	// its whole value set without the keeper contributing anything, so a keeper
+	// that cannot be reached leaves nothing unconfirmed.
+	case s.retry && (len(s.state) > 0 || len(s.linkState) > 0):
 		return ""
 	case s.retry:
 		return "the keeper could not be reached and no value set was ever loaded: " +
@@ -333,10 +391,10 @@ func (s *Store) Unreadable() string {
 	case len(s.loadErrors) > 0:
 		return "a managed file did not load, so what is in it went unread: " +
 			strings.Join(s.loadErrors, "; ")
-	case len(s.state) > 0:
+	case len(s.state) > 0, len(s.linkState) > 0:
 		return ""
-	case len(s.config.Patterns) == 0:
-		return "no [secrets] patterns are configured"
+	case len(s.config.Patterns) == 0 && len(s.config.Links) == 0:
+		return "no [secrets] patterns and no [[secrets.link]] entries are configured"
 	}
 	return "no managed file was found: " + strings.Join(s.unresolvedPatterns, "; ")
 }

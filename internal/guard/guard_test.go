@@ -69,7 +69,7 @@ func TestTheAgentCannotAnswerItsOwnApproval(t *testing.T) {
 	}
 	// `approve` is the only subcommand carved out of the sudo sanction: every
 	// other one still has its own arguments left unscanned under sudo.
-	if pattern, denied := decide("sudo faramir edit secret://a/b"); denied {
+	if pattern, denied := decide("sudo faramir sops edit secret://a/b"); denied {
 		t.Errorf("the sudo sanction lost more than approve (pattern %q)", pattern)
 	}
 }

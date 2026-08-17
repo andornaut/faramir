@@ -2,6 +2,7 @@ package install
 
 import (
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -107,6 +108,28 @@ func installDirs(layout Layout) []string {
 	}
 }
 
+// linkedPaths is the files [[secrets.link]] entries name, as literal paths.
+// Sorted and deduplicated so that two links into one file, or the order the
+// drop-ins happened to be read in, do not change what is written.
+//
+// An empty entry is dropped rather than rendered: as a Claude rule "" would be a
+// pattern matching nothing, but in the plugin hosts' spelling it is a prefix of
+// every path, and a rule refusing the whole filesystem fails closed and still
+// breaks the agent.
+func linkedPaths(layout Layout) []string {
+	seen := make(map[string]bool, len(layout.LinkedPaths))
+	out := make([]string, 0, len(layout.LinkedPaths))
+	for _, path := range layout.LinkedPaths {
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // The spellings.  One function per matcher rather than one parameterised over
 // them: the agents differ in what a wildcard crosses, and a knob for that is a
 // knob somebody sets wrong.  Each of these is short enough to read against the
@@ -175,6 +198,9 @@ func claudeRules(layout Layout) []string {
 	for _, dir := range installDirs(layout) {
 		add(dir + "/**")
 	}
+	for _, path := range linkedPaths(layout) {
+		add(path)
+	}
 	return out
 }
 
@@ -185,6 +211,7 @@ func pluginPatterns(layout Layout) []string {
 	for _, dir := range installDirs(layout) {
 		out = append(out, dir+"/*")
 	}
+	out = append(out, linkedPaths(layout)...)
 	return out
 }
 

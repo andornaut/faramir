@@ -112,10 +112,12 @@ var fallback = []string{
 	// each half is refused with the reason that fits it.
 	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(approvals|approve|deny)\b`,
 	// doctor's own helper, which answers access(2) as the account it is run
-	// under. Nothing an operator types: under sudo it answers for root, which
+	// under, and `link add`'s, which reads one linked file as the broker.
+	// Nothing an operator types: under sudo the first answers for root, which
 	// is yes to everything and says nothing about the boundary being asked
-	// about.
-	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+access\b`,
+	// about, and the second opens a credential file as the account entitled to
+	// it.
+	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(access|read-link)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Refused for what it costs, not because it hides anything: the wrapper
 	// fails closed, so a stopped broker withholds every command's output in
@@ -159,7 +161,7 @@ var ownershipMarkers = []string{
 	`>\s*\S*`,                    // a redirect into one of those paths
 	`\bsystemctl\b`,              // stopping or masking a unit
 	`(approvals|approve|deny)\b`, // answering a question the agent raised
-	`faramir[-\s]+access\b`,      // doctor's own access(2) helper
+	`faramir[-\s]+(access|read`,  // doctor's access(2) helper, link add's reader
 }
 
 // adviceFor picks the explanation that matches why the command was refused.
@@ -272,7 +274,20 @@ func commandOf(p *payload) string {
 // cli.Operator merely has its arguments scanned.
 var faramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*faramir[ \t]+(` +
-		strings.Join(cli.Operator, "|") + `)\b[^;&|\n]*`)
+		sanctionAlternation(cli.Operator) + `)\b[^;&|\n]*`)
+
+// sanctionAlternation renders subcommand names as one alternation.  A grouped
+// command is named as two tokens, so the space between them becomes the
+// whitespace a shell would accept there: `sops edit` has to match `sops   edit`
+// and must not match `sopsedit`.  Nothing else in a subcommand name is a
+// metacharacter, and quoting holds that true if one ever is.
+func sanctionAlternation(names []string) string {
+	out := make([]string, 0, len(names))
+	for _, name := range names {
+		out = append(out, strings.ReplaceAll(regexp.QuoteMeta(name), " ", `[ \t]+`))
+	}
+	return strings.Join(out, "|")
+}
 
 // sudoFaramirCall is the same for a call under sudo, and sanctions three
 // subcommands fewer.  `approvals`, `approve` and `deny` are left out so that the
@@ -283,7 +298,7 @@ var faramirCall = regexp.MustCompile(
 // an exception inside the first.
 var sudoFaramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*sudo\s+faramir[ \t]+(` +
-		strings.Join(sudoSanctioned(), "|") + `)\b[^;&|\n]*`)
+		sanctionAlternation(sudoSanctioned()) + `)\b[^;&|\n]*`)
 
 // answering is the subcommands that read or decide an approval.  Named once:
 // the deny patterns and sudoSanctioned have to cover the same set, and a
