@@ -554,6 +554,8 @@ head_ "14. a question nobody answers, and the one raised after it"
 cat >/tmp/watch-expire.py <<'EOS'
 import os, pty, select, subprocess, sys, time
 
+PROMPT = "approve? [yes/no]"
+
 pid, fd = pty.fork()
 if pid == 0:
     os.execv("/usr/local/bin/faramir", ["faramir", "approvals", "--watch"])
@@ -581,8 +583,16 @@ def pump(until, timeout):
     return until(buf)
 
 
+def terminal():
+    # What the watcher printed, on one line: the answer it refused and why is
+    # printed there and nowhere else this driver can reach, so a failure that
+    # does not carry it says only that something did not happen.
+    return "TERMINAL " + repr(buf[-600:])
+
+
 def give_up(why):
     print("FAILED", why)
+    print(terminal())
     os.kill(pid, 9)
     sys.exit(0)
 
@@ -598,7 +608,7 @@ if not pump(lambda b: "waiting for approval requests" in b, 30):
     give_up("the watcher never started")
 
 first = raise_question("first")
-if not pump(lambda b: "approve? [yes/no]" in b, 60):
+if not pump(lambda b: PROMPT in b, 60):
     give_up("no prompt for the first question")
 
 # Nothing typed: the question's own clock is what has to end the wait.
@@ -610,11 +620,23 @@ except subprocess.TimeoutExpired:
     first.kill()
     give_up("the first command never returned")
 
+# The prompts printed so far, so what is waited for below is a new one rather
+# than a count already reached: a yes typed at a prompt that has not been
+# printed is discarded, the terminal dropping what predates the question.
+asked = buf.count(PROMPT)
+# And the host is left quiet first, which is the state every group here starts
+# from.  A yes that lands while a stray of the command just ended is still
+# alive is refused for want of quiescence, which is section 4's subject rather
+# than this one's.
+subprocess.run(["pkill", "-u", "faramir-exec"], check=False)
+time.sleep(1)
+
 # And the next one is shown without a keystroke having been sent.
 second = raise_question("second")
-shown = pump(lambda b: b.count("approve? [yes/no]") >= 2, 60)
-os.write(fd, b"yes\n")
-pump(lambda b: " started" in b, 60)
+shown = pump(lambda b: b.count(PROMPT) > asked, 60)
+if shown:
+    os.write(fd, b"yes\n")
+    pump(lambda b: " started" in b, 60)
 try:
     second.wait(timeout=60)
 except subprocess.TimeoutExpired:
@@ -624,6 +646,7 @@ os.kill(pid, 15)
 print("EXPIRED", "yes" if "expired" in buf else "no")
 print("SECOND_SHOWN", "yes" if shown else "no")
 print("SECOND_ANSWERED", "yes" if " started" in buf else "no")
+print(terminal())
 EOS
 
 quiesce
