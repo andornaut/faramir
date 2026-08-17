@@ -108,6 +108,7 @@ Field | Meaning
 `redactions` | Counts, not values. A count of 0 where one was expected is a real signal that something is misconfigured.
 `log_id` | Points into `/var/log/faramir/audit.log`, which the agent cannot read, so it can cite a record to the operator.
 `invalid_bytes` | How many bytes were not valid UTF-8 and came back as `U+FFFD`. What says the output was binary.
+`approval_code`, `approval` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `denied` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [ask_approval set](#approvals); the same pair is written to the `exec` record.
 `truncated` | Output hit `[exec] max_output_bytes`.
 
 A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:

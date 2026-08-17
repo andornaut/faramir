@@ -341,3 +341,34 @@ func TestAMalformedAwaitLogIDIsRefused(t *testing.T) {
 		t.Errorf("a non-string await_log_id got %q, want bad_request", code)
 	}
 }
+
+// A command whose sudo was refused says why on the way out. Both endings reach
+// the command itself as sudo's own authentication failure, so without this the
+// caller cannot tell a human's no from a question nobody answered, and the two
+// differ in whether running it again is worth anything.
+func TestAnExecReportsWhyItsSudoWasRefused(t *testing.T) {
+	s, _ := execServer(t)
+	allowSudo(t, s)
+	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
+
+	held, question, granted := raiseAndWait(t, s, "log-r")
+	if response := s.Handle(map[string]any{
+		"op": "approve", "id": question.ID, "approve": false}, root); response["error"] != nil {
+		t.Fatalf("root could not refuse the run: %v", response["error"])
+	}
+	if <-granted {
+		t.Fatal("a refused run was approved")
+	}
+
+	code, _ := s.Approval.Refusal(held)
+	if code != approval.CodeDenied {
+		t.Errorf("the run kept %q, want %q", code, approval.CodeDenied)
+	}
+
+	// And it is gone with the run, so a later command carries no answer of
+	// somebody else's.
+	s.Approval.Release(held, approval.Outcome{})
+	if code, _ := s.Approval.Refusal(held); code != "" {
+		t.Errorf("a released run still reports %q", code)
+	}
+}

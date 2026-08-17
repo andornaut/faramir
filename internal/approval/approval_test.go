@@ -967,3 +967,46 @@ func TestTheRecordCarriesTheCodeAndTheProse(t *testing.T) {
 		t.Errorf("outcome = %q, want the sentence kept beside the code", prose)
 	}
 }
+
+// The last no a run was given, kept for the broker to report when the command
+// ends.  Without it a refusal and an expiry reach the caller alike, as sudo's
+// own authentication failure, and one is worth running again and the other is
+// not.
+func TestARunKeepsTheNoItWasGiven(t *testing.T) {
+	cfg := baseConfig()
+	cfg.TimeoutSec = 1
+	s := started(t, cfg)
+	token := mustRegister(s, run())
+
+	if code, _ := s.Refusal(token); code != "" {
+		t.Errorf("a run nobody refused reports %q", code)
+	}
+	s.Ask(token)
+	code, reason := s.Refusal(token)
+	if code != CodeExpired {
+		t.Errorf("code = %q, want %q", code, CodeExpired)
+	}
+	if !strings.Contains(reason, "nobody answered") {
+		t.Errorf("reason = %q, want the sentence the question ended with", reason)
+	}
+
+	// Dropped with the run, so nothing outlives what it is about.
+	s.Release(token, Outcome{})
+	if code, _ := s.Refusal(token); code != "" {
+		t.Errorf("a released run still reports %q", code)
+	}
+}
+
+// An approved run has no refusal to report, so the field stays absent rather
+// than saying a command that ran was turned down.
+func TestAnApprovedRunKeepsNoRefusal(t *testing.T) {
+	s := started(t, baseConfig())
+	watching(t, s, true)
+	token := mustRegister(s, run())
+	if approved, _, reason := s.Ask(token); !approved {
+		t.Fatalf("the run was not approved: %s", reason)
+	}
+	if code, _ := s.Refusal(token); code != "" {
+		t.Errorf("an approved run reports a refusal: %q", code)
+	}
+}

@@ -69,6 +69,16 @@ type Run struct {
 	// the rest of its sudos free of a second question.  Not exported: a caller
 	// registering a run pre-approved would be an approval nobody answered.
 	approved bool
+
+	// refusedCode and refusedReason are the last no this run was given, kept so
+	// the broker can say why the command failed.  Without them a refusal and an
+	// expiry reach the caller alike, as sudo's own authentication failure, and
+	// which one it was decides whether running it again is worth anything.
+	//
+	// The last rather than the first: a run asks once per sudo, and what its
+	// caller is owed is why the one it just made was turned down.
+	refusedCode   string
+	refusedReason string
 }
 
 // resolvedProgram is what argv[0] resolved to when that is not what argv[0]
@@ -420,6 +430,9 @@ func (s *Server) Ask(token string) (approved bool, code, reason string) {
 	}
 
 	approved, prompted, code, reason := s.ask(token, run)
+	if !approved {
+		s.refuse(token, code, reason)
+	}
 	s.record(map[string]any{
 		"log_id": audit.NewLogID(), "op": "ask_approval", "approved": approved,
 		"prompted": prompted, "cmd": run.Argv, "cwd": run.Cwd,
@@ -429,6 +442,27 @@ func (s *Server) Ask(token string) (approved bool, code, reason string) {
 		log.Printf("approval: %q was not approved (%s): %s", run.Command(), code, reason)
 	}
 	return approved, code, reason
+}
+
+// refuse keeps the no this run was given, for the broker to report when the
+// command ends.  Dropped with the run, so nothing outlives what it is about.
+func (s *Server) refuse(token, code, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if run, known := s.runs[token]; known {
+		run.refusedCode, run.refusedReason = code, reason
+		s.runs[token] = run
+	}
+}
+
+// Refusal is the last no a run was given, or empty where it was given none.
+// Read by the broker when the command ends, so a caller is told why its sudo
+// failed rather than being left with sudo's own account of it.
+func (s *Server) Refusal(token string) (code, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	run := s.runs[token]
+	return run.refusedCode, run.refusedReason
 }
 
 // ask reports whether this request may sudo, and whether it was the one that

@@ -712,6 +712,28 @@ const (
 	recordExecStarted = "exec_started"
 )
 
+// execResponse is what the caller is told about a command that ran.
+//
+// The approval pair is present only where a sudo inside it was refused, so the
+// field says what it means rather than being empty on every command that never
+// asked.  It is there at all because sudo reports a refusal and an expiry alike,
+// as its own authentication failure, and which one it was decides whether
+// running the command again is worth anything.
+func execResponse(logID, refusedCode, refusedReason string,
+	result *executor.Result) protocol.Response {
+	response := protocol.Response{
+		"exit_code": result.ExitCode, "output": result.Output,
+		"truncated": result.Truncated, "redactions": result.Redactions,
+		"log_id": logID, "timed_out": result.TimedOut,
+		"duration_sec":  result.DurationSec,
+		"invalid_bytes": result.InvalidBytes,
+	}
+	if refusedCode != "" {
+		response["approval_code"], response["approval"] = refusedCode, refusedReason
+	}
+	return response
+}
+
 // execAudit is what every record about one brokered command carries: which
 // command, run where, against which refs, and when it started.  Gathered once
 // and rendered per record, so the pair sharing a log_id cannot come to say two
@@ -933,10 +955,19 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	outcome.ExitCode = &result.ExitCode
 	outcome.DurationSec, outcome.TimedOut = result.DurationSec, result.TimedOut
 
+	// Why a sudo inside it was turned down, where one was.  Without this a
+	// refusal and an expiry reach the caller alike, as sudo's own authentication
+	// failure, and running the command again is worth something in one case and
+	// nothing in the other.  Read before the deferred Release drops the run.
+	refusedCode, refusedReason := s.Approval.Refusal(token)
+
 	record := s.execFields(audited)
 	record["op"] = recordExec
 	record["exit_code"], record["duration_sec"] = result.ExitCode, result.DurationSec
 	record["timed_out"], record["redactions"] = result.TimedOut, result.Redactions
+	if refusedCode != "" {
+		record["approval_code"], record["approval"] = refusedCode, refusedReason
+	}
 	s.Audit.Write(record, collector.Output())
 
 	total := 0
@@ -946,13 +977,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	log.Printf("%s %s exit=%d dur=%.1fs redactions=%d",
 		logID, filepath.Base(argv0Path), result.ExitCode, result.DurationSec, total)
 
-	return protocol.Response{
-		"exit_code": result.ExitCode, "output": result.Output,
-		"truncated": result.Truncated, "redactions": result.Redactions,
-		"log_id": logID, "timed_out": result.TimedOut,
-		"duration_sec":  result.DurationSec,
-		"invalid_bytes": result.InvalidBytes,
-	}
+	return execResponse(logID, refusedCode, refusedReason, result)
 }
 
 // redactor builds a fresh matcher over the whole value set.  Fresh because a

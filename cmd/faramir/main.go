@@ -681,6 +681,11 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		TimedOut     bool   `json:"timed_out"`
 		LogID        string `json:"log_id"`
 		InvalidBytes int    `json:"invalid_bytes"`
+		// Why a sudo inside the command was turned down, where one was. Present
+		// only then, and the reason a refusal can be told from an expiry here: both
+		// reach the command as sudo's own authentication failure.
+		Approval     string `json:"approval"`
+		ApprovalCode string `json:"approval_code"`
 		Redactions   []struct {
 			Token string `json:"token"`
 			Count int    `json:"count"`
@@ -748,6 +753,14 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		}
 		if response.TimedOut {
 			notes = append(notes, "timed out")
+		}
+		// Ahead of the log_id, and said in full rather than by code: this is the
+		// one note that decides whether running the command again is worth
+		// anything, and a caller reading it has sudo's account of the same event,
+		// which names neither.
+		if response.ApprovalCode != "" {
+			notes = append(notes,
+				fmt.Sprintf("approval %s: %s", response.ApprovalCode, response.Approval))
 		}
 		if response.LogID != "" {
 			notes = append(notes, "log_id="+response.LogID)
