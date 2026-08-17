@@ -729,6 +729,17 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 
 	fmt.Print(response.Output)
 
+	// Outside --quiet, which suppresses the redaction summary and this is not
+	// that: it is why the command failed, and `faramir run --quiet` is how an
+	// agent runs one, so suppressing it would leave the caller it was written for
+	// with sudo's authentication failure and nothing else.  Said in full rather
+	// than by code, the caller having sudo's account of the same event, which
+	// names neither.
+	if response.ApprovalCode != "" {
+		fmt.Fprintf(os.Stderr, "faramir %s: approval %s: %s\n",
+			prog, response.ApprovalCode, response.Approval)
+	}
+
 	if !quiet {
 		var notes []string
 		if len(response.Redactions) > 0 {
@@ -753,14 +764,6 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		}
 		if response.TimedOut {
 			notes = append(notes, "timed out")
-		}
-		// Ahead of the log_id, and said in full rather than by code: this is the
-		// one note that decides whether running the command again is worth
-		// anything, and a caller reading it has sudo's account of the same event,
-		// which names neither.
-		if response.ApprovalCode != "" {
-			notes = append(notes,
-				fmt.Sprintf("approval %s: %s", response.ApprovalCode, response.Approval))
 		}
 		if response.LogID != "" {
 			notes = append(notes, "log_id="+response.LogID)

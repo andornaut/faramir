@@ -842,6 +842,12 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		}
 		if run, ok := s.runs[pending.token]; ok {
 			run.approved = true
+			// And the no it was given before this one is not the answer any more.
+			// A run asks once per sudo, so a first that expired while nobody was
+			// watching and a second the operator then approved are the same run: left
+			// standing, the expiry would be reported for a command that went on to
+			// become root and exit cleanly.
+			run.refusedCode, run.refusedReason = "", ""
 			s.runs[pending.token] = run
 		}
 	}

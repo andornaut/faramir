@@ -212,7 +212,7 @@ faramir redact -- ./deploy.sh
 --- | ---
 `--env NAME=secret://ref` | Once per secret
 `--env-file FILE` | `NAME=secret://ref` per line, `#` comments
-`--quiet` | Suppress the redaction summary on stderr
+`--quiet` | Suppress the redaction summary on stderr. Not why a `sudo` was refused: that is printed either way, being what says whether running the command again is worth anything
 `--cwd`/`-C`, `--timeout`/`-t` | Working directory, runtime ceiling
 `--socket`, `--json` | On every broker-facing command
 

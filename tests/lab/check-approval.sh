@@ -35,14 +35,6 @@ sudoRun() { # outfile, then argv
   setsid runuser -u op -- /usr/local/bin/faramir run --quiet -t 45 -- "$@" >"$out" 2>&1 </dev/null &
   RUN=$!
 }
-# sudoRunLoud is sudoRun without --quiet, so faramir's own note on the way out is
-# in the capture. That note is where a refused sudo says which no it got: the
-# command itself sees only sudo's authentication failure, whichever it was.
-sudoRunLoud() { # outfile, then argv
-  local out=$1; shift
-  setsid runuser -u op -- /usr/local/bin/faramir run -t 45 -- "$@" >"$out" 2>&1 </dev/null &
-  RUN=$!
-}
 # ask sends one request to the broker as an account, and prints the answer.
 ask() { runuser -u "$1" -- /usr/bin/python3 -c "
 import socket,sys
@@ -105,7 +97,7 @@ quiesce
 # Which no it was, at the tool boundary. sudo reports the same authentication
 # failure for a refusal and for a question nobody answered, and the two differ in
 # whether running the command again is worth anything.
-sudoRunLoud /tmp/dnwhy.out /usr/bin/sudo /usr/bin/id
+sudoRun /tmp/dnwhy.out /usr/bin/sudo /usr/bin/id
 ID=$(waitq)
 /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
@@ -265,8 +257,8 @@ grep -q 'uid=0\|^root$' /tmp/to.out && bad "*** an unanswered command became roo
 [ "$(q)" = "" ] && ok "and the question is not left outstanding" || bad "the question outlived its timeout"
 # And the caller is told which of the two it was, the command having seen the
 # same authentication failure either way.
-runuser -u op -- /usr/local/bin/faramir run -t 40 -- /usr/bin/sudo /usr/bin/id -un >/tmp/towhy.out 2>&1
-grep -q 'approval expired' /tmp/towhy.out && ok "and the caller is told nobody answered" \
+runuser -u op -- /usr/local/bin/faramir run --quiet -t 40 -- /usr/bin/sudo /usr/bin/id -un >/tmp/towhy.out 2>&1
+grep -q 'approval expired' /tmp/towhy.out && ok "and told under --quiet, which is how an agent runs one" \
   || bad "an expiry is not told from a refusal: $(tr '\n' ' ' </tmp/towhy.out | cut -c1-150)"
 grep -q 'approval denied' /tmp/towhy.out && bad "an expiry was reported as a refusal" \
   || ok "and not as one somebody typed"

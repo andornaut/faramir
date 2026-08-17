@@ -1010,3 +1010,27 @@ func TestAnApprovedRunKeepsNoRefusal(t *testing.T) {
 		t.Errorf("an approved run reports a refusal: %q", code)
 	}
 }
+
+// A run asks once per sudo, so a no it was given is not the last word: the first
+// can expire while nobody is watching and the operator can approve the second.
+// The refusal has to go with the yes, or a command that became root and exited
+// cleanly is reported as one whose approval expired.
+func TestAYesClearsTheNoBeforeIt(t *testing.T) {
+	cfg := baseConfig()
+	cfg.TimeoutSec = 1
+	s := started(t, cfg)
+	token := mustRegister(s, run())
+
+	s.Ask(token)
+	if code, _ := s.Refusal(token); code != CodeExpired {
+		t.Fatalf("the first sudo reports %q, want %q", code, CodeExpired)
+	}
+
+	watching(t, s, true)
+	if approved, _, reason := s.Ask(token); !approved {
+		t.Fatalf("the second sudo was not approved: %s", reason)
+	}
+	if code, reason := s.Refusal(token); code != "" {
+		t.Errorf("an approved run still reports %q: %s", code, reason)
+	}
+}

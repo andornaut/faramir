@@ -166,7 +166,7 @@ sudo faramir approvals --watch
    faramir run: approval expired: nobody answered within 120s; log_id=w9z1ec21000003
    ```
 
-   Which one it was decides whether running the command again is worth anything.
+   Which one it was decides whether running the command again is worth anything, so `--quiet` does not suppress it.
 6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to. `outcome_code` says which ending it was in one word and `outcome` says it in a sentence, so a log can be read for "nobody was watching" (`expired`) apart from "somebody said no" (`denied`) without matching English. `faramir logs` renders the two as `timed out` and `refused`. The full set is in [protocol.md](protocol.md#approvals).
 7. A yes is not the last you hear of it. `--watch` prints how the run ended when it does:
 
