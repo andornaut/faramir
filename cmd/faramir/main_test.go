@@ -417,6 +417,12 @@ func TestAParseErrorSpellsAFlagTheWayItIsTyped(t *testing.T) {
 		{"shorthand", "-Z", "unknown shorthand flag: 'Z' in -Z"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
+			// One buffer, and it cannot be two.  Cobra writes usage to
+			// OutOrStderr(), which is stderr only while SetOut is unset, so a test
+			// that captures stdout by setting it pulls the usage block into its own
+			// capture and can no longer tell a correct routing from a wrong one.
+			// That stdout stays clean is asserted where it can be: check-disclose.sh,
+			// against the real binary and real file descriptors.
 			var out bytes.Buffer
 			root := newRootCmd()
 			root.SetOut(&out)

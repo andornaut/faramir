@@ -120,8 +120,8 @@ jobs:
           sudo chown -R "$(id -u):$(id -g)" "$CG"
           echo $$ | sudo tee "$CG/cgroup.procs" > /dev/null
           # Prove it took. Without a delegated cgroup the executor refuses every
-          # command and roughly sixty tests skip, which is a green run that
-          # checked none of the confinement, the executor or the end-to-end path.
+          # command and a couple of dozen tests skip, which is a green run that
+          # checked none of the confinement or the executor.
           test -w "$CG/cgroup.procs" && grep -q faramir-test /proc/self/cgroup \
             || { echo "cgroup delegation failed; the executor tests would all skip"; exit 1; }
           go test -v -race -coverprofile=coverage.txt -covermode=atomic ./...

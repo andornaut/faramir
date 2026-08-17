@@ -17,8 +17,8 @@ export CGO_ENABLED := 0
 # DELEGATE runs a test in a cgroup of its own.  Every brokered command is
 # confined to a cgroup and reaped there, with no process-group fallback, so an
 # executor that cannot make one refuses every command: on a bare shell that
-# skips roughly sixty tests and still prints ok, which is a green run that
-# checked none of the confinement, the executor or the end-to-end path.  A user
+# skips a couple of dozen tests and still prints ok, which is a green run that
+# checked none of the confinement or the executor.  A user
 # scope inherits the delegation systemd gives user@.service, so this asks for no
 # privilege and no container.  CI hands its runner a cgroup the same way.
 #

@@ -176,7 +176,25 @@ runuser -u op -- head -c1 /var/log/faramir/audit.log >/dev/null 2>&1 \
   && bad "nor the file directly" || ok "nor the file directly"
 
 # --------------------------------------------------------------------------
-head_ "7. an error from below reaches the agent as text"
+head_ "7. a wrong invocation stays off stdout"
+#
+# Only the real binary can answer this: cobra sends usage to stderr while
+# nothing has set its out writer, so an in-process test that captures stdout by
+# setting one pulls the usage block into its own capture and cannot tell a
+# correct routing from a wrong one.  What rests on it is every caller that pipes
+# stdout into a parser: `--json`, and `faramir logs`.
+
+out=$(runuser -u op -- /usr/local/bin/faramir run --not-a-flag 2>/dev/null)
+code=$?
+[ $code -eq 2 ] && ok "a bad flag is a usage error, exit 2" || bad "a bad flag: exit $code"
+[ -z "$out" ] && ok "and wrote nothing to stdout, so a parser reading it stays clean" \
+  || bad "a usage error reached stdout: ${out:0:120}"
+err=$(runuser -u op -- /usr/local/bin/faramir run --not-a-flag 2>&1 >/dev/null)
+grep -q 'not-a-flag' <<<"$err" && ok "and named the flag on stderr" \
+  || bad "stderr does not name the flag: ${err:0:120}"
+
+# --------------------------------------------------------------------------
+head_ "8. an error from below reaches the agent as text"
 #
 # A managed file that will not load puts sops's own words into an error the
 # broker reports.  That text is written by a program reading ciphertext, so it
