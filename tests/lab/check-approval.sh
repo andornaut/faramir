@@ -490,10 +490,13 @@ EOS
 
 field() { sed -n "s/^$2 //p" <<<"$1" | head -1; }
 
-# A question nobody answers, and the one raised after it.  The watcher used to
-# sit inside the read until somebody typed, so the first question's clock ran out
-# unnoticed and the second was not shown until a keystroke arrived: a watcher
-# that has stopped watching while still saying it is watching.
+# --------------------------------------------------------------------------
+head_ "14. a question nobody answers, and the one raised after it"
+#
+# The prompt has a clock of its own, and it is the question's.  Without it the
+# watcher sat inside the read until somebody typed, so the first question's
+# clock ran out unnoticed and the second was not shown until a keystroke
+# arrived: a watcher that has stopped watching while still saying it is.
 cat >/tmp/watch-expire.py <<'EOS'
 import os, pty, select, subprocess, sys, time
 
