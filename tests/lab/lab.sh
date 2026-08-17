@@ -17,9 +17,10 @@
 # failures that are not regressions.  `run` warns when the box is already dirty;
 # `up` is the clean baseline.
 #
-# Naming suites is the same hazard from the other side: they also set up what
-# the later ones examine, so a subset run on a fresh box fails on state its
-# predecessors would have established.  `run` warns about that too.
+# Naming suites is the same hazard from the other side: each leaves what the
+# later ones examine, so a set that is not a prefix of SUITES is measured against
+# a box its predecessors never set up.  `run` warns about that too, and the way
+# back from either is `up` and then a whole run.
 #
 # sops, age and age-keygen must be present beside this script: the image has no
 # network, so they are copied into the build context rather than fetched inside
@@ -254,17 +255,24 @@ cmd_run() {
     printf 'lab: failures below may be leftovers, not regressions. Run ./lab.sh up for a clean baseline.\n' >&2
   fi
   local names=("$@")
-  # And the other way round: a suite named on its own runs against a box the
-  # ones before it in SUITES never touched.  They share one install and set up
-  # what the later ones examine -- check-project and check-guard write the agent
-  # settings check-doctor reads -- so a subset fails on state that a whole run
-  # would have established.
-  if [ $# -gt 0 ]; then
-    printf 'lab: running %d of %d suites; the ones before them in SUITES have not run.\n' \
-      "$#" "${#SUITES[@]}" >&2
-    printf 'lab: failures below may be missing setup, not regressions. Run ./lab.sh run for the whole order.\n' >&2
-  fi
   [ ${#names[@]} -eq 0 ] && names=("${SUITES[@]}")
+  # And the other way round: a suite whose predecessors have not run is measured
+  # against a box they never set up.  They share one install and each leaves what
+  # the later ones examine -- check-project runs `init --agent claude`, which
+  # writes the account-wide settings check-doctor then reports missing.
+  #
+  # A prefix of SUITES has every predecessor by construction, so `run init` and a
+  # whole run say nothing; anything else is missing one.
+  local prefix=1 i=0
+  for n in "${names[@]}"; do
+    [ "$n" = "${SUITES[$i]:-}" ] || { prefix=0; break; }
+    i=$((i + 1))
+  done
+  if [ $prefix -eq 0 ]; then
+    printf 'lab: %d of %d suites, and not the first %d: the ones before them have not run.\n' \
+      "${#names[@]}" "${#SUITES[@]}" "${#names[@]}" >&2
+    printf 'lab: failures below may be missing setup, not regressions. Run ./lab.sh up && ./lab.sh run for the whole order.\n' >&2
+  fi
   local failed=0
   # Beside every suite, because each one sources it.  Copied here rather than
   # baked into the image for the same reason the suites are: editing it takes
