@@ -784,13 +784,13 @@ func loadLinks(value any, where string) ([]Link, error) {
 }
 
 func validateLink(link Link, at string) error {
-	// The same pattern a secret:// URI is parsed against.  A ref outside it would
+	// The same pattern a faramir:// URI is parsed against.  A ref outside it would
 	// load and then be unreachable, no caller being able to spell it.
 	if link.Ref == "" {
 		return fmt.Errorf("%s: ref is required; it is the name a caller asks by", at)
 	}
 	if !secretref.Valid(link.Ref) {
-		return fmt.Errorf("%s: ref %q is not a name a secret:// reference can carry; "+
+		return fmt.Errorf("%s: ref %q is not a name a faramir:// reference can carry; "+
 			"letters, digits, and then any of . _ - /", at, link.Ref)
 	}
 	if link.Path == "" {

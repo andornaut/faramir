@@ -176,7 +176,7 @@ func TestTheEnvironmentTheBrokerAssembles(t *testing.T) {
 	s, rec := execServer(t)
 	r := exec(t, s, map[string]any{
 		"cmd":      []any{"true"},
-		"env_refs": map[string]any{"ROUTER_PW": "secret://a/b"},
+		"env_refs": map[string]any{"ROUTER_PW": "faramir://a/b"},
 	})
 	if r["error"] != nil {
 		t.Fatalf("error: %v", r["error"])
@@ -204,7 +204,7 @@ func TestTheAssembledEnvironmentIsWipedAfterTheRun(t *testing.T) {
 	s, rec := execServer(t)
 	exec(t, s, map[string]any{
 		"cmd":      []any{"true"},
-		"env_refs": map[string]any{"ROUTER_PW": "secret://a/b"},
+		"env_refs": map[string]any{"ROUTER_PW": "faramir://a/b"},
 	})
 	rec.mu.Lock()
 	defer rec.mu.Unlock()
@@ -220,8 +220,8 @@ func TestTheAssembledEnvironmentIsWipedAfterTheRun(t *testing.T) {
 
 func TestUnknownAndRefusedRefsAreDistinguished(t *testing.T) {
 	for _, tc := range []struct{ name, uri, want string }{
-		{"unknown", "secret://nope", "unknown secret ref"},
-		{"refused at load", "secret://tiny", "refused at load"},
+		{"unknown", "faramir://nope", "unknown secret ref"},
+		{"refused at load", "faramir://tiny", "refused at load"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, _ := execServer(t)
@@ -243,7 +243,7 @@ func TestUnknownAndRefusedRefsAreDistinguished(t *testing.T) {
 func TestABadRefStopsTheCommandRunning(t *testing.T) {
 	s, rec := execServer(t)
 	exec(t, s, map[string]any{
-		"cmd": []any{"true"}, "env_refs": map[string]any{"X": "secret://nope"},
+		"cmd": []any{"true"}, "env_refs": map[string]any{"X": "faramir://nope"},
 	})
 	rec.none(t)
 }
@@ -372,7 +372,7 @@ func TestTheAuditRecordNamesEverythingButTheValues(t *testing.T) {
 	rec.output = "connecting with " + goodValue + "\n"
 	r := exec(t, s, map[string]any{
 		"cmd":      []any{"true", "--password=" + goodValue},
-		"env_refs": map[string]any{"ROUTER_PW": "secret://a/b"},
+		"env_refs": map[string]any{"ROUTER_PW": "faramir://a/b"},
 	})
 	if r["error"] != nil {
 		t.Fatalf("error: %v", r["error"])
@@ -443,7 +443,7 @@ func TestTheResponseReportsRedactionCountsAndTheLogID(t *testing.T) {
 	rec.output = goodValue + " and again " + goodValue + "\n"
 	r := exec(t, s, map[string]any{
 		"cmd":      []any{"true"},
-		"env_refs": map[string]any{"ROUTER_PW": "secret://a/b"},
+		"env_refs": map[string]any{"ROUTER_PW": "faramir://a/b"},
 	})
 	if r["error"] != nil {
 		t.Fatalf("error: %v", r["error"])

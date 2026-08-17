@@ -35,7 +35,7 @@ The three root-only ops are checked with `SO_PEERCRED`: the account the coding a
   "op": "exec",
   "cmd": ["printenv", "ROUTER_PW"],
   "cwd": "/home/you/src/project",
-  "env_refs": { "ROUTER_PW": "secret://home/router/admin" },
+  "env_refs": { "ROUTER_PW": "faramir://home/router/admin" },
   "timeout_sec": 600
 }
 ```
@@ -44,7 +44,7 @@ Field | Required | Notes
 --- | --- | ---
 `cmd` | yes | Non-empty array of strings. A string is rejected with guidance; the broker never runs `sh -c` for you.
 `cwd` | yes | Absolute, and must be an existing directory. A relative `cmd[0]` resolves against it. The CLI and the MCP server fill in their own working directory, so this is a refusal only on the socket.
-`env_refs` | no | `NAME` to `secret://ref`. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$` and must not be reserved. Values cannot be passed.
+`env_refs` | no | `NAME` to `faramir://ref`. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$` and must not be reserved. Values cannot be passed.
 `timeout_sec` | no | Positive integer, clamped down to `[command] max_timeout_sec`. Omitted means `[command] timeout_sec`.
 
 Reserved `env_refs` names, refused so injection cannot redirect the loader, the interpreter, sops or the agent relay. Anything outside this set is accepted:
@@ -121,7 +121,7 @@ A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `ex
 
 Code | Meaning
 --- | ---
-`bad_request` | Malformed request, bad or reserved env var name, a malformed `secret://` reference, or a `cwd` that does not exist or is not a directory
+`bad_request` | Malformed request, bad or reserved env var name, a malformed `faramir://` reference, or a `cwd` that does not exist or is not a directory
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
 `busy` | At `[command] concurrency`; retry

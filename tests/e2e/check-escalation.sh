@@ -221,7 +221,7 @@ quiesce
 head_ "6. the question itself carries no value"
 
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 \
-  --env PW=secret://db/password -- /usr/bin/sudo /usr/bin/id -un >/tmp/val.out 2>&1 </dev/null &
+  --env PW=faramir://db/password -- /usr/bin/sudo /usr/bin/id -un >/tmp/val.out 2>&1 </dev/null &
 RUN=$!
 ID=$(waitq)
 body=$(/usr/local/bin/faramir escalations --json 2>/dev/null)

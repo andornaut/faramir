@@ -147,14 +147,14 @@ func TestEveryToolProducesARequestTheBrokerAccepts(t *testing.T) {
 			tool: "faramir_run",
 			args: map[string]any{
 				"cmd":         []any{"ansible-playbook", "site.yml"},
-				"env_refs":    map[string]any{"PW": "secret://a/b"},
+				"env_refs":    map[string]any{"PW": "faramir://a/b"},
 				"cwd":         "/home/agent/work",
 				"timeout_sec": float64(30),
 			},
 			want: protocol.Request{
 				Op: "exec", Cmd: []string{"ansible-playbook", "site.yml"},
 				Cwd: "/home/agent/work", HasCwd: true,
-				EnvRefs: map[string]string{"PW": "secret://a/b"}, TimeoutSec: 30,
+				EnvRefs: map[string]string{"PW": "faramir://a/b"}, TimeoutSec: 30,
 			},
 		},
 		{

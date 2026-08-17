@@ -600,7 +600,7 @@ func (s *Server) opListSecrets() protocol.Response {
 	refs := s.Store.Refs()
 	var output strings.Builder
 	for _, ref := range refs {
-		output.WriteString("secret://" + ref + "\n")
+		output.WriteString("faramir://" + ref + "\n")
 	}
 	return protocol.Response{
 		"exit_code": 0, "output": output.String(),

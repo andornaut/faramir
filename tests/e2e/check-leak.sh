@@ -99,7 +99,7 @@ sys.stdout.write('.'*32740 + '\n' + os.environ['SECRET'] + '.'*200 + '\n')" | re
 grep -qF "$TOKEN" <<<"$out" && ok "the same offset with a newline before it is redacted" \
   || bad "even a newline-delimited value leaked at the chunk offset"
 # The PTY path is one redactor over the whole stream, so it has no such seam.
-out=$(runuser -u op -- faramir run --quiet -t 30 --env PW=secret://db/password -- \
+out=$(runuser -u op -- faramir run --quiet -t 30 --env PW=faramir://db/password -- \
   /usr/bin/python3 -c "
 import os,sys
 sys.stdout.write('.'*32740 + os.environ['PW'] + '.'*200 + '\n')" 2>&1)
@@ -165,7 +165,7 @@ check=$(faramir broker --check 2>&1)
 grep -q '"short/pin"' <<<"$check" && ok "and --check reports it under not_redactable" \
   || bad "--check does not carry it"
 # Asking for it by name has to be an error that explains itself, not a blank.
-out=$(runuser -u op -- faramir run --env P=secret://short/pin -- /bin/sh -c 'echo $P' 2>&1)
+out=$(runuser -u op -- faramir run --env P=faramir://short/pin -- /bin/sh -c 'echo $P' 2>&1)
 grep -qF "$PIN" <<<"$out" && bad "the refused value was injected anyway: $out" \
   || ok "and injecting it is refused rather than silently blank"
 grep -qi 'refused\|not redactable\|cannot' <<<"$out" && ok "with a reason the caller can act on" \
@@ -197,7 +197,7 @@ out=$(printf '%s\n' "$SECRET" | redact | redact)
 head_ "8. the same value through the other path"
 # `faramir run` injects and redacts on its own PTY; the wrapper redacts a
 # captured file.  A value must not be covered on one path and not the other.
-out=$(runuser -u op -- faramir run --quiet -t 20 --env PW=secret://db/password \
+out=$(runuser -u op -- faramir run --quiet -t 20 --env PW=faramir://db/password \
         -- /bin/sh -c 'echo $PW; echo $PW | base64; echo $PW | xxd -p' 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "the injected value came back in the clear: $out" \
   || ok "injected, then redacted on the way back"

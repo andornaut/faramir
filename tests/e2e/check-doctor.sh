@@ -474,7 +474,7 @@ grep -q 'db/password' <<<"$refs" && ok "the same secrets load again after the ro
   || bad "the store does not load after uninstall+init: [$refs]"
 
 out=$(runuser -u "$OP" -- /usr/local/bin/faramir run --quiet -C /home/op/project \
-  --env PW=secret://db/password -- /bin/sh -c 'echo $PW' 2>&1)
+  --env PW=faramir://db/password -- /bin/sh -c 'echo $PW' 2>&1)
 grep -q '«SECRET:db/password»' <<<"$out" && ok "and a brokered command still gets the value, redacted" \
   || bad "a brokered command after the round trip: [$out]"
 

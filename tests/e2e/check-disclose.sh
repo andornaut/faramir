@@ -43,10 +43,10 @@ echo "probing as op; $(asop list-secrets | wc -l) ref(s) served"
 head_ "1. what the agent is told"
 
 refs=$(asop list-secrets)
-grep -q '^secret://' <<<"$refs" && ok "list-secrets answers with refs" || bad "no refs: ${refs:0:80}"
+grep -q '^faramir://' <<<"$refs" && ok "list-secrets answers with refs" || bad "no refs: ${refs:0:80}"
 carries "list-secrets" "$refs"
-[ "$(grep -cv '^secret://' <<<"$refs")" -eq 0 ] \
-  && ok "and with nothing else on any line" || bad "a line is not a ref: $(grep -v '^secret://' <<<"$refs" | head -1)"
+[ "$(grep -cv '^faramir://' <<<"$refs")" -eq 0 ] \
+  && ok "and with nothing else on any line" || bad "a line is not a ref: $(grep -v '^faramir://' <<<"$refs" | head -1)"
 
 st=$(asop status)
 jq -e . <<<"$st" >/dev/null 2>&1 && ok "status answers with JSON" || bad "status is not JSON: ${st:0:80}"
@@ -93,7 +93,7 @@ head_ "3. asking for a refused ref"
 # fix; it also confirms the ref exists and is not redactable.
 
 for ref in $refused; do
-  out=$(asop run --quiet -t 15 -C $PROJECT --env P="secret://$ref" -- /bin/sh -c 'echo $P')
+  out=$(asop run --quiet -t 15 -C $PROJECT --env P="faramir://$ref" -- /bin/sh -c 'echo $P')
   grep -q 'unknown_secret' <<<"$out" && ok "a refused ref is not injectable ($ref)" \
     || bad "a refused ref was injected: ${out:0:90}"
   carries "the refusal for $ref" "$out"
@@ -105,7 +105,7 @@ for ref in $refused; do
   fi
 done
 # A ref nobody has: the two answers are worth comparing, one being an oracle.
-nothing=$(asop run --quiet -t 15 -C $PROJECT --env P=secret://no/such/ref -- /bin/true)
+nothing=$(asop run --quiet -t 15 -C $PROJECT --env P=faramir://no/such/ref -- /bin/true)
 grep -q 'unknown_secret' <<<"$nothing" && ok "and a ref that does not exist is also unknown_secret" \
   || bad "an absent ref answered differently: ${nothing:0:90}"
 
@@ -117,7 +117,7 @@ probe() { # label, then argv for faramir run
   local out; out=$(asop run --quiet -t 15 "$@")
   carries "the $label refusal" "$out"
 }
-probe "unknown ref"     -C $PROJECT --env X=secret://no/such -- /bin/true
+probe "unknown ref"     -C $PROJECT --env X=faramir://no/such -- /bin/true
 probe "no such program" -C $PROJECT -- /bin/nosuchprogram
 probe "cwd is a file"   -C /etc/hostname -- /bin/true
 probe "timeout"         -C $PROJECT -t 1 -- /bin/sleep 5
@@ -133,7 +133,7 @@ rm -rf "$d"
 head_ "5. the same answers through MCP"
 
 out=$(mcp faramir_list_secrets '{}')
-grep -q 'secret://' <<<"$out" && ok "faramir_list_secrets answers with refs" || bad "no refs: ${out:0:110}"
+grep -q 'faramir://' <<<"$out" && ok "faramir_list_secrets answers with refs" || bad "no refs: ${out:0:110}"
 carries "faramir_list_secrets" "$out"
 for ref in $refused; do
   grep -q "$ref" <<<"$out" && bad "faramir_list_secrets names the refused ref $ref" \
@@ -158,7 +158,7 @@ grep -q 'faramir_status' <<<"$tools" && bad "faramir_status is still listed" \
 # An MCP error is agent-visible text like any other.
 out=$(mcp faramir_run '{"cmd":["/bin/nosuchprogram"],"cwd":"'$PROJECT'"}')
 carries "an MCP run error" "$out"
-out=$(mcp faramir_run '{"cmd":["/bin/sh","-c","echo $P"],"cwd":"'$PROJECT'","env_refs":{"P":"secret://db/password"}}')
+out=$(mcp faramir_run '{"cmd":["/bin/sh","-c","echo $P"],"cwd":"'$PROJECT'","env_refs":{"P":"faramir://db/password"}}')
 carries "an MCP run that printed a value" "$out"
 grep -q '«SECRET:db/password»' <<<"$out" && ok "which came back as its token" \
   || bad "no token in the MCP result: ${out:0:130}"
@@ -166,7 +166,7 @@ grep -q '«SECRET:db/password»' <<<"$out" && ok "which came back as its token" 
 # --------------------------------------------------------------------------
 head_ "6. the id the agent is given is one it cannot read"
 
-out=$(asop run --quiet -t 15 -C $PROJECT --env X=secret://no/such -- /bin/true)
+out=$(asop run --quiet -t 15 -C $PROJECT --env X=faramir://no/such -- /bin/true)
 id=$(sed -n 's/.*log_id=\([^ ]*\).*/\1/p' <<<"$out" | head -1)
 [ -n "$id" ] && ok "a refusal cites a log_id ($id)" || bad "no log_id cited"
 out=$(asop logs "$id")

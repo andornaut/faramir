@@ -289,7 +289,7 @@ mode=$(stat -c '%a %U:%G' "$D")
 head_ "9. the values still do not leak from an enrolled tree"
 
 out=$(runuser -u $OP -- /usr/local/bin/faramir run --quiet -t 20 -C /home/op/p-multi \
-  --env PW=secret://db/password -- /bin/sh -c 'echo $PW' 2>&1)
+  --env PW=faramir://db/password -- /bin/sh -c 'echo $PW' 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "the value came back in plaintext from an enrolled tree" \
   || ok "a value injected in a freshly enrolled tree comes back redacted"
 grep -q '«SECRET:db/password»' <<<"$out" && ok "as its token" || bad "no token: ${out:0:110}"

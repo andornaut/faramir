@@ -127,7 +127,7 @@ const run = tools.find((t) => t.name === "faramir_run")
 const r = await run.execute("id", {
   cmd: ["sh", "-c", "echo $PW"],
   cwd: process.env.PROJECT,
-  env_refs: { PW: "secret://db/password" },
+  env_refs: { PW: "faramir://db/password" },
 })
 console.log(JSON.stringify({ names: tools.map((t) => t.name), text: r.content[0].text, isError: r.isError }))
 TOOLEOF

@@ -39,8 +39,8 @@ Key *names* stay readable, so diffs are per-key and the agent sees the file's sh
 ```yaml
 home:
   router:
-    admin: …        # secret://home/router/admin
-api_token: …        # secret://api_token
+    admin: …        # faramir://home/router/admin
+api_token: …        # faramir://api_token
 ```
 
 ## 2. Resolution: read the environment
@@ -57,15 +57,15 @@ The caller names the refs per run, or passes `--env-file` when there are many:
 
 ```bash
 faramir run \
-    --env ROUTER_PW=secret://home/router/admin \
-    --env API_TOKEN=secret://api_token -- \
+    --env ROUTER_PW=faramir://home/router/admin \
+    --env API_TOKEN=faramir://api_token -- \
     ansible-playbook site.yml --limit routers
 ```
 
 Verify once, which proves the var resolved *and* that printing it produces a token:
 
 ```bash
-faramir run --env ROUTER_PW=secret://home/router/admin -- \
+faramir run --env ROUTER_PW=faramir://home/router/admin -- \
     ansible localhost -m debug -a 'var=router_password'
 # -> «SECRET:home/router/admin»
 ```

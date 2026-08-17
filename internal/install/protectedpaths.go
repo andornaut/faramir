@@ -77,7 +77,7 @@ var protectedPaths = []protectedPath{
 	{kindSuffix, ".pem", "a private key or certificate"},
 	{kindName, "credentials", "a credentials file"},
 	// A dotfile rather than any name ending in those four characters:
-	// faramir.env holds secret:// refs and is meant to be read.
+	// faramir.env holds faramir:// refs and is meant to be read.
 	{kindPrefix, ".env", "a dotenv file"},
 
 	// This install's own, wherever --config-dir put it.

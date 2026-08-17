@@ -1,6 +1,6 @@
 // Package cli names the subcommands once, for the dispatcher in cmd/faramir and
 // the guard's sanction rule.  Operator subcommands have their arguments left
-// unscanned, `faramir run --env A=secret://a` being the sanctioned way to name a
+// unscanned, `faramir run --env A=faramir://a` being the sanctioned way to name a
 // secret; internal ones are the roles systemd and the agent run, and are denied
 // like any other privileged command.
 package cli

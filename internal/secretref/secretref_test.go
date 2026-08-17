@@ -11,15 +11,15 @@ func TestParse(t *testing.T) {
 		want string // "" means the ref must be refused
 		why  string
 	}{
-		{"secret://home/router/admin", "home/router/admin", "the ordinary form"},
-		{"secret://a/../b", "a/../b", "a mid-ref .. is a key that will not resolve, not a path"},
+		{"faramir://home/router/admin", "home/router/admin", "the ordinary form"},
+		{"faramir://a/../b", "a/../b", "a mid-ref .. is a key that will not resolve, not a path"},
 		{"hunter2", "", "a literal value where a ref belongs must be refused, not injected"},
 		{"", "", "nothing at all"},
 		{"http://example.com/x", "", "another scheme is not this one"},
-		{"secret://../../etc/passwd", "", "a leading .. is refused by the first-character rule"},
-		{"secret:///etc/passwd", "", "an empty first segment, likewise"},
-		{"secret://.hidden", "", "a leading dot"},
-		{"secret://-flag", "", "a leading dash"},
+		{"faramir://../../etc/passwd", "", "a leading .. is refused by the first-character rule"},
+		{"faramir:///etc/passwd", "", "an empty first segment, likewise"},
+		{"faramir://.hidden", "", "a leading dot"},
+		{"faramir://-flag", "", "a leading dash"},
 	} {
 		t.Run(tc.uri, func(t *testing.T) {
 			ref, err := Parse(tc.uri)

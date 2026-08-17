@@ -46,7 +46,7 @@ type = "text"`, "ref is required"},
 		"unspellable ref": {`
 ref = "/leading-slash"
 path = "/x"
-type = "text"`, "not a name a secret:// reference can carry"},
+type = "text"`, "not a name a faramir:// reference can carry"},
 		"no path": {`
 ref = "a/b"
 type = "text"`, "path is required"},

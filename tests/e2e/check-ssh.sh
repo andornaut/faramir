@@ -152,7 +152,7 @@ fi
 # --------------------------------------------------------------------------
 head_ "6. a value injected here, printed there, comes back redacted"
 
-out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 25 --env DB=secret://db/password -- \
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 25 --env DB=faramir://db/password -- \
   /bin/sh -c "ssh -o BatchMode=yes -o ConnectTimeout=8 deploy@$HOST \"echo REMOTE=\$DB\"" 2>&1)
 if grep -qF "$SECRET" <<<"$out"; then
   bad "the value came back from the managed host in plaintext: ${out:0:110}"
@@ -162,7 +162,7 @@ else
   bad "inconclusive: ${out:0:150}"
 fi
 # It really did cross the wire, so what was redacted is the return path.
-out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 25 --env DB=secret://db/password -- \
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 25 --env DB=faramir://db/password -- \
   /bin/sh -c "ssh -o BatchMode=yes -o ConnectTimeout=8 deploy@$HOST \"printf %s \\\"\$DB\\\" | wc -c\"" 2>&1)
 [ "$(tail -1 <<<"$out" | tr -d ' \r')" = "${#SECRET}" ] \
   && ok "and the managed host received all ${#SECRET} bytes of it, so the wire carried the value" \

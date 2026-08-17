@@ -51,7 +51,7 @@ func TestEveryRefusalWithALogIDIsRecorded(t *testing.T) {
 			"op": "exec", "cmd": []any{"/bin/true"}, "cwd": "/etc/hostname"}},
 		{"a ref nothing holds", "unknown_secret", map[string]any{
 			"op": "exec", "cmd": []any{"/bin/true"}, "cwd": "/tmp",
-			"env_refs": map[string]any{"X": "secret://no/such/ref"}}},
+			"env_refs": map[string]any{"X": "faramir://no/such/ref"}}},
 	} {
 		t.Run(probe.name, func(t *testing.T) {
 			s := newServer(t, map[string]string{"db/password": value})

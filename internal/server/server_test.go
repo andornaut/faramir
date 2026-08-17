@@ -180,7 +180,7 @@ func TestListSecretsOmitsARefusedRef(t *testing.T) {
 		"good": "hunter2-correct-horse", "tiny": "abc",
 	})
 	body := output(t, s.opListSecrets())
-	if !strings.Contains(body, "secret://good") {
+	if !strings.Contains(body, "faramir://good") {
 		t.Errorf("a loaded ref is missing: %q", body)
 	}
 	if strings.Contains(body, "tiny") {
@@ -200,7 +200,7 @@ func TestListSecretsEndsEveryLine(t *testing.T) {
 		t.Errorf("the last line is unterminated: %q", body)
 	}
 	for line := range strings.SplitSeq(strings.TrimSuffix(body, "\n"), "\n") {
-		if !strings.HasPrefix(line, "secret://") {
+		if !strings.HasPrefix(line, "faramir://") {
 			t.Errorf("unexpected line: %q", line)
 		}
 	}

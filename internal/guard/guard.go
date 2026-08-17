@@ -131,7 +131,7 @@ const advice = "Blocked: this command would put a credential (or an encrypted bl
 	"that holds no keys of its own, and returns output with secrets replaced by " +
 	"«SECRET:ref» tokens. Secrets are named, never pasted:\n\n" +
 	"    faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n" +
-	"                env_refs={\"ROUTER_PW\": \"secret://home/router/admin\"})\n\n" +
+	"                env_refs={\"ROUTER_PW\": \"faramir://home/router/admin\"})\n\n" +
 	"Call faramir_list_secrets to see the available names. You do not need the " +
 	"value of a secret to use it, and you will not be given one."
 

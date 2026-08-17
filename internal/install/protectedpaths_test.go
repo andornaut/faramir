@@ -31,7 +31,7 @@ var samples = []struct {
 	{"/srv/tls/chain.pem", "/srv/tls/chain.txt"},
 	{"/home/op/.aws/credentials", "/home/op/.aws/config"},
 	// The one distinction the list makes on purpose: a dotenv is refused and
-	// faramir.env, which holds secret:// refs, is meant to be read.
+	// faramir.env, which holds faramir:// refs, is meant to be read.
 	{"/srv/app/.env", "/srv/app/faramir.env"},
 	{"/srv/app/.env.production", "/srv/app/env.example"},
 	{"/home/op/.config/faramir/config.toml", "/home/op/.config/other/config.toml"},

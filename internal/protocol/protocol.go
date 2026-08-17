@@ -194,7 +194,7 @@ func parseEnvRefs(payload map[string]any, req *Request) error {
 	}
 	m, isMap := raw.(map[string]any)
 	if !isMap {
-		return errors.New("'env_refs' must be an object of NAME -> secret:// URI")
+		return errors.New("'env_refs' must be an object of NAME -> faramir:// URI")
 	}
 	for name, uri := range m {
 		if !envNameRe.MatchString(name) {
@@ -205,7 +205,7 @@ func parseEnvRefs(payload map[string]any, req *Request) error {
 		}
 		s, isStr := uri.(string)
 		if !isStr {
-			return fmt.Errorf("env_refs[%s] must be a secret:// URI string", name)
+			return fmt.Errorf("env_refs[%s] must be a faramir:// URI string", name)
 		}
 		// Shape, not existence: a well-formed ref naming nothing is
 		// unknown_secret.

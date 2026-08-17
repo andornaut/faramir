@@ -127,7 +127,7 @@ for i in $(seq $(( interval + 10 )) ); do
 done
 [ -n "$took" ] && ok "the ref added in the editor is served after ${took}s, no restart (interval ${interval}s)" \
   || bad "the new ref is not being served within $(( interval + 10 ))s: $refs"
-out=$(brokered --env V=secret://new/ref -- /bin/sh -c 'echo GOT=$V')
+out=$(brokered --env V=faramir://new/ref -- /bin/sh -c 'echo GOT=$V')
 echo "$out" | grep -q 'GOT=«SECRET:new/ref»' && ok "it injects and comes back as its token" \
   || bad "injection of the new ref: $out"
 # The value the editor replaced must no longer be redacted, and the new one must
@@ -166,7 +166,7 @@ if grep -q "$SECOND" "$MANAGED"; then ok "the second recipient is now in the fil
   bad "the new recipient is not in the file"; fi
 reload_daemons || bad "the daemons did not come back"
 refs=$(runuser -u op -- faramir list-secrets 2>&1 | tr '\n' ' ')
-echo "$refs" | grep -q "secret://new/ref" && ok "the keeper still decrypts everything after the rekey" \
+echo "$refs" | grep -q "faramir://new/ref" && ok "the keeper still decrypts everything after the rekey" \
   || bad "the keeper cannot read the re-encrypted file: $refs"
 
 head_ "6. THE REFUSAL: a rule that drops the keeper's own key"
@@ -187,7 +187,7 @@ fi
   || bad "the refused rekey still modified the file"
 # The proof that the refusal saved something: the keeper still reads it.
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir list-secrets 2>&1 | grep -q "secret://new/ref" \
+runuser -u op -- faramir list-secrets 2>&1 | grep -q "faramir://new/ref" \
   && ok "the secrets still decrypt after the refusal" || bad "the refusal left the secrets unreadable"
 
 head_ "7. an edit preserves who can read the file, whatever .sops.yaml now says"
@@ -217,7 +217,7 @@ now=$(grep -c 'recipient:' "$MANAGED")
 grep -q "$KEEPER" "$MANAGED" && ok "the keeper is still a recipient after editing under a hostile rule" \
   || bad "UNRECOVERABLE: the edit sealed the file away from the keeper"
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir list-secrets 2>&1 | grep -q "secret://new/ref" \
+runuser -u op -- faramir list-secrets 2>&1 | grep -q "faramir://new/ref" \
   && ok "and the broker still decrypts it" || bad "the file is no longer readable"
 
 # --------------------------------------------------------------------------
@@ -326,7 +326,7 @@ grep -q "$SECOND" "$MANAGED" \
   && bad "the store is readable by a key the rule does not actually grant" \
   || ok "the key named only in the ignored shorthand is not a reader"
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir list-secrets 2>&1 | grep -q "secret://new/ref" \
+runuser -u op -- faramir list-secrets 2>&1 | grep -q "faramir://new/ref" \
   && ok "and the keeper still decrypts the store" || bad "the store is no longer readable"
 
 head_ "11. THE REFUSAL: two creation rules, whatever order the keys are in"

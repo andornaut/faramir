@@ -6,7 +6,7 @@
 A secrets broker for local AI coding agents: it runs the commands that need credentials and keeps the values out of the agent's context. Those commands run as a uid that holds nothing.
 
 ```console
-$ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
+$ faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
 «SECRET:home/router/admin»
 faramir run: redacted «SECRET:home/router/admin»×1; log_id=w5vq7dbf00002c
 ```
@@ -157,14 +157,14 @@ Reports whether the install is doing its job, and as root what each account can 
 
 1. Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them. the store is that directory, so a file put there is picked up on the next refresh (10 seconds by default).
 2. Have the project read each credential from an environment variable rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
-3. Write the refs beside the project, one `NAME=secret://ref` per line.
+3. Write the refs beside the project, one `NAME=faramir://ref` per line.
 4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
 Enrol the projects where managed credentials are in play, not every tree. `--hook=false` shares one without the hook. A brokered command runs where its caller was, so nothing needs a tree of its own. The store is `<config-dir>/secrets/` and is not configurable, so a managed file is managed by being there.
 
 ```bash
 faramir list-secrets
-faramir run --env TOKEN=secret://svc/token -- printenv TOKEN   # -> «SECRET:svc/token»
+faramir run --env TOKEN=faramir://svc/token -- printenv TOKEN   # -> «SECRET:svc/token»
 ```
 
 #### With Ansible
@@ -172,7 +172,7 @@ faramir run --env TOKEN=secret://svc/token -- printenv TOKEN   # -> «SECRET:svc
 ```text
 /etc/faramir/secrets/ansible-ctrl.sops.yml   the values, outside every checkout
 group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME')
-faramir.env                                  NAME=secret://ref, one per line
+faramir.env                                  NAME=faramir://ref, one per line
 ```
 
 `sudo faramir init-project` writes the agent configuration and shares the tree. The other three are yours to place, and none needs configuring: a file is managed by being in the secrets directory. Full walk-through in [docs/ansible-sops.md](docs/ansible-sops.md).
@@ -202,7 +202,7 @@ Redaction only, no secret | Skip steps 3 and 4. `faramir redact -- ./script.sh`,
 ```bash
 faramir status                          # config path, sources, ref count
 faramir list-secrets                    # ref names, never values
-faramir run --env NAME=secret://ref -- CMD
+faramir run --env NAME=faramir://ref -- CMD
 faramir run --env-file deploy.env -- ansible-playbook site.yml
 faramir run --quiet -C ~/src/project -t 120 -- CMD
 kubectl get secret -o yaml | faramir redact
@@ -211,8 +211,8 @@ faramir redact -- ./deploy.sh
 
 `faramir run` | Effect
 --- | ---
-`--env NAME=secret://ref` | Once per secret
-`--env-file FILE` | `NAME=secret://ref` per line, `#` comments
+`--env NAME=faramir://ref` | Once per secret
+`--env-file FILE` | `NAME=faramir://ref` per line, `#` comments
 `--quiet` | Suppress the redaction summary on stderr. Not why a `sudo` was refused: that is printed either way, being what says whether running the command again is worth anything
 `--cwd`/`-C`, `--timeout`/`-t` | Working directory, runtime ceiling
 `--socket`, `--json` | On every broker-facing command

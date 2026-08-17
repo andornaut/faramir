@@ -86,7 +86,7 @@ run the tests|go test ./...
 env as a prefix, not a dump|env FOO=bar ./run.sh
 restart a faramir unit|systemctl restart faramir-keeper.socket
 the sanctioned CLI under sudo|sudo faramir doctor
-a brokered command|faramir run --env P=secret://db/password -- ./deploy.sh
+a brokered command|faramir run --env P=faramir://db/password -- ./deploy.sh
 answering an escalation unprivileged|faramir approve abc123
 edit claude's settings|sed -i s/a/b/ .claude/settings.json
 replace the MCP list|rm .mcp.json
@@ -109,7 +109,7 @@ do
     || bad "the exemption swallowed the chain -> $got: $cmd"
 done
 # And the exemption itself works: a ref on the command line is not a value.
-got=$(verdict 'faramir run --env PW=secret://db/password -- env')
+got=$(verdict 'faramir run --env PW=faramir://db/password -- env')
 [ "$got" = rewrite ] && ok "a brokered command ending in 'env' is not read as an env dump" \
   || bad "the sanctioned exemption does not cover its arguments -> $got"
 

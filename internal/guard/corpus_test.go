@@ -103,10 +103,10 @@ var corpus = []denyCase{
 	{"systemctl show faramir-exec", false, "the same, in machine-readable form"},
 
 	// -- the faramir prefix --------------------------------------------------
-	{"faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW", false, "a ref in faramir's arguments is the point of it"},
+	{"faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW", false, "a ref in faramir's arguments is the point of it"},
 	{"sudo faramir status", false, "under sudo as well"},
 	{"faramir list-secrets", false, "an operator subcommand"},
-	{"faramir status; faramir run --env A=secret://a -- printenv A", false, "a chain of sanctioned calls, each stripped in turn"},
+	{"faramir status; faramir run --env A=faramir://a -- printenv A", false, "a chain of sanctioned calls, each stripped in turn"},
 	{"faramir status; printenv", true, "past the separator is a command of its own"},
 	{"faramir status && printenv", true, "whatever the separator is"},
 	{"faramir status | printenv", true, "including a pipe"},

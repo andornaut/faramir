@@ -74,7 +74,7 @@ What catches a lost grant is `faramir doctor`, which asks the broker's own accou
 
 **One ref per entry, with an explicit selector.** There is no whole-file flatten. A config file is mostly not secret, and a value in the set is a value the redactor searches output for: `https://registry.npmjs.org/` clears `min_length` and would tokenize unrelated output. `min_length` is a bound on what can be searched for safely, not a filter for what is secret.
 
-**A ref does not say where it is kept.** One flat namespace, and a cross-source collision refused at load naming both sides. Tagging the source into the name (`secret://sops/...`) would make moving a secret between the store and a link a rename, breaking every `faramir.env` and playbook naming it, which is the drift linking exists to avoid.
+**A ref does not say where it is kept.** One flat namespace, and a cross-source collision refused at load naming both sides. Tagging the source into the name (`faramir://sops/...`) would make moving a secret between the store and a link a rename, breaking every `faramir.env` and playbook naming it, which is the drift linking exists to avoid.
 
 **A link that is there and will not read refuses `exec` and `redact`**, the same gate a managed file that did not decrypt gets, because it is the same state: a value on disk that the redactor does not have. The cost is that a tool replacing its own file drops the grant and stops brokered work on the host until `init` restores it. Nothing survives that rewrite, ACL or group alike, which is why `doctor` asks rather than trusting what was granted. A link whose *path* is gone is not that state, the credential having left the machine, and is reported rather than fatal.
 

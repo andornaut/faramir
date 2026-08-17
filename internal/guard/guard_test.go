@@ -69,7 +69,7 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 	}
 	// `approve` is the only subcommand carved out of the sudo sanction: every
 	// other one still has its own arguments left unscanned under sudo.
-	if pattern, denied := decide("sudo faramir sops edit secret://a/b"); denied {
+	if pattern, denied := decide("sudo faramir sops edit faramir://a/b"); denied {
 		t.Errorf("the sudo sanction lost more than approve (pattern %q)", pattern)
 	}
 }
@@ -79,7 +79,7 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 func TestEveryOperatorSubcommandIsSanctioned(t *testing.T) {
 	for _, name := range cli.Operator {
 		// A ref in the arguments is the thing an unsanctioned call trips on.
-		cmd := "faramir " + name + " --env A=secret://a"
+		cmd := "faramir " + name + " --env A=faramir://a"
 		if pattern, denied := decide(cmd); denied {
 			t.Errorf("wrongly denied a sanctioned subcommand: %q (pattern %q)", cmd, pattern)
 		}

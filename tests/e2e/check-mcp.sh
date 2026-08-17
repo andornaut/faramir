@@ -107,7 +107,7 @@ names = sorted(t["name"] for t in tools)
 run = next((t for t in tools if t["name"] == "faramir_run"), {})
 desc = run.get("description", "")
 for phrase, why in [("faramir_list_secrets", "points at how to discover names"),
-                    ("secret://", "shows the ref syntax"),
+                    ("faramir://", "shows the ref syntax"),
                     ("environment variables", "says injection is by env, not argv"),
                     ("bash", "says no shell is spawned for you")]:
     (ok("the faramir_run description %s" % why) if phrase in desc
@@ -173,7 +173,7 @@ out, is_err = s.text("faramir_run", {"cmd": ["/bin/sh", "-c", "exit 3"]})
 
 head("5. the thing the whole tool exists for")
 out, _ = s.text("faramir_run", {"cmd": ["printenv", "PW"],
-                                "env_refs": {"PW": "secret://db/password"}})
+                                "env_refs": {"PW": "faramir://db/password"}})
 (bad("THE VALUE CAME BACK TO THE MODEL: %r" % out[:120]) if SECRET in out
  else ok("the injected value does not come back"))
 (ok("it comes back as its ref token") if TOKEN in out else bad("no token: %r" % out[:120]))
@@ -182,7 +182,7 @@ out, _ = s.text("faramir_run", {"cmd": ["printenv", "PW"],
 # Every rendering an ordinary command might print it in.
 out, _ = s.text("faramir_run", {
     "cmd": ["/bin/sh", "-c", "printenv PW; printenv PW | base64; printenv PW | xxd -p"],
-    "env_refs": {"PW": "secret://db/password"}})
+    "env_refs": {"PW": "faramir://db/password"}})
 # The body only: the meta line names the token too, and counting that as a
 # fourth replacement would be counting the summary as one of the things it
 # summarises.  Each encoded line keeps a tail ("K", "0a") -- printenv adds a
@@ -210,10 +210,10 @@ else:
     ok("a value nobody injected is redacted too")
 
 # Refs are injected as environment only, never substituted into argv.
-out, _ = s.text("faramir_run", {"cmd": ["/bin/echo", "secret://db/password"]})
+out, _ = s.text("faramir_run", {"cmd": ["/bin/echo", "faramir://db/password"]})
 if SECRET in out:
     bad("a ref on the command line was resolved into a value")
-elif "secret://db/password" not in out:
+elif "faramir://db/password" not in out:
     bad("the ref did not come back as text either: %r" % out[:120])
 else:
     ok("a ref in argv is echoed as text, never substituted")
@@ -223,7 +223,7 @@ else:
 # not caught: the variant set covers encodings a program produces by accident,
 # not a deliberate mangling.  Pinned so a change here is noticed.
 out, _ = s.text("faramir_run", {"cmd": ["/bin/sh", "-c", "printenv PW | rev"],
-                                "env_refs": {"PW": "secret://db/password"}})
+                                "env_refs": {"PW": "faramir://db/password"}})
 if SECRET[::-1] in out:
     ok("a deliberately reversed value is NOT caught, as the tool description says")
 else:
@@ -234,18 +234,18 @@ else:
 
 head("6. refs the model may not have")
 out, is_err = s.text("faramir_run", {"cmd": ["/bin/echo", "x"],
-                                     "env_refs": {"X": "secret://no/such/thing"}})
+                                     "env_refs": {"X": "faramir://no/such/thing"}})
 (ok("an unknown ref is refused") if is_err else bad("an unknown ref was accepted"))
 (bad("the refusal leaked a value") if SECRET in out else ok("and names no value"))
 # The short one, refused at load as not redactable.
 out, is_err = s.text("faramir_run", {"cmd": ["/bin/echo", "x"],
-                                     "env_refs": {"X": "secret://short/pin"}})
+                                     "env_refs": {"X": "faramir://short/pin"}})
 (ok("a ref refused at load is refused here too") if is_err
  else bad("the not-redactable value was injectable through MCP"))
 (bad("the pin came back") if "8341" in out else ok("and its value is not in the answer"))
 # list_secrets names refs and no values.
 out, _ = s.text("faramir_list_secrets")
-(ok("list_secrets returns the ref names") if "secret://db/password" in out
+(ok("list_secrets returns the ref names") if "faramir://db/password" in out
  else bad("list_secrets = %r" % out[:120]))
 (bad("list_secrets returned a value") if SECRET in out else ok("and no values"))
 (ok("and does not offer the refused ref") if "short/pin" not in out
@@ -349,7 +349,7 @@ else:
  if "forbidden" in out or "unavailable" in out or "permission" in out.lower()
  else bad("refused for an unclear reason: %r" % out[:120]))
 out, _ = s.text("faramir_list_secrets")
-(bad("an outsider was given the ref names") if "secret://db/password" in out
+(bad("an outsider was given the ref names") if "faramir://db/password" in out
  else ok("and cannot even list the ref names"))
 s.close()
 

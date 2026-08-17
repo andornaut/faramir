@@ -113,7 +113,7 @@ grep -qE "^(SOPS_AGE_KEY|SOPS_AGE_KEY_FILE)=|AGE-SECRET-KEY-" <<<"$env_out" \
   || ok "and no age key, in either spelling sops reads"
 
 # An injected ref is there, and comes back as its token.
-out=$(run --env PW=secret://db/password -- /usr/bin/printenv PW)
+out=$(run --env PW=faramir://db/password -- /usr/bin/printenv PW)
 [ "$out" = "$TOKEN" ] && ok "an injected ref is in the child's environment, redacted on the way out" \
   || bad "injected value = [$out]"
 # The same by file, which is how a playbook names a fleet's credentials once
@@ -122,7 +122,7 @@ out=$(run --env PW=secret://db/password -- /usr/bin/printenv PW)
 # child's environment.
 runuser -u op -- tee /tmp/refs.env >/dev/null <<'ENV'
 # the fleet's credentials
-PW=secret://db/password
+PW=faramir://db/password
 ENV
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
   --env-file /tmp/refs.env -- /usr/bin/printenv PW 2>&1)

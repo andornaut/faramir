@@ -29,16 +29,16 @@ func writeEnvFile(t *testing.T, content string) string {
 func TestAnEnvFileYieldsItsRefs(t *testing.T) {
 	refs, err := readEnvFile(writeEnvFile(t, `
 # the fleet's credentials
-vault_router_password=secret://vault_router_password
+vault_router_password=faramir://vault_router_password
 
-  vault_api_token = secret://home/api/token
+  vault_api_token = faramir://home/api/token
 `))
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := map[string]string{
-		"vault_router_password": "secret://vault_router_password",
-		"vault_api_token":       "secret://home/api/token",
+		"vault_router_password": "faramir://vault_router_password",
+		"vault_api_token":       "faramir://home/api/token",
 	}
 	if len(refs) != len(want) {
 		t.Fatalf("got %d refs, want %d: %v", len(refs), len(want), refs)
@@ -64,19 +64,19 @@ func TestRefusedEnvFileLines(t *testing.T) {
 		wants   []string // substrings the message must carry; "«path»" is the file
 		why     string
 	}{
-		{name: "a line that is not NAME=value", content: "good=secret://a/b\nthis is not a pair\n",
+		{name: "a line that is not NAME=value", content: "good=faramir://a/b\nthis is not a pair\n",
 			wants: []string{"«path»", ":2"}, why: "the message has to locate the problem"},
 		{name: "a literal value", content: "PW=hunter2\n",
-			wants: []string{"secret://"}, why: "the message has to say what was expected"},
+			wants: []string{"faramir://"}, why: "the message has to say what was expected"},
 		{name: "a pasted credential", content: "PW=" + pasted + "\n"},
 		// Cut on "=" would name the variable "export NAME", and the broker's
 		// refusal would then be about a name the operator never wrote.
-		{name: "an export prefix", content: "export vault_router_password=secret://vault_router_password\n",
+		{name: "an export prefix", content: "export vault_router_password=faramir://vault_router_password\n",
 			wants: []string{"«path»"}},
-		{name: "no name at all", content: "=secret://a/b\n"},
+		{name: "no name at all", content: "=faramir://a/b\n"},
 		// A duplicate is a copy-paste slip, and picking one of the two is how
 		// the wrong credential reaches a host.
-		{name: "a duplicate name", content: "PW=secret://a/b\nPW=secret://c/d\n",
+		{name: "a duplicate name", content: "PW=faramir://a/b\nPW=faramir://c/d\n",
 			wants: []string{"PW"}, why: "the message has to name the duplicate"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -100,7 +100,7 @@ func TestRefusedEnvFileLines(t *testing.T) {
 
 // A merge artefact, not an ambiguity: one value it could mean.
 func TestAnIdenticalRepeatIsAllowed(t *testing.T) {
-	if _, err := readEnvFile(writeEnvFile(t, "PW=secret://a/b\nPW=secret://a/b\n")); err != nil {
+	if _, err := readEnvFile(writeEnvFile(t, "PW=faramir://a/b\nPW=faramir://a/b\n")); err != nil {
 		t.Errorf("an identical repeat was rejected: %v", err)
 	}
 }
@@ -141,7 +141,7 @@ func TestNoRejectionEverQuotesTheValue(t *testing.T) {
 }
 
 func TestAWellFormedRefIsAccepted(t *testing.T) {
-	if err := checkRef("VAULT_PW", "secret://home/router/admin"); err != nil {
+	if err := checkRef("VAULT_PW", "faramir://home/router/admin"); err != nil {
 		t.Errorf("a valid pair was rejected: %v", err)
 	}
 }
@@ -548,15 +548,15 @@ func (r blockingReader) Read([]byte) (int, error) {
 // of defaults useful: the file is the fleet's, the flag is this command's. The
 // file's other entries survive it.
 func TestAnEnvFlagOverridesTheFileThatNamesIt(t *testing.T) {
-	file := writeEnvFile(t, "ROUTER_PW=secret://nope\nAPI=secret://home/api/token\n")
-	refs, err := execRefs([]string{file}, []string{"ROUTER_PW=secret://home/router/admin"})
+	file := writeEnvFile(t, "ROUTER_PW=faramir://nope\nAPI=faramir://home/api/token\n")
+	refs, err := execRefs([]string{file}, []string{"ROUTER_PW=faramir://home/router/admin"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refs["ROUTER_PW"] != "secret://home/router/admin" {
+	if refs["ROUTER_PW"] != "faramir://home/router/admin" {
 		t.Errorf("ROUTER_PW = %q, want the flag's ref", refs["ROUTER_PW"])
 	}
-	if refs["API"] != "secret://home/api/token" {
+	if refs["API"] != "faramir://home/api/token" {
 		t.Errorf("API = %q, want the file's other entry kept", refs["API"])
 	}
 }
@@ -564,13 +564,13 @@ func TestAnEnvFlagOverridesTheFileThatNamesIt(t *testing.T) {
 // And the order among files is the order they were given, so the last --env-file
 // wins where two name the same variable.
 func TestTheLastEnvFileWins(t *testing.T) {
-	first := writeEnvFile(t, "PW=secret://first\n")
-	second := writeEnvFile(t, "PW=secret://second\n")
+	first := writeEnvFile(t, "PW=faramir://first\n")
+	second := writeEnvFile(t, "PW=faramir://second\n")
 	refs, err := execRefs([]string{first, second}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if refs["PW"] != "secret://second" {
+	if refs["PW"] != "faramir://second" {
 		t.Errorf("PW = %q, want the later file's ref", refs["PW"])
 	}
 }

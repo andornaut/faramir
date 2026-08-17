@@ -52,10 +52,10 @@ func TestRefusedRequests(t *testing.T) {
 		// JSON either way.
 		{"a boolean timeout", `{"cmd":["ls"],"timeout_sec":true}`, nil},
 		{"the removed sync op", `{"op":"sync"}`, []string{"unknown op"}},
-		{"an env name starting with a digit", `{"cmd":["ls"],"env_refs":{"1BAD":"secret://a/b"}}`, nil},
-		{"an env name with a dash", `{"cmd":["ls"],"env_refs":{"has-dash":"secret://a/b"}}`, nil},
-		{"an env name with a space", `{"cmd":["ls"],"env_refs":{"has space":"secret://a/b"}}`, nil},
-		{"an empty env name", `{"cmd":["ls"],"env_refs":{"":"secret://a/b"}}`, nil},
+		{"an env name starting with a digit", `{"cmd":["ls"],"env_refs":{"1BAD":"faramir://a/b"}}`, nil},
+		{"an env name with a dash", `{"cmd":["ls"],"env_refs":{"has-dash":"faramir://a/b"}}`, nil},
+		{"an env name with a space", `{"cmd":["ls"],"env_refs":{"has space":"faramir://a/b"}}`, nil},
+		{"an empty env name", `{"cmd":["ls"],"env_refs":{"":"faramir://a/b"}}`, nil},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := parse(t, tc.body)
@@ -74,7 +74,7 @@ func TestRefusedRequests(t *testing.T) {
 // From the package itself, so a name added there is covered that day.
 func TestReservedEnvNamesAreRefused(t *testing.T) {
 	for name := range ReservedEnv {
-		body := `{"cmd":["ls"],"env_refs":{"` + name + `":"secret://a/b"}}`
+		body := `{"cmd":["ls"],"env_refs":{"` + name + `":"faramir://a/b"}}`
 		_, err := parse(t, body)
 		if err == nil {
 			t.Errorf("%s was not reserved", name)

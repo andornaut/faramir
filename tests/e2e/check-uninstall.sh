@@ -177,7 +177,7 @@ done
 [ "$refs" -ge "$refs_before" ] && ok "the same $refs ref(s) load again" \
   || bad "only $refs of $refs_before refs came back"
 out=$(runuser -u op -- faramir run --quiet -t 20 -C $PROJECT \
-  --env PW=secret://db/password -- /bin/sh -c 'echo $PW' 2>&1)
+  --env PW=faramir://db/password -- /bin/sh -c 'echo $PW' 2>&1)
 grep -q '«SECRET:db/password»' <<<"$out" && ok "and a brokered command still gets a value, redacted" \
   || bad "a brokered command after the round trip: ${out:0:110}"
 # The grant does not come back on its own: it is --allow-sudo's, per install.

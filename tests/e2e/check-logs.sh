@@ -104,13 +104,13 @@ cited() { # description, then the argv of a run that must be refused
   fi
 }
 
-cited "unknown ref"      --env X=secret://no/such -- /bin/true
+cited "unknown ref"      --env X=faramir://no/such -- /bin/true
 cited "no such program"  -- /bin/nosuchprogram
 cited "cwd is a file"    -C /etc/hostname -- /bin/true
 cited "cwd is absent"    -C /nonexistent-dir-xyz -- /bin/true
 
 # A record found by id must be the record asked for, not merely a record.
-out=$(run --env X=secret://no/such -- /bin/true)
+out=$(run --env X=faramir://no/such -- /bin/true)
 id=$(sed -n 's/.*log_id=\([^ ]*\).*/\1/p' <<<"$out" | head -1)
 detail=$(logs "$id")
 grep -q "$id" <<<"$detail" && ok "the detail view names the id asked for" \
@@ -126,7 +126,7 @@ head_ "3. the columns say how each record ended"
 run -- /bin/true >/dev/null;                     idOK=$(lastID)
 run -- /bin/sh -c 'exit 7' >/dev/null;           idFail=$(lastID)
 run -t 1 -- /bin/sleep 5 >/dev/null;             idSlow=$(lastID)
-run --env PW=secret://db/password -- \
+run --env PW=faramir://db/password -- \
     /bin/sh -c 'echo a $PW; echo b $PW' >/dev/null; idRedact=$(lastID)
 printf 'hello world\n' | runuser -u op -- /usr/local/bin/faramir redact >/dev/null 2>&1
 idRedactOp=$(lastID)
@@ -388,7 +388,7 @@ zcat "$LOG.1.gz" | grep -qF "$SECRET" && bad "the rotated log carries a value" \
 # --------------------------------------------------------------------------
 head_ "8. no value reaches the log, whatever the command does with it"
 
-run --env PW=secret://db/password -- /bin/sh -c '
+run --env PW=faramir://db/password -- /bin/sh -c '
   echo plain $PW
   echo b64 $(printf %s "$PW" | base64)
   echo hex $(printf %s "$PW" | xxd -p)
@@ -444,7 +444,7 @@ head_ "10. many at once, one line each"
 n=24
 for i in $(seq "$n"); do
   runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -C "$PROJECT" \
-    --env PW=secret://db/password -- /bin/sh -c "echo c$i \$PW" >/dev/null 2>&1 &
+    --env PW=faramir://db/password -- /bin/sh -c "echo c$i \$PW" >/dev/null 2>&1 &
 done
 wait
 sleep 1

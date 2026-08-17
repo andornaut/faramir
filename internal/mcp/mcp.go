@@ -84,11 +84,11 @@ var tools = []Tool{
 			"you can confirm a credential reached the right place without ever seeing " +
 			"it. Do not attempt to work around this: transformed output (base64, rev, " +
 			"cut) is a policy violation, not a puzzle.\n\n" +
-			"Secrets are referenced by name using secret:// URIs and are injected as " +
+			"Secrets are referenced by name using faramir:// URIs and are injected as " +
 			"environment variables only; they are never substituted into the command " +
 			"line. Call faramir_list_secrets to discover available names.\n\n" +
 			"Example: cmd=[\"printenv\",\"ROUTER_PW\"], " +
-			"env_refs={\"ROUTER_PW\":\"secret://home/router/admin\"}.\n" +
+			"env_refs={\"ROUTER_PW\":\"faramir://home/router/admin\"}.\n" +
 			"For a pipeline, pass cmd=[\"bash\",\"-lc\",\"…\"] explicitly; no shell is " +
 			"spawned for you. A bare command name is looked up on the broker's " +
 			"configured PATH; pass an absolute path for anything else.",
@@ -104,7 +104,7 @@ var tools = []Tool{
 				"env_refs": map[string]any{
 					"type":                 "object",
 					"additionalProperties": map[string]any{"type": "string"},
-					"description":          "Map of ENV_VAR name -> secret:// URI to inject.",
+					"description":          "Map of ENV_VAR name -> faramir:// URI to inject.",
 				},
 				"cwd": map[string]any{
 					"type": "string",
@@ -122,7 +122,7 @@ var tools = []Tool{
 	},
 	{
 		Name: "faramir_list_secrets",
-		Description: "List the secret:// references the broker can inject. Returns names only, " +
+		Description: "List the faramir:// references the broker can inject. Returns names only, " +
 			"never values. Use this to find the right ref for faramir_run's env_refs.",
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 	},
@@ -292,7 +292,7 @@ func handle(m *message) map[string]any {
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
 			"serverInfo":      map[string]any{"name": serverName, "version": version.Version},
 			"instructions": "Any command that needs a credential must go through faramir_run. " +
-				"Secrets are referenced by name (secret://…); their values are never " +
+				"Secrets are referenced by name (faramir://…); their values are never " +
 				"visible to you and never need to be.",
 		}
 	case m.Method == "tools/list":

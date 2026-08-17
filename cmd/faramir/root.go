@@ -84,7 +84,7 @@ func newRootCmd() *cobra.Command {
 			"credentials and keeps the values out of the agent's context.\n\n" +
 			"Every command that talks to the broker accepts --socket PATH (default\n" +
 			"$FARAMIR_SOCKET, else " + defaultSocket + ") and --json.\n\n" +
-			"Name secrets with --env NAME=secret://ref, or --env-file for a file of them.\n\n" +
+			"Name secrets with --env NAME=faramir://ref, or --env-file for a file of them.\n\n" +
 			"Secrets are injected as environment variables only; they are never substituted\n" +
 			"into the command line.",
 		Version: version.Version,

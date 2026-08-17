@@ -187,8 +187,8 @@ func newRunCmd() *cobra.Command {
 	c.Flags().BoolVar(&quiet, "quiet", false, "suppress the redaction summary")
 	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the caller's)")
 	c.Flags().IntVarP(&timeout, "timeout", "t", 0, "timeout in seconds")
-	c.Flags().StringArrayVar(&envRefs, "env", nil, "NAME=secret://ref (repeatable)")
-	c.Flags().StringArrayVar(&envFiles, "env-file", nil, "file of NAME=secret://ref lines (repeatable)")
+	c.Flags().StringArrayVar(&envRefs, "env", nil, "NAME=faramir://ref (repeatable)")
+	c.Flags().StringArrayVar(&envFiles, "env-file", nil, "file of NAME=faramir://ref lines (repeatable)")
 	return c
 }
 
@@ -211,7 +211,7 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 	for _, pair := range envRefs {
 		name, uri, ok := strings.Cut(pair, "=")
 		if !ok {
-			return nil, errors.New("--env expects NAME=secret://ref")
+			return nil, errors.New("--env expects NAME=faramir://ref")
 		}
 		if err := checkRef(name, uri); err != nil {
 			return nil, fmt.Errorf("--env %w", err)
@@ -221,7 +221,7 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 	return refs, nil
 }
 
-// checkRef validates one NAME=secret://ref pair, for both --env and --env-file.
+// checkRef validates one NAME=faramir://ref pair, for both --env and --env-file.
 // The error names the variable and never quotes the value: a pasted credential
 // is the mistake this exists to prevent, and echoing one puts it in the
 // scrollback.
@@ -234,14 +234,14 @@ func checkRef(name, uri string) error {
 		}
 		return fmt.Errorf("%q is not a usable environment variable name", name)
 	}
-	if !strings.HasPrefix(uri, "secret://") {
-		return fmt.Errorf("%s must be a secret:// reference; "+
+	if !strings.HasPrefix(uri, "faramir://") {
+		return fmt.Errorf("%s must be a faramir:// reference; "+
 			"secrets are named here, never pasted", name)
 	}
 	return nil
 }
 
-// readEnvFile reads NAME=secret://ref lines, one per line, # for a comment. The
+// readEnvFile reads NAME=faramir://ref lines, one per line, # for a comment. The
 // file holds refs and never values, so it lives beside the playbook it belongs
 // to; the request on the wire is the same either way.
 func readEnvFile(path string) (map[string]string, error) {
@@ -257,7 +257,7 @@ func readEnvFile(path string) (map[string]string, error) {
 		}
 		name, uri, ok := strings.Cut(line, "=")
 		if !ok {
-			return nil, fmt.Errorf("%s:%d: expected NAME=secret://ref, got %q", path, i+1, line)
+			return nil, fmt.Errorf("%s:%d: expected NAME=faramir://ref, got %q", path, i+1, line)
 		}
 		name, uri = strings.TrimSpace(name), strings.TrimSpace(uri)
 		// Checked here so the message can name the file and the line.
