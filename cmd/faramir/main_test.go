@@ -303,22 +303,22 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 	original := answers
 	t.Cleanup(func() { answers = original })
 	answers = bufio.NewReader(strings.NewReader("yes please\n\nyes\n"))
-	for _, want := range []struct {
-		approve bool
-		ok      bool
-	}{
-		{false, true}, // "yes please" is not yes, and is still an answer
-		{true, true},  // the blank line is asked again, and the yes after it read
+	terminal := readLines()
+	for _, want := range []bool{
+		false, // "yes please" is not yes, and is still an answer
+		true,  // the blank line is asked again, and the yes after it read
 	} {
-		line, ok := readAnswer()
-		if approves(line) != want.approve || ok != want.ok {
-			t.Errorf("readAnswer = (%v, %v), want (%v, %v)",
-				approves(line), ok, want.approve, want.ok)
+		line, state := terminal.answer(time.Now().Add(time.Minute))
+		if state != answered {
+			t.Fatalf("the wait ended in state %v, want an answer", state)
+		}
+		if approves(line) != want {
+			t.Errorf("approves(%q) = %v, want %v", line, approves(line), want)
 		}
 	}
 	// And only a closed stdin ends the watch.
-	if _, ok := readAnswer(); ok {
-		t.Error("readAnswer kept going past the end of its input")
+	if _, state := terminal.answer(time.Now().Add(time.Minute)); state != stdinClosed {
+		t.Errorf("the wait ended in state %v past the end of its input, want stdinClosed", state)
 	}
 }
 
@@ -439,9 +439,9 @@ func TestReadAnswerReturnsWhatItRead(t *testing.T) {
 	original := answers
 	t.Cleanup(func() { answers = original })
 	answers = bufio.NewReader(strings.NewReader("\x1b[?62;c\n"))
-	line, ok := readAnswer()
-	if !ok {
-		t.Fatal("readAnswer reported no input")
+	line, state := readLines().answer(time.Now().Add(time.Minute))
+	if state != answered {
+		t.Fatalf("the wait ended in state %v, want an answer", state)
 	}
 	if line != "\x1b[?62;c\n" {
 		t.Errorf("readAnswer = %q, want the line as it arrived", line)
@@ -460,9 +460,9 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	t.Cleanup(func() { answers = original })
 	// One burst: a stray newline, then the answer behind it.
 	answers = bufio.NewReader(strings.NewReader("\nyes\n"))
-	line, ok := readAnswer()
-	if !ok || !approves(line) {
-		t.Errorf("readAnswer = (%q, %v), want the yes behind the blank line", line, ok)
+	line, state := readLines().answer(time.Now().Add(time.Minute))
+	if state != answered || !approves(line) {
+		t.Errorf("the wait gave (%q, %v), want the yes behind the blank line", line, state)
 	}
 }
 
@@ -485,4 +485,33 @@ func TestTheWaitingCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
 	if !strings.Contains(late, "waiting  40s") {
 		t.Errorf("a question that sat for 40s does not say so:\n%s", late)
 	}
+}
+
+// A question nobody answers ends the wait on its own clock, so the terminal
+// stops asking about one the broker has already refused and the loop goes back
+// to the poll. Without it the read holds the loop until somebody types, and a
+// question raised in the meantime is not shown.
+func TestTheWaitEndsWhenTheQuestionExpires(t *testing.T) {
+	original := answers
+	t.Cleanup(func() { answers = original })
+	// A reader with nothing in it and no end, which is a terminal nobody types at.
+	answers = bufio.NewReader(blockingReader{make(chan struct{})})
+
+	start := time.Now()
+	line, state := readLines().answer(time.Now().Add(150 * time.Millisecond))
+	if state != expired {
+		t.Errorf("the wait ended in state %v with %q, want expired", state, line)
+	}
+	if waited := time.Since(start); waited > 5*time.Second {
+		t.Errorf("the wait took %v, so it was not the question's clock that ended it", waited)
+	}
+}
+
+// blockingReader never returns and never ends, which is what stdin is when the
+// operator is not at the keyboard.
+type blockingReader struct{ never chan struct{} }
+
+func (r blockingReader) Read([]byte) (int, error) {
+	<-r.never
+	return 0, io.EOF
 }

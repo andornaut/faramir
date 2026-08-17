@@ -490,6 +490,101 @@ EOS
 
 field() { sed -n "s/^$2 //p" <<<"$1" | head -1; }
 
+# A question nobody answers, and the one raised after it.  The watcher used to
+# sit inside the read until somebody typed, so the first question's clock ran out
+# unnoticed and the second was not shown until a keystroke arrived: a watcher
+# that has stopped watching while still saying it is watching.
+cat >/tmp/watch-expire.py <<'EOS'
+import os, pty, select, subprocess, sys, time
+
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv("/usr/local/bin/faramir", ["faramir", "approvals", "--watch"])
+    os._exit(127)
+
+buf = ""
+
+
+def pump(until, timeout):
+    global buf
+    end = time.time() + timeout
+    while time.time() < end:
+        if until(buf):
+            return True
+        r, _, _ = select.select([fd], [], [], 0.2)
+        if not r:
+            continue
+        try:
+            data = os.read(fd, 4096)
+        except OSError:
+            break
+        if not data:
+            break
+        buf += data.decode("utf-8", "replace")
+    return until(buf)
+
+
+def give_up(why):
+    print("FAILED", why)
+    os.kill(pid, 9)
+    sys.exit(0)
+
+
+def raise_question(marker):
+    return subprocess.Popen(
+        ["runuser", "-u", "op", "--", "/usr/local/bin/faramir", "run", "--quiet",
+         "-t", "60", "--", "/usr/bin/sudo", "/bin/echo", marker],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+if not pump(lambda b: "waiting for approval requests" in b, 30):
+    give_up("the watcher never started")
+
+first = raise_question("first")
+if not pump(lambda b: "approve? [yes/no]" in b, 60):
+    give_up("no prompt for the first question")
+
+# Nothing typed: the question's own clock is what has to end the wait.
+if not pump(lambda b: "expired" in b, 60):
+    give_up("the watcher never said the question expired")
+first.wait(timeout=60)
+
+# And the next one is shown without a keystroke having been sent.
+second = raise_question("second")
+shown = pump(lambda b: b.count("approve? [yes/no]") >= 2, 60)
+os.write(fd, b"yes\n")
+pump(lambda b: " started" in b, 60)
+try:
+    second.wait(timeout=60)
+except subprocess.TimeoutExpired:
+    second.kill()
+os.kill(pid, 15)
+
+print("EXPIRED", "yes" if "expired" in buf else "no")
+print("SECOND_SHOWN", "yes" if shown else "no")
+print("SECOND_ANSWERED", "yes" if " started" in buf else "no")
+EOS
+
+quiesce
+before=$(sed -n 's/^timeout_sec *= *\([0-9]*\).*/\1/p' $CFG | head -1)
+sed -i 's/^timeout_sec = .*/timeout_sec = 5/' $CFG
+systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
+
+out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
+[ "$(field "$out" EXPIRED)" = yes ] \
+  && ok "a question nobody answers ends the wait on its own clock" \
+  || bad "the watcher sat on a dead prompt: ${out//$'\n'/ }"
+[ "$(field "$out" SECOND_SHOWN)" = yes ] \
+  && ok "and the question raised after it is shown without a keystroke" \
+  || bad "the watcher stopped watching: ${out//$'\n'/ }"
+[ "$(field "$out" SECOND_ANSWERED)" = yes ] && ok "and can still be answered" \
+  || bad "the second question could not be answered: ${out//$'\n'/ }"
+
+sed -i "s/^timeout_sec = .*/timeout_sec = ${before:-120}/" $CFG
+systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
+quiesce
+
+
 quiesce
 out=$(/usr/bin/python3 /tmp/watch-answer.py before 2>&1)
 [ "$(field "$out" REFUSED)" = no ] \

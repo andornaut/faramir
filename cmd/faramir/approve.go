@@ -272,6 +272,7 @@ func watchApprovals(socketPath string) int {
 	// it ends, so a second cannot be in flight, and nothing else can raise a
 	// question while this one is going.
 	var awaiting string
+	terminal := readLines()
 	for {
 		questions, finished, err := pending(socketPath, watchWait, awaiting)
 		if err != nil {
@@ -297,14 +298,24 @@ func watchApprovals(socketPath string) int {
 		}
 		for _, question := range questions {
 			printQuestion(question)
-			typed, ok := readAnswer()
-			approve := approves(typed)
-			if !ok {
-				// Stdin closed: nothing further can be answered here, and leaving the
-				// loop spinning would refuse nothing and approve nothing.
+			// The question's own clock, which is what the answer is typed against.
+			// Reaching it ends the wait rather than the watch: the broker refused it
+			// on the way out, so there is nothing to send and the next question is
+			// what this terminal is for.
+			line, state := terminal.answer(
+				time.Now().Add(time.Duration(question.ExpiresInSec) * time.Second))
+			switch state {
+			case stdinClosed:
+				// Nothing further can be answered here, and leaving the loop spinning
+				// would refuse nothing and approve nothing.
 				fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
 				return 0
+			case expired:
+				fmt.Printf("\n  %s expired unanswered, and was refused\n", question.LogID)
+				continue
+			case answered:
 			}
+			approve := approves(line)
 			// The two failures are not the same and must not be treated alike.
 			//
 			// 69 is the broker not reached, so the answer was never delivered and the
@@ -341,7 +352,7 @@ func watchApprovals(socketPath string) int {
 				// rather than printed: a stray byte is the case this exists for, and
 				// it has to be visible rather than acted on by the terminal.
 				fmt.Printf("  %s refused: %s\n", question.LogID,
-					strconv.Quote(strings.Trim(typed, "\r\n")))
+					strconv.Quote(strings.Trim(line, "\r\n")))
 			case 69:
 				fmt.Fprintf(os.Stderr, "faramir approve: %s could not be answered and is "+
 					"still open with nobody watching it; stopping rather than leaving it "+
@@ -439,81 +450,123 @@ var answers = bufio.NewReader(os.Stdin)
 // discarded.
 var fromTerminal = answers
 
-// discardTyped drops what was typed before the prompt was printed, so that no
-// answer is banked against a question nobody had read yet.
+// typed is the operator's terminal, read on a goroutine of its own so that a
+// prompt can give up without the read holding the watcher.
+//
+// A blocking read is what a question nobody answers used to cost: the loop sat
+// inside it until somebody typed, so the question's own clock ran out unnoticed
+// and a question raised after it was not shown until a keystroke arrived. A
+// watcher that has stopped watching while still saying it is watching is the
+// thing this whole path is careful about, so the read happens elsewhere and the
+// loop waits on whichever comes first.
+//
+// One goroutine for the life of the watcher, for the reason there is one reader:
+// a second would buffer past the newline and eat the answer to the next
+// question.
+type typed struct {
+	lines chan string
+	// terminal is whether the reader is the operator's own, decided when this was
+	// built rather than asked of the package each time: the goroutine below holds
+	// the reader it started with, and a test substituting another must not make
+	// this one flush a terminal it is no longer reading.
+	terminal bool
+}
+
+func readLines() *typed {
+	// Captured, not read through the package variable.  The goroutine outlives
+	// nothing here, but it does outlive a test that substituted a reader of its
+	// own, and one reading whatever the variable holds now would take the lines
+	// meant for whoever set it.
+	source, fromTTY := answers, answers == fromTerminal
+	t := &typed{lines: make(chan string, 1), terminal: fromTTY}
+	go func() {
+		defer close(t.lines)
+		for {
+			line, err := source.ReadString('\n')
+			if line != "" {
+				t.lines <- line
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return t
+}
+
+// discard drops what was typed before the prompt was printed, so that no answer
+// is banked against a question nobody had read yet.
 //
 // Without it a line typed while nothing was pending sits in the terminal until
 // the next question arrives and is spent on it the instant it does, which reads
 // as an instant refusal of a question the operator never saw.  An answer has to
 // be made against a question, so what predates the question is not one.
 //
-// Both halves of the queue, because input rests in two places: the terminal's
-// own, emptied by the ioctl, and this reader's, emptied after it.  Discarding
-// only what is buffered here would leave the terminal's to arrive a moment
-// later.
+// Three places input rests now, and all three are emptied: the terminal's own
+// queue, this reader's buffer behind it, and the channel the goroutine has
+// already put a whole line into.
 //
-// Terminals only, checked twice over.  Input that was not typed was not typed
-// early: a substituted reader is a test's script and a redirected stdin is a
-// file, and both are meant to be read in order.  TCFLSH covers the second, ENOTTY
-// being how a stdin that is not a terminal answers.
-//
-// This narrows the window rather than closing it: a keystroke landing between
-// the flush and the read is still banked.  What is left is the few microseconds
-// between the two, in place of the whole time a question was not yet asked.
-func discardTyped() {
-	if answers != fromTerminal {
+// This narrows the window rather than closing it: a line the goroutine is
+// holding between its read and its send lands after the drain.  What is left is
+// those few microseconds, in place of the whole time a question was not yet
+// asked.
+func (t *typed) discard() {
+	// Terminals only, and the channel with them.  Input that was not typed was
+	// not typed early: a substituted reader is a test's script and a redirected
+	// stdin is a file, and both are meant to be read in order rather than thrown
+	// away for having arrived before the prompt.
+	if !t.terminal {
 		return
 	}
 	if err := unix.IoctlSetInt(int(os.Stdin.Fd()), unix.TCFLSH, unix.TCIFLUSH); err != nil {
 		return
 	}
-	// Only what has already been read into this buffer; never a blocking read.
-	_, _ = answers.Discard(answers.Buffered())
+	for {
+		select {
+		case <-t.lines:
+		default:
+			return
+		}
+	}
 }
 
-// readAnswer reads until the operator answers and hands back the line they
-// typed.  ok is false only when there is no more input to read, which is the one
-// condition that ends the watch.
-//
-// The line rather than its verdict, so a refusal can say what it read: an answer
-// nobody typed refuses a question exactly as one they did, and the two have to
-// be tellable apart.
+// answerState is how the wait for an answer ended.
+type answerState int
+
+const (
+	// answered: the operator typed one, and it is the line returned beside this.
+	answered answerState = iota
+	// expired: the question's clock ran out while the terminal waited.  Nothing
+	// is sent to the broker, which has already refused it on the way out.
+	expired
+	// stdinClosed: there is no more input to read, which is the one condition
+	// that ends the watch.
+	stdinClosed
+)
+
+// answer waits for the operator, until the question it is about expires.
 //
 // A line holding nothing printable is not an answer and is asked again rather
-// than counted as a no.  Deny by default is unchanged, and this is where it
-// comes from instead: an unanswered question expires, and the broker refuses it
-// on the way out.  A refusal that has to be typed is one the operator meant,
-// where a stray newline is nobody saying anything, and spending a question on
-// it answers for an operator who has not read it yet.
-//
-// Only what is empty.  Anything printable is an answer and so a refusal, a
-// punctuation mark and an escape sequence's printable tail included: a
-// keypress is a person at the terminal, and the safe reading of one that does
-// not spell yes is no.
-//
-// The cost is paid where it belongs.  A question nobody answers now takes its
-// expiry to be refused, rather than being refused at once by whatever was in the
-// terminal, so the command waits longer to be told no.  Waiting is what an
-// unattended question is supposed to do.
-func readAnswer() (line string, ok bool) {
-	// Only before the first prompt.  What is in the terminal then predates the
-	// question and is not an answer to it; what arrives after was typed by
-	// somebody who has seen it, so a re-ask must not throw it away.  Flushing
-	// every pass drops the answer to a blank line typed ahead of it, and reprints
-	// the prompt with nothing to show for it.
-	for first := true; ; first = false {
-		if first {
-			discardTyped()
-		}
+// than counted as a no: a stray newline is nobody saying anything, and spending
+// a question on it answers for an operator who has not read it yet.  Deny by
+// default is unchanged and comes from the expiry instead, which the broker
+// applies whether or not this terminal is still asking.
+func (t *typed) answer(deadline time.Time) (string, answerState) {
+	t.discard()
+	for {
 		fmt.Print("  approve? [yes/no] ")
-		line, err := answers.ReadString('\n')
-		if err != nil && line == "" {
-			return "", false
+		select {
+		case line, open := <-t.lines:
+			if !open {
+				return "", stdinClosed
+			}
+			if answerOf(line) == "" {
+				continue
+			}
+			return line, answered
+		case <-time.After(time.Until(deadline)):
+			return "", expired
 		}
-		if answerOf(line) == "" {
-			continue
-		}
-		return line, true
 	}
 }
 
