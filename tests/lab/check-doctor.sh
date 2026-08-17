@@ -101,6 +101,25 @@ snap; withOp=$(unasked)
 /usr/local/bin/faramir doctor --json >$JSON 2>/dev/null; without=$(unasked)
 [ "$withOp" -lt "$without" ] && ok "--agent-user turns $((without - withOp)) unasked checks into asked ones" \
   || bad "naming the operator asked nothing more ($withOp vs $without)"
+
+# And what the run without one reports, this being a root shell or a cron entry:
+# no SUDO_USER to take the account from, so the checks that ask what an account
+# can reach cannot be put.  Read off the same run as the count above.
+[ "$(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON)" = 1 ] \
+  && ok "and without one they are one finding, not one apiece" \
+  || bad "boundaries reported $(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON) findings"
+[ "$(st boundaries)" = warn ] \
+  && ok "a question that cannot be put is a warning, not a verdict" \
+  || bad "boundaries is [$(st boundaries)], want warn: an unasked check must not read as a pass"
+for want in "--agent-user" "SUDO_USER"; do
+  grep -qF -- "$want" <<<"$(dt boundaries)" && ok "and says how to ask it ($want)" \
+    || bad "the warning does not mention $want: $(dt boundaries)"
+done
+# The checks that never ask about an account still run, or a root shell would
+# report a clean host having examined nothing.
+[ "$(jq -r '[.findings[]|select(.check!="boundaries")]|length' $JSON)" -gt 1 ] \
+  && ok "while the checks that ask about no account still ran" \
+  || bad "nothing ran besides the warning: an age key left 0644 would go unreported"
 snap
 
 # --------------------------------------------------------------------------

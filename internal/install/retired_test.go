@@ -83,56 +83,6 @@ func TestDiagnoseGroupNamesAccountsTheInstallNoLongerUses(t *testing.T) {
 	}
 }
 
-// doctor reached without SUDO_USER -- a root shell, a cron entry, a
-// configuration manager -- cannot name the operator.  canRead and canWrite then
-// answer false, which is the same answer a boundary that holds gives, so the
-// checks that pass become unearned OKs and the ones that run a command fail
-// blaming a `runuser -u --` nobody wrote.  Neither is a finding about the host.
-func TestBoundariesAreNotAskedWithoutAnOperator(t *testing.T) {
-	if os.Geteuid() != 0 {
-		t.Skip("the no-root guard answers first when this is not root")
-	}
-	// Accounts that exist, so the runuser probe passes and the checks are actually
-	// reached.  root stands in for every role here; what is under test is which
-	// checks run, not what they find.
-	var report DoctorReport
-	diagnoseBoundaries(&report, DoctorOptions{
-		BrokerUser: "root", KeeperUser: "root", ExecUser: "root", ClientGroup: "root",
-	}, nil, servesUnknown)
-
-	boundaries := findingsNamed(report, "boundaries")
-	if len(boundaries) != 1 {
-		t.Fatalf("expected one warn standing for the operator checks, got %v", report.Findings)
-	}
-	if boundaries[0].Status != StatusWarn {
-		t.Errorf("an unnamed operator is a question that cannot be put, not a "+
-			"verdict: %v", boundaries[0])
-	}
-	if report.NotAsked == 0 {
-		t.Error("the unasked checks were not counted, so the totals read as a " +
-			"complete examination")
-	}
-	for _, want := range []string{"--agent-user", "SUDO_USER"} {
-		if !strings.Contains(boundaries[0].Detail, want) {
-			t.Errorf("the warning does not say how to fix it (%q): %s",
-				want, boundaries[0].Detail)
-		}
-	}
-	// The point of the split: the checks that never ask about the operator have to
-	// keep running, or a root shell reports a clean host having examined nothing.
-	if len(report.Findings) < 2 {
-		t.Errorf("no check ran besides the warning, so an age key left 0644 or a "+
-			"regrouped socket would go unreported: %v", report.Findings)
-	}
-	// And nothing may claim a boundary it could not ask about.
-	for _, finding := range report.Findings {
-		if finding.Status == StatusOK && strings.Contains(finding.Detail, "operator") {
-			t.Errorf("a check claimed something about an operator it cannot name: %v",
-				finding)
-		}
-	}
-}
-
 // findingsNamed is the findings one check contributed.
 func findingsNamed(report DoctorReport, name string) []Finding {
 	var out []Finding
