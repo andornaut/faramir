@@ -472,24 +472,31 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	}
 }
 
-// The waiting count is printed only where it says something. A watcher already
-// running is answered the moment a question is filed, so it is zero every time
-// and cannot count up, the line being printed once before the terminal blocks on
-// the answer. It is the other case the number is for: nobody was here yet.
+// The waiting count rides the expires line, and only where it says something. A
+// watcher already running is answered the moment a question is filed, so zero is
+// the ordinary reading and its absence says as much. It is the other case the
+// number is for: nobody was here yet.
 func TestTheWaitingCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
 	question := approval.Question{
 		ID: "9f2a1c", Prompt: "faramir: Approve this command to run as root? `true`",
 		Cmd: "true", ExpiresInSec: 120,
 	}
 	fresh, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
-	if strings.Contains(fresh, "waiting") {
+	if strings.Contains(fresh, "waited") {
 		t.Errorf("a question nobody was late for reports a wait:\n%s", fresh)
+	}
+	if !strings.Contains(fresh, "expires  120s") {
+		t.Errorf("the clock the answer is typed against is missing:\n%s", fresh)
 	}
 
 	question.WaitingSec, question.ExpiresInSec = 40, 80
 	late, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
-	if !strings.Contains(late, "waiting  40s") {
-		t.Errorf("a question that sat for 40s does not say so:\n%s", late)
+	if !strings.Contains(late, "expires  80s, after which it is refused (40s waited)") {
+		t.Errorf("a question that sat for 40s does not say so on the expires line:\n%s", late)
+	}
+	// One line, not two: the wait qualifies the clock rather than standing beside it.
+	if strings.Contains(late, "\n  waiting") {
+		t.Errorf("the wait is still a line of its own:\n%s", late)
 	}
 }
 

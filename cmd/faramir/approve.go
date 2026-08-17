@@ -636,16 +636,19 @@ func printQuestion(question approval.Question) {
 	}
 	// What is left of the clock is what the answer is typed against, so it is
 	// printed either way.
-	fmt.Printf("  expires  %ds, after which it is refused\n", question.ExpiresInSec)
-	// Only where it says something.  It is measured when the broker answers the
+	//
+	// How long it had already sat comes with it rather than on a line of its own,
+	// and only where it is not zero.  It is measured when the broker answers the
 	// poll, and a watcher already running is answered the moment the question is
-	// filed, so it is zero every time and cannot count up: the line is printed
-	// once and the terminal then blocks on the answer.  What it is for is the
-	// other case -- a watcher started while a question was already pending, or a
-	// listing of one that has sat a while -- where it says nobody was here.
+	// filed, so zero is the ordinary reading and its absence says as much: what
+	// the number is for is the other case, a watcher started while a question was
+	// pending or a listing of one that has sat a while.
+	waited := ""
 	if question.WaitingSec > 0 {
-		fmt.Printf("  waiting  %ds\n", question.WaitingSec)
+		waited = fmt.Sprintf(" (%ds waited)", question.WaitingSec)
 	}
+	fmt.Printf("  expires  %ds, after which it is refused%s\n",
+		question.ExpiresInSec, waited)
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.
