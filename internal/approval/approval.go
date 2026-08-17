@@ -160,7 +160,36 @@ type Server struct {
 	// changed is closed and replaced whenever waiting does, so `faramir approvals
 	// --watch` can block on the next change rather than poll for it.
 	changed chan struct{}
-	stopped bool
+	// finished is how the last approved run ended, for the terminal that approved
+	// it.  One, for the same reason waiting is one: an approved run holds every
+	// other brokered command until it ends, so two can never be in flight.
+	//
+	// Never emptied when it is read.  A caller names the run it is waiting on and
+	// is told about that one only, so leaving this filled costs nothing: two
+	// watchers both see the ending, neither consumes the other's, and a watcher
+	// that approved nothing is told nothing.
+	finished *Outcome
+	stopped  bool
+}
+
+// Outcome is how an approved run ended.  It reaches the operator over the same
+// long poll the question arrived on, so the terminal that gave root away says
+// what became of it without reading the audit log.
+type Outcome struct {
+	// LogID is the exec record, and what a caller matches against: it is the id
+	// the question carried, so the line prints under the question it belongs to.
+	LogID string `json:"log_id"`
+	// ExitCode is nil when the broker never got a status for the run, which is
+	// what Error then says.  A pointer rather than an int, because a zero here
+	// reads as a clean exit: a run that reported nothing must not be published as
+	// one that succeeded.
+	ExitCode    *int    `json:"exit_code"`
+	DurationSec float64 `json:"duration_sec"`
+	TimedOut    bool    `json:"timed_out"`
+	// Error is the broker's own failure, and is already through the redaction the
+	// audit record gets: this is printed to a terminal by the same route the
+	// question was.
+	Error string `json:"error"`
 }
 
 // approval is one unanswered question.  Every request for the same command
@@ -176,8 +205,31 @@ type approval struct {
 	done     chan struct{}
 	once     sync.Once
 	approved bool
+	code     string
 	reason   string
 }
+
+// How a question ended, as one word rather than the sentence beside it.  A
+// refusal a human typed and a question nobody answered are not the same event
+// and are not acted on alike: one was judged, the other means nothing was
+// watching. Told apart only by their prose, they are told apart by whoever reads
+// English, which is neither the log reader nor anything selecting on a field.
+//
+// The `outcome` beside this stays the sentence: it names the account that
+// answered, the process that was in the way, or the command that held the host,
+// none of which fits in a code.
+const (
+	CodeApproved      = "approved"
+	CodeDenied        = "denied"
+	CodeExpired       = "expired"
+	CodeNotQuiescent  = "not_quiescent"
+	CodeRunEnded      = "run_ended"
+	CodeBrokerStopped = "broker_stopped"
+	CodeOtherCommand  = "other_command"
+	CodeUnnamed       = "unnamed_question"
+	CodeUnknownToken  = "unknown_token"
+	CodeNoGrant       = "no_grant"
+)
 
 func New(cfg config.SudoConfig) *Server {
 	return &Server{
@@ -315,17 +367,27 @@ func (s *Server) otherRunLocked(token string) string {
 // by `faramir approvals` and would take a yes for a command that is no longer
 // running, which is an approval a human cannot judge, and it would hold the one
 // question slot until it timed out.
-func (s *Server) Release(token string) {
+// outcome is published only for a run somebody approved.  A run nobody was
+// asked about is one no terminal is waiting to hear the end of, and a line under
+// a question that was never put is a line nobody can place.
+func (s *Server) Release(token string, outcome Outcome) {
 	if token == "" {
 		return
 	}
 	s.mu.Lock()
+	run, known := s.runs[token]
 	delete(s.runs, token)
+	if known && run.approved {
+		s.finished = &outcome
+		// So a watcher parked on the long poll prints the ending when the run ends
+		// rather than up to a whole wait later.
+		s.wakeLocked()
+	}
 	pending := s.waitingForLocked(token)
 	s.mu.Unlock()
 	if pending != nil {
 		// Outside the lock: finish takes it.
-		s.finish(pending, false, "the command ended before this was answered")
+		s.finish(pending, false, CodeRunEnded, "the command ended before this was answered")
 	}
 }
 
@@ -335,9 +397,9 @@ func (s *Server) Release(token string) {
 // The caller is the PAM helper's request, which the broker has already checked
 // came from root; sudo is blocked on it, which is what makes the wait a
 // password prompt from sudo's point of view.
-func (s *Server) Ask(token string) (approved bool, reason string) {
+func (s *Server) Ask(token string) (approved bool, code, reason string) {
 	if !s.Enabled() {
-		return false, "this host grants no approval"
+		return false, CodeNoGrant, "this host grants no approval"
 	}
 	s.mu.Lock()
 	run, known := s.runs[token]
@@ -350,21 +412,23 @@ func (s *Server) Ask(token string) (approved bool, reason string) {
 		log.Printf("approval: refusing a request whose token names no running command")
 		s.record(map[string]any{
 			"log_id": audit.NewLogID(), "op": "ask_approval", "approved": false,
-			"outcome": "the token named no running command",
+			"outcome_code": CodeUnknownToken,
+			"outcome":      "the token named no running command",
 		})
-		return false, "this request names no brokered command, so there is nothing to approve"
+		return false, CodeUnknownToken,
+			"this request names no brokered command, so there is nothing to approve"
 	}
 
-	approved, prompted, reason := s.ask(token, run)
+	approved, prompted, code, reason := s.ask(token, run)
 	s.record(map[string]any{
 		"log_id": audit.NewLogID(), "op": "ask_approval", "approved": approved,
 		"prompted": prompted, "cmd": run.Argv, "cwd": run.Cwd,
-		"exec_log_id": run.LogID, "outcome": reason,
+		"exec_log_id": run.LogID, "outcome_code": code, "outcome": reason,
 	})
 	if !approved {
-		log.Printf("approval: %q was not approved: %s", run.Command(), reason)
+		log.Printf("approval: %q was not approved (%s): %s", run.Command(), code, reason)
 	}
-	return approved, reason
+	return approved, code, reason
 }
 
 // ask reports whether this request may sudo, and whether it was the one that
@@ -376,10 +440,10 @@ func (s *Server) Ask(token string) (approved bool, reason string) {
 // stretch of time, and anything starting a command inside it rides an approval
 // given for something else.  This is scoped to the command the human
 // was shown, dies when the run ends, and cannot be reached by a second run.
-func (s *Server) ask(token string, run Run) (approved, prompted bool, reason string) {
-	pending, raised, refused := s.pend(token, run)
+func (s *Server) ask(token string, run Run) (approved, prompted bool, code, reason string) {
+	pending, raised, refusedCode, refused := s.pend(token, run)
 	if pending == nil {
-		return false, false, refused
+		return false, false, refusedCode, refused
 	}
 	if raised {
 		// Best-effort and answerless: it says a question is waiting, and the answer
@@ -390,30 +454,32 @@ func (s *Server) ask(token string, run Run) (approved, prompted bool, reason str
 		go s.expire(pending)
 	}
 	<-pending.done
-	return pending.approved, raised, pending.reason
+	return pending.approved, raised, pending.code, pending.reason
 }
 
 // pend files the question, or hands back the one this command already raised.
-// The second return is whether this call is the one that raised it; the third is
-// why no question could be filed, when none was.  The refusals are reported
+// The second return is whether this call is the one that raised it; the last two
+// are why no question could be filed, when none was.  The refusals are reported
 // apart: a host already holding a question and a stopping broker send an
 // operator looking in different places.
-func (s *Server) pend(token string, run Run) (*approval, bool, string) {
+func (s *Server) pend(token string, run Run) (*approval, bool, string, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Re-checked under the lock: the requests of a playbook arrive in a rush, and
 	// one that read "not approved" outside it may have been overtaken.
 	if s.runs[token].approved {
 		answered := &approval{done: make(chan struct{}), approved: true,
+			code:   CodeApproved,
 			reason: "covered by the approval given for this command"}
 		close(answered.done)
-		return answered, false, ""
+		return answered, false, "", ""
 	}
 	if existing := s.waitingForLocked(token); existing != nil {
-		return existing, false, ""
+		return existing, false, "", ""
 	}
 	if s.stopped {
-		return nil, false, "the broker is stopping, so nothing can be approved now"
+		return nil, false, CodeBrokerStopped,
+			"the broker is stopping, so nothing can be approved now"
 	}
 	// A question is filed only by a command that is the only one registered, and
 	// the rest are refused rather than queued.
@@ -437,14 +503,15 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 	// other command ending, which nothing new is admitted alongside once a
 	// question waits, so a host with the grant drains toward an answerable state.
 	if other := s.otherRunLocked(token); other != "" {
-		return nil, false, fmt.Sprintf("%s is also running, and root is handed to a "+
+		return nil, false, CodeOtherCommand, fmt.Sprintf("%s is also running, and root is handed to a "+
 			"brokered command only when it is the only one: the two share the "+
 			"executor's uid, so the other could read this one's token and ride the "+
 			"approval. Run this again once that one has finished", other)
 	}
 	id := newID()
 	if id == "" {
-		return nil, false, "this question could not be named, so nothing could answer it"
+		return nil, false, CodeUnnamed,
+			"this question could not be named, so nothing could answer it"
 	}
 	pending := &approval{
 		id: id, token: token, run: run, asked: time.Now(),
@@ -453,7 +520,7 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 	s.waiting = pending
 	s.wakeLocked()
 	log.Printf("approval: %s is waiting to be approved: %s", pending.id, run.Command())
-	return pending, true, ""
+	return pending, true, "", ""
 }
 
 // finish answers a question once, releasing every request waiting on it.
@@ -463,10 +530,10 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string) {
 // run could start in and ride the approval.  finish only carries the answer to
 // the sudos blocked on this question.  (expire and Stop reach here too, always
 // with approved=false, which touches no run.)
-func (s *Server) finish(pending *approval, approved bool, reason string) {
+func (s *Server) finish(pending *approval, approved bool, code, reason string) {
 	pending.once.Do(func() {
 		s.mu.Lock()
-		pending.approved, pending.reason = approved, reason
+		pending.approved, pending.code, pending.reason = approved, code, reason
 		// Only if it is still the outstanding one: a token released and
 		// re-registered would otherwise lose its own.
 		if s.waiting == pending {
@@ -486,7 +553,8 @@ func (s *Server) expire(pending *approval) {
 	select {
 	case <-pending.done:
 	case <-timer.C:
-		s.finish(pending, false, fmt.Sprintf("nobody answered within %ds", s.config.TimeoutSec))
+		s.finish(pending, false, CodeExpired,
+			fmt.Sprintf("nobody answered within %ds", s.config.TimeoutSec))
 	}
 }
 
@@ -645,15 +713,21 @@ func (s *Server) questionsLocked() []Question {
 	}}
 }
 
-// QuestionsWait is Questions for a watcher: it returns at once if anything is
-// waiting, and otherwise blocks until something is or the wait runs out.  A
-// long poll rather than a subscription, because the caller is a person with a
+// Poll is Questions for a watcher: it returns at once if there is anything for
+// this caller, and otherwise blocks until there is or the wait runs out.  A long
+// poll rather than a subscription, because the caller is a person with a
 // terminal and the broker keeps no client state.
-func (s *Server) QuestionsWait(wait time.Duration) []Question {
+//
+// awaitLogID names the run the caller approved and has not yet heard the end of,
+// and is what keeps the outcome slot from turning this into a spin: an ending
+// nobody asked about is not something to return early for, and the slot is never
+// emptied.  Empty asks about no run, which is a listing and a watcher that has
+// approved nothing.
+func (s *Server) Poll(wait time.Duration, awaitLogID string) ([]Question, *Outcome) {
 	s.mu.Lock()
-	if s.waiting != nil {
+	if s.waiting != nil || s.finishedLocked(awaitLogID) != nil {
 		defer s.mu.Unlock()
-		return s.questionsLocked()
+		return s.questionsLocked(), s.finishedLocked(awaitLogID)
 	}
 	changed := s.changed
 	s.mu.Unlock()
@@ -664,7 +738,17 @@ func (s *Server) QuestionsWait(wait time.Duration) []Question {
 	case <-changed:
 	case <-timer.C:
 	}
-	return s.Questions()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.questionsLocked(), s.finishedLocked(awaitLogID)
+}
+
+// finishedLocked is the ending this caller is waiting for, or nil.
+func (s *Server) finishedLocked(awaitLogID string) *Outcome {
+	if awaitLogID == "" || s.finished == nil || s.finished.LogID != awaitLogID {
+		return nil
+	}
+	return s.finished
 }
 
 // Answer decides one question.  The caller is checked to be root before this is
@@ -728,9 +812,9 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		}
 	}
 	s.mu.Unlock()
-	reason := "refused by " + who
+	code, reason := CodeDenied, "refused by "+who
 	if approve {
-		reason = "approved by " + who
+		code, reason = CodeApproved, "approved by "+who
 	}
 	// Not recorded here: the answer reaches every request waiting on it through
 	// `reason`, and each of those writes a record naming who answered.  One
@@ -738,7 +822,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// leaving it to be counted.
 	log.Printf("approval: %s %s by %s", id,
 		map[bool]string{true: "approved", false: "refused"}[approve], who)
-	s.finish(pending, approve, reason)
+	s.finish(pending, approve, code, reason)
 	return nil
 }
 
@@ -767,7 +851,7 @@ func (s *Server) refuseForNoise(id, detail string) error {
 		return err
 	}
 	log.Printf("approval: %s refused rather than approved: %s", id, detail)
-	s.finish(pending, false, "refused: the host was not quiet when this was "+
+	s.finish(pending, false, CodeNotQuiescent, "refused: the host was not quiet when this was "+
 		"answered ("+detail+")")
 	return fmt.Errorf("%w: %s. The sudo waiting on %s has been refused and the "+
 		"question is closed. Run the command again once the host is quiet",
@@ -801,6 +885,6 @@ func (s *Server) Stop() {
 	s.mu.Unlock()
 	if pending != nil {
 		// Outside the lock: finish takes it.
-		s.finish(pending, false, "the broker stopped before this was answered")
+		s.finish(pending, false, CodeBrokerStopped, "the broker stopped before this was answered")
 	}
 }

@@ -79,6 +79,7 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 - **The audit log rotates weekly**, 8 kept, compressed, early at 16MB. `[audit] max_record_bytes` bounds one record, not the file. `doctor` fails when logrotate is not installed, when `/etc/logrotate.d/faramir` is absent or unreadable, and when the rule names a log the broker does not write; it warns when logrotate's state shows the rule has never been applied. Rotating some other way means `doctor` failing on that host.
 - **A command that cannot be recorded does not run.** Before anything starts the broker checks the log can be opened and its filesystem has room for one record; a host failing either refuses every brokered command with `no_audit`. Reachable without anyone being at fault: a brokered command's output is what a record carries, so an agent that prints enough fills that filesystem itself.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
+- **An exec is two records sharing one `log_id`.** `exec_started` when the child runs, naming the command, the cwd and the refs; `exec` when it ends, adding the exit code, the duration and the output. So `faramir logs --watch` shows a playbook while it runs rather than only once it is over, and a run that never returns still leaves a row. `faramir logs <id>` shows the ending where there is one and the start where there is not. A reader selecting `op == "exec"` still gets one record per command, the one that says how it went.
 - **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does. A drop-in setting `[ssh] key` is refused; `--ssh-key` moves or adopts one.
 - **A brokered `ssh` logs in as the executor.** `ssh host` naming no user asks for `faramir-exec`, which is nobody's account on a managed host. Give the login (`ssh deploy@host.example.com`), or write one `User` per host into `/var/lib/faramir-exec/.ssh/config` as root, that being the child's `HOME`. Ansible needs neither, `ansible_user` being in the inventory.
 - **A brokered `ssh` verifies against `/etc/ssh/ssh_known_hosts` and the executor's own**, either sufficing. The executor's starts absent and nothing can prompt you to add to it, so a host trusted only in your `~/.ssh/known_hosts` is refused before the broker's key is offered. `init --known-hosts PATH` pins a file for the executor, replaced whole each run; the system-wide file is the alternative, covering every account at once. An entry is filed under the name ssh dials, port-bracketed where that is not 22 (`[host.example.com]:2222`).
@@ -160,7 +161,17 @@ sudo faramir approvals --watch
 
 4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `waiting` counts.
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else `requisite` makes the non-zero exit fatal at once, and `sudo` reports its own authentication failure.
-6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to.
+6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to. `outcome_code` says which ending it was in one word and `outcome` says it in a sentence, so a log can be read for "nobody was watching" (`expired`) apart from "somebody said no" (`denied`) without matching English. `faramir logs` renders the two as `timed out` and `refused`. The full set is in [protocol.md](protocol.md#approvals).
+7. A yes is not the last you hear of it. `--watch` prints how the run ended when it does:
+
+   ```text
+     2026-08-10T12:04:11Z-3b7e000119 started
+     2026-08-10T12:04:11Z-3b7e000119 exited 0 after 12.4s
+   ```
+
+   Every line names its run, the ending arriving after the terminal has moved on. `exited 2 after 3.1s, timed out` when `[exec] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
+
+   A refusal prints `<log_id> refused` and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question, and the terminal has to be back on the poll for it. Its `exec` record lands when it ends like any other command's.
 
 There is no password anywhere: what satisfies `sudo` is a decision, so nothing is minted, stored, injected or typed, and nothing a command approved once can keep and pass to a later one. The answer must come from root, checked with `SO_PEERCRED`.
 

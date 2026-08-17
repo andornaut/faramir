@@ -33,6 +33,7 @@ import (
 	"github.com/andornaut/faramir/internal/secretstore"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/sshagent"
+	"github.com/andornaut/faramir/internal/termsafe"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -512,12 +513,17 @@ func (s *Server) opAskApproval(request *protocol.Request, peer *sockutil.Peer) p
 		return protocol.ErrorResponse("bad_request",
 			"'token' must name the brokered command asking to sudo", "")
 	}
-	approved, reason := s.Approval.Ask(request.Token)
+	approved, code, reason := s.Approval.Ask(request.Token)
 	// A refusal is a response rather than an error: the helper reports it to PAM
 	// as a failed authentication, which is what sudo has to see.
+	//
+	// The code beside the reason, because the two answers a caller acts on
+	// differently read alike in prose: a question a human refused was judged, and
+	// one that expired means nothing was watching.
 	return protocol.Response{
 		"exit_code": 0, "approved": approved, "reason": reason,
-		"output": reason + "\n", "truncated": false,
+		"outcome_code": code,
+		"output":       reason + "\n", "truncated": false,
 		"redactions": []any{}, "log_id": nil,
 	}
 }
@@ -527,16 +533,26 @@ func (s *Server) opApprovals(request *protocol.Request, peer *sockutil.Peer) pro
 		return *refused
 	}
 	wait := min(time.Duration(request.WaitSec)*time.Second, maxApprovalWait)
-	questions := s.Approval.QuestionsWait(wait)
-	body, err := json.MarshalIndent(map[string]any{"questions": questions}, "", "  ")
+	questions, finished := s.Approval.Poll(wait, request.AwaitLogID)
+	// Present only when the caller named a run and that run has ended, so the key
+	// says what it means rather than carrying a null nothing asked for.
+	rendered := map[string]any{"questions": questions}
+	if finished != nil {
+		rendered["finished"] = finished
+	}
+	body, err := json.MarshalIndent(rendered, "", "  ")
 	if err != nil {
 		return protocol.ErrorResponse("internal", "the questions could not be "+
 			"rendered: "+err.Error(), "")
 	}
-	return protocol.Response{
+	response := protocol.Response{
 		"exit_code": 0, "output": string(body) + "\n", "questions": questions,
 		"truncated": false, "redactions": []any{}, "log_id": nil,
 	}
+	if finished != nil {
+		response["finished"] = finished
+	}
+	return response
 }
 
 func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
@@ -647,7 +663,7 @@ func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
 	record := s.redactor()
 	detail := record.RedactText(message)
 	entry := map[string]any{
-		"log_id": logID, "op": "exec", "peer": peer,
+		"log_id": logID, "op": recordExec, "peer": peer,
 		"refused": code, "error": detail,
 	}
 	if len(cmd) > 0 {
@@ -685,6 +701,47 @@ func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
 			"run unrecorded: "+reason+". Free space on that filesystem, or point "+
 			"[audit] log_path somewhere with room, and retry", logID)
 	return &out
+}
+
+// The two ops a brokered command's records carry.  recordExecStarted is written
+// when the child runs; recordExec is every other record about that command, the
+// one saying how it went or why it never ran.  The pair is joined by the log_id,
+// so a reader selecting recordExec still gets one record per command.
+const (
+	recordExec        = "exec"
+	recordExecStarted = "exec_started"
+)
+
+// execAudit is what every record about one brokered command carries: which
+// command, run where, against which refs, and when it started.  Gathered once
+// and rendered per record, so the pair sharing a log_id cannot come to say two
+// different things about the same command.
+type execAudit struct {
+	logID     string
+	peer      *sockutil.Peer
+	cmd       []string
+	argv0Path string
+	cwd       string
+	refs      map[string]string
+	started   time.Time
+}
+
+// execFields is one record's worth of those, less the op and the outcome, which
+// are the caller's to add.
+//
+// Redacted afresh per record rather than once for all of them: the value set can
+// change while a command runs, so each is written against whatever the store
+// holds when it is written.
+func (s *Server) execFields(a execAudit) map[string]any {
+	record := s.redactor()
+	return map[string]any{
+		"log_id": a.logID, "peer": a.peer,
+		"cmd":        redactEach(record, a.cmd),
+		"argv0_path": record.RedactText(a.argv0Path),
+		"cwd":        record.RedactText(a.cwd),
+		"env_refs":   a.refs,
+		"started_at": a.started.Unix(),
+	}
 }
 
 func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
@@ -725,7 +782,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		record := s.redactor()
 		detail := record.RedactText(err.Error())
 		s.Audit.Write(map[string]any{
-			"log_id": logID, "op": "exec", "peer": peer,
+			"log_id": logID, "op": recordExec, "peer": peer,
 			"cmd": redactEach(record, cmd), "cwd": record.RedactText(cwd),
 			"error": detail,
 		}, audit.Output{})
@@ -787,7 +844,16 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 			"This command was not run and was not queued. Run it again once that one "+
 			"has finished", logID, peer, cmd, cwd)
 	}
-	defer s.Approval.Release(token)
+	// How this run ended, read by the defer below and published to the terminal
+	// that approved it.  Written where each audit record is, so a path that
+	// records an ending also reports one.
+	//
+	// The zero value is a run the broker never got a status for, and says so: a
+	// nil ExitCode prints as an ending without one, where a zero would print as a
+	// clean exit.  A return added below that forgets to fill this in is then a
+	// vaguer line rather than a false one.
+	outcome := approval.Outcome{LogID: logID}
+	defer func() { s.Approval.Release(token, outcome) }()
 	maps.Copy(env, s.Approval.Env(token))
 	injected := map[string]string{}
 	for name, uri := range envRefs {
@@ -817,6 +883,26 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	collector := audit.NewCollector(s.Audit.OutputBudget())
 	started := time.Now()
 
+	audited := execAudit{
+		logID: logID, peer: peer, cmd: cmd, argv0Path: argv0Path,
+		cwd: cwd, refs: injected, started: started,
+	}
+
+	// An exec is a pair of records sharing one log_id: this one when the child
+	// starts, and the one below when it ends.  Without it a command is absent from
+	// the log for as long as it runs, so `faramir logs --watch` shows a playbook
+	// only once it is over, and a run that never returns leaves nothing at all.
+	//
+	// Its own op rather than an `exec` with the outcome left out: a reader
+	// selecting `exec` still gets one record per command, the one that says how it
+	// went, and the pair is joined by the log_id.
+	//
+	// No output: there is none yet, and what the command prints is the other
+	// record's.
+	starting := s.execFields(audited)
+	starting["op"] = recordExecStarted
+	s.Audit.Write(starting, audit.Output{})
+
 	result, err := s.exec(redactor, collector.Add, executor.Request{
 		Argv:       append([]string{argv0Path}, cmd[1:]...),
 		Cwd:        cwd,
@@ -829,32 +915,29 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	}
 	if err != nil {
 		detail := s.safeDetail(err.Error())
+		// Rendered on top of the redaction, which covers values and not control
+		// characters: this string reaches the approval terminal, and the next thing
+		// printed there is a question somebody judges.  Done here rather than at
+		// the CLI, so everything the broker puts on that terminal is rendered by
+		// the same hand that renders the question.
+		outcome.Error = termsafe.Line(detail)
 		// The child ran as the executor whatever failed afterwards, so it is
 		// recorded before the error is returned: without this a command that
 		// reached a managed host leaves nothing behind but a daemon-log line.
-		record := s.redactor()
-		s.Audit.Write(map[string]any{
-			"log_id": logID, "op": "exec", "peer": peer,
-			"cmd":        redactEach(record, cmd),
-			"argv0_path": record.RedactText(argv0Path),
-			"cwd":        record.RedactText(cwd),
-			"env_refs":   injected,
-			"started_at": started.Unix(),
-			"error":      detail,
-		}, collector.Output())
+		record := s.execFields(audited)
+		record["op"], record["error"] = recordExec, detail
+		s.Audit.Write(record, collector.Output())
 		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
 
-	record := s.redactor()
-	s.Audit.Write(map[string]any{
-		"log_id": logID, "op": "exec", "peer": peer,
-		"cmd":        redactEach(record, cmd),
-		"argv0_path": record.RedactText(argv0Path),
-		"cwd":        record.RedactText(cwd),
-		"env_refs":   injected, "exit_code": result.ExitCode,
-		"duration_sec": result.DurationSec, "timed_out": result.TimedOut,
-		"started_at": started.Unix(), "redactions": result.Redactions,
-	}, collector.Output())
+	outcome.ExitCode = &result.ExitCode
+	outcome.DurationSec, outcome.TimedOut = result.DurationSec, result.TimedOut
+
+	record := s.execFields(audited)
+	record["op"] = recordExec
+	record["exit_code"], record["duration_sec"] = result.ExitCode, result.DurationSec
+	record["timed_out"], record["redactions"] = result.TimedOut, result.Redactions
+	s.Audit.Write(record, collector.Output())
 
 	total := 0
 	for _, r := range result.Redactions {

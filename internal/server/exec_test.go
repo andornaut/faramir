@@ -481,3 +481,54 @@ func TestAnExecutorFailureIsRedactedBeforeItIsReported(t *testing.T) {
 type executorError struct{ msg string }
 
 func (e *executorError) Error() string { return e.msg }
+
+// An exec is a pair of records sharing one log_id, and the first is written
+// before the child runs.  Without it a command is absent from the log for as
+// long as it takes, so `faramir logs --watch` shows a playbook only once it is
+// over and a run that never returns leaves nothing behind at all.
+func TestAnExecIsRecordedWhenItStartsAndWhenItEnds(t *testing.T) {
+	s, _ := execServer(t)
+	response := exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
+	logID, _ := response["log_id"].(string)
+	if logID == "" {
+		t.Fatal("the exec was answered without a log_id")
+	}
+
+	var started, ended map[string]any
+	for _, record := range records(t, s) {
+		if str(record, "log_id") != logID {
+			continue
+		}
+		switch str(record, "op") {
+		case "exec_started":
+			started = record
+		case "exec":
+			ended = record
+		}
+	}
+	if started == nil {
+		t.Fatal("nothing was recorded when the command started")
+	}
+	if ended == nil {
+		t.Fatal("nothing was recorded when the command ended")
+	}
+	// The start record names the command, which is the whole of what it is for: a
+	// row saying only that something is running answers nothing.
+	if cmd, _ := started["cmd"].([]any); len(cmd) == 0 {
+		t.Errorf("the start record names no command: %v", started)
+	}
+	// And carries no outcome, there being none yet.  A zero exit code here would
+	// read as a command that finished cleanly the moment it began.
+	if _, ok := started["exit_code"]; ok {
+		t.Errorf("the start record carries an exit code: %v", started["exit_code"])
+	}
+	if _, ok := ended["exit_code"]; !ok {
+		t.Errorf("the end record carries no exit code: %v", ended)
+	}
+}
+
+// str reads a string field, absent reading as empty.
+func str(record map[string]any, key string) string {
+	value, _ := record[key].(string)
+	return value
+}

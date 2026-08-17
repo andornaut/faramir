@@ -72,6 +72,12 @@ type Request struct {
 	ID      string
 	Approve bool
 	WaitSec int
+	// AwaitLogID names the run an `approvals` caller approved and is waiting to
+	// hear the end of.  Only that run's outcome is reported back, which is what
+	// lets the broker leave the last one filled rather than emptying it when it is
+	// read: a caller that approved nothing is told nothing, and a filled slot does
+	// not return from every poll at once.
+	AwaitLogID string
 	// Token names the brokered command the `ask_approval` op asks about.  It is an
 	// identifier, not a credential: the op that reads it is refused to anything
 	// but root.
@@ -88,7 +94,7 @@ func Parse(payload map[string]any) (*Request, error) {
 	req := &Request{Op: "exec", EnvRefs: map[string]string{}}
 	for _, step := range []func(map[string]any, *Request) error{
 		parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
-		parseApprove, parseAskApproval, parseWaits,
+		parseApprovals, parseApprove, parseAskApproval, parseWaits,
 	} {
 		if err := step(payload, req); err != nil {
 			return nil, err
@@ -207,6 +213,22 @@ func parseEnvRefs(payload map[string]any, req *Request) error {
 			return fmt.Errorf("env_refs[%s]: %w", name, err)
 		}
 		req.EnvRefs[name] = s
+	}
+	return nil
+}
+
+// parseApprovals takes the run a watcher is waiting to hear the end of.  Absent
+// is the ordinary case: a listing, and a watcher that has approved nothing yet.
+func parseApprovals(payload map[string]any, req *Request) error {
+	if req.Op != "approvals" {
+		return nil
+	}
+	if raw, ok := payload["await_log_id"]; ok && raw != nil {
+		id, isStr := raw.(string)
+		if !isStr {
+			return errors.New("'await_log_id' must name the exec record whose ending to report")
+		}
+		req.AwaitLogID = id
 	}
 	return nil
 }

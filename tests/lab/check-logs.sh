@@ -370,11 +370,12 @@ mode=$(stat -c '%a %U:%G' "$LOG.1.gz")
 [ "$mode" = "600 faramir-broker:faramir-broker" ] && ok "and the rotated one keeps $mode" \
   || bad "the rotated log is $mode"
 
-# No copytruncate and no signal: the next append reopens by path.
+# No copytruncate and no signal: the next append reopens by path.  Two lines,
+# an exec being a pair: one record when the child starts and one when it ends.
 run -- /bin/echo after-rotation >/dev/null
 newID=$(lastID)
-[ "$(wc -l <"$LOG")" -eq 1 ] && ok "the broker wrote to the new file with no reload" \
-  || bad "the live log holds $(wc -l <"$LOG") lines after one command"
+[ "$(wc -l <"$LOG")" -eq 2 ] && ok "the broker wrote to the new file with no reload" \
+  || bad "the live log holds $(wc -l <"$LOG") lines after one command, want the pair"
 logs "$(shortOf "$newID")" >/dev/null 2>&1 && ok "and that record reads back" || bad "the post-rotation record does not read back"
 
 out=$(logs "$oldID"); code=$?
@@ -457,11 +458,21 @@ lines=$(wc -l <"$LOG")
 recs=$(jq -c . "$LOG" 2>/dev/null | wc -l)
 [ "$lines" -eq "$recs" ] && ok "every line of the log is one whole record ($recs)" \
   || bad "$lines lines, $recs parse: a write interleaved"
-ids=$(jq -r .log_id "$LOG" | sort | wc -l)
-uniq=$(jq -r .log_id "$LOG" | sort -u | wc -l)
-[ "$ids" -eq "$uniq" ] && ok "and every log_id is distinct ($uniq)" || bad "$((ids-uniq)) duplicate log_ids"
-got=$(jq -r 'select(.cmd != null) | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
+# Distinct per command rather than per record: an exec writes a pair sharing
+# one, so the id is counted once each half has been reduced to its command.
+ids=$(jq -r 'select(.op=="exec" or .op=="exec_started") | "\(.log_id) \(.op)"' "$LOG" | sort | wc -l)
+uniq=$(jq -r 'select(.op=="exec" or .op=="exec_started") | "\(.log_id) \(.op)"' "$LOG" | sort -u | wc -l)
+[ "$ids" -eq "$uniq" ] && ok "and every log_id is distinct per record ($uniq)" \
+  || bad "$((ids-uniq)) log_ids repeat within one half of the pair"
+got=$(jq -r 'select(.op=="exec") | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
 [ "$got" -eq "$n" ] && ok "all $n concurrent runs are recorded" || bad "$got of $n recorded"
+# One start record per command that ran, and none for one refused before it did:
+# over [server] max_concurrency the broker refuses rather than queues, and a
+# command that never started has nothing to say it began.
+starts=$(jq -r 'select(.op=="exec_started") | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
+ran=$(jq -r 'select(.op=="exec" and .exit_code != null) | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
+[ "$starts" -eq "$ran" ] && ok "and each of the $ran that ran was in the log from the moment it started" \
+  || bad "$starts start records for $ran commands that ran"
 grep -qF "$SECRET" "$LOG" && bad "concurrency put a value in the log" || ok "and none of them wrote a value"
 skipped=$(logs -n 40 2>&1 >/dev/null | grep -c 'do not parse')
 [ "$skipped" -eq 0 ] && ok "the reader finds nothing unparseable" || bad "the reader reported damage"
@@ -690,6 +701,44 @@ wait "$watcher" 2>/dev/null
 [ "$(jq -s length "$OUT")" -eq 2 ] && ok "--json --watch prints one value per record" \
   || bad "--json --watch: [$(cat "$OUT")]"
 rm -f "$WATCH" "$WATCH.1" "$OUT"
+
+# --------------------------------------------------------------------------
+head_ "15. a command is in the log while it is still running"
+#
+# An exec is two records under one log_id: one when the child starts, one when
+# it ends.  Without the first a command is absent from the log for as long as it
+# takes, so a playbook shows up only once it is over and a run that never
+# returns leaves nothing behind at all.
+#
+# On the live log, because what is under test is what the broker writes.
+
+runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -C "$PROJECT" -- /bin/sleep 8 >/dev/null 2>&1 &
+slow=$!
+sleep 3
+ID=$(jq -r 'select(.op=="exec_started" and (.cmd|join(" ")|test("sleep 8"))) | .log_id' $LOG 2>/dev/null | tail -1)
+[ -n "$ID" ] && [ "$ID" != null ] && ok "a running command is already in the log ($ID)" \
+  || bad "nothing was recorded until the command finished"
+[ "$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="exec") | .exit_code' $LOG 2>/dev/null | tail -1)" = "" ] \
+  && ok "and has no ending yet, there being none" || bad "an ending was recorded before the command ended"
+# The listing says started rather than leaving the column blank, which would
+# read as a command that ran and did nothing.
+logs -n 40 | grep -F "${ID##*-}" | grep -q started && ok "the listing reads it as started" \
+  || bad "a started command renders with no outcome: $(logs -n 40 | grep -F "${ID##*-}")"
+# And a lookup answers with what is known of it so far.
+logs "$ID" | grep -q 'sleep 8' && ok "and faramir logs <id> resolves it while it runs" \
+  || bad "a running command's id does not resolve: $(logs "$ID" | head -2)"
+
+wait $slow 2>/dev/null
+ended=$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="exec") | .exit_code' $LOG 2>/dev/null | tail -1)
+[ "$ended" = 0 ] && ok "the second record lands when it ends: exit 0" \
+  || bad "no ending was recorded for $ID: [$ended]"
+# The pair shares one id, and a lookup now answers with the half that says how
+# it went rather than the half that says it began.
+logs "$ID" | grep -qE 'exit +0|exit_code' && ok "and the id now resolves to the ending" \
+  || bad "the lookup still answers with the start: $(logs "$ID" | head -3)"
+# A reader selecting exec still sees one record per command.
+[ "$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="exec") | .log_id' $LOG 2>/dev/null | wc -l)" -eq 1 ] \
+  && ok "and op==exec is still one record per command" || bad "op==exec matched the pair"
 
 # --------------------------------------------------------------------------
 summary

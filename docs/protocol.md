@@ -22,9 +22,9 @@ Op | Does | Notes
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
 `list_secrets` | ref names only | Adds `refs`.
 `status` | version, `configs`, loaded files, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
-`approvals` | what is waiting | Root only. Adds `questions`.
+`approvals` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
 `approve` | answer by `id` | Root only.
-`ask_approval` | the PAM helper's half | Root only. Adds `approved`, `reason`.
+`ask_approval` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.
 
 The three root-only ops are checked with `SO_PEERCRED`: the account the coding agent runs as must not approve what the agent asked for. `status` and `list_secrets` answer whatever the value set is doing.
 
@@ -69,7 +69,24 @@ A caller with more text than one request may carry sends it a chunk at a time **
 
 `approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. The wait is clamped to 60s. It returns at most one question, ever, carrying `waiting_sec` and `expires_in_sec`; a second command asking to sudo while one is waiting is refused rather than queued.
 
+It also takes an optional `await_log_id`, naming the run the caller approved and has not yet heard the end of. When that run ends the response carries `finished`: `log_id`, `exit_code`, `duration_sec`, `timed_out` and `error`, and the poll returns as soon as the run ends rather than waiting out `wait_sec`. `exit_code` is `null` where the broker got no status for the run, `error` saying why; a zero there would read as a clean exit. Only an approved run has an ending to report, and only the caller naming it is told: the broker holds the last one rather than emptying it when it is read, so two watchers both see it and a caller that approved nothing sees none.
+
 `ask_approval` names the run by the token in the brokered command's environment and blocks until a human answers, the question expires, or the broker stops. `sudo` is blocked on it throughout, which is what makes the wait an authentication step. A token naming no running command is refused without asking anybody.
+
+`outcome_code` is which of those it was, in one word, `reason` being the sentence beside it. A refusal a human typed and a question nobody answered are not the same event and are not acted on alike, and told apart only by their prose they are told apart by whoever reads English. The same code is written to the audit record, where `faramir logs` reads it.
+
+Code | Means
+--- | ---
+`approved` | a human said yes, or this sudo was covered by the yes given for the same command
+`denied` | a human said no
+`expired` | nobody answered within `[sudo] timeout_sec`
+`not_quiescent` | a yes was turned into a no: a process of the executor's uid was alive outside the run
+`run_ended` | the command exited before the question was answered
+`broker_stopped` | the broker stopped, or was stopping when the request arrived
+`other_command` | another brokered command was registered, so no question could be put
+`unnamed_question` | the question could not be given an id, so nothing could answer it
+`unknown_token` | the token named no running command
+`no_grant` | this host was installed without `--allow-sudo`
 
 ### Responses
 

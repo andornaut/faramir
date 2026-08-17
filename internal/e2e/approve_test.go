@@ -57,7 +57,7 @@ func raise(t *testing.T, s *server.Server, argv ...string) <-chan bool {
 	}
 	granted := make(chan bool, 1)
 	go func() {
-		approved, _ := s.Approval.Ask(token)
+		approved, _, _ := s.Approval.Ask(token)
 		granted <- approved
 	}()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {

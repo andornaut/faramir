@@ -78,7 +78,7 @@ func TestTheTokenDoesNotOutliveTheCommand(t *testing.T) {
 	if token == "" {
 		t.Fatal("no token was injected")
 	}
-	if approved, _ := s.Approval.Ask(token); approved {
+	if approved, _, _ := s.Approval.Ask(token); approved {
 		t.Error("a token was approved after its command ended")
 	}
 }
@@ -129,7 +129,7 @@ func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 	}
 
 	// It runs again once the approved run ends.
-	s.Approval.Release(held)
+	s.Approval.Release(held, approval.Outcome{})
 	if response := exec(t, s, map[string]any{"cmd": []any{"/bin/true"}}); response["error"] != nil {
 		t.Errorf("a command was still refused after the approved run ended: %v", response["error"])
 	}
@@ -267,7 +267,7 @@ func raiseAndWait(t *testing.T, s *Server, logID string) (string, approval.Quest
 	})
 	granted := make(chan bool, 1)
 	go func() {
-		approved, _ := s.Approval.Ask(token)
+		approved, _, _ := s.Approval.Ask(token)
 		granted <- approved
 	}()
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
@@ -279,4 +279,65 @@ func raiseAndWait(t *testing.T, s *Server, logID string) (string, approval.Quest
 	}
 	t.Fatal("no question reached root")
 	return "", approval.Question{}, nil
+}
+
+// After a yes, the terminal that gave root away is told what became of the run.
+// It reaches root over the same op the question arrived on, so the operator's
+// only report of the command they judged costs no second channel and no read of
+// the audit log.
+func TestTheApprovalsOpReportsHowTheApprovedRunEnded(t *testing.T) {
+	s, _ := execServer(t)
+	allowSudo(t, s)
+	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
+
+	held, question, _ := raiseAndWait(t, s, "log-e")
+	if response := s.Handle(map[string]any{
+		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
+		t.Fatalf("root could not approve the run: %v", response["error"])
+	}
+
+	// Nothing yet: the run is still going, and a poll that answered now would be
+	// reporting an ending that has not happened.
+	if response := s.Handle(map[string]any{
+		"op": "approvals", "await_log_id": "log-e"}, root); response["finished"] != nil {
+		t.Errorf("a run still in flight reported an ending: %v", response["finished"])
+	}
+
+	code := 7
+	s.Approval.Release(held, approval.Outcome{
+		LogID: "log-e", ExitCode: &code, DurationSec: 2.5,
+	})
+
+	// And only to the caller waiting on this run.  The broker holds the last
+	// ending rather than emptying it when it is read, so naming the run is what
+	// keeps a stale one off a terminal that did not approve it.
+	if response := s.Handle(map[string]any{"op": "approvals"}, root); response["finished"] != nil {
+		t.Errorf("a caller that approved nothing was told how a run ended: %v", response["finished"])
+	}
+	response := s.Handle(map[string]any{"op": "approvals", "await_log_id": "log-e"}, root)
+	finished, ok := response["finished"].(*approval.Outcome)
+	if !ok {
+		t.Fatalf("the approved run's ending did not reach root: %v", response["finished"])
+	}
+	if finished.ExitCode == nil || *finished.ExitCode != 7 {
+		t.Errorf("exit code = %v, want the 7 the run ended with", finished.ExitCode)
+	}
+	// The rendered body carries it too, that being what a caller reading stdout
+	// parses.
+	if body, _ := response["output"].(string); !strings.Contains(body, `"log_id": "log-e"`) {
+		t.Errorf("the rendered body does not carry the ending: %s", body)
+	}
+}
+
+// A malformed one is refused rather than read as a caller waiting on nothing:
+// silently ignoring it would leave a watcher waiting for an ending that is never
+// matched against.
+func TestAMalformedAwaitLogIDIsRefused(t *testing.T) {
+	s, _ := execServer(t)
+	allowSudo(t, s)
+	response := s.Handle(map[string]any{"op": "approvals", "await_log_id": 7},
+		&sockutil.Peer{PID: 1, UID: 0, GID: 0})
+	if code := errorCode(t, response); code != "bad_request" {
+		t.Errorf("a non-string await_log_id got %q, want bad_request", code)
+	}
 }

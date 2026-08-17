@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/approval"
 )
 
 func writeLog(t *testing.T, lines ...string) string {
@@ -793,5 +795,115 @@ func TestTailRecordsDoesNotAllocateWhatWasAskedFor(t *testing.T) {
 	}
 	if len(records) != len(lines) {
 		t.Errorf("got %d records, want every one of the %d in the log", len(records), len(lines))
+	}
+}
+
+// An exec writes a pair sharing one log_id, so a lookup has to say which half it
+// means: the ending where there is one, and the start where the command is still
+// running.
+func TestFindRecordPrefersTheEndingOverTheStart(t *testing.T) {
+	path := writeLog(t,
+		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec_started","cmd":["playbook"]}`,
+		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec","cmd":["playbook"],"exit_code":0}`,
+		`{"log_id":"2026-08-08T20:15:09Z-a91f000002","op":"exec_started","cmd":["still-going"]}`,
+	)
+	record, _, err := findRecord(path, "a91f000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if str(record, "op") != "exec" {
+		t.Errorf("looking up a finished command found the %q record, want the ending",
+			str(record, "op"))
+	}
+
+	// And the start where that is all there is, rather than nothing: a command
+	// still running is one an operator looks up while it runs.
+	record, _, err = findRecord(path, "a91f000002")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if str(record, "op") != "exec_started" {
+		t.Errorf("looking up a running command found %q, want its start", str(record, "op"))
+	}
+}
+
+// A command that has started and not ended reads as started.  Blank in that
+// column would render it as a command that ran and did nothing, which is the one
+// reading the listing must not offer, and "running" would claim of a log read
+// later that the command is still going.
+func TestAStartedExecReadsAsStarted(t *testing.T) {
+	label, failed := outcome(map[string]any{"op": "exec_started", "cmd": []any{"playbook"}})
+	if label != "started" {
+		t.Errorf("outcome = %q, want started", label)
+	}
+	if failed {
+		t.Error("a command that has only started is painted as a failure")
+	}
+}
+
+// A question a human refused was judged; one that expired means nothing was
+// watching.  Rendered alike they read as the same event, and an operator scanning
+// for "nobody was there" would find neither.
+func TestEachAnswerReadsAsItsOwnEnding(t *testing.T) {
+	for _, tc := range []struct {
+		code   string
+		want   string
+		failed bool
+	}{
+		{approval.CodeApproved, "approved", false},
+		{approval.CodeDenied, "refused", true},
+		{approval.CodeExpired, "timed out", true},
+		{approval.CodeNotQuiescent, "not quiescent", true},
+		{approval.CodeRunEnded, "run ended", true},
+		{approval.CodeBrokerStopped, "broker stopped", true},
+		// A code this reader does not know is printed rather than blanked: the log
+		// is read by whatever version is installed, and a row saying nothing about
+		// how a question ended is the one thing this column must not print.
+		{"something_later", "something_later", true},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			label, failed := outcome(map[string]any{
+				"op": "ask_approval", "approved": tc.code == approval.CodeApproved,
+				"outcome_code": tc.code, "outcome": "prose nobody selects on",
+			})
+			if label != tc.want {
+				t.Errorf("outcome = %q, want %q", label, tc.want)
+			}
+			if failed != tc.failed {
+				t.Errorf("failed = %v, want %v", failed, tc.failed)
+			}
+		})
+	}
+}
+
+// A record written before the code existed still reads: the boolean is what it
+// carried, and a listing over a log that spans an upgrade must not blank half of
+// its rows.
+func TestAnAnswerWithNoCodeStillReads(t *testing.T) {
+	if label, failed := outcome(map[string]any{
+		"op": "ask_approval", "approved": false, "outcome": "refused by root",
+	}); label != "refused" || !failed {
+		t.Errorf("outcome = (%q, %v), want (refused, true)", label, failed)
+	}
+}
+
+// A lookup stops at the record it was asked for.  Damage after it is damage in
+// the way of some other question, and reporting it here says this record may be
+// incomplete when it is not.
+func TestFindRecordStopsAtTheEnding(t *testing.T) {
+	path := writeLog(t,
+		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec_started","cmd":["playbook"]}`,
+		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec","cmd":["playbook"],"exit_code":0}`,
+		`{"log_id":"2026-08-08T20:15:09Z-a91f0000`,
+	)
+	record, skipped, err := findRecord(path, "a91f000001")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if str(record, "op") != "exec" {
+		t.Errorf("found the %q record, want the ending", str(record, "op"))
+	}
+	if skipped != 0 {
+		t.Errorf("skipped = %d, want 0: the damage is past the record asked for", skipped)
 	}
 }

@@ -31,8 +31,10 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/spf13/cobra"
+	"golang.org/x/sys/unix"
 
 	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -98,7 +100,8 @@ func newApprovalsCmd() *cobra.Command {
 		},
 	}
 	o.add(c)
-	c.Flags().BoolVar(&watch, "watch", false, "wait for questions and answer them as they arrive")
+	c.Flags().BoolVar(&watch, "watch", false,
+		"answer questions as they arrive and report how each run ended")
 	return c
 }
 
@@ -182,7 +185,7 @@ func denyWaiting(socketPath string, asJSON bool) int {
 //
 // One question, never a queue, so the caller indexes rather than loops.
 func waiting(socketPath, verb string) ([]approval.Question, int) {
-	questions, err := pending(socketPath, 0)
+	questions, _, err := pending(socketPath, 0, "")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
 		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
@@ -243,22 +246,33 @@ func listAsJSON(questions []approval.Question, code int) int {
 }
 
 // watchApprovals is the shape an operator leaves running: it blocks until a
-// request arrives, shows it, and reads the answer from this terminal.
+// request arrives, shows it, reads the answer from this terminal, and reports
+// how an approved run ended.  A yes is the last decision made about that
+// command, so this is where what it did is said.
 //
 // This terminal, deliberately.  The prompt must not land where the agent can
 // type, so run it somewhere the agent does not reach: not a shell it drives, and
 // not a pane of a session it shares.
 func watchApprovals(socketPath string) int {
 	warnIfTypeable()
-	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, and "+
-		"anything else refuses. One command is asked about at a time. Ctrl-C to stop.")
+	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, "+
+		"anything else refuses, and a blank line is asked again. What was typed "+
+		"before a question arrived is discarded rather than spent on it. One command "+
+		"is asked about at a time, and how an approved one ended prints here. "+
+		"Ctrl-C to stop.")
 	// No set of ids already answered, and none is wanted.  The broker drops a
 	// question the moment it is answered, refused or expired, and only one is ever
 	// outstanding, so a question cannot come back round to be shown twice.  A set
 	// would be worse than unnecessary: an id is three random bytes, so a later
 	// question can draw one a stale entry still holds and be skipped in silence.
+	//
+	// awaiting is the run this terminal approved and has not yet heard the end of.
+	// One, never a list: an approved run holds every other brokered command until
+	// it ends, so a second cannot be in flight, and nothing else can raise a
+	// question while this one is going.
+	var awaiting string
 	for {
-		questions, err := pending(socketPath, watchWait)
+		questions, finished, err := pending(socketPath, watchWait, awaiting)
 		if err != nil {
 			// Out, rather than reconnecting.  A watcher that heals itself is one whose
 			// absence is invisible: every question raised while it was reconnecting
@@ -275,6 +289,10 @@ func watchApprovals(socketPath string) int {
 				"reconnecting: questions raised while nothing was watching would "+
 				"expire unanswered. Start it again once the broker is back.")
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
+		}
+		if finished != nil {
+			printOutcome(*finished)
+			awaiting = ""
 		}
 		for _, question := range questions {
 			printQuestion(question)
@@ -299,6 +317,22 @@ func watchApprovals(socketPath string) int {
 			// and gone, the broker has already said which, and watching continues.
 			switch code := answer("approve", socketPath, question.ID, approve, false); code {
 			case 0:
+				// Named, like the ending that follows it: that one arrives after the
+				// terminal has moved on, so the two are read together only if both say
+				// which run they are about.  "started" rather than "approved" for the
+				// same reason `faramir logs` says it -- the answer is spent, and what is
+				// worth printing is what became of the command.  It pairs with the
+				// "exited" below, both being events at a moment.
+				//
+				// Only a yes is waited on.  A refused run holds nothing once the question
+				// is answered, so another command may start and raise the next question,
+				// and this terminal has to be back on the poll for it; its ending is in
+				// the log like any other command's.
+				if approve {
+					awaiting = question.LogID
+				}
+				fmt.Printf("  %s %s\n", question.LogID,
+					map[bool]string{true: "started", false: "refused"}[approve])
 			case 69:
 				fmt.Fprintf(os.Stderr, "faramir approve: %s could not be answered and is "+
 					"still open with nobody watching it; stopping rather than leaving it "+
@@ -309,6 +343,28 @@ func watchApprovals(socketPath string) int {
 					"closed; run the command again if it still needs to\n", question.ID)
 			}
 		}
+	}
+}
+
+// printOutcome says how the approved run ended, in one line naming the record
+// rather than reproducing it: the log holds the command, the refs and the
+// output, and this terminal is where the next question has to be readable.
+//
+// A run with no exit code is said to have ended without one.  Printing a zero
+// there would read as a clean exit, which is the one thing this line must not
+// get wrong: it is the only report the operator who gave root away receives.
+func printOutcome(outcome approval.Outcome) {
+	switch {
+	case outcome.Error != "":
+		fmt.Printf("  %s failed: %s\n", outcome.LogID, outcome.Error)
+	case outcome.ExitCode == nil:
+		fmt.Printf("  %s ended, no exit status\n", outcome.LogID)
+	case outcome.TimedOut:
+		fmt.Printf("  %s exited %d after %.1fs, timed out\n",
+			outcome.LogID, *outcome.ExitCode, outcome.DurationSec)
+	default:
+		fmt.Printf("  %s exited %d after %.1fs\n",
+			outcome.LogID, *outcome.ExitCode, outcome.DurationSec)
 	}
 }
 
@@ -367,21 +423,102 @@ func warnIfTypeable() {
 // and eat the answer to the next.
 var answers = bufio.NewReader(os.Stdin)
 
-// readAnswer reads one line and reports what it means.  ok is false only when
-// there is no more input to read, which is the one condition that ends the
-// watch: everything else, an empty line and a sentence alike, is an answer, and
-// every answer that is not yes is a no.
-func readAnswer() (approve, ok bool) {
-	fmt.Print("  approve? [yes/no] ")
-	line, err := answers.ReadString('\n')
-	if err != nil && line == "" {
-		return false, false
+// fromTerminal is answers as it starts out, kept so that discardTyped can tell
+// whether it is still reading the terminal.  A test substitutes answers for a
+// reader of its own, and scripted answers are read in order rather than
+// discarded.
+var fromTerminal = answers
+
+// discardTyped drops what was typed before the prompt was printed, so that no
+// answer is banked against a question nobody had read yet.
+//
+// Without it a line typed while nothing was pending sits in the terminal until
+// the next question arrives and is spent on it the instant it does, which reads
+// as an instant refusal of a question the operator never saw.  An answer has to
+// be made against a question, so what predates the question is not one.
+//
+// Both halves of the queue, because input rests in two places: the terminal's
+// own, emptied by the ioctl, and this reader's, emptied after it.  Discarding
+// only what is buffered here would leave the terminal's to arrive a moment
+// later.
+//
+// Terminals only, checked twice over.  Input that was not typed was not typed
+// early: a substituted reader is a test's script and a redirected stdin is a
+// file, and both are meant to be read in order.  TCFLSH covers the second, ENOTTY
+// being how a stdin that is not a terminal answers.
+//
+// This narrows the window rather than closing it: a keystroke landing between
+// the flush and the read is still banked.  What is left is the few microseconds
+// between the two, in place of the whole time a question was not yet asked.
+func discardTyped() {
+	if answers != fromTerminal {
+		return
 	}
-	return approves(line), true
+	if err := unix.IoctlSetInt(int(os.Stdin.Fd()), unix.TCFLSH, unix.TCIFLUSH); err != nil {
+		return
+	}
+	// Only what has already been read into this buffer; never a blocking read.
+	_, _ = answers.Discard(answers.Buffered())
+}
+
+// readAnswer reads until the operator answers and reports what that answer
+// means.  ok is false only when there is no more input to read, which is the one
+// condition that ends the watch.
+//
+// A line holding nothing printable is not an answer and is asked again rather
+// than counted as a no.  Deny by default is unchanged, and this is where it
+// comes from instead: an unanswered question expires, and the broker refuses it
+// on the way out.  A refusal that has to be typed is one the operator meant,
+// where a stray newline is nobody saying anything, and spending a question on
+// it answers for an operator who has not read it yet.
+//
+// Only what is empty.  Anything printable is an answer and so a refusal, a
+// punctuation mark and an escape sequence's printable tail included: a
+// keypress is a person at the terminal, and the safe reading of one that does
+// not spell yes is no.
+//
+// The cost is paid where it belongs.  A question nobody answers now takes its
+// expiry to be refused, rather than being refused at once by whatever was in the
+// terminal, so the command waits longer to be told no.  Waiting is what an
+// unattended question is supposed to do.
+func readAnswer() (approve, ok bool) {
+	// Only before the first prompt.  What is in the terminal then predates the
+	// question and is not an answer to it; what arrives after was typed by
+	// somebody who has seen it, so a re-ask must not throw it away.  Flushing
+	// every pass drops the answer to a blank line typed ahead of it, and reprints
+	// the prompt with nothing to show for it.
+	for first := true; ; first = false {
+		if first {
+			discardTyped()
+		}
+		fmt.Print("  approve? [yes/no] ")
+		line, err := answers.ReadString('\n')
+		if err != nil && line == "" {
+			return false, false
+		}
+		if answerOf(line) == "" {
+			continue
+		}
+		return approves(line), true
+	}
+}
+
+// answerOf is the part of a line that carries the answer: what is left once the
+// whitespace and the unprintable bytes around it are gone.  Empty is no answer
+// at all.
+//
+// The edges only.  A line is stripped of what a terminal puts around an answer
+// -- a newline, a carriage return, an escape sequence a keypress left behind --
+// and never of what sits inside one, so nothing is edited into a yes it did not
+// spell.  "y<NUL>es" is a refusal, as it reads.
+func answerOf(line string) string {
+	return strings.TrimFunc(line, func(r rune) bool {
+		return unicode.IsSpace(r) || !unicode.IsPrint(r)
+	})
 }
 
 // approves is deny by default, as every other answer path is: only an explicit
-// yes approves, and a typo, a stray word or an empty line is a no.
+// yes approves, and a typo, a stray word or a punctuation mark is a no.
 //
 // The whole word, not "y".  The prompt above asks for `yes`, and the threat this
 // answer is guarded against is a keystroke the operator did not make: a tmux
@@ -389,7 +526,7 @@ func readAnswer() (approve, ok bool) {
 // Two bytes rather than four is a thin difference to rest anything on, but a
 // tool that accepts less than it asks for is one whose prompt is not the rule.
 func approves(line string) bool {
-	return strings.ToLower(strings.TrimSpace(line)) == "yes"
+	return strings.ToLower(answerOf(line)) == "yes"
 }
 
 // printQuestion shows one question.  Every caller-chosen string in it (the
@@ -426,30 +563,38 @@ func printQuestion(question approval.Question) {
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.
-func pending(socketPath string, waitSec int) ([]approval.Question, error) {
+//
+// awaitLogID names the run this caller approved and has not yet heard the end
+// of, and is the only run it is told about.  Empty asks about none, which is
+// what a listing wants and what a watcher that has approved nothing sends.
+func pending(socketPath string, waitSec int, awaitLogID string) ([]approval.Question, *approval.Outcome, error) {
 	request := map[string]any{"op": "approvals"}
 	if waitSec > 0 {
 		request["wait_sec"] = waitSec
+	}
+	if awaitLogID != "" {
+		request["await_log_id"] = awaitLogID
 	}
 	// The read deadline has to outlast the broker's own wait, or every long poll
 	// looks like a broker that stopped answering.
 	line, err := roundTrip(socketPath, request, time.Duration(waitSec+30)*time.Second)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var response struct {
 		Questions []approval.Question `json:"questions"`
+		Finished  *approval.Outcome   `json:"finished"`
 		Error     *struct {
 			Message string `json:"message"`
 		} `json:"error"`
 	}
 	if err := json.Unmarshal(line, &response); err != nil {
-		return nil, fmt.Errorf("malformed response: %w", err)
+		return nil, nil, fmt.Errorf("malformed response: %w", err)
 	}
 	if response.Error != nil {
-		return nil, fmt.Errorf("%s", response.Error.Message)
+		return nil, nil, fmt.Errorf("%s", response.Error.Message)
 	}
-	return response.Questions, nil
+	return response.Questions, response.Finished, nil
 }
 
 func answer(prog, socketPath, id string, approve, asJSON bool) int {

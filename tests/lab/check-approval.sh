@@ -248,6 +248,14 @@ grep -q 'uid=0\|^root$' /tmp/to.out && bad "*** an unanswered command became roo
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo after 2>&1)
 [ "$(tail -1 <<<"$out")" = after ] && ok "and ordinary commands run again at once" \
   || bad "the host stayed held after the timeout: ${out:0:110}"
+# Nobody watching and somebody saying no are different events, and the record
+# says which without anyone parsing the sentence beside it.
+[ "$(jq -r 'select(.op=="ask_approval") | .outcome_code' $LOG 2>/dev/null | tail -1)" = expired ] \
+  && ok "the record calls it expired rather than refused" \
+  || bad "an unanswered question is recorded as $(jq -r 'select(.op=="ask_approval") | .outcome_code' $LOG 2>/dev/null | tail -1)"
+/usr/local/bin/faramir logs --color never -n 10 | grep -q 'timed out' \
+  && ok "and the listing reads it as timed out" \
+  || bad "the listing does not tell it from a refusal: $(/usr/local/bin/faramir logs --color never -n 3)"
 
 sed -i "s/^timeout_sec = .*/timeout_sec = ${before:-120}/" $CFG
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
@@ -275,7 +283,45 @@ out=$(env PAM_TYPE=auth PAM_USER=faramir-exec "$HELPER" --account faramir-exec 2
   || bad "the helper authenticated a caller that is not a brokered command"
 
 # --------------------------------------------------------------------------
-head_ "10. the record"
+head_ "10. what became of the approved run"
+#
+# A yes is the last decision anybody makes about that command, so the terminal
+# that gave root away is told how it ended.  It comes back on the poll the
+# question came in on, which is what `faramir approvals --watch` is sitting in:
+# no second channel, and no read of the audit log.
+#
+# Only here, and not in the Go tests: filling the ending in is the exec path's,
+# and reaching that path means a real sudo through PAM.
+
+sudoRun /tmp/ended.out /usr/bin/sudo /bin/sh -c 'exit 3'
+ID=$(waitq)
+LOGID=$(/usr/local/bin/faramir approvals --json 2>/dev/null | grep -oE '"log_id"[^,]*' | head -1 | cut -d'"' -f4)
+[ -n "$LOGID" ] && ok "the question names the exec record it belongs to ($LOGID)" \
+  || bad "the question carries no log_id, so there is nothing to wait on"
+/usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+wait $RUN 2>/dev/null
+
+# The op as the watcher sends it: the run it approved, by name.
+ending() { /usr/bin/python3 -c "
+import socket,sys,json
+s=socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
+request={'op':'approvals'}
+if sys.argv[1]: request['await_log_id']=sys.argv[1]
+s.sendall(json.dumps(request).encode()+b'\n')
+f=json.loads(s.recv(65536).decode()).get('finished')
+print('none' if f is None else '%s %s' % (f.get('log_id'), f.get('exit_code')))" "$1"; }
+
+[ "$(ending "$LOGID")" = "$LOGID 3" ] \
+  && ok "and its ending reached root: exit 3, the status the command left" \
+  || bad "the ending did not reach root: $(ending "$LOGID")"
+# The slot is not emptied when it is read, so naming the run is the whole of
+# what keeps a stale ending off a terminal that approved nothing.
+[ "$(ending "")" = none ] && ok "and a caller that approved nothing is told nothing" \
+  || bad "an ending reached a caller that named no run: $(ending "")"
+quiesce
+
+# --------------------------------------------------------------------------
+head_ "11. the record"
 
 [ "$(grep -c '"approved":true' $LOG)" -ge 1 ] && ok "an approval is recorded" || bad "no approval recorded"
 [ "$(grep -c '"approved":false' $LOG)" -ge 1 ] && ok "a refusal is recorded" || bad "no refusal recorded"
@@ -284,13 +330,25 @@ head_ "10. the record"
   || bad "an approval renders with no outcome"
 /usr/local/bin/faramir logs --color never -n 80 | grep -q refused && ok "and a refusal reads as refused" \
   || bad "a refusal renders with no outcome"
+# Which no it was, for each of the three this suite produced.  A denial, an
+# expiry and a yes read alike in prose and are acted on differently.
+for want in approved denied expired; do
+  [ "$(jq -r --arg c "$want" 'select(.op=="ask_approval" and .outcome_code==$c) | .outcome_code' $LOG 2>/dev/null | head -1)" = "$want" ] \
+    && ok "a $want ending is recorded as one" || bad "no ask_approval record carries outcome_code=$want"
+done
+# The prose is kept beside it: it names the account that answered, which no code
+# carries.
+jq -r 'select(.op=="ask_approval" and .outcome_code=="denied") | .outcome' $LOG 2>/dev/null | grep -q 'refused by' \
+  && ok "and the sentence beside it still names who answered" \
+  || bad "the prose was dropped when the code arrived"
+
 # The approval points at the command it authorised.
 id=$(jq -r 'select(.op=="ask_approval" and .approved==true) | .exec_log_id' $LOG 2>/dev/null | tail -1)
 [ -n "$id" ] && [ "$id" != null ] && ok "and names the command's own record ($id)" \
   || bad "an approval does not point at the run it authorised"
 
 # --------------------------------------------------------------------------
-head_ "11. the notifier"
+head_ "12. the notifier"
 #
 # [sudo] notify_command is what says a question is waiting, and it is init's:
 # a drop-in setting it is refused, so `faramir init --notify-command` is the

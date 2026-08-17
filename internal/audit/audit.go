@@ -115,7 +115,9 @@ type Output struct {
 	Dropped int
 }
 
-// Log is an append-only JSONL sink.  One record per brokered invocation.
+// Log is an append-only JSONL sink.  One record per brokered invocation, except
+// an exec, which writes a pair sharing one log_id: one when the child starts and
+// one when it ends.
 type Log struct {
 	config config.AuditConfig
 	mu     sync.Mutex

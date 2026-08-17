@@ -76,7 +76,8 @@ func watching(t *testing.T, s *Server, approve bool) *human {
 				return
 			default:
 			}
-			for _, question := range s.QuestionsWait(50 * time.Millisecond) {
+			questions, _ := s.Poll(50*time.Millisecond, "")
+			for _, question := range questions {
 				h.mu.Lock()
 				h.asked = append(h.asked, question)
 				h.mu.Unlock()
@@ -133,7 +134,7 @@ func TestNoExecUserMeansNothingToAsk(t *testing.T) {
 	if env := s.Env("anything"); len(env) != 0 {
 		t.Errorf("Env = %v, want empty", env)
 	}
-	if approved, _ := s.Ask("anything"); approved {
+	if approved, _, _ := s.Ask("anything"); approved {
 		t.Error("an approval was approved on a host that grants none")
 	}
 }
@@ -150,7 +151,7 @@ func TestAnApprovedRequestIsAllowed(t *testing.T) {
 	if token == "" {
 		t.Fatal("Register returned no token")
 	}
-	approved, reason := s.Ask(token)
+	approved, _, reason := s.Ask(token)
 	if !approved {
 		t.Fatalf("Ask = false (%s), want approved", reason)
 	}
@@ -177,7 +178,7 @@ func TestARefusedRequestIsDenied(t *testing.T) {
 	s := started(t, baseConfig())
 	watching(t, s, false)
 
-	approved, reason := s.Ask(mustRegister(s, run()))
+	approved, _, reason := s.Ask(mustRegister(s, run()))
 	if approved {
 		t.Fatal("a refused request was approved")
 	}
@@ -195,12 +196,12 @@ func TestAnUnknownTokenIsRefusedWithoutAsking(t *testing.T) {
 	h := watching(t, s, true)
 	// Registered and then finished, which is the late request this covers.
 	token := mustRegister(s, run())
-	s.Release(token)
+	s.Release(token, Outcome{})
 
-	if approved, _ := s.Ask(token); approved {
+	if approved, _, _ := s.Ask(token); approved {
 		t.Error("a released token was approved")
 	}
-	if approved, _ := s.Ask("0123456789abcdef"); approved {
+	if approved, _, _ := s.Ask("0123456789abcdef"); approved {
 		t.Error("an invented token was approved")
 	}
 	if h.questions() != 0 {
@@ -218,7 +219,7 @@ func TestOneApprovalCoversTheRestOfTheCommand(t *testing.T) {
 
 	token := mustRegister(s, run())
 	for i := range 5 {
-		if approved, reason := s.Ask(token); !approved {
+		if approved, _, reason := s.Ask(token); !approved {
 			t.Fatalf("request %d: %s", i, reason)
 		}
 	}
@@ -236,15 +237,15 @@ func TestAnotherCommandIsAskedAboutSeparately(t *testing.T) {
 	h := watching(t, s, true)
 
 	first := mustRegister(s, run())
-	if approved, _ := s.Ask(first); !approved {
+	if approved, _, _ := s.Ask(first); !approved {
 		t.Fatal("the first command was refused")
 	}
 	// The first run ends before the next starts, which is what the serialization
 	// requires: two brokered commands do not run at once while one holds root.
-	s.Release(first)
+	s.Release(first, Outcome{})
 
 	second := mustRegister(s, Run{Argv: []string{"rm", "-rf", "/"}, Cwd: "/srv"})
-	if approved, _ := s.Ask(second); !approved {
+	if approved, _, _ := s.Ask(second); !approved {
 		t.Fatal("the second command was refused")
 	}
 	if h.questions() != 2 {
@@ -287,7 +288,7 @@ func TestAnApprovalHoldsEveryOtherCommand(t *testing.T) {
 		t.Error("a new command was admitted while an approval was live: it " +
 			"could read the approved run's token and ride it")
 	}
-	s.Release(first)
+	s.Release(first, Outcome{})
 	if _, heldBy := s.Register(Run{Argv: []string{"curl", "ok"}, Cwd: "/tmp"}); heldBy != "" {
 		t.Error("a command was still held after the approved run ended")
 	}
@@ -336,7 +337,7 @@ func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 
 	granted := make(chan bool, 1)
 	go func() {
-		approved, _ := s.Ask(first)
+		approved, _, _ := s.Ask(first)
 		granted <- approved
 	}()
 	id := waitForQuestion(t, s)
@@ -372,8 +373,8 @@ func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 	}
 	// And the next question, from a run started after the host drained, takes.
 	// Both go: the refused run's sudo failed, so that command is over too.
-	s.Release(other)
-	s.Release(first)
+	s.Release(other, Outcome{})
+	s.Release(first, Outcome{})
 	second := mustRegister(s, run())
 	go s.Ask(second)
 	if err := s.Answer(waitForQuestion(t, s), true, "operator"); err != nil {
@@ -387,11 +388,11 @@ func TestAnApprovalDoesNotOutliveItsCommand(t *testing.T) {
 	watching(t, s, true)
 
 	token := mustRegister(s, run())
-	if approved, _ := s.Ask(token); !approved {
+	if approved, _, _ := s.Ask(token); !approved {
 		t.Fatal("refused")
 	}
-	s.Release(token)
-	if approved, _ := s.Ask(token); approved {
+	s.Release(token, Outcome{})
+	if approved, _, _ := s.Ask(token); approved {
 		t.Error("an approved token was still allowed after its command ended")
 	}
 }
@@ -404,7 +405,7 @@ func TestARefusalIsNotCarried(t *testing.T) {
 
 	token := mustRegister(s, run())
 	for i := range 2 {
-		if approved, _ := s.Ask(token); approved {
+		if approved, _, _ := s.Ask(token); approved {
 			t.Fatalf("request %d was approved", i)
 		}
 	}
@@ -420,7 +421,7 @@ func TestAnUnansweredQuestionExpires(t *testing.T) {
 	cfg.TimeoutSec = 1
 	s := started(t, cfg)
 
-	approved, reason := s.Ask(mustRegister(s, run()))
+	approved, _, reason := s.Ask(mustRegister(s, run()))
 	if approved {
 		t.Error("a question nobody answered approved an approval")
 	}
@@ -443,7 +444,7 @@ func TestConcurrentRequestsShareOneQuestion(t *testing.T) {
 	refused := make(chan string, 3)
 	for range 3 {
 		wg.Go(func() {
-			if approved, reason := s.Ask(token); !approved {
+			if approved, _, reason := s.Ask(token); !approved {
 				refused <- reason
 			}
 		})
@@ -472,7 +473,7 @@ func TestEveryRequestIsRecorded(t *testing.T) {
 	}
 	watching(t, s, false)
 
-	if approved, _ := s.Ask(mustRegister(s, run())); approved {
+	if approved, _, _ := s.Ask(mustRegister(s, run())); approved {
 		t.Fatal("a refused request was approved")
 	}
 	mu.Lock()
@@ -523,7 +524,7 @@ func TestStopReleasesWhatIsWaiting(t *testing.T) {
 
 	done := make(chan string, 1)
 	go func() {
-		approved, reason := s.Ask(token)
+		approved, _, reason := s.Ask(token)
 		if approved {
 			done <- "approved"
 			return
@@ -562,7 +563,7 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 
 	done := make(chan string, 1)
 	go func() {
-		approved, reason := s.Ask(token)
+		approved, _, reason := s.Ask(token)
 		if approved {
 			done <- "approved"
 			return
@@ -571,7 +572,7 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 	}()
 	id := waitForQuestion(t, s)
 
-	s.Release(token)
+	s.Release(token, Outcome{})
 
 	select {
 	case reason := <-done:
@@ -608,14 +609,14 @@ func TestNoQuestionIsPutWhileAnotherCommandIsRegistered(t *testing.T) {
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
 	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
 
-	approved, reason := s.Ask(first)
+	approved, _, reason := s.Ask(first)
 	if approved {
 		t.Fatal("a sudo was approved while a second command shared the executor's uid")
 	}
 	if !strings.Contains(reason, "playbook two") {
 		t.Errorf("reason = %q, want the command in the way named", reason)
 	}
-	if _, raised, _ := s.pend(second, Run{Argv: []string{"playbook", "two"}}); raised {
+	if _, raised, _, _ := s.pend(second, Run{Argv: []string{"playbook", "two"}}); raised {
 		t.Fatal("the second command raised a question of its own")
 	}
 	if len(s.Questions()) != 0 {
@@ -638,10 +639,10 @@ func TestARefusalSaysWhichLimitItHit(t *testing.T) {
 	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
 	// Two commands registered, so neither may be approved whatever a human types:
 	// each could read the other's token.  The refusal names the one in the way.
-	if _, _, reason := s.pend(first, run()); !strings.Contains(reason, "playbook two") {
+	if _, _, _, reason := s.pend(first, run()); !strings.Contains(reason, "playbook two") {
 		t.Errorf("reason = %q, want the other running command named", reason)
 	}
-	if _, _, reason := s.pend(second, run()); !strings.Contains(reason, "playbook one") {
+	if _, _, _, reason := s.pend(second, run()); !strings.Contains(reason, "playbook one") {
 		t.Errorf("reason = %q, want the other running command named", reason)
 	}
 
@@ -650,8 +651,13 @@ func TestARefusalSaysWhichLimitItHit(t *testing.T) {
 	stopping := New(baseConfig())
 	token := mustRegister(stopping, run())
 	stopping.Stop()
-	if _, _, reason := stopping.pend(token, run()); !strings.Contains(reason, "stopping") {
+	_, _, code, reason := stopping.pend(token, run())
+	if !strings.Contains(reason, "stopping") {
 		t.Errorf("reason = %q, want the stopping broker named rather than a busy host", reason)
+	}
+	if code != CodeBrokerStopped {
+		t.Errorf("code = %q, want %q: a caller telling this from a refusal reads the "+
+			"code, not the sentence", code, CodeBrokerStopped)
 	}
 }
 
@@ -668,18 +674,18 @@ func TestAnsweringAnUnknownQuestionFails(t *testing.T) {
 
 // A watcher blocks until there is something to answer rather than polling, and
 // gives up on its own clock so a broker that went away is noticed.
-func TestQuestionsWaitBlocksUntilSomethingIsAsked(t *testing.T) {
+func TestPollBlocksUntilSomethingIsAsked(t *testing.T) {
 	s := started(t, baseConfig())
 
-	if got := s.QuestionsWait(50 * time.Millisecond); len(got) != 0 {
-		t.Errorf("QuestionsWait = %v with nothing waiting", got)
+	if got, _ := s.Poll(50*time.Millisecond, ""); len(got) != 0 {
+		t.Errorf("Poll = %v with nothing waiting", got)
 	}
 	token := mustRegister(s, run())
-	go func() { _, _ = s.Ask(token) }()
+	go func() { _, _, _ = s.Ask(token) }()
 
-	questions := s.QuestionsWait(5 * time.Second)
+	questions, _ := s.Poll(5*time.Second, "")
 	if len(questions) != 1 {
-		t.Fatalf("QuestionsWait returned %d questions, want the one just asked", len(questions))
+		t.Fatalf("Poll returned %d questions, want the one just asked", len(questions))
 	}
 	question := questions[0]
 	if question.ID == "" || question.Prompt == "" {
@@ -698,7 +704,7 @@ func TestTheEarlyRefusalDoesNotBlock(t *testing.T) {
 	_ = mustRegister(s, Run{Argv: []string{"playbook", "two"}})
 
 	done := make(chan struct{})
-	go func() { _, _ = s.Ask(first); close(done) }()
+	go func() { _, _, _ = s.Ask(first); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -713,10 +719,251 @@ func TestTheQuestionIsPutOnceTheOtherCommandEnds(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
 	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
-	if _, _, reason := s.pend(first, run()); reason == "" {
+	if _, _, _, reason := s.pend(first, run()); reason == "" {
 		t.Fatal("a question was filed with two commands registered")
 	}
-	s.Release(second)
-	go func() { _, _ = s.Ask(first) }()
+	s.Release(second, Outcome{})
+	go func() { _, _, _ = s.Ask(first) }()
 	waitForQuestion(t, s) // fails if none was put after the other command ended
+}
+
+// --------------------------------------------------------------------------
+// What became of the run (`faramir approvals --watch` reports the ending)
+// --------------------------------------------------------------------------
+
+// approved is a run taken all the way to a yes, and the token it is held by.
+// The watcher answers the question the Ask puts; the run's approved flag is what
+// Release then keys the outcome off.
+func approved(t *testing.T, s *Server) string {
+	t.Helper()
+	watching(t, s, true)
+	token := mustRegister(s, run())
+	if ok, _, reason := s.Ask(token); !ok {
+		t.Fatalf("the run was not approved: %s", reason)
+	}
+	return token
+}
+
+// The terminal that gave root away is told what became of it, so a yes is not
+// the last thing the operator hears about the command they judged.
+func TestAnApprovedRunPublishesItsEnding(t *testing.T) {
+	s := started(t, baseConfig())
+	token := approved(t, s)
+
+	code := 3
+	s.Release(token, Outcome{LogID: "log-1", ExitCode: &code, DurationSec: 1.5})
+
+	_, finished := s.Poll(0, "log-1")
+	if finished == nil {
+		t.Fatal("an approved run ended with nothing reported to the terminal that approved it")
+	}
+	if finished.ExitCode == nil || *finished.ExitCode != 3 {
+		t.Errorf("exit code = %v, want the 3 the run ended with", finished.ExitCode)
+	}
+	if finished.DurationSec != 1.5 {
+		t.Errorf("duration = %v, want 1.5", finished.DurationSec)
+	}
+}
+
+// Only the run the caller names.  The slot is never emptied when it is read, so
+// matching is the whole of what keeps a stale ending from printing under a
+// question it does not belong to, and what keeps a filled slot from returning
+// from every poll at once.
+func TestAnEndingReachesOnlyTheCallerWaitingForIt(t *testing.T) {
+	s := started(t, baseConfig())
+	token := approved(t, s)
+	code := 0
+	s.Release(token, Outcome{LogID: "log-1", ExitCode: &code})
+
+	if _, finished := s.Poll(0, ""); finished != nil {
+		t.Error("a caller that approved nothing was told how somebody else's run ended")
+	}
+	if _, finished := s.Poll(0, "log-2"); finished != nil {
+		t.Error("a caller waiting on one run was told about another")
+	}
+	if _, finished := s.Poll(0, "log-1"); finished == nil {
+		t.Error("the caller waiting on this run was not told it ended")
+	}
+}
+
+// A run nobody was asked about has no ending to report: no terminal is waiting
+// to hear it, and a line under a question that was never put is one nobody can
+// place.
+func TestARunNobodyApprovedPublishesNothing(t *testing.T) {
+	s := started(t, baseConfig())
+	token := mustRegister(s, run())
+	code := 0
+	s.Release(token, Outcome{LogID: "log-1", ExitCode: &code})
+
+	if _, finished := s.Poll(0, "log-1"); finished != nil {
+		t.Error("a run that was never approved reported an ending")
+	}
+}
+
+// The ending arrives when the run ends rather than when the poll runs out, so
+// the line follows the command instead of trailing a whole wait behind it.
+func TestAWatcherIsWokenByTheEnding(t *testing.T) {
+	s := started(t, baseConfig())
+	token := approved(t, s)
+
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		code := 0
+		s.Release(token, Outcome{LogID: "log-1", ExitCode: &code})
+	}()
+
+	start := time.Now()
+	_, finished := s.Poll(5*time.Second, "log-1")
+	if finished == nil {
+		t.Fatal("the poll returned without the ending it was waiting for")
+	}
+	if waited := time.Since(start); waited > 2*time.Second {
+		t.Errorf("the poll waited %v for an ending it should have been woken by", waited)
+	}
+}
+
+// A run the broker never got a status for says so.  A zero exit code here would
+// read as a clean exit, which is the one thing the operator's only report of the
+// run must not get wrong.
+func TestAnEndingWithNoStatusReportsNone(t *testing.T) {
+	s := started(t, baseConfig())
+	token := approved(t, s)
+	s.Release(token, Outcome{LogID: "log-1", Error: "the executor could not be reached"})
+
+	_, finished := s.Poll(0, "log-1")
+	if finished == nil {
+		t.Fatal("a failed run reported no ending")
+	}
+	if finished.ExitCode != nil {
+		t.Errorf("exit code = %v, want none for a run that never reported one", *finished.ExitCode)
+	}
+	if finished.Error == "" {
+		t.Error("a run that failed reported neither a status nor a reason")
+	}
+}
+
+// --------------------------------------------------------------------------
+// Which no it was
+// --------------------------------------------------------------------------
+
+// A refusal a human typed and a question nobody answered are not the same event:
+// one was judged, the other means nothing was watching.  Told apart only by
+// their prose they are told apart by whoever reads English, which is neither the
+// log reader nor anything selecting on a field.
+func TestEachEndingCarriesItsOwnCode(t *testing.T) {
+	t.Run("a human said no", func(t *testing.T) {
+		s := started(t, baseConfig())
+		watching(t, s, false)
+		token := mustRegister(s, run())
+		approved, code, _ := s.Ask(token)
+		if approved {
+			t.Fatal("a refusal was approved")
+		}
+		if code != CodeDenied {
+			t.Errorf("code = %q, want %q", code, CodeDenied)
+		}
+	})
+
+	t.Run("a human said yes", func(t *testing.T) {
+		s := started(t, baseConfig())
+		watching(t, s, true)
+		token := mustRegister(s, run())
+		if approved, code, _ := s.Ask(token); !approved || code != CodeApproved {
+			t.Errorf("approved=%v code=%q, want true and %q", approved, code, CodeApproved)
+		}
+	})
+
+	t.Run("nobody answered", func(t *testing.T) {
+		cfg := baseConfig()
+		cfg.TimeoutSec = 1
+		s := started(t, cfg)
+		token := mustRegister(s, run())
+		approved, code, reason := s.Ask(token)
+		if approved {
+			t.Fatal("a question nobody answered was approved")
+		}
+		if code != CodeExpired {
+			t.Errorf("code = %q (%s), want %q: an expiry is not a refusal somebody typed",
+				code, reason, CodeExpired)
+		}
+	})
+
+	t.Run("the command ended first", func(t *testing.T) {
+		s := started(t, baseConfig())
+		token := mustRegister(s, run())
+		asked := make(chan string, 1)
+		go func() {
+			_, code, _ := s.Ask(token)
+			asked <- code
+		}()
+		waitForQuestion(t, s)
+		s.Release(token, Outcome{})
+		if code := <-asked; code != CodeRunEnded {
+			t.Errorf("code = %q, want %q", code, CodeRunEnded)
+		}
+	})
+
+	t.Run("the host was not quiet", func(t *testing.T) {
+		s := started(t, baseConfig())
+		s.Quiescent = func() (bool, string) { return false, "1234 (sleep)" }
+		token := mustRegister(s, run())
+		asked := make(chan string, 1)
+		go func() {
+			_, code, _ := s.Ask(token)
+			asked <- code
+		}()
+		id := waitForQuestion(t, s)
+		// The yes the broker turns into a no, which is neither the operator's
+		// refusal nor an expiry.
+		if err := s.Answer(id, true, "the test"); err == nil {
+			t.Fatal("a yes was taken on a host that was not quiet")
+		}
+		if code := <-asked; code != CodeNotQuiescent {
+			t.Errorf("code = %q, want %q", code, CodeNotQuiescent)
+		}
+	})
+
+	t.Run("a token naming nothing", func(t *testing.T) {
+		s := started(t, baseConfig())
+		if _, code, _ := s.Ask("0123456789abcdef"); code != CodeUnknownToken {
+			t.Errorf("code = %q, want %q", code, CodeUnknownToken)
+		}
+	})
+
+	t.Run("a host that grants nothing", func(t *testing.T) {
+		s := started(t, config.SudoConfig{})
+		if _, code, _ := s.Ask("whatever"); code != CodeNoGrant {
+			t.Errorf("code = %q, want %q", code, CodeNoGrant)
+		}
+	})
+}
+
+// And the code reaches the record, which is where it is read from.  The prose
+// stays beside it: it names the account that answered or the process that was in
+// the way, and neither fits in a code.
+func TestTheRecordCarriesTheCodeAndTheProse(t *testing.T) {
+	cfg := baseConfig()
+	cfg.TimeoutSec = 1
+	s := started(t, cfg)
+	var entries []map[string]any
+	var mu sync.Mutex
+	s.Record = func(entry map[string]any) {
+		mu.Lock()
+		defer mu.Unlock()
+		entries = append(entries, entry)
+	}
+	token := mustRegister(s, run())
+	s.Ask(token)
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(entries) != 1 {
+		t.Fatalf("%d records for one request, want 1", len(entries))
+	}
+	if code, _ := entries[0]["outcome_code"].(string); code != CodeExpired {
+		t.Errorf("outcome_code = %q, want %q", code, CodeExpired)
+	}
+	if prose, _ := entries[0]["outcome"].(string); !strings.Contains(prose, "nobody answered") {
+		t.Errorf("outcome = %q, want the sentence kept beside the code", prose)
+	}
 }

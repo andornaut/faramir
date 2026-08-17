@@ -36,6 +36,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/termsafe"
 )
@@ -45,10 +46,11 @@ import (
 const defaultLogCount = 20
 
 // watchPoll is how often a watcher looks for what has been appended.  Records
-// arrive when a brokered command finishes, so this is a human's idea of "as it
-// happens" rather than a rate anything depends on: an interval short enough that
-// a row follows the command that wrote it, and long enough that a terminal left
-// open overnight is not a stat per hundredth of a second.
+// arrive when a brokered command starts and again when it ends, so this is a
+// human's idea of "as it happens" rather than a rate anything depends on: an
+// interval short enough that a row follows the command that wrote it, and long
+// enough that a terminal left open overnight is not a stat per hundredth of a
+// second.
 const watchPoll = 500 * time.Millisecond
 
 type logsFlags struct {
@@ -85,8 +87,9 @@ func runLogs(f logsFlags, args []string) int {
 		return 2
 	}
 
-	// A log-id is one record, already written; there is nothing to wait for, and a
-	// command that printed it and then sat there would look like it had hung.
+	// A log-id names a command already recorded, and this prints what is known of
+	// it and returns; a command that printed that and then sat there would look
+	// like it had hung.
 	// Refused here rather than below the root check, so the answer is the same
 	// whoever typed it.
 	if f.watch && firstArg(args) != "" {
@@ -576,12 +579,16 @@ func (f *follower) rotated() (bool, error) {
 	return !os.SameFile(info, f.info) || info.Size() < f.offset, nil
 }
 
-// findRecord is the first record whose id matches, or nil.  It parses one line
-// at a time and keeps only the match, so looking a record up costs the same on a
+// findRecord is the last record whose id matches, or nil.  It parses one line at
+// a time and keeps only the match, so looking a record up costs the same on a
 // log of any length.
 //
-// First match, and with a log_id distinct by construction there is only ever
-// one: see audit.NewLogID.
+// The last rather than the first, because an exec writes a pair sharing one
+// log_id: the record when the child starts, and the record when it ends.  The
+// last is the one that answers what was asked, an ending where there is one and
+// the start where the command is still running.  A log_id is distinct by
+// construction (see audit.NewLogID), so the pair is the only reason there is
+// ever more than one.
 func findRecord(path, id string) (map[string]any, int, error) {
 	var found map[string]any
 	skipped := 0
@@ -590,11 +597,15 @@ func findRecord(path, id string) (map[string]any, int, error) {
 		if lost {
 			skipped++
 		}
-		if record != nil && matchesID(record, id) {
-			found = record
-			return false
+		if record == nil || !matchesID(record, id) {
+			return true
 		}
-		return true
+		found = record
+		// Stopped at the ending, which is the last of the pair: reading on would
+		// cost a scan of the whole file for a record already in hand, and would
+		// count damage past it as damage in the way of this lookup.  A start half
+		// is not the end of the pair, so that one reads on.
+		return str(record, "op") == opExecStarted
 	})
 	return found, skipped, err
 }
@@ -632,6 +643,20 @@ func emptyReason(path string, count int) string {
 // which is what audit.NewLogID puts after the timestamp.
 const shortIDWidth = 10
 
+// opWidth is the longest op the broker writes, `ask_approval` and `exec_started`
+// at twelve, plus the separating space.  Sized past the longest rather than to
+// it: pad appends a single space to anything already at the width, so a column
+// exactly as wide as its longest value renders that value one character wider
+// than every other row and puts every following column of that row somewhere
+// else.  A listing whose columns move from row to row has to be read a row at a
+// time.
+const opWidth = 13
+
+// opExecStarted is the first half of the pair an exec writes, and the one record
+// with no ending in it.  Named here as well as at the broker that writes it:
+// this reader is pointed at a file, not linked to the daemon.
+const opExecStarted = "exec_started"
+
 // summarise is one record on one line: when, what, how it ended, how many
 // values it touched, and the id to ask for the rest.  The id is the trailing
 // hex, the timestamp being in the row already; lookup takes either form.
@@ -639,7 +664,7 @@ func summarise(record map[string]any, paint palette) string {
 	var b strings.Builder
 	b.WriteString(paint.dim(pad(shortID(record), shortIDWidth)))
 	b.WriteString(" " + clockTime(record) + "  ")
-	b.WriteString(paint.bold(pad(str(record, "op"), 7)))
+	b.WriteString(paint.bold(pad(str(record, "op"), opWidth)))
 	b.WriteString(paintOutcome(record, paint))
 	b.WriteString(paint.ref(pad(redactionTotal(record), 12)))
 	b.WriteString(detail(record))
@@ -679,16 +704,59 @@ func paintOutcome(record map[string]any, paint palette) string {
 	return paint.ok(padded)
 }
 
+// answerLabel is how a question's ending reads in the listing's column, or the
+// code itself where this reader does not know it.  The code rather than a blank
+// or an "unknown": a log written by a newer broker is read by whatever version
+// is installed, and a row that says nothing about how a question ended is the
+// one thing this column must not print.
+func answerLabel(code string) string {
+	labels := map[string]string{
+		approval.CodeApproved:      "approved",
+		approval.CodeDenied:        "refused",
+		approval.CodeExpired:       "timed out",
+		approval.CodeNotQuiescent:  "not quiescent",
+		approval.CodeRunEnded:      "run ended",
+		approval.CodeBrokerStopped: "broker stopped",
+		approval.CodeOtherCommand:  "other command",
+		approval.CodeUnnamed:       "unnamed",
+		approval.CodeUnknownToken:  "unknown token",
+		approval.CodeNoGrant:       "no grant",
+	}
+	if label, known := labels[code]; known {
+		return label
+	}
+	return termsafe.Line(code)
+}
+
 // outcome is how an exec ended, and whether that is a failure.  A redact ran no
 // command, so it has neither.
 func outcome(record map[string]any) (string, bool) {
+	// The first half of an exec's pair, which has no ending yet by construction:
+	// said rather than left blank, which would render a command still running as
+	// one that ran and did nothing.
+	//
+	// "started" rather than "running": this is a record of a moment, and a log is
+	// mostly read later.  A row claiming a command is running says something false
+	// about one the broker lost three days ago, where "it began" stays true and
+	// the missing second record is what says it never reported an ending.
+	if str(record, "op") == opExecStarted {
+		return "started", false
+	}
 	if timedOut, _ := boolean(record, "timed_out"); timedOut {
 		return "timed out", true
 	}
-	// An approval ends in an answer rather than an exit code.  A refusal is the
-	// one painted as a failure, not because refusing is wrong (it is the safe
+	// An approval ends in an answer rather than an exit code.  Everything but a
+	// yes is painted as a failure, not because refusing is wrong (it is the safe
 	// answer) but because something asked, and that is what an operator is scanning
 	// for.
+	//
+	// Which no it was, by the code rather than the sentence beside it: a question
+	// a human refused was judged, and one that expired means nothing was watching.
+	// Rendered alike they read as the same event, and they are acted on
+	// differently.
+	if code := str(record, "outcome_code"); code != "" {
+		return answerLabel(code), code != approval.CodeApproved
+	}
 	if approved, ok := boolean(record, "approved"); ok {
 		if approved {
 			return "approved", false
