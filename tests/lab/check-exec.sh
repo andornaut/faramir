@@ -105,6 +105,13 @@ grep -q "LEAKED_FROM_CALLER" <<<"$out" && bad "the caller's environment reached 
 grep -qE "^(FARAMIR_|LISTEN_|NOTIFY_|INVOCATION_ID|JOURNAL_)" <<<"$env_out" \
   && bad "daemon environment leaked: $(grep -E '^(FARAMIR_|LISTEN_|NOTIFY_|INVOCATION_ID|JOURNAL_)' <<<"$env_out" | head -2)" \
   || ok "and none of the daemon's own activation environment does either"
+# Nor the key that decrypts everything. Named apart from the daemon prefixes
+# above because this is the one variable whose arrival would undo the whole
+# arrangement: a child holding it needs no broker, and sops reads both spellings.
+grep -qE "^(SOPS_AGE_KEY|SOPS_AGE_KEY_FILE)=|AGE-SECRET-KEY-" <<<"$env_out" \
+  && bad "*** the age key reached the child's environment ***" \
+  || ok "and no age key, in either spelling sops reads"
+
 # An injected ref is there, and comes back as its token.
 out=$(run --env PW=secret://db/password -- /usr/bin/printenv PW)
 [ "$out" = "$TOKEN" ] && ok "an injected ref is in the child's environment, redacted on the way out" \

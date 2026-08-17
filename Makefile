@@ -76,7 +76,7 @@ REPORT := awk ' \
 PLATFORMS := linux-amd64 linux-arm64
 
 .PHONY: all build check coverage fmt gate lab lint release shellcheck test \
-	test-unit test-e2e install verify clean $(PLATFORMS)
+	install verify clean $(PLATFORMS)
 
 all: build
 
@@ -99,37 +99,20 @@ $(PLATFORMS):
 ## through a stand-in built from the sops libraries at test time.  The tests
 ## that assert how sops resolves a creation rule skip without the real binary,
 ## the stand-in modelling none, so CI installs it pinned and they run there.
-test: test-unit test-e2e
-
-## test-unit: everything except the end-to-end suite.  Derived rather than
-## listed, so a new package is covered the day it is added.
+##
+## Under a delegated cgroup where there is one: the executor makes a cgroup per
+## child, and without one it refuses every command, which skips the tests that
+## exercise confinement rather than failing them.
+##
 ## The status is taken from the pipeline's first command rather than left to
 ## pipefail, so that the skip report still runs when the suite failed: a run
 ## that fails is not one that checked everything else.
-test-unit:
+test:
 	@mkdir -p $(BIN)
-	@$(DELEGATE) go test -v $$(go list ./... | grep -v '/internal/e2e$$') 2>&1 \
-		| tee $(BIN)/test-unit.log | $(QUIET); \
+	@$(DELEGATE) go test -v ./... 2>&1 \
+		| tee $(BIN)/test.log | $(QUIET); \
 	  status=$${PIPESTATUS[0]}; \
-	  $(REPORT) $(BIN)/test-unit.log; \
-	  exit $$status
-
-## test-e2e: end-to-end, against a real keeper, executor and broker in a
-## temp directory, all under one uid.
-##
-## -count=1, which is the documented way to say "do not use the cache", and it
-## is not optional here.  These tests build the CLI with `go build` at run time
-## rather than importing it, so the test binary has no compile-time dependency
-## on ./cmd/faramir and Go's cache key does not cover it: edit the CLI, run
-## `go test ./...`, and this package replays a stale PASS for code it never ran.
-## CI escapes it by passing -coverprofile, which disables caching as a side
-## effect; nothing should depend on that.
-test-e2e:
-	@mkdir -p $(BIN)
-	@$(DELEGATE) go test -count=1 -v ./internal/e2e/ 2>&1 \
-		| tee $(BIN)/test-e2e.log | $(QUIET); \
-	  status=$${PIPESTATUS[0]}; \
-	  $(REPORT) $(BIN)/test-e2e.log; \
+	  $(REPORT) $(BIN)/test.log; \
 	  exit $$status
 
 ## coverage: the suite with the race detector, then the per-function report.

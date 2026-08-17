@@ -158,27 +158,10 @@ func newRunCmd() *cobra.Command {
 		// The program's own flags are its own: pflag stops at the "--", and
 		// everything after it is passed through untouched.
 		RunE: func(c *cobra.Command, rest []string) error {
-			// Files first, so an explicit --env overrides the file.
-			refs := map[string]string{}
-			for _, path := range envFiles {
-				pairs, err := readEnvFile(path)
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
-					return codeErr(2)
-				}
-				maps.Copy(refs, pairs)
-			}
-			for _, pair := range envRefs {
-				name, uri, ok := strings.Cut(pair, "=")
-				if !ok {
-					fmt.Fprintln(os.Stderr, "faramir run: --env expects NAME=secret://ref")
-					return codeErr(2)
-				}
-				if err := checkRef(name, uri); err != nil {
-					fmt.Fprintf(os.Stderr, "faramir run: --env %v\n", err)
-					return codeErr(2)
-				}
-				refs[name] = uri
+			refs, err := execRefs(envFiles, envRefs)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "faramir run: %v\n", err)
+				return codeErr(2)
 			}
 
 			request := map[string]any{"op": opExec, "cmd": rest}
@@ -208,6 +191,35 @@ func newRunCmd() *cobra.Command {
 	c.Flags().StringArrayVar(&envRefs, "env", nil, "NAME=secret://ref (repeatable)")
 	c.Flags().StringArrayVar(&envFiles, "env-file", nil, "file of NAME=secret://ref lines (repeatable)")
 	return c
+}
+
+// execRefs is what a command's environment is built from: every --env-file in
+// the order it was given, and then every --env, so a flag naming a variable a
+// file also names is the one that takes.  Documented that way, and it is the
+// order that makes a file of defaults useful.
+//
+// Its own function rather than the flag handler's tail, so the rule can be
+// asserted without a broker to run a command against.
+func execRefs(envFiles, envRefs []string) (map[string]string, error) {
+	refs := map[string]string{}
+	for _, path := range envFiles {
+		pairs, err := readEnvFile(path)
+		if err != nil {
+			return nil, err
+		}
+		maps.Copy(refs, pairs)
+	}
+	for _, pair := range envRefs {
+		name, uri, ok := strings.Cut(pair, "=")
+		if !ok {
+			return nil, errors.New("--env expects NAME=secret://ref")
+		}
+		if err := checkRef(name, uri); err != nil {
+			return nil, fmt.Errorf("--env %w", err)
+		}
+		refs[name] = uri
+	}
+	return refs, nil
 }
 
 // checkRef validates one NAME=secret://ref pair, for both --env and --env-file.

@@ -515,3 +515,34 @@ func (r blockingReader) Read([]byte) (int, error) {
 	<-r.never
 	return 0, io.EOF
 }
+
+// A flag beats a file that names the same variable, which is what makes a file
+// of defaults useful: the file is the fleet's, the flag is this command's. The
+// file's other entries survive it.
+func TestAnEnvFlagOverridesTheFileThatNamesIt(t *testing.T) {
+	file := writeEnvFile(t, "ROUTER_PW=secret://nope\nAPI=secret://home/api/token\n")
+	refs, err := execRefs([]string{file}, []string{"ROUTER_PW=secret://home/router/admin"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refs["ROUTER_PW"] != "secret://home/router/admin" {
+		t.Errorf("ROUTER_PW = %q, want the flag's ref", refs["ROUTER_PW"])
+	}
+	if refs["API"] != "secret://home/api/token" {
+		t.Errorf("API = %q, want the file's other entry kept", refs["API"])
+	}
+}
+
+// And the order among files is the order they were given, so the last --env-file
+// wins where two name the same variable.
+func TestTheLastEnvFileWins(t *testing.T) {
+	first := writeEnvFile(t, "PW=secret://first\n")
+	second := writeEnvFile(t, "PW=secret://second\n")
+	refs, err := execRefs([]string{first, second}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if refs["PW"] != "secret://second" {
+		t.Errorf("PW = %q, want the later file's ref", refs["PW"])
+	}
+}

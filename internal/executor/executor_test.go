@@ -186,3 +186,36 @@ func tail(s string) string {
 	}
 	return s
 }
+
+// The abort path flushes what the child printed before it. A command killed at
+// its deadline has usually written something first, and that text goes to the
+// caller and to the audit sink like any other: leaving it unredacted would make
+// the timeout a way to print a value in the clear.
+func TestOutputPrintedBeforeATimeoutIsStillRedacted(t *testing.T) {
+	h := newHarness(t, 1<<20)
+	r := redact.New([]redact.Secret{{Ref: "a/b", Value: secret}}, redact.DefaultPolicy())
+	var audited strings.Builder
+	result, err := Run(h.execCfg, h.executorCfg, r, func(s string) { audited.WriteString(s) },
+		Request{
+			Argv: []string{"/bin/sh", "-c", `printf '%s\n' "$SECRET"; sleep 30`},
+			Cwd:  h.dir,
+			Env:  map[string]string{"PATH": "/usr/bin:/bin", "SECRET": secret},
+			// Shorter than the sleep, so the kill is what ends the run.
+			TimeoutSec: 1,
+		})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	if !result.TimedOut {
+		t.Fatal("the run ended without timing out, so the abort path was never taken")
+	}
+	if strings.Contains(result.Output, secret) {
+		t.Errorf("PLAINTEXT LEAKED on the timeout path: %q", result.Output)
+	}
+	if !strings.Contains(result.Output, redact.TokenFor("a/b")) {
+		t.Errorf("output = %q, want what was printed before the kill, tokenized", result.Output)
+	}
+	if strings.Contains(audited.String(), secret) {
+		t.Errorf("PLAINTEXT REACHED THE AUDIT SINK on the timeout path: %q", audited.String())
+	}
+}

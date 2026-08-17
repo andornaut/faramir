@@ -280,8 +280,6 @@ Target | Does
 --- | ---
 `make build` | A static binary into `bin/`
 `make test` | The whole suite. Needs no sops installed
-`make test-unit` | Everything except end-to-end
-`make test-e2e` | End-to-end against a real broker in a temp directory
 `make coverage` | Race-enabled suite plus per-function report
 `make fmt` | Apply the import and format rules CI checks
 `make lint` | `golangci-lint`
