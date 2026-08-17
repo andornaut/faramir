@@ -28,6 +28,11 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 	if _, err := os.Stat("/bin/sh"); err != nil {
 		t.Skip("no /bin/sh")
 	}
+	// The response bound is a package variable rather than a key, so a test that
+	// narrowed it and did not restore it would narrow every test after it.
+	was := config.MaxOutputBytes
+	config.MaxOutputBytes = maxOutputBytes
+	t.Cleanup(func() { config.MaxOutputBytes = was })
 	dir := t.TempDir()
 	cfg := &config.Config{
 		Command: config.CommandConfig{
