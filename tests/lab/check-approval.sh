@@ -375,4 +375,128 @@ grep -q "$SECRET" "$NOTIFY" && bad "*** an announcement carries the plaintext va
   || ok "and no secret value"
 
 # --------------------------------------------------------------------------
+head_ "13. an Enter is not an answer"
+#
+# Two ways a keypress reaches a question it was not meant for, and neither may
+# refuse it:
+#
+#   - typed before the question arrived, which sits in the terminal until one
+#     does and is spent on it the instant it appears;
+#   - typed after the prompt, which is somebody at the terminal saying nothing.
+#
+# Only here, and not in the Go tests: both are about the terminal's own input
+# queue, so what they need is a pty and a real question raised through PAM.
+
+# The driver: a watcher on a pty of its own, a brokered sudo to raise the
+# question, and the keystrokes written in at the moment each case is about.  It
+# reports what the terminal saw rather than deciding anything, so the assertions
+# stay in the shell with the rest of them.
+cat >/tmp/watch-answer.py <<'EOS'
+import os, pty, select, subprocess, sys, time
+
+MODE = sys.argv[1]
+
+pid, fd = pty.fork()
+if pid == 0:
+    os.execv("/usr/local/bin/faramir", ["faramir", "approvals", "--watch"])
+    os._exit(127)
+
+buf = ""
+
+
+def pump(until, timeout):
+    """Read the pty until until(buf), or the timeout runs out."""
+    global buf
+    end = time.time() + timeout
+    while time.time() < end:
+        if until(buf):
+            return True
+        r, _, _ = select.select([fd], [], [], 0.2)
+        if not r:
+            continue
+        try:
+            data = os.read(fd, 4096)
+        except OSError:
+            break
+        if not data:
+            break
+        buf += data.decode("utf-8", "replace")
+    return until(buf)
+
+
+def give_up(why):
+    print("FAILED", why)
+    print("PROMPTS", buf.count("approve? [yes/no]"))
+    os.kill(pid, 9)
+    sys.exit(0)
+
+
+if not pump(lambda b: "waiting for approval requests" in b, 30):
+    give_up("the watcher never started")
+
+# Before the question exists, which is the whole of the first case: these have
+# to be in the terminal's queue by the time one is raised.
+if MODE == "before":
+    os.write(fd, b"\n\n\n\n")
+    time.sleep(1)
+
+run = subprocess.Popen(
+    ["runuser", "-u", "op", "--", "/usr/local/bin/faramir", "run", "--quiet",
+     "-t", "45", "--", "/usr/bin/sudo", "/usr/bin/id", "-un"],
+    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+if not pump(lambda b: "approve? [yes/no]" in b, 60):
+    give_up("no prompt appeared")
+
+if MODE == "after":
+    # One burst, the blank lines and the answer behind them: separate writes
+    # would pass even where each re-ask throws away what is queued behind it.
+    os.write(fd, b"\n\n\n\nyes\n")
+else:
+    os.write(fd, b"yes\n")
+
+# "refused: " with the colon, which is the watcher's own line.  Bare "refused"
+# is in every question, the expires line saying what happens if nobody answers,
+# so waiting on that returns before the answer has been read at all.
+pump(lambda b: " started" in b or "refused: " in b, 60)
+try:
+    run.wait(timeout=60)
+except subprocess.TimeoutExpired:
+    run.kill()
+os.kill(pid, 15)
+
+print("PROMPTS", buf.count("approve? [yes/no]"))
+print("REFUSED", "yes" if "refused: " in buf else "no")
+print("STARTED", "yes" if " started" in buf else "no")
+EOS
+
+field() { sed -n "s/^$2 //p" <<<"$1" | head -1; }
+
+quiesce
+out=$(/usr/bin/python3 /tmp/watch-answer.py before 2>&1)
+[ "$(field "$out" REFUSED)" = no ] \
+  && ok "Enters typed before the question do not refuse it" \
+  || bad "an Enter typed before the question refused it: ${out//$'\n'/ }"
+[ "$(field "$out" STARTED)" = yes ] && ok "and the yes after them is taken" \
+  || bad "the yes was not taken: ${out//$'\n'/ }"
+# One prompt, not five: they were discarded rather than asked again, which is
+# what keeps them from being spent on a question nobody had read.
+[ "$(field "$out" PROMPTS)" = 1 ] && ok "and they were discarded rather than re-asked" \
+  || bad "$(field "$out" PROMPTS) prompts, want 1: input predating the question reached it"
+quiesce
+
+out=$(/usr/bin/python3 /tmp/watch-answer.py after 2>&1)
+[ "$(field "$out" REFUSED)" = no ] \
+  && ok "Enters typed after the prompt do not refuse the question" \
+  || bad "an Enter typed at the prompt refused the question: ${out//$'\n'/ }"
+[ "$(field "$out" STARTED)" = yes ] && ok "and the yes behind them is taken" \
+  || bad "the yes behind them was lost: ${out//$'\n'/ }"
+# Five: the first prompt and one re-ask for each blank line.  Fewer means a
+# blank line was counted as an answer; the yes surviving the burst is what says
+# a re-ask does not discard what is queued behind it.
+[ "$(field "$out" PROMPTS)" = 5 ] && ok "and each was asked again rather than counted" \
+  || bad "$(field "$out" PROMPTS) prompts, want 5"
+quiesce
+
+# --------------------------------------------------------------------------
 summary
