@@ -82,7 +82,7 @@ So a command whose output is not text does not come back as it was written: rand
 
 Because a caller cannot see that from the output itself, `run` reports it the way it reports truncation, on stderr and suppressed by `--quiet`:
 
-```
+```text
 faramir run: 1735 non-text byte(s) replaced; log_id=...
 ```
 

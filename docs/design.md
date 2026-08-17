@@ -86,7 +86,7 @@ Left alone rather than rewritten:
 
 Case | Why
 --- | ---
-One this rewrite already produced | Idempotence. Matched as a prefix of the whole command, in either spelling, `source ` or `. `
+One this rewrite already produced | Idempotence. Matched as a prefix of the whole command, in either spelling, `source` or `.`, each followed by a space
 A read of a running command's output, such as Claude Code's `BashOutput` | It starts nothing. What it reads was redacted when the command filling the buffer was started
 An empty command | Nothing to cover
 A denied command | Refused instead

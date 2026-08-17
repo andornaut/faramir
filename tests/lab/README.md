@@ -16,8 +16,8 @@ Three binaries must be beside `lab.sh` before the first `up`. The image has no n
 
 | File | Where it comes from |
 | --- | --- |
-| `sops` | https://github.com/getsops/sops/releases |
-| `age` | https://github.com/FiloSottile/age/releases |
+| `sops` | <https://github.com/getsops/sops/releases> |
+| `age` | <https://github.com/FiloSottile/age/releases> |
 | `age-keygen` | the same age release |
 
 `fetch` takes upstream's own builds, which are static, so the image needs no libc to match. Both the version and the sha256 are pinned in `lab.sh`: these are what the lab decrypts and generates keys with, so a run that says a release is fit to ship says it about a tool named there. A digest that does not match is refused and nothing is written. Bumping a version means changing its digest too, which the refusal prints.
