@@ -50,7 +50,8 @@ const detailFixture = `{"log_id":"w5vq7dbf000007","op":"exec",` +
 func TestPrintRecordRendersEveryField(t *testing.T) {
 	got := renderRecord(t, detailFixture, plain(t))
 	for _, want := range []string{
-		"id         w5vq7dbf000007",
+		// The id leads the summary line rather than being a field of its own.
+		"w5vq7dbf000007",
 		"reduced    fields were cut to fit [audit] max_record_bytes",
 		"caller     root (uid 0), pid 4242",
 		"cwd        /srv/project",

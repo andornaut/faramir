@@ -41,8 +41,6 @@ logsAt() {
 
 # lastID is the id of the record written most recently.
 lastID() { tail -1 "$LOG" | jq -r .log_id; }
-# What the listing prints is the whole id, so it pastes back as it stands.
-shortOf() { printf '%s' "$1"; }
 
 echo "log $LOG, $(wc -l <"$LOG") records to start"
 
@@ -104,12 +102,6 @@ cited() { # description, then the argv of a run that must be refused
     bad "$label: log_id $id names no record"
     return
   fi
-  # What is on screen is the short form, so that has to be accepted back.
-  if logs "$(shortOf "$id")" >/dev/null 2>&1; then
-    ok "$label: its short form resolves too"
-  else
-    bad "$label: the short form $(shortOf "$id") does not resolve"
-  fi
 }
 
 cited "unknown ref"      --env X=secret://no/such -- /bin/true
@@ -139,7 +131,7 @@ run --env PW=secret://db/password -- \
 printf 'hello world\n' | runuser -u op -- /usr/local/bin/faramir redact >/dev/null 2>&1
 idRedactOp=$(lastID)
 
-row() { logs -n 40 | grep -F "$(shortOf "$1")"; }
+row() { logs -n 40 | grep -F "$1"; }
 
 grep -qE 'exit 0 +[0-9.]+s' <<<"$(row "$idOK")"   && ok "a run that succeeded shows its exit and duration" \
   || bad "exit 0 row: [$(row "$idOK")]"
@@ -209,8 +201,8 @@ days=$(logs -n 40 | grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2} ')
 # Oldest first: the log is read against what somebody remembers doing.
 first=$(logs -n 3 | grep -v '^[0-9]\{4\}-' | head -1 | awk '{print $1}')
 last=$(logs -n 3 | grep -v '^[0-9]\{4\}-' | tail -1 | awk '{print $1}')
-[ "$last" = "$(shortOf "$(lastID)")" ] && ok "the newest record is last" \
-  || bad "the last row is $last, newest is $(shortOf "$(lastID)")"
+[ "$last" = "$(lastID)" ] && ok "the newest record is last" \
+  || bad "the last row is $last, newest is $(lastID)"
 [ "$first" != "$last" ] && ok "and the listing is in order" || bad "-n 3 printed one row"
 
 # --------------------------------------------------------------------------
@@ -303,7 +295,7 @@ logsAt "$BIGCFG" w5vqbbbb000406 >/dev/null; t2=$(date +%s%N)
 # different record, which is exactly the mistake a lookup must not make.
 out=$(logsAt "$BIGCFG" w5vqbbbb000196)
 grep -q 'record-406 *$' <<<"$out" && ok "and a lookup returns the record asked for" \
-  || bad "bbbb000196 gave [$(head -2 <<<"$out")]"
+  || bad "w5vqbbbb000196 gave [$(head -2 <<<"$out")]"
 
 # --------------------------------------------------------------------------
 head_ "6. a log that was damaged, or written by something else"
@@ -379,7 +371,7 @@ run -- /bin/echo after-rotation >/dev/null
 newID=$(lastID)
 [ "$(wc -l <"$LOG")" -eq 2 ] && ok "the broker wrote to the new file with no reload" \
   || bad "the live log holds $(wc -l <"$LOG") lines after one command, want the pair"
-logs "$(shortOf "$newID")" >/dev/null 2>&1 && ok "and that record reads back" || bad "the post-rotation record does not read back"
+logs "$newID" >/dev/null 2>&1 && ok "and that record reads back" || bad "the post-rotation record does not read back"
 
 out=$(logs "$oldID"); code=$?
 [ $code -eq 1 ] && ok "an id that rotated out is a failure, not an empty answer" || bad "rotated-out id: exit $code"
@@ -725,8 +717,8 @@ ID=$(jq -r 'select(.op=="exec_started" and (.cmd|join(" ")|test("sleep 8"))) | .
   && ok "and has no ending yet, there being none" || bad "an ending was recorded before the command ended"
 # The listing says started rather than leaving the column blank, which would
 # read as a command that ran and did nothing.
-logs -n 40 | grep -F "${ID##*-}" | grep -q started && ok "the listing reads it as started" \
-  || bad "a started command renders with no outcome: $(logs -n 40 | grep -F "${ID##*-}")"
+logs -n 40 | grep -F "$ID" | grep -q started && ok "the listing reads it as started" \
+  || bad "a started command renders with no outcome: $(logs -n 40 | grep -F "$ID")"
 # And a lookup answers with what is known of it so far.
 logs "$ID" | grep -q 'sleep 8' && ok "and faramir logs <id> resolves it while it runs" \
   || bad "a running command's id does not resolve: $(logs "$ID" | head -2)"

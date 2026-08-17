@@ -541,7 +541,9 @@ func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
 	line := summarise(rec(t, `{"log_id":"w5vq7dbf00a91f","op":"exec",`+
 		`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0,"duration_sec":1.5,`+
 		`"redactions":[{"token":"«SECRET:a»","count":2}]}`), plain(t))
-	for _, want := range []string{"a91f", "exec", "exit 0", "1.50s", "2 redacted",
+	// The whole id, which is what a lookup takes: asserting on its tail would pass
+	// a row that printed only that, which is what this column used to do.
+	for _, want := range []string{"w5vq7dbf00a91f", "exec", "exit 0", "1.50s", "2 redacted",
 		"ansible-playbook msmtp.yml"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("summary is missing %q: %s", want, line)

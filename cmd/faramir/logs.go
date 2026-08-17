@@ -639,11 +639,11 @@ func emptyReason(path string, count int) string {
 	return path + " holds no records to show"
 }
 
-// shortIDWidth is what audit.NewLogID mints plus the separating space.  Sized
-// past the id rather than to it, for the reason opWidth is: pad appends a space
-// to anything already at the width, so a column exactly as wide as its content
-// puts every following column of that row somewhere else.
-const shortIDWidth = 15
+// logIDWidth is what audit.NewLogID mints plus the separating space.  Sized past
+// the id rather than to it, for the reason opWidth is: pad appends a space to
+// anything already at the width, so a column exactly as wide as its content puts
+// every following column of that row somewhere else.
+const logIDWidth = 15
 
 // opWidth is the longest op the broker writes, `ask_approval` and `exec_started`
 // at twelve, plus the separating space.  Sized past the longest rather than to
@@ -660,11 +660,11 @@ const opWidth = 13
 const opExecStarted = "exec_started"
 
 // summarise is one record on one line: when, what, how it ended, how many
-// values it touched, and the id to ask for the rest.  The id is the trailing
-// hex, the timestamp being in the row already; lookup takes either form.
+// values it touched, and the id to ask for the rest.  The id is printed whole,
+// there being no other form of it, and is what a lookup takes.
 func summarise(record map[string]any, paint palette) string {
 	var b strings.Builder
-	b.WriteString(paint.dim(pad(str(record, "log_id"), shortIDWidth)))
+	b.WriteString(paint.dim(pad(str(record, "log_id"), logIDWidth)))
 	b.WriteString(" " + clockTime(record) + "  ")
 	b.WriteString(paint.bold(pad(str(record, "op"), opWidth)))
 	b.WriteString(paintOutcome(record, paint))
@@ -844,8 +844,10 @@ func printField(paint palette, label, value string) {
 
 // printRecord is the whole of one record, output included.
 func printRecord(record map[string]any, paint palette) {
+	// The summary line leads with the id, so it is not repeated as a field below:
+	// the two were once different renderings of it, the row printing a tail, and
+	// an id has one form now.
 	fmt.Println(summarise(record, paint))
-	printField(paint, "id", str(record, "log_id"))
 	// Above the fields it qualifies rather than under them: what a reduced record
 	// holds was cut to fit the cap, so a reader has to know that before believing
 	// a short argv or a list of refs that ends where the record ran out of room.
