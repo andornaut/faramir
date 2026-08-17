@@ -259,6 +259,29 @@ func errorDetail(response protocol.Response) string {
 	return ""
 }
 
+// askInBackground puts the question from a goroutine, Ask being the blocked
+// sudo's call, and returns the channel it answers on.
+//
+// The test does not end until Ask has returned: it writes its audit record
+// after the answer, and a write that lands while the test's temporary directory
+// is being removed fails the test.  The approval server is stopped first, so a
+// test that ended without answering does not park the wait forever.
+func askInBackground(t *testing.T, s *Server, token string) <-chan bool {
+	t.Helper()
+	granted := make(chan bool, 1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		approved, _, _ := s.Approval.Ask(token)
+		granted <- approved
+	}()
+	t.Cleanup(func() {
+		s.Approval.Stop()
+		<-done
+	})
+	return granted
+}
+
 // raiseAndWait registers a run and puts its question, returning the run's token,
 // the question as root sees it, and the channel the blocked sudo answers on.
 // One copy of the poll, so every test here drives the protocol the same way.
@@ -267,11 +290,7 @@ func raiseAndWait(t *testing.T, s *Server, logID string) (string, approval.Quest
 	token, _ := s.Approval.Register(approval.Run{
 		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: logID,
 	})
-	granted := make(chan bool, 1)
-	go func() {
-		approved, _, _ := s.Approval.Ask(token)
-		granted <- approved
-	}()
+	granted := askInBackground(t, s, token)
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
 		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
@@ -388,7 +407,7 @@ func TestAQuestionNamesTheAccountThatAsked(t *testing.T) {
 		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-c",
 		Caller: callerName(caller),
 	})
-	go func() { _, _, _ = s.Approval.Ask(token) }()
+	askInBackground(t, s, token)
 
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	var question approval.Question
