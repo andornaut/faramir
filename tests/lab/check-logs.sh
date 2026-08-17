@@ -41,8 +41,8 @@ logsAt() {
 
 # lastID is the id of the record written most recently.
 lastID() { tail -1 "$LOG" | jq -r .log_id; }
-# shortOf is the tail an operator pastes back from the listing.
-shortOf() { printf '%s' "${1##*Z-}"; }
+# What the listing prints is the whole id, so it pastes back as it stands.
+shortOf() { printf '%s' "$1"; }
 
 echo "log $LOG, $(wc -l <"$LOG") records to start"
 
@@ -198,7 +198,7 @@ else
 fi
 
 # The point of both: no row that did not run is left looking like one that ran.
-blank=$(logs -n 40 | grep -E '^[0-9a-z]{10,14} ' | awk '{ if ($3 == "exec" && $4 ~ /^\//) print }' | wc -l)
+blank=$(logs -n 40 | grep -E '^[0-9a-z]{14} ' | awk '{ if ($3 == "exec" && $4 ~ /^\//) print }' | wc -l)
 [ "$blank" -eq 0 ] && ok "no exec row is left with an empty outcome column" \
   || bad "$blank exec rows render as neither run nor refused"
 
@@ -217,7 +217,7 @@ last=$(logs -n 3 | grep -v '^[0-9]\{4\}-' | tail -1 | awk '{print $1}')
 head_ "4. -n asks for a count, and gets exactly that"
 
 total=$(wc -l <"$LOG")
-rows() { logs -n "$1" | grep -cE '^[0-9a-z]{10,14} '; }
+rows() { logs -n "$1" | grep -cE '^[0-9a-z]{14} '; }
 
 # That the count itself is honoured is a table in cmd/faramir's own tests.  What
 # only a real log shows is the flag reaching it, and a count past the end coming
@@ -227,10 +227,10 @@ rows() { logs -n "$1" | grep -cE '^[0-9a-z]{10,14} '; }
   || bad "-n $((total+10)) printed $(rows $((total+10)))"
 
 out=$(logs -n 0); code=$?
-[ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-z]{10,14} ' <<<"$out")" -eq 0 ] \
+[ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-z]{14} ' <<<"$out")" -eq 0 ] \
   && ok "-n 0 asks for nothing and gets nothing, exit 0" || bad "-n 0: exit $code [$out]"
 out=$(logs -n -5); code=$?
-[ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-z]{10,14} ' <<<"$out")" -eq 0 ] \
+[ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-z]{14} ' <<<"$out")" -eq 0 ] \
   && ok "-n -5 likewise, rather than 'no limit'" || bad "-n -5: exit $code [$out]"
 
 # Asking for none and having none are different answers.  The log here is full
@@ -272,13 +272,13 @@ import sys, json
 with open(sys.argv[1], "w") as fh:
     for i in range(1, 1031):
         fh.write(json.dumps({
-            "log_id": "2026-08-10T%02d:%02d:%02dZ-bbbb%06x" % (i//3600, i//60 % 60, i % 60, i),
+            "log_id": "w5vqbbbb%06x" % i, "at": 1786000000 + i,
             "op": "exec", "cwd": "/home/op/project", "peer": {"uid": 1001, "pid": i},
             "cmd": ["/bin/echo", "record-%d" % i], "exit_code": 0, "duration_sec": 0.01,
             "output": "record-%d\n" % i}) + "\n")
 PY
 BIGCFG=$(configFor "$BIG" big)
-bigrows() { logsAt "$BIGCFG" -n "$1" | grep -cE '^[0-9a-z]{10,14} '; }
+bigrows() { logsAt "$BIGCFG" -n "$1" | grep -cE '^[0-9a-z]{14} '; }
 
 # 1024 is where the ring stops being sized to the count and starts growing.
 for n in 1 1023 1024 1025 1030; do
@@ -288,20 +288,20 @@ done
 [ "$(bigrows 2000)" -eq 1030 ] && ok "-n 2000 prints the 1030 there are" || bad "-n 2000 printed $(bigrows 2000)"
 
 # The last N are the last N, not the first N.
-tailrow=$(logsAt "$BIGCFG" -n 1 | grep -E '^[0-9a-z]{10,14} ')
+tailrow=$(logsAt "$BIGCFG" -n 1 | grep -E '^[0-9a-z]{14} ')
 grep -q 'record-1030' <<<"$tailrow" && ok "and -n 1 is the newest record, not the oldest" \
   || bad "-n 1 gave [$tailrow]"
 
 # Looking up the first record must not cost more than looking up the last.
-t0=$(date +%s%N); logsAt "$BIGCFG" bbbb000001 >/dev/null; t1=$(date +%s%N)
-logsAt "$BIGCFG" bbbb000406 >/dev/null; t2=$(date +%s%N)
+t0=$(date +%s%N); logsAt "$BIGCFG" w5vqbbbb000001 >/dev/null; t1=$(date +%s%N)
+logsAt "$BIGCFG" w5vqbbbb000406 >/dev/null; t2=$(date +%s%N)
 [ $(( (t1-t0)/1000000 )) -lt 3000 ] && [ $(( (t2-t1)/1000000 )) -lt 3000 ] \
   && ok "lookup costs the same at either end ($(( (t1-t0)/1000000 ))ms, $(( (t2-t1)/1000000 ))ms)" \
   || bad "lookup: $(( (t1-t0)/1000000 ))ms then $(( (t2-t1)/1000000 ))ms"
 
-# bbbb000196 is record 406: the ids are hex, so a decimal reading of one is a
+# w5vqbbbb000196 is record 406: the ids are hex, so a decimal reading of one is a
 # different record, which is exactly the mistake a lookup must not make.
-out=$(logsAt "$BIGCFG" bbbb000196)
+out=$(logsAt "$BIGCFG" w5vqbbbb000196)
 grep -q 'record-406 *$' <<<"$out" && ok "and a lookup returns the record asked for" \
   || bad "bbbb000196 gave [$(head -2 <<<"$out")]"
 
@@ -310,7 +310,7 @@ head_ "6. a log that was damaged, or written by something else"
 
 DMG=/tmp/damaged.log
 {
-  echo '{"log_id":"2026-08-11T00:00:01Z-cccc000001","op":"exec","cmd":["/bin/one"],"exit_code":0}'
+  echo '{"log_id":"w5vqcccc000001","at":1786000001,"op":"exec","cmd":["/bin/one"],"exit_code":0}'
   echo 'this is not json at all'
   echo '{"log_id":"half-written","op":"exe'
   echo '[1,2,3]'
@@ -318,7 +318,7 @@ DMG=/tmp/damaged.log
   echo 'null'
   echo ''
   echo '   '
-  echo '{"log_id":"2026-08-11T00:00:02Z-cccc000002","op":"exec","cmd":["/bin/two"],"exit_code":0}'
+  echo '{"log_id":"w5vqcccc000002","at":1786000002,"op":"exec","cmd":["/bin/two"],"exit_code":0}'
   printf '{"log_id":"no-newline-yet","op":"exec"'
 } > "$DMG"
 
@@ -347,7 +347,7 @@ body=$(/usr/local/bin/faramir logs --color never --config "$DMGCFG" 2>/dev/null)
 grep -q 'do not parse' <<<"$body" && bad "the warning is mixed into the listing" \
   || ok "and stdout is records only, so a pipe into a parser stays clean"
 
-out=$(logsAt "$DMGCFG" cccc000002); code=$?
+out=$(logsAt "$DMGCFG" w5vqcccc000002); code=$?
 [ $code -eq 0 ] && grep -q '/bin/two' <<<"$out" \
   && ok "and a lookup past the damage still finds its record" || bad "lookup: exit $code [$out]"
 
@@ -443,7 +443,7 @@ printf '%s' "$out" | grep -qP '\x1b' && bad "an ESC reached the terminal" || ok 
 grep -q 'real' <<<"$out" && ok "while the text itself is still readable" || bad "the output was dropped: [$out]"
 
 # Every printed line of a record's output stays inside the record's block.
-starts=$(logs "$idCtl" | grep -cE '^[0-9a-z]{10,14} ')
+starts=$(logs "$idCtl" | grep -cE '^[0-9a-z]{14} ')
 [ "$starts" -eq 1 ] && ok "one record prints one header line" || bad "$starts header lines for one record"
 
 # --------------------------------------------------------------------------
@@ -494,7 +494,7 @@ bytes=$(tail -1 "$LOG" | wc -c)
   || bad "the record does not admit the truncation"
 logs "$idBig" | tail -1 | grep -q 'truncated at' && ok "the reader prints the marker where the text stops" \
   || bad "no truncation marker in the detail view"
-[ "$(logs -n 1 | grep -cE '^[0-9a-z]{10,14} ')" -eq 1 ] && ok "and the listing still renders it as one row" \
+[ "$(logs -n 1 | grep -cE '^[0-9a-z]{14} ')" -eq 1 ] && ok "and the listing still renders it as one row" \
   || bad "the big record broke the listing"
 
 # The case the cap is counted in encoded bytes for: '<' costs six as JSON, so a
@@ -577,12 +577,12 @@ head_ "13. record shapes the broker writes but this run did not produce"
 
 SYN=/tmp/shapes.log
 cat > "$SYN" <<'BODY'
-{"log_id":"2026-08-11T01:00:01Z-dddd000001","op":"ask_approval","approved":true,"peer":{"uid":1001,"pid":10},"cmd":["/usr/bin/apt","install","-y","curl"],"exec_log_id":"2026-08-11T01:00:02Z-dddd000002","outcome":"approved at the console"}
-{"log_id":"2026-08-11T01:00:03Z-dddd000003","op":"ask_approval","approved":false,"peer":{"uid":1001,"pid":11},"cmd":["/usr/bin/rm","-rf","/"],"outcome":"another session holds the host"}
-{"log_id":"2026-08-11T01:00:04Z-dddd000004","op":"edit","file":"/etc/faramir/secrets/app.sops.yml","peer":{"uid":0,"pid":12}}
-{"log_id":"2026-08-11T01:00:05Z-dddd000005","op":"rekey","file":"/etc/faramir/secrets/app.sops.yml","from":["age1old"],"to":["age1old","age1new"],"peer":{"uid":0,"pid":13}}
-{"log_id":"2026-08-11T01:00:06Z-dddd000006","op":"exec","cmd":["/bin/sh"],"exit_code":0,"redactions":[{"token":"«SECRET:db/password»","count":3},{"token":"«SECRET:api/token»","count":1}]}
-{"log_id":"2026-08-11T01:00:07Z-dddd000007","op":"exec","cmd":["bin/deploy"],"argv0_path":"/home/op/project/bin/deploy","cwd":"/home/op/project","env_refs":{"PW":"db/password","TOKEN":"api/token"},"exit_code":0,"record_reduced":true}
+{"log_id":"w5vqdddd000001","at":1786000101,"op":"ask_approval","approved":true,"peer":{"uid":1001,"pid":10},"cmd":["/usr/bin/apt","install","-y","curl"],"exec_log_id":"w5vqdddd000002","outcome":"approved at the console"}
+{"log_id":"w5vqdddd000003","at":1786000103,"op":"ask_approval","approved":false,"peer":{"uid":1001,"pid":11},"cmd":["/usr/bin/rm","-rf","/"],"outcome":"another session holds the host"}
+{"log_id":"w5vqdddd000004","at":1786000104,"op":"edit","file":"/etc/faramir/secrets/app.sops.yml","peer":{"uid":0,"pid":12}}
+{"log_id":"w5vqdddd000005","at":1786000105,"op":"rekey","file":"/etc/faramir/secrets/app.sops.yml","from":["age1old"],"to":["age1old","age1new"],"peer":{"uid":0,"pid":13}}
+{"log_id":"w5vqdddd000006","at":1786000106,"op":"exec","cmd":["/bin/sh"],"exit_code":0,"redactions":[{"token":"«SECRET:db/password»","count":3},{"token":"«SECRET:api/token»","count":1}]}
+{"log_id":"w5vqdddd000007","at":1786000107,"op":"exec","cmd":["bin/deploy"],"argv0_path":"/home/op/project/bin/deploy","cwd":"/home/op/project","env_refs":{"PW":"db/password","TOKEN":"api/token"},"exit_code":0,"record_reduced":true}
 BODY
 
 SYNCFG=$(configFor "$SYN" syn)
@@ -592,19 +592,19 @@ grep -q 'refused'  <<<"$out"  && ok "and one that was not reads as refused" || b
 grep -q 'app.sops.yml' <<<"$out" && ok "an edit names the file it changed" || bad "edit row: [$out]"
 grep -q '4 redacted' <<<"$out" && ok "the listing sums the per-token counts" || bad "sum row: [$out]"
 
-out=$(logsAt "$SYNCFG" dddd000001)
-grep -q 'dddd000002' <<<"$out" && ok "an approval points at the command it authorised" || bad "no exec_log_id: [$out]"
+out=$(logsAt "$SYNCFG" w5vqdddd000001)
+grep -q 'w5vqdddd000002' <<<"$out" && ok "an approval points at the command it authorised" || bad "no exec_log_id: [$out]"
 grep -q 'approved at the console' <<<"$out" && ok "and says how it was answered" || bad "no outcome: [$out]"
-out=$(logsAt "$SYNCFG" dddd000005)
+out=$(logsAt "$SYNCFG" w5vqdddd000005)
 grep -q 'age1old' <<<"$out" && grep -q 'age1new' <<<"$out" \
   && ok "a rekey shows who could read the file and who can now" || bad "rekey detail: [$out]"
-out=$(logsAt "$SYNCFG" dddd000006)
+out=$(logsAt "$SYNCFG" w5vqdddd000006)
 grep -q '«SECRET:db/password»×3' <<<"$out" && grep -q '«SECRET:api/token»×1' <<<"$out" \
   && ok "the detail view breaks the count down per token" || bad "counts: [$out]"
 
 # The fields a record carries that the command line does not: which variable
 # carried which ref, what argv[0] resolved to, and that the record was cut.
-out=$(logsAt "$SYNCFG" dddd000007)
+out=$(logsAt "$SYNCFG" w5vqdddd000007)
 grep -qE '^ +refs +PW=db/password, TOKEN=api/token$' <<<"$out" \
   && ok "the refs row is the record's NAME=ref pairs" || bad "refs row: [$out]"
 grep -qE '^ +program +/home/op/project/bin/deploy$' <<<"$out" \
@@ -621,7 +621,7 @@ head_ "14. --watch: the log as it is written"
 WATCH=/tmp/watch.log
 OUT=/tmp/watch.out
 WATCHCFG=$(configFor "$WATCH" watch)
-synth() { printf '{"log_id":"2026-08-12T02:00:%02dZ-eeee%06d","op":"exec","cmd":["/bin/echo","%s"],"exit_code":0}\n' "$2" "$2" "$1"; }
+synth() { printf '{"log_id":"w5vqeeee%06d","at":%d,"op":"exec","cmd":["/bin/echo","%s"],"exit_code":0}\n' "$2" "$((1786000200 + $2))" "$1"; }
 
 # A host where nothing has been brokered has no log at all: the broker makes it
 # by writing the first record, so a watcher started before that waits for it
@@ -655,7 +655,7 @@ grep -q arrived "$OUT" && ok "and a record appended after that arrives on its ow
 
 # Half a record is half a line: held until its newline, and not reported as
 # damage in the meantime.
-printf '{"log_id":"2026-08-12T02:00:03Z-eeee000003","op":"exec","cmd":["/bin/echo","half' >> "$WATCH"
+printf '{"log_id":"w5vqeeee000003","at":1786000203,"op":"exec","cmd":["/bin/echo","half' >> "$WATCH"
 sleep 2
 grep -q half "$OUT" && bad "a record still being written was printed: [$(cat "$OUT")]" \
   || ok "a line still being appended is held rather than shown"
@@ -679,7 +679,7 @@ grep -q after-rotation "$OUT" && ok "and the new file is picked up with no resta
 
 kill "$watcher" 2>/dev/null
 wait "$watcher" 2>/dev/null
-rows=$(grep -cE '^[0-9a-z]{10,14} ' "$OUT")
+rows=$(grep -cE '^[0-9a-z]{14} ' "$OUT")
 [ "$rows" -eq 4 ] && ok "four records written, four rows printed, none twice" \
   || bad "$rows rows for four records: [$(cat "$OUT")]"
 [ "$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2} ' "$OUT")" -eq 1 ] \
@@ -688,7 +688,7 @@ rows=$(grep -cE '^[0-9a-z]{10,14} ' "$OUT")
 
 # A log-id is one record that is already written, so there is nothing to wait
 # for.  Refused rather than printed-and-then-hung.
-out=$(logsAt "$WATCHCFG" --watch eeee000004); code=$?
+out=$(logsAt "$WATCHCFG" --watch w5vqeeee000004); code=$?
 [ $code -eq 2 ] && grep -q 'takes no log-id' <<<"$out" \
   && ok "--watch with a log-id is refused as usage, exit 2" || bad "--watch with an id: exit $code [$out]"
 

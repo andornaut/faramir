@@ -187,21 +187,20 @@ func TestTailRecordsDoesNotCountALineStillBeingAppended(t *testing.T) {
 }
 
 // findRecord scans the log and keeps the match and nothing else, so a lookup
-// costs the same on a log of any length.  Which spellings of an id match is
-// TestMatchesIDAcceptsBothForms.
+// costs the same on a log of any length.
 func TestFindRecordScansForTheMatchingLine(t *testing.T) {
 	path := writeLog(t,
-		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec"}`,
-		`{"log_id":"2026-08-08T20:15:04Z-a91f000002","op":"exec"}`,
+		`{"log_id":"w5vq7dbf000001","op":"exec"}`,
+		`{"log_id":"w5vq7dbg000002","op":"exec"}`,
 	)
-	record, _, err := findRecord(path, "a91f000002")
+	record, _, err := findRecord(path, "w5vq7dbg000002")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if record == nil {
 		t.Fatal("no record found")
 	}
-	if str(record, "log_id") != "2026-08-08T20:15:04Z-a91f000002" {
+	if str(record, "log_id") != "w5vq7dbg000002" {
 		t.Errorf("found %q, want the second record", str(record, "log_id"))
 	}
 
@@ -467,7 +466,7 @@ func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
 func TestLogsRefusesAWatchWithALogID(t *testing.T) {
 	f := logsFlags{when: "never", watch: true, count: 20}
 	if code := runLogs(f, []string{"a"}); code != 2 {
-		t.Errorf("faramir logs --watch a91f000002 = %d, want 2 (usage)", code)
+		t.Errorf("faramir logs --watch w5vq7dbg000002 = %d, want 2 (usage)", code)
 	}
 }
 
@@ -539,7 +538,7 @@ func mustPalette(t *testing.T, when string) palette {
 }
 
 func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-a91f","op":"exec",`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf00a91f","op":"exec",`+
 		`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0,"duration_sec":1.5,`+
 		`"redactions":[{"token":"«SECRET:a»","count":2}]}`), plain(t))
 	for _, want := range []string{"a91f", "exec", "exit 0", "1.50s", "2 redacted",
@@ -548,16 +547,12 @@ func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
 			t.Errorf("summary is missing %q: %s", want, line)
 		}
 	}
-	// The timestamp is a column of its own.
-	if strings.Contains(line, "2026-08-08T20:15:03Z") {
-		t.Errorf("summary repeats the timestamp inside the id: %s", line)
-	}
 }
 
 // A redact runs no command, so it has no exit code, but the row still has to
 // say something.
 func TestSummariseSaysSomethingForARedact(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-b1c2","op":"redact","input_bytes":1447,`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf00b1c2","op":"redact","input_bytes":1447,`+
 		`"redactions":[{"token":"«SECRET:a»","count":1}]}`), plain(t))
 	if strings.Contains(line, "exit") {
 		t.Errorf("a record that ran nothing was given an exit: %s", line)
@@ -638,28 +633,14 @@ func TestPaintOutcomePadsBeforeColouring(t *testing.T) {
 	}
 }
 
-// The listing prints the short form, so it has to be enough to ask with.
-func TestMatchesIDAcceptsBothForms(t *testing.T) {
-	record := rec(t, `{"log_id":"2026-08-08T20:15:03Z-a91f"}`)
-	for _, want := range []string{"2026-08-08T20:15:03Z-a91f", "a91f"} {
-		if !matchesID(record, want) {
-			t.Errorf("matchesID rejected %q", want)
-		}
+// An id is what the listing prints, so it is enough to ask with.
+func TestMatchesIDTakesTheIDAsPrinted(t *testing.T) {
+	record := rec(t, `{"log_id":"w5vq7dbf000001"}`)
+	if !matchesID(record, "w5vq7dbf000001") {
+		t.Error("matchesID rejected the id as printed")
 	}
-	if matchesID(record, "beef") {
+	if matchesID(record, "w5vq7dbf000002") {
 		t.Error("matchesID accepted an id that is not this record's")
-	}
-}
-
-// A redact record carries no started_at, and a row with no time cannot be
-// placed.
-func TestStartedAtFallsBackToTheLogID(t *testing.T) {
-	at := startedAt(rec(t, `{"log_id":"2026-08-08T20:15:03Z-a91f","op":"redact"}`))
-	if at.IsZero() {
-		t.Fatal("no time recovered from the log_id")
-	}
-	if got := at.UTC().Format("2006-01-02T15:04:05Z"); got != "2026-08-08T20:15:03Z" {
-		t.Errorf("startedAt = %s, want the instant in the log_id", got)
 	}
 }
 
@@ -750,7 +731,7 @@ func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
 // `ask_approvalrefused`, with every column past it shifted, the row is read
 // wrong.
 func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-4e16","op":"ask_approval",`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"ask_approval",`+
 		`"approved":false,"cmd":["sudo","id","-un"]}`), plain(t))
 	if strings.Contains(line, "ask_approvalrefused") {
 		t.Errorf("op and outcome merged: %q", line)
@@ -764,7 +745,7 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 // wider than the column: approval_in_progress is 20 against a 16-wide column.
 // The row shifts, which is legible; the columns merging is not.
 func TestSummariseKeepsTheColumnsApartForALongRefusalCode(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"2026-08-08T20:15:03Z-4e16","op":"exec",`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"exec",`+
 		`"refused":"approval_in_progress","cmd":["sudo","id","-un"]}`), plain(t))
 	if !regexp.MustCompile(`approval_in_progress +sudo id -un`).MatchString(line) {
 		t.Errorf("summarise = %q, want the code and the command as separate columns", line)
@@ -803,11 +784,11 @@ func TestTailRecordsDoesNotAllocateWhatWasAskedFor(t *testing.T) {
 // running.
 func TestFindRecordPrefersTheEndingOverTheStart(t *testing.T) {
 	path := writeLog(t,
-		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec_started","cmd":["playbook"]}`,
-		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec","cmd":["playbook"],"exit_code":0}`,
-		`{"log_id":"2026-08-08T20:15:09Z-a91f000002","op":"exec_started","cmd":["still-going"]}`,
+		`{"log_id":"w5vq7dbf000001","op":"exec_started","cmd":["playbook"]}`,
+		`{"log_id":"w5vq7dbf000001","op":"exec","cmd":["playbook"],"exit_code":0}`,
+		`{"log_id":"w5vq7dbh000002","op":"exec_started","cmd":["still-going"]}`,
 	)
-	record, _, err := findRecord(path, "a91f000001")
+	record, _, err := findRecord(path, "w5vq7dbf000001")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -818,7 +799,7 @@ func TestFindRecordPrefersTheEndingOverTheStart(t *testing.T) {
 
 	// And the start where that is all there is, rather than nothing: a command
 	// still running is one an operator looks up while it runs.
-	record, _, err = findRecord(path, "a91f000002")
+	record, _, err = findRecord(path, "w5vq7dbh000002")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -892,11 +873,11 @@ func TestAnAnswerWithNoCodeStillReads(t *testing.T) {
 // incomplete when it is not.
 func TestFindRecordStopsAtTheEnding(t *testing.T) {
 	path := writeLog(t,
-		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec_started","cmd":["playbook"]}`,
-		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec","cmd":["playbook"],"exit_code":0}`,
-		`{"log_id":"2026-08-08T20:15:09Z-a91f0000`,
+		`{"log_id":"w5vq7dbf000001","op":"exec_started","cmd":["playbook"]}`,
+		`{"log_id":"w5vq7dbf000001","op":"exec","cmd":["playbook"],"exit_code":0}`,
+		`{"log_id":"w5vq7dbh0000a91f0000`,
 	)
-	record, skipped, err := findRecord(path, "a91f000001")
+	record, skipped, err := findRecord(path, "w5vq7dbf000001")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -920,29 +901,5 @@ func TestTheTimeComesFromTheRecord(t *testing.T) {
 	}
 	if got := startedAt(map[string]any{"log_id": "w5vq7dbf000001"}); !got.IsZero() {
 		t.Errorf("an id that carries no time produced %v", got)
-	}
-	// A record an older broker wrote still renders, its time being in the id.
-	if got := startedAt(map[string]any{"log_id": "2026-08-08T20:15:03Z-a91f000001"}); got.IsZero() {
-		t.Error("a record written before the time was a field lost its time")
-	}
-}
-
-// An id resolves whichever broker wrote it: the short one whole, and the older
-// long one by either its whole self or the tail printed in the listing.
-func TestBothIDFormsResolve(t *testing.T) {
-	path := writeLog(t,
-		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec","at":1786000000}`,
-		`{"log_id":"w5vq7dbf000002","op":"exec","at":1786000001}`,
-	)
-	for _, want := range []string{
-		"2026-08-08T20:15:03Z-a91f000001", "a91f000001", "w5vq7dbf000002",
-	} {
-		record, _, err := findRecord(path, want)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if record == nil {
-			t.Errorf("%q resolved to no record", want)
-		}
 	}
 }

@@ -639,9 +639,10 @@ func emptyReason(path string, count int) string {
 	return path + " holds no records to show"
 }
 
-// shortIDWidth fits the longest id the column holds, plus the separating space:
-// fourteen for one audit.NewLogID mints, ten for the tail of one an older broker
-// wrote.  Sized past the longest rather than to it, for the reason opWidth is.
+// shortIDWidth is what audit.NewLogID mints plus the separating space.  Sized
+// past the id rather than to it, for the reason opWidth is: pad appends a space
+// to anything already at the width, so a column exactly as wide as its content
+// puts every following column of that row somewhere else.
 const shortIDWidth = 15
 
 // opWidth is the longest op the broker writes, `ask_approval` and `exec_started`
@@ -663,7 +664,7 @@ const opExecStarted = "exec_started"
 // hex, the timestamp being in the row already; lookup takes either form.
 func summarise(record map[string]any, paint palette) string {
 	var b strings.Builder
-	b.WriteString(paint.dim(pad(shortID(record), shortIDWidth)))
+	b.WriteString(paint.dim(pad(str(record, "log_id"), shortIDWidth)))
 	b.WriteString(" " + clockTime(record) + "  ")
 	b.WriteString(paint.bold(pad(str(record, "op"), opWidth)))
 	b.WriteString(paintOutcome(record, paint))
@@ -962,22 +963,10 @@ func startedAt(record map[string]any) time.Time {
 			return time.Unix(int64(seconds), 0)
 		}
 	}
-	// CLEANUP (added 2026-08-17): a record an older broker wrote carries neither
-	// field and keeps its time in the log_id.  Removable once no live log holds
-	// one, which is one logrotate turn after this ships; `faramir logs` reads no
-	// rotated file, so nothing older than that is reachable anyway.
-	if stamp, _, found := strings.Cut(str(record, "log_id"), "Z-"); found {
-		if at, err := time.Parse("2006-01-02T15:04:05", stamp); err == nil {
-			// Local on purpose: the log_id is UTC and the listing is read against
-			// what somebody remembers doing on this host, which is its own clock.
-			return at.UTC().Local() //nolint:gosmopolitan // the operator's own clock is the point
-		}
-	}
 	return time.Time{}
 }
 
-// clockTime is local rather than the log_id's UTC, the log being read against
-// what somebody remembers doing.
+// clockTime is local, the log being read against what somebody remembers doing.
 func clockTime(record map[string]any) string {
 	at := startedAt(record)
 	if at.IsZero() {
@@ -986,24 +975,11 @@ func clockTime(record map[string]any) string {
 	return at.Format("15:04:05")
 }
 
-// shortLogID is the tail of a log_id an older broker wrote, which spent its
-// first twenty characters on a timestamp.  An id has carried no timestamp since
-// (see audit.NewLogID), so this returns one of those unchanged.  matchesID takes
-// either form, so what is on screen pastes back whichever wrote it.
-func shortLogID(id string) string {
-	if _, tail, found := strings.Cut(id, "Z-"); found {
-		return tail
-	}
-	return id
-}
-
-// shortID is shortLogID for a record.
-func shortID(record map[string]any) string { return shortLogID(str(record, "log_id")) }
-
-// matchesID accepts the whole log_id or the short tail, so what is on screen
-// can be pasted back.
+// matchesID is the log_id as it is printed, there being no other form of it: an
+// id is what a listing shows and what a refusal cites, so what is on screen
+// pastes back.
 func matchesID(record map[string]any, want string) bool {
-	return str(record, "log_id") == want || shortID(record) == want
+	return str(record, "log_id") == want
 }
 
 // describePeer renders the caller from pid, uid and gid, resolving the uid to a

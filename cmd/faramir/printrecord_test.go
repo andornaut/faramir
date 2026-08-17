@@ -37,7 +37,7 @@ func renderRecord(t *testing.T, line string, paint palette) string {
 // labelled rows, the two list fields, the refs object, the redaction counts and
 // the output.  Every field is spelled the way the writer spells it, env_refs
 // included -- internal/server records NAME -> ref, not a list of refs.
-const detailFixture = `{"log_id":"2026-08-08T20:15:03Z-a91f000007","op":"exec",` +
+const detailFixture = `{"log_id":"w5vq7dbf000007","op":"exec",` +
 	`"peer":{"uid":0,"pid":4242},"cmd":["ansible-playbook","site.yml"],` +
 	`"argv0_path":"/usr/bin/ansible-playbook",` +
 	`"cwd":"/srv/project","exit_code":0,"duration_sec":1.5,` +
@@ -50,7 +50,7 @@ const detailFixture = `{"log_id":"2026-08-08T20:15:03Z-a91f000007","op":"exec",`
 func TestPrintRecordRendersEveryField(t *testing.T) {
 	got := renderRecord(t, detailFixture, plain(t))
 	for _, want := range []string{
-		"id         2026-08-08T20:15:03Z-a91f000007",
+		"id         w5vq7dbf000007",
 		"reduced    fields were cut to fit [audit] max_record_bytes",
 		"caller     root (uid 0), pid 4242",
 		"cwd        /srv/project",
