@@ -67,7 +67,7 @@ A caller with more text than one request may carry sends it a chunk at a time **
 
 ### approvals
 
-`approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. The wait is clamped to 60s. It returns at most one question, ever, carrying `waiting_sec` and `expires_in_sec`; a second command asking to sudo while one is waiting is refused rather than queued.
+`approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. The wait is clamped to 60s. It returns at most one question, ever, carrying `caller` (the account that asked, never the one the command would run as), `waiting_sec` and `expires_in_sec`; a second command asking to sudo while one is waiting is refused rather than queued.
 
 It also takes an optional `await_log_id`, naming the run the caller approved and has not yet heard the end of. When that run ends the response carries `finished`: `log_id`, `exit_code`, `duration_sec`, `waited_sec`, `timed_out` and `error`, and the poll returns as soon as the run ends rather than waiting out `wait_sec`. `exit_code` is `null` where the broker got no status for the run, `error` saying why; a zero there would read as a clean exit. Only an approved run has an ending to report, and only the caller naming it is told: the broker holds the last one rather than emptying it when it is read, so two watchers both see it and a caller that approved nothing sees none.
 

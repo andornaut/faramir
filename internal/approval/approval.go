@@ -64,6 +64,11 @@ type Run struct {
 	// LogID is the exec record this belongs to, so the log reads in both
 	// directions: what a command was approved for, and what an approval was spent on.
 	LogID string
+	// Caller is the account that asked for the command, which is not the one that
+	// would run it: every brokered command runs as the executor, and what the
+	// question is about is who wanted this one.  More than one account can be in
+	// the client group.
+	Caller string
 
 	// approved is set once a human has said yes to this run, and is what makes
 	// the rest of its sudos free of a second question.  Not exported: a caller
@@ -130,6 +135,17 @@ func (r Run) Command() string {
 // safeField is termsafe.Field at this package's bound, for one field of a
 // question rather than one argument of a command.
 func safeField(value string) string { return termsafe.Field(value, maxCommandChars) }
+
+// safeComposed is for a field the broker wrote rather than took from a caller:
+// escaped and bounded like the rest, and not quoted.  safeField quotes anything
+// holding a space, which is right for an argument somebody chose and noise
+// around the broker's own words.
+func safeComposed(value string) string {
+	if value == "" {
+		return ""
+	}
+	return termsafe.Bound(termsafe.Line(value), maxCommandChars)
+}
 
 // safeUnlessEmpty is safeField for a field a caller drops when it is absent.
 func safeUnlessEmpty(value string) string {
@@ -763,6 +779,10 @@ type Question struct {
 	// block as everything else the question is about.
 	Host string `json:"host"`
 	Cwd  string `json:"cwd"`
+	// Caller is the account that asked, rendered as a person reads it.  Not the
+	// account the command would run as, which is the executor's and the same on
+	// every question.
+	Caller string `json:"caller"`
 	// Program is what argv[0] resolved to, and so what root will run.  Shown
 	// separately from Cmd because they can differ: a relative argv[0] resolves
 	// against the request's cwd, which the agent writes.
@@ -799,6 +819,7 @@ func (s *Server) questionsLocked() []Question {
 		// absent: safeArg would render "" as a pair of quotation marks, which the
 		// caller would then print as a field holding nothing.
 		Cmd: pending.run.Command(), Host: hostname(), Cwd: safeUnlessEmpty(pending.run.Cwd),
+		Caller: safeComposed(pending.run.Caller),
 		// Only when it says something the command does not, which is the case worth
 		// a human's attention: a relative argv[0] resolves against the request's
 		// cwd, so `bin/ansible-playbook` can be a file the agent wrote.  Decided

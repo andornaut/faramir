@@ -193,6 +193,14 @@ grep -q 'cat /etc/shadow' <<<"$question" && ok "shows the whole argv, second sud
 # two of them has nothing else to place the question by.
 grep -qE '^  host +[^ ]' <<<"$question" && ok "and names the host it would become root on" \
   || bad "the question names no host: ${question:0:150}"
+# And who asked, which is not who would run it: every brokered command runs as
+# the executor, so that uid says nothing about whose command this is.
+grep -qE "^  caller +op \(uid $(id -u op)\)" <<<"$question" \
+  && ok "and the account that asked, by name and uid" \
+  || bad "the question does not name the caller: $(grep -E '^  caller' <<<"$question")"
+grep -qE '^  caller +faramir-exec' <<<"$question" \
+  && bad "the question names the executor as the caller" \
+  || ok "and not the account it would run as"
 /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
 covered=$(grep -c '^root' /tmp/scope.out)

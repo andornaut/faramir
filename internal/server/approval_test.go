@@ -1,6 +1,8 @@
 package server
 
 import (
+	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -371,4 +373,37 @@ func TestAnExecReportsWhyItsSudoWasRefused(t *testing.T) {
 	if code, _ := s.Approval.Refusal(held); code != "" {
 		t.Errorf("a released run still reports %q", code)
 	}
+}
+
+// The question names the account that asked, which is not the one that would
+// run the command: every brokered command runs as the executor, so the uid the
+// question is about is the caller's and nothing else reports it.
+func TestAQuestionNamesTheAccountThatAsked(t *testing.T) {
+	s, _ := execServer(t)
+	allowSudo(t, s)
+
+	// The account the agent runs as, which is what reaches the broker socket.
+	caller := &sockutil.Peer{PID: 4242, UID: int32(os.Getuid()), GID: int32(os.Getgid())}
+	token, _ := s.Approval.Register(approval.Run{
+		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-c",
+		Caller: callerName(caller),
+	})
+	go func() { _, _, _ = s.Approval.Ask(token) }()
+
+	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
+	var question approval.Question
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
+		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
+			question = questions[0]
+			break
+		}
+	}
+	if question.Caller == "" {
+		t.Fatal("the question names no caller, so nothing says who asked")
+	}
+	if !strings.Contains(question.Caller, strconv.Itoa(os.Getuid())) {
+		t.Errorf("caller = %q, want the uid that asked", question.Caller)
+	}
+	s.Approval.Release(token, approval.Outcome{})
 }

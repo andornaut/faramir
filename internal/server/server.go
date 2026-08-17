@@ -713,6 +713,23 @@ const (
 	recordExecStarted = "exec_started"
 )
 
+// callerName renders the peer as a person reads it: the name where the account
+// still exists, and the uid either way, a name being reusable and an account
+// being removable while a question is still on somebody's screen.
+//
+// Its own rendering rather than opApprove's, which names the account that
+// answered and its pid.  That one is read in an audit record beside a verdict;
+// this one is read on a terminal beside a command.
+func callerName(peer *sockutil.Peer) string {
+	if peer == nil {
+		return ""
+	}
+	if entry, err := user.LookupId(strconv.Itoa(int(peer.UID))); err == nil {
+		return fmt.Sprintf("%s (uid %d)", entry.Username, peer.UID)
+	}
+	return fmt.Sprintf("uid %d", peer.UID)
+}
+
 // execApproval is what the approval server has to say about a run that has
 // ended: whether a sudo inside it was turned down, and how much of its duration
 // was the question rather than the command.
@@ -877,6 +894,9 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	asked := s.redactor()
 	token, heldBy := s.Approval.Register(approval.Run{
 		Argv: redactEach(asked, cmd), Cwd: cwd, LogID: logID,
+		// Who asked, which the question needs and the executor's own uid does not
+		// say: every brokered command runs as that one.
+		Caller: callerName(peer),
 		// What root would actually run, which is not always what argv[0] says: a
 		// relative argv[0] resolves against the request's cwd, and that is the
 		// agent's working tree.  The question names both when they differ.

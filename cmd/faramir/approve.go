@@ -643,6 +643,11 @@ func printQuestion(question approval.Question) {
 	if question.Cwd != "" {
 		fmt.Printf("  cwd      %s\n", question.Cwd)
 	}
+	// Who asked, beside what they asked for.  Not who would run it: that is the
+	// executor on every question, and the account worth judging is this one.
+	if question.Caller != "" {
+		fmt.Printf("  caller   %s\n", question.Caller)
+	}
 	if question.Host != "" {
 		fmt.Printf("  host     %s\n", question.Host)
 	}
