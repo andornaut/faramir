@@ -255,10 +255,11 @@ func listAsJSON(questions []approval.Question, code int) int {
 // not a pane of a session it shares.
 func watchApprovals(socketPath string) int {
 	warnIfTypeable()
-	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves, "+
-		"anything else refuses, and a blank line is asked again. What was typed "+
-		"before a question arrived is discarded rather than spent on it. One command "+
-		"is asked about at a time, and how an approved one ended prints here. "+
+	// The one rule the prompt below does not already show: it asks for [yes/no],
+	// which reads as though "y" would do and as though only "no" refuses.  What a
+	// blank line does, what is discarded, and what prints when a run ends are all
+	// visible the moment they happen, so they are not announced in advance.
+	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves. "+
 		"Ctrl-C to stop.")
 	// No set of ids already answered, and none is wanted.  The broker drops a
 	// question the moment it is answered, refused or expired, and only one is ever
@@ -568,11 +569,18 @@ func printQuestion(question approval.Question) {
 	if question.LogID != "" {
 		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
-	// Above the waiting count, and printed for the watcher as well as the
-	// listing: what is left of the clock is what the answer is typed against,
-	// either way, and how long it has already sat there is the lesser number.
+	// What is left of the clock is what the answer is typed against, so it is
+	// printed either way.
 	fmt.Printf("  expires  %ds, after which it is refused\n", question.ExpiresInSec)
-	fmt.Printf("  waiting  %ds\n", question.WaitingSec)
+	// Only where it says something.  It is measured when the broker answers the
+	// poll, and a watcher already running is answered the moment the question is
+	// filed, so it is zero every time and cannot count up: the line is printed
+	// once and the terminal then blocks on the answer.  What it is for is the
+	// other case -- a watcher started while a question was already pending, or a
+	// listing of one that has sat a while -- where it says nobody was here.
+	if question.WaitingSec > 0 {
+		fmt.Printf("  waiting  %ds\n", question.WaitingSec)
+	}
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.

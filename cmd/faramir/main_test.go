@@ -13,6 +13,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/cli"
 )
 
@@ -462,5 +463,26 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	line, ok := readAnswer()
 	if !ok || !approves(line) {
 		t.Errorf("readAnswer = (%q, %v), want the yes behind the blank line", line, ok)
+	}
+}
+
+// The waiting count is printed only where it says something. A watcher already
+// running is answered the moment a question is filed, so it is zero every time
+// and cannot count up, the line being printed once before the terminal blocks on
+// the answer. It is the other case the number is for: nobody was here yet.
+func TestTheWaitingCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
+	question := approval.Question{
+		ID: "9f2a1c", Prompt: "faramir: Approve this command to run as root? `true`",
+		Cmd: "true", ExpiresInSec: 120,
+	}
+	fresh, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
+	if strings.Contains(fresh, "waiting") {
+		t.Errorf("a question nobody was late for reports a wait:\n%s", fresh)
+	}
+
+	question.WaitingSec, question.ExpiresInSec = 40, 80
+	late, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
+	if !strings.Contains(late, "waiting  40s") {
+		t.Errorf("a question that sat for 40s does not say so:\n%s", late)
 	}
 }

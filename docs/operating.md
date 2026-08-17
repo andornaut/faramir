@@ -152,14 +152,13 @@ sudo faramir approvals --watch
      host     controller
      cwd      /srv/ansible-ctrl
      log_id   w5vq7dbf000119
-     expires  118s, after which it is refused
-     waiting  2s
+     expires  120s, after which it is refused
      approve? [yes/no]
    ```
 
-   The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
+   A `waiting` line appears above the prompt only where the question had been sitting before anything read it: a watcher already running is handed one the moment it is filed, so its absence is what says somebody was here. The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
 
-4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `waiting` counts.
+4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `expires` counts down from.
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else `requisite` makes the non-zero exit fatal at once, and `sudo` reports its own authentication failure.
 6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to. `outcome_code` says which ending it was in one word and `outcome` says it in a sentence, so a log can be read for "nobody was watching" (`expired`) apart from "somebody said no" (`denied`) without matching English. `faramir logs` renders the two as `timed out` and `refused`. The full set is in [protocol.md](protocol.md#approvals).
 7. A yes is not the last you hear of it. `--watch` prints how the run ended when it does:
