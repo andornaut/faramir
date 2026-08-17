@@ -748,12 +748,13 @@ func (a execApproval) fields() map[string]any {
 
 // execResponse is what the caller is told about a command that ran.
 //
-// The approval pair is present only where a sudo inside it was refused, so the
-// field says what it means rather than being empty on every command that never
-// asked.  It is there at all because sudo reports a refusal and an expiry alike,
-// as its own authentication failure, and which one it was decides whether
-// running the command again is worth anything.
-func execResponse(logID, refusedCode, refusedReason string,
+// What the approval has to say rides along, each field present only where it
+// says something.  Which no a sudo was given is there because sudo reports a
+// refusal and an expiry alike, as its own authentication failure, and which one
+// it was decides whether running the command again is worth anything; how long
+// the question held the run is there because the duration beside it contains
+// that time and does not say so.
+func execResponse(logID string, judged execApproval,
 	result *executor.Result) protocol.Response {
 	response := protocol.Response{
 		"exit_code": result.ExitCode, "output": result.Output,
@@ -762,9 +763,7 @@ func execResponse(logID, refusedCode, refusedReason string,
 		"duration_sec":  result.DurationSec,
 		"invalid_bytes": result.InvalidBytes,
 	}
-	if refusedCode != "" {
-		response["approval_code"], response["approval"] = refusedCode, refusedReason
-	}
+	maps.Copy(response, judged.fields())
 	return response
 }
 
@@ -1007,7 +1006,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	log.Printf("%s %s exit=%d dur=%.1fs redactions=%d",
 		logID, filepath.Base(argv0Path), result.ExitCode, result.DurationSec, total)
 
-	return execResponse(logID, judged.code, judged.reason, result)
+	return execResponse(logID, judged, result)
 }
 
 // redactor builds a fresh matcher over the whole value set.  Fresh because a

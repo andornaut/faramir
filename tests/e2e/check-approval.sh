@@ -333,11 +333,19 @@ f=json.loads(s.recv(65536).decode()).get('finished')
 print('none' if f is None else '%s %s' % (f.get('log_id'), f.get('exit_code')))" "$1"; }
 
 # What of that duration was the question rather than the command.  The answer
-# below is deliberately slow, so the number has something to report.
+# was slept on above, so the number has something to report.
+#
+# w+0 forces the comparison numeric: a missing field reads back as the string
+# "null", and awk compares two strings lexically, where "null" >= "2" is true.
+# The field going missing is what this exists to catch, so it must not pass.
 waited=$(jq -r --arg id "$LOGID" 'select(.log_id==$id and .op=="exec") | .waited_sec' $LOG 2>/dev/null | tail -1)
-awk -v w="${waited:-0}" 'BEGIN { exit !(w >= 2) }' \
+awk -v w="${waited:-0}" 'BEGIN { exit !(w + 0 >= 2) }' \
   && ok "and the record says ${waited}s of it was waiting to be approved" \
   || bad "waited_sec is [$waited], want the seconds the answer took"
+resp=$(runuser -u op -- /usr/local/bin/faramir run --json -t 20 -- /bin/true 2>/dev/null)
+grep -q '"waited_sec"' <<<"$resp" \
+  && bad "a command that asked nobody reports a wait: $(head -c 120 <<<"$resp")" \
+  || ok "and a command that never asked carries no wait at all"
 
 [ "$(ending "$LOGID")" = "$LOGID 3" ] \
   && ok "and its ending reached root: exit 3, the status the command left" \

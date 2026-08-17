@@ -80,11 +80,19 @@ type Run struct {
 	refusedCode   string
 	refusedReason string
 
-	// waited is how long this run's sudos spent blocked on a question, summed.
-	// The command's own duration is wall time from fork to exit, so an approval
-	// answered slowly is inside it: without this the log reads as though the
-	// command were slow, when what was slow was somebody reaching a terminal.
-	waited time.Duration
+	// waited is how long this run's questions have held it, and waitingSince is
+	// when the one outstanding began, zero where none is.  The command's own
+	// duration is wall time from fork to exit, so an approval answered slowly is
+	// inside it: without this the log reads as though the command were slow, when
+	// what was slow was somebody reaching a terminal.
+	//
+	// The question's lifetime rather than each sudo's own wait, which is both
+	// less and more than the truth: a sudo that joins the question another
+	// raised would count the same seconds twice, and a run killed by its own
+	// deadline while the question was open would count none of them, that sudo
+	// never returning to report what it had spent.
+	waited       time.Duration
+	waitingSince time.Time
 }
 
 // resolvedProgram is what argv[0] resolved to when that is not what argv[0]
@@ -205,7 +213,7 @@ type Outcome struct {
 	// approval.  Reported beside it rather than subtracted from it: the exec
 	// timeout is enforced against the same wall clock the duration measures, and
 	// a duration that no longer matched it would be a second, quieter number.
-	WaitedSec float64 `json:"waited_sec"`
+	WaitedSec float64 `json:"waited_sec,omitempty"`
 	TimedOut  bool    `json:"timed_out"`
 	// Error is the broker's own failure, and is already through the redaction the
 	// audit record gets: this is printed to a terminal by the same route the
@@ -440,9 +448,7 @@ func (s *Server) Ask(token string) (approved bool, code, reason string) {
 			"this request names no brokered command, so there is nothing to approve"
 	}
 
-	asked := time.Now()
 	approved, prompted, code, reason := s.ask(token, run)
-	s.waited(token, time.Since(asked))
 	if !approved {
 		s.refuse(token, code, reason)
 	}
@@ -468,22 +474,38 @@ func (s *Server) refuse(token, code, reason string) {
 	}
 }
 
-// waited adds to what this run's sudos have spent waiting to be answered.
-func (s *Server) waited(token string, took time.Duration) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if run, known := s.runs[token]; known {
-		run.waited += took
+// waitingLocked starts the clock on a run whose question has just been filed,
+// unless one is already running: a second sudo joining the same question is the
+// same wait, not another.
+func (s *Server) startWaitingLocked(token string) {
+	if run, known := s.runs[token]; known && run.waitingSince.IsZero() {
+		run.waitingSince = time.Now()
 		s.runs[token] = run
 	}
 }
 
-// Waited is how long this run has spent blocked on its questions, for the
-// broker to report beside the duration that contains it.
+// stopWaitingLocked folds the question just settled into the run's total.
+func (s *Server) stopWaitingLocked(token string) {
+	run, known := s.runs[token]
+	if !known || run.waitingSince.IsZero() {
+		return
+	}
+	run.waited += time.Since(run.waitingSince)
+	run.waitingSince = time.Time{}
+	s.runs[token] = run
+}
+
+// Waited is how long this run has spent held by its questions, including one
+// still open: the broker reads this when the command ends, which for a run its
+// own deadline killed is while the question it is waiting on is outstanding.
 func (s *Server) Waited(token string) time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.runs[token].waited
+	run := s.runs[token]
+	if run.waitingSince.IsZero() {
+		return run.waited
+	}
+	return run.waited + time.Since(run.waitingSince)
 }
 
 // Refusal is the last no a run was given, or empty where it was given none.
@@ -540,6 +562,7 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string, string) {
 		return answered, false, "", ""
 	}
 	if existing := s.waitingForLocked(token); existing != nil {
+		s.startWaitingLocked(token)
 		return existing, false, "", ""
 	}
 	if s.stopped {
@@ -583,6 +606,7 @@ func (s *Server) pend(token string, run Run) (*approval, bool, string, string) {
 		done: make(chan struct{}),
 	}
 	s.waiting = pending
+	s.startWaitingLocked(token)
 	s.wakeLocked()
 	log.Printf("approval: %s is waiting to be approved: %s", pending.id, run.Command())
 	return pending, true, "", ""
@@ -599,6 +623,7 @@ func (s *Server) finish(pending *approval, approved bool, code, reason string) {
 	pending.once.Do(func() {
 		s.mu.Lock()
 		pending.approved, pending.code, pending.reason = approved, code, reason
+		s.stopWaitingLocked(pending.token)
 		// Only if it is still the outstanding one: a token released and
 		// re-registered would otherwise lose its own.
 		if s.waiting == pending {
@@ -699,8 +724,14 @@ func newID() string {
 // there: this string is printed to a terminal, and a terminal obeys escape
 // sequences.
 func Prompt(run Run) string {
-	return fmt.Sprintf("faramir: Approve this command to run as root? `%s`", run.Command())
+	return fmt.Sprintf("%s `%s`", PromptPrefix, run.Command())
 }
+
+// PromptPrefix is the question without the command, for the terminal that
+// prints the command on a line of its own below it.  A prompt repeating it
+// there pushed the fields off the screen for a command of any length, and the
+// notifier still gets the whole sentence: it has no second line to put one on.
+const PromptPrefix = "faramir: Approve this command to run as root?"
 
 // hostname is what the question says it is about, and never empty: a question
 // that names no host is one an operator watching two of them cannot place.

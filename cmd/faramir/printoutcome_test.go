@@ -32,7 +32,7 @@ func TestPrintOutcomeSaysHowTheRunEnded(t *testing.T) {
 			outcome: approval.Outcome{
 				LogID: "log-6", ExitCode: new(0), DurationSec: 41.03, WaitedSec: 40.01,
 			},
-			want:   []string{"log-6 exited 0 after 41.0s", "waited 40s of it"},
+			want:   []string{"log-6 exited 0 after 41.0s", "waited 40.0s of it"},
 			absent: []string{"failed", "timed out"},
 		},
 		{

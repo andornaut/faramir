@@ -378,7 +378,10 @@ func waitedIn(outcome approval.Outcome) string {
 	if outcome.WaitedSec < 1 {
 		return ""
 	}
-	return fmt.Sprintf(", waited %.0fs of it", outcome.WaitedSec)
+	// The same precision the duration is printed at: rounded coarser, a wait of
+	// 40.6s beside a duration of 41.0s prints as 41 and reads as a command that
+	// took no time at all.
+	return fmt.Sprintf(", waited %.1fs of it", outcome.WaitedSec)
 }
 
 // printOutcome says how the approved run ended, in one line naming the record
@@ -629,14 +632,19 @@ func approves(line string) bool {
 // The fields are printed one per line for the same reason the command is quoted:
 // a question is read before it is answered.
 func printQuestion(question approval.Question) {
-	fmt.Printf("\n%s\n", question.Prompt)
+	// The question without the command, which is the cmd line below: a prompt
+	// carrying it too says the same thing twice and, for a long one, pushes
+	// everything worth reading off the screen.
+	fmt.Printf("\n%s\n", approval.PromptPrefix)
 	fmt.Printf("  id       %s\n", question.ID)
 	fmt.Printf("  cmd      %s\n", question.Cmd)
-	if question.Host != "" {
-		fmt.Printf("  host     %s\n", question.Host)
-	}
+	// The cwd above the host: it is what the command was typed against, and the
+	// host is the same one on every question a given terminal shows.
 	if question.Cwd != "" {
 		fmt.Printf("  cwd      %s\n", question.Cwd)
+	}
+	if question.Host != "" {
+		fmt.Printf("  host     %s\n", question.Host)
 	}
 	// Set only when it says something the command does not, which the broker
 	// decides: a relative argv[0] resolves against the cwd, and that is a tree the

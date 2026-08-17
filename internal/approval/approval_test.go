@@ -1035,6 +1035,42 @@ func TestAYesClearsTheNoBeforeIt(t *testing.T) {
 	}
 }
 
+// The wait is the question's own lifetime, so a run its deadline killed while
+// the question was open still reports it. That is the case the number matters
+// most in: every second of the duration was the question, and the broker reads
+// it before the run is released, with the question still outstanding.
+func TestAWaitIsCountedWhileTheQuestionIsStillOpen(t *testing.T) {
+	cfg := baseConfig()
+	cfg.TimeoutSec = 30
+	s := started(t, cfg)
+	token := mustRegister(s, run())
+
+	go func() { _, _, _ = s.Ask(token) }()
+	waitForQuestion(t, s)
+	time.Sleep(300 * time.Millisecond)
+
+	if waited := s.Waited(token); waited < 200*time.Millisecond {
+		t.Errorf("waited = %v with the question open, want the time it has been", waited)
+	}
+}
+
+// And a second sudo joining the question another raised is the same wait, not
+// another: counted per sudo, two joiners would report twice the seconds that
+// passed.
+func TestJoiningAQuestionDoesNotCountTheWaitTwice(t *testing.T) {
+	s := started(t, baseConfig())
+	token := mustRegister(s, run())
+
+	go func() { _, _, _ = s.Ask(token) }()
+	waitForQuestion(t, s)
+	go func() { _, _, _ = s.Ask(token) }()
+	time.Sleep(300 * time.Millisecond)
+
+	if waited := s.Waited(token); waited > 3*time.Second {
+		t.Errorf("waited = %v, which is more time than has passed", waited)
+	}
+}
+
 // A run's duration is wall time and its child sits inside sudo for the whole
 // question, so how long the question waited is kept apart: without it a run
 // answered after a trip to the kitchen reads as a slow command.
