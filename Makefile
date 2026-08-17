@@ -75,7 +75,7 @@ REPORT := awk ' \
 # and cgroups.
 PLATFORMS := linux-amd64 linux-arm64
 
-.PHONY: all build check coverage fmt gate lab lint release shellcheck test \
+.PHONY: all build check coverage e2e fmt gate lint release shellcheck test \
 	install verify clean $(PLATFORMS)
 
 all: build
@@ -135,18 +135,18 @@ lint:
 
 ## shellcheck: the same shellcheck run CI does
 shellcheck:
-	shellcheck tests/*.sh tests/lab/*.sh agent/hooks/wrap.sh
+	shellcheck tests/*.sh tests/e2e/*.sh agent/hooks/wrap.sh
 
-## lab: the functional suites, against a real install in a container: systemd
+## e2e: the functional suites, against a real install in a container: systemd
 ## units, three uids, a sops store and an agent working in a project tree.  Go
 ## covers the code, these cover what an operator gets after `faramir init`.
 ##
-## Needs Docker and the three third-party binaries `lab.sh fetch` downloads.
+## Needs Docker and the three third-party binaries `e2e.sh fetch` downloads.
 ## `up` every time because it is the clean baseline: the suites share one
 ## install and mutate it, so a `run` without it measures the last run's
 ## leftovers and reports failures that are not regressions.
-lab:
-	cd tests/lab && ./lab.sh fetch && ./lab.sh up && ./lab.sh run
+e2e:
+	cd tests/e2e && ./e2e.sh fetch && ./e2e.sh up && ./e2e.sh run
 
 ## gate: the invariants CI holds the artifact to, apart from the tests: the
 ## dependencies are the ones recorded, the tree builds, and sops stays out of
@@ -162,8 +162,8 @@ gate:
 	go build -v ./...
 	deps=$$(go list -deps ./cmd/faramir) && ! grep -q getsops <<<"$$deps"
 
-## check: what CI checks, and the lab CI cannot run.  The race detector is the
-## exception, being slow enough to want asking for: `make coverage`.
+## check: what CI checks, in one command.  The race detector is the exception,
+## being slow enough to want asking for: `make coverage`.
 ##
 ## Recursive rather than a prerequisite list, so the order holds under `make -j`
 ## as well.  Cheapest first, so a formatting mistake fails before Docker starts.
@@ -172,7 +172,7 @@ check:
 	$(MAKE) shellcheck
 	$(MAKE) gate
 	$(MAKE) test
-	$(MAKE) lab
+	$(MAKE) e2e
 
 ## install: provision this host.  Deliberately NOT dependent on build: this
 ## runs as root and the compiler should not.  init installs the binary it was

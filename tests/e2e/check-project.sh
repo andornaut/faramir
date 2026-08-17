@@ -7,16 +7,16 @@
 # project the operator believes is covered.  So the assertions are about what
 # lands on disk AND about whether the thing it lands works.
 #
-# Four agents, and until now the lab enrolled only claude.  The other three
+# Four agents, and until now the suites enrolled only claude.  The other three
 # write different files in different places, so each is enrolled into a tree of
 # its own here.
 #
-# Run as root in the lab container.
+# Run as root in the e2e container.
 set -u
 OP=op
 HOME_OP=/home/op
 SECRET='hunter2-correct-horse-battery'
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 # tree makes an empty working tree owned by the operator, as a checkout would be.
 tree() {

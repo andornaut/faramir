@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Sourced by every check-*.sh.  lab.sh copies it in beside the suite it runs.
+# Sourced by every check-*.sh.  e2e.sh copies it in beside the suite it runs.
 #
 # What is here is what every suite reports through, and nothing else: a helper
 # one suite needs belongs in that suite, where its reader will find it.
@@ -14,7 +14,7 @@ note() { printf '  --   %s\n' "$1"; }
 head_() { printf '\n== %s\n' "$1"; }
 
 # summary ends a suite with its counts and the exit status they imply.  The
-# name comes from the file, so it cannot drift from the name lab.sh and the
+# name comes from the file, so it cannot drift from the name e2e.sh and the
 # README use for the same suite.
 summary() {
   local name=${0##*/}

@@ -10,13 +10,13 @@
 #   - what the reader prints is what the log holds, on a log that has been
 #     rotated, damaged, or written by something else.
 #
-# Run as root inside the lab container.
+# Run as root inside the e2e container.
 set -u
 SECRET='hunter2-correct-horse-battery'
 TOKEN='«SECRET:db/password»'
 LOG=/var/log/faramir/audit.log
 PROJECT=/home/op/project
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 run()  { runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -C "$PROJECT" "$@" 2>&1; }
 # A listing row begins with the log_id: fourteen base36 characters for one this

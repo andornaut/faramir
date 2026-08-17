@@ -1,4 +1,4 @@
-# The lab
+# The end-to-end suites
 
 Functional tests that drive a real `faramir` install: systemd units, three uids, a sops store, and an agent's account working in a project tree. `go test` covers the code; these cover what an operator gets after `faramir init`.
 
@@ -8,10 +8,10 @@ Run them by hand as well, against a tree you are about to release or while chang
 
 ## Prerequisites
 
-Three binaries must be beside `lab.sh` before the first `up`. The image has no network, so it installs what it finds in the build context.
+Three binaries must be beside `e2e.sh` before the first `up`. The image has no network, so it installs what it finds in the build context.
 
 ```sh
-./lab.sh fetch              # downloads all three, x86_64
+./e2e.sh fetch              # downloads all three, x86_64
 ```
 
 | File | Where it comes from |
@@ -20,25 +20,25 @@ Three binaries must be beside `lab.sh` before the first `up`. The image has no n
 | `age` | <https://github.com/FiloSottile/age/releases> |
 | `age-keygen` | the same age release |
 
-`fetch` takes upstream's own builds, which are static, so the image needs no libc to match. Both the version and the sha256 are pinned in `lab.sh`: these are what the lab decrypts and generates keys with, so a run that says a release is fit to ship says it about a tool named there. A digest that does not match is refused and nothing is written. Bumping a version means changing its digest too, which the refusal prints.
+`fetch` takes upstream's own builds, which are static, so the image needs no libc to match. Both the version and the sha256 are pinned in `e2e.sh`: these are what the suites decrypt and generate keys with, so a run that says a release is fit to ship says it about a tool named there. A digest that does not match is refused and nothing is written. Bumping a version means changing its digest too, which the refusal prints.
 
 `fetch` skips what is already there, so it is safe before every `up`; delete a file to replace it. It pins x86_64 digests only, and says so on another architecture: copy the three in by hand there.
 
-`lab.sh up` builds two more into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a compiled-in constant, so `lab.sh` builds it with `go build -overlay`, which replaces that one file at compile time and leaves the tree alone.
+`e2e.sh up` builds two more into the same directory: `faramir` from the tree two levels up, and `faramir-skew` at a version the installed one does not report. The skew binary is what the `doctor` suite swaps in to make the CLI and the running broker disagree about the build; the version is a compiled-in constant, so `e2e.sh` builds it with `go build -overlay`, which replaces that one file at compile time and leaves the tree alone.
 
 All five are gitignored. `up` refuses to build without the three you supply, rather than producing an image whose failures all look like missing tools.
 
 ## Running
 
 ```sh
-./lab.sh up                 # build, start the containers, bootstrap an install
-./lab.sh run                # every suite
-./lab.sh run logs doctor    # check-logs.sh and check-doctor.sh
-./lab.sh sh                 # a root shell in the container
-./lab.sh down               # remove the containers, images and network
+./e2e.sh up                 # build, start the containers, bootstrap an install
+./e2e.sh run                # every suite
+./e2e.sh run logs doctor    # check-logs.sh and check-doctor.sh
+./e2e.sh sh                 # a root shell in the container
+./e2e.sh down               # remove the containers, images and network
 ```
 
-`make lab` from the repository root is `fetch`, `up` and `run` in one command, and `make check` is that after the linters and the Go suite.
+`make e2e` from the repository root is `fetch`, `up` and `run` in one command, and `make check` is that after the linters and the Go suite.
 
 `up` is idempotent and rebuilds the binary from the current tree, so it is how you pick up a change. `run` copies each script in fresh, so editing a suite needs no rebuild.
 
@@ -50,9 +50,9 @@ Each suite prints one line per check and exits non-zero if any failed.
 
 ## The containers
 
-`guardlab` runs systemd under `--privileged --cgroupns=host`, which is what a socket-activated `Type=notify` unit needs to behave the way it does on a host. `managed-host` is a second container running sshd, on a network of their own, so the SSH relay suite reaches a real server rather than a stub.
+`faramir-e2e` runs systemd under `--privileged --cgroupns=host`, which is what a socket-activated `Type=notify` unit needs to behave the way it does on a host. `managed-host` is a second container running sshd, on a network of their own, so the SSH relay suite reaches a real server rather than a stub.
 
-`bootstrap-guard.sh` runs inside `guardlab` and makes the install: an age key, a secrets store with known values, `faramir init`, and an operator account with an enrolled project tree.
+`bootstrap.sh` runs inside `faramir-e2e` and makes the install: an age key, a secrets store with known values, `faramir init`, and an operator account with an enrolled project tree.
 
 ## The suites
 
@@ -78,7 +78,7 @@ Each suite prints one line per check and exits non-zero if any failed.
 
 ## Writing a check
 
-Every suite sources [lib.sh](lib.sh), which `lab.sh` copies in beside it. `ok` counts a pass and `bad` counts a failure, and both print. The idiom is:
+Every suite sources [lib.sh](lib.sh), which `e2e.sh` copies in beside it. `ok` counts a pass and `bad` counts a failure, and both print. The idiom is:
 
 ```sh
 grep -q "$want" <<<"$out" && ok "it says why" || bad "it does not: [$out]"
@@ -92,7 +92,7 @@ Helper | Use
 `note` | Print without counting, for what a suite observes rather than claims. Reaching for `ok` on both sides of a branch writes an assertion that cannot fail and counts it as a pass; that is what this is for
 `waitfor SECONDS COMMAND...` | Poll until the command succeeds. Prefer it to a `sleep` long enough for the slowest case, which is slower than the usual case and still too short for the unusual one
 `head_` | A section heading
-`summary` | End the suite. Takes its name from the filename, so the name in the output is the one `lab.sh` and the table above use
+`summary` | End the suite. Takes its name from the filename, so the name in the output is the one `e2e.sh` and the table above use
 
 `check-mcp.sh` is a Python suite and holds its own copy of the primitives, matched by hand.
 

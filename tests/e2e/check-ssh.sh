@@ -4,7 +4,7 @@
 # The promise: a brokered command authenticates to a managed host with a key it
 # cannot read, and what it is handed is two agent operations rather than the
 # agent protocol.  A stub cannot test that -- the interesting half is what a
-# real sshd does with a real signature -- so the lab runs a second container
+# real sshd does with a real signature -- so the suite runs a second container
 # with sshd and no passwords, reachable as managed-host, and the broker's key is
 # the only way in.
 #
@@ -15,7 +15,7 @@ KEY=/etc/faramir/id_ed25519
 RELAY=/run/faramir/ssh-agent.sock
 HOST=managed-host
 LOG=/var/log/faramir/audit.log
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 brokered() { runuser -u op -- /usr/local/bin/faramir run --quiet -t 25 -- "$@" 2>&1; }
 # ssh with nothing interactive and nothing inherited from a user's config.

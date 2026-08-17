@@ -13,7 +13,7 @@
 # wrong people, or written in the clear, with every command reporting success --
 # which is why they are put to a real install rather than to a parser.
 set -u
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 MANAGED=/etc/faramir/secrets/app.sops.yml
 sum() { sha256sum "$MANAGED" | cut -c1-16; }

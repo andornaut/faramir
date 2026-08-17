@@ -73,12 +73,12 @@ jobs:
       # values in cleartext. `make test` still needs no sops: this installs it
       # for CI alone.
       #
-      # The version and digest are read out of lab.sh rather than restated here,
+      # The version and digest are read out of e2e.sh rather than restated here,
       # so a bump moves both at once: two copies with nothing tying them together
-      # is CI testing one binary while the lab tests another, and no run says so.
+      # is CI testing one binary while the suites test another, and no run says so.
       - name: Install sops
         run: |
-          eval "$(grep -E '^SOPS_(VERSION|SHA256)=' tests/lab/lab.sh)"
+          eval "$(grep -E '^SOPS_(VERSION|SHA256)=' tests/e2e/e2e.sh)"
           test -n "${SOPS_VERSION}" && test -n "${SOPS_SHA256}"
           curl -sSfLo /tmp/sops \
             "https://github.com/getsops/sops/releases/download/v${SOPS_VERSION}/sops-v${SOPS_VERSION}.linux.amd64"
@@ -204,8 +204,8 @@ jobs:
   # here builds the image or asks doctor a question against a real install. A
   # base-image bump changes the userland every group and permission check reads,
   # so without this a bump merges on a green run that never built it.
-  lab:
-    name: Lab
+  e2e:
+    name: E2E
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -222,26 +222,26 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      # sops, age and age-keygen, pinned by version and sha256 in lab.sh. The
+      # sops, age and age-keygen, pinned by version and sha256 in e2e.sh. The
       # image has no network, so it installs what it finds in the build context.
       - name: Fetch the third-party binaries
-        working-directory: tests/lab
-        run: ./lab.sh fetch
+        working-directory: tests/e2e
+        run: ./e2e.sh fetch
 
       # Builds the image, starts the containers and bootstraps an install. The
       # container needs --privileged and --cgroupns=host, which is what a
       # socket-activated Type=notify unit needs to behave as it does on a host.
-      - name: Bring the lab up
-        working-directory: tests/lab
-        run: ./lab.sh up
+      - name: Bring the container up
+        working-directory: tests/e2e
+        run: ./e2e.sh up
 
       - name: Run every suite
-        working-directory: tests/lab
-        run: ./lab.sh run
+        working-directory: tests/e2e
+        run: ./e2e.sh run
 
       # The suites print one line per check and the failing ones are what a
       # reader wants; `run` already exits non-zero, so this only tidies up.
-      - name: Tear the lab down
+      - name: Tear the container down
         if: always()
-        working-directory: tests/lab
-        run: ./lab.sh down
+        working-directory: tests/e2e
+        run: ./e2e.sh down

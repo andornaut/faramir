@@ -11,7 +11,7 @@
 #
 # Every case here goes through the real binary as the agent's own uid.
 set -u
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 GUARD=/usr/local/bin/faramir
 

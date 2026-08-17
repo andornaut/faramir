@@ -17,7 +17,7 @@ CHUNK=32768
 SOCK=/run/faramir/broker.sock
 RUNDIR=/run/user/$(id -u op)
 
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 redact() { runuser -u op -- /usr/local/bin/faramir redact; }
 

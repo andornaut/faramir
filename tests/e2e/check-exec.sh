@@ -9,7 +9,7 @@
 set -u
 export SECRET='hunter2-correct-horse-battery'
 TOKEN='«SECRET:db/password»'
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 run() { runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 "$@" 2>&1; }
 

@@ -284,14 +284,14 @@ Target | Does
 `make fmt` | Apply the import and format rules CI checks
 `make lint` | `golangci-lint`
 `make shellcheck` | The shell scripts, as CI checks them
-`make lab` | The functional suites against a real install in a container
-`make check` | The linters, the whole Go suite, and the lab
+`make e2e` | The functional suites against a real install in a container
+`make check` | The linters, the whole Go suite, and the end-to-end suites
 `make install` | `sudo faramir init` for this host, passing `INIT_ARGS`
 `make verify` | `sudo faramir doctor`
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout. The `.tmpl` files are the shipped files themselves. That decides where a new document goes: operator documentation in `docs/`, which ships, and developer documentation at the root, which does not.
 - Tests live where the logic does. Most of what the broker does is decide, and none of that needs a socket or a child process, so `internal/server` substitutes the executor. `internal/executor` uses a real child, the PTY and the streaming redactor only meaning anything against real bytes.
-- The suite runs in a temp directory under one uid, so it covers the protocol, the PTY hand-off and the redactor, but never the uid boundary. That boundary is only real on a host, which is what `sudo faramir doctor` and [tests/lab](tests/lab/README.md) are for. Adversarial exfiltration is asserted nowhere, as [Not prevented](#not-prevented) says.
+- The suite runs in a temp directory under one uid, so it covers the protocol, the PTY hand-off and the redactor, but never the uid boundary. That boundary is only real on a host, which is what `sudo faramir doctor` and [tests/e2e](tests/e2e/README.md) are for. Adversarial exfiltration is asserted nowhere, as [Not prevented](#not-prevented) says.
 - The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, every brokered command being confined to its own. The `make test` targets run the suite under `systemd-run --user --scope`, which inherits the delegation systemd gives `user@.service`. Without it roughly sixty tests skip and the run still prints `ok`, so each target ends by naming what it did not check. Where that scope is unavailable, an unprivileged CI runner in a root-owned service cgroup, hand the process a delegated one first, as [the test workflow](.github/workflows/test.yml) does. Older kernels and cgroup v1 are unsupported.
 - The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries, imported only from `_test.go`, which keeps sops out of the shipped binary; CI fails the build on a `getsops` import reaching `./cmd/faramir`.
 - The opencode and Kilo Code plugins are the only shipped logic that is not Go, so they are run rather than read: node drives the shipped file against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed. Skipped where node is absent. No test covers a running opencode or Kilo Code, or Bun, the runtime both load a plugin under.

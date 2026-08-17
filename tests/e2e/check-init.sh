@@ -3,7 +3,7 @@
 # throwaway container.  The oracle is the documentation, not what the code
 # happened to produce.
 set -u
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 # mode PATH MODE OWNER:GROUP -- as docs/layout.md states it.
 mode() {

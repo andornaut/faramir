@@ -11,12 +11,12 @@ coverage.txt
 # ignore that reaches it leaves the enrolment failing on a host.
 !agent/opencode/opencode.json
 
-# The lab copies these into its build context; see tests/lab/README.md.
-/tests/lab/faramir
-/tests/lab/faramir-skew
-/tests/lab/sops
-/tests/lab/age
-/tests/lab/age-keygen
+# The suites copy these into the image's build context; see tests/e2e/README.md.
+/tests/e2e/faramir
+/tests/e2e/faramir-skew
+/tests/e2e/sops
+/tests/e2e/age
+/tests/e2e/age-keygen
 
 # AI agent instructions, local only. Named here as well as in the global
 # ignore, which a session working from a fresh clone does not have.

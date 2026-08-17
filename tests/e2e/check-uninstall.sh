@@ -16,7 +16,7 @@ KEY=$CFGDIR/age.key
 SECRETS=$CFGDIR/secrets/app.sops.yml
 LOG=/var/log/faramir/audit.log
 PROJECT=/home/op/project
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 gone()   { [ -e "$1" ] && bad "$2 survived: $1" || ok "$2 is gone"; }
 kept()   { [ -e "$1" ] && ok "$2 is kept" || bad "$2 was removed: $1"; }

@@ -2,7 +2,7 @@
 
 Playbooks get credentials the way every brokered program does: the caller names refs, the broker injects values as environment variables, and `group_vars` reads them.
 
-Ansible does **not** decrypt sops and cannot. That needs the age private key, and no process the broker starts receives it: a playbook runs arbitrary tasks, so one holding the master key means anything that can reach Ansible obtains the key to every managed file, retroactively. A `community.sops` vars plugin or `lookup('pipe', 'sops -d …')` fails for the same reason; the lab asserts it, `check-exec.sh` refusing a brokered command both the age key and an encrypted file.
+Ansible does **not** decrypt sops and cannot. That needs the age private key, and no process the broker starts receives it: a playbook runs arbitrary tasks, so one holding the master key means anything that can reach Ansible obtains the key to every managed file, retroactively. A `community.sops` vars plugin or `lookup('pipe', 'sops -d …')` fails for the same reason; the end-to-end suites assert it, `check-exec.sh` refusing a brokered command both the age key and an encrypted file.
 
 Nothing here edits faramir's configuration: `[secrets] patterns` globs the secrets directory, so a file put there is managed by being there. A drop-in is needed only for encrypted files kept where the glob does not reach, and for `[exec.base_env]`: a brokered command inherits nothing from the broker, so a variable `ansible-playbook` needs, `ANSIBLE_CONFIG` among them, has to be named there or it is absent.
 

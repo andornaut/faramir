@@ -9,7 +9,7 @@
 # Every rendering below is produced by a real tool, not by restating the
 # redactor's own variant list, and every one goes through the running broker.
 set -u
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 # Exported, not just set: several producers below are python reading
 # os.environ, so that the value is never interpolated into a program's source

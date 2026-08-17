@@ -7,13 +7,13 @@
 # beside an approval, and a yes that lands while the host is not quiet is
 # refused rather than taken.
 #
-# Self-provisioning: it installs the grant itself, so it can run on a lab
+# Self-provisioning: it installs the grant itself, so it can run on a container
 # brought up without one.  Run as root in the container.
 set -u
 SECRET='hunter2-correct-horse-battery'
 CFG=/etc/faramir/config.toml
 LOG=/var/log/faramir/audit.log
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 # The outstanding question's id, and a wait for one to appear.
 q() { /usr/local/bin/faramir approvals --json 2>/dev/null | grep -oE '"id"[^,]*' | head -1 | cut -d'"' -f4; }
@@ -49,18 +49,18 @@ print(s.recv(65536).decode()[:160])" "$2" 2>&1; }
 # broker's own unit can write, PrivateTmp= putting its /tmp somewhere nothing
 # else sees.
 NOTIFY=/var/log/faramir/notify.log
-cat >/usr/local/bin/lab-notify <<'EOS'
+cat >/usr/local/bin/e2e-notify <<'EOS'
 #!/bin/sh
 printf '%s\n' "$*" >>/var/log/faramir/notify.log
 EOS
-chmod 0755 /usr/local/bin/lab-notify
+chmod 0755 /usr/local/bin/e2e-notify
 
 # Re-installed when the grant is absent OR when it carries no notifier: the
 # suites share one install, so this may run after another has already written a
 # [sudo] section without one.
 if ! grep -q '^notify_command' $CFG; then
   /usr/local/bin/faramir init --allow-sudo --agent-user op \
-    --notify-command /usr/local/bin/lab-notify --notify-command '{prompt}' \
+    --notify-command /usr/local/bin/e2e-notify --notify-command '{prompt}' \
     >/tmp/sudo-init.log 2>&1 \
     || { echo "could not install the grant"; tail -3 /tmp/sudo-init.log; exit 1; }
   systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
@@ -373,7 +373,7 @@ head_ "12. the notifier"
 # only way onto a host, and this is the check that the flag reaches the broker
 # rather than only the file.
 
-grep -q '^notify_command = \["/usr/local/bin/lab-notify", "{prompt}"\]' $CFG \
+grep -q '^notify_command = \["/usr/local/bin/e2e-notify", "{prompt}"\]' $CFG \
   && ok "init wrote the notifier the flag named" \
   || bad "the config does not carry it: $(grep '^notify_command' $CFG || echo none)"
 [ -s "$NOTIFY" ] && ok "the broker ran it, $(wc -l <"$NOTIFY") announcement(s)" \

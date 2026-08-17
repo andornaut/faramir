@@ -1,12 +1,12 @@
 #!/bin/bash
-# Driver for the guard lab.  Run from this directory.
+# Driver for the end-to-end suites.  Run from this directory.
 #
-#   ./lab.sh fetch         download the third-party binaries the image installs
-#   ./lab.sh up            build the binary and image, start the container, bootstrap
-#   ./lab.sh run NAME...   copy in and run check-NAME.sh (default: every suite)
-#   ./lab.sh sh [cmd...]   a shell in the container, or one command
-#   ./lab.sh cp FILE...    copy a script in without running it
-#   ./lab.sh down          remove the container and image
+#   ./e2e.sh fetch         download the third-party binaries the image installs
+#   ./e2e.sh up            build the binary and image, start the container, bootstrap
+#   ./e2e.sh run NAME...   copy in and run check-NAME.sh (default: every suite)
+#   ./e2e.sh sh [cmd...]   a shell in the container, or one command
+#   ./e2e.sh cp FILE...    copy a script in without running it
+#   ./e2e.sh down          remove the container and image
 #
 # `up` is safe to re-run: it rebuilds the binary from the current tree and
 # re-bootstraps, which is idempotent.
@@ -27,23 +27,23 @@
 # it.  `fetch` puts them there.  See README.md.
 set -eu
 
-NAME=guardlab
-IMAGE=faramir-guardlab
+NAME=faramir-e2e
+IMAGE=faramir-e2e
 # A second host the broker's key is the only way into, on a network of their
 # own, so the ssh suite can put the relay to a real sshd rather than to a stub.
 MANAGED=managed-host
 MANAGED_IMAGE=faramir-managed
 NETWORK=faramirnet
 HERE=$(cd "$(dirname "$0")" && pwd)
-# The tree under test, two levels up from tests/lab.
+# The tree under test, two levels up from tests/e2e.
 REPO=${REPO:-$(cd "$HERE/../.." && pwd)}
 SUITES=(init project config disclose plugin guard wrap leak stream mcp exec logs ssh doctor approval secrets uninstall)
 
 # The third-party binaries the image installs, pinned by version and by digest.
 # Upstream's own builds, which are static, so the image needs no libc to match.
 #
-# The digest is the point rather than a formality: these are what the lab
-# decrypts and generates keys with, so a run that says a release is fit to ship
+# The digest is the point rather than a formality: these are what the suites
+# decrypt and generate keys with, so a run that says a release is fit to ship
 # says it about a tool named here.  Bumping one means changing its digest too,
 # which `fetch` prints when it refuses.
 SOPS_VERSION=3.13.3
@@ -52,7 +52,7 @@ AGE_VERSION=1.1.1
 AGE_SHA256=0c6ddc31c276f55e9414fe27af4aada4579ce2fb824c1ec3f207873a77a49752
 AGE_KEYGEN_SHA256=e279f64ccd11347e57b8d28304e3e358ae1a5ef4f19107e7a1f9c9156fdcad91
 
-die() { printf 'lab: %s\n' "$1" >&2; exit 1; }
+die() { printf 'e2e: %s\n' "$1" >&2; exit 1; }
 running() { [ "$(docker inspect -f '{{.State.Running}}' $NAME 2>/dev/null)" = true ]; }
 
 # build_skew produces a second binary reporting a version the first one does
@@ -109,7 +109,7 @@ check_pinned() { # name
   got=$(digest_of "$HERE/$1")
   want=$(pinned_digest "$1")
   [ "$got" = "$want" ] && return 0
-  die "$1 beside this script hashes to $got, not the pinned $want. Delete it and run ./lab.sh fetch to take the pinned build, or change the pin if this one is meant to be it"
+  die "$1 beside this script hashes to $got, not the pinned $want. Delete it and run ./e2e.sh fetch to take the pinned build, or change the pin if this one is meant to be it"
 }
 
 # needs_download lists which of the three are not here yet.
@@ -134,7 +134,7 @@ cmd_fetch() {
     return
   fi
   # Only what actually downloads needs these, so a box that was given the three
-  # by hand can still run the lab without curl, and on an architecture these
+  # by hand can still run the suites without curl, and on an architecture these
   # digests do not describe.
   pins_apply || die "these digests are x86_64 builds and this is $(uname -m); copy$missing in beside this script by hand"
   for tool in curl tar sha256sum install; do
@@ -181,11 +181,11 @@ cmd_up() {
   # image: `up` can be run on its own, and a tool nobody can name again makes a
   # passing run unrepeatable.
   for tool in sops age age-keygen; do
-    [ -f "$HERE/$tool" ] || die "$tool is missing from the build context; run ./lab.sh fetch, or copy it in beside this script"
+    [ -f "$HERE/$tool" ] || die "$tool is missing from the build context; run ./e2e.sh fetch, or copy it in beside this script"
     check_pinned "$tool"
   done
   echo "== building the image"
-  docker build -q -f "$HERE/Dockerfile.guardlab" -t $IMAGE "$HERE" >/dev/null
+  docker build -q -f "$HERE/Dockerfile.e2e" -t $IMAGE "$HERE" >/dev/null
   echo "== building the managed host image"
   docker build -q -f "$HERE/Dockerfile.managed" -t $MANAGED_IMAGE "$HERE" >/dev/null
   docker network inspect $NETWORK >/dev/null 2>&1 || docker network create $NETWORK >/dev/null
@@ -206,12 +206,12 @@ cmd_up() {
   running || die "the container did not come up"
   echo "== bootstrapping"
   docker cp "$HERE/plugin-harness.mjs" $NAME:/root/
-  docker cp "$HERE/bootstrap-guard.sh" $NAME:/root/
-  docker exec $NAME bash /root/bootstrap-guard.sh
+  docker cp "$HERE/bootstrap.sh" $NAME:/root/
+  docker exec $NAME bash /root/bootstrap.sh
   wire_managed_host
   # The marker cmd_run consumes to tell a first run on a clean box from a re-run
   # against one the suites have already mutated.
-  docker exec $NAME touch /root/.lab-fresh
+  docker exec $NAME touch /root/.e2e-fresh
 }
 
 # wire_managed_host is the part no container can do for itself: the broker's
@@ -238,21 +238,21 @@ wire_managed_host() {
   docker exec $NAME bash -c "printf '%s %s\n' '$MANAGED' '$(printf '%s' "$hostkey" | cut -d" " -f1,2)' \
     >> /etc/ssh/ssh_known_hosts; chmod 0644 /etc/ssh/ssh_known_hosts"
   docker exec $NAME sh -c "command -v ssh >/dev/null" \
-    || echo "lab: the broker image has no ssh client; the ssh suite will not run"
+    || echo "e2e: the broker image has no ssh client; the ssh suite will not run"
 }
 
 cmd_cp() { for f in "$@"; do docker cp "$HERE/$f" $NAME:/root/; done; }
 
 cmd_run() {
-  running || die "the container is not up; run ./lab.sh up"
+  running || die "the container is not up; run ./e2e.sh up"
   # The suites are single-shot: they mutate the shared install, so a run against
   # a box a previous run already touched measures leftovers.  `up` stamps a
   # marker; consume it on the first run and warn on every one after.
-  if docker exec $NAME test -e /root/.lab-fresh 2>/dev/null; then
-    docker exec $NAME rm -f /root/.lab-fresh
+  if docker exec $NAME test -e /root/.e2e-fresh 2>/dev/null; then
+    docker exec $NAME rm -f /root/.e2e-fresh
   else
-    printf 'lab: this box has already been run against; the suites have accumulated state.\n' >&2
-    printf 'lab: failures below may be leftovers, not regressions. Run ./lab.sh up for a clean baseline.\n' >&2
+    printf 'e2e: this box has already been run against; the suites have accumulated state.\n' >&2
+    printf 'e2e: failures below may be leftovers, not regressions. Run ./e2e.sh up for a clean baseline.\n' >&2
   fi
   local names=("$@")
   [ ${#names[@]} -eq 0 ] && names=("${SUITES[@]}")
@@ -269,9 +269,9 @@ cmd_run() {
     i=$((i + 1))
   done
   if [ $prefix -eq 0 ]; then
-    printf 'lab: %d of %d suites, and not the first %d: the ones before them have not run.\n' \
+    printf 'e2e: %d of %d suites, and not the first %d: the ones before them have not run.\n' \
       "${#names[@]}" "${#SUITES[@]}" "${#names[@]}" >&2
-    printf 'lab: failures below may be missing setup, not regressions. Run ./lab.sh up && ./lab.sh run for the whole order.\n' >&2
+    printf 'e2e: failures below may be missing setup, not regressions. Run ./e2e.sh up && ./e2e.sh run for the whole order.\n' >&2
   fi
   local failed=0
   # Beside every suite, because each one sources it.  Copied here rather than
@@ -286,12 +286,12 @@ cmd_run() {
     docker exec $NAME bash "/root/$script" || failed=1
   done
   printf '\n'
-  [ $failed -eq 0 ] && echo "lab: every suite passed" || echo "lab: at least one suite failed"
+  [ $failed -eq 0 ] && echo "e2e: every suite passed" || echo "e2e: at least one suite failed"
   return $failed
 }
 
 cmd_sh() {
-  running || die "the container is not up; run ./lab.sh up"
+  running || die "the container is not up; run ./e2e.sh up"
   if [ $# -eq 0 ]; then docker exec -it $NAME bash; else docker exec $NAME "$@"; fi
 }
 
@@ -299,7 +299,7 @@ cmd_down() {
   docker rm -f $NAME $MANAGED >/dev/null 2>&1 || true
   docker rmi -f $IMAGE $MANAGED_IMAGE >/dev/null 2>&1 || true
   docker network rm $NETWORK >/dev/null 2>&1 || true
-  echo "lab: containers, images and network removed"
+  echo "e2e: containers, images and network removed"
 }
 
 case "${1:-}" in

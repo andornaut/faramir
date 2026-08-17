@@ -358,7 +358,7 @@ func TestAnIdleFlushDoesNotEndTheStream(t *testing.T) {
 
 // A line longer than the buffer arrives from the reader as ErrBufferFull before
 // its newline; the live path must keep reading it, not mistake that for the end
-// of the stream.  It is the shape tests/lab/check-leak.sh's chunk-offset cases
+// of the stream.  It is the shape tests/e2e/check-leak.sh's chunk-offset cases
 // take.
 func TestALiveStreamCarriesALineLongerThanAChunk(t *testing.T) {
 	broker := newStubBroker(t)

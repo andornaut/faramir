@@ -11,12 +11,12 @@
 # so the protocol keeps that list behind `broker --check` and out of every
 # agent-facing answer.  Whether it stays there is the centre of this suite.
 #
-# Run as root in the lab container; every probe runs as op.
+# Run as root in the e2e container; every probe runs as op.
 set -u
 SECRET='hunter2-correct-horse-battery'
 TOKEN_API='tok_live_0PENSESAME_9911'
 PROJECT=/home/op/project
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 asop() { runuser -u op -- /usr/local/bin/faramir "$@" 2>&1; }
 # mcp sends one tools/call and prints the result line.

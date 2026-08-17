@@ -12,12 +12,12 @@
 # approval; one setting [keeper] allowed_user points the age key somewhere else.
 # Each is refused by name, and each is checked here one at a time.
 #
-# Run as root in the lab container.
+# Run as root in the e2e container.
 set -u
 CFG=/etc/faramir/config.toml
 DROPIN=/etc/faramir/config.d
 SECRET='hunter2-correct-horse-battery'
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 drop() { mkdir -p $DROPIN; printf '%s\n' "$2" > "$DROPIN/$1"; }
 undrop() { rm -f $DROPIN/*.toml 2>/dev/null; }

@@ -19,12 +19,12 @@
 # lives in the Go tests, which render the same template against a stand-in.
 # What is checked here is the enrolled file against the real thing.
 #
-# Run as root in the lab container.
+# Run as root in the e2e container.
 set -u
 HARNESS=/root/plugin-harness.mjs
 SECRET='hunter2-correct-horse-battery'
 PROJECT=/home/op/project
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 command -v node >/dev/null || { echo "node is not in this image; suite J cannot run"; exit 1; }
 

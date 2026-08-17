@@ -12,7 +12,7 @@
 # boundary is worse than a failure, because it is the answer an operator acts
 # on.  D6 puts every fault to a caller that cannot ask.
 #
-# Run as root inside the lab container.
+# Run as root inside the e2e container.
 set -u
 OP=op
 CFG=/etc/faramir/config.toml
@@ -20,7 +20,7 @@ KEY=/etc/faramir/age.key
 SECRETS=/etc/faramir/secrets/app.sops.yml
 LOG=/var/log/faramir/audit.log
 JSON=/tmp/doc.json
-. "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
+. "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 # settle puts the host back to a running install and waits for the broker to
 # answer.  Called after any group that stops a unit: a later group reading a
@@ -268,7 +268,7 @@ if [ -x /opt/faramir/faramir-skew ]; then
   snap
   [ "$(st version)" = ok ] && ok "and back to ok on the matching build" || bad "version stayed [$(st version)]"
 else
-  bad "no skewed binary at /opt/faramir/faramir-skew; the lab did not build one"
+  bad "no skewed binary at /opt/faramir/faramir-skew; e2e.sh did not build one"
 fi
 
 # The socket the agent connects to, regrouped so the client group is shut out.
