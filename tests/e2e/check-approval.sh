@@ -490,6 +490,34 @@ EOS
 
 field() { sed -n "s/^$2 //p" <<<"$1" | head -1; }
 
+
+
+quiesce
+out=$(/usr/bin/python3 /tmp/watch-answer.py before 2>&1)
+[ "$(field "$out" REFUSED)" = no ] \
+  && ok "Enters typed before the question do not refuse it" \
+  || bad "an Enter typed before the question refused it: ${out//$'\n'/ }"
+[ "$(field "$out" STARTED)" = yes ] && ok "and the yes after them is taken" \
+  || bad "the yes was not taken: ${out//$'\n'/ }"
+# One prompt, not five: they were discarded rather than asked again, which is
+# what keeps them from being spent on a question nobody had read.
+[ "$(field "$out" PROMPTS)" = 1 ] && ok "and they were discarded rather than re-asked" \
+  || bad "$(field "$out" PROMPTS) prompts, want 1: input predating the question reached it"
+quiesce
+
+out=$(/usr/bin/python3 /tmp/watch-answer.py after 2>&1)
+[ "$(field "$out" REFUSED)" = no ] \
+  && ok "Enters typed after the prompt do not refuse the question" \
+  || bad "an Enter typed at the prompt refused the question: ${out//$'\n'/ }"
+[ "$(field "$out" STARTED)" = yes ] && ok "and the yes behind them is taken" \
+  || bad "the yes behind them was lost: ${out//$'\n'/ }"
+# Five: the first prompt and one re-ask for each blank line.  Fewer means a
+# blank line was counted as an answer; the yes surviving the burst is what says
+# a re-ask does not discard what is queued behind it.
+[ "$(field "$out" PROMPTS)" = 5 ] && ok "and each was asked again rather than counted" \
+  || bad "$(field "$out" PROMPTS) prompts, want 5"
+quiesce
+
 # --------------------------------------------------------------------------
 head_ "14. a question nobody answers, and the one raised after it"
 #
@@ -550,7 +578,11 @@ if not pump(lambda b: "approve? [yes/no]" in b, 60):
 # Nothing typed: the question's own clock is what has to end the wait.
 if not pump(lambda b: "expired" in b, 60):
     give_up("the watcher never said the question expired")
-first.wait(timeout=60)
+try:
+    first.wait(timeout=120)
+except subprocess.TimeoutExpired:
+    first.kill()
+    give_up("the first command never returned")
 
 # And the next one is shown without a keystroke having been sent.
 second = raise_question("second")
@@ -569,8 +601,12 @@ print("SECOND_ANSWERED", "yes" if " started" in buf else "no")
 EOS
 
 quiesce
+# Long enough that the second question can be raised, shown, answered and
+# started inside it, and short enough that the first expires while the driver
+# waits.  Section 8's five seconds only has to reach an expiry, and this has to
+# reach an answer after one.
 before=$(sed -n 's/^timeout_sec *= *\([0-9]*\).*/\1/p' $CFG | head -1)
-sed -i 's/^timeout_sec = .*/timeout_sec = 5/' $CFG
+sed -i 's/^timeout_sec = .*/timeout_sec = 20/' $CFG
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 
 out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
@@ -585,33 +621,6 @@ out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
 
 sed -i "s/^timeout_sec = .*/timeout_sec = ${before:-120}/" $CFG
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
-quiesce
-
-
-quiesce
-out=$(/usr/bin/python3 /tmp/watch-answer.py before 2>&1)
-[ "$(field "$out" REFUSED)" = no ] \
-  && ok "Enters typed before the question do not refuse it" \
-  || bad "an Enter typed before the question refused it: ${out//$'\n'/ }"
-[ "$(field "$out" STARTED)" = yes ] && ok "and the yes after them is taken" \
-  || bad "the yes was not taken: ${out//$'\n'/ }"
-# One prompt, not five: they were discarded rather than asked again, which is
-# what keeps them from being spent on a question nobody had read.
-[ "$(field "$out" PROMPTS)" = 1 ] && ok "and they were discarded rather than re-asked" \
-  || bad "$(field "$out" PROMPTS) prompts, want 1: input predating the question reached it"
-quiesce
-
-out=$(/usr/bin/python3 /tmp/watch-answer.py after 2>&1)
-[ "$(field "$out" REFUSED)" = no ] \
-  && ok "Enters typed after the prompt do not refuse the question" \
-  || bad "an Enter typed at the prompt refused the question: ${out//$'\n'/ }"
-[ "$(field "$out" STARTED)" = yes ] && ok "and the yes behind them is taken" \
-  || bad "the yes behind them was lost: ${out//$'\n'/ }"
-# Five: the first prompt and one re-ask for each blank line.  Fewer means a
-# blank line was counted as an answer; the yes surviving the burst is what says
-# a re-ask does not discard what is queued behind it.
-[ "$(field "$out" PROMPTS)" = 5 ] && ok "and each was asked again rather than counted" \
-  || bad "$(field "$out" PROMPTS) prompts, want 5"
 quiesce
 
 # --------------------------------------------------------------------------

@@ -444,8 +444,8 @@ func warnIfTypeable() {
 // and eat the answer to the next.
 var answers = bufio.NewReader(os.Stdin)
 
-// fromTerminal is answers as it starts out, kept so that discardTyped can tell
-// whether it is still reading the terminal.  A test substitutes answers for a
+// fromTerminal is answers as it starts out, compared against once in readLines
+// to set the terminal field discard reads.  A test substitutes answers for a
 // reader of its own, and scripted answers are read in order rather than
 // discarded.
 var fromTerminal = answers
@@ -502,9 +502,11 @@ func readLines() *typed {
 // as an instant refusal of a question the operator never saw.  An answer has to
 // be made against a question, so what predates the question is not one.
 //
-// Three places input rests now, and all three are emptied: the terminal's own
-// queue, this reader's buffer behind it, and the channel the goroutine has
-// already put a whole line into.
+// Two places, and the reader's own buffer is deliberately not one of them: the
+// goroutine owns that buffer, so touching it from here would be a data race.
+// What is emptied is the terminal's queue and the channel a whole line has
+// already reached.  In canonical mode a read returns one line, so the buffer
+// holds nothing the ioctl has not already dropped.
 //
 // This narrows the window rather than closing it: a line the goroutine is
 // holding between its read and its send lands after the drain.  What is left is
@@ -521,6 +523,11 @@ func (t *typed) discard() {
 	if err := unix.IoctlSetInt(int(os.Stdin.Fd()), unix.TCFLSH, unix.TCIFLUSH); err != nil {
 		return
 	}
+	t.drain()
+}
+
+// drain empties the channel of lines the goroutine has already delivered.
+func (t *typed) drain() {
 	for {
 		select {
 		case <-t.lines:
@@ -565,6 +572,11 @@ func (t *typed) answer(deadline time.Time) (string, answerState) {
 			}
 			return line, answered
 		case <-time.After(time.Until(deadline)):
+			// Anything the goroutine delivered as the clock ran out was typed for
+			// the question that just expired, so it goes with it.  Left in the
+			// channel it would be read as the answer to the next one, which for a
+			// yes means approving root for a command nobody answered for.
+			t.drain()
 			return "", expired
 		}
 	}

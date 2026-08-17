@@ -171,7 +171,7 @@ func TestTimeoutDefaultsAndClamps(t *testing.T) {
 // executor's uid, which supplies it.
 //
 // This is the map the broker builds, not the child's environment; that is
-// asserted against a real child in internal/e2e.
+// asserted against a real child in tests/e2e/check-exec.sh.
 func TestTheEnvironmentTheBrokerAssembles(t *testing.T) {
 	s, rec := execServer(t)
 	r := exec(t, s, map[string]any{

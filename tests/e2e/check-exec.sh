@@ -116,6 +116,31 @@ grep -qE "^(SOPS_AGE_KEY|SOPS_AGE_KEY_FILE)=|AGE-SECRET-KEY-" <<<"$env_out" \
 out=$(run --env PW=secret://db/password -- /usr/bin/printenv PW)
 [ "$out" = "$TOKEN" ] && ok "an injected ref is in the child's environment, redacted on the way out" \
   || bad "injected value = [$out]"
+# The same by file, which is how a playbook names a fleet's credentials once
+# rather than on every command line.  Only here: the parsing and the precedence
+# are unit tests, and what neither reaches is the ref in a file arriving in a
+# child's environment.
+runuser -u op -- tee /tmp/refs.env >/dev/null <<'ENV'
+# the fleet's credentials
+PW=secret://db/password
+ENV
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
+  --env-file /tmp/refs.env -- /usr/bin/printenv PW 2>&1)
+[ "$out" = "$TOKEN" ] && ok "a ref named in an --env-file reaches the child too" \
+  || bad "the file's ref did not arrive: [$out]"
+# A literal value in one is refused rather than passed through, the file being
+# a list of names like every other way of asking.
+runuser -u op -- tee /tmp/literal.env >/dev/null <<'ENV'
+PW=hunter2-correct-horse-battery
+ENV
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 \
+  --env-file /tmp/literal.env -- /usr/bin/printenv PW 2>&1); code=$?
+[ $code -eq 2 ] && ok "and a literal value in one is refused, exit 2" \
+  || bad "a literal value in an --env-file: exit $code"
+grep -q "$SECRET" <<<"$out" && bad "*** the refusal echoed the value ***" \
+  || ok "and the refusal does not echo it back"
+rm -f /tmp/refs.env /tmp/literal.env
+
 # And only the ones asked for.  printenv on an unset name prints nothing and
 # exits 1, so empty is the answer that says it was not injected.
 out=$(run -- /usr/bin/printenv PW)
