@@ -31,10 +31,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
-	"unicode"
 
 	"github.com/spf13/cobra"
-	"golang.org/x/sys/unix"
 
 	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/sockutil"
@@ -296,7 +294,8 @@ func watchApprovals(socketPath string) int {
 		}
 		for _, question := range questions {
 			printQuestion(question)
-			approve, ok := readAnswer()
+			typed, ok := readAnswer()
+			approve := approves(typed)
 			if !ok {
 				// Stdin closed: nothing further can be answered here, and leaving the
 				// loop spinning would refuse nothing and approve nothing.
@@ -330,9 +329,16 @@ func watchApprovals(socketPath string) int {
 				// the log like any other command's.
 				if approve {
 					awaiting = question.LogID
+					fmt.Printf("  %s started\n", question.LogID)
+					break
 				}
-				fmt.Printf("  %s %s\n", question.LogID,
-					map[bool]string{true: "started", false: "refused"}[approve])
+				// What it read, on a refusal.  An answer nobody typed refuses a
+				// question exactly as one they did, so a refusal that does not say
+				// what it was cannot be told from the operator's own no.  Quoted
+				// rather than printed: a stray byte is the case this exists for, and
+				// it has to be visible rather than acted on by the terminal.
+				fmt.Printf("  %s refused: %s\n", question.LogID,
+					strconv.Quote(strings.Trim(typed, "\r\n")))
 			case 69:
 				fmt.Fprintf(os.Stderr, "faramir approve: %s could not be answered and is "+
 					"still open with nobody watching it; stopping rather than leaving it "+
@@ -423,102 +429,25 @@ func warnIfTypeable() {
 // and eat the answer to the next.
 var answers = bufio.NewReader(os.Stdin)
 
-// fromTerminal is answers as it starts out, kept so that discardTyped can tell
-// whether it is still reading the terminal.  A test substitutes answers for a
-// reader of its own, and scripted answers are read in order rather than
-// discarded.
-var fromTerminal = answers
-
-// discardTyped drops what was typed before the prompt was printed, so that no
-// answer is banked against a question nobody had read yet.
+// readAnswer reads one line and reports it, and whether there is more input to
+// read.  ok is false only when there is not, which is the one condition that
+// ends the watch: everything else, an empty line and a sentence alike, is an
+// answer, and every answer that is not yes is a no.
 //
-// Without it a line typed while nothing was pending sits in the terminal until
-// the next question arrives and is spent on it the instant it does, which reads
-// as an instant refusal of a question the operator never saw.  An answer has to
-// be made against a question, so what predates the question is not one.
-//
-// Both halves of the queue, because input rests in two places: the terminal's
-// own, emptied by the ioctl, and this reader's, emptied after it.  Discarding
-// only what is buffered here would leave the terminal's to arrive a moment
-// later.
-//
-// Terminals only, checked twice over.  Input that was not typed was not typed
-// early: a substituted reader is a test's script and a redirected stdin is a
-// file, and both are meant to be read in order.  TCFLSH covers the second, ENOTTY
-// being how a stdin that is not a terminal answers.
-//
-// This narrows the window rather than closing it: a keystroke landing between
-// the flush and the read is still banked.  What is left is the few microseconds
-// between the two, in place of the whole time a question was not yet asked.
-func discardTyped() {
-	if answers != fromTerminal {
-		return
+// The line is returned rather than only its verdict, so a refusal can say what
+// it read.  An answer nobody typed refuses a question exactly as one they did,
+// and the operator has to be able to tell the two apart.
+func readAnswer() (line string, ok bool) {
+	fmt.Print("  approve? [yes/no] ")
+	line, err := answers.ReadString('\n')
+	if err != nil && line == "" {
+		return "", false
 	}
-	if err := unix.IoctlSetInt(int(os.Stdin.Fd()), unix.TCFLSH, unix.TCIFLUSH); err != nil {
-		return
-	}
-	// Only what has already been read into this buffer; never a blocking read.
-	_, _ = answers.Discard(answers.Buffered())
-}
-
-// readAnswer reads until the operator answers and reports what that answer
-// means.  ok is false only when there is no more input to read, which is the one
-// condition that ends the watch.
-//
-// A line holding nothing printable is not an answer and is asked again rather
-// than counted as a no.  Deny by default is unchanged, and this is where it
-// comes from instead: an unanswered question expires, and the broker refuses it
-// on the way out.  A refusal that has to be typed is one the operator meant,
-// where a stray newline is nobody saying anything, and spending a question on
-// it answers for an operator who has not read it yet.
-//
-// Only what is empty.  Anything printable is an answer and so a refusal, a
-// punctuation mark and an escape sequence's printable tail included: a
-// keypress is a person at the terminal, and the safe reading of one that does
-// not spell yes is no.
-//
-// The cost is paid where it belongs.  A question nobody answers now takes its
-// expiry to be refused, rather than being refused at once by whatever was in the
-// terminal, so the command waits longer to be told no.  Waiting is what an
-// unattended question is supposed to do.
-func readAnswer() (approve, ok bool) {
-	// Only before the first prompt.  What is in the terminal then predates the
-	// question and is not an answer to it; what arrives after was typed by
-	// somebody who has seen it, so a re-ask must not throw it away.  Flushing
-	// every pass drops the answer to a blank line typed ahead of it, and reprints
-	// the prompt with nothing to show for it.
-	for first := true; ; first = false {
-		if first {
-			discardTyped()
-		}
-		fmt.Print("  approve? [yes/no] ")
-		line, err := answers.ReadString('\n')
-		if err != nil && line == "" {
-			return false, false
-		}
-		if answerOf(line) == "" {
-			continue
-		}
-		return approves(line), true
-	}
-}
-
-// answerOf is the part of a line that carries the answer: what is left once the
-// whitespace and the unprintable bytes around it are gone.  Empty is no answer
-// at all.
-//
-// The edges only.  A line is stripped of what a terminal puts around an answer
-// -- a newline, a carriage return, an escape sequence a keypress left behind --
-// and never of what sits inside one, so nothing is edited into a yes it did not
-// spell.  "y<NUL>es" is a refusal, as it reads.
-func answerOf(line string) string {
-	return strings.TrimFunc(line, func(r rune) bool {
-		return unicode.IsSpace(r) || !unicode.IsPrint(r)
-	})
+	return line, true
 }
 
 // approves is deny by default, as every other answer path is: only an explicit
-// yes approves, and a typo, a stray word or a punctuation mark is a no.
+// yes approves, and a typo, a stray word or an empty line is a no.
 //
 // The whole word, not "y".  The prompt above asks for `yes`, and the threat this
 // answer is guarded against is a keystroke the operator did not make: a tmux
@@ -526,7 +455,7 @@ func answerOf(line string) string {
 // Two bytes rather than four is a thin difference to rest anything on, but a
 // tool that accepts less than it asks for is one whose prompt is not the rule.
 func approves(line string) bool {
-	return strings.ToLower(answerOf(line)) == "yes"
+	return strings.ToLower(strings.TrimSpace(line)) == "yes"
 }
 
 // printQuestion shows one question.  Every caller-chosen string in it (the
