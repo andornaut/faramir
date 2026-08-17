@@ -153,17 +153,17 @@ sudo faramir approvals --watch
      caller   you (uid 1000)
      host     controller
      log_id   w5vq7dbf000119
-     expires  120s, after which it is refused
+     expires  120s
      approve? [yes/no]
    ```
 
-   `expires` gains a `(waited 40s)` only where the question had been sitting before anything read it: a watcher already running is handed one the moment it is filed, so its absence is what says somebody was here. `caller` is the account that asked, which is never the account the command would run as: that is the executor on every question, so the uid worth judging is this one, and more than one account can be in the client group. The command is on its own line rather than in the question, which repeated it and, for a long one, pushed the fields off the screen; `[sudo] notify_command` still gets the whole sentence, having no second line to put one on. The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
+   `expires` counts down to the refusal and gains a `(waited 40s)` only where the question had been sitting before anything read it: a watcher already running is handed one the moment it is filed, so its absence is what says somebody was here. `caller` is the account that asked, which is never the account the command would run as: that is the executor on every question, so the uid worth judging is this one, and more than one account can be in the client group. The command is on its own line rather than in the question, which repeated it and, for a long one, pushed the fields off the screen; `[sudo] notify_command` still gets the whole sentence, having no second line to put one on. The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
 
 4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `expires` counts down from. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
 
    ```text
      approve? [yes/no]
-     w9h4d78d000016 expired unanswered, and was refused
+     w9h4d78d000016 expired
    ```
 
    It has to, and not only so the terminal stops asking about a question that is gone: a watcher blocked on a read is one that is not polling, so a question raised while it waited would not be shown until a keystroke arrived.

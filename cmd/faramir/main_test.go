@@ -485,13 +485,13 @@ func TestTheWaitingCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
 	if strings.Contains(fresh, "waited") {
 		t.Errorf("a question nobody was late for reports a wait:\n%s", fresh)
 	}
-	if !strings.Contains(fresh, "expires  120s") {
+	if !strings.Contains(fresh, "expires  120s\n") {
 		t.Errorf("the clock the answer is typed against is missing:\n%s", fresh)
 	}
 
 	question.WaitingSec, question.ExpiresInSec = 40, 80
 	late, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
-	if !strings.Contains(late, "expires  80s, after which it is refused (waited 40s)") {
+	if !strings.Contains(late, "expires  80s (waited 40s)") {
 		t.Errorf("a question that sat for 40s does not say so on the expires line:\n%s", late)
 	}
 	// One line, not two: the wait qualifies the clock rather than standing beside it.

@@ -311,7 +311,7 @@ func watchApprovals(socketPath string) int {
 				fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
 				return 0
 			case expired:
-				fmt.Printf("\n  %s expired unanswered, and was refused\n", question.LogID)
+				fmt.Printf("\n  %s expired\n", question.LogID)
 				continue
 			case answered:
 			}
@@ -663,7 +663,8 @@ func printQuestion(question approval.Question) {
 		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
 	// What is left of the clock is what the answer is typed against, so it is
-	// printed either way.
+	// printed either way.  What happens at zero is not said: a question that
+	// expires is refused, and the word carries it.
 	//
 	// How long it had already sat comes with it rather than on a line of its own,
 	// and only where it is not zero.  It is measured when the broker answers the
@@ -675,8 +676,7 @@ func printQuestion(question approval.Question) {
 	if question.WaitingSec > 0 {
 		waited = fmt.Sprintf(" (waited %ds)", question.WaitingSec)
 	}
-	fmt.Printf("  expires  %ds, after which it is refused%s\n",
-		question.ExpiresInSec, waited)
+	fmt.Printf("  expires  %ds%s\n", question.ExpiresInSec, waited)
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.
