@@ -180,7 +180,7 @@ Rewriting rather than denying is the point: a deny list covers what somebody tho
 
 How to install and run this is in [operating.md](operating.md#allowing-sudo-on-the-controller); this is the reasoning.
 
-**An approval is the same kind of oracle as `redact`, weighted the other way.** A human can answer wrongly, so it survives that weighting by being deny-by-default: silence is a refusal, an unreachable answer channel is a refusal, and anything that is not `yes` is a refusal.
+**An escalation is the same kind of oracle as `redact`, weighted the other way.** A human can answer wrongly, so it survives that weighting by being deny-by-default: silence is a refusal, an unreachable answer channel is a refusal, and anything that is not `yes` is a refusal.
 
 What makes the answer worth anything is that the prompt names the command. The broker writes the question itself, from the argv it started, and refuses a request it cannot attribute to a running command; the prompt string `sudo` passes to the helper is ignored, coming from the child, which is the side being asked about.
 
@@ -190,7 +190,7 @@ Five easier designs, and why each was not taken:
 
 Rejected | Why
 --- | ---
-A time window | `timestamp_timeout=0`, so sudo's own credential cache never decides this. A window in which approval is assumed is one an agent can start a brokered command inside, riding an approval a human gave for something else.
+A time window | `timestamp_timeout=0`, so sudo's own credential cache never decides this. A window in which escalation is assumed is one an agent can start a brokered command inside, riding an approval a human gave for something else.
 The caller's terminal | The agent owns that process tree, so a password typed into it is one the agent can read.
 `systemd-ask-password` | Asking through it means creating a file in `/run/systemd/ask-password`, `0755 root:root`, so a broker running as its own uid is refused and every request is denied for want of anybody to ask. What that channel offers is a reply socket only root can write to, which `SO_PEERCRED` provides directly.
 A managed secret | The executor can request the same injection the agent can, so anything injectable is agent-reachable, and a sudo password in the store is root for the asking.
@@ -198,21 +198,21 @@ A password at all | A bearer credential, so wherever it is kept, a command appro
 
 **How the PAM stack fails matters more than how it works.** Two settings decide whether it gates anything:
 
-- `requisite`, never `sufficient`. With `sufficient`, a helper that *refuses* is not fatal: the stack falls through to the `pam_permit` beneath it and every approval is granted without asking anybody.
-- `seteuid`, because `pam_exec` otherwise runs the helper with the real uid, which under setuid `sudo` is the executor's own. The broker answers `ask_approval` to root alone, so the helper would be refused and nothing on the host could sudo. It also keeps the deciding process out of reach of the uid being decided about.
+- `requisite`, never `sufficient`. With `sufficient`, a helper that *refuses* is not fatal: the stack falls through to the `pam_permit` beneath it and every escalation is granted without asking anybody.
+- `seteuid`, because `pam_exec` otherwise runs the helper with the real uid, which under setuid `sudo` is the executor's own. The broker answers `escalate` to root alone, so the helper would be refused and nothing on the host could sudo. It also keeps the deciding process out of reach of the uid being decided about.
 
 `faramir doctor` fails on either. Everything else fails closed by construction: an unreachable broker, an unknown token, a refusal and a timeout all exit non-zero, and nothing authenticates except by reaching `pam_permit` past a `requisite` that succeeded. The service is faramir's own, named by `pam_service=` in the sudoers entry, so everyone else's `sudo` reads the stock `/etc/pam.d/sudo` and a mistake here can neither lock this host's operators out nor hand another account a free root. Removing the file falls back to `/etc/pam.d/other`; `doctor` fails if that fallback is a free pass.
 
-### What the approval does not reach
+### What the escalation does not reach
 
 Two ways it could go past the one command it named, with different answers.
 
-**A second, unapproved command riding it: closed.** Every brokered command runs as `faramir-exec`, and `/proc/<pid>/environ` is readable within a uid, so a concurrent run could read the approved run's token and `sudo` on it. **Any live `faramir-exec` process during an approved window is root.** The broker closes this by serialising: an approval takes only when its run is the sole brokered command in flight, and while it is live every other brokered command is refused `approval_in_progress`, terminal rather than a `busy` to retry, a caller retrying against a live approval being one polling the exact interval the serialisation protects. Registering a run blocks a new approval and a live approval blocks a new registration, under one lock. A merely *pending* question holds a new command too, or a caller free to keep starting commands decides whether the host is ever quiet enough for a yes to take. The cost is that one unanswered question stalls unrelated brokered work for up to `[approval] timeout_sec`.
+**A second, unapproved command riding it: closed.** Every brokered command runs as `faramir-exec`, and `/proc/<pid>/environ` is readable within a uid, so a concurrent run could read the approved run's token and `sudo` on it. **Any live `faramir-exec` process during an approved window is root.** The broker closes this by serialising: an escalation takes only when its run is the sole brokered command in flight, and while it is live every other brokered command is refused `escalation_in_progress`, terminal rather than a `busy` to retry, a caller retrying against a live escalation being one polling the exact interval the serialisation protects. Registering a run blocks a new escalation and a live escalation blocks a new registration, under one lock. A merely *pending* question holds a new command too, or a caller free to keep starting commands decides whether the host is ever quiet enough for a yes to take. The cost is that one unanswered question stalls unrelated brokered work for up to `[escalation] timeout_sec`.
 
 Three things follow:
 
 - **No question that could only be refused.** A `sudo` arriving while another run is registered is refused there and then rather than filing a question that could only be answered no. One question at a time and never a queue follows from that. Requests from the *same* run join that run's question, which is what makes one approval cover a playbook's twenty become'd tasks.
-- **Serialisation is checked against the kernel, not believed.** The bookkeeping can part from the process table: a drain that does not finish, a run aborted from the broker's side, the broker restarting while the executor is still killing a run. So before an approval takes, the broker asks the executor whether any process of its uid is alive outside that daemon and outside the runs it is confining, asked of the executor because the broker's own unit sets `ProtectProc=invisible`. Every failure is a no.
+- **Serialisation is checked against the kernel, not believed.** The bookkeeping can part from the process table: a drain that does not finish, a run aborted from the broker's side, the broker restarting while the executor is still killing a run. So before an escalation takes, the broker asks the executor whether any process of its uid is alive outside that daemon and outside the runs it is confining, asked of the executor because the broker's own unit sets `ProtectProc=invisible`. Every failure is a no.
 - **The cgroup is the one reaper, with no fallback.** A brokered command is spawned into a cgroup of its own (clone3's `CLONE_INTO_CGROUP`, the unit granted `Delegate=`), killed and drained when the run ends, so a `setsid` child that broke out of the process group is reaped with it. A process group is a strictly weaker grouping the same `setsid` escapes, so a run that cannot be confined is *refused*, on every host, grant or not. Needs cgroup v2 and `cgroup.kill`, kernel 5.14 or newer.
 
 **The executor daemon is the one exception, closed differently.** It runs as the uid every brokered command runs as, sits in no run's cgroup, and receives each run's whole environment over its socket, so it is the single process from which every run's token could be read. What refuses a brokered command reaching *into* it is `PR_SET_DUMPABLE=0`, set by both daemons at startup: it refuses same-uid `ptrace` whatever `ptrace_scope` says (`0` on RHEL, Fedora and Arch), and a host installed with `--allow-sudo` has no seccomp filter to refuse the syscall and cannot have one, such a filter forcing `NoNewPrivileges=` on and that making `sudo` inert.

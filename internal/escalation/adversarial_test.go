@@ -1,6 +1,6 @@
-package approval
+package escalation
 
-// Adversarial probes against the approval gate: what a brokered command can do
+// Adversarial probes against the escalation gate: what a brokered command can do
 // to the question a human is shown, rather than to the answer.  Each asserts a
 // gap is closed rather than documenting that it is open, a probe that only
 // documents a weakness being one that stops being read.  What each defends, and
@@ -113,7 +113,7 @@ func TestTheQuestionNamesWhatWillActuallyRun(t *testing.T) {
 	}
 }
 
-// An approval takes only where something outside this server's own bookkeeping
+// An escalation takes only where something outside this server's own bookkeeping
 // says the host is quiet.  The map here and the process table can part (a
 // cgroup teardown that gave up, a run aborted from the broker's side, this
 // process restarting), and every live executor-uid process during an approved
@@ -123,7 +123,7 @@ func TestTheQuestionNamesWhatWillActuallyRun(t *testing.T) {
 // for another try is the kinder-looking behaviour and the wrong one: it makes
 // the operator poll the one interval in which the host has to be quiet, and
 // leaves a yes standing against a condition that can change under it.
-func TestAnApprovalNeedsMoreThanThisServersOwnBookkeeping(t *testing.T) {
+func TestAnEscalationNeedsMoreThanThisServersOwnBookkeeping(t *testing.T) {
 	s := started(t, baseConfig())
 	s.Quiescent = func() (bool, string) {
 		return false, "2 process(es) are running as the executor outside any brokered command"
@@ -139,7 +139,7 @@ func TestAnApprovalNeedsMoreThanThisServersOwnBookkeeping(t *testing.T) {
 
 	err := s.Answer(id, true, "the test")
 	if err == nil {
-		t.Fatal("an approval took while processes of the executor's uid were unaccounted for")
+		t.Fatal("an escalation took while processes of the executor's uid were unaccounted for")
 	}
 	if !errors.Is(err, ErrNotQuiescent) {
 		t.Errorf("Answer error = %v, want ErrNotQuiescent so the caller can tell this "+
@@ -173,11 +173,11 @@ func TestAQuestionHoldsNewCommandsToo(t *testing.T) {
 			"yes would be refused for want of a quiescence that caller controls")
 	}
 	if err := s.Answer(id, true, "the test"); err != nil {
-		t.Fatalf("the approval did not take on a host nothing else could crowd: %v", err)
+		t.Fatalf("the escalation did not take on a host nothing else could crowd: %v", err)
 	}
 }
 
-// A question says how much of [approval] timeout_sec is left, not only how long it
+// A question says how much of [escalation] timeout_sec is left, not only how long it
 // has been there.
 //
 // It matters most where the answer is a second command: `faramir approve`
@@ -205,7 +205,7 @@ func TestAQuestionSaysHowLongIsLeftToAnswerIt(t *testing.T) {
 	}
 }
 
-// A Server with no way to ask whether the host is quiet refuses every approval.
+// A Server with no way to ask whether the host is quiet refuses every escalation.
 //
 // Everything else on this path fails closed, and an unwired check was the one
 // way it could have failed open: the broker wires it after constructing the
@@ -225,7 +225,7 @@ func TestAnUnwiredQuiescenceCheckRefuses(t *testing.T) {
 
 	err := s.Answer(id, true, "the test")
 	if err == nil {
-		t.Fatal("an approval took on a server that cannot ask whether the host is quiet")
+		t.Fatal("an escalation took on a server that cannot ask whether the host is quiet")
 	}
 	if !errors.Is(err, ErrNotQuiescent) {
 		t.Errorf("Answer error = %v, want ErrNotQuiescent", err)

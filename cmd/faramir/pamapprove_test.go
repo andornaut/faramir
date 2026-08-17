@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/approval"
+	"github.com/andornaut/faramir/internal/escalation"
 )
 
 // The PAM helper's exit status is the whole authentication: zero authenticates
@@ -141,7 +141,7 @@ func walk(t *testing.T, environ []string) string {
 // finding it means the walk crossed the two processes between.  Those are the
 // shell and the sudo that sit between a brokered command and this helper.
 func TestTheTokenIsFoundOnAnAncestor(t *testing.T) {
-	got := walk(t, []string{approval.TokenEnv + "=walked-to-this"})
+	got := walk(t, []string{escalation.TokenEnv + "=walked-to-this"})
 	if got != "walked-to-this" {
 		t.Errorf("the walk found %q, want the ancestor's token: it decides which "+
 			"run the human is asked about", got)

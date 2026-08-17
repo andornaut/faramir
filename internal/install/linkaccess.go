@@ -132,15 +132,15 @@ func (r *runner) LinkSteps() []namedStep {
 // without it takes the grant away, which is the direction that reduces reach.
 // Adding a link is not a request to change any of that, and stepConfig renders
 // the whole file from the layout, so without this a `link add` on a host
-// installed with --allow-sudo would silently drop [approval] and leave the sudoers
+// installed with --allow-sudo would silently drop [escalation] and leave the sudoers
 // entry and PAM service pointing at a broker that no longer names them.
 func keepInstalledGrant(opts *Options, configDir string) error {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {
 		return err
 	}
-	opts.AllowSudo = cfg.Approval.ExecUser != ""
-	opts.NotifyCommand = cfg.Approval.NotifyCommand
+	opts.AllowSudo = cfg.Escalation.ExecUser != ""
+	opts.NotifyCommand = cfg.Escalation.NotifyCommand
 	return nil
 }
 

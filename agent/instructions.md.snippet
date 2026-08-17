@@ -18,15 +18,15 @@ carry their own usage, so this section is the policy rather than the manual.
 {{ credentialRules }}
 {{- if .AllowSudo}}
 
-## Waiting for an approval
+## Waiting for an escalation
 
 A brokered command that needs root asks the operator, who answers at a terminal
 of their own. While a question is open, every other brokered command is refused
-with `approval_in_progress`, and a command refused that way was neither run nor
+with `escalation_in_progress`, and a command refused that way was neither run nor
 queued: run it again once the answer is in. `not_quiescent` is the same
 instruction, the host having been busy when the answer arrived. Wait in both
-cases. That pause is what the approval is worth, so working around it works
-around the approval.
+cases. That pause is what the escalation is worth, so working around it works
+around the escalation.
 {{- end}}
 
 The pre-execution check that refuses these commands is not the security

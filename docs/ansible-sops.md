@@ -111,7 +111,7 @@ Dropping the default `-n` is the whole of it: `-n` tells `sudo` to fail rather t
 Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. Leave a watcher running as root, in a terminal the coding agent cannot type into, and the first task that runs sudo puts its question there naming the playbook:
 
 ```bash
-sudo faramir approvals --watch
+sudo faramir escalations --watch
 ```
 
 One approval covers the whole playbook run rather than one task. [What it does and does not bound](operating.md#one-question-per-run-and-what-to-expect), including which other commands are refused meanwhile.

@@ -21,7 +21,7 @@ Flag | Key | Default | Bounds
 `--command-timeout-sec` | `[command] timeout_sec` | 600 | at least 1
 `--command-max-timeout-sec` | `[command] max_timeout_sec` | 3600 | at least 1, and not below `timeout_sec`, which it would otherwise silently replace for every command
 `--command-concurrency` | `[command] concurrency` | 10 | at least 1: zero refuses every request as busy
-`--approval-timeout-sec` | `[approval] timeout_sec` | 120 | 1 to 600
+`--escalation-timeout-sec` | `[escalation] timeout_sec` | 120 | 1 to 600
 `--secret-min-length` | `[secret] min_length` | 8 | at least 6
 `--secret-min-refresh-sec` | `[secret] min_refresh_sec` | 10 | at least 1. A minimum, not a schedule: the check runs when a command arrives and nothing polls in the background, so an idle host costs nothing. It bounds the keeper round trip only; linked files are stat'ed on every request
 
@@ -44,8 +44,8 @@ Key | Derived from
 `[ssh] exec_group` | `--exec-user`, resolved to that account's own group
 `[ssh] ssh_agent`, `[ssh] ssh_add` | resolved on `PATH` at install time; the broker execs them as its own uid
 `[ssh] agent_socket`, `[audit] log_path` | no flag: `/run/faramir` and `/var/log/faramir`, fixed at build time
-`[approval] exec_user`, `pam_service`, `helper` | `--allow-sudo`
-`[approval] notify_command` | `--notify-command`, repeatable, one argument each
+`[escalation] exec_user`, `pam_service`, `helper` | `--allow-sudo`
+`[escalation] notify_command` | `--notify-command`, repeatable, one argument each
 
 ## What is not a key at all
 
@@ -130,7 +130,7 @@ A store that matched no file at all | Those values are absent from the redactor,
 A `[[secret.link]]` entry whose file is not there, or is there and did not read | The same two meanings, reported with the ref in front. The second is what an ACL dropped by a tool rewriting its own file looks like
 A store holding zero refs | Stricter than the daemon's own gate, which asks only that every matched file loaded
 An `[ssh] key` the agent cannot load | `ssh-add` refuses it, leaving every host unreachable. Passphrase-protected, unreadable, or pointed at the `.pub`
-An `[approval] helper` or PAM service file that is not there, or a `notify_command` that is not installed | Approval is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions waiting
+An `[escalation] helper` or PAM service file that is not there, or a `notify_command` that is not installed | Escalation is configured and either every request fails with `sudo` reporting an authentication error, or nothing announces the questions waiting
 `[keeper]` or `[executor] allowed_user` naming an account that is not the broker | Each socket has one legitimate client. The keeper's is the age key by another route; the executor's runs a command with no policy, no redaction and no audit record
 The bound broker socket having world bits | Every account on the host reaches the broker, whatever `allowed_group` says. Stat'ed rather than read from the config. Unbound is reported as unchecked
 An audit log that cannot be written | A command that cannot be recorded is not run

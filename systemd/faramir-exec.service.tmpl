@@ -70,13 +70,13 @@ ProtectProc=invisible
 # every task and nothing says why.
 NoNewPrivileges=false
 # CapabilityBoundingSet= is not set: an empty one bounds root as well, so an
-# approval would reach uid 0 holding no capability and fail on the
+# escalation would reach uid 0 holding no capability and fail on the
 # first chown, mount or bind.  AmbientCapabilities= stays empty, which grants
 # this uid nothing before sudo has run.
 AmbientCapabilities=
 # ProtectSystem= is not set either.  A read-only /usr and /etc is exactly what
 # an approved "configure this host" is for, so leaving it on would turn every
-# such task into EROFS.  Below the approval, file modes are what refuse this
+# such task into EROFS.  Below the escalation, file modes are what refuse this
 # uid, as they do everywhere else.
 #
 # ReadWritePaths= is then unnecessary: nothing is mounted read-only to name an

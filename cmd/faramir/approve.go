@@ -1,13 +1,13 @@
 package main
 
-// faramir approvals, approve and deny: the channel an approval is answered on.
+// faramir escalations, approve and deny: the channel an escalation is answered on.
 //
 // Three commands rather than one with flags, mirroring the ops the broker
-// speaks: `approvals` lists, `approve` says yes, `deny` says no.  One verb
+// speaks: `escalations` lists, `approve` says yes, `deny` says no.  One verb
 // carrying all three took `--deny`, which reads as its own contradiction, and
 // listed when given no argument, which is a verb doing a noun's job.
 //
-// Root, and root only.  The coding agent runs as the operator, so an approval
+// Root, and root only.  The coding agent runs as the operator, so an escalation
 // the operator could give is one the agent could give itself; the broker checks
 // SO_PEERCRED on this connection and refuses anything but uid 0.  That check is
 // the whole boundary, which is why the answer comes back over the broker's own
@@ -36,7 +36,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 
-	"github.com/andornaut/faramir/internal/approval"
+	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
@@ -56,7 +56,7 @@ func requireRootToAnswer(command string) bool {
 	// leaves a warm sudo timestamp in a shell the agent can use, which hands it
 	// the account this check exists to keep it out of.  The three places named
 	// here are the three warnIfTypeable does not warn about.
-	fmt.Fprintf(os.Stderr, "faramir %s must run as root: an approval has to "+
+	fmt.Fprintf(os.Stderr, "faramir %s must run as root: an escalation has to "+
 		"be answered by an account the coding agent cannot become, and it runs as "+
 		"you. Answer from a console, an ssh session on another machine, or a login "+
 		"as another account. Reaching root with `sudo` from this shell warms a sudo "+
@@ -65,38 +65,38 @@ func requireRootToAnswer(command string) bool {
 	return false
 }
 
-// cmdApprovals, cmdApprove and cmdDeny run one command on its own, which is
+// cmdEscalations, cmdApprove and cmdDeny run one command on its own, which is
 // how the tests reach them without going through the root.
-func cmdApprovals(args []string) int { return runCommand(newApprovalsCmd(), args) }
-func cmdApprove(args []string) int   { return runCommand(newApproveCmd(), args) }
-func cmdDeny(args []string) int      { return runCommand(newDenyCmd(), args) }
+func cmdEscalations(args []string) int { return runCommand(newEscalationsCmd(), args) }
+func cmdApprove(args []string) int     { return runCommand(newApproveCmd(), args) }
+func cmdDeny(args []string) int        { return runCommand(newDenyCmd(), args) }
 
-// newApprovalsCmd lists what is waiting, or waits for it with --watch.  It
+// newEscalationsCmd lists what is waiting, or waits for it with --watch.  It
 // answers nothing: the verbs are their own commands.
-func newApprovalsCmd() *cobra.Command {
+func newEscalationsCmd() *cobra.Command {
 	var (
 		o     brokerOptions
 		watch bool
 	)
 	c := &cobra.Command{
-		Use:     "approvals [options]",
-		Short:   "list the approval a brokered command is waiting on",
+		Use:     "escalations [options]",
+		Short:   "list the escalation a brokered command is waiting on",
 		GroupID: groupProvisioning,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) > 0 {
-				return usagef("faramir approvals: unexpected argument %q\n"+
+				return usagef("faramir escalations: unexpected argument %q\n"+
 					"To answer one: faramir approve ID, or faramir deny ID", args[0])
 			}
 			return nil
 		},
 		RunE: func(c *cobra.Command, args []string) error {
-			if !requireRootToAnswer("approvals") {
+			if !requireRootToAnswer("escalations") {
 				return codeErr(1)
 			}
 			if watch {
-				return codeErr(watchApprovals(o.socket))
+				return codeErr(watchEscalations(o.socket))
 			}
-			return codeErr(listApprovals(o.socket, o.json))
+			return codeErr(listEscalations(o.socket, o.json))
 		},
 	}
 	o.add(c)
@@ -107,7 +107,7 @@ func newApprovalsCmd() *cobra.Command {
 
 // newApproveCmd says yes to one question, which has to be named.  There is
 // deliberately no bare `faramir approve` that says yes to whatever is there: an
-// approval that names no command is one nobody judged, which is what this whole
+// escalation that names no command is one nobody judged, which is what this whole
 // channel exists to prevent.
 func newApproveCmd() *cobra.Command {
 	var o brokerOptions
@@ -121,7 +121,7 @@ func newApproveCmd() *cobra.Command {
 			if len(args) != 1 || args[0] == "" {
 				return usagef("faramir approve: one id is required\n" +
 					"A yes names the command it is for, so there is no form that approves " +
-					"whatever is waiting. `faramir approvals` lists it; `faramir deny` needs " +
+					"whatever is waiting. `faramir escalations` lists it; `faramir deny` needs " +
 					"no id, one question being outstanding at a time")
 			}
 			return nil
@@ -184,23 +184,23 @@ func denyWaiting(socketPath string, asJSON bool) int {
 // do with the answer.
 //
 // One question, never a queue, so the caller indexes rather than loops.
-func waiting(socketPath, verb string) ([]approval.Question, int) {
+func waiting(socketPath, verb string) ([]escalation.Question, int) {
 	questions, _, err := pending(socketPath, 0, "")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir escalations: %v\n", err)
 		return nil, 69 // EX_UNAVAILABLE, as every other broker-facing command
 	}
 	if len(questions) == 0 {
 		fmt.Fprintf(os.Stderr, "nothing is waiting to be %s. "+
-			"`faramir approvals --watch` waits for the next one\n", verb)
+			"`faramir escalations --watch` waits for the next one\n", verb)
 		return nil, 1
 	}
 	return questions, 0
 }
 
-// listApprovals reports what is waiting and returns, for a look rather than a
+// listEscalations reports what is waiting and returns, for a look rather than a
 // vigil.  Non-zero on nothing waiting, so a script can tell the two apart.
-func listApprovals(socketPath string, asJSON bool) int {
+func listEscalations(socketPath string, asJSON bool) int {
 	questions, code := waiting(socketPath, "approved")
 	if asJSON {
 		return listAsJSON(questions, code)
@@ -229,23 +229,23 @@ func listApprovals(socketPath string, asJSON bool) int {
 //
 // A broker that could not be reached prints nothing at all.  There is no
 // listing to report, and an empty array there would say the host is quiet.
-func listAsJSON(questions []approval.Question, code int) int {
+func listAsJSON(questions []escalation.Question, code int) int {
 	if code == 69 {
 		return code
 	}
 	if questions == nil {
-		questions = []approval.Question{}
+		questions = []escalation.Question{}
 	}
 	body, err := json.MarshalIndent(questions, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir escalations: %v\n", err)
 		return 1
 	}
 	fmt.Println(string(body))
 	return code
 }
 
-// watchApprovals is the shape an operator leaves running: it blocks until a
+// watchEscalations is the shape an operator leaves running: it blocks until a
 // request arrives, shows it, reads the answer from this terminal, and reports
 // how an approved run ended.  A yes is the last decision made about that
 // command, so this is where what it did is said.
@@ -253,13 +253,13 @@ func listAsJSON(questions []approval.Question, code int) int {
 // This terminal, deliberately.  The prompt must not land where the agent can
 // type, so run it somewhere the agent does not reach: not a shell it drives, and
 // not a pane of a session it shares.
-func watchApprovals(socketPath string) int {
+func watchEscalations(socketPath string) int {
 	warnIfTypeable()
 	// The one rule the prompt below does not already show: it asks for [yes/no],
 	// which reads as though "y" would do and as though only "no" refuses.  What a
 	// blank line does, what is discarded, and what prints when a run ends are all
 	// visible the moment they happen, so they are not announced in advance.
-	fmt.Fprintln(os.Stderr, "waiting for approval requests; only `yes` approves. "+
+	fmt.Fprintln(os.Stderr, "waiting for escalation requests; only `yes` approves. "+
 		"Ctrl-C to stop.")
 	// No set of ids already answered, and none is wanted.  The broker drops a
 	// question the moment it is answered, refused or expired, and only one is ever
@@ -278,7 +278,7 @@ func watchApprovals(socketPath string) int {
 		if err != nil {
 			// Out, rather than reconnecting.  A watcher that heals itself is one whose
 			// absence is invisible: every question raised while it was reconnecting
-			// expired unanswered, and the terminal went on saying "waiting for approval
+			// expired unanswered, and the terminal went on saying "waiting for escalation
 			// requests" throughout.  Worse, it is a gap somebody else can arrange --
 			// anything that can restart or stall the broker gains a stretch in which no
 			// human is on the other end of the question.  Exiting makes the gap the
@@ -286,7 +286,7 @@ func watchApprovals(socketPath string) int {
 			//
 			// The cost is real: `faramir init` restarts the broker, so an install ends
 			// a watcher and it has to be started again.
-			fmt.Fprintf(os.Stderr, "faramir approvals: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir escalations: %v\n", err)
 			fmt.Fprintln(os.Stderr, "faramir approve: stopping rather than "+
 				"reconnecting: questions raised while nothing was watching would "+
 				"expire unanswered. Start it again once the broker is back.")
@@ -368,13 +368,13 @@ func watchApprovals(socketPath string) int {
 
 // waitedIn is how much of the duration was the question rather than the
 // command, where that is worth saying.  The duration is wall time from fork to
-// exit and the child sits inside sudo for the whole approval, so a run answered
+// exit and the child sits inside sudo for the whole escalation, so a run answered
 // after a trip to the kitchen reads as a slow command without it.
 //
 // Said rather than subtracted: [command] max_timeout_sec is enforced against the
 // same clock the duration measures, and a duration that no longer matched it
 // would be a second, quieter number.
-func waitedIn(outcome approval.Outcome) string {
+func waitedIn(outcome escalation.Outcome) string {
 	if outcome.WaitedSec < 1 {
 		return ""
 	}
@@ -391,7 +391,7 @@ func waitedIn(outcome approval.Outcome) string {
 // A run with no exit code is said to have ended without one.  Printing a zero
 // there would read as a clean exit, which is the one thing this line must not
 // get wrong: it is the only report the operator who gave root away receives.
-func printOutcome(outcome approval.Outcome) {
+func printOutcome(outcome escalation.Outcome) {
 	id := outcome.LogID
 	switch {
 	case outcome.Error != "":
@@ -448,7 +448,7 @@ func warnIfTypeable() {
 	if len(reasons) == 0 {
 		return
 	}
-	fmt.Fprintln(os.Stderr, "\nWARNING: an approval given here may not be yours.")
+	fmt.Fprintln(os.Stderr, "\nWARNING: an escalation given here may not be yours.")
 	for _, reason := range reasons {
 		fmt.Fprintln(os.Stderr, "  - "+reason)
 	}
@@ -628,14 +628,14 @@ func approves(line string) bool {
 
 // printQuestion shows one question.  Every caller-chosen string in it (the
 // command, the cwd, the program) was rendered for a terminal by the broker
-// (see approval.Command), so what arrives here holds no escape sequence to obey.
+// (see escalation.Command), so what arrives here holds no escape sequence to obey.
 // The fields are printed one per line for the same reason the command is quoted:
 // a question is read before it is answered.
-func printQuestion(question approval.Question) {
+func printQuestion(question escalation.Question) {
 	// The question without the command, which is the cmd line below: a prompt
 	// carrying it too says the same thing twice and, for a long one, pushes
 	// everything worth reading off the screen.
-	fmt.Printf("\n%s\n", approval.PromptPrefix)
+	fmt.Printf("\n%s\n", escalation.PromptPrefix)
 	fmt.Printf("  id       %s\n", question.ID)
 	fmt.Printf("  cmd      %s\n", question.Cmd)
 	// The cwd above the host: it is what the command was typed against, and the
@@ -684,8 +684,8 @@ func printQuestion(question approval.Question) {
 // awaitLogID names the run this caller approved and has not yet heard the end
 // of, and is the only run it is told about.  Empty asks about none, which is
 // what a listing wants and what a watcher that has approved nothing sends.
-func pending(socketPath string, waitSec int, awaitLogID string) ([]approval.Question, *approval.Outcome, error) {
-	request := map[string]any{"op": "approvals"}
+func pending(socketPath string, waitSec int, awaitLogID string) ([]escalation.Question, *escalation.Outcome, error) {
+	request := map[string]any{"op": "escalations"}
 	if waitSec > 0 {
 		request["wait_sec"] = waitSec
 	}
@@ -699,8 +699,8 @@ func pending(socketPath string, waitSec int, awaitLogID string) ([]approval.Ques
 		return nil, nil, err
 	}
 	var response struct {
-		Questions []approval.Question `json:"questions"`
-		Finished  *approval.Outcome   `json:"finished"`
+		Questions []escalation.Question `json:"questions"`
+		Finished  *escalation.Outcome   `json:"finished"`
 		Error     *struct {
 			Message string `json:"message"`
 		} `json:"error"`
@@ -721,7 +721,7 @@ func answer(prog, socketPath, id string, approve, asJSON bool) int {
 }
 
 // roundTrip is send() for a caller that reads the body itself, and with a
-// deadline of its own: the approvals op holds the connection open on purpose.
+// deadline of its own: the escalations op holds the connection open on purpose.
 func roundTrip(socketPath string, request map[string]any, timeout time.Duration) ([]byte, error) {
 	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(
 		context.Background(), "unix", socketPath)

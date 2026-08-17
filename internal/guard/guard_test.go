@@ -46,11 +46,11 @@ func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
 	}
 }
 
-// Answering an approval is the operator's, and this hook gates the agent's
+// Answering an escalation is the operator's, and this hook gates the agent's
 // shell rather than the operator's terminal: an agent that could approve the
 // request it raised is the whole boundary gone.  Both the helper sudo runs and
 // the subcommand a human types are denied here.
-func TestTheAgentCannotAnswerItsOwnApproval(t *testing.T) {
+func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 	for _, cmd := range []string{
 		"sudo faramir approve",
 		"sudo faramir approve a1b2c3",
@@ -59,7 +59,7 @@ func TestTheAgentCannotAnswerItsOwnApproval(t *testing.T) {
 		"sudo faramir pam-approve",
 	} {
 		if _, denied := decide(cmd); !denied {
-			t.Errorf("the agent may answer an approval: %q", cmd)
+			t.Errorf("the agent may answer an escalation: %q", cmd)
 		}
 	}
 	// Without sudo it reaches a broker that refuses it anyway, and denying it here

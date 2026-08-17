@@ -565,12 +565,12 @@ printf '%s' "$raw" | grep -qP '\x1b\[' && bad "auto painted a pipe" || ok "auto 
 head_ "13. record shapes the broker writes but this run did not produce"
 #
 # Synthetic records, so what is under test is the rendering only: an operator
-# meets these on a host where an approval or a rekey happened.
+# meets these on a host where an escalation or a rekey happened.
 
 SYN=/tmp/shapes.log
 cat > "$SYN" <<'BODY'
-{"log_id":"w5vqdddd000001","at":1786000101,"op":"ask_approval","approved":true,"peer":{"uid":1001,"pid":10},"cmd":["/usr/bin/apt","install","-y","curl"],"exec_log_id":"w5vqdddd000002","outcome":"approved at the console"}
-{"log_id":"w5vqdddd000003","at":1786000103,"op":"ask_approval","approved":false,"peer":{"uid":1001,"pid":11},"cmd":["/usr/bin/rm","-rf","/"],"outcome":"another session holds the host"}
+{"log_id":"w5vqdddd000001","at":1786000101,"op":"escalate","approved":true,"peer":{"uid":1001,"pid":10},"cmd":["/usr/bin/apt","install","-y","curl"],"exec_log_id":"w5vqdddd000002","outcome":"approved at the console"}
+{"log_id":"w5vqdddd000003","at":1786000103,"op":"escalate","approved":false,"peer":{"uid":1001,"pid":11},"cmd":["/usr/bin/rm","-rf","/"],"outcome":"another session holds the host"}
 {"log_id":"w5vqdddd000004","at":1786000104,"op":"edit","file":"/etc/faramir/secrets/app.sops.yml","peer":{"uid":0,"pid":12}}
 {"log_id":"w5vqdddd000005","at":1786000105,"op":"rekey","file":"/etc/faramir/secrets/app.sops.yml","from":["age1old"],"to":["age1old","age1new"],"peer":{"uid":0,"pid":13}}
 {"log_id":"w5vqdddd000006","at":1786000106,"op":"exec","cmd":["/bin/sh"],"exit_code":0,"redactions":[{"token":"«SECRET:db/password»","count":3},{"token":"«SECRET:api/token»","count":1}]}
@@ -579,13 +579,13 @@ BODY
 
 SYNCFG=$(configFor "$SYN" syn)
 out=$(logsAt "$SYNCFG")
-grep -q 'approved' <<<"$out"  && ok "an approval that was granted reads as approved" || bad "approval row: [$out]"
+grep -q 'approved' <<<"$out"  && ok "an escalation that was granted reads as approved" || bad "escalation row: [$out]"
 grep -q 'refused'  <<<"$out"  && ok "and one that was not reads as refused" || bad "refusal row: [$out]"
 grep -q 'app.sops.yml' <<<"$out" && ok "an edit names the file it changed" || bad "edit row: [$out]"
 grep -q '4 redacted' <<<"$out" && ok "the listing sums the per-token counts" || bad "sum row: [$out]"
 
 out=$(logsAt "$SYNCFG" w5vqdddd000001)
-grep -q 'w5vqdddd000002' <<<"$out" && ok "an approval points at the command it authorised" || bad "no exec_log_id: [$out]"
+grep -q 'w5vqdddd000002' <<<"$out" && ok "an escalation points at the command it authorised" || bad "no exec_log_id: [$out]"
 grep -q 'approved at the console' <<<"$out" && ok "and says how it was answered" || bad "no outcome: [$out]"
 out=$(logsAt "$SYNCFG" w5vqdddd000005)
 grep -q 'age1old' <<<"$out" && grep -q 'age1new' <<<"$out" \

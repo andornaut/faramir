@@ -163,17 +163,17 @@ type Layout struct {
 	CommandTimeoutSec    int
 	CommandMaxTimeoutSec int
 	CommandConcurrency   int
-	ApprovalTimeoutSec   int
+	EscalationTimeoutSec int
 	SecretMinLength      int
 	SecretMinRefreshSec  int
 
-	// AllowSudo is the switch for the whole arrangement: unset renders no [approval]
+	// AllowSudo is the switch for the whole arrangement: unset renders no [escalation]
 	// section, writes no sudoers file and no PAM service, so nothing can be asked
 	// for.
 	AllowSudo bool
 
 	// NotifyCommand announces that a question is waiting.  Empty is the default
-	// and means `faramir approvals --watch` is the only place one shows up.
+	// and means `faramir escalations --watch` is the only place one shows up.
 	//
 	// Written by init rather than left to a drop-in, and the reason is the same
 	// one that owns pam_service and helper: the broker execs this as the uid
@@ -369,9 +369,9 @@ func (l Layout) validateNotifyCommand() error {
 		return nil
 	}
 	if !l.AllowSudo {
-		return fmt.Errorf("--notify-command announces a pending approval, and this "+
+		return fmt.Errorf("--notify-command announces a pending escalation, and this "+
 			"install grants none: pass --allow-sudo as well, or drop it. Without the "+
-			"grant no [approval] section is written and there is nothing to announce (%s)",
+			"grant no [escalation] section is written and there is nothing to announce (%s)",
 			strings.Join(l.NotifyCommand, " "))
 	}
 	if !slices.ContainsFunc(l.NotifyCommand, func(arg string) bool {
@@ -400,7 +400,7 @@ func (l Layout) validateNotifyCommand() error {
 	info, err := os.Stat(l.NotifyCommand[0])
 	if err != nil {
 		return fmt.Errorf("--notify-command %q is not there (%v): install it, or name "+
-			"a program that exists. It announces a pending approval, so an install "+
+			"a program that exists. It announces a pending escalation, so an install "+
 			"that wrote it would come up with nothing announcing anything",
 			l.NotifyCommand[0], err)
 	}

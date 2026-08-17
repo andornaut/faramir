@@ -298,7 +298,7 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 		filepath.Join(DefaultLibexecDir, "wrap.sh"),
 		// The PAM helper is here for a different reason from the three above:
 		// nothing reads it to enforce a rule, PAM execs it as root.  An account that
-		// can write it decides every approval on this host.
+		// can write it decides every escalation on this host.
 		filepath.Join(DefaultLibexecDir, "pam-approve"),
 	}
 	for _, path := range enforcers {
@@ -610,7 +610,7 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 //
 // Two claims under two names, because they hold on different hosts and one
 // status covering both would mean a different thing on each.  The credential is
-// checked everywhere; the arrangement that authenticates an approval exists
+// checked everywhere; the arrangement that authenticates an escalation exists
 // only where one was asked for, and reports n/a where it was not.
 func diagnoseSudoGrant(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	diagnoseSudoCredential(report, opts)
@@ -641,7 +641,7 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 	case nopasswd != "":
 		report.addf("sudo credential", StatusFailed, "%s has a NOPASSWD sudoers entry (%s), so "+
 			"a brokered command runs sudo without the broker, the question or a human "+
-			"in the way. Remove it: NOPASSWD skips PAM, which is where the approval "+
+			"in the way. Remove it: NOPASSWD skips PAM, which is where the escalation "+
 			"is asked for", opts.ExecUser, nopasswd)
 		return
 	}
@@ -663,7 +663,7 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 		"broker out of the way", opts.ExecUser)
 }
 
-// diagnoseSudoArrangement checks what authenticates an approval: the PAM
+// diagnoseSudoArrangement checks what authenticates an escalation: the PAM
 // service the executor's sudo reads says what it is supposed to say, nothing
 // the executor can write decides it, and the fallback the service falls back to
 // is not a free pass.
@@ -672,15 +672,15 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 // one reports n/a: there is no file to read, and an ok would claim a stack that
 // gates when there is no stack at all.
 func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	if cfg == nil || cfg.Approval.ExecUser == "" {
-		report.addf("sudo grant", StatusNA, "no [approval] section, so nothing here "+
-			"authenticates an approval and there is no PAM service, helper or fallback "+
+	if cfg == nil || cfg.Escalation.ExecUser == "" {
+		report.addf("sudo grant", StatusNA, "no [escalation] section, so nothing here "+
+			"authenticates an escalation and there is no PAM service, helper or fallback "+
 			"to read. Brokered commands cannot sudo, which is the default arrangement; "+
 			"`faramir init --allow-sudo` is what writes the three")
 		return
 	}
 
-	pamFile := filepath.Join(pamDir, cfg.Approval.PamService)
+	pamFile := filepath.Join(pamDir, cfg.Escalation.PamService)
 	body, err := os.ReadFile(pamFile)
 	if err != nil {
 		report.addf("sudo grant", StatusFailed, "%s is configured to authenticate "+
@@ -689,18 +689,18 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 			opts.ExecUser, pamFile, err, pamDir)
 		return
 	}
-	if problem := pamStackProblem(string(body), cfg.Approval.Helper); problem != "" {
+	if problem := pamStackProblem(string(body), cfg.Escalation.Helper); problem != "" {
 		report.addf("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
 		return
 	}
 	// The helper the stack execs, as root.  An account that can write it chooses
-	// what decides every approval on this host.
+	// what decides every escalation on this host.
 	accounts, skipped := askable(opts.ExecUser, opts.AgentUser)
 	for _, account := range accounts {
-		if canWrite(account, cfg.Approval.Helper) {
+		if canWrite(account, cfg.Escalation.Helper) {
 			report.addf("sudo grant", StatusFailed, "%s can write %s, which is what "+
-				"decides every approval: it would be choosing its own answer",
-				account, cfg.Approval.Helper)
+				"decides every escalation: it would be choosing its own answer",
+				account, cfg.Escalation.Helper)
 			return
 		}
 	}
@@ -710,7 +710,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		if permissiveAuth(string(other)) {
 			report.addf("sudo grant", StatusFailed, "%s/other authenticates without "+
 				"asking anything, so removing %s would not close this host's "+
-				"approval but open it. Make the fallback pam_deny",
+				"escalation but open it. Make the fallback pam_deny",
 				pamDir, pamFile)
 			return
 		}
@@ -718,11 +718,11 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	if skipped {
 		report.unaskedf("sudo grant", 1, "%s asks the broker, and %s cannot write "+
 			"%s. The agent account is not named, so whether it can was not asked",
-			pamFile, strings.Join(accounts, " or "), cfg.Approval.Helper)
+			pamFile, strings.Join(accounts, " or "), cfg.Escalation.Helper)
 		return
 	}
 	report.addf("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker, and "+
-		"root answers, one approval per command", opts.ExecUser, pamFile)
+		"root answers, one escalation per command", opts.ExecUser, pamFile)
 }
 
 // ptraceScopeFile is Yama's, and absent on a kernel built without it.
@@ -767,11 +767,11 @@ var usernsSwitches = []struct {
 // behalf, that being a switch every other container and browser sandbox on the
 // host also depends on.
 func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	if cfg == nil || cfg.Approval.ExecUser == "" {
-		report.addf("user namespaces", StatusNA, "no [approval] section, so the executor "+
+	if cfg == nil || cfg.Escalation.ExecUser == "" {
+		report.addf("user namespaces", StatusNA, "no [escalation] section, so the executor "+
 			"unit is rendered with SystemCallFilter=@system-service, which excludes "+
 			"@mount: a namespace confers capabilities with nothing to act on. A host "+
-			"that grants an approval cannot carry that filter, which is what makes "+
+			"that grants an escalation cannot carry that filter, which is what makes "+
 			"this setting decide something there")
 		return
 	}
@@ -791,7 +791,7 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 			"executor unit cannot refuse this: RestrictNamespaces= denies clone3(), "+
 			"which is how every run is spawned into its cgroup. The uid boundaries "+
 			"hold regardless, the namespace mapping only %s's own; what it reaches is "+
-			"the mount family, and this host grants an approval so no seccomp filter "+
+			"the mount family, and this host grants an escalation so no seccomp filter "+
 			"is in the way. Close it with: sysctl -w %s=%s, and a line in /etc/sysctl.d",
 			control.path, value, opts.ExecUser, control.path, control.shut)
 		return
@@ -804,14 +804,14 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 }
 
 // diagnosePtraceScope checks what stands between a brokered command and the
-// daemon it shares a uid with, on a host that grants an approval.
+// daemon it shares a uid with, on a host that grants an escalation.
 //
 // The executor daemon runs as the account every brokered command runs as, is in
 // no run's cgroup, and receives each run's whole environment, so it is the one
-// process of that uid that outlives every run and can see every run's approval
+// process of that uid that outlives every run and can see every run's escalation
 // token.  A brokered command that can ptrace it has a foothold no cgroup
 // teardown reaches and no serialisation counts, which is exactly the state the
-// approval rests on not existing.
+// escalation rests on not existing.
 //
 // The daemons mark themselves undumpable, which refuses same-uid ptrace whatever
 // this setting says.  This check is about everything else of that uid: with
@@ -830,10 +830,10 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // @ptrace, so the syscall is refused whatever the sysctl says.  The setting only
 // decides something on the host that cannot carry the filter.
 func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
-	if cfg == nil || cfg.Approval.ExecUser == "" {
-		report.addf("ptrace scope", StatusNA, "no [approval] section, so the executor unit is "+
+	if cfg == nil || cfg.Escalation.ExecUser == "" {
+		report.addf("ptrace scope", StatusNA, "no [escalation] section, so the executor unit is "+
 			"rendered with SystemCallFilter=@system-service, which excludes @ptrace: the "+
-			"syscall is refused whatever %s says. A host that grants an approval cannot "+
+			"syscall is refused whatever %s says. A host that grants an escalation cannot "+
 			"carry that filter, which is what makes this setting decide something there",
 			ptraceScopeFile)
 		return
@@ -842,24 +842,24 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 	if err != nil {
 		report.unaskedf("ptrace scope", 1, "%s cannot be read (%v), so it is not "+
 			"known whether one process running as %s can ptrace another. On a host "+
-			"that grants an approval, that is the difference between a run's "+
+			"that grants an escalation, that is the difference between a run's "+
 			"processes being separate and being one",
-			ptraceScopeFile, err, cfg.Approval.ExecUser)
+			ptraceScopeFile, err, cfg.Escalation.ExecUser)
 		return
 	}
 	scope := strings.TrimSpace(string(raw))
 	if scope == "0" {
 		report.addf("ptrace scope", StatusWarn, "%s is 0, so any process running as %s "+
-			"may ptrace any other of that uid. This host grants an approval, and the "+
+			"may ptrace any other of that uid. This host grants an escalation, and the "+
 			"executor unit carries no seccomp filter to refuse it (a filter would "+
 			"force NoNewPrivileges= on, which makes sudo inert). Set it to 1 or "+
 			"higher: sysctl -w kernel.yama.ptrace_scope=1, and a line in "+
-			"/etc/sysctl.d to keep it", ptraceScopeFile, cfg.Approval.ExecUser)
+			"/etc/sysctl.d to keep it", ptraceScopeFile, cfg.Escalation.ExecUser)
 		return
 	}
 	report.addf("ptrace scope", StatusOK, "%s is %s, so one process running as %s "+
 		"cannot attach to another that is not its own descendant",
-		ptraceScopeFile, scope, cfg.Approval.ExecUser)
+		ptraceScopeFile, scope, cfg.Escalation.ExecUser)
 }
 
 // diagnoseCgroupDelegation checks the reaper every run depends on: the executor
@@ -908,9 +908,9 @@ func execUnitDelegates() (delegates, known bool) {
 //
 // Two things decide whether it gates anything.  `requisite` on the helper: with
 // `sufficient` a REFUSAL is not fatal, the stack falls through to whatever
-// permits below, and every approval is granted without asking.  And `seteuid`:
+// permits below, and every escalation is granted without asking.  And `seteuid`:
 // without it pam_exec runs the helper with the real uid, which under setuid
-// sudo is the executor's own, and the broker answers the ask_approval op to root
+// sudo is the executor's own, and the broker answers the escalate op to root
 // alone, so the helper is refused and nothing on this host can sudo.
 func pamStackProblem(body, helper string) string {
 	for line := range strings.Lines(body) {
@@ -924,15 +924,15 @@ func pamStackProblem(body, helper string) string {
 		switch {
 		case !strings.Contains(line, "requisite"):
 			return "the helper is not `requisite`, so a refusal is not fatal and the " +
-				"stack falls through to whatever permits below: every approval would " +
+				"stack falls through to whatever permits below: every escalation would " +
 				"be granted without asking. Re-run `faramir init --allow-sudo`"
 		case !strings.Contains(line, "seteuid"):
 			return "the helper runs without `seteuid`, so pam_exec runs it as the " +
-				"executor rather than root: the broker answers the ask_approval op to root " +
-				"alone, so every approval on this host fails. Re-run `faramir init --allow-sudo`"
+				"executor rather than root: the broker answers the escalate op to root " +
+				"alone, so every escalation on this host fails. Re-run `faramir init --allow-sudo`"
 		case helper != "" && !strings.Contains(line, helper):
 			return "the helper is not " + helper + ", so something other than faramir " +
-				"decides these approvals"
+				"decides these escalations"
 		}
 		return ""
 	}
@@ -1156,7 +1156,7 @@ func shadowUsable(shadow, account string) bool {
 // entry can come from any file in sudoers.d, from a group, or from LDAP.
 //
 // NOPASSWD is what this looks for because it skips PAM entirely, and PAM is
-// where the approval is asked for.  An entry with it lets a brokered command
+// where the escalation is asked for.  An entry with it lets a brokered command
 // sudo with the broker, the question and the human all out of the way.
 func passwordlessSudo(account string) (string, bool) {
 	if account == "" {

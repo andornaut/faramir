@@ -83,14 +83,14 @@ except Exception as e:
 grep -q "CONNECTED" <<<"$out" \
   && note "reaches the broker socket, being in the client group (see README, blast radius)" \
   || note "cannot reach the broker socket: $out"
-# But the ops that decide an approval stay root's, whoever asks.
+# But the ops that decide an escalation stay root's, whoever asks.
 out=$(run -- /usr/bin/python3 -c "
 import socket, json
 s = socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
-s.sendall(json.dumps({'op':'approvals'}).encode()+b'\n')
+s.sendall(json.dumps({'op':'escalations'}).encode()+b'\n')
 print(s.recv(400).decode()[:120])")
-grep -q "forbidden" <<<"$out" && ok "and is still refused the approval ops, which are root's" \
-  || bad "the executor was answered an approval op: $out"
+grep -q "forbidden" <<<"$out" && ok "and is still refused the escalation ops, which are root's" \
+  || bad "the executor was answered an escalation op: $out"
 
 head_ "3. the environment the broker chose"
 env_out=$(run -- /usr/bin/printenv)

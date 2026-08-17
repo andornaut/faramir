@@ -29,8 +29,8 @@ func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
 // SSH_AUTH_SOCK is here because rebinding it would decide what the child
-// authenticates against.  FARAMIR_APPROVAL_TOKEN is here for the same reason one
-// step on: it names the run an approval is decided about, so a caller
+// authenticates against.  FARAMIR_ESCALATION_TOKEN is here for the same reason one
+// step on: it names the run an escalation is decided about, so a caller
 // overwriting it decides which run its sudo asks the broker about (in practice
 // only breaking its own, the value being an opaque stored secret rather than
 // another run's token), but the broker owns it and no caller sets it.
@@ -42,15 +42,15 @@ var ReservedEnv = map[string]bool{
 	"IFS": true, "BASH_ENV": true, "ENV": true, "SOPS_AGE_KEY": true,
 	"SOPS_AGE_KEY_FILE": true, "CREDENTIALS_DIRECTORY": true,
 	"SSH_AUTH_SOCK": true, "SSH_AGENT_PID": true,
-	"SUDO_ASKPASS": true, "FARAMIR_APPROVAL_TOKEN": true,
+	"SUDO_ASKPASS": true, "FARAMIR_ESCALATION_TOKEN": true,
 }
 
-// approvals and approve are the approval channel, and the only ops the broker
+// escalations and approve are the escalation channel, and the only ops the broker
 // refuses to anything but root.  They are on this socket rather than one of
 // their own because the check that matters is SO_PEERCRED, which every
 // connection here already carries; a second socket would be a second mode to
 // get wrong.
-var ops = []string{"exec", "list_secrets", "redact", "status", "approvals", "approve", "ask_approval"}
+var ops = []string{"exec", "list_secrets", "redact", "status", "escalations", "approve", "escalate"}
 
 type Request struct {
 	Op         string
@@ -66,19 +66,19 @@ type Request struct {
 	// flushing it.  Absent on the ordinary one-shot request.
 	More bool
 
-	// ID names the approval question `approve` answers, and Approve is the
-	// answer.  WaitSec is how long `approvals` may block before returning an
+	// ID names the escalation question `approve` answers, and Approve is the
+	// answer.  WaitSec is how long `escalations` may block before returning an
 	// empty list, so a watcher costs one connection rather than a poll a second.
 	ID      string
 	Approve bool
 	WaitSec int
-	// AwaitLogID names the run an `approvals` caller approved and is waiting to
+	// AwaitLogID names the run an `escalations` caller approved and is waiting to
 	// hear the end of.  Only that run's outcome is reported back, which is what
 	// lets the broker leave the last one filled rather than emptying it when it is
 	// read: a caller that approved nothing is told nothing, and a filled slot does
 	// not return from every poll at once.
 	AwaitLogID string
-	// Token names the brokered command the `ask_approval` op asks about.  It is an
+	// Token names the brokered command the `escalate` op asks about.  It is an
 	// identifier, not a credential: the op that reads it is refused to anything
 	// but root.
 	Token string
@@ -94,7 +94,7 @@ func Parse(payload map[string]any) (*Request, error) {
 	req := &Request{Op: "exec", EnvRefs: map[string]string{}}
 	for _, step := range []func(map[string]any, *Request) error{
 		parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
-		parseApprovals, parseApprove, parseAskApproval, parseWaits,
+		parseEscalations, parseApprove, parseEscalate, parseWaits,
 	} {
 		if err := step(payload, req); err != nil {
 			return nil, err
@@ -217,10 +217,10 @@ func parseEnvRefs(payload map[string]any, req *Request) error {
 	return nil
 }
 
-// parseApprovals takes the run a watcher is waiting to hear the end of.  Absent
+// parseEscalations takes the run a watcher is waiting to hear the end of.  Absent
 // is the ordinary case: a listing, and a watcher that has approved nothing yet.
-func parseApprovals(payload map[string]any, req *Request) error {
-	if req.Op != "approvals" {
+func parseEscalations(payload map[string]any, req *Request) error {
+	if req.Op != "escalations" {
 		return nil
 	}
 	if raw, ok := payload["await_log_id"]; ok && raw != nil {
@@ -240,7 +240,7 @@ func parseApprove(payload map[string]any, req *Request) error {
 	id, isStr := payload["id"].(string)
 	if !isStr || id == "" {
 		return errors.New("'id' must name the question to answer; " +
-			"`faramir approvals` lists what is waiting")
+			"`faramir escalations` lists what is waiting")
 	}
 	req.ID = id
 	// Absent is a refusal.  Deny by default holds here too: a malformed answer
@@ -249,8 +249,8 @@ func parseApprove(payload map[string]any, req *Request) error {
 	return nil
 }
 
-func parseAskApproval(payload map[string]any, req *Request) error {
-	if req.Op != "ask_approval" {
+func parseEscalate(payload map[string]any, req *Request) error {
+	if req.Op != "escalate" {
 		return nil
 	}
 	token, isStr := payload["token"].(string)

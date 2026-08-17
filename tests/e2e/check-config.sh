@@ -27,7 +27,7 @@ why()   { runuser -u faramir-broker -- /usr/local/bin/faramir broker -c $CFG --c
 # --allow-sudo where the host already has a grant: that flag is a switch, so a
 # re-run without it takes the grant away, and this suite is about config values
 # rather than about removing the one thing later suites depend on.
-GRANT=$(grep -q '^\[approval\]' $CFG && echo --allow-sudo || true)
+GRANT=$(grep -q '^\[escalation\]' $CFG && echo --allow-sudo || true)
 # shellcheck disable=SC2086  # GRANT is one flag or empty, deliberately unquoted
 reinit() { /usr/local/bin/faramir init --agent-user op --config-dir "$CONFIG_DIR" $GRANT "$@" >/tmp/init.log 2>&1; }
 # addkey puts a line inside a section that already exists.  Appending the header

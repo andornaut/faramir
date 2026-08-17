@@ -349,11 +349,11 @@ func writeInstructions(t *testing.T, current []byte, body string) []byte {
 	return writeSection(current, body, place, start, end)
 }
 
-// What an agent is told about waiting for an approval only holds where one can
+// What an agent is told about waiting for an escalation only holds where one can
 // be raised.  On any other host it describes a refusal that never happens, and
 // instructions an agent cannot act on are instructions it learns to skim.
-func TestTheApprovalParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
-	const marker = "approval_in_progress"
+func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
+	const marker = "escalation_in_progress"
 	granted, err := credentialsSection(true)
 	if err != nil {
 		t.Fatal(err)

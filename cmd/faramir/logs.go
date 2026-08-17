@@ -36,8 +36,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/termsafe"
 )
 
@@ -645,7 +645,7 @@ func emptyReason(path string, count int) string {
 // every following column of that row somewhere else.
 const logIDWidth = 15
 
-// opWidth is the longest op the broker writes, `ask_approval` and `exec_started`
+// opWidth is the longest op the broker writes, `list_secrets` and `exec_started`
 // at twelve, plus the separating space.  Sized past the longest rather than to
 // it: pad appends a single space to anything already at the width, so a column
 // exactly as wide as its longest value renders that value one character wider
@@ -713,16 +713,16 @@ func paintOutcome(record map[string]any, paint palette) string {
 // one thing this column must not print.
 func answerLabel(code string) string {
 	labels := map[string]string{
-		approval.CodeApproved:      "approved",
-		approval.CodeDenied:        "refused",
-		approval.CodeExpired:       "timed out",
-		approval.CodeNotQuiescent:  "not quiescent",
-		approval.CodeRunEnded:      "run ended",
-		approval.CodeBrokerStopped: "broker stopped",
-		approval.CodeOtherCommand:  "other command",
-		approval.CodeUnnamed:       "unnamed",
-		approval.CodeUnknownToken:  "unknown token",
-		approval.CodeNoGrant:       "no grant",
+		escalation.CodeApproved:      "approved",
+		escalation.CodeDenied:        "refused",
+		escalation.CodeExpired:       "timed out",
+		escalation.CodeNotQuiescent:  "not quiescent",
+		escalation.CodeRunEnded:      "run ended",
+		escalation.CodeBrokerStopped: "broker stopped",
+		escalation.CodeOtherCommand:  "other command",
+		escalation.CodeUnnamed:       "unnamed",
+		escalation.CodeUnknownToken:  "unknown token",
+		escalation.CodeNoGrant:       "no grant",
 	}
 	if label, known := labels[code]; known {
 		return label
@@ -747,7 +747,7 @@ func outcome(record map[string]any) (string, bool) {
 	if timedOut, _ := boolean(record, "timed_out"); timedOut {
 		return "timed out", true
 	}
-	// An approval ends in an answer rather than an exit code.  Everything but a
+	// An escalation ends in an answer rather than an exit code.  Everything but a
 	// yes is painted as a failure, not because refusing is wrong (it is the safe
 	// answer) but because something asked, and that is what an operator is scanning
 	// for.
@@ -757,7 +757,7 @@ func outcome(record map[string]any) (string, bool) {
 	// Rendered alike they read as the same event, and they are acted on
 	// differently.
 	if code := str(record, "outcome_code"); code != "" {
-		return answerLabel(code), code != approval.CodeApproved
+		return answerLabel(code), code != escalation.CodeApproved
 	}
 	if approved, ok := boolean(record, "approved"); ok {
 		if approved {
@@ -859,17 +859,17 @@ func printRecord(record map[string]any, paint palette) {
 	// The labels are not all the field names.  argv0_path is what root or the
 	// executor actually ran, which can differ from the command: a relative argv[0]
 	// resolves against the cwd, and that is a tree the coding agent writes.  It
-	// reads as `program`, the word the approval question uses for the same thing,
+	// reads as `program`, the word the escalation question uses for the same thing,
 	// and sits under the cwd it resolved against.
 	//
-	// outcome is the approval's own reason (why it was refused, or that it was
+	// outcome is the escalation's own reason (why it was refused, or that it was
 	// approved), reason is why a refusal that never reached a command refused it,
-	// and exec_log_id is the command's record, so an approval reads in both
+	// and exec_log_id is the command's record, so an escalation reads in both
 	// directions.
 	//
 	// Rendered, not printed: all of these carry text chosen by the account this
 	// log exists to hold to account -- the cwd and the program are the caller's,
-	// and error and outcome quote what failed (an approval's reason carries the
+	// and error and outcome quote what failed (an escalation's reason carries the
 	// command it was refused for, and the names of the processes that held the
 	// host).
 	for _, row := range []struct{ field, label string }{
@@ -1053,8 +1053,8 @@ func list(record map[string]any, key string) []string {
 
 // pad is one column of the listing, widened to width.  A value that is already
 // that wide still gets a space: without one it runs into the column after it
-// (`ask_approval` overruns the op column, and the row reads
-// `ask_approvalrefused`), and a row whose columns have merged is read wrong.
+// (`list_secrets` overruns the op column, and the row reads
+// `list_secretsrefused`), and a row whose columns have merged is read wrong.
 // Counted in runes, not bytes: a value carrying the ellipsis a cut record's
 // fields end with is three bytes and one column, and a column padded by its
 // byte count is one that does not line up with the row above it.

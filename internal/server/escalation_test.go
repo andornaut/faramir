@@ -7,18 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// allowSudo turns on the approval server the way an install with --allow-sudo
+// allowSudo turns on the escalation server the way an install with --allow-sudo
 // does.  Nothing to place: there is no credential in this design.
 func allowSudo(t *testing.T, s *Server) {
 	t.Helper()
-	s.Config.Approval = config.ApprovalConfig{
+	s.Config.Escalation = config.EscalationConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
@@ -26,13 +26,13 @@ func allowSudo(t *testing.T, s *Server) {
 	}
 	// New() built the server from the config it was made with, so it is rebuilt
 	// here rather than mutated.
-	s.Approval = New(s.Config).Approval
+	s.Escalation = New(s.Config).Escalation
 	// Quiescence is a round trip to a running executor, which these tests do not
 	// have: they are about what the broker does with an answer, not about how the
 	// host is measured.  Stubbed quiet, so the check is exercised where it is the
-	// subject: TestAnApprovalIsRefusedWhileTheHostIsNotQuiet, below.
-	s.Approval.Quiescent = func() (bool, string) { return true, "the test says so" }
-	t.Cleanup(s.Approval.Stop)
+	// subject: TestAnEscalationIsRefusedWhileTheHostIsNotQuiet, below.
+	s.Escalation.Quiescent = func() (bool, string) { return true, "the test says so" }
+	t.Cleanup(s.Escalation.Stop)
 }
 
 // A brokered command is given a token and nothing else.  It names the run so a
@@ -45,8 +45,8 @@ func TestExecInjectsTheToken(t *testing.T) {
 	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
 	env := rec.only(t).Env
 
-	if env[approval.TokenEnv] == "" {
-		t.Errorf("%s is unset, so a question could name no command", approval.TokenEnv)
+	if env[escalation.TokenEnv] == "" {
+		t.Errorf("%s is unset, so a question could name no command", escalation.TokenEnv)
 	}
 	// env and the token, and nothing else at all.  Asserted as a count
 	// rather than against a list of names, so a credential added under a name
@@ -54,17 +54,17 @@ func TestExecInjectsTheToken(t *testing.T) {
 	// answer on, a password.  A child that finds one of those has something it
 	// can keep, and this design gives it nothing.
 	if want := len(s.Config.Command.Env) + 1; len(env) != want {
-		t.Errorf("environment = %v, want env plus %s alone", env, approval.TokenEnv)
+		t.Errorf("environment = %v, want env plus %s alone", env, escalation.TokenEnv)
 	}
 }
 
-// Without an install that asked for approval, nothing is injected and sudo
+// Without an install that asked for escalation, nothing is injected and sudo
 // fails the way it does on any host that granted nothing.
 func TestExecInjectsNothingWithoutASudoGrant(t *testing.T) {
 	s, rec := execServer(t)
 	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
-	if value, set := rec.only(t).Env[approval.TokenEnv]; set {
-		t.Errorf("%s = %q on a host that granted no sudoers entry", approval.TokenEnv, value)
+	if value, set := rec.only(t).Env[escalation.TokenEnv]; set {
+		t.Errorf("%s = %q on a host that granted no sudoers entry", escalation.TokenEnv, value)
 	}
 }
 
@@ -76,45 +76,45 @@ func TestTheTokenDoesNotOutliveTheCommand(t *testing.T) {
 	allowSudo(t, s)
 
 	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
-	token := rec.only(t).Env[approval.TokenEnv]
+	token := rec.only(t).Env[escalation.TokenEnv]
 	if token == "" {
 		t.Fatal("no token was injected")
 	}
-	if approved, _, _ := s.Approval.Ask(token); approved {
+	if approved, _, _ := s.Escalation.Ask(token); approved {
 		t.Error("a token was approved after its command ended")
 	}
 }
 
 // There is no credential to redact, and that is the property rather than an
-// omission: an approval is a decision, so nothing a child holds could be
+// omission: an escalation is a decision, so nothing a child holds could be
 // printed back or carried anywhere.
-func TestApprovalAddsNothingToTheValueSet(t *testing.T) {
+func TestEscalationAddsNothingToTheValueSet(t *testing.T) {
 	s, rec := execServer(t)
 	allowSudo(t, s)
 	rec.output = "sudo: authenticating\n"
 
 	response := exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
 	if redactions, _ := response["redactions"].([]redact.Count); len(redactions) != 0 {
-		t.Errorf("redactions = %v, want none: approval holds no value", redactions)
+		t.Errorf("redactions = %v, want none: escalation holds no value", redactions)
 	}
 }
 
-// While one command holds an approval, opExec refuses a second with
-// `approval_in_progress` rather than running it: the two share the executor's
+// While one command holds an escalation, opExec refuses a second with
+// `escalation_in_progress` rather than running it: the two share the executor's
 // uid, so the new one would be a route to the root approved for the first.  This
-// is the wiring of the serialization the approval server enforces, checked
+// is the wiring of the serialization the escalation server enforces, checked
 // through real dispatch.
 //
 // Its own code rather than `busy`, and the difference is the point: `busy`
-// invites a retry, and a caller retrying against a live approval is one polling
+// invites a retry, and a caller retrying against a live escalation is one polling
 // the exact interval the serialization exists to protect.  The code names the
 // host's state rather than the request's, so nothing in it can be read as this
 // command having been queued.
-func TestAnApprovalHoldsOtherCommands(t *testing.T) {
+func TestAnEscalationHoldsOtherCommands(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
 
-	// A run approved and left in flight, standing in for a playbook mid-approval:
+	// A run approved and left in flight, standing in for a playbook mid-escalation:
 	// raiseAndWait registers it without an exec behind it, so it stays held until
 	// this test releases it.
 	held, question, _ := raiseAndWait(t, s, "log-h")
@@ -126,12 +126,12 @@ func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 
 	// A second brokered command is now refused outright, and never reaches the
 	// executor.
-	if code := errorCode(t, exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})); code != "approval_in_progress" {
-		t.Errorf("a command during a live approval got %q, want approval_in_progress", code)
+	if code := errorCode(t, exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})); code != "escalation_in_progress" {
+		t.Errorf("a command during a live escalation got %q, want escalation_in_progress", code)
 	}
 
 	// It runs again once the approved run ends.
-	s.Approval.Release(held, approval.Outcome{})
+	s.Escalation.Release(held, escalation.Outcome{})
 	if response := exec(t, s, map[string]any{"cmd": []any{"/bin/true"}}); response["error"] != nil {
 		t.Errorf("a command was still refused after the approved run ended: %v", response["error"])
 	}
@@ -139,23 +139,23 @@ func TestAnApprovalHoldsOtherCommands(t *testing.T) {
 
 // Whether a brokered command may ask is worth the caller knowing: without it a
 // playbook that touches this host has to leave it out.
-func TestStatusReportsWhetherApprovalIsConfigured(t *testing.T) {
+func TestStatusReportsWhetherEscalationIsConfigured(t *testing.T) {
 	s, _ := execServer(t)
 	if body, _ := exec(t, s, map[string]any{"op": "status"})["output"].(string); !strings.Contains(
 		body, `"enabled": false`) {
-		t.Errorf("status does not report approval as unconfigured: %s", body)
+		t.Errorf("status does not report escalation as unconfigured: %s", body)
 	}
 	allowSudo(t, s)
 	body, _ := exec(t, s, map[string]any{"op": "status"})["output"].(string)
 	if !strings.Contains(body, `"sudo"`) || !strings.Contains(body, `"enabled": true`) {
-		t.Errorf("status does not report approval as configured: %s", body)
+		t.Errorf("status does not report escalation as configured: %s", body)
 	}
 }
 
-// The one check that stands between the coding agent and its own approval: the
+// The one check that stands between the coding agent and its own escalation: the
 // answer has to come from root, and the agent runs as the operator.  Made at
 // the op rather than by the socket mode, which admits a group by design.
-func TestOnlyRootMayAnswerAnApproval(t *testing.T) {
+func TestOnlyRootMayAnswerAnEscalation(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
 
@@ -163,7 +163,7 @@ func TestOnlyRootMayAnswerAnApproval(t *testing.T) {
 	// what the agent runs as.
 	operator := &sockutil.Peer{PID: 42, UID: 1000, GID: 1000}
 	for _, request := range []map[string]any{
-		{"op": "approvals"},
+		{"op": "escalations"},
 		{"op": "approve", "id": "abc123", "approve": true},
 	} {
 		response := s.Handle(request, operator)
@@ -171,15 +171,15 @@ func TestOnlyRootMayAnswerAnApproval(t *testing.T) {
 			t.Errorf("%v as uid 1000 = %q, want forbidden: that account is the one the "+
 				"agent runs as", request, code)
 		}
-		if detail := errorDetail(response); !strings.Contains(detail, "faramir approvals") {
+		if detail := errorDetail(response); !strings.Contains(detail, "faramir escalations") {
 			t.Errorf("the refusal does not say what to run instead: %q", detail)
 		}
 	}
 
 	// And root is admitted, reaching the question rather than the check.
-	if response := s.Handle(map[string]any{"op": "approvals"},
+	if response := s.Handle(map[string]any{"op": "escalations"},
 		&sockutil.Peer{PID: 1, UID: 0, GID: 0}); response["error"] != nil {
-		t.Errorf("root was refused the approvals op: %v", response["error"])
+		t.Errorf("root was refused the escalations op: %v", response["error"])
 	}
 }
 
@@ -202,20 +202,20 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 	if approved := <-granted; !approved {
 		t.Error("the sudo waiting on that answer was not released")
 	}
-	if left := s.Approval.Questions(); len(left) != 0 {
+	if left := s.Escalation.Questions(); len(left) != 0 {
 		t.Errorf("%d questions still waiting after an answer", len(left))
 	}
 }
 
 // The executor's answer, not the broker's own map, decides whether a yes takes;
 // why that is the answer that matters is with the mechanism in
-// internal/approval.  Here it is the wiring: a refused yes reaches root through
+// internal/escalation.  Here it is the wiring: a refused yes reaches root through
 // the op with a code of its own, because "your yes was refused" and "that id is
 // not waiting" send an operator to different places.
-func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
+func TestAnEscalationIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
-	s.Approval.Quiescent = func() (bool, string) {
+	s.Escalation.Quiescent = func() (bool, string) {
 		return false, "1 process(es) are running as the executor outside any brokered command"
 	}
 
@@ -231,7 +231,7 @@ func TestAnApprovalIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 	if approved := <-granted; approved {
 		t.Fatal("the sudo was approved while the executor said the host was not quiet")
 	}
-	if left := s.Approval.Questions(); len(left) != 0 {
+	if left := s.Escalation.Questions(); len(left) != 0 {
 		t.Errorf("%d questions still waiting after a refused-for-noise answer, want "+
 			"it closed: holding it open would make the operator poll the one interval "+
 			"the host has to be quiet in", len(left))
@@ -264,7 +264,7 @@ func errorDetail(response protocol.Response) string {
 //
 // The test does not end until Ask has returned: it writes its audit record
 // after the answer, and a write that lands while the test's temporary directory
-// is being removed fails the test.  The approval server is stopped first, so a
+// is being removed fails the test.  The escalation server is stopped first, so a
 // test that ended without answering does not park the wait forever.
 func askInBackground(t *testing.T, s *Server, token string) <-chan bool {
 	t.Helper()
@@ -272,11 +272,11 @@ func askInBackground(t *testing.T, s *Server, token string) <-chan bool {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		approved, _, _ := s.Approval.Ask(token)
+		approved, _, _ := s.Escalation.Ask(token)
 		granted <- approved
 	}()
 	t.Cleanup(func() {
-		s.Approval.Stop()
+		s.Escalation.Stop()
 		<-done
 	})
 	return granted
@@ -285,28 +285,28 @@ func askInBackground(t *testing.T, s *Server, token string) <-chan bool {
 // raiseAndWait registers a run and puts its question, returning the run's token,
 // the question as root sees it, and the channel the blocked sudo answers on.
 // One copy of the poll, so every test here drives the protocol the same way.
-func raiseAndWait(t *testing.T, s *Server, logID string) (string, approval.Question, <-chan bool) {
+func raiseAndWait(t *testing.T, s *Server, logID string) (string, escalation.Question, <-chan bool) {
 	t.Helper()
-	token, _ := s.Approval.Register(approval.Run{
+	token, _ := s.Escalation.Register(escalation.Run{
 		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: logID,
 	})
 	granted := askInBackground(t, s, token)
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
-		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
+		response := s.Handle(map[string]any{"op": "escalations", "wait_sec": 1}, root)
+		if questions, _ := response["questions"].([]escalation.Question); len(questions) > 0 {
 			return token, questions[0], granted
 		}
 	}
 	t.Fatal("no question reached root")
-	return "", approval.Question{}, nil
+	return "", escalation.Question{}, nil
 }
 
 // After a yes, the terminal that gave root away is told what became of the run.
 // It reaches root over the same op the question arrived on, so the operator's
 // only report of the command they judged costs no second channel and no read of
 // the audit log.
-func TestTheApprovalsOpReportsHowTheApprovedRunEnded(t *testing.T) {
+func TestTheEscalationsOpReportsHowTheApprovedRunEnded(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
@@ -320,23 +320,23 @@ func TestTheApprovalsOpReportsHowTheApprovedRunEnded(t *testing.T) {
 	// Nothing yet: the run is still going, and a poll that answered now would be
 	// reporting an ending that has not happened.
 	if response := s.Handle(map[string]any{
-		"op": "approvals", "await_log_id": "log-e"}, root); response["finished"] != nil {
+		"op": "escalations", "await_log_id": "log-e"}, root); response["finished"] != nil {
 		t.Errorf("a run still in flight reported an ending: %v", response["finished"])
 	}
 
 	code := 7
-	s.Approval.Release(held, approval.Outcome{
+	s.Escalation.Release(held, escalation.Outcome{
 		LogID: "log-e", ExitCode: &code, DurationSec: 2.5,
 	})
 
 	// And only to the caller waiting on this run.  The broker holds the last
 	// ending rather than emptying it when it is read, so naming the run is what
 	// keeps a stale one off a terminal that did not approve it.
-	if response := s.Handle(map[string]any{"op": "approvals"}, root); response["finished"] != nil {
+	if response := s.Handle(map[string]any{"op": "escalations"}, root); response["finished"] != nil {
 		t.Errorf("a caller that approved nothing was told how a run ended: %v", response["finished"])
 	}
-	response := s.Handle(map[string]any{"op": "approvals", "await_log_id": "log-e"}, root)
-	finished, ok := response["finished"].(*approval.Outcome)
+	response := s.Handle(map[string]any{"op": "escalations", "await_log_id": "log-e"}, root)
+	finished, ok := response["finished"].(*escalation.Outcome)
 	if !ok {
 		t.Fatalf("the approved run's ending did not reach root: %v", response["finished"])
 	}
@@ -356,7 +356,7 @@ func TestTheApprovalsOpReportsHowTheApprovedRunEnded(t *testing.T) {
 func TestAMalformedAwaitLogIDIsRefused(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
-	response := s.Handle(map[string]any{"op": "approvals", "await_log_id": 7},
+	response := s.Handle(map[string]any{"op": "escalations", "await_log_id": 7},
 		&sockutil.Peer{PID: 1, UID: 0, GID: 0})
 	if code := errorCode(t, response); code != "bad_request" {
 		t.Errorf("a non-string await_log_id got %q, want bad_request", code)
@@ -381,15 +381,15 @@ func TestAnExecReportsWhyItsSudoWasRefused(t *testing.T) {
 		t.Fatal("a refused run was approved")
 	}
 
-	code, _ := s.Approval.Refusal(held)
-	if code != approval.CodeDenied {
-		t.Errorf("the run kept %q, want %q", code, approval.CodeDenied)
+	code, _ := s.Escalation.Refusal(held)
+	if code != escalation.CodeDenied {
+		t.Errorf("the run kept %q, want %q", code, escalation.CodeDenied)
 	}
 
 	// And it is gone with the run, so a later command carries no answer of
 	// somebody else's.
-	s.Approval.Release(held, approval.Outcome{})
-	if code, _ := s.Approval.Refusal(held); code != "" {
+	s.Escalation.Release(held, escalation.Outcome{})
+	if code, _ := s.Escalation.Refusal(held); code != "" {
 		t.Errorf("a released run still reports %q", code)
 	}
 }
@@ -403,17 +403,17 @@ func TestAQuestionNamesTheAccountThatAsked(t *testing.T) {
 
 	// The account the agent runs as, which is what reaches the broker socket.
 	caller := &sockutil.Peer{PID: 4242, UID: int32(os.Getuid()), GID: int32(os.Getgid())}
-	token, _ := s.Approval.Register(approval.Run{
+	token, _ := s.Escalation.Register(escalation.Run{
 		Argv: []string{"ansible-playbook", "site.yml"}, Cwd: "/srv", LogID: "log-c",
 		Caller: callerName(caller),
 	})
 	askInBackground(t, s, token)
 
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
-	var question approval.Question
+	var question escalation.Question
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		response := s.Handle(map[string]any{"op": "approvals", "wait_sec": 1}, root)
-		if questions, _ := response["questions"].([]approval.Question); len(questions) > 0 {
+		response := s.Handle(map[string]any{"op": "escalations", "wait_sec": 1}, root)
+		if questions, _ := response["questions"].([]escalation.Question); len(questions) > 0 {
 			question = questions[0]
 			break
 		}
@@ -424,5 +424,5 @@ func TestAQuestionNamesTheAccountThatAsked(t *testing.T) {
 	if !strings.Contains(question.Caller, strconv.Itoa(os.Getuid())) {
 		t.Errorf("caller = %q, want the uid that asked", question.Caller)
 	}
-	s.Approval.Release(token, approval.Outcome{})
+	s.Escalation.Release(token, escalation.Outcome{})
 }

@@ -20,7 +20,7 @@ Sockets | `keeper socket`, `executor socket`, `broker socket`, and a `policy` ch
 Behaviour | `brokered command`, `ssh agent`, `redaction`, `known hosts` | A managed value injected into a real command comes back as its token, the relay answers, and how many host keys a brokered `ssh` can verify against
 sops | `sops config`, `rule coverage` | `.sops.yaml` names the keeper's own recipient rather than one it used to have, and nothing sops would refuse; its rule reaches every file the managed store names
 Agents | `agent rules`, `agent rule drift`, `tree config`, `agent file ownership` | Each agent's deny rules present, absent, or carried in an extension; rules an earlier version wrote that this one does not; enrolled trees whose agent files no longer carry what the enrolment wrote; and files an install would now refuse to write
-Sudo and kernel | `sudo credential`, `sudo grant`, `cgroup delegation`, `ptrace scope`, `user namespaces` | [Below](#what-approval-costs-beyond-the-grant)
+Sudo and kernel | `sudo credential`, `sudo grant`, `cgroup delegation`, `ptrace scope`, `user namespaces` | [Below](#what-escalation-costs-beyond-the-grant)
 Rotation | `log rotation` | logrotate installed, naming the log the broker writes, and having applied the rule
 
 Four statuses: `ok`, `warn`, `failed`, and `n/a` for a check whose subject this install does not have, a separate total because a pass would claim a stack that is not there.
@@ -63,7 +63,7 @@ A run stops rather than write one it should not, leaving it exactly as it is:
 
 Each is asked before anything is written, so a refusal costs nothing: `init` stops before it has handed a file to any account, `init-project` before it has shared the tree. `init` names every file it refused rather than the first. `doctor` asks the same questions under `agent file ownership`.
 
-The section tells an agent to wait for an approval only where one can be raised, `init-project` reading `[approval] exec_user` from the config.
+The section tells an agent to wait for an escalation only where one can be raised, `init-project` reading `[escalation] exec_user` from the config.
 
 A brokered command cannot delete these files: each agent's own directory in a tree is sticky, so unlink and rename there belong to the file's owner, which the settings' own `0640` would not have decided. The tree root is deliberately not sticky, which keeps a tool rewriting a lock file by rename working and leaves a brokered command able to move an agent's directory aside from above. `doctor` reports a tree whose agent files stopped carrying what the enrolment wrote.
 
@@ -129,7 +129,7 @@ Not a runtime toggle and not a config key, because saying yes writes files only 
 - a **password-required sudoers entry** for `faramir-exec` in `/etc/sudoers.d/faramir`
 - a **PAM service of faramir's own**, `/etc/pam.d/faramir-sudo`, that the entry points sudo at
 - the executor account **locked** (`usermod -L`), so a password is never a second way in
-- `faramir-exec.service` **rendered without the sandbox that bounds root** ([what that costs](#what-approval-costs-beyond-the-grant))
+- `faramir-exec.service` **rendered without the sandbox that bounds root** ([what that costs](#what-escalation-costs-beyond-the-grant))
 
 Off by default, an install grants nothing. **Re-running without `--allow-sudo` takes it back.** `faramir doctor` reports which arrangement a host is in.
 
@@ -138,10 +138,10 @@ Off by default, an install grants nothing. **Re-running without `--allow-sudo` t
 Leave a watcher running, as root, somewhere the coding agent cannot type:
 
 ```bash
-sudo faramir approvals --watch
+sudo faramir escalations --watch
 ```
 
-1. `sudo` reaches the `auth` step of `faramir-sudo` and `pam_exec` runs the helper as **root**. The helper walks up its own process ancestry to the brokered command whose environment carries `FARAMIR_APPROVAL_TOKEN` and sends that to the broker. A token naming no running command is refused without asking anybody.
+1. `sudo` reaches the `auth` step of `faramir-sudo` and `pam_exec` runs the helper as **root**. The helper walks up its own process ancestry to the brokered command whose environment carries `FARAMIR_ESCALATION_TOKEN` and sends that to the broker. A token naming no running command is refused without asking anybody.
 2. The broker files the question and holds the helper's connection open, which is the wait an authentication step is from `sudo`'s point of view.
 3. Your watcher prints it and reads your answer from **its** terminal:
 
@@ -157,9 +157,9 @@ sudo faramir approvals --watch
      approve? [yes/no]
    ```
 
-   `expires` counts down to the refusal and gains a `(waited 40s)` only where the question had been sitting before anything read it: a watcher already running is handed one the moment it is filed, so its absence is what says somebody was here. `caller` is the account that asked, which is never the account the command would run as: that is the executor on every question, so the uid worth judging is this one, and more than one account can be in the client group. The command is on its own line rather than in the question, which repeated it and, for a long one, pushed the fields off the screen; `[approval] notify_command` still gets the whole sentence, having no second line to put one on. The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
+   `expires` counts down to the refusal and gains a `(waited 40s)` only where the question had been sitting before anything read it: a watcher already running is handed one the moment it is filed, so its absence is what says somebody was here. `caller` is the account that asked, which is never the account the command would run as: that is the executor on every question, so the uid worth judging is this one, and more than one account can be in the client group. The command is on its own line rather than in the question, which repeated it and, for a long one, pushed the fields off the screen; `[escalation] notify_command` still gets the whole sentence, having no second line to put one on. The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
 
-4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[approval] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `expires` counts down from. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
+4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[escalation] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `expires` counts down from. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
 
    ```text
      approve? [yes/no]
@@ -170,12 +170,12 @@ sudo faramir approvals --watch
 5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else `requisite` makes the non-zero exit fatal at once, and `sudo` reports its own authentication failure. That report is the same whichever no it was, so `faramir run` names it on the way out and the `exec` record keeps it:
 
    ```text
-   faramir run: approval denied: refused by root (pid 1000); log_id=w9yj6dda000005
-   faramir run: approval expired: nobody answered within 120s; log_id=w9z1ec21000003
+   faramir run: escalation denied: refused by root (pid 1000); log_id=w9yj6dda000005
+   faramir run: escalation expired: nobody answered within 120s; log_id=w9z1ec21000003
    ```
 
    Which one it was decides whether running the command again is worth anything, so `--quiet` does not suppress it.
-6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to. `outcome_code` says which ending it was in one word and `outcome` says it in a sentence, so a log can be read for "nobody was watching" (`expired`) apart from "somebody said no" (`denied`) without matching English. `faramir logs` renders the two as `timed out` and `refused`. The full set is in [protocol.md](protocol.md#approvals).
+6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `exec` record it belongs to. `outcome_code` says which ending it was in one word and `outcome` says it in a sentence, so a log can be read for "nobody was watching" (`expired`) apart from "somebody said no" (`denied`) without matching English. `faramir logs` renders the two as `timed out` and `refused`. The full set is in [protocol.md](protocol.md#escalations).
 7. A yes is not the last you hear of it. `--watch` prints how the run ended when it does:
 
    ```text
@@ -183,21 +183,21 @@ sudo faramir approvals --watch
      w5vq7dbf000119 exited 0 after 41.0s, waited 40s of it
    ```
 
-   Every line names its run, the ending arriving after the terminal has moved on. The duration is wall time and the command sits inside `sudo` for the whole question, so the part that was the approval is named rather than subtracted; under a second it is left off, every approved run waiting a little. `exited 2 after 3.1s, timed out` when `[command] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
+   Every line names its run, the ending arriving after the terminal has moved on. The duration is wall time and the command sits inside `sudo` for the whole question, so the part spent waiting on the escalation is named rather than subtracted; under a second it is left off, every approved run waiting a little. `exited 2 after 3.1s, timed out` when `[command] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
 
    A refusal prints `<log_id> refused` with the line it read, quoted, and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question, and the terminal has to be back on the poll for it. Its `exec` record lands when it ends like any other command's.
 
 There is no password anywhere: what satisfies `sudo` is a decision, so nothing is minted, stored, injected or typed, and nothing a command approved once can keep and pass to a later one. The answer must come from root, checked with `SO_PEERCRED`.
 
-**Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `--watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. The deny rules refuse `sudo faramir approvals`, `approve` and `deny` from the agent's own shell, which raises the cost rather than removing it.
+**Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `--watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. The deny rules refuse `sudo faramir escalations`, `approve` and `deny` from the agent's own shell, which raises the cost rather than removing it.
 
-**Without `--watch`.** `sudo faramir approvals` lists what is waiting and exits. Answering is a second command: `sudo faramir approve 9f2a1c`, or `sudo faramir deny 9f2a1c`. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached. `--json` prints the questions as an array and carries the same status, an empty array being nothing waiting; a broker it could not reach prints nothing, an empty array there reporting a host as quiet when nothing was asked. Read `expires` and mean it: you are typing against what is left of it. If it expires, the `sudo` fails and a re-run asks afresh.
+**Without `--watch`.** `sudo faramir escalations` lists what is waiting and exits. Answering is a second command: `sudo faramir approve 9f2a1c`, or `sudo faramir deny 9f2a1c`. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached. `--json` prints the questions as an array and carries the same status, an empty array being nothing waiting; a broker it could not reach prints nothing, an empty array there reporting a host as quiet when nothing was asked. Read `expires` and mean it: you are typing against what is left of it. If it expires, the `sudo` fails and a re-run asks afresh.
 
-`deny` needs no id, only one question ever being outstanding, so a bare `sudo faramir deny` refuses the one waiting and prints what it refused. `approve` requires one: an approval that names no command is one nobody judged.
+`deny` needs no id, only one question ever being outstanding, so a bare `sudo faramir deny` refuses the one waiting and prints what it refused. `approve` requires one: an escalation that names no command is one nobody judged.
 
 Approving from your own shell is the last resort rather than the first: reaching root that way leaves a warm sudo timestamp in a shell the agent can use. Consider `Defaults:<you> timestamp_timeout=0`.
 
-`[approval] notify_command` optionally announces a pending question. It carries no answer and nothing waits on it. Set it at install time, one argument per flag:
+`[escalation] notify_command` optionally announces a pending question. It carries no answer and nothing waits on it. Set it at install time, one argument per flag:
 
 ```sh
 faramir init --allow-sudo \
@@ -207,21 +207,21 @@ faramir init --allow-sudo \
 
 **Keep `{id}` off a broadcast channel.** `wall` writes to every terminal on the host including the agent's: the id is not a credential, but publishing it is the difference between an agent that would have to guess what to type into your watcher and one that knows. `{prompt}` says what is waiting without saying what to type.
 
-**It runs as the broker, which reaches less than you do.** The environment is a fixed `PATH` and nothing else, and the uid is the broker's own, so anything needing your session is out: a desktop notifier wants `DBUS_SESSION_BUS_ADDRESS` and a path through `/run/user/<uid>`, which is `0700` and yours. What works from there is what needs neither, `wall` (setgid `tty`) or a request to something on the network. For a notification on your desktop, run a watcher on your own side instead: `sudo faramir approvals --watch` reads the same questions and is already in your session.
+**It runs as the broker, which reaches less than you do.** The environment is a fixed `PATH` and nothing else, and the uid is the broker's own, so anything needing your session is out: a desktop notifier wants `DBUS_SESSION_BUS_ADDRESS` and a path through `/run/user/<uid>`, which is `0700` and yours. What works from there is what needs neither, `wall` (setgid `tty`) or a request to something on the network. For a notification on your desktop, run a watcher on your own side instead: `sudo faramir escalations --watch` reads the same questions and is already in your session.
 
 ### One question per run, and what to expect
 
 `ansible-playbook` calls `sudo` once per become'd task, and a question asked twenty times is one nobody reads by the tenth, so a yes covers every `sudo` that *one* run makes and is gone when the run exits. A second `faramir run` gets its own question.
 
-What that looks like while a question is open, and why, is [design.md](design.md#what-the-approval-does-not-reach):
+What that looks like while a question is open, and why, is [design.md](design.md#what-the-escalation-does-not-reach):
 
-- **Other brokered commands fail** with `approval_in_progress` from the moment a question is put until the approved run ends. That pause is the protection. The refusal is terminal, the command having been neither run nor queued, so run it again afterwards.
+- **Other brokered commands fail** with `escalation_in_progress` from the moment a question is put until the approved run ends. That pause is the protection. The refusal is terminal, the command having been neither run nor queued, so run it again afterwards.
 - **A yes can still come back refused** (`not_quiescent`) when the broker finds a process of the executor's uid alive outside the run being approved. The `sudo` fails and the command is run again once the host is quiet. If it keeps happening, the executor's journal names the processes.
 - **The approved command is trusted with permanent root.** Keep the code an approved run executes operator-owned and read-only to brokered commands, or the agent can author what root runs.
 
-### What approval costs, beyond the grant
+### What escalation costs, beyond the grant
 
-`faramir-exec.service` is rendered differently on a host that grants an approval, because the sandbox that bounds a uid holding nothing also bounds the root a human just approved:
+`faramir-exec.service` is rendered differently on a host that grants an escalation, because the sandbox that bounds a uid holding nothing also bounds the root a human just approved:
 
 Dropped | Why it had to go
 --- | ---
@@ -231,7 +231,7 @@ Dropped | Why it had to go
 `SystemCallFilter=@system-service` | Excludes `@mount`, `@swap`, `@module`, `@reboot`
 the `Protect*` family | Names the things root configures
 
-Not dropped is anything bounding the uid below the approval: `ProtectProc=invisible`, the supplementary groups, the umask, `AmbientCapabilities=`. Re-running `init` without `--allow-sudo` restores all of them.
+Not dropped is anything bounding the uid below the escalation: `ProtectProc=invisible`, the supplementary groups, the umask, `AmbientCapabilities=`. Re-running `init` without `--allow-sudo` restores all of them.
 
 `faramir doctor` re-checks the arrangement on a host that has it and on one that does not:
 

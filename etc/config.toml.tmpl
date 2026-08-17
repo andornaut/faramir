@@ -44,10 +44,10 @@ timeout_sec = {{.CommandTimeoutSec}}
 # a redact stream.
 max_timeout_sec = {{.CommandMaxTimeoutSec}}
 # How many brokered commands run at once; the rest are refused `busy`.  On a
-# host installed with --allow-sudo, raising this makes an approval harder to
+# host installed with --allow-sudo, raising this makes an escalation harder to
 # get: a sudo is refused outright while any other brokered command is
 # registered, so the more that run at once, the rarer the quiet window an
-# approval needs.  See docs/design.md on serialising approvals.
+# escalation needs.  See docs/design.md on serialising escalations.
 concurrency = {{.CommandConcurrency}}
 
 # The child's entire environment; the broker's own is never inherited.  Naming
@@ -81,14 +81,14 @@ ssh_add = "{{.SshAdd}}"
 #
 # Re-run `faramir init --allow-sudo` to change the arrangement, or re-run
 # without it to take the grant away.
-[approval]
+[escalation]
 exec_user = "{{.ExecUser}}"
 pam_service = "{{.PamService}}"
 helper = "{{.PamHelper}}"
 # Optional: announce that a question is waiting, "{prompt}" being the line the
 # broker builds and "{id}" the question to answer.  It carries no answer and is
 # not waited on, so anything will do: wall, a desktop notifier, a push.
-# Unset, `faramir approvals --watch` is the only place a question shows up.
+# Unset, `faramir escalations --watch` is the only place a question shows up.
 # Set it with `faramir init --allow-sudo --notify-command PROGRAM --notify-command ARG`,
 # which resolves the program on PATH.
 #
@@ -100,7 +100,7 @@ helper = "{{.PamHelper}}"
 # 600: the PAM helper derives its own deadline from that ceiling, so a question
 # held longer than it would be one the helper had already abandoned.  While a
 # question is open, sudo blocks and every other brokered command is refused.
-timeout_sec = {{.ApprovalTimeoutSec}}
+timeout_sec = {{.EscalationTimeoutSec}}
 {{end}}
 [secret]
 # A value shorter than this matches inside ordinary words, so the broker refuses

@@ -72,7 +72,7 @@ Each suite prints one line per check and exits non-zero if any failed.
 | `check-leak.sh` | the leak hunt: every place a value could come back out |
 | `check-stream.sh` | the redact stream |
 | `check-ssh.sh` | the SSH agent relay, against `managed-host` |
-| `check-approval.sh` | the `--allow-sudo` approval channel |
+| `check-escalation.sh` | the `--allow-sudo` escalation channel |
 | `check-logs.sh` | `faramir logs`, the operator's record |
 | `check-doctor.sh` | `faramir doctor` as a fault detector |
 | `check-secrets.sh` | the secret lifecycle: edit, rekey, the `.sops.yaml` shapes that seal a store to the wrong people, and a store that will not open |

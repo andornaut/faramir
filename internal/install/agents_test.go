@@ -117,7 +117,7 @@ func TestAutoLooksWhereTheScopeSays(t *testing.T) {
 }
 
 // What enrolling costs differs by agent: Claude Code's hook must approve a
-// rewritten command, and no other agent has an approval to give.
+// rewritten command, and no other agent has an escalation to give.
 func TestOnlyClaudeAutoApprovesBash(t *testing.T) {
 	if !agentTargets["claude"].autoApprovesBash {
 		t.Error("claude does not record that it auto-approves Bash")

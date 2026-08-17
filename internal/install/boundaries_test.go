@@ -36,7 +36,7 @@ func only(t *testing.T, report DoctorReport) Finding {
 }
 
 // The credential is checked on every host, a grant or not: a NOPASSWD entry
-// skips PAM, which is where the approval is asked for, so it is a failure
+// skips PAM, which is where the escalation is asked for, so it is a failure
 // whether or not this host was installed with --allow-sudo.
 //
 // A claim that could not be put is a warning rather than a pass: an unread
@@ -123,10 +123,10 @@ func TestWithoutAGrantTheSudoChecksReportNotApplicable(t *testing.T) {
 // anything doctor could not reach.
 func TestWithAGrantTheSameChecksAreAnswered(t *testing.T) {
 	granted := &config.Config{}
-	granted.Approval.ExecUser = "ex"
+	granted.Escalation.ExecUser = "ex"
 	// A service name no host has: the arrangement check reports the unreadable
 	// file, which is an answer about this host rather than a skip.
-	granted.Approval.PamService = "faramir-no-such-service"
+	granted.Escalation.PamService = "faramir-no-such-service"
 	for _, check := range []struct {
 		name string
 		run  func(*DoctorReport)
@@ -138,14 +138,14 @@ func TestWithAGrantTheSameChecksAreAnswered(t *testing.T) {
 			var report DoctorReport
 			check.run(&report)
 			if finding := only(t, report); finding.Status == StatusNA {
-				t.Errorf("reported n/a on a host that granted an approval: %s", finding.Detail)
+				t.Errorf("reported n/a on a host that granted an escalation: %s", finding.Detail)
 			}
 		})
 	}
 }
 
 // The two names carry different claims, so a host that holds a credential is
-// still examined for whether its approval gate works: one is not evidence about
+// still examined for whether its escalation gate works: one is not evidence about
 // the other.
 func TestTheCredentialAndTheArrangementAreSeparateFindings(t *testing.T) {
 	answerSudo(t, "(ALL) NOPASSWD: ALL", true, "ex:!:20000::::::\n")

@@ -43,7 +43,7 @@ func TestTheSSHKeyCheckDoesNotPassOnAnUnaskedOperator(t *testing.T) {
 }
 
 // The same for the account that would be choosing its own answer: an operator
-// that can write the helper decides every approval on the host.
+// that can write the helper decides every escalation on the host.
 func TestTheSudoArrangementDoesNotPassOnAnUnaskedOperator(t *testing.T) {
 	dir := t.TempDir()
 	original := pamDir
@@ -52,10 +52,10 @@ func TestTheSudoArrangementDoesNotPassOnAnUnaskedOperator(t *testing.T) {
 
 	helper := filepath.Join(dir, "faramir-approve")
 	cfg := &config.Config{}
-	cfg.Approval.ExecUser = "ex"
-	cfg.Approval.PamService = "faramir-sudo"
-	cfg.Approval.Helper = helper
-	if err := os.WriteFile(filepath.Join(dir, cfg.Approval.PamService),
+	cfg.Escalation.ExecUser = "ex"
+	cfg.Escalation.PamService = "faramir-sudo"
+	cfg.Escalation.Helper = helper
+	if err := os.WriteFile(filepath.Join(dir, cfg.Escalation.PamService),
 		[]byte("auth requisite pam_exec.so seteuid quiet "+helper+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

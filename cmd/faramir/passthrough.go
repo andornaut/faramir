@@ -24,7 +24,7 @@ func newMCPCmd() *cobra.Command {
 }
 
 // newPamApproveRootCmd forwards to runPamApproveCommand rather than parsing
-// here, so the rule that only an approval exits 0 is applied in exactly one
+// here, so the rule that only an escalation exits 0 is applied in exactly one
 // place whichever way pam-approve is reached.
 func newPamApproveRootCmd() *cobra.Command {
 	return &cobra.Command{

@@ -265,7 +265,7 @@ func (l *Log) Write(record map[string]any, output Output) {
 	// record does not already say: an exec carries started_at, which is when its
 	// child ran rather than when this line was written, and the two differ by the
 	// whole length of the command.  Named apart for that reason: a redact stream
-	// or an approval is recorded once it is over, and calling that a start would
+	// or an escalation is recorded once it is over, and calling that a start would
 	// be untrue.
 	if _, ok := payload["started_at"]; !ok {
 		payload["at"] = time.Now().UTC().Unix()

@@ -103,7 +103,7 @@ func TestTheGrantIsReadOnlyWhereTheNamedGroupIsThisInstalls(t *testing.T) {
 	}
 	if !same.allowSudo {
 		t.Error("naming this install's own group withheld its sudo grant, so an " +
-			"agent here is not told to wait for an approval that will happen")
+			"agent here is not told to wait for an escalation that will happen")
 	}
 
 	other, err := resolved(t, configDir, "somebody-elses")

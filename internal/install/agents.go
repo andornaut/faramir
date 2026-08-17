@@ -180,7 +180,7 @@ var agentTargets = map[string]*agentTarget{
 		detect:           []string{".opencode", "opencode.json", "opencode.jsonc"},
 		detectHome:       []string{".config/opencode", ".local/share/opencode"},
 		homeInstructions: ".config/opencode/AGENTS.md",
-		// No approval is given or asked for: a plugin that has not thrown has
+		// No escalation is given or asked for: a plugin that has not thrown has
 		// approved nothing, so the agent still prompts as it would have.
 		autoApprovesBash: false,
 		note:             pluginNote("opencode"),
@@ -282,7 +282,7 @@ var agentTargets = map[string]*agentTarget{
 			// so a file without this is one the model may never be shown.
 			head: "---\ntrigger: always_on\n---\n",
 		},
-		// Nothing is approved on its behalf, there being no approval to give.
+		// Nothing is approved on its behalf, there being no escalation to give.
 		autoApprovesBash: false,
 		// Said on every enrolment: what is missing here is missing for as long as
 		// the tree is enrolled, and a re-run that said nothing would read as a tree

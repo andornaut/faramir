@@ -149,7 +149,7 @@ func newRootCmd() *cobra.Command {
 		newSopsCmd(),
 		newLinkCmd(),
 		newLogsCmd(),
-		newApprovalsCmd(),
+		newEscalationsCmd(),
 		newApproveCmd(),
 		newDenyCmd(),
 		newDoctorCmd(),

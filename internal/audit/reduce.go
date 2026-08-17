@@ -163,7 +163,7 @@ func stubLine(payload map[string]any) []byte {
 //
 // Every collection it returns is a new one, and none of the ones it is given is
 // written through.  A record's fields are the caller's own live state -- the
-// approval server hands over the argv it holds for a run, and goes on rendering
+// escalation server hands over the argv it holds for a run, and goes on rendering
 // that argv into the question, the refusal messages and every later record -- so
 // a reduction that clamped a string in place would cut the caller's copy of it
 // too.  Recording something must not change it.

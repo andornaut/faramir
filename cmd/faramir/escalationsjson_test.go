@@ -1,6 +1,6 @@
 package main
 
-// The machine-readable listing, against a socket that answers the approvals op.
+// The machine-readable listing, against a socket that answers the escalations op.
 //
 // Below requireRootToAnswer, which the cobra command applies and this does not:
 // what is under test is the shape of what reaches stdout, and that is decided
@@ -13,12 +13,12 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/approval"
+	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// approvalsSocket answers one approvals op with the questions given and closes.
-func approvalsSocket(t *testing.T, questions []approval.Question) string {
+// escalationsSocket answers one escalations op with the questions given and closes.
+func escalationsSocket(t *testing.T, questions []escalation.Question) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "b.sock")
 	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", path)
@@ -48,15 +48,15 @@ func approvalsSocket(t *testing.T, questions []approval.Question) string {
 
 // A caller parsing stdout gets a value whether or not anything is waiting, and
 // reads which of the two it was off the status rather than off the array.
-func TestListApprovalsAsJSONIsAnArrayEitherWay(t *testing.T) {
+func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	t.Run("nothing waiting", func(t *testing.T) {
 		out, code := captureStdout(t, func() int {
-			return listApprovals(approvalsSocket(t, nil), true)
+			return listEscalations(escalationsSocket(t, nil), true)
 		})
 		if code != 1 {
 			t.Errorf("code = %d, want 1 with nothing waiting", code)
 		}
-		var questions []approval.Question
+		var questions []escalation.Question
 		if err := json.Unmarshal([]byte(out), &questions); err != nil {
 			t.Fatalf("stdout is not JSON: %q (%v)", out, err)
 		}
@@ -66,14 +66,14 @@ func TestListApprovalsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	})
 
 	t.Run("one waiting", func(t *testing.T) {
-		socket := approvalsSocket(t, []approval.Question{{
+		socket := escalationsSocket(t, []escalation.Question{{
 			ID: "9f2a1c", Cmd: "ansible-playbook site.yml", ExpiresInSec: 118,
 		}})
-		out, code := captureStdout(t, func() int { return listApprovals(socket, true) })
+		out, code := captureStdout(t, func() int { return listEscalations(socket, true) })
 		if code != 0 {
 			t.Errorf("code = %d, want 0 with one waiting", code)
 		}
-		var questions []approval.Question
+		var questions []escalation.Question
 		if err := json.Unmarshal([]byte(out), &questions); err != nil {
 			t.Fatalf("stdout is not JSON: %q (%v)", out, err)
 		}
@@ -86,7 +86,7 @@ func TestListApprovalsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	// there would report a host as quiet when nothing was asked.
 	t.Run("no broker", func(t *testing.T) {
 		out, code := captureStdout(t, func() int {
-			return listApprovals(filepath.Join(t.TempDir(), "absent.sock"), true)
+			return listEscalations(filepath.Join(t.TempDir(), "absent.sock"), true)
 		})
 		if code != 69 {
 			t.Errorf("code = %d, want 69 with no broker", code)

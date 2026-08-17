@@ -121,11 +121,11 @@ func runBroker(f brokerFlags) int {
 			"restart faramir-broker, or unset [ssh] key")
 	}
 
-	// Nothing to start: approval binds no socket and holds no credential.  A
+	// Nothing to start: escalation binds no socket and holds no credential.  A
 	// question lives in this process and is answered through the broker's own
 	// socket, so the only thing to arrange is releasing whatever is waiting when
 	// this stops.
-	defer s.Approval.Stop()
+	defer s.Escalation.Stop()
 
 	if _, err := s.Listen(); err != nil {
 		log.Printf("%v", err)

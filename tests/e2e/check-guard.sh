@@ -55,7 +55,7 @@ overwrite the binary|cp /tmp/evil /usr/local/bin/faramir
 rewrite the deny list|sed -i /d/ /usr/local/libexec/faramir/deny-patterns.txt
 run the keeper as root|sudo faramir keeper
 run as the broker's uid|sudo -u faramir-broker id
-answer its own approval|sudo faramir approve abc123
+answer its own escalation|sudo faramir approve abc123
 refuse whatever is waiting|sudo faramir deny
 stop the broker|systemctl stop faramir-broker.socket
 read the audit log|cat /var/log/faramir/audit.log
@@ -87,7 +87,7 @@ env as a prefix, not a dump|env FOO=bar ./run.sh
 restart a faramir unit|systemctl restart faramir-keeper.socket
 the sanctioned CLI under sudo|sudo faramir doctor
 a brokered command|faramir run --env P=secret://db/password -- ./deploy.sh
-answering an approval unprivileged|faramir approve abc123
+answering an escalation unprivileged|faramir approve abc123
 edit claude's settings|sed -i s/a/b/ .claude/settings.json
 replace the MCP list|rm .mcp.json
 edit the opencode config|sed -i s/a/b/ opencode.json

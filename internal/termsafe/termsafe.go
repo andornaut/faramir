@@ -2,7 +2,7 @@
 // displays it rather than obeying it.
 //
 // Two places print strings the coding agent chose to a terminal only root sees:
-// the approval prompt, which asks a human to grant that agent's command root,
+// the escalation prompt, which asks a human to grant that agent's command root,
 // and `faramir logs`, which is where an operator goes to see what a command
 // did.  A terminal acts on what it is sent, so text left raw in either is text
 // that can rewrite what the reader is deciding on.

@@ -163,7 +163,7 @@ type initFlags struct {
 	commandTimeoutSec    int
 	commandMaxTimeoutSec int
 	commandConcurrency   int
-	approvalTimeoutSec   int
+	escalationTimeoutSec int
 	secretMinLength      int
 	secretMinRefreshSec  int
 }
@@ -176,7 +176,7 @@ func (f *initFlags) tunables() map[string]func() {
 		"command-timeout-sec":     func() { f.commandTimeoutSec = 0 },
 		"command-max-timeout-sec": func() { f.commandMaxTimeoutSec = 0 },
 		"command-concurrency":     func() { f.commandConcurrency = 0 },
-		"approval-timeout-sec":    func() { f.approvalTimeoutSec = 0 },
+		"escalation-timeout-sec":  func() { f.escalationTimeoutSec = 0 },
 		"secret-min-length":       func() { f.secretMinLength = 0 },
 		"secret-min-refresh-sec":  func() { f.secretMinRefreshSec = 0 },
 	}
@@ -254,13 +254,13 @@ func newInitCmd() *cobra.Command {
 		// The backquoted word is cobra's placeholder for the value, taken from the
 		// first one in the string; without it the help reads "stringArray", and any
 		// other backquoted phrase in here becomes the placeholder instead.
-		"announce a waiting approval: one `ARG` each, repeatable, "+
+		"announce a waiting escalation: one `ARG` each, repeatable, "+
 			"--notify-command /usr/bin/wall --notify-command '{prompt}'. \"{prompt}\" "+
 			"is the line the broker builds and \"{id}\" the question to answer, and one "+
 			"of the two must appear. Keep \"{id}\" off anything that broadcasts: wall "+
 			"reaches every terminal on the host and the coding agent has one. The "+
 			"program is resolved on PATH here, being run as the account holding every "+
-			"decrypted value. Needs --allow-sudo; unset, 'faramir approvals --watch' "+
+			"decrypted value. Needs --allow-sudo; unset, 'faramir escalations --watch' "+
 			"is the only place a question shows up")
 	fl.BoolVar(&f.moveConfig, "move-config", false,
 		"consent to point this host's daemons at a different --config-dir. There is "+
@@ -281,7 +281,7 @@ func newInitCmd() *cobra.Command {
 		"the most a caller may ask for, and the idle bound on a redact stream")
 	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
 		"how many brokered commands run at once; the rest are refused busy")
-	fl.IntVar(&f.approvalTimeoutSec, "approval-timeout-sec", config.DefaultApprovalTimeoutSec,
+	fl.IntVar(&f.escalationTimeoutSec, "escalation-timeout-sec", config.DefaultEscalationTimeoutSec,
 		"how long a sudo question waits for a human before it is refused (1 to 600)")
 	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
 		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
@@ -340,7 +340,7 @@ func runInit(f initFlags) int {
 		CommandTimeoutSec:    f.commandTimeoutSec,
 		CommandMaxTimeoutSec: f.commandMaxTimeoutSec,
 		CommandConcurrency:   f.commandConcurrency,
-		ApprovalTimeoutSec:   f.approvalTimeoutSec,
+		EscalationTimeoutSec: f.escalationTimeoutSec,
 		SecretMinLength:      f.secretMinLength,
 		SecretMinRefreshSec:  f.secretMinRefreshSec,
 		MoveConfig:           f.moveConfig,
@@ -425,7 +425,7 @@ func newInitProjectCmd() *cobra.Command {
 	fl.BoolVar(&f.hook, "hook", true,
 		"register the PreToolUse hook, which redacts this project's command output. "+
 			"On Claude Code that auto-approves Bash here as a consequence; the other "+
-			"agents have no approval to give, so it costs them nothing")
+			"agents have no escalation to give, so it costs them nothing")
 	fl.StringArrayVar(&f.agents, "agent", nil,
 		"coding agent to enrol, repeatable. Default \""+install.AgentAuto+"\": "+
 			"whichever agents this tree already carries configuration for. A name "+

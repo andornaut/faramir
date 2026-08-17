@@ -36,21 +36,21 @@ func TestMinimalConfigLoads(t *testing.T) {
 	}
 }
 
-// The approval server is off unless the config says otherwise, which is what makes the
+// The escalation server is off unless the config says otherwise, which is what makes the
 // whole arrangement additive: no secret_file, so no socket, no injection and
 // nothing for a brokered command to ask.
-func TestApprovalIsOffUnlessConfigured(t *testing.T) {
+func TestEscalationIsOffUnlessConfigured(t *testing.T) {
 	cfg, err := load(t, minimal)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Approval.ExecUser != "" {
-		t.Errorf("exec_user = %q, want unset", cfg.Approval.ExecUser)
+	if cfg.Escalation.ExecUser != "" {
+		t.Errorf("exec_user = %q, want unset", cfg.Escalation.ExecUser)
 	}
 	// The rest still has values, describing where things would go if one were
 	// ever set.
-	if cfg.Approval.PamService == "" || cfg.Approval.TimeoutSec == 0 {
-		t.Errorf("approval defaults are incomplete: %+v", cfg.Approval)
+	if cfg.Escalation.PamService == "" || cfg.Escalation.TimeoutSec == 0 {
+		t.Errorf("escalation defaults are incomplete: %+v", cfg.Escalation)
 	}
 }
 
@@ -62,10 +62,10 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Approval.NotifyCommand) != 0 {
-		t.Errorf("notify_command = %q, want nothing by default", cfg.Approval.NotifyCommand)
+	if len(cfg.Escalation.NotifyCommand) != 0 {
+		t.Errorf("notify_command = %q, want nothing by default", cfg.Escalation.NotifyCommand)
 	}
-	_, err = load(t, minimal+"[approval]\nnotify_command = [\"wall\", \"something happened\"]\n")
+	_, err = load(t, minimal+"[escalation]\nnotify_command = [\"wall\", \"something happened\"]\n")
 	if err == nil {
 		t.Fatal("accepted a notifier that names neither the command nor the question")
 	}
@@ -73,7 +73,7 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 		t.Errorf("error does not name the key: %v", err)
 	}
 	// One that names either is fine.
-	if _, err := load(t, minimal+"[approval]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
+	if _, err := load(t, minimal+"[escalation]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
 		t.Errorf("refused a usable notifier: %v", err)
 	}
 }
@@ -86,8 +86,8 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 // relationship between them true.
 func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
-		{"zero", "[approval]\ntimeout_sec = 0\n"},
-		{"past the ceiling", fmt.Sprintf("[approval]\ntimeout_sec = %d\n", MaxSudoTimeoutSec+1)},
+		{"zero", "[escalation]\ntimeout_sec = 0\n"},
+		{"past the ceiling", fmt.Sprintf("[escalation]\ntimeout_sec = %d\n", MaxSudoTimeoutSec+1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := load(t, minimal+tc.body)
@@ -100,12 +100,12 @@ func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 		})
 	}
 	// The ceiling itself loads: it is the bound, not the first refusal.
-	cfg, err := load(t, minimal+fmt.Sprintf("[approval]\ntimeout_sec = %d\n", MaxSudoTimeoutSec))
+	cfg, err := load(t, minimal+fmt.Sprintf("[escalation]\ntimeout_sec = %d\n", MaxSudoTimeoutSec))
 	if err != nil {
 		t.Fatalf("refused the ceiling itself: %v", err)
 	}
-	if cfg.Approval.TimeoutSec != MaxSudoTimeoutSec {
-		t.Errorf("timeout_sec = %d, want %d", cfg.Approval.TimeoutSec, MaxSudoTimeoutSec)
+	if cfg.Escalation.TimeoutSec != MaxSudoTimeoutSec {
+		t.Errorf("timeout_sec = %d, want %d", cfg.Escalation.TimeoutSec, MaxSudoTimeoutSec)
 	}
 }
 
@@ -223,7 +223,7 @@ func TestNoTunableTakesZero(t *testing.T) {
 		"[secret]\nmin_length = 0\n",
 		"[command]\ntimeout_sec = 0\n",
 		"[command]\nconcurrency = 0\n",
-		"[approval]\ntimeout_sec = 0\n",
+		"[escalation]\ntimeout_sec = 0\n",
 	} {
 		if _, err := load(t, body); err == nil {
 			t.Errorf("accepted a zero: %s", body)

@@ -52,7 +52,7 @@ Failure | Why
 --- | ---
 **Adversarial exfiltration.** Transforming a value (`\| rev`, `\| sha256sum`) defeats redaction | The child chooses the encoding of its own output, so the matcher cannot be completed
 **Blast radius.** A brokered command runs anything the executor's uid can | Out of scope. That uid is the bound. With `--allow-sudo` it may also *ask* to become root, answered per command by a human
-**Root persistence by the *approved* command** | Configuring a host and backdooring it are the same primitives. A *second, unapproved* command cannot ride the approval, the broker serialising approved runs
+**Root persistence by the *approved* command** | Configuring a host and backdooring it are the same primitives. A *second, unapproved* command cannot ride the escalation, the broker serialising approved runs
 **Every managed value, not only the injected ones.** `env_refs` scopes one command's environment, not what a brokered command can reach | The executor is in the client group, so a brokered command is itself a broker client: it can ask for a second command with any ref injected, and the two share a uid. Redaction still covers what comes back through the broker
 **Network egress** | Out of scope. No iptables, namespaces or proxy allowlist
 **Anything at rest** | The uid boundaries hold only while the machine runs; full-disk encryption is the measure. `--allow-sudo` is the exception, minting no credential, so a stolen disk carries nothing that can sudo here
@@ -85,7 +85,7 @@ One call, end to end:
 
 The value set is **every managed secret**, not only the injected ones, so a managed host printing a credential nothing injected is still covered. A `[[secret.link]]` entry adds a credential another tool owns, read where that tool keeps it. Children run on a PTY, so programs behave normally and writes to `/dev/tty` are captured; the cost is that stdout and stderr arrive merged. ANSI escapes are stripped before matching, an expanded set of encodings is matched (base64, base32, hex, URL, JSON, shell quoting), and a streaming overlap buffer catches a value split across reads. Tokens are stable, so the model can reason about a secret across turns.
 
-Two things are not in the value set: a value shorter than `[secret] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing to it, approval minting no credential. Detail in [docs/redaction.md](docs/redaction.md).
+Two things are not in the value set: a value shorter than `[secret] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing to it, escalation minting no credential. Detail in [docs/redaction.md](docs/redaction.md).
 
 ### The audit log
 
@@ -134,7 +134,7 @@ Flag | Default | Sets
 `--known-hosts PATH` | none | A `known_hosts` file copied to `<exec-home>/.ssh/known_hosts` and replaced whole each run. One that is not a `known_hosts` file is refused
 `--agent NAME` | `auto` | Which agents get deny rules and a credentials section in this home ([which file, per agent](docs/layout.md)). Finding no agent writes nothing and says so
 `--allow-sudo` | off | Lets a brokered command *ask* to become root, through a password-required sudoers entry and a PAM service of faramir's own. Not passing the flag takes it back. [What it writes](docs/operating.md#the-decision-is-made-at-init-per-host)
-`--notify-command ARG` | none | Announces a waiting approval, one argument per flag. Must name `{prompt}` or `{id}`; needs `--allow-sudo`
+`--notify-command ARG` | none | Announces a waiting escalation, one argument per flag. Must name `{prompt}` or `{id}`; needs `--allow-sudo`
 `--socket PATH` | `$FARAMIR_SOCKET`, then `/run/faramir/broker.sock` | Which broker to ask where the install is, so it decides which install a flagless re-run provisions
 `--dry-run` | off | Report what would change and write nothing. The one form that does not need root
 `--json` | off | The report as JSON, one entry per step with a `changed` flag
@@ -244,13 +244,13 @@ Command | Does
 `sudo faramir link rm REF` | Drops the entry, so the value leaves the redactor. It undoes neither the grant nor the deny rule -- a merged rule file can only be added to -- and prints both, with what would narrow them
 `faramir link ls` | The linked secrets this install declares, and whether each file is there
 `sudo faramir logs [LOG-ID]` | Recent audit records, one row each: the log id, local time, op, outcome, values stood in for, and the command. With an id, one record in full. `--count`/`-n` bounds what is parsed as well as printed; `--json` prints records rather than rows; `--watch` prints the last `-n` and then each record as it is written, following the log across a rotation and waiting for it on a host where nothing has been brokered yet. It reads the log `[audit] log_path` names and takes no path of its own. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched
-`sudo faramir approvals [--watch]` | Lists the approval a brokered command is waiting on. `--watch` waits for questions, answers them from that terminal, and reports how each approved run ended
-`sudo faramir approve ID` | Say yes. The id is required: an approval that names no command is one nobody judged
+`sudo faramir escalations [--watch]` | Lists the escalation a brokered command is waiting on. `--watch` waits for questions, answers them from that terminal, and reports how each approved run ended
+`sudo faramir approve ID` | Say yes. The id is required: an escalation that names no command is one nobody judged
 `sudo faramir deny [ID]` | Say no. The id is optional, one question being outstanding at a time
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed config. All three are socket activated
 `sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively
 
-`approvals`, `approve` and `deny` are root-only at the broker too, checked with `SO_PEERCRED`: the account the coding agent runs as must not answer what the agent asked for.
+`escalations`, `approve` and `deny` are root-only at the broker too, checked with `SO_PEERCRED`: the account the coding agent runs as must not answer what the agent asked for.
 
 ### MCP tools
 

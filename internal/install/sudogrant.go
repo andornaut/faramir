@@ -4,7 +4,7 @@ package install
 // docs/operating.md; what it must keep saying:
 //
 //   - PASSWD, never NOPASSWD.  A passwordless grant is usable with the broker
-//     out of the way, which is a brokered command skipping the approval.
+//     out of the way, which is a brokered command skipping the escalation.
 //   - A PAM service of faramir's own, named by the entry's `pam_service`, so a
 //     mistake here leaves every other sudo on the host alone.
 //
@@ -26,10 +26,10 @@ import (
 //
 // There is no credential to place, which is the point of this design.  sudo
 // authenticates the executor's account against a service whose auth step asks
-// the broker, so an approval is a decision rather than a value and cannot be
+// the broker, so an escalation is a decision rather than a value and cannot be
 // kept, copied or carried to a later command.
 //
-// After stepConfig, which renders [approval] from the same layout, and before
+// After stepConfig, which renders [escalation] from the same layout, and before
 // anything restarts a daemon.
 func (r *runner) stepSudoGrant() error {
 	if !r.layout.AllowSudo {
@@ -98,7 +98,7 @@ func (r *runner) stepSudoGrant() error {
 			if err := os.Remove(stale); err != nil {
 				return err
 			}
-			r.warnf("removed %s, left by an earlier install: approval no longer uses "+
+			r.warnf("removed %s, left by an earlier install: escalation no longer uses "+
 				"a password at all", stale)
 		}
 	}
@@ -107,7 +107,7 @@ func (r *runner) stepSudoGrant() error {
 		r.restartFor("sudo grant")
 	}
 	r.step("sudo grant", granted || authChanged, fmt.Sprintf(
-		"%s may ask to sudo on this host; %s answers, one approval per command",
+		"%s may ask to sudo on this host; %s answers, one escalation per command",
 		r.layout.ExecUser, r.layout.PamFile()))
 	return nil
 }

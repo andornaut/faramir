@@ -28,7 +28,7 @@ Each stage assumes the previous one has run.
 
 Escapes only. A zero-width separator spliced between the characters (`U+200B`, `U+200D`, `U+2060`, `U+00AD`) renders identically too and is not removed, so a value written that way is not matched. Stripping them would be stripping ordinary text, which soft hyphens and joiners are in the languages that use them; and it needs deliberate crafting, the same class as `| rev`.
 
-This stage has a second reader. CSI, OSC and the C0 controls go here, which is why an approval prompt and `faramir logs` are not full of them. What it leaves is a bare `\r` (only CRLF is normalised), `ESC` followed by a byte outside `@-Z` and `\-_`, and the C1 controls `U+0080` to `U+009F`, the patterns matching CSI as `ESC [` while `U+009B` is the single-character form of the same introducer. [internal/termsafe](../internal/termsafe/termsafe.go) renders all three before any reaches a terminal, so narrowing what is stripped here widens what termsafe has to catch.
+This stage has a second reader. CSI, OSC and the C0 controls go here, which is why an escalation prompt and `faramir logs` are not full of them. What it leaves is a bare `\r` (only CRLF is normalised), `ESC` followed by a byte outside `@-Z` and `\-_`, and the C1 controls `U+0080` to `U+009F`, the patterns matching CSI as `ESC [` while `U+009B` is the single-character form of the same introducer. [internal/termsafe](../internal/termsafe/termsafe.go) renders all three before any reaches a terminal, so narrowing what is stripped here widens what termsafe has to catch.
 
 **2. Match an expanded value set.** Not exhaustive by design: an agent that *wants* to defeat this can. These are what ordinary tools produce by accident.
 

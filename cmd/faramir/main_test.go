@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/cli"
+	"github.com/andornaut/faramir/internal/escalation"
 )
 
 func writeEnvFile(t *testing.T, content string) string {
@@ -260,7 +260,7 @@ func dispatcherNames(t *testing.T) []string {
 // Deny by default, at the last place a human's answer is read: only an explicit
 // yes approves, so a typo, a stray word or a punctuation mark refuses.
 //
-// "y" is among the refusals, not the approvals.  The watcher asks for `yes` and
+// "y" is among the refusals, not the escalations.  The watcher asks for `yes` and
 // the keystroke this answer is guarded against is one the operator did not
 // make: a tmux pane the agent can send-keys into, a tty the operator's account
 // owns.  A tool that accepts less than it asks for is one whose prompt is not
@@ -275,7 +275,7 @@ func TestOnlyYesApproves(t *testing.T) {
 	}
 	for _, line := range []string{"no", "y", "Y", "", "\n", "y e s", "sure", "yes please", "ok", "1"} {
 		if approves(line) {
-			t.Errorf("%q approved an approval", line)
+			t.Errorf("%q approved an escalation", line)
 		}
 	}
 }
@@ -286,7 +286,7 @@ func TestOnlyYesApproves(t *testing.T) {
 func TestAnInteriorUnprintableIsNotEditedIntoAYes(t *testing.T) {
 	for _, line := range []string{"y\x00es", "y\res", "ye\x1bs"} {
 		if approves(line) {
-			t.Errorf("%q approved an approval", line)
+			t.Errorf("%q approved an escalation", line)
 		}
 	}
 }
@@ -372,7 +372,7 @@ func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 // `deny` needs no id: only one question is ever outstanding, so "the one that
 // is waiting" names exactly one thing.  The asymmetry with approving is
 // deliberate and worth holding in place.  Refusing something unseen is safe, and
-// `approve` requires an id, because an approval that names no command is one
+// `approve` requires an id, because an escalation that names no command is one
 // nobody judged.
 //
 // Each stops at the root check rather than dialling a socket, which is enough to
@@ -391,8 +391,8 @@ func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
 		t.Error("faramir approve ID = 2, want it accepted")
 	}
 	// Listing takes no id at all: the verbs are their own commands now.
-	if code := cmdApprovals([]string{"9f2a1c"}); code != 2 {
-		t.Errorf("faramir approvals ID = %d, want 2: it lists and answers nothing", code)
+	if code := cmdEscalations([]string{"9f2a1c"}); code != 2 {
+		t.Errorf("faramir escalations ID = %d, want 2: it lists and answers nothing", code)
 	}
 }
 
@@ -468,7 +468,7 @@ func TestReadAnswerReturnsWhatItRead(t *testing.T) {
 		t.Errorf("readAnswer = %q, want the line as it arrived", line)
 	}
 	if approves(line) {
-		t.Error("a terminal's own reply approved an approval")
+		t.Error("a terminal's own reply approved an escalation")
 	}
 }
 
@@ -492,7 +492,7 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 // the ordinary reading and its absence says as much. It is the other case the
 // number is for: nobody was here yet.
 func TestTheWaitingCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
-	question := approval.Question{
+	question := escalation.Question{
 		ID: "9f2a1c", Prompt: "faramir: Approve this command to run as root? `true`",
 		Cmd: "true", ExpiresInSec: 120,
 	}

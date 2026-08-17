@@ -1,10 +1,10 @@
 #!/bin/bash
-# The --allow-sudo approval channel, the one path that hands out root.
+# The --allow-sudo escalation channel, the one path that hands out root.
 #
 # Not "does sudo work" but the claims the design makes about it: root is handed
 # out one command at a time, only a human at a root shell hands it out, the
 # token a child holds cannot spend itself, no second brokered command runs
-# beside an approval, and a yes that lands while the host is not quiet is
+# beside an escalation, and a yes that lands while the host is not quiet is
 # refused rather than taken.
 #
 # Self-provisioning: it installs the grant itself, so it can run on a container
@@ -13,25 +13,25 @@ set -u
 SECRET='hunter2-correct-horse-battery'
 CFG=/etc/faramir/config.toml
 
-# The approval timeout, addressed by section.  [command] has a key of the same
+# The escalation timeout, addressed by section.  [command] has a key of the same
 # name, and it comes first in the file, so a bare `sed -n 's/^timeout_sec/'`
 # reads the wrong one and a bare `sed -i` rewrites both -- which puts a command
 # timeout into a section whose ceiling is 600 and leaves the broker refusing to
 # start at all.
-approval_timeout() { sed -n '/^\[approval\]/,/^\[/{s/^timeout_sec *= *\([0-9]*\).*/\1/p}' "$CFG" | head -1; }
-set_approval_timeout() { sed -i "/^\[approval\]/,/^\[/{s/^timeout_sec = .*/timeout_sec = $1/}" "$CFG"; }
+escalation_timeout() { sed -n '/^\[escalation\]/,/^\[/{s/^timeout_sec *= *\([0-9]*\).*/\1/p}' "$CFG" | head -1; }
+set_escalation_timeout() { sed -i "/^\[escalation\]/,/^\[/{s/^timeout_sec = .*/timeout_sec = $1/}" "$CFG"; }
 LOG=/var/log/faramir/audit.log
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 # The outstanding question's id, and a wait for one to appear.
-q() { /usr/local/bin/faramir approvals --json 2>/dev/null | grep -oE '"id"[^,]*' | head -1 | cut -d'"' -f4; }
+q() { /usr/local/bin/faramir escalations --json 2>/dev/null | grep -oE '"id"[^,]*' | head -1 | cut -d'"' -f4; }
 waitq() { local i; for _ in $(seq 100); do i=$(q); [ -n "$i" ] && { echo "$i"; return; }; sleep 0.1; done; echo ""; }
 # quiesce leaves no question outstanding and no process of the executor's uid,
 # which is the state every group below starts from: a leftover of either makes
 # the next group measure the last one.
 quiesce() {
   local id
-  for id in $(/usr/local/bin/faramir approvals --json 2>/dev/null | grep -oE '"id"[^,]*' | cut -d'"' -f4); do
+  for id in $(/usr/local/bin/faramir escalations --json 2>/dev/null | grep -oE '"id"[^,]*' | cut -d'"' -f4); do
     /usr/local/bin/faramir deny "$id" >/dev/null 2>&1
   done
   pkill -u faramir-exec 2>/dev/null || true
@@ -65,7 +65,7 @@ chmod 0755 /usr/local/bin/e2e-notify
 
 # Re-installed when the grant is absent OR when it carries no notifier: the
 # suites share one install, so this may run after another has already written a
-# [approval] section without one.
+# [escalation] section without one.
 if ! grep -q '^notify_command' $CFG; then
   /usr/local/bin/faramir init --allow-sudo --agent-user op \
     --notify-command /usr/local/bin/e2e-notify --notify-command '{prompt}' \
@@ -75,7 +75,7 @@ if ! grep -q '^notify_command' $CFG; then
   sleep 3
 fi
 rm -f "$NOTIFY"
-echo "grant installed; [approval] timeout_sec=$(approval_timeout)"
+echo "grant installed; [escalation] timeout_sec=$(escalation_timeout)"
 pkill -u faramir-exec 2>/dev/null; sleep 1
 
 # --------------------------------------------------------------------------
@@ -109,7 +109,7 @@ sudoRun /tmp/dnwhy.out /usr/bin/sudo /usr/bin/id
 ID=$(waitq)
 /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
 wait $RUN 2>/dev/null
-grep -q 'approval denied' /tmp/dnwhy.out && ok "and the caller is told a human refused it" \
+grep -q 'escalation denied' /tmp/dnwhy.out && ok "and the caller is told a human refused it" \
   || bad "the refusal reaches the caller unnamed: $(tr '\n' ' ' </tmp/dnwhy.out | cut -c1-150)"
 quiesce
 
@@ -125,7 +125,7 @@ grep -q forbidden <<<"$out" && ok "the agent's uid cannot approve over the socke
   || bad "op approved: ${out:0:110}"
 out=$(ask faramir-exec "{\"op\":\"approve\",\"id\":\"$ID\"}")
 grep -q forbidden <<<"$out" && ok "nor can the executor's uid" || bad "faramir-exec approved: ${out:0:110}"
-out=$(ask op '{"op":"approvals"}')
+out=$(ask op '{"op":"escalations"}')
 grep -q forbidden <<<"$out" && ok "and neither may even list what is waiting" \
   || bad "op listed the questions: ${out:0:110}"
 out=$(runuser -u op -- /usr/local/bin/faramir approve "$ID" 2>&1)
@@ -134,7 +134,7 @@ grep -q 'must run as root' <<<"$out" && ok "faramir approve as the agent is refu
 # A brokered command cannot even reach the attempt: it is refused for the same
 # serialisation that holds every other command while a question waits.
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo ran 2>&1)
-grep -q approval_in_progress <<<"$out" && ok "and a brokered command cannot run at all to try" \
+grep -q escalation_in_progress <<<"$out" && ok "and a brokered command cannot run at all to try" \
   || bad "a brokered command ran beside a question: ${out:0:110}"
 [ "$(q)" = "$ID" ] && ok "the question survived every attempt" || bad "the question is gone after those attempts"
 /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
@@ -145,7 +145,7 @@ quiesce
 head_ "3. the token a child holds is an identifier, not a credential"
 
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sh -c '
-  printf "{\"op\":\"ask_approval\",\"token\":\"$FARAMIR_APPROVAL_TOKEN\"}\n" |
+  printf "{\"op\":\"escalate\",\"token\":\"$FARAMIR_ESCALATION_TOKEN\"}\n" |
   timeout 5 /usr/bin/python3 -c "
 import socket,sys
 s=socket.socket(socket.AF_UNIX); s.connect(\"/run/faramir/broker.sock\")
@@ -189,12 +189,12 @@ quiesce
 head_ "5. what one approval covers, and what the question shows of it"
 #
 # One question per run, not per sudo: a playbook's twenty become'd tasks are one
-# approval.  What the operator judges that by is the command, so the question has
+# escalation.  What the operator judges that by is the command, so the question has
 # to carry the whole of it.
 
 sudoRun /tmp/scope.out /bin/sh -c 'sudo /usr/bin/id -un; sudo /bin/cat /etc/shadow | head -1; sudo /usr/bin/whoami'
 ID=$(waitq)
-question=$(/usr/local/bin/faramir approvals 2>/dev/null)
+question=$(/usr/local/bin/faramir escalations 2>/dev/null)
 grep -q 'cat /etc/shadow' <<<"$question" && ok "shows the whole argv, second sudo included" \
   || bad "the question hides part of the command: ${question:0:150}"
 # The host is a field rather than part of the prompt, and an operator watching
@@ -224,10 +224,10 @@ runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 \
   --env PW=secret://db/password -- /usr/bin/sudo /usr/bin/id -un >/tmp/val.out 2>&1 </dev/null &
 RUN=$!
 ID=$(waitq)
-body=$(/usr/local/bin/faramir approvals --json 2>/dev/null)
+body=$(/usr/local/bin/faramir escalations --json 2>/dev/null)
 # The listing answered, or the absence below is an op that failed rather than a
 # question that holds no value.
-grep -qF "$ID" <<<"$body" || bad "approvals --json did not name the waiting question"
+grep -qF "$ID" <<<"$body" || bad "escalations --json did not name the waiting question"
 grep -qF "$SECRET" <<<"$body" && bad "the question carries the plaintext value" \
   || ok "the question an operator reads carries no value"
 /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
@@ -259,14 +259,14 @@ out=$(/usr/local/bin/faramir deny 2>&1); code=$?
 # --------------------------------------------------------------------------
 head_ "8. a question nobody answers"
 
-before=$(approval_timeout)
-set_approval_timeout 5
+before=$(escalation_timeout)
+set_escalation_timeout 5
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 
 start=$(date +%s)
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 40 -- /usr/bin/sudo /usr/bin/id -un >/tmp/to.out 2>&1
 elapsed=$(( $(date +%s) - start ))
-[ "$elapsed" -lt 25 ] && ok "an unanswered question ends in ${elapsed}s, near [approval] timeout_sec=5" \
+[ "$elapsed" -lt 25 ] && ok "an unanswered question ends in ${elapsed}s, near [escalation] timeout_sec=5" \
   || bad "it took ${elapsed}s to give up on an unanswered question"
 grep -q 'uid=0\|^root$' /tmp/to.out && bad "*** an unanswered command became root ***" \
   || ok "and the command did not become root"
@@ -274,9 +274,9 @@ grep -q 'uid=0\|^root$' /tmp/to.out && bad "*** an unanswered command became roo
 # And the caller is told which of the two it was, the command having seen the
 # same authentication failure either way.
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 40 -- /usr/bin/sudo /usr/bin/id -un >/tmp/towhy.out 2>&1
-grep -q 'approval expired' /tmp/towhy.out && ok "and told under --quiet, which is how an agent runs one" \
+grep -q 'escalation expired' /tmp/towhy.out && ok "and told under --quiet, which is how an agent runs one" \
   || bad "an expiry is not told from a refusal: $(tr '\n' ' ' </tmp/towhy.out | cut -c1-150)"
-grep -q 'approval denied' /tmp/towhy.out && bad "an expiry was reported as a refusal" \
+grep -q 'escalation denied' /tmp/towhy.out && bad "an expiry was reported as a refusal" \
   || ok "and not as one somebody typed"
 # The host is usable again straight after, the serialisation having ended with it.
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo after 2>&1)
@@ -284,14 +284,14 @@ out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo aft
   || bad "the host stayed held after the timeout: ${out:0:110}"
 # Nobody watching and somebody saying no are different events, and the record
 # says which without anyone parsing the sentence beside it.
-[ "$(jq -r 'select(.op=="ask_approval") | .outcome_code' $LOG 2>/dev/null | tail -1)" = expired ] \
+[ "$(jq -r 'select(.op=="escalate") | .outcome_code' $LOG 2>/dev/null | tail -1)" = expired ] \
   && ok "the record calls it expired rather than refused" \
-  || bad "an unanswered question is recorded as $(jq -r 'select(.op=="ask_approval") | .outcome_code' $LOG 2>/dev/null | tail -1)"
+  || bad "an unanswered question is recorded as $(jq -r 'select(.op=="escalate") | .outcome_code' $LOG 2>/dev/null | tail -1)"
 /usr/local/bin/faramir logs --color never -n 10 | grep -q 'timed out' \
   && ok "and the listing reads it as timed out" \
   || bad "the listing does not tell it from a refusal: $(/usr/local/bin/faramir logs --color never -n 3)"
 
-set_approval_timeout "${before:-120}"
+set_escalation_timeout "${before:-120}"
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 quiesce
 
@@ -321,7 +321,7 @@ head_ "10. what became of the approved run"
 #
 # A yes is the last decision anybody makes about that command, so the terminal
 # that gave root away is told how it ended.  It comes back on the poll the
-# question came in on, which is what `faramir approvals --watch` is sitting in:
+# question came in on, which is what `faramir escalations --watch` is sitting in:
 # no second channel, and no read of the audit log.
 #
 # Only here, and not in the Go tests: filling the ending in is the exec path's,
@@ -329,7 +329,7 @@ head_ "10. what became of the approved run"
 
 sudoRun /tmp/ended.out /usr/bin/sudo /bin/sh -c 'exit 3'
 ID=$(waitq)
-LOGID=$(/usr/local/bin/faramir approvals --json 2>/dev/null | grep -oE '"log_id"[^,]*' | head -1 | cut -d'"' -f4)
+LOGID=$(/usr/local/bin/faramir escalations --json 2>/dev/null | grep -oE '"log_id"[^,]*' | head -1 | cut -d'"' -f4)
 [ -n "$LOGID" ] && ok "the question names the exec record it belongs to ($LOGID)" \
   || bad "the question carries no log_id, so there is nothing to wait on"
 # Answered after a pause, so the wait is a number worth reporting: the command's
@@ -342,7 +342,7 @@ wait $RUN 2>/dev/null
 ending() { /usr/bin/python3 -c "
 import socket,sys,json
 s=socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
-request={'op':'approvals'}
+request={'op':'escalations'}
 if sys.argv[1]: request['await_log_id']=sys.argv[1]
 s.sendall(json.dumps(request).encode()+b'\n')
 f=json.loads(s.recv(65536).decode()).get('finished')
@@ -375,34 +375,34 @@ quiesce
 # --------------------------------------------------------------------------
 head_ "11. the record"
 
-[ "$(grep -c '"approved":true' $LOG)" -ge 1 ] && ok "an approval is recorded" || bad "no approval recorded"
+[ "$(grep -c '"approved":true' $LOG)" -ge 1 ] && ok "an escalation is recorded" || bad "no escalation recorded"
 [ "$(grep -c '"approved":false' $LOG)" -ge 1 ] && ok "a refusal is recorded" || bad "no refusal recorded"
 # Both answers read as answers in the listing, not as blank rows.
-/usr/local/bin/faramir logs --color never -n 80 | grep -q approved && ok "an approval reads as approved in faramir logs" \
-  || bad "an approval renders with no outcome"
+/usr/local/bin/faramir logs --color never -n 80 | grep -q approved && ok "an escalation reads as approved in faramir logs" \
+  || bad "an escalation renders with no outcome"
 /usr/local/bin/faramir logs --color never -n 80 | grep -q refused && ok "and a refusal reads as refused" \
   || bad "a refusal renders with no outcome"
 # Which no it was, for each of the three this suite produced.  A denial, an
 # expiry and a yes read alike in prose and are acted on differently.
 for want in approved denied expired; do
-  [ "$(jq -r --arg c "$want" 'select(.op=="ask_approval" and .outcome_code==$c) | .outcome_code' $LOG 2>/dev/null | head -1)" = "$want" ] \
-    && ok "a $want ending is recorded as one" || bad "no ask_approval record carries outcome_code=$want"
+  [ "$(jq -r --arg c "$want" 'select(.op=="escalate" and .outcome_code==$c) | .outcome_code' $LOG 2>/dev/null | head -1)" = "$want" ] \
+    && ok "a $want ending is recorded as one" || bad "no escalate record carries outcome_code=$want"
 done
 # The prose is kept beside it: it names the account that answered, which no code
 # carries.
-jq -r 'select(.op=="ask_approval" and .outcome_code=="denied") | .outcome' $LOG 2>/dev/null | grep -q 'refused by' \
+jq -r 'select(.op=="escalate" and .outcome_code=="denied") | .outcome' $LOG 2>/dev/null | grep -q 'refused by' \
   && ok "and the sentence beside it still names who answered" \
   || bad "the prose was dropped when the code arrived"
 
-# The approval points at the command it authorised.
-id=$(jq -r 'select(.op=="ask_approval" and .approved==true) | .exec_log_id' $LOG 2>/dev/null | tail -1)
+# The escalation points at the command it authorised.
+id=$(jq -r 'select(.op=="escalate" and .approved==true) | .exec_log_id' $LOG 2>/dev/null | tail -1)
 [ -n "$id" ] && [ "$id" != null ] && ok "and names the command's own record ($id)" \
-  || bad "an approval does not point at the run it authorised"
+  || bad "an escalation does not point at the run it authorised"
 
 # --------------------------------------------------------------------------
 head_ "12. the notifier"
 #
-# [approval] notify_command is what says a question is waiting, and it is init's:
+# [escalation] notify_command is what says a question is waiting, and it is init's:
 # a drop-in setting it is refused, so `faramir init --notify-command` is the
 # only way onto a host, and this is the check that the flag reaches the broker
 # rather than only the file.
@@ -450,7 +450,7 @@ MODE = sys.argv[1]
 
 pid, fd = pty.fork()
 if pid == 0:
-    os.execv("/usr/local/bin/faramir", ["faramir", "approvals", "--watch"])
+    os.execv("/usr/local/bin/faramir", ["faramir", "escalations", "--watch"])
     os._exit(127)
 
 buf = ""
@@ -483,7 +483,7 @@ def give_up(why):
     sys.exit(0)
 
 
-if not pump(lambda b: "waiting for approval requests" in b, 30):
+if not pump(lambda b: "waiting for escalation requests" in b, 30):
     give_up("the watcher never started")
 
 # Before the question exists, which is the whole of the first case: these have
@@ -566,7 +566,7 @@ PROMPT = "approve? [yes/no]"
 
 pid, fd = pty.fork()
 if pid == 0:
-    os.execv("/usr/local/bin/faramir", ["faramir", "approvals", "--watch"])
+    os.execv("/usr/local/bin/faramir", ["faramir", "escalations", "--watch"])
     os._exit(127)
 
 buf = ""
@@ -612,7 +612,7 @@ def raise_question(marker):
         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
-if not pump(lambda b: "waiting for approval requests" in b, 30):
+if not pump(lambda b: "waiting for escalation requests" in b, 30):
     give_up("the watcher never started")
 
 first = raise_question("first")
@@ -662,8 +662,8 @@ quiesce
 # started inside it, and short enough that the first expires while the driver
 # waits.  Section 8's five seconds only has to reach an expiry, and this has to
 # reach an answer after one.
-before=$(approval_timeout)
-set_approval_timeout 20
+before=$(escalation_timeout)
+set_escalation_timeout 20
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 
 out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
@@ -676,7 +676,7 @@ out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
 [ "$(field "$out" SECOND_ANSWERED)" = yes ] && ok "and can still be answered" \
   || bad "the second question could not be answered: ${out//$'\n'/ }"
 
-set_approval_timeout "${before:-120}"
+set_escalation_timeout "${before:-120}"
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 quiesce
 

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/andornaut/faramir/internal/approval"
+	"github.com/andornaut/faramir/internal/escalation"
 )
 
 func writeLog(t *testing.T, lines ...string) string {
@@ -730,26 +730,26 @@ func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
 }
 
 // An op longer than its column must not run into the one after it: merged as
-// `ask_approvalrefused`, with every column past it shifted, the row is read
+// `list_secretsrefused`, with every column past it shifted, the row is read
 // wrong.
 func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"ask_approval",`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"list_secrets",`+
 		`"approved":false,"cmd":["sudo","id","-un"]}`), plain(t))
-	if strings.Contains(line, "ask_approvalrefused") {
+	if strings.Contains(line, "list_secretsrefused") {
 		t.Errorf("op and outcome merged: %q", line)
 	}
-	if !strings.Contains(line, "ask_approval refused") {
+	if !strings.Contains(line, "list_secrets refused") {
 		t.Errorf("summarise = %q, want the op and the outcome as separate columns", line)
 	}
 }
 
 // The same for the outcome column, which holds a refusal code and so can be
-// wider than the column: approval_in_progress is 20 against a 16-wide column.
+// wider than the column: escalation_in_progress is 20 against a 16-wide column.
 // The row shifts, which is legible; the columns merging is not.
 func TestSummariseKeepsTheColumnsApartForALongRefusalCode(t *testing.T) {
 	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"exec",`+
-		`"refused":"approval_in_progress","cmd":["sudo","id","-un"]}`), plain(t))
-	if !regexp.MustCompile(`approval_in_progress +sudo id -un`).MatchString(line) {
+		`"refused":"escalation_in_progress","cmd":["sudo","id","-un"]}`), plain(t))
+	if !regexp.MustCompile(`escalation_in_progress +sudo id -un`).MatchString(line) {
 		t.Errorf("summarise = %q, want the code and the command as separate columns", line)
 	}
 }
@@ -833,12 +833,12 @@ func TestEachAnswerReadsAsItsOwnEnding(t *testing.T) {
 		want   string
 		failed bool
 	}{
-		{approval.CodeApproved, "approved", false},
-		{approval.CodeDenied, "refused", true},
-		{approval.CodeExpired, "timed out", true},
-		{approval.CodeNotQuiescent, "not quiescent", true},
-		{approval.CodeRunEnded, "run ended", true},
-		{approval.CodeBrokerStopped, "broker stopped", true},
+		{escalation.CodeApproved, "approved", false},
+		{escalation.CodeDenied, "refused", true},
+		{escalation.CodeExpired, "timed out", true},
+		{escalation.CodeNotQuiescent, "not quiescent", true},
+		{escalation.CodeRunEnded, "run ended", true},
+		{escalation.CodeBrokerStopped, "broker stopped", true},
 		// A code this reader does not know is printed rather than blanked: the log
 		// is read by whatever version is installed, and a row saying nothing about
 		// how a question ended is the one thing this column must not print.
@@ -846,7 +846,7 @@ func TestEachAnswerReadsAsItsOwnEnding(t *testing.T) {
 	} {
 		t.Run(tc.code, func(t *testing.T) {
 			label, failed := outcome(map[string]any{
-				"op": "ask_approval", "approved": tc.code == approval.CodeApproved,
+				"op": "escalate", "approved": tc.code == escalation.CodeApproved,
 				"outcome_code": tc.code, "outcome": "prose nobody selects on",
 			})
 			if label != tc.want {
@@ -864,7 +864,7 @@ func TestEachAnswerReadsAsItsOwnEnding(t *testing.T) {
 // its rows.
 func TestAnAnswerWithNoCodeStillReads(t *testing.T) {
 	if label, failed := outcome(map[string]any{
-		"op": "ask_approval", "approved": false, "outcome": "refused by root",
+		"op": "escalate", "approved": false, "outcome": "refused by root",
 	}); label != "refused" || !failed {
 		t.Errorf("outcome = (%q, %v), want (refused, true)", label, failed)
 	}

@@ -8,7 +8,7 @@ package cli
 // Operator is every subcommand a person runs, and what the guard sanctions.
 // One missing from both lists has its arguments scanned, which is a false
 // denial rather than a hole.  Under sudo the guard sanctions all of these but
-// `approve`, which it denies: that one decides an approval, and the account
+// `approve`, which it denies: that one decides an escalation, and the account
 // the agent runs as must not answer the question the agent raised.
 //
 // A grouped command is named in full, both tokens, rather than by its parent.
@@ -34,7 +34,7 @@ var Operator = []string{
 	"link rm",
 	"link ls",
 	"logs",
-	"approvals",
+	"escalations",
 	"approve",
 	"deny",
 	"doctor",

@@ -155,12 +155,12 @@ func TestDiagnoseUsernsReportsWhatTheUnitStoppedBounding(t *testing.T) {
 	}
 
 	granted := &config.Config{}
-	granted.Approval.ExecUser = "faramir-exec"
+	granted.Escalation.ExecUser = "faramir-exec"
 
 	var loose DoctorReport
 	diagnoseUserns(&loose, DoctorOptions{ExecUser: "faramir-exec"}, granted)
 	if len(loose.Findings) != 1 || loose.Findings[0].Status != StatusWarn {
-		t.Fatalf("an open switch on a host that grants an approval: %v", loose.Findings)
+		t.Fatalf("an open switch on a host that grants an escalation: %v", loose.Findings)
 	}
 	for _, want := range []string{"sysctl -w", "=1", "clone3"} {
 		if !strings.Contains(loose.Findings[0].Detail, want) {

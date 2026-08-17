@@ -22,9 +22,9 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
-	"github.com/andornaut/faramir/internal/approval"
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/execserver"
 	"github.com/andornaut/faramir/internal/executor"
 	"github.com/andornaut/faramir/internal/protocol"
@@ -39,11 +39,11 @@ import (
 )
 
 type Server struct {
-	Config   *config.Config
-	Store    *secretstore.Store
-	Audit    *audit.Log
-	Ssh      *sshagent.Agent
-	Approval *approval.Server
+	Config     *config.Config
+	Store      *secretstore.Store
+	Audit      *audit.Log
+	Ssh        *sshagent.Agent
+	Escalation *escalation.Server
 
 	// exec runs one command.  A field so a test can substitute one that records
 	// what it was handed, rather than reaching broker policy through a socket, a
@@ -63,27 +63,27 @@ type Server struct {
 
 func New(cfg *config.Config) *Server {
 	s := &Server{
-		Config:   cfg,
-		Store:    secretstore.New(cfg.Secret, cfg.Keeper),
-		Audit:    audit.NewLog(cfg.Audit),
-		Ssh:      sshagent.New(cfg.Ssh),
-		Approval: approval.New(cfg.Approval),
-		slots:    make(chan struct{}, cfg.Command.Concurrency),
+		Config:     cfg,
+		Store:      secretstore.New(cfg.Secret, cfg.Keeper),
+		Audit:      audit.NewLog(cfg.Audit),
+		Ssh:        sshagent.New(cfg.Ssh),
+		Escalation: escalation.New(cfg.Escalation),
+		slots:      make(chan struct{}, cfg.Command.Concurrency),
 		exec: func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
 			return executor.Run(cfg.Command, cfg.Executor, r, sink, req)
 		},
 	}
-	// An approval is a thing that happened on this host, so it is recorded where
+	// An escalation is a thing that happened on this host, so it is recorded where
 	// every other op is.  The record holds the command and the answer; the secret
 	// is not in it, and could not be, the audit log being written after redaction
 	// and that value being in the set.
-	s.Approval.Record = func(entry map[string]any) { s.Audit.Write(entry, audit.Output{}) }
-	// The kernel's answer to the question the approval server can only believe:
+	s.Escalation.Record = func(entry map[string]any) { s.Audit.Write(entry, audit.Output{}) }
+	// The kernel's answer to the question the escalation server can only believe:
 	// is anything running as the executor outside the run being approved?  Asked
 	// of the executor because this process cannot see it (ProtectProc=invisible
 	// keeps another uid's /proc out of the broker's view), and failing closed,
 	// an executor that does not answer having not said the host is quiet.
-	s.Approval.Quiescent = func() (bool, string) {
+	s.Escalation.Quiescent = func() (bool, string) {
 		return execserver.Quiescent(cfg.Executor.SocketPath, quiescenceWait)
 	}
 	return s
@@ -93,7 +93,7 @@ func New(cfg *config.Config) *Server {
 // named in the dispatch and again where the loop decides whether to continue.
 const opRedactName = "redact"
 
-// quiescenceWait bounds the one round trip an approval makes to the executor.
+// quiescenceWait bounds the one round trip an escalation makes to the executor.
 // Short: the answer is a /proc scan, and a human is waiting on it.
 const quiescenceWait = 5 * time.Second
 
@@ -364,12 +364,12 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 		return s.opListSecrets()
 	case opRedactName:
 		return s.opRedact(request, peer, stream)
-	case "approvals":
-		return s.opApprovals(request, peer)
+	case "escalations":
+		return s.opEscalations(request, peer)
 	case "approve":
 		return s.opApprove(request, peer)
-	case "ask_approval":
-		return s.opAskApproval(request, peer)
+	case "escalate":
+		return s.opEscalate(request, peer)
 	default:
 		return s.opExec(request, peer)
 	}
@@ -397,7 +397,7 @@ func (s *Server) opStatus() protocol.Response {
 		// and be applied some other way.  Whether, not how: the socket, the helper
 		// and the password are none of a caller's business, and a human answers
 		// every request either way.
-		"sudo": map[string]any{"enabled": s.Approval.Enabled()},
+		"sudo": map[string]any{"enabled": s.Escalation.Enabled()},
 	}, "", "  ")
 	if err != nil {
 		return protocol.ErrorResponse("internal", "the status could not be "+
@@ -475,14 +475,14 @@ func (st *redactStream) finish(s *Server, peer *sockutil.Peer) {
 	}, audit.Output{})
 }
 
-// opApprovals and opApprove are the operator's half of the approval channel,
-// and with opAskApproval the only ops this socket refuses to a caller it
+// opEscalations and opApprove are the operator's half of the escalation channel,
+// and with opEscalate the only ops this socket refuses to a caller it
 // otherwise admits.
 //
 // Root, checked with SO_PEERCRED, and nothing else: not the client group, which
 // holds the account the coding agent runs as, and not the executor, which is the
 // side asking.  This one check is what stands between an agent and its
-// own approval, so it is made here rather than left to a file mode: the socket
+// own escalation, so it is made here rather than left to a file mode: the socket
 // admits a group by design, and only the op knows that this request is
 // different.
 //
@@ -493,12 +493,12 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 		return nil
 	}
 	out := protocol.ErrorResponse("forbidden", fmt.Sprintf(
-		"%s is root's: an approval must be answered by an account the coding "+
-			"agent cannot become. Run `sudo faramir approvals`", op), "")
+		"%s is root's: an escalation must be answered by an account the coding "+
+			"agent cannot become. Run `sudo faramir escalations`", op), "")
 	return &out
 }
 
-// opAskApproval is what sudo's PAM helper asks, and the only thing that decides
+// opEscalate is what sudo's PAM helper asks, and the only thing that decides
 // whether a brokered command becomes root.  It blocks until a human answers.
 //
 // Root, like the other two: the helper reaches it because pam_exec runs it with
@@ -506,15 +506,15 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 // is what makes the token an identifier rather than a credential.  There is no
 // credential anywhere in this, which is why sudo is answered rather than
 // authenticated.
-func (s *Server) opAskApproval(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	if refused := s.requireRoot("ask_approval", peer); refused != nil {
+func (s *Server) opEscalate(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+	if refused := s.requireRoot("escalate", peer); refused != nil {
 		return *refused
 	}
 	if request.Token == "" {
 		return protocol.ErrorResponse("bad_request",
 			"'token' must name the brokered command asking to sudo", "")
 	}
-	approved, code, reason := s.Approval.Ask(request.Token)
+	approved, code, reason := s.Escalation.Ask(request.Token)
 	// A refusal is a response rather than an error: the helper reports it to PAM
 	// as a failed authentication, which is what sudo has to see.
 	//
@@ -529,12 +529,12 @@ func (s *Server) opAskApproval(request *protocol.Request, peer *sockutil.Peer) p
 	}
 }
 
-func (s *Server) opApprovals(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	if refused := s.requireRoot("approvals", peer); refused != nil {
+func (s *Server) opEscalations(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+	if refused := s.requireRoot("escalations", peer); refused != nil {
 		return *refused
 	}
-	wait := min(time.Duration(request.WaitSec)*time.Second, maxApprovalWait)
-	questions, finished := s.Approval.Poll(wait, request.AwaitLogID)
+	wait := min(time.Duration(request.WaitSec)*time.Second, maxEscalationWait)
+	questions, finished := s.Escalation.Poll(wait, request.AwaitLogID)
 	// Present only when the caller named a run and that run has ended, so the key
 	// says what it means rather than carrying a null nothing asked for.
 	rendered := map[string]any{"questions": questions}
@@ -569,12 +569,12 @@ func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) proto
 	if peer.PID > 0 {
 		who = fmt.Sprintf("%s (pid %d)", who, peer.PID)
 	}
-	if err := s.Approval.Answer(request.ID, request.Approve, who); err != nil {
+	if err := s.Escalation.Answer(request.ID, request.Approve, who); err != nil {
 		// A yes that was turned into a no because the host was not quiet is a
 		// different answer from an id nobody is waiting on, and the operator acts on
 		// each differently: one means run the command again, the other means the
 		// question had already gone.
-		if errors.Is(err, approval.ErrNotQuiescent) {
+		if errors.Is(err, escalation.ErrNotQuiescent) {
 			return protocol.ErrorResponse("not_quiescent", err.Error(), "")
 		}
 		return protocol.ErrorResponse("unknown_question", err.Error(), "")
@@ -589,10 +589,10 @@ func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) proto
 	}
 }
 
-// maxApprovalWait bounds a watcher's long poll.  It returns an empty list and
+// maxEscalationWait bounds a watcher's long poll.  It returns an empty list and
 // the watcher asks again, so a broker restarted under it is noticed rather than
 // waited on forever.
-const maxApprovalWait = 60 * time.Second
+const maxEscalationWait = 60 * time.Second
 
 func (s *Server) opListSecrets() protocol.Response {
 	// Names only, and only refs that loaded: a value the redactor cannot cover is
@@ -730,32 +730,32 @@ func callerName(peer *sockutil.Peer) string {
 	return fmt.Sprintf("uid %d", peer.UID)
 }
 
-// execApproval is what the approval server has to say about a run that has
+// execEscalation is what the escalation server has to say about a run that has
 // ended: whether a sudo inside it was turned down, and how much of its duration
 // was the question rather than the command.
-type execApproval struct {
+type execEscalation struct {
 	// code and reason are the last no a sudo was given, empty where it was given
 	// none.  Without them a refusal and an expiry reach the caller alike, as
 	// sudo's own authentication failure, and running the command again is worth
 	// something in one case and nothing in the other.
 	code, reason string
 	// waited is seconds the child spent blocked inside sudo.  The duration is
-	// wall time from fork to exit, so an approval answered slowly reads as a slow
+	// wall time from fork to exit, so an escalation answered slowly reads as a slow
 	// command without it.
 	waited float64
 }
 
-func (s *Server) approvalOf(token string) execApproval {
-	code, reason := s.Approval.Refusal(token)
-	return execApproval{code: code, reason: reason, waited: s.Approval.Waited(token).Seconds()}
+func (s *Server) escalationOf(token string) execEscalation {
+	code, reason := s.Escalation.Refusal(token)
+	return execEscalation{code: code, reason: reason, waited: s.Escalation.Waited(token).Seconds()}
 }
 
 // fields is what a record carries of it, each present only where it says
 // something: a command that never asked was not refused and waited for nobody.
-func (a execApproval) fields() map[string]any {
+func (a execEscalation) fields() map[string]any {
 	out := map[string]any{}
 	if a.code != "" {
-		out["approval_code"], out["approval"] = a.code, a.reason
+		out["escalation_code"], out["escalation"] = a.code, a.reason
 	}
 	if a.waited > 0 {
 		out["waited_sec"] = math.Round(a.waited*1000) / 1000
@@ -765,13 +765,13 @@ func (a execApproval) fields() map[string]any {
 
 // execResponse is what the caller is told about a command that ran.
 //
-// What the approval has to say rides along, each field present only where it
+// What the escalation has to say rides along, each field present only where it
 // says something.  Which no a sudo was given is there because sudo reports a
 // refusal and an expiry alike, as its own authentication failure, and which one
 // it was decides whether running the command again is worth anything; how long
 // the question held the run is there because the duration beside it contains
 // that time and does not say so.
-func execResponse(logID string, judged execApproval,
+func execResponse(logID string, judged execEscalation,
 	result *executor.Result) protocol.Response {
 	response := protocol.Response{
 		"exit_code": result.ExitCode, "output": result.Output,
@@ -892,7 +892,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// shared with the audit write below, which is built after the child ran and
 	// against whatever the store holds by then.
 	asked := s.redactor()
-	token, heldBy := s.Approval.Register(approval.Run{
+	token, heldBy := s.Escalation.Register(escalation.Run{
 		Argv: redactEach(asked, cmd), Cwd: cwd, LogID: logID,
 		// Who asked, which the question needs and the executor's own uid does not
 		// say: every brokered command runs as that one.
@@ -902,20 +902,20 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		// agent's working tree.  The question names both when they differ.
 		Argv0Path: asked.RedactText(argv0Path),
 	})
-	// Held while an approval is live or a question is waiting: this command and
+	// Held while an escalation is live or a question is waiting: this command and
 	// that one share the executor's uid, so running it now would give it a route
 	// to the root the other was approved for.
 	//
 	// A terminal refusal rather than a `busy` to retry.  A retryable answer makes
 	// a caller poll the one window in which the host must be quiet, so the moment
-	// the approval ends the retries land: a caller shaping when its command runs
-	// relative to somebody else's approval, and a stream of attempts against the
+	// the escalation ends the retries land: a caller shaping when its command runs
+	// relative to somebody else's escalation, and a stream of attempts against the
 	// exact interval the serialization is protecting.  Failing here says what
 	// happened and leaves the decision to run again with whoever reads it.
 	if heldBy != "" {
-		return s.refuse("approval_in_progress", "an approval is being decided or held "+
+		return s.refuse("escalation_in_progress", "an escalation is being decided or held "+
 			"on the executor's uid ("+heldBy+"), and no other brokered command runs "+
-			"while one is: they share that uid, so a second could ride the approval. "+
+			"while one is: they share that uid, so a second could ride the escalation. "+
 			"This command was not run and was not queued. Run it again once that one "+
 			"has finished", logID, peer, cmd, cwd)
 	}
@@ -927,9 +927,9 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// nil ExitCode prints as an ending without one, where a zero would print as a
 	// clean exit.  A return added below that forgets to fill this in is then a
 	// vaguer line rather than a false one.
-	outcome := approval.Outcome{LogID: logID}
-	defer func() { s.Approval.Release(token, outcome) }()
-	maps.Copy(env, s.Approval.Env(token))
+	outcome := escalation.Outcome{LogID: logID}
+	defer func() { s.Escalation.Release(token, outcome) }()
+	maps.Copy(env, s.Escalation.Env(token))
 	injected := map[string]string{}
 	for name, uri := range envRefs {
 		ref, err := secretref.Parse(uri)
@@ -991,7 +991,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	if err != nil {
 		detail := s.safeDetail(err.Error())
 		// Rendered on top of the redaction, which covers values and not control
-		// characters: this string reaches the approval terminal, and the next thing
+		// characters: this string reaches the escalation terminal, and the next thing
 		// printed there is a question somebody judges.  Done here rather than at
 		// the CLI, so everything the broker puts on that terminal is rendered by
 		// the same hand that renders the question.
@@ -1006,7 +1006,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	}
 
 	// Read before the deferred Release drops the run.
-	judged := s.approvalOf(token)
+	judged := s.escalationOf(token)
 
 	outcome.ExitCode = &result.ExitCode
 	outcome.DurationSec, outcome.TimedOut = result.DurationSec, result.TimedOut
@@ -1032,7 +1032,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 // redactor builds a fresh matcher over the whole value set.  Fresh because a
 // Redactor carries per-stream state and counts.
 //
-// The sudo grant adds nothing here, which is the point of it: an approval is a
+// The sudo grant adds nothing here, which is the point of it: an escalation is a
 // decision rather than a value, so there is no credential for a child to print
 // back and none for this to cover.
 func (s *Server) redactor() *redact.Redactor {
@@ -1063,11 +1063,11 @@ func redactEach(r *redact.Redactor, in []string) []string {
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
 	sshInfo, problems := s.describeSSH()
-	approvalInfo, approvalProblems := s.describeApproval()
+	escalationInfo, escalationProblems := s.describeEscalation()
 	policy := s.policyProblems()
 	body, err := json.MarshalIndent(map[string]any{
 		"configs": s.Config.Sources,
-		"secrets": secrets, "ssh": sshInfo, "sudo": approvalInfo, "policy": policy,
+		"secrets": secrets, "ssh": sshInfo, "sudo": escalationInfo, "policy": policy,
 	}, "", "  ")
 	if err != nil {
 		// Non-zero, like every other reason this report is not the whole answer: a
@@ -1115,12 +1115,12 @@ func (s *Server) CheckOutput() ([]byte, int) {
 			"place the key, or leave [ssh] key unset to authenticate some other way")
 		code = 1
 	}
-	// Same weighting as the SSH key: an approval that cannot be asked for breaks
+	// Same weighting as the SSH key: an escalation that cannot be asked for breaks
 	// only the commands that sudo, and those fail at the point of use with
 	// sudo's own error.  Here is where an operator finds out without waiting for a
 	// playbook to.
-	if len(approvalProblems) > 0 {
-		log.Printf("this host cannot answer an approval: %v", approvalProblems)
+	if len(escalationProblems) > 0 {
+		log.Printf("this host cannot answer an escalation: %v", escalationProblems)
 		log.Printf("a brokered command that runs sudo will fail to authenticate; " +
 			"re-run `faramir init --allow-sudo`, or re-run without it to take the grant " +
 			"away entirely")
@@ -1138,16 +1138,16 @@ func (s *Server) CheckOutput() ([]byte, int) {
 	return body, code
 }
 
-// describeApproval reports whether this host could answer an approval, and
+// describeEscalation reports whether this host could answer an escalation, and
 // why not when it could not.  Files rather than a live probe: putting the
 // question would mean waiting on a human, and `--check` runs from `init`.
-func (s *Server) describeApproval() (map[string]any, []string) {
-	info := map[string]any{"enabled": s.Approval.Enabled()}
-	if !s.Approval.Enabled() {
+func (s *Server) describeEscalation() (map[string]any, []string) {
+	info := map[string]any{"enabled": s.Escalation.Enabled()}
+	if !s.Escalation.Enabled() {
 		// The install that granted no sudoers entry, which is the default one.
 		return info, nil
 	}
-	cfg := s.Config.Approval
+	cfg := s.Config.Escalation
 	info["exec_user"] = cfg.ExecUser
 	info["pam_service"] = cfg.PamService
 	info["helper"] = cfg.Helper
@@ -1155,10 +1155,10 @@ func (s *Server) describeApproval() (map[string]any, []string) {
 
 	var problems []string
 	// The helper is what sudo's PAM service execs, as root.  Absent, every
-	// approval fails closed, which is safe and useless.
+	// escalation fails closed, which is safe and useless.
 	if _, err := os.Stat(cfg.Helper); err != nil {
 		problems = append(problems, cfg.Helper+": "+err.Error()+
-			" (the PAM service execs it, so no approval can be approved)")
+			" (the PAM service execs it, so no escalation can be approved)")
 	}
 	// The PAM service file itself.  Absent, PAM falls back to /etc/pam.d/other,
 	// which on a normal host asks for a password nothing supplies, but on one whose
@@ -1168,12 +1168,12 @@ func (s *Server) describeApproval() (map[string]any, []string) {
 		problems = append(problems, pamFile+": "+err.Error()+
 			" (sudo would fall back to /etc/pam.d/other for "+cfg.ExecUser+")")
 	}
-	// The notifier is optional, `faramir approvals --watch` being where a question is
+	// The notifier is optional, `faramir escalations --watch` being where a question is
 	// seen, but one that is configured and absent announces nothing, silently.
 	if len(cfg.NotifyCommand) > 0 {
 		if _, err := osexec.LookPath(cfg.NotifyCommand[0]); err != nil {
 			problems = append(problems, cfg.NotifyCommand[0]+": "+err.Error()+
-				" ([approval] notify_command names it, so nothing announces a pending request)")
+				" ([escalation] notify_command names it, so nothing announces a pending request)")
 		}
 	}
 	return info, problems

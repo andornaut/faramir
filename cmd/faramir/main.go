@@ -46,7 +46,7 @@ func run(args []string) int {
 }
 
 // requireRoot refuses a command that must run as root, naming why and how.  The
-// approval commands use requireRootToAnswer instead of this: they must not
+// escalation commands use requireRootToAnswer instead of this: they must not
 // suggest sudo, because a warm sudo timestamp is what their check exists to keep
 // out of the agent's reach.
 func requireRoot(command, reason string) bool {
@@ -695,9 +695,9 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		// Why a sudo inside the command was turned down, where one was. Present
 		// only then, and the reason a refusal can be told from an expiry here: both
 		// reach the command as sudo's own authentication failure.
-		Approval     string `json:"approval"`
-		ApprovalCode string `json:"approval_code"`
-		Redactions   []struct {
+		Escalation     string `json:"escalation"`
+		EscalationCode string `json:"escalation_code"`
+		Redactions     []struct {
 			Token string `json:"token"`
 			Count int    `json:"count"`
 		} `json:"redactions"`
@@ -746,9 +746,9 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 	// with sudo's authentication failure and nothing else.  Said in full rather
 	// than by code, the caller having sudo's account of the same event, which
 	// names neither.
-	if response.ApprovalCode != "" {
-		fmt.Fprintf(os.Stderr, "faramir %s: approval %s: %s\n",
-			prog, response.ApprovalCode, response.Approval)
+	if response.EscalationCode != "" {
+		fmt.Fprintf(os.Stderr, "faramir %s: escalation %s: %s\n",
+			prog, response.EscalationCode, response.Escalation)
 	}
 
 	if !quiet {

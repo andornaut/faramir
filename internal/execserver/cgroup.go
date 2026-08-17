@@ -32,7 +32,7 @@ import (
 // subtree stopped and removed before the restart, and a member cannot move out
 // of it.  So a run cgroup never outlives the process that made it, and a startup
 // sweep would find nothing.  A unit edited to KillMode=process or mixed breaks
-// that; the strays an approval is then refused on are the symptom.
+// that; the strays an escalation is then refused on are the symptom.
 
 // cgroupBase is the cgroup v2 directory this executor may create run cgroups
 // under, or "" when confinement is unavailable.  Probed once at startup: per run
@@ -248,12 +248,12 @@ func (e *Executor) untrack(c *runCgroup) {
 // quiescence reports whether any process of this uid is alive outside this
 // daemon and outside the runs it is confining.
 //
-// That is the fact an approval rests on.  Every brokered command runs as this
+// That is the fact an escalation rests on.  Every brokered command runs as this
 // uid and /proc/<pid>/environ is readable within a uid, so a process the broker
 // does not know about can read an approved run's token, exec with it set, and
 // sudo on it.  The broker's own map cannot see that: a bounded drain that gave
 // up, a run whose teardown it did not wait for, or its own restart all leave the
-// map saying one thing and the process table another.  So before an approval
+// map saying one thing and the process table another.  So before an escalation
 // takes, the map is checked against the kernel here.
 //
 // Fails closed on every path it cannot answer: an unreadable /proc is not
@@ -310,7 +310,7 @@ func (e *Executor) strays() ([]string, error) {
 		if !hasUserspace(pid) {
 			// A kernel thread or a zombie: no address space, so no environment to read
 			// a token out of and nothing to exec sudo with.  It cannot ride an
-			// approval, and counting it would make a host permanently un-quiet for a
+			// escalation, and counting it would make a host permanently un-quiet for a
 			// process that is not a process in the sense this is asking about.
 			continue
 		}

@@ -70,13 +70,13 @@ type Options struct {
 	// grant, which is the direction that takes reach away.
 	AllowSudo bool
 
-	// NotifyCommand announces a pending approval, "{prompt}" being the line the
+	// NotifyCommand announces a pending escalation, "{prompt}" being the line the
 	// broker builds and "{id}" the question to answer.  Empty leaves `faramir
-	// approvals --watch` as the only place a question shows up.
+	// escalations --watch` as the only place a question shows up.
 	//
 	// A flag rather than a drop-in because the broker execs it as the uid holding
 	// every decrypted value, which is the same reason ssh_agent and ssh_add are
-	// resolved here.  Requires AllowSudo: without the grant there is no [approval]
+	// resolved here.  Requires AllowSudo: without the grant there is no [escalation]
 	// section and nothing to announce.
 	NotifyCommand []string
 
@@ -87,7 +87,7 @@ type Options struct {
 	CommandTimeoutSec    int
 	CommandMaxTimeoutSec int
 	CommandConcurrency   int
-	ApprovalTimeoutSec   int
+	EscalationTimeoutSec int
 	SecretMinLength      int
 	SecretMinRefreshSec  int
 
@@ -215,7 +215,7 @@ type runner struct {
 
 	// What the validation step established, not what it was asked to check: it
 	// skips under DryRun and without systemd, so the irreversible step below
-	// cannot read its absence as approval.
+	// cannot read its absence as escalation.
 	brokerLoadedRefs int
 	brokerChecked    bool
 
@@ -346,9 +346,9 @@ func (r *runner) steps() []namedStep {
 		// The other half of reaching a managed host: the key authenticates to it,
 		// these say which host answering is that host.
 		{"known hosts", r.stepKnownHosts},
-		// After the config, which renders [approval] from the same layout, and before
+		// After the config, which renders [escalation] from the same layout, and before
 		// anything restarts a daemon: a broker that came up without the PAM service
-		// and the sudoers entry in place would refuse every approval until the next
+		// and the sudoers entry in place would refuse every escalation until the next
 		// activation.
 		{"sudo grant", r.stepSudoGrant},
 		// Before the units are written: it grants the traversal that lets a service
@@ -398,8 +398,8 @@ func (o *Options) applyDefaults() {
 	if o.CommandConcurrency == 0 {
 		o.CommandConcurrency = command.Concurrency
 	}
-	if o.ApprovalTimeoutSec == 0 {
-		o.ApprovalTimeoutSec = config.DefaultApprovalTimeoutSec
+	if o.EscalationTimeoutSec == 0 {
+		o.EscalationTimeoutSec = config.DefaultEscalationTimeoutSec
 	}
 	if o.SecretMinLength == 0 {
 		o.SecretMinLength = secret.MinLength
@@ -448,7 +448,7 @@ func (o *Options) layout() (Layout, error) {
 	if layout.SSHKey == "" {
 		layout.SSHKey = filepath.Join(layout.ConfigDir, "id_ed25519")
 	}
-	// Off unless asked for, and the config template keys the whole [approval]
+	// Off unless asked for, and the config template keys the whole [escalation]
 	// section off it: an install that never passed --allow-sudo renders no section,
 	// writes no PAM service and grants no sudoers entry.
 	layout.AllowSudo = o.AllowSudo
@@ -458,7 +458,7 @@ func (o *Options) layout() (Layout, error) {
 	layout.CommandTimeoutSec = o.CommandTimeoutSec
 	layout.CommandMaxTimeoutSec = o.CommandMaxTimeoutSec
 	layout.CommandConcurrency = o.CommandConcurrency
-	layout.ApprovalTimeoutSec = o.ApprovalTimeoutSec
+	layout.EscalationTimeoutSec = o.EscalationTimeoutSec
 	layout.SecretMinLength = o.SecretMinLength
 	layout.SecretMinRefreshSec = o.SecretMinRefreshSec
 	return layout, layout.validate()

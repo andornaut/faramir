@@ -42,7 +42,7 @@ func guardOutput(t *testing.T, args []string, payload string) map[string]any {
 	return got
 }
 
-// The hosts disagree about where a refusal goes and what an approval is, and
+// The hosts disagree about where a refusal goes and what an escalation is, and
 // the wrong dialect fails open, so each shape is pinned.
 func TestHostDialects(t *testing.T) {
 	t.Run("claude rewrites through updatedInput and approves explicitly", func(t *testing.T) {

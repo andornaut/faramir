@@ -100,7 +100,7 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		{"age-keygen", false},
 		// Running a daemon, or running as one of faramir's accounts, does
 		// disclose: the keeper opens the store and the broker holds every value.
-		// Split from the approval subcommands, which decide rather than disclose.
+		// Split from the escalation subcommands, which decide rather than disclose.
 		{"sudo faramir keeper", false},
 		{"sudo -u faramir-keeper cat /etc/faramir/age.key", false},
 		// faramir's own. Nothing here is disclosed; something is changed or stopped.
@@ -108,7 +108,7 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		{"echo x > /etc/faramir/config.toml", true},
 		{"systemctl stop faramir-broker.socket", true},
 		{"sudo faramir approve abc123", true},
-		{"sudo faramir approvals", true},
+		{"sudo faramir escalations", true},
 		{"sudo faramir deny abc123", true},
 		{"sudo faramir access --read /etc/faramir/age.key", true},
 		{"rm .opencode/plugins/faramir.js", true},

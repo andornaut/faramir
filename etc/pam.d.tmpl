@@ -12,18 +12,18 @@
 #
 # There is no password in this.  The authentication step is a helper that asks
 # the broker whether the brokered command making this call was approved by a
-# human, so nothing is minted, stored or handed out, and an approval cannot be
+# human, so nothing is minted, stored or handed out, and an escalation cannot be
 # carried to a later command.
 #
 # THE TWO WORDS THAT MATTER:
 #
 #   requisite:  not `sufficient`.  With `sufficient`, a helper that REFUSES is
 #                 not fatal, the stack falls through to pam_permit below, and
-#                 every approval is granted without asking anybody.
+#                 every escalation is granted without asking anybody.
 #   seteuid:    pam_exec otherwise runs the helper with the REAL uid, which
 #                 under setuid sudo is {{.ExecUser}}'s own.  The broker answers
-#                 the ask_approval op to root and to nobody else, so without this the
-#                 helper is refused and EVERY approval fails: the feature is
+#                 the escalate op to root and to nobody else, so without this the
+#                 helper is refused and EVERY escalation fails: the feature is
 #                 off rather than loose, but it is off.  It also keeps the
 #                 process doing the deciding out of the reach of the uid being
 #                 decided about, instead of resting on the kernel marking a

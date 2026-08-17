@@ -336,7 +336,7 @@ type project struct {
 	// allowSudo is whether this host was installed with --allow-sudo, read off
 	// the config beside the client group.  It decides one paragraph of the
 	// credentials section.  False for an enrolment that named --client-group and
-	// so never read a config: the section then says nothing about approvals,
+	// so never read a config: the section then says nothing about escalations,
 	// which is the safe direction, an agent that has not been told to wait
 	// re-running a command rather than working around a pause.
 	allowSudo bool
@@ -362,8 +362,8 @@ func (p *project) warnf(format string, args ...any) {
 // makes a shared tree usable; a flag would leave every mode right and the
 // executor still unable to enter.
 //
-// The sudo grant is read from the same load, [approval] exec_user being the switch
-// for the whole arrangement, so an empty one is a host where no approval can be
+// The sudo grant is read from the same load, [escalation] exec_user being the switch
+// for the whole arrangement, so an empty one is a host where no escalation can be
 // raised.  Which install it is read from is the question --client-group raises,
 // and answered below.
 func (p *project) resolveGroup() error {
@@ -376,11 +376,11 @@ func (p *project) resolveGroup() error {
 		// mean is that nothing else may be taken from this host's config either,
 		// and the grant least of all.  Trusted only where the config loads and
 		// admits the group just named, which is what says the two are one install;
-		// on anything else the section says nothing about approvals, and an agent
+		// on anything else the section says nothing about escalations, and an agent
 		// that was not told to wait re-runs a refused command rather than looking
 		// for a way past a pause.
 		if err == nil && cfg.Server.AllowedGroup == p.opts.ClientGroup {
-			p.allowSudo = cfg.Approval.ExecUser != ""
+			p.allowSudo = cfg.Escalation.ExecUser != ""
 		}
 		return nil
 	}
@@ -394,7 +394,7 @@ func (p *project) resolveGroup() error {
 			"Run `faramir init --client-group NAME`", configFile)
 	}
 	p.report.ClientGroup = cfg.Server.AllowedGroup
-	p.allowSudo = cfg.Approval.ExecUser != ""
+	p.allowSudo = cfg.Escalation.ExecUser != ""
 	return nil
 }
 
@@ -525,7 +525,7 @@ func (p *project) shareTree() error {
 
 // agentConfig writes each enrolled agent's configuration into the tree.  What
 // the hook costs differs by agent, Claude Code being the only one with an
-// approval to give, so the warning below reports the agent it just enrolled.
+// escalation to give, so the warning below reports the agent it just enrolled.
 //
 // An entry naming a path from an earlier layout is corrected rather than
 // reported: a PreToolUse hook that cannot exec fails every command the agent
@@ -713,7 +713,7 @@ type sectionTarget struct {
 // credentialsSection is the section `init-project` writes into a tree.
 //
 // Rendered rather than shipped as it is, for one paragraph: what an agent is
-// told about waiting for an approval only holds on a host installed with
+// told about waiting for an escalation only holds on a host installed with
 // --allow-sudo, where a brokered command can raise one.  On any other host that
 // paragraph describes a refusal that never happens, and prose an agent cannot
 // act on is prose that teaches it to skim.

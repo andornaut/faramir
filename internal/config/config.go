@@ -94,8 +94,8 @@ func DefaultSecret() SecretConfig {
 	return SecretConfig{DecryptCommand: DecryptCommand(), MinRefreshSec: 10, MinLength: 8}
 }
 
-// DefaultApprovalTimeoutSec is how long a question waits for a human.
-const DefaultApprovalTimeoutSec = 120
+// DefaultEscalationTimeoutSec is how long a question waits for a human.
+const DefaultEscalationTimeoutSec = 120
 
 // DecryptCommand is how the keeper invokes sops.  Never a key: a second way to
 // invoke it is a second thing that could be pointed somewhere else, and the
@@ -282,8 +282,8 @@ type CommandConfig struct {
 	// obviously, the idle bound between chunks of a redact stream.
 	MaxTimeoutSec int
 	// Concurrency is how many brokered commands run at once; the rest are
-	// refused busy.  On a host with an approval grant, raising it makes an
-	// approval harder to get: a sudo is refused outright while any other
+	// refused busy.  On a host with an escalation grant, raising it makes an
+	// escalation harder to get: a sudo is refused outright while any other
 	// brokered command is in flight.
 	Concurrency int
 }
@@ -323,13 +323,13 @@ type SshConfig struct {
 	SshAdd      string
 }
 
-// ApprovalConfig is how a brokered command becomes root on this host: it does
+// EscalationConfig is how a brokered command becomes root on this host: it does
 // not authenticate, it asks.  Named for the question rather than for sudo,
 // which is only the thing that waits on the answer.  With no ExecUser nothing is granted and no question
 // can be raised, which is the install that never passed --allow-sudo.
 // Everything here but TimeoutSec is init's, each value naming a file or a
-// program that decides whether an approval happens.
-type ApprovalConfig struct {
+// program that decides whether an escalation happens.
+type EscalationConfig struct {
 	// ExecUser is the account the sudoers entry was written for, and the switch
 	// for the whole arrangement.  The helper checks PAM_USER against it, so a PAM
 	// service reached for some other account authenticates nothing.
@@ -411,15 +411,15 @@ type AuditConfig struct {
 type Config struct {
 	Path string
 	// Every file that contributed, which is one.  Reported by status and --check.
-	Sources  []string
-	Server   ServerConfig
-	Keeper   KeeperConfig
-	Executor ExecutorConfig
-	Command  CommandConfig
-	Ssh      SshConfig
-	Approval ApprovalConfig
-	Secret   SecretConfig
-	Audit    AuditConfig
+	Sources    []string
+	Server     ServerConfig
+	Keeper     KeeperConfig
+	Executor   ExecutorConfig
+	Command    CommandConfig
+	Ssh        SshConfig
+	Escalation EscalationConfig
+	Secret     SecretConfig
+	Audit      AuditConfig
 }
 
 func Load(path string) (*Config, error) {
@@ -515,7 +515,7 @@ var (
 	// describe faramir's own processes, and nothing in them is a preference.
 	// The rest are named for what an operator is deciding.
 	sections = []string{"server", "keeper", "executor", "command", "ssh",
-		"approval", "secret", "audit"}
+		"escalation", "secret", "audit"}
 	serverKeys = []string{"socket_path", "allowed_group"}
 	keeperKeys = []string{"socket_path", "allowed_user",
 		"age_key_credential", "age_key_file"}
@@ -523,7 +523,7 @@ var (
 	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency"}
 	sshKeys      = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
-	approvalKeys = []string{"exec_user", "pam_service", "helper",
+	escalationKeys = []string{"exec_user", "pam_service", "helper",
 		"notify_command", "timeout_sec"}
 	secretKeys = []string{"min_length", "min_refresh_sec", "link"}
 	linkKeys   = []string{"ref", "path", "type", "key"}
@@ -556,7 +556,7 @@ func fromMap(raw map[string]any, path string) (*Config, error) {
 	if err := loadSsh(raw, path, &cfg.Ssh); err != nil {
 		return nil, err
 	}
-	if err := loadApproval(raw, path, &cfg.Approval); err != nil {
+	if err := loadEscalation(raw, path, &cfg.Escalation); err != nil {
 		return nil, err
 	}
 	if err := loadAudit(raw, path, &cfg.Audit); err != nil {
@@ -872,24 +872,24 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 	return nil
 }
 
-func loadApproval(raw map[string]any, path string, out *ApprovalConfig) error {
-	where := path + ": [approval]"
-	sec, err := table(raw, "approval", path)
+func loadEscalation(raw map[string]any, path string, out *EscalationConfig) error {
+	where := path + ": [escalation]"
+	sec, err := table(raw, "escalation", path)
 	if err != nil {
 		return err
 	}
-	if err := rejectUnknownKeys(sec, approvalKeys, where); err != nil {
+	if err := rejectUnknownKeys(sec, escalationKeys, where); err != nil {
 		return err
 	}
 	// No exec_user by default, which is the install that granted no sudoers
 	// entry: the rest describes where things would go if one ever did.
-	*out = ApprovalConfig{
+	*out = EscalationConfig{
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
-		// Nothing by default: `faramir approvals --watch` is where a question is seen
+		// Nothing by default: `faramir escalations --watch` is where a question is seen
 		// and answered, and a host that wants shouting about it as well says so.
 		NotifyCommand: nil,
-		TimeoutSec:    DefaultApprovalTimeoutSec,
+		TimeoutSec:    DefaultEscalationTimeoutSec,
 	}
 	if out.ExecUser, err = str(sec["exec_user"], where, ""); err != nil {
 		return err

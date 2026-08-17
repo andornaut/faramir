@@ -104,13 +104,13 @@ var fallback = []string{
 	// does not, so "systemctl restart faramir-keeper" stays allowed.  Only
 	// sudo's own flags may precede the executable name.  journalctl is absent:
 	// the daemons log ref names and counts, never values.
-	// The three approval subcommands among them: they read and decide an approval,
-	// and the agent must not be able to answer the question it raised.  `approvals`
+	// The three escalation subcommands among them: they read and decide an escalation,
+	// and the agent must not be able to answer the question it raised.  `escalations`
 	// precedes `approve` so the longer name is not left half-matched.
 	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|pam-approve)\b`,
 	// Answering discloses nothing; it decides. Split from the line above so
 	// each half is refused with the reason that fits it.
-	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(approvals|approve|deny)\b`,
+	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(escalations|approve|deny)\b`,
 	// doctor's own helper, which answers access(2) as the account it is run
 	// under, and `link add`'s, which reads one linked file as the broker.
 	// Nothing an operator types: under sudo the first answers for root, which
@@ -157,11 +157,11 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
 // classifies alike.  A prefix of writeCommands rather than the constant, the
 // shipped file carrying the expansion rather than the name.
 var ownershipMarkers = []string{
-	`(?-i:rm|shred|truncate`,     // writeCommands: editing or destroying
-	`>\s*\S*`,                    // a redirect into one of those paths
-	`\bsystemctl\b`,              // stopping or masking a unit
-	`(approvals|approve|deny)\b`, // answering a question the agent raised
-	`faramir[-\s]+(access|read`,  // doctor's access(2) helper, link add's reader
+	`(?-i:rm|shred|truncate`,       // writeCommands: editing or destroying
+	`>\s*\S*`,                      // a redirect into one of those paths
+	`\bsystemctl\b`,                // stopping or masking a unit
+	`(escalations|approve|deny)\b`, // answering a question the agent raised
+	`faramir[-\s]+(access|read`,    // doctor's access(2) helper, link add's reader
 }
 
 // adviceFor picks the explanation that matches why the command was refused.
@@ -290,9 +290,9 @@ func sanctionAlternation(names []string) string {
 }
 
 // sudoFaramirCall is the same for a call under sudo, and sanctions three
-// subcommands fewer.  `approvals`, `approve` and `deny` are left out so that the
+// subcommands fewer.  `escalations`, `approve` and `deny` are left out so that the
 // deny patterns get to see them: they are the ops that read and decide an
-// approval, and this hook gates the shell of the agent that raised the request.  An operator answers in their own terminal,
+// escalation, and this hook gates the shell of the agent that raised the request.  An operator answers in their own terminal,
 // where no hook runs, so nothing a person does is denied by this.  RE2 has no
 // negative lookahead, hence a second expression over a second list rather than
 // an exception inside the first.
@@ -300,10 +300,10 @@ var sudoFaramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*sudo\s+faramir[ \t]+(` +
 		sanctionAlternation(sudoSanctioned()) + `)\b[^;&|\n]*`)
 
-// answering is the subcommands that read or decide an approval.  Named once:
+// answering is the subcommands that read or decide an escalation.  Named once:
 // the deny patterns and sudoSanctioned have to cover the same set, and a
 // command added to one and not the other is a way around the hook.
-var answering = []string{"approvals", "approve", "deny"}
+var answering = []string{"escalations", "approve", "deny"}
 
 // sudoSanctioned is cli.Operator without the subcommands that must stay visible
 // to the deny patterns when run as root.

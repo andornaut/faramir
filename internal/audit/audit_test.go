@@ -566,7 +566,7 @@ func TestReducingARecordKeepsEveryFieldOfIt(t *testing.T) {
 
 // Writing a record must not change what it is a record of.  The reductions cut
 // strings and drop entries, and the fields they cut are the caller's own live
-// state: internal/approval hands over the argv it holds for a run and keeps
+// state: internal/escalation hands over the argv it holds for a run and keeps
 // rendering that argv into the question, the refusal messages and every later
 // record.  A reduction reaching back into it would truncate the command
 // everywhere it is named, on the strength of one record having been too long.
@@ -581,7 +581,7 @@ func TestWritingARecordLeavesTheCallersFieldsAlone(t *testing.T) {
 	atLimit(t, config.MinRecordBytes)
 	NewLog(config.AuditConfig{LogPath: path}).
 		Write(map[string]any{
-			"log_id": "x", "op": "ask_approval", "cmd": argv,
+			"log_id": "x", "op": "escalate", "cmd": argv,
 			"env_refs": refs, "peer": peer, "nested": nested,
 		}, Output{Text: strings.Repeat("z", 8*1024)})
 
@@ -790,8 +790,8 @@ func TestEveryRecordCarriesWhenItHappened(t *testing.T) {
 	atLimit(t, 64*1024)
 	log := NewLog(config.AuditConfig{LogPath: path})
 
-	// A record with no time of its own: an approval, a redact, an edit.
-	log.Write(map[string]any{"log_id": NewLogID(), "op": "ask_approval"}, Output{})
+	// A record with no time of its own: an escalation, a redact, an edit.
+	log.Write(map[string]any{"log_id": NewLogID(), "op": "escalate"}, Output{})
 	// And one that has one: an exec's started_at is its child's, which is not
 	// when this line was written, so it is left alone and no at is added.
 	log.Write(map[string]any{

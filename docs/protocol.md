@@ -22,9 +22,9 @@ Op | Does | Notes
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
 `list_secrets` | ref names only | Adds `refs`.
 `status` | version, `configs`, loaded files, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
-`approvals` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
+`escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
 `approve` | answer by `id` | Root only.
-`ask_approval` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.
+`escalate` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.
 
 The three root-only ops are checked with `SO_PEERCRED`: the account the coding agent runs as must not approve what the agent asked for. `status` and `list_secrets` answer whatever the value set is doing.
 
@@ -52,7 +52,7 @@ Reserved `env_refs` names, refused so injection cannot redirect the loader, the 
 ```text
 PATH  HOME  IFS  BASH_ENV  ENV  LD_PRELOAD  LD_LIBRARY_PATH
 SOPS_AGE_KEY  SOPS_AGE_KEY_FILE  CREDENTIALS_DIRECTORY
-SSH_AUTH_SOCK  SSH_AGENT_PID  SUDO_ASKPASS  FARAMIR_APPROVAL_TOKEN
+SSH_AUTH_SOCK  SSH_AGENT_PID  SUDO_ASKPASS  FARAMIR_ESCALATION_TOKEN
 ```
 
 ### redact, and streaming it
@@ -65,13 +65,13 @@ A caller with more text than one request may carry sends it a chunk at a time **
 - One audit record per stream, written when it ends, carrying the totals for the whole of it. A stream the peer abandoned still writes one.
 - The first request on a connection is on the 30s clock; between chunks a stream may idle up to `[command] max_timeout_sec`, because `faramir redact -- command` sends a chunk when the command has printed one.
 
-### approvals
+### escalations
 
-`approvals` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. The wait is clamped to 60s. It returns at most one question, ever, carrying `caller` (the account that asked, never the one the command would run as), `waiting_sec` and `expires_in_sec`; a second command asking to sudo while one is waiting is refused rather than queued.
+`escalations` takes an optional `wait_sec` and blocks up to that long for a question to appear, so a watcher costs one connection rather than a poll a second. The wait is clamped to 60s. It returns at most one question, ever, carrying `caller` (the account that asked, never the one the command would run as), `waiting_sec` and `expires_in_sec`; a second command asking to sudo while one is waiting is refused rather than queued.
 
 It also takes an optional `await_log_id`, naming the run the caller approved and has not yet heard the end of. When that run ends the response carries `finished`: `log_id`, `exit_code`, `duration_sec`, `waited_sec`, `timed_out` and `error`, and the poll returns as soon as the run ends rather than waiting out `wait_sec`. `exit_code` is `null` where the broker got no status for the run, `error` saying why; a zero there would read as a clean exit. Only an approved run has an ending to report, and only the caller naming it is told: the broker holds the last one rather than emptying it when it is read, so two watchers both see it and a caller that approved nothing sees none.
 
-`ask_approval` names the run by the token in the brokered command's environment and blocks until a human answers, the question expires, or the broker stops. `sudo` is blocked on it throughout, which is what makes the wait an authentication step. A token naming no running command is refused without asking anybody.
+`escalate` names the run by the token in the brokered command's environment and blocks until a human answers, the question expires, or the broker stops. `sudo` is blocked on it throughout, which is what makes the wait an authentication step. A token naming no running command is refused without asking anybody.
 
 `outcome_code` is which of those it was, in one word, `reason` being the sentence beside it. A refusal a human typed and a question nobody answered are not the same event and are not acted on alike, and told apart only by their prose they are told apart by whoever reads English. The same code is written to the audit record, where `faramir logs` reads it.
 
@@ -79,7 +79,7 @@ Code | Means
 --- | ---
 `approved` | a human said yes, or this sudo was covered by the yes given for the same command
 `denied` | a human said no
-`expired` | nobody answered within `[approval] timeout_sec`
+`expired` | nobody answered within `[escalation] timeout_sec`
 `not_quiescent` | a yes was turned into a no: a process of the executor's uid was alive outside the run
 `run_ended` | the command exited before the question was answered
 `broker_stopped` | the broker stopped, or was stopping when the request arrived
@@ -108,8 +108,8 @@ Field | Meaning
 `redactions` | Counts, not values. A count of 0 where one was expected is a real signal that something is misconfigured.
 `log_id` | Points into `/var/log/faramir/audit.log`, which the agent cannot read, so it can cite a record to the operator.
 `invalid_bytes` | How many bytes were not valid UTF-8 and came back as `U+FFFD`. What says the output was binary.
-`waited_sec` | How much of `duration_sec` the command spent blocked on its own approval, present only where a `sudo` waited at all. Written to the `exec` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an approval answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[command] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
-`approval_code`, `approval` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `denied` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [ask_approval set](#approvals); the same pair is written to the `exec` record.
+`waited_sec` | How much of `duration_sec` the command spent blocked on its own escalation, present only where a `sudo` waited at all. Written to the `exec` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an escalation answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[command] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
+`escalation_code`, `escalation` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `denied` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [escalate codes](#escalations); the same pair is written to the `exec` record.
 `truncated` | Output hit the output cap.
 
 A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:
@@ -125,8 +125,8 @@ Code | Meaning
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
 `busy` | At `[command] concurrency`; retry
-`approval_in_progress` | An approval is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
-`not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the approval. The `sudo` fails and the command is run again once the host is quiet
+`escalation_in_progress` | An escalation is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
+`not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the escalation. The `sudo` fails and the command is run again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `exec` alone
 `no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `list_secrets` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
@@ -195,6 +195,6 @@ A second op shares the socket. `"op": "exec"` and an absent `op` both mean the r
 {"quiescent": false, "detail": "1 process(es) are running as the executor outside any brokered command (4821 (sleep))"}
 ```
 
-The broker asks this before an approval takes: is any process of the executor's uid alive outside that daemon and outside the runs it is confining? It is asked here because the broker cannot see the answer, its own unit setting `ProtectProc=invisible`. Every failure is a no. An op this daemon does not know is refused `bad_request` with the name in the message, so a version skew says what it is.
+The broker asks this before an escalation takes: is any process of the executor's uid alive outside that daemon and outside the runs it is confining? It is asked here because the broker cannot see the answer, its own unit setting `ProtectProc=invisible`. Every failure is a no. An op this daemon does not know is refused `bad_request` with the name in the message, so a version skew says what it is.
 
 The executor owns the timeout, because it owns the run's cgroup. **Closing the connection is how the broker cancels a run**, and the whole cgroup is killed and drained, including a `setsid` child that broke out of the process group. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.

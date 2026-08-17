@@ -39,7 +39,7 @@ func loadRendered(t *testing.T, body []byte) *config.Config {
 	return cfg
 }
 
-// Without --allow-sudo nothing is configured: no [approval] section, so nothing is
+// Without --allow-sudo nothing is configured: no [escalation] section, so nothing is
 // injected and no question can be raised.  This is the promise the whole
 // arrangement rests on: an install that did not ask for it is the install that
 // existed before it.
@@ -52,11 +52,11 @@ func TestWithoutAllowSudoTheConfigCarriesNoSudoSection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "[approval]") {
-		t.Errorf("the config carries a [approval] section without --allow-sudo:\n%s", body)
+	if strings.Contains(string(body), "[escalation]") {
+		t.Errorf("the config carries a [escalation] section without --allow-sudo:\n%s", body)
 	}
-	if cfg := loadRendered(t, body); cfg.Approval.ExecUser != "" {
-		t.Errorf("exec_user = %q, want unset", cfg.Approval.ExecUser)
+	if cfg := loadRendered(t, body); cfg.Escalation.ExecUser != "" {
+		t.Errorf("exec_user = %q, want unset", cfg.Escalation.ExecUser)
 	}
 }
 
@@ -70,23 +70,23 @@ func TestAllowSudoRendersTheSudoSection(t *testing.T) {
 	}
 	cfg := loadRendered(t, body)
 	for _, check := range []struct{ name, got, want string }{
-		{"exec_user", cfg.Approval.ExecUser, layout.ExecUser},
-		{"pam_service", cfg.Approval.PamService, layout.PamService()},
-		{"helper", cfg.Approval.Helper, layout.PamHelper()},
+		{"exec_user", cfg.Escalation.ExecUser, layout.ExecUser},
+		{"pam_service", cfg.Escalation.PamService, layout.PamService()},
+		{"helper", cfg.Escalation.Helper, layout.PamHelper()},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s = %q, want %q", check.name, check.got, check.want)
 		}
 	}
 	// Nothing is configured to ask: `faramir approve` is where a question is seen.
-	if len(cfg.Approval.NotifyCommand) != 0 {
-		t.Errorf("notify_command = %q, want nothing by default", cfg.Approval.NotifyCommand)
+	if len(cfg.Escalation.NotifyCommand) != 0 {
+		t.Errorf("notify_command = %q, want nothing by default", cfg.Escalation.NotifyCommand)
 	}
 }
 
 // There is no credential anywhere in an install that allows sudo: no file, no
 // environment variable, nothing minted at start.  This is the property the
-// design turns on: an approval that is a decision cannot be carried to a later
+// design turns on: an escalation that is a decision cannot be carried to a later
 // command, because there is nothing to carry.
 func TestASudoGrantPlacesNoCredential(t *testing.T) {
 	layout := sudoGrantLayout(t)
@@ -103,7 +103,7 @@ func TestASudoGrantPlacesNoCredential(t *testing.T) {
 			"elevate.secret", "chpasswd", "elevate-rotate", "SUDO_ASKPASS",
 		} {
 			if strings.Contains(string(body), credential) {
-				t.Errorf("%s mentions %q: approval holds no credential", asset, credential)
+				t.Errorf("%s mentions %q: escalation holds no credential", asset, credential)
 			}
 		}
 	}
@@ -149,7 +149,7 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 	}
 	text := string(body)
 	// `requisite`, never `sufficient`.  With sufficient a helper that REFUSES is
-	// not fatal, the stack falls through to pam_permit below, and every approval
+	// not fatal, the stack falls through to pam_permit below, and every escalation
 	// is granted without asking anybody.
 	if !strings.Contains(text, "auth     requisite  pam_exec.so") {
 		t.Errorf("the auth line is not `requisite`:\n%s", text)
@@ -163,11 +163,11 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 		}
 	}
 	// `seteuid`.  Without it pam_exec runs the helper with the real uid, which
-	// under setuid sudo is the executor's own, and the broker answers the ask_approval
-	// op to root alone: the helper is refused and no approval on the host works.
+	// under setuid sudo is the executor's own, and the broker answers the escalate
+	// op to root alone: the helper is refused and no escalation on the host works.
 	if !strings.Contains(text, "seteuid") {
 		t.Errorf("the helper runs without seteuid, so the broker refuses it and "+
-			"every approval on the host fails:\n%s", text)
+			"every escalation on the host fails:\n%s", text)
 	}
 	if !strings.Contains(text, layout.PamHelper()) {
 		t.Errorf("the service does not exec %s", layout.PamHelper())
@@ -220,7 +220,7 @@ var nnpImplied = []string{
 	"SystemCallFilter",
 }
 
-// The executor's sandbox has to permit what an approval is for.  Two
+// The executor's sandbox has to permit what an escalation is for.  Two
 // halves: the directives that bound root are dropped, and nothing is left that
 // would put NoNewPrivileges= back.
 func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
@@ -248,7 +248,7 @@ func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
 		if value, set := granted[key]; set {
 			t.Errorf("with --allow-sudo the executor unit sets %s=%q, which systemd "+
 				"documents as implying NoNewPrivileges=yes: sudo would be inert and "+
-				"every approval would fail with 'effective uid is not 0'", key, value)
+				"every escalation would fail with 'effective uid is not 0'", key, value)
 		}
 	}
 	// PrivateDevices implies it only when on, and the unit says so explicitly
@@ -263,7 +263,7 @@ func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
 				"root cannot do what it was approved for", gone, value)
 		}
 	}
-	// What bounds the uid below the approval is unchanged.
+	// What bounds the uid below the escalation is unchanged.
 	for _, tc := range []struct{ key, want string }{
 		{"ProtectProc", "invisible"},
 		{"UMask", "0007"},
@@ -332,17 +332,17 @@ func directives(t *testing.T, unit string, layout Layout) map[string]string {
 }
 
 // The broker never runs a prompt, so it needs no hole in its sandbox: an
-// approval arrives over the socket it already serves.  This is the check that
+// escalation arrives over the socket it already serves.  This is the check that
 // the hole stays closed, systemd's ask-password directory being root-only and
 // the reason that channel was not used.
-func TestTheBrokerUnitNeedsNoHoleForApprovals(t *testing.T) {
+func TestTheBrokerUnitNeedsNoHoleForEscalations(t *testing.T) {
 	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
 		body, err := render(units["faramir-broker.service"], layout)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(body), "ask-password") {
-			t.Errorf("the broker unit opens systemd's ask-password directory; approvals "+
+			t.Errorf("the broker unit opens systemd's ask-password directory; escalations "+
 				"come over the broker socket and need nothing there:\n%s", body)
 		}
 	}
@@ -376,12 +376,12 @@ func TestNotifyCommandIsRenderedAndLoadsBack(t *testing.T) {
 	}
 	cfg := loadRendered(t, body)
 	want := []string{"/usr/bin/wall", "{prompt}"}
-	if len(cfg.Approval.NotifyCommand) != len(want) {
-		t.Fatalf("notify_command = %q, want %q", cfg.Approval.NotifyCommand, want)
+	if len(cfg.Escalation.NotifyCommand) != len(want) {
+		t.Fatalf("notify_command = %q, want %q", cfg.Escalation.NotifyCommand, want)
 	}
 	for i := range want {
-		if cfg.Approval.NotifyCommand[i] != want[i] {
-			t.Errorf("notify_command[%d] = %q, want %q", i, cfg.Approval.NotifyCommand[i], want[i])
+		if cfg.Escalation.NotifyCommand[i] != want[i] {
+			t.Errorf("notify_command[%d] = %q, want %q", i, cfg.Escalation.NotifyCommand[i], want[i])
 		}
 	}
 }
@@ -418,9 +418,9 @@ func checkNotifyRoundTrip(t *testing.T, awkward string) {
 		t.Fatal(err)
 	}
 	cfg := loadRendered(t, body)
-	if len(cfg.Approval.NotifyCommand) != 2 || cfg.Approval.NotifyCommand[1] != awkward {
+	if len(cfg.Escalation.NotifyCommand) != 2 || cfg.Escalation.NotifyCommand[1] != awkward {
 		t.Errorf("notify_command = %q, want the second argument back as %q",
-			cfg.Approval.NotifyCommand, awkward)
+			cfg.Escalation.NotifyCommand, awkward)
 	}
 }
 

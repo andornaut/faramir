@@ -468,12 +468,12 @@ type Client struct {
 func NewClient(socketPath string) *Client { return &Client{socketPath: socketPath} }
 
 // Quiescent asks the executor whether anything is running as its uid outside the
-// runs it is confining.  The broker calls this before an approval takes; see
+// runs it is confining.  The broker calls this before an escalation takes; see
 // Executor.quiescence for why the question cannot be answered on the broker's
 // side.
 //
 // Every failure is a no.  An executor that cannot be reached or cannot be
-// understood has not said the host is quiet, and an approval granted on silence
+// understood has not said the host is quiet, and an escalation granted on silence
 // is the thing this check exists to prevent.
 func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
 	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)

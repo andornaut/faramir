@@ -7,7 +7,7 @@ package main
 // The executor daemon runs as the uid every brokered command runs as, and it is
 // not in any run's cgroup: it is the one process of that uid that outlives
 // every run by construction.  It also receives each run's whole environment over
-// its socket, which is FARAMIR_APPROVAL_TOKEN and every injected value, so it is
+// its socket, which is FARAMIR_ESCALATION_TOKEN and every injected value, so it is
 // the single place every run's token can be read from at once.  A brokered
 // command is therefore a same-uid process sitting beside the most interesting
 // process on the host, with nothing between them but the kernel's rules about

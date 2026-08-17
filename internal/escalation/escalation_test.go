@@ -1,4 +1,4 @@
-package approval
+package escalation
 
 import (
 	"errors"
@@ -10,10 +10,10 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// baseConfig is an enabled approval with nothing announcing a question: the
+// baseConfig is an enabled escalation with nothing announcing a question: the
 // tests answer through the same channel `faramir approve` does.
-func baseConfig() config.ApprovalConfig {
-	return config.ApprovalConfig{
+func baseConfig() config.EscalationConfig {
+	return config.EscalationConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
@@ -21,11 +21,11 @@ func baseConfig() config.ApprovalConfig {
 	}
 }
 
-func started(t *testing.T, cfg config.ApprovalConfig) *Server {
+func started(t *testing.T, cfg config.EscalationConfig) *Server {
 	t.Helper()
 	s := New(cfg)
 	// A quiet host, which is what these tests are about the other half of.  It has
-	// to be said rather than left nil: nil refuses every approval, so that a
+	// to be said rather than left nil: nil refuses every escalation, so that a
 	// Server built without a way to ask the kernel grants no root.  The tests that
 	// are about the check itself set their own.
 	s.Quiescent = func() (bool, string) { return true, "the test says so" }
@@ -39,12 +39,12 @@ func run() Run {
 
 // mustRegister is Register for the tests that expect the host to be quiet: it
 // asserts the run was not held, which the serialization only does while another
-// command holds an approval.  The tests that exercise the hold call
+// command holds an escalation.  The tests that exercise the hold call
 // Register directly.
 func mustRegister(s *Server, r Run) string {
 	token, heldBy := s.Register(r)
 	if heldBy != "" {
-		panic("a run was held with no approval live")
+		panic("a run was held with no escalation live")
 	}
 	return token
 }
@@ -135,7 +135,7 @@ func TestNoExecUserMeansNothingToAsk(t *testing.T) {
 		t.Errorf("Env = %v, want empty", env)
 	}
 	if approved, _, _ := s.Ask("anything"); approved {
-		t.Error("an approval was approved on a host that grants none")
+		t.Error("an escalation was approved on a host that grants none")
 	}
 }
 
@@ -155,7 +155,7 @@ func TestAnApprovedRequestIsAllowed(t *testing.T) {
 	if !approved {
 		t.Fatalf("Ask = false (%s), want approved", reason)
 	}
-	// The whole argument for this feature is in the question: an approval that
+	// The whole argument for this feature is in the question: an escalation that
 	// names no command is one nobody can judge.
 	for _, want := range []string{"ansible-playbook msmtp.yml", "root"} {
 		if !strings.Contains(h.prompts(), want) {
@@ -188,7 +188,7 @@ func TestARefusedRequestIsDenied(t *testing.T) {
 }
 
 // A request the broker cannot attribute to a running command is refused without
-// asking anybody: the question would name nothing, and an approval that names
+// asking anybody: the question would name nothing, and an escalation that names
 // nothing is worth nothing.  This is what a `sudo` typed by hand as the
 // executor's account looks like.
 func TestAnUnknownTokenIsRefusedWithoutAsking(t *testing.T) {
@@ -228,7 +228,7 @@ func TestOneApprovalCoversTheRestOfTheCommand(t *testing.T) {
 	}
 }
 
-// The approval is scoped to the command, not to a stretch of time: the next
+// The escalation is scoped to the command, not to a stretch of time: the next
 // brokered command is asked about on its own, however soon it starts.  This is
 // what a password could not do, one being carriable from the approved run to
 // this one, and what nothing here can be, there being nothing to carry.
@@ -270,12 +270,12 @@ func waitForQuestion(t *testing.T, s *Server) string {
 	return ""
 }
 
-// The serialization, one half: while a run holds an approval and has
+// The serialization, one half: while a run holds an escalation and has
 // not ended, no other brokered command may start.  They share the executor's
 // uid, so a second could read the approved run's token from /proc and spend it
 // on the root it was never shown for.  Held, and admitted again once the run
 // ends.
-func TestAnApprovalHoldsEveryOtherCommand(t *testing.T) {
+func TestAnEscalationHoldsEveryOtherCommand(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, run())
 
@@ -285,7 +285,7 @@ func TestAnApprovalHoldsEveryOtherCommand(t *testing.T) {
 		t.Fatalf("the first run was the only one, so it should approve: %v", err)
 	}
 	if _, heldBy := s.Register(Run{Argv: []string{"curl", "evil"}, Cwd: "/tmp"}); heldBy == "" {
-		t.Error("a new command was admitted while an approval was live: it " +
+		t.Error("a new command was admitted while an escalation was live: it " +
 			"could read the approved run's token and ride it")
 	}
 	s.Release(first, Outcome{})
@@ -295,11 +295,11 @@ func TestAnApprovalHoldsEveryOtherCommand(t *testing.T) {
 }
 
 // The two halves must be decided against the same instant.  Register admits a
-// run while no approval is live; Answer approves while no other run is
+// run while no escalation is live; Answer approves while no other run is
 // registered.  A gap between Answer's sole-occupancy check and its marking the
-// run approved is a window a second run starts in and then rides the approval,
+// run approved is a window a second run starts in and then rides the escalation,
 // so many concurrent rounds assert the two never both happen.
-func TestAnApprovalAndASecondRunNeverCoexist(t *testing.T) {
+func TestAnEscalationAndASecondRunNeverCoexist(t *testing.T) {
 	for range 400 {
 		s := New(baseConfig())
 		first := mustRegister(s, run())
@@ -319,19 +319,19 @@ func TestAnApprovalAndASecondRunNeverCoexist(t *testing.T) {
 
 		if approveErr == nil && secondHeldBy == "" {
 			t.Fatalf("the first run was approved while a second was admitted: the " +
-				"second shares the executor uid and can ride the approval")
+				"second shares the executor uid and can ride the escalation")
 		}
 		s.Stop()
 	}
 }
 
 // The other half: a run is not approved while any other brokered command is
-// registered, because that other command could ride the approval.  The yes is
+// registered, because that other command could ride the escalation.  The yes is
 // turned into a no there and then rather than the question being held open --
 // holding it open would make the operator poll the one interval in which the
 // host has to be quiet, and leave a yes standing against a condition that can
 // change under it.
-func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
+func TestAnEscalationIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, run())
 
@@ -344,7 +344,7 @@ func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 	// The other run arrives after the question, which pend refuses to file
 	// alongside one and Register refuses to admit beside one, so this is the
 	// backstop rather than the path a host takes: the check has to hold whatever
-	// admitted the second run, being the one that stands between a live approval
+	// admitted the second run, being the one that stands between a live escalation
 	// and a command that could ride it.
 	other := "0f0f0f0f0f0f0f0f"
 	s.mu.Lock()
@@ -368,7 +368,7 @@ func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 		t.Fatal("the sudo was approved while another brokered command was running")
 	}
 	if len(s.Questions()) != 0 {
-		t.Error("the refused-for-quiet approval left its question open rather than " +
+		t.Error("the refused-for-quiet escalation left its question open rather than " +
 			"answering it no")
 	}
 	// And the next question, from a run started after the host drained, takes.
@@ -382,8 +382,8 @@ func TestAnApprovalIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 	}
 }
 
-// An approval dies with the command it was given for.
-func TestAnApprovalDoesNotOutliveItsCommand(t *testing.T) {
+// An escalation dies with the command it was given for.
+func TestAnEscalationDoesNotOutliveItsCommand(t *testing.T) {
 	s := started(t, baseConfig())
 	watching(t, s, true)
 
@@ -411,7 +411,7 @@ func TestARefusalIsNotCarried(t *testing.T) {
 	}
 	if h.questions() != 2 {
 		t.Errorf("two requests after a refusal put %d questions, want one each: a "+
-			"no must not stand in for an approval", h.questions())
+			"no must not stand in for an escalation", h.questions())
 	}
 }
 
@@ -423,7 +423,7 @@ func TestAnUnansweredQuestionExpires(t *testing.T) {
 
 	approved, _, reason := s.Ask(mustRegister(s, run()))
 	if approved {
-		t.Error("a question nobody answered approved an approval")
+		t.Error("a question nobody answered approved an escalation")
 	}
 	if !strings.Contains(reason, "nobody answered") {
 		t.Errorf("reason = %q, want the timeout named", reason)
@@ -485,8 +485,8 @@ func TestEveryRequestIsRecorded(t *testing.T) {
 	if approved, _ := record["approved"].(bool); approved {
 		t.Error("a refusal was recorded as approved")
 	}
-	if record["op"] != "ask_approval" {
-		t.Errorf("op = %v, want ask_approval", record["op"])
+	if record["op"] != "escalate" {
+		t.Errorf("op = %v, want escalate", record["op"])
 	}
 	if record["exec_log_id"] != "log-1" {
 		t.Errorf("exec_log_id = %v, want the command's own record", record["exec_log_id"])
@@ -697,7 +697,7 @@ func TestPollBlocksUntilSomethingIsAsked(t *testing.T) {
 }
 
 // And the refusal is this one rather than a wait: the sudo comes back rather
-// than blocking for [approval] timeout_sec on a question nobody can grant.
+// than blocking for [escalation] timeout_sec on a question nobody can grant.
 func TestTheEarlyRefusalDoesNotBlock(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
@@ -728,7 +728,7 @@ func TestTheQuestionIsPutOnceTheOtherCommandEnds(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// What became of the run (`faramir approvals --watch` reports the ending)
+// What became of the run (`faramir escalations --watch` reports the ending)
 // --------------------------------------------------------------------------
 
 // approved is a run taken all the way to a yes, and the token it is held by.
@@ -931,7 +931,7 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 	})
 
 	t.Run("a host that grants nothing", func(t *testing.T) {
-		s := started(t, config.ApprovalConfig{})
+		s := started(t, config.EscalationConfig{})
 		if _, code, _ := s.Ask("whatever"); code != CodeNoGrant {
 			t.Errorf("code = %q, want %q", code, CodeNoGrant)
 		}
@@ -1014,7 +1014,7 @@ func TestAnApprovedRunKeepsNoRefusal(t *testing.T) {
 // A run asks once per sudo, so a no it was given is not the last word: the first
 // can expire while nobody is watching and the operator can approve the second.
 // The refusal has to go with the yes, or a command that became root and exited
-// cleanly is reported as one whose approval expired.
+// cleanly is reported as one whose escalation expired.
 func TestAYesClearsTheNoBeforeIt(t *testing.T) {
 	cfg := baseConfig()
 	cfg.TimeoutSec = 1
