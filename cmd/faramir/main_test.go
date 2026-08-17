@@ -264,13 +264,33 @@ func TestOnlyYesApproves(t *testing.T) {
 	}
 }
 
-// Nothing is edited into a yes it did not spell: a line needing an unprintable
-// byte removed from the middle of it to read as "yes" was not somebody typing
-// yes.
+// Only the edges are stripped, so nothing is edited into a yes it did not spell:
+// a line needing an unprintable byte removed from the middle of it to read as
+// "yes" was not somebody typing yes.
 func TestAnInteriorUnprintableIsNotEditedIntoAYes(t *testing.T) {
 	for _, line := range []string{"y\x00es", "y\res", "ye\x1bs"} {
 		if approves(line) {
 			t.Errorf("%q approved an approval", line)
+		}
+	}
+}
+
+// What holds nothing printable is not an answer, and must not be counted as a
+// no: an unanswered question is left to expire, which the broker refuses on the
+// way out, rather than being spent by a stray newline.
+//
+// A punctuation mark is an answer, and so a refusal.  Only alphanumerics
+// counting would leave "?" in neither bucket, and an operator who types it is
+// owed the question closing rather than the terminal going quiet at them.
+func TestABlankLineIsNotAnAnswer(t *testing.T) {
+	for _, line := range []string{"", "\n", "   \n", "\t\r\n", "\x1b\n"} {
+		if answerOf(line) != "" {
+			t.Errorf("%q was read as an answer", line)
+		}
+	}
+	for _, line := range []string{"no\n", "yes\n", "?\n"} {
+		if answerOf(line) == "" {
+			t.Errorf("%q was not read as an answer", line)
 		}
 	}
 }
@@ -281,14 +301,13 @@ func TestAnInteriorUnprintableIsNotEditedIntoAYes(t *testing.T) {
 func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 	original := answers
 	t.Cleanup(func() { answers = original })
-	answers = bufio.NewReader(strings.NewReader("yes please\nyes\n\n"))
+	answers = bufio.NewReader(strings.NewReader("yes please\n\nyes\n"))
 	for _, want := range []struct {
 		approve bool
 		ok      bool
 	}{
 		{false, true}, // "yes please" is not yes, and is still an answer
-		{true, true},  // the next line is read, not eaten by the one before
-		{false, true}, // a bare newline is a no
+		{true, true},  // the blank line is asked again, and the yes after it read
 	} {
 		line, ok := readAnswer()
 		if approves(line) != want.approve || ok != want.ok {
@@ -428,5 +447,20 @@ func TestReadAnswerReturnsWhatItRead(t *testing.T) {
 	}
 	if approves(line) {
 		t.Error("a terminal's own reply approved an approval")
+	}
+}
+
+// A re-ask does not throw away what was typed against the prompt it is
+// re-asking.  The flush is for input that predates the question; after the first
+// prompt there is none, and flushing again eats the answer to a blank line typed
+// ahead of it.
+func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
+	original := answers
+	t.Cleanup(func() { answers = original })
+	// One burst: a stray newline, then the answer behind it.
+	answers = bufio.NewReader(strings.NewReader("\nyes\n"))
+	line, ok := readAnswer()
+	if !ok || !approves(line) {
+		t.Errorf("readAnswer = (%q, %v), want the yes behind the blank line", line, ok)
 	}
 }
