@@ -38,8 +38,8 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     # Capped well under the six-hour default: nothing here runs longer than
-    # six minutes, so a job still going at thirty has hung rather than failed.
-    timeout-minutes: 30
+    # six minutes, so a job still going at fifteen has hung rather than failed.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout code
@@ -135,7 +135,7 @@ jobs:
   lint:
     name: Lint
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v7.0.1
@@ -195,10 +195,9 @@ jobs:
   lab:
     name: Lab
     runs-on: ubuntu-latest
-    # A cap, not an extension: the default is six hours and this job runs in
-    # about five minutes. A suite that hangs rather than fails is reported
-    # within the half hour instead of holding a runner for the rest of the day.
-    timeout-minutes: 30
+    # Capped well under the six-hour default: nothing here runs longer than
+    # six minutes, so a job still going at fifteen has hung rather than failed.
+    timeout-minutes: 15
     steps:
       - name: Checkout code
         uses: actions/checkout@v7.0.1
