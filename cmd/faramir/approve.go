@@ -362,17 +362,18 @@ func watchApprovals(socketPath string) int {
 // there would read as a clean exit, which is the one thing this line must not
 // get wrong: it is the only report the operator who gave root away receives.
 func printOutcome(outcome approval.Outcome) {
+	id := outcome.LogID
 	switch {
 	case outcome.Error != "":
-		fmt.Printf("  %s failed: %s\n", outcome.LogID, outcome.Error)
+		fmt.Printf("  %s failed: %s\n", id, outcome.Error)
 	case outcome.ExitCode == nil:
-		fmt.Printf("  %s ended, no exit status\n", outcome.LogID)
+		fmt.Printf("  %s ended, no exit status\n", id)
 	case outcome.TimedOut:
 		fmt.Printf("  %s exited %d after %.1fs, timed out\n",
-			outcome.LogID, *outcome.ExitCode, outcome.DurationSec)
+			id, *outcome.ExitCode, outcome.DurationSec)
 	default:
 		fmt.Printf("  %s exited %d after %.1fs\n",
-			outcome.LogID, *outcome.ExitCode, outcome.DurationSec)
+			id, *outcome.ExitCode, outcome.DurationSec)
 	}
 }
 

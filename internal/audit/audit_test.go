@@ -767,3 +767,63 @@ func TestTheStubBoundsTheIdentityItKeeps(t *testing.T) {
 		t.Errorf("the stub does not say it was reduced: %+v", record)
 	}
 }
+
+// Every record says when it happened in a field, so nothing has to take the
+// instant out of the log_id, which no longer carries one.
+func TestEveryRecordCarriesWhenItHappened(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "audit.log")
+	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 64 * 1024})
+
+	// A record with no time of its own: an approval, a redact, an edit.
+	log.Write(map[string]any{"log_id": NewLogID(), "op": "ask_approval"}, Output{})
+	// And one that has one: an exec's started_at is its child's, which is not
+	// when this line was written, so it is left alone and no at is added.
+	log.Write(map[string]any{
+		"log_id": NewLogID(), "op": "exec", "started_at": 1786000000,
+	}, Output{})
+
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(body)), "\n")
+	records := make([]map[string]any, 0, len(lines))
+	for _, line := range lines {
+		var record map[string]any
+		if err := json.Unmarshal([]byte(line), &record); err != nil {
+			t.Fatalf("a record does not parse: %v", err)
+		}
+		records = append(records, record)
+	}
+	if len(records) != 2 {
+		t.Fatalf("%d records, want 2", len(records))
+	}
+
+	at, ok := records[0]["at"].(float64)
+	if !ok || at <= 0 {
+		t.Errorf("a record with no started_at carries no at: %v", records[0])
+	}
+	if _, has := records[1]["at"]; has {
+		t.Errorf("an exec's record was given an at beside its started_at: %v", records[1])
+	}
+	if records[1]["started_at"] != float64(1786000000) {
+		t.Errorf("started_at = %v, want the one the caller passed", records[1]["started_at"])
+	}
+}
+
+// And the id spends nothing on the instant: it is the clock, the nonce and the
+// counter, in what a person can type off one terminal into another.
+func TestALogIDIsShortAndCarriesNoTimestamp(t *testing.T) {
+	id := NewLogID()
+	if len(id) != idClockChars+6+4 {
+		t.Errorf("log_id %q is %d characters, want %d", id, len(id), idClockChars+10)
+	}
+	if strings.ContainsAny(id, "-:TZ") {
+		t.Errorf("log_id %q carries a timestamp's punctuation", id)
+	}
+	for _, r := range id {
+		if !strings.ContainsRune(idAlphabet, r) {
+			t.Errorf("log_id %q holds %q, which is outside the alphabet", id, r)
+		}
+	}
+}

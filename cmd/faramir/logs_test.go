@@ -907,3 +907,42 @@ func TestFindRecordStopsAtTheEnding(t *testing.T) {
 		t.Errorf("skipped = %d, want 0: the damage is past the record asked for", skipped)
 	}
 }
+
+// The time comes from the record, in whichever field it carries: started_at is
+// an exec's child, at is everything else, and the log_id is only for a record an
+// older broker wrote.
+func TestTheTimeComesFromTheRecord(t *testing.T) {
+	if got := startedAt(map[string]any{"started_at": 1786000000.0, "at": 1786009999.0}); got.Unix() != 1786000000 {
+		t.Errorf("started_at = %v, want the child's own start to win", got.Unix())
+	}
+	if got := startedAt(map[string]any{"at": 1786009999.0}); got.Unix() != 1786009999 {
+		t.Errorf("at = %v, want the record's own stamp", got.Unix())
+	}
+	if got := startedAt(map[string]any{"log_id": "w5vq7dbf000001"}); !got.IsZero() {
+		t.Errorf("an id that carries no time produced %v", got)
+	}
+	// A record an older broker wrote still renders, its time being in the id.
+	if got := startedAt(map[string]any{"log_id": "2026-08-08T20:15:03Z-a91f000001"}); got.IsZero() {
+		t.Error("a record written before the time was a field lost its time")
+	}
+}
+
+// An id resolves whichever broker wrote it: the short one whole, and the older
+// long one by either its whole self or the tail printed in the listing.
+func TestBothIDFormsResolve(t *testing.T) {
+	path := writeLog(t,
+		`{"log_id":"2026-08-08T20:15:03Z-a91f000001","op":"exec","at":1786000000}`,
+		`{"log_id":"w5vq7dbf000002","op":"exec","at":1786000001}`,
+	)
+	for _, want := range []string{
+		"2026-08-08T20:15:03Z-a91f000001", "a91f000001", "w5vq7dbf000002",
+	} {
+		record, _, err := findRecord(path, want)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if record == nil {
+			t.Errorf("%q resolved to no record", want)
+		}
+	}
+}

@@ -19,6 +19,9 @@ PROJECT=/home/op/project
 . "$(dirname "$0")/lib.sh" || { echo "lab: lib.sh is missing beside $0" >&2; exit 2; }
 
 run()  { runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -C "$PROJECT" "$@" 2>&1; }
+# A listing row begins with the log_id: fourteen base36 characters for one this
+# broker mints, ten hex for the tail of one an older broker wrote.  Both are
+# matched, the live log spanning an upgrade until it rotates.
 logs() { /usr/local/bin/faramir logs --color never "$@" 2>&1; }
 
 # configFor writes a config naming a log of this suite's own making, and prints
@@ -195,7 +198,7 @@ else
 fi
 
 # The point of both: no row that did not run is left looking like one that ran.
-blank=$(logs -n 40 | grep -E '^[0-9a-f]{10} ' | awk '{ if ($3 == "exec" && $4 ~ /^\//) print }' | wc -l)
+blank=$(logs -n 40 | grep -E '^[0-9a-z]{10,14} ' | awk '{ if ($3 == "exec" && $4 ~ /^\//) print }' | wc -l)
 [ "$blank" -eq 0 ] && ok "no exec row is left with an empty outcome column" \
   || bad "$blank exec rows render as neither run nor refused"
 
@@ -214,7 +217,7 @@ last=$(logs -n 3 | grep -v '^[0-9]\{4\}-' | tail -1 | awk '{print $1}')
 head_ "4. -n asks for a count, and gets exactly that"
 
 total=$(wc -l <"$LOG")
-rows() { logs -n "$1" | grep -cE '^[0-9a-f]{10} '; }
+rows() { logs -n "$1" | grep -cE '^[0-9a-z]{10,14} '; }
 
 # That the count itself is honoured is a table in cmd/faramir's own tests.  What
 # only a real log shows is the flag reaching it, and a count past the end coming
@@ -224,10 +227,10 @@ rows() { logs -n "$1" | grep -cE '^[0-9a-f]{10} '; }
   || bad "-n $((total+10)) printed $(rows $((total+10)))"
 
 out=$(logs -n 0); code=$?
-[ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-f]{10} ' <<<"$out")" -eq 0 ] \
+[ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-z]{10,14} ' <<<"$out")" -eq 0 ] \
   && ok "-n 0 asks for nothing and gets nothing, exit 0" || bad "-n 0: exit $code [$out]"
 out=$(logs -n -5); code=$?
-[ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-f]{10} ' <<<"$out")" -eq 0 ] \
+[ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-z]{10,14} ' <<<"$out")" -eq 0 ] \
   && ok "-n -5 likewise, rather than 'no limit'" || bad "-n -5: exit $code [$out]"
 
 # Asking for none and having none are different answers.  The log here is full
@@ -275,7 +278,7 @@ with open(sys.argv[1], "w") as fh:
             "output": "record-%d\n" % i}) + "\n")
 PY
 BIGCFG=$(configFor "$BIG" big)
-bigrows() { logsAt "$BIGCFG" -n "$1" | grep -cE '^[0-9a-f]{10} '; }
+bigrows() { logsAt "$BIGCFG" -n "$1" | grep -cE '^[0-9a-z]{10,14} '; }
 
 # 1024 is where the ring stops being sized to the count and starts growing.
 for n in 1 1023 1024 1025 1030; do
@@ -285,7 +288,7 @@ done
 [ "$(bigrows 2000)" -eq 1030 ] && ok "-n 2000 prints the 1030 there are" || bad "-n 2000 printed $(bigrows 2000)"
 
 # The last N are the last N, not the first N.
-tailrow=$(logsAt "$BIGCFG" -n 1 | grep -E '^[0-9a-f]{10} ')
+tailrow=$(logsAt "$BIGCFG" -n 1 | grep -E '^[0-9a-z]{10,14} ')
 grep -q 'record-1030' <<<"$tailrow" && ok "and -n 1 is the newest record, not the oldest" \
   || bad "-n 1 gave [$tailrow]"
 
@@ -440,7 +443,7 @@ printf '%s' "$out" | grep -qP '\x1b' && bad "an ESC reached the terminal" || ok 
 grep -q 'real' <<<"$out" && ok "while the text itself is still readable" || bad "the output was dropped: [$out]"
 
 # Every printed line of a record's output stays inside the record's block.
-starts=$(logs "$idCtl" | grep -cE '^[0-9a-f]{10} ')
+starts=$(logs "$idCtl" | grep -cE '^[0-9a-z]{10,14} ')
 [ "$starts" -eq 1 ] && ok "one record prints one header line" || bad "$starts header lines for one record"
 
 # --------------------------------------------------------------------------
@@ -491,7 +494,7 @@ bytes=$(tail -1 "$LOG" | wc -c)
   || bad "the record does not admit the truncation"
 logs "$idBig" | tail -1 | grep -q 'truncated at' && ok "the reader prints the marker where the text stops" \
   || bad "no truncation marker in the detail view"
-[ "$(logs -n 1 | grep -cE '^[0-9a-f]{10} ')" -eq 1 ] && ok "and the listing still renders it as one row" \
+[ "$(logs -n 1 | grep -cE '^[0-9a-z]{10,14} ')" -eq 1 ] && ok "and the listing still renders it as one row" \
   || bad "the big record broke the listing"
 
 # The case the cap is counted in encoded bytes for: '<' costs six as JSON, so a
@@ -676,7 +679,7 @@ grep -q after-rotation "$OUT" && ok "and the new file is picked up with no resta
 
 kill "$watcher" 2>/dev/null
 wait "$watcher" 2>/dev/null
-rows=$(grep -cE '^[0-9a-f]{10} ' "$OUT")
+rows=$(grep -cE '^[0-9a-z]{10,14} ' "$OUT")
 [ "$rows" -eq 4 ] && ok "four records written, four rows printed, none twice" \
   || bad "$rows rows for four records: [$(cat "$OUT")]"
 [ "$(grep -cE '^[0-9]{4}-[0-9]{2}-[0-9]{2} ' "$OUT")" -eq 1 ] \

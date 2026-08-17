@@ -96,7 +96,7 @@ Code | Means
   "output": "…redacted, ANSI-stripped, stdout+stderr merged…",
   "truncated": false,
   "redactions": [{ "token": "«SECRET:home/router/admin»", "count": 3 }],
-  "log_id": "2026-08-05T14:22:01Z-a91f00002c",
+  "log_id": "w5vq7dbf00002c",
   "timed_out": false,
   "duration_sec": 12.4,
   "invalid_bytes": 0

@@ -29,9 +29,10 @@
 //     ever left open.  This matters because the next record appends onto an open
 //     line: without it one failed write costs two records, and the second of them
 //     is one that succeeded.
-//  3. Every log_id is distinct.  It carries the writer's own nonce and a counter
-//     that only advances, so two records repeat an id only if one process issued
-//     16 million of them inside a second.
+//  3. Every log_id is distinct.  It carries the second it was minted in, the
+//     writer's own nonce and a counter that only advances, so two records repeat
+//     an id only if one process issued 16 million of them inside a second,
+//     having drawn the same nonce as whatever else was writing.
 //
 // None of the three depends on how much a command wrote, how many ran at once,
 // or how full the disk is.
@@ -96,14 +97,38 @@ func processNonce() uint16 {
 	return binary.BigEndian.Uint16(b[:])
 }
 
-// NewLogID is a timestamp, this writer's nonce, and a counter that only
-// advances.  Distinct by construction rather than by hoping two random bytes do
-// not meet: at four concurrent commands a host reaches a thousand records a
-// second, and sixteen bits of randomness collide at that rate within minutes.
+// idAlphabet is base36, digits then lowercase letters.  An id is read off one
+// terminal and typed into another, so it spends its characters on what a
+// keyboard makes easy.
+const idAlphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
+
+// idClockChars is what the clock half of an id costs, and so how long it is
+// before one repeats: 36^4 seconds is 19.4 days.  Bounded by what has to be
+// distinct rather than by what a person might read, which is why it is four
+// characters and not a timestamp: `faramir logs` reads only the live log, and
+// logrotate turns that over weekly.
+const idClockChars = 4
+
+// idClockCycle is 36^idClockChars.
+const idClockCycle = 36 * 36 * 36 * 36
+
+// NewLogID is the clock, this writer's nonce, and a counter that only advances.
+// Distinct by construction rather than by hoping random bytes do not meet: two
+// ids collide only when a process mints them in the same second, having drawn
+// the same nonce as another, more than 16 million apart in its own counter.
+//
+// It carries no readable time.  Every record says when it happened in a field
+// of its own (started_at, or the at Write stamps), so an id spends nothing on
+// what a reader has already been told.
 func NewLogID() string {
 	seq := logIDs.Add(1)
-	return fmt.Sprintf("%s-%04x%06x",
-		time.Now().UTC().Format("2006-01-02T15:04:05Z"), logSeed, seq&0xffffff)
+	clock := make([]byte, idClockChars)
+	secs := uint64(time.Now().UTC().Unix()) % idClockCycle
+	for i := idClockChars - 1; i >= 0; i-- {
+		clock[i] = idAlphabet[secs%36]
+		secs /= 36
+	}
+	return fmt.Sprintf("%s%04x%06x", clock, logSeed, seq&0xffffff)
 }
 
 // Output is a command's recorded output and how much of it was left out.  The
@@ -233,8 +258,18 @@ func (l *Log) Unwritable() string {
 
 // Write records one invocation together with its redacted output.
 func (l *Log) Write(record map[string]any, output Output) {
-	payload := make(map[string]any, len(record)+2)
+	payload := make(map[string]any, len(record)+3)
 	maps.Copy(payload, record)
+
+	// When, in a field, so no reader has to take it from the id.  Only where the
+	// record does not already say: an exec carries started_at, which is when its
+	// child ran rather than when this line was written, and the two differ by the
+	// whole length of the command.  Named apart for that reason: a redact stream
+	// or an approval is recorded once it is over, and calling that a start would
+	// be untrue.
+	if _, ok := payload["started_at"]; !ok {
+		payload["at"] = time.Now().UTC().Unix()
+	}
 
 	// Sized against what the rest of the record actually costs, rather than
 	// against the constant Collector had to guess with while the run was still

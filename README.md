@@ -8,7 +8,7 @@ A secrets broker for local AI coding agents: it runs the commands that need cred
 ```console
 $ faramir run --env ROUTER_PW=secret://home/router/admin -- printenv ROUTER_PW
 «SECRET:home/router/admin»
-faramir run: redacted «SECRET:home/router/admin»×1; log_id=2026-08-05T14:22:01Z-a91f00002c
+faramir run: redacted «SECRET:home/router/admin»×1; log_id=w5vq7dbf00002c
 ```
 
 ## Supported agents
@@ -93,7 +93,8 @@ Every field of a record is chosen by the account the log exists to hold to accou
 
 - One record is one line within `[audit] max_record_bytes`, counted in encoded bytes: `<`, `>`, `&` and every control character cost six apiece as JSON.
 - An append is exclusive and all-or-nothing. A write that lands short is taken back, so a torn line cannot swallow the record after it.
-- Every `log_id` is distinct. An exec writes two records under one: `exec_started` when the child runs and `exec` when it ends.
+- Every `log_id` is distinct: the second it was minted in, the writer's nonce, and a counter that only advances. Fourteen characters, and it carries no readable time, every record saying when it happened in a field of its own.
+- An exec writes two records under one `log_id`: `exec_started` when the child runs and `exec` when it ends.
 
 A command that cannot be recorded does not run: the broker checks the log can be written before starting anything, and refuses with `no_audit` otherwise. The file itself is logrotate's to bound.
 

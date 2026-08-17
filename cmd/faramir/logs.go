@@ -639,9 +639,10 @@ func emptyReason(path string, count int) string {
 	return path + " holds no records to show"
 }
 
-// shortIDWidth is the hex tail of a log_id: the writer's nonce and its counter,
-// which is what audit.NewLogID puts after the timestamp.
-const shortIDWidth = 10
+// shortIDWidth fits the longest id the column holds, plus the separating space:
+// fourteen for one audit.NewLogID mints, ten for the tail of one an older broker
+// wrote.  Sized past the longest rather than to it, for the reason opWidth is.
+const shortIDWidth = 15
 
 // opWidth is the longest op the broker writes, `ask_approval` and `exec_started`
 // at twelve, plus the separating space.  Sized past the longest rather than to
@@ -952,15 +953,20 @@ func joinCmd(record map[string]any) string {
 // beside them is UTC.
 const dateLayout = "2006-01-02 MST"
 
-// startedAt is when the command ran: started_at where there is one, otherwise
-// the log_id, which carries the same instant.  A redact record has no
-// started_at.
+// startedAt is when the record's subject happened: started_at where the record
+// has one, which is an exec's child rather than the moment the line was
+// written, and otherwise the at every other record carries.
 func startedAt(record map[string]any) time.Time {
-	if seconds, ok := num(record, "started_at"); ok {
-		return time.Unix(int64(seconds), 0)
+	for _, field := range []string{"started_at", "at"} {
+		if seconds, ok := num(record, field); ok {
+			return time.Unix(int64(seconds), 0)
+		}
 	}
-	id := str(record, "log_id")
-	if stamp, _, found := strings.Cut(id, "Z-"); found {
+	// CLEANUP (added 2026-08-17): a record an older broker wrote carries neither
+	// field and keeps its time in the log_id.  Removable once no live log holds
+	// one, which is one logrotate turn after this ships; `faramir logs` reads no
+	// rotated file, so nothing older than that is reachable anyway.
+	if stamp, _, found := strings.Cut(str(record, "log_id"), "Z-"); found {
 		if at, err := time.Parse("2006-01-02T15:04:05", stamp); err == nil {
 			// Local on purpose: the log_id is UTC and the listing is read against
 			// what somebody remembers doing on this host, which is its own clock.
@@ -980,15 +986,19 @@ func clockTime(record map[string]any) string {
 	return at.Format("15:04:05")
 }
 
-// shortID is the hex tail of a log_id, the rest being the timestamp already in
-// the row.
-func shortID(record map[string]any) string {
-	id := str(record, "log_id")
+// shortLogID is the tail of a log_id an older broker wrote, which spent its
+// first twenty characters on a timestamp.  An id has carried no timestamp since
+// (see audit.NewLogID), so this returns one of those unchanged.  matchesID takes
+// either form, so what is on screen pastes back whichever wrote it.
+func shortLogID(id string) string {
 	if _, tail, found := strings.Cut(id, "Z-"); found {
 		return tail
 	}
 	return id
 }
+
+// shortID is shortLogID for a record.
+func shortID(record map[string]any) string { return shortLogID(str(record, "log_id")) }
 
 // matchesID accepts the whole log_id or the short tail, so what is on screen
 // can be pasted back.

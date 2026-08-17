@@ -151,7 +151,7 @@ sudo faramir approvals --watch
      cmd      ansible-playbook msmtp.yml
      host     controller
      cwd      /srv/ansible-ctrl
-     log_id   2026-08-10T12:04:11Z-3b7e000119
+     log_id   w5vq7dbf000119
      expires  118s, after which it is refused
      waiting  2s
      approve? [yes/no]
@@ -165,13 +165,13 @@ sudo faramir approvals --watch
 7. A yes is not the last you hear of it. `--watch` prints how the run ended when it does:
 
    ```text
-     2026-08-10T12:04:11Z-3b7e000119 started
-     2026-08-10T12:04:11Z-3b7e000119 exited 0 after 12.4s
+     w5vq7dbf000119 started
+     w5vq7dbf000119 exited 0 after 12.4s
    ```
 
    Every line names its run, the ending arriving after the terminal has moved on. `exited 2 after 3.1s, timed out` when `[exec] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
 
-   A refusal prints `<log_id> refused` and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question, and the terminal has to be back on the poll for it. Its `exec` record lands when it ends like any other command's.
+   A refusal prints `<log_id> refused` with the line it read, quoted, and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question, and the terminal has to be back on the poll for it. Its `exec` record lands when it ends like any other command's.
 
 There is no password anywhere: what satisfies `sudo` is a decision, so nothing is minted, stored, injected or typed, and nothing a command approved once can keep and pass to a later one. The answer must come from root, checked with `SO_PEERCRED`.
 
