@@ -645,7 +645,7 @@ func printQuestion(question approval.Question) {
 	// pending or a listing of one that has sat a while.
 	waited := ""
 	if question.WaitingSec > 0 {
-		waited = fmt.Sprintf(" (%ds waited)", question.WaitingSec)
+		waited = fmt.Sprintf(" (waited %ds)", question.WaitingSec)
 	}
 	fmt.Printf("  expires  %ds, after which it is refused%s\n",
 		question.ExpiresInSec, waited)
