@@ -24,7 +24,7 @@ func pipeWriting(t *testing.T, body string) net.Conn {
 	return reader
 }
 
-// [server] max_request_bytes bounds what an unauthenticated read allocates.
+// the request cap bounds what an unauthenticated read allocates.
 // ErrTooLarge rather than a short line: the broker answers with too_large,
 // where a truncated line would parse as a malformed request.
 func TestReadLineRefusesALineOverTheLimit(t *testing.T) {

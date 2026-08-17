@@ -18,7 +18,7 @@ import (
 const secret = "hunter2-correct-horse-battery"
 
 type harness struct {
-	execCfg     config.ExecConfig
+	execCfg     config.CommandConfig
 	executorCfg config.ExecutorConfig
 	dir         string
 }
@@ -30,11 +30,8 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 	}
 	dir := t.TempDir()
 	cfg := &config.Config{
-		Exec: config.ExecConfig{
-			DefaultTimeoutSec: 20, MaxTimeoutSec: 30,
-			MaxOutputBytes: maxOutputBytes, TermCols: 120, TermRows: 40,
-			KillGraceSec: 1,
-			BaseEnv:      map[string]string{"PATH": "/usr/bin:/bin"},
+		Command: config.CommandConfig{
+			TimeoutSec: 20, MaxTimeoutSec: 30, Env: map[string]string{"PATH": "/usr/bin:/bin"},
 		},
 		Executor: config.ExecutorConfig{
 			SocketPath: filepath.Join(dir, "exec.sock"),
@@ -53,7 +50,7 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 	}
 	go func() { _ = e.Serve() }()
 	t.Cleanup(func() { _ = e.Close() })
-	return &harness{execCfg: cfg.Exec, executorCfg: cfg.Executor, dir: dir}
+	return &harness{execCfg: cfg.Command, executorCfg: cfg.Executor, dir: dir}
 }
 
 // run executes a shell script and returns the result plus what the audit sink

@@ -9,7 +9,7 @@
 // Cached, and reloaded on start and when a managed file's mtime changes.  The
 // keeper reports those fingerprints too, since the secrets are readable by
 // their group alone, so the poll is a socket round trip rather than a stat, and
-// refresh_interval_sec bounds it.  Nothing reloads on a signal: the file list
+// min_refresh_sec bounds it.  Nothing reloads on a signal: the file list
 // comes from config.toml, which the daemons read once at startup.
 package secretstore
 
@@ -30,7 +30,7 @@ import (
 
 // Store is a concurrency-safe, mtime-refreshed view of every managed secret.
 type Store struct {
-	config config.SecretsConfig
+	config config.SecretConfig
 	keeper config.KeeperConfig
 	Policy redact.EligibilityPolicy
 
@@ -38,7 +38,7 @@ type Store struct {
 	values  map[string]string
 	refused map[string]string
 	state   []keeperclient.FileState
-	// linkState is the same fingerprint for the [[secrets.link]] files.  Kept
+	// linkState is the same fingerprint for the [[secret.link]] files.  Kept
 	// apart from state because the broker stats these itself: they are the
 	// operator's own files, reachable from this uid, so noticing a change costs a
 	// stat rather than a round trip.
@@ -63,7 +63,7 @@ type Store struct {
 	refreshing atomic.Bool
 }
 
-func New(secrets config.SecretsConfig, kc config.KeeperConfig) *Store {
+func New(secrets config.SecretConfig, kc config.KeeperConfig) *Store {
 	return &Store{
 		config: secrets,
 		keeper: kc,
@@ -105,7 +105,7 @@ func (s *Store) Reload() {
 		// value would leave one of them rotating with nothing reading it, and which
 		// won would be an implementation detail of this loop.
 		if _, ok := values[ref]; ok {
-			linkErrors = append(linkErrors, fmt.Sprintf("%s: a [[secrets.link]] entry "+
+			linkErrors = append(linkErrors, fmt.Sprintf("%s: a [[secret.link]] entry "+
 				"claims a ref the managed store already defines; one of the two is "+
 				"then rotated with nothing reading it, so rename the link or remove "+
 				"the managed value", ref))
@@ -163,40 +163,40 @@ func (s *Store) Reload() {
 // than a stat, because the secrets are readable by the keeper's group alone;
 // the keeper serves it without the key or sops, so it costs a connect.
 //
-// refresh_interval_sec may be 0, meaning a check on every request, so one
-// refresh-driven reload runs at a time and the rest return immediately.
+// One refresh-driven reload runs at a time and the rest return immediately, the
+// interval being short enough that requests can arrive inside it.
 func (s *Store) RefreshIfStale() {
-	s.mu.Lock()
-	interval := time.Duration(s.config.RefreshIntervalSec) * time.Second
-	if interval > 0 && time.Since(s.checkedAt) < interval {
-		s.mu.Unlock()
+	// One refresh at a time, whichever half triggers it.  A caller that arrives
+	// while another is working returns rather than queueing behind it.
+	if !s.refreshing.CompareAndSwap(false, true) {
 		return
 	}
-	s.checkedAt = time.Now()
-	retry := s.retry
-	previous := make(map[keeperclient.FileState]bool, len(s.state))
-	for _, st := range s.state {
-		previous[st] = true
-	}
+	defer s.refreshing.Store(false)
+
+	// The links, on every request and not on the interval.  They are the
+	// operator's own files and this uid can stat them, so the cost is a stat per
+	// linked file rather than a round trip; the interval exists to bound the
+	// round trip, and applying it here would leave a credential another tool has
+	// just rotated missing from the redactor for up to min_refresh_sec.  A rotation
+	// is not something the operator schedules, so that window is one nobody
+	// chooses.
+	s.mu.Lock()
+	retrying := s.retry
 	previousLinks := make(map[keeperclient.FileState]bool, len(s.linkState))
 	for _, st := range s.linkState {
 		previousLinks[st] = true
 	}
 	s.mu.Unlock()
 
-	if !s.refreshing.CompareAndSwap(false, true) {
-		return
-	}
-	defer s.refreshing.Store(false)
-
-	if retry {
-		log.Printf("the last load did not reach the keeper; retrying")
-		s.Reload()
+	// Not while a load is outstanding.  A failed load records no link state, so
+	// the comparison below cannot match and would call every request a change:
+	// a full round trip each time, and a log line saying a file changed when
+	// none did.  The interval-gated retry underneath already covers it.
+	if retrying {
+		s.retryUnderTheInterval()
 		return
 	}
 
-	// The links first, being a stat rather than a round trip.  A reload refetches
-	// the managed values anyway, so noticing here saves asking the keeper.
 	currentLinks := make(map[keeperclient.FileState]bool, len(s.config.Links))
 	for _, st := range statLinks(s.config.Links) {
 		currentLinks[st] = true
@@ -206,6 +206,46 @@ func (s *Store) RefreshIfStale() {
 		s.Reload()
 		return
 	}
+
+	s.keeperIfStale()
+}
+
+// retryUnderTheInterval re-loads a set that never loaded, no more often than
+// the interval allows.
+func (s *Store) retryUnderTheInterval() {
+	if !s.intervalElapsed() {
+		return
+	}
+	log.Printf("the last load did not reach the keeper; retrying")
+	s.Reload()
+}
+
+// intervalElapsed reports whether the keeper may be asked again, and records
+// the attempt when it may.
+func (s *Store) intervalElapsed() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	interval := time.Duration(s.config.MinRefreshSec) * time.Second
+	if interval > 0 && time.Since(s.checkedAt) < interval {
+		return false
+	}
+	s.checkedAt = time.Now()
+	return true
+}
+
+// keeperIfStale asks the keeper whether a managed file changed, no more often
+// than the interval allows.  This one is a socket round trip, which is what
+// min_refresh_sec is worth bounding.
+func (s *Store) keeperIfStale() {
+	if !s.intervalElapsed() {
+		return
+	}
+	s.mu.Lock()
+	previous := make(map[keeperclient.FileState]bool, len(s.state))
+	for _, st := range s.state {
+		previous[st] = true
+	}
+	s.mu.Unlock()
 
 	state, _, err := keeperclient.FetchState(s.keeper.SocketPath)
 	if err != nil {
@@ -394,7 +434,7 @@ func (s *Store) Unreadable() string {
 	case len(s.state) > 0, len(s.linkState) > 0:
 		return ""
 	case len(s.config.Patterns) == 0 && len(s.config.Links) == 0:
-		return "no [secrets] patterns and no [[secrets.link]] entries are configured"
+		return "the store is empty and no [[secret.link]] entries are configured"
 	}
 	return "no managed file was found: " + strings.Join(s.unresolvedPatterns, "; ")
 }

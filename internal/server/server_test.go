@@ -20,7 +20,7 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// managedFile is a file for [secrets] patterns to name, so the store reports one
+// managedFile is a file for the managed store to name, so the store reports one
 // as present.  Contents are the keeper double's business, not this file's.
 func managedFile(t *testing.T) string {
 	t.Helper()
@@ -32,7 +32,7 @@ func managedFile(t *testing.T) string {
 }
 
 // secretFiles is set here because the store copies the secrets config at
-// construction, so a later assignment to s.Config.Secrets reads nothing.
+// construction, so a later assignment to s.Config.Secret reads nothing.
 // newServer is a healthy install: one managed file, present and read, which is
 // what the exec and redact gate asks for.  A test that wants the store
 // unconfigured calls newUnconfiguredServer.
@@ -44,7 +44,7 @@ func newServer(t *testing.T, values map[string]string, secretFiles ...string) *S
 	return serverWith(t, keepertest.New(t, values, secretFiles...), secretFiles...)
 }
 
-// newUnconfiguredServer names no [secrets] patterns, which is a broker that cannot
+// newUnconfiguredServer names no the managed store, which is a broker that cannot
 // promise redaction and refuses exec and redact.
 func newUnconfiguredServer(t *testing.T, values map[string]string) *Server {
 	t.Helper()
@@ -59,19 +59,17 @@ func serverWith(t *testing.T, k *keepertest.Keeper, secretFiles ...string) *Serv
 	cfg := &config.Config{
 		Path: "<test>",
 		Server: config.ServerConfig{
-			SocketPath:     filepath.Join(dir, "broker.sock"),
-			MaxConcurrency: 2, MaxRequestBytes: 262144,
-		},
+			SocketPath: filepath.Join(dir, "broker.sock")},
 		Keeper: config.KeeperConfig{SocketPath: k.Path},
-		Exec: config.ExecConfig{
-			DefaultTimeoutSec: 30, MaxTimeoutSec: 60,
-			BaseEnv: map[string]string{"PATH": "/usr/bin:/bin"},
+		Command: config.CommandConfig{
+			TimeoutSec: 30, MaxTimeoutSec: 60, Concurrency: 10,
+			Env: map[string]string{"PATH": "/usr/bin:/bin"},
 		},
-		Secrets: config.SecretsConfig{
-			Patterns:           secretFiles,
-			RefreshIntervalSec: 0, MinLength: 8,
+		Secret: config.SecretConfig{
+			Patterns:      secretFiles,
+			MinRefreshSec: 0, MinLength: 8,
 		},
-		Audit: config.AuditConfig{LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: 1 << 20},
+		Audit: config.AuditConfig{LogPath: filepath.Join(dir, "audit.log")},
 	}
 	s := New(cfg)
 	s.Store.Reload()
@@ -97,7 +95,7 @@ func output(t *testing.T, r protocol.Response) string {
 // whoever is reading the failure.
 func TestARequestOverTheLimitIsRefusedAsTooLarge(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
-	s.Config.Server.MaxRequestBytes = 64
+	config.MaxRequestBytes = 64
 	if _, err := s.Listen(); err != nil {
 		t.Fatal(err)
 	}

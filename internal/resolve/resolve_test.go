@@ -13,8 +13,8 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-func cfgWithPath(path string) config.ExecConfig {
-	return config.ExecConfig{BaseEnv: map[string]string{"PATH": path}}
+func cfgWithPath(path string) config.CommandConfig {
+	return config.CommandConfig{Env: map[string]string{"PATH": path}}
 }
 
 // fixture holds an executable script, a plain file and a symlink to the script:
@@ -42,7 +42,7 @@ func TestProgram(t *testing.T) {
 		name  string
 		arg   string
 		cwd   string
-		cfg   config.ExecConfig
+		cfg   config.CommandConfig
 		want  string   // the resolved path; "" means the call must fail
 		wants []string // substrings the failure has to carry
 		why   string
@@ -53,10 +53,10 @@ func TestProgram(t *testing.T) {
 		{name: "the broker's own PATH is not consulted",
 			arg: "sh", cwd: "/", cfg: cfgWithPath("/nonexistent"),
 			wants: []string{"not found on the broker's PATH"},
-			why:   "the process PATH almost certainly has /bin; base_env does not"},
+			why:   "the process PATH almost certainly has /bin; env does not"},
 		{name: "the error says where to put a venv",
 			arg: "ansible-playbook", cwd: "/", cfg: cfgWithPath("/nonexistent"),
-			wants: []string{"base_env", "venv"},
+			wants: []string{"env", "venv"},
 			why:   "the one failure an operator will hit, so it has to be self-correcting"},
 
 		// -- PATH components that are not absolute ---------------------------

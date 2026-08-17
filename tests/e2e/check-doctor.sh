@@ -279,7 +279,7 @@ probe "the broker socket closed to the client group" "broker socket" failed \
 # --------------------------------------------------------------------------
 head_ "5. a value the redactor refused"
 #
-# Under [secrets] min_length a value is loaded but never injected and never
+# Under [secret] min_length a value is loaded but never injected and never
 # redacted, so a command that prints it prints it in plaintext.  The broker
 # reports this and keeps serving.
 
@@ -310,7 +310,7 @@ fi
 
 # The consequence an operator meets: init cannot finish on this host.  It is the
 # same --check, run as validate, and init rewrites config.toml from its template
-# on the way past, so [secrets] min_length cannot be relaxed to get through it.
+# on the way past, so [secret] min_length cannot be relaxed to get through it.
 out=$(/usr/local/bin/faramir init --agent-user "$OP" 2>&1); code=$?
 if [ $code -eq 0 ]; then
   ok "init completes on a host holding a value shorter than min_length"

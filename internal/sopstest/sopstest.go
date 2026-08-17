@@ -83,7 +83,7 @@ func SopsBinary(t *testing.T) string {
 	return stubPath
 }
 
-// DecryptCommand is the [secrets] decrypt_command for a test, pointed at
+// DecryptCommand is the [secret] decrypt_command for a test, pointed at
 // whichever sops binary SopsBinary found or built.
 func DecryptCommand(t *testing.T) []string {
 	t.Helper()

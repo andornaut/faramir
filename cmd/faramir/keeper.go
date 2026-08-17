@@ -59,7 +59,7 @@ func runKeeper(f keeperFlags) int {
 	k := keeper.New(cfg)
 
 	if f.check {
-		values, errs := keeper.DecryptAll(cfg.Secrets, k.Keys)
+		values, errs := keeper.DecryptAll(cfg.Secret, k.Keys)
 		if errs == nil {
 			errs = []string{}
 		}

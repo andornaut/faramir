@@ -240,7 +240,7 @@ func Covers(sopsPath, configPath string, recipients []string, target string) (bo
 // said anything about creation rules -- which reads here as a question that
 // could not be put, on exactly the files a rule is least likely to cover.
 //
-// [secrets] patterns is the operator's, so the set is what sops supports rather
+// the managed store is the operator's, so the set is what sops supports rather
 // than what an install writes.  Anything unrecognised is YAML, which is what
 // sops itself falls back to.
 func probeBody(target string) []byte {

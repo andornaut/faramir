@@ -306,14 +306,15 @@ elif took > 20:
     bad("it said timed out but took %.0fs, so the limit did not stop it" % took)
 else:
     ok("a command over timeout_sec is stopped after %.0fs and says so" % took)
-# Output past [exec] max_output_bytes is truncated, and says it was.
+# Output past the output cap is truncated, and says it was.
 out, _ = s.text("faramir_run", {"cmd": ["/bin/sh", "-c", "yes abcdefgh | head -c 2000000"]})
 (ok("output past max_output_bytes is truncated and labelled") if "truncated" in out
  else bad("2MB of output was not reported truncated (%d chars back)" % len(out)))
 # A large but legal output survives the round trip as one JSON line.
-out, _ = s.text("faramir_run", {"cmd": ["/bin/sh", "-c", "yes abcdefgh | head -c 400000"]})
-(ok("400KB of output comes back intact (%d chars)" % len(out))
- if len(out) > 390000 else bad("large output truncated early: %d" % len(out)))
+# Under internal/config MaxOutputBytes (256 KiB), so this one is not truncated.
+out, _ = s.text("faramir_run", {"cmd": ["/bin/sh", "-c", "yes abcdefgh | head -c 200000"]})
+(ok("200KB of output comes back intact (%d chars)" % len(out))
+ if len(out) > 190000 else bad("large output truncated early: %d" % len(out)))
 s.close()
 
 head("10. the broker not being there")

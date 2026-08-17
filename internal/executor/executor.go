@@ -54,7 +54,7 @@ type Request struct {
 // Run executes a request through the executor, returning redacted merged
 // output.  auditSink receives the same text before the response's truncation,
 // so the log can hold more of a long run without holding anything else.
-func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
+func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	redactor *redact.Redactor, auditSink func(string), req Request) (*Result, error) {
 
 	argv, cwd, env, timeoutSec := req.Argv, req.Cwd, req.Env, req.TimeoutSec
@@ -67,11 +67,11 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	// process group, and EIO only says the slave was closed, which a child does
 	// on the way out.  Closing early replaces its exit code with 128+SIGHUP.
 	defer func() { _ = master.Close() }()
-	ptyutil.SetWinsize(master.Fd(), execCfg.TermRows, execCfg.TermCols)
+	ptyutil.SetWinsize(master.Fd(), config.TermRows, config.TermCols)
 	started := time.Now()
 
 	client := execserver.NewClient(executorCfg.SocketPath)
-	startErr := client.Start(argv, cwd, env, timeoutSec, execCfg.KillGraceSec, slave.Fd())
+	startErr := client.Start(argv, cwd, env, timeoutSec, config.KillGraceSec, slave.Fd())
 	// The executor holds its own copy; ours must go or the master never reaches
 	// EOF.
 	_ = slave.Close()
@@ -85,7 +85,7 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 	aborted := false
 	// The executor owns the run's cgroup and enforces the timeout; this is the
 	// backstop for it not coming back at all.
-	deadline := started.Add(time.Duration(timeoutSec+execCfg.KillGraceSec+backstopMarginSec) * time.Second)
+	deadline := started.Add(time.Duration(timeoutSec+config.KillGraceSec+backstopMarginSec) * time.Second)
 
 	// Every path producing output goes through here, so the log and the
 	// response cannot drift apart.
@@ -96,7 +96,7 @@ func Run(execCfg config.ExecConfig, executorCfg config.ExecutorConfig,
 		if auditSink != nil {
 			auditSink(safe)
 		}
-		emitted, truncated = appendOutput(&chunks, safe, emitted, execCfg.MaxOutputBytes, truncated)
+		emitted, truncated = appendOutput(&chunks, safe, emitted, config.MaxOutputBytes, truncated)
 	}
 
 	// carry holds a trailing partial UTF-8 sequence, so a rune split across two

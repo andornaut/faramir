@@ -18,7 +18,7 @@ import (
 // does.  Nothing to place: there is no credential in this design.
 func allowSudo(t *testing.T, s *Server) {
 	t.Helper()
-	s.Config.Sudo = config.SudoConfig{
+	s.Config.Approval = config.ApprovalConfig{
 		ExecUser:   "faramir-exec",
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
@@ -48,13 +48,13 @@ func TestExecInjectsTheToken(t *testing.T) {
 	if env[approval.TokenEnv] == "" {
 		t.Errorf("%s is unset, so a question could name no command", approval.TokenEnv)
 	}
-	// base_env and the token, and nothing else at all.  Asserted as a count
+	// env and the token, and nothing else at all.  Asserted as a count
 	// rather than against a list of names, so a credential added under a name
 	// nobody thought to look for fails here too: an askpass helper, a socket to
 	// answer on, a password.  A child that finds one of those has something it
 	// can keep, and this design gives it nothing.
-	if want := len(s.Config.Exec.BaseEnv) + 1; len(env) != want {
-		t.Errorf("environment = %v, want base_env plus %s alone", env, approval.TokenEnv)
+	if want := len(s.Config.Command.Env) + 1; len(env) != want {
+		t.Errorf("environment = %v, want env plus %s alone", env, approval.TokenEnv)
 	}
 }
 

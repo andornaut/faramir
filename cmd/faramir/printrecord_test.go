@@ -52,7 +52,7 @@ func TestPrintRecordRendersEveryField(t *testing.T) {
 	for _, want := range []string{
 		// The id leads the summary line rather than being a field of its own.
 		"w5vq7dbf000007",
-		"reduced    fields were cut to fit [audit] max_record_bytes",
+		"reduced    fields were cut to fit the record cap",
 		"caller     root (uid 0), pid 4242",
 		"cwd        /srv/project",
 		"program    /usr/bin/ansible-playbook",
@@ -63,7 +63,7 @@ func TestPrintRecordRendersEveryField(t *testing.T) {
 		"output",
 		"    ok: [host.example.com]",
 		"    changed=0",
-		"[truncated at [audit] max_record_bytes]",
+		"[truncated at the record cap]",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the detail view does not carry %q:\n%s", want, got)

@@ -630,7 +630,7 @@ const (
 	// execGrace is what a brokered command's own timeout is padded by: the broker
 	// kills at the timeout and still has to write the record and the response.
 	execGrace = 30 * time.Second
-	// execCeiling stands in for [exec] max_timeout_sec, which is the server's and
+	// execCeiling stands in for [command] max_timeout_sec, which is the server's and
 	// cannot be read from here.  Only reached when no -t was given, where the
 	// server's own default decides and this is merely the outer bound.
 	execCeiling = 3600 * time.Second

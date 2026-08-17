@@ -19,6 +19,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
@@ -153,6 +154,45 @@ type initFlags struct {
 	dryRun        bool
 	asJSON        bool
 	recipients    []string
+
+	// The tunables.  Each flag's default is the real one, so --help says what a
+	// host gets; clearUnset then blanks the ones nobody typed, because a value
+	// left out has to mean "keep what the install has" rather than "put the
+	// compiled-in value back".
+	commandEnv           []string
+	commandTimeoutSec    int
+	commandMaxTimeoutSec int
+	commandConcurrency   int
+	approvalTimeoutSec   int
+	secretMinLength      int
+	secretMinRefreshSec  int
+}
+
+// tunables maps each flag to where it lands, for clearUnset.  One table, so a
+// flag added to the struct and not here is a flag that silently reverts the
+// install every run.
+func (f *initFlags) tunables() map[string]func() {
+	return map[string]func(){
+		"command-timeout-sec":     func() { f.commandTimeoutSec = 0 },
+		"command-max-timeout-sec": func() { f.commandMaxTimeoutSec = 0 },
+		"command-concurrency":     func() { f.commandConcurrency = 0 },
+		"approval-timeout-sec":    func() { f.approvalTimeoutSec = 0 },
+		"secret-min-length":       func() { f.secretMinLength = 0 },
+		"secret-min-refresh-sec":  func() { f.secretMinRefreshSec = 0 },
+	}
+}
+
+// clearUnset blanks every tunable the operator did not name, so that a value
+// left out means "keep what the install has" rather than "put the compiled-in
+// default back".  Zero is the unset signal, which is why no tunable takes zero
+// as a legal value: one that did could not be told from an omitted flag once
+// cobra has stopped knowing which were typed.
+func clearUnset(c *cobra.Command, f *initFlags) {
+	for name, clear := range f.tunables() {
+		if !c.Flags().Changed(name) {
+			clear()
+		}
+	}
 }
 
 func newInitCmd() *cobra.Command {
@@ -162,7 +202,10 @@ func newInitCmd() *cobra.Command {
 		Short:   "install or re-install faramir on this host",
 		GroupID: groupProvisioning,
 		Args:    noArgs,
-		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInit(f)) },
+		RunE: func(c *cobra.Command, args []string) error {
+			clearUnset(c, &f)
+			return codeErr(runInit(f))
+		},
 	}
 	fl := c.Flags()
 	fl.StringVar(&f.agentUser, "agent-user", "",
@@ -184,7 +227,7 @@ func newInitCmd() *cobra.Command {
 		"account brokered commands run as (default: what the install uses, then "+
 			install.DefaultExecUser+")")
 	fl.StringVar(&f.configDir, "config-dir", "",
-		"where config.toml, config.d/, the age key and the managed sops files are "+
+		"where config.toml, the age key and the managed sops files are "+
 			"installed (default: ask the broker, then read its unit, then "+install.DefaultConfigDir+")")
 	fl.StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	fl.StringVar(&f.sshKey, "ssh-key", "",
@@ -227,12 +270,56 @@ func newInitCmd() *cobra.Command {
 			"Refused without this")
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
+	// The tunables.  Named for what they bound rather than for the section they
+	// land in, and sorted together in help by that name.
+	command, secret := config.DefaultCommand(), config.DefaultSecret()
+	fl.StringArrayVar(&f.commandEnv, "command-env", nil,
+		"NAME=VALUE in a brokered command's environment; repeatable, and it adds to the built-in table rather than replacing it")
+	fl.IntVar(&f.commandTimeoutSec, "command-timeout-sec", command.TimeoutSec,
+		"how long a command runs when the request names no timeout")
+	fl.IntVar(&f.commandMaxTimeoutSec, "command-max-timeout-sec", command.MaxTimeoutSec,
+		"the most a caller may ask for, and the idle bound on a redact stream")
+	fl.IntVar(&f.commandConcurrency, "command-concurrency", command.Concurrency,
+		"how many brokered commands run at once; the rest are refused busy")
+	fl.IntVar(&f.approvalTimeoutSec, "approval-timeout-sec", config.DefaultApprovalTimeoutSec,
+		"how long a sudo question waits for a human before it is refused (1 to 600)")
+	fl.IntVar(&f.secretMinLength, "secret-min-length", secret.MinLength,
+		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
+	fl.IntVar(&f.secretMinRefreshSec, "secret-min-refresh-sec", secret.MinRefreshSec,
+		"the soonest the broker will ask the keeper again whether a managed file changed, at least 1; nothing polls in the background, and linked files are checked every request regardless")
 	fl.StringArrayVar(&f.recipients, "age-recipient", nil,
 		"an age PUBLIC key that may also decrypt the secrets directory, added to .sops.yaml beside the keeper's own so a backup of the ciphertext opens without the keeper's key; repeatable, and only read at the install that creates the file")
 	return c
 }
 
+// namedValues turns repeated NAME=VALUE flags into the table they describe.  A
+// value may hold "=" (a PATH does not, but a JSON blob might), so only the
+// first one separates.
+func namedValues(pairs []string) (map[string]string, error) {
+	// Empty rather than nil for no pairs: the caller merges this over the
+	// built-in table either way, and a nil map is not an answer worth a special
+	// case.
+	out := make(map[string]string, len(pairs))
+	for _, pair := range pairs {
+		name, value, found := strings.Cut(pair, "=")
+		if !found {
+			// Refused rather than skipped: `--command-env FOO` reads as setting
+			// something, and accepting it silently would leave the operator with a
+			// child that does not have it and no reason given.
+			return nil, fmt.Errorf("--command-env %q names no value; write it as NAME=VALUE", pair)
+		}
+		out[name] = value
+	}
+	return out, nil
+}
+
 func runInit(f initFlags) int {
+
+	env, err := namedValues(f.commandEnv)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
+		return 2
+	}
 
 	opts := install.Options{
 		AgentUser:     operatorName(f.agentUser),
@@ -248,8 +335,16 @@ func runInit(f initFlags) int {
 		Agents:        f.initAgents,
 		AllowSudo:     f.allowSudo,
 		NotifyCommand: f.notifyCommand,
-		MoveConfig:    f.moveConfig,
-		DryRun:        f.dryRun,
+
+		CommandEnv:           env,
+		CommandTimeoutSec:    f.commandTimeoutSec,
+		CommandMaxTimeoutSec: f.commandMaxTimeoutSec,
+		CommandConcurrency:   f.commandConcurrency,
+		ApprovalTimeoutSec:   f.approvalTimeoutSec,
+		SecretMinLength:      f.secretMinLength,
+		SecretMinRefreshSec:  f.secretMinRefreshSec,
+		MoveConfig:           f.moveConfig,
+		DryRun:               f.dryRun,
 	}
 	// Progress goes to stderr so --json owns stdout, and is suppressed under
 	// --json entirely.

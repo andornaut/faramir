@@ -15,10 +15,10 @@ var (
 	dryFS  = fsys{dryRun: true}
 )
 
-// The directories these walk (config.d/ and the secrets directory) can sit
-// inside the operator's own home under --config-dir, and the operator is the uid
-// the agent runs as.  A path-based chmod there would take root's mode change to
-// whatever the link points at.
+// The directories these walk (the config directory and the secrets directory)
+// can sit inside the operator's own home under --config-dir, and the operator is
+// the uid the agent runs as.  A path-based chmod there would take root's mode
+// change to whatever the link points at.
 func TestEnsureOwnershipRefusesASymlink(t *testing.T) {
 	dir := t.TempDir()
 	target := filepath.Join(dir, "target")
@@ -186,7 +186,7 @@ func TestEnsureDirRefusesASymlinkItWouldAssertOn(t *testing.T) {
 	if err := os.Mkdir(target, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(base, "config.d")
+	link := filepath.Join(base, "secrets")
 	if err := os.Symlink(target, link); err != nil {
 		t.Fatal(err)
 	}

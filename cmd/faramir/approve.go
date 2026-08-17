@@ -371,7 +371,7 @@ func watchApprovals(socketPath string) int {
 // exit and the child sits inside sudo for the whole approval, so a run answered
 // after a trip to the kitchen reads as a slow command without it.
 //
-// Said rather than subtracted: [exec] max_timeout_sec is enforced against the
+// Said rather than subtracted: [command] max_timeout_sec is enforced against the
 // same clock the duration measures, and a duration that no longer matched it
 // would be a second, quieter number.
 func waitedIn(outcome approval.Outcome) string {

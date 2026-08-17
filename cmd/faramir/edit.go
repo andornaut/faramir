@@ -83,12 +83,12 @@ func runEdit(f editFlags, args []string) int {
 		return 1
 	}
 
-	// Expanded here, since [secrets] patterns holds globs and this process is root
+	// Expanded here, since the managed store holds globs and this process is root
 	// where the broker cannot read the secrets directory.  So a sops
 	// file dropped into the secrets directory is editable at once.
 	// Both kinds together: this is a diagnostic printed when the named file is
 	// not among the managed ones, and the operator wants every reason.
-	managed, failures, absent := keeper.Resolve(cfg.Secrets.Patterns)
+	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
 	unresolvable := slices.Concat(failures, absent)
 	target, err := resolveManaged(managed, args[0])
 	if err != nil {
@@ -209,7 +209,7 @@ func exists(path string) bool {
 // errNoManagedFiles is what edit and rekey both report when the secrets
 // directory is empty: neither has anything to open, and the fix is the same for
 // both.
-var errNoManagedFiles = errors.New("no managed sops files: [secrets] patterns named " +
+var errNoManagedFiles = errors.New("no managed sops files: the managed store named " +
 	"none, so there is nothing to open. Create the first one with sops, which " +
 	"needs --config and --filename-override; see docs/ansible-sops.md")
 
@@ -231,7 +231,7 @@ func resolveManaged(managed []string, arg string) (string, error) {
 	case 1:
 		return matches[0], nil
 	case 0:
-		return "", fmt.Errorf("%s is not a managed file; [secrets] patterns names %s",
+		return "", fmt.Errorf("%s is not a managed file; the managed store names %s",
 			arg, strings.Join(managed, ", "))
 	default:
 		return "", fmt.Errorf("%s matches more than one managed file (%s); name the full path",

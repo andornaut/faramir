@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	faramir "github.com/andornaut/faramir"
+	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/sharetree"
 )
 
@@ -31,35 +32,15 @@ var legacyBinaries = []string{
 func (r *runner) stepDirectories() error {
 	changed := false
 
-	// 0755 root:root, including inside an operator's own home: whoever can write a
-	// drop-in chooses what the executor runs when a command names a bare program,
-	// and it runs with the requested secret in its environment. An agent runs as
-	// the operator, so operator-writable hands that choice to the agent. own=true,
-	// so a directory already operator-owned is taken back.
-	dropInDir := filepath.Join(r.layout.ConfigDir, "config.d")
-	for _, dir := range []string{r.layout.ConfigDir, dropInDir} {
-		made, err := r.fs.ensureDir(dir, 0o755, 0, 0, true)
-		if err != nil {
-			return err
-		}
-		changed = changed || made
-	}
-
-	// The drop-ins already there: a root-owned directory stops one being created
-	// or unlinked, not one being written to.
-	dropIns, err := os.ReadDir(dropInDir)
-	if err != nil && !os.IsNotExist(err) {
+	// The config directory itself, root-owned: it holds the file that chooses
+	// what the executor runs when a command names a bare program, and that
+	// command runs with the requested secret in its environment.  An agent runs
+	// as the operator, so operator-writable would hand that choice to the agent.
+	// own=true, so a directory already operator-owned is taken back.
+	if made, err := r.fs.ensureDir(r.layout.ConfigDir, 0o755, 0, 0, true); err != nil {
 		return err
-	}
-	for _, entry := range dropIns {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".toml") {
-			continue
-		}
-		made, err := r.fs.ensureOwnership(filepath.Join(dropInDir, entry.Name()), 0o644, 0, 0)
-		if err != nil {
-			return err
-		}
-		changed = changed || made
+	} else if made {
+		changed = true
 	}
 
 	// The age key sits in the config directory, made above.  What protects it is
@@ -282,6 +263,16 @@ func (r *runner) stepConfig() error {
 	if err != nil {
 		return err
 	}
+	// Held to the loader's own rules before it is written, because writing it is
+	// what makes a bad value unrecoverable: the daemons refuse to start, and the
+	// next `faramir init` refuses to run against a config it cannot parse, so the
+	// command that would fix it is the one that is blocked.  Every flag states
+	// its range, and this is what enforces it -- the ranges live in the loader,
+	// and a second copy here would be a second thing to keep in step.
+	if err := config.Check(body, r.layout.ConfigFile); err != nil {
+		return fmt.Errorf("the config this run would write does not load, so nothing "+
+			"was written: %w", err)
+	}
 	// root:root wherever it sits: this file and the drop-ins beside it decide what
 	// the executor runs.
 	owner, group := 0, 0
@@ -348,7 +339,7 @@ func (r *runner) stepLogrotate() error {
 	// by `faramir doctor`.
 	if _, err := exec.LookPath("logrotate"); err != nil {
 		r.warnf("logrotate is not installed, so %s is inert and %s grows without a "+
-			"ceiling: [audit] max_record_bytes bounds one record, not the file. "+
+			"ceiling: the record cap bounds one record, not the file. "+
 			"Install logrotate, or manage that file some other way",
 			logrotateConfig, r.layout.AuditLogPath())
 	}

@@ -26,6 +26,98 @@ const (
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
+// The values that are no longer keys.  Each stopped being one for a reason of
+// its own; what they share is that no install ever set them, and that naming
+// them here says "this is the shape of the thing" where a default in a struct
+// says "here is a value you may want to change".
+//
+// Variables rather than constants for the same reason the install paths are:
+// a test narrows one to exercise the limit without building a megabyte of
+// output.  Nothing else assigns them, and no config key reaches them.
+var (
+	// MaxOutputBytes bounds what a brokered command returns.  Not a property of
+	// the host: what it limits is how much text reaches the model, which belongs
+	// to the conversation on the other end, and the only use for a larger one is
+	// putting more in front of it.  Truncation is reported, so the cap is
+	// visible when it bites rather than silently eating the tail.
+	//
+	// 256 KiB is roughly 64k tokens.  A megabyte was the earlier value and could
+	// not do this job: it is more than the context window it exists to protect,
+	// so one command could still bury the conversation it was run to inform.  A
+	// cap that cannot bind is not a cap.
+	MaxOutputBytes = 256 << 10
+	// MaxRequestBytes is the largest request the broker socket will read, a
+	// guard against a malformed one rather than a size anybody chooses.
+	MaxRequestBytes = 262144
+	// MaxRecordBytes is the largest one audit record's line may be, counted in
+	// the bytes it spends once encoded.  internal/audit excerpts the output and
+	// cuts every other field to fit, so a long command degrades the record
+	// rather than failing to write one.
+	//
+	// Matched to MaxOutputBytes, which is what fills it.  Encoding expands what
+	// a command wrote -- "<", ">", "&" and every control character cost six
+	// apiece as JSON -- so an output at the cap still excerpts here, which is
+	// the behaviour the reducer is built for and reports.
+	MaxRecordBytes = 256 << 10
+	// TermCols and TermRows are the PTY every child is given.  Cosmetic: they
+	// decide where a program folds its own output, on a stream that is read by a
+	// model rather than by a person.
+	TermCols = 120
+	TermRows = 40
+	// KillGraceSec is the pause between SIGTERM and SIGKILL, a window that only
+	// opens once a command has already overrun its timeout.
+	KillGraceSec = 5
+)
+
+// MinRecordBytes is the smallest record limit internal/audit is built to
+// survive, not a value anybody sets: MaxRecordBytes is fixed well above it.
+// A record has an identity even when everything else has been cut away -- the
+// log_id, the op and the caller -- and the reducer is held to producing one at
+// this size, which is what makes it safe at any larger one.
+const MinRecordBytes = 4096
+
+// DefaultCommand is what a brokered command gets when the file names nothing.
+// The installer renders these values and the loader supplies them, so the file
+// init writes and the file it would load cannot disagree about a default.
+func DefaultCommand() CommandConfig {
+	return CommandConfig{
+		Env: map[string]string{
+			"PATH": defaultPATH, "TERM": "xterm-256color", "LANG": "C.UTF-8",
+			"LC_ALL": "C.UTF-8", "DEBIAN_FRONTEND": "noninteractive",
+		},
+		TimeoutSec: 600, MaxTimeoutSec: 3600, Concurrency: 10,
+	}
+}
+
+// DefaultSecret is DefaultCommand for the store.
+func DefaultSecret() SecretConfig {
+	return SecretConfig{DecryptCommand: DecryptCommand(), MinRefreshSec: 10, MinLength: 8}
+}
+
+// DefaultApprovalTimeoutSec is how long a question waits for a human.
+const DefaultApprovalTimeoutSec = 120
+
+// DecryptCommand is how the keeper invokes sops.  Never a key: a second way to
+// invoke it is a second thing that could be pointed somewhere else, and the
+// account this runs as is the one holding the age key.
+func DecryptCommand() []string {
+	return []string{"sops", "--output-type", "json", "--decrypt", "{file}"}
+}
+
+// SecretPatterns is the managed store, derived from where the config sits
+// rather than configured.  Two things follow from deriving it: the store cannot
+// be pointed at a checkout, which a clone or a branch could move, and the three
+// extensions here are the three the agent deny rules already refuse, so what
+// the broker reads and what the agent cannot open cannot disagree.
+func SecretPatterns(configPath string) []string {
+	dir := filepath.Join(filepath.Dir(configPath), "secrets")
+	return []string{
+		filepath.Join(dir, "*.sops.yml"),
+		filepath.Join(dir, "*.sops.yaml"),
+		filepath.Join(dir, "*.sops.json"),
+	}
+}
+
 // rejectUnknownKeys fails on a mistyped key, naming it and the alternatives.
 func rejectUnknownKeys(raw map[string]any, known []string, where string) error {
 	return rejectUnknown(raw, known, where, "key")
@@ -136,9 +228,9 @@ func integer(value any, where string, fallback int) (int, error) {
 	return int(n), nil
 }
 
-// intInRange is the value check the sizes and counts need: max_concurrency = -1
-// panics on startup, 0 refuses every request as busy, and default_timeout_sec =
-// 0 kills every command as it starts.
+// intInRange is the value check the sizes and counts need: concurrency = -1
+// panics on startup, 0 refuses every request as busy, and timeout_sec = 0 kills
+// every command as it starts.
 func intInRange(sec map[string]any, key, where string, fallback, low, high int) (int, error) {
 	n, err := integer(sec[key], where, fallback)
 	if err != nil {
@@ -169,21 +261,31 @@ const maxInt = int(^uint(0) >> 1)
 // One group, because `faramir init --client-group` names one and a drop-in may
 // not set it.  A list held exactly one value on every install that existed.
 type ServerConfig struct {
-	SocketPath      string
-	MaxConcurrency  int
-	MaxRequestBytes int
-	AllowedGroup    string
+	SocketPath   string
+	AllowedGroup string
 }
 
-type ExecConfig struct {
-	// No working directory here: a brokered command runs where its caller was.
-	DefaultTimeoutSec int
-	MaxTimeoutSec     int
-	MaxOutputBytes    int
-	BaseEnv           map[string]string
-	TermCols          int
-	TermRows          int
-	KillGraceSec      int
+// CommandConfig is what a brokered command is given and what bounds it.  Named
+// for the command rather than for the daemon that forks it: a section called
+// [command] described which of faramir's processes did the work, which is not what
+// an operator is deciding when they set a timeout.
+//
+// No working directory here: a brokered command runs where its caller was.
+type CommandConfig struct {
+	// Env is the child's entire environment; the broker's own is never
+	// inherited.  Setting one name keeps the rest, unlike a table that replaced
+	// the whole of it and so had to name PATH itself or resolve nothing.
+	Env map[string]string
+	// TimeoutSec is what a request that names no timeout of its own gets.
+	TimeoutSec int
+	// MaxTimeoutSec is the ceiling every request is clamped to, and, less
+	// obviously, the idle bound between chunks of a redact stream.
+	MaxTimeoutSec int
+	// Concurrency is how many brokered commands run at once; the rest are
+	// refused busy.  On a host with an approval grant, raising it makes an
+	// approval harder to get: a sudo is refused outright while any other
+	// brokered command is in flight.
+	Concurrency int
 }
 
 // KeeperConfig describes the process that holds the age key: separate uid,
@@ -202,8 +304,8 @@ type KeeperConfig struct {
 // holds no age key, values, audit log or SSH keys; a child forked by the broker
 // would inherit all four.
 //
-// No max_concurrency.  The broker is the only client this socket admits and it
-// holds one [server] max_concurrency slot for the whole of each child, so that
+// No concurrency of its own.  The broker is the only client this socket admits and it
+// holds one [command] concurrency slot for the whole of each child, so that
 // cap binds first and always; the executor keeps a fixed backstop of its own.
 type ExecutorConfig struct {
 	SocketPath  string
@@ -221,12 +323,13 @@ type SshConfig struct {
 	SshAdd      string
 }
 
-// SudoConfig is how a brokered command becomes root on this host: it does not
-// authenticate, it asks.  With no ExecUser nothing is granted and no question
+// ApprovalConfig is how a brokered command becomes root on this host: it does
+// not authenticate, it asks.  Named for the question rather than for sudo,
+// which is only the thing that waits on the answer.  With no ExecUser nothing is granted and no question
 // can be raised, which is the install that never passed --allow-sudo.
 // Everything here but TimeoutSec is init's, each value naming a file or a
 // program that decides whether an approval happens.
-type SudoConfig struct {
+type ApprovalConfig struct {
 	// ExecUser is the account the sudoers entry was written for, and the switch
 	// for the whole arrangement.  The helper checks PAM_USER against it, so a PAM
 	// service reached for some other account authenticates nothing.
@@ -248,18 +351,24 @@ type SudoConfig struct {
 	TimeoutSec int
 }
 
-type SecretsConfig struct {
-	// Patterns is the managed sops files as globs, which is what the entries are:
-	// each is matched against the secrets directory rather than opened by name.
-	// The --check report calls the paths they resolve to "files", so the two words
-	// stay distinct there.
-	Patterns []string
-	// How the keeper invokes sops; "{file}" is each managed path.  Executed rather
-	// than linked, which would pull every key source sops supports into the
-	// process holding the master key.
-	DecryptCommand     []string
-	RefreshIntervalSec int
-	MinLength          int
+type SecretConfig struct {
+	// Patterns and DecryptCommand are derived rather than configured: no key
+	// names either, and they are filled in at load so that everything reading
+	// them reads one value.  See SecretPatterns and DecryptCommand for why
+	// neither is settable.
+	Patterns       []string
+	DecryptCommand []string
+	// MinRefreshSec is how often the broker asks the keeper whether a managed file
+	// changed.  It does not bound the linked files: those are the operator's own
+	// and this uid can stat them, so they are checked on every request and a
+	// credential another tool has just rotated is in the redactor at once.
+	MinRefreshSec int
+	// MinLength is the floor a value has to clear to be held at all.  Below it a
+	// value matches inside ordinary words and the redactor eats the output; above
+	// it a real credential is refused, absent from the redactor, and printed in
+	// the clear if it reaches output by any route.  The second is the direction
+	// that leaks, which is why the floor is low and the default is not.
+	MinLength int
 	// Links is the secrets read from files the operator's own tools maintain,
 	// each named individually rather than matched by a glob.  See Link.
 	Links []Link
@@ -297,35 +406,19 @@ type Link struct {
 // recorded after redaction, so it holds no value.
 type AuditConfig struct {
 	LogPath string
-	// MaxRecordBytes is the largest one record's line may be, counted in the
-	// bytes the line spends once encoded rather than in the bytes a command
-	// wrote: '<', '>', '&' and every C0 control cost six apiece as JSON, so a cap
-	// counted before encoding is a cap the command chooses the meaning of.
-	//
-	// internal/audit holds a record to it whatever it is handed, excerpting the
-	// output to the head and the tail of a run and cutting every other field if
-	// that is not enough, so a reader needs no ceiling of its own.
-	MaxRecordBytes int
 }
-
-// MinRecordBytes floors [AuditConfig.MaxRecordBytes].  A record has an identity
-// even when everything else has been cut away -- the log_id, the op and the
-// caller -- and a cap below that would ask internal/audit to write a line it has
-// no room for.
-const MinRecordBytes = 4096
 
 type Config struct {
 	Path string
-	// Every file that contributed, base first then each drop-in in order. Reported
-	// by status and --check.
+	// Every file that contributed, which is one.  Reported by status and --check.
 	Sources  []string
 	Server   ServerConfig
 	Keeper   KeeperConfig
 	Executor ExecutorConfig
-	Exec     ExecConfig
+	Command  CommandConfig
 	Ssh      SshConfig
-	Sudo     SudoConfig
-	Secrets  SecretsConfig
+	Approval ApprovalConfig
+	Secret   SecretConfig
 	Audit    AuditConfig
 }
 
@@ -336,74 +429,61 @@ func Load(path string) (*Config, error) {
 	if path == "" {
 		path = DefaultConfigPath
 	}
-	base, err := readTOML(path)
+	raw, err := readTOML(path)
 	if err != nil {
 		return nil, err
 	}
-
-	// Drop-ins carry what belongs to whatever consumes the broker (which sops
-	// files to manage, which SSH key to lend), so the two have separate owners.
-	dropIns, err := dropInPaths(filepath.Join(filepath.Dir(path), dropInDirName))
-	if err != nil {
-		return nil, err
-	}
-	sources := append([]string{path}, dropIns...)
-	// The base is merged like any other source rather than merged into, so setBy
-	// records it as the owner of what it set.
-	raw := map[string]any{}
-	setBy := map[string]string{}
-	for i, source := range sources {
-		layer := base
-		if i > 0 {
-			if layer, err = readTOML(source); err != nil {
-				return nil, err
-			}
-		}
-		if err := mergeInto(raw, layer, "", source, i > 0, setBy); err != nil {
-			return nil, err
-		}
-	}
-
-	// After merging, so a drop-in faces the same checks the base file does.
-	cfg, err := fromMap(raw, strings.Join(sources, ", "))
+	cfg, err := fromMap(raw, path)
 	if err != nil {
 		return nil, err
 	}
 	cfg.Path = path
-	cfg.Sources = sources
+	// One file, so one source.  Kept as a list because it is what `status` and
+	// `--check` report, and a reader asking "which files were read" wants the
+	// answer rather than the shape it used to come in.
+	cfg.Sources = []string{path}
 	return cfg, nil
 }
 
-// BaseLinks is the [[secrets.link]] entries in one file, with no drop-in
-// merged over it.
+// Check holds a config to every rule Load applies, from bytes and without
+// touching the filesystem.
 //
-// The base file alone, and that is the whole point of the function.  init
-// renders the links it manages back into config.toml, so if it read the merged
-// view a link written in a drop-in would be copied into the base file and then
-// refused on the next load as two entries claiming one ref.  A link a drop-in
-// declares stays the drop-in's; `faramir link` owns the ones in config.toml.
+// The installer renders this file and then replaces the one the daemons read,
+// so a value they would refuse has to be caught before the write.  Afterwards
+// is too late twice over: the broker cannot start, and `faramir init` refuses
+// to run against a config it cannot parse, so the command that would repair it
+// is the command that is blocked.
+func Check(data []byte, path string) error {
+	var raw map[string]any
+	if err := toml.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	_, err := fromMap(raw, path)
+	return err
+}
+
+// BaseLinks is the links this install declares.  There is one config file, so
+// this is Load's answer without the rest of it: a caller about to rewrite the
+// file needs the entries it already holds and nothing else.
 //
 // A file that is not there yields nothing, which is a first install.
 func BaseLinks(path string) ([]Link, error) {
-	raw, err := readTOML(path)
-	if err != nil {
-		if os.IsNotExist(err) || strings.HasPrefix(err.Error(), "config not found") {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
 			return nil, nil
 		}
 		return nil, err
 	}
-	sec, err := table(raw, "secrets", path)
+	cfg, err := Load(path)
 	if err != nil {
 		return nil, err
 	}
-	return loadLinks(sec["link"], path+": [secrets]")
+	return cfg.Secret.Links, nil
 }
 
 // ValidateLink holds one entry to what the loader would accept, for a command
 // that builds one before anything writes it.
-func ValidateLink(link Link) error { return validateLink(link, "[[secrets.link]]") }
-
-const dropInDirName = "config.d"
+func ValidateLink(link Link) error { return validateLink(link, "[[secret.link]]") }
 
 func readTOML(path string) (map[string]any, error) {
 	data, err := os.ReadFile(path)
@@ -420,288 +500,40 @@ func readTOML(path string) (map[string]any, error) {
 	return raw, nil
 }
 
-// dropInPaths lists *.toml in dir, lexically, so a numeric prefix orders them.
-// A missing directory yields nothing; one that cannot be read is an error,
-// since a drop-in that silently did not apply is a broker managing fewer files
-// than its operator believes.
-func dropInPaths(dir string) ([]string, error) {
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("%s: %w", dir, err)
-	}
-	var paths []string
-	for _, entry := range entries {
-		name := entry.Name()
-		// Skipped, not read: an editor's lock is a dangling .#name.toml symlink, and
-		// refusing it would stop the daemons while a drop-in is open.
-		if entry.IsDir() || strings.HasPrefix(name, ".") || !strings.HasSuffix(name, ".toml") {
-			continue
-		}
-		paths = append(paths, filepath.Join(dir, entry.Name()))
-	}
-	sort.Strings(paths)
-	return paths, nil
-}
-
-// inventoryLists name what the broker is to manage, one entry per owner, so
-// they accumulate across sources.  Everything else is policy and replaces:
-// accumulating decrypt_command would hand the keeper a second way to invoke
-// sops by writing a file that never said so.
-var inventoryLists = map[string]bool{
-	"secrets.patterns": true,
-}
-
 // linkList is the other inventory, and the only array of tables in the file.
 // Handled apart from inventoryLists because TOML decodes an array of tables as
 // []map[string]any rather than []any, so it reaches neither list branch, and
 // because its entries are deduplicated by ref rather than by equality.
-const linkList = "secrets.link"
 
 // noFlagResolved marks a key init works out at install time rather than taking
 // from a flag.  A sentinel rather than prose, so the remedy is matched exactly:
 // a near-miss would fall through to the build-time wording, which is the one
 // answer that sends an operator away from what would have changed the value.
-const noFlagResolved = "\x00resolved-at-install"
-
-// initOwned are the keys init derives from a flag or from the install layout,
-// which a drop-in may not set.  The rule that decides membership: a key init
-// computes is init's, and a key it writes as a plain default is a starting
-// point the operator may change.  Everything not here is the second kind.
-//
-// Distinct from systemdOwned, which is what the .socket units decide.
-//
-// All but sudo.notify_command are scalars, which the policy rule below cannot
-// reach: that one refuses a list two sources set, and a scalar simply replaces.
-// This check runs first either way.  ssh.exec_group is what makes this matter
-// rather than being tidiness, being the group the ssh-agent relay's SO_PEERCRED
-// check admits; a drop-in naming the client group there hands the broker's SSH
-// identity to the account the relay exists to keep it from.
-//
-// The value is the flag that sets each, so the refusal says what to run
-// instead.  Three forms: a flag, noFlagResolved for a value init works out at
-// install time, and empty for one rendered from a path fixed at build time that
-// no flag moves.  TestEveryInitOwnedRemedyIsReachable holds every form to being
-// produced by some key, a form nothing reaches being a refusal that cannot
-// route.
-//
-// The distinction is the whole point of saying anything: an operator told "no
-// flag moves this" about a value init resolves on PATH has been sent away from
-// the one thing that would have changed it.
-var initOwned = map[string]string{
-	// A second identity reaches the same hosts and is one no account has ever
-	// held; a key of your own is adopted rather than replaced.
-	"ssh.key": "--ssh-key PATH",
-	// What each socket admits.
-	"server.allowed_group":  "--client-group NAME",
-	"keeper.allowed_user":   "--broker-user NAME",
-	"executor.allowed_user": "--broker-user NAME",
-	// The exec account's primary group, resolved at install time.
-	"ssh.exec_group": "--exec-user NAME",
-	// The whole of [sudo] but timeout_sec.  Every one of these decides whether
-	// an approval happens rather than being a default to tune: pam_service names
-	// the file sudo authenticates that account against, helper is the program that
-	// file execs as root, notify_command is a program the broker execs as the uid
-	// holding every plaintext value, and exec_user is the account the whole grant
-	// is written for.  Who may *answer* is not here, being no config key at all:
-	// it is root, checked with SO_PEERCRED, and nothing can widen it.
-	"sudo.exec_user":      "--allow-sudo",
-	"sudo.pam_service":    "",
-	"sudo.helper":         "",
-	"sudo.notify_command": "--allow-sudo --notify-command PROGRAM --notify-command ARG",
-	// Where the master key is read from, and the credential the keeper unit
-	// supplies it under, which that unit renders alongside.
-	"keeper.age_key_file":       "--config-dir PATH",
-	"keeper.age_key_credential": "",
-	// The binaries the broker execs as the uid holding every plaintext value. init
-	// resolves them on PATH; a drop-in pointing either elsewhere is code execution
-	// as that uid.
-	//
-	// Resolved rather than fixed, so the remedy is a re-run and not "no flag moves
-	// this": what init finds on PATH is what these become, and an operator who
-	// wants another ssh-agent installs it and runs init again.
-	"ssh.ssh_agent": noFlagResolved,
-	"ssh.ssh_add":   noFlagResolved,
-	// From LogDir and RunDir.  audit.log_path is rendered into logrotate.conf
-	// beside it, and the agent socket into the unit's RuntimeDirectory, so moving
-	// one here leaves the other pointed where it was.
-	"audit.log_path":   "",
-	"ssh.agent_socket": "",
-}
-
-// systemdOwned are the keys the .socket units decide, which a drop-in may not
-// set.
-//
-// The daemons are handed a listening descriptor and never reach the bind path,
-// so these describe a socket rather than choose it, and init renders both sides
-// together.  They are not uniformly inert, though: the broker dials the keeper
-// and the executor at the path named here, so a drop-in setting [keeper]
-// socket_path moves nothing and breaks the broker's own connection, surfacing
-// as "keeper unreachable".
-//
-// Refused in a drop-in rather than everywhere: the base file is init's to write
-// and has to carry them, and a broker run outside systemd binds them itself.
-var systemdOwned = map[string]bool{
-	"server.socket_path":   true,
-	"keeper.socket_path":   true,
-	"executor.socket_path": true,
-}
-
-// mergeInto layers one decoded config over another.  Tables merge key by key
-// and scalars replace.  Lists split by the rule above: an inventory
-// accumulates, and any other list set by two sources is refused, naming both.
-// setBy records which source last set each dotted key, for that error.
-//
-// dropIn is false for the base file alone, which carries the keys init renders
-// and systemd overrides.
-func mergeInto(base, layer map[string]any, prefix, source string, dropIn bool, setBy map[string]string) error {
-	for key, value := range layer {
-		full := key
-		if prefix != "" {
-			full = prefix + "." + key
-		}
-
-		if dropIn && systemdOwned[full] {
-			return fmt.Errorf("%s: %s is set by the .socket unit, not by this file, so "+
-				"setting it here moves nothing. Worse, the broker dials the keeper "+
-				"and the executor at the path named here, so an edit breaks its own "+
-				"connection to a daemon still listening where it was. Change it with "+
-				"`faramir init` and let it rewrite both sides", source, full)
-		}
-
-		if dropIn {
-			if flag, owned := initOwned[full]; owned {
-				remedy := "It is rendered from a path fixed at build time, which no flag moves"
-				switch {
-				case flag == noFlagResolved:
-					remedy = "No flag names it: init resolves it on PATH at install time, so " +
-						"install what you want it to find and re-run `faramir init`"
-				case flag != "":
-					remedy = "Change it with `faramir init " + flag + "`"
-				}
-				return fmt.Errorf("%s: %s is init's, not this file's: it derives from "+
-					"the install rather than being a default to tune, and init rewrites "+
-					"it every run. %s", source, full, remedy)
-			}
-		}
-
-		if sub, ok := value.(map[string]any); ok {
-			// A table always merges into a table, one being created when the base has
-			// none.  Replacing wholesale left every key inside it unmarked in setBy, so
-			// a later drop-in setting a policy list in there looked unset and overwrote
-			// it silently; recursing into an empty map marks them on the way through
-			// instead.
-			existing, ok := base[key].(map[string]any)
-			if !ok {
-				existing = map[string]any{}
-				base[key] = existing
-			}
-			if err := mergeInto(existing, sub, full, source, dropIn, setBy); err != nil {
-				return err
-			}
-			continue
-		}
-
-		if entries, ok := value.([]map[string]any); ok && full == linkList {
-			existing, _ := base[key].([]map[string]any)
-			merged, err := appendLinks(existing, entries, source, setBy)
-			if err != nil {
-				return err
-			}
-			base[key] = merged
-			continue
-		}
-
-		if list, ok := value.([]any); ok {
-			if inventoryLists[full] {
-				existing, _ := base[key].([]any)
-				base[key] = appendNew(existing, list)
-				setBy[full] = source
-				continue
-			}
-			if prior, seen := setBy[full]; seen {
-				return fmt.Errorf("%s: %s is set by both %s and %s. That list is policy "+
-					"rather than an inventory, so it has one owner: name it in one "+
-					"of them and not the other", source, full, prior, source)
-			}
-		}
-
-		base[key] = value
-		setBy[full] = source
-	}
-	return nil
-}
-
-// appendLinks accumulates [[secrets.link]] entries across sources, refusing two
-// that claim one ref.  An inventory like patterns, with one difference: a ref is
-// the name a caller asks by, so two definitions are not a duplicate to collapse
-// but a question of which file wins, and that would come down to filename order.
-func appendLinks(existing, incoming []map[string]any, source string,
-	setBy map[string]string) ([]map[string]any, error) {
-	out := append([]map[string]any{}, existing...)
-	for _, entry := range incoming {
-		// A ref that is absent or not a string is loadLinks' to report, which names
-		// the entry and the reason.  Here it only has to not collide.
-		ref, _ := entry["ref"].(string)
-		if ref != "" {
-			marker := linkList + ":" + ref
-			if prior, seen := setBy[marker]; seen {
-				return nil, fmt.Errorf("%s: two [[secrets.link]] entries claim ref %q, one "+
-					"in %s and one in %s. A ref is the name a caller asks by, so it has "+
-					"one definition: name it in one of them and not the other",
-					source, ref, prior, source)
-			}
-			setBy[marker] = source
-		}
-		out = append(out, entry)
-	}
-	return out, nil
-}
-
-// appendNew adds what is not already there, preserving contribution order.
-func appendNew(existing, incoming []any) []any {
-	seen := make(map[any]bool, len(existing))
-	out := make([]any, 0, len(existing)+len(incoming))
-	for _, v := range existing {
-		seen[v] = true
-		out = append(out, v)
-	}
-	for _, v := range incoming {
-		if seen[v] {
-			continue
-		}
-		seen[v] = true
-		out = append(out, v)
-	}
-	return out
-}
 
 var (
-	sections = []string{"server", "keeper", "executor", "exec", "ssh", "sudo",
-		"secrets", "audit"}
-	serverKeys = []string{"socket_path", "max_concurrency",
-		"max_request_bytes", "allowed_group"}
+	// The daemon sections keep their names: [server], [keeper] and [executor] do
+	// describe faramir's own processes, and nothing in them is a preference.
+	// The rest are named for what an operator is deciding.
+	sections = []string{"server", "keeper", "executor", "command", "ssh",
+		"approval", "secret", "audit"}
+	serverKeys = []string{"socket_path", "allowed_group"}
 	keeperKeys = []string{"socket_path", "allowed_user",
 		"age_key_credential", "age_key_file"}
 	executorKeys = []string{"socket_path", "allowed_user"}
-	execKeys     = []string{"default_timeout_sec", "max_timeout_sec",
-		"max_output_bytes", "base_env", "term_cols", "term_rows", "kill_grace_sec"}
-	sshKeys = []string{"key", "agent_socket", "exec_group",
+	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency"}
+	sshKeys      = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
-	sudoKeys = []string{"exec_user", "pam_service", "helper",
+	approvalKeys = []string{"exec_user", "pam_service", "helper",
 		"notify_command", "timeout_sec"}
-	secretsKeys = []string{"patterns", "decrypt_command", "refresh_interval_sec",
-		"min_length", "link"}
-	linkKeys  = []string{"ref", "path", "type", "key"}
-	auditKeys = []string{"log_path", "max_record_bytes"}
+	secretKeys = []string{"min_length", "min_refresh_sec", "link"}
+	linkKeys   = []string{"ref", "path", "type", "key"}
+	auditKeys  = []string{"log_path"}
 )
 
 func fromMap(raw map[string]any, path string) (*Config, error) {
 	cfg := &Config{Path: path}
 
-	// [secret] for [secrets] leaves a broker managing no files.
+	// [secret] for [secret] leaves a broker managing no files.
 	if err := rejectUnknownSections(raw, sections, path); err != nil {
 		return nil, err
 	}
@@ -715,16 +547,16 @@ func fromMap(raw map[string]any, path string) (*Config, error) {
 	if err := loadExecutor(raw, path, &cfg.Executor); err != nil {
 		return nil, err
 	}
-	if err := loadExec(raw, path, &cfg.Exec); err != nil {
+	if err := loadCommand(raw, path, &cfg.Command); err != nil {
 		return nil, err
 	}
-	if err := loadSecrets(raw, path, &cfg.Secrets); err != nil {
+	if err := loadSecret(raw, path, &cfg.Secret); err != nil {
 		return nil, err
 	}
 	if err := loadSsh(raw, path, &cfg.Ssh); err != nil {
 		return nil, err
 	}
-	if err := loadSudo(raw, path, &cfg.Sudo); err != nil {
+	if err := loadApproval(raw, path, &cfg.Approval); err != nil {
 		return nil, err
 	}
 	if err := loadAudit(raw, path, &cfg.Audit); err != nil {
@@ -743,24 +575,15 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 		return err
 	}
 	*out = ServerConfig{
-		SocketPath:     "/run/faramir/broker.sock",
-		MaxConcurrency: 10, MaxRequestBytes: 262144,
+		SocketPath:   "/run/faramir/broker.sock",
 		AllowedGroup: "dev",
 	}
 	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
 		return err
 	}
-	// 1, not 0: an unbuffered channel refuses every request as busy.
-	if out.MaxConcurrency, err = atLeast(sec, "max_concurrency", where, out.MaxConcurrency, 1); err != nil {
-		return err
-	}
-	if out.MaxRequestBytes, err = atLeast(sec, "max_request_bytes", where, out.MaxRequestBytes, 1); err != nil {
-		return err
-	}
 	if out.AllowedGroup, err = str(sec["allowed_group"], where, out.AllowedGroup); err != nil {
 		return err
 	}
-	// Zero means no limit.
 	return nil
 }
 
@@ -814,63 +637,46 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 	return nil
 }
 
-func loadExec(raw map[string]any, path string, out *ExecConfig) error {
-	where := path + ": [exec]"
-	sec, err := table(raw, "exec", path)
+func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
+	where := path + ": [command]"
+	sec, err := table(raw, "command", path)
 	if err != nil {
 		return err
 	}
-	if err := rejectUnknownKeys(sec, execKeys, where); err != nil {
+	if err := rejectUnknownKeys(sec, commandKeys, where); err != nil {
 		return err
 	}
-	*out = ExecConfig{
-		DefaultTimeoutSec: 600, MaxTimeoutSec: 3600, MaxOutputBytes: 1048576,
-		BaseEnv: map[string]string{
-			"PATH": defaultPATH, "TERM": "xterm-256color", "LANG": "C.UTF-8",
-			"LC_ALL": "C.UTF-8", "DEBIAN_FRONTEND": "noninteractive",
-		},
-		TermCols: 120, TermRows: 40, KillGraceSec: 5,
-	}
+	*out = DefaultCommand()
 	// 0 is not "no limit": it SIGTERMs the child the instant it starts.
-	if out.DefaultTimeoutSec, err = atLeast(sec, "default_timeout_sec", where, out.DefaultTimeoutSec, 1); err != nil {
+	if out.TimeoutSec, err = atLeast(sec, "timeout_sec", where, out.TimeoutSec, 1); err != nil {
 		return err
 	}
 	if out.MaxTimeoutSec, err = atLeast(sec, "max_timeout_sec", where, out.MaxTimeoutSec, 1); err != nil {
 		return err
 	}
-	if out.MaxOutputBytes, err = atLeast(sec, "max_output_bytes", where, out.MaxOutputBytes, 1); err != nil {
+	// 1, not 0: an unbuffered channel refuses every request as busy.
+	if out.Concurrency, err = atLeast(sec, "concurrency", where, out.Concurrency, 1); err != nil {
 		return err
 	}
-	if out.BaseEnv, err = stringMap(sec["base_env"], where, out.BaseEnv); err != nil {
+	// Merged over the built-in table rather than replacing it, so naming one
+	// variable keeps the other four.  What that avoids is a file that sets TERM
+	// and silently leaves the broker resolving no bare program name at all.
+	named, err := stringMap(sec["env"], where, nil)
+	if err != nil {
 		return err
 	}
-	// The winsize ioctl takes uint16s, so more wraps silently.
-	if out.TermCols, err = intInRange(sec, "term_cols", where, out.TermCols, 1, 65535); err != nil {
-		return err
-	}
-	if out.TermRows, err = intInRange(sec, "term_rows", where, out.TermRows, 1, 65535); err != nil {
-		return err
-	}
-	// 0 means SIGKILL immediately after SIGTERM.
-	if out.KillGraceSec, err = atLeast(sec, "kill_grace_sec", where, out.KillGraceSec, 0); err != nil {
-		return err
-	}
+	maps.Copy(out.Env, named)
+
 	// PATH decides which file a bare cmd[0] resolves to, and it is resolved by the
 	// broker on behalf of a child that runs somewhere else.  A component a shell
 	// would read as its working directory is therefore two different directories
 	// here, so it is refused at load rather than skipped at resolve time: the
 	// broker does not start, instead of running a file nobody named.
-	// A base_env in the file replaces the built-in one rather than adding to it,
-	// so a table that omits PATH leaves the broker resolving no bare name at all.
-	// Named separately from the check below, which would report the same empty
-	// string as a component nobody wrote.
-	if out.BaseEnv["PATH"] == "" {
-		return fmt.Errorf("%s: [exec] base_env sets no PATH, so no bare program name "+
-			"resolves. Setting base_env replaces the built-in table rather than adding "+
-			"to it, so it has to name PATH itself; `faramir init` writes it as %q",
-			path, defaultPATH)
+	if out.Env["PATH"] == "" {
+		return fmt.Errorf("%s: [command] env sets PATH to nothing, so no bare program "+
+			"name resolves. Leave it out to keep the built-in %q", path, defaultPATH)
 	}
-	for component := range strings.SplitSeq(out.BaseEnv["PATH"], ":") {
+	for component := range strings.SplitSeq(out.Env["PATH"], ":") {
 		if filepath.IsAbs(component) {
 			continue
 		}
@@ -878,65 +684,57 @@ func loadExec(raw map[string]any, path string, out *ExecConfig) error {
 		if shown == "" {
 			shown = "an empty component"
 		}
-		return fmt.Errorf("%s: [exec] base_env PATH contains %s, which means the "+
+		return fmt.Errorf("%s: [command] env PATH contains %s, which means the "+
 			"working directory. The broker resolves a bare program name from its own "+
 			"directory and the command runs in the request's, so the file checked "+
 			"would not be the file run. Name every directory absolutely", path, shown)
 	}
 	// Every request is clamped to max_timeout_sec, so a smaller one here would
-	// replace default_timeout_sec rather than cap it.
-	if out.MaxTimeoutSec < out.DefaultTimeoutSec {
-		return fmt.Errorf("%s: [exec] max_timeout_sec (%d) is below default_timeout_sec "+
+	// replace timeout_sec rather than cap it.
+	if out.MaxTimeoutSec < out.TimeoutSec {
+		return fmt.Errorf("%s: [command] max_timeout_sec (%d) is below timeout_sec "+
 			"(%d), which would silently override it for every command",
-			path, out.MaxTimeoutSec, out.DefaultTimeoutSec)
+			path, out.MaxTimeoutSec, out.TimeoutSec)
 	}
 	return nil
 }
 
-func loadSecrets(raw map[string]any, path string, out *SecretsConfig) error {
-	where := path + ": [secrets]"
-	sec, err := table(raw, "secrets", path)
+func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
+	where := path + ": [secret]"
+	sec, err := table(raw, "secret", path)
 	if err != nil {
 		return err
 	}
-	if err := rejectUnknownKeys(sec, secretsKeys, where); err != nil {
+	if err := rejectUnknownKeys(sec, secretKeys, where); err != nil {
 		return err
 	}
-	*out = SecretsConfig{
-		DecryptCommand:     []string{"sops", "--output-type", "json", "--decrypt", "{file}"},
-		RefreshIntervalSec: 5, MinLength: 8,
-	}
-	if out.Patterns, err = stringList(sec["patterns"], where, nil); err != nil {
-		return err
-	}
-	// Each entry is a glob pattern; a malformed one matches nothing at every later
-	// stage, reading as a missing store.  Matching the empty string touches no
-	// filesystem and reports only ErrBadPattern.
-	for _, pattern := range out.Patterns {
-		if _, err := filepath.Match(pattern, ""); err != nil {
-			return fmt.Errorf("%s: patterns entry %q is not a valid glob pattern: %w",
-				where, pattern, err)
-		}
-	}
+	*out = DefaultSecret()
+	out.Patterns = SecretPatterns(path)
 	if out.Links, err = loadLinks(sec["link"], where); err != nil {
 		return err
 	}
-	if out.DecryptCommand, err = stringList(sec["decrypt_command"], where, out.DecryptCommand); err != nil {
+	// At least 1.  Zero used to mean "ask on every request", and that second
+	// meaning cost more than it bought: zero is also what an unset flag looks
+	// like, so an operator who typed it got the install's old value back with
+	// nothing said.  A second is indistinguishable from none in practice, and
+	// the linked files are not on this clock at all -- the broker stats those
+	// itself, per request.
+	if out.MinRefreshSec, err = atLeast(sec, "min_refresh_sec", where, out.MinRefreshSec, 1); err != nil {
 		return err
 	}
-	// 0 means check on every request.
-	if out.RefreshIntervalSec, err = atLeast(sec, "refresh_interval_sec", where, out.RefreshIntervalSec, 0); err != nil {
-		return err
-	}
-	// 1, not 0: a zero-length value would compile to a matcher for the empty
-	// string and rewrite unrelated output.
-	if out.MinLength, err = atLeast(sec, "min_length", where, out.MinLength, 1); err != nil {
+	// Six, not one.  A shorter value is a matcher for something that occurs in
+	// ordinary text, and at one character it rewrites every occurrence of that
+	// character in every command's output.  The floor is low rather than high
+	// because the two failures are not symmetric: a value refused here is absent
+	// from the redactor and reaches output in the clear, while one matched too
+	// eagerly only mangles the operator's own text.
+	if out.MinLength, err = atLeast(sec, "min_length", where, out.MinLength, 6); err != nil {
 		return err
 	}
 	return nil
 }
 
-// loadLinks validates every [[secrets.link]] entry.  Checked at load rather than
+// loadLinks validates every [[secret.link]] entry.  Checked at load rather than
 // where the file is read, so a typo stops the daemon with its own name on it
 // instead of surfacing later as a value the redactor turns out not to have.
 func loadLinks(value any, where string) ([]Link, error) {
@@ -945,12 +743,13 @@ func loadLinks(value any, where string) ([]Link, error) {
 	}
 	entries, ok := value.([]map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("%s: expected [[secrets.link]] tables, got %T "+
-			"(write each entry as its own [[secrets.link]] header)", where, value)
+		return nil, fmt.Errorf("%s: expected [[secret.link]] tables, got %T "+
+			"(write each entry as its own [[secret.link]] header)", where, value)
 	}
 	out := make([]Link, 0, len(entries))
+	seen := map[string]bool{}
 	for i, entry := range entries {
-		at := fmt.Sprintf("%s: [[secrets.link]] #%d", where, i+1)
+		at := fmt.Sprintf("%s: [[secret.link]] #%d", where, i+1)
 		if err := rejectUnknownKeys(entry, linkKeys, at); err != nil {
 			return nil, err
 		}
@@ -971,6 +770,14 @@ func loadLinks(value any, where string) ([]Link, error) {
 		if err := validateLink(link, at); err != nil {
 			return nil, err
 		}
+		// A ref is the name a caller asks by, so two entries claiming one is
+		// refused rather than resolved: which of them won would be an
+		// implementation detail of this loop.
+		if seen[link.Ref] {
+			return nil, fmt.Errorf("%s: ref %q is claimed by more than one entry; "+
+				"a ref has one definition", at, link.Ref)
+		}
+		seen[link.Ref] = true
 		out = append(out, link)
 	}
 	return out, nil
@@ -1065,24 +872,24 @@ func loadSsh(raw map[string]any, path string, out *SshConfig) error {
 	return nil
 }
 
-func loadSudo(raw map[string]any, path string, out *SudoConfig) error {
-	where := path + ": [sudo]"
-	sec, err := table(raw, "sudo", path)
+func loadApproval(raw map[string]any, path string, out *ApprovalConfig) error {
+	where := path + ": [approval]"
+	sec, err := table(raw, "approval", path)
 	if err != nil {
 		return err
 	}
-	if err := rejectUnknownKeys(sec, sudoKeys, where); err != nil {
+	if err := rejectUnknownKeys(sec, approvalKeys, where); err != nil {
 		return err
 	}
 	// No exec_user by default, which is the install that granted no sudoers
 	// entry: the rest describes where things would go if one ever did.
-	*out = SudoConfig{
+	*out = ApprovalConfig{
 		PamService: "faramir-sudo",
 		Helper:     "/usr/local/libexec/faramir/pam-approve",
 		// Nothing by default: `faramir approvals --watch` is where a question is seen
 		// and answered, and a host that wants shouting about it as well says so.
 		NotifyCommand: nil,
-		TimeoutSec:    120,
+		TimeoutSec:    DefaultApprovalTimeoutSec,
 	}
 	if out.ExecUser, err = str(sec["exec_user"], where, ""); err != nil {
 		return err
@@ -1141,11 +948,8 @@ func loadAudit(raw map[string]any, path string, out *AuditConfig) error {
 	if err := rejectUnknownKeys(sec, auditKeys, where); err != nil {
 		return err
 	}
-	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log", MaxRecordBytes: 1048576}
+	*out = AuditConfig{LogPath: "/var/log/faramir/audit.log"}
 	if out.LogPath, err = str(sec["log_path"], where, out.LogPath); err != nil {
-		return err
-	}
-	if out.MaxRecordBytes, err = atLeast(sec, "max_record_bytes", where, out.MaxRecordBytes, MinRecordBytes); err != nil {
 		return err
 	}
 	return nil

@@ -29,7 +29,7 @@ import (
 // the broker, so an approval is a decision rather than a value and cannot be
 // kept, copied or carried to a later command.
 //
-// After stepConfig, which renders [sudo] from the same layout, and before
+// After stepConfig, which renders [approval] from the same layout, and before
 // anything restarts a daemon.
 func (r *runner) stepSudoGrant() error {
 	if !r.layout.AllowSudo {

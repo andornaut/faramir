@@ -6,7 +6,7 @@ Socket | Who may connect | What it does | Request limit
 --- | --- | --- | ---
 `/run/faramir/broker.sock` | the agent (`0660 root:<client-group>`) | run commands, list refs | `[server] max_request_bytes`
 `/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values | 65536 bytes
-`/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY | 1 MiB
+`/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY | 256 KiB
 
 The internal sockets are root-owned so neither the keeper's nor the executor's own uid can connect: a child reaching the executor socket would run commands the broker never authorised and never logged.
 
@@ -45,7 +45,7 @@ Field | Required | Notes
 `cmd` | yes | Non-empty array of strings. A string is rejected with guidance; the broker never runs `sh -c` for you.
 `cwd` | yes | Absolute, and must be an existing directory. A relative `cmd[0]` resolves against it. The CLI and the MCP server fill in their own working directory, so this is a refusal only on the socket.
 `env_refs` | no | `NAME` to `secret://ref`. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$` and must not be reserved. Values cannot be passed.
-`timeout_sec` | no | Positive integer, clamped down to `[exec] max_timeout_sec`. Omitted means `[exec] default_timeout_sec`.
+`timeout_sec` | no | Positive integer, clamped down to `[command] max_timeout_sec`. Omitted means `[command] timeout_sec`.
 
 Reserved `env_refs` names, refused so injection cannot redirect the loader, the interpreter, sops or the agent relay. Anything outside this set is accepted:
 
@@ -63,7 +63,7 @@ A caller with more text than one request may carry sends it a chunk at a time **
 
 - `more` must be a boolean. Sent where no stream state exists, it is a `bad_request` rather than a request completed as though it stood alone.
 - One audit record per stream, written when it ends, carrying the totals for the whole of it. A stream the peer abandoned still writes one.
-- The first request on a connection is on the 30s clock; between chunks a stream may idle up to `[exec] max_timeout_sec`, because `faramir redact -- command` sends a chunk when the command has printed one.
+- The first request on a connection is on the 30s clock; between chunks a stream may idle up to `[command] max_timeout_sec`, because `faramir redact -- command` sends a chunk when the command has printed one.
 
 ### approvals
 
@@ -79,7 +79,7 @@ Code | Means
 --- | ---
 `approved` | a human said yes, or this sudo was covered by the yes given for the same command
 `denied` | a human said no
-`expired` | nobody answered within `[sudo] timeout_sec`
+`expired` | nobody answered within `[approval] timeout_sec`
 `not_quiescent` | a yes was turned into a no: a process of the executor's uid was alive outside the run
 `run_ended` | the command exited before the question was answered
 `broker_stopped` | the broker stopped, or was stopping when the request arrived
@@ -108,9 +108,9 @@ Field | Meaning
 `redactions` | Counts, not values. A count of 0 where one was expected is a real signal that something is misconfigured.
 `log_id` | Points into `/var/log/faramir/audit.log`, which the agent cannot read, so it can cite a record to the operator.
 `invalid_bytes` | How many bytes were not valid UTF-8 and came back as `U+FFFD`. What says the output was binary.
-`waited_sec` | How much of `duration_sec` the command spent blocked on its own approval, present only where a `sudo` waited at all. Written to the `exec` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an approval answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[exec] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
+`waited_sec` | How much of `duration_sec` the command spent blocked on its own approval, present only where a `sudo` waited at all. Written to the `exec` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an approval answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[command] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
 `approval_code`, `approval` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `denied` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [ask_approval set](#approvals); the same pair is written to the `exec` record.
-`truncated` | Output hit `[exec] max_output_bytes`.
+`truncated` | Output hit the output cap.
 
 A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:
 
@@ -124,7 +124,7 @@ Code | Meaning
 `bad_request` | Malformed request, bad or reserved env var name, a malformed `secret://` reference, or a `cwd` that does not exist or is not a directory
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
-`busy` | At `[server] max_concurrency`; retry
+`busy` | At `[command] concurrency`; retry
 `approval_in_progress` | An approval is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
 `not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the approval. The `sudo` fails and the command is run again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `exec` alone
@@ -132,9 +132,9 @@ Code | Meaning
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the three root-only ops
 `too_large` | Request exceeded `[server] max_request_bytes`
-`timeout` | No request arrived within 30s, or a redact stream idled past `[exec] max_timeout_sec`
+`timeout` | No request arrived within 30s, or a redact stream idled past `[command] max_timeout_sec`
 
-There is no command allowlist, so there is no `denied`. Messages name what failed and where to fix it, so the agent can correct itself in one turn: a program off `[exec.base_env] PATH` says so and names the setting.
+There is no command allowlist, so there is no `denied`. Messages name what failed and where to fix it, so the agent can correct itself in one turn: a program off `[command.env] PATH` says so and names the setting.
 
 ## The keeper socket
 
@@ -156,7 +156,7 @@ Every managed value, never a subset: the redactor is built from the whole value 
  "errors": [], "unresolved_patterns": []}
 ```
 
-The staleness poll, and where `[secrets] patterns` globs are expanded, so a file added to the secrets directory appears without a restart. The broker cannot stat those files itself, being outside `2750 root:faramir-keeper`. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `refresh_interval_sec` is 0.
+The staleness poll, and where the managed store globs are expanded, so a file added to the secrets directory appears without a restart. The broker cannot stat those files itself, being outside `2750 root:faramir-keeper`. This answers without the key and without execing sops, so it stays cheap enough to serve on every request when `min_refresh_sec` is 0.
 
 - A file that could not be stat-ed or decrypted comes back in `errors` rather than as an error response, so one broken file does not blank the whole value set. Key material is stripped from those strings before they cross the socket.
 - `unresolved_patterns` is separate, and the separation is the point: an entry that named no file is a secrets directory not written yet, which is what every first install looks like, while a file that is there and will not open is a value the redactor is missing without knowing it. Neither stops the daemon; both fail `faramir broker --check` and `faramir doctor`.

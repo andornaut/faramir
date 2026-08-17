@@ -19,7 +19,8 @@ import (
 // file.
 func TestARecordAfterARotationOpensANewLog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
-	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 1 << 16})
+	atLimit(t, 1<<16)
+	log := NewLog(config.AuditConfig{LogPath: path})
 
 	log.Write(map[string]any{"log_id": "before"}, Output{})
 	if err := os.Rename(path, path+".1"); err != nil {
@@ -61,8 +62,9 @@ func TestARecordAfterARotationOpensANewLog(t *testing.T) {
 func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 	dir := t.TempDir()
 	limit := 1 << 16
+	atLimit(t, limit)
 	log := NewLog(config.AuditConfig{
-		LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: limit,
+		LogPath: filepath.Join(dir, "audit.log"),
 	})
 
 	// One bad byte halfway through, then a marker before the cut.
@@ -119,7 +121,8 @@ func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "audit.log")
-			NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: limit}).
+			atLimit(t, limit)
+			NewLog(config.AuditConfig{LogPath: path}).
 				Write(map[string]any{"log_id": "x", "op": "exec"}, Output{Text: tc.output})
 
 			data, err := os.ReadFile(path)
@@ -149,7 +152,9 @@ func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
 func TestAnEnormousArgvStillFitsTheCap(t *testing.T) {
 	const limit = 64 * 1024
 	path := filepath.Join(t.TempDir(), "audit.log")
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: limit}).Write(map[string]any{
+	atLimit(t, limit)
+	atLimit(t, 64*1024)
+	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
 		"log_id": "x", "op": "exec",
 		"cmd": []string{"bash", "-c", strings.Repeat("<", 2_000_000)},
 		"cwd": strings.Repeat("d", 100_000),
@@ -251,7 +256,7 @@ func TestLogIDsDoNotRepeatAcrossGoroutines(t *testing.T) {
 // running broker looks like.
 func TestConcurrentWritersLeaveEveryLineParseable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
-	cfg := config.AuditConfig{LogPath: path, MaxRecordBytes: 64 * 1024}
+	cfg := config.AuditConfig{LogPath: path}
 
 	const writers, each = 6, 40
 	var wg sync.WaitGroup
@@ -335,8 +340,9 @@ func TestUnwritableNamesAnUnopenableLog(t *testing.T) {
 	if err := os.WriteFile(blocker, []byte("x"), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	atLimit(t, 64*1024)
 	log := NewLog(config.AuditConfig{
-		LogPath: filepath.Join(blocker, "audit.log"), MaxRecordBytes: 64 * 1024,
+		LogPath: filepath.Join(blocker, "audit.log"),
 	})
 	if reason := log.Unwritable(); reason == "" {
 		t.Error("a log that cannot be opened reports as writable")
@@ -354,7 +360,8 @@ func TestALargeArgvKeepsTheRestOfTheRecord(t *testing.T) {
 	for range 200 {
 		args = append(args, strings.Repeat("<", 1000))
 	}
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 262144}).Write(map[string]any{
+	atLimit(t, 262144)
+	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
 		"log_id": "x", "op": "exec", "cmd": args, "cwd": "/srv/work",
 		"exit_code": 0.0,
 	}, Output{Text: "the output of the run\n"})
@@ -392,7 +399,8 @@ func TestManyEntriesAreCutDownToo(t *testing.T) {
 	for i := range 20_000 {
 		refs[fmt.Sprintf("VAR_%05d", i)] = "home/router/admin"
 	}
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 65536}).Write(map[string]any{
+	atLimit(t, 65536)
+	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
 		"log_id": "x", "op": "exec", "cmd": []string{"printenv"}, "env_refs": refs,
 	}, Output{})
 
@@ -444,8 +452,9 @@ func TestTheCollectorDoesNotReorderOutput(t *testing.T) {
 // root opens a file whatever its mode says.
 func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logdir")
+	atLimit(t, 64*1024)
 	log := NewLog(config.AuditConfig{
-		LogPath: filepath.Join(dir, "audit.log"), MaxRecordBytes: 64 * 1024,
+		LogPath: filepath.Join(dir, "audit.log"),
 	})
 
 	log.Write(map[string]any{"log_id": "first", "op": "exec"}, Output{})
@@ -473,7 +482,8 @@ func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
 func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
 	const limit = 1 << 20
 	path := filepath.Join(t.TempDir(), "audit.log")
-	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: limit})
+	atLimit(t, limit)
+	log := NewLog(config.AuditConfig{LogPath: path})
 
 	// argv at what [server] max_request_bytes would let through, and output at
 	// what Collector streams against, which is the pair that has to coexist.
@@ -522,7 +532,8 @@ func TestReducingARecordKeepsEveryFieldOfIt(t *testing.T) {
 		})
 	}
 	path := filepath.Join(t.TempDir(), "audit.log")
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 1 << 20}).Write(map[string]any{
+	atLimit(t, 1<<20)
+	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
 		"log_id": "x", "op": "exec", "cmd": []string{"ansible-playbook", "site.yml"},
 		"cwd": "/srv/ansible", "exit_code": 0.0, "redactions": counts,
 		"peer": map[string]any{"uid": 1001.0, "pid": 42.0},
@@ -567,7 +578,8 @@ func TestWritingARecordLeavesTheCallersFieldsAlone(t *testing.T) {
 	nested := []any{map[string]any{"deep": strings.Repeat("y", 8*1024)}}
 
 	path := filepath.Join(t.TempDir(), "audit.log")
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+	atLimit(t, config.MinRecordBytes)
+	NewLog(config.AuditConfig{LogPath: path}).
 		Write(map[string]any{
 			"log_id": "x", "op": "ask_approval", "cmd": argv,
 			"env_refs": refs, "peer": peer, "nested": nested,
@@ -625,7 +637,8 @@ func TestNothingACallerSendsReachesTheStub(t *testing.T) {
 		args = append(args, strings.Repeat("<", 2_000))
 	}
 	path := filepath.Join(t.TempDir(), "audit.log")
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+	atLimit(t, config.MinRecordBytes)
+	NewLog(config.AuditConfig{LogPath: path}).
 		Write(map[string]any{
 			"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec",
 			"cmd": args, "cwd": strings.Repeat("<", 100_000), "env_refs": refs,
@@ -662,7 +675,8 @@ func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
 		payload[fmt.Sprintf("field_%03d", i)] = strings.Repeat("<", 400)
 	}
 	path := filepath.Join(t.TempDir(), "audit.log")
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+	atLimit(t, config.MinRecordBytes)
+	NewLog(config.AuditConfig{LogPath: path}).
 		Write(payload, Output{})
 
 	data, err := os.ReadFile(path)
@@ -690,7 +704,8 @@ func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
 func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
 	defer unstrict()()
 	path := filepath.Join(t.TempDir(), "audit.log")
-	NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 1 << 20}).Write(map[string]any{
+	atLimit(t, 1<<20)
+	NewLog(config.AuditConfig{LogPath: path}).Write(map[string]any{
 		"log_id": "2026-08-11T06:00:00Z-abcd000001", "op": "exec",
 		// A channel marshals to an error, whatever else is in the record.
 		"broken": make(chan int),
@@ -716,9 +731,9 @@ func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
 // escape-heavy bytes comes back longer in raw ones than it went in.  A record
 // whose output was cut and does not say so reads as a complete one.
 func TestAnOutputCutByAReductionSaysSoEvenWhenItGrew(t *testing.T) {
+	atLimit(t, config.MinRecordBytes)
 	log := NewLog(config.AuditConfig{
-		LogPath:        filepath.Join(t.TempDir(), "audit.log"),
-		MaxRecordBytes: config.MinRecordBytes,
+		LogPath: filepath.Join(t.TempDir(), "audit.log"),
 	})
 	// Twenty '<' are 20 raw bytes and 120 encoded, so the last reduction step
 	// (a 64-byte ceiling) cuts them to nothing and leaves a 27-byte marker.
@@ -772,7 +787,8 @@ func TestTheStubBoundsTheIdentityItKeeps(t *testing.T) {
 // instant out of the log_id, which no longer carries one.
 func TestEveryRecordCarriesWhenItHappened(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
-	log := NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: 64 * 1024})
+	atLimit(t, 64*1024)
+	log := NewLog(config.AuditConfig{LogPath: path})
 
 	// A record with no time of its own: an approval, a redact, an edit.
 	log.Write(map[string]any{"log_id": NewLogID(), "op": "ask_approval"}, Output{})

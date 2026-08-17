@@ -65,7 +65,7 @@ func runRekey(f rekeyFlags, args []string) int {
 
 	// Both kinds together: this is a diagnostic printed when the named file is
 	// not among the managed ones, and the operator wants every reason.
-	managed, failures, absent := keeper.Resolve(cfg.Secrets.Patterns)
+	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
 	unresolvable := slices.Concat(failures, absent)
 	targets, err := rekeyTargets(managed, args)
 	if err != nil {

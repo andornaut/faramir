@@ -12,6 +12,8 @@ import (
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // reductions are what encode falls back through when a record does not fit,
@@ -30,7 +32,7 @@ var reductions = [][2]int{{fieldCeiling, 64}, {256, 8}, {64, 4}}
 // rather than gives up, because what is over the cap is almost always one
 // caller-chosen field and the rest of the record is the part being audited.
 func (l *Log) encode(payload map[string]any) []byte {
-	limit := l.config.MaxRecordBytes
+	limit := config.MaxRecordBytes
 	line, err := json.Marshal(payload)
 	if err == nil && len(line)+1 <= limit {
 		return append(line, '\n')
@@ -111,11 +113,11 @@ func (l *Log) lastResort(payload map[string]any, fields int) []byte {
 		op = op[:32] + "…"
 	}
 	report := fmt.Sprintf("BUG in faramir: a %d-field %q record does not fit "+
-		"[audit] max_record_bytes (%d) even reduced, so it is being written as its "+
+		"the record cap (%d) even reduced, so it is being written as its "+
 		"identity alone. Every record of this shape is affected, not this one. "+
 		"Either a record gained fields without config.MinRecordBytes being raised "+
 		"to match, or one carries a value that will not marshal",
-		fields, op, l.config.MaxRecordBytes)
+		fields, op, config.MaxRecordBytes)
 	if strict {
 		panic(report)
 	}
@@ -127,7 +129,7 @@ func (l *Log) lastResort(payload map[string]any, fields int) []byte {
 // total -- for any input there is a line, and it is under the cap -- so no
 // caller has to hold an opinion about what to do when there is not.
 func stubLine(payload map[string]any) []byte {
-	const why = "this record did not fit [audit] max_record_bytes and was reduced to its identity"
+	const why = "this record did not fit the record cap and was reduced to its identity"
 	// Printed and clamped rather than carried across as they stand.  One route
 	// here is the first marshal failing, which skips the reductions entirely, so
 	// these three were never bounded and a line built from them would be as long

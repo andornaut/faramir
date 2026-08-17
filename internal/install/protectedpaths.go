@@ -108,7 +108,7 @@ func installDirs(layout Layout) []string {
 	}
 }
 
-// linkedPaths is the files [[secrets.link]] entries name, as literal paths.
+// linkedPaths is the files [[secret.link]] entries name, as literal paths.
 // Sorted and deduplicated so that two links into one file, or the order the
 // drop-ins happened to be read in, do not change what is written.
 //
@@ -117,9 +117,10 @@ func installDirs(layout Layout) []string {
 // every path, and a rule refusing the whole filesystem fails closed and still
 // breaks the agent.
 func linkedPaths(layout Layout) []string {
-	seen := make(map[string]bool, len(layout.LinkedPaths))
-	out := make([]string, 0, len(layout.LinkedPaths))
-	for _, path := range layout.LinkedPaths {
+	seen := make(map[string]bool, len(layout.Links))
+	out := make([]string, 0, len(layout.Links))
+	for _, link := range layout.Links {
+		path := link.Path
 		if path == "" || seen[path] {
 			continue
 		}

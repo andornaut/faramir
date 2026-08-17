@@ -111,7 +111,7 @@ func TestARefusalDecidedBeforeParsingCarriesNoLogID(t *testing.T) {
 // slot being held by something they cannot see from the caller's side.
 func TestABusyRefusalIsRecorded(t *testing.T) {
 	s := newServer(t, map[string]string{"db/password": "hunter2-correct-horse"})
-	s.Config.Server.MaxConcurrency = 1
+	s.Config.Command.Concurrency = 1
 	s.slots = make(chan struct{}, 1)
 	s.slots <- struct{}{} // the one slot, taken
 

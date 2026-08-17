@@ -180,7 +180,7 @@ func parentOf(pid int) (int, bool) {
 }
 
 // askBrokerToApprove puts the question and waits for the answer, which is a
-// human's.  No deadline of its own: the broker holds the question for [sudo]
+// human's.  No deadline of its own: the broker holds the question for [approval]
 // timeout_sec and refuses it after that, so a wait here always ends.
 func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 	line, err := roundTrip(socketPath, map[string]any{"op": "ask_approval", "token": token}, approvalWait)
@@ -217,7 +217,7 @@ func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 // broker might hold is the same value a broker that died without closing the
 // socket holds a sudo open for.
 //
-// So it is [sudo] timeout_sec's own ceiling plus a margin for the round trip.
+// So it is [approval] timeout_sec's own ceiling plus a margin for the round trip.
 // The helper cannot read the config (PAM gives it no environment and its argv
 // is fixed at install time), and config.MaxSudoTimeoutSec is what makes reading
 // it unnecessary: the broker refuses to load a longer timeout, so the broker

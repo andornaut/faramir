@@ -362,7 +362,7 @@ func (p *project) warnf(format string, args ...any) {
 // makes a shared tree usable; a flag would leave every mode right and the
 // executor still unable to enter.
 //
-// The sudo grant is read from the same load, [sudo] exec_user being the switch
+// The sudo grant is read from the same load, [approval] exec_user being the switch
 // for the whole arrangement, so an empty one is a host where no approval can be
 // raised.  Which install it is read from is the question --client-group raises,
 // and answered below.
@@ -380,7 +380,7 @@ func (p *project) resolveGroup() error {
 		// that was not told to wait re-runs a refused command rather than looking
 		// for a way past a pause.
 		if err == nil && cfg.Server.AllowedGroup == p.opts.ClientGroup {
-			p.allowSudo = cfg.Sudo.ExecUser != ""
+			p.allowSudo = cfg.Approval.ExecUser != ""
 		}
 		return nil
 	}
@@ -394,7 +394,7 @@ func (p *project) resolveGroup() error {
 			"Run `faramir init --client-group NAME`", configFile)
 	}
 	p.report.ClientGroup = cfg.Server.AllowedGroup
-	p.allowSudo = cfg.Sudo.ExecUser != ""
+	p.allowSudo = cfg.Approval.ExecUser != ""
 	return nil
 }
 

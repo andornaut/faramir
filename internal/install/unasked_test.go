@@ -52,10 +52,10 @@ func TestTheSudoArrangementDoesNotPassOnAnUnaskedOperator(t *testing.T) {
 
 	helper := filepath.Join(dir, "faramir-approve")
 	cfg := &config.Config{}
-	cfg.Sudo.ExecUser = "ex"
-	cfg.Sudo.PamService = "faramir-sudo"
-	cfg.Sudo.Helper = helper
-	if err := os.WriteFile(filepath.Join(dir, cfg.Sudo.PamService),
+	cfg.Approval.ExecUser = "ex"
+	cfg.Approval.PamService = "faramir-sudo"
+	cfg.Approval.Helper = helper
+	if err := os.WriteFile(filepath.Join(dir, cfg.Approval.PamService),
 		[]byte("auth requisite pam_exec.so seteuid quiet "+helper+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

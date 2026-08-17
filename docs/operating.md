@@ -18,7 +18,7 @@ Key material | `age key`, `agent keys`, `audit log`, `ssh key` | The age key rea
 Files | `config ownership`, `installed files`, `deny patterns` | The config, `.sops.yaml`, the binary, `wrap.sh` and the PAM helper not writable by the operator, and the deny list rendered for *this* config directory
 Sockets | `keeper socket`, `executor socket`, `broker socket`, and a `policy` check for each of the first two | The internal sockets closed to the accounts that must not open them, the broker's open to the operator, and each `allowed_user` naming the broker
 Behaviour | `brokered command`, `ssh agent`, `redaction`, `known hosts` | A managed value injected into a real command comes back as its token, the relay answers, and how many host keys a brokered `ssh` can verify against
-sops | `sops config`, `rule coverage` | `.sops.yaml` names the keeper's own recipient rather than one it used to have, and nothing sops would refuse; its rule reaches every file `[secrets] patterns` names
+sops | `sops config`, `rule coverage` | `.sops.yaml` names the keeper's own recipient rather than one it used to have, and nothing sops would refuse; its rule reaches every file the managed store names
 Agents | `agent rules`, `agent rule drift`, `tree config`, `agent file ownership` | Each agent's deny rules present, absent, or carried in an extension; rules an earlier version wrote that this one does not; enrolled trees whose agent files no longer carry what the enrolment wrote; and files an install would now refuse to write
 Sudo and kernel | `sudo credential`, `sudo grant`, `cgroup delegation`, `ptrace scope`, `user namespaces` | [Below](#what-approval-costs-beyond-the-grant)
 Rotation | `log rotation` | logrotate installed, naming the log the broker writes, and having applied the rule
@@ -63,7 +63,7 @@ A run stops rather than write one it should not, leaving it exactly as it is:
 
 Each is asked before anything is written, so a refusal costs nothing: `init` stops before it has handed a file to any account, `init-project` before it has shared the tree. `init` names every file it refused rather than the first. `doctor` asks the same questions under `agent file ownership`.
 
-The section tells an agent to wait for an approval only where one can be raised, `init-project` reading `[sudo] exec_user` from the config.
+The section tells an agent to wait for an approval only where one can be raised, `init-project` reading `[approval] exec_user` from the config.
 
 A brokered command cannot delete these files: each agent's own directory in a tree is sticky, so unlink and rename there belong to the file's owner, which the settings' own `0640` would not have decided. The tree root is deliberately not sticky, which keeps a tool rewriting a lock file by rename working and leaves a brokered command able to move an agent's directory aside from above. `doctor` reports a tree whose agent files stopped carrying what the enrolment wrote.
 
@@ -73,14 +73,14 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 - **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.
 - **The keeper must be up before the broker is.** On a cold start there is no previous value set, so a keeper it cannot reach means nothing to redact with, and the broker refuses `exec` and `redact`. Its unit `Requires=` the keeper socket. A keeper lost *later* does not stop a running broker: it keeps the set it has and retries.
 - **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so a binary too old to know the agent refuses every command in that project rather than running it unredacted.
-- **Children do not inherit the broker's environment.** They get `[exec.base_env]` plus injected secrets. Add what a tool needs there.
+- **Children do not inherit the broker's environment.** They get `[command.env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null` and the child gets no controlling terminal, so `/dev/tty` will not open either: that is the one every credential prompt reads so a pipe cannot answer it. A program that prompts falls back to stderr, which is on the PTY and is redacted and recorded; one that writes only to `/dev/tty` loses that text. Pass non-interactive flags.
-- **Output is truncated** at `[exec] max_output_bytes`. The audit record keeps the head and the tail and says how many bytes it dropped.
-- **The audit log rotates weekly**, 8 kept, compressed, early at 16MB. `[audit] max_record_bytes` bounds one record, not the file. `doctor` fails when logrotate is not installed, when `/etc/logrotate.d/faramir` is absent or unreadable, and when the rule names a log the broker does not write; it warns when logrotate's state shows the rule has never been applied. Rotating some other way means `doctor` failing on that host.
+- **Output is truncated** at the output cap. The audit record keeps the head and the tail and says how many bytes it dropped.
+- **The audit log rotates weekly**, 8 kept, compressed, early at 16MB. the record cap bounds one record, not the file. `doctor` fails when logrotate is not installed, when `/etc/logrotate.d/faramir` is absent or unreadable, and when the rule names a log the broker does not write; it warns when logrotate's state shows the rule has never been applied. Rotating some other way means `doctor` failing on that host.
 - **A command that cannot be recorded does not run.** Before anything starts the broker checks the log can be opened and its filesystem has room for one record; a host failing either refuses every brokered command with `no_audit`. Reachable without anyone being at fault: a brokered command's output is what a record carries, so an agent that prints enough fills that filesystem itself.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
 - **An exec is two records sharing one `log_id`.** `exec_started` when the child runs, naming the command, the cwd and the refs; `exec` when it ends, adding the exit code, the duration and the output. So `faramir logs --watch` shows a playbook while it runs rather than only once it is over, and a run that never returns still leaves a row. `faramir logs <id>` shows the ending where there is one and the start where there is not. A reader selecting `op == "exec"` still gets one record per command, the one that says how it went.
-- **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does. A drop-in setting `[ssh] key` is refused; `--ssh-key` moves or adopts one.
+- **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does. `--ssh-key` moves or adopts one.
 - **A brokered `ssh` logs in as the executor.** `ssh host` naming no user asks for `faramir-exec`, which is nobody's account on a managed host. Give the login (`ssh deploy@host.example.com`), or write one `User` per host into `/var/lib/faramir-exec/.ssh/config` as root, that being the child's `HOME`. Ansible needs neither, `ansible_user` being in the inventory.
 - **A brokered `ssh` verifies against `/etc/ssh/ssh_known_hosts` and the executor's own**, either sufficing. The executor's starts absent and nothing can prompt you to add to it, so a host trusted only in your `~/.ssh/known_hosts` is refused before the broker's key is offered. `init --known-hosts PATH` pins a file for the executor, replaced whole each run; the system-wide file is the alternative, covering every account at once. An entry is filed under the name ssh dials, port-bracketed where that is not 22 (`[host.example.com]:2222`).
 
@@ -115,7 +115,7 @@ The first decides who can read files sops creates from then on. The second bring
 - **A `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file, the only thing that can answer which rule governs which.
 - **A rule that splits the data key is refused too.** `shamir_threshold` means N key groups together, and re-encrypting to one list makes it any one of them.
 - **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from wherever you were standing, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `rekey` stops: that file is where its recipients come from.
-- **A file no creation rule covers cannot be written back.** `edit` asks before opening the editor, so it costs a refusal rather than what you typed; `doctor` asks it of every managed file under `rule coverage`. Reachable only where the rule was narrowed, or `[secrets] patterns` names something the shipped `*.sops.yml` rule does not match.
+- **A file no creation rule covers cannot be written back.** `edit` asks before opening the editor, so it costs a refusal rather than what you typed; `doctor` asks it of every managed file under `rule coverage`. Reachable only where the rule was narrowed, or the managed store names something the shipped `*.sops.yml` rule does not match.
 - **The keeper's key as the only recipient means losing it loses every managed value**, retroactively. A second recipient is the backup that avoids it.
 
 ## Allowing sudo on the controller
@@ -157,9 +157,9 @@ sudo faramir approvals --watch
      approve? [yes/no]
    ```
 
-   `expires` counts down to the refusal and gains a `(waited 40s)` only where the question had been sitting before anything read it: a watcher already running is handed one the moment it is filed, so its absence is what says somebody was here. `caller` is the account that asked, which is never the account the command would run as: that is the executor on every question, so the uid worth judging is this one, and more than one account can be in the client group. The command is on its own line rather than in the question, which repeated it and, for a long one, pushed the fields off the screen; `[sudo] notify_command` still gets the whole sentence, having no second line to put one on. The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
+   `expires` counts down to the refusal and gains a `(waited 40s)` only where the question had been sitting before anything read it: a watcher already running is handed one the moment it is filed, so its absence is what says somebody was here. `caller` is the account that asked, which is never the account the command would run as: that is the executor on every question, so the uid worth judging is this one, and more than one account can be in the client group. The command is on its own line rather than in the question, which repeated it and, for a long one, pushed the fields off the screen; `[approval] notify_command` still gets the whole sentence, having no second line to put one on. The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
 
-4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[sudo] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `expires` counts down from. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
+4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[approval] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `expires` counts down from. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
 
    ```text
      approve? [yes/no]
@@ -183,7 +183,7 @@ sudo faramir approvals --watch
      w5vq7dbf000119 exited 0 after 41.0s, waited 40s of it
    ```
 
-   Every line names its run, the ending arriving after the terminal has moved on. The duration is wall time and the command sits inside `sudo` for the whole question, so the part that was the approval is named rather than subtracted; under a second it is left off, every approved run waiting a little. `exited 2 after 3.1s, timed out` when `[exec] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
+   Every line names its run, the ending arriving after the terminal has moved on. The duration is wall time and the command sits inside `sudo` for the whole question, so the part that was the approval is named rather than subtracted; under a second it is left off, every approved run waiting a little. `exited 2 after 3.1s, timed out` when `[command] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
 
    A refusal prints `<log_id> refused` with the line it read, quoted, and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question, and the terminal has to be back on the poll for it. Its `exec` record lands when it ends like any other command's.
 
@@ -197,7 +197,7 @@ There is no password anywhere: what satisfies `sudo` is a decision, so nothing i
 
 Approving from your own shell is the last resort rather than the first: reaching root that way leaves a warm sudo timestamp in a shell the agent can use. Consider `Defaults:<you> timestamp_timeout=0`.
 
-`[sudo] notify_command` optionally announces a pending question. It carries no answer and nothing waits on it. Set it at install time, one argument per flag:
+`[approval] notify_command` optionally announces a pending question. It carries no answer and nothing waits on it. Set it at install time, one argument per flag:
 
 ```sh
 faramir init --allow-sudo \

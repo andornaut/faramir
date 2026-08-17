@@ -62,7 +62,6 @@ func Uninstall(configDir string) ([]string, error) {
 			" -- deleting it makes every managed sops file unreadable",
 		filepath.Join(configDir, "secrets") + "/ -- the managed sops files",
 		filepath.Join(configDir, "config.toml") + " -- the base config",
-		filepath.Join(configDir, "config.d") + "/ -- per-consumer settings merged over it",
 		DefaultLogDir + "/ -- the audit log",
 		fmt.Sprintf("users %s, %s and %s, and the shared group. %s's own password "+
 			"is not cleared: `usermod -L %s`",

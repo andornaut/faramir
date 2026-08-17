@@ -203,10 +203,13 @@ head_ "8. an error from below reaches the agent as text"
 printf 'not a sops file at all\n' > /etc/faramir/secrets/broken.sops.yml
 chown root:faramir-keeper /etc/faramir/secrets/broken.sops.yml
 chmod 0640 /etc/faramir/secrets/broken.sops.yml
-# The store is re-read every refresh_interval_sec, so the failure reaches status
-# on a later pass rather than this one.
+# The store is re-read at most every refresh_sec, so the failure reaches status
+# on a later pass rather than this one.  The wait has to clear that interval
+# with margin: a shorter one gives up while the broker is still serving the
+# value set it loaded before the file appeared, and then every suite after this
+# one runs against a broker refusing `no_secrets`.
 reportsLoadError() { jq -e '.secrets.errors[]?' <<<"$(asop status)" >/dev/null 2>&1; }
-waitfor 15 reportsLoadError
+waitfor 40 reportsLoadError
 st=$(asop status)
 carries "status with a file that will not load" "$st"
 errs=$(jq -r '.secrets.errors[]?' <<<"$st" 2>/dev/null)
@@ -231,7 +234,7 @@ rm -f /etc/faramir/secrets/broken.sops.yml
 # answers while the store still holds the failure, and every suite after this
 # one runs against a broker that refuses to inject.
 recovered() { [ "$(jq -r '.secrets.errors | length' <<<"$(asop status)" 2>/dev/null)" = 0 ]; }
-waitfor 20 recovered && ok "the host recovers when the file is removed" \
+waitfor 40 recovered && ok "the host recovers when the file is removed" \
   || bad "the host still reports the file 20s after it went away"
 
 # --------------------------------------------------------------------------

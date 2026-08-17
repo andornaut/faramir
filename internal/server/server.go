@@ -1,6 +1,6 @@
 // Package server is the broker daemon.  Socket-activated by systemd
 // (LISTEN_FDS), falling back to binding the socket itself when run standalone.
-// Requests over [server] max_concurrency are refused rather than queued.
+// Requests over [command] concurrency are refused rather than queued.
 package server
 
 import (
@@ -64,13 +64,13 @@ type Server struct {
 func New(cfg *config.Config) *Server {
 	s := &Server{
 		Config:   cfg,
-		Store:    secretstore.New(cfg.Secrets, cfg.Keeper),
+		Store:    secretstore.New(cfg.Secret, cfg.Keeper),
 		Audit:    audit.NewLog(cfg.Audit),
 		Ssh:      sshagent.New(cfg.Ssh),
-		Approval: approval.New(cfg.Sudo),
-		slots:    make(chan struct{}, cfg.Server.MaxConcurrency),
+		Approval: approval.New(cfg.Approval),
+		slots:    make(chan struct{}, cfg.Command.Concurrency),
 		exec: func(r *redact.Redactor, sink func(string), req executor.Request) (*executor.Result, error) {
-			return executor.Run(cfg.Exec, cfg.Executor, r, sink, req)
+			return executor.Run(cfg.Command, cfg.Executor, r, sink, req)
 		},
 	}
 	// An approval is a thing that happened on this host, so it is recorded where
@@ -140,7 +140,7 @@ func (s *Server) Serve() error {
 //
 // Serve waits on those goroutines before it returns, and what a connection
 // waits on is a peer: a redact stream idling between chunks may sit in a read
-// for [exec] max_timeout_sec.  Nothing else would end that wait, so a stop took
+// for [command] max_timeout_sec.  Nothing else would end that wait, so a stop took
 // as long as the slowest peer and systemd killed the broker at TimeoutStopSec
 // rather than it exiting.  A deadline already past fails every read and write on
 // those connections at once, so the goroutines return and the process stops.
@@ -222,7 +222,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 	// Both directions, and before the first refusal is written: a deadline on the
 	// read alone leaves a peer that connects, asks, and never reads blocked in
 	// Write with nothing left to time it out.  A brokered command's output can be
-	// [exec] max_output_bytes, well past a socket buffer, so the write blocks the
+	// the output cap, well past a socket buffer, so the write blocks the
 	// moment the peer stops reading.  This socket admits the account the coding
 	// agent runs as, and the goroutine, the descriptor and the whole response stay
 	// held; Serve waits on those goroutines to shut down, so one of them is also a
@@ -247,14 +247,14 @@ func (s *Server) serveConnection(conn net.Conn) {
 
 	// Buffered across iterations: a plain read would discard whatever it pulled
 	// in past the newline, which for a stream is the start of the next chunk.
-	lines := sockutil.NewLineReader(conn, s.Config.Server.MaxRequestBytes)
+	lines := sockutil.NewLineReader(conn, config.MaxRequestBytes)
 
 	for {
 		line, err := lines.Next()
 		if err != nil {
 			if errors.Is(err, sockutil.ErrTooLarge) {
 				_ = sockutil.Send(conn, protocol.ErrorResponse("too_large",
-					fmt.Sprintf("request exceeds %d bytes", s.Config.Server.MaxRequestBytes), ""))
+					fmt.Sprintf("request exceeds %d bytes", config.MaxRequestBytes), ""))
 				return
 			}
 			if os.IsTimeout(err) {
@@ -272,7 +272,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 				fmt.Sprintf("invalid JSON: %v", err), ""))
 			return
 		}
-		// Cleared for the op itself, which runs for as long as [exec]
+		// Cleared for the op itself, which runs for as long as [command]
 		// max_timeout_sec allows and is not on the clock one line of JSON is read
 		// on.  The reply gets a fresh one once there is something to write.
 		_ = conn.SetDeadline(time.Time{})
@@ -311,7 +311,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 
 // streamWait bounds a redact stream between chunks.
 func (s *Server) streamWait() time.Duration {
-	return time.Duration(s.Config.Exec.MaxTimeoutSec) * time.Second
+	return time.Duration(s.Config.Command.MaxTimeoutSec) * time.Second
 }
 
 // errPeerNotAllowed is a caller the socket admitted and the group check did
@@ -613,10 +613,10 @@ func (s *Server) opListSecrets() protocol.Response {
 // in the one actionable line here would send the operator somewhere the broker
 // does not read.
 func (s *Server) secretsDir() string {
-	if patterns := s.Config.Secrets.Patterns; len(patterns) > 0 {
+	if patterns := s.Config.Secret.Patterns; len(patterns) > 0 {
 		return filepath.Dir(patterns[0])
 	}
-	return "the directory [secrets] patterns names"
+	return "the directory the managed store names"
 }
 
 // refuseUnreadable is the gate on the two ops whose output is redacted against
@@ -817,7 +817,7 @@ func (s *Server) execFields(a execAudit) map[string]any {
 }
 
 func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
-	execCfg := s.Config.Exec
+	execCfg := s.Config.Command
 	logID := audit.NewLogID()
 	if refused := s.refuseUnreadable("exec", "this command", logID); refused != nil {
 		return *refused
@@ -863,8 +863,8 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 
 	// The only place plaintext is touched outside the store, and it goes straight
 	// into the child's environ.  HOME is left to the executor.
-	env := make(map[string]string, len(execCfg.BaseEnv)+1)
-	maps.Copy(env, execCfg.BaseEnv)
+	env := make(map[string]string, len(execCfg.Env)+1)
+	maps.Copy(env, execCfg.Env)
 	// SSH_AUTH_SOCK: the child can authenticate with the keys, not read them.
 	maps.Copy(env, s.Ssh.Env())
 	// The concurrency slot first, and before the run is registered: a registered
@@ -876,7 +876,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	default:
 		return s.refuse("busy", fmt.Sprintf(
 			"broker is at its concurrency limit (%d); retry shortly",
-			s.Config.Server.MaxConcurrency), logID, peer, cmd, cwd)
+			s.Config.Command.Concurrency), logID, peer, cmd, cwd)
 	}
 
 	// A token, and nothing else: the child can be identified when it asks to
@@ -946,7 +946,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 
 	timeout := request.TimeoutSec
 	if timeout == 0 {
-		timeout = execCfg.DefaultTimeoutSec
+		timeout = execCfg.TimeoutSec
 	}
 	if timeout > execCfg.MaxTimeoutSec {
 		timeout = execCfg.MaxTimeoutSec
@@ -1147,7 +1147,7 @@ func (s *Server) describeApproval() (map[string]any, []string) {
 		// The install that granted no sudoers entry, which is the default one.
 		return info, nil
 	}
-	cfg := s.Config.Sudo
+	cfg := s.Config.Approval
 	info["exec_user"] = cfg.ExecUser
 	info["pam_service"] = cfg.PamService
 	info["helper"] = cfg.Helper
@@ -1173,7 +1173,7 @@ func (s *Server) describeApproval() (map[string]any, []string) {
 	if len(cfg.NotifyCommand) > 0 {
 		if _, err := osexec.LookPath(cfg.NotifyCommand[0]); err != nil {
 			problems = append(problems, cfg.NotifyCommand[0]+": "+err.Error()+
-				" ([sudo] notify_command names it, so nothing announces a pending request)")
+				" ([approval] notify_command names it, so nothing announces a pending request)")
 		}
 	}
 	return info, problems

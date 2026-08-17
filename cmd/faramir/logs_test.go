@@ -23,7 +23,7 @@ func writeLog(t *testing.T, lines ...string) string {
 }
 
 // A record's line has no length a reader may refuse.  internal/audit holds one
-// to [audit] max_record_bytes, and a ceiling here would be a second opinion
+// to the record cap, and a ceiling here would be a second opinion
 // about that: one that withholds every record in the file rather than the one
 // it could not read.
 func TestTailRecordsSurvivesARecordNoCeilingWouldFit(t *testing.T) {

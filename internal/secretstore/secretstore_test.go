@@ -22,8 +22,8 @@ func newStore(t *testing.T, fake *keepertest.Keeper, files ...string) *Store {
 	t.Helper()
 	fake.SetFiles(files)
 	return New(
-		config.SecretsConfig{
-			Patterns: files, RefreshIntervalSec: 0,
+		config.SecretConfig{
+			Patterns: files, MinRefreshSec: 0,
 			MinLength: 8,
 		},
 		config.KeeperConfig{SocketPath: fake.Path},
@@ -188,8 +188,8 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	// Cold start: nothing is listening, so the first load fails.
 	sock := filepath.Join(dir, "keeper.sock")
 	s := New(
-		config.SecretsConfig{
-			Patterns: []string{managed}, RefreshIntervalSec: 0,
+		config.SecretConfig{
+			Patterns: []string{managed}, MinRefreshSec: 0,
 			MinLength: 8,
 		},
 		config.KeeperConfig{SocketPath: sock},
@@ -208,15 +208,15 @@ func TestAKeeperThatComesBackIsPickedUpWithoutASighup(t *testing.T) {
 	}
 }
 
-// refresh_interval_sec may be 0, so concurrent requests must not each start a
+// The interval may be short, so concurrent requests must not each start a
 // keeper round trip and sops exec.
 func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "keeper.sock")
 	s := New(
-		config.SecretsConfig{
-			RefreshIntervalSec: 0,
-			MinLength:          8,
+		config.SecretConfig{
+			MinRefreshSec: 0,
+			MinLength:     8,
 		},
 		config.KeeperConfig{SocketPath: sock},
 	)

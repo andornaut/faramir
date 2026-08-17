@@ -176,7 +176,7 @@ head_ "7. several at once"
 
 # As many as the broker will run at once: more than that is refused busy, which
 # is the concurrency gate doing its job and says nothing about the relay.
-n=$(sed -n 's/^max_concurrency *= *\([0-9]*\).*/\1/p' /etc/faramir/config.toml | head -1)
+n=$(sed -n 's/^concurrency *= *\([0-9]*\).*/\1/p' /etc/faramir/config.toml | head -1)
 n=${n:-4}
 tmp=$(mktemp -d)
 for i in $(seq "$n"); do
@@ -242,9 +242,9 @@ grep -qi 'timed out' <<<"$out" \
   && bad "ssh-add -x hung for ${elapsed}s rather than failing on a prompt it cannot answer" \
   || ok "ssh-add -x ended in ${elapsed}s"
 
-# What that costs: [server] max_concurrency slots, held for [exec]
-# default_timeout_sec, by commands nobody meant to run.
-slots=$(sed -n 's/^max_concurrency *= *\([0-9]*\).*/\1/p' /etc/faramir/config.toml | head -1)
+# What that costs: [command] concurrency slots, held for [command]
+# timeout_sec, by commands nobody meant to run.
+slots=$(sed -n 's/^concurrency *= *\([0-9]*\).*/\1/p' /etc/faramir/config.toml | head -1)
 slots=${slots:-4}
 for _ in $(seq "$slots"); do
   runuser -u op -- /usr/local/bin/faramir run --quiet -t 12 -- /usr/bin/ssh-add -x >/dev/null 2>&1 &

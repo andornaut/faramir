@@ -20,8 +20,6 @@ socket_path = "` + filepath.Join(dir, "keeper.sock") + `"
 socket_path = "` + filepath.Join(dir, "exec.sock") + `"
 [audit]
 log_path = "` + filepath.Join(dir, "audit.log") + `"
-[secrets]
-patterns = [` + secretsFiles + `]
 `
 	path := filepath.Join(dir, "config.toml")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {

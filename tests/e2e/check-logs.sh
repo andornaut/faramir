@@ -462,7 +462,7 @@ uniq=$(jq -r 'select(.op=="exec" or .op=="exec_started") | "\(.log_id) \(.op)"' 
 got=$(jq -r 'select(.op=="exec") | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
 [ "$got" -eq "$n" ] && ok "all $n concurrent runs are recorded" || bad "$got of $n recorded"
 # One start record per command that ran, and none for one refused before it did:
-# over [server] max_concurrency the broker refuses rather than queues, and a
+# over [command] concurrency the broker refuses rather than queues, and a
 # command that never started has nothing to say it began.
 starts=$(jq -r 'select(.op=="exec_started") | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
 ran=$(jq -r 'select(.op=="exec" and .exit_code != null) | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
@@ -475,8 +475,8 @@ skipped=$(logs -n 40 2>&1 >/dev/null | grep -c 'do not parse')
 # --------------------------------------------------------------------------
 head_ "11. one record is bounded, however much the command wrote"
 
-maxbytes=$(sed -n 's/^max_record_bytes *= *\([0-9]*\).*/\1/p' /etc/faramir/config.toml)
-maxbytes=${maxbytes:-1048576}
+# A constant now rather than a key: internal/config MaxRecordBytes.
+maxbytes=262144
 run -- /bin/sh -c 'tr -dc a-z </dev/urandom | head -c 3000000; echo' >/dev/null
 idBig=$(lastID)
 bytes=$(tail -1 "$LOG" | wc -c)

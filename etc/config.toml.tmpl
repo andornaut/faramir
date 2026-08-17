@@ -1,32 +1,22 @@
 # {{.ConfigFile}}: broker configuration.
 #
-# Written by `faramir init` and REWRITTEN BY EVERY RUN.  Do not edit it.
-# Your settings go in a drop-in beside it, which init never touches:
+# Written by `faramir init` and REWRITTEN BY EVERY RUN.  There is one config
+# file and faramir owns it, so an edit here is replaced without warning.
 #
-#   {{.ConfigDir}}/config.d/50-local.toml     yours
-#   {{.ConfigDir}}/config.d/<consumer>.toml   one per consumer of the broker
+# Nothing is lost by that: every value here is either derived from the install
+# or set by a flag this file records, so a re-run keeps what it finds and a flag
+# left out reverts nothing.  `faramir init --help` names the flags; a linked
+# secret is `faramir link`'s.
 #
-# Drop-ins merge over this file in lexical order.  [secrets] patterns accumulates
-# rather than replacing, and decrypt_command is refused if a drop-in sets it
-# again.  Every value init derives from a flag or from the install is refused
-# outright: the socket paths, allowed_group, allowed_user, the keeper's
-# age_key_file and age_key_credential, the whole of [ssh], and audit log_path.
-# Re-running `faramir init` is what changes the ones a flag reaches; the rest
-# come from paths fixed at build time.  What is left is a default, and yours
-# to set.
+# The sections split by who decides.  Three describe faramir's own daemons; the
+# rest are named for what you are deciding rather than for the process that
+# carries it out.
 #
 # Check a config with:  faramir broker -c FILE --check
 # See README.md and docs/design.md.
 
 [server]
 socket_path = "{{.RunDir}}/broker.sock"
-# How many brokered commands run at once; the rest are refused `busy`.  On a
-# host installed with --allow-sudo, raising this makes an approval harder to
-# get: a sudo is refused outright while any other brokered command is
-# registered, so the more that run at once, the rarer the quiet window an
-# approval needs.  See docs/design.md on serialising approvals.
-max_concurrency = 10
-max_request_bytes = 262144
 # Checked with SO_PEERCRED, on top of the socket mode.  Primary or supplementary.
 allowed_group = "{{.ClientGroup}}"
 
@@ -40,33 +30,35 @@ age_key_credential = "age_key"
 age_key_file = "{{.AgeKeyPath}}"
 
 # Forks brokered commands.  Its uid holds no key, values, audit log or SSH keys.
-# No max_concurrency: the broker holds one [server] slot for the whole of each
-# child and is this socket's only client.
+# No concurrency of its own: the broker holds one [command] slot for the whole
+# of each child and is this socket's only client.
 [executor]
 socket_path = "{{.RunDir}}/exec.sock"
 allowed_user = "{{.BrokerUser}}"
 
-[exec]
-default_timeout_sec = 600
-max_timeout_sec = 3600
-max_output_bytes = 1048576
-term_cols = 120
-term_rows = 40
-kill_grace_sec = 5
+# What a brokered command is given and what bounds it.
+[command]
+# What a request that names no timeout of its own gets.
+timeout_sec = {{.CommandTimeoutSec}}
+# The ceiling every request is clamped to, and the idle bound between chunks of
+# a redact stream.
+max_timeout_sec = {{.CommandMaxTimeoutSec}}
+# How many brokered commands run at once; the rest are refused `busy`.  On a
+# host installed with --allow-sudo, raising this makes an approval harder to
+# get: a sudo is refused outright while any other brokered command is
+# registered, so the more that run at once, the rarer the quiet window an
+# approval needs.  See docs/design.md on serialising approvals.
+concurrency = {{.CommandConcurrency}}
 
-# The child's entire environment; the broker's own is never inherited.
-[exec.base_env]
-PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
-TERM = "xterm-256color"
-LANG = "C.UTF-8"
-LC_ALL = "C.UTF-8"
-DEBIAN_FRONTEND = "noninteractive"
-
+# The child's entire environment; the broker's own is never inherited.  Naming
+# one variable keeps the rest, so a line here adds rather than replaces.
+[command.env]
+{{range $name, $value := .CommandEnv}}{{$name}} = {{quote $value}}
+{{end}}
 # Loaded into an agent the broker owns; the child gets SSH_AUTH_SOCK only.
 # One key, minted by init, which holds both halves and prints the public one
-# every run to put in a managed host's authorized_keys.  init owns this value, so
-# a drop-in setting it is refused: move the key, or adopt one of your own, with
-# `faramir init --ssh-key`.
+# every run to put in a managed host's authorized_keys.  Move the key, or adopt
+# one of your own, with `faramir init --ssh-key`.
 [ssh]
 key = "{{.SSHKey}}"
 agent_socket = "{{.RunDir}}/ssh-agent.sock"
@@ -87,10 +79,9 @@ ssh_add = "{{.SshAdd}}"
 # SO_PEERCRED to be root, so the account the coding agent runs as cannot
 # approve what the agent asked for.
 #
-# All of this is init's.  A drop-in setting any of it is refused: re-run
-# `faramir init --allow-sudo`, or re-run without it to take the grant away.
-# timeout_sec is a plain default and yours.
-[sudo]
+# Re-run `faramir init --allow-sudo` to change the arrangement, or re-run
+# without it to take the grant away.
+[approval]
 exec_user = "{{.ExecUser}}"
 pam_service = "{{.PamService}}"
 helper = "{{.PamHelper}}"
@@ -99,7 +90,7 @@ helper = "{{.PamHelper}}"
 # not waited on, so anything will do: wall, a desktop notifier, a push.
 # Unset, `faramir approvals --watch` is the only place a question shows up.
 # Set it with `faramir init --allow-sudo --notify-command PROGRAM --notify-command ARG`,
-# which resolves the program on PATH; a drop-in setting it here is refused.
+# which resolves the program on PATH.
 #
 # Keep "{id}" off anything that broadcasts: wall reaches every terminal on this
 # host, and the coding agent has one.  "{prompt}" says what is waiting without
@@ -109,24 +100,32 @@ helper = "{{.PamHelper}}"
 # 600: the PAM helper derives its own deadline from that ceiling, so a question
 # held longer than it would be one the helper had already abandoned.  While a
 # question is open, sudo blocks and every other brokered command is refused.
-timeout_sec = 120
+timeout_sec = {{.ApprovalTimeoutSec}}
 {{end}}
-[secrets]
-# Every sops file the keeper manages.  ALL of their values are redacted, not
-# only the injected ones.  Entries are globs, so naming the directory picks up
-# a file added beside the others; one that matches nothing leaves the broker
-# refusing exec and redact, and fails --check.
-patterns = ["{{.SecretsDir}}/*.sops.yml"]
-decrypt_command = ["sops", "--output-type", "json", "--decrypt", "{file}"]
-# How often the broker may ask the keeper whether a managed file changed.
-refresh_interval_sec = 5
-# A shorter value would match inside ordinary words, so the broker refuses to
-# load it.  Length only; this judges nothing about the value.
-min_length = 8
+[secret]
+# A value shorter than this matches inside ordinary words, so the broker refuses
+# to hold it.  Length only; this judges nothing about the value.  The floor is 6:
+# below that the redactor eats the output, and above it a real credential is
+# refused, absent from the redactor, and printed in the clear if it ever reaches
+# output.  The second is the direction that leaks.
+min_length = {{.SecretMinLength}}
+# The soonest the broker will ask the keeper again whether a managed sops file
+# changed.  A minimum rather than a schedule: the check runs when a command
+# arrives and nothing polls in the background, so an idle host costs nothing at
+# all and this only bounds how often a busy one repeats the question.
+#
+# The linked files below are not on this clock: the broker stats those itself,
+# per request, so a credential another tool has just rotated is covered at once.
+min_refresh_sec = {{.SecretMinRefreshSec}}
+#
+# The managed store is not a key.  It is {{.SecretsDir}}, derived from where this
+# file sits, matching *.sops.yml, *.sops.yaml and *.sops.json: the three the
+# agent's deny rules already refuse, so what the broker reads and what the agent
+# cannot open cannot disagree.  How the keeper invokes sops is not a key either.
 {{range .Links}}
 # Managed by `faramir link`.  The file stays where its own tool keeps it; init
 # grants {{$.BrokerUser}} read on it and re-asserts that every run.
-[[secrets.link]]
+[[secret.link]]
 ref = {{quote .Ref}}
 path = {{quote .Path}}
 type = {{quote .Type}}
@@ -135,10 +134,3 @@ type = {{quote .Type}}
 
 [audit]
 log_path = "{{.LogDir}}/audit.log"
-# The largest one record's line may be, counted in the bytes the line spends
-# once encoded rather than in the bytes a command wrote: "<", ">", "&" and every
-# C0 control cost six apiece as JSON, so a cap counted before encoding is a cap
-# whose meaning the command picks.  A record keeps the head and the tail of a
-# run's output and says how much it left out between them; nothing here bounds
-# the file, which is logrotate's job.
-max_record_bytes = 1048576

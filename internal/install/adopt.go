@@ -3,6 +3,7 @@ package install
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -116,6 +117,37 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 		o.SSHKey = cfg.Ssh.Key
 		keep("--ssh-key", o.SSHKey, filepath.Join(dir, "id_ed25519"))
 	}
+	// The tunables, each kept unless a flag named one.  Zero is the unset signal;
+	// `faramir init`'s own flags are blanked before they arrive here when the
+	// operator did not type them, which is what makes a bare re-run keep the
+	// install rather than reverting it to the compiled-in values.
+	//
+	// Not "adoption" in the sense the accounts are: no flag has to be repeated
+	// because the file records what the last one said.  It is the same mechanism
+	// and the same failure if it is left out.
+	for _, tunable := range []struct {
+		into  *int
+		found int
+	}{
+		{&o.CommandTimeoutSec, cfg.Command.TimeoutSec},
+		{&o.CommandMaxTimeoutSec, cfg.Command.MaxTimeoutSec},
+		{&o.CommandConcurrency, cfg.Command.Concurrency},
+		{&o.ApprovalTimeoutSec, cfg.Approval.TimeoutSec},
+		{&o.SecretMinLength, cfg.Secret.MinLength},
+		{&o.SecretMinRefreshSec, cfg.Secret.MinRefreshSec},
+	} {
+		if *tunable.into == 0 {
+			*tunable.into = tunable.found
+		}
+	}
+	// The environment merges the other way round: what the file holds first, then
+	// what a flag names on top, so naming one variable neither drops the rest nor
+	// re-adds one the operator removed by re-running without it.
+	env := map[string]string{}
+	maps.Copy(env, cfg.Command.Env)
+	maps.Copy(env, o.CommandEnv)
+	o.CommandEnv = env
+
 	// The links this file declares, read again from the base file alone rather
 	// than taken off the load above.  init renders them back into config.toml, so
 	// reading the merged view would copy a drop-in's link into the base file and
@@ -130,16 +162,6 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 	}
 	if !o.linksSet {
 		o.links = links
-	}
-	// The deny rules refuse every linked file, wherever it was declared, so this
-	// one comes off the merged load.  A drop-in's link is not config.toml's to
-	// render and is still the agent's to be refused.
-	o.linkedPaths = nil
-	for _, link := range cfg.Secrets.Links {
-		o.linkedPaths = append(o.linkedPaths, link.Path)
-	}
-	for _, link := range o.links {
-		o.linkedPaths = append(o.linkedPaths, link.Path)
 	}
 	return nil
 }

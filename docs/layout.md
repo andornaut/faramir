@@ -25,7 +25,6 @@ Every path the install creates, what owns it, and what each account can reach th
 <config-dir>/secrets/           2750 root:<secrets-group>, the managed sops files, each 0640
 <config-dir>/.sops.yaml         0644 root:root, the creation rule; above the secrets directory, not in it
 <config-dir>/config.toml        0644 root:root, faramir's own, rewritten every run
-<config-dir>/config.d/          0755 root:root, yours; each *.toml re-owned 0644 root:root every run
 
 /var/lib/faramir-broker/        the broker's home, a StateDirectory=; .ssh/ 0700
 /var/lib/faramir-keeper/        the keeper's home, likewise
@@ -39,7 +38,7 @@ Every path the install creates, what owns it, and what each account can reach th
 <any tree you enrol>            2770 <operator>:<client-group>, setgid
 ```
 
-`init` also grants access to any file a `[[secrets.link]]` entry names, which is a file it does not own and does not create:
+`init` also grants access to any file a `[[secret.link]]` entry names, which is a file it does not own and does not create:
 
 ```text
 <any file you link>             group-readable by <broker's group>, owner and owner bits kept
@@ -66,7 +65,7 @@ The section is what the deny rules cannot say: why they refuse, and what to do i
 
 Each agent's own directory in an enrolled tree is `3770` rather than `2770`: sticky as well as setgid, so unlink and rename inside it belong to the file's owner. The tree root is `2770` deliberately, and what that costs is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config).
 
-`--config-dir` moves the config, `config.d/`, the secrets directory and the age key off `/etc` together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. The audit log and the two sudo files do not follow: the log is the broker unit's `ReadWritePaths`, and the sudo files are the paths `sudo` and PAM read. `faramir status` reports the paths in use.
+`--config-dir` moves the config, the secrets directory and the age key off `/etc` together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. The audit log and the two sudo files do not follow: the log is the broker unit's `ReadWritePaths`, and the sudo files are the paths `sudo` and PAM read. `faramir status` reports the paths in use.
 
 The `--allow-sudo` files are `root:root` because they decide who becomes root, so the account they govern must not be able to write them. Re-running `init` without the flag removes both. Every install renders the executor unit with `Delegate=yes` so each run gets its own cgroup and is reaped there.
 

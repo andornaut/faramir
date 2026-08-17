@@ -155,7 +155,7 @@ func TestDiagnoseUsernsReportsWhatTheUnitStoppedBounding(t *testing.T) {
 	}
 
 	granted := &config.Config{}
-	granted.Sudo.ExecUser = "faramir-exec"
+	granted.Approval.ExecUser = "faramir-exec"
 
 	var loose DoctorReport
 	diagnoseUserns(&loose, DoctorOptions{ExecUser: "faramir-exec"}, granted)

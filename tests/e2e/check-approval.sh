@@ -12,6 +12,14 @@
 set -u
 SECRET='hunter2-correct-horse-battery'
 CFG=/etc/faramir/config.toml
+
+# The approval timeout, addressed by section.  [command] has a key of the same
+# name, and it comes first in the file, so a bare `sed -n 's/^timeout_sec/'`
+# reads the wrong one and a bare `sed -i` rewrites both -- which puts a command
+# timeout into a section whose ceiling is 600 and leaves the broker refusing to
+# start at all.
+approval_timeout() { sed -n '/^\[approval\]/,/^\[/{s/^timeout_sec *= *\([0-9]*\).*/\1/p}' "$CFG" | head -1; }
+set_approval_timeout() { sed -i "/^\[approval\]/,/^\[/{s/^timeout_sec = .*/timeout_sec = $1/}" "$CFG"; }
 LOG=/var/log/faramir/audit.log
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
@@ -57,7 +65,7 @@ chmod 0755 /usr/local/bin/e2e-notify
 
 # Re-installed when the grant is absent OR when it carries no notifier: the
 # suites share one install, so this may run after another has already written a
-# [sudo] section without one.
+# [approval] section without one.
 if ! grep -q '^notify_command' $CFG; then
   /usr/local/bin/faramir init --allow-sudo --agent-user op \
     --notify-command /usr/local/bin/e2e-notify --notify-command '{prompt}' \
@@ -67,7 +75,7 @@ if ! grep -q '^notify_command' $CFG; then
   sleep 3
 fi
 rm -f "$NOTIFY"
-echo "grant installed; [sudo] timeout_sec=$(sed -n 's/^timeout_sec *= *\([0-9]*\).*/\1/p' $CFG | head -1)"
+echo "grant installed; [approval] timeout_sec=$(approval_timeout)"
 pkill -u faramir-exec 2>/dev/null; sleep 1
 
 # --------------------------------------------------------------------------
@@ -251,14 +259,14 @@ out=$(/usr/local/bin/faramir deny 2>&1); code=$?
 # --------------------------------------------------------------------------
 head_ "8. a question nobody answers"
 
-before=$(sed -n 's/^timeout_sec *= *\([0-9]*\).*/\1/p' $CFG | head -1)
-sed -i 's/^timeout_sec = .*/timeout_sec = 5/' $CFG
+before=$(approval_timeout)
+set_approval_timeout 5
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 
 start=$(date +%s)
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 40 -- /usr/bin/sudo /usr/bin/id -un >/tmp/to.out 2>&1
 elapsed=$(( $(date +%s) - start ))
-[ "$elapsed" -lt 25 ] && ok "an unanswered question ends in ${elapsed}s, near [sudo] timeout_sec=5" \
+[ "$elapsed" -lt 25 ] && ok "an unanswered question ends in ${elapsed}s, near [approval] timeout_sec=5" \
   || bad "it took ${elapsed}s to give up on an unanswered question"
 grep -q 'uid=0\|^root$' /tmp/to.out && bad "*** an unanswered command became root ***" \
   || ok "and the command did not become root"
@@ -283,7 +291,7 @@ out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 10 -- /bin/echo aft
   && ok "and the listing reads it as timed out" \
   || bad "the listing does not tell it from a refusal: $(/usr/local/bin/faramir logs --color never -n 3)"
 
-sed -i "s/^timeout_sec = .*/timeout_sec = ${before:-120}/" $CFG
+set_approval_timeout "${before:-120}"
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 quiesce
 
@@ -394,7 +402,7 @@ id=$(jq -r 'select(.op=="ask_approval" and .approved==true) | .exec_log_id' $LOG
 # --------------------------------------------------------------------------
 head_ "12. the notifier"
 #
-# [sudo] notify_command is what says a question is waiting, and it is init's:
+# [approval] notify_command is what says a question is waiting, and it is init's:
 # a drop-in setting it is refused, so `faramir init --notify-command` is the
 # only way onto a host, and this is the check that the flag reaches the broker
 # rather than only the file.
@@ -654,8 +662,8 @@ quiesce
 # started inside it, and short enough that the first expires while the driver
 # waits.  Section 8's five seconds only has to reach an expiry, and this has to
 # reach an answer after one.
-before=$(sed -n 's/^timeout_sec *= *\([0-9]*\).*/\1/p' $CFG | head -1)
-sed -i 's/^timeout_sec = .*/timeout_sec = 20/' $CFG
+before=$(approval_timeout)
+set_approval_timeout 20
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 
 out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
@@ -668,7 +676,7 @@ out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
 [ "$(field "$out" SECOND_ANSWERED)" = yes ] && ok "and can still be answered" \
   || bad "the second question could not be answered: ${out//$'\n'/ }"
 
-sed -i "s/^timeout_sec = .*/timeout_sec = ${before:-120}/" $CFG
+set_approval_timeout "${before:-120}"
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
 quiesce
 

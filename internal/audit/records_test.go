@@ -143,7 +143,8 @@ func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 			}
 			// audit.Write adds its own, and they count too.
 			path := filepath.Join(t.TempDir(), "audit.log")
-			NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: config.MinRecordBytes}).
+			atLimit(t, config.MinRecordBytes)
+			NewLog(config.AuditConfig{LogPath: path}).
 				Write(record, Output{Text: strings.Repeat("x", 100_000), Dropped: 900_000})
 
 			data, err := os.ReadFile(path)
@@ -156,7 +157,7 @@ func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 			for _, key := range keys {
 				if !strings.Contains(string(data), strconv.Quote(key)+":") {
 					t.Errorf("%q is missing: this record has %d fields and no longer fits "+
-						"[audit] max_record_bytes at its floor of %d, so a host set that low "+
+						"the record cap at its floor of %d, so a host set that low "+
 						"records identities in place of records. Raise config.MinRecordBytes",
 						key, len(keys), config.MinRecordBytes)
 				}
@@ -198,7 +199,8 @@ func TestAnOrdinaryRecordIsUnreducedAtTheFloor(t *testing.T) {
 	fieldsSurviveAt, normalAt, keptAtFloor := 0, 0, 0
 	for limit := 256; limit <= 16*config.MinRecordBytes; limit += 64 {
 		path := filepath.Join(t.TempDir(), "audit.log")
-		NewLog(config.AuditConfig{LogPath: path, MaxRecordBytes: limit}).Write(record(), output)
+		atLimit(t, limit)
+		NewLog(config.AuditConfig{LogPath: path}).Write(record(), output)
 		data, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -231,4 +233,14 @@ func TestAnOrdinaryRecordIsUnreducedAtTheFloor(t *testing.T) {
 		t.Errorf("an ordinary record is reduced at the floor: raise config.MinRecordBytes "+
 			"to at least %d", normalAt)
 	}
+}
+
+// atLimit narrows the record bound for one test and puts it back.  The bound is
+// a package variable rather than a key, so a test that swept it and did not
+// restore it would narrow every test after it.
+func atLimit(t *testing.T, limit int) {
+	t.Helper()
+	was := config.MaxRecordBytes
+	config.MaxRecordBytes = limit
+	t.Cleanup(func() { config.MaxRecordBytes = was })
 }

@@ -9,7 +9,7 @@ import (
 )
 
 // Serve waits on every connection goroutine before it returns, and a stream
-// idling between chunks sits in a read [exec] max_timeout_sec away.  Nothing
+// idling between chunks sits in a read [command] max_timeout_sec away.  Nothing
 // else ends that wait, so a stop took as long as the slowest peer: systemd gives
 // TimeoutStopSec and then kills the broker instead of it exiting.
 func TestClosingDoesNotWaitOutAStreamIdlingBetweenChunks(t *testing.T) {
@@ -46,9 +46,9 @@ func TestClosingDoesNotWaitOutAStreamIdlingBetweenChunks(t *testing.T) {
 			t.Errorf("Serve took %v to return", waited)
 		}
 	case <-time.After(15 * time.Second):
-		t.Fatalf("Serve did not return within 15s of Close, with [exec] "+
+		t.Fatalf("Serve did not return within 15s of Close, with [command] "+
 			"max_timeout_sec at %ds: an idle stream is holding shutdown, which "+
-			"systemd ends by killing the broker", s.Config.Exec.MaxTimeoutSec)
+			"systemd ends by killing the broker", s.Config.Command.MaxTimeoutSec)
 	}
 }
 

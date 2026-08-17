@@ -4,7 +4,7 @@ Playbooks get credentials the way every brokered program does: the caller names 
 
 Ansible does **not** decrypt sops and cannot. That needs the age private key, and no process the broker starts receives it: a playbook runs arbitrary tasks, so one holding the master key means anything that can reach Ansible obtains the key to every managed file, retroactively. A `community.sops` vars plugin or `lookup('pipe', 'sops -d …')` fails for the same reason; the end-to-end suites assert it, `check-exec.sh` refusing a brokered command both the age key and an encrypted file.
 
-Nothing here edits faramir's configuration: `[secrets] patterns` globs the secrets directory, so a file put there is managed by being there. A drop-in is needed only for encrypted files kept where the glob does not reach, and for `[exec.base_env]`: a brokered command inherits nothing from the broker, so a variable `ansible-playbook` needs, `ANSIBLE_CONFIG` among them, has to be named there or it is absent.
+Nothing here edits faramir's configuration: the managed store globs the secrets directory, so a file put there is managed by being there. What does need naming is the environment: a brokered command inherits nothing from the broker, so a variable `ansible-playbook` needs, `ANSIBLE_CONFIG` among them, has to be set with `faramir init --command-env NAME=VALUE` or it is absent.
 
 ## 1. Encrypt the right file, in the right place
 
@@ -79,11 +79,11 @@ An empty string, usually a task failing further along | The ref was not injected
 
 Brokered commands run as `faramir-exec`, which must *use* the key that reaches managed hosts without being able to read it: a password can be rotated, a copied fleet key cannot be un-copied.
 
-`faramir init` mints one, `0600 faramir-broker`, beside the age key, and renders `[ssh] key` itself, a drop-in setting it being refused. Put the public half `init` prints into `authorized_keys` on each managed host; `--ssh-key` moves the key, or adopts one you placed yourself.
+`faramir init` mints one, `0600 faramir-broker`, beside the age key, and renders `[ssh] key` itself. Put the public half `init` prints into `authorized_keys` on each managed host; `--ssh-key` moves the key, or adopts one you placed yourself.
 
 The broker keeps both halves under its own uid, loads the private one into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`. A key the agent cannot load does not stop the broker: it is logged, `--check` and `doctor` fail on it, and only commands that reach a host fail, with ssh's own error. The agent lives and dies with the broker, so nothing outlives the process holding the key in memory. The executor's account cannot read the key, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
 
-Add `ANSIBLE_HOST_KEY_CHECKING=True` to `[exec.base_env]` in a drop-in. It is not in the shipped defaults. With it off, a broker holding credentials offers them to whatever answers on that address.
+Add it with `faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True`. It is not in the shipped defaults. With it off, a broker holding credentials offers them to whatever answers on that address.
 
 `faramir-exec` has its own `known_hosts` and it starts absent, so a play whose hosts are trusted only in the operator's `~/.ssh/known_hosts` fails verification before the key above is offered. `faramir init --known-hosts ~/.ssh/known_hosts` pins yours for it; `/etc/ssh/ssh_known_hosts` is the alternative, being the file every account reads. `faramir doctor` reports how many host keys the executor can verify against.
 

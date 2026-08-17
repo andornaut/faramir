@@ -11,7 +11,7 @@ import (
 	"github.com/andornaut/faramir/internal/sharetree"
 )
 
-// stepLinkAccess makes each [[secrets.link]] file readable by the account that
+// stepLinkAccess makes each [[secret.link]] file readable by the account that
 // reads it, and by nothing else.
 //
 // **Modes and ownership, never an ACL**, and not as a preference: a stacked
@@ -43,7 +43,7 @@ import (
 func (r *runner) stepLinkAccess() error {
 	links := r.opts.links
 	if len(links) == 0 {
-		r.skip("linked files", "no [[secrets.link]] entries are configured")
+		r.skip("linked files", "no [[secret.link]] entries are configured")
 		return nil
 	}
 	if r.opts.DryRun {
@@ -132,15 +132,15 @@ func (r *runner) LinkSteps() []namedStep {
 // without it takes the grant away, which is the direction that reduces reach.
 // Adding a link is not a request to change any of that, and stepConfig renders
 // the whole file from the layout, so without this a `link add` on a host
-// installed with --allow-sudo would silently drop [sudo] and leave the sudoers
+// installed with --allow-sudo would silently drop [approval] and leave the sudoers
 // entry and PAM service pointing at a broker that no longer names them.
 func keepInstalledGrant(opts *Options, configDir string) error {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {
 		return err
 	}
-	opts.AllowSudo = cfg.Sudo.ExecUser != ""
-	opts.NotifyCommand = cfg.Sudo.NotifyCommand
+	opts.AllowSudo = cfg.Approval.ExecUser != ""
+	opts.NotifyCommand = cfg.Approval.NotifyCommand
 	return nil
 }
 
@@ -240,9 +240,8 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 		kept = append(kept, link)
 	}
 	if removed.Ref == "" {
-		return Report{}, config.Link{}, fmt.Errorf("%s names no link %q. A link "+
-			"declared in a drop-in is that file's, and this command does not edit "+
-			"one: remove it there", configFile, ref)
+		return Report{}, config.Link{}, fmt.Errorf("%s names no link %q; `faramir link ls` "+
+			"lists the ones it does", configFile, ref)
 	}
 
 	opts.links, opts.linksSet = kept, true
@@ -341,20 +340,20 @@ func (r *runner) probeLink(link config.Link) error {
 // broker per request.
 func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	const name = "linked file access"
-	if len(cfg.Secrets.Links) == 0 {
-		report.addf(name, StatusOK, "no [[secrets.link]] entries are configured")
+	if len(cfg.Secret.Links) == 0 {
+		report.addf(name, StatusOK, "no [[secret.link]] entries are configured")
 		return
 	}
 	accounts, skipped := askable(opts.BrokerUser, opts.ExecUser)
 	if skipped || len(accounts) < 2 {
-		report.unaskedf(name, len(cfg.Secrets.Links), "the broker and executor "+
+		report.unaskedf(name, len(cfg.Secret.Links), "the broker and executor "+
 			"accounts are not both named, so whether the %d linked file(s) are "+
-			"readable was not asked", len(cfg.Secrets.Links))
+			"readable was not asked", len(cfg.Secret.Links))
 		return
 	}
 
 	var unreadable, reachable, absent []string
-	for _, link := range cfg.Secrets.Links {
+	for _, link := range cfg.Secret.Links {
 		switch {
 		case !exists(link.Path):
 			absent = append(absent, fmt.Sprintf("%s (%s)", link.Ref, link.Path))
@@ -380,10 +379,10 @@ func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.
 	case len(absent) > 0:
 		report.addf(name, StatusWarn, "%d linked file(s) are readable by %s alone; "+
 			"%d not there, which is a credential removed or a home not mounted: %s",
-			len(cfg.Secrets.Links)-len(absent), opts.BrokerUser, len(absent),
+			len(cfg.Secret.Links)-len(absent), opts.BrokerUser, len(absent),
 			strings.Join(absent, ", "))
 	default:
 		report.addf(name, StatusOK, "%d linked file(s) readable by %s and not by %s",
-			len(cfg.Secrets.Links), opts.BrokerUser, opts.ExecUser)
+			len(cfg.Secret.Links), opts.BrokerUser, opts.ExecUser)
 	}
 }

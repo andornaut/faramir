@@ -117,7 +117,7 @@ func (r *runner) stepValidate() error {
 		// lengthen a secret.  Failing here ends every future `init` on this host
 		// the same way, including the upgrade that would carry a fix.
 		if report.onlyNotRedactable() {
-			r.warnf("%d ref(s) are too short for [secrets] min_length, so they are "+
+			r.warnf("%d ref(s) are too short for [secret] min_length, so they are "+
 				"never injected and never redacted: %s. Lengthen them with `faramir "+
 				"edit`; everything else on this host is installed and serving",
 				len(report.Secrets.NotRedactable), report.refusedRefs())
@@ -125,7 +125,7 @@ func (r *runner) stepValidate() error {
 			return nil
 		}
 		return fmt.Errorf("the installed config does not work for %s: %w\n"+
-			"A [secrets] file named there is one the broker could not load. A ref "+
+			"A [secret] file named there is one the broker could not load. A ref "+
 			"reported under not_redactable needs lengthening instead",
 			r.layout.BrokerUser, checkErr)
 	}

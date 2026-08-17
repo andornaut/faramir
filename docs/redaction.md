@@ -8,9 +8,9 @@
 
 So the broker holds every managed value, not the subset the current command names. It refetches on startup, when a file's fingerprint changes, and when the previous fetch could not reach the keeper: the files are unchanged in that case, so the poll would never notice, and an empty value set redacts nothing.
 
-The fingerprints come from the keeper rather than a stat, the secrets being group-readable by the keeper alone, and `[secrets] patterns` globs are expanded there per request, so a file dropped into the secrets directory is picked up within `refresh_interval_sec` with no daemon to restart.
+The fingerprints come from the keeper rather than a stat, the secrets being group-readable by the keeper alone, and the managed store globs are expanded there per request, so a file dropped into the secrets directory is picked up within `min_refresh_sec` with no daemon to restart.
 
-`[[secrets.link]]` values are in the same set, and the same refetch covers them. Those files the broker stats itself, being the operator's own and reachable from this uid, so noticing an edit costs a stat rather than a round trip. Linking is mostly *for* this: the file is one the agent could read directly, and a value in the set is one a brokered command cannot print in the clear. See [configuration.md](configuration.md#linked-secrets).
+`[[secret.link]]` values are in the same set, on a different clock. `min_refresh_sec` is the soonest the broker will repeat the keeper round trip, checked when a command arrives rather than on a timer, so an idle host makes none; a linked file is the operator's own and this uid can stat it, so it is checked on **every** request. That is deliberate: a linked file changes when another tool rotates the credential, which is not something the operator schedules, and a value missing from the redactor for up to a minute is a window nobody chose. Linking is mostly *for* this: the file is one the agent could read directly, and a value in the set is one a brokered command cannot print in the clear.
 
 ## Why a PTY and not a pipe
 
@@ -60,7 +60,7 @@ The buffer only covers a join it is on both sides of, so **one redactor has to s
 
 A streaming `faramir redact` sends a chunk when it has a chunk's worth or after a short idle: without the idle, a backgrounded command that prints a line and then waits would hold that line until it produced a whole chunk or exited, which for a dev server is never. The idle chunk is still marked `more`, so the broker keeps holding the tail; only the last chunk releases it. The cost is that output shorter than the tail is not shown until more arrives or the input ends, the tail being exactly the bytes a value could still be split across.
 
-**5. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. `[secrets] min_length` is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
+**5. Minimum length gate.** A short password redacts unrelated output at random: if `cat` is a secret, "concatenate" gets mangled. `[secret] min_length` is the floor, and a value under it is **refused at load**: not held, not listed, not injectable.
 
 Length is the whole of the test. There is no distinct-character count and no entropy floor: neither is the strength check it reads as (`password` clears both), and how strong a credential is belongs to whoever chose it. Length is a bound on what the redactor can search for without eating the output. A long low-entropy value such as `aaaaaaaa` matches any run of eight, but that mangles the operator's own output rather than letting a value escape.
 

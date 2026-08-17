@@ -11,7 +11,7 @@ import (
 	"github.com/andornaut/faramir/internal/secretlink"
 )
 
-// loadLinks reads every [[secrets.link]] file.  Per-link failures are collected
+// loadLinks reads every [[secret.link]] file.  Per-link failures are collected
 // rather than aborting, so one broken link does not blank the value set.
 //
 // The two ways a link can fail to produce a value are kept apart, and they mean

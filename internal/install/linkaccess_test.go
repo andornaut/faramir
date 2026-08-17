@@ -183,7 +183,7 @@ func TestDoctorLinkedAccessSaysSoWhenNothingIsLinked(t *testing.T) {
 // pass and not a failure.
 func TestDoctorLinkedAccessIsUnaskedWithoutBothAccounts(t *testing.T) {
 	cfg := &config.Config{}
-	cfg.Secrets.Links = []config.Link{{Ref: "gh/token", Path: "/nowhere"}}
+	cfg.Secret.Links = []config.Link{{Ref: "gh/token", Path: "/nowhere"}}
 	var report DoctorReport
 	diagnoseLinkedAccess(&report, DoctorOptions{BrokerUser: "faramir-broker"}, cfg)
 
@@ -218,11 +218,11 @@ func TestLinkStepsResolveTheAgentsBeforeWritingThem(t *testing.T) {
 
 // Adding a link rewrites the whole of config.toml, and the sudo grant is not
 // adopted from anywhere: without this, `link add` on a host installed with
-// --allow-sudo would drop [sudo] and leave the sudoers entry and PAM service
+// --allow-sudo would drop [approval] and leave the sudoers entry and PAM service
 // naming a broker that no longer names them.
 func TestALinkOperationKeepsTheSudoGrant(t *testing.T) {
 	dir := t.TempDir()
-	body := "[exec]\ndefault_timeout_sec = 600\n\n[sudo]\nexec_user = \"faramir-exec\"\n" +
+	body := "[command]\ntimeout_sec = 600\n\n[approval]\nexec_user = \"faramir-exec\"\n" +
 		"notify_command = [\"/usr/bin/wall\", \"{prompt}\"]\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -245,7 +245,7 @@ func TestALinkOperationKeepsTheSudoGrant(t *testing.T) {
 func TestALinkOperationGrantsNoSudoOfItsOwn(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"),
-		[]byte("[exec]\ndefault_timeout_sec = 600\n"), 0o600); err != nil {
+		[]byte("[command]\ntimeout_sec = 600\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	opts := Options{}
@@ -257,12 +257,11 @@ func TestALinkOperationGrantsNoSudoOfItsOwn(t *testing.T) {
 	}
 }
 
-// The deny rules refuse every linked file wherever it was declared, while
-// config.toml renders only the ones it owns.  Reading one set for both would
-// either copy a drop-in's link into the base file or leave it unrefused.
-func TestADropInsLinkIsRefusedButNotRendered(t *testing.T) {
+// A config.d beside the file is no longer read at all, so a link written there
+// is not a link.  The one file is the whole of it.
+func TestADropInIsNotRead(t *testing.T) {
 	dir := t.TempDir()
-	base := "[exec]\ndefault_timeout_sec = 600\n\n[[secrets.link]]\n" +
+	base := "[command]\ntimeout_sec = 600\n\n[[secret.link]]\n" +
 		"ref = \"gh/token\"\npath = \"/home/operator/.config/gh/hosts.yml\"\n" +
 		"type = \"yaml\"\nkey = \"github.com/oauth_token\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(base), 0o600); err != nil {
@@ -271,7 +270,7 @@ func TestADropInsLinkIsRefusedButNotRendered(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(dir, "config.d"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	dropIn := "[[secrets.link]]\nref = \"npm/token\"\npath = \"/home/operator/.npmrc\"\n" +
+	dropIn := "[[secret.link]]\nref = \"npm/token\"\npath = \"/home/operator/.npmrc\"\n" +
 		"type = \"ini\"\nkey = \"//registry.npmjs.org/:_authToken\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.d", "10-npm.toml"),
 		[]byte(dropIn), 0o600); err != nil {
@@ -283,16 +282,11 @@ func TestADropInsLinkIsRefusedButNotRendered(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(opts.links) != 1 || opts.links[0].Ref != "gh/token" {
-		t.Errorf("links = %+v, want the base file's alone: rendering the drop-in's "+
-			"back would refuse both as one ref claimed twice", opts.links)
-	}
-	if !slices.Contains(opts.linkedPaths, "/home/operator/.npmrc") {
-		t.Errorf("linkedPaths = %v, want the drop-in's file among them: it is still "+
-			"a credential the agent must not read", opts.linkedPaths)
+		t.Errorf("links = %+v, want the one the config file declares", opts.links)
 	}
 }
 
-// The guard the [sudo] bug asked for.
+// The guard the [approval] bug asked for.
 //
 // `link add` rewrites the whole of config.toml from the layout it builds, so
 // every value that file carries has to survive the round trip through the

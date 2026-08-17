@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +31,7 @@ type Options struct {
 	KeeperUser   string
 	ExecUser     string
 
-	// ConfigDir holds config.toml, config.d/, the age key and the secrets
+	// ConfigDir holds config.toml, the age key and the secrets
 	// directory.  One path, so secrets in an encrypted home have the key that
 	// opens them there too.
 	ConfigDir string
@@ -75,18 +76,25 @@ type Options struct {
 	//
 	// A flag rather than a drop-in because the broker execs it as the uid holding
 	// every decrypted value, which is the same reason ssh_agent and ssh_add are
-	// resolved here.  Requires AllowSudo: without the grant there is no [sudo]
+	// resolved here.  Requires AllowSudo: without the grant there is no [approval]
 	// section and nothing to announce.
 	NotifyCommand []string
 
-	// links is the [[secrets.link]] entries, read off the installed config's base
+	// The tunables, each named for what it bounds rather than for the section it
+	// lands in: [command] and [secret] are the operator's vocabulary, and a flag
+	// called --exec-something would be named for one of faramir's daemons.
+	CommandEnv           map[string]string
+	CommandTimeoutSec    int
+	CommandMaxTimeoutSec int
+	CommandConcurrency   int
+	ApprovalTimeoutSec   int
+	SecretMinLength      int
+	SecretMinRefreshSec  int
+
+	// links is the [[secret.link]] entries, read off the installed config's base
 	// file during adoption.  Unexported: no flag names one, and `faramir link` is
 	// what adds and removes them.
 	links []config.Link
-	// linkedPaths is every linked file the merged config names, a drop-in's
-	// included.  What the deny rules refuse, which is a different question from
-	// what config.toml renders; see Layout.LinkedPaths.
-	linkedPaths []string
 	// linksSet says the list above is deliberate, empty included.  Without it,
 	// removing the last link would read as "nothing was named" and adoption would
 	// put the old list straight back.
@@ -331,14 +339,14 @@ func (r *runner) steps() []namedStep {
 		{"sops config", r.stepSopsConfig},
 		{"binaries", r.stepBinaries},
 		{"config", r.stepConfig},
-		// After the config: it reads [ssh] key merged across config.d.  Before any
+		// After the config, which is where [ssh] key is recorded.  Before any
 		// daemon starts: a key the broker cannot read leaves the agent holding
 		// nothing.
 		{"ssh key", r.stepSSHKey},
 		// The other half of reaching a managed host: the key authenticates to it,
 		// these say which host answering is that host.
 		{"known hosts", r.stepKnownHosts},
-		// After the config, which renders [sudo] from the same layout, and before
+		// After the config, which renders [approval] from the same layout, and before
 		// anything restarts a daemon: a broker that came up without the PAM service
 		// and the sudoers entry in place would refuse every approval until the next
 		// activation.
@@ -378,6 +386,31 @@ func (o *Options) applyDefaults() {
 	if o.ConfigDir == "" {
 		o.ConfigDir = DefaultConfigDir
 	}
+	// From the loader, so the file this writes and the file it would read agree
+	// on what a default is.
+	command, secret := config.DefaultCommand(), config.DefaultSecret()
+	if o.CommandTimeoutSec == 0 {
+		o.CommandTimeoutSec = command.TimeoutSec
+	}
+	if o.CommandMaxTimeoutSec == 0 {
+		o.CommandMaxTimeoutSec = command.MaxTimeoutSec
+	}
+	if o.CommandConcurrency == 0 {
+		o.CommandConcurrency = command.Concurrency
+	}
+	if o.ApprovalTimeoutSec == 0 {
+		o.ApprovalTimeoutSec = config.DefaultApprovalTimeoutSec
+	}
+	if o.SecretMinLength == 0 {
+		o.SecretMinLength = secret.MinLength
+	}
+	if o.SecretMinRefreshSec == 0 {
+		o.SecretMinRefreshSec = secret.MinRefreshSec
+	}
+	// Merged, never replaced: a flag naming one variable keeps the other four.
+	env := command.Env
+	maps.Copy(env, o.CommandEnv)
+	o.CommandEnv = env
 }
 
 // layout derives the paths from the options and checks them.
@@ -415,13 +448,19 @@ func (o *Options) layout() (Layout, error) {
 	if layout.SSHKey == "" {
 		layout.SSHKey = filepath.Join(layout.ConfigDir, "id_ed25519")
 	}
-	// Off unless asked for, and the config template keys the whole [sudo]
+	// Off unless asked for, and the config template keys the whole [approval]
 	// section off it: an install that never passed --allow-sudo renders no section,
 	// writes no PAM service and grants no sudoers entry.
 	layout.AllowSudo = o.AllowSudo
 	layout.NotifyCommand = resolveNotifyCommand(o.NotifyCommand)
 	layout.Links = o.links
-	layout.LinkedPaths = o.linkedPaths
+	layout.CommandEnv = o.CommandEnv
+	layout.CommandTimeoutSec = o.CommandTimeoutSec
+	layout.CommandMaxTimeoutSec = o.CommandMaxTimeoutSec
+	layout.CommandConcurrency = o.CommandConcurrency
+	layout.ApprovalTimeoutSec = o.ApprovalTimeoutSec
+	layout.SecretMinLength = o.SecretMinLength
+	layout.SecretMinRefreshSec = o.SecretMinRefreshSec
 	return layout, layout.validate()
 }
 
@@ -678,20 +717,18 @@ func (r *runner) refuseInvalidSudoers() error {
 // before the steps, and nothing stops the path being re-pointed in between; what
 // it provides is the diagnosis, not the enforcement.
 func (r *runner) refuseSymlinks() error {
-	dropInDir := filepath.Join(r.layout.ConfigDir, "config.d")
 	secretsDir := r.layout.SecretsDir()
 	// The directories before what is in them, so a linked directory is named as
 	// itself rather than through the entries it happens to list.
 	paths := []string{
 		r.layout.ConfigDir,
-		dropInDir,
 		secretsDir,
 		r.layout.SopsConfigPath(),
 		r.layout.AgeKeyPath,
 		r.layout.LogDir,
 		r.layout.AuditLogPath(),
 	}
-	for _, dir := range []string{dropInDir, secretsDir} {
+	for _, dir := range []string{secretsDir} {
 		// Absent, or a dry run that cannot look inside; either way there is nothing
 		// here to answer for.
 		entries, err := os.ReadDir(dir)

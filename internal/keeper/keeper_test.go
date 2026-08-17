@@ -44,14 +44,14 @@ func unresolved(t *testing.T, resp map[string]any) []string {
 	return value
 }
 
-func fixture(t *testing.T, branch sops.TreeBranch) (config.SecretsConfig, *KeyHolder) {
+func fixture(t *testing.T, branch sops.TreeBranch) (config.SecretConfig, *KeyHolder) {
 	t.Helper()
 	dir := t.TempDir()
 	keyPath, recipient := sopstest.NewIdentity(t, dir)
 	secretPath := filepath.Join(dir, "vault.sops.yaml")
 	sopstest.WriteEncrypted(t, secretPath, recipient, branch)
 
-	return config.SecretsConfig{
+	return config.SecretConfig{
 			Patterns:       []string{secretPath},
 			DecryptCommand: sopstest.DecryptCommand(t),
 		},
@@ -107,7 +107,7 @@ func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, errs := DecryptAll(config.SecretsConfig{
+	_, errs := DecryptAll(config.SecretConfig{
 		Patterns: []string{managed}, DecryptCommand: []string{script, "{file}"},
 	}, newKeyHolder(config.KeeperConfig{AgeKeyFile: keyPath}))
 	if len(errs) > 0 {
@@ -202,7 +202,7 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 		t.Fatal(err)
 	}
 	k := &Keeper{
-		config: &config.Config{Secrets: config.SecretsConfig{
+		config: &config.Config{Secret: config.SecretConfig{
 			Patterns:       []string{path},
 			DecryptCommand: []string{"/nonexistent/sops", "{file}"},
 		}},
@@ -230,7 +230,7 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.sops.yaml")
 	k := &Keeper{
-		config: &config.Config{Secrets: config.SecretsConfig{Patterns: []string{missing}}},
+		config: &config.Config{Secret: config.SecretConfig{Patterns: []string{missing}}},
 		Keys:   newKeyHolder(config.KeeperConfig{}),
 	}
 
@@ -248,7 +248,7 @@ func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 // another moment and miss the edit between them.
 func TestGetValuesCarriesTheFileState(t *testing.T) {
 	secrets, keys := fixture(t, sops.TreeBranch{{Key: "flat", Value: "s3cr3t-value-here"}})
-	k := &Keeper{config: &config.Config{Secrets: secrets}, Keys: keys}
+	k := &Keeper{config: &config.Config{Secret: secrets}, Keys: keys}
 
 	resp := k.Handle(map[string]any{"op": "get_values"})
 	values, ok := resp["values"].(map[string]string)
@@ -389,7 +389,7 @@ func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 func TestAPatternThatNamesNothingIsReportedAsUnresolved(t *testing.T) {
 	pattern := filepath.Join(t.TempDir(), "*.sops.yml")
 	k := &Keeper{
-		config: &config.Config{Secrets: config.SecretsConfig{Patterns: []string{pattern}}},
+		config: &config.Config{Secret: config.SecretConfig{Patterns: []string{pattern}}},
 		Keys:   newKeyHolder(config.KeeperConfig{}),
 	}
 
@@ -415,7 +415,7 @@ func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
 		t.Fatal(err)
 	}
 	k := &Keeper{
-		config: &config.Config{Secrets: config.SecretsConfig{
+		config: &config.Config{Secret: config.SecretConfig{
 			Patterns: []string{filepath.Join(dir, "*.sops.yml")},
 		}},
 		Keys: newKeyHolder(config.KeeperConfig{}),
@@ -430,5 +430,37 @@ func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
 	state := states(t, k.Handle(map[string]any{"op": "get_state"}))
 	if len(state) != 2 {
 		t.Errorf("state = %v, want both files without a reload of the config", state)
+	}
+}
+
+// The store is one directory spelled once per extension a managed file may
+// carry, so two of the three matching nothing is the ordinary case rather than
+// a store two thirds missing.  Reporting it would fail --check and doctor on
+// every host that keeps only *.sops.yml, which is every host.
+func TestUnmatchedExtensionsAreNotAMissingStore(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "a.sops.yml"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	paths, errs, unresolved := Resolve([]string{
+		filepath.Join(dir, "*.sops.yml"),
+		filepath.Join(dir, "*.sops.yaml"),
+		filepath.Join(dir, "*.sops.json"),
+	})
+	if len(paths) != 1 {
+		t.Fatalf("paths = %v, want the one file", paths)
+	}
+	if len(errs) != 0 || len(unresolved) != 0 {
+		t.Errorf("errors = %v, unresolved = %v, want neither", errs, unresolved)
+	}
+}
+
+// A store that matched nothing at all is still reported: that is a broker
+// redacting nothing, and it has to be told from files not written yet.
+func TestAStoreThatMatchedNothingIsStillReported(t *testing.T) {
+	dir := t.TempDir()
+	_, _, unresolved := Resolve([]string{filepath.Join(dir, "*.sops.yml")})
+	if len(unresolved) != 1 {
+		t.Errorf("unresolved = %v, want the entry that named nothing", unresolved)
 	}
 }

@@ -83,15 +83,15 @@ One call, end to end:
 
 ### Redaction
 
-The value set is **every managed secret**, not only the injected ones, so a managed host printing a credential nothing injected is still covered. A `[[secrets.link]]` entry adds a credential another tool owns, read out of that tool's own file rather than copied into the store, and its path is refused to the agent's file tools. Children run on a PTY, so programs behave normally and writes to `/dev/tty` are captured; the cost is that stdout and stderr arrive merged. ANSI escapes are stripped before matching, an expanded set of encodings is matched (base64, base32, hex, URL, JSON, shell quoting), and a streaming overlap buffer catches a value split across reads. Tokens are stable, so the model can reason about a secret across turns.
+The value set is **every managed secret**, not only the injected ones, so a managed host printing a credential nothing injected is still covered. A `[[secret.link]]` entry adds a credential another tool owns, read where that tool keeps it. Children run on a PTY, so programs behave normally and writes to `/dev/tty` are captured; the cost is that stdout and stderr arrive merged. ANSI escapes are stripped before matching, an expanded set of encodings is matched (base64, base32, hex, URL, JSON, shell quoting), and a streaming overlap buffer catches a value split across reads. Tokens are stable, so the model can reason about a secret across turns.
 
-Two things are not in the value set: a value shorter than `[secrets] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing to it, approval minting no credential. Detail in [docs/redaction.md](docs/redaction.md).
+Two things are not in the value set: a value shorter than `[secret] min_length`, refused at load because it would match inside ordinary words, and the age key, which no child can obtain. `--allow-sudo` adds nothing to it, approval minting no credential. Detail in [docs/redaction.md](docs/redaction.md).
 
 ### The audit log
 
 Every field of a record is chosen by the account the log exists to hold to account, so the record's bounds are decided where it is built:
 
-- One record is one line within `[audit] max_record_bytes`, counted in encoded bytes: `<`, `>`, `&` and every control character cost six apiece as JSON.
+- One record is one line within the record cap, counted in encoded bytes: `<`, `>`, `&` and every control character cost six apiece as JSON.
 - An append is exclusive and all-or-nothing. A write that lands short is taken back, so a torn line cannot swallow the record after it.
 - Every `log_id` is distinct: the second it was minted in, the writer's nonce, and a counter that only advances. Fourteen characters, and it carries no readable time, every record saying when it happened in a field of its own.
 - An exec writes two records under one `log_id`: `exec_started` when the child runs and `exec` when it ends.
@@ -126,7 +126,7 @@ Flag | Default | Sets
 `--agent-user NAME` | `$SUDO_USER`, then you | The account the coding agent runs as. It owns the checkouts brokered commands run in, so root is refused
 `--client-group NAME` | the install's, then `dev` | The group admitted to the broker socket and group-owning an enrolled tree
 `--secrets-group NAME` | the install's, then the keeper's own group | The group owning the ciphertext. `doctor` fails if the operator is in it
-`--config-dir DIR` | [found the usual way](docs/operating.md#checking-an-install) | Where `config.toml`, `config.d/`, the age key and the managed sops files live. Absolute, its parent must exist, and a *different* one is refused without `--move-config`
+`--config-dir DIR` | [found the usual way](docs/operating.md#checking-an-install) | Where `config.toml`, the age key and the managed sops files live. Absolute, its parent must exist, and a *different* one is refused without `--move-config`
 `--move-config` | off | Consent to that move. The refs the old directory served leave the value set
 `--broker-user`, `--exec-user`, `--keeper-user` | the install's, then `faramir-broker`, `faramir-exec`, `faramir-keeper` | The three service accounts, created if missing. No two may share a name
 `--age-recipient KEY` | none | An age **public** key that may also decrypt the store, repeatable. An identity is refused, `.sops.yaml` being world-readable. Read only at the install that creates that file; changing it later is [Adding a recipient](docs/operating.md#adding-a-recipient)
@@ -155,12 +155,12 @@ Reports whether the install is doing its job, and as root what each account can 
 
 ### Onboarding a project
 
-1. Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them. `[secrets] patterns` globs that directory, so it is picked up on the next refresh (5 seconds by default).
+1. Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them. the store is that directory, so a file put there is picked up on the next refresh (10 seconds by default).
 2. Have the project read each credential from an environment variable rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. Write the refs beside the project, one `NAME=secret://ref` per line.
 4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
-Enrol the projects where managed credentials are in play, not every tree. `--hook=false` shares one without the hook. A brokered command runs where its caller was, so nothing needs a tree of its own. A secrets file the glob does not reach needs naming in a drop-in: `patterns = ["/srv/other/x.sops.yml"]`.
+Enrol the projects where managed credentials are in play, not every tree. `--hook=false` shares one without the hook. A brokered command runs where its caller was, so nothing needs a tree of its own. The store is `<config-dir>/secrets/` and is not configurable, so a managed file is managed by being there.
 
 ```bash
 faramir list-secrets
@@ -175,7 +175,7 @@ group_vars/all/vars.yml                      committed: var -> lookup('env', 'NA
 faramir.env                                  NAME=secret://ref, one per line
 ```
 
-`sudo faramir init-project` writes the agent configuration and shares the tree. The other three are yours to place, and none needs a drop-in: a file is managed by being in the secrets directory. Full walk-through in [docs/ansible-sops.md](docs/ansible-sops.md).
+`sudo faramir init-project` writes the agent configuration and shares the tree. The other three are yours to place, and none needs configuring: a file is managed by being in the secrets directory. Full walk-through in [docs/ansible-sops.md](docs/ansible-sops.md).
 
 #### Other cases
 
@@ -194,7 +194,7 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 Redaction only, no secret | Skip steps 3 and 4. `faramir redact -- ./script.sh`, or use it as a filter
 
 - A pipeline is requested explicitly as `["bash", "-lc", "…"]`; the broker never hands a string to a shell.
-- A bare command name is looked up on `[exec.base_env] PATH`. Venv, pipx and shim directories belong there.
+- A bare command name is looked up on `[command.env] PATH`. Venv, pipx and shim directories belong there.
 - Anything that wants to decrypt sops itself does not onboard. It gets named values instead.
 
 ### Running commands
@@ -231,23 +231,23 @@ How to run it: [docs/operating.md](docs/operating.md#allowing-sudo-on-the-contro
 
 All need root except `doctor`, which degrades, and the two that read nothing of the install: `sops keygen` and `link ls`.
 
-Two of them group: `faramir sops` is what is done to the managed store, `faramir link` what is done to a secret another tool owns. What they share is one ref namespace, not a mechanism, so nothing marks a ref as linked and moving a secret between the two does not rename it.
+Two of them group: `faramir sops` acts on the managed store, `faramir link` on a secret another tool owns. They share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
 
 Command | Does
 --- | ---
 `sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. [Shares the tree](docs/layout.md), registers the hook and the MCP server in each enrolled agent's settings, and writes the credentials section into the tree's agent instructions file. A home directory, `/`, and anything above a home are refused, symlinks resolved first
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach
-`sudo faramir sops edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any name the `[secrets] patterns` globs reach. `--editor` names the editor, `--age-key` the key
+`sudo faramir sops edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any file in the secrets directory. `--editor` names the editor, `--age-key` the key
 `sudo faramir sops rekey [FILE...]` | Re-encrypts to the recipients `<config-dir>/.sops.yaml` names now: every managed file unless some are named. `--dry-run` writes nothing. [What it preserves and refuses](docs/operating.md#adding-a-recipient)
 `faramir sops keygen [-o FILE]` | Mints an age keypair, so a host needs no `age` binary. The one command in this group needing neither root nor an install: `init` mints the keeper's key itself, and this is for a second recipient or a backup identity. Refuses to overwrite
-`sudo faramir link add REF FILE` | Reads a secret out of a file another tool maintains, instead of copying it into the store. `--type` and `--key` say how. The file is read once as the broker's own account before anything is written, so a selector that names nothing is an error here rather than a broker refusing every command later. Grants the broker read, refuses the file to the agent's file tools, and writes the entry into `config.toml`. [Detail](docs/configuration.md#linked-secrets)
-`sudo faramir link rm REF` | Drops the entry and the deny rule. Leaves the access granted to the broker, and says what the file is now and what would narrow it
+`sudo faramir link add REF FILE` | Reads a secret out of a file another tool maintains, instead of copying it in. `--type` and `--key` say how. It grants the broker read, refuses the file to the agent's file tools, writes the entry and reloads. The file is read once as the broker's own account first, so a selector that names nothing is an error here rather than a broker refusing every command later. [Detail](docs/configuration.md#linked-secrets)
+`sudo faramir link rm REF` | Drops the entry, so the value leaves the redactor. It undoes neither the grant nor the deny rule -- a merged rule file can only be added to -- and prints both, with what would narrow them
 `faramir link ls` | The linked secrets this install declares, and whether each file is there
 `sudo faramir logs [LOG-ID]` | Recent audit records, one row each: the log id, local time, op, outcome, values stood in for, and the command. With an id, one record in full. `--count`/`-n` bounds what is parsed as well as printed; `--json` prints records rather than rows; `--watch` prints the last `-n` and then each record as it is written, following the log across a rotation and waiting for it on a host where nothing has been brokered yet. It reads the log `[audit] log_path` names and takes no path of its own. Printed as found rather than redacted again, the log holding no value. Rotated files are not searched
 `sudo faramir approvals [--watch]` | Lists the approval a brokered command is waiting on. `--watch` waits for questions, answers them from that terminal, and reports how each approved run ended
 `sudo faramir approve ID` | Say yes. The id is required: an approval that names no command is one nobody judged
 `sudo faramir deny [ID]` | Say no. The id is optional, one question being outstanding at a time
-`sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed `config.d` drop-in. All three are socket activated
+`sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed config. All three are socket activated
 `sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively
 
 `approvals`, `approve` and `deny` are root-only at the broker too, checked with `SO_PEERCRED`: the account the coding agent runs as must not answer what the agent asked for.
@@ -265,16 +265,16 @@ Wire protocol: [docs/protocol.md](docs/protocol.md).
 
 ## Configuration
 
-Settings live in `<config-dir>/config.toml`, which `init` rewrites on every run from [etc/config.toml.tmpl](etc/config.toml.tmpl), and in `config.d/*.toml` drop-ins, which it never touches. Edit a drop-in.
+Settings live in `<config-dir>/config.toml`, which `init` rewrites on every run from [etc/config.toml.tmpl](etc/config.toml.tmpl). It is faramir's file: change a value with the flag that sets it, and a re-run keeps what it finds.
 
-There is no command allowlist. What bounds a brokered command is the executor's uid, and then `[exec.base_env] PATH`, `[exec] max_timeout_sec`, `[exec] max_output_bytes` and `[secrets] min_length`. [docs/configuration.md](docs/configuration.md) is the reference.
+There is no command allowlist. What bounds a brokered command is the executor's uid, and then `[command.env] PATH`, `[command] max_timeout_sec`, the output cap and `[secret] min_length`. [docs/configuration.md](docs/configuration.md) is the reference.
 
 ## Documentation
 
 Doc | Covers
 --- | ---
 [docs/ansible-sops.md](docs/ansible-sops.md) | Pointing `group_vars` at the environment
-[docs/configuration.md](docs/configuration.md) | Every setting, what a drop-in may set, what `--check` fails on
+[docs/configuration.md](docs/configuration.md) | Every setting, which flag sets it, what `--check` fails on
 [docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what enrolment costs
 [docs/layout.md](docs/layout.md) | Every path the install creates, with its mode and owner
 [docs/operating.md](docs/operating.md) | Checking an install, [the rules a command does not state](docs/operating.md#rules-a-command-does-not-state), adding an age recipient

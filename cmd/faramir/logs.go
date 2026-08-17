@@ -290,7 +290,7 @@ func printJSON(v any) int {
 
 // scanAuditLog calls visit with each line of the log, in order, and stops early
 // when visit returns false.  It holds one line at a time, so what it costs is
-// the largest record rather than the file: [audit] max_record_bytes bounds a
+// the largest record rather than the file: the record cap bounds a
 // line at the writer, which is the only place that can bound it.
 //
 // No ceiling on a line's length here, and none is needed.  A ceiling in a reader
@@ -853,7 +853,7 @@ func printRecord(record map[string]any, paint palette) {
 	// a short argv or a list of refs that ends where the record ran out of room.
 	if reduced, _ := boolean(record, "record_reduced"); reduced {
 		printField(paint, "reduced", paint.dim(
-			"fields were cut to fit [audit] max_record_bytes"))
+			"fields were cut to fit the record cap"))
 	}
 	printField(paint, "caller", describePeer(record))
 	// The labels are not all the field names.  argv0_path is what root or the
@@ -901,7 +901,7 @@ func printRecord(record map[string]any, paint palette) {
 		fmt.Printf("    %s\n", paint.token(termsafe.Line(line)))
 	}
 	if truncated, _ := boolean(record, "output_truncated"); truncated {
-		fmt.Printf("    %s\n", paint.dim("[truncated at [audit] max_record_bytes]"))
+		fmt.Printf("    %s\n", paint.dim("[truncated at the record cap]"))
 	}
 }
 

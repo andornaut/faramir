@@ -167,7 +167,7 @@ func TestTimeoutDefaultsAndClamps(t *testing.T) {
 
 // -- the child's environment ------------------------------------------------
 
-// base_env plus exactly the refs asked for.  HOME is absent: it belongs to the
+// env plus exactly the refs asked for.  HOME is absent: it belongs to the
 // executor's uid, which supplies it.
 //
 // This is the map the broker builds, not the child's environment; that is
@@ -184,7 +184,7 @@ func TestTheEnvironmentTheBrokerAssembles(t *testing.T) {
 	env := rec.only(t).Env
 
 	if env["PATH"] != "/usr/bin:/bin" {
-		t.Errorf("PATH = %q; base_env did not reach the child", env["PATH"])
+		t.Errorf("PATH = %q; env did not reach the child", env["PATH"])
 	}
 	if env["ROUTER_PW"] != goodValue {
 		t.Errorf("the ref was not injected: %q", env["ROUTER_PW"])
@@ -192,9 +192,9 @@ func TestTheEnvironmentTheBrokerAssembles(t *testing.T) {
 	if _, ok := env["HOME"]; ok {
 		t.Error("HOME was set by the broker; it belongs to the executor's uid")
 	}
-	// Nothing beyond base_env and the refs.
-	if len(env) != len(s.Config.Exec.BaseEnv)+1 {
-		t.Errorf("environment = %v, want base_env plus ROUTER_PW only", env)
+	// Nothing beyond env and the refs.
+	if len(env) != len(s.Config.Command.Env)+1 {
+		t.Errorf("environment = %v, want env plus ROUTER_PW only", env)
 	}
 }
 
@@ -316,13 +316,13 @@ func TestOverTheConcurrencyLimitIsRefusedAsBusy(t *testing.T) {
 	}
 
 	var wg sync.WaitGroup
-	for range s.Config.Server.MaxConcurrency {
+	for range s.Config.Command.Concurrency {
 		wg.Go(func() {
 			exec(t, s, map[string]any{"cmd": []any{"true"}})
 		})
 	}
 	// Both slots are held before the next request is made.
-	for range s.Config.Server.MaxConcurrency {
+	for range s.Config.Command.Concurrency {
 		<-entered
 	}
 
@@ -425,7 +425,7 @@ func TestAResolveFailureIsRecordedAndReported(t *testing.T) {
 	}
 	msg := errorMessage(t, r)
 	// The failure an operator actually hits, so it says what to do.
-	for _, want := range []string{"not found on the broker's PATH", "base_env"} {
+	for _, want := range []string{"not found on the broker's PATH", "env"} {
 		if !strings.Contains(msg, want) {
 			t.Errorf("message does not mention %q: %q", want, msg)
 		}

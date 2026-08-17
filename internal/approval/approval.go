@@ -9,7 +9,7 @@
 //   - The broker files a question, a human answers it through `faramir
 //     approve`, and the answer releases every request from that one command.
 //
-// Optional: with no [sudo] exec_user nothing is granted and no question can be
+// Optional: with no [approval] exec_user nothing is granted and no question can be
 // raised.
 package approval
 
@@ -119,7 +119,7 @@ const maxCommandChars = 240
 // Command is the run as one line, rendered for a terminal.
 //
 // Every string in it is the caller's, and this reaches the operator's terminal
-// through `faramir approvals`, the refusal messages and [sudo] notify_command.
+// through `faramir approvals`, the refusal messages and [approval] notify_command.
 // Left raw, a run could return the cursor with a "\r" and overwrite the question
 // it is being judged on, which would defeat the only thing that makes an
 // approval worth anything, that the prompt names the command.  termsafe says
@@ -156,7 +156,7 @@ func safeUnlessEmpty(value string) string {
 }
 
 type Server struct {
-	config config.SudoConfig
+	config config.ApprovalConfig
 
 	// Record writes one audit entry per request.  Set by the broker; nil records
 	// nothing, which is the case in tests.
@@ -276,7 +276,7 @@ const (
 	CodeNoGrant       = "no_grant"
 )
 
-func New(cfg config.SudoConfig) *Server {
+func New(cfg config.ApprovalConfig) *Server {
 	return &Server{
 		config:  cfg,
 		runs:    map[string]Run{},
@@ -320,7 +320,7 @@ func (s *Server) Env(token string) map[string]string {
 // for want of quiescence, and answers again.  Holding from the moment the
 // question is put makes the host drain toward the answer instead of away from
 // it.  The cost is that one unanswered question stalls unrelated brokered work
-// for up to [sudo] timeout_sec, which is the same cost an approved run already
+// for up to [approval] timeout_sec, which is the same cost an approved run already
 // imposes for its whole length.
 func (s *Server) Register(run Run) (token, heldBy string) {
 	if !s.Enabled() {
@@ -792,7 +792,7 @@ type Question struct {
 	// ExpiresInSec it also says whether anything was watching: a question shown at
 	// 40s waited 40 seconds for somebody to arrive.
 	WaitingSec int `json:"waiting_sec"`
-	// ExpiresInSec is what is left of [sudo] timeout_sec, after which the question
+	// ExpiresInSec is what is left of [approval] timeout_sec, after which the question
 	// is refused.  It matters most where the answer is a second command typed
 	// after this one was read, which is `faramir approvals` without --watch.
 	ExpiresInSec int `json:"expires_in_sec"`

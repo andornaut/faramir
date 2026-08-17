@@ -95,7 +95,7 @@ grep -q "forbidden" <<<"$out" && ok "and is still refused the approval ops, whic
 head_ "3. the environment the broker chose"
 env_out=$(run -- /usr/bin/printenv)
 for want in PATH TERM LANG LC_ALL DEBIAN_FRONTEND; do
-  grep -q "^$want=" <<<"$env_out" && ok "base_env carries $want" || bad "$want is missing"
+  grep -q "^$want=" <<<"$env_out" && ok "env carries $want" || bad "$want is missing"
 done
 # The caller's environment must not come with it.
 out=$(runuser -u op -- env LEAKED_FROM_CALLER=yes /usr/local/bin/faramir run --quiet -t 20 -- /usr/bin/printenv 2>&1)
@@ -154,8 +154,9 @@ head_ "4. the terminal it runs on"
 out=$(run -- /bin/sh -c 'test -t 1 && echo TTY || echo PIPE')
 [ "$out" = "TTY" ] && ok "stdout is a terminal, so programs format as they would for a person" \
   || bad "stdout is not a tty: $out"
-cols=$(grep -oP 'term_cols = \K[0-9]+' /etc/faramir/config.toml)
-rows=$(grep -oP 'term_rows = \K[0-9]+' /etc/faramir/config.toml)
+# Constants now rather than keys: internal/config TermCols and TermRows.
+cols=120
+rows=40
 # From stdout, not stdin: stty reads the terminal on its standard input by
 # default, and stdin here is /dev/null by design.  The PTY is on stdout.
 out=$(run -- /bin/sh -c 'stty size <&1 2>/dev/null')
@@ -241,7 +242,7 @@ grep -q '"timed_out":true' /var/log/faramir/audit.log 2>/dev/null \
   || bad "no timed_out record: $(tail -1 /var/log/faramir/audit.log | head -c 120)"
 
 head_ "8. output limits"
-cap=$(grep -oP 'max_output_bytes = \K[0-9]+' /etc/faramir/config.toml)
+cap=262144
 out=$(run -- /bin/sh -c "yes abcdefgh | head -c $(( cap * 2 ))")
 [ "${#out}" -lt "$(( cap * 2 ))" ] && ok "output past max_output_bytes ($cap) is cut at ${#out} chars" \
   || bad "no truncation: got ${#out} for a cap of $cap"
@@ -297,7 +298,7 @@ got=$?
 [ "$got" = "137" ] && ok "a SIGKILLed command reports 137, as a shell does" || bad "signal exit = $got"
 
 head_ "11. more commands at once than the broker will take"
-limit=$(grep -oP 'max_concurrency = \K[0-9]+' /etc/faramir/config.toml)
+limit=$(grep -oP 'concurrency = \K[0-9]+' /etc/faramir/config.toml)
 rm -f /tmp/conc.*; for i in $(seq $(( limit + 3 ))); do
   ( runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sleep 6 >/tmp/conc."$i" 2>&1 ) &
 done

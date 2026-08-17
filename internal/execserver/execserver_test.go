@@ -19,10 +19,8 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "exec.sock")
 	cfg := &config.Config{
-		Exec: config.ExecConfig{
-			DefaultTimeoutSec: 15, KillGraceSec: 2,
-			TermCols: 120, TermRows: 40,
-		},
+		Command: config.CommandConfig{
+			TimeoutSec: 15},
 		Executor: config.ExecutorConfig{SocketPath: sock},
 	}
 	e := New(cfg)
@@ -240,7 +238,7 @@ func TestAnExecutorWithoutACgroupRefusesEveryCommand(t *testing.T) {
 	dir := t.TempDir()
 	sock := filepath.Join(dir, "exec.sock")
 	e := New(&config.Config{
-		Exec:     config.ExecConfig{DefaultTimeoutSec: 15, KillGraceSec: 2, TermCols: 80, TermRows: 24},
+		Command:  config.CommandConfig{TimeoutSec: 15},
 		Executor: config.ExecutorConfig{SocketPath: sock},
 	})
 	e.cgroupBase = "" // as on a host without cgroup v2, Delegate=, or cgroup.kill

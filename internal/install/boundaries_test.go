@@ -123,10 +123,10 @@ func TestWithoutAGrantTheSudoChecksReportNotApplicable(t *testing.T) {
 // anything doctor could not reach.
 func TestWithAGrantTheSameChecksAreAnswered(t *testing.T) {
 	granted := &config.Config{}
-	granted.Sudo.ExecUser = "ex"
+	granted.Approval.ExecUser = "ex"
 	// A service name no host has: the arrangement check reports the unreadable
 	// file, which is an answer about this host rather than a skip.
-	granted.Sudo.PamService = "faramir-no-such-service"
+	granted.Approval.PamService = "faramir-no-such-service"
 	for _, check := range []struct {
 		name string
 		run  func(*DoctorReport)

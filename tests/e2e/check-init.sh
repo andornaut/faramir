@@ -87,7 +87,6 @@ done
 
 head_ "the config directory"
 mode /etc/faramir/config.toml  0644 root:root
-mode /etc/faramir/config.d     0755 root:root
 mode /etc/faramir/.sops.yaml   0644 root:root
 mode /etc/faramir/secrets      2750 root:faramir-keeper
 mode /etc/faramir/age.key      0400 faramir-keeper:faramir-keeper

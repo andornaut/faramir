@@ -18,8 +18,8 @@ func load(t *testing.T, text string) (*Config, error) {
 }
 
 const minimal = `
-[exec]
-default_timeout_sec = 600
+[command]
+timeout_sec = 600
 `
 
 func TestMinimalConfigLoads(t *testing.T) {
@@ -31,8 +31,8 @@ func TestMinimalConfigLoads(t *testing.T) {
 	if cfg.Ssh.AgentSocket != "/run/faramir/ssh-agent.sock" {
 		t.Errorf("agent_socket = %q", cfg.Ssh.AgentSocket)
 	}
-	if cfg.Exec.MaxTimeoutSec != 3600 {
-		t.Errorf("max_timeout_sec = %d", cfg.Exec.MaxTimeoutSec)
+	if cfg.Command.MaxTimeoutSec != 3600 {
+		t.Errorf("max_timeout_sec = %d", cfg.Command.MaxTimeoutSec)
 	}
 }
 
@@ -44,13 +44,13 @@ func TestApprovalIsOffUnlessConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Sudo.ExecUser != "" {
-		t.Errorf("exec_user = %q, want unset", cfg.Sudo.ExecUser)
+	if cfg.Approval.ExecUser != "" {
+		t.Errorf("exec_user = %q, want unset", cfg.Approval.ExecUser)
 	}
 	// The rest still has values, describing where things would go if one were
 	// ever set.
-	if cfg.Sudo.PamService == "" || cfg.Sudo.TimeoutSec == 0 {
-		t.Errorf("approval defaults are incomplete: %+v", cfg.Sudo)
+	if cfg.Approval.PamService == "" || cfg.Approval.TimeoutSec == 0 {
+		t.Errorf("approval defaults are incomplete: %+v", cfg.Approval)
 	}
 }
 
@@ -62,10 +62,10 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(cfg.Sudo.NotifyCommand) != 0 {
-		t.Errorf("notify_command = %q, want nothing by default", cfg.Sudo.NotifyCommand)
+	if len(cfg.Approval.NotifyCommand) != 0 {
+		t.Errorf("notify_command = %q, want nothing by default", cfg.Approval.NotifyCommand)
 	}
-	_, err = load(t, minimal+"[sudo]\nnotify_command = [\"wall\", \"something happened\"]\n")
+	_, err = load(t, minimal+"[approval]\nnotify_command = [\"wall\", \"something happened\"]\n")
 	if err == nil {
 		t.Fatal("accepted a notifier that names neither the command nor the question")
 	}
@@ -73,7 +73,7 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 		t.Errorf("error does not name the key: %v", err)
 	}
 	// One that names either is fine.
-	if _, err := load(t, minimal+"[sudo]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
+	if _, err := load(t, minimal+"[approval]\nnotify_command = [\"wall\", \"{prompt}\"]\n"); err != nil {
 		t.Errorf("refused a usable notifier: %v", err)
 	}
 }
@@ -86,8 +86,8 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 // relationship between them true.
 func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
-		{"zero", "[sudo]\ntimeout_sec = 0\n"},
-		{"past the ceiling", fmt.Sprintf("[sudo]\ntimeout_sec = %d\n", MaxSudoTimeoutSec+1)},
+		{"zero", "[approval]\ntimeout_sec = 0\n"},
+		{"past the ceiling", fmt.Sprintf("[approval]\ntimeout_sec = %d\n", MaxSudoTimeoutSec+1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, err := load(t, minimal+tc.body)
@@ -100,12 +100,12 @@ func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 		})
 	}
 	// The ceiling itself loads: it is the bound, not the first refusal.
-	cfg, err := load(t, minimal+fmt.Sprintf("[sudo]\ntimeout_sec = %d\n", MaxSudoTimeoutSec))
+	cfg, err := load(t, minimal+fmt.Sprintf("[approval]\ntimeout_sec = %d\n", MaxSudoTimeoutSec))
 	if err != nil {
 		t.Fatalf("refused the ceiling itself: %v", err)
 	}
-	if cfg.Sudo.TimeoutSec != MaxSudoTimeoutSec {
-		t.Errorf("timeout_sec = %d, want %d", cfg.Sudo.TimeoutSec, MaxSudoTimeoutSec)
+	if cfg.Approval.TimeoutSec != MaxSudoTimeoutSec {
+		t.Errorf("timeout_sec = %d, want %d", cfg.Approval.TimeoutSec, MaxSudoTimeoutSec)
 	}
 }
 
@@ -119,8 +119,8 @@ func TestUnknownKeysAreRefused(t *testing.T) {
 		wants      []string
 	}{
 		{name: "a misspelling in [server]", text: minimal + "\n[server]\nsoket_path = \"/x\"\n"},
-		{name: "a singular where the key is plural", text: "[exec]\nterm_col = 80\n"},
-		{name: "the retired [exec] default_cwd", text: "[exec]\ndefault_cwd = \"/t\"\n",
+		{name: "a singular where the key is plural", text: "[command]\nterm_col = 80\n"},
+		{name: "the retired [command] default_cwd", text: "[command]\ndefault_cwd = \"/t\"\n",
 			wants: []string{"default_cwd"}},
 		// The numeric spelling of a caller: allowed_uids said what allowed_group
 		// says, in a form that stopped being true once an account was renumbered.
@@ -128,18 +128,18 @@ func TestUnknownKeysAreRefused(t *testing.T) {
 			text:  minimal + "\n[server]\nallowed_uids = [1000]\n",
 			wants: []string{"allowed_group"}},
 		// The executor's own cap is gone, the broker holding a [server]
-		// max_concurrency slot for the whole of each child and being the only client
+		// concurrency slot for the whole of each child and being the only client
 		// this socket admits.
-		{name: "the executor's own max_concurrency",
-			text:  minimal + "\n[executor]\nmax_concurrency = 8\n",
-			wants: []string{"max_concurrency"}},
+		{name: "a concurrency of the executor's own",
+			text:  minimal + "\n[executor]\nconcurrency = 8\n",
+			wants: []string{"concurrency"}},
 		// The broker no longer grades a secret's strength, so the two keys that did
 		// are refused rather than quietly ignored.
 		{name: "min_unique_chars, a strength threshold",
-			text:  minimal + "\n[secrets]\nmin_unique_chars = 4\n",
+			text:  minimal + "\n[secret]\nmin_unique_chars = 4\n",
 			wants: []string{"min_length"}},
 		{name: "min_entropy_bits_per_char, likewise",
-			text:  minimal + "\n[secrets]\nmin_entropy_bits_per_char = 1.5\n",
+			text:  minimal + "\n[secret]\nmin_entropy_bits_per_char = 1.5\n",
 			wants: []string{"min_length"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -156,16 +156,26 @@ func TestUnknownKeysAreRefused(t *testing.T) {
 	}
 }
 
-// [secret] for [secrets] leaves a broker managing no files while reading as
-// though it were configured.
+// [secret] for [secret], or [command] for [command]: a section nobody reads is a
+// setting that looks applied and is not.  Named, with the sections that exist.
 func TestUnknownSectionsAreRefused(t *testing.T) {
-	_, err := load(t, minimal+"\n[secret]\nfiles = [\"/x.sops.yml\"]\n")
-	if err == nil {
-		t.Fatal("a mistyped section was accepted")
-	}
-	for _, want := range []string{"unknown section", "secret", "secrets"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("message does not mention %q: %v", want, err)
+	// Spelled with string concatenation so a future rename pass cannot quietly
+	// turn these deliberate mistakes back into the valid names they are the
+	// mistake for.
+	for _, mistake := range []string{
+		"\n[" + "secrets" + "]\nmin_length = 12\n",
+		"\n[" + "exec" + "]\ntimeout_sec = 30\n",
+		"\n[" + "sudo" + "]\ntimeout_sec = 30\n",
+	} {
+		err := func() error { _, err := load(t, minimal+mistake); return err }()
+		if err == nil {
+			t.Errorf("%q was accepted", mistake)
+			continue
+		}
+		for _, want := range []string{"unknown section", "command", "secret"} {
+			if !strings.Contains(err.Error(), want) {
+				t.Errorf("%q: message does not mention %q: %v", mistake, want, err)
+			}
 		}
 	}
 }
@@ -177,17 +187,12 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 		{"negative max_concurrency", minimal + "\n[server]\nmax_concurrency = -1\n"},
 		{"zero max_concurrency", minimal + "\n[server]\nmax_concurrency = 0\n"},
 		{"zero max_request_bytes", minimal + "\n[server]\nmax_request_bytes = 0\n"},
-		{"zero default_timeout_sec", "[exec]\ndefault_timeout_sec = 0\n"},
-		{"zero max_timeout_sec", "[exec]\nmax_timeout_sec = 0\n"},
-		{"zero max_output_bytes", "[exec]\nmax_output_bytes = 0\n"},
-		{"negative kill_grace_sec", "[exec]\nkill_grace_sec = -1\n"},
-		{"term_cols past a uint16", "[exec]\nterm_cols = 70000\n"},
-		{"zero term_rows", "[exec]\nterm_rows = 0\n"},
-		{"negative refresh", minimal + "\n[secrets]\nrefresh_interval_sec = -1\n"},
-		{"zero min_length", minimal + "\n[secrets]\nmin_length = 0\n"},
-		{"negative max_record_bytes", minimal + "\n[audit]\nmax_record_bytes = -1\n"},
-		// A malformed pattern matches nothing, reading as a missing store.
-		{"unclosed character class", minimal + "\n[secrets]\npatterns = [\"/s/[a-.sops.yml\"]\n"},
+		{"zero timeout_sec", "[command]\ntimeout_sec = 0\n"},
+		{"zero max_timeout_sec", "[command]\nmax_timeout_sec = 0\n"},
+		{"zero max_output_bytes", "[command]\nmax_output_bytes = 0\n"},
+		{"negative refresh", minimal + "\n[secret]\nmin_refresh_sec = -1\n"},
+		{"min_length under the floor", minimal + "\n[secret]\nmin_length = 5\n"},
+		{"zero concurrency", "[command]\nconcurrency = 0\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if _, err := load(t, tc.text); err == nil {
@@ -199,22 +204,30 @@ func TestOutOfRangeValuesAreRefused(t *testing.T) {
 
 // A max below the default replaces it for every command rather than capping it.
 func TestMaxTimeoutBelowDefaultIsRefused(t *testing.T) {
-	_, err := load(t, "[exec]\ndefault_timeout_sec = 600\nmax_timeout_sec = 60\n")
+	_, err := load(t, "[command]\ntimeout_sec = 600\nmax_timeout_sec = 60\n")
 	if err == nil || !strings.Contains(err.Error(), "max_timeout_sec") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-// The meaningful zeroes stay legal.
-func TestMeaningfulZeroesAreAccepted(t *testing.T) {
-	cfg, err := load(t, "[exec]\nkill_grace_sec = 0\n"+
-		"[secrets]\nrefresh_interval_sec = 0\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Exec.KillGraceSec != 0 || cfg.Secrets.RefreshIntervalSec != 0 {
-		t.Errorf("kill_grace_sec = %d, refresh_interval_sec = %d",
-			cfg.Exec.KillGraceSec, cfg.Secrets.RefreshIntervalSec)
+// No tunable takes zero, and this one is why the rule exists: zero is the
+// signal an unset flag leaves, so a key that accepted it could not be told from
+// one nobody typed, and an operator who asked for it would silently get the
+// install's old value back.
+func TestNoTunableTakesZero(t *testing.T) {
+	// Whole configs rather than minimal+body: minimal already opens [command],
+	// and a second header is a duplicate table TOML refuses before any of these
+	// rules is reached.
+	for _, body := range []string{
+		"[secret]\nmin_refresh_sec = 0\n",
+		"[secret]\nmin_length = 0\n",
+		"[command]\ntimeout_sec = 0\n",
+		"[command]\nconcurrency = 0\n",
+		"[approval]\ntimeout_sec = 0\n",
+	} {
+		if _, err := load(t, body); err == nil {
+			t.Errorf("accepted a zero: %s", body)
+		}
 	}
 }
 
@@ -225,26 +238,21 @@ func TestScalarWhereTableExpected(t *testing.T) {
 	}
 }
 
-func TestDecryptCommandDefaultsAndOverrides(t *testing.T) {
+// How the keeper invokes sops is derived, and no key reaches it: a second way
+// to invoke it would be a second thing that could be pointed elsewhere, by the
+// account holding the age key.
+func TestTheDecryptCommandIsDerived(t *testing.T) {
 	cfg, err := load(t, minimal)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "sops --output-type json --decrypt {file}"
-	if strings.Join(cfg.Secrets.DecryptCommand, " ") != want {
-		t.Errorf("default decrypt_command = %v", cfg.Secrets.DecryptCommand)
-	}
-
-	cfg, err = load(t, minimal+"\n[secrets]\ndecrypt_command = [\"/opt/sops\", \"-d\", \"{file}\"]\n")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Secrets.DecryptCommand[0] != "/opt/sops" {
-		t.Errorf("override ignored: %v", cfg.Secrets.DecryptCommand)
+	if strings.Join(cfg.Secret.DecryptCommand, " ") != want {
+		t.Errorf("decrypt_command = %v", cfg.Secret.DecryptCommand)
 	}
 }
 
-// base_env PATH decides which file a bare cmd[0] resolves to, and the broker
+// env PATH decides which file a bare cmd[0] resolves to, and the broker
 // resolves it on behalf of a child that runs in the request's directory, not the
 // broker's.  A component a shell would read as "here" therefore names two
 // different directories, so it is refused at load: the broker does not start,
@@ -258,20 +266,20 @@ func TestBaseEnvPathMustBeAbsolute(t *testing.T) {
 	}{
 		{"absolute components are fine", "/usr/bin:/bin", ""},
 		{"a single absolute component is fine", "/usr/bin", ""},
-		{"a leading empty component", ":/usr/bin", "base_env PATH"},
-		{"a trailing empty component", "/usr/bin:", "base_env PATH"},
-		{"an empty component in the middle", "/usr/bin::/bin", "base_env PATH"},
-		{"an explicit dot", "/usr/bin:.", "base_env PATH"},
-		{"a relative directory", "/usr/bin:vendor/bin", "base_env PATH"},
-		// Its own message: an empty string is not a component the operator wrote,
-		// and a base_env replaces the built-in table rather than adding to it.
-		{"no PATH at all", "", "sets no PATH"},
+		{"a leading empty component", ":/usr/bin", "env PATH"},
+		{"a trailing empty component", "/usr/bin:", "env PATH"},
+		{"an empty component in the middle", "/usr/bin::/bin", "env PATH"},
+		{"an explicit dot", "/usr/bin:.", "env PATH"},
+		{"a relative directory", "/usr/bin:vendor/bin", "env PATH"},
+		// Its own message: an empty string is not a component anybody wrote, and
+		// setting PATH to nothing is not the same as leaving it out.
+		{"emptied", "", "sets PATH to nothing"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cfg, err := load(t, "[exec]\nbase_env = { PATH = \""+tc.path+"\" }\n")
+			cfg, err := load(t, "[command]\nenv = { PATH = \""+tc.path+"\" }\n")
 			if tc.wants != "" {
 				if err == nil {
-					t.Fatalf("PATH %q was accepted; base_env = %v", tc.path, cfg.Exec.BaseEnv)
+					t.Fatalf("PATH %q was accepted; env = %v", tc.path, cfg.Command.Env)
 				}
 				if !strings.Contains(err.Error(), tc.wants) {
 					t.Errorf("error does not say %q: %v", tc.wants, err)
@@ -281,8 +289,8 @@ func TestBaseEnvPathMustBeAbsolute(t *testing.T) {
 			if err != nil {
 				t.Fatalf("PATH %q was refused: %v", tc.path, err)
 			}
-			if cfg.Exec.BaseEnv["PATH"] != tc.path {
-				t.Errorf("PATH = %q, want %q", cfg.Exec.BaseEnv["PATH"], tc.path)
+			if cfg.Command.Env["PATH"] != tc.path {
+				t.Errorf("PATH = %q, want %q", cfg.Command.Env["PATH"], tc.path)
 			}
 		})
 	}
@@ -294,27 +302,52 @@ func TestTheDefaultPathIsAccepted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Exec.BaseEnv["PATH"] != defaultPATH {
-		t.Errorf("PATH = %q, want the compiled-in default", cfg.Exec.BaseEnv["PATH"])
+	if cfg.Command.Env["PATH"] != defaultPATH {
+		t.Errorf("PATH = %q, want the compiled-in default", cfg.Command.Env["PATH"])
 	}
 }
 
-// base_env replaces the built-in table rather than adding to it, so a file that
-// sets any variable and omits PATH leaves the broker resolving no bare name.
-// Refused, and named as the missing PATH rather than as an empty component the
-// operator never wrote.
-func TestBaseEnvWithoutPathIsNamedAsSuch(t *testing.T) {
+// The env merges over the built-in table rather than replacing it, which is
+// what stops a file that sets one variable from leaving the broker unable to
+// resolve a bare program name.  This is the trap the old table had: it replaced
+// the whole of it, so naming TERM silently took PATH away.
+func TestNamingOneVariableKeepsTheRest(t *testing.T) {
 	for _, body := range []string{
-		"[exec]\nbase_env = { TERM = \"dumb\" }\n",
-		"[exec.base_env]\nANSIBLE_NOCOWS = \"1\"\n",
+		"[command]\nenv = { TERM = \"dumb\" }\n",
+		"[command.env]\nANSIBLE_NOCOWS = \"1\"\n",
 	} {
-		_, err := load(t, body)
-		if err == nil {
-			t.Errorf("%q was accepted with no PATH", body)
+		cfg, err := load(t, body)
+		if err != nil {
+			t.Errorf("%q was refused: %v", body, err)
 			continue
 		}
-		if !strings.Contains(err.Error(), "sets no PATH") {
-			t.Errorf("%q: error does not name the missing PATH: %v", body, err)
+		if cfg.Command.Env["PATH"] != defaultPATH {
+			t.Errorf("%q took PATH away: %q", body, cfg.Command.Env["PATH"])
 		}
+	}
+	// And the one it named is there beside it.
+	cfg, err := load(t, "[command.env]\nANSIBLE_NOCOWS = \"1\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Command.Env["ANSIBLE_NOCOWS"] != "1" {
+		t.Errorf("the named variable is missing: %v", cfg.Command.Env)
+	}
+}
+
+// `status` and `--check` report which files were read.  With one config file
+// that is a list of one, and it has to be filled in: an empty answer to "which
+// files were read" reads as none rather than as this one.
+func TestTheLoadedFileIsReported(t *testing.T) {
+	path := writeBase(t, minimal)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Sources) != 1 || cfg.Sources[0] != path {
+		t.Errorf("sources = %v, want [%s]", cfg.Sources, path)
+	}
+	if cfg.Path != path {
+		t.Errorf("path = %q, want %q", cfg.Path, path)
 	}
 }

@@ -55,7 +55,7 @@ func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
 func reportRuleDrift(report *DoctorReport, home, configDir string) {
 	// With the linked paths, or each one is a rule faramir writes and this render
 	// does not, which is exactly what staleRules reports as drift to delete.
-	layout := Layout{ConfigDir: configDir, LinkedPaths: configuredLinkPaths(configDir)}
+	layout := Layout{ConfigDir: configDir, Links: configuredLinks(configDir)}
 
 	var stale, unread []string
 	read, ruleCount := 0, 0
@@ -105,25 +105,25 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 }
 
 // diagnoseLinkedFiles asks whether the account-wide deny rules refuse every
-// file a [[secrets.link]] entry reads.
+// file a [[secret.link]] entry reads.
 //
 // The two are written by different commands and that is what makes this a
-// check rather than an invariant: links are the operator's, in config.d, which
-// init never touches, and the rules are init's, rewritten every run.  So a link
-// added since the last run is a value in the redactor whose plaintext the agent
-// may still open directly, which is the disclosure linking exists to close.
+// check rather than an invariant: `link add` renders both together, but a link
+// written into the config by hand, or a run that stopped between the two, leaves
+// a value in the redactor whose plaintext the agent may still open directly,
+// which is the disclosure linking exists to close.
 //
 // Failed rather than a warning, unlike rule drift beside it: a stale rule
 // refuses more than the current list asks for, while this refuses less than the
 // operator was promised.
 func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	const name = "linked files"
-	links := make([]string, 0, len(cfg.Secrets.Links))
-	for _, link := range cfg.Secrets.Links {
+	links := make([]string, 0, len(cfg.Secret.Links))
+	for _, link := range cfg.Secret.Links {
 		links = append(links, link.Path)
 	}
 	if len(links) == 0 {
-		report.addf(name, StatusOK, "no [[secrets.link]] entries are configured")
+		report.addf(name, StatusOK, "no [[secret.link]] entries are configured")
 		return
 	}
 	if opts.AgentUser == "" {
@@ -188,25 +188,21 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 	default:
 		report.addf(name, StatusFailed, "a linked file is not refused to the agent's "+
 			"file tools, so its value is in the redactor while the plaintext is still "+
-			"one read away. Links are yours, in config.d, and the rules are init's, so "+
-			"a link added since the last run is not covered until `faramir init` runs "+
-			"again: %s", strings.Join(uncovered, "; "))
+			"one read away. `faramir link add` renders the rules with the entry, so this "+
+			"is a link written by hand or a run that stopped early; `faramir init` "+
+			"renders them again: %s", strings.Join(uncovered, "; "))
 	}
 }
 
-// configuredLinkPaths is every linked file the install names, merged view, or
+// configuredLinks is every link the install names, merged view, or
 // nothing when the config cannot be read.  Nothing here fails on that: a config
 // that does not load is reported by the check that loads it.
-func configuredLinkPaths(configDir string) []string {
+func configuredLinks(configDir string) []config.Link {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {
 		return nil
 	}
-	out := make([]string, 0, len(cfg.Secrets.Links))
-	for _, link := range cfg.Secrets.Links {
-		out = append(out, link.Path)
-	}
-	return out
+	return cfg.Secret.Links
 }
 
 // named reports whether any rule in a file names this path.  Containment rather

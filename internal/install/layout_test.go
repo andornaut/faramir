@@ -62,7 +62,7 @@ func TestStoreGroupDefaultsToTheKeepersOwn(t *testing.T) {
 
 // The creation rule sits in the config directory, not the secrets directory.
 // sops walks up from the working directory, so it is found from both, and the
-// secrets directory stays nothing but ciphertext: [secrets] patterns globs it and
+// secrets directory stays nothing but ciphertext: the managed store globs it and
 // filepath.Glob matches dotfiles.
 func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 	layout := Layout{ConfigDir: "/etc/faramir"}
@@ -73,7 +73,7 @@ func TestSopsConfigSitsAboveTheStore(t *testing.T) {
 		t.Errorf("rule file is in %q, not the config directory %q", dir, layout.ConfigDir)
 	}
 	if filepath.Dir(layout.SopsConfigPath()) == layout.SecretsDir() {
-		t.Error("the rule file is in the secrets directory, where the [secrets] glob reaches it")
+		t.Error("the rule file is in the secrets directory, where the [secret] glob reaches it")
 	}
 	// The upward search reaches it from the secrets directory.
 	if !strings.HasPrefix(layout.SecretsDir(), layout.ConfigDir+string(filepath.Separator)) {

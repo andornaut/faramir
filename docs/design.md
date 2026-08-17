@@ -41,7 +41,7 @@ The boundaries are around the secrets, not the agent. The operator reaches the k
 `.sops.yaml` sits in the config directory above the secrets directory for two reasons:
 
 - sops resolves that file from the working directory upward, so a parent is found from the secrets directory as well as from itself.
-- `[secrets] patterns` globs the secrets directory and `filepath.Glob` matches dotfiles, so a rule file among the ciphertext is one glob spelling away from being loaded as a managed file that does not decrypt.
+- the managed store globs the secrets directory and `filepath.Glob` matches dotfiles, so a rule file among the ciphertext is one glob spelling away from being loaded as a managed file that does not decrypt.
 
 `--config-dir` moves the secrets, the config and the age key together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. What the units can see decides where, not the modes:
 
@@ -55,7 +55,7 @@ A home is not mounted until its owner logs in, so the secrets are absent at boot
 
 ## Linked secrets are read by the broker
 
-An `~/.npmrc` token and a `gh` OAuth token are the tools' own files, and copying them into the store would mean re-encrypting on every rotation. A `[[secrets.link]]` entry names one instead. How to write one is in [configuration.md](configuration.md#linked-secrets); this is why it is shaped that way.
+An `~/.npmrc` token and a `gh` OAuth token are the tools' own files, and copying them into the store would mean re-encrypting on every rotation. A `[[secret.link]]` entry names one instead. How to write one is in [configuration.md](configuration.md#linked-secrets); this is why it is shaped that way.
 
 **The broker reads them, not the keeper.** The keeper holds the age key, which decrypts every managed file retroactively, so it runs with the homes taken away entirely and one `BindReadOnlyPaths` at most. A linked file needs no key, so putting these behind it would widen the one account worth keeping narrow, and would make every link change a unit re-render. The broker already holds every plaintext value, already reads key material at rest for `[ssh] key`, and deliberately has no `ProtectHome=`, having to stat a request's cwd. What bounds it is the file's own mode.
 
@@ -76,11 +76,11 @@ What catches a lost grant is `faramir doctor`, which asks the broker's own accou
 
 **A ref does not say where it is kept.** One flat namespace, and a cross-source collision refused at load naming both sides. Tagging the source into the name (`secret://sops/...`) would make moving a secret between the store and a link a rename, breaking every `faramir.env` and playbook naming it, which is the drift linking exists to avoid.
 
-**A link that is there and will not read refuses `exec` and `redact`**, the same gate a managed file that did not decrypt gets, because it is the same state: a value on disk that the redactor does not have. The cost is that a tool rewriting its own file can drop the ACL and stop brokered work on the host until it is restored. A default ACL on the containing directory is what survives such a rewrite, and `doctor` is what says the link went unreadable. A link whose *path* is gone is not that state, the credential having left the machine, and is reported rather than fatal.
+**A link that is there and will not read refuses `exec` and `redact`**, the same gate a managed file that did not decrypt gets, because it is the same state: a value on disk that the redactor does not have. The cost is that a tool replacing its own file drops the grant and stops brokered work on the host until `init` restores it. Nothing survives that rewrite, ACL or group alike, which is why `doctor` asks rather than trusting what was granted. A link whose *path* is gone is not that state, the credential having left the machine, and is reported rather than fatal.
 
-**A link is install state, not a drop-in's.** The entries live in `config.toml`, which `init` rewrites every run and reads its links back out of first, so every grant and every deny rule is re-asserted on every run. That is what heals a grant a tool took away, and it is why `faramir link add` applies the same steps rather than a private copy of them. The links are read from the base file alone: reading the merged view would copy a drop-in's link into `config.toml`, and the next load would refuse both as one ref claimed twice.
+**A link is install state.** The entries live in `config.toml`, which `init` rewrites every run and reads its links back out of first, so every grant and every deny rule is re-asserted on every run. That is what heals a grant a tool took away, and it is why `faramir link add` applies the same steps rather than a private copy of them.
 
-A `[[secrets.link]]` written by hand into a drop-in still works, and is the one case where the deny rules can lag the links, `init` being what renders them. `faramir doctor` fails on such a link until `init` runs again. Rendering linked paths into the per-project assets instead would change every enrolled tree's files whenever a link was added, and report drift in all of them until each was enrolled again. Pi has no account-wide rule file, so its extension does not carry linked paths; that is the gap it already has.
+Rendering linked paths into the per-project assets instead would change every enrolled tree's files whenever a link was added, and report drift in all of them until each was enrolled again. Pi has no account-wide rule file, so its extension does not carry linked paths; that is the gap it already has.
 
 ## Three layers
 
@@ -174,7 +174,7 @@ Mode | Cost
 
 Rewriting rather than denying is the point: a deny list covers what somebody thought to name, and the command that leaks a credential is usually one nobody would have.
 
-**A `redact` op is an oracle.** A guessed value comes back confirmed or not. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. It is not rate-limited, because a throttle bounds only a guessing attack the same caller need never mount: `list_secrets` and `run` sit on the same socket behind the same `allowed_group` check, so every managed value can be had by naming it. Every call is recorded, and a guess shorter than `[secrets] min_length` is not an oracle at all. Bring a limit back if `redact` ever becomes reachable by a caller that cannot reach `run`; there is no such caller today.
+**A `redact` op is an oracle.** A guessed value comes back confirmed or not. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. It is not rate-limited, because a throttle bounds only a guessing attack the same caller need never mount: `list_secrets` and `run` sit on the same socket behind the same `allowed_group` check, so every managed value can be had by naming it. Every call is recorded, and a guess shorter than `[secret] min_length` is not an oracle at all. Bring a limit back if `redact` ever becomes reachable by a caller that cannot reach `run`; there is no such caller today.
 
 ## Allowing sudo on the controller
 
@@ -207,7 +207,7 @@ A password at all | A bearer credential, so wherever it is kept, a command appro
 
 Two ways it could go past the one command it named, with different answers.
 
-**A second, unapproved command riding it: closed.** Every brokered command runs as `faramir-exec`, and `/proc/<pid>/environ` is readable within a uid, so a concurrent run could read the approved run's token and `sudo` on it. **Any live `faramir-exec` process during an approved window is root.** The broker closes this by serialising: an approval takes only when its run is the sole brokered command in flight, and while it is live every other brokered command is refused `approval_in_progress`, terminal rather than a `busy` to retry, a caller retrying against a live approval being one polling the exact interval the serialisation protects. Registering a run blocks a new approval and a live approval blocks a new registration, under one lock. A merely *pending* question holds a new command too, or a caller free to keep starting commands decides whether the host is ever quiet enough for a yes to take. The cost is that one unanswered question stalls unrelated brokered work for up to `[sudo] timeout_sec`.
+**A second, unapproved command riding it: closed.** Every brokered command runs as `faramir-exec`, and `/proc/<pid>/environ` is readable within a uid, so a concurrent run could read the approved run's token and `sudo` on it. **Any live `faramir-exec` process during an approved window is root.** The broker closes this by serialising: an approval takes only when its run is the sole brokered command in flight, and while it is live every other brokered command is refused `approval_in_progress`, terminal rather than a `busy` to retry, a caller retrying against a live approval being one polling the exact interval the serialisation protects. Registering a run blocks a new approval and a live approval blocks a new registration, under one lock. A merely *pending* question holds a new command too, or a caller free to keep starting commands decides whether the host is ever quiet enough for a yes to take. The cost is that one unanswered question stalls unrelated brokered work for up to `[approval] timeout_sec`.
 
 Three things follow:
 

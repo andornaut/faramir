@@ -37,7 +37,7 @@ step "the first managed file"
 # from anywhere else finds no creation rules.  Every edit after this is
 # `faramir sops edit`, which needs neither flag.
 #
-# short/pin is deliberately under [secrets] min_length: it is the value the
+# short/pin is deliberately under [secret] min_length: it is the value the
 # redactor refuses to cover, and several checks are about how that is reported.
 if [ -f "$SECRETS" ]; then
   echo "already written"

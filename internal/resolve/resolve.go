@@ -4,7 +4,7 @@
 //
 // Two rules, both about agreeing with the child's view of the world:
 //
-//   - A bare name is looked up on [exec.base_env] PATH, the PATH the child gets.
+//   - A bare name is looked up on [command.env] PATH, the PATH the child gets.
 //   - A relative path is resolved against the request's cwd, where the child
 //     runs; the broker's own directory could hold a different file of the same
 //     name.
@@ -47,7 +47,7 @@ func isFile(path string) bool {
 func executable(path string) bool { return unix.Access(path, unix.X_OK) == nil }
 
 // Program returns the absolute, symlink-resolved path for argv0.
-func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
+func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 	if argv0 == "" {
 		return "", errors.New("empty command")
 	}
@@ -67,7 +67,7 @@ func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 	// broker, not the uid that will run it, so a program executable only by the
 	// executor reports as not found; an absolute path in cmd[0] is the way past
 	// that.
-	path := execCfg.BaseEnv["PATH"]
+	path := execCfg.Env["PATH"]
 	found := ""
 	for dir := range strings.SplitSeq(path, ":") {
 		// An empty or relative component means the working directory to a shell,
@@ -87,7 +87,7 @@ func Program(argv0, cwd string, execCfg config.ExecConfig) (string, error) {
 	if found == "" {
 		return "", fmt.Errorf("%s: not found on the broker's PATH (%s). A program "+
 			"installed elsewhere -- a venv, pipx, a version-manager shim -- "+
-			"needs its directory on [exec.base_env] PATH, or an absolute "+
+			"needs its directory on [command.env] PATH, or an absolute "+
 			"path in cmd[0]", argv0, path)
 	}
 	return realpath(found), nil

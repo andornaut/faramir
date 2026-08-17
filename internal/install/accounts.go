@@ -100,7 +100,7 @@ func (r *runner) stepAccounts() error {
 	// them.  A no-op when the secrets group is the keeper's own.
 	//
 	// The broker is absent: it holds the plaintext already, so membership would
-	// only add ciphertext it never decrypts, including files no [secrets] list
+	// only add ciphertext it never decrypts, including files no [secret] list
 	// names.
 	made, err := r.ensureInGroup(r.layout.KeeperUser, r.layout.SecretsGroup)
 	if err != nil {

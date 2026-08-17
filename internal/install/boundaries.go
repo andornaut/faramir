@@ -215,7 +215,7 @@ func askable(accounts ...string) (named []string, skipped bool) {
 // diagnoseStore checks who can reach the ciphertext.  Every account but the
 // keeper must be out of the secrets group: the operator because that is the
 // split, the executor because it runs whatever an agent asks for, the broker
-// because read here would only add files no [secrets] list names.
+// because read here would only add files no [secret] list names.
 func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if !holds(opts.KeeperUser, opts.SecretsGroup) {
 		report.addf("secrets", StatusFailed, "%s is not in %s, so it can neither decrypt "+
@@ -233,8 +233,8 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 	// The group is half of it: world-readable secrets are reachable by accounts no
 	// group names.
 	dir := filepath.Join(opts.ConfigDir, "secrets")
-	if cfg != nil && len(cfg.Secrets.Patterns) > 0 {
-		dir = filepath.Dir(cfg.Secrets.Patterns[0])
+	if cfg != nil && len(cfg.Secret.Patterns) > 0 {
+		dir = filepath.Dir(cfg.Secret.Patterns[0])
 	}
 	if info, err := os.Stat(dir); err == nil && info.Mode().Perm()&0o007 != 0 {
 		report.addf("secrets", StatusFailed, "%s is %04o: every account on this host can "+
@@ -252,19 +252,22 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 }
 
 // diagnoseConfigWritable checks the file that decides what a brokered command
-// runs: [exec.base_env] PATH is in it, so writing it or dropping a file in
-// config.d/ chooses the programs the executor resolves.
+// runs: [command.env] PATH is in it, so whoever can write it chooses the
+// programs the executor resolves.
+//
+// One file.  A config.d left over from an older install is not read, so it
+// decides nothing and naming it here would report a stale directory as the
+// place PATH comes from.
 func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 	for _, path := range []string{
 		filepath.Join(opts.ConfigDir, "config.toml"),
-		filepath.Join(opts.ConfigDir, "config.d"),
 	} {
 		if !exists(path) {
 			continue
 		}
 		if canWrite(opts.AgentUser, path) {
 			report.addf("config ownership", StatusFailed, "%s can write %s, which is "+
-				"where [exec.base_env] PATH comes from: an edit there chooses what the "+
+				"where [command.env] PATH comes from: an edit there chooses what the "+
 				"executor runs", opts.AgentUser, path)
 			return
 		}
@@ -669,15 +672,15 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 // one reports n/a: there is no file to read, and an ok would claim a stack that
 // gates when there is no stack at all.
 func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.addf("sudo grant", StatusNA, "no [sudo] section, so nothing here "+
+	if cfg == nil || cfg.Approval.ExecUser == "" {
+		report.addf("sudo grant", StatusNA, "no [approval] section, so nothing here "+
 			"authenticates an approval and there is no PAM service, helper or fallback "+
 			"to read. Brokered commands cannot sudo, which is the default arrangement; "+
 			"`faramir init --allow-sudo` is what writes the three")
 		return
 	}
 
-	pamFile := filepath.Join(pamDir, cfg.Sudo.PamService)
+	pamFile := filepath.Join(pamDir, cfg.Approval.PamService)
 	body, err := os.ReadFile(pamFile)
 	if err != nil {
 		report.addf("sudo grant", StatusFailed, "%s is configured to authenticate "+
@@ -686,7 +689,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 			opts.ExecUser, pamFile, err, pamDir)
 		return
 	}
-	if problem := pamStackProblem(string(body), cfg.Sudo.Helper); problem != "" {
+	if problem := pamStackProblem(string(body), cfg.Approval.Helper); problem != "" {
 		report.addf("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
 		return
 	}
@@ -694,10 +697,10 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	// what decides every approval on this host.
 	accounts, skipped := askable(opts.ExecUser, opts.AgentUser)
 	for _, account := range accounts {
-		if canWrite(account, cfg.Sudo.Helper) {
+		if canWrite(account, cfg.Approval.Helper) {
 			report.addf("sudo grant", StatusFailed, "%s can write %s, which is what "+
 				"decides every approval: it would be choosing its own answer",
-				account, cfg.Sudo.Helper)
+				account, cfg.Approval.Helper)
 			return
 		}
 	}
@@ -715,7 +718,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 	if skipped {
 		report.unaskedf("sudo grant", 1, "%s asks the broker, and %s cannot write "+
 			"%s. The agent account is not named, so whether it can was not asked",
-			pamFile, strings.Join(accounts, " or "), cfg.Sudo.Helper)
+			pamFile, strings.Join(accounts, " or "), cfg.Approval.Helper)
 		return
 	}
 	report.addf("sudo grant", StatusOK, "%s may ask to sudo; %s asks the broker, and "+
@@ -764,8 +767,8 @@ var usernsSwitches = []struct {
 // behalf, that being a switch every other container and browser sandbox on the
 // host also depends on.
 func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.addf("user namespaces", StatusNA, "no [sudo] section, so the executor "+
+	if cfg == nil || cfg.Approval.ExecUser == "" {
+		report.addf("user namespaces", StatusNA, "no [approval] section, so the executor "+
 			"unit is rendered with SystemCallFilter=@system-service, which excludes "+
 			"@mount: a namespace confers capabilities with nothing to act on. A host "+
 			"that grants an approval cannot carry that filter, which is what makes "+
@@ -827,8 +830,8 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // @ptrace, so the syscall is refused whatever the sysctl says.  The setting only
 // decides something on the host that cannot carry the filter.
 func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
-	if cfg == nil || cfg.Sudo.ExecUser == "" {
-		report.addf("ptrace scope", StatusNA, "no [sudo] section, so the executor unit is "+
+	if cfg == nil || cfg.Approval.ExecUser == "" {
+		report.addf("ptrace scope", StatusNA, "no [approval] section, so the executor unit is "+
 			"rendered with SystemCallFilter=@system-service, which excludes @ptrace: the "+
 			"syscall is refused whatever %s says. A host that grants an approval cannot "+
 			"carry that filter, which is what makes this setting decide something there",
@@ -841,7 +844,7 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 			"known whether one process running as %s can ptrace another. On a host "+
 			"that grants an approval, that is the difference between a run's "+
 			"processes being separate and being one",
-			ptraceScopeFile, err, cfg.Sudo.ExecUser)
+			ptraceScopeFile, err, cfg.Approval.ExecUser)
 		return
 	}
 	scope := strings.TrimSpace(string(raw))
@@ -851,12 +854,12 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 			"executor unit carries no seccomp filter to refuse it (a filter would "+
 			"force NoNewPrivileges= on, which makes sudo inert). Set it to 1 or "+
 			"higher: sysctl -w kernel.yama.ptrace_scope=1, and a line in "+
-			"/etc/sysctl.d to keep it", ptraceScopeFile, cfg.Sudo.ExecUser)
+			"/etc/sysctl.d to keep it", ptraceScopeFile, cfg.Approval.ExecUser)
 		return
 	}
 	report.addf("ptrace scope", StatusOK, "%s is %s, so one process running as %s "+
 		"cannot attach to another that is not its own descendant",
-		ptraceScopeFile, scope, cfg.Sudo.ExecUser)
+		ptraceScopeFile, scope, cfg.Approval.ExecUser)
 }
 
 // diagnoseCgroupDelegation checks the reaper every run depends on: the executor

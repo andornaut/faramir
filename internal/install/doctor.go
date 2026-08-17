@@ -35,7 +35,7 @@ type DoctorOptions struct {
 	// group as install leaves it.
 	SecretsGroup string
 
-	// SecretsPatterns is [secrets] patterns, for the rule coverage check.  Read
+	// SecretsPatterns is the managed store, for the rule coverage check.  Read
 	// from the config Diagnose already loads and set on the way past, so it is
 	// filled in for every caller rather than being a field each one has to
 	// remember to pass, and there is no second load free to disagree with the
@@ -227,7 +227,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	// reading of the same file.  A test that set them keeps them, having no
 	// config to take them from.
 	if len(opts.SecretsPatterns) == 0 {
-		opts.SecretsPatterns = cfg.Secrets.Patterns
+		opts.SecretsPatterns = cfg.Secret.Patterns
 	}
 
 	// Before every other check, which each name an account: a wrong name here
@@ -402,7 +402,7 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 			"then: sudo rm %s", stale, current, stale)
 	case exists(stale):
 		report.addf("sops config", StatusWarn, "%s is where earlier installs put it, "+
-			"and the secrets directory is globbed by [secrets] patterns. Move it: sudo mv %s %s",
+			"and the secrets directory is globbed by the managed store. Move it: sudo mv %s %s",
 			stale, stale, current)
 	case exists(current):
 		diagnoseSopsRecipients(report, opts, current)
@@ -501,7 +501,7 @@ func recipientsAreWellFormed(report *DoctorReport, listed []string, path string)
 // is the answer.
 func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath string) {
 	if len(opts.SecretsPatterns) == 0 {
-		report.unaskedf("rule coverage", 1, "[secrets] patterns could not be read, so "+
+		report.unaskedf("rule coverage", 1, "the managed store could not be read, so "+
 			"which files %s has to cover is unknown here", rulePath)
 		return
 	}
@@ -513,7 +513,7 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 	// worth checking, and the count says the rest was not.
 	unlistable := unlistableDirs(opts.SecretsPatterns)
 	if len(unlistable) > 0 {
-		report.unaskedf("rule coverage", 1, "the directories [secrets] patterns "+
+		report.unaskedf("rule coverage", 1, "the directories the managed store "+
 			"names cannot be listed by this account (%s), so any managed file under "+
 			"them went unchecked. Re-run as root",
 			strings.Join(unlistable, ", "))
@@ -526,7 +526,7 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 			// empty store.
 			return
 		}
-		report.addf("rule coverage", StatusNA, "no managed file matches [secrets] "+
+		report.addf("rule coverage", StatusNA, "no managed file matches [secret] "+
 			"patterns yet, so there is nothing for %s to cover", rulePath)
 		return
 	}
@@ -597,7 +597,7 @@ func unlistableDirs(patterns []string) []string {
 
 // diagnoseLogRotation asks whether anything bounds the audit log.
 //
-// [audit] max_record_bytes bounds one record, and nothing in faramir bounds the
+// the record cap bounds one record, and nothing in faramir bounds the
 // file: rotation is logrotate's, which is a program that has to be installed,
 // has to name this log, and has to be run on it.  Worth a check of its own
 // because the install writes the config whether or not the program exists, so
@@ -940,7 +940,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// they are never injected, so what is wrong is that a ref does not work, not
 	// that the install is failing to hold a boundary.
 	if len(check.Secrets.NotRedactable) > 0 {
-		report.addf("redaction", StatusWarn, "%d ref(s) are shorter than [secrets] "+
+		report.addf("redaction", StatusWarn, "%d ref(s) are shorter than [secret] "+
 			"min_length, so they are never injected and never redacted: %s. Lengthen "+
 			"them with `faramir sops edit`",
 			len(check.Secrets.NotRedactable), check.refusedRefs())

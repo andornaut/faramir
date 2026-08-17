@@ -57,7 +57,7 @@ func newLinkAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add [options] REF FILE",
 		Short: "read a secret out of a file another tool maintains",
-		Long: "Adds one [[secrets.link]] entry and applies everything that follows: the\n" +
+		Long: "Adds one [[secret.link]] entry and applies everything that follows: the\n" +
 			"broker's account is granted read on the file, the file is refused to the\n" +
 			"agent's file tools, and the daemons are reloaded.\n\n" +
 			"The file is read once, as the broker's own account, before anything is\n" +

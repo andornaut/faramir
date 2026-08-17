@@ -68,8 +68,6 @@ func TestPreflightRefusesASymlinkedPath(t *testing.T) {
 		isDir bool
 		inLog string
 	}{
-		{name: "a drop-in", link: "config.d/local.toml"},
-		{name: "the drop-in directory", link: "config.d", isDir: true},
 		{name: "a managed secrets file", link: "secrets/prod.sops.yml"},
 		{name: "the secrets directory", link: "secrets", isDir: true},
 		{name: "the creation rule", link: ".sops.yaml"},
@@ -82,7 +80,7 @@ func TestPreflightRefusesASymlinkedPath(t *testing.T) {
 			logDir := filepath.Join(base, "log")
 			for _, dir := range []string{
 				configDir, logDir,
-				filepath.Join(configDir, "config.d"), filepath.Join(configDir, "secrets"),
+				filepath.Join(configDir, "secrets"),
 			} {
 				if err := os.MkdirAll(dir, 0o755); err != nil {
 					t.Fatal(err)
@@ -144,13 +142,13 @@ func TestPreflightAllowsATreeWithNoSymlinks(t *testing.T) {
 	logDir := filepath.Join(base, "log")
 	for _, dir := range []string{
 		configDir, logDir,
-		filepath.Join(configDir, "config.d"), filepath.Join(configDir, "secrets"),
+		filepath.Join(configDir, "secrets"),
 	} {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(configDir, "config.d", "local.toml"),
+	if err := os.WriteFile(filepath.Join(configDir, "secrets", "local.toml"),
 		[]byte("# x\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

@@ -158,7 +158,7 @@ func NewLog(cfg config.AuditConfig) *Log { return &Log{config: cfg} }
 // rest of the record does not exist yet while a run is still producing output.
 // Write sizes the same field again against the record it ends up with.
 func (l *Log) OutputBudget() int {
-	return max(l.config.MaxRecordBytes-recordReserve, minOutputBudget)
+	return max(config.MaxRecordBytes-recordReserve, minOutputBudget)
 }
 
 // roomForOutput is what is left of the cap once everything else in the record is
@@ -179,8 +179,8 @@ func (l *Log) roomForOutput(payload map[string]any) int {
 		return l.OutputBudget()
 	}
 	// One for the newline the line carries.
-	room := l.config.MaxRecordBytes - len(skeleton) - 1
-	if len(skeleton) >= l.config.MaxRecordBytes {
+	room := config.MaxRecordBytes - len(skeleton) - 1
+	if len(skeleton) >= config.MaxRecordBytes {
 		// The rest of the record is over the cap on its own, so reduction is about to
 		// cut it down and the output that survives has room after that.  Sizing the
 		// output to nothing here would throw it away because the argv was long, which
@@ -249,7 +249,7 @@ func (l *Log) Unwritable() string {
 	}
 	// Bavail is unsigned and Bsize is not, which is why only one is converted.
 	free := int64(fs.Bavail) * fs.Bsize
-	if want := int64(l.config.MaxRecordBytes); free < want {
+	if want := int64(config.MaxRecordBytes); free < want {
 		return fmt.Sprintf("%s has %d bytes free and one record may need %d",
 			filepath.Dir(l.config.LogPath), free, want)
 	}

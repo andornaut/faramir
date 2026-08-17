@@ -38,8 +38,8 @@ func Excerpt(output string, budget int) (text string, dropped int) {
 func halfBudget(budget int) int { return max((budget-markerReserve)/2, 1) }
 
 func marker(dropped int) string {
-	return fmt.Sprintf("\n[faramir: %d bytes of output dropped; [audit] "+
-		"max_record_bytes is what a record keeps]\n", dropped)
+	return fmt.Sprintf("\n[faramir: %d bytes of output dropped; the record cap "+
+		"is what a record keeps]\n", dropped)
 }
 
 // encodedLen is what json.Marshal will spend on s inside a string, which is what

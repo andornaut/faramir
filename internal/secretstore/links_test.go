@@ -18,8 +18,8 @@ func newLinkedStore(t *testing.T, fake *keepertest.Keeper, links []config.Link,
 	t.Helper()
 	fake.SetFiles(files)
 	return New(
-		config.SecretsConfig{
-			Patterns: files, Links: links, RefreshIntervalSec: 0, MinLength: 8,
+		config.SecretConfig{
+			Patterns: files, Links: links, MinRefreshSec: 0, MinLength: 8,
 		},
 		config.KeeperConfig{SocketPath: fake.Path},
 	)
@@ -147,7 +147,7 @@ func TestNeitherPatternsNorLinksIsNamed(t *testing.T) {
 	s.Reload()
 
 	reason := s.Unreadable()
-	if !strings.Contains(reason, "[[secrets.link]]") {
+	if !strings.Contains(reason, "[[secret.link]]") {
 		t.Errorf("the refusal does not mention links: %s", reason)
 	}
 }
@@ -303,5 +303,77 @@ func TestALinksOnlyStoreServesWhenTheKeeperGoesAway(t *testing.T) {
 	}
 	if got, err := s.Value("gh/token"); err != nil || got != "gho_linked_example" {
 		t.Errorf("value = (%q, %v), want the linked one still held", got, err)
+	}
+}
+
+// The whole point of separating the two clocks.  min_refresh_sec bounds the keeper
+// round trip; a linked file is the operator's own and this uid can stat it, so
+// it is checked every request.  With them on one clock, a token another tool
+// had just rotated would be missing from the redactor for up to a minute, and a
+// rotation is not something the operator schedules.
+func TestALinkIsPickedUpInsideTheKeeperInterval(t *testing.T) {
+	path := writeLinked(t, "token", "gho_first_example\n")
+	k := keepertest.New(t, map[string]string{})
+	s := New(
+		// An interval long enough that nothing in this test could reach it.
+		config.SecretConfig{
+			MinRefreshSec: 3600, MinLength: 8,
+			Links: []config.Link{{Ref: "gh/token", Path: path, Type: secretlink.KindText}},
+		},
+		config.KeeperConfig{SocketPath: k.Path},
+	)
+	s.Reload()
+
+	if err := os.WriteFile(path, []byte("gho_second_example\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	s.RefreshIfStale()
+
+	got, err := s.Value("gh/token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "gho_second_example" {
+		t.Errorf("value = %q, want the edited one: the link waited on the keeper's "+
+			"interval instead of being stat'ed per request", got)
+	}
+}
+
+// With the keeper unreachable, a load records no link state, so the link
+// comparison cannot match.  Left to itself it would call every request a
+// change: a full round trip each time, and a log line saying a file changed
+// when none did.  The retry belongs under the interval instead.
+func TestAnUnreachableKeeperDoesNotReloadOnEveryRequest(t *testing.T) {
+	path := writeLinked(t, "token", "gho_linked_example\n")
+	k := keepertest.New(t, map[string]string{})
+	s := New(
+		config.SecretConfig{
+			MinRefreshSec: 3600, MinLength: 8,
+			Links: []config.Link{{Ref: "gh/token", Path: path, Type: secretlink.KindText}},
+		},
+		config.KeeperConfig{SocketPath: k.Path},
+	)
+	if err := k.Listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+	s.Reload()
+	if reason := s.Unreadable(); reason == "" {
+		t.Fatal("a cold start against a dead keeper served anyway")
+	}
+
+	// checkedAt moves only when the interval lets an attempt through, so it is
+	// what says whether these requests each tried the keeper again.
+	s.mu.RLock()
+	before := s.checkedAt
+	s.mu.RUnlock()
+	for range 5 {
+		s.RefreshIfStale()
+	}
+	s.mu.RLock()
+	after := s.checkedAt
+	s.mu.RUnlock()
+	if !after.Equal(before) {
+		t.Error("a request inside the interval reached the keeper again: the link " +
+			"check is treating an unrecorded state as a change")
 	}
 }

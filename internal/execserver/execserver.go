@@ -78,7 +78,7 @@ type Executor struct {
 }
 
 // maxConcurrent is a backstop, not a knob.  The broker is this socket's only
-// permitted client and holds a [server] max_concurrency slot for the whole of
+// permitted client and holds a [command] concurrency slot for the whole of
 // each run, so that number binds first and this one is never reached; it bounds
 // a broker with a bug, which is why it is not a config key.
 const maxConcurrent = 16
@@ -291,8 +291,8 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 		env = append(env, "HOME="+ownHome())
 	}
 
-	timeoutSec := positive(req.TimeoutSec, e.config.Exec.DefaultTimeoutSec)
-	graceSec := positive(req.KillGraceSec, e.config.Exec.KillGraceSec)
+	timeoutSec := positive(req.TimeoutSec, e.config.Command.TimeoutSec)
+	graceSec := positive(req.KillGraceSec, config.KillGraceSec)
 
 	// Nothing writes to the master, so a child reading stdin would block until its
 	// timeout; /dev/null makes that an immediate EOF.  stdout and stderr keep the
@@ -313,7 +313,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	// and every credential prompt worth the name reads /dev/tty precisely so a
 	// pipe cannot answer it: ssh-add, sudo, gpg, ssh's own passphrase prompt.
 	// Nothing writes to the master, so that read blocks until the timeout, holding
-	// a [server] max_concurrency slot for the whole of it.  Without one the open
+	// a [command] concurrency slot for the whole of it.  Without one the open
 	// fails, the program falls back to stdin, and stdin is /dev/null, so the
 	// prompt fails at once.
 	//

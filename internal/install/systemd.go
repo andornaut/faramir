@@ -214,9 +214,9 @@ func (r *runner) stepSystemd() error {
 	return nil
 }
 
-// Reload drops the daemons onto a changed configuration.  Exported because a
-// consumer writes its own config.d drop-in, and none of the daemons re-reads
-// its config while running.
+// Reload drops the daemons onto a changed configuration.  Exported because
+// `faramir link` changes the config too, and none of the daemons re-reads its
+// config while running.
 //
 // The config is loaded before anything is stopped.  Reload's own act is to stop
 // the services and leave the sockets listening, so a config the daemons cannot
@@ -227,7 +227,7 @@ func (r *runner) stepSystemd() error {
 //
 // --parse-only rather than --check: the question is whether the daemons can
 // load this, not whether every managed value can be read.  --check also fails
-// for a ref shorter than [secrets] min_length, which is a value to lengthen
+// for a ref shorter than [secret] min_length, which is a value to lengthen
 // rather than a reason to refuse a restart.
 // parseInstalledConfig asks the broker's own uid whether the installed config
 // loads, which is the account that will have to load it.

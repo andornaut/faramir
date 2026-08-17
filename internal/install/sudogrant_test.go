@@ -39,7 +39,7 @@ func loadRendered(t *testing.T, body []byte) *config.Config {
 	return cfg
 }
 
-// Without --allow-sudo nothing is configured: no [sudo] section, so nothing is
+// Without --allow-sudo nothing is configured: no [approval] section, so nothing is
 // injected and no question can be raised.  This is the promise the whole
 // arrangement rests on: an install that did not ask for it is the install that
 // existed before it.
@@ -52,11 +52,11 @@ func TestWithoutAllowSudoTheConfigCarriesNoSudoSection(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(body), "[sudo]") {
-		t.Errorf("the config carries a [sudo] section without --allow-sudo:\n%s", body)
+	if strings.Contains(string(body), "[approval]") {
+		t.Errorf("the config carries a [approval] section without --allow-sudo:\n%s", body)
 	}
-	if cfg := loadRendered(t, body); cfg.Sudo.ExecUser != "" {
-		t.Errorf("exec_user = %q, want unset", cfg.Sudo.ExecUser)
+	if cfg := loadRendered(t, body); cfg.Approval.ExecUser != "" {
+		t.Errorf("exec_user = %q, want unset", cfg.Approval.ExecUser)
 	}
 }
 
@@ -70,17 +70,17 @@ func TestAllowSudoRendersTheSudoSection(t *testing.T) {
 	}
 	cfg := loadRendered(t, body)
 	for _, check := range []struct{ name, got, want string }{
-		{"exec_user", cfg.Sudo.ExecUser, layout.ExecUser},
-		{"pam_service", cfg.Sudo.PamService, layout.PamService()},
-		{"helper", cfg.Sudo.Helper, layout.PamHelper()},
+		{"exec_user", cfg.Approval.ExecUser, layout.ExecUser},
+		{"pam_service", cfg.Approval.PamService, layout.PamService()},
+		{"helper", cfg.Approval.Helper, layout.PamHelper()},
 	} {
 		if check.got != check.want {
 			t.Errorf("%s = %q, want %q", check.name, check.got, check.want)
 		}
 	}
 	// Nothing is configured to ask: `faramir approve` is where a question is seen.
-	if len(cfg.Sudo.NotifyCommand) != 0 {
-		t.Errorf("notify_command = %q, want nothing by default", cfg.Sudo.NotifyCommand)
+	if len(cfg.Approval.NotifyCommand) != 0 {
+		t.Errorf("notify_command = %q, want nothing by default", cfg.Approval.NotifyCommand)
 	}
 }
 
@@ -376,12 +376,12 @@ func TestNotifyCommandIsRenderedAndLoadsBack(t *testing.T) {
 	}
 	cfg := loadRendered(t, body)
 	want := []string{"/usr/bin/wall", "{prompt}"}
-	if len(cfg.Sudo.NotifyCommand) != len(want) {
-		t.Fatalf("notify_command = %q, want %q", cfg.Sudo.NotifyCommand, want)
+	if len(cfg.Approval.NotifyCommand) != len(want) {
+		t.Fatalf("notify_command = %q, want %q", cfg.Approval.NotifyCommand, want)
 	}
 	for i := range want {
-		if cfg.Sudo.NotifyCommand[i] != want[i] {
-			t.Errorf("notify_command[%d] = %q, want %q", i, cfg.Sudo.NotifyCommand[i], want[i])
+		if cfg.Approval.NotifyCommand[i] != want[i] {
+			t.Errorf("notify_command[%d] = %q, want %q", i, cfg.Approval.NotifyCommand[i], want[i])
 		}
 	}
 }
@@ -418,9 +418,9 @@ func checkNotifyRoundTrip(t *testing.T, awkward string) {
 		t.Fatal(err)
 	}
 	cfg := loadRendered(t, body)
-	if len(cfg.Sudo.NotifyCommand) != 2 || cfg.Sudo.NotifyCommand[1] != awkward {
+	if len(cfg.Approval.NotifyCommand) != 2 || cfg.Approval.NotifyCommand[1] != awkward {
 		t.Errorf("notify_command = %q, want the second argument back as %q",
-			cfg.Sudo.NotifyCommand, awkward)
+			cfg.Approval.NotifyCommand, awkward)
 	}
 }
 

@@ -136,32 +136,38 @@ type Layout struct {
 	// was rendered into a pattern.
 	SSHKey string
 
-	// Links is the [[secrets.link]] entries, read off the config rather than given
+	// Links is the [[secret.link]] entries, read off the config rather than given
 	// by a flag.  They render back into config.toml, which is what makes them
 	// install state rather than a drop-in's: init asserts them, and the grant they
 	// need, on every run.
 	//
-	// Base file only: rendering back what a drop-in declared would copy it into
-	// config.toml, and the next load would refuse both as one ref claimed twice.
-	Links []config.Link
-
-	// LinkedPaths is what the deny rules refuse, and it is the *merged* set, a
-	// drop-in's links included.  A linked value joins the redactor, and leaving
-	// the file itself readable would mean the agent could still print the
-	// plaintext one Read away, which is the disclosure linking exists to close;
-	// where the entry was declared has nothing to do with that.
-	//
-	// Separate from Links for that reason alone: one renders a file this run
-	// owns, the other refuses a path this run merely knows about.
+	// One field for both jobs: the entries config.toml carries, and the paths the
+	// deny rules refuse.  They were separate while a drop-in could declare a link
+	// the base file must not re-render; with one config file there is no such
+	// entry and no such distinction.
 	//
 	// The account-wide lists only.  A linked file is one host's operator's own, so
 	// putting it in the per-project assets would change every enrolled tree's
 	// files whenever a link was added, and report drift in all of them until each
 	// was enrolled again.  Pi has no account-wide file, so its extension does not
 	// carry these; that is the same gap it already has.
-	LinkedPaths []string
+	Links []config.Link
 
-	// AllowSudo is the switch for the whole arrangement: unset renders no [sudo]
+	// The tunables.  Each is set by a flag, rendered into config.toml, and read
+	// back out of it on the next run, so a flag left out keeps what the install
+	// already has rather than reverting to the compiled-in value.  That round
+	// trip is what TestALinkOperationRendersTheSameConfigTheInstallDid holds to:
+	// a value that reaches this file and is recoverable from nothing would be
+	// erased by the next command that rewrites it.
+	CommandEnv           map[string]string
+	CommandTimeoutSec    int
+	CommandMaxTimeoutSec int
+	CommandConcurrency   int
+	ApprovalTimeoutSec   int
+	SecretMinLength      int
+	SecretMinRefreshSec  int
+
+	// AllowSudo is the switch for the whole arrangement: unset renders no [approval]
 	// section, writes no sudoers file and no PAM service, so nothing can be asked
 	// for.
 	AllowSudo bool
@@ -365,7 +371,7 @@ func (l Layout) validateNotifyCommand() error {
 	if !l.AllowSudo {
 		return fmt.Errorf("--notify-command announces a pending approval, and this "+
 			"install grants none: pass --allow-sudo as well, or drop it. Without the "+
-			"grant no [sudo] section is written and there is nothing to announce (%s)",
+			"grant no [approval] section is written and there is nothing to announce (%s)",
 			strings.Join(l.NotifyCommand, " "))
 	}
 	if !slices.ContainsFunc(l.NotifyCommand, func(arg string) bool {

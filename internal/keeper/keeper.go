@@ -159,7 +159,7 @@ type FileState struct {
 	Size  int64  `json:"size"`
 }
 
-// Resolve expands each [secrets] patterns entry against the filesystem.  Every
+// Resolve expands each the managed store entry against the filesystem.  Every
 // entry is a glob, a literal path being one with no metacharacters, and an
 // entry naming no file is an error: unmounted and deleted both leave the broker
 // configured for values it does not have.
@@ -199,6 +199,17 @@ func Resolve(files []string) (paths, errors, unresolved []string) {
 			paths = append(paths, match)
 		}
 	}
+	// The entries are alternatives, not an inventory: the store is one directory
+	// spelled three ways, once per extension a managed file may carry.  So the
+	// question "did anything match" belongs to the set rather than to each
+	// entry, and a host holding only *.sops.yml is not two thirds broken.
+	//
+	// It is asked at all because a store that matched nothing is a broker
+	// redacting nothing, which has to be told apart from one whose files simply
+	// have not been written yet.
+	if len(paths) > 0 {
+		unresolved = []string{}
+	}
 	return paths, errors, unresolved
 }
 
@@ -223,7 +234,7 @@ func isPattern(entry string) bool { return strings.ContainsAny(entry, `*?[\`) }
 // StatAll fingerprints every managed file: no key, no sops, no contents, since
 // the broker calls this on every poll.  A file that cannot be stat-ed is an
 // error rather than a missing entry.
-func StatAll(secrets config.SecretsConfig) ([]FileState, []string, []string) {
+func StatAll(secrets config.SecretConfig) ([]FileState, []string, []string) {
 	state := []FileState{}
 	paths, errors, unresolved := Resolve(secrets.Patterns)
 	for _, path := range paths {
@@ -240,7 +251,7 @@ func StatAll(secrets config.SecretsConfig) ([]FileState, []string, []string) {
 
 // DecryptAll decrypts every managed file.  Per-file failures are returned as
 // errors rather than aborting, so one broken file does not blank the value set.
-func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]string, []string) {
+func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string, []string) {
 	values := map[string]string{}
 	paths, errors, _ := Resolve(secrets.Patterns)
 
@@ -271,7 +282,7 @@ func DecryptAll(secrets config.SecretsConfig, keys *KeyHolder) (map[string]strin
 			argv = append(argv, strings.ReplaceAll(a, "{file}", path))
 		}
 		if len(argv) == 0 {
-			errors = append(errors, path+": [secrets] decrypt_command is empty")
+			errors = append(errors, path+": [secret] decrypt_command is empty")
 			continue
 		}
 
@@ -411,14 +422,14 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 	case "get_state":
 		// The poll: no key, no sops, and unlogged, since with a refresh interval of 0
 		// it runs as often as commands arrive.
-		state, errs, unresolved := StatAll(k.config.Secrets)
+		state, errs, unresolved := StatAll(k.config.Secret)
 		return map[string]any{"state": state, "errors": errs, "unresolved_patterns": unresolved}
 	case "get_values":
 		// Stat first, so an edit during the decrypt leaves the fingerprint older than
 		// the values and reloads once too often.  The other order would never pick
 		// the edit up.
-		state, errs, unresolved := StatAll(k.config.Secrets)
-		values, decryptErrs := DecryptAll(k.config.Secrets, k.Keys)
+		state, errs, unresolved := StatAll(k.config.Secret)
+		values, decryptErrs := DecryptAll(k.config.Secret, k.Keys)
 		errs = append(errs, decryptErrs...)
 		log.Printf("served %d value(s), %d error(s), %d entry(ies) naming nothing",
 			len(values), len(errs), len(unresolved))
