@@ -92,6 +92,99 @@ print(s.recv(400).decode()[:120])")
 grep -q "forbidden" <<<"$out" && ok "and is still refused the escalation ops, which are root's" \
   || bad "the executor was answered an escalation op: $out"
 
+# --------------------------------------------------------------------------
+head_ "2b. the check behind the socket mode"
+# The modes above are the first answer, and they are the only one those probes
+# can reach: a peer a mode turns away never gets far enough to be identified.
+# Behind them each daemon reads SO_PEERCRED and refuses a caller that is not the
+# account it serves, so a mode widened by a bad install, a umask or a drop-in is
+# not the whole boundary.  Reaching that check means getting past the mode, so
+# this widens it, puts the question, and puts it back.
+#
+# Every one of these answers "forbidden": the daemon identified the caller and
+# said no.  Anything else is this check failing to ask rather than the boundary
+# holding, and each way of failing to ask says so in its own words.
+peerprobe() { # account, socket, payload
+  runuser -u "$1" -- /usr/bin/python3 -c "
+import socket, sys
+s = socket.socket(socket.AF_UNIX)
+s.settimeout(10)
+try:
+    s.connect(sys.argv[1])
+except Exception as e:
+    print('UNREACHABLE %s' % e); raise SystemExit(0)
+try:
+    s.sendall(sys.argv[2].encode() + b'\n')
+except Exception:
+    pass  # refused and closed before reading; the answer may be here already
+try:
+    reply = s.recv(400)
+except Exception as e:
+    print('NOANSWER %s' % e); raise SystemExit(0)
+print(reply.decode('utf-8', 'replace') if reply else 'NOANSWER closed unread')" "$2" "$3" 2>&1
+}
+
+# refuses ACCOUNT SOCKET PAYLOAD LABEL.  A daemon's answer is JSON, so anything
+# that does not start with a brace is this suite failing to run the probe --
+# no python3, no such account -- and is reported as that rather than as a
+# boundary that gave way.
+refuses() {
+  local out; out=$(peerprobe "$1" "$2" "$3")
+  case $out in
+    *'"forbidden"'*) ok "$4" ;;
+    UNREACHABLE*) bad "$4: the mode was not widened, so the peer check was never asked ($out)" ;;
+    NOANSWER*)    bad "$4: the daemon answered nothing ($out)" ;;
+    '{'*)         bad "$4: served a peer it does not admit: $out" ;;
+    *)            bad "$4: the probe did not run ($out)" ;;
+  esac
+}
+
+RUNDIR_MODE=$(stat -c '%a' /run/faramir)
+MODE_KEEPER=$(stat -c '%a' /run/faramir/keeper.sock)
+MODE_EXEC=$(stat -c '%a' /run/faramir/exec.sock)
+MODE_BROKER=$(stat -c '%a' /run/faramir/broker.sock)
+
+# On the way out as well as in line: this suite is the eleventh of seventeen
+# against one install, so a socket left widened by a probe that hung or a
+# harness that cut the run is a boundary the six suites after this one would
+# measure and report as holding.
+restore_socket_modes() {
+  local rc=$?
+  chmod "$MODE_KEEPER" /run/faramir/keeper.sock 2>/dev/null
+  chmod "$MODE_EXEC" /run/faramir/exec.sock 2>/dev/null
+  chmod "$MODE_BROKER" /run/faramir/broker.sock 2>/dev/null
+  chmod "$RUNDIR_MODE" /run/faramir 2>/dev/null
+  return "$rc"
+}
+trap restore_socket_modes EXIT
+
+chmod o+x /run/faramir
+chmod o+rw /run/faramir/keeper.sock /run/faramir/exec.sock /run/faramir/broker.sock
+
+# The keeper and the executor each serve one account, the broker, and op is not
+# it.  op is the account the coding agent runs as, so this is the reach a
+# compromised agent would have if the mode alone were the boundary.
+refuses op /run/faramir/keeper.sock '{"op":"get_values"}' \
+  "the keeper refuses op, whatever the socket mode says"
+refuses op /run/faramir/exec.sock '{"op":"exec","cmd":["/bin/true"]}' \
+  "the executor refuses op, whatever the socket mode says"
+# The broker admits a group rather than one account, so the peer that tests it
+# is one outside that group.  nobody is in none.
+refuses nobody /run/faramir/broker.sock '{"op":"status"}' \
+  "the broker refuses an account outside the client group"
+
+restore_socket_modes
+trap - EXIT
+# Every mode this widened, rather than the one that had to change: /run/faramir
+# is 0755 already, so asserting on it alone would be an assertion that cannot
+# fail, and the two sockets that did change would go unchecked.
+got="$(stat -c '%a' /run/faramir) $(stat -c '%a' /run/faramir/keeper.sock)"
+got="$got $(stat -c '%a' /run/faramir/exec.sock) $(stat -c '%a' /run/faramir/broker.sock)"
+want="$RUNDIR_MODE $MODE_KEEPER $MODE_EXEC $MODE_BROKER"
+[ "$got" = "$want" ] \
+  && ok "every widened mode is back to what the install set ($got)" \
+  || bad "modes left widened: $got, want $want"
+
 head_ "3. the environment the broker chose"
 env_out=$(run -- /usr/bin/printenv)
 for want in PATH TERM LANG LC_ALL DEBIAN_FRONTEND; do

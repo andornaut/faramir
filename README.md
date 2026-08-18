@@ -257,7 +257,7 @@ Command | Does
 `sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed config. All three are socket activated
 `sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively
 
-`escalations`, `approve` and `deny` are root-only at the broker too, checked with `SO_PEERCRED`: the account the coding agent runs as must not answer what the agent asked for.
+At the broker these are three ops rather than four, `deny` being `approve` with a no: `escalations`, `approve` and `escalate` are root-only there too, checked with `SO_PEERCRED`, so the account the coding agent runs as cannot answer what the agent asked for. `escalate` is the one sudo's PAM helper asks, and so the one that decides whether a brokered command becomes root.
 
 ### MCP tools
 

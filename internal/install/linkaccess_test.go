@@ -286,18 +286,13 @@ func TestADropInIsNotRead(t *testing.T) {
 	}
 }
 
-// The guard the [escalation] bug asked for.
-//
 // `link add` rewrites the whole of config.toml from the layout it builds, so
 // every value that file carries has to survive the round trip through the
-// install and back.  One that does not is not a diff anybody sees: it is a
-// section quietly dropped from a running host, which is what happened to the
-// sudo grant.
+// install and back.  A value that does not is not a visible diff: it is a
+// section dropped from a running host.
 //
-// So: render the file as an install would, then rebuild the options the way a
-// link operation does, render again, and hold the two to being identical.  A
-// value rendered into config.toml and recoverable from nothing fails here
-// rather than on somebody's host.
+// Render the file as an install would, rebuild the options the way a link
+// operation does, render again, and hold the two to being identical.
 func TestALinkOperationRendersTheSameConfigTheInstallDid(t *testing.T) {
 	dir := t.TempDir()
 	installed := Options{

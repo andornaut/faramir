@@ -307,10 +307,9 @@ func TestTheDefaultPathIsAccepted(t *testing.T) {
 	}
 }
 
-// The env merges over the built-in table rather than replacing it, which is
-// what stops a file that sets one variable from leaving the broker unable to
-// resolve a bare program name.  This is the trap the old table had: it replaced
-// the whole of it, so naming TERM silently took PATH away.
+// The env merges over the built-in table rather than replacing it: a file that
+// sets one variable must not take PATH away and leave the broker unable to
+// resolve a bare program name.
 func TestNamingOneVariableKeepsTheRest(t *testing.T) {
 	for _, body := range []string{
 		"[command]\nenv = { TERM = \"dumb\" }\n",

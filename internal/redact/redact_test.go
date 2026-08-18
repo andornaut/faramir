@@ -141,7 +141,6 @@ func wrap76(s string) string {
 	return out.String()
 }
 
-// A value split across two Feed calls must still be caught.
 func TestValueSplitAcrossChunks(t *testing.T) {
 	r := newTestRedactor()
 	half := len(secret) / 2

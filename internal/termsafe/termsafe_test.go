@@ -83,8 +83,8 @@ func TestArgQuotesRatherThanStrips(t *testing.T) {
 	}
 }
 
-// Bound says that it truncated.  Silent truncation would let a long value end
-// the displayed text wherever it liked.
+// Silent truncation would let a long value end the displayed text wherever it
+// liked.
 func TestBoundSaysItTruncated(t *testing.T) {
 	got := Bound(strings.Repeat("a", 1000), 100)
 	if len(got) > 200 {

@@ -165,6 +165,10 @@ func TestOnlyRootMayAnswerAnEscalation(t *testing.T) {
 	for _, request := range []map[string]any{
 		{"op": "escalations"},
 		{"op": "approve", "id": "abc123", "approve": true},
+		// escalate is the one that spends the token, so it is the one an agent
+		// would reach for: answered by anything but root, a command could approve
+		// its own sudo.
+		{"op": "escalate", "token": "abc123"},
 	} {
 		response := s.Handle(request, operator)
 		if code := errorCode(t, response); code != "forbidden" {
