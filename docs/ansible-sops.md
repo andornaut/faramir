@@ -24,17 +24,19 @@ creation_rules:
 
 The rule matches the suffix rather than a directory, so moving a file does not silently drop it out of encryption.
 
-Creating one is `add`, and the name is relative to the secrets directory:
+Creating one is `add`, and the name is just a name:
 
 ```bash
-sudo faramir secrets add ansible-ctrl.sops.yml
+sudo faramir secrets add ansible-ctrl
 ```
+
+`.sops.yml` is added for you, so the file is `/etc/faramir/secrets/ansible-ctrl.sops.yml` and every command beside this one takes `ansible-ctrl`. faramir writes YAML; a `.sops.yaml` or `.sops.json` a host already carries is still read and edited.
 
 It opens `$EDITOR` on a `0600` file in a tmpfs and encrypts on the way out, so no plaintext reaches a disk, and it writes `0640` root:keeper like every other managed file. `--from plain.yml` encrypts a file you already hold and leaves it where it is, still cleartext.
 
-A name matching none of the `[secret]` patterns is refused. Encrypting one by hand succeeds and produces a file the broker never reads, which is a mistake nothing reports until somebody goes looking for the ref.
+Encrypting one by hand succeeds and produces a file the broker never reads if the name is wrong, which is a mistake nothing reports until somebody goes looking for the ref. `add` cannot make it: the suffix is not yours to get wrong.
 
-Every edit after that is `sudo faramir secrets edit ansible-ctrl.sops.yml`, re-encrypting to the recipients the file already had.
+Every edit after that is `sudo faramir secrets edit ansible-ctrl`, re-encrypting to the recipients the file already had.
 
 Under it both commands hand sops `--config` and `--filename-override`, because **which `.sops.yaml` sops reads is resolved from the working directory upward**: encrypting into the secrets directory from a checkout otherwise finds nothing and fails with `config file not found, or has no creation rules`.
 

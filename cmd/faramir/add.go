@@ -52,8 +52,8 @@ func newAddCmd() *cobra.Command {
 		Short: "write a new managed sops file",
 		Long: "Creates one file in the secrets directory, encrypted to the recipients\n" +
 			".sops.yaml names.\n\n" +
-			"NAME is taken relative to the secrets directory, and has to match one of\n" +
-			"the [secret] patterns or the broker would never serve what is in it.\n\n" +
+			"NAME is a name, relative to the secrets directory: `.sops.yml` is added\n" +
+			"for you, and a name that already carries it is taken as it stands.\n\n" +
 			"The content comes from $EDITOR on a 0600 file in a tmpfs, so no plaintext\n" +
 			"reaches a disk. --from encrypts a file you already have, and leaves it\n" +
 			"where it is: it is still cleartext afterwards.",
@@ -152,17 +152,17 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 	}
 	target = filepath.Clean(target)
 
-	matched := false
-	for _, pattern := range cfg.Secret.Patterns {
-		if ok, _ := filepath.Match(pattern, target); ok {
-			matched = true
-			break
-		}
+	// The suffix is faramir's, not the operator's: they pick a name and this
+	// writes a YAML store, which is what an edit opens in front of them.  A name
+	// that already carries a managed suffix is taken as it stands, so naming a
+	// file in full is neither wrong nor doubled.
+	if !matchesPatterns(cfg.Secret.Patterns, target) {
+		target += managedSuffix
 	}
-	if !matched {
+	if !matchesPatterns(cfg.Secret.Patterns, target) {
 		return "", fmt.Errorf("%s matches none of the [secret] patterns (%s), so the "+
-			"broker would never read it and nothing in it could be named as a ref",
-			target, joinPatterns(cfg.Secret.Patterns))
+			"broker would never read it and nothing in it could be named as a ref. A "+
+			"managed file lives in %s", target, joinPatterns(cfg.Secret.Patterns), dir)
 	}
 	if exists(target) {
 		return "", fmt.Errorf("%s is already there; `faramir secrets edit %s` opens it",
@@ -176,6 +176,16 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 			"file: `sudo faramir init` creates it", dir)
 	}
 	return target, nil
+}
+
+// matchesPatterns reports whether the broker would read this path.
+func matchesPatterns(patterns []string, target string) bool {
+	for _, pattern := range patterns {
+		if ok, _ := filepath.Match(pattern, target); ok {
+			return true
+		}
+	}
+	return false
 }
 
 func joinPatterns(patterns []string) string {

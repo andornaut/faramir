@@ -587,12 +587,12 @@ reload_daemons || bad "the daemons did not come back"
 runuser -u op -- faramir secrets refs 2>&1 | grep -q 'faramir://added/by_the_editor' \
   && ok "and the broker serves the new ref" || bad "the new ref is not being served"
 
-# THE REFUSAL: a name the broker would never read.  sops encrypts one happily.
-faramir secrets add --editor /usr/local/sbin/writer notes.txt >/tmp/badname.log 2>&1 \
-  && bad "created a file matching no [secret] pattern, which nothing would serve" \
-  || ok "refused a name no pattern matches: $(grep -oE 'matches none of' /tmp/badname.log | head -1)"
-[ -e /etc/faramir/secrets/notes.txt ] && bad "and it wrote the file anyway" \
-  || ok "and wrote nothing"
+# THE REFUSAL: outside the secrets directory.  A bare name gets the suffix, so
+# what is left to refuse is a path the pattern cannot reach at all.
+faramir secrets add --editor /usr/local/sbin/writer /tmp/outside >/tmp/badname.log 2>&1 \
+  && bad "created a file outside the secrets directory, which nothing would serve" \
+  || ok "refused a path the pattern cannot reach: $(grep -oE 'matches none of' /tmp/badname.log | head -1)"
+[ -e /tmp/outside.sops.yml ] && bad "and it wrote the file anyway" || ok "and wrote nothing"
 
 # An existing file is edit's, and saying so is the whole of the message.
 faramir secrets add --editor /usr/local/sbin/writer added.sops.yml >/tmp/dup.log 2>&1 \
@@ -619,7 +619,42 @@ grep -q 'tok-from-a-file' /etc/faramir/secrets/svc.sops.yml \
 
 rm -f "$NEW" /etc/faramir/secrets/svc.sops.yml /tmp/plain.yml
 
-head_ "16. ls, refs and rm: the operator's view of the store"
+head_ "16. a name is a name: the suffix is faramir's, not the operator's"
+cat > /usr/local/sbin/writer3 <<'EOF'
+#!/bin/bash
+printf 'team:\n  key: a-long-enough-value\n' > "$1"
+EOF
+chmod 0755 /usr/local/sbin/writer3
+faramir secrets add --editor /usr/local/sbin/writer3 bare-name >/tmp/bare.log 2>&1 \
+  && ok "add takes a name with no suffix" || bad "add failed: $(tail -2 /tmp/bare.log)"
+[ -e /etc/faramir/secrets/bare-name.sops.yml ] \
+  && ok "and writes bare-name.sops.yml" \
+  || bad "no file at /etc/faramir/secrets/bare-name.sops.yml"
+faramir secrets edit --editor /usr/local/sbin/writer3 bare-name >/dev/null 2>&1 \
+  && ok "edit takes the same short name" || bad "edit could not resolve the short name"
+faramir secrets ls 2>/dev/null | grep -qE '^bare-name ' \
+  && ok "ls shows it without the suffix" || bad "ls does not show the short name"
+faramir secrets ls 2>/dev/null | head -1 | grep -q '^/etc/faramir/secrets$' \
+  && ok "under the directory, named once so a full path is still readable off it" \
+  || bad "the listing does not name the directory"
+faramir secrets ls --json 2>/dev/null | jq -e \
+  '[.[]|select(.name=="bare-name")|.path]==["/etc/faramir/secrets/bare-name.sops.yml"]' >/dev/null \
+  && ok "and --json carries both spellings" || bad "--json lost one of the two names"
+
+# A full name is neither wrong nor doubled.
+faramir secrets add --editor /usr/local/sbin/writer3 full-name.sops.yml >/dev/null 2>&1 \
+  && ok "a name that already carries the suffix is taken as it stands" || bad "a full name was refused"
+[ -e /etc/faramir/secrets/full-name.sops.yml ] && ok "and is not doubled" \
+  || bad "wrote $(echo /etc/faramir/secrets/full-name*)"
+
+# The confirmation takes the name that was typed to get here.
+printf 'bare-name\n' | faramir secrets rm bare-name >/dev/null 2>&1 \
+  && ok "rm takes the short name, at the argument and at the prompt" \
+  || bad "the short name was refused at the confirmation"
+printf 'full-name.sops.yml\n' | faramir secrets rm full-name.sops.yml >/dev/null 2>&1 \
+  && ok "and the full one still answers too" || bad "the full name was refused"
+
+head_ "17. ls, refs and rm: the operator's view of the store"
 cat > /usr/local/sbin/writer2 <<'EOF'
 #!/bin/bash
 printf 'inventory:\n  one: inventory-value-one\n  two: inventory-value-two\n' > "$1"
@@ -651,18 +686,18 @@ grep -q 'faramir://inventory/one' /tmp/refs.log \
   && ok "and the broker is serving what ls found" || bad "the broker is not serving it"
 
 # THE REFUSAL: anything but the file's own name leaves it alone.
-for answer in "no" "" "y" "yes" "inventory"; do
+for answer in "no" "" "y" "yes" "inventor" "inventory.sops"; do
   printf '%s\n' "$answer" | faramir secrets rm inventory.sops.yml >/dev/null 2>&1
   [ -e /etc/faramir/secrets/inventory.sops.yml ] \
     || bad "answering '$answer' removed the file"
 done
-ok "only the file's own name removes it; no, an empty line, y, yes and a prefix do not"
+ok "only the file's own name removes it; no, an empty line, y, yes and a near miss do not"
 # A closed stdin is a refusal too, not a prompt nobody answered.
 faramir secrets rm inventory.sops.yml </dev/null >/dev/null 2>&1
 [ -e /etc/faramir/secrets/inventory.sops.yml ] && ok "and a closed stdin refuses" \
   || bad "a closed stdin removed the file"
 
-printf 'inventory.sops.yml\n' | faramir secrets rm inventory.sops.yml >/tmp/rm.log 2>&1 \
+printf 'inventory\n' | faramir secrets rm inventory >/tmp/rm.log 2>&1 \
   && ok "the file's own name removes it" || bad "rm failed: $(tail -2 /tmp/rm.log)"
 [ -e /etc/faramir/secrets/inventory.sops.yml ] && bad "the file is still there" \
   || ok "and the file is gone"

@@ -105,17 +105,17 @@ func DecryptCommand() []string {
 }
 
 // SecretPatterns is the managed store, derived from where the config sits
-// rather than configured.  Two things follow from deriving it: the store cannot
-// be pointed at a checkout, which a clone or a branch could move, and the three
-// extensions here are the three the agent deny rules already refuse, so what
-// the broker reads and what the agent cannot open cannot disagree.
+// rather than configured, so it cannot be pointed at a checkout that a clone or
+// a branch could move.
+//
+// One extension, not the three sops can read.  faramir writes the store, and an
+// operator picks a name rather than a store format: a second spelling would be a
+// second way for a file to be named and no way for anything to be said.  What
+// the agent cannot open is the directory, which the deny rules name by path, so
+// nothing here widens or narrows that.
 func SecretPatterns(configPath string) []string {
 	dir := filepath.Join(filepath.Dir(configPath), "secrets")
-	return []string{
-		filepath.Join(dir, "*.sops.yml"),
-		filepath.Join(dir, "*.sops.yaml"),
-		filepath.Join(dir, "*.sops.json"),
-	}
+	return []string{filepath.Join(dir, "*.sops.yml")}
 }
 
 // rejectUnknownKeys fails on a mistyped key, naming it and the alternatives.

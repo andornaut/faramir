@@ -79,11 +79,9 @@ func TestTheStoreIsDerivedFromWhereTheConfigSits(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(filepath.Dir(path), "secrets")
-	want := []string{
-		filepath.Join(dir, "*.sops.yml"),
-		filepath.Join(dir, "*.sops.yaml"),
-		filepath.Join(dir, "*.sops.json"),
-	}
+	// One, not the three sops can read: faramir writes the store, so a second
+	// spelling would be a second way for a file to be named and nothing gained.
+	want := []string{filepath.Join(dir, "*.sops.yml")}
 	if len(cfg.Secret.Patterns) != len(want) {
 		t.Fatalf("patterns = %v, want %v", cfg.Secret.Patterns, want)
 	}

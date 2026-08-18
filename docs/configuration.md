@@ -58,7 +58,7 @@ Value | Why not a key
 `max_record_bytes` (256 KiB) | Matched to the output cap, which is what fills it: the record keeps the head and the tail of the same output and cuts every other field to fit
 `term_cols`, `term_rows` (120x40) | Where a program folds its own output, on a stream a model reads
 `kill_grace_sec` (5) | A window that opens only once a command has overrun its timeout
-the managed store | `<config-dir>/secrets/` matching `*.sops.yml`, `*.sops.yaml` and `*.sops.json`: the three the agent deny rules already refuse, so what the broker reads and what the agent cannot open cannot disagree. Derived from where the config sits, so the store cannot be pointed at a checkout
+the managed store | `<config-dir>/secrets/` matching `*.sops.yml`. One spelling: faramir writes the store, so an operator picks a name and `secrets add` picks the format. Derived from where the config sits, so the store cannot be pointed at a checkout. What the agent cannot open is the directory, which the deny rules name by path
 the decrypt command | A second way to invoke sops is a second thing that could be pointed elsewhere, by the account holding the age key
 
 ## Linked secrets

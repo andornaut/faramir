@@ -33,6 +33,11 @@ const opRemove = "remove"
 
 // managedFile is one file as `ls` reports it.
 type managedFile struct {
+	// Name is what an operator types, and Path is what is on disk.  Both, because
+	// a listing that gave only the short name could not be pasted into anything
+	// else, and one that gave only the path would not match the argument the
+	// commands beside this one take.
+	Name       string   `json:"name"`
 	Path       string   `json:"path"`
 	Refs       []string `json:"refs"`
 	Recipients []string `json:"recipients"`
@@ -108,10 +113,13 @@ func runSecretsList(f secretsListFlags) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet; "+
 			"`faramir secrets add NAME` writes the first\n", label)
 	} else {
+		// The directory once, above the rows, so the names are the ones the other
+		// commands take and a full path is still there to be read off.
+		fmt.Println(filepath.Dir(cfg.Secret.Patterns[0]))
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-		_, _ = fmt.Fprintln(w, "FILE\tREFS\tREADERS\tSTATE")
+		_, _ = fmt.Fprintln(w, "NAME\tREFS\tREADERS\tSTATE")
 		for _, file := range files {
-			_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%s\n", file.Path, len(file.Refs),
+			_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%s\n", file.Name, len(file.Refs),
 				len(file.Recipients), stateOf(file))
 		}
 		_ = w.Flush()
@@ -144,7 +152,7 @@ func stateOf(file managedFile) string {
 // the recipients are cleartext in a sops file, which is what makes this cheap
 // and what keeps it out of the keeper's way.
 func describeManaged(path string, wanted []string, haveRule bool) managedFile {
-	file := managedFile{Path: path}
+	file := managedFile{Name: managedStem(path), Path: path}
 	recipients, err := sopsrule.SealedTo(path)
 	if err != nil {
 		file.Problem = "not sealed to any age recipient"
@@ -286,14 +294,22 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	default:
 		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), strings.Join(refs, ", "))
 	}
+	// The expected word is shown rather than guessed at.  What makes this safe is
+	// having read which file it is and typed its name deliberately, not having
+	// worked out what to type; a prompt that withheld it would be answered by
+	// trial.
+	name := managedStem(target)
 	fmt.Fprintf(os.Stderr, "Every value in it is destroyed, and nothing here brings "+
-		"it back.\nType the file's name to remove it: ")
+		"it back.\nType %s to remove it: ", name)
 	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil && line == "" {
 		fmt.Fprintln(os.Stderr)
 		return false
 	}
-	return strings.TrimSpace(line) == filepath.Base(target)
+	// Either spelling, the short one being what was typed to get here and the
+	// full one what is on disk.
+	answer := strings.TrimSpace(line)
+	return answer == name || answer == filepath.Base(target)
 }
 
 // newSecretsRefsCmd is `list_secrets` under the noun it belongs to: what the

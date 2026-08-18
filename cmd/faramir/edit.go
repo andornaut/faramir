@@ -214,8 +214,23 @@ var errNoManagedFiles = errors.New("no managed sops files: the managed store nam
 	"add NAME`")
 
 // resolveManaged maps the argument onto one of the configured files, matching a
-// bare name against each base name.  Anything unmanaged is refused, an edit
+// bare name against each base name and against each name without its suffix.  Anything unmanaged is refused, an edit
 // outside the list being a file the broker never reads.
+// managedSuffix is what a managed file ends in.  One spelling, because an
+// operator picks a name and faramir picks the format: the suffix decides the
+// store sops writes and is what the [secret] pattern matches, so it stays on
+// the file and off the argument.
+const managedSuffix = ".sops.yml"
+
+// managedStem is a managed file's name without its suffix, which is what an
+// operator types.  The suffix decides the store format sops writes and is what
+// the [secret] patterns match, so it stays on the file; it is only spared from
+// the argument.
+func managedStem(path string) string {
+	stem, _ := strings.CutSuffix(filepath.Base(path), managedSuffix)
+	return stem
+}
+
 func resolveManaged(managed []string, arg string) (string, error) {
 	if len(managed) == 0 {
 		return "", errNoManagedFiles
@@ -223,7 +238,8 @@ func resolveManaged(managed []string, arg string) (string, error) {
 	var matches []string
 	wanted := filepath.Clean(arg)
 	for _, file := range managed {
-		if filepath.Clean(file) == wanted || filepath.Base(file) == arg {
+		if filepath.Clean(file) == wanted || filepath.Base(file) == arg ||
+			managedStem(file) == arg {
 			matches = append(matches, file)
 		}
 	}
