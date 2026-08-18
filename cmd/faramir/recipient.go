@@ -188,6 +188,20 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 	if store == nil {
 		return code
 	}
+	// Named here rather than left to keeperStaysAReader below.  That check is
+	// written for a rule somebody edited by hand, and its advice is to put the
+	// key back under `- age:`; to an operator who has just asked to remove it,
+	// that reads as an instruction to undo what they typed.
+	if !adding {
+		if keeper, err := agekey.Recipient(store.keyPath); err == nil && keeper == recipient {
+			fmt.Fprintf(os.Stderr, "faramir %s: %s is the key %s decrypts with, so removing "+
+				"it would leave a store nothing on this host can open and a broker serving "+
+				"nothing. It is the one recipient this command will not take away\n",
+				label, recipient, store.keyPath)
+			return 1
+		}
+	}
+
 	body, err := os.ReadFile(store.rulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: creation rule: %v\n", label, err)
@@ -225,7 +239,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 	if f.dryRun {
 		if changed {
 			fmt.Fprintf(os.Stderr, "faramir %s: would %s %s: %s would name %s\n",
-				label, addedOrRemoved(adding), recipient, store.rulePath, strings.Join(wanted, ","))
+				label, addOrRemove(adding), recipient, store.rulePath, strings.Join(wanted, ","))
 		}
 		return resealStore(label, store, wanted, true)
 	}
@@ -260,6 +274,14 @@ func editRule(body []byte, path, recipient string, adding bool) ([]byte, bool, e
 		return sopsrule.Add(body, path, recipient)
 	}
 	return sopsrule.Remove(body, path, recipient)
+}
+
+// addOrRemove is the bare verb, for a sentence that already carries a "would".
+func addOrRemove(adding bool) string {
+	if adding {
+		return "add"
+	}
+	return "remove"
 }
 
 func addedOrRemoved(adding bool) string {
