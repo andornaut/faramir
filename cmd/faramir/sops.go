@@ -3,25 +3,26 @@ package main
 import "github.com/spf13/cobra"
 
 // newSopsCmd groups what is done to the managed store: edit a file, change who
-// can read it, re-encrypt what is there, and mint the key it is encrypted to.  A
-// parent rather than that many top-level verbs, because the help said nothing
-// about them being one subject while they sat between `logs` and `doctor`.
+// can read it, and re-encrypt what is there.  A parent rather than that many
+// top-level verbs, because the help said nothing about them being one subject
+// while they sat between `logs` and `doctor`.
 //
-// `sops keygen` is the odd member and stays anyway: it needs neither root nor
-// an install, minting an identity for a store that need not exist yet.  Its own
-// help says so, and splitting it out would be a group of one.
+// Minting a key is not here.  Three of the four ways a recipient arises mint
+// nothing -- another operator's key, a second host's own, a plugin's -- and the
+// fourth is a backup identity, which has to be minted on the machine that will
+// hold it rather than on the host it is the backup for.  A command here would
+// have minted it in the wrong place.
 func newSopsCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "sops",
-		Short:   "manage the sops store: edit a file, change who can read it, mint a key",
+		Short:   "manage the sops store: edit a file, change who can read it, re-encrypt it",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		// Never reached, the arguments never validating; a command cobra does not
 		// consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newEditCmd(), newRekeyCmd(), newKeygenCmd(),
-		newRecipientAddCmd(), newRecipientRemoveCmd(), newRecipientListCmd())
+	c.AddCommand(newEditCmd(), newRekeyCmd(), newRecipientCmd())
 	return c
 }
 

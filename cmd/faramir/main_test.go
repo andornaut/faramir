@@ -233,23 +233,31 @@ func dispatcherNames(t *testing.T) []string {
 
 	// A command that groups others contributes its children rather than itself,
 	// spelled the way cli.Operator spells them: the guard matches what a person
-	// types, and nobody types a bare `faramir sops`.  One level, which is as deep
-	// as the CLI nests.
+	// types, and nobody types a bare `faramir sops`.  To the leaf, however deep:
+	// a group nested inside a group is still one command somebody types in full,
+	// and a walk that stopped short would name a parent nobody runs while leaving
+	// the children it holds out of the list the sanction is built from.
 	var names []string
-	for _, c := range root.Commands() {
+	var walk func(prefix string, c *cobra.Command)
+	walk = func(prefix string, c *cobra.Command) {
 		// cobra's own, and the only two whose children are not faramir's: the
 		// shells `completion` generates for are not subcommands anybody names here.
 		if c.Name() == "completion" || c.Name() == "help" {
 			names = append(names, c.Name())
-			continue
+			return
 		}
-		if children := c.Commands(); len(children) > 0 {
-			for _, child := range children {
-				names = append(names, c.Name()+" "+child.Name())
-			}
-			continue
+		name := strings.TrimSpace(prefix + " " + c.Name())
+		children := c.Commands()
+		if len(children) == 0 {
+			names = append(names, name)
+			return
 		}
-		names = append(names, c.Name())
+		for _, child := range children {
+			walk(name, child)
+		}
+	}
+	for _, c := range root.Commands() {
+		walk("", c)
 	}
 	if len(names) < 10 {
 		t.Fatalf("found only %d subcommands; the root was not assembled", len(names))

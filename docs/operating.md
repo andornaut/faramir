@@ -101,10 +101,12 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 Applying one afterwards is one command, as root:
 
 ```bash
-sudo faramir sops add-recipient age1hwvv...    # the rule and the ciphertext together
+sudo faramir sops recipient add age1hwvv...    # the rule and the ciphertext together
 ```
 
-It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `sudo faramir sops rm-recipient age1hwvv...` is the same in reverse, and `faramir sops recipients` lists who the store is sealed to, needing no root. `--dry-run` reports the rule change and which files would be rewritten, and writes neither.
+Where the key comes from is not faramir's business. Another operator hands you theirs, a second host's `init` minted its own, or a plugin holds one. A backup identity nobody has yet is minted with `age-keygen -o backup.age`, **on the machine that will hold it**: a backup for this host minted on this host is lost with it.
+
+It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `sudo faramir sops recipient rm age1hwvv...` is the same in reverse, and `faramir sops recipient ls` lists who the store is sealed to, needing no root. `--dry-run` reports the rule change and which files would be rewritten, and writes neither.
 
 - **The rule and the ciphertext are changed together**, which is what makes this one command rather than two. A rule naming a reader the existing files are not sealed to fails nothing: new files get the new list, old ones keep the old, and the divergence surfaces whenever somebody reaches for a value with a key they were told they had.
 - **The key is checked before anything is written.** An identity where a recipient belongs is refused by name, `.sops.yaml` being `0644`: one that lands there is the key to the store readable by every account on the host, so treat it as disclosed and rotate. `sudo faramir doctor` asks the same question of a file however it was written, under `sops config`.

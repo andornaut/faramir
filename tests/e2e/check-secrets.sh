@@ -404,7 +404,7 @@ cover=$(jq -r '[.findings[]|select(.check=="rule coverage")|.status]|join(",")' 
 [ "$cover" = failed ] && ok "doctor reports it under rule coverage before anybody edits" \
   || bad "doctor says rule coverage is [$cover] for a rule that reaches no managed file"
 
-head_ "14. add-recipient and rm-recipient move the rule and the ciphertext together"
+head_ "14. recipient add and rm move the rule and the ciphertext together"
 # What the two-step path left open: a rule naming a reader the existing files are
 # not sealed to.  Nothing fails there, so the test is that the state never exists
 # rather than that a command reports it.
@@ -422,14 +422,14 @@ grep -q "$SECOND" "$MANAGED" && bad "the store still names the second recipient"
   || ok "the store starts sealed to the keeper alone"
 
 before=$(sum)
-faramir sops add-recipient --dry-run "$SECOND" >/tmp/add-dry.log 2>&1
+faramir sops recipient add --dry-run "$SECOND" >/tmp/add-dry.log 2>&1
 [ "$(sum)" = "$before" ] && ok "a dry run leaves the ciphertext byte-identical" \
   || bad "a dry run re-encrypted the store"
 grep -q "$SECOND" /etc/faramir/.sops.yaml && bad "a dry run wrote the rule" \
   || ok "and leaves the rule alone too"
 
-faramir sops add-recipient "$SECOND" >/tmp/add.log 2>&1 \
-  && ok "add-recipient completed" || bad "add-recipient failed: $(tail -2 /tmp/add.log)"
+faramir sops recipient add "$SECOND" >/tmp/add.log 2>&1 \
+  && ok "recipient add completed" || bad "recipient add failed: $(tail -2 /tmp/add.log)"
 grep -q "$SECOND" /etc/faramir/.sops.yaml && ok "the rule names the new recipient" \
   || bad "the rule was not written"
 grep -q "$SECOND" "$MANAGED" \
@@ -442,13 +442,13 @@ grep -q '# Which files sops encrypts' /etc/faramir/.sops.yaml \
 # Twice is not an error and rewrites nothing: an operator who is unsure whether
 # it took should be able to run it again.
 before=$(sum)
-faramir sops add-recipient "$SECOND" >/tmp/add2.log 2>&1 \
+faramir sops recipient add "$SECOND" >/tmp/add2.log 2>&1 \
   && ok "adding one already there exits 0" || bad "a repeat add failed"
 [ "$(sum)" = "$before" ] && ok "and re-encrypts nothing" || bad "a repeat add rewrote the store"
 
 # THE REFUSAL: the private half, where .sops.yaml is world-readable.
 identity=$(grep -o 'AGE-SECRET-KEY-[A-Z0-9]*' /tmp/second.key | head -1)
-if faramir sops add-recipient "$identity" >/tmp/identity.log 2>&1; then
+if faramir sops recipient add "$identity" >/tmp/identity.log 2>&1; then
   bad "an age IDENTITY was written into a 0644 rule file"
 else
   ok "refused an identity where a recipient belongs: $(grep -oE 'private half' /tmp/identity.log | head -1)"
@@ -458,7 +458,7 @@ grep -q 'AGE-SECRET-KEY' /etc/faramir/.sops.yaml && bad "the identity reached th
 
 # THE REFUSAL: the keeper's own key, checked before the file is touched.
 before=$(sum)
-if faramir sops rm-recipient "$KEEPER" >/tmp/rm-keeper.log 2>&1; then
+if faramir sops recipient rm "$KEEPER" >/tmp/rm-keeper.log 2>&1; then
   bad "removed the key the keeper decrypts with, which is unrecoverable"
 else
   ok "refused: $(grep -oE 'does not list|would leave' /tmp/rm-keeper.log | head -1)"
@@ -468,13 +468,13 @@ grep -q "$KEEPER" /etc/faramir/.sops.yaml \
   || bad "the refused removal edited the rule anyway"
 [ "$(sum)" = "$before" ] && ok "and the ciphertext is untouched" || bad "the refused removal rewrote the store"
 
-faramir sops rm-recipient "$SECOND" >/tmp/rm.log 2>&1 \
-  && ok "rm-recipient completed" || bad "rm-recipient failed: $(tail -2 /tmp/rm.log)"
+faramir sops recipient rm "$SECOND" >/tmp/rm.log 2>&1 \
+  && ok "recipient rm completed" || bad "recipient rm failed: $(tail -2 /tmp/rm.log)"
 grep -q "$SECOND" "$MANAGED" && bad "the removed recipient is still in the ciphertext" \
   || ok "the ciphertext no longer names the removed recipient"
 
 # The listing, and the one command here that needs no root.
-runuser -u op -- faramir sops recipients >/tmp/ls.log 2>&1 \
+runuser -u op -- faramir sops recipient ls >/tmp/ls.log 2>&1 \
   && ok "recipients lists without root" || bad "recipients needed root: $(tail -2 /tmp/ls.log)"
 grep -q "$KEEPER" /tmp/ls.log && ok "and names the keeper" || bad "the listing is missing the keeper"
 grep -q "$SECOND" /tmp/ls.log && bad "the listing still names the removed recipient" \

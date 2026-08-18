@@ -13,7 +13,7 @@ package cli
 // question it raised.  Reading what is waiting is as much the operator's as
 // answering it.
 //
-// A grouped command is named in full, both tokens, rather than by its parent.
+// A grouped command is named in full, every token, rather than by its parent.
 // Naming the parent alone would sanction every subcommand added under it later,
 // which is a widening nobody decides and nobody sees in a diff; spelled out,
 // adding one is a line here.
@@ -31,10 +31,9 @@ var Operator = []string{
 	"init-project",
 	"sops edit",
 	"sops rekey",
-	"sops keygen",
-	"sops add-recipient",
-	"sops rm-recipient",
-	"sops recipients",
+	"sops recipient add",
+	"sops recipient rm",
+	"sops recipient ls",
 	"link add",
 	"link rm",
 	"link ls",

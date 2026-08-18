@@ -35,10 +35,21 @@ import (
 // adds is who the store is now readable by and who asked for that.
 const opRecipient = "recipient"
 
-// Flat under `sops` rather than a group of its own.  The guard maps a subcommand
-// to a name one level deep, which is as deep as this CLI nests, and that mapping
-// is what decides whose arguments go unscanned: deepening it for three commands
-// would put a security-relevant list a level further from what a person types.
+// A group of its own under `sops`, spelled like `link add|rm|ls`.  The guard
+// names a subcommand by every token a person types, so the three here are three
+// lines in cli.Operator and the test that holds that list against the command
+// tree is what keeps them in step.
+func newRecipientCmd() *cobra.Command {
+	c := &cobra.Command{
+		Use:   "recipient",
+		Short: "manage who can decrypt the managed store",
+		Args:  requiresSubcommand,
+		RunE:  func(c *cobra.Command, args []string) error { return nil },
+	}
+	c.AddCommand(newRecipientAddCmd(), newRecipientRemoveCmd(), newRecipientListCmd())
+	return c
+}
+
 type recipientFlags struct {
 	configPath string
 	ageKey     string
@@ -65,13 +76,13 @@ func (f *recipientFlags) register(c *cobra.Command, writes bool) {
 func newRecipientAddCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
-		Use:   "add-recipient [options] RECIPIENT",
+		Use:   "add [options] RECIPIENT",
 		Short: "let one more key decrypt the managed store",
 		Long: "Adds an age recipient to .sops.yaml and re-encrypts every managed file to\n" +
 			"it, so the rule and the ciphertext never disagree.\n\n" +
 			"RECIPIENT is a PUBLIC key: an age1... recipient or an ssh public key. The\n" +
 			"private half is refused, .sops.yaml being world-readable. Mint one with\n" +
-			"'faramir sops keygen -o FILE' on the machine that will hold it.",
+			"'age-keygen -o FILE' on the machine that will hold it.",
 		Args: exactlyArgs(1, "one age recipient"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runRecipientChange(f, args[0], true))
@@ -84,8 +95,8 @@ func newRecipientAddCmd() *cobra.Command {
 func newRecipientRemoveCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
-		Use:     "rm-recipient [options] RECIPIENT",
-		Aliases: []string{"remove-recipient"},
+		Use:     "rm [options] RECIPIENT",
+		Aliases: []string{"remove"},
 		Short:   "stop one key from decrypting the managed store",
 		Long: "Removes an age recipient from .sops.yaml and re-encrypts every managed\n" +
 			"file without it.\n\n" +
@@ -103,10 +114,11 @@ func newRecipientRemoveCmd() *cobra.Command {
 func newRecipientListCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
-		Use:   "recipients [options]",
-		Short: "who can decrypt the managed store",
-		Args:  noArgs,
-		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runRecipientList(f)) },
+		Use:     "ls [options]",
+		Aliases: []string{"list"},
+		Short:   "who can decrypt the managed store",
+		Args:    noArgs,
+		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runRecipientList(f)) },
 	}
 	f.register(c, false)
 	return c
@@ -119,9 +131,9 @@ func newRecipientListCmd() *cobra.Command {
 // read back, is one the file never comes to hold, so there is no state to
 // recover from.
 func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
-	label := "sops rm-recipient"
+	label := "sops recipient rm"
 	if adding {
-		label = "sops add-recipient"
+		label = "sops recipient add"
 		// Before root, before the config, before anything: a typo in a public key
 		// should not need sudo to find out about.
 		if err := agekey.ValidateRecipient(recipient); err != nil {
@@ -220,19 +232,19 @@ func listedOrNot(adding bool) string {
 func runRecipientList(f recipientFlags) int {
 	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir sops recipients: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir sops recipient ls: %v\n", err)
 		return 1
 	}
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
 	recipients, err := ruleRecipients(rulePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir sops recipients: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir sops recipient ls: %v\n", err)
 		return 1
 	}
 	if f.json {
 		out, err := json.Marshal(recipients)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir sops recipients: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir sops recipient ls: %v\n", err)
 			return 1
 		}
 		fmt.Println(string(out))

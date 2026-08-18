@@ -19,10 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"filippo.io/age"
 	"github.com/spf13/cobra"
 
-	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
 )
@@ -75,48 +73,6 @@ func operatorName(flagValue string) string {
 		}
 	}
 	return ""
-}
-
-// newKeygenCmd mints an age keypair, so a faramir host needs no age binary.  It
-// does not replace the sops CLI, which is what edits encrypted files.
-func newKeygenCmd() *cobra.Command {
-	var out string
-	c := &cobra.Command{
-		Use:   "keygen [-o FILE]",
-		Short: "mint an age keypair for the keeper",
-		Args:  noArgs,
-		RunE: func(c *cobra.Command, args []string) error {
-			if out == "" {
-				id, err := age.GenerateX25519Identity()
-				if err != nil {
-					fmt.Fprintf(os.Stderr, "faramir keygen: %v\n", err)
-					return codeErr(1)
-				}
-				fmt.Print(agekey.Format(id))
-				fmt.Fprintf(os.Stderr, "Public key: %s\n", id.Recipient())
-				return nil
-			}
-			// Generate refuses to clobber: overwriting an age key destroys every
-			// sops file it was the only recipient for, retroactively.
-			recipient, created, err := agekey.Generate(out)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "faramir keygen: %v\n", err)
-				return codeErr(1)
-			}
-			// Non-zero on an existing target, so a caller can tell a fresh
-			// identity from one that was already there.
-			if !created {
-				fmt.Fprintf(os.Stderr,
-					"faramir keygen: %s exists; refusing to overwrite an age key\n", out)
-				fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
-				return codeErr(1)
-			}
-			fmt.Fprintf(os.Stderr, "Public key: %s\n", recipient)
-			return nil
-		},
-	}
-	c.Flags().StringVarP(&out, "output", "o", "", "write the identity to this file instead of stdout")
-	return c
 }
 
 // brokerOptions are the flags every broker-facing subcommand shares.
