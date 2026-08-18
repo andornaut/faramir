@@ -104,7 +104,7 @@ var corpus = []denyCase{
 
 	// -- the faramir prefix --------------------------------------------------
 	{"faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW", false, "a ref in faramir's arguments is the point of it"},
-	{"sudo faramir status", false, "under sudo as well"},
+	{"sudo faramir status", true, "nothing an agent may run needs root, so a sudo here is the operator's"},
 	{"faramir vault refs", false, "an operator subcommand"},
 	{"faramir status; faramir run --env A=faramir://a -- printenv A", false, "a chain of sanctioned calls, each stripped in turn"},
 	{"faramir status; printenv", true, "past the separator is a command of its own"},

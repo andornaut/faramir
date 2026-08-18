@@ -5,6 +5,8 @@
 // like any other privileged command.
 package cli
 
+import "slices"
+
 // Operator is every subcommand a person runs, and what the guard sanctions.
 // One missing from both lists has its arguments scanned, which is a false
 // denial rather than a hole.  Under sudo the guard sanctions all of these but
@@ -47,6 +49,42 @@ var Operator = []string{
 	"doctor",
 	"reload",
 	"uninstall",
+}
+
+// Agent is the subcommands the coding agent may run, and so the only ones whose
+// arguments the guard leaves unscanned.
+//
+// Unscanned arguments are what `run` and `redact` need and what nothing else
+// does: a ref in an --env, and the text being scrubbed, would otherwise trip the
+// very patterns that exist to catch a value being read.  `status` and
+// `vault refs` take none and answer without one.  The three cobra answers for
+// itself reach no broker and say nothing about this host.
+//
+// Everything in Operator and absent here acts on the install rather than through
+// it, and is refused to the agent's shell.  An operator types those in their own
+// terminal, where no hook runs.
+var Agent = []string{
+	"run",
+	"redact",
+	"status",
+	"vault refs",
+	"version",
+	"help",
+	"completion",
+}
+
+// OperatorOnly is Operator without Agent, in Operator's order: the subcommands
+// the deny rules refuse to the agent.  Derived rather than written twice, so a
+// command added to Operator is refused until somebody decides otherwise, which
+// is the safe direction for the list to be wrong in.
+func OperatorOnly() []string {
+	out := make([]string, 0, len(Operator))
+	for _, name := range Operator {
+		if !slices.Contains(Agent, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // Internal is the roles run by systemd (broker, keeper, exec), by the agent's

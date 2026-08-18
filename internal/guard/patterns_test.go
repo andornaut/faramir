@@ -90,42 +90,44 @@ func TestTheFallbackMatchesTheShippedFile(t *testing.T) {
 func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 	for _, tc := range []struct {
 		command string
-		own     bool
+		want    string
 	}{
 		// Disclosure: what the command would put in the conversation.
-		{"cat ~/.ssh/id_ed25519", false},
-		{"sops -d secrets.sops.yml", false},
-		{"printenv", false},
-		{"cat /home/op/.config/sops/age/keys.txt", false},
-		{"age-keygen", false},
-		// Running a daemon, or running as one of faramir's accounts, does
-		// disclose: the keeper opens the store and the broker holds every value.
-		// Split from the escalation subcommands, which decide rather than disclose.
-		{"sudo faramir keeper", false},
-		{"sudo -u faramir-keeper cat /etc/faramir/age.key", false},
+		{"cat ~/.ssh/id_ed25519", advice},
+		{"sops -d secrets.sops.yml", advice},
+		{"printenv", advice},
+		{"cat /home/op/.config/sops/age/keys.txt", advice},
+		{"age-keygen", advice},
+		{"sudo -u faramir-keeper cat /etc/faramir/age.key", advice},
 		// faramir's own. Nothing here is disclosed; something is changed or stopped.
-		{"rm /etc/faramir/age.key", true},
-		{"echo x > /etc/faramir/config.toml", true},
-		{"systemctl stop faramir-broker.socket", true},
-		{"sudo faramir approve abc123", true},
-		{"sudo faramir escalations", true},
-		{"sudo faramir deny abc123", true},
-		{"sudo faramir access --read /etc/faramir/age.key", true},
-		{"rm .opencode/plugins/faramir.js", true},
-		{"sed -i s/x/y/ .pi/extensions/faramir.ts", true},
+		{"rm /etc/faramir/age.key", adviceOwn},
+		{"echo x > /etc/faramir/config.toml", adviceOwn},
+		{"systemctl stop faramir-broker.socket", adviceOwn},
+		{"rm .opencode/plugins/faramir.js", adviceOwn},
+		{"sed -i s/x/y/ .pi/extensions/faramir.ts", adviceOwn},
+		// The operator's. Every faramir subcommand under sudo, the daemons and the
+		// escalation channel among them: an agent has no root to run one with, and
+		// a refusal saying so is more use than one about disclosure.
+		{"sudo faramir keeper", adviceOperator},
+		{"sudo faramir approve abc123", adviceOperator},
+		{"sudo faramir escalations", adviceOperator},
+		{"sudo faramir deny abc123", adviceOperator},
+		{"sudo faramir access --read /etc/faramir/age.key", adviceOperator},
+		{"sudo faramir doctor", adviceOperator},
+		// And the same set unprivileged, which is where an agent meets it.
+		{"faramir doctor", adviceOperator},
+		{"faramir logs", adviceOperator},
+		{"faramir vault edit app", adviceOperator},
+		{"faramir uninstall", adviceOperator},
 	} {
 		t.Run(tc.command, func(t *testing.T) {
 			pattern, denied := decide(tc.command)
 			if !denied {
 				t.Fatalf("%q was not refused, so this says nothing about its message", tc.command)
 			}
-			got := adviceFor(pattern)
-			switch {
-			case tc.own && got != adviceOwn:
-				t.Errorf("%q is about faramir's own things and was explained as a "+
-					"disclosure, which sends the agent to faramir_run: %s", tc.command, pattern)
-			case !tc.own && got != advice:
-				t.Errorf("%q would disclose and was explained as faramir's own: %s",
+			if got := adviceFor(pattern); got != tc.want {
+				t.Errorf("%q was explained with the wrong message (pattern %s): a refusal "+
+					"naming the wrong remedy sends the agent somewhere that cannot help",
 					tc.command, pattern)
 			}
 		})
@@ -133,20 +135,27 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 }
 
 // A pattern added to the list gets classified by this test rather than by
-// whichever branch it happens to fall into. The count is the forcing function:
-// changing the list fails here until somebody says which half the new rule is.
+// whichever branch it happens to fall into. The counts are the forcing function:
+// changing the list fails here until somebody says which message the new rule
+// carries.
 func TestEveryPatternIsClassifiedOnPurpose(t *testing.T) {
-	own := 0
+	counts := map[string]int{}
 	for _, pattern := range fallback {
-		if adviceFor(pattern) == adviceOwn {
-			own++
-		}
+		counts[adviceFor(pattern)]++
 	}
-	const wantOwn = 7
-	if own != wantOwn {
-		t.Errorf("%d of %d patterns explain themselves as faramir's own, want %d. "+
-			"A rule was added or moved: decide which message it should carry, add it "+
-			"to TestARefusalExplainsWhyItWasRefused, and update this count",
-			own, len(fallback), wantOwn)
+	for _, tc := range []struct {
+		name  string
+		which string
+		want  int
+	}{
+		{"faramir's own", adviceOwn, 5},
+		{"the operator's", adviceOperator, 2},
+	} {
+		if counts[tc.which] != tc.want {
+			t.Errorf("%d of %d patterns explain themselves as %s, want %d. A rule was "+
+				"added or moved: decide which message it should carry, add it to "+
+				"TestARefusalExplainsWhyItWasRefused, and update this count",
+				counts[tc.which], len(fallback), tc.name, tc.want)
+		}
 	}
 }

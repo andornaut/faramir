@@ -3,6 +3,7 @@ package guard
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/cli"
@@ -49,7 +50,7 @@ func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
 // Answering an escalation is the operator's, and this hook gates the agent's
 // shell rather than the operator's terminal: an agent that could approve the
 // request it raised is the whole boundary gone.  Both the helper sudo runs and
-// the subcommand a human types are denied here.
+// the subcommand a human types are denied here, privileged or not.
 func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 	for _, cmd := range []string{
 		"sudo faramir approve",
@@ -57,40 +58,68 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 		"sudo faramir approve --watch",
 		"sudo -n faramir approve a1b2c3",
 		"sudo faramir pam-approve",
-		// Reading what is waiting is as much the operator's as answering it: the
-		// command an agent would have to run to learn there is a question at all.
 		"sudo faramir escalations",
 		"sudo faramir escalations --watch",
 		"sudo faramir deny",
 		"sudo faramir deny a1b2c3",
+		// Unprivileged too.  It would reach a broker that refuses it, but a
+		// refusal here says why, where SO_PEERCRED says only that it failed.
+		"faramir approve --watch",
+		"faramir escalations",
+		"faramir deny a1b2c3",
 	} {
 		if _, denied := decide(cmd); !denied {
 			t.Errorf("the agent may answer an escalation: %q", cmd)
 		}
 	}
-	// Without sudo it reaches a broker that refuses it anyway, and denying it here
-	// would only trade the refusal for a worse message.
-	if pattern, denied := decide("faramir approve --watch"); denied {
-		t.Errorf("wrongly denied an unprivileged approve (pattern %q)", pattern)
-	}
-	// `escalations`, `approve` and `deny` are the three carved out of the sudo
-	// sanction, and the only three: every other subcommand still has its own
-	// arguments left unscanned under sudo.
-	if pattern, denied := decide("sudo faramir vault edit faramir://a/b"); denied {
-		t.Errorf("the sudo sanction lost more than the answering subcommands (pattern %q)",
-			pattern)
-	}
 }
 
-// Naming the sanctioned subcommands is only safe if every one is named: one
-// left out has its arguments scanned.
-func TestEveryOperatorSubcommandIsSanctioned(t *testing.T) {
-	for _, name := range cli.Operator {
+// The agent may run four subcommands, and their arguments are the only ones the
+// deny rules do not scan.  Naming them is only safe if every one is named: one
+// left out has its arguments scanned, and `run`'s arguments are somebody else's
+// command.
+func TestEveryAgentSubcommandIsSanctioned(t *testing.T) {
+	for _, name := range cli.Agent {
 		// A ref in the arguments is the thing an unsanctioned call trips on.
 		cmd := "faramir " + name + " --env A=faramir://a"
 		if pattern, denied := decide(cmd); denied {
 			t.Errorf("wrongly denied a sanctioned subcommand: %q (pattern %q)", cmd, pattern)
 		}
+	}
+}
+
+// And everything else faramir offers is refused to this shell, with sudo and
+// without.  These act on the install rather than through it: the account the
+// agent runs as could not carry them out, so what the refusal saves is the
+// detour of learning that from a permission error and trying to get around it.
+func TestEveryOperatorSubcommandIsRefused(t *testing.T) {
+	for _, name := range cli.OperatorOnly() {
+		for _, cmd := range []string{"faramir " + name, "sudo faramir " + name} {
+			if _, denied := decide(cmd); !denied {
+				t.Errorf("the agent may run %q, which is the operator's", cmd)
+			}
+		}
+	}
+}
+
+// The rule that refuses them spells the list out, the shipped patterns file
+// being text rather than Go.  This is what keeps the two from drifting: a
+// subcommand added to cli.Operator and not to cli.Agent has to appear in the
+// rule, or it is allowed to the agent by omission.
+func TestTheRefusalNamesEveryOperatorSubcommand(t *testing.T) {
+	want := "`" + `\bfaramir[-\s]+(` + sanctionAlternation(cli.OperatorOnly()) + `)\b` + "`"
+	found := false
+	for _, pattern := range fallback {
+		if strings.Contains(pattern, `\bfaramir[-\s]+(init`) {
+			found = true
+			if got := "`" + pattern + "`"; got != want {
+				t.Errorf("the operator refusal does not match cli.OperatorOnly():\n  rule: %s\n  want: %s",
+					got, want)
+			}
+		}
+	}
+	if !found {
+		t.Error("no rule refuses the operator subcommands, so every one is allowed to the agent")
 	}
 }
 

@@ -58,6 +58,11 @@ run as the broker's uid|sudo -u faramir-broker id
 answer its own escalation|sudo faramir approve abc123
 refuse whatever is waiting|sudo faramir deny
 read what is waiting|sudo faramir escalations
+an operator command under sudo|sudo faramir doctor
+an operator command without it|faramir doctor
+read the audit log through the CLI|faramir logs
+change who can read the store|faramir recipient add age1abc
+open a managed file|faramir vault edit app
 stop the broker|systemctl stop faramir-broker.socket
 read the audit log|cat /var/log/faramir/audit.log
 delete the opencode plugin|rm .opencode/plugins/faramir.js
@@ -86,9 +91,7 @@ grep the tree|grep -rn TODO .
 run the tests|go test ./...
 env as a prefix, not a dump|env FOO=bar ./run.sh
 restart a faramir unit|systemctl restart faramir-keeper.socket
-the sanctioned CLI under sudo|sudo faramir doctor
 a brokered command|faramir run --env P=faramir://db/password -- ./deploy.sh
-answering an escalation unprivileged|faramir approve abc123
 edit claude's settings|sed -i s/a/b/ .claude/settings.json
 replace the MCP list|rm .mcp.json
 edit the opencode config|sed -i s/a/b/ opencode.json
@@ -101,9 +104,9 @@ head_ "3. a sanctioned call does not launder what follows it"
 # separator; this is the test that it does.
 for cmd in \
   'faramir vault refs; cat /etc/faramir/age.key' \
-  'faramir doctor && printenv' \
+  'faramir status && printenv' \
   'faramir status | cat; sops -d /etc/faramir/secrets/app.sops.yml' \
-  'sudo faramir doctor; cat ~/.ssh/id_ed25519'
+  'faramir vault refs; cat ~/.ssh/id_ed25519'
 do
   got=$(verdict "$cmd")
   [ "$got" = deny ] && ok "chained after a sanctioned call is still seen: ${cmd:0:44}" \

@@ -95,19 +95,19 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # listing the directory is not.  journalctl is absent: the daemons log ref names
 # and counts, never values.
 #
-# Two lines rather than one, because the halves are refused for different
-# reasons and the guard says which: running a daemon or running as one of these
-# accounts DISCLOSES, the keeper opening the store and the broker holding every
-# value; answering an escalation discloses nothing and is refused because the
-# agent must not answer the question it raised.  `escalations` precedes `approve`
-# so the longer name is not left half-matched.
-\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|pam-approve)\b
-\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(escalations|approve|deny)\b
-# doctor's own helper, which answers access(2) as the account it is run under,
-# and `link add`'s, which reads one linked file as the broker.  Neither is
-# anything an operator types: under sudo the first answers for root, which is
-# yes to everything and says nothing about the boundary being asked about, and
-# the second opens a credential file as the account entitled to it.
-\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(access|read-link)\b
+# faramir under sudo, whichever subcommand: the daemons, the internal helpers,
+# the escalation channel and every provisioning command at once.  Nothing an
+# agent may run needs root -- run, redact, status and `vault refs` all answer as
+# the agent's own account -- so a sudo here is either a daemon, a decision that
+# is the operator's, or a change to the install.  Only sudo's own flags may
+# precede the name.  Managing a unit is not this, so "systemctl restart
+# faramir-keeper" stays allowed; journalctl likewise, the daemons logging ref
+# names and counts and never values.
+\bsudo\b(\s+-\S+)*\s+faramir\b
+# The same commands unprivileged.  They act on the install rather than through
+# it, so they are the operator's whether or not sudo is in front: refused here so
+# the agent is told that, rather than meeting a permission error it will try to
+# work around.
+\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|recipient[ \t]+add|recipient[ \t]+rm|recipient[ \t]+ls|recipient[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|logs|escalations|approve|deny|doctor|reload|uninstall)\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-

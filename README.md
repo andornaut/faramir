@@ -229,7 +229,9 @@ How to run it: [docs/operating.md](docs/operating.md#allowing-sudo-on-the-contro
 
 ### Operator commands
 
-All need root except `doctor`, which degrades, and the three that only read: `vault refs`, `recipient ls` and `link ls`.
+All need root except `doctor`, which degrades, and the two that only read: `recipient ls` and `link ls`.
+
+**Every one of these is refused to the coding agent's shell**, with sudo and without. What an agent may run is `run`, `redact`, `status` and `vault refs`: between them they say what secrets exist and run the commands that need them, which is the whole of what an agent needs faramir for. The rest act on the install rather than through it, so a refusal saying so is more use than the permission error the agent would otherwise meet and try to work around.
 
 Two of them group: `faramir sops` acts on the managed store, `faramir link` on a secret another tool owns. They share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
 

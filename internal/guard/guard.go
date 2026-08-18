@@ -100,24 +100,20 @@ var fallback = []string{
 	writeCommands + `[^|]*` +
 		`(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
 	`>\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
-	// Running a daemon, or running as its account, discloses; managing the unit
-	// does not, so "systemctl restart faramir-keeper" stays allowed.  Only
-	// sudo's own flags may precede the executable name.  journalctl is absent:
-	// the daemons log ref names and counts, never values.
-	// The three escalation subcommands among them: they read and decide an escalation,
-	// and the agent must not be able to answer the question it raised.  `escalations`
-	// precedes `approve` so the longer name is not left half-matched.
-	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(broker|keeper|exec|mcp|guard|pam-approve)\b`,
-	// Answering discloses nothing; it decides. Split from the line above so
-	// each half is refused with the reason that fits it.
-	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(escalations|approve|deny)\b`,
-	// doctor's own helper, which answers access(2) as the account it is run
-	// under, and `link add`'s, which reads one linked file as the broker.
-	// Nothing an operator types: under sudo the first answers for root, which
-	// is yes to everything and says nothing about the boundary being asked
-	// about, and the second opens a credential file as the account entitled to
-	// it.
-	`\bsudo\b(\s+-\S+)*\s+faramir[-\s]+(access|read-link)\b`,
+	// faramir under sudo, whichever subcommand: the daemons, the internal helpers,
+	// the escalation channel and every provisioning command at once.  Nothing an
+	// agent may run needs root -- `run`, `redact`, `status` and `vault refs` all
+	// answer as the agent's own account -- so a sudo here is either a daemon, a
+	// decision that is the operator's, or a change to the install.  Only sudo's
+	// own flags may precede the name.  Managing a unit is not this, so
+	// "systemctl restart faramir-keeper" stays allowed; journalctl likewise, the
+	// daemons logging ref names and counts and never values.
+	`\bsudo\b(\s+-\S+)*\s+faramir\b`,
+	// The same commands unprivileged.  They act on the install rather than
+	// through it, so they are the operator's whether or not sudo is in front:
+	// refused here so the agent is told that, rather than meeting a permission
+	// error it will try to work around.  Held to cli.OperatorOnly by a test.
+	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|recipient[ \t]+add|recipient[ \t]+rm|recipient[ \t]+ls|recipient[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|logs|escalations|approve|deny|doctor|reload|uninstall)\b`,
 	`\bsudo\b.*-u\s+faramir`,
 	// Refused for what it costs, not because it hides anything: the wrapper
 	// fails closed, so a stopped broker withholds every command's output in
@@ -134,6 +130,19 @@ const advice = "Blocked: this command would put a credential (or an encrypted bl
 	"                env_refs={\"ROUTER_PW\": \"faramir://home/router/admin\"})\n\n" +
 	"Call faramir_vault_refs to see the available names. You do not need the " +
 	"value of a secret to use it, and you will not be given one."
+
+// adviceOperator is for a command that is the operator's to run.  It discloses
+// nothing and changes nothing by being refused here: the account this agent runs
+// as could not have carried it out, so what the refusal saves is the detour of
+// finding that out from a permission error and trying to get around it.
+const adviceOperator = "Blocked: this is an operator command. It acts on the faramir " +
+	"install rather than through it, so it is refused to this shell whether or not " +
+	"sudo is in front of it, and the account you run as could not carry it out " +
+	"either.\n\nAsk the operator to run it in their own terminal.\n\nWhat you can " +
+	"run: the faramir_run and faramir_vault_refs tools, `faramir status`, and " +
+	"`faramir vault refs`. Between them they say what secrets exist and run " +
+	"commands that need them, which is the whole of what an agent needs faramir " +
+	"for."
 
 // adviceOwn is for the rules that are not about disclosure.  Acting on
 // faramir's own files, accounts or units discloses nothing, so the disclosure
@@ -157,11 +166,18 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
 // classifies alike.  A prefix of writeCommands rather than the constant, the
 // shipped file carrying the expansion rather than the name.
 var ownershipMarkers = []string{
-	`(?-i:rm|shred|truncate`,       // writeCommands: editing or destroying
-	`>\s*\S*`,                      // a redirect into one of those paths
-	`\bsystemctl\b`,                // stopping or masking a unit
-	`(escalations|approve|deny)\b`, // answering a question the agent raised
-	`faramir[-\s]+(access|read`,    // doctor's access(2) helper, link add's reader
+	`(?-i:rm|shred|truncate`, // writeCommands: editing or destroying
+	`>\s*\S*`,                // a redirect into one of those paths
+	`\bsystemctl\b`,          // stopping or masking a unit
+}
+
+// operatorMarkers are the rules that refuse a command for being the operator's
+// rather than for what it would disclose or change.  Named the same way and for
+// the same reason: a refusal offering faramir_run to somebody who ran `faramir
+// doctor` names a remedy for a problem they do not have.
+var operatorMarkers = []string{
+	`\s+faramir\b`,         // any faramir subcommand under sudo
+	`\bfaramir[-\s]+(init`, // the same set unprivileged
 }
 
 // adviceFor picks the explanation that matches why the command was refused.
@@ -170,6 +186,11 @@ var ownershipMarkers = []string{
 // default: telling an agent it put a credential at risk when it did not is a
 // smaller error than telling it nothing was at risk when something was.
 func adviceFor(pattern string) string {
+	for _, marker := range operatorMarkers {
+		if strings.Contains(pattern, marker) {
+			return adviceOperator
+		}
+	}
 	for _, marker := range ownershipMarkers {
 		if strings.Contains(pattern, marker) {
 			return adviceOwn
@@ -270,11 +291,15 @@ func commandOf(p *payload) string {
 // not scanned.  RE2 has no lookbehind, so the leading separator is captured and
 // put back by "$1".  The match stops at the first separator, so the rest of a
 // chain is still scanned.  Subcommands are named rather than matched by shape,
-// because the daemons are subcommands of this binary too; one missing from
-// cli.Operator merely has its arguments scanned.
+// because the daemons are subcommands of this binary too.
+//
+// cli.Agent rather than cli.Operator: the exemption is for the arguments that
+// would otherwise trip the read rules, which is `run`'s inner command and
+// `redact`'s text.  Every other subcommand is refused below, and a refused
+// command needs no exemption.
 var faramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*faramir[ \t]+(` +
-		sanctionAlternation(cli.Operator) + `)\b[^;&|\n]*`)
+		sanctionAlternation(cli.Agent) + `)\b[^;&|\n]*`)
 
 // sanctionAlternation renders subcommand names as one alternation.  A grouped
 // command is named as two tokens, so the space between them becomes the
@@ -289,38 +314,10 @@ func sanctionAlternation(names []string) string {
 	return strings.Join(out, "|")
 }
 
-// sudoFaramirCall is the same for a call under sudo, and sanctions three
-// subcommands fewer.  `escalations`, `approve` and `deny` are left out so that
-// the deny patterns get to see them: they are the ops that read and decide an
-// escalation, and this hook gates the shell of the agent that raised the
-// request.  An operator answers in their own terminal, where no hook runs, so
-// nothing a person does is denied by this.  RE2 has no
-// negative lookahead, hence a second expression over a second list rather than
-// an exception inside the first.
-var sudoFaramirCall = regexp.MustCompile(
-	`(^|[;&|\n])\s*sudo\s+faramir[ \t]+(` +
-		sanctionAlternation(sudoSanctioned()) + `)\b[^;&|\n]*`)
-
-// answering is the subcommands that read or decide an escalation.  Named once:
-// the deny patterns and sudoSanctioned have to cover the same set, and a
-// command added to one and not the other is a way around the hook.
-var answering = []string{"escalations", "approve", "deny"}
-
-// sudoSanctioned is cli.Operator without the subcommands that must stay visible
-// to the deny patterns when run as root.
-func sudoSanctioned() []string {
-	out := make([]string, 0, len(cli.Operator))
-	for _, name := range cli.Operator {
-		if !slices.Contains(answering, name) {
-			out = append(out, name)
-		}
-	}
-	return out
-}
-
 func decide(command string) (string, bool) {
-	stripped := sudoFaramirCall.ReplaceAllString(command, "$1")
-	stripped = faramirCall.ReplaceAllString(stripped, "$1")
+	// No sudo exemption: every faramir subcommand under sudo is refused below, so
+	// there is nothing whose arguments would need sparing.
+	stripped := faramirCall.ReplaceAllString(command, "$1")
 	for _, p := range loadPatterns() {
 		if p.re.MatchString(stripped) {
 			return p.source, true
