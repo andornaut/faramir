@@ -16,6 +16,7 @@ func TestParse(t *testing.T) {
 		{"hunter2", "", "a literal value where a ref belongs must be refused, not injected"},
 		{"", "", "nothing at all"},
 		{"http://example.com/x", "", "another scheme is not this one"},
+		{"secret://home/router/admin", "", "the scheme this replaced must not still resolve"},
 		{"faramir://../../etc/passwd", "", "a leading .. is refused by the first-character rule"},
 		{"faramir:///etc/passwd", "", "an empty first segment, likewise"},
 		{"faramir://.hidden", "", "a leading dot"},

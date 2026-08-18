@@ -57,6 +57,12 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 		"sudo faramir approve --watch",
 		"sudo -n faramir approve a1b2c3",
 		"sudo faramir pam-approve",
+		// Reading what is waiting is as much the operator's as answering it: the
+		// command an agent would have to run to learn there is a question at all.
+		"sudo faramir escalations",
+		"sudo faramir escalations --watch",
+		"sudo faramir deny",
+		"sudo faramir deny a1b2c3",
 	} {
 		if _, denied := decide(cmd); !denied {
 			t.Errorf("the agent may answer an escalation: %q", cmd)
@@ -67,10 +73,12 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 	if pattern, denied := decide("faramir approve --watch"); denied {
 		t.Errorf("wrongly denied an unprivileged approve (pattern %q)", pattern)
 	}
-	// `approve` is the only subcommand carved out of the sudo sanction: every
-	// other one still has its own arguments left unscanned under sudo.
+	// `escalations`, `approve` and `deny` are the three carved out of the sudo
+	// sanction, and the only three: every other subcommand still has its own
+	// arguments left unscanned under sudo.
 	if pattern, denied := decide("sudo faramir sops edit faramir://a/b"); denied {
-		t.Errorf("the sudo sanction lost more than approve (pattern %q)", pattern)
+		t.Errorf("the sudo sanction lost more than the answering subcommands (pattern %q)",
+			pattern)
 	}
 }
 

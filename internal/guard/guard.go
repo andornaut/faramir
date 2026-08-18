@@ -290,10 +290,11 @@ func sanctionAlternation(names []string) string {
 }
 
 // sudoFaramirCall is the same for a call under sudo, and sanctions three
-// subcommands fewer.  `escalations`, `approve` and `deny` are left out so that the
-// deny patterns get to see them: they are the ops that read and decide an
-// escalation, and this hook gates the shell of the agent that raised the request.  An operator answers in their own terminal,
-// where no hook runs, so nothing a person does is denied by this.  RE2 has no
+// subcommands fewer.  `escalations`, `approve` and `deny` are left out so that
+// the deny patterns get to see them: they are the ops that read and decide an
+// escalation, and this hook gates the shell of the agent that raised the
+// request.  An operator answers in their own terminal, where no hook runs, so
+// nothing a person does is denied by this.  RE2 has no
 // negative lookahead, hence a second expression over a second list rather than
 // an exception inside the first.
 var sudoFaramirCall = regexp.MustCompile(

@@ -57,6 +57,7 @@ run the keeper as root|sudo faramir keeper
 run as the broker's uid|sudo -u faramir-broker id
 answer its own escalation|sudo faramir approve abc123
 refuse whatever is waiting|sudo faramir deny
+read what is waiting|sudo faramir escalations
 stop the broker|systemctl stop faramir-broker.socket
 read the audit log|cat /var/log/faramir/audit.log
 delete the opencode plugin|rm .opencode/plugins/faramir.js
