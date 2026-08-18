@@ -60,7 +60,7 @@ func TestAddAppends(t *testing.T) {
 }
 
 // Adding one already there rewrites nothing, so a command run twice does not
-// rekey the store the second time.
+// reseal the store the second time.
 func TestAddingOneAlreadyThereChangesNothing(t *testing.T) {
 	out, added, err := Add([]byte(installed), "test", "age1backup")
 	if err != nil {
@@ -133,7 +133,7 @@ func TestTheAgeShorthandIsEditable(t *testing.T) {
 
 // Every one of these leaves two answers to "which list is the recipient list".
 // A writer that picked one would drop every reader named in the other at the
-// next rekey, silently and unrecoverably by re-running.
+// next reseal, silently and unrecoverably by re-running.
 func TestTheAmbiguousShapesAreRefused(t *testing.T) {
 	for _, tc := range []struct {
 		name string

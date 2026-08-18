@@ -659,12 +659,12 @@ const opWidth = 13
 // this reader is pointed at a file, not linked to the daemon.
 const opExecStarted = "exec_started"
 
-// opEdit and opRekey are the two records this binary writes itself rather than
+// opEdit and opReseal are the two records this binary writes itself rather than
 // reads from a daemon.  Named beside the ops it renders so that one place holds
 // every op the column has to fit.
 const (
-	opEdit  = "edit"
-	opRekey = "rekey"
+	opEdit   = "edit"
+	opReseal = "reseal"
 )
 
 // summarise is one record on one line: when, what, how it ended, how many
@@ -682,7 +682,7 @@ func summarise(record map[string]any, paint palette) string {
 }
 
 // detail is the command for an exec, the size of the text for a redact, and the
-// managed file for an edit or a rekey, each of which would otherwise be a bare
+// managed file for an edit or a reseal, each of which would otherwise be a bare
 // row naming only the op.
 func detail(record map[string]any) string {
 	if cmd := joinCmd(record); cmd != "" {
@@ -889,7 +889,7 @@ func printRecord(record map[string]any, paint palette) {
 		}
 	}
 	printField(paint, "refs", paint.ref(envRefs(record)))
-	// A rekey's recipients, which are the whole of what it changed: who could
+	// A reseal's recipients, which are the whole of what it changed: who could
 	// read that file before, and who can now.  Public keys, so printing them
 	// discloses nothing the ciphertext does not already carry.
 	for _, field := range []string{"from", "to"} {

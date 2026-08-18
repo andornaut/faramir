@@ -1,6 +1,6 @@
 package main
 
-// Which creation rules `faramir edit` and `faramir rekey` encrypt under.
+// Which creation rules `faramir edit` and `faramir sops recipient reseal` encrypt under.
 //
 // Against the host's sops, and skipped without one: what is asserted here is
 // how sops resolves .sops.yaml and matches path_regex, which the stand-in does
@@ -155,7 +155,7 @@ func TestAnEditNoRuleCoversIsRefusedBeforeTheEditor(t *testing.T) {
 	}
 }
 
-// The refusal rekey already makes.  sops takes a shamir rule with one key group
+// The refusal reseal already makes.  sops takes a shamir rule with one key group
 // without complaint and writes the threshold beside it, so the file still opens
 // afterwards, with any single one of the keys the split existed to keep apart.
 func TestAnEditUnderASplitKeyIsRefused(t *testing.T) {

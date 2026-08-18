@@ -9,6 +9,7 @@ import (
 	"filippo.io/age"
 	sops "github.com/getsops/sops/v3"
 
+	"github.com/andornaut/faramir/internal/sopsrule"
 	"github.com/andornaut/faramir/internal/sopstest"
 )
 
@@ -142,10 +143,10 @@ func TestARuleWithoutTheKeepersKeyIsRefusedBeforeAnythingIsWritten(t *testing.T)
 }
 
 func TestSameRecipientsIgnoresOrder(t *testing.T) {
-	if !sameRecipients([]string{"age1a", "age1b"}, []string{"age1b", "age1a"}) {
+	if !sopsrule.Same([]string{"age1a", "age1b"}, []string{"age1b", "age1a"}) {
 		t.Error("the same two keys in a different order read as a change")
 	}
-	if sameRecipients([]string{"age1a"}, []string{"age1a", "age1b"}) {
+	if sopsrule.Same([]string{"age1a"}, []string{"age1a", "age1b"}) {
 		t.Error("an added recipient read as no change")
 	}
 }
@@ -175,24 +176,24 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 		t.Fatalf("reencrypt: %v", err)
 	}
 
-	got, err := recipientsOf(store)
+	got, err := sopsrule.SealedTo(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sameRecipients(got, []string{keeper, extra}) {
-		t.Errorf("recipients after the rekey = %v, want both %s and %s", got, keeper, extra)
+	if !sopsrule.Same(got, []string{keeper, extra}) {
+		t.Errorf("recipients after the reseal = %v, want both %s and %s", got, keeper, extra)
 	}
 	plain, err := runSops(keyPath, "", "--decrypt", store)
 	if err != nil {
 		t.Fatalf("decrypting the result: %v", err)
 	}
 	if !strings.Contains(string(plain), "the-original-value-long-enough") {
-		t.Errorf("the value did not survive the rekey: %s", plain)
+		t.Errorf("the value did not survive the reseal: %s", plain)
 	}
 	if strings.Contains(got[0], "AGE-SECRET-KEY") {
 		t.Error("KEY MATERIAL RETURNED AS A RECIPIENT")
 	}
-	// The secrets belong to the secrets group after an install, and a rekey that
+	// The secrets belong to the secrets group after an install, and a reseal that
 	// reset the mode would hand it back to whatever the umask said, which is the
 	// failure `sops updatekeys` has and this command exists to avoid.
 	info, err := os.Stat(store)
@@ -200,13 +201,13 @@ func TestARekeyAddsARecipientAndKeepsThePlaintext(t *testing.T) {
 		t.Fatal(err)
 	}
 	if perm := info.Mode().Perm(); perm != 0o640 {
-		t.Errorf("mode after the rekey is %o, want 640", perm)
+		t.Errorf("mode after the reseal is %o, want 640", perm)
 	}
 }
 
 // A file already sealed to the rule is skipped, and the skip is worth having:
 // re-encrypting rewrites the data key even when the recipients are identical,
-// so a rekey that did not compare first would make every file in the secrets
+// so a reseal that did not compare first would make every file in the secrets
 // directory look changed to anything watching it.
 func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 	useSops(t)
@@ -222,11 +223,11 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 	}
 
 	// The comparison cmdRekey skips on.
-	was, err := recipientsOf(store)
+	was, err := sopsrule.SealedTo(store)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !sameRecipients(was, []string{keeper}) {
+	if !sopsrule.Same(was, []string{keeper}) {
 		t.Fatalf("recipientsOf = %v, want just %s: an up-to-date file would be "+
 			"re-encrypted every run", was, keeper)
 	}
@@ -246,12 +247,12 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 }
 
 // Naming no file is every managed file, which is the case the command exists
-// for; naming one that is not managed is refused, so a rekey cannot walk out of
+// for; naming one that is not managed is refused, so a reseal cannot walk out of
 // the secrets directory.
 func TestRekeyTargets(t *testing.T) {
 	managed := []string{"/etc/faramir/secrets/a.sops.yml", "/etc/faramir/secrets/b.sops.yml"}
 
-	all, err := rekeyTargets(managed, nil)
+	all, err := resealTargets(managed, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,7 +260,7 @@ func TestRekeyTargets(t *testing.T) {
 		t.Errorf("naming nothing selected %v, want every managed file", all)
 	}
 
-	one, err := rekeyTargets(managed, []string{"a.sops.yml", "a.sops.yml"})
+	one, err := resealTargets(managed, []string{"a.sops.yml", "a.sops.yml"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -267,10 +268,10 @@ func TestRekeyTargets(t *testing.T) {
 		t.Errorf("naming one twice selected %v, want it once", one)
 	}
 
-	if _, err := rekeyTargets(managed, []string{"/tmp/elsewhere.sops.yml"}); err == nil {
+	if _, err := resealTargets(managed, []string{"/tmp/elsewhere.sops.yml"}); err == nil {
 		t.Error("a path outside the secrets directory was accepted")
 	}
-	if _, err := rekeyTargets(nil, nil); err == nil {
+	if _, err := resealTargets(nil, nil); err == nil {
 		t.Error("an empty store was accepted as something to re-key")
 	}
 }

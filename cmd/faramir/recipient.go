@@ -3,14 +3,14 @@ package main
 // `faramir sops recipient` manages who can decrypt the managed store: the rule
 // and the ciphertext together, in one command.
 //
-// The two were separate, an editor for `.sops.yaml` and `rekey` for the files,
+// The two were separate, an editor for `.sops.yaml` and `reseal` for the files,
 // and between them lay a state nothing reports: a rule naming a reader the
 // existing files are not sealed to.  Nothing fails there.  New files get the new
 // list, old ones keep the old, and the divergence surfaces whenever somebody
 // next reaches for a value with a key they were told they had.
 //
 // So the rule is written and the store is re-encrypted by the same command, and
-// the rule is judged before it is written rather than after.  `rekey` stays for
+// the rule is judged before it is written rather than after.  `reseal` stays for
 // what this cannot cover: a run that reached only some of the files, and a file
 // edited by hand, root being able to write a root-owned file whatever the docs
 // say.
@@ -31,7 +31,7 @@ import (
 )
 
 // opRecipient is the audit record a rule change writes, one per command rather
-// than one per file: the per-file records are the rekey's own, and what this
+// than one per file: the per-file records are the reseal's own, and what this
 // adds is who the store is now readable by and who asked for that.
 const opRecipient = "recipient"
 
@@ -46,7 +46,8 @@ func newRecipientCmd() *cobra.Command {
 		Args:  requiresSubcommand,
 		RunE:  func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newRecipientAddCmd(), newRecipientRemoveCmd(), newRecipientListCmd())
+	c.AddCommand(newRecipientAddCmd(), newRecipientRemoveCmd(), newRecipientListCmd(),
+		newRecipientResealCmd())
 	return c
 }
 
@@ -124,6 +125,47 @@ func newRecipientListCmd() *cobra.Command {
 	return c
 }
 
+func newRecipientResealCmd() *cobra.Command {
+	var f recipientFlags
+	c := &cobra.Command{
+		Use:   "reseal [options] [FILE...]",
+		Short: "re-encrypt the store to the recipients .sops.yaml names",
+		Long: "Makes the ciphertext agree with the rule, for the cases `add` and `rm`\n" +
+			"cannot reach: a `.sops.yaml` changed some other way, and a pass that\n" +
+			"failed partway and has to be resumed against a rule that is already\n" +
+			"right.\n\n" +
+			"Every managed file unless some are named. Files already sealed to the\n" +
+			"rule are skipped, so a run that has nothing to do writes nothing.",
+		RunE: func(c *cobra.Command, args []string) error { return codeErr(runReseal(f, args)) },
+	}
+	f.register(c, true)
+	return c
+}
+
+// runReseal is a recipient change with no recipient: the rule is taken as it
+// stands and the store is brought to it.
+func runReseal(f recipientFlags, args []string) int {
+	const label = "sops recipient reseal"
+	store, code := loadStore(label, f.configPath, f.socket, f.ageKey, args)
+	if store == nil {
+		return code
+	}
+	wanted, err := ruleRecipients(store.rulePath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return 1
+	}
+	// Checked before anything is decrypted.  Re-encrypting to a rule the keeper is
+	// not named in produces a secrets directory that opens for nobody the broker
+	// can ask, one file at a time, and the failure only shows up at the next
+	// refresh.
+	if err := keeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return 1
+	}
+	return resealStore(label, store, wanted, f.dryRun)
+}
+
 // runRecipientChange is add and rm, which differ only in the edit they ask for.
 //
 // The order is the whole point: validate, edit in memory, judge the result, and
@@ -157,10 +199,14 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
+	// No early return where the rule already says this.  A pass that wrote the
+	// rule and then failed on a file leaves exactly that state, and a command
+	// that took the rule as proof would report success over a store still sealed
+	// to the old set.  So the reseal runs either way and re-running this command
+	// is how such a pass is resumed; it rewrites nothing where everything agrees.
 	if !changed {
-		fmt.Fprintf(os.Stderr, "faramir %s: %s already %s %s; nothing to do\n",
+		fmt.Fprintf(os.Stderr, "faramir %s: %s already %s %s; checking the store agrees\n",
 			label, store.rulePath, listedOrNot(adding), recipient)
-		return 0
 	}
 
 	wanted, err := ruleRecipientsFrom(edited, store.rulePath)
@@ -177,16 +223,21 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 	}
 
 	if f.dryRun {
-		fmt.Fprintf(os.Stderr, "faramir %s: would %s %s: %s now names %s\n",
-			label, addedOrRemoved(adding), recipient, store.rulePath, strings.Join(wanted, ","))
-		return rekeyStore(label, store, wanted, true)
+		if changed {
+			fmt.Fprintf(os.Stderr, "faramir %s: would %s %s: %s would name %s\n",
+				label, addedOrRemoved(adding), recipient, store.rulePath, strings.Join(wanted, ","))
+		}
+		return resealStore(label, store, wanted, true)
 	}
 
+	if !changed {
+		return resealStore(label, store, wanted, false)
+	}
 	if err := writeBack(store.rulePath, edited); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", label, store.rulePath, err)
 		return 1
 	}
-	// One record for the rule, before the per-file records the rekey writes, so
+	// One record for the rule, before the per-file records the reseal writes, so
 	// the log reads in the order it happened.  Public keys only; no value of any
 	// kind passes through here.
 	audit.NewLog(store.cfg.Audit).Write(map[string]any{
@@ -198,9 +249,9 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		label, addedOrRemoved(adding), recipient, store.rulePath, len(wanted))
 
 	// A rule the files are not yet sealed to is the state this command exists to
-	// avoid, so its exit status is the rekey's: a partial pass is a failure here
+	// avoid, so its exit status is the reseal's: a partial pass is a failure here
 	// even though the rule was written.
-	return rekeyStore(label, store, wanted, false)
+	return resealStore(label, store, wanted, false)
 }
 
 // editRule is the one call that differs between add and rm.

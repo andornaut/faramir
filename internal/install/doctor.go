@@ -407,6 +407,7 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 	case exists(current):
 		diagnoseSopsRecipients(report, opts, current)
 		diagnoseSopsRuleCoverage(report, opts, current)
+		diagnoseRecipientDrift(report, opts, current)
 	default:
 		report.addf("sops config", StatusWarn, "no %s, so sops has no creation rule "+
 			"and refuses to encrypt a new file in the secrets directory", current)
@@ -488,7 +489,7 @@ func recipientsAreWellFormed(report *DoctorReport, listed []string, path string)
 }
 
 // diagnoseSopsRuleCoverage asks whether the creation rules reach every managed
-// file, which decides whether `faramir sops edit` and `faramir sops rekey` can write one
+// file, which decides whether `faramir sops edit` and `faramir sops recipient reseal` can write one
 // back at all: both hand sops this rule and match it against the file's real
 // path, and sops refuses a file no rule covers.
 //
@@ -555,7 +556,7 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 			covered++
 		default:
 			report.addf("rule coverage", StatusFailed, "%s has no creation rule "+
-				"matching %s, so `faramir sops edit` and `faramir sops rekey` cannot write it back: "+
+				"matching %s, so `faramir sops edit` and `faramir sops recipient reseal` cannot write it back: "+
 				"sops refuses a file no rule covers. Widen path_regex to reach it, or keep "+
 				"the store where the rule already looks", rulePath, target)
 		}
@@ -566,6 +567,76 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 	if covered == len(managed) && len(unlistable) == 0 {
 		report.addf("rule coverage", StatusOK, "%s covers all %d managed file(s)",
 			rulePath, covered)
+	}
+}
+
+// diagnoseRecipientDrift asks the one question the recipient commands exist to
+// keep answered: is every managed file sealed to what the rule says?
+//
+// Nothing else asks it.  `sops config` asks whether the rule names the keeper's
+// own recipient, `rule coverage` whether the rule reaches each file, and a store
+// passes both while its ciphertext is sealed to a set the rule no longer names:
+// a reseal that failed partway, or a rule changed by hand and never applied.
+//
+// Nothing fails in that state, which is why it needs a check.  Files written
+// from then on take the new list, the ones already there keep the old, and it
+// surfaces when somebody reaches for a value with a key they were told they
+// had.
+//
+// The recipients sops writes into a file are cleartext, so this needs no key,
+// only the ability to read the file.
+func diagnoseRecipientDrift(report *DoctorReport, opts DoctorOptions, rulePath string) {
+	if len(opts.SecretsPatterns) == 0 {
+		report.unaskedf("recipient drift", 1, "the managed store could not be read, "+
+			"so which files %s has to agree with is unknown here", rulePath)
+		return
+	}
+	wanted, err := sopsRecipients(rulePath)
+	if err != nil {
+		report.unaskedf("recipient drift", 1, "%s could not be read, so what the "+
+			"store should be sealed to is unknown: %v", rulePath, err)
+		return
+	}
+	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
+	if len(managed) == 0 {
+		report.addf("recipient drift", StatusNA, "no managed file matches [secret] "+
+			"patterns yet, so nothing can disagree with %s", rulePath)
+		return
+	}
+	drifted, checked, sealedToNothing := 0, 0, 0
+	for _, target := range managed {
+		was, err := sopsrule.SealedTo(target)
+		switch {
+		// Not drift.  A file sealed to nothing is not sealed to the wrong set, and
+		// what it is instead -- unencrypted, or encrypted to something other than
+		// age -- is `rule coverage`'s to report and the broker's --check to fail on.
+		case errors.Is(err, sopsrule.ErrNoRecipients):
+			sealedToNothing++
+			continue
+		// Unasked rather than failed: the secrets directory is the keeper's group,
+		// so a caller who cannot open a file has learned nothing about whether it
+		// agrees.
+		case err != nil:
+			report.unaskedf("recipient drift", 1, "%s could not be read, so whether "+
+				"it agrees with %s went unchecked: %v", target, rulePath, err)
+			continue
+		}
+		checked++
+		if sopsrule.Same(was, wanted) {
+			continue
+		}
+		drifted++
+		report.addf("recipient drift", StatusFailed, "%s is sealed to %s while %s "+
+			"names %s, so a key the rule grants may not open it and one it no longer "+
+			"grants may. Run: sudo faramir sops recipient reseal",
+			target, strings.Join(was, ", "), rulePath, strings.Join(wanted, ", "))
+	}
+	// Only where every file that is sealed to anything was reached and agreed.
+	// With none of them sealed there is nothing this check has an opinion about,
+	// and a pass would read as a store confirmed rather than a store not examined.
+	if drifted == 0 && checked > 0 && checked+sealedToNothing == len(managed) {
+		report.addf("recipient drift", StatusOK, "all %d encrypted file(s) are sealed "+
+			"to what %s names", checked, rulePath)
 	}
 }
 

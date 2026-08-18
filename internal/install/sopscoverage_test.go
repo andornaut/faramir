@@ -50,7 +50,7 @@ func TestARecipientSopsWillNotTakeIsReported(t *testing.T) {
 	}
 }
 
-// doctor and rekey read the same file, so they have to read it the same way.
+// doctor and reseal read the same file, so they have to read it the same way.
 // A rule whose key groups leave the keeper out, with the keeper named only in
 // the bare `age:` beside them, is one sops seals every new file without: the
 // check exists to catch exactly that, and reporting the shorthand would report
@@ -80,7 +80,7 @@ func TestTheKeeperInTheIgnoredShorthandIsNotAReader(t *testing.T) {
 	}
 }
 
-// A shorthand written as a list is valid for sops and read by rekey, so doctor
+// A shorthand written as a list is valid for sops and read by reseal, so doctor
 // reporting the file as unparseable would fail a host that works.
 func TestAListShorthandIsReadRatherThanRefused(t *testing.T) {
 	dir := t.TempDir()
@@ -112,7 +112,7 @@ func requireSops(t *testing.T) {
 }
 
 // A rule that reaches none of the managed files is a store `faramir sops edit` and
-// `faramir sops rekey` cannot write back, and nothing else on the host says so: the
+// `faramir sops recipient reseal` cannot write back, and nothing else on the host says so: the
 // values still decrypt, the broker still serves them, and the failure waits
 // until somebody edits one.
 func TestRuleCoverageIsCheckedAgainstTheManagedFiles(t *testing.T) {
@@ -178,7 +178,8 @@ func TestRuleCoverageWithoutThePatternsIsUnasked(t *testing.T) {
 	writeRule(t, layout.SopsConfigPath(), mintKey(t, dir))
 
 	var report DoctorReport
-	diagnoseSopsConfig(&report, DoctorOptions{ConfigDir: dir, KeeperUser: "faramir-keeper"})
+	diagnoseSopsRuleCoverage(&report, DoctorOptions{ConfigDir: dir,
+		KeeperUser: "faramir-keeper"}, layout.SopsConfigPath())
 
 	finding := onlyFinding(t, report, "rule coverage")
 	if finding.Status != StatusWarn {
@@ -264,13 +265,13 @@ func TestRuleCoverageNamesAClosedDoorEvenWhenSomethingResolved(t *testing.T) {
 	t.Cleanup(func() { _ = os.Chmod(shut, 0o700) })
 
 	var report DoctorReport
-	diagnoseSopsConfig(&report, DoctorOptions{
+	diagnoseSopsRuleCoverage(&report, DoctorOptions{
 		ConfigDir: dir, KeeperUser: "faramir-keeper",
 		SecretsPatterns: []string{
 			filepath.Join(open, "*.sops.yml"),
 			filepath.Join(shut, "*.sops.yml"),
 		},
-	})
+	}, layout.SopsConfigPath())
 
 	finding := onlyFinding(t, report, "rule coverage")
 	if finding.Status != StatusWarn {

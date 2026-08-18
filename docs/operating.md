@@ -18,7 +18,7 @@ Key material | `age key`, `agent keys`, `audit log`, `ssh key` | The age key rea
 Files | `config ownership`, `installed files`, `deny patterns` | The config, `.sops.yaml`, the binary, `wrap.sh` and the PAM helper not writable by the operator, and the deny list rendered for *this* config directory
 Sockets | `keeper socket`, `executor socket`, `broker socket`, and a `policy` check for each of the first two | The internal sockets closed to the accounts that must not open them, the broker's open to the operator, and each `allowed_user` naming the broker
 Behaviour | `brokered command`, `ssh agent`, `redaction`, `known hosts` | A managed value injected into a real command comes back as its token, the relay answers, and how many host keys a brokered `ssh` can verify against
-sops | `sops config`, `rule coverage` | `.sops.yaml` names the keeper's own recipient rather than one it used to have, and nothing sops would refuse; its rule reaches every file the managed store names
+sops | `sops config`, `rule coverage`, `recipient drift` | `.sops.yaml` names the keeper's own recipient rather than one it used to have, and nothing sops would refuse; its rule reaches every file the managed store names; and every encrypted file is sealed to what that rule says rather than to a set it used to name
 Agents | `agent rules`, `agent rule drift`, `tree config`, `agent file ownership` | Each agent's deny rules present, absent, or carried in an extension; rules an earlier version wrote that this one does not; enrolled trees whose agent files no longer carry what the enrolment wrote; and files an install would now refuse to write
 Sudo and kernel | `sudo credential`, `sudo grant`, `cgroup delegation`, `ptrace scope`, `user namespaces` | [Below](#what-escalation-costs-beyond-the-grant)
 Rotation | `log rotation` | logrotate installed, naming the log the broker writes, and having applied the rule
@@ -34,12 +34,12 @@ Four statuses: `ok`, `warn`, `failed`, and `n/a` for a check whose subject this 
 
 **Without the agent's account**, most boundary checks cannot be put at all: `access(2)` answers "no" for an account that cannot be named, which is the same answer a boundary that holds gives. Run from a root shell or cron, `doctor` takes that account from `SUDO_USER`, finds none, and reports those as unasked. Pass `--agent-user` for the whole thing.
 
-**Finding the install.** `doctor`, `init-project`, `uninstall`, `edit`, `rekey` and `logs` all act on an install they did not perform:
+**Finding the install.** `doctor`, `init-project`, `uninstall`, `edit`, `reseal` and `logs` all act on an install they did not perform:
 
 Order | Source
 --- | ---
-1 | `--config-dir`, or `--config` on `edit`, `rekey` and `logs`
-2 | `$FARAMIR_CONFIG`, on `edit`, `rekey` and `logs` only, short-circuiting the rest
+1 | `--config-dir`, or `--config` on `edit`, `reseal` and `logs`
+2 | `$FARAMIR_CONFIG`, on `edit`, `reseal` and `logs` only, short-circuiting the rest
 3 | the running broker's own answer
 4 | the `FARAMIR_CONFIG=` its unit names, which covers a host whose config moved and whose broker is down
 5 | the compiled-in default
@@ -114,10 +114,12 @@ It validates the key, edits the rule, checks the keeper is still a reader, write
 - **A rule that drops the keeper's own key is refused**, before anything is decrypted, that leaving secrets nothing on the host can open.
 - **Files already sealed to the rule are skipped.** Re-encrypting rewrites the data key even when the recipients are identical, so a pass that did not compare first would make every file look changed.
 - **Dropping a recipient reaches no copy of the ciphertext somebody already holds.** Treat what that key could read as read.
-- **`sops rekey` remains for what one command cannot cover**: a pass that reached only some of the files and has to be resumed, and a `.sops.yaml` changed some other way. Root can write a root-owned file whatever this page says, and `rekey` is how the store is brought back into line with it.
+- **A pass that reached only some of the files is resumed by running the same command again.** `add` and `rm` reseal whether or not the rule changed, so a rule that is already right and a store that is not is a state re-running fixes rather than one it reports as done.
+- **`sops recipient reseal` is for a `.sops.yaml` changed some other way**, root being able to write a root-owned file whatever this page says. It takes the rule as it stands and brings the store to it.
+- **`doctor` reports the disagreement** under `recipient drift`, so a store that has drifted is something you are told rather than something you meet when a value will not decrypt.
 - **A `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file, the only thing that can answer which rule governs which.
 - **A rule that splits the data key is refused too.** `shamir_threshold` means N key groups together, and re-encrypting to one list makes it any one of them.
-- **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from wherever you were standing, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `rekey` stops: that file is where its recipients come from.
+- **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from wherever you were standing, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `reseal` stops: that file is where its recipients come from.
 - **A file no creation rule covers cannot be written back.** `edit` asks before opening the editor, so it costs a refusal rather than what you typed; `doctor` asks it of every managed file under `rule coverage`. Reachable only where the rule was narrowed, or the managed store names something the shipped `*.sops.yml` rule does not match.
 - **The keeper's key as the only recipient means losing it loses every managed value**, retroactively. A second recipient is the backup that avoids it.
 

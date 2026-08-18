@@ -1,11 +1,11 @@
 // Package sopsrule reads the creation rules out of a .sops.yaml: which rules
 // there are, and which age recipients each one seals to.
 //
-// One reader for every caller that asks.  `faramir rekey` re-encrypts the store
+// One reader for every caller that asks.  `faramir sops recipient reseal` re-encrypts the store
 // to what the rules say, and `faramir doctor` reports whether the keeper is
 // still among them; two readers of the same file are two answers free to
 // disagree, and the way they disagree is that doctor calls a store healthy that
-// rekey is about to seal to somebody else.
+// reseal is about to seal to somebody else.
 //
 // Parsed rather than matched with a regex.  A rule is a list entry whose keys
 // may be in any order, may be written in flow style, and need not lead with

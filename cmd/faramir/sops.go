@@ -2,10 +2,14 @@ package main
 
 import "github.com/spf13/cobra"
 
-// newSopsCmd groups what is done to the managed store: edit a file, change who
-// can read it, and re-encrypt what is there.  A parent rather than that many
-// top-level verbs, because the help said nothing about them being one subject
-// while they sat between `logs` and `doctor`.
+// newSopsCmd groups what is done to the managed store: edit a file, and change
+// who can read it.  A parent rather than that many top-level verbs, because the
+// help said nothing about them being one subject while they sat between `logs`
+// and `doctor`.
+//
+// Re-encrypting is not a verb here.  It is what a recipient change does on the
+// way, so an operator who never edits the rule by hand never names it; the one
+// who does reaches it as `sops recipient reseal`.
 //
 // Minting a key is not here.  Three of the four ways a recipient arises mint
 // nothing -- another operator's key, a second host's own, a plugin's -- and the
@@ -15,14 +19,14 @@ import "github.com/spf13/cobra"
 func newSopsCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "sops",
-		Short:   "manage the sops store: edit a file, change who can read it, re-encrypt it",
+		Short:   "manage the sops store: edit a file, change who can read it",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		// Never reached, the arguments never validating; a command cobra does not
 		// consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newEditCmd(), newRekeyCmd(), newRecipientCmd())
+	c.AddCommand(newEditCmd(), newRecipientCmd())
 	return c
 }
 

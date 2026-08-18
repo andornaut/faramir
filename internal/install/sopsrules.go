@@ -11,7 +11,7 @@ import (
 // all.
 //
 // The rules themselves are read by internal/sopsrule, which is what `faramir
-// rekey` re-encrypts from.  One reader on purpose: a rule seals to its key
+// reseal` re-encrypts from.  One reader on purpose: a rule seals to its key
 // groups alone where it carries a bare `age:` beside them, so a reader that
 // merged the two would report a keeper still listed when sops is about to seal
 // every new file without it.

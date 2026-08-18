@@ -18,7 +18,6 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
 	"syscall"
@@ -115,8 +114,8 @@ func runEdit(f editFlags, args []string) int {
 	}
 
 	// The install's own rules, named rather than left to sops to find: see
-	// runSops.  Beside the config like the age key, and the same file `rekey`
-	// reads, so an edit and a rekey on one host agree about what governs a
+	// runSops.  Beside the config like the age key, and the same file `reseal`
+	// reads, so an edit and a reseal on one host agree about what governs a
 	// managed file.
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
 
@@ -206,7 +205,7 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// errNoManagedFiles is what edit and rekey both report when the secrets
+// errNoManagedFiles is what edit and reseal both report when the secrets
 // directory is empty: neither has anything to open, and the fix is the same for
 // both.
 var errNoManagedFiles = errors.New("no managed sops files: the managed store named " +
@@ -322,12 +321,12 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 	// The recipients the file already had, named explicitly: sops resolves
 	// .sops.yaml by walking up from the file, which here is in a tmpfs, and an
 	// edit should preserve who could read the file; applying a changed .sops.yaml
-	// is what `faramir rekey` is for.
+	// is what `faramir sops recipient reseal` is for.
 	//
 	// Read before the editor runs.  It is knowable from the ciphertext, and a
 	// file whose metadata this cannot parse would otherwise be reported only
 	// after the operator had already made their edit, which is then discarded.
-	recipients, err := recipientsOf(target)
+	recipients, err := sopsrule.SealedTo(target)
 	if err != nil {
 		return false, err
 	}
@@ -382,7 +381,7 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 //
 // Both halves are made durable before this returns, which is not ceremony here:
 // this is the one operation in faramir that overwrites the only copy of the
-// secrets on the host, and `rekey` performs it once per managed file.  The
+// secrets on the host, and `reseal` performs it once per managed file.  The
 // contents are flushed before the rename, or a crash can leave the new name
 // pointing at a file whose data never landed and whose predecessor is gone; the
 // directory is flushed after it, or the rename itself is what is missing.
@@ -423,7 +422,7 @@ func writeBack(target string, data []byte) error {
 	// Reported and not returned.  By here the replacement is the file: what failed
 	// is the promise that it survives a power loss, not the write.  Returning an
 	// error would tell the operator their edit did not take, sending them to make
-	// it again over content that has already changed, and would have `rekey` count
+	// it again over content that has already changed, and would have `reseal` count
 	// the file among those "still open to the recipients they had", which is the
 	// one thing that is certainly false about it.
 	if err := syncDir(filepath.Dir(target)); err != nil {
@@ -533,7 +532,7 @@ func ruleMustCover(rulePath, target string, recipients []string) error {
 // ruleMustNotSplitTheKey refuses an edit under a rule that splits the data key,
 // or nil.
 //
-// The refusal `faramir rekey` already makes, made here for the same reason and
+// The refusal `faramir sops recipient reseal` already makes, made here for the same reason and
 // one step earlier.  shamir_threshold means N of the rule's key groups have to
 // come together to open a file; what an edit writes back is sealed to the
 // recipients the file already carried, as one group.  sops takes that without
@@ -573,7 +572,7 @@ func ruleMustNotSplitTheKey(rulePath string) error {
 //
 // The recipients are named here rather than taken from the rule, which is what
 // makes an edit preserve who could already read the file: applying a changed
-// rule is `faramir rekey`.
+// rule is `faramir sops recipient reseal`.
 func sealTo(keyPath, rulePath, target string, recipients []string, plain string) ([]byte, error) {
 	return runSops(keyPath, rulePath, "--encrypt",
 		"--age", strings.Join(recipients, ","),
@@ -627,34 +626,4 @@ func removeOnSignal(dir string) func() {
 		signal.Stop(signals)
 		close(signals)
 	}
-}
-
-// ageRecipient matches the recipient entries in a sops metadata block, in every
-// encoding: "recipient: age1..." in YAML, "recipient": "age1..." in JSON, and
-// sops_age__list_0__map_recipient=age1... in the dotenv and ini forms.  The
-// metadata is cleartext, so this needs no key.
-var ageRecipient = regexp.MustCompile(`recipient"?\s*[:=]\s*"?(age1[0-9a-z]+)`)
-
-// recipientsOf reads the age recipients a managed file is already encrypted to.
-// A regex rather than a YAML library, which would undo keeping the sops
-// libraries out of this binary for one cleartext field.
-func recipientsOf(path string) ([]string, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-	var out []string
-	seen := map[string]bool{}
-	for _, match := range ageRecipient.FindAllSubmatch(body, -1) {
-		recipient := string(match[1])
-		if !seen[recipient] {
-			seen[recipient] = true
-			out = append(out, recipient)
-		}
-	}
-	if len(out) == 0 {
-		return nil, fmt.Errorf("%s names no age recipient, so there is nothing to "+
-			"re-encrypt it to; faramir manages age-encrypted files only", path)
-	}
-	return out, nil
 }

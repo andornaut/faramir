@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
 // Only a file the config manages: anything else would write a file the broker
@@ -244,7 +245,7 @@ func TestRecipientsOfReadsEverySopsEncoding(t *testing.T) {
 			if err := os.WriteFile(path, []byte(tc.body), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			got, err := recipientsOf(path)
+			got, err := sopsrule.SealedTo(path)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -262,7 +263,7 @@ func TestRecipientsOfRefusesAFileWithNone(t *testing.T) {
 	if err := os.WriteFile(path, []byte("key: value\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := recipientsOf(path); err == nil {
+	if _, err := sopsrule.SealedTo(path); err == nil {
 		t.Fatal("a file naming no recipient was accepted")
 	}
 }

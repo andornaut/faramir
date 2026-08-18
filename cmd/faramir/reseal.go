@@ -1,7 +1,8 @@
 package main
 
-// `faramir rekey` applies a changed `.sops.yaml` to a secrets directory that
-// was encrypted before it changed.  What that is for is docs/operating.md.
+// Re-encrypting the managed store to what `.sops.yaml` says, which is the
+// second half of every recipient change and the whole of `sops recipient
+// reseal`.  What that is for is docs/operating.md.
 //
 // It walks the managed files rather than leaving the operator to run `sops
 // updatekeys` per file, which rewrites in place with no regard for ownership: a
@@ -19,56 +20,12 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/spf13/cobra"
-
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/audit"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/keeper"
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
-
-type rekeyFlags struct {
-	configPath string
-	ageKey     string
-	dryRun     bool
-	socket     string
-}
-
-func newRekeyCmd() *cobra.Command {
-	var f rekeyFlags
-	c := &cobra.Command{
-		Use:   "rekey [options] [FILE...]",
-		Short: "re-encrypt the secrets directory to the recipients .sops.yaml now names",
-		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runRekey(f, args)) },
-	}
-	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
-	c.Flags().StringVar(&f.ageKey, "age-key", "", "age key file (default: age.key beside the config)")
-	c.Flags().BoolVar(&f.dryRun, "dry-run", false, "report which files would be re-encrypted and write nothing")
-	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
-	return c
-}
-
-func runRekey(f rekeyFlags, args []string) int {
-	store, code := loadStore("rekey", f.configPath, f.socket, f.ageKey, args)
-	if store == nil {
-		return code
-	}
-	wanted, err := ruleRecipients(store.rulePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
-		return 1
-	}
-	// Checked before anything is decrypted.  Re-encrypting to a rule the keeper is
-	// not named in produces a secrets directory that opens for nobody the broker
-	// can ask, one file at a time, and the failure only shows up at the next
-	// refresh.
-	if err := keeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
-		return 1
-	}
-	return rekeyStore("rekey", store, wanted, f.dryRun)
-}
 
 // storeContext is what any command that re-encrypts the managed store needs:
 // where this install keeps its config, its rule and its key, and which files the
@@ -102,7 +59,7 @@ func loadStore(label, configPath, socket, ageKey string, named []string) (*store
 	// not among the managed ones, and the operator wants every reason.
 	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
 	unresolvable := slices.Concat(failures, absent)
-	targets, err := rekeyTargets(managed, named)
+	targets, err := resealTargets(managed, named)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		for _, reason := range unresolvable {
@@ -140,25 +97,24 @@ func loadStore(label, configPath, socket, ageKey string, named []string) (*store
 	}, 0
 }
 
-// rekeyStore re-encrypts every target to wanted, and is the whole of what
-// `rekey` does and the second half of what a recipient change does.
-func rekeyStore(label string, store *storeContext, wanted []string, dryRun bool) int {
+// resealStore re-encrypts every target to wanted.
+func resealStore(label string, store *storeContext, wanted []string, dryRun bool) int {
 	targets := store.targets
 	log := audit.NewLog(store.cfg.Audit)
 	failed, changed := 0, 0
 	for _, target := range targets {
-		was, err := recipientsOf(target)
+		was, err := sopsrule.SealedTo(target)
 		if err != nil {
 			// Recorded like every other outcome of this loop.  A file this run could
 			// not read is one it did not reach, and a log that says nothing about it
-			// reads as a rekey that covered the whole secrets directory.
+			// reads as a reseal that covered the whole secrets directory.
 			//
 			// Not on a dry run, which writes nothing at all: the log is a record of
 			// what a run did to this host, and a run that was asked to do nothing did
 			// nothing to it.
 			if !dryRun {
 				log.Write(map[string]any{
-					"op": opRekey, "log_id": audit.NewLogID(), "file": target,
+					"op": opReseal, "log_id": audit.NewLogID(), "file": target,
 					"error": err.Error(),
 					"uid":   os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 				}, audit.Output{})
@@ -167,7 +123,7 @@ func rekeyStore(label string, store *storeContext, wanted []string, dryRun bool)
 			failed++
 			continue
 		}
-		if sameRecipients(was, wanted) {
+		if sopsrule.Same(was, wanted) {
 			fmt.Fprintf(os.Stderr, "faramir %s: unchanged %s\n", label, target)
 			continue
 		}
@@ -183,7 +139,7 @@ func rekeyStore(label string, store *storeContext, wanted []string, dryRun bool)
 		// values: who can read the secrets directory is exactly what an operator
 		// needs the log to be able to answer afterwards.
 		record := map[string]any{
-			"op": opRekey, "log_id": audit.NewLogID(), "file": target,
+			"op": opReseal, "log_id": audit.NewLogID(), "file": target,
 			"from": was, "to": wanted,
 			"uid": os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 		}
@@ -201,7 +157,7 @@ func rekeyStore(label string, store *storeContext, wanted []string, dryRun bool)
 		changed++
 	}
 
-	// Named rather than left implicit: a rekey that reached only some of the files
+	// Named rather than left implicit: a reseal that reached only some of the files
 	// is the state an operator has to know about, because the rest is still sealed
 	// to the old recipients.
 	if failed > 0 {
@@ -220,13 +176,13 @@ func rekeyStore(label string, store *storeContext, wanted []string, dryRun bool)
 	return 0
 }
 
-// rekeyTargets is every managed file, or just the ones named.
+// resealTargets is every managed file, or just the ones named.
 //
 // Naming none is the command's usual shape, so it is the default; naming
 // some is for a secrets directory where one file is meant to stay as it is.
 // Either way a path that is not managed is refused by resolveManaged, so a
-// rekey cannot walk out of the secrets directory.
-func rekeyTargets(managed, named []string) ([]string, error) {
+// reseal cannot walk out of the secrets directory.
+func resealTargets(managed, named []string) ([]string, error) {
 	if len(named) == 0 {
 		if len(managed) == 0 {
 			return nil, errNoManagedFiles
@@ -320,18 +276,6 @@ func keeperStaysAReader(keyPath string, wanted []string, rulePath string) error 
 		rulePath, recipient, keyPath)
 }
 
-// sameRecipients compares the two sets regardless of the order they are written
-// in, so a rule that merely lists the same keys differently rewrites nothing.
-func sameRecipients(was, wanted []string) bool {
-	if len(was) != len(wanted) {
-		return false
-	}
-	a, b := slices.Clone(was), slices.Clone(wanted)
-	slices.Sort(a)
-	slices.Sort(b)
-	return slices.Equal(a, b)
-}
-
 // reencrypt rewrites one managed file, sealed to the given recipients.
 //
 // The plaintext goes through a 0600 file in a tmpfs rather than through this
@@ -344,7 +288,7 @@ func reencrypt(keyPath, rulePath string, recipients []string, target string) err
 	if err != nil {
 		return fmt.Errorf("decrypt: %w", err)
 	}
-	dir, err := os.MkdirTemp("/dev/shm", "faramir-rekey-")
+	dir, err := os.MkdirTemp("/dev/shm", "faramir-reseal-")
 	if err != nil {
 		return fmt.Errorf("temporary directory: %w", err)
 	}

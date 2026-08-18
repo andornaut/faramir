@@ -1,5 +1,5 @@
 #!/bin/bash
-# Functional test of the secret lifecycle: edit, rekey, and what happens when the
+# Functional test of the secret lifecycle: edit, reseal, and what happens when the
 # age key stops matching the ciphertext.
 #
 # The stakes are why this is worth a suite of its own.  Every other mistake here
@@ -140,7 +140,7 @@ echo "$out" | grep -q 'hunter2' && ok "the replaced value is no longer in the se
   || bad "the old value is still being redacted, so the set is stale: $out"
 
 # --------------------------------------------------------------------------
-head_ "4. rekey --dry-run writes nothing"
+head_ "4. reseal --dry-run writes nothing"
 KEEPER=$(age-keygen -y /etc/faramir/age.key 2>/dev/null)
 SECOND=$(age-keygen 2>/dev/null | tee /tmp/second.key | grep -o 'age1[a-z0-9]*' | head -1)
 [ -n "$KEEPER" ] && ok "the keeper's recipient: ${KEEPER:0:20}..." || bad "could not read the keeper's public half"
@@ -153,20 +153,20 @@ creation_rules:
           - $SECOND
 YAML
 before=$(sum)
-faramir sops rekey --dry-run >/tmp/dry.log 2>&1
+faramir sops recipient reseal --dry-run >/tmp/dry.log 2>&1
 [ "$(sum)" = "$before" ] && ok "the file is byte-identical after a dry run" \
   || bad "a dry run rewrote the file"
 grep -qiE "would|dry" /tmp/dry.log && ok "it reported what it would do: $(grep -iE 'would|dry' /tmp/dry.log | head -1 | cut -c1-70)" \
   || bad "a dry run said nothing useful: $(head -2 /tmp/dry.log)"
 
-head_ "5. rekey to a second recipient, and the keeper can still read"
-faramir sops rekey >/tmp/rekey.log 2>&1 && ok "rekey completed" || bad "rekey failed: $(tail -2 /tmp/rekey.log)"
+head_ "5. reseal to a second recipient, and the keeper can still read"
+faramir sops recipient reseal >/tmp/reseal.log 2>&1 && ok "reseal completed" || bad "reseal failed: $(tail -2 /tmp/reseal.log)"
 [ "$(sum)" != "$before" ] && ok "the file was re-encrypted" || bad "the file did not change"
 if grep -q "$SECOND" "$MANAGED"; then ok "the second recipient is now in the file's metadata"; else
   bad "the new recipient is not in the file"; fi
 reload_daemons || bad "the daemons did not come back"
 refs=$(runuser -u op -- faramir list-secrets 2>&1 | tr '\n' ' ')
-echo "$refs" | grep -q "faramir://new/ref" && ok "the keeper still decrypts everything after the rekey" \
+echo "$refs" | grep -q "faramir://new/ref" && ok "the keeper still decrypts everything after the reseal" \
   || bad "the keeper cannot read the re-encrypted file: $refs"
 
 head_ "6. THE REFUSAL: a rule that drops the keeper's own key"
@@ -178,20 +178,20 @@ creation_rules:
           - $SECOND
 YAML
 before=$(sum)
-if faramir sops rekey >/tmp/bad-rekey.log 2>&1; then
+if faramir sops recipient reseal >/tmp/bad-reseal.log 2>&1; then
   bad "re-encrypting to a set without the keeper's key SUCCEEDED, which is unrecoverable"
 else
-  ok "refused: $(grep -oE 'does not list|would leave' /tmp/bad-rekey.log | head -1)"
+  ok "refused: $(grep -oE 'does not list|would leave' /tmp/bad-reseal.log | head -1)"
 fi
 [ "$(sum)" = "$before" ] && ok "and the file is byte-identical, so nothing was half-written" \
-  || bad "the refused rekey still modified the file"
+  || bad "the refused reseal still modified the file"
 # The proof that the refusal saved something: the keeper still reads it.
 reload_daemons || bad "the daemons did not come back"
 runuser -u op -- faramir list-secrets 2>&1 | grep -q "faramir://new/ref" \
   && ok "the secrets still decrypt after the refusal" || bad "the refusal left the secrets unreadable"
 
 head_ "7. an edit preserves who can read the file, whatever .sops.yaml now says"
-# rekey applies a changed rule; edit must not, or editing a value would quietly
+# reseal applies a changed rule; edit must not, or editing a value would quietly
 # reseal the file to whoever the rule names today.
 cat > /etc/faramir/.sops.yaml <<YAML
 creation_rules:
@@ -277,7 +277,7 @@ else
 fi
 rm -rf "$PLANTED"
 
-head_ "9. rekey keeps a recipient named only under a merged key group"
+head_ "9. reseal keeps a recipient named only under a merged key group"
 # A key group may pull in others with `merge:`, and their keys seal the file
 # exactly like the ones written inline.  A reader that stops at the top level
 # re-encrypts the store without them, which takes a backup key's access away for
@@ -288,7 +288,7 @@ rule <<YAML
       - age:
           - $KEEPER
 YAML
-faramir sops rekey >/tmp/narrow.log 2>&1 || bad "narrowing to the keeper alone failed: $(tail -2 /tmp/narrow.log)"
+faramir sops recipient reseal >/tmp/narrow.log 2>&1 || bad "narrowing to the keeper alone failed: $(tail -2 /tmp/narrow.log)"
 [ "$(recipients)" -eq 1 ] && ok "narrowed to the keeper alone, so the merged rule has something to add" \
   || note "the store already had $(recipients) recipients before the merge case"
 rule <<YAML
@@ -300,11 +300,11 @@ rule <<YAML
           - age:
               - $SECOND
 YAML
-faramir sops rekey >/tmp/merge.log 2>&1 && ok "rekey completed under a merged key group" \
-  || bad "rekey failed: $(tail -2 /tmp/merge.log)"
+faramir sops recipient reseal >/tmp/merge.log 2>&1 && ok "reseal completed under a merged key group" \
+  || bad "reseal failed: $(tail -2 /tmp/merge.log)"
 grep -q "$SECOND" "$MANAGED" \
   && ok "the recipient named only under merge: is in the file, so it can still read the store" \
-  || bad "UNRECOVERABLE: rekey dropped the merged recipient, and re-running does not restore its access"
+  || bad "UNRECOVERABLE: reseal dropped the merged recipient, and re-running does not restore its access"
 grep -q "$KEEPER" "$MANAGED" && ok "and so is the keeper's" || bad "the keeper was dropped"
 
 head_ "10. a bare age: beside key_groups is the one sops ignores"
@@ -318,8 +318,8 @@ rule <<YAML
       - age:
           - $KEEPER
 YAML
-faramir sops rekey >/tmp/shorthand.log 2>&1 && ok "rekey completed" \
-  || bad "rekey failed: $(tail -2 /tmp/shorthand.log)"
+faramir sops recipient reseal >/tmp/shorthand.log 2>&1 && ok "reseal completed" \
+  || bad "reseal failed: $(tail -2 /tmp/shorthand.log)"
 [ "$(recipients)" -eq 1 ] && ok "the file names one recipient, which is what sops would have sealed it to" \
   || bad "the file names $(recipients) recipients, so the ignored shorthand was applied"
 grep -q "$SECOND" "$MANAGED" \
@@ -341,12 +341,12 @@ rule <<YAML
     path_regex: \.sops\.ya?ml\$
 YAML
 before=$(sum)
-if faramir sops rekey >/tmp/tworule.log 2>&1; then
+if faramir sops recipient reseal >/tmp/tworule.log 2>&1; then
   bad "a two-rule .sops.yaml was accepted, so the store can be sealed to a set no rule names"
 else
   ok "refused: $(grep -oE 'creation rules|updatekeys' /tmp/tworule.log | head -1)"
 fi
-[ "$(sum)" = "$before" ] && ok "and the file is byte-identical" || bad "the refused rekey wrote to the file"
+[ "$(sum)" = "$before" ] && ok "and the file is byte-identical" || bad "the refused reseal wrote to the file"
 
 head_ "12. THE REFUSAL: a rule that splits the data key"
 # shamir_threshold means N key groups have to come together to open a file.
@@ -362,10 +362,10 @@ rule <<YAML
           - $SECOND
 YAML
 before=$(sum)
-if faramir sops rekey >/tmp/shamir.log 2>&1; then
-  bad "rekey flattened a split data key, so any single key now opens what took two"
+if faramir sops recipient reseal >/tmp/shamir.log 2>&1; then
+  bad "reseal flattened a split data key, so any single key now opens what took two"
 else
-  ok "rekey refused: $(grep -oE 'shamir_threshold' /tmp/shamir.log | head -1)"
+  ok "reseal refused: $(grep -oE 'shamir_threshold' /tmp/shamir.log | head -1)"
 fi
 editor "sed -i 's/edited/edited/' \"\$1\""
 if faramir sops edit --editor /usr/local/sbin/spy-editor "$MANAGED" >/tmp/shamir-edit.log 2>&1; then
@@ -417,7 +417,7 @@ creation_rules:
       - age:
           - $KEEPER
 YAML
-faramir sops rekey >/dev/null 2>&1 || bad "could not seal the store to the keeper alone"
+faramir sops recipient reseal >/dev/null 2>&1 || bad "could not seal the store to the keeper alone"
 grep -q "$SECOND" "$MANAGED" && bad "the store still names the second recipient" \
   || ok "the store starts sealed to the keeper alone"
 
@@ -445,6 +445,39 @@ before=$(sum)
 faramir sops recipient add "$SECOND" >/tmp/add2.log 2>&1 \
   && ok "adding one already there exits 0" || bad "a repeat add failed"
 [ "$(sum)" = "$before" ] && ok "and re-encrypts nothing" || bad "a repeat add rewrote the store"
+
+# THE RESUME: a rule that is already right over a store that is not.  This is
+# what a pass that wrote the rule and then failed on a file leaves behind, and
+# an add that took the rule as proof would report success over it.
+rule_now=$(cat /etc/faramir/.sops.yaml)
+# Put the store back to the keeper alone while the rule still names both.
+cat > /etc/faramir/.sops.yaml <<YAML
+creation_rules:
+  - path_regex: \.sops\.ya?ml\$
+    key_groups:
+      - age:
+          - $KEEPER
+YAML
+faramir sops recipient reseal >/dev/null 2>&1 || bad "could not stage the divergence"
+printf '%s' "$rule_now" > /etc/faramir/.sops.yaml
+grep -q "$SECOND" /etc/faramir/.sops.yaml || bad "staging lost the rule's second recipient"
+grep -q "$SECOND" "$MANAGED" && bad "staging did not put the store back" \
+  || ok "staged: the rule names the second recipient and the ciphertext does not"
+
+faramir doctor --agent-user op --json >/tmp/doc-drift.json 2>/dev/null
+drift=$(jq -r '[.findings[]|select(.check=="recipient drift")|.status]|join(",")' /tmp/doc-drift.json)
+[ "$drift" = failed ] && ok "doctor reports it under recipient drift" \
+  || bad "doctor says recipient drift is [$drift] for a store that lags its rule"
+
+faramir sops recipient add "$SECOND" >/tmp/resume.log 2>&1 \
+  && ok "re-running the add over an unchanged rule exits 0" \
+  || bad "the resume failed: $(tail -2 /tmp/resume.log)"
+grep -q "$SECOND" "$MANAGED" \
+  && ok "and it resealed the store the rule had run ahead of" \
+  || bad "the rule was taken as proof and the store was left behind"
+faramir doctor --agent-user op --json >/tmp/doc-drift2.json 2>/dev/null
+[ "$(jq -r '[.findings[]|select(.check=="recipient drift")|.status]|join(",")' /tmp/doc-drift2.json)" = ok ] \
+  && ok "and doctor reports no drift afterwards" || bad "doctor still reports drift"
 
 # THE REFUSAL: the private half, where .sops.yaml is world-readable.
 identity=$(grep -o 'AGE-SECRET-KEY-[A-Z0-9]*' /tmp/second.key | head -1)

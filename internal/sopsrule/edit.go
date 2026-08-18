@@ -10,7 +10,7 @@ package sopsrule
 //
 // Every shape this refuses is one where "the recipient list" names more than one
 // list.  Editing either of two is a choice nobody made, and the half not edited
-// is what a later rekey seals the store to.
+// is what a later reseal seals the store to.
 
 import (
 	"bytes"
@@ -27,7 +27,7 @@ import (
 // [Load]'s callers refuse are refused here, plus the two that only a writer
 // cares about: more than one key group, and a group pulling in others by merge.
 // Both leave two answers to "which list is the recipient list", and a writer
-// that picked one would drop every reader named in the other at the next rekey.
+// that picked one would drop every reader named in the other at the next reseal.
 func SetRecipients(body []byte, path string, want []string) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(body, &doc); err != nil {

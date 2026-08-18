@@ -80,7 +80,7 @@ const (
 )
 
 // logIDs is the counter half of a log_id.  Package-level rather than per-Log:
-// two Logs in one process (a test, or `faramir sops rekey` opening its own) must not
+// two Logs in one process (a test, or `faramir sops recipient reseal` opening its own) must not
 // hand out the same id.
 var (
 	logIDs  atomic.Uint32
@@ -89,7 +89,7 @@ var (
 
 // processNonce separates one writer's ids from another's.  Every record on a
 // host is normally the broker's, which is one process and so one counter; this
-// is what keeps `faramir sops edit` and `faramir sops rekey`, which write their own, from
+// is what keeps `faramir sops edit` and `faramir sops recipient reseal`, which write their own, from
 // starting at the same place in the same second.
 func processNonce() uint16 {
 	var b [2]byte
@@ -311,7 +311,7 @@ func (l *Log) Write(record map[string]any, output Output) {
 // The lock is what makes the truncate safe: it is held by every writer, so the
 // end of the file during the write is this record's own end and nothing else's.
 // A host does not need lock-free concurrent appends -- four brokered commands at
-// once is the configured ceiling, and `edit` and `rekey` are somebody typing --
+// once is the configured ceiling, and `edit` and `reseal` are somebody typing --
 // so paying a lock to make the file always well formed is the cheap side of the
 // trade.
 func appendLine(fh *os.File, line []byte, path string) {
