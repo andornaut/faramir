@@ -120,8 +120,8 @@ func loadStore(label, configPath, socket, ageKey string, named []string,
 // re-encrypt rather than nothing to open, which is `edit`'s sentence and belongs
 // to `edit`.
 var errNoFilesToReseal = errors.New("no managed sops files: the managed store " +
-	"named none, so there is nothing to re-encrypt. Create the first one with " +
-	"sops, which needs --config and --filename-override; see docs/ansible-sops.md")
+	"named none, so there is nothing to re-encrypt. Write the first one with " +
+	"`faramir sops add NAME`")
 
 // ageKeyPath is the key a run decrypts with: the one named, or the one beside
 // the config.

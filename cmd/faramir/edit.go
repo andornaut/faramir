@@ -210,8 +210,8 @@ func exists(path string) bool {
 // is the same for both and the sentence is not, and the one an operator reads is
 // the one their command printed.
 var errNoManagedFiles = errors.New("no managed sops files: the managed store named " +
-	"none, so there is nothing to open. Create the first one with sops, which " +
-	"needs --config and --filename-override; see docs/ansible-sops.md")
+	"none, so there is nothing to open. Write the first one with `faramir sops " +
+	"add NAME`")
 
 // resolveManaged maps the argument onto one of the configured files, matching a
 // bare name against each base name.  Anything unmanaged is refused, an edit

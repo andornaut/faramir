@@ -2,8 +2,8 @@ package main
 
 import "github.com/spf13/cobra"
 
-// newSopsCmd groups what is done to the managed store: edit a file, and change
-// who can read it.  A parent rather than that many top-level verbs, because the
+// newSopsCmd groups what is done to the managed store: write a file, edit one,
+// and change who can read them.  A parent rather than that many top-level verbs, because the
 // help said nothing about them being one subject while they sat between `logs`
 // and `doctor`.
 //
@@ -19,14 +19,14 @@ import "github.com/spf13/cobra"
 func newSopsCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "sops",
-		Short:   "manage the sops store: edit a file, change who can read it",
+		Short:   "manage the sops store: write and edit files, change who can read them",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		// Never reached, the arguments never validating; a command cobra does not
 		// consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newEditCmd(), newRecipientCmd())
+	c.AddCommand(newAddCmd(), newEditCmd(), newRecipientCmd())
 	return c
 }
 

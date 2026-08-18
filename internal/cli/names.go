@@ -29,6 +29,7 @@ var Operator = []string{
 	"completion",
 	"init",
 	"init-project",
+	"sops add",
 	"sops edit",
 	"sops recipient add",
 	"sops recipient rm",

@@ -557,4 +557,65 @@ reload_daemons || bad "the daemons did not come back"
 runuser -u op -- faramir list-secrets 2>&1 | grep -q "faramir://new/ref" \
   && ok "and the keeper still decrypts the store" || bad "the store is no longer readable"
 
+head_ "15. add: the first managed file, without plaintext on a disk"
+# What this replaces is sops with --config and --filename-override, which leaves
+# the source cleartext on disk, writes 0644, and accepts a name the broker will
+# never read.  Each of those is asserted against here.
+cat > /usr/local/sbin/writer <<'EOF'
+#!/bin/bash
+printf 'added:\n  by_the_editor: s3kr3t-added-4242\n' > "$1"
+EOF
+chmod 0755 /usr/local/sbin/writer
+
+faramir sops add --editor /usr/local/sbin/writer added.sops.yml >/tmp/add.log 2>&1 \
+  && ok "add completed" || bad "add failed: $(tail -2 /tmp/add.log)"
+NEW=/etc/faramir/secrets/added.sops.yml
+[ -e "$NEW" ] && ok "the file is there, named relative to the secrets directory" \
+  || bad "no file at $NEW"
+[ "$(stat -c '%a %U:%G' "$NEW")" = "640 root:faramir-keeper" ] \
+  && ok "0640 root:faramir-keeper, like every other managed file" \
+  || bad "a new file is $(stat -c '%a %U:%G' "$NEW"), not 640 root:faramir-keeper"
+[ "$(grep -c 'ENC\[' "$NEW")" -ge 1 ] && ok "the value is encrypted" || bad "it is not encrypted"
+grep -q 's3kr3t-added-4242' "$NEW" && bad "PLAINTEXT ON DISK in $NEW" \
+  || ok "and the plaintext is not in it"
+[ -z "$(find /dev/shm -name 'faramir-add-*' 2>/dev/null)" ] \
+  && ok "no faramir-add-* directory left in /dev/shm" \
+  || bad "a tmpfs directory survived: $(find /dev/shm -name 'faramir-add-*')"
+
+reload_daemons || bad "the daemons did not come back"
+runuser -u op -- faramir list-secrets 2>&1 | grep -q 'faramir://added/by_the_editor' \
+  && ok "and the broker serves the new ref" || bad "the new ref is not being served"
+
+# THE REFUSAL: a name the broker would never read.  sops encrypts one happily.
+faramir sops add --editor /usr/local/sbin/writer notes.txt >/tmp/badname.log 2>&1 \
+  && bad "created a file matching no [secret] pattern, which nothing would serve" \
+  || ok "refused a name no pattern matches: $(grep -oE 'matches none of' /tmp/badname.log | head -1)"
+[ -e /etc/faramir/secrets/notes.txt ] && bad "and it wrote the file anyway" \
+  || ok "and wrote nothing"
+
+# An existing file is edit's, and saying so is the whole of the message.
+faramir sops add --editor /usr/local/sbin/writer added.sops.yml >/tmp/dup.log 2>&1 \
+  && bad "overwrote a managed file" || ok "refused to overwrite one that is there"
+grep -q 'sops edit' /tmp/dup.log && ok "and named the command that opens it" \
+  || bad "the refusal does not say what to run instead"
+
+# An editor that wrote nothing is somebody changing their mind.
+printf '#!/bin/bash\ntrue\n' > /usr/local/sbin/empty-editor; chmod 0755 /usr/local/sbin/empty-editor
+faramir sops add --editor /usr/local/sbin/empty-editor blank.sops.yml >/dev/null 2>&1 \
+  && bad "created a managed file with nothing in it" || ok "an empty editor creates nothing"
+[ -e /etc/faramir/secrets/blank.sops.yml ] && bad "and left the file behind" \
+  || ok "and leaves no file behind"
+
+# --from, and the one thing it has to say about the file it read.
+printf 'svc:\n  token: tok-from-a-file\n' > /tmp/plain.yml
+faramir sops add --from /tmp/plain.yml svc.sops.yml >/tmp/from.log 2>&1 \
+  && ok "--from encrypts a file you already hold" || bad "--from failed: $(tail -2 /tmp/from.log)"
+grep -q 'still cleartext' /tmp/from.log \
+  && ok "and says the source is still cleartext" \
+  || bad "it did not say the plaintext source survives"
+grep -q 'tok-from-a-file' /etc/faramir/secrets/svc.sops.yml \
+  && bad "PLAINTEXT ON DISK in the file it wrote" || ok "the file it wrote is ciphertext"
+
+rm -f "$NEW" /etc/faramir/secrets/svc.sops.yml /tmp/plain.yml
+
 summary

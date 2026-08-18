@@ -24,15 +24,19 @@ creation_rules:
 
 The rule matches the suffix rather than a directory, so moving a file does not silently drop it out of encryption.
 
-Creating the first one needs root and two flags. Which rule applies is matched against the file's path, but **which `.sops.yaml` sops reads is resolved from the working directory upward**, so encrypting into the secrets directory from a checkout finds nothing and fails with `config file not found, or has no creation rules`:
+Creating one is `add`, and the name is relative to the secrets directory:
 
 ```bash
-sudo sops --config /etc/faramir/.sops.yaml \
-    --encrypt --filename-override /etc/faramir/secrets/ansible-ctrl.sops.yml \
-    plain.yml
+sudo faramir sops add ansible-ctrl.sops.yml
 ```
 
-Every edit after that is `sudo faramir sops edit /etc/faramir/secrets/ansible-ctrl.sops.yml`, which needs neither flag, re-encrypting to the recipients the file already had.
+It opens `$EDITOR` on a `0600` file in a tmpfs and encrypts on the way out, so no plaintext reaches a disk, and it writes `0640` root:keeper like every other managed file. `--from plain.yml` encrypts a file you already hold and leaves it where it is, still cleartext.
+
+A name matching none of the `[secret]` patterns is refused. Encrypting one by hand succeeds and produces a file the broker never reads, which is a mistake nothing reports until somebody goes looking for the ref.
+
+Every edit after that is `sudo faramir sops edit ansible-ctrl.sops.yml`, re-encrypting to the recipients the file already had.
+
+Under it both commands hand sops `--config` and `--filename-override`, because **which `.sops.yaml` sops reads is resolved from the working directory upward**: encrypting into the secrets directory from a checkout otherwise finds nothing and fails with `config file not found, or has no creation rules`.
 
 Key *names* stay readable, so diffs are per-key and the agent sees the file's shape without any value. Nesting maps to `/` in a ref:
 

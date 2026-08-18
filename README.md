@@ -237,6 +237,7 @@ Command | Does
 --- | ---
 `sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. [Shares the tree](docs/layout.md), registers the hook and the MCP server in each enrolled agent's settings, and writes the credentials section into the tree's agent instructions file. A home directory, `/`, and anything above a home are refused, symlinks resolved first
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach
+`sudo faramir sops add NAME` | Writes a new managed file, `NAME` relative to the secrets directory. `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk; `--from FILE` encrypts one you already hold and leaves it cleartext where it is. A name matching no `[secret]` pattern is refused, the broker never reading it
 `sudo faramir sops edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any file in the secrets directory. `--editor` names the editor, `--age-key` the key
 `sudo faramir sops recipient add KEY` | Lets one more key decrypt the store: validates it, adds it to `<config-dir>/.sops.yaml`, and re-encrypts every managed file to it, so the rule and the ciphertext never disagree. `--dry-run` writes neither. [What it refuses](docs/operating.md#adding-a-recipient)
 `sudo faramir sops recipient rm KEY` | The same in reverse. Reaches no copy of the ciphertext somebody already holds

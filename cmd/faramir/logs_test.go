@@ -753,7 +753,7 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 // where the two are allowed to meet: it fails when an op is added that the
 // column cannot hold, which is the moment the constant needs raising.
 func TestEveryOpFitsTheColumn(t *testing.T) {
-	ops := append([]string{opExecStarted, opEdit, opReseal, opRecipient}, protocol.Ops...)
+	ops := append([]string{opExecStarted, opAdd, opEdit, opReseal, opRecipient}, protocol.Ops...)
 	for _, op := range ops {
 		t.Run(op, func(t *testing.T) {
 			if len(op) >= opWidth {
