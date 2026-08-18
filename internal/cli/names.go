@@ -8,8 +8,10 @@ package cli
 // Operator is every subcommand a person runs, and what the guard sanctions.
 // One missing from both lists has its arguments scanned, which is a false
 // denial rather than a hole.  Under sudo the guard sanctions all of these but
-// `approve`, which it denies: that one decides an escalation, and the account
-// the agent runs as must not answer the question the agent raised.
+// `escalations`, `approve` and `deny`, which it denies: those three read and
+// decide an escalation, and the account the agent runs as must not answer the
+// question it raised.  Reading what is waiting is as much the operator's as
+// answering it.
 //
 // A grouped command is named in full, both tokens, rather than by its parent.
 // Naming the parent alone would sanction every subcommand added under it later,
