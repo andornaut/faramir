@@ -435,7 +435,7 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 		return
 	}
 	// What is written here has to be something sops will take, and the file is
-	// 0644.  `init` validates what --age-recipient names, but adding a recipient
+	// 0644.  `init` validates what --recipient names, but adding a recipient
 	// afterwards is editing this file by hand, and nothing on that path looks at
 	// what was typed: a private half pasted here is the key that opens the secrets
 	// directory, readable by every account on the host.  Asked before the keeper's

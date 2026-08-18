@@ -198,7 +198,7 @@ type Report struct {
 	// every run, not only when it was generated.
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
 	// AgeRecipients is who can decrypt the managed files, read back from
-	// .sops.yaml rather than taken from --age-recipient: the two agree only on the
+	// .sops.yaml rather than taken from --recipient: the two agree only on the
 	// run that creates it.  Empty when the file could not be read.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
 }
@@ -502,7 +502,7 @@ func (r *runner) preflight() error {
 	// key and needs no check.
 	for _, recipient := range r.opts.AgeRecipients {
 		if err := agekey.ValidateRecipient(recipient); err != nil {
-			return fmt.Errorf("--age-recipient: %w", err)
+			return fmt.Errorf("--recipient: %w", err)
 		}
 	}
 	// Read before an account or a key exists: a path that is not a known_hosts

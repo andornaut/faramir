@@ -48,7 +48,7 @@ type storeContext struct {
 // is for `reseal`, whose whole job is files, and is not for a recipient change:
 // the rule governs what sops writes from now on, so changing it on a host whose
 // first secret has not been written is not only valid, it is when an operator
-// who missed --age-recipient at install has to do it.
+// who missed --recipient at install has to do it.
 func loadStore(label, configPath, socket, ageKey string, named []string,
 	emptyStoreOK bool) (*storeContext, int) {
 	// Refused rather than attempted, like edit: as the operator this fails on the

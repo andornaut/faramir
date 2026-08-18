@@ -8,7 +8,7 @@ import (
 )
 
 // An existing .sops.yaml is kept, applying a changed rule meaning every managed
-// value is re-encrypted.  Kept and read back, so --age-recipient on an
+// value is re-encrypted.  Kept and read back, so --recipient on an
 // installed host does not read as applied when it was not.
 func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	const (
@@ -17,7 +17,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	)
 	for _, tc := range []struct {
 		name string
-		// listed is the file on disk; requested is --age-recipient plus the keeper's
+		// listed is the file on disk; requested is --recipient plus the keeper's
 		// own.
 		listed    []string
 		requested []string
@@ -36,7 +36,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 			name:   "a recipient asked for and not in the file",
 			listed: []string{keeper}, requested: []string{backup, keeper},
 			keeper: keeper, want: []string{keeper},
-			warns: []string{"--age-recipient", backup, "updatekeys"},
+			warns: []string{"--recipient", backup, "updatekeys"},
 		},
 		{
 			// What replacing the age key leaves behind: every value from now on is one

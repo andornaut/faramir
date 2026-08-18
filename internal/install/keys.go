@@ -80,7 +80,7 @@ func (r *runner) addRecipient(recipient string) {
 //
 // Kept if it already exists, adding or dropping a recipient meaning every
 // managed value is re-encrypted.  Kept and read back (see keepSopsConfig), so
-// --age-recipient does not silently mean nothing.
+// --recipient does not silently mean nothing.
 func (r *runner) stepSopsConfig() error {
 	path := r.layout.SopsConfigPath()
 	if exists(path) {
@@ -176,7 +176,7 @@ func (r *runner) keepSopsConfig(path string) {
 		}
 	}
 	if len(missing) > 0 {
-		r.warnf("--age-recipient named %s, and %s already exists and is kept, so "+
+		r.warnf("--recipient named %s, and %s already exists and is kept, so "+
 			"nothing was added: that key decrypts no managed value. Applying it means "+
 			"re-encrypting each file, which is two steps as root:\n"+
 			"  sudoedit %s\n"+

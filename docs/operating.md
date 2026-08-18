@@ -96,7 +96,7 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 
 ## Adding a recipient
 
-`--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which a re-run of the installer should not do unasked. A run that keeps the file reads it back, reports the recipients it lists as `age_recipients`, and warns naming any key you asked for that is not there. `faramir secrets edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
+`--recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which a re-run of the installer should not do unasked. A run that keeps the file reads it back, reports the recipients it lists as `age_recipients`, and warns naming any key you asked for that is not there. `faramir secrets edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
 
 Applying one afterwards is one command, as root:
 
