@@ -48,7 +48,6 @@ var editors = []string{
 type editFlags struct {
 	configPath string
 	editor     string
-	ageKey     string
 	socket     string
 }
 
@@ -63,7 +62,6 @@ func newEditCmd() *cobra.Command {
 	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().StringVar(&f.editor, "editor", "", "absolute path to the editor to run (default: the first of "+
 		strings.Join(editors, ", ")+" that exists)")
-	c.Flags().StringVar(&f.ageKey, "age-key", "", "age key file (default: age.key beside the config)")
 	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	return c
 }
@@ -104,10 +102,7 @@ func runEdit(f editFlags, args []string) int {
 		return 1
 	}
 
-	keyPath := f.ageKey
-	if keyPath == "" {
-		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
-	}
+	keyPath := ageKeyPath(cfg)
 	if _, err := os.Stat(keyPath); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir secrets edit: age key: %v\n", err)
 		return 1

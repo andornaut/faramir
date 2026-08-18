@@ -104,7 +104,9 @@ Applying one afterwards is one command, as root:
 sudo faramir recipient add age1hwvv...    # the rule and the ciphertext together
 ```
 
-Where the key comes from is not faramir's business. Another operator hands you theirs, a second host's `init` minted its own, or a plugin holds one. A backup identity nobody has yet is minted with `age-keygen -o backup.age`, **on the machine that will hold it**: a backup for this host minted on this host is lost with it.
+Where the key comes from is not faramir's business. Another operator hands you theirs, a second host's `init` minted its own, or a plugin holds one. One nobody has yet is minted with `age-keygen -o FILE`, on the machine that will hold it.
+
+A second recipient is another *reader*, not a backup of this host: losing the key is covered by the archive below, not by them.
 
 It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `sudo faramir recipient rm age1hwvv...` is the same in reverse, and `faramir recipient ls` lists who the store is sealed to, needing no root. `--dry-run` reports the rule change and which files would be rewritten, and writes neither.
 
@@ -122,6 +124,27 @@ It validates the key, edits the rule, checks the keeper is still a reader, write
 - **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from wherever you were standing, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `reseal` stops: that file is where its recipients come from.
 - **A file no creation rule covers cannot be written back.** `edit` asks before opening the editor, so it costs a refusal rather than what you typed; `doctor` asks it of every managed file under `rule coverage`. Reachable only where the rule was narrowed, or the managed store names something the shipped `*.sops.yml` rule does not match.
 - **The keeper's key as the only recipient means losing it loses every managed value**, retroactively. A second recipient is the backup that avoids it.
+
+## Backing up and restoring
+
+The unit is the config directory. `/etc/faramir` holds the age key, the creation rule and the ciphertext, and none of the three is worth restoring without the others.
+
+```bash
+sudo tar czf faramir-backup.tgz -C / etc/faramir
+```
+
+Restoring a host that no longer exists is that archive, the binary, and `init`:
+
+```bash
+sudo tar xzf faramir-backup.tgz -C /
+sudo faramir init --agent-user <account>
+```
+
+`init` adopts what it finds rather than replacing it. An `age.key` already in place is reported `ok` rather than `changed` and is never overwritten, and an existing `.sops.yaml` is kept and read back, so the accounts, the units, the modes and the group are rebuilt around the key and the ciphertext and nothing is re-encrypted. The same run is how a store from elsewhere is imported: put the files where they belong first.
+
+- **The archive is the secret.** Everything under `secrets/` opens with the key beside it, so the two travel together and the archive is worth exactly what the store is.
+- **Nothing exports the identity**, because `tar` and `cp` already do. A command for it would be a second name for the same act and a second thing an agent could be talked into running.
+- **No command decrypts with a key other than the install's own.** The check that keeps this host a reader reads the key it is handed, so a run pointed at a second identity could take the host's own key out of the rule and reseal the store without it.
 
 ## Allowing sudo on the controller
 
@@ -224,7 +247,7 @@ What that looks like while a question is open, and why, is [design.md](design.md
 - **A yes can still come back refused** (`not_quiescent`) when the broker finds a process of the executor's uid alive outside the run being approved. The `sudo` fails and the command is run again once the host is quiet. If it keeps happening, the executor's journal names the processes.
 - **The approved command is trusted with permanent root.** Keep the code an approved run executes operator-owned and read-only to brokered commands, or the agent can author what root runs.
 
-### What escalation costs, beyond the grant
+## What escalation costs, beyond the grant
 
 `faramir-exec.service` is rendered differently on a host that grants an escalation, because the sandbox that bounds a uid holding nothing also bounds the root a human just approved:
 

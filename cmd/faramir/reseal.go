@@ -49,7 +49,7 @@ type storeContext struct {
 // the rule governs what sops writes from now on, so changing it on a host whose
 // first secret has not been written is not only valid, it is when an operator
 // who missed --recipient at install has to do it.
-func loadStore(label, configPath, socket, ageKey string, named []string,
+func loadStore(label, configPath, socket string, named []string,
 	emptyStoreOK bool) (*storeContext, int) {
 	// Refused rather than attempted, like edit: as the operator this fails on the
 	// age key with a bare permission error, and the fix is not obvious from it.
@@ -62,7 +62,7 @@ func loadStore(label, configPath, socket, ageKey string, named []string,
 		return nil, 1
 	}
 
-	keyPath := ageKeyPath(ageKey, cfg)
+	keyPath := ageKeyPath(cfg)
 	if _, err := os.Stat(keyPath); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: age key: %v\n", label, err)
 		return nil, 1
@@ -123,12 +123,18 @@ var errNoFilesToReseal = errors.New("no managed sops files: the managed store " 
 	"named none, so there is nothing to re-encrypt. Write the first one with " +
 	"`faramir secrets add NAME`")
 
-// ageKeyPath is the key a run decrypts with: the one named, or the one beside
-// the config.
-func ageKeyPath(named string, cfg *config.Config) string {
-	if named != "" {
-		return named
-	}
+// ageKeyPath is the key a run decrypts with: the install's own, beside its
+// config, and no flag names another.
+//
+// Naming another would be naming which key keeperStaysAReader checks, that
+// check reading whichever key it is handed.  A run pointed at a second identity
+// could then take the host's own key out of the rule and reseal the store
+// without it, and no re-run undoes that.
+//
+// What it would have been for is a host holding ciphertext it cannot read, and
+// that does not arise where the thing backed up is the config directory: the key
+// comes back with the files it opens.
+func ageKeyPath(cfg *config.Config) string {
 	return filepath.Join(filepath.Dir(cfg.Path), "age.key")
 }
 

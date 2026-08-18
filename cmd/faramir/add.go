@@ -39,7 +39,6 @@ const opAdd = "add"
 
 type addFlags struct {
 	configPath string
-	ageKey     string
 	editor     string
 	from       string
 	socket     string
@@ -62,7 +61,6 @@ func newAddCmd() *cobra.Command {
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "",
 		"config file (default $FARAMIR_CONFIG, then the installed one)")
-	c.Flags().StringVar(&f.ageKey, "age-key", "", "age key file (default: age.key beside the config)")
 	c.Flags().StringVar(&f.editor, "editor", "", "editor to run (default $VISUAL, $EDITOR, then vi)")
 	c.Flags().StringVar(&f.from, "from", "",
 		"encrypt this plaintext `FILE` instead of opening an editor; it is left where it is")
@@ -87,7 +85,7 @@ func runAdd(f addFlags, name string) int {
 		return 1
 	}
 
-	keyPath := ageKeyPath(f.ageKey, cfg)
+	keyPath := ageKeyPath(cfg)
 	if _, err := os.Stat(keyPath); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: age key: %v\n", label, err)
 		return 1

@@ -185,4 +185,47 @@ grep -q '«SECRET:db/password»' <<<"$out" && ok "and a brokered command still g
   || ok "and a plain init does not restore the sudo grant"
 
 # --------------------------------------------------------------------------
+head_ "8. and from an archive, onto a host with nothing left of the install"
+# The documented backup: the config directory, holding the key, the rule and the
+# ciphertext together.  Section 7 rebuilds from what uninstall KEPT in place;
+# this removes all of it, accounts included, and restores from the archive, which
+# is the procedure an operator follows when the host itself is gone.
+tar czf /tmp/faramir-backup.tgz -C / etc/faramir 2>/dev/null \
+  && ok "the config directory archives" || bad "could not archive /etc/faramir"
+
+faramir uninstall >/dev/null 2>&1
+rm -rf /etc/faramir
+for account in faramir-keeper faramir-broker faramir-exec; do
+  userdel "$account" >/dev/null 2>&1
+done
+groupdel faramir-keeper >/dev/null 2>&1
+[ -e /etc/faramir ] && bad "the config directory survived the wipe" || ok "the install is gone"
+getent passwd faramir-keeper >/dev/null && bad "the keeper account survived" \
+  || ok "and so are the accounts"
+
+tar xzf /tmp/faramir-backup.tgz -C /
+install -m0755 /tmp/faramir.kept /usr/local/bin/faramir
+faramir init --agent-user op >/tmp/restore.log 2>&1 \
+  && ok "init runs against the restored directory" \
+  || bad "restore failed: $(tail -3 /tmp/restore.log)"
+# Adopted, not minted: a run that replaced the key would leave every restored
+# file unreadable, which is the one outcome a restore cannot survive.
+grep -qE '^ok +age key' /tmp/restore.log \
+  && ok "it adopted the key in the archive rather than minting one" \
+  || bad "init did not adopt the restored key: $(grep -i 'age key' /tmp/restore.log)"
+grep -qE '^ok +sops config: keeping' /tmp/restore.log \
+  && ok "and kept the creation rule that came with it" \
+  || bad "init did not keep the restored rule: $(grep -i 'sops config' /tmp/restore.log)"
+[ "$(sha256sum $SECRETS | cut -d' ' -f1)" = "$sec_sum" ] \
+  && ok "and nothing was re-encrypted" || bad "the restore rewrote the ciphertext"
+
+for _ in $(seq 25); do
+  refs=$(runuser -u op -- faramir secrets refs 2>/dev/null | wc -l)
+  [ "$refs" -ge "$refs_before" ] && break
+  sleep 1
+done
+[ "$refs" -ge "$refs_before" ] && ok "the store opens again, $refs ref(s)" \
+  || bad "only $refs of $refs_before refs came back from the archive"
+
+# --------------------------------------------------------------------------
 summary

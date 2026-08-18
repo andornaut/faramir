@@ -54,7 +54,6 @@ func newRecipientCmd() *cobra.Command {
 
 type recipientFlags struct {
 	configPath string
-	ageKey     string
 	dryRun     bool
 	socket     string
 	json       bool
@@ -70,7 +69,6 @@ func (f *recipientFlags) register(c *cobra.Command, writes bool) {
 		fl.BoolVar(&f.json, "json", false, "print the recipients as JSON")
 		return
 	}
-	fl.StringVar(&f.ageKey, "age-key", "", "age key file (default: age.key beside the config)")
 	fl.BoolVar(&f.dryRun, "dry-run", false,
 		"report the rule change and which files would be re-encrypted, and write neither")
 }
@@ -147,7 +145,7 @@ func newRecipientResealCmd() *cobra.Command {
 // stands and the store is brought to it.
 func runReseal(f recipientFlags, args []string) int {
 	const label = "recipient reseal"
-	store, code := loadStore(label, f.configPath, f.socket, f.ageKey, args, false)
+	store, code := loadStore(label, f.configPath, f.socket, args, false)
 	if store == nil {
 		return code
 	}
@@ -185,7 +183,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		}
 	}
 
-	store, code := loadStore(label, f.configPath, f.socket, f.ageKey, nil, true)
+	store, code := loadStore(label, f.configPath, f.socket, nil, true)
 	if store == nil {
 		return code
 	}
@@ -335,7 +333,7 @@ func runRecipientList(f recipientFlags) int {
 	// answering it means reading the age key, which is the keeper's and root's.
 	// So the note appears where it can be known and the listing is plain where it
 	// cannot, rather than a column that says "no" and means "could not tell".
-	keeper, err := agekey.Recipient(ageKeyPath("", cfg))
+	keeper, err := agekey.Recipient(ageKeyPath(cfg))
 	if err != nil {
 		keeper = ""
 	}
