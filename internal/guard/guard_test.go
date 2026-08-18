@@ -76,7 +76,7 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 	// `escalations`, `approve` and `deny` are the three carved out of the sudo
 	// sanction, and the only three: every other subcommand still has its own
 	// arguments left unscanned under sudo.
-	if pattern, denied := decide("sudo faramir sops edit faramir://a/b"); denied {
+	if pattern, denied := decide("sudo faramir secrets edit faramir://a/b"); denied {
 		t.Errorf("the sudo sanction lost more than the answering subcommands (pattern %q)",
 			pattern)
 	}

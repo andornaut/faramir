@@ -1,0 +1,319 @@
+package main
+
+// Listing the store, and taking a file out of it.
+//
+// `ls` is the operator's view and `refs` is the broker's, and they answer
+// different questions on purpose.  A managed file the broker refused to load is
+// invisible to `refs`, because the broker never got it; `ls` reads the directory
+// and so sees it, which is the state an operator most needs named.
+
+import (
+	"bufio"
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/spf13/cobra"
+	yaml "go.yaml.in/yaml/v3"
+
+	"github.com/andornaut/faramir/internal/audit"
+	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/keeper"
+	"github.com/andornaut/faramir/internal/sopsrule"
+)
+
+// opRemove is the audit record taking a file out of the store writes.  It names
+// the refs that went with it, which is the one thing nothing else can answer
+// afterwards: the file is gone and the log is what is left of it.
+const opRemove = "remove"
+
+// managedFile is one file as `ls` reports it.
+type managedFile struct {
+	Path       string   `json:"path"`
+	Refs       []string `json:"refs"`
+	Recipients []string `json:"recipients"`
+	// Drifted is true where the file is sealed to a set the rule no longer names,
+	// which is what `faramir recipient reseal` is for.
+	Drifted bool `json:"drifted"`
+	// Problem is why this file could not be read or parsed, and "" otherwise.  A
+	// file the broker would refuse is exactly what an operator comes here to find,
+	// so it is a row rather than a reason to stop.
+	Problem string `json:"problem,omitempty"`
+}
+
+type secretsListFlags struct {
+	configPath string
+	socket     string
+	json       bool
+}
+
+func newSecretsListCmd() *cobra.Command {
+	var f secretsListFlags
+	c := &cobra.Command{
+		Use:   "ls [options]",
+		Short: "the managed files, their refs and who can read them",
+		Long: "Reads the secrets directory rather than asking the broker, so a file the\n" +
+			"broker refused to load is listed here with the reason. `faramir secrets\n" +
+			"refs` is the other question: what the broker is actually serving.\n\n" +
+			"Ref names are cleartext in a sops file, so this decrypts nothing and\n" +
+			"prints no value.",
+		Args: noArgs,
+		RunE: func(c *cobra.Command, args []string) error { return codeErr(runSecretsList(f)) },
+	}
+	c.Flags().StringVarP(&f.configPath, "config", "c", "",
+		"config file (default $FARAMIR_CONFIG, then the installed one)")
+	c.Flags().StringVar(&f.socket, "socket", socketDefault(),
+		"broker socket to ask where the install is ($FARAMIR_SOCKET)")
+	c.Flags().BoolVar(&f.json, "json", false, "print the listing as JSON")
+	return c
+}
+
+func runSecretsList(f secretsListFlags) int {
+	const label = "secrets ls"
+	// The secrets directory is 2750 and the group is the keeper's, so the operator
+	// cannot so much as list it.  Refused with the reason rather than reported as
+	// an empty store, which is what a bare permission error would look like.
+	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
+		return 1
+	}
+	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return 1
+	}
+	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
+	wanted, ruleErr := ruleRecipients(rulePath)
+
+	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
+	files := make([]managedFile, 0, len(managed))
+	for _, path := range managed {
+		files = append(files, describeManaged(path, wanted, ruleErr == nil))
+	}
+
+	if f.json {
+		out, err := json.MarshalIndent(files, "", "  ")
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+			return 1
+		}
+		fmt.Println(string(out))
+		return 0
+	}
+
+	if len(files) == 0 {
+		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet; "+
+			"`faramir secrets add NAME` writes the first\n", label)
+	} else {
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(w, "FILE\tREFS\tREADERS\tSTATE")
+		for _, file := range files {
+			_, _ = fmt.Fprintf(w, "%s\t%d\t%d\t%s\n", file.Path, len(file.Refs),
+				len(file.Recipients), stateOf(file))
+		}
+		_ = w.Flush()
+	}
+	// Named after the listing rather than mixed into it: a pattern that matched
+	// nothing is not a file, and a caller who cannot read a directory has a store
+	// this listing does not cover.
+	for _, reason := range slices.Concat(failures, absent) {
+		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, reason)
+	}
+	if ruleErr != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v, so nothing here says whether a file "+
+			"agrees with it\n", label, ruleErr)
+	}
+	return 0
+}
+
+// stateOf is the one word a listing has room for.
+func stateOf(file managedFile) string {
+	switch {
+	case file.Problem != "":
+		return file.Problem
+	case file.Drifted:
+		return "drifted; run `faramir recipient reseal`"
+	}
+	return "ok"
+}
+
+// describeManaged reads one file without decrypting it.  Both the ref names and
+// the recipients are cleartext in a sops file, which is what makes this cheap
+// and what keeps it out of the keeper's way.
+func describeManaged(path string, wanted []string, haveRule bool) managedFile {
+	file := managedFile{Path: path}
+	recipients, err := sopsrule.SealedTo(path)
+	if err != nil {
+		file.Problem = "not sealed to any age recipient"
+		return file
+	}
+	file.Recipients = recipients
+	file.Drifted = haveRule && !sopsrule.Same(recipients, wanted)
+
+	refs, err := refsIn(path)
+	if err != nil {
+		file.Problem = err.Error()
+		return file
+	}
+	file.Refs = refs
+	return file
+}
+
+// refsIn is the refs a managed file names, taken from its structure rather than
+// from its values.
+//
+// sops encrypts values and leaves keys readable, which is what makes a diff of
+// one reviewable, and what lets this answer without the age key.  Nothing here
+// is decrypted and no value is returned: [keeper.Flatten] is given the file as
+// it sits on disk, so what it maps each ref onto is the ciphertext, and only the
+// names are kept.
+func refsIn(path string) ([]string, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var doc map[string]any
+	if err := yaml.Unmarshal(body, &doc); err != nil {
+		return nil, fmt.Errorf("does not parse: %w", err)
+	}
+	refs := make([]string, 0, len(doc))
+	for ref := range keeper.Flatten(doc) {
+		refs = append(refs, ref)
+	}
+	slices.Sort(refs)
+	return refs, nil
+}
+
+type secretsRemoveFlags struct {
+	configPath string
+	socket     string
+	force      bool
+}
+
+func newSecretsRemoveCmd() *cobra.Command {
+	var f secretsRemoveFlags
+	c := &cobra.Command{
+		Use:     "rm [options] NAME",
+		Aliases: []string{"remove"},
+		Short:   "take a file out of the managed store",
+		Long: "Deletes one managed file. Every value in it goes with it: no reseal and\n" +
+			"no re-run brings it back, and only a backup of the ciphertext or of the\n" +
+			"plaintext does.\n\n" +
+			"It names the refs it is about to destroy and asks for the file name back\n" +
+			"before it does. --force answers for you, for a script that has already\n" +
+			"decided.",
+		Args: exactlyArgs(1, "one file name"),
+		RunE: func(c *cobra.Command, args []string) error {
+			return codeErr(runSecretsRemove(f, args[0]))
+		},
+	}
+	c.Flags().StringVarP(&f.configPath, "config", "c", "",
+		"config file (default $FARAMIR_CONFIG, then the installed one)")
+	c.Flags().StringVar(&f.socket, "socket", socketDefault(),
+		"broker socket to ask where the install is ($FARAMIR_SOCKET)")
+	c.Flags().BoolVar(&f.force, "force", false,
+		"do not ask; the file and every value in it go without confirmation")
+	return c
+}
+
+func runSecretsRemove(f secretsRemoveFlags, name string) int {
+	const label = "secrets rm"
+	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
+		return 1
+	}
+	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return 1
+	}
+	// Resolved against the managed list, so this cannot delete a file the broker
+	// never read: what is not in the store is not this command's to remove.
+	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
+	target, err := resolveManaged(managed, name)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		for _, reason := range slices.Concat(failures, absent) {
+			fmt.Fprintf(os.Stderr, "  %s\n", reason)
+		}
+		return 1
+	}
+
+	// Read before anything is asked, so the question names what is at stake
+	// rather than a path.
+	refs, refsErr := refsIn(target)
+	if !f.force && !confirmRemoval(target, refs, refsErr) {
+		fmt.Fprintf(os.Stderr, "faramir %s: left %s alone\n", label, target)
+		return 1
+	}
+
+	err = os.Remove(target)
+	// Written whether or not the removal worked, and naming the refs: the file is
+	// gone and this record is what is left of what was in it.
+	record := map[string]any{
+		"op": opRemove, "log_id": audit.NewLogID(), "file": target, "refs": refs,
+		"uid": os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
+	}
+	if err != nil {
+		record["error"] = err.Error()
+	}
+	audit.NewLog(cfg.Audit).Write(record, audit.Output{})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return 1
+	}
+	fmt.Fprintf(os.Stderr, "faramir %s: removed %s and the %d ref(s) it held; the "+
+		"broker stops serving them within one refresh interval\n", label, target, len(refs))
+	return 0
+}
+
+// confirmRemoval puts the question to whoever is at the terminal, and takes only
+// the file's own name for an answer.
+//
+// The name rather than "yes": what makes this safe is having read which file it
+// is, and a y/n prompt is answered by reflex.  Deny by default, so a closed
+// stdin, an empty line or anything else is a no.
+func confirmRemoval(target string, refs []string, refsErr error) bool {
+	fmt.Fprintf(os.Stderr, "%s\n", target)
+	switch {
+	case refsErr != nil:
+		fmt.Fprintf(os.Stderr, "  its refs could not be read (%v), so what goes with "+
+			"it is not known here\n", refsErr)
+	case len(refs) == 0:
+		fmt.Fprintf(os.Stderr, "  it names no ref\n")
+	default:
+		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), strings.Join(refs, ", "))
+	}
+	fmt.Fprintf(os.Stderr, "Every value in it is destroyed, and nothing here brings "+
+		"it back.\nType the file's name to remove it: ")
+	line, err := bufio.NewReader(os.Stdin).ReadString('\n')
+	if err != nil && line == "" {
+		fmt.Fprintln(os.Stderr)
+		return false
+	}
+	return strings.TrimSpace(line) == filepath.Base(target)
+}
+
+// newSecretsRefsCmd is `list_secrets` under the noun it belongs to: what the
+// broker is serving, which is not the same question as what is in the
+// directory.
+func newSecretsRefsCmd() *cobra.Command {
+	var o brokerOptions
+	c := &cobra.Command{
+		Use:   "refs [options]",
+		Short: "the refs the broker is serving, names only",
+		Long: "Asks the broker, so this is what a brokered command could actually\n" +
+			"name. `faramir secrets ls` is the other question: what is in the\n" +
+			"directory, including a file the broker refused to load.\n\n" +
+			"Needs no root, and returns names only. Never a value.",
+		Args: noArgs,
+		RunE: func(c *cobra.Command, args []string) error {
+			return codeErr(send("secrets refs", o.socket, map[string]any{"op": "list_secrets"},
+				o.json, true))
+		},
+	}
+	o.add(c)
+	return c
+}

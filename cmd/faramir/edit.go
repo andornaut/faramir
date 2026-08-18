@@ -72,13 +72,13 @@ func runEdit(f editFlags, args []string) int {
 
 	// Refused rather than attempted: the bare permission error on the age key does
 	// not say what to do.
-	if !requireRoot("edit", "the age key is readable only by the keeper and by root") {
+	if !requireRoot("secrets edit", "the age key is readable only by the keeper and by root") {
 		return 1
 	}
 
 	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir secrets edit: %v\n", err)
 		return 1
 	}
 
@@ -91,7 +91,7 @@ func runEdit(f editFlags, args []string) int {
 	unresolvable := slices.Concat(failures, absent)
 	target, err := resolveManaged(managed, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir secrets edit: %v\n", err)
 		for _, reason := range unresolvable {
 			fmt.Fprintf(os.Stderr, "  %s\n", reason)
 		}
@@ -100,7 +100,7 @@ func runEdit(f editFlags, args []string) int {
 
 	editorPath, err := resolveEditor(f.editor)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir secrets edit: %v\n", err)
 		return 1
 	}
 
@@ -109,7 +109,7 @@ func runEdit(f editFlags, args []string) int {
 		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
 	}
 	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir edit: age key: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir secrets edit: age key: %v\n", err)
 		return 1
 	}
 
@@ -140,14 +140,14 @@ func runEdit(f editFlags, args []string) int {
 	audit.NewLog(cfg.Audit).Write(record, audit.Output{})
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir secrets edit: %v\n", err)
 		return 1
 	}
 	if !changed {
-		fmt.Fprintln(os.Stderr, "faramir edit: unchanged")
+		fmt.Fprintln(os.Stderr, "faramir secrets edit: unchanged")
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "faramir edit: wrote %s; the broker picks it up within one refresh interval\n", target)
+	fmt.Fprintf(os.Stderr, "faramir secrets edit: wrote %s; the broker picks it up within one refresh interval\n", target)
 	return 0
 }
 
@@ -322,7 +322,7 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 	// The recipients the file already had, named explicitly: sops resolves
 	// .sops.yaml by walking up from the file, which here is in a tmpfs, and an
 	// edit should preserve who could read the file; applying a changed .sops.yaml
-	// is what `faramir sops recipient reseal` is for.
+	// is what `faramir recipient reseal` is for.
 	//
 	// Read before the editor runs.  It is knowable from the ciphertext, and a
 	// file whose metadata this cannot parse would otherwise be reported only
@@ -533,7 +533,7 @@ func ruleMustCover(rulePath, target string, recipients []string) error {
 // ruleMustNotSplitTheKey refuses an edit under a rule that splits the data key,
 // or nil.
 //
-// The refusal `faramir sops recipient reseal` already makes, made here for the same reason and
+// The refusal `faramir recipient reseal` already makes, made here for the same reason and
 // one step earlier.  shamir_threshold means N of the rule's key groups have to
 // come together to open a file; what an edit writes back is sealed to the
 // recipients the file already carried, as one group.  sops takes that without
@@ -573,7 +573,7 @@ func ruleMustNotSplitTheKey(rulePath string) error {
 //
 // The recipients are named here rather than taken from the rule, which is what
 // makes an edit preserve who could already read the file: applying a changed
-// rule is `faramir sops recipient reseal`.
+// rule is `faramir recipient reseal`.
 func sealTo(keyPath, rulePath, target string, recipients []string, plain string) ([]byte, error) {
 	return runSops(keyPath, rulePath, "--encrypt",
 		"--age", strings.Join(recipients, ","),

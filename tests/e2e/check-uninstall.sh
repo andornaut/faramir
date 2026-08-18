@@ -37,7 +37,7 @@ key_sum=$(sha256sum $KEY | cut -d' ' -f1)
 sec_sum=$(sha256sum $SECRETS | cut -d' ' -f1)
 log_lines=$(wc -l <$LOG)
 [ "$log_lines" -gt 0 ] || { echo "the log is empty, so U2 would prove nothing"; exit 1; }
-refs_before=$(runuser -u op -- faramir list-secrets 2>/dev/null | wc -l)
+refs_before=$(runuser -u op -- faramir secrets refs 2>/dev/null | wc -l)
 echo "before: $refs_before ref(s), $log_lines log line(s), grant installed"
 
 # --------------------------------------------------------------------------
@@ -170,7 +170,7 @@ fi
   && ok "and left the ciphertext alone" || bad "re-init rewrote the ciphertext"
 
 for _ in $(seq 25); do
-  refs=$(runuser -u op -- faramir list-secrets 2>/dev/null | wc -l)
+  refs=$(runuser -u op -- faramir secrets refs 2>/dev/null | wc -l)
   [ "$refs" -ge "$refs_before" ] && break
   sleep 1
 done

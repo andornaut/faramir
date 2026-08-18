@@ -1,6 +1,6 @@
 package main
 
-// `faramir sops recipient` manages who can decrypt the managed store: the rule
+// `faramir recipient` manages who can decrypt the managed store: the rule
 // and the ciphertext together, in one command.
 //
 // The two were separate, an editor for `.sops.yaml` and `reseal` for the files,
@@ -41,10 +41,11 @@ const opRecipient = "recipient"
 // tree is what keeps them in step.
 func newRecipientCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:   "recipient",
-		Short: "manage who can decrypt the managed store",
-		Args:  requiresSubcommand,
-		RunE:  func(c *cobra.Command, args []string) error { return nil },
+		Use:     "recipient",
+		Short:   "who can decrypt the managed store",
+		GroupID: groupProvisioning,
+		Args:    requiresSubcommand,
+		RunE:    func(c *cobra.Command, args []string) error { return nil },
 	}
 	c.AddCommand(newRecipientAddCmd(), newRecipientRemoveCmd(), newRecipientListCmd(),
 		newRecipientResealCmd())
@@ -145,7 +146,7 @@ func newRecipientResealCmd() *cobra.Command {
 // runReseal is a recipient change with no recipient: the rule is taken as it
 // stands and the store is brought to it.
 func runReseal(f recipientFlags, args []string) int {
-	const label = "sops recipient reseal"
+	const label = "recipient reseal"
 	store, code := loadStore(label, f.configPath, f.socket, f.ageKey, args, false)
 	if store == nil {
 		return code
@@ -173,9 +174,9 @@ func runReseal(f recipientFlags, args []string) int {
 // read back, is one the file never comes to hold, so there is no state to
 // recover from.
 func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
-	label := "sops recipient rm"
+	label := "recipient rm"
 	if adding {
-		label = "sops recipient add"
+		label = "recipient add"
 		// Before root, before the config, before anything: a typo in a public key
 		// should not need sudo to find out about.
 		if err := agekey.ValidateRecipient(recipient); err != nil {
@@ -312,19 +313,19 @@ func listedOrNot(adding bool) string {
 func runRecipientList(f recipientFlags) int {
 	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir sops recipient ls: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
 		return 1
 	}
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
 	recipients, err := ruleRecipients(rulePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir sops recipient ls: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
 		return 1
 	}
 	if f.json {
 		out, err := json.Marshal(recipients)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir sops recipient ls: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
 			return 1
 		}
 		fmt.Println(string(out))

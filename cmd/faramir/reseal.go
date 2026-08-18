@@ -1,7 +1,7 @@
 package main
 
 // Re-encrypting the managed store to what `.sops.yaml` says, which is the
-// second half of every recipient change and the whole of `sops recipient
+// second half of every recipient change and the whole of `recipient
 // reseal`.  What that is for is docs/operating.md.
 //
 // It walks the managed files rather than leaving the operator to run `sops
@@ -121,7 +121,7 @@ func loadStore(label, configPath, socket, ageKey string, named []string,
 // to `edit`.
 var errNoFilesToReseal = errors.New("no managed sops files: the managed store " +
 	"named none, so there is nothing to re-encrypt. Write the first one with " +
-	"`faramir sops add NAME`")
+	"`faramir secrets add NAME`")
 
 // ageKeyPath is the key a run decrypts with: the one named, or the one beside
 // the config.

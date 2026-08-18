@@ -128,7 +128,6 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newRunCmd(),
 		newRedactCmd(),
-		newCallCmd("list_secrets", "list secret refs (names only)"),
 		newCallCmd("status", "show broker status"),
 		// `faramir version` as well as --version, because it was a subcommand
 		// before cobra and is written down as one.
@@ -146,7 +145,8 @@ func newRootCmd() *cobra.Command {
 	root.AddCommand(
 		newInitCmd(),
 		newInitProjectCmd(),
-		newSopsCmd(),
+		newSecretsCmd(),
+		newRecipientCmd(),
 		newLinkCmd(),
 		newLogsCmd(),
 		newEscalationsCmd(),

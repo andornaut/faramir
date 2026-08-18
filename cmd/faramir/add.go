@@ -1,6 +1,6 @@
 package main
 
-// `faramir sops add` writes the first managed file, and every one after it.
+// `faramir secrets add` writes the first managed file, and every one after it.
 //
 // What it replaces is an incantation faramir's own error messages used to hand
 // the operator: sops with --config and --filename-override, encrypting a
@@ -72,7 +72,7 @@ func newAddCmd() *cobra.Command {
 }
 
 func runAdd(f addFlags, name string) int {
-	const label = "sops add"
+	const label = "secrets add"
 	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
 		return 1
 	}
@@ -165,7 +165,7 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 			target, joinPatterns(cfg.Secret.Patterns))
 	}
 	if exists(target) {
-		return "", fmt.Errorf("%s is already there; `faramir sops edit %s` opens it",
+		return "", fmt.Errorf("%s is already there; `faramir secrets edit %s` opens it",
 			target, filepath.Base(target))
 	}
 	// Named rather than left to the write to fail on: the message from a missing

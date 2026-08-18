@@ -36,7 +36,7 @@ The boundaries are around the secrets, not the agent. The operator reaches the k
 
 ## The secrets live in a directory, not a tree
 
-`/etc/faramir/secrets`, `2750 root:<secrets-group>`, never in a checkout, which a clone or a branch could move. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir sops edit`. The broker socket admits a different group: asking for a value by name is not permission to read the file it came from. The broker holds every decrypted value already, so it stays outside the secrets group and asks the keeper when a file changed over `get_state`, which touches neither the key nor sops.
+`/etc/faramir/secrets`, `2750 root:<secrets-group>`, never in a checkout, which a clone or a branch could move. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir secrets edit`. The broker socket admits a different group: asking for a value by name is not permission to read the file it came from. The broker holds every decrypted value already, so it stays outside the secrets group and asks the keeper when a file changed over `get_state`, which touches neither the key nor sops.
 
 `.sops.yaml` sits in the config directory above the secrets directory for two reasons:
 

@@ -106,7 +106,7 @@ func decrypt(file, outputType string) error {
 	}
 
 	// Without --output-type the plaintext keeps the file's own format, which is
-	// what `faramir sops edit` edits.  The keeper asks for json.
+	// what `faramir secrets edit` edits.  The keeper asks for json.
 	outFormat := inFormat
 	if outputType != "" {
 		outFormat = sopsformats.FormatFromString(outputType)

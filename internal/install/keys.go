@@ -119,7 +119,7 @@ func (r *runner) stepSopsConfig() error {
 	for _, recipient := range r.opts.AgeRecipients {
 		fmt.Fprintf(&recipients, "          - %s\n", recipient)
 	}
-	body := "# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable.  'faramir sops edit' and 'faramir sops recipient reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n" + recipients.String()
+	body := "# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable.  'faramir secrets edit' and 'faramir recipient reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n" + recipients.String()
 	// Root-owned like the rest of the config directory, or the recipients could be
 	// rewritten by an account the secrets group exists to keep out.
 	// World-readable, holding public keys and a rule and no value.

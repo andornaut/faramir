@@ -489,7 +489,7 @@ func recipientsAreWellFormed(report *DoctorReport, listed []string, path string)
 }
 
 // diagnoseSopsRuleCoverage asks whether the creation rules reach every managed
-// file, which decides whether `faramir sops edit` and `faramir sops recipient reseal` can write one
+// file, which decides whether `faramir secrets edit` and `faramir recipient reseal` can write one
 // back at all: both hand sops this rule and match it against the file's real
 // path, and sops refuses a file no rule covers.
 //
@@ -556,7 +556,7 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 			covered++
 		default:
 			report.addf("rule coverage", StatusFailed, "%s has no creation rule "+
-				"matching %s, so `faramir sops edit` and `faramir sops recipient reseal` cannot write it back: "+
+				"matching %s, so `faramir secrets edit` and `faramir recipient reseal` cannot write it back: "+
 				"sops refuses a file no rule covers. Widen path_regex to reach it, or keep "+
 				"the store where the rule already looks", rulePath, target)
 		}
@@ -628,7 +628,7 @@ func diagnoseRecipientDrift(report *DoctorReport, opts DoctorOptions, rulePath s
 		drifted++
 		report.addf("recipient drift", StatusFailed, "%s is sealed to %s while %s "+
 			"names %s, so a key the rule grants may not open it and one it no longer "+
-			"grants may. Run: sudo faramir sops recipient reseal",
+			"grants may. Run: sudo faramir recipient reseal",
 			target, strings.Join(was, ", "), rulePath, strings.Join(wanted, ", "))
 	}
 	// Only where every file that is sealed to anything was reached and agreed.
@@ -1013,7 +1013,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	if len(check.Secrets.NotRedactable) > 0 {
 		report.addf("redaction", StatusWarn, "%d ref(s) are shorter than [secret] "+
 			"min_length, so they are never injected and never redacted: %s. Lengthen "+
-			"them with `faramir sops edit`",
+			"them with `faramir secrets edit`",
 			len(check.Secrets.NotRedactable), check.refusedRefs())
 		if check.onlyNotRedactable() {
 			explained = true

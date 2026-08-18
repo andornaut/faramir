@@ -96,17 +96,17 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 
 ## Adding a recipient
 
-`--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which a re-run of the installer should not do unasked. A run that keeps the file reads it back, reports the recipients it lists as `age_recipients`, and warns naming any key you asked for that is not there. `faramir sops edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
+`--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which a re-run of the installer should not do unasked. A run that keeps the file reads it back, reports the recipients it lists as `age_recipients`, and warns naming any key you asked for that is not there. `faramir secrets edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
 
 Applying one afterwards is one command, as root:
 
 ```bash
-sudo faramir sops recipient add age1hwvv...    # the rule and the ciphertext together
+sudo faramir recipient add age1hwvv...    # the rule and the ciphertext together
 ```
 
 Where the key comes from is not faramir's business. Another operator hands you theirs, a second host's `init` minted its own, or a plugin holds one. A backup identity nobody has yet is minted with `age-keygen -o backup.age`, **on the machine that will hold it**: a backup for this host minted on this host is lost with it.
 
-It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `sudo faramir sops recipient rm age1hwvv...` is the same in reverse, and `faramir sops recipient ls` lists who the store is sealed to, needing no root. `--dry-run` reports the rule change and which files would be rewritten, and writes neither.
+It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `sudo faramir recipient rm age1hwvv...` is the same in reverse, and `faramir recipient ls` lists who the store is sealed to, needing no root. `--dry-run` reports the rule change and which files would be rewritten, and writes neither.
 
 - **The rule and the ciphertext are changed together**, which is what makes this one command rather than two. A rule naming a reader the existing files are not sealed to fails nothing: new files get the new list, old ones keep the old, and the divergence surfaces whenever somebody reaches for a value with a key they were told they had.
 - **The key is checked before anything is written.** An identity where a recipient belongs is refused by name, `.sops.yaml` being `0644`: one that lands there is the key to the store readable by every account on the host, so treat it as disclosed and rotate. `sudo faramir doctor` asks the same question of a file however it was written, under `sops config`.
@@ -115,7 +115,7 @@ It validates the key, edits the rule, checks the keeper is still a reader, write
 - **Files already sealed to the rule are skipped.** Re-encrypting rewrites the data key even when the recipients are identical, so a pass that did not compare first would make every file look changed.
 - **Dropping a recipient reaches no copy of the ciphertext somebody already holds.** Treat what that key could read as read.
 - **A pass that reached only some of the files is resumed by running the same command again.** `add` and `rm` reseal whether or not the rule changed, so a rule that is already right and a store that is not is a state re-running fixes rather than one it reports as done.
-- **`sops recipient reseal` is for a `.sops.yaml` changed some other way**, root being able to write a root-owned file whatever this page says. It takes the rule as it stands and brings the store to it.
+- **`recipient reseal` is for a `.sops.yaml` changed some other way**, root being able to write a root-owned file whatever this page says. It takes the rule as it stands and brings the store to it.
 - **`doctor` reports the disagreement** under `recipient drift`, so a store that has drifted is something you are told rather than something you meet when a value will not decrypt.
 - **A `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file, the only thing that can answer which rule governs which.
 - **A rule that splits the data key is refused too.** `shamir_threshold` means N key groups together, and re-encrypting to one list makes it any one of them.

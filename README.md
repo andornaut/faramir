@@ -163,7 +163,7 @@ Reports whether the install is doing its job, and as root what each account can 
 Enrol the projects where managed credentials are in play, not every tree. `--hook=false` shares one without the hook. A brokered command runs where its caller was, so nothing needs a tree of its own. The store is `<config-dir>/secrets/` and is not configurable, so a managed file is managed by being there.
 
 ```bash
-faramir list-secrets
+faramir secrets refs
 faramir run --env TOKEN=faramir://svc/token -- printenv TOKEN   # -> «SECRET:svc/token»
 ```
 
@@ -201,7 +201,7 @@ Redaction only, no secret | Skip steps 3 and 4. `faramir redact -- ./script.sh`,
 
 ```bash
 faramir status                          # config path, sources, ref count
-faramir list-secrets                    # ref names, never values
+faramir secrets refs                    # ref names, never values
 faramir run --env NAME=faramir://ref -- CMD
 faramir run --env-file deploy.env -- ansible-playbook site.yml
 faramir run --quiet -C ~/src/project -t 120 -- CMD
@@ -229,7 +229,7 @@ How to run it: [docs/operating.md](docs/operating.md#allowing-sudo-on-the-contro
 
 ### Operator commands
 
-All need root except `doctor`, which degrades, and the two that only read: `sops recipient ls` and `link ls`.
+All need root except `doctor`, which degrades, and the three that only read: `secrets refs`, `recipient ls` and `link ls`.
 
 Two of them group: `faramir sops` acts on the managed store, `faramir link` on a secret another tool owns. They share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
 
@@ -237,12 +237,15 @@ Command | Does
 --- | ---
 `sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory. [Shares the tree](docs/layout.md), registers the hook and the MCP server in each enrolled agent's settings, and writes the credentials section into the tree's agent instructions file. A home directory, `/`, and anything above a home are refused, symlinks resolved first
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach
-`sudo faramir sops add NAME` | Writes a new managed file, `NAME` relative to the secrets directory. `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk; `--from FILE` encrypts one you already hold and leaves it cleartext where it is. A name matching no `[secret]` pattern is refused, the broker never reading it
-`sudo faramir sops edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any file in the secrets directory. `--editor` names the editor, `--age-key` the key
-`sudo faramir sops recipient add KEY` | Lets one more key decrypt the store: validates it, adds it to `<config-dir>/.sops.yaml`, and re-encrypts every managed file to it, so the rule and the ciphertext never disagree. `--dry-run` writes neither. [What it refuses](docs/operating.md#adding-a-recipient)
-`sudo faramir sops recipient rm KEY` | The same in reverse. Reaches no copy of the ciphertext somebody already holds
-`faramir sops recipient ls` | Who the store is sealed to. Needs no root, `.sops.yaml` holding public keys and a rule and no value; as root it also marks which one is this host's own keeper, that being in the age key. `--json`
-`sudo faramir sops recipient reseal [FILE...]` | Re-encrypts to the recipients `<config-dir>/.sops.yaml` names now: every managed file unless some are named. The repair path, for a pass that reached only some of them or a rule changed some other way. `--dry-run` writes nothing
+`sudo faramir secrets add NAME` | Writes a new managed file, `NAME` relative to the secrets directory. `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk; `--from FILE` encrypts one you already hold and leaves it cleartext where it is. A name matching no `[secret]` pattern is refused, the broker never reading it
+`sudo faramir secrets ls` | The managed files, how many refs each names, who can read it, and whether it agrees with the rule. Reads the directory rather than asking the broker, so a file the broker refused to load is listed here with the reason. Decrypts nothing: ref names are cleartext in a sops file. `--json`
+`sudo faramir secrets rm NAME` | Takes a file out of the store. Every value in it goes with it and nothing here brings it back, so it names the refs it is about to destroy and asks for the file's name back; `--force` answers for a script. The audit record keeps the refs it held
+`faramir secrets refs` | The refs the broker is serving, names only. Needs no root, and is what a brokered command could actually name; `secrets ls` is the other question
+`sudo faramir secrets edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any file in the secrets directory. `--editor` names the editor, `--age-key` the key
+`sudo faramir recipient add KEY` | Lets one more key decrypt the store: validates it, adds it to `<config-dir>/.sops.yaml`, and re-encrypts every managed file to it, so the rule and the ciphertext never disagree. `--dry-run` writes neither. [What it refuses](docs/operating.md#adding-a-recipient)
+`sudo faramir recipient rm KEY` | The same in reverse. Reaches no copy of the ciphertext somebody already holds
+`faramir recipient ls` | Who the store is sealed to. Needs no root, `.sops.yaml` holding public keys and a rule and no value; as root it also marks which one is this host's own keeper, that being in the age key. `--json`
+`sudo faramir recipient reseal [FILE...]` | Re-encrypts to the recipients `<config-dir>/.sops.yaml` names now: every managed file unless some are named. The repair path, for a pass that reached only some of them or a rule changed some other way. `--dry-run` writes nothing
 `sudo faramir link add REF FILE` | Reads a secret out of a file another tool maintains, instead of copying it in. `--type` and `--key` say how. It grants the broker read, refuses the file to the agent's file tools, writes the entry and reloads. The file is read once as the broker's own account first, so a selector that names nothing is an error here rather than a broker refusing every command later. [Detail](docs/configuration.md#linked-secrets)
 `sudo faramir link rm REF` | Drops the entry, so the value leaves the redactor. It undoes neither the grant nor the deny rule -- a merged rule file can only be added to -- and prints both, with what would narrow them
 `faramir link ls` | The linked secrets this install declares, and whether each file is there

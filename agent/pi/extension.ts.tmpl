@@ -164,9 +164,9 @@ export default function faramir(pi) {
 
   pi.registerTool({
     ...MCP_TOOLS.faramir_list_secrets,
-    label: "faramir list-secrets",
+    label: "faramir secrets refs",
     async execute() {
-      const out = runCLI(["list-secrets"])
+      const out = runCLI(["secrets", "refs"])
       if (out.failed) return text(out.failed, true)
       return text(out.stdout || out.stderr, out.status !== 0)
     },

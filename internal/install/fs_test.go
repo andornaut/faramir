@@ -76,7 +76,7 @@ func TestEnsureOwnershipFixesTheMode(t *testing.T) {
 }
 
 // The audit log's owner is otherwise whichever uid writes the first record, and
-// `faramir sops edit` runs as root.
+// `faramir secrets edit` runs as root.
 func TestEnsurePrivateFileCreatesItPrivate(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
 
