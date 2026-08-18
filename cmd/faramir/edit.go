@@ -205,9 +205,10 @@ func exists(path string) bool {
 	return err == nil
 }
 
-// errNoManagedFiles is what edit and reseal both report when the secrets
-// directory is empty: neither has anything to open, and the fix is the same for
-// both.
+// errNoManagedFiles is what `edit` reports when the secrets directory is empty.
+// `reseal` has its own, saying what it in particular had nothing to do: the fix
+// is the same for both and the sentence is not, and the one an operator reads is
+// the one their command printed.
 var errNoManagedFiles = errors.New("no managed sops files: the managed store named " +
 	"none, so there is nothing to open. Create the first one with sops, which " +
 	"needs --config and --filename-override; see docs/ansible-sops.md")

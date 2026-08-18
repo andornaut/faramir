@@ -510,8 +510,47 @@ grep -q "$SECOND" "$MANAGED" && bad "the removed recipient is still in the ciphe
 runuser -u op -- faramir sops recipient ls >/tmp/ls.log 2>&1 \
   && ok "recipients lists without root" || bad "recipients needed root: $(tail -2 /tmp/ls.log)"
 grep -q "$KEEPER" /tmp/ls.log && ok "and names the keeper" || bad "the listing is missing the keeper"
+# Which of two keys is this host's own is the question a listing raises, and
+# answering it means reading the age key, which the agent's account cannot.
+grep -q "keeper)" /tmp/ls.log && bad "the unprivileged listing claimed to know which key is the host's" \
+  || ok "and does not claim to know which one is the host's"
+faramir sops recipient ls > /tmp/ls-root.log 2>&1
+grep -qE "$KEEPER +\(this host" /tmp/ls-root.log \
+  && ok "as root it marks the keeper's own key" \
+  || bad "root's listing does not mark the keeper: $(cat /tmp/ls-root.log)"
 grep -q "$SECOND" /tmp/ls.log && bad "the listing still names the removed recipient" \
   || ok "and not the one just removed"
+
+# A host whose first secret has not been written yet.  This is when an operator
+# who missed --age-recipient at install has to add one, and the rule governs what
+# sops writes from then on, so a store with no files is not a reason to refuse.
+mkdir -p /tmp/emptystore && mv /etc/faramir/secrets/*.sops.yml /tmp/emptystore/
+if faramir sops recipient add "$SECOND" >/tmp/empty.log 2>&1; then
+  ok "recipient add works before the first secret exists"
+else
+  bad "recipient add refused a store with no files: $(tail -2 /tmp/empty.log)"
+fi
+faramir sops recipient ls 2>/dev/null | grep -q "$SECOND" \
+  && ok "and the rule was written" || bad "the rule was not written"
+grep -q 'not reached' /tmp/empty.log \
+  && bad "it reported each glob that matched nothing, which reads as three faults" \
+  || ok "and said so once rather than once per pattern"
+# reseal is the one whose job really is files, so it still refuses.
+faramir sops recipient reseal >/tmp/empty-reseal.log 2>&1 \
+  && bad "reseal claimed success with no file to reseal" \
+  || ok "reseal still refuses a store with no files"
+mv /tmp/emptystore/*.sops.yml /etc/faramir/secrets/
+faramir sops recipient rm "$SECOND" >/dev/null 2>&1
+faramir sops recipient reseal >/dev/null 2>&1
+
+# A dead end otherwise: this command edits the rule and cannot invent one.
+mv /etc/faramir/.sops.yaml /tmp/rule.bak
+faramir sops recipient add "$SECOND" >/tmp/norule.log 2>&1 \
+  && bad "added a recipient to a rule file that is not there" \
+  || ok "refused with no .sops.yaml: $(grep -oE 'no such file' /tmp/norule.log | head -1)"
+grep -q 'faramir init' /tmp/norule.log \
+  && ok "and named what writes one" || bad "the refusal is a dead end: $(tail -1 /tmp/norule.log)"
+mv /tmp/rule.bak /etc/faramir/.sops.yaml
 
 # The store still opens, which is the only thing any of this is for.
 reload_daemons || bad "the daemons did not come back"

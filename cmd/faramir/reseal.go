@@ -14,6 +14,7 @@ package main
 // keeper and by root, and re-encrypting means decrypting first.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -43,7 +44,13 @@ type storeContext struct {
 // label is how the command names itself in its messages, so an operator reading
 // a failure sees the command they ran rather than the one that happens to hold
 // this code.
-func loadStore(label, configPath, socket, ageKey string, named []string) (*storeContext, int) {
+// emptyStoreOK says whether a store naming no file yet is a reason to stop.  It
+// is for `reseal`, whose whole job is files, and is not for a recipient change:
+// the rule governs what sops writes from now on, so changing it on a host whose
+// first secret has not been written is not only valid, it is when an operator
+// who missed --age-recipient at install has to do it.
+func loadStore(label, configPath, socket, ageKey string, named []string,
+	emptyStoreOK bool) (*storeContext, int) {
 	// Refused rather than attempted, like edit: as the operator this fails on the
 	// age key with a bare permission error, and the fix is not obvious from it.
 	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
@@ -55,11 +62,31 @@ func loadStore(label, configPath, socket, ageKey string, named []string) (*store
 		return nil, 1
 	}
 
+	keyPath := ageKeyPath(ageKey, cfg)
+	if _, err := os.Stat(keyPath); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: age key: %v\n", label, err)
+		return nil, 1
+	}
+
 	// Both kinds together: this is a diagnostic printed when the named file is
 	// not among the managed ones, and the operator wants every reason.
 	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
 	unresolvable := slices.Concat(failures, absent)
 	targets, err := resealTargets(managed, named)
+	if err != nil && emptyStoreOK && errors.Is(err, errNoFilesToReseal) {
+		// Said once, and the per-pattern reasons dropped with it.  Each of those is
+		// "this glob matched nothing", which is the same fact three times and reads
+		// as three problems on a host whose first secret has simply not been
+		// written yet.
+		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet, so "+
+			"there is nothing to re-encrypt; the rule governs what sops writes from "+
+			"now on\n", label)
+		return &storeContext{
+			cfg:      cfg,
+			keyPath:  keyPath,
+			rulePath: filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml"),
+		}, 0
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		for _, reason := range unresolvable {
@@ -74,14 +101,6 @@ func loadStore(label, configPath, socket, ageKey string, named []string) (*store
 		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, reason)
 	}
 
-	keyPath := ageKey
-	if keyPath == "" {
-		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
-	}
-	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir %s: age key: %v\n", label, err)
-		return nil, 1
-	}
 	// This install's own rule, and no flag naming another.  What these commands
 	// are for is making the ciphertext agree with what <config-dir>/.sops.yaml
 	// says, so a run sealing the secrets directory to some other file's recipients
@@ -97,9 +116,28 @@ func loadStore(label, configPath, socket, ageKey string, named []string) (*store
 	}, 0
 }
 
+// errNoFilesToReseal is errNoManagedFiles said for this command: nothing to
+// re-encrypt rather than nothing to open, which is `edit`'s sentence and belongs
+// to `edit`.
+var errNoFilesToReseal = errors.New("no managed sops files: the managed store " +
+	"named none, so there is nothing to re-encrypt. Create the first one with " +
+	"sops, which needs --config and --filename-override; see docs/ansible-sops.md")
+
+// ageKeyPath is the key a run decrypts with: the one named, or the one beside
+// the config.
+func ageKeyPath(named string, cfg *config.Config) string {
+	if named != "" {
+		return named
+	}
+	return filepath.Join(filepath.Dir(cfg.Path), "age.key")
+}
+
 // resealStore re-encrypts every target to wanted.
 func resealStore(label string, store *storeContext, wanted []string, dryRun bool) int {
 	targets := store.targets
+	if len(targets) == 0 {
+		return 0
+	}
 	log := audit.NewLog(store.cfg.Audit)
 	failed, changed := 0, 0
 	for _, target := range targets {
@@ -185,7 +223,7 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 func resealTargets(managed, named []string) ([]string, error) {
 	if len(named) == 0 {
 		if len(managed) == 0 {
-			return nil, errNoManagedFiles
+			return nil, errNoFilesToReseal
 		}
 		return managed, nil
 	}

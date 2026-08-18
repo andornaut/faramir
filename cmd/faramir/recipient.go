@@ -146,7 +146,7 @@ func newRecipientResealCmd() *cobra.Command {
 // stands and the store is brought to it.
 func runReseal(f recipientFlags, args []string) int {
 	const label = "sops recipient reseal"
-	store, code := loadStore(label, f.configPath, f.socket, f.ageKey, args)
+	store, code := loadStore(label, f.configPath, f.socket, f.ageKey, args, false)
 	if store == nil {
 		return code
 	}
@@ -184,7 +184,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		}
 	}
 
-	store, code := loadStore(label, f.configPath, f.socket, f.ageKey, nil)
+	store, code := loadStore(label, f.configPath, f.socket, f.ageKey, nil, true)
 	if store == nil {
 		return code
 	}
@@ -205,6 +205,13 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 	body, err := os.ReadFile(store.rulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: creation rule: %v\n", label, err)
+		// Named because it is a dead end otherwise: this command edits that file
+		// and cannot create one, having no way to know who else should be able to
+		// read the store.  init writes it with the keeper's own recipient.
+		if os.IsNotExist(err) {
+			fmt.Fprintf(os.Stderr, "faramir %s: `sudo faramir init` writes one naming "+
+				"the keeper's own key, and this adds to it\n", label)
+		}
 		return 1
 	}
 
@@ -323,7 +330,19 @@ func runRecipientList(f recipientFlags) int {
 		fmt.Println(string(out))
 		return 0
 	}
+	// Which of these is this host's own is the question two keys raise, and
+	// answering it means reading the age key, which is the keeper's and root's.
+	// So the note appears where it can be known and the listing is plain where it
+	// cannot, rather than a column that says "no" and means "could not tell".
+	keeper, err := agekey.Recipient(ageKeyPath("", cfg))
+	if err != nil {
+		keeper = ""
+	}
 	for _, recipient := range recipients {
+		if recipient != "" && recipient == keeper {
+			fmt.Printf("%s  (this host's keeper)\n", recipient)
+			continue
+		}
 		fmt.Println(recipient)
 	}
 	return 0
