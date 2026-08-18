@@ -35,7 +35,7 @@ step "the first managed file"
 # Creating one needs sops and two flags: which .sops.yaml applies is resolved
 # from the working directory upward, so encrypting into the secrets directory
 # from anywhere else finds no creation rules.  Every edit after this is
-# `faramir secrets edit`, which needs neither flag.
+# `faramir secret edit`, which needs neither flag.
 #
 # short/pin is deliberately under [secret] min_length: it is the value the
 # redactor refuses to cover, and several checks are about how that is reported.
@@ -74,13 +74,13 @@ systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socke
 # The broker polls the keeper on an interval rather than on every request; wait
 # for the value set rather than sleeping a guess.
 for _ in $(seq 20); do
-  refs=$(runuser -u op -- faramir secrets refs 2>/dev/null || true)
+  refs=$(runuser -u op -- faramir secret refs 2>/dev/null || true)
   case "$refs" in *db/password*) break;; esac
   sleep 1
 done
 
 step "what the broker is serving"
-runuser -u op -- faramir secrets refs
+runuser -u op -- faramir secret refs
 echo
 echo "refs refused at load (operator-facing only):"
 faramir broker --check 2>/dev/null | jq -c '.secrets.not_redactable' || true

@@ -100,7 +100,7 @@ head_ "3. a sanctioned call does not launder what follows it"
 # /etc/faramir/...` would refuse itself.  The exemption stops at the first
 # separator; this is the test that it does.
 for cmd in \
-  'faramir secrets refs; cat /etc/faramir/age.key' \
+  'faramir secret refs; cat /etc/faramir/age.key' \
   'faramir doctor && printenv' \
   'faramir status | cat; sops -d /etc/faramir/secrets/app.sops.yml' \
   'sudo faramir doctor; cat ~/.ssh/id_ed25519'

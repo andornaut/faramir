@@ -111,7 +111,7 @@ func requireSops(t *testing.T) {
 	}
 }
 
-// A rule that reaches none of the managed files is a store `faramir secrets edit` and
+// A rule that reaches none of the managed files is a store `faramir secret edit` and
 // `faramir recipient reseal` cannot write back, and nothing else on the host says so: the
 // values still decrypt, the broker still serves them, and the failure waits
 // until somebody edits one.

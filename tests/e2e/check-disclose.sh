@@ -37,14 +37,14 @@ carries() { # label, text
   ok "$label carries no value and no key material"
 }
 
-echo "probing as op; $(asop secrets refs | wc -l) ref(s) served"
+echo "probing as op; $(asop secret refs | wc -l) ref(s) served"
 
 # --------------------------------------------------------------------------
 head_ "1. what the agent is told"
 
-refs=$(asop secrets refs)
-grep -q '^faramir://' <<<"$refs" && ok "secrets refs answers with refs" || bad "no refs: ${refs:0:80}"
-carries "secrets", "refs" "$refs"
+refs=$(asop secret refs)
+grep -q '^faramir://' <<<"$refs" && ok "secret refs answers with refs" || bad "no refs: ${refs:0:80}"
+carries "secret refs" "$refs"
 [ "$(grep -cv '^faramir://' <<<"$refs")" -eq 0 ] \
   && ok "and with nothing else on any line" || bad "a line is not a ref: $(grep -v '^faramir://' <<<"$refs" | head -1)"
 
@@ -69,7 +69,7 @@ else
   ok "the operator's own view names $(wc -w <<<"$refused") refused ref(s)"
   for ref in $refused; do
     grep -q "$ref" <<<"$st"   && bad "status names the refused ref $ref"   || ok "status does not name $ref"
-    grep -q "$ref" <<<"$refs" && bad "secrets refs names the refused ref $ref" || ok "secrets refs does not name $ref"
+    grep -q "$ref" <<<"$refs" && bad "secret refs names the refused ref $ref" || ok "secret refs does not name $ref"
   done
 fi
 
@@ -230,7 +230,7 @@ grep -q 'no_secrets' <<<"$out" && ok "and a brokered command is refused while a 
   || bad "a command ran against a partial value set: ${out:0:90}"
 carries "that refusal" "$out"
 rm -f /etc/faramir/secrets/broken.sops.yml
-# Waiting on the error going away rather than on secrets refs answering: that
+# Waiting on the error going away rather than on secret refs answering: that
 # answers while the store still holds the failure, and every suite after this
 # one runs against a broker that refuses to inject.
 recovered() { [ "$(jq -r '.secrets.errors | length' <<<"$(asop status)" 2>/dev/null)" = 0 ]; }

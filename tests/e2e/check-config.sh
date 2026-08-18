@@ -49,7 +49,7 @@ addkey() {
 settle() {
   systemctl reset-failed 'faramir-*' >/dev/null 2>&1
   /usr/local/bin/faramir reload >/dev/null 2>&1
-  waitfor 25 runuser -u op -- /usr/local/bin/faramir secrets refs
+  waitfor 25 runuser -u op -- /usr/local/bin/faramir secret refs
 }
 # value reads one key out of the rendered config.
 value() { sed -n "s/^$1 *= *\\(.*\\)/\\1/p" $CFG | head -1; }

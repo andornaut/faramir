@@ -50,24 +50,24 @@ type managedFile struct {
 	Problem string `json:"problem,omitempty"`
 }
 
-type secretsListFlags struct {
+type secretListFlags struct {
 	configPath string
 	socket     string
 	json       bool
 }
 
-func newSecretsListCmd() *cobra.Command {
-	var f secretsListFlags
+func newSecretListCmd() *cobra.Command {
+	var f secretListFlags
 	c := &cobra.Command{
 		Use:   "ls [options]",
 		Short: "the managed files, their refs and who can read them",
 		Long: "Reads the secrets directory rather than asking the broker, so a file the\n" +
-			"broker refused to load is listed here with the reason. `faramir secrets\n" +
+			"broker refused to load is listed here with the reason. `faramir secret\n" +
 			"refs` is the other question: what the broker is actually serving.\n\n" +
 			"Ref names are cleartext in a sops file, so this decrypts nothing and\n" +
 			"prints no value.",
 		Args: noArgs,
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runSecretsList(f)) },
+		RunE: func(c *cobra.Command, args []string) error { return codeErr(runSecretList(f)) },
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "",
 		"config file (default $FARAMIR_CONFIG, then the installed one)")
@@ -77,8 +77,8 @@ func newSecretsListCmd() *cobra.Command {
 	return c
 }
 
-func runSecretsList(f secretsListFlags) int {
-	const label = "secrets ls"
+func runSecretList(f secretListFlags) int {
+	const label = "secret ls"
 	// The secrets directory is 2750 and the group is the keeper's, so the operator
 	// cannot so much as list it.  Refused with the reason rather than reported as
 	// an empty store, which is what a bare permission error would look like.
@@ -111,7 +111,7 @@ func runSecretsList(f secretsListFlags) int {
 
 	if len(files) == 0 {
 		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet; "+
-			"`faramir secrets add NAME` writes the first\n", label)
+			"`faramir secret add NAME` writes the first\n", label)
 	} else {
 		// The directory once, above the rows, so the names are the ones the other
 		// commands take and a full path is still there to be read off.
@@ -195,14 +195,14 @@ func refsIn(path string) ([]string, error) {
 	return refs, nil
 }
 
-type secretsRemoveFlags struct {
+type secretRemoveFlags struct {
 	configPath string
 	socket     string
 	force      bool
 }
 
-func newSecretsRemoveCmd() *cobra.Command {
-	var f secretsRemoveFlags
+func newSecretRemoveCmd() *cobra.Command {
+	var f secretRemoveFlags
 	c := &cobra.Command{
 		Use:     "rm [options] NAME",
 		Aliases: []string{"remove"},
@@ -215,7 +215,7 @@ func newSecretsRemoveCmd() *cobra.Command {
 			"decided.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runSecretsRemove(f, args[0]))
+			return codeErr(runSecretRemove(f, args[0]))
 		},
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "",
@@ -227,8 +227,8 @@ func newSecretsRemoveCmd() *cobra.Command {
 	return c
 }
 
-func runSecretsRemove(f secretsRemoveFlags, name string) int {
-	const label = "secrets rm"
+func runSecretRemove(f secretRemoveFlags, name string) int {
+	const label = "secret rm"
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
@@ -312,21 +312,21 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	return answer == name || answer == filepath.Base(target)
 }
 
-// newSecretsRefsCmd is `list_secrets` under the noun it belongs to: what the
+// newSecretRefsCmd is `list_secrets` under the noun it belongs to: what the
 // broker is serving, which is not the same question as what is in the
 // directory.
-func newSecretsRefsCmd() *cobra.Command {
+func newSecretRefsCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:   "refs [options]",
 		Short: "the refs the broker is serving, names only",
 		Long: "Asks the broker, so this is what a brokered command could actually\n" +
-			"name. `faramir secrets ls` is the other question: what is in the\n" +
+			"name. `faramir secret ls` is the other question: what is in the\n" +
 			"directory, including a file the broker refused to load.\n\n" +
 			"Needs no root, and returns names only. Never a value.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(send("secrets refs", o.socket, map[string]any{"op": "list_secrets"},
+			return codeErr(send("secret refs", o.socket, map[string]any{"op": "list_secrets"},
 				o.json, true))
 		},
 	}

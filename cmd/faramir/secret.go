@@ -2,7 +2,7 @@ package main
 
 import "github.com/spf13/cobra"
 
-// newSecretsCmd groups what is done to the files: write one, edit one, list
+// newSecretCmd groups what is done to the files: write one, edit one, list
 // them, remove one, and ask the broker which refs they name.
 //
 // Named for the subject rather than for sops, which is the format underneath
@@ -16,9 +16,9 @@ import "github.com/spf13/cobra"
 // fourth is a backup identity, which has to be minted on the machine that will
 // hold it rather than on the host it is the backup for.  A command here would
 // have minted it in the wrong place.
-func newSecretsCmd() *cobra.Command {
+func newSecretCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:     "secrets",
+		Use:     "secret",
 		Short:   "the managed store: write, edit, list and remove secrets",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
@@ -26,8 +26,8 @@ func newSecretsCmd() *cobra.Command {
 		// consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newAddCmd(), newEditCmd(), newSecretsListCmd(),
-		newSecretsRemoveCmd(), newSecretsRefsCmd())
+	c.AddCommand(newAddCmd(), newEditCmd(), newSecretListCmd(),
+		newSecretRemoveCmd(), newSecretRefsCmd())
 	return c
 }
 
