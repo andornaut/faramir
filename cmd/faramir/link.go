@@ -17,7 +17,7 @@ import (
 // newLinkCmd groups what is done to a linked secret: one a tool of yours owns,
 // read where that tool keeps it rather than copied into the managed store.
 //
-// The store's own commands are `faramir sops`.  Two nouns rather than one, and
+// The store's own commands are `faramir vault`.  Two nouns rather than one, and
 // deliberately: what they share is a ref namespace, not a mechanism.
 func newLinkCmd() *cobra.Command {
 	c := &cobra.Command{

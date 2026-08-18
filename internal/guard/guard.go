@@ -140,7 +140,7 @@ const adviceOperator = "Blocked: this is an operator command. It acts on the far
 	"sudo is in front of it, and the account you run as could not carry it out " +
 	"either.\n\nAsk the operator to run it in their own terminal.\n\nWhat you can " +
 	"run: the faramir_run and faramir_refs tools, `faramir status`, and " +
-	"`faramir refs`. Between them they say what secrets exist and run " +
+	"`faramir redact`. Between them they say what secrets exist and run " +
 	"commands that need them, which is the whole of what an agent needs faramir " +
 	"for."
 

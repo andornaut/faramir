@@ -35,7 +35,6 @@ var Operator = []string{
 	"vault edit",
 	"vault ls",
 	"vault rm",
-	"refs",
 	"recipient add",
 	"recipient rm",
 	"recipient ls",

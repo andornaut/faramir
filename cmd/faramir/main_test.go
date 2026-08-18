@@ -233,7 +233,7 @@ func dispatcherNames(t *testing.T) []string {
 
 	// A command that groups others contributes its children rather than itself,
 	// spelled the way cli.Operator spells them: the guard matches what a person
-	// types, and nobody types a bare `faramir sops`.  To the leaf, however deep:
+	// types, and nobody types a bare `faramir vault`.  To the leaf, however deep:
 	// a group nested inside a group is still one command somebody types in full,
 	// and a walk that stopped short would name a parent nobody runs while leaving
 	// the children it holds out of the list the sanction is built from.

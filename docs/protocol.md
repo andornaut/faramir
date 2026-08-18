@@ -18,7 +18,7 @@ The mode is one check; the broker also tests `SO_PEERCRED` against `[server] all
 
 Op | Does | Notes
 --- | --- | ---
-`exec` | run a command | The default: an absent or unrecognised `op` is read as this.
+`run` | run a command | The default: an absent `op` is read as this. An `op` this broker does not know is refused rather than defaulted, so a caller naming one is told.
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
 `refs` | ref names only | Adds `refs`.
 `status` | version, `configs`, loaded files, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
@@ -28,11 +28,11 @@ Op | Does | Notes
 
 The three root-only ops are checked with `SO_PEERCRED`: the account the coding agent runs as must not approve what the agent asked for. `status` and `refs` answer whatever the value set is doing.
 
-### exec
+### run
 
 ```json
 {
-  "op": "exec",
+  "op": "run",
   "cmd": ["printenv", "ROUTER_PW"],
   "cwd": "/home/you/src/project",
   "env_refs": { "ROUTER_PW": "faramir://home/router/admin" },
@@ -108,8 +108,8 @@ Field | Meaning
 `redactions` | Counts, not values. A count of 0 where one was expected is a real signal that something is misconfigured.
 `log_id` | Points into `/var/log/faramir/audit.log`, which the agent cannot read, so it can cite a record to the operator.
 `invalid_bytes` | How many bytes were not valid UTF-8 and came back as `U+FFFD`. What says the output was binary.
-`waited_sec` | How much of `duration_sec` the command spent blocked on its own escalation, present only where a `sudo` waited at all. Written to the `exec` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an escalation answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[command] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
-`escalation_code`, `escalation` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `denied` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [escalate codes](#escalations); the same pair is written to the `exec` record.
+`waited_sec` | How much of `duration_sec` the command spent blocked on its own escalation, present only where a `sudo` waited at all. Written to the `run` record and carried on `finished` as well. `duration_sec` is wall time from fork to exit and the child sits inside `sudo` for the whole question, so an escalation answered slowly reads as a slow command without this. Reported beside the duration rather than subtracted from it: `[command] max_timeout_sec` is enforced against the same clock, and a duration that no longer matched it would be a second, quieter number.
+`escalation_code`, `escalation` | Why a `sudo` inside the command was turned down, present only where one was. `sudo` reports a refusal and an expiry alike, as its own authentication failure, so this is where `denied` is told from `expired`, and running the command again is worth something in one case and nothing in the other. The codes are the [escalate codes](#escalations); the same pair is written to the `run` record.
 `truncated` | Output hit the output cap.
 
 A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `exit_code` and adds `error`:
@@ -127,8 +127,8 @@ Code | Meaning
 `busy` | At `[command] concurrency`; retry
 `escalation_in_progress` | An escalation is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
 `not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the escalation. The `sudo` fails and the command is run again once the host is quiet
-`no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `exec` alone
-`no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `refs` always answer
+`no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `run` alone
+`no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `run` and `redact` both refuse; `status` and `refs` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the three root-only ops
 `too_large` | Request exceeded `[server] max_request_bytes`

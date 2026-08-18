@@ -201,7 +201,7 @@ Redaction only, no secret | Skip steps 3 and 4. `faramir redact -- ./script.sh`,
 
 ```bash
 faramir status                          # config path, sources, ref count
-faramir refs                    # ref names, never values
+faramir refs                            # ref names, never values
 faramir run --env NAME=faramir://ref -- CMD
 faramir run --env-file deploy.env -- ansible-playbook site.yml
 faramir run --quiet -C ~/src/project -t 120 -- CMD
@@ -233,7 +233,7 @@ All need root except `doctor`, which degrades, and the two that only read: `reci
 
 **Every one of these is refused to the coding agent's shell**, with sudo and without. What an agent may run is `run`, `redact`, `status` and `refs`: between them they say what secrets exist and run the commands that need them, which is the whole of what an agent needs faramir for. The rest act on the install rather than through it, so a refusal saying so is more use than the permission error the agent would otherwise meet and try to work around.
 
-Two of them group: `faramir sops` acts on the managed store, `faramir link` on a secret another tool owns. They share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
+Three of them group: `faramir vault` acts on the managed store, `faramir link` on a secret another tool owns, and `faramir recipient` on who can decrypt the store. The first two share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
 
 Command | Does
 --- | ---
@@ -242,7 +242,6 @@ Command | Does
 `sudo faramir vault add NAME` | Writes a new managed file. `NAME` is a name, relative to the secrets directory: `.sops.yml` is added for you. `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk; `--from FILE` encrypts one you already hold and leaves it cleartext where it is
 `sudo faramir vault ls` | The managed files by name, how many refs each names, who can read it, and whether it agrees with the rule. Reads the directory rather than asking the broker, so a file the broker refused to load is listed here with the reason. Decrypts nothing: ref names are cleartext in a sops file. `--json`
 `sudo faramir vault rm NAME` | Takes a file out of the store. Every value in it goes with it and nothing here brings it back, so it names the refs it is about to destroy and asks for the file's name back; `--force` answers for a script. The audit record keeps the refs it held
-`faramir refs` | The refs the broker is serving, names only. Needs no root, and is what a brokered command could actually name; `vault ls` is the other question
 `sudo faramir vault edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any managed file, by name, by base name or by path. `--editor` names the editor
 `sudo faramir recipient add KEY` | Lets one more key decrypt the store: validates it, adds it to `<config-dir>/.sops.yaml`, and re-encrypts every managed file to it, so the rule and the ciphertext never disagree. `--dry-run` writes neither. [What it refuses](docs/operating.md#adding-a-recipient)
 `sudo faramir recipient rm KEY` | The same in reverse. Reaches no copy of the ciphertext somebody already holds
