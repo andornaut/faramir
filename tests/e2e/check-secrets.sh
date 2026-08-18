@@ -28,7 +28,7 @@ reload_daemons() {
     faramir-broker.socket faramir-broker.service faramir-exec.socket >/dev/null 2>&1
   systemctl restart faramir-keeper.socket faramir-broker.socket >/dev/null 2>&1
   for _ in $(seq 20); do
-    runuser -u op -- faramir vault refs >/dev/null 2>&1 && return 0
+    runuser -u op -- faramir refs >/dev/null 2>&1 && return 0
     sleep 1
   done
   return 1
@@ -122,7 +122,7 @@ head_ "3. the running broker picks the change up with no restart"
 interval=$(grep -oP 'min_refresh_sec = \K[0-9]+' /etc/faramir/config.toml)
 took=""
 for i in $(seq $(( interval + 10 )) ); do
-  refs=$(runuser -u op -- faramir vault refs 2>/dev/null | tr '\n' ' ')
+  refs=$(runuser -u op -- faramir refs 2>/dev/null | tr '\n' ' ')
   case "$refs" in *new/ref*) took=$i; break;; esac
   sleep 1
 done
@@ -166,7 +166,7 @@ faramir recipient reseal >/tmp/reseal.log 2>&1 && ok "reseal completed" || bad "
 if grep -q "$SECOND" "$MANAGED"; then ok "the second recipient is now in the file's metadata"; else
   bad "the new recipient is not in the file"; fi
 reload_daemons || bad "the daemons did not come back"
-refs=$(runuser -u op -- faramir vault refs 2>&1 | tr '\n' ' ')
+refs=$(runuser -u op -- faramir refs 2>&1 | tr '\n' ' ')
 echo "$refs" | grep -q "faramir://new/ref" && ok "the keeper still decrypts everything after the reseal" \
   || bad "the keeper cannot read the re-encrypted file: $refs"
 
@@ -188,7 +188,7 @@ fi
   || bad "the refused reseal still modified the file"
 # The proof that the refusal saved something: the keeper still reads it.
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir vault refs 2>&1 | grep -q "faramir://new/ref" \
+runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
   && ok "the secrets still decrypt after the refusal" || bad "the refusal left the secrets unreadable"
 
 head_ "7. an edit preserves who can read the file, whatever .sops.yaml now says"
@@ -218,7 +218,7 @@ now=$(grep -c 'recipient:' "$MANAGED")
 grep -q "$KEEPER" "$MANAGED" && ok "the keeper is still a recipient after editing under a hostile rule" \
   || bad "UNRECOVERABLE: the edit sealed the file away from the keeper"
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir vault refs 2>&1 | grep -q "faramir://new/ref" \
+runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
   && ok "and the broker still decrypts it" || bad "the file is no longer readable"
 
 # --------------------------------------------------------------------------
@@ -327,7 +327,7 @@ grep -q "$SECOND" "$MANAGED" \
   && bad "the store is readable by a key the rule does not actually grant" \
   || ok "the key named only in the ignored shorthand is not a reader"
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir vault refs 2>&1 | grep -q "faramir://new/ref" \
+runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
   && ok "and the keeper still decrypts the store" || bad "the store is no longer readable"
 
 head_ "11. THE REFUSAL: two creation rules, whatever order the keys are in"
@@ -555,7 +555,7 @@ mv /tmp/rule.bak /etc/faramir/.sops.yaml
 
 # The store still opens, which is the only thing any of this is for.
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir vault refs 2>&1 | grep -q "faramir://new/ref" \
+runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
   && ok "and the keeper still decrypts the store" || bad "the store is no longer readable"
 
 head_ "15. add: the first managed file, without plaintext on a disk"
@@ -584,7 +584,7 @@ grep -q 's3kr3t-added-4242' "$NEW" && bad "PLAINTEXT ON DISK in $NEW" \
   || bad "a tmpfs directory survived: $(find /dev/shm -name 'faramir-add-*')"
 
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir vault refs 2>&1 | grep -q 'faramir://added/by_the_editor' \
+runuser -u op -- faramir refs 2>&1 | grep -q 'faramir://added/by_the_editor' \
   && ok "and the broker serves the new ref" || bad "the new ref is not being served"
 
 # THE REFUSAL: outside the secrets directory.  A bare name gets the suffix, so
@@ -680,7 +680,7 @@ jq -e --arg p /etc/faramir/secrets/inventory.sops.yml \
 
 # refs is the broker's answer, and needs no root.
 reload_daemons || bad "the daemons did not come back"
-runuser -u op -- faramir vault refs > /tmp/refs.log 2>&1 \
+runuser -u op -- faramir refs > /tmp/refs.log 2>&1 \
   && ok "refs answers without root" || bad "refs needed root: $(tail -2 /tmp/refs.log)"
 grep -q 'faramir://inventory/one' /tmp/refs.log \
   && ok "and the broker is serving what ls found" || bad "the broker is not serving it"

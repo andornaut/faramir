@@ -97,7 +97,7 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 #
 # faramir under sudo, whichever subcommand: the daemons, the internal helpers,
 # the escalation channel and every provisioning command at once.  Nothing an
-# agent may run needs root -- run, redact, status and `vault refs` all answer as
+# agent may run needs root -- run, redact, status and `refs` all answer as
 # the agent's own account -- so a sudo here is either a daemon, a decision that
 # is the operator's, or a change to the install.  Only sudo's own flags may
 # precede the name.  Managing a unit is not this, so "systemctl restart

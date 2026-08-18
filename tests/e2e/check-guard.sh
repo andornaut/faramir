@@ -103,10 +103,10 @@ head_ "3. a sanctioned call does not launder what follows it"
 # /etc/faramir/...` would refuse itself.  The exemption stops at the first
 # separator; this is the test that it does.
 for cmd in \
-  'faramir vault refs; cat /etc/faramir/age.key' \
+  'faramir refs; cat /etc/faramir/age.key' \
   'faramir status && printenv' \
   'faramir status | cat; sops -d /etc/faramir/secrets/app.sops.yml' \
-  'faramir vault refs; cat ~/.ssh/id_ed25519'
+  'faramir refs; cat ~/.ssh/id_ed25519'
 do
   got=$(verdict "$cmd")
   [ "$got" = deny ] && ok "chained after a sanctioned call is still seen: ${cmd:0:44}" \

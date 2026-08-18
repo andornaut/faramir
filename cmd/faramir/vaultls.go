@@ -312,21 +312,27 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	return answer == name || answer == filepath.Base(target)
 }
 
-// newVaultRefsCmd is `vault_refs` under the noun it belongs to: what the
-// broker is serving, which is not the same question as what is in the
-// directory.
-func newVaultRefsCmd() *cobra.Command {
+// newRefsCmd is what the broker is serving, which is not the same question as
+// what is in the directory.
+//
+// Top level rather than under `vault`, beside `run`, `redact` and `status`: it
+// is one of the four an agent may run, and every other member of that group is
+// the operator's.  A group split across the two would need the deny rule to
+// carve one leaf out of it by name, which is a hand-maintained exception in a
+// list whose whole value is that it needs no thought.
+func newRefsCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
-		Use:   "refs [options]",
-		Short: "the refs the broker is serving, names only",
+		Use:     "refs [options]",
+		Short:   "the refs the broker is serving, names only",
+		GroupID: groupOperator,
 		Long: "Asks the broker, so this is what a brokered command could actually\n" +
 			"name. `faramir vault ls` is the other question: what is in the\n" +
 			"directory, including a file the broker refused to load.\n\n" +
 			"Needs no root, and returns names only. Never a value.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(send("vault refs", o.socket, map[string]any{"op": "vault_refs"},
+			return codeErr(send("refs", o.socket, map[string]any{"op": "refs"},
 				o.json, true))
 		},
 	}

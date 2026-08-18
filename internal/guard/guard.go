@@ -102,7 +102,7 @@ var fallback = []string{
 	`>\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
 	// faramir under sudo, whichever subcommand: the daemons, the internal helpers,
 	// the escalation channel and every provisioning command at once.  Nothing an
-	// agent may run needs root -- `run`, `redact`, `status` and `vault refs` all
+	// agent may run needs root -- `run`, `redact`, `status` and `refs` all
 	// answer as the agent's own account -- so a sudo here is either a daemon, a
 	// decision that is the operator's, or a change to the install.  Only sudo's
 	// own flags may precede the name.  Managing a unit is not this, so
@@ -128,7 +128,7 @@ const advice = "Blocked: this command would put a credential (or an encrypted bl
 	"«SECRET:ref» tokens. Secrets are named, never pasted:\n\n" +
 	"    faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n" +
 	"                env_refs={\"ROUTER_PW\": \"faramir://home/router/admin\"})\n\n" +
-	"Call faramir_vault_refs to see the available names. You do not need the " +
+	"Call faramir_refs to see the available names. You do not need the " +
 	"value of a secret to use it, and you will not be given one."
 
 // adviceOperator is for a command that is the operator's to run.  It discloses
@@ -139,8 +139,8 @@ const adviceOperator = "Blocked: this is an operator command. It acts on the far
 	"install rather than through it, so it is refused to this shell whether or not " +
 	"sudo is in front of it, and the account you run as could not carry it out " +
 	"either.\n\nAsk the operator to run it in their own terminal.\n\nWhat you can " +
-	"run: the faramir_run and faramir_vault_refs tools, `faramir status`, and " +
-	"`faramir vault refs`. Between them they say what secrets exist and run " +
+	"run: the faramir_run and faramir_refs tools, `faramir status`, and " +
+	"`faramir refs`. Between them they say what secrets exist and run " +
 	"commands that need them, which is the whole of what an agent needs faramir " +
 	"for."
 

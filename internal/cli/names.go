@@ -23,6 +23,7 @@ var Operator = []string{
 	"run",
 	"redact",
 	"status",
+	"refs",
 	// version, help and completion are cobra's as much as faramir's: the last
 	// two it generates, and all three answer without reaching the broker.
 	"version",
@@ -34,7 +35,7 @@ var Operator = []string{
 	"vault edit",
 	"vault ls",
 	"vault rm",
-	"vault refs",
+	"refs",
 	"recipient add",
 	"recipient rm",
 	"recipient ls",
@@ -57,7 +58,7 @@ var Operator = []string{
 // Unscanned arguments are what `run` and `redact` need and what nothing else
 // does: a ref in an --env, and the text being scrubbed, would otherwise trip the
 // very patterns that exist to catch a value being read.  `status` and
-// `vault refs` take none and answer without one.  The three cobra answers for
+// `refs` take none and answer without one.  The three cobra answers for
 // itself reach no broker and say nothing about this host.
 //
 // Everything in Operator and absent here acts on the install rather than through
@@ -67,7 +68,7 @@ var Agent = []string{
 	"run",
 	"redact",
 	"status",
-	"vault refs",
+	"refs",
 	"version",
 	"help",
 	"completion",

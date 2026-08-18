@@ -32,8 +32,7 @@ func newVaultCmd() *cobra.Command {
 		// consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newAddCmd(), newEditCmd(), newVaultListCmd(),
-		newVaultRemoveCmd(), newVaultRefsCmd())
+	c.AddCommand(newAddCmd(), newEditCmd(), newVaultListCmd(), newVaultRemoveCmd())
 	return c
 }
 

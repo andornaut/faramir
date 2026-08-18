@@ -4,7 +4,7 @@ import "testing"
 
 func TestGroupedNamesAreSanctionedAsTwoTokens(t *testing.T) {
 	for _, cmd := range []string{
-		"faramir vault refs",
+		"faramir refs",
 		"faramir vault   refs",
 	} {
 		if pattern, denied := decide(cmd); denied {
@@ -19,7 +19,7 @@ func TestGroupedNamesAreSanctionedAsTwoTokens(t *testing.T) {
 	if _, denied := decide("faramir vault cat /etc/faramir/age.key"); !denied {
 		t.Error("an unlisted subcommand was sanctioned by its parent")
 	}
-	// And a listed sibling does not carry the rest of the group: `vault refs` is
+	// And a listed sibling does not carry the rest of the group: `refs` is
 	// the agent's, `vault edit` is the operator's, and they differ by one token.
 	if _, denied := decide("faramir vault edit app"); !denied {
 		t.Error("an operator subcommand was sanctioned by its agent-facing sibling")

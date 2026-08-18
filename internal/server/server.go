@@ -360,7 +360,7 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 	switch request.Op {
 	case "status":
 		return s.opStatus()
-	case "vault_refs":
+	case "refs":
 		return s.opListSecrets()
 	case opRedactName:
 		return s.opRedact(request, peer, stream)
@@ -626,7 +626,7 @@ func (s *Server) secretsDir() string {
 // Here rather than at startup, for two reasons.  A check at startup judges the
 // host as it was at boot, so a reload that shrinks the set afterwards passes
 // unremarked; and exiting takes the daemon down just when `faramir status` and
-// `doctor` are what would explain why.  status and vault_refs stay available
+// `doctor` are what would explain why.  status and refs stay available
 // for the second reason: neither produces output that depends on the set.
 func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	reason := s.Store.Unreadable()

@@ -174,7 +174,7 @@ Mode | Cost
 
 Rewriting rather than denying is the point: a deny list covers what somebody thought to name, and the command that leaks a credential is usually one nobody would have.
 
-**A `redact` op is an oracle.** A guessed value comes back confirmed or not. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. It is not rate-limited, because a throttle bounds only a guessing attack the same caller need never mount: `vault_refs` and `run` sit on the same socket behind the same `allowed_group` check, so every managed value can be had by naming it. Every call is recorded, and a guess shorter than `[secret] min_length` is not an oracle at all. Bring a limit back if `redact` ever becomes reachable by a caller that cannot reach `run`; there is no such caller today.
+**A `redact` op is an oracle.** A guessed value comes back confirmed or not. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. It is not rate-limited, because a throttle bounds only a guessing attack the same caller need never mount: `refs` and `run` sit on the same socket behind the same `allowed_group` check, so every managed value can be had by naming it. Every call is recorded, and a guess shorter than `[secret] min_length` is not an oracle at all. Bring a limit back if `redact` ever becomes reachable by a caller that cannot reach `run`; there is no such caller today.
 
 ## Allowing sudo on the controller
 

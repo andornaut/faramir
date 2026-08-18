@@ -466,7 +466,7 @@ fi
 
 systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socket >/dev/null 2>&1
 for _ in $(seq 20); do
-  refs=$(runuser -u "$OP" -- /usr/local/bin/faramir vault refs 2>/dev/null || true)
+  refs=$(runuser -u "$OP" -- /usr/local/bin/faramir refs 2>/dev/null || true)
   case "$refs" in *db/password*) break;; esac
   sleep 1
 done

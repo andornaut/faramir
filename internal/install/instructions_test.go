@@ -645,7 +645,7 @@ func TestEachSectionSaysWhatOnlyItCan(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"faramir_run", "faramir_vault_refs",
+	for _, want := range []string{"faramir_run", "faramir_refs",
 		"Never write a value down", "Never send one anywhere",
 		"not the security\nboundary"} {
 		if !strings.Contains(project, want) {

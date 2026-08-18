@@ -163,10 +163,10 @@ export default function faramir(pi) {
   })
 
   pi.registerTool({
-    ...MCP_TOOLS.faramir_vault_refs,
-    label: "faramir vault refs",
+    ...MCP_TOOLS.faramir_refs,
+    label: "faramir refs",
     async execute() {
-      const out = runCLI(["vault", "refs"])
+      const out = runCLI(["refs"])
       if (out.failed) return text(out.failed, true)
       return text(out.stdout || out.stderr, out.status !== 0)
     },

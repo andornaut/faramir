@@ -74,13 +74,13 @@ systemctl restart faramir-keeper.socket faramir-exec.socket faramir-broker.socke
 # The broker polls the keeper on an interval rather than on every request; wait
 # for the value set rather than sleeping a guess.
 for _ in $(seq 20); do
-  refs=$(runuser -u op -- faramir vault refs 2>/dev/null || true)
+  refs=$(runuser -u op -- faramir refs 2>/dev/null || true)
   case "$refs" in *db/password*) break;; esac
   sleep 1
 done
 
 step "what the broker is serving"
-runuser -u op -- faramir vault refs
+runuser -u op -- faramir refs
 echo
 echo "refs refused at load (operator-facing only):"
 faramir broker --check 2>/dev/null | jq -c '.secrets.not_redactable' || true
