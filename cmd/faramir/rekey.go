@@ -127,7 +127,7 @@ func runRekey(f rekeyFlags, args []string) int {
 			// nothing to it.
 			if !f.dryRun {
 				log.Write(map[string]any{
-					"op": "rekey", "log_id": audit.NewLogID(), "file": target,
+					"op": opRekey, "log_id": audit.NewLogID(), "file": target,
 					"error": err.Error(),
 					"uid":   os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 				}, audit.Output{})
@@ -152,7 +152,7 @@ func runRekey(f rekeyFlags, args []string) int {
 		// values: who can read the secrets directory is exactly what an operator
 		// needs the log to be able to answer afterwards.
 		record := map[string]any{
-			"op": "rekey", "log_id": audit.NewLogID(), "file": target,
+			"op": opRekey, "log_id": audit.NewLogID(), "file": target,
 			"from": was, "to": wanted,
 			"uid": os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 		}

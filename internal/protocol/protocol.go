@@ -45,12 +45,16 @@ var ReservedEnv = map[string]bool{
 	"SUDO_ASKPASS": true, "FARAMIR_ESCALATION_TOKEN": true,
 }
 
-// escalations and approve are the escalation channel, and the only ops the broker
-// refuses to anything but root.  They are on this socket rather than one of
-// their own because the check that matters is SO_PEERCRED, which every
+// Ops is every op this socket accepts, and the only reason it is exported is
+// that each of them can reach the audit log: `faramir logs` renders the op in a
+// fixed-width column and has to be held to the widest name here.
+//
+// escalations and approve are the escalation channel, and the only ops the
+// broker refuses to anything but root.  They are on this socket rather than one
+// of their own because the check that matters is SO_PEERCRED, which every
 // connection here already carries; a second socket would be a second mode to
 // get wrong.
-var ops = []string{"exec", "list_secrets", "redact", "status", "escalations", "approve", "escalate"}
+var Ops = []string{"exec", "list_secrets", "redact", "status", "escalations", "approve", "escalate"}
 
 type Request struct {
 	Op         string
@@ -110,12 +114,12 @@ func parseOp(payload map[string]any, req *Request) error {
 	if raw, ok := payload["op"]; ok && raw != nil {
 		op, isStr := raw.(string)
 		if !isStr {
-			return fmt.Errorf("unknown op %v; expected one of %s", raw, strings.Join(ops, ", "))
+			return fmt.Errorf("unknown op %v; expected one of %s", raw, strings.Join(Ops, ", "))
 		}
 		req.Op = op
 	}
-	if !slices.Contains(ops, req.Op) {
-		return fmt.Errorf("unknown op %q; expected one of %s", req.Op, strings.Join(ops, ", "))
+	if !slices.Contains(Ops, req.Op) {
+		return fmt.Errorf("unknown op %q; expected one of %s", req.Op, strings.Join(Ops, ", "))
 	}
 	return nil
 }

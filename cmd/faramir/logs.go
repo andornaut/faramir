@@ -659,6 +659,14 @@ const opWidth = 13
 // this reader is pointed at a file, not linked to the daemon.
 const opExecStarted = "exec_started"
 
+// opEdit and opRekey are the two records this binary writes itself rather than
+// reads from a daemon.  Named beside the ops it renders so that one place holds
+// every op the column has to fit.
+const (
+	opEdit  = "edit"
+	opRekey = "rekey"
+)
+
 // summarise is one record on one line: when, what, how it ended, how many
 // values it touched, and the id to ask for the rest.  The id is printed whole,
 // there being no other form of it, and is what a lookup takes.

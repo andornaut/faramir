@@ -122,7 +122,7 @@ func runEdit(f editFlags, args []string) int {
 
 	changed, err := editManaged(keyPath, rulePath, editorPath, target)
 	record := map[string]any{
-		"op": "edit",
+		"op": opEdit,
 		// "log_id", the spelling the broker writes and the only one `faramir logs`
 		// reads: under any other key the record has no id to look up and no timestamp
 		// to sort by, both of which it derives from this one.

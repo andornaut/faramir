@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/escalation"
+	"github.com/andornaut/faramir/internal/protocol"
 )
 
 func writeLog(t *testing.T, lines ...string) string {
@@ -740,6 +741,26 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 	}
 	if !strings.Contains(line, "list_secrets refused") {
 		t.Errorf("summarise = %q, want the op and the outcome as separate columns", line)
+	}
+}
+
+// opWidth is a number somebody has to keep true, and the case above only proves
+// one name fits.  pad appends a space to anything already at the width, so an op
+// as wide as its column runs into the next one and every column after it shifts.
+//
+// This reader is pointed at a file rather than linked to the daemon, which is
+// why logs.go names the ops it renders instead of importing them.  A test is
+// where the two are allowed to meet: it fails when an op is added that the
+// column cannot hold, which is the moment the constant needs raising.
+func TestEveryOpFitsTheColumn(t *testing.T) {
+	ops := append([]string{opExecStarted, opEdit, opRekey}, protocol.Ops...)
+	for _, op := range ops {
+		t.Run(op, func(t *testing.T) {
+			if len(op) >= opWidth {
+				t.Errorf("op %q is %d wide and opWidth is %d, so it leaves no separating "+
+					"space; raise opWidth past the longest op", op, len(op), opWidth)
+			}
+		})
 	}
 }
 
