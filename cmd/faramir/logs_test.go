@@ -731,15 +731,15 @@ func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
 }
 
 // An op longer than its column must not run into the one after it: merged as
-// `list_secretsrefused`, with every column past it shifted, the row is read
+// `exec_startedstarted`, with every column past it shifted, the row is read
 // wrong.
 func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"list_secrets",`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"exec_started",`+
 		`"approved":false,"cmd":["sudo","id","-un"]}`), plain(t))
-	if strings.Contains(line, "list_secretsrefused") {
+	if strings.Contains(line, "exec_startedstarted") {
 		t.Errorf("op and outcome merged: %q", line)
 	}
-	if !strings.Contains(line, "list_secrets refused") {
+	if !strings.Contains(line, "exec_started started") {
 		t.Errorf("summarise = %q, want the op and the outcome as separate columns", line)
 	}
 }

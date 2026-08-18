@@ -54,7 +54,7 @@ var ReservedEnv = map[string]bool{
 // of their own because the check that matters is SO_PEERCRED, which every
 // connection here already carries; a second socket would be a second mode to
 // get wrong.
-var Ops = []string{"exec", "list_secrets", "redact", "status", "escalations", "approve", "escalate"}
+var Ops = []string{"exec", "secret_refs", "redact", "status", "escalations", "approve", "escalate"}
 
 type Request struct {
 	Op         string

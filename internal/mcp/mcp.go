@@ -4,7 +4,7 @@
 //
 // Which is also where the tool list stops.  A tool is for what an agent has to
 // be told: faramir_run, because a credential must not go any other way, and
-// faramir_list_secrets, because faramir_run's arguments are refs and this is
+// faramir_secret_refs, because faramir_run's arguments are refs and this is
 // where they come from.
 //
 // `faramir status` is neither.  It answers an operator's questions -- which
@@ -86,7 +86,7 @@ var tools = []Tool{
 			"cut) is a policy violation, not a puzzle.\n\n" +
 			"Secrets are referenced by name using faramir:// URIs and are injected as " +
 			"environment variables only; they are never substituted into the command " +
-			"line. Call faramir_list_secrets to discover available names.\n\n" +
+			"line. Call faramir_secret_refs to discover available names.\n\n" +
 			"Example: cmd=[\"printenv\",\"ROUTER_PW\"], " +
 			"env_refs={\"ROUTER_PW\":\"faramir://home/router/admin\"}.\n" +
 			"For a pipeline, pass cmd=[\"bash\",\"-lc\",\"…\"] explicitly; no shell is " +
@@ -121,7 +121,7 @@ var tools = []Tool{
 		},
 	},
 	{
-		Name: "faramir_list_secrets",
+		Name: "faramir_secret_refs",
 		Description: "List the faramir:// references the broker can inject. Returns names only, " +
 			"never values. Use this to find the right ref for faramir_run's env_refs.",
 		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
@@ -253,8 +253,8 @@ func callTool(name string, arguments map[string]any) map[string]any {
 				request["cwd"] = here
 			}
 		}
-	case "faramir_list_secrets":
-		request = map[string]any{"op": "list_secrets"}
+	case "faramir_secret_refs":
+		request = map[string]any{"op": "secret_refs"}
 	default:
 		return textResult("unknown tool: "+name, true)
 	}

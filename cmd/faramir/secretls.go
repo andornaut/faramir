@@ -312,7 +312,7 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	return answer == name || answer == filepath.Base(target)
 }
 
-// newSecretRefsCmd is `list_secrets` under the noun it belongs to: what the
+// newSecretRefsCmd is `secret_refs` under the noun it belongs to: what the
 // broker is serving, which is not the same question as what is in the
 // directory.
 func newSecretRefsCmd() *cobra.Command {
@@ -326,7 +326,7 @@ func newSecretRefsCmd() *cobra.Command {
 			"Needs no root, and returns names only. Never a value.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(send("secret refs", o.socket, map[string]any{"op": "list_secrets"},
+			return codeErr(send("secret refs", o.socket, map[string]any{"op": "secret_refs"},
 				o.json, true))
 		},
 	}

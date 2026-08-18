@@ -132,11 +132,11 @@ rm -rf "$d"
 # --------------------------------------------------------------------------
 head_ "5. the same answers through MCP"
 
-out=$(mcp faramir_list_secrets '{}')
-grep -q 'faramir://' <<<"$out" && ok "faramir_list_secrets answers with refs" || bad "no refs: ${out:0:110}"
-carries "faramir_list_secrets" "$out"
+out=$(mcp faramir_secret_refs '{}')
+grep -q 'faramir://' <<<"$out" && ok "faramir_secret_refs answers with refs" || bad "no refs: ${out:0:110}"
+carries "faramir_secret_refs" "$out"
 for ref in $refused; do
-  grep -q "$ref" <<<"$out" && bad "faramir_list_secrets names the refused ref $ref" \
+  grep -q "$ref" <<<"$out" && bad "faramir_secret_refs names the refused ref $ref" \
     || ok "and does not name $ref"
 done
 

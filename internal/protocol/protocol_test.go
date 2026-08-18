@@ -86,9 +86,9 @@ func TestReservedEnvNamesAreRefused(t *testing.T) {
 	}
 }
 
-// status and list_secrets carry no cmd.
+// status and secret_refs carry no cmd.
 func TestOpsWithoutCmd(t *testing.T) {
-	for _, op := range []string{"status", "list_secrets"} {
+	for _, op := range []string{"status", "secret_refs"} {
 		req, err := parse(t, `{"op":"`+op+`"}`)
 		if err != nil {
 			t.Errorf("%s: %v", op, err)

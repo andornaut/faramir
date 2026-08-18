@@ -605,7 +605,7 @@ func TestTheStoreIsUnservableWhenAManagedFileDidNotLoad(t *testing.T) {
 func TestStatusAndListStayAvailableWhileNoManagedFileWasRead(t *testing.T) {
 	s := newUnconfiguredServer(t, map[string]string{})
 	peer := &sockutil.Peer{UID: 1000}
-	for _, op := range []string{"status", "list_secrets"} {
+	for _, op := range []string{"status", "secret_refs"} {
 		if got := s.Handle(map[string]any{"op": op}, peer); got["error"] != nil {
 			t.Errorf("%s was refused: %v", op, got["error"])
 		}
@@ -622,7 +622,7 @@ func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
 	}
 }
 
-// Deliberately unbounded: list_secrets and run are on this socket behind the
+// Deliberately unbounded: secret_refs and run are on this socket behind the
 // same check, so a caller who could probe can instead name every ref and be
 // handed every value.  A throttle here would only slow the path nobody needs.
 //

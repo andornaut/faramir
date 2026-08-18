@@ -140,7 +140,7 @@ An audit log that cannot be written | A command that cannot be recorded is not r
 For the secrets it is one rule, and `exec` is held to it because a brokered command's output is redacted against the same set: **the broker serves `exec` and `redact` only while no managed file went unread.** At least one managed file or one link read, and everything that was there loaded.
 
 - What those files held does not enter into it. An install whose operator has not written a secret yet serves, and a ref no file defines is answered by `unknown_secret`.
-- Otherwise the broker refuses with `no_secrets`, naming why. It comes up either way, and `status` and `list_secrets` answer regardless.
+- Otherwise the broker refuses with `no_secrets`, naming why. It comes up either way, and `status` and `secret_refs` answer regardless.
 - A keeper that could not be reached is the exception once a set has loaded, what is kept then being the last thing known to be true. A cold start has nothing to keep and refuses.
 
 Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. `--check` and `doctor` tell the two apart.

@@ -20,13 +20,13 @@ Op | Does | Notes
 --- | --- | ---
 `exec` | run a command | The default: an absent or unrecognised `op` is read as this.
 `redact` | scrub text the caller already holds | An oracle by design. Audited: the input's size and what was found, never the text.
-`list_secrets` | ref names only | Adds `refs`.
+`secret_refs` | ref names only | Adds `refs`.
 `status` | version, `configs`, loaded files, secret count, load errors, `ssh.configured`/`ssh.usable`, `sudo.enabled` | Whether, never where or how.
 `escalations` | what is waiting, and how an approved run ended | Root only. Adds `questions`, and `finished` when the caller named a run that has ended.
 `approve` | answer by `id` | Root only.
 `escalate` | the PAM helper's half | Root only. Adds `approved`, `outcome_code`, `reason`.
 
-The three root-only ops are checked with `SO_PEERCRED`: the account the coding agent runs as must not approve what the agent asked for. `status` and `list_secrets` answer whatever the value set is doing.
+The three root-only ops are checked with `SO_PEERCRED`: the account the coding agent runs as must not approve what the agent asked for. `status` and `secret_refs` answer whatever the value set is doing.
 
 ### exec
 
@@ -128,7 +128,7 @@ Code | Meaning
 `escalation_in_progress` | An escalation is being decided or held, so no other brokered command runs. Names the command holding it. **Terminal, not retryable**: this command was neither run nor queued. Only where `--allow-sudo` was installed
 `not_quiescent` | `approve` said yes, but a process of the executor's uid was alive outside the run being approved and could have ridden the escalation. The `sudo` fails and the command is run again once the host is quiet
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `exec` alone
-`no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `list_secrets` always answer
+`no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `exec` and `redact` both refuse; `status` and `secret_refs` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the three root-only ops
 `too_large` | Request exceeded `[server] max_request_bytes`

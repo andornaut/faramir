@@ -263,7 +263,7 @@ Command | Does
 Tool | Parameters
 --- | ---
 `faramir_run` | `cmd` (array, required), `env_refs`, `cwd`, `timeout_sec`
-`faramir_list_secrets` | none. Ref names only, and where `faramir_run`'s `env_refs` come from
+`faramir_secret_refs` | none. Ref names only, and where `faramir_run`'s `env_refs` come from
 
 Two, and meant to stay two. A tool is for what an agent has to be told; everything else is a subcommand. Pi registers the same two from its extension; both lists are asserted by count.
 

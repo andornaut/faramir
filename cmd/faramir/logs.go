@@ -645,8 +645,8 @@ func emptyReason(path string, count int) string {
 // every following column of that row somewhere else.
 const logIDWidth = 15
 
-// opWidth is the longest op the broker writes, `list_secrets` and `exec_started`
-// at twelve, plus the separating space.  Sized past the longest rather than to
+// opWidth is the longest op the broker writes, `exec_started` at twelve, plus
+// the separating space.  Sized past the longest rather than to
 // it: pad appends a single space to anything already at the width, so a column
 // exactly as wide as its longest value renders that value one character wider
 // than every other row and puts every following column of that row somewhere
@@ -1061,8 +1061,8 @@ func list(record map[string]any, key string) []string {
 
 // pad is one column of the listing, widened to width.  A value that is already
 // that wide still gets a space: without one it runs into the column after it
-// (`list_secrets` overruns the op column, and the row reads
-// `list_secretsrefused`), and a row whose columns have merged is read wrong.
+// (`exec_started` overruns the op column, and the row reads
+// `exec_startedstarted`), and a row whose columns have merged is read wrong.
 // Counted in runes, not bytes: a value carrying the ellipsis a cut record's
 // fields end with is three bytes and one column, and a column padded by its
 // byte count is one that does not line up with the row above it.
