@@ -3,10 +3,6 @@ version: 2
 
 project_name: faramir
 
-before:
-  hooks:
-    - go mod tidy
-
 # Linux only: the broker reads peer credentials with SO_PEERCRED and the
 # executor allocates PTYs with TIOCGPTN, and the install is a systemd unit set.
 builds:
