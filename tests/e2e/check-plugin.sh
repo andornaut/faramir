@@ -134,7 +134,7 @@ TOOLEOF
   chmod 0644 /tmp/pi-tools.mjs
   tools=$(runuser -u op -- env PROJECT="$PROJECT" node /tmp/pi-tools.mjs 2>/dev/null)
   # The two MCP exposes; there is no status tool on any host.
-  for want in faramir_run faramir_secret_refs; do
+  for want in faramir_run faramir_vault_refs; do
     grep -q "$want" <<<"$tools" && ok "pi: $want is registered" || bad "pi: $want was not registered"
   done
   grep -q 'faramir_status' <<<"$tools" && bad "pi registers a status tool no other host has" \

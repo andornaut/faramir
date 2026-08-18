@@ -80,7 +80,7 @@ var corpus = []denyCase{
 	{"tee /usr/local/libexec/faramir/deny-patterns.txt < /dev/null", true, "tee writes where echo would"},
 	{"mv /etc/faramir/age.key /tmp/k", true, "so does mv"},
 	{"rm -f /etc/faramir/secrets/x.sops.yml", true, "so does rm"},
-	{"sops set ~/.config/faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'", true, "editing a store outside faramir secret edit"},
+	{"sops set ~/.config/faramir/secrets/x.sops.yml '[\"a\"]' '\"b\"'", true, "editing a store outside faramir vault edit"},
 	{"sops -e -i secrets.yml", true, "re-encrypting in place"},
 	{"systemctl edit faramir-broker", true, "a drop-in changes what the daemon is"},
 	{"cp /bin/true /usr/local/bin/jq", false, "the binary is named as a path, not as its directory"},
@@ -105,7 +105,7 @@ var corpus = []denyCase{
 	// -- the faramir prefix --------------------------------------------------
 	{"faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW", false, "a ref in faramir's arguments is the point of it"},
 	{"sudo faramir status", false, "under sudo as well"},
-	{"faramir secret refs", false, "an operator subcommand"},
+	{"faramir vault refs", false, "an operator subcommand"},
 	{"faramir status; faramir run --env A=faramir://a -- printenv A", false, "a chain of sanctioned calls, each stripped in turn"},
 	{"faramir status; printenv", true, "past the separator is a command of its own"},
 	{"faramir status && printenv", true, "whatever the separator is"},

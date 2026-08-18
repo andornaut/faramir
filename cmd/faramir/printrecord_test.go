@@ -37,7 +37,7 @@ func renderRecord(t *testing.T, line string, paint palette) string {
 // labelled rows, the two list fields, the refs object, the redaction counts and
 // the output.  Every field is spelled the way the writer spells it, env_refs
 // included -- internal/server records NAME -> ref, not a list of refs.
-const detailFixture = `{"log_id":"w5vq7dbf000007","op":"exec",` +
+const detailFixture = `{"log_id":"w5vq7dbf000007","op":"run",` +
 	`"peer":{"uid":0,"pid":4242},"cmd":["ansible-playbook","site.yml"],` +
 	`"argv0_path":"/usr/bin/ansible-playbook",` +
 	`"cwd":"/srv/project","exit_code":0,"duration_sec":1.5,` +
@@ -75,7 +75,7 @@ func TestPrintRecordRendersEveryField(t *testing.T) {
 // list where the record holds an object prints nothing at all, and a record
 // with no refs prints nothing either, so the view looks the same both ways.
 func TestRefsRowReadsTheShapeTheBrokerWrites(t *testing.T) {
-	got := renderRecord(t, `{"log_id":"x","op":"exec",`+
+	got := renderRecord(t, `{"log_id":"x","op":"run",`+
 		`"env_refs":{"TOKEN":"api/token","PW":"db/password"}}`, plain(t))
 	// Sorted by variable name rather than by whatever the map iterated to first.
 	if !strings.Contains(got, "refs       PW=db/password, TOKEN=api/token") {
@@ -115,7 +115,7 @@ func TestPrintRecordWithColourPrintsTheSameRows(t *testing.T) {
 // account chose, and an escape in one of them rewrites the operator's terminal.
 func TestPrintRecordRendersTerminalControlsInCallerText(t *testing.T) {
 	line, err := json.Marshal(map[string]any{
-		"log_id": "x", "op": "exec", "cwd": "/srv\x1b[2Jwiped",
+		"log_id": "x", "op": "run", "cwd": "/srv\x1b[2Jwiped",
 	})
 	if err != nil {
 		t.Fatal(err)

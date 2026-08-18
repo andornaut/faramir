@@ -70,13 +70,13 @@ func runEdit(f editFlags, args []string) int {
 
 	// Refused rather than attempted: the bare permission error on the age key does
 	// not say what to do.
-	if !requireRoot("secret edit", "the age key is readable only by the keeper and by root") {
+	if !requireRoot("vault edit", "the age key is readable only by the keeper and by root") {
 		return 1
 	}
 
 	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir secret edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)
 		return 1
 	}
 
@@ -89,7 +89,7 @@ func runEdit(f editFlags, args []string) int {
 	unresolvable := slices.Concat(failures, absent)
 	target, err := resolveManaged(managed, args[0])
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir secret edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)
 		for _, reason := range unresolvable {
 			fmt.Fprintf(os.Stderr, "  %s\n", reason)
 		}
@@ -98,13 +98,13 @@ func runEdit(f editFlags, args []string) int {
 
 	editorPath, err := resolveEditor(f.editor)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir secret edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)
 		return 1
 	}
 
 	keyPath := ageKeyPath(cfg)
 	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir secret edit: age key: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir vault edit: age key: %v\n", err)
 		return 1
 	}
 
@@ -135,14 +135,14 @@ func runEdit(f editFlags, args []string) int {
 	audit.NewLog(cfg.Audit).Write(record, audit.Output{})
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir secret edit: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)
 		return 1
 	}
 	if !changed {
-		fmt.Fprintln(os.Stderr, "faramir secret edit: unchanged")
+		fmt.Fprintln(os.Stderr, "faramir vault edit: unchanged")
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "faramir secret edit: wrote %s; the broker picks it up within one refresh interval\n", target)
+	fmt.Fprintf(os.Stderr, "faramir vault edit: wrote %s; the broker picks it up within one refresh interval\n", target)
 	return 0
 }
 

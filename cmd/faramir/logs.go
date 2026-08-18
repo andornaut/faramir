@@ -605,7 +605,7 @@ func findRecord(path, id string) (map[string]any, int, error) {
 		// cost a scan of the whole file for a record already in hand, and would
 		// count damage past it as damage in the way of this lookup.  A start half
 		// is not the end of the pair, so that one reads on.
-		return str(record, "op") == opExecStarted
+		return str(record, "op") == opRunStarted
 	})
 	return found, skipped, err
 }
@@ -645,19 +645,19 @@ func emptyReason(path string, count int) string {
 // every following column of that row somewhere else.
 const logIDWidth = 15
 
-// opWidth is the longest op the broker writes, `exec_started` at twelve, plus
-// the separating space.  Sized past the longest rather than to
+// opWidth is the longest op the broker writes, `escalations` and `run_started`
+// at eleven, plus the separating space.  Sized past the longest rather than to
 // it: pad appends a single space to anything already at the width, so a column
 // exactly as wide as its longest value renders that value one character wider
 // than every other row and puts every following column of that row somewhere
 // else.  A listing whose columns move from row to row has to be read a row at a
 // time.
-const opWidth = 13
+const opWidth = 12
 
-// opExecStarted is the first half of the pair an exec writes, and the one record
+// opRunStarted is the first half of the pair a run writes, and the one record
 // with no ending in it.  Named here as well as at the broker that writes it:
 // this reader is pointed at a file, not linked to the daemon.
-const opExecStarted = "exec_started"
+const opRunStarted = "run_started"
 
 // opEdit and opReseal are the two records this binary writes itself rather than
 // reads from a daemon.  Named beside the ops it renders so that one place holds
@@ -749,7 +749,7 @@ func outcome(record map[string]any) (string, bool) {
 	// mostly read later.  A row claiming a command is running says something false
 	// about one the broker lost three days ago, where "it began" stays true and
 	// the missing second record is what says it never reported an ending.
-	if str(record, "op") == opExecStarted {
+	if str(record, "op") == opRunStarted {
 		return "started", false
 	}
 	if timedOut, _ := boolean(record, "timed_out"); timedOut {
@@ -872,7 +872,7 @@ func printRecord(record map[string]any, paint palette) {
 	//
 	// outcome is the escalation's own reason (why it was refused, or that it was
 	// approved), reason is why a refusal that never reached a command refused it,
-	// and exec_log_id is the command's record, so an escalation reads in both
+	// and run_log_id is the command's record, so an escalation reads in both
 	// directions.
 	//
 	// Rendered, not printed: all of these carry text chosen by the account this
@@ -882,7 +882,7 @@ func printRecord(record map[string]any, paint palette) {
 	// host).
 	for _, row := range []struct{ field, label string }{
 		{"cwd", "cwd"}, {"argv0_path", "program"}, {"error", "error"},
-		{"outcome", "outcome"}, {"reason", "reason"}, {"exec_log_id", "exec_log_id"},
+		{"outcome", "outcome"}, {"reason", "reason"}, {"run_log_id", "run_log_id"},
 	} {
 		if value := str(record, row.field); value != "" {
 			printField(paint, row.label, termsafe.Line(value))
@@ -1061,8 +1061,8 @@ func list(record map[string]any, key string) []string {
 
 // pad is one column of the listing, widened to width.  A value that is already
 // that wide still gets a space: without one it runs into the column after it
-// (`exec_started` overruns the op column, and the row reads
-// `exec_startedstarted`), and a row whose columns have merged is read wrong.
+// (`run_started` overruns the op column, and the row reads
+// `run_startedstarted`), and a row whose columns have merged is read wrong.
 // Counted in runes, not bytes: a value carrying the ellipsis a cut record's
 // fields end with is three bytes and one column, and a column padded by its
 // byte count is one that does not line up with the row above it.

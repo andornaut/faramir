@@ -488,8 +488,8 @@ func TestEveryRequestIsRecorded(t *testing.T) {
 	if record["op"] != "escalate" {
 		t.Errorf("op = %v, want escalate", record["op"])
 	}
-	if record["exec_log_id"] != "log-1" {
-		t.Errorf("exec_log_id = %v, want the command's own record", record["exec_log_id"])
+	if record["run_log_id"] != "log-1" {
+		t.Errorf("run_log_id = %v, want the command's own record", record["run_log_id"])
 	}
 	if outcome, _ := record["outcome"].(string); !strings.Contains(outcome, "the test") {
 		t.Errorf("outcome = %q, want it to name who answered", outcome)

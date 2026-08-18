@@ -121,7 +121,7 @@ func loadStore(label, configPath, socket string, named []string,
 // to `edit`.
 var errNoFilesToReseal = errors.New("no managed sops files: the managed store " +
 	"named none, so there is nothing to re-encrypt. Write the first one with " +
-	"`faramir secret add NAME`")
+	"`faramir vault add NAME`")
 
 // ageKeyPath is the key a run decrypts with: the install's own, beside its
 // config, and no flag names another.

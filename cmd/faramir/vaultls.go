@@ -50,14 +50,14 @@ type managedFile struct {
 	Problem string `json:"problem,omitempty"`
 }
 
-type secretListFlags struct {
+type vaultListFlags struct {
 	configPath string
 	socket     string
 	json       bool
 }
 
-func newSecretListCmd() *cobra.Command {
-	var f secretListFlags
+func newVaultListCmd() *cobra.Command {
+	var f vaultListFlags
 	c := &cobra.Command{
 		Use:   "ls [options]",
 		Short: "the managed files, their refs and who can read them",
@@ -67,7 +67,7 @@ func newSecretListCmd() *cobra.Command {
 			"Ref names are cleartext in a sops file, so this decrypts nothing and\n" +
 			"prints no value.",
 		Args: noArgs,
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runSecretList(f)) },
+		RunE: func(c *cobra.Command, args []string) error { return codeErr(runVaultList(f)) },
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "",
 		"config file (default $FARAMIR_CONFIG, then the installed one)")
@@ -77,8 +77,8 @@ func newSecretListCmd() *cobra.Command {
 	return c
 }
 
-func runSecretList(f secretListFlags) int {
-	const label = "secret ls"
+func runVaultList(f vaultListFlags) int {
+	const label = "vault ls"
 	// The secrets directory is 2750 and the group is the keeper's, so the operator
 	// cannot so much as list it.  Refused with the reason rather than reported as
 	// an empty store, which is what a bare permission error would look like.
@@ -111,7 +111,7 @@ func runSecretList(f secretListFlags) int {
 
 	if len(files) == 0 {
 		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet; "+
-			"`faramir secret add NAME` writes the first\n", label)
+			"`faramir vault add NAME` writes the first\n", label)
 	} else {
 		// The directory once, above the rows, so the names are the ones the other
 		// commands take and a full path is still there to be read off.
@@ -195,14 +195,14 @@ func refsIn(path string) ([]string, error) {
 	return refs, nil
 }
 
-type secretRemoveFlags struct {
+type vaultRemoveFlags struct {
 	configPath string
 	socket     string
 	force      bool
 }
 
-func newSecretRemoveCmd() *cobra.Command {
-	var f secretRemoveFlags
+func newVaultRemoveCmd() *cobra.Command {
+	var f vaultRemoveFlags
 	c := &cobra.Command{
 		Use:     "rm [options] NAME",
 		Aliases: []string{"remove"},
@@ -215,7 +215,7 @@ func newSecretRemoveCmd() *cobra.Command {
 			"decided.",
 		Args: exactlyArgs(1, "one file name"),
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runSecretRemove(f, args[0]))
+			return codeErr(runVaultRemove(f, args[0]))
 		},
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "",
@@ -227,8 +227,8 @@ func newSecretRemoveCmd() *cobra.Command {
 	return c
 }
 
-func runSecretRemove(f secretRemoveFlags, name string) int {
-	const label = "secret rm"
+func runVaultRemove(f vaultRemoveFlags, name string) int {
+	const label = "vault rm"
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
@@ -312,21 +312,21 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	return answer == name || answer == filepath.Base(target)
 }
 
-// newSecretRefsCmd is `secret_refs` under the noun it belongs to: what the
+// newVaultRefsCmd is `vault_refs` under the noun it belongs to: what the
 // broker is serving, which is not the same question as what is in the
 // directory.
-func newSecretRefsCmd() *cobra.Command {
+func newVaultRefsCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:   "refs [options]",
 		Short: "the refs the broker is serving, names only",
 		Long: "Asks the broker, so this is what a brokered command could actually\n" +
-			"name. `faramir secret ls` is the other question: what is in the\n" +
+			"name. `faramir vault ls` is the other question: what is in the\n" +
 			"directory, including a file the broker refused to load.\n\n" +
 			"Needs no root, and returns names only. Never a value.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(send("secret refs", o.socket, map[string]any{"op": "secret_refs"},
+			return codeErr(send("vault refs", o.socket, map[string]any{"op": "vault_refs"},
 				o.json, true))
 		},
 	}

@@ -58,7 +58,7 @@ Value | Why not a key
 `max_record_bytes` (256 KiB) | Matched to the output cap, which is what fills it: the record keeps the head and the tail of the same output and cuts every other field to fit
 `term_cols`, `term_rows` (120x40) | Where a program folds its own output, on a stream a model reads
 `kill_grace_sec` (5) | A window that opens only once a command has overrun its timeout
-the managed store | `<config-dir>/secrets/` matching `*.sops.yml`. One spelling: faramir writes the store, so an operator picks a name and `secret add` picks the format. Derived from where the config sits, so the store cannot be pointed at a checkout. What the agent cannot open is the directory, which the deny rules name by path
+the managed store | `<config-dir>/secrets/` matching `*.sops.yml`. One spelling: faramir writes the store, so an operator picks a name and `vault add` picks the format. Derived from where the config sits, so the store cannot be pointed at a checkout. What the agent cannot open is the directory, which the deny rules name by path
 the decrypt command | A second way to invoke sops is a second thing that could be pointed elsewhere, by the account holding the age key
 
 ## Linked secrets
@@ -140,7 +140,7 @@ An audit log that cannot be written | A command that cannot be recorded is not r
 For the secrets it is one rule, and `exec` is held to it because a brokered command's output is redacted against the same set: **the broker serves `exec` and `redact` only while no managed file went unread.** At least one managed file or one link read, and everything that was there loaded.
 
 - What those files held does not enter into it. An install whose operator has not written a secret yet serves, and a ref no file defines is answered by `unknown_secret`.
-- Otherwise the broker refuses with `no_secrets`, naming why. It comes up either way, and `status` and `secret_refs` answer regardless.
+- Otherwise the broker refuses with `no_secrets`, naming why. It comes up either way, and `status` and `vault_refs` answer regardless.
 - A keeper that could not be reached is the exception once a set has loaded, what is kept then being the last thing known to be true. A cold start has nothing to keep and refuses.
 
 Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. `--check` and `doctor` tell the two apart.

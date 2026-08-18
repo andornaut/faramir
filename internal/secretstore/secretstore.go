@@ -155,7 +155,7 @@ func (s *Store) Reload() {
 			"injected; lengthen them: %s",
 			len(refused), len(redactable)+len(refused), strings.Join(entries, ", "))
 	}
-	log.Printf("loaded %d secret refs from %d file(s)", len(redactable), len(state))
+	log.Printf("loaded %d vault refs from %d file(s)", len(redactable), len(state))
 }
 
 // RefreshIfStale asks the keeper for the managed files' fingerprints, and

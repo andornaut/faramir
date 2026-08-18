@@ -2,32 +2,38 @@ package main
 
 import "github.com/spf13/cobra"
 
-// newSecretCmd groups what is done to the files: write one, edit one, list
-// them, remove one, and ask the broker which refs they name.
+// newVaultCmd groups what is done to the files: write one, edit one, list them,
+// remove one, and ask the broker which refs they name.
 //
-// Named for the subject rather than for sops, which is the format underneath
-// and the tool that reads it.  What an operator acts on here is their secrets;
-// that they are sops files governed by a creation rule is how, not what.  Who
-// may read them is `faramir recipient`, a noun of its own beside this one and
-// beside `faramir link`.
+// A vault, not a secret: each of these files holds several, so `add` writes a
+// container rather than a credential and the singular would name the wrong
+// thing.  It is also the word ansible-vault uses for the same object, and the
+// one the deny rules already use for a protected credential store, so an agent
+// reading "vault files are off limits" and an operator running `faramir vault
+// edit` mean the same thing by it.
+//
+// Not sops, which is the format underneath and the tool that reads it: what an
+// operator acts on is the vault, and that it is governed by a creation rule is
+// how rather than what.  Who may read them is `faramir recipient`, a noun of its
+// own beside this one and beside `faramir link`.
 //
 // Minting a key is not here.  Three of the four ways a recipient arises mint
 // nothing -- another operator's key, a second host's own, a plugin's -- and the
 // fourth is a backup identity, which has to be minted on the machine that will
 // hold it rather than on the host it is the backup for.  A command here would
 // have minted it in the wrong place.
-func newSecretCmd() *cobra.Command {
+func newVaultCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:     "secret",
-		Short:   "the managed store: write, edit, list and remove secrets",
+		Use:     "vault",
+		Short:   "the managed vaults: write, edit, list and remove them",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		// Never reached, the arguments never validating; a command cobra does not
 		// consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newAddCmd(), newEditCmd(), newSecretListCmd(),
-		newSecretRemoveCmd(), newSecretRefsCmd())
+	c.AddCommand(newAddCmd(), newEditCmd(), newVaultListCmd(),
+		newVaultRemoveCmd(), newVaultRefsCmd())
 	return c
 }
 

@@ -1074,7 +1074,7 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 // that no token appeared.
 func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
 	faramir := filepath.Join(DefaultBinDir, "faramir")
-	out, err := asOperator(opts, faramir, "secret", "refs")
+	out, err := asOperator(opts, faramir, "vault", "refs")
 	if err != nil {
 		report.addf("redaction", StatusFailed, "could not list the refs to probe with: %v", err)
 		return

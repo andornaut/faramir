@@ -22,8 +22,8 @@ func TestMinimal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if req.Op != "exec" {
-		t.Errorf("op = %q, want exec (the default)", req.Op)
+	if req.Op != "run" {
+		t.Errorf("op = %q, want run (the default)", req.Op)
 	}
 	if strings.Join(req.Cmd, " ") != "printenv ROUTER_PW" {
 		t.Errorf("cmd = %v", req.Cmd)
@@ -86,9 +86,9 @@ func TestReservedEnvNamesAreRefused(t *testing.T) {
 	}
 }
 
-// status and secret_refs carry no cmd.
+// status and vault_refs carry no cmd.
 func TestOpsWithoutCmd(t *testing.T) {
-	for _, op := range []string{"status", "secret_refs"} {
+	for _, op := range []string{"status", "vault_refs"} {
 		req, err := parse(t, `{"op":"`+op+`"}`)
 		if err != nil {
 			t.Errorf("%s: %v", op, err)

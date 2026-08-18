@@ -4,7 +4,7 @@ import "testing"
 
 func TestGroupedNamesAreSanctionedAsTwoTokens(t *testing.T) {
 	for _, cmd := range []string{
-		"faramir secret edit /etc/faramir/secrets/a.sops.yml",
+		"faramir vault edit /etc/faramir/secrets/a.sops.yml",
 		"faramir sops   edit /etc/faramir/secrets/a.sops.yml",
 		"faramir link add gh/token /home/o/.config/gh/hosts.yml",
 	} {

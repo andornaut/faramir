@@ -360,7 +360,7 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 	switch request.Op {
 	case "status":
 		return s.opStatus()
-	case "secret_refs":
+	case "vault_refs":
 		return s.opListSecrets()
 	case opRedactName:
 		return s.opRedact(request, peer, stream)
@@ -371,7 +371,7 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 	case "escalate":
 		return s.opEscalate(request, peer)
 	default:
-		return s.opExec(request, peer)
+		return s.opRun(request, peer)
 	}
 }
 
@@ -626,7 +626,7 @@ func (s *Server) secretsDir() string {
 // Here rather than at startup, for two reasons.  A check at startup judges the
 // host as it was at boot, so a reload that shrinks the set afterwards passes
 // unremarked; and exiting takes the daemon down just when `faramir status` and
-// `doctor` are what would explain why.  status and secret_refs stay available
+// `doctor` are what would explain why.  status and vault_refs stay available
 // for the second reason: neither produces output that depends on the set.
 func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	reason := s.Store.Unreadable()
@@ -664,7 +664,7 @@ func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
 	record := s.redactor()
 	detail := record.RedactText(message)
 	entry := map[string]any{
-		"log_id": logID, "op": recordExec, "peer": peer,
+		"log_id": logID, "op": recordRun, "peer": peer,
 		"refused": code, "error": detail,
 	}
 	if len(cmd) > 0 {
@@ -704,13 +704,13 @@ func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
 	return &out
 }
 
-// The two ops a brokered command's records carry.  recordExecStarted is written
-// when the child runs; recordExec is every other record about that command, the
+// The two ops a brokered command's records carry.  recordRunStarted is written
+// when the child runs; recordRun is every other record about that command, the
 // one saying how it went or why it never ran.  The pair is joined by the log_id,
-// so a reader selecting recordExec still gets one record per command.
+// so a reader selecting recordRun still gets one record per command.
 const (
-	recordExec        = "exec"
-	recordExecStarted = "exec_started"
+	recordRun        = "run"
+	recordRunStarted = "run_started"
 )
 
 // callerName renders the peer as a person reads it: the name where the account
@@ -816,10 +816,10 @@ func (s *Server) execFields(a execAudit) map[string]any {
 	}
 }
 
-func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
+func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	execCfg := s.Config.Command
 	logID := audit.NewLogID()
-	if refused := s.refuseUnreadable("exec", "this command", logID); refused != nil {
+	if refused := s.refuseUnreadable("run", "this command", logID); refused != nil {
 		return *refused
 	}
 	if refused := s.refuseUnauditable("this command", logID); refused != nil {
@@ -854,7 +854,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		record := s.redactor()
 		detail := record.RedactText(err.Error())
 		s.Audit.Write(map[string]any{
-			"log_id": logID, "op": recordExec, "peer": peer,
+			"log_id": logID, "op": recordRun, "peer": peer,
 			"cmd": redactEach(record, cmd), "cwd": record.RedactText(cwd),
 			"error": detail,
 		}, audit.Output{})
@@ -975,7 +975,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	// No output: there is none yet, and what the command prints is the other
 	// record's.
 	starting := s.execFields(audited)
-	starting["op"] = recordExecStarted
+	starting["op"] = recordRunStarted
 	s.Audit.Write(starting, audit.Output{})
 
 	result, err := s.exec(redactor, collector.Add, executor.Request{
@@ -1000,7 +1000,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 		// recorded before the error is returned: without this a command that
 		// reached a managed host leaves nothing behind but a daemon-log line.
 		record := s.execFields(audited)
-		record["op"], record["error"] = recordExec, detail
+		record["op"], record["error"] = recordRun, detail
 		s.Audit.Write(record, collector.Output())
 		return protocol.ErrorResponse("exec_failed", detail, logID)
 	}
@@ -1013,7 +1013,7 @@ func (s *Server) opExec(request *protocol.Request, peer *sockutil.Peer) protocol
 	outcome.WaitedSec = judged.waited
 
 	record := s.execFields(audited)
-	record["op"] = recordExec
+	record["op"] = recordRun
 	record["exit_code"], record["duration_sec"] = result.ExitCode, result.DurationSec
 	record["timed_out"], record["redactions"] = result.TimedOut, result.Redactions
 	maps.Copy(record, judged.fields())

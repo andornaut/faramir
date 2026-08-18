@@ -190,7 +190,7 @@ else
 fi
 
 # The point of both: no row that did not run is left looking like one that ran.
-blank=$(logs -n 40 | grep -E '^[0-9a-z]{14} ' | awk '{ if ($3 == "exec" && $4 ~ /^\//) print }' | wc -l)
+blank=$(logs -n 40 | grep -E '^[0-9a-z]{14} ' | awk '{ if ($3 == "run" && $4 ~ /^\//) print }' | wc -l)
 [ "$blank" -eq 0 ] && ok "no exec row is left with an empty outcome column" \
   || bad "$blank exec rows render as neither run nor refused"
 
@@ -265,7 +265,7 @@ with open(sys.argv[1], "w") as fh:
     for i in range(1, 1031):
         fh.write(json.dumps({
             "log_id": "w5vqbbbb%06x" % i, "at": 1786000000 + i,
-            "op": "exec", "cwd": "/home/op/project", "peer": {"uid": 1001, "pid": i},
+            "op": "run", "cwd": "/home/op/project", "peer": {"uid": 1001, "pid": i},
             "cmd": ["/bin/echo", "record-%d" % i], "exit_code": 0, "duration_sec": 0.01,
             "output": "record-%d\n" % i}) + "\n")
 PY
@@ -302,7 +302,7 @@ head_ "6. a log that was damaged, or written by something else"
 
 DMG=/tmp/damaged.log
 {
-  echo '{"log_id":"w5vqcccc000001","at":1786000001,"op":"exec","cmd":["/bin/one"],"exit_code":0}'
+  echo '{"log_id":"w5vqcccc000001","at":1786000001,"op":"run","cmd":["/bin/one"],"exit_code":0}'
   echo 'this is not json at all'
   echo '{"log_id":"half-written","op":"exe'
   echo '[1,2,3]'
@@ -310,8 +310,8 @@ DMG=/tmp/damaged.log
   echo 'null'
   echo ''
   echo '   '
-  echo '{"log_id":"w5vqcccc000002","at":1786000002,"op":"exec","cmd":["/bin/two"],"exit_code":0}'
-  printf '{"log_id":"no-newline-yet","op":"exec"'
+  echo '{"log_id":"w5vqcccc000002","at":1786000002,"op":"run","cmd":["/bin/two"],"exit_code":0}'
+  printf '{"log_id":"no-newline-yet","op":"run"'
 } > "$DMG"
 
 DMGCFG=$(configFor "$DMG" dmg)
@@ -455,17 +455,17 @@ recs=$(jq -c . "$LOG" 2>/dev/null | wc -l)
   || bad "$lines lines, $recs parse: a write interleaved"
 # Distinct per command rather than per record: an exec writes a pair sharing
 # one, so the id is counted once each half has been reduced to its command.
-ids=$(jq -r 'select(.op=="exec" or .op=="exec_started") | "\(.log_id) \(.op)"' "$LOG" | sort | wc -l)
-uniq=$(jq -r 'select(.op=="exec" or .op=="exec_started") | "\(.log_id) \(.op)"' "$LOG" | sort -u | wc -l)
+ids=$(jq -r 'select(.op=="run" or .op=="run_started") | "\(.log_id) \(.op)"' "$LOG" | sort | wc -l)
+uniq=$(jq -r 'select(.op=="run" or .op=="run_started") | "\(.log_id) \(.op)"' "$LOG" | sort -u | wc -l)
 [ "$ids" -eq "$uniq" ] && ok "and every log_id is distinct per record ($uniq)" \
   || bad "$((ids-uniq)) log_ids repeat within one half of the pair"
-got=$(jq -r 'select(.op=="exec") | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
+got=$(jq -r 'select(.op=="run") | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
 [ "$got" -eq "$n" ] && ok "all $n concurrent runs are recorded" || bad "$got of $n recorded"
 # One start record per command that ran, and none for one refused before it did:
 # over [command] concurrency the broker refuses rather than queues, and a
 # command that never started has nothing to say it began.
-starts=$(jq -r 'select(.op=="exec_started") | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
-ran=$(jq -r 'select(.op=="exec" and .exit_code != null) | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
+starts=$(jq -r 'select(.op=="run_started") | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
+ran=$(jq -r 'select(.op=="run" and .exit_code != null) | .cmd[-1]' "$LOG" | grep -c '^echo c[0-9]* \$PW$')
 [ "$starts" -eq "$ran" ] && ok "and each of the $ran that ran was in the log from the moment it started" \
   || bad "$starts start records for $ran commands that ran"
 grep -qF "$SECRET" "$LOG" && bad "concurrency put a value in the log" || ok "and none of them wrote a value"
@@ -569,12 +569,12 @@ head_ "13. record shapes the broker writes but this run did not produce"
 
 SYN=/tmp/shapes.log
 cat > "$SYN" <<'BODY'
-{"log_id":"w5vqdddd000001","at":1786000101,"op":"escalate","approved":true,"peer":{"uid":1001,"pid":10},"cmd":["/usr/bin/apt","install","-y","curl"],"exec_log_id":"w5vqdddd000002","outcome":"approved at the console"}
+{"log_id":"w5vqdddd000001","at":1786000101,"op":"escalate","approved":true,"peer":{"uid":1001,"pid":10},"cmd":["/usr/bin/apt","install","-y","curl"],"run_log_id":"w5vqdddd000002","outcome":"approved at the console"}
 {"log_id":"w5vqdddd000003","at":1786000103,"op":"escalate","approved":false,"peer":{"uid":1001,"pid":11},"cmd":["/usr/bin/rm","-rf","/"],"outcome":"another session holds the host"}
 {"log_id":"w5vqdddd000004","at":1786000104,"op":"edit","file":"/etc/faramir/secrets/app.sops.yml","peer":{"uid":0,"pid":12}}
 {"log_id":"w5vqdddd000005","at":1786000105,"op":"reseal","file":"/etc/faramir/secrets/app.sops.yml","from":["age1old"],"to":["age1old","age1new"],"peer":{"uid":0,"pid":13}}
-{"log_id":"w5vqdddd000006","at":1786000106,"op":"exec","cmd":["/bin/sh"],"exit_code":0,"redactions":[{"token":"«SECRET:db/password»","count":3},{"token":"«SECRET:api/token»","count":1}]}
-{"log_id":"w5vqdddd000007","at":1786000107,"op":"exec","cmd":["bin/deploy"],"argv0_path":"/home/op/project/bin/deploy","cwd":"/home/op/project","env_refs":{"PW":"db/password","TOKEN":"api/token"},"exit_code":0,"record_reduced":true}
+{"log_id":"w5vqdddd000006","at":1786000106,"op":"run","cmd":["/bin/sh"],"exit_code":0,"redactions":[{"token":"«SECRET:db/password»","count":3},{"token":"«SECRET:api/token»","count":1}]}
+{"log_id":"w5vqdddd000007","at":1786000107,"op":"run","cmd":["bin/deploy"],"argv0_path":"/home/op/project/bin/deploy","cwd":"/home/op/project","env_refs":{"PW":"db/password","TOKEN":"api/token"},"exit_code":0,"record_reduced":true}
 BODY
 
 SYNCFG=$(configFor "$SYN" syn)
@@ -585,7 +585,7 @@ grep -q 'app.sops.yml' <<<"$out" && ok "an edit names the file it changed" || ba
 grep -q '4 redacted' <<<"$out" && ok "the listing sums the per-token counts" || bad "sum row: [$out]"
 
 out=$(logsAt "$SYNCFG" w5vqdddd000001)
-grep -q 'w5vqdddd000002' <<<"$out" && ok "an escalation points at the command it authorised" || bad "no exec_log_id: [$out]"
+grep -q 'w5vqdddd000002' <<<"$out" && ok "an escalation points at the command it authorised" || bad "no run_log_id: [$out]"
 grep -q 'approved at the console' <<<"$out" && ok "and says how it was answered" || bad "no outcome: [$out]"
 out=$(logsAt "$SYNCFG" w5vqdddd000005)
 grep -q 'age1old' <<<"$out" && grep -q 'age1new' <<<"$out" \
@@ -613,7 +613,7 @@ head_ "14. --watch: the log as it is written"
 WATCH=/tmp/watch.log
 OUT=/tmp/watch.out
 WATCHCFG=$(configFor "$WATCH" watch)
-synth() { printf '{"log_id":"w5vqeeee%06d","at":%d,"op":"exec","cmd":["/bin/echo","%s"],"exit_code":0}\n' "$2" "$((1786000200 + $2))" "$1"; }
+synth() { printf '{"log_id":"w5vqeeee%06d","at":%d,"op":"run","cmd":["/bin/echo","%s"],"exit_code":0}\n' "$2" "$((1786000200 + $2))" "$1"; }
 
 # A host where nothing has been brokered has no log at all: the broker makes it
 # by writing the first record, so a watcher started before that waits for it
@@ -647,7 +647,7 @@ grep -q arrived "$OUT" && ok "and a record appended after that arrives on its ow
 
 # Half a record is half a line: held until its newline, and not reported as
 # damage in the meantime.
-printf '{"log_id":"w5vqeeee000003","at":1786000203,"op":"exec","cmd":["/bin/echo","half' >> "$WATCH"
+printf '{"log_id":"w5vqeeee000003","at":1786000203,"op":"run","cmd":["/bin/echo","half' >> "$WATCH"
 sleep 2
 grep -q half "$OUT" && bad "a record still being written was printed: [$(cat "$OUT")]" \
   || ok "a line still being appended is held rather than shown"
@@ -710,10 +710,10 @@ head_ "15. a command is in the log while it is still running"
 runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -C "$PROJECT" -- /bin/sleep 8 >/dev/null 2>&1 &
 slow=$!
 sleep 3
-ID=$(jq -r 'select(.op=="exec_started" and (.cmd|join(" ")|test("sleep 8"))) | .log_id' $LOG 2>/dev/null | tail -1)
+ID=$(jq -r 'select(.op=="run_started" and (.cmd|join(" ")|test("sleep 8"))) | .log_id' $LOG 2>/dev/null | tail -1)
 [ -n "$ID" ] && [ "$ID" != null ] && ok "a running command is already in the log ($ID)" \
   || bad "nothing was recorded until the command finished"
-[ "$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="exec") | .exit_code' $LOG 2>/dev/null | tail -1)" = "" ] \
+[ "$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="run") | .exit_code' $LOG 2>/dev/null | tail -1)" = "" ] \
   && ok "and has no ending yet, there being none" || bad "an ending was recorded before the command ended"
 # The listing says started rather than leaving the column blank, which would
 # read as a command that ran and did nothing.
@@ -724,7 +724,7 @@ logs "$ID" | grep -q 'sleep 8' && ok "and faramir logs <id> resolves it while it
   || bad "a running command's id does not resolve: $(logs "$ID" | head -2)"
 
 wait $slow 2>/dev/null
-ended=$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="exec") | .exit_code' $LOG 2>/dev/null | tail -1)
+ended=$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="run") | .exit_code' $LOG 2>/dev/null | tail -1)
 [ "$ended" = 0 ] && ok "the second record lands when it ends: exit 0" \
   || bad "no ending was recorded for $ID: [$ended]"
 # The pair shares one id, and a lookup now answers with the half that says how
@@ -732,8 +732,8 @@ ended=$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="exec") | .exit_code'
 logs "$ID" | grep -qE 'exit +0|exit_code' && ok "and the id now resolves to the ending" \
   || bad "the lookup still answers with the start: $(logs "$ID" | head -3)"
 # A reader selecting exec still sees one record per command.
-[ "$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="exec") | .log_id' $LOG 2>/dev/null | wc -l)" -eq 1 ] \
-  && ok "and op==exec is still one record per command" || bad "op==exec matched the pair"
+[ "$(jq -r --arg id "$ID" 'select(.log_id==$id and .op=="run") | .log_id' $LOG 2>/dev/null | wc -l)" -eq 1 ] \
+  && ok "and op==run is still one record per command" || bad "op==run matched the pair"
 
 # --------------------------------------------------------------------------
 summary

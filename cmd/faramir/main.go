@@ -86,10 +86,10 @@ func (o *brokerOptions) add(c *cobra.Command) {
 	c.Flags().BoolVar(&o.json, "json", false, "print the raw response")
 }
 
-// opExec is the broker operation that runs a command, which is the one whose
+// opRun is the broker operation that runs a command, which is the one whose
 // answer is worth waiting on for longer than a round trip.  Not the name of the
 // `exec` subcommand, which is the executor daemon and shares only the spelling.
-const opExec = "exec"
+const opRun = "run"
 
 func newRunCmd() *cobra.Command {
 	var (
@@ -119,7 +119,7 @@ func newRunCmd() *cobra.Command {
 				return codeErr(2)
 			}
 
-			request := map[string]any{"op": opExec, "cmd": rest}
+			request := map[string]any{"op": opRun, "cmd": rest}
 			if len(refs) > 0 {
 				request["env_refs"] = refs
 			}
@@ -595,7 +595,7 @@ const (
 // responseWait is how long to wait for this request's answer.  A command's own
 // timeout is what makes the wait long, so it is what the bound is built from.
 func responseWait(request map[string]any) time.Duration {
-	if request["op"] != opExec {
+	if request["op"] != opRun {
 		return quickWait
 	}
 	if seconds, ok := request["timeout_sec"].(int); ok && seconds > 0 {

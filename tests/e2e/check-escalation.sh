@@ -354,7 +354,7 @@ print('none' if f is None else '%s %s' % (f.get('log_id'), f.get('exit_code')))"
 # w+0 forces the comparison numeric: a missing field reads back as the string
 # "null", and awk compares two strings lexically, where "null" >= "2" is true.
 # The field going missing is what this exists to catch, so it must not pass.
-waited=$(jq -r --arg id "$LOGID" 'select(.log_id==$id and .op=="exec") | .waited_sec' $LOG 2>/dev/null | tail -1)
+waited=$(jq -r --arg id "$LOGID" 'select(.log_id==$id and .op=="run") | .waited_sec' $LOG 2>/dev/null | tail -1)
 awk -v w="${waited:-0}" 'BEGIN { exit !(w + 0 >= 2) }' \
   && ok "and the record says ${waited}s of it was waiting to be approved" \
   || bad "waited_sec is [$waited], want the seconds the answer took"
@@ -395,7 +395,7 @@ jq -r 'select(.op=="escalate" and .outcome_code=="denied") | .outcome' $LOG 2>/d
   || bad "the prose was dropped when the code arrived"
 
 # The escalation points at the command it authorised.
-id=$(jq -r 'select(.op=="escalate" and .approved==true) | .exec_log_id' $LOG 2>/dev/null | tail -1)
+id=$(jq -r 'select(.op=="escalate" and .approved==true) | .run_log_id' $LOG 2>/dev/null | tail -1)
 [ -n "$id" ] && [ "$id" != null ] && ok "and names the command's own record ($id)" \
   || bad "an escalation does not point at the run it authorised"
 

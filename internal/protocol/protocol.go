@@ -54,7 +54,7 @@ var ReservedEnv = map[string]bool{
 // of their own because the check that matters is SO_PEERCRED, which every
 // connection here already carries; a second socket would be a second mode to
 // get wrong.
-var Ops = []string{"exec", "secret_refs", "redact", "status", "escalations", "approve", "escalate"}
+var Ops = []string{"run", "vault_refs", "redact", "status", "escalations", "approve", "escalate"}
 
 type Request struct {
 	Op         string
@@ -95,7 +95,7 @@ type Request struct {
 // first thing wrong with its own field and nothing about the others, so a
 // caller fixes one thing at a time.
 func Parse(payload map[string]any) (*Request, error) {
-	req := &Request{Op: "exec", EnvRefs: map[string]string{}}
+	req := &Request{Op: "run", EnvRefs: map[string]string{}}
 	for _, step := range []func(map[string]any, *Request) error{
 		parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
 		parseEscalations, parseApprove, parseEscalate, parseWaits,
@@ -108,7 +108,7 @@ func Parse(payload map[string]any) (*Request, error) {
 }
 
 // parseOp settles which op this is, every other step being about what that op
-// carries.  Absent means exec, which is what a caller sending only a command
+// carries.  Absent means run, which is what a caller sending only a command
 // means.
 func parseOp(payload map[string]any, req *Request) error {
 	if raw, ok := payload["op"]; ok && raw != nil {
@@ -124,12 +124,12 @@ func parseOp(payload map[string]any, req *Request) error {
 	return nil
 }
 
-// parseCmd takes the command an exec must carry.  Every other op may carry one
+// parseCmd takes the command a run must carry.  Every other op may carry one
 // too -- it is what the audit record names the request by -- and there it is
 // read for what it holds rather than required.
 func parseCmd(payload map[string]any, req *Request) error {
 	rawCmd, hasCmd := payload["cmd"]
-	if req.Op != "exec" {
+	if req.Op != "run" {
 		if list, isList := rawCmd.([]any); isList {
 			for _, a := range list {
 				if s, isStr := a.(string); isStr {

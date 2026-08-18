@@ -132,7 +132,7 @@ const advice = "Blocked: this command would put a credential (or an encrypted bl
 	"«SECRET:ref» tokens. Secrets are named, never pasted:\n\n" +
 	"    faramir_run(cmd=[\"printenv\", \"ROUTER_PW\"],\n" +
 	"                env_refs={\"ROUTER_PW\": \"faramir://home/router/admin\"})\n\n" +
-	"Call faramir_secret_refs to see the available names. You do not need the " +
+	"Call faramir_vault_refs to see the available names. You do not need the " +
 	"value of a secret to use it, and you will not be given one."
 
 // adviceOwn is for the rules that are not about disclosure.  Acting on

@@ -37,14 +37,14 @@ carries() { # label, text
   ok "$label carries no value and no key material"
 }
 
-echo "probing as op; $(asop secret refs | wc -l) ref(s) served"
+echo "probing as op; $(asop vault refs | wc -l) ref(s) served"
 
 # --------------------------------------------------------------------------
 head_ "1. what the agent is told"
 
-refs=$(asop secret refs)
-grep -q '^faramir://' <<<"$refs" && ok "secret refs answers with refs" || bad "no refs: ${refs:0:80}"
-carries "secret refs" "$refs"
+refs=$(asop vault refs)
+grep -q '^faramir://' <<<"$refs" && ok "vault refs answers with refs" || bad "no refs: ${refs:0:80}"
+carries "vault refs" "$refs"
 [ "$(grep -cv '^faramir://' <<<"$refs")" -eq 0 ] \
   && ok "and with nothing else on any line" || bad "a line is not a ref: $(grep -v '^faramir://' <<<"$refs" | head -1)"
 
@@ -69,7 +69,7 @@ else
   ok "the operator's own view names $(wc -w <<<"$refused") refused ref(s)"
   for ref in $refused; do
     grep -q "$ref" <<<"$st"   && bad "status names the refused ref $ref"   || ok "status does not name $ref"
-    grep -q "$ref" <<<"$refs" && bad "secret refs names the refused ref $ref" || ok "secret refs does not name $ref"
+    grep -q "$ref" <<<"$refs" && bad "vault refs names the refused ref $ref" || ok "vault refs does not name $ref"
   done
 fi
 
@@ -132,11 +132,11 @@ rm -rf "$d"
 # --------------------------------------------------------------------------
 head_ "5. the same answers through MCP"
 
-out=$(mcp faramir_secret_refs '{}')
-grep -q 'faramir://' <<<"$out" && ok "faramir_secret_refs answers with refs" || bad "no refs: ${out:0:110}"
-carries "faramir_secret_refs" "$out"
+out=$(mcp faramir_vault_refs '{}')
+grep -q 'faramir://' <<<"$out" && ok "faramir_vault_refs answers with refs" || bad "no refs: ${out:0:110}"
+carries "faramir_vault_refs" "$out"
 for ref in $refused; do
-  grep -q "$ref" <<<"$out" && bad "faramir_secret_refs names the refused ref $ref" \
+  grep -q "$ref" <<<"$out" && bad "faramir_vault_refs names the refused ref $ref" \
     || ok "and does not name $ref"
 done
 
@@ -230,7 +230,7 @@ grep -q 'no_secrets' <<<"$out" && ok "and a brokered command is refused while a 
   || bad "a command ran against a partial value set: ${out:0:90}"
 carries "that refusal" "$out"
 rm -f /etc/faramir/secrets/broken.sops.yml
-# Waiting on the error going away rather than on secret refs answering: that
+# Waiting on the error going away rather than on vault refs answering: that
 # answers while the store still holds the failure, and every suite after this
 # one runs against a broker that refuses to inject.
 recovered() { [ "$(jq -r '.secrets.errors | length' <<<"$(asop status)" 2>/dev/null)" = 0 ]; }

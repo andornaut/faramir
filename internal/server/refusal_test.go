@@ -44,13 +44,13 @@ func TestEveryRefusalWithALogIDIsRecorded(t *testing.T) {
 		request map[string]any
 	}{
 		{"no cwd", "bad_request", map[string]any{
-			"op": "exec", "cmd": []any{"/bin/true"}}},
+			"op": "run", "cmd": []any{"/bin/true"}}},
 		{"cwd does not exist", "bad_request", map[string]any{
-			"op": "exec", "cmd": []any{"/bin/true"}, "cwd": "/nonexistent-dir"}},
+			"op": "run", "cmd": []any{"/bin/true"}, "cwd": "/nonexistent-dir"}},
 		{"cwd is a file", "bad_request", map[string]any{
-			"op": "exec", "cmd": []any{"/bin/true"}, "cwd": "/etc/hostname"}},
+			"op": "run", "cmd": []any{"/bin/true"}, "cwd": "/etc/hostname"}},
 		{"a ref nothing holds", "unknown_secret", map[string]any{
-			"op": "exec", "cmd": []any{"/bin/true"}, "cwd": "/tmp",
+			"op": "run", "cmd": []any{"/bin/true"}, "cwd": "/tmp",
 			"env_refs": map[string]any{"X": "faramir://no/such/ref"}}},
 	} {
 		t.Run(probe.name, func(t *testing.T) {
@@ -94,7 +94,7 @@ func TestEveryRefusalWithALogIDIsRecorded(t *testing.T) {
 func TestARefusalDecidedBeforeParsingCarriesNoLogID(t *testing.T) {
 	s := newServer(t, map[string]string{"db/password": "hunter2-correct-horse"})
 	response := s.Handle(map[string]any{
-		"op": "exec", "cmd": []any{"/bin/true"}, "cwd": "/tmp",
+		"op": "run", "cmd": []any{"/bin/true"}, "cwd": "/tmp",
 		"env_refs": map[string]any{"X": "not-a-uri"}},
 		&sockutil.Peer{PID: 7, UID: 1000, GID: 1000})
 
@@ -116,7 +116,7 @@ func TestABusyRefusalIsRecorded(t *testing.T) {
 	s.slots <- struct{}{} // the one slot, taken
 
 	response := s.Handle(map[string]any{
-		"op": "exec", "cmd": []any{"/bin/true"}, "cwd": "/tmp"},
+		"op": "run", "cmd": []any{"/bin/true"}, "cwd": "/tmp"},
 		&sockutil.Peer{PID: 7, UID: 1000, GID: 1000})
 
 	failure, ok := response["error"].(map[string]string)
@@ -144,7 +144,7 @@ func TestARefusalCarriesNoValue(t *testing.T) {
 	// broker deliberately leaves to the executor rather than refusing.
 	missing := filepath.Join(t.TempDir(), value)
 	response := s.Handle(map[string]any{
-		"op": "exec", "cmd": []any{"/bin/true"}, "cwd": missing},
+		"op": "run", "cmd": []any{"/bin/true"}, "cwd": missing},
 		&sockutil.Peer{PID: 7, UID: 1000, GID: 1000})
 
 	failure, _ := response["error"].(map[string]string)

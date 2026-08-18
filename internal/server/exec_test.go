@@ -120,7 +120,7 @@ func exec(t *testing.T, s *Server, request map[string]any) protocol.Response {
 func execAsGiven(t *testing.T, s *Server, request map[string]any) protocol.Response {
 	t.Helper()
 	if _, ok := request["op"]; !ok {
-		request["op"] = "exec"
+		request["op"] = "run"
 	}
 	return s.Handle(request, &sockutil.Peer{PID: 1, UID: 1000, GID: 1000})
 }
@@ -500,9 +500,9 @@ func TestAnExecIsRecordedWhenItStartsAndWhenItEnds(t *testing.T) {
 			continue
 		}
 		switch str(record, "op") {
-		case "exec_started":
+		case "run_started":
 			started = record
-		case "exec":
+		case "run":
 			ended = record
 		}
 	}

@@ -266,7 +266,7 @@ wait
 # --------------------------------------------------------------------------
 head_ "10. the audit log"
 
-records=$(grep -c '"op":"exec"' $LOG)
+records=$(grep -c '"op":"run"' $LOG)
 [ "$records" -gt 0 ] && ok "$records exec record(s) written" || bad "nothing was recorded"
 grep -qF "$SECRET" $LOG && bad "the audit log holds the plaintext value" \
   || ok "no plaintext value in the audit log"

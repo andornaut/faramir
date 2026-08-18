@@ -36,7 +36,7 @@ The boundaries are around the secrets, not the agent. The operator reaches the k
 
 ## The secrets live in a directory, not a tree
 
-`/etc/faramir/secrets`, `2750 root:<secrets-group>`, never in a checkout, which a clone or a branch could move. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir secret edit`. The broker socket admits a different group: asking for a value by name is not permission to read the file it came from. The broker holds every decrypted value already, so it stays outside the secrets group and asks the keeper when a file changed over `get_state`, which touches neither the key nor sops.
+`/etc/faramir/secrets`, `2750 root:<secrets-group>`, never in a checkout, which a clone or a branch could move. The keeper is the only account in that group and the only one that opens a managed file, so editing a value is `sudo faramir vault edit`. The broker socket admits a different group: asking for a value by name is not permission to read the file it came from. The broker holds every decrypted value already, so it stays outside the secrets group and asks the keeper when a file changed over `get_state`, which touches neither the key nor sops.
 
 `.sops.yaml` sits in the config directory above the secrets directory for two reasons:
 
@@ -174,7 +174,7 @@ Mode | Cost
 
 Rewriting rather than denying is the point: a deny list covers what somebody thought to name, and the command that leaks a credential is usually one nobody would have.
 
-**A `redact` op is an oracle.** A guessed value comes back confirmed or not. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. It is not rate-limited, because a throttle bounds only a guessing attack the same caller need never mount: `secret_refs` and `run` sit on the same socket behind the same `allowed_group` check, so every managed value can be had by naming it. Every call is recorded, and a guess shorter than `[secret] min_length` is not an oracle at all. Bring a limit back if `redact` ever becomes reachable by a caller that cannot reach `run`; there is no such caller today.
+**A `redact` op is an oracle.** A guessed value comes back confirmed or not. Acceptable only on weighting: an accident does not guess, and an agent that is guessing has the fleet anyway. It is not rate-limited, because a throttle bounds only a guessing attack the same caller need never mount: `vault_refs` and `run` sit on the same socket behind the same `allowed_group` check, so every managed value can be had by naming it. Every call is recorded, and a guess shorter than `[secret] min_length` is not an oracle at all. Bring a limit back if `redact` ever becomes reachable by a caller that cannot reach `run`; there is no such caller today.
 
 ## Allowing sudo on the controller
 

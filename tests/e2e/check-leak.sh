@@ -144,10 +144,10 @@ head_ "6. the value that is too short to redact"
 out=$(printf 'the pin is %s\n' "$PIN" | redact)
 grep -q "$PIN" <<<"$out" && ok "a value under min_length is not redacted (by design)" \
   || bad "the short value was redacted after all: $out"
-refs=$(runuser -u op -- faramir secret refs)
+refs=$(runuser -u op -- faramir vault refs)
 # A ref that is served, so an empty answer fails here rather than passing the
 # absence below.
-grep -q 'db/password' <<<"$refs" || bad "secret refs answered nothing, so the check below has no subject"
+grep -q 'db/password' <<<"$refs" || bad "vault refs answered nothing, so the check below has no subject"
 grep -q 'short/pin' <<<"$refs" && bad "it is offered as an injectable ref" \
   || ok "and it is not offered as a ref that can be injected"
 # The operator has to be told, or a ref they can see in the file reads as

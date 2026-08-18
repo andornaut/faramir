@@ -199,7 +199,7 @@ grep -qF "$SECRET" <<<"$out" && bad "a restart mid-stream leaked the value" \
 grep -q "HEAD" <<<"$out" && ok "and what was redacted before it died was kept" \
   || bad "nothing came back at all, so this tested a stream that never began: $(head -c 120 <<<"$out")"
 systemctl start faramir-broker.socket >/dev/null 2>&1; sleep 2
-runuser -u op -- /usr/local/bin/faramir secret refs >/dev/null 2>&1 \
+runuser -u op -- /usr/local/bin/faramir vault refs >/dev/null 2>&1 \
   && ok "and the broker is usable again afterwards" || bad "the broker did not come back"
 
 head_ "8. another op arriving in the middle of a stream"

@@ -132,7 +132,7 @@ func TestRefusedToolCalls(t *testing.T) {
 
 func TestTheBrokerBeingDownIsReportedNotPanicked(t *testing.T) {
 	t.Setenv("FARAMIR_SOCKET", filepath.Join(t.TempDir(), "absent.sock"))
-	wantError(t, callTool("faramir_secret_refs", map[string]any{}), "unavailable")
+	wantError(t, callTool("faramir_vault_refs", map[string]any{}), "unavailable")
 }
 
 // The MCP server builds broker requests by hand, so nothing else ties its field
@@ -152,15 +152,15 @@ func TestEveryToolProducesARequestTheBrokerAccepts(t *testing.T) {
 				"timeout_sec": float64(30),
 			},
 			want: protocol.Request{
-				Op: "exec", Cmd: []string{"ansible-playbook", "site.yml"},
+				Op: "run", Cmd: []string{"ansible-playbook", "site.yml"},
 				Cwd: "/home/agent/work", HasCwd: true,
 				EnvRefs: map[string]string{"PW": "faramir://a/b"}, TimeoutSec: 30,
 			},
 		},
 		{
-			tool: "faramir_secret_refs",
+			tool: "faramir_vault_refs",
 			args: map[string]any{},
-			want: protocol.Request{Op: "secret_refs", EnvRefs: map[string]string{}},
+			want: protocol.Request{Op: "vault_refs", EnvRefs: map[string]string{}},
 		},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {
@@ -269,7 +269,7 @@ func TestToolsListAdvertisesEveryTool(t *testing.T) {
 			t.Errorf("%s is missing a description or schema", tl.Name)
 		}
 	}
-	for _, want := range []string{"faramir_run", "faramir_secret_refs"} {
+	for _, want := range []string{"faramir_run", "faramir_vault_refs"} {
 		if !names[want] {
 			t.Errorf("%s is not advertised", want)
 		}

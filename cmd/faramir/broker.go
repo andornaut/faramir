@@ -87,7 +87,7 @@ func runBroker(f brokerFlags) int {
 		log.Printf("refusing exec and redact: %s", reason)
 		log.Printf("every command the agent hook wraps has its output withheld " +
 			"until this is fixed, which is what keeps an unread file from being " +
-			"read past. status and secret_refs still answer; encrypt a file into " +
+			"read past. status and vault_refs still answer; encrypt a file into " +
 			"the secrets directory, and no restart is needed")
 	}
 

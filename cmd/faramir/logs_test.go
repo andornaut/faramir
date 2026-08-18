@@ -30,9 +30,9 @@ func writeLog(t *testing.T, lines ...string) string {
 func TestTailRecordsSurvivesARecordNoCeilingWouldFit(t *testing.T) {
 	huge := strings.Repeat(`<`, 1_600_000) // 9.6MB once escaped, past any buffer
 	path := writeLog(t,
-		`{"log_id":"before","op":"exec"}`,
-		`{"log_id":"poison","op":"exec","output":"`+huge+`"}`,
-		`{"log_id":"after","op":"exec"}`,
+		`{"log_id":"before","op":"run"}`,
+		`{"log_id":"poison","op":"run","output":"`+huge+`"}`,
+		`{"log_id":"after","op":"run"}`,
 	)
 	records, skipped, err := tailRecords(path, 10)
 	if err != nil {
@@ -56,7 +56,7 @@ func TestTailRecordsSurvivesARecordNoCeilingWouldFit(t *testing.T) {
 func TestTailRecordsParsesOnlyWhatItWillShow(t *testing.T) {
 	lines := make([]string, 0, 50)
 	for i := range 50 {
-		lines = append(lines, fmt.Sprintf(`{"log_id":"id-%02d","op":"exec"}`, i))
+		lines = append(lines, fmt.Sprintf(`{"log_id":"id-%02d","op":"run"}`, i))
 	}
 	// A line in the part that is skipped, which would fail to parse if it were
 	// read: reaching it at all is the regression.
@@ -84,9 +84,9 @@ func TestTailRecordsParsesOnlyWhatItWillShow(t *testing.T) {
 // to someone who asked for none of it.
 func TestTailRecordsCounts(t *testing.T) {
 	path := writeLog(t,
-		`{"log_id":"a","op":"exec"}`,
-		`{"log_id":"b","op":"exec"}`,
-		`{"log_id":"c","op":"exec"}`,
+		`{"log_id":"a","op":"run"}`,
+		`{"log_id":"b","op":"run"}`,
+		`{"log_id":"c","op":"run"}`,
 	)
 	for _, tc := range []struct {
 		name  string
@@ -122,9 +122,9 @@ func TestTailRecordsCounts(t *testing.T) {
 // must say so rather than look complete.
 func TestTailRecordsCountsInteriorLinesItSkipped(t *testing.T) {
 	path := writeLog(t,
-		`{"log_id":"a","op":"exec"}`,
-		`{"log_id":"torn","op":"exec","output":"ZZZ`+`{"log_id":"eaten","op":"exec"}`,
-		`{"log_id":"b","op":"exec"}`,
+		`{"log_id":"a","op":"run"}`,
+		`{"log_id":"torn","op":"run","output":"ZZZ`+`{"log_id":"eaten","op":"run"}`,
+		`{"log_id":"b","op":"run"}`,
 	)
 	records, skipped, err := tailRecords(path, 10)
 	if err != nil {
@@ -146,9 +146,9 @@ func TestTailRecordsCountsInteriorLinesItSkipped(t *testing.T) {
 func TestTailRecordsCountsEveryLineThatIsNotARecord(t *testing.T) {
 	for _, line := range []string{"null", "false", "123", `"text"`, "[1]", "garbage"} {
 		path := writeLog(t,
-			`{"log_id":"a","op":"exec"}`,
+			`{"log_id":"a","op":"run"}`,
 			line,
-			`{"log_id":"b","op":"exec"}`,
+			`{"log_id":"b","op":"run"}`,
 		)
 		records, skipped, err := tailRecords(path, 10)
 		if err != nil {
@@ -168,7 +168,7 @@ func TestTailRecordsCountsEveryLineThatIsNotARecord(t *testing.T) {
 // it is the missing newline: nothing finished writing it.
 func TestTailRecordsDoesNotCountALineStillBeingAppended(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
-	body := `{"log_id":"a","op":"exec"}` + "\n" + `{"log_id":"b","op":`
+	body := `{"log_id":"a","op":"run"}` + "\n" + `{"log_id":"b","op":`
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -191,8 +191,8 @@ func TestTailRecordsDoesNotCountALineStillBeingAppended(t *testing.T) {
 // costs the same on a log of any length.
 func TestFindRecordScansForTheMatchingLine(t *testing.T) {
 	path := writeLog(t,
-		`{"log_id":"w5vq7dbf000001","op":"exec"}`,
-		`{"log_id":"w5vq7dbg000002","op":"exec"}`,
+		`{"log_id":"w5vq7dbf000001","op":"run"}`,
+		`{"log_id":"w5vq7dbg000002","op":"run"}`,
 	)
 	record, _, err := findRecord(path, "w5vq7dbg000002")
 	if err != nil {
@@ -263,7 +263,7 @@ func drained(t *testing.T, f *follower) []string {
 // through one reader, positioned where the backlog ended.  A second reader
 // opened afterwards would show a record written in between twice, or not at all.
 func TestFollowerShowsWhatArrivesAfterTheBacklog(t *testing.T) {
-	path := writeLog(t, `{"log_id":"a","op":"exec"}`, `{"log_id":"b","op":"exec"}`)
+	path := writeLog(t, `{"log_id":"a","op":"run"}`, `{"log_id":"b","op":"run"}`)
 	f, err := openFollower(path)
 	if err != nil {
 		t.Fatal(err)
@@ -279,7 +279,7 @@ func TestFollowerShowsWhatArrivesAfterTheBacklog(t *testing.T) {
 		t.Fatalf("backlog = %v, want the last record only", records)
 	}
 
-	appendLog(t, path, `{"log_id":"c","op":"exec"}`)
+	appendLog(t, path, `{"log_id":"c","op":"run"}`)
 	if ids := drained(t, f); !slices.Equal(ids, []string{"c"}) {
 		t.Errorf("the pass after the backlog yielded %v, want the appended record alone", ids)
 	}
@@ -293,7 +293,7 @@ func TestFollowerShowsWhatArrivesAfterTheBacklog(t *testing.T) {
 // record.  A listing hands that line over instead, being a reading of the file
 // as it stands.
 func TestFollowerHoldsALineStillBeingAppended(t *testing.T) {
-	path := writeLog(t, `{"log_id":"a","op":"exec"}`)
+	path := writeLog(t, `{"log_id":"a","op":"run"}`)
 	f, err := openFollower(path)
 	if err != nil {
 		t.Fatal(err)
@@ -315,7 +315,7 @@ func TestFollowerHoldsALineStillBeingAppended(t *testing.T) {
 // it, so a watcher has to notice that the path names a different file.  What was
 // written to the old one before the rename is drained first: those are records.
 func TestFollowerReopensAfterRotation(t *testing.T) {
-	path := writeLog(t, `{"log_id":"a","op":"exec"}`)
+	path := writeLog(t, `{"log_id":"a","op":"run"}`)
 	f, err := openFollower(path)
 	if err != nil {
 		t.Fatal(err)
@@ -323,7 +323,7 @@ func TestFollowerReopensAfterRotation(t *testing.T) {
 	defer f.close()
 	drained(t, f)
 
-	appendLog(t, path, `{"log_id":"last-before-rotation","op":"exec"}`)
+	appendLog(t, path, `{"log_id":"last-before-rotation","op":"run"}`)
 	if err := os.Rename(path, path+".1"); err != nil {
 		t.Fatal(err)
 	}
@@ -339,7 +339,7 @@ func TestFollowerReopensAfterRotation(t *testing.T) {
 			"between the rename and the next record, and the file being read is still the log")
 	}
 
-	appendLog(t, path, `{"log_id":"first-after-rotation","op":"exec"}`)
+	appendLog(t, path, `{"log_id":"first-after-rotation","op":"run"}`)
 	rotated, err = f.rotated()
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestFollowerReopensAfterRotation(t *testing.T) {
 // a watcher that keeps reading from an offset the file no longer reaches shows
 // nothing again, ever.
 func TestFollowerNoticesTheLogEmptiedInPlace(t *testing.T) {
-	path := writeLog(t, `{"log_id":"a","op":"exec"}`)
+	path := writeLog(t, `{"log_id":"a","op":"run"}`)
 	f, err := openFollower(path)
 	if err != nil {
 		t.Fatal(err)
@@ -405,7 +405,7 @@ func TestFollowerWaitsForALogThatIsNotThereYet(t *testing.T) {
 		t.Error("a path that still has no file read as a rotation")
 	}
 
-	appendLog(t, path, `{"log_id":"first","op":"exec"}`)
+	appendLog(t, path, `{"log_id":"first","op":"run"}`)
 	rotated, err = f.rotated()
 	if err != nil {
 		t.Fatal(err)
@@ -426,7 +426,7 @@ func TestFollowerWaitsForALogThatIsNotThereYet(t *testing.T) {
 // follower detached rather than holding a closed reader, so the watcher waits
 // out the gap instead of failing on every pass after it.
 func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
-	path := writeLog(t, `{"log_id":"a","op":"exec"}`)
+	path := writeLog(t, `{"log_id":"a","op":"run"}`)
 	f, err := openFollower(path)
 	if err != nil {
 		t.Fatal(err)
@@ -444,7 +444,7 @@ func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
 		t.Errorf("a pass after the failed reopen yielded %v", ids)
 	}
 
-	appendLog(t, path, `{"log_id":"b","op":"exec"}`)
+	appendLog(t, path, `{"log_id":"b","op":"run"}`)
 	rotated, err := f.rotated()
 	if err != nil {
 		t.Fatal(err)
@@ -539,12 +539,12 @@ func mustPalette(t *testing.T, when string) palette {
 }
 
 func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"w5vq7dbf00a91f","op":"exec",`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf00a91f","op":"run",`+
 		`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0,"duration_sec":1.5,`+
 		`"redactions":[{"token":"«SECRET:a»","count":2}]}`), plain(t))
 	// The whole id, which is what a lookup takes: asserting on its tail would pass
 	// a row that printed only that, which is what this column used to do.
-	for _, want := range []string{"w5vq7dbf00a91f", "exec", "exit 0", "1.50s", "2 redacted",
+	for _, want := range []string{"w5vq7dbf00a91f", "run", "exit 0", "1.50s", "2 redacted",
 		"ansible-playbook msmtp.yml"} {
 		if !strings.Contains(line, want) {
 			t.Errorf("summary is missing %q: %s", want, line)
@@ -569,7 +569,7 @@ func TestSummariseSaysSomethingForARedact(t *testing.T) {
 
 // A timed-out command's exit code says nothing useful.
 func TestOutcomeReportsATimeout(t *testing.T) {
-	label, failed := outcome(rec(t, `{"log_id":"x","op":"exec","exit_code":0,"timed_out":true}`))
+	label, failed := outcome(rec(t, `{"log_id":"x","op":"run","exit_code":0,"timed_out":true}`))
 	if label != "timed out" || !failed {
 		t.Errorf("outcome = (%q, %v), want (timed out, true)", label, failed)
 	}
@@ -581,7 +581,7 @@ func TestOutcomeReportsATimeout(t *testing.T) {
 func TestOutcomeReportsTheRefusalCode(t *testing.T) {
 	for _, code := range []string{"bad_request", "unknown_secret", "busy",
 		"forbidden", "no_secrets", "too_large", "not_quiescent", "no_audit"} {
-		record := rec(t, `{"log_id":"x","op":"exec","cmd":["/bin/true"],`+
+		record := rec(t, `{"log_id":"x","op":"run","cmd":["/bin/true"],`+
 			`"refused":"`+code+`","error":"why"}`)
 		label, failed := outcome(record)
 		if label != code || !failed {
@@ -600,8 +600,8 @@ func TestOutcomeReportsTheRefusalCode(t *testing.T) {
 // spawned.  Neither carries an exit code either.
 func TestOutcomeReportsAFailureWithNoExitCode(t *testing.T) {
 	for _, body := range []string{
-		`{"log_id":"x","op":"exec","cmd":["/bin/nope"],"error":"no such program"}`,
-		`{"log_id":"x","op":"exec","cmd":["/bin/sh"],"started_at":1786000000,` +
+		`{"log_id":"x","op":"run","cmd":["/bin/nope"],"error":"no such program"}`,
+		`{"log_id":"x","op":"run","cmd":["/bin/sh"],"started_at":1786000000,` +
 			`"error":"executor: connection reset"}`,
 	} {
 		label, failed := outcome(rec(t, body))
@@ -614,7 +614,7 @@ func TestOutcomeReportsAFailureWithNoExitCode(t *testing.T) {
 // A record that ran keeps its exit code, and a redact has no outcome at all:
 // neither is what the two branches above are for.
 func TestOutcomeLeavesTheOrdinaryRecordsAlone(t *testing.T) {
-	label, failed := outcome(rec(t, `{"log_id":"x","op":"exec","exit_code":0,"duration_sec":1}`))
+	label, failed := outcome(rec(t, `{"log_id":"x","op":"run","exit_code":0,"duration_sec":1}`))
 	if label != "exit 0 1.00s" || failed {
 		t.Errorf("outcome = (%q, %v), want (exit 0 1.00s, false)", label, failed)
 	}
@@ -625,7 +625,7 @@ func TestOutcomeLeavesTheOrdinaryRecordsAlone(t *testing.T) {
 
 // Padding counts escape bytes as width.
 func TestPaintOutcomePadsBeforeColouring(t *testing.T) {
-	record := rec(t, `{"log_id":"x","op":"exec","exit_code":0}`)
+	record := rec(t, `{"log_id":"x","op":"run","exit_code":0}`)
 	got := paintOutcome(record, always(t))
 	if !strings.HasSuffix(got, "\x1b[0m") {
 		t.Fatalf("padding landed outside the colour span: %q", got)
@@ -731,15 +731,15 @@ func TestTokenLeavesAnUnterminatedTokenAlone(t *testing.T) {
 }
 
 // An op longer than its column must not run into the one after it: merged as
-// `exec_startedstarted`, with every column past it shifted, the row is read
+// `run_startedstarted`, with every column past it shifted, the row is read
 // wrong.
 func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"exec_started",`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"run_started",`+
 		`"approved":false,"cmd":["sudo","id","-un"]}`), plain(t))
-	if strings.Contains(line, "exec_startedstarted") {
+	if strings.Contains(line, "run_startedstarted") {
 		t.Errorf("op and outcome merged: %q", line)
 	}
-	if !strings.Contains(line, "exec_started started") {
+	if !strings.Contains(line, "run_started started") {
 		t.Errorf("summarise = %q, want the op and the outcome as separate columns", line)
 	}
 }
@@ -753,7 +753,7 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 // where the two are allowed to meet: it fails when an op is added that the
 // column cannot hold, which is the moment the constant needs raising.
 func TestEveryOpFitsTheColumn(t *testing.T) {
-	ops := append([]string{opExecStarted, opAdd, opEdit, opRemove, opReseal, opRecipient},
+	ops := append([]string{opRunStarted, opAdd, opEdit, opRemove, opReseal, opRecipient},
 		protocol.Ops...)
 	for _, op := range ops {
 		t.Run(op, func(t *testing.T) {
@@ -769,7 +769,7 @@ func TestEveryOpFitsTheColumn(t *testing.T) {
 // wider than the column: escalation_in_progress is 20 against a 16-wide column.
 // The row shifts, which is legible; the columns merging is not.
 func TestSummariseKeepsTheColumnsApartForALongRefusalCode(t *testing.T) {
-	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"exec",`+
+	line := summarise(rec(t, `{"log_id":"w5vq7dbf004e16","op":"run",`+
 		`"refused":"escalation_in_progress","cmd":["sudo","id","-un"]}`), plain(t))
 	if !regexp.MustCompile(`escalation_in_progress +sudo id -un`).MatchString(line) {
 		t.Errorf("summarise = %q, want the code and the command as separate columns", line)
@@ -792,7 +792,7 @@ func TestTailRecordsDoesNotAllocateWhatWasAskedFor(t *testing.T) {
 	// And the bound does not cost the caller records: the ring grows past it.
 	lines := make([]string, 0, ringCapMax+5)
 	for i := range ringCapMax + 5 {
-		lines = append(lines, fmt.Sprintf(`{"log_id":"id-%04d","op":"exec"}`, i))
+		lines = append(lines, fmt.Sprintf(`{"log_id":"id-%04d","op":"run"}`, i))
 	}
 	records, _, err := tailRecords(writeLog(t, lines...), absurd)
 	if err != nil {
@@ -803,20 +803,20 @@ func TestTailRecordsDoesNotAllocateWhatWasAskedFor(t *testing.T) {
 	}
 }
 
-// An exec writes a pair sharing one log_id, so a lookup has to say which half it
+// A run writes a pair sharing one log_id, so a lookup has to say which half it
 // means: the ending where there is one, and the start where the command is still
 // running.
 func TestFindRecordPrefersTheEndingOverTheStart(t *testing.T) {
 	path := writeLog(t,
-		`{"log_id":"w5vq7dbf000001","op":"exec_started","cmd":["playbook"]}`,
-		`{"log_id":"w5vq7dbf000001","op":"exec","cmd":["playbook"],"exit_code":0}`,
-		`{"log_id":"w5vq7dbh000002","op":"exec_started","cmd":["still-going"]}`,
+		`{"log_id":"w5vq7dbf000001","op":"run_started","cmd":["playbook"]}`,
+		`{"log_id":"w5vq7dbf000001","op":"run","cmd":["playbook"],"exit_code":0}`,
+		`{"log_id":"w5vq7dbh000002","op":"run_started","cmd":["still-going"]}`,
 	)
 	record, _, err := findRecord(path, "w5vq7dbf000001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if str(record, "op") != "exec" {
+	if str(record, "op") != "run" {
 		t.Errorf("looking up a finished command found the %q record, want the ending",
 			str(record, "op"))
 	}
@@ -827,7 +827,7 @@ func TestFindRecordPrefersTheEndingOverTheStart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if str(record, "op") != "exec_started" {
+	if str(record, "op") != "run_started" {
 		t.Errorf("looking up a running command found %q, want its start", str(record, "op"))
 	}
 }
@@ -837,7 +837,7 @@ func TestFindRecordPrefersTheEndingOverTheStart(t *testing.T) {
 // reading the listing must not offer, and "running" would claim of a log read
 // later that the command is still going.
 func TestAStartedExecReadsAsStarted(t *testing.T) {
-	label, failed := outcome(map[string]any{"op": "exec_started", "cmd": []any{"playbook"}})
+	label, failed := outcome(map[string]any{"op": "run_started", "cmd": []any{"playbook"}})
 	if label != "started" {
 		t.Errorf("outcome = %q, want started", label)
 	}
@@ -897,15 +897,15 @@ func TestAnAnswerWithNoCodeStillReads(t *testing.T) {
 // incomplete when it is not.
 func TestFindRecordStopsAtTheEnding(t *testing.T) {
 	path := writeLog(t,
-		`{"log_id":"w5vq7dbf000001","op":"exec_started","cmd":["playbook"]}`,
-		`{"log_id":"w5vq7dbf000001","op":"exec","cmd":["playbook"],"exit_code":0}`,
+		`{"log_id":"w5vq7dbf000001","op":"run_started","cmd":["playbook"]}`,
+		`{"log_id":"w5vq7dbf000001","op":"run","cmd":["playbook"],"exit_code":0}`,
 		`{"log_id":"w5vq7dbh0000a91f0000`,
 	)
 	record, skipped, err := findRecord(path, "w5vq7dbf000001")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if str(record, "op") != "exec" {
+	if str(record, "op") != "run" {
 		t.Errorf("found the %q record, want the ending", str(record, "op"))
 	}
 	if skipped != 0 {

@@ -12,11 +12,11 @@ import (
 // load, so a combined capture makes every report unparseable.
 func TestCommandReturnsStdoutOnly(t *testing.T) {
 	run := &runner{}
-	out, err := run.command("sh", "-c", `echo "loaded 3 secret refs" >&2; echo '{"ok":true}'`)
+	out, err := run.command("sh", "-c", `echo "loaded 3 vault refs" >&2; echo '{"ok":true}'`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(out, "loaded 3 secret refs") {
+	if strings.Contains(out, "loaded 3 vault refs") {
 		t.Fatalf("stderr leaked into stdout: %q", out)
 	}
 	var report struct {

@@ -471,7 +471,7 @@ func (s *Server) Ask(token string) (approved bool, code, reason string) {
 	s.record(map[string]any{
 		"log_id": audit.NewLogID(), "op": "escalate", "approved": approved,
 		"prompted": prompted, "cmd": run.Argv, "cwd": run.Cwd,
-		"exec_log_id": run.LogID, "outcome_code": code, "outcome": reason,
+		"run_log_id": run.LogID, "outcome_code": code, "outcome": reason,
 	})
 	if !approved {
 		log.Printf("escalation: %q was not approved (%s): %s", run.Command(), code, reason)

@@ -89,7 +89,7 @@ var (
 
 // processNonce separates one writer's ids from another's.  Every record on a
 // host is normally the broker's, which is one process and so one counter; this
-// is what keeps `faramir secret edit` and `faramir recipient reseal`, which write their own, from
+// is what keeps `faramir vault edit` and `faramir recipient reseal`, which write their own, from
 // starting at the same place in the same second.
 func processNonce() uint16 {
 	var b [2]byte

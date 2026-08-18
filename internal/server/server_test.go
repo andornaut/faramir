@@ -471,7 +471,7 @@ func TestExecAndRedactAreRefusedWhileNoManagedFileWasRead(t *testing.T) {
 	peer := &sockutil.Peer{UID: 1000}
 	for _, op := range []map[string]any{
 		{"op": "redact", "text": "anything"},
-		{"op": "exec", "cmd": []any{"true"}, "cwd": t.TempDir()},
+		{"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir()},
 	} {
 		got := s.Handle(op, peer)
 		failure, ok := got["error"].(map[string]string)
@@ -503,7 +503,7 @@ func TestExecIsRefusedWhenOneFileDidNotLoad(t *testing.T) {
 	}
 
 	got := s.Handle(map[string]any{
-		"op": "exec", "cmd": []any{"true"}, "cwd": t.TempDir(),
+		"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir(),
 	}, &sockutil.Peer{UID: 1000})
 	failure, ok := got["error"].(map[string]string)
 	if !ok || failure["code"] != "no_secrets" {
@@ -550,7 +550,7 @@ func TestBothOpsAreRefusedWhenTheKeeperWasNeverReached(t *testing.T) {
 	peer := &sockutil.Peer{UID: 1000}
 	for _, op := range []map[string]any{
 		{"op": "redact", "text": "x"},
-		{"op": "exec", "cmd": []any{"true"}, "cwd": t.TempDir()},
+		{"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir()},
 	} {
 		got := s.Handle(op, peer)
 		if got["error"] == nil {
@@ -578,7 +578,7 @@ func TestBothOpsAreServedWhenEveryManagedFileLoadedAndHeldNothing(t *testing.T) 
 		t.Errorf("redact was refused: %v", got["error"])
 	}
 	got := s.Handle(map[string]any{
-		"op": "exec", "cmd": []any{"true"}, "cwd": t.TempDir(),
+		"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir(),
 	}, peer)
 	if failure, ok := got["error"].(map[string]string); ok && failure["code"] == "no_secrets" {
 		t.Errorf("exec was refused: %v", failure)
@@ -605,7 +605,7 @@ func TestTheStoreIsUnservableWhenAManagedFileDidNotLoad(t *testing.T) {
 func TestStatusAndListStayAvailableWhileNoManagedFileWasRead(t *testing.T) {
 	s := newUnconfiguredServer(t, map[string]string{})
 	peer := &sockutil.Peer{UID: 1000}
-	for _, op := range []string{"status", "secret_refs"} {
+	for _, op := range []string{"status", "vault_refs"} {
 		if got := s.Handle(map[string]any{"op": op}, peer); got["error"] != nil {
 			t.Errorf("%s was refused: %v", op, got["error"])
 		}
@@ -622,7 +622,7 @@ func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
 	}
 }
 
-// Deliberately unbounded: secret_refs and run are on this socket behind the
+// Deliberately unbounded: vault_refs and run are on this socket behind the
 // same check, so a caller who could probe can instead name every ref and be
 // handed every value.  A throttle here would only slow the path nobody needs.
 //

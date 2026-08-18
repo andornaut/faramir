@@ -197,10 +197,10 @@ after_count=$(faramir status 2>/dev/null |
 [ "${after_count:-}" = "$before_count" ] || die "broker now serves '${after_count:-nothing}', was $before_count"
 ok "broker still serves $after_count secret(s)"
 
-out=$(sudo faramir secret edit -editor /bin/true "$(basename "$store_file")" 2>&1)
+out=$(sudo faramir vault edit -editor /bin/true "$(basename "$store_file")" 2>&1)
 case "$out" in
-  *unchanged*) ok "sudo faramir secret edit still opens the store" ;;
-  *) die "faramir secret edit failed without the key: $out" ;;
+  *unchanged*) ok "sudo faramir vault edit still opens the store" ;;
+  *) die "faramir vault edit failed without the key: $out" ;;
 esac
 
 verify || die "restoring"

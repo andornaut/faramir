@@ -102,11 +102,11 @@ r = s.call("tools/list")
 tools = r.get("result", {}).get("tools", [])
 names = sorted(t["name"] for t in tools)
 (ok("two tools: %s" % ", ".join(names))
- if names == ["faramir_run", "faramir_secret_refs"]
+ if names == ["faramir_run", "faramir_vault_refs"]
  else bad("tools = %s" % names))
 run = next((t for t in tools if t["name"] == "faramir_run"), {})
 desc = run.get("description", "")
-for phrase, why in [("faramir_secret_refs", "points at how to discover names"),
+for phrase, why in [("faramir_vault_refs", "points at how to discover names"),
                     ("faramir://", "shows the ref syntax"),
                     ("environment variables", "says injection is by env, not argv"),
                     ("bash", "says no shell is spawned for you")]:
@@ -243,11 +243,11 @@ out, is_err = s.text("faramir_run", {"cmd": ["/bin/echo", "x"],
 (ok("a ref refused at load is refused here too") if is_err
  else bad("the not-redactable value was injectable through MCP"))
 (bad("the pin came back") if "8341" in out else ok("and its value is not in the answer"))
-# secret_refs names refs and no values.
-out, _ = s.text("faramir_secret_refs")
-(ok("secret_refs returns the ref names") if "faramir://db/password" in out
- else bad("secret_refs = %r" % out[:120]))
-(bad("secret_refs returned a value") if SECRET in out else ok("and no values"))
+# vault_refs names refs and no values.
+out, _ = s.text("faramir_vault_refs")
+(ok("vault_refs returns the ref names") if "faramir://db/password" in out
+ else bad("vault_refs = %r" % out[:120]))
+(bad("vault_refs returned a value") if SECRET in out else ok("and no values"))
 (ok("and does not offer the refused ref") if "short/pin" not in out
  else bad("the refused ref is offered as usable"))
 # There is no status tool: what it answered was which config files loaded and
@@ -279,7 +279,7 @@ out, is_err = s.text("faramir_run", {"cmd": ["ls -la"]})
 out, is_err = s.text("no_such_tool", {})
 (ok("an unknown tool is refused by name") if is_err and "unknown tool" in out
  else bad("unknown tool -> %r" % out[:80]))
-r = s.call("tools/call", {"name": "faramir_secret_refs"})   # no arguments key at all
+r = s.call("tools/call", {"name": "faramir_vault_refs"})   # no arguments key at all
 (ok("a call with no arguments object is handled")
  if r.get("result") else bad("missing arguments -> %s" % r))
 
@@ -348,7 +348,7 @@ else:
 (ok("and it is the socket refusing, not the server failing to run")
  if "forbidden" in out or "unavailable" in out or "permission" in out.lower()
  else bad("refused for an unclear reason: %r" % out[:120]))
-out, _ = s.text("faramir_secret_refs")
+out, _ = s.text("faramir_vault_refs")
 (bad("an outsider was given the ref names") if "faramir://db/password" in out
  else ok("and cannot even list the ref names"))
 s.close()
