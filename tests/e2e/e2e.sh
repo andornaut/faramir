@@ -57,18 +57,16 @@ running() { [ "$(docker inspect -f '{{.State.Running}}' $NAME 2>/dev/null)" = tr
 
 # build_skew produces a second binary reporting a version the first one does
 # not, which is what the doctor suite swaps in to make the broker and the CLI
-# disagree.  The version is a constant rather than a linker variable, so another
-# compile is the only way to a different one; -overlay swaps the one file at
-# compile time so that the tree is never edited to build it.
+# disagree.  The version is a linker variable, so a stamp is the whole job and
+# the tree is never edited to build it.
 build_skew() {
-  local work
-  work=$(mktemp -d)
-  sed -E 's/(const Version = )".*"/\1"9.9.9"/' "$REPO/internal/version/version.go" > "$work/version.go"
-  grep -q '9\.9\.9' "$work/version.go" || die "the version constant is not where build_skew looks for it"
-  printf '{"Replace":{"%s":"%s"}}\n' \
-    "$REPO/internal/version/version.go" "$work/version.go" > "$work/overlay.json"
-  ( cd "$REPO" && go build -overlay "$work/overlay.json" -o "$HERE/faramir-skew" ./cmd/faramir )
-  rm -rf "$work"
+  ( cd "$REPO" && go build \
+      -ldflags "-X github.com/andornaut/faramir/internal/version.Version=9.9.9" \
+      -o "$HERE/faramir-skew" ./cmd/faramir )
+  # A -X naming a symbol that moved does nothing and exits 0, which would leave
+  # the doctor suite comparing a binary against itself and passing on nothing.
+  "$HERE/faramir-skew" --version | grep -q '9\.9\.9' ||
+    die "the version stamp did not take: build_skew names the wrong symbol"
 }
 
 # digest_of is the sha256 of a file, or empty where there is none.
