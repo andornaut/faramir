@@ -50,70 +50,101 @@ func newRekeyCmd() *cobra.Command {
 }
 
 func runRekey(f rekeyFlags, args []string) int {
-
-	// Refused rather than attempted, like edit: as the operator this fails on the
-	// age key with a bare permission error, and the fix is not obvious from it.
-	if !requireRoot("rekey", "the age key is readable only by the keeper and by root") {
-		return 1
+	store, code := loadStore("rekey", f.configPath, f.socket, f.ageKey, args)
+	if store == nil {
+		return code
 	}
-
-	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	wanted, err := ruleRecipients(store.rulePath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
-		return 1
-	}
-
-	// Both kinds together: this is a diagnostic printed when the named file is
-	// not among the managed ones, and the operator wants every reason.
-	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
-	unresolvable := slices.Concat(failures, absent)
-	targets, err := rekeyTargets(managed, args)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
-		for _, reason := range unresolvable {
-			fmt.Fprintf(os.Stderr, "  %s\n", reason)
-		}
-		return 1
-	}
-	// Reported even when enough resolved to proceed, unlike edit, which opens the
-	// one file it was asked for.  Here a pattern that named nothing is a managed
-	// file this run did not reach, and none may be left behind.
-	for _, reason := range unresolvable {
-		fmt.Fprintf(os.Stderr, "faramir rekey: not reached: %s\n", reason)
-	}
-
-	// This install's own rules, and no flag naming another.  What this command is
-	// for is making the ciphertext agree with what <config-dir>/.sops.yaml says,
-	// so a run sealing the secrets directory to some other file's recipients
-	// produces the state it exists to remove: a host whose ciphertext and whose
-	// rule name different readers, with `doctor` and every file sops creates from
-	// then on still reading the rule.  --config moves the whole install, which is
-	// the honest way to act on another one.
-	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
-	wanted, err := ruleRecipients(rulePath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
-		return 1
-	}
-
-	keyPath := f.ageKey
-	if keyPath == "" {
-		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
-	}
-	if _, err := os.Stat(keyPath); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir rekey: age key: %v\n", err)
 		return 1
 	}
 	// Checked before anything is decrypted.  Re-encrypting to a rule the keeper is
 	// not named in produces a secrets directory that opens for nobody the broker
 	// can ask, one file at a time, and the failure only shows up at the next
 	// refresh.
-	if err := keeperStaysAReader(keyPath, wanted, rulePath); err != nil {
+	if err := keeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir rekey: %v\n", err)
 		return 1
 	}
+	return rekeyStore("rekey", store, wanted, f.dryRun)
+}
 
-	log := audit.NewLog(cfg.Audit)
+// storeContext is what any command that re-encrypts the managed store needs:
+// where this install keeps its config, its rule and its key, and which files the
+// run is to reach.
+type storeContext struct {
+	cfg      *config.Config
+	keyPath  string
+	rulePath string
+	targets  []string
+}
+
+// loadStore is the preamble every such command shares.  It returns nil and an
+// exit code where the run cannot proceed, having already said why.
+//
+// label is how the command names itself in its messages, so an operator reading
+// a failure sees the command they ran rather than the one that happens to hold
+// this code.
+func loadStore(label, configPath, socket, ageKey string, named []string) (*storeContext, int) {
+	// Refused rather than attempted, like edit: as the operator this fails on the
+	// age key with a bare permission error, and the fix is not obvious from it.
+	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
+		return nil, 1
+	}
+	cfg, err := config.Load(resolveConfig(configPath, socket))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		return nil, 1
+	}
+
+	// Both kinds together: this is a diagnostic printed when the named file is
+	// not among the managed ones, and the operator wants every reason.
+	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
+	unresolvable := slices.Concat(failures, absent)
+	targets, err := rekeyTargets(managed, named)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
+		for _, reason := range unresolvable {
+			fmt.Fprintf(os.Stderr, "  %s\n", reason)
+		}
+		return nil, 1
+	}
+	// Reported even when enough resolved to proceed, unlike edit, which opens the
+	// one file it was asked for.  Here a pattern that named nothing is a managed
+	// file this run did not reach, and none may be left behind.
+	for _, reason := range unresolvable {
+		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, reason)
+	}
+
+	keyPath := ageKey
+	if keyPath == "" {
+		keyPath = filepath.Join(filepath.Dir(cfg.Path), "age.key")
+	}
+	if _, err := os.Stat(keyPath); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir %s: age key: %v\n", label, err)
+		return nil, 1
+	}
+	// This install's own rule, and no flag naming another.  What these commands
+	// are for is making the ciphertext agree with what <config-dir>/.sops.yaml
+	// says, so a run sealing the secrets directory to some other file's recipients
+	// produces the state they exist to remove: a host whose ciphertext and whose
+	// rule name different readers, with `doctor` and every file sops creates from
+	// then on still reading the rule.  --config moves the whole install, which is
+	// the honest way to act on another one.
+	return &storeContext{
+		cfg:      cfg,
+		keyPath:  keyPath,
+		rulePath: filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml"),
+		targets:  targets,
+	}, 0
+}
+
+// rekeyStore re-encrypts every target to wanted, and is the whole of what
+// `rekey` does and the second half of what a recipient change does.
+func rekeyStore(label string, store *storeContext, wanted []string, dryRun bool) int {
+	targets := store.targets
+	log := audit.NewLog(store.cfg.Audit)
 	failed, changed := 0, 0
 	for _, target := range targets {
 		was, err := recipientsOf(target)
@@ -125,29 +156,29 @@ func runRekey(f rekeyFlags, args []string) int {
 			// Not on a dry run, which writes nothing at all: the log is a record of
 			// what a run did to this host, and a run that was asked to do nothing did
 			// nothing to it.
-			if !f.dryRun {
+			if !dryRun {
 				log.Write(map[string]any{
 					"op": opRekey, "log_id": audit.NewLogID(), "file": target,
 					"error": err.Error(),
 					"uid":   os.Getuid(), "sudo": os.Getenv("SUDO_USER"),
 				}, audit.Output{})
 			}
-			fmt.Fprintf(os.Stderr, "faramir rekey: %s: %v\n", target, err)
+			fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", label, target, err)
 			failed++
 			continue
 		}
 		if sameRecipients(was, wanted) {
-			fmt.Fprintf(os.Stderr, "faramir rekey: unchanged %s\n", target)
+			fmt.Fprintf(os.Stderr, "faramir %s: unchanged %s\n", label, target)
 			continue
 		}
-		if f.dryRun {
-			fmt.Fprintf(os.Stderr, "faramir rekey: would re-encrypt %s: %s -> %s\n",
-				target, strings.Join(was, ","), strings.Join(wanted, ","))
+		if dryRun {
+			fmt.Fprintf(os.Stderr, "faramir %s: would re-encrypt %s: %s -> %s\n",
+				label, target, strings.Join(was, ","), strings.Join(wanted, ","))
 			changed++
 			continue
 		}
 
-		err = reencrypt(keyPath, rulePath, wanted, target)
+		err = reencrypt(store.keyPath, store.rulePath, wanted, target)
 		// One record per file, naming the recipients on both sides and never the
 		// values: who can read the secrets directory is exactly what an operator
 		// needs the log to be able to answer afterwards.
@@ -161,12 +192,12 @@ func runRekey(f rekeyFlags, args []string) int {
 		}
 		log.Write(record, audit.Output{})
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir rekey: %s: %v\n", target, err)
+			fmt.Fprintf(os.Stderr, "faramir %s: %s: %v\n", label, target, err)
 			failed++
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "faramir rekey: re-encrypted %s: %s -> %s\n",
-			target, strings.Join(was, ","), strings.Join(wanted, ","))
+		fmt.Fprintf(os.Stderr, "faramir %s: re-encrypted %s: %s -> %s\n",
+			label, target, strings.Join(was, ","), strings.Join(wanted, ","))
 		changed++
 	}
 
@@ -174,17 +205,17 @@ func runRekey(f rekeyFlags, args []string) int {
 	// is the state an operator has to know about, because the rest is still sealed
 	// to the old recipients.
 	if failed > 0 {
-		fmt.Fprintf(os.Stderr, "faramir rekey: %d of %d file(s) could not be re-encrypted; "+
-			"those still open to the recipients they had\n", failed, len(targets))
+		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) could not be re-encrypted; "+
+			"those still open to the recipients they had\n", label, failed, len(targets))
 		return 1
 	}
-	if f.dryRun {
-		fmt.Fprintf(os.Stderr, "faramir rekey: %d of %d file(s) would change\n", changed, len(targets))
+	if dryRun {
+		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) would change\n", label, changed, len(targets))
 		return 0
 	}
 	if changed > 0 {
-		fmt.Fprintf(os.Stderr, "faramir rekey: %d of %d file(s) re-encrypted; the broker "+
-			"picks them up within one refresh interval\n", changed, len(targets))
+		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) re-encrypted; the broker "+
+			"picks them up within one refresh interval\n", label, changed, len(targets))
 	}
 	return 0
 }
@@ -224,7 +255,19 @@ func rekeyTargets(managed, named []string) ([]string, error) {
 // a path_regex question this cannot answer, so it refuses rather than
 // re-encrypting half the secrets directory to the wrong set.
 func ruleRecipients(path string) ([]string, error) {
-	rules, err := sopsrule.Load(path)
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("creation rule: %w", err)
+	}
+	return ruleRecipientsFrom(body, path)
+}
+
+// ruleRecipientsFrom is ruleRecipients for a caller holding the bytes, which is
+// what a command that has just edited the rule and not yet written it has.
+// Judging the edit before it lands is the point: a rule this refuses is one the
+// file should never come to hold.
+func ruleRecipientsFrom(body []byte, path string) ([]string, error) {
+	rules, err := sopsrule.Parse(body, path)
 	if err != nil {
 		return nil, fmt.Errorf("creation rule: %w", err)
 	}

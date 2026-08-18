@@ -98,20 +98,21 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 
 `--age-recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which a re-run of the installer should not do unasked. A run that keeps the file reads it back, reports the recipients it lists as `age_recipients`, and warns naming any key you asked for that is not there. `faramir sops edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
 
-Applying one is two steps, both as root:
+Applying one afterwards is one command, as root:
 
 ```bash
-sudoedit /etc/faramir/.sops.yaml   # add the key under `- age:`
-sudo faramir sops rekey                 # re-encrypt the secrets to what it now says
+sudo faramir sops add-recipient age1hwvv...    # the rule and the ciphertext together
 ```
 
-The first decides who can read files sops creates from then on. The second brings existing files into line. Name files to do only some; `--dry-run` writes nothing.
+It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `sudo faramir sops rm-recipient age1hwvv...` is the same in reverse, and `faramir sops recipients` lists who the store is sealed to, needing no root. `--dry-run` reports the rule change and which files would be rewritten, and writes neither.
 
-- **Nothing checks what you type there as you type it.** `sudo faramir doctor` does, under `sops config`. The file is `0644`, so an identity pasted where a recipient belongs is the key to the store readable by every account on the host: treat one that lands there as disclosed, and rotate.
-- **Ownership and mode are preserved.** This is why `rekey` exists rather than a loop over `sops updatekeys`, which rewrites in place with no regard for either: a managed file that stops being readable by the secrets group is one the keeper cannot open.
+- **The rule and the ciphertext are changed together**, which is what makes this one command rather than two. A rule naming a reader the existing files are not sealed to fails nothing: new files get the new list, old ones keep the old, and the divergence surfaces whenever somebody reaches for a value with a key they were told they had.
+- **The key is checked before anything is written.** An identity where a recipient belongs is refused by name, `.sops.yaml` being `0644`: one that lands there is the key to the store readable by every account on the host, so treat it as disclosed and rotate. `sudo faramir doctor` asks the same question of a file however it was written, under `sops config`.
+- **Ownership and mode are preserved.** This is why these walk the store rather than looping over `sops updatekeys`, which rewrites in place with no regard for either: a managed file that stops being readable by the secrets group is one the keeper cannot open.
 - **A rule that drops the keeper's own key is refused**, before anything is decrypted, that leaving secrets nothing on the host can open.
-- **Files already sealed to the rule are skipped.** Re-encrypting rewrites the data key even when the recipients are identical, so a rekey that did not compare first would make every file look changed.
-- **Dropping a recipient is the same two steps**, and reaches no copy of the ciphertext somebody already holds. Treat what that key could read as read.
+- **Files already sealed to the rule are skipped.** Re-encrypting rewrites the data key even when the recipients are identical, so a pass that did not compare first would make every file look changed.
+- **Dropping a recipient reaches no copy of the ciphertext somebody already holds.** Treat what that key could read as read.
+- **`sops rekey` remains for what one command cannot cover**: a pass that reached only some of the files and has to be resumed, and a `.sops.yaml` changed some other way. Root can write a root-owned file whatever this page says, and `rekey` is how the store is brought back into line with it.
 - **A `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file, the only thing that can answer which rule governs which.
 - **A rule that splits the data key is refused too.** `shamir_threshold` means N key groups together, and re-encrypting to one list makes it any one of them.
 - **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from wherever you were standing, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `rekey` stops: that file is where its recipients come from.
