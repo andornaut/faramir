@@ -251,13 +251,12 @@ Doc | Covers
 Target | Does
 --- | ---
 `make build` | A static binary into `bin/`
-`make test` | The whole suite. Needs no sops installed
-`make coverage` | Race-enabled suite plus per-function report
+`make test` | Everything that tests this: the Go suite and the end-to-end suites
+`make e2e` | The end-to-end suites alone, against a real install in a container
+`make coverage` | Race-enabled Go suite plus per-function report
 `make fmt` | Apply the import and format rules CI checks
-`make lint` | `golangci-lint`
-`make shellcheck` | The shell scripts, as CI checks them
-`make e2e` | The functional suites against a real install in a container
-`make check` | The linters, the whole Go suite, and the end-to-end suites
+`make lint` | Every linter that reads this tree, ShellCheck included
+`make shellcheck` | The shell scripts alone, as CI checks them
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. That decides where a new document goes: operator documentation in `docs/`, which ships, and developer documentation at the root, which does not.

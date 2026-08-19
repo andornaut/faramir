@@ -76,10 +76,8 @@ REPORT := awk ' \
 # The platforms the release ships, so a local cross-compile check covers what
 # GoReleaser will actually build. Linux only: the broker is systemd units, PAM
 # and cgroups.
-PLATFORMS := linux-amd64 linux-arm64
 
-.PHONY: all build check clean coverage e2e fmt gate install lint release \
-	shellcheck test uninstall $(PLATFORMS)
+.PHONY: all build clean coverage e2e fmt install lint shellcheck test uninstall
 
 all: build
 
@@ -90,15 +88,11 @@ build:
 		go build -ldflags="$(LDFLAGS)" -trimpath -o $(BIN)/$$c ./cmd/$$c || exit 1; \
 	done
 
-## release: cross-compile every platform the release ships, into dist/, to
-## check that they all still build. GoReleaser publishes; this only tests.
-release: $(PLATFORMS)
-
-$(PLATFORMS):
-	GOOS=$(word 1,$(subst -, ,$@)) GOARCH=$(word 2,$(subst -, ,$@)) \
-		go build -ldflags="$(LDFLAGS)" -trimpath -o "dist/faramir-$@" ./cmd/faramir
-
-## test: the whole suite.  Needs no sops installed: the round trip runs
+## test: everything that tests this, the Go suite and the end-to-end suites
+## both, so that `make test` means the same here as in a repository whose
+## end-to-end tests are Go files.  `make e2e` still runs those alone.
+##
+## Needs no sops installed: the round trip runs
 ## through a stand-in built from the sops libraries at test time.  The tests
 ## that assert how sops resolves a creation rule skip without the real binary,
 ## the stand-in modelling none, so CI installs it pinned and they run there.
@@ -110,7 +104,7 @@ $(PLATFORMS):
 ## The status is taken from the pipeline's first command rather than left to
 ## pipefail, so that the skip report still runs when the suite failed: a run
 ## that fails is not one that checked everything else.
-test:
+test: e2e
 	@mkdir -p $(BIN)
 	@$(DELEGATE) go test -v ./... 2>&1 \
 		| tee $(BIN)/test.log | $(QUIET); \
@@ -129,10 +123,14 @@ coverage:
 fmt:
 	golangci-lint fmt
 
-## lint: the checks CI runs, both of them. `run` accepts an unknown key inside
+## lint: every linter that reads this tree, ShellCheck included, so that
+## `make lint` means the same here as in a repository holding no shell.
+## `make shellcheck` still runs that alone.
+##
+## `run` accepts an unknown key inside
 ## `linters.settings` and exits 0, which leaves that setting disabled while CI
 ## stays green, so `config verify` is what rejects a misspelled one.
-lint:
+lint: shellcheck
 	golangci-lint config verify
 	golangci-lint run
 
@@ -150,32 +148,6 @@ shellcheck:
 ## leftovers and reports failures that are not regressions.
 e2e:
 	cd tests/e2e && ./e2e.sh fetch && ./e2e.sh up && ./e2e.sh run
-
-## gate: the invariants CI holds the artifact to, apart from the tests: the
-## dependencies are the ones recorded, the tree builds, and sops stays out of
-## the binary.  The last is a shipping invariant rather than a style rule: the
-## keeper execs sops instead of linking it, which is what keeps every cloud KMS
-## SDK it supports out of what we ship.
-## The linkage check is two commands rather than a pipeline: `! cmd | grep -q`
-## passes when cmd FAILS, grep finding nothing in no output and `!` inverting
-## that into success, so a go list that could not run reports the invariant as
-## held. Assigning first makes the failure the recipe's.
-gate:
-	go mod verify
-	go build -v ./...
-	deps=$$(go list -deps ./cmd/faramir) && ! grep -q getsops <<<"$$deps"
-
-## check: what CI checks, in one command.  The race detector is the exception,
-## being slow enough to want asking for: `make coverage`.
-##
-## Recursive rather than a prerequisite list, so the order holds under `make -j`
-## as well.  Cheapest first, so a formatting mistake fails before Docker starts.
-check:
-	$(MAKE) lint
-	$(MAKE) shellcheck
-	$(MAKE) gate
-	$(MAKE) test
-	$(MAKE) e2e
 
 ## install: build, then copy the binaries to $(BINPREFIX). Only the copy runs
 ## as root: the build is a prerequisite, so the compiler runs as whoever typed

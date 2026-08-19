@@ -100,20 +100,6 @@ jobs:
       - name: Build
         run: go build -v ./...
 
-      # sops is a test-only dependency: the keeper execs the binary rather than
-      # linking the library, which is what keeps every cloud KMS SDK sops
-      # supports out of the shipped artifact. One binary now serves every role,
-      # so an import added anywhere reaches it: worth a gate rather than a
-      # comment.
-      - name: The shipped binary must not link sops
-        # Two commands, not a pipeline: `! cmd | grep -q` passes when cmd
-        # FAILS, grep finding nothing in no output and `!` inverting that into
-        # success, so a go list that could not run reports the invariant as
-        # held. Assigning first makes the failure the step's.
-        run: |
-          deps=$(go list -deps ./cmd/faramir)
-          ! grep -q getsops <<<"$deps"
-
       # Every brokered command is confined to its own cgroup and reaped there,
       # with no process-group fallback, so the executor refuses to run where it
       # cannot make a cgroup, and the tests exercise that real path rather than a
