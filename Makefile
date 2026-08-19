@@ -4,6 +4,9 @@
 SHELL := /bin/bash
 .SHELLFLAGS := -o pipefail -c
 
+# https://www.gnu.org/prep/standards/html_node/Directory-Variables.html#Directory-Variables
+PREFIX    ?= /usr/local
+BINPREFIX ?= $(PREFIX)/bin
 BIN := bin
 # One binary.  The three daemons, the MCP stdio server and the PreToolUse hook
 # are subcommands of it; what separates them is User= in the units, not main().
@@ -75,8 +78,8 @@ REPORT := awk ' \
 # and cgroups.
 PLATFORMS := linux-amd64 linux-arm64
 
-.PHONY: all build check clean coverage e2e fmt gate lint release shellcheck \
-	test $(PLATFORMS)
+.PHONY: all build check clean coverage e2e fmt gate install lint release \
+	shellcheck test uninstall $(PLATFORMS)
 
 all: build
 
@@ -173,6 +176,21 @@ check:
 	$(MAKE) gate
 	$(MAKE) test
 	$(MAKE) e2e
+
+## install: build, then copy the binaries to $(BINPREFIX). Only the copy runs
+## as root: the build is a prerequisite, so the compiler runs as whoever typed
+## it. This installs the programs; `faramir init` provisions the host.
+install: build
+	sudo mkdir -p "$(DESTDIR)$(BINPREFIX)"
+	@for c in $(CMDS); do \
+		sudo cp -pf $(BIN)/$$c "$(DESTDIR)$(BINPREFIX)/" || exit 1; \
+	done
+
+## uninstall: remove what install copied
+uninstall:
+	@for c in $(CMDS); do \
+		sudo rm -f "$(DESTDIR)$(BINPREFIX)/$$c"; \
+	done
 
 clean:
 	rm -rf $(BIN) dist
