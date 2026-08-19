@@ -17,7 +17,7 @@ Source | When it is re-read
 the managed store | At most once per [`min_refresh_sec`](configuration.md#what-a-flag-sets), checked when a command arrives rather than on a timer, so an idle host makes no round trip
 a linked file | **Every** request. The file is the operator's own and this uid can stat it, so nothing is saved by waiting
 
-The difference is deliberate. A linked file changes when another tool rotates the credential, which is not something the operator schedules, and a value missing from the redactor for up to a minute is a window nobody chose. Linking is mostly *for* this: the file is one the agent could read directly, and a value in the set is one a brokered command cannot print in the clear.
+The difference is deliberate. A linked file changes when another tool rotates the credential, which is not something the operator schedules, and a value missing from the redactor for up to a minute is a window nobody chose. That is what linking is for: the file is one the agent could read directly, and a value in the set is one a brokered command cannot print in the clear.
 
 ## Why a PTY and not a pipe
 
@@ -29,7 +29,7 @@ The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the 
 
 ## The pipeline, in order
 
-Each stage assumes the previous one has run.
+The first four run in this order, each assuming the one before it has. The last two are properties of the matcher the first four use.
 
 **1. Strip ANSI escapes.** A colour code spliced into a value defeats matching while rendering identically (`hunte\x1b[32mr2-correct-horse`). The response carries the stripped text. An escape can split across two reads, so a bounded trailing partial sequence is held back.
 

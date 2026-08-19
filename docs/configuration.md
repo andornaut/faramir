@@ -63,7 +63,7 @@ the decrypt command | A second way to invoke sops is a second thing that could b
 
 ## Linked secrets
 
-A `[[secret.link]]` entry reads one secret out of a file another tool maintains, rather than copying it into the managed store. The file stays where that tool expects it, so rotating the credential is that tool's business and nothing here goes stale.
+A `[[secret.link]]` entry reads one secret out of a file another tool maintains, rather than copying it into the managed store. [When to reach for one](integrations.md#where-the-value-lives).
 
 ```sh
 sudo faramir link add gh/token ~/.config/gh/hosts.yml \

@@ -23,7 +23,7 @@ These two have no hook that runs a program. A plugin in the agent's own process 
 {"decision": "rewrite", "tool_input": {"command": "source .../wrap.sh '<command>'"}}
 ```
 
-The rewrite carries back every field of the original tool input with only `command` replaced. Nothing written is a call left alone. Every other answer fails closed: a guard that cannot be run, a non-zero exit, an answer that is not JSON, a decision the plugin does not know. That covers version skew, so run `faramir init` before enrolling one of these: a binary too old to know the agent refuses every command in that project rather than running it unredacted.
+The rewrite carries back every field of the original tool input with only `command` replaced. Nothing written is a call left alone. Every other answer fails closed: a guard that cannot be run, a non-zero exit, an answer that is not JSON, a decision the plugin does not know. That covers version skew, which is why `faramir init` [comes before enrolling one of these](operating.md#rules-a-command-does-not-state).
 
 ## Claude Code
 

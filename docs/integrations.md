@@ -90,11 +90,11 @@ That is refused, naming all of them, rather than answered with whichever came fi
 
 The alternative, should this come up in practice, is to escape `ini` like the others and accept npm's key becoming `\/\/registry.npmjs.org\/:_authToken`.
 
-**A linked file is bounded at 1 MiB.** A link pointed at something larger fails rather than reading it into the value set, a credential file being small and this being the difference between a link and a mistake.
+**A linked file is bounded at 1 MiB.** A link pointed at something larger fails rather than reading it into the value set, a credential file being small.
 
-**Link what the agent can already read.** The agent runs as the operator, so `~/.npmrc` is one file read away; linking puts that value in the redactor and refuses the path, closing both halves. Pointed at a file the agent *cannot* read it inverts, so a root-owned keyfile belongs outside the store.
+**Link what the agent can already read.** Pointed at a file the agent cannot read, a link makes that value obtainable through `env_refs` and closes no disclosure path in exchange, so a root-owned keyfile belongs outside the store. [Why](design.md#linked-secrets-are-read-by-the-broker).
 
-Why it is shaped this way is in [design.md](design.md#linked-secrets-are-read-by-the-broker); what an entry looks like and what a lost grant costs is in [configuration.md](configuration.md#linked-secrets).
+What an entry looks like and what a lost grant costs is in [configuration.md](configuration.md#linked-secrets).
 
 ## SSH keys and host verification
 
@@ -105,16 +105,15 @@ Brokered commands run as `faramir-exec`, which must *use* the key that reaches m
 - The `ssh-agent` lives and dies with the broker, so nothing outlives the process holding the key in memory.
 - A key it cannot load is logged rather than fatal: `--check` and `doctor` name it, and only commands that reach a host fail, with ssh's own error.
 - The executor's account cannot read the key, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
-- A bare `ssh host` logs in as `faramir-exec`, which is nobody's account on a managed host. Give the login, or write one `User` per host into the executor's own `.ssh/config`.
 
 Two settings that are not defaults:
 
 Setting | Why
 --- | ---
 `faramir init --command-env ANSIBLE_HOST_KEY_CHECKING=True` | Host key checking, for Ansible. Not in the shipped `[command.env]`, and with it off a broker holding credentials offers them to whatever answers on that address
-`faramir init --known-hosts ~/.ssh/known_hosts` | `faramir-exec` has its own `known_hosts` and it starts absent, so a play whose hosts are trusted only in the operator's file fails verification before the key above is offered. `/etc/ssh/ssh_known_hosts` is the alternative, being the file every account reads
+`faramir init --known-hosts ~/.ssh/known_hosts` | `faramir-exec` has its own `known_hosts` and it starts absent, so a play whose hosts are trusted only in the operator's file fails verification before the key above is offered
 
-`faramir doctor` reports how many host keys the executor can verify against. Both flags are in [installing.md](installing.md#what-each-flag-sets); pinning host keys across a fleet is in [operating.md](operating.md#rules-a-command-does-not-state).
+`faramir doctor` reports how many host keys the executor can verify against. Both flags are in [installing.md](installing.md#what-each-flag-sets). Which login a bare `ssh host` asks for, which files it verifies against, and how to pin host keys across a fleet are in [operating.md](operating.md#rules-a-command-does-not-state).
 
 ## Worked example: Ansible
 

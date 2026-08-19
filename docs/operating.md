@@ -26,7 +26,7 @@ Rotation | `log rotation` | logrotate installed, naming the log the broker write
 
 Four statuses: `ok`, `warn`, `failed`, and `n/a` for a check whose subject this install does not have, a separate total because a pass would claim a stack that is not there.
 
-- **Version skew fails.** A new binary installed and the daemons never restarted onto it makes every other finding a report on the build that is not running. Re-run `init`. A broker that does not answer at all is a warning instead, `doctor` being for a stopped install as much as a running one.
+- **Version skew fails.** A new binary installed and the daemons never restarted onto it makes every other finding a report on the build that is not running. Re-run `init`. The daemons refuse a request naming another version outright ([version](protocol.md#version)), so this is met as a refused command as well as reported here. A broker that does not answer at all is a warning instead, `doctor` being for a stopped install as much as a running one.
 - **`agent rules` reads `<config-dir>/enrolled.json`**, because a tree relies on rules kept elsewhere and the agent it was enrolled for may leave no trace in that home. An entry keeps every agent the tree still carries, so enrolling one by name does not drop the others; one naming a tree that is no longer there is warned about rather than forgotten, an unmounted tree not being a deleted one.
 - **`agent rule drift` names rather than deletes.** An entry in those files is a bare string or a key, so one of ours left behind and one of yours refusing the same path look identical. Extra refusals, so untidy rather than unguarded.
 - **Two checks run a brokered command** rather than reading a mode: `ssh agent` and `brokered command`. Both skip against a broker known to hold no values. `brokered command` needs root; the `ssh agent` probe runs as the caller. A refusal from a broker whose `--check` read every managed file fails rather than skips: a daemon refusing what those files cover came up before they were written.
@@ -128,7 +128,7 @@ At the broker these are three ops rather than four, `deny` being `approve` with 
 
 ## What a record is
 
-The operational rules are above; this is the shape of the line they are written on. Every field is chosen by the account the log exists to hold to account, so a record's bounds are decided where it is built.
+The operational rules are above; this is what one record is. Its content comes from the account being recorded: the command, the cwd and the output are all the agent's, so every bound below is applied where the record is built rather than trusted to whatever reads it.
 
 - One record is one line within the record cap, counted in encoded bytes: `<`, `>`, `&` and every control character cost six apiece as JSON.
 - An append is exclusive and all-or-nothing. A write that lands short is taken back, so a torn line cannot swallow the record after it.
@@ -158,7 +158,7 @@ It validates the key, edits the rule, checks the keeper is still a reader, write
 - **Dropping a recipient reaches no copy already held elsewhere.** Treat what that key could read as read.
 - **A pass that reached only some of the files is resumed by running the same command again.** `add` and `rm` reseal whether or not the rule changed, so a rule that is already right and a store that is not is a state re-running fixes rather than one it reports as done.
 - **`recipient reseal` is for a `.sops.yaml` changed some other way**, root being able to write a root-owned file whatever this page says. It takes the rule as it stands and brings the store to it.
-- **`doctor` reports the disagreement** under `recipient drift`, so a store that has drifted is something you are told rather than something you meet when a value will not decrypt.
+- **`doctor` reports the disagreement** under `recipient drift`, so a drifted store is reported rather than met when a value will not decrypt.
 - **A `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file, the only thing that can answer which rule governs which.
 - **A rule that splits the data key is refused too.** `shamir_threshold` means N key groups together, and re-encrypting to one list makes it any one of them.
 - **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from the current working directory, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `reseal` stops: that file is where its recipients come from.

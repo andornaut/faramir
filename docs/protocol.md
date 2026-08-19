@@ -4,7 +4,7 @@ Three sockets, newline-delimited JSON, one request and one response per connecti
 
 Socket | Who may connect | What it does | Request limit
 --- | --- | --- | ---
-`/run/faramir/broker.sock` | the agent (`0660 root:<client-group>`) | run commands, list refs | `[server] max_request_bytes`
+`/run/faramir/broker.sock` | the agent (`0660 root:<client-group>`) | run commands, list refs | 256 KiB
 `/run/faramir/keeper.sock` | the broker (`0660 root:<broker's group>`) | return decrypted values | 65536 bytes
 `/run/faramir/exec.sock` | the broker (`0660 root:<broker's group>`) | fork a command on a passed PTY | 1 MiB
 
@@ -27,7 +27,7 @@ There is one binary: the three daemons are it under three units, and the CLI and
 
 A caller that sends no `version` is refused the same way and told it named none. The alternative is failing later on whichever op or field changed in between: an op the daemon no longer has is refused as unknown, which reads as a caller asking for something that never existed, and a field it no longer reads is ignored, so a setting the caller sent goes silently unapplied.
 
-The MCP server is the process this is for. It is a long-lived child of the coding agent, so it is the one client that survives an install, and it is reconnected through the agent rather than restarted on its own.
+The MCP server is the process this is for: a long-lived child of the coding agent, and so the one client that survives an install.
 
 ## The broker socket
 
@@ -151,7 +151,7 @@ Code | Meaning
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
 `internal` | The broker could not render its own answer. Not a fault of the request
 `forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the three root-only ops
-`too_large` | Request exceeded `[server] max_request_bytes`
+`too_large` | Request exceeded the 256 KiB cap, which is a [constant rather than a key](configuration.md#what-is-not-a-key-at-all)
 `timeout` | No request arrived within 30s, or a redact stream idled past `[command] max_timeout_sec`
 
 There is no command allowlist, so there is no `denied`. Messages name what failed and where to fix it, so the agent can correct itself in one turn: a program off `[command.env] PATH` says so and names the setting.

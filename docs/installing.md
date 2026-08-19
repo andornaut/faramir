@@ -58,4 +58,4 @@ The rules `--agent` installs refuse the agent's file tools against key material 
 sudo faramir doctor
 ```
 
-Reports whether the install is doing its job, and as root what each account can reach. Without root it still runs, reporting what it could not ask as unasked. [What it checks](operating.md#checking-an-install).
+Without root it still runs, reporting what it could not ask as unasked rather than as passing. [What it checks](operating.md#checking-an-install).

@@ -63,7 +63,7 @@ sudo faramir escalations --watch
 
    Which one it was decides whether running the command again is worth anything, so `--quiet` does not suppress it.
 6. Approved or refused, every request is a record in the audit log naming the command, who answered, and the `run` record it belongs to. `outcome_code` says which ending it was in one word and `outcome` says it in a sentence, so a log can be read for "nobody was watching" (`expired`) apart from "somebody said no" (`denied`) without matching English. `faramir logs` renders the two as `timed out` and `refused`. The full set is in [protocol.md](protocol.md#escalations).
-7. A yes is not the last you hear of it. `--watch` prints how the run ended when it does:
+7. `--watch` prints how an approved run ended, when it does:
 
    ```text
      w5vq7dbf000119 started
@@ -78,7 +78,7 @@ There is no password anywhere: what satisfies `sudo` is a decision, so nothing i
 
 **Where you watch from is part of it.** The socket check makes the answer come from root; it cannot make root the one typing. The agent runs as *your* account, and a terminal your account owns is one it can reach: `tmux send-keys` and screen's `stuff` take input from any process running as the user who started the session. `--watch` warns when it detects a multiplexer or a terminal not owned by root, but detection is not prevention, so watch from a console, an ssh session on another machine, or a login as another account. The deny rules refuse every faramir subcommand from the agent's own shell except the ones it needs, `escalations`, `approve` and `deny` among them, which raises the cost rather than removing it.
 
-**Without `--watch`.** `sudo faramir escalations` lists what is waiting and exits. Answering is a second command: `sudo faramir approve 9f2a1c`, or `sudo faramir deny`, which takes an id but does not need one, only one question ever being outstanding. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached. `--json` prints the questions as an array and carries the same status, an empty array being nothing waiting; a broker it could not reach prints nothing, an empty array there reporting a host as quiet when nothing was asked. Read `expires` and mean it: you are typing against what is left of it. If it expires, the `sudo` fails and a re-run asks afresh.
+**Without `--watch`.** `sudo faramir escalations` lists what is waiting and exits. Answering is a second command: `sudo faramir approve 9f2a1c`, or `sudo faramir deny`, which takes an id but does not need one, only one question ever being outstanding. Exit status is `0` when something was waiting, `1` when nothing was, `69` when the broker could not be reached. `--json` prints the questions as an array and carries the same status, an empty array being nothing waiting; a broker it could not reach prints nothing, an empty array there reporting a host as quiet when nothing was asked. `expires` is what is left of the question, and you are typing against it. If it expires, the `sudo` fails and a re-run asks afresh.
 
 Approving from your own shell is the last resort rather than the first: reaching root that way leaves a warm sudo timestamp in a shell the agent can use. Consider `Defaults:<you> timestamp_timeout=0`.
 
