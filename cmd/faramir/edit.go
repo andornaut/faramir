@@ -1,6 +1,6 @@
 package main
 
-// `faramir edit` changes a managed sops file once the secrets directory belongs
+// `faramir vault edit` changes a managed sops file once the secrets directory belongs
 // to the secrets group and the operator does not.  It runs sops itself rather
 // than asking the keeper, which has no operation that returns key material;
 // under sudo this process is already root.

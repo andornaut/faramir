@@ -63,15 +63,15 @@ The section is what the deny rules cannot say: why they refuse, and what to do i
 
 `~/.bashrc` gets a `umask 002` line, so a file the operator creates in a shared tree stays group-writable.
 
-Each agent's own directory in an enrolled tree is `3770` rather than `2770`: sticky as well as setgid, so unlink and rename inside it belong to the file's owner. The tree root is `2770` deliberately, and what that costs is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config).
+## What the modes decide
 
-`--config-dir` moves the config, the secrets directory and the age key off `/etc` together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. The audit log and the two sudo files do not follow: the log is the broker unit's `ReadWritePaths`, and the sudo files are the paths `sudo` and PAM read. `faramir status` reports the paths in use.
+- **A brokered command** can write the working tree and reach the broker socket, its output redacted and audited like any other. It cannot reach the age key by any route: the modes above refuse the key file, the secrets directory, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
+- **`0400 faramir-keeper` keeps the operator out of the key wherever it sits.** Owning the directory is permission to unlink the file, not to read it, so replacing the key yields denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; only the three `.socket` units are enabled.
+- **The `--allow-sudo` files are `root:root`** because they decide who becomes root, so the account they govern must not be able to write them. Re-running `init` without the flag removes both.
+- **Each agent's own directory in an enrolled tree is `3770` rather than `2770`:** sticky as well as setgid, so unlink and rename inside it belong to the file's owner. The tree root is `2770` deliberately, and what that costs is in [operating.md](operating.md#the-files-an-install-writes-into-your-agents-config).
+- **Every install renders the executor unit with `Delegate=yes`**, so each run gets its own cgroup and is reaped there.
 
-The `--allow-sudo` files are `root:root` because they decide who becomes root, so the account they govern must not be able to write them. Re-running `init` without the flag removes both. Every install renders the executor unit with `Delegate=yes` so each run gets its own cgroup and is reaped there.
-
-A brokered command can write the working tree and reach the broker socket, its output redacted and audited like any other. It cannot reach the age key by any route: the modes above refuse the key file, the secrets directory, the keeper socket, the audit log and the SSH keys, no request returns the key, and nothing puts `SOPS_AGE_KEY` in its environment.
-
-`0400 faramir-keeper` keeps the operator out of the key wherever it sits: owning the directory is permission to unlink the file, not to read it, so replacing the key yields denial of service rather than disclosure, secrets encrypted to the replaced key decrypting for nobody. Nothing starts the keeper at boot either; only the three `.socket` units are enabled.
+`--config-dir` moves the config, the secrets directory and the age key together, and the reason is in [design.md](design.md#the-secrets-live-in-a-directory-not-a-tree). What does not follow: the audit log, which is the broker unit's `ReadWritePaths`, and the two sudo files, which are the paths `sudo` and PAM read. `faramir status` reports the paths in use.
 
 ## Sharing a working tree
 

@@ -642,9 +642,9 @@ func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 	}, audit.Output{})
 	out := protocol.ErrorResponse("no_secrets", fmt.Sprintf(
 		"the broker does not hold every managed value, so %s would run with "+
-			"redaction covering less than the config asks for: %s. Encrypt a first "+
-			"file into %s with sops, or `sudo faramir edit` once one is there, then "+
-			"retry", phrase, reason, s.secretsDir()), logID)
+			"redaction covering less than the config asks for: %s. Write a first "+
+			"file into %s with `sudo faramir vault add NAME`, or `sudo faramir vault "+
+			"edit` once one is there, then retry", phrase, reason, s.secretsDir()), logID)
 	return &out
 }
 

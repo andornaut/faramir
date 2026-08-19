@@ -5,8 +5,8 @@ Three sockets, newline-delimited JSON, one request and one response per connecti
 Socket | Who may connect | What it does | Request limit
 --- | --- | --- | ---
 `/run/faramir/broker.sock` | the agent (`0660 root:<client-group>`) | run commands, list refs | `[server] max_request_bytes`
-`/run/faramir/keeper.sock` | the broker (`0660 root:faramir-broker`) | return decrypted values | 65536 bytes
-`/run/faramir/exec.sock` | the broker (`0660 root:faramir-broker`) | fork a command on a passed PTY | 256 KiB
+`/run/faramir/keeper.sock` | the broker (`0660 root:<broker's group>`) | return decrypted values | 65536 bytes
+`/run/faramir/exec.sock` | the broker (`0660 root:<broker's group>`) | fork a command on a passed PTY | 1 MiB
 
 The internal sockets are root-owned so neither the keeper's nor the executor's own uid can connect: a child reaching the executor socket would run commands the broker never authorised and never logged.
 
@@ -59,7 +59,7 @@ SSH_AUTH_SOCK  SSH_AGENT_PID  SUDO_ASKPASS  FARAMIR_ESCALATION_TOKEN
 
 `{"op": "redact", "text": "…"}` returns the ordinary response shape with `output` carrying the scrubbed text and `exit_code` 0, no command having run. `text` is required; `more` is the only other field the op reads.
 
-A caller with more text than one request may carry sends it a chunk at a time **down one connection**, every chunk but the last marked `{"more": true}`. The broker keeps one redactor for that connection, holding back a tail longer than the longest rendering of any value, so a secret split between two chunks is caught by the chunk that completes it. A connection per chunk gives each its own redactor, and a value across the join comes back in the clear. Ordinary output reaches this: a single-line JSON document, a minified bundle, `base64 -w0`, all have to be broken somewhere.
+A caller with more text than one request may carry sends it a chunk at a time **down one connection**, every chunk but the last marked `{"more": true}`. The broker keeps one redactor per connection, holding back a tail longer than the longest rendering of any value, so a secret split between two chunks is caught by the chunk that completes it. A connection per chunk gives each its own redactor, and a value across the join comes back in the clear. Ordinary output reaches this: a single-line JSON document, a minified bundle and `base64 -w0` all have to be broken somewhere.
 
 - `more` must be a boolean. Sent where no stream state exists, it is a `bad_request` rather than a request completed as though it stood alone.
 - One audit record per stream, written when it ends, carrying the totals for the whole of it. A stream the peer abandoned still writes one.
@@ -73,7 +73,7 @@ It also takes an optional `await_log_id`, naming the run the caller approved and
 
 `escalate` names the run by the token in the brokered command's environment and blocks until a human answers, the question expires, or the broker stops. `sudo` is blocked on it throughout, which is what makes the wait an authentication step. A token naming no running command is refused without asking anybody.
 
-`outcome_code` is which of those it was, in one word, `reason` being the sentence beside it. A refusal a human typed and a question nobody answered are not the same event and are not acted on alike, and told apart only by their prose they are told apart by whoever reads English. The same code is written to the audit record, where `faramir logs` reads it.
+`outcome_code` is which of those it was, in one word, `reason` being the sentence beside it. A refusal a human typed and a question nobody answered are different events and are acted on differently, so the code carries the difference and nothing has to parse the prose to find it. The same code is written to the audit record, where `faramir logs` reads it.
 
 Code | Means
 --- | ---
@@ -130,6 +130,7 @@ Code | Meaning
 `no_audit` | The audit log cannot be written, so the command was refused rather than run unrecorded. `run` alone
 `no_secrets` | A managed file went unread: no entry matched a file, or one that matched did not load. `run` and `redact` both refuse; `status` and `refs` always answer
 `exec_failed` | `cmd[0]` did not resolve to an executable, or the program could not be started
+`internal` | The broker could not render its own answer. Not a fault of the request
 `forbidden` | Peer uid or gid not permitted, or a non-root peer on one of the three root-only ops
 `too_large` | Request exceeded `[server] max_request_bytes`
 `timeout` | No request arrived within 30s, or a redact stream idled past `[command] max_timeout_sec`

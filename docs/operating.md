@@ -145,9 +145,9 @@ sudo faramir recipient add age1hwvv...    # the rule and the ciphertext together
 
 Where the key comes from is not faramir's business. Another operator hands you theirs, a second host's `init` minted its own, or a plugin holds one. One nobody has yet is minted with `age-keygen -o FILE`, on the machine that will hold it.
 
-A second recipient is another *reader*, not a backup of this host: losing the key is covered by the archive below, not by them.
+A second recipient and a backup answer different losses. Another reader keeps the *values* readable if this host's key is gone; the [archive below](#backing-up-and-restoring) is what rebuilds *this host*. Neither substitutes for the other.
 
-It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `sudo faramir recipient rm age1hwvv...` is the same in reverse, and `faramir recipient ls` lists who the store is sealed to, needing no root. `--dry-run` reports the rule change and which files would be rewritten, and writes neither.
+It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `--dry-run` reports the rule change and which files would be rewritten, and writes neither. The [three recipient commands](#operator-commands) are above.
 
 - **The rule and the ciphertext are changed together**, which is what makes this one command rather than two. A rule naming a reader the existing files are not sealed to fails nothing: new files get the new list, old ones keep the old, and the divergence surfaces whenever somebody reaches for a value with a key they were told they had.
 - **The key is checked before anything is written.** An identity where a recipient belongs is refused by name, `.sops.yaml` being `0644`: one that lands there is the key to the store readable by every account on the host, so treat it as disclosed and rotate. `sudo faramir doctor` asks the same question of a file however it was written, under `sops config`.
@@ -160,9 +160,9 @@ It validates the key, edits the rule, checks the keeper is still a reader, write
 - **`doctor` reports the disagreement** under `recipient drift`, so a store that has drifted is something you are told rather than something you meet when a value will not decrypt.
 - **A `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file, the only thing that can answer which rule governs which.
 - **A rule that splits the data key is refused too.** `shamir_threshold` means N key groups together, and re-encrypting to one list makes it any one of them.
-- **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from wherever you were standing, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `reseal` stops: that file is where its recipients come from.
+- **The rule is `<config-dir>/.sops.yaml`, and no flag names another.** Both commands hand sops that file and judge it against the managed file's real path, not the tmpfs copy the plaintext passes through. Left to search, sops walks up from the current working directory, which may be a tree the coding agent writes, and an `unencrypted_regex` in a rule found there writes managed values in the clear. `--config` moves the whole install, which is how to act on another one. Remove the file and `edit` falls back to sops' defaults, while `reseal` stops: that file is where its recipients come from.
 - **A file no creation rule covers cannot be written back.** `edit` asks before opening the editor, so it costs a refusal rather than what you typed; `doctor` asks it of every managed file under `rule coverage`. Reachable only where the rule was narrowed, or the managed store names something the shipped `*.sops.yml` rule does not match.
-- **The keeper's key as the only recipient means losing it loses every managed value**, retroactively. A second recipient is the backup that avoids it.
+- **The keeper's key as the only recipient means losing it loses every managed value**, retroactively, with no archive to restore from if the archive went with it. That is the loss a second reader answers.
 
 ## Backing up and restoring
 
@@ -224,7 +224,14 @@ sudo faramir escalations --watch
      approve? [yes/no]
    ```
 
-   `expires` counts down to the refusal and gains a `(waited 40s)` only where the question had been sitting before anything read it: a watcher already running is handed one the moment it is filed, so its absence is what says somebody was here. `caller` is the account that asked, which is never the account the command would run as: that is the executor on every question, so the uid worth judging is this one, and more than one account can be in the client group. The command is on its own line rather than in the question, which repeated it and, for a long one, pushed the fields off the screen; `[escalation] notify_command` still gets the whole sentence, having no second line to put one on. The command is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted. A `program` line appears when what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes. The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits.
+   Field | What it says
+   --- | ---
+   `cmd` | The command, on its own line rather than inside the question, which repeated it and for a long one pushed the fields off the screen. It is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted
+   `caller` | The account that asked, which is never the account the command would run as. That is the executor on every question, so this is the uid worth judging, and more than one account can be in the client group
+   `expires` | Counts down to the refusal. It gains a `(waited 40s)` only where the question had been sitting before anything read it, a watcher already running being handed one the moment it is filed, so its absence is what says somebody was here
+   `program` | Present only where what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes
+
+   The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits. `[escalation] notify_command` gets the whole sentence, having no second line to put the command on.
 
 4. Anything but `yes` is a refusal (the whole word, not `y`), and so is silence: the question expires after `[escalation] timeout_sec`, 120s by default and at most 600. The clock starts when the question is raised, which is what `expires` counts down from. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
 
@@ -234,7 +241,7 @@ sudo faramir escalations --watch
    ```
 
    It has to, and not only so the terminal stops asking about a question that is gone: a watcher blocked on a read is one that is not polling, so a question raised while it waited would not be shown until a keystroke arrived.
-5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else `requisite` makes the non-zero exit fatal at once, and `sudo` reports its own authentication failure. That report is the same whichever no it was, so `faramir run` names it on the way out and the `exec` record keeps it:
+5. On approval the helper exits `0` and PAM's `auth` stack falls through to `pam_permit`; on anything else `requisite` makes the non-zero exit fatal at once, and `sudo` reports its own authentication failure. That report is the same whichever no it was, so `faramir run` names it on the way out and the `run` record keeps it:
 
    ```text
    faramir run: escalation denied: refused by root (pid 1000); log_id=w9yj6dda000005
@@ -252,7 +259,7 @@ sudo faramir escalations --watch
 
    Every line names its run, the ending arriving after the terminal has moved on. The duration is wall time and the command sits inside `sudo` for the whole question, so the part spent waiting on the escalation is named rather than subtracted; under a second it is left off, every approved run waiting a little. `exited 2 after 3.1s, timed out` when `[command] max_timeout_sec` ended it, `failed: <reason>` where the broker got no exit status, and `ended, no exit status` where it got neither. The line arrives when the run ends, not when the poll runs out.
 
-   A refusal prints `<log_id> refused` with the line it read, quoted, and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question, and the terminal has to be back on the poll for it. Its `exec` record lands when it ends like any other command's.
+   A refusal prints `<log_id> refused` with the line it read, quoted, and nothing further: a refused run holds nothing once answered, so another command may start and raise the next question, and the terminal has to be back on the poll for it. Its `run` record lands when it ends like any other command's.
 
 There is no password anywhere: what satisfies `sudo` is a decision, so nothing is minted, stored, injected or typed, and nothing a command approved once can keep and pass to a later one. The answer must come from root, checked with `SO_PEERCRED`.
 

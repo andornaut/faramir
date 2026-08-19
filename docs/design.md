@@ -76,9 +76,9 @@ What catches a lost grant is `faramir doctor`, which asks the broker's own accou
 
 **A ref does not say where it is kept.** One flat namespace, and a cross-source collision refused at load naming both sides. Tagging the source into the name (`faramir://sops/...`) would make moving a secret between the store and a link a rename, breaking every `faramir.env` and playbook naming it, which is the drift linking exists to avoid.
 
-**A link that is there and will not read refuses `exec` and `redact`**, the same gate a managed file that did not decrypt gets, because it is the same state: a value on disk that the redactor does not have. The cost is that a tool replacing its own file drops the grant and stops brokered work on the host until `init` restores it. Nothing survives that rewrite, ACL or group alike, which is why `doctor` asks rather than trusting what was granted. A link whose *path* is gone is not that state, the credential having left the machine, and is reported rather than fatal.
+**A link that is there and will not read is held to the same gate as a managed file that did not decrypt**, because it is the same state: a value on disk that the redactor does not have. Nothing survives a tool rewriting its own file, ACL or group alike, which is why `doctor` asks whether the read still works rather than trusting what was granted. What that costs day to day is in [configuration.md](configuration.md#linked-secrets).
 
-**A link is install state.** The entries live in `config.toml`, which `init` rewrites every run and reads its links back out of first, so every grant and every deny rule is re-asserted on every run. That is what heals a grant a tool took away, and it is why `faramir link add` applies the same steps rather than a private copy of them.
+**A link is install state**, re-asserted by every `init` run rather than applied once. That is what heals a grant a tool took away, and it is why `faramir link add` applies the same steps rather than a private copy of them.
 
 Rendering linked paths into the per-project assets instead would change every enrolled tree's files whenever a link was added, and report drift in all of them until each was enrolled again. Pi has no account-wide rule file, so its extension does not carry linked paths; that is the gap it already has.
 

@@ -130,7 +130,7 @@ Reports whether the install is doing its job, and as root what each account can 
 
 ### Onboarding a project
 
-1. Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them. The store is that directory, so a file put there is picked up on the next refresh (10 seconds by default).
+1. Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them. The store is that directory, so a file put there is picked up on the next refresh (10 seconds by default). A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
 2. Have the project read each credential from an environment variable rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. Write the refs beside the project, one `NAME=faramir://ref` per line.
 4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
@@ -142,35 +142,7 @@ faramir refs
 faramir run --env TOKEN=faramir://svc/token -- printenv TOKEN   # -> «SECRET:svc/token»
 ```
 
-#### With Ansible
-
-```text
-/etc/faramir/secrets/ansible-ctrl.sops.yml   the values, outside every checkout
-group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME')
-faramir.env                                  NAME=faramir://ref, one per line
-```
-
-`sudo faramir init-project` writes the agent configuration and shares the tree. The other three are yours to place, and none needs configuring. Walk-through: [docs/ansible-sops.md](docs/ansible-sops.md).
-
-#### Other cases
-
-Only step 3 differs.
-
-What you are running | Step 3
---- | ---
-A deploy or release script | Already reads `$TOKEN`. Nothing to change
-A cloud or infra CLI (`aws`, `terraform`, `flyctl`) | Name its documented environment variables; drop the credentials file
-A database task | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv`, the password never does
-A registry push | `bash -lc 'printf %s "$TOKEN" \| docker login -u me --password-stdin'`
-An HTTP call | `curl -H "Authorization: Bearer $TOKEN"` inside `bash -lc`, so the shell expands it
-A tool needing a credentials *file* | Have the command write it, use it, remove it. Injection is environment-only
-A credential another tool already owns (`~/.npmrc`, `gh`) | Skip step 1. Link it instead of copying it in, so rotating it stays that tool's business: [linked secrets](docs/configuration.md#linked-secrets)
-Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the child gets `SSH_AUTH_SOCK`. Name the remote login, a bare `ssh host` asking for `faramir-exec`, and pin the host keys with `init --known-hosts`
-Redaction only, no secret | Skip steps 3 and 4. `faramir redact -- ./script.sh`, or use it as a filter
-
-- A pipeline is requested explicitly as `["bash", "-lc", "…"]`; the broker never hands a string to a shell.
-- A bare command name is looked up on `[command.env] PATH`. Venv, pipx and shim directories belong there.
-- Anything that wants to decrypt sops itself does not onboard. It gets named values instead.
+Per-tool recipes, the `faramir link` types and selectors, SSH keys, and a worked Ansible example: [docs/integrations.md](docs/integrations.md).
 
 ### Running commands
 
@@ -202,7 +174,7 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 
 - How to run it: [docs/operating.md](docs/operating.md#allowing-sudo-on-the-controller)
 - Why it is shaped this way: [docs/design.md](docs/design.md#allowing-sudo-on-the-controller)
-- With Ansible: [docs/ansible-sops.md](docs/ansible-sops.md#4-becoming-root-on-the-controller)
+- With Ansible: [docs/integrations.md](docs/integrations.md#becoming-root-on-the-controller)
 
 ### Operator commands
 
@@ -237,7 +209,7 @@ There is no command allowlist. A brokered command is bounded by the executor's u
 
 Doc | Covers
 --- | ---
-[docs/ansible-sops.md](docs/ansible-sops.md) | Pointing `group_vars` at the environment
+[docs/integrations.md](docs/integrations.md) | Wiring a tool to the broker: per-tool recipes, linked credentials, SSH, and Ansible end to end
 [docs/configuration.md](docs/configuration.md) | Every setting, which flag sets it, what `--check` fails on
 [docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what enrolment costs
 [docs/installing.md](docs/installing.md) | Every `init` flag, what a re-run adopts, where the config directory may not go
@@ -263,5 +235,5 @@ Target | Does
 - Tests live where the logic does. Most of what the broker does is decide, so `internal/server` substitutes the executor; `internal/executor` uses a real child, the PTY and the streaming redactor meaning nothing against synthetic bytes.
 - The Go suite runs under one uid, so it never covers the uid boundary. That is real only on a host, which is what `sudo faramir doctor` and [tests/e2e](tests/e2e/README.md) are for. Adversarial exfiltration is asserted nowhere, as [Not prevented](#not-prevented) says.
 - The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, every brokered command being confined to its own. `make test` supplies one with `systemd-run --user --scope`; without it a couple of dozen tests skip, so the run ends by naming what it did not check. On a runner with no such scope, delegate a cgroup first, as [the test workflow](.github/workflows/test.yml) does. cgroup v1 is unsupported.
-- The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries, imported only from `_test.go`. CI fails the build on a `getsops` import reaching `./cmd/faramir`.
+- The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries, imported only from `_test.go`. What keeps them out of the shipped binary is `cmd/faramir/nosops_test.go`, which walks `go list -deps` and carries a positive control, so the check cannot pass by matching nothing.
 - The opencode and Kilo Code plugins are the only shipped logic that is not Go, so node drives the shipped file against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed. Skipped where node is absent. No test covers a running opencode or Kilo Code, or Bun.

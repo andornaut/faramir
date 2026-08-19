@@ -27,7 +27,7 @@ Flag | Key | Default | Bounds
 
 `[[secret.link]]` is the eighth thing the file carries and is `faramir link`'s, [below](#linked-secrets).
 
-**`--secret-min-length` has a floor of 6 and a reason for being low.** The two failures are not symmetric: a value refused for being too short is absent from the redactor and reaches output in the clear, while one matched too eagerly only mangles the operator's own text. Length is a crude proxy either way. The dictionary peaks at eight characters, so the default is not the safe point it looks like; `password` is eight and is a word.
+**`--secret-min-length` has a floor of 6 and a reason for being low.** The two failures are not symmetric: a value refused for being too short is absent from the redactor and reaches output in the clear, while one matched too eagerly only mangles the operator's own text. The default of 8 is not the safe point it looks like, `password` being eight characters and a word.
 
 ## What is derived
 
@@ -70,9 +70,9 @@ sudo faramir link add gh/token ~/.config/gh/hosts.yml \
     --type yaml --key github.com/oauth_token
 ```
 
-That is the whole of it. The command grants the broker read on the file, reads it once as the broker's own account to check the selector, writes the entry, refuses the path to the agent's file tools, and leaves `faramir reload` to pick it up. `faramir link ls` lists what is declared; `faramir link rm REF` drops one.
+That is the whole of it; the [three link commands](operating.md#operator-commands) are the only way these entries are written.
 
-**The order matters and is the command's own.** The grant comes first, because the question is whether the *broker* can read the file and it cannot until it has been granted. The probe comes before the entry is written, because a selector that names nothing would otherwise leave the broker refusing every command until somebody noticed. A probe that fails puts the grant back.
+**The order is the command's own and it matters.** The grant comes first, because the question is whether the *broker* can read the file and it cannot until it has been granted. The probe comes before the entry is written, because a selector that names nothing would otherwise leave the broker refusing every command until somebody noticed. A probe that fails puts the grant back.
 
 Entries live in `config.toml` beside everything else, and `init` reads them back before rewriting the file, so each grant and each deny rule is re-asserted on every run. That is what heals one a tool took away.
 
@@ -90,25 +90,22 @@ Key | Rule
 --- | ---
 `ref` | The name a caller asks by, in the same namespace the sops store uses. Nothing marks a ref as linked: where a secret is kept is not part of its name, or moving one into the store later would rename it, and every `faramir.env` naming it with it. A link claiming a ref the store already defines is refused too.
 `path` | Absolute. No `~`, which nothing expands here: the broker runs as its own account, so a home would be the wrong one.
-`type` | `text` or `base64` for the whole file, `json`, `yaml` or `ini` to select out of it.
-`key` | Required for the three that select, refused for the two that do not. `a/b/c` walks a tree the way a sops ref does, a number indexing a list; for `ini` it is the whole key, or `section/key`.
+`type` | `text` or `base64` for the whole file, `json`, `yaml`, `toml` or `ini` to select out of it.
+`key` | Required for the four that select, refused for the two that do not. `a/b/c` walks a tree the way a sops ref does, a number indexing a list, and a key holding a slash is escaped `a\/b`; for `ini` it is the whole key, or `section/key`, matched whole so a slash in one needs no escape, and two entries a slash makes read alike are refused rather than guessed between.
 
-Why it is shaped this way -- one ref per entry rather than a whole-file flatten, the broker reading these rather than the keeper, and modes rather than an ACL -- is in [design.md](design.md#linked-secrets-are-read-by-the-broker). What follows is what it costs you day to day.
-
-**Link what the agent can already read.** Linking turns plaintext the agent could print into a value the redactor covers, and takes away the direct read. Pointed at something the agent *cannot* reach it does the opposite, since every managed value is reachable through `env_refs` by any brokered command.
-
-**Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi is the exception, having no account-wide rule file.
-
-**faramir grants the broker read**, so there is nothing to arrange by hand:
+faramir grants the broker read, so there is nothing to arrange by hand:
 
 Path | Becomes
 --- | ---
 the linked file | the broker's own group and group-readable, its owner and owner bits left alone. That group holds one account, which is what keeps the executor out
 every directory above it, down from the home | the client group, execute only, the same grant an enrolled tree gets. Traversal is not read
 
-**A tool that replaces its own file rather than rewriting it takes the grant with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file; `faramir init` grants it again.
+Why it is shaped this way (one ref per entry rather than a whole-file flatten, the broker reading these rather than the keeper, and modes rather than an ACL) is in [design.md](design.md#linked-secrets-are-read-by-the-broker). What follows is what it costs you day to day.
 
-**A link that is there and will not read stops the host.** It is a value the redactor is missing while the plaintext is still on disk, so `exec` and `redact` refuse until it is fixed, and `broker --check` and `doctor` name the ref. A link whose *path* is gone is the other case and is not fatal: the credential has left the machine, so there is nothing to redact.
+- **Link what the agent can already read.** Linking turns plaintext the agent could print into a value the redactor covers, and takes away the direct read. Pointed at something the agent *cannot* reach it does the opposite, since every managed value is reachable through `env_refs` by any brokered command.
+- **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi is the exception, having no account-wide rule file.
+- **A tool that replaces its own file rather than rewriting it takes the grant with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file; `faramir init` grants it again.
+- **A link that is there and will not read stops the host.** It is a value the redactor is missing while the plaintext is still on disk, so `run` and `redact` refuse until it is fixed, and `broker --check` and `doctor` name the ref. A link whose *path* is gone is the other case and is not fatal: the credential has left the machine, so there is nothing to redact.
 
 ## The sockets belong to their units
 
@@ -137,15 +134,14 @@ An audit log that cannot be written | A command that cannot be recorded is not r
 
 **The daemon holds itself to the same rules, and on every request rather than at boot.** `--check` is run by `init` and by `doctor`, and neither runs at boot, so on its own it only ever described the host as it was at install time.
 
-For the secrets it is one rule, and `exec` is held to it because a brokered command's output is redacted against the same set: **the broker serves `exec` and `redact` only while no managed file went unread.** At least one managed file or one link read, and everything that was there loaded.
+For the secrets it is one rule, and `run` is held to it because a brokered command's output is redacted against the same set: **the broker serves `run` and `redact` only while no managed file went unread.** At least one managed file or one link read, and everything that was there loaded.
 
 - What those files held does not enter into it. An install whose operator has not written a secret yet serves, and a ref no file defines is answered by `unknown_secret`.
 - Otherwise the broker refuses with `no_secrets`, naming why. It comes up either way, and `status` and `refs` answer regardless.
 - A keeper that could not be reached is the exception once a set has loaded, what is kept then being the last thing known to be true. A cold start has nothing to keep and refuses.
 
-Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. `--check` and `doctor` tell the two apart.
-
-An `[ssh] key` the agent does not load is logged and not fatal: it breaks only commands that reach a managed host, and those fail at the point of use with `ssh`'s own error, while stopping the daemon over it would stop the commands that never touch SSH. An unset key is not a failure, being the host that authenticates some other way.
+- Secrets on a filesystem that is not mounted yet look exactly like ones never written, and both leave the broker redacting nothing. `--check` and `doctor` tell the two apart.
+- An `[ssh] key` the agent does not load is logged and not fatal, breaking only commands that reach a managed host, which fail at the point of use with `ssh`'s own error. Stopping the daemon over it would stop the commands that never touch SSH. An unset key is not a failure, being the host that authenticates some other way.
 
 ## What no setting changes
 

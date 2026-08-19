@@ -481,8 +481,8 @@ func TestExecAndRedactAreRefusedWhileNoManagedFileWasRead(t *testing.T) {
 		if failure["code"] != "no_secrets" {
 			t.Errorf("code = %q, want no_secrets", failure["code"])
 		}
-		// The caller has to be able to act on it.
-		if !strings.Contains(failure["message"], "faramir edit") {
+		// The caller has to be able to act on it, by a command that exists.
+		if !strings.Contains(failure["message"], "faramir vault add") {
 			t.Errorf("message does not say what to do: %q", failure["message"])
 		}
 	}
