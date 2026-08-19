@@ -251,9 +251,11 @@ s.close()
 " 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "an abandoned stream emitted the held-back value" \
   || ok "a stream dropped part way emits nothing it was holding"
-# The chunk has to come back carrying its own head, or the absence above is a
-# refusal or a round trip that never happened rather than a value held back.
-grep -q '^OUT:xxxx' <<<"$out" && ok "  and the chunk before it was answered" \
+# A chunk shorter than the redactor's overlap is withheld whole, so an empty
+# output is the right answer here and the head is not evidence. What has to be
+# ruled out is a refusal, which answers with no output either and would make the
+# absence above a request that never ran: those say ERR.
+grep -q '^OUT:' <<<"$out" && ok "  and the chunk before it was answered" \
   || bad "the broker answered no chunk, so the line above asserts nothing: ${out:0:110}"
 
 head_ "10. streams at the same time, and beside a brokered command"
