@@ -3,7 +3,7 @@ package install
 // Merging faramir's keys into an agent's config rather than replacing the file.
 // These files belong to the project or the operator and hold hooks, MCP servers
 // and permission rules faramir knows nothing about; a .dist beside them
-// converges on nothing.  Only the keys faramir writes are touched, including
+// converges on nothing. Only the keys faramir writes are touched, including
 // inside an object it also writes to.
 
 import (
@@ -15,7 +15,7 @@ import (
 	"strings"
 )
 
-// mergeJSON returns ours merged into existing.  An unparseable or empty file is
+// mergeJSON returns ours merged into existing. An unparseable or empty file is
 // an error rather than something to overwrite, losing an agent's configuration
 // to a stray comma not being a repair this is entitled to make.
 func mergeJSON(existing, ours []byte) ([]byte, error) {
@@ -38,7 +38,7 @@ func mergeJSON(existing, ours []byte) ([]byte, error) {
 		return nil, err
 	}
 	// Two-space indent and a trailing newline, matching the assets, so an
-	// already-merged file compares equal next run.  encoding/json sorts keys.
+	// already-merged file compares equal next run. encoding/json sorts keys.
 	out, err := json.MarshalIndent(merged, "", "  ")
 	if err != nil {
 		return nil, err
@@ -72,12 +72,12 @@ func mergeValue(into, from any) (any, error) {
 		return mergeList(intoList, fromList)
 	}
 
-	// A scalar, or the shapes disagree.  faramir's value wins: a file holding a
+	// A scalar, or the shapes disagree. faramir's value wins: a file holding a
 	// string where a hook list belongs is one an agent cannot load.
 	return from, nil
 }
 
-// mergeList merges by element kind.  Strings are their own identity and union.
+// mergeList merges by element kind. Strings are their own identity and union.
 // Objects are hook and server entries, identified by what they invoke: an
 // existing one naming faramir is dropped and re-added, so a relocated binary is
 // self-correcting rather than a hook pointing at a path that no longer

@@ -1,13 +1,13 @@
 {{- /*
-GENERATED.  The paths come from internal/install/protectedpaths.go, written
+GENERATED. The paths come from internal/install/protectedpaths.go, written
 once and rendered into each agent's own spelling; nothing here is a path of its
-own.  Add one there.
+own. Add one there.
 
 Read and Edit rules only: Claude Code matches file permission checks against
 Edit(path), which covers every file-editing tool, and a Write(path) rule matches
 nothing.
 
-Read and Edit take the same list.  A value the agent cannot read is one it can
+Read and Edit take the same list. A value the agent cannot read is one it can
 still destroy, and an age key replaced is every managed file unreadable
 retroactively.
 */ -}}

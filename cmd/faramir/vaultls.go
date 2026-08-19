@@ -2,7 +2,7 @@ package main
 
 // Listing the store, and taking a file out of it.
 //
-// `ls` is the operator's view and `refs` is the broker's.  A managed file the
+// `ls` is the operator's view and `refs` is the broker's. A managed file the
 // broker refused to load is invisible to `refs`; `ls` reads the directory and
 // sees it, which is the state an operator most needs named.
 
@@ -25,14 +25,14 @@ import (
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
-// opRemove is the audit record taking a file out of the store writes.  It names
+// opRemove is the audit record taking a file out of the store writes. It names
 // the refs that went with it: the file is gone and the log is what is left of
 // it.
 const opRemove = "remove"
 
 // managedFile is one file as `ls` reports it.
 type managedFile struct {
-	// Name is what an operator types, and Path is what is on disk.  Both, so the
+	// Name is what an operator types, and Path is what is on disk. Both, so the
 	// listing can be pasted into another command and read as a path.
 	Name       string   `json:"name"`
 	Path       string   `json:"path"`
@@ -41,7 +41,7 @@ type managedFile struct {
 	// Drifted is true where the file is sealed to a set the rule no longer names,
 	// which is what `faramir recipient reseal` is for.
 	Drifted bool `json:"drifted"`
-	// Problem is why this file could not be read or parsed, and "" otherwise.  A
+	// Problem is why this file could not be read or parsed, and "" otherwise. A
 	// file the broker would refuse is what an operator comes here to find, so it
 	// is a row rather than a reason to stop.
 	Problem string `json:"problem,omitempty"`
@@ -74,7 +74,7 @@ func newVaultListCmd() *cobra.Command {
 func runVaultList(f vaultListFlags) int {
 	const label = "vault ls"
 	// The secrets directory is 2750 and the group is the keeper's, so the operator
-	// cannot list it.  Refused with the reason rather than reported as an empty
+	// cannot list it. Refused with the reason rather than reported as an empty
 	// store.
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
@@ -163,7 +163,7 @@ func describeManaged(path string, wanted []string, haveRule bool) managedFile {
 }
 
 // refsIn is the refs a managed file names, taken from its structure rather than
-// its values.  sops encrypts values and leaves keys readable, so this answers
+// its values. sops encrypts values and leaves keys readable, so this answers
 // without the age key: [keeper.Flatten] is given the file as it sits on disk,
 // so each ref maps onto ciphertext and only the names are kept.
 func refsIn(path string) ([]string, error) {
@@ -293,7 +293,7 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 }
 
 // newRefsCmd is what the broker is serving, which is not the same question as
-// what is in the directory.  Top level rather than under `vault`, beside `run`,
+// what is in the directory. Top level rather than under `vault`, beside `run`,
 // `redact` and `status`: it is one of the four an agent may run, and a group
 // split across the two would need the deny rule to carve one leaf out by
 // name.

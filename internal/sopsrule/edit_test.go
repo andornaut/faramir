@@ -7,9 +7,9 @@ import (
 )
 
 // installed is the file `faramir init` writes, down to the indentation and the
-// escaped path_regex.  Every edit here is judged against it, because it is the
+// escaped path_regex. Every edit here is judged against it, because it is the
 // shape almost every host carries.
-const installed = `# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits.
+const installed = `# Which files sops encrypts, and to whom. Any *.sops.yml, wherever it sits.
 creation_rules:
   - path_regex: \.sops\.ya?ml$
     key_groups:
@@ -109,7 +109,7 @@ func TestTheLastRecipientCannotBeRemoved(t *testing.T) {
 	}
 }
 
-// The shorthand is what a hand-edited file often carries.  sops takes a
+// The shorthand is what a hand-edited file often carries. sops takes a
 // comma-separated string there and nowhere else, so an edit has to read one and
 // may write the list form back.
 func TestTheAgeShorthandIsEditable(t *testing.T) {
@@ -185,7 +185,7 @@ func TestTheAmbiguousShapesAreRefused(t *testing.T) {
 	}
 }
 
-// The written file is read back before it is handed over.  This one decides who
+// The written file is read back before it is handed over. This one decides who
 // can open every managed value, and a write that produced YAML sops rejects
 // leaves a host whose next encrypt fails with the store already sealed.
 func TestWhatIsWrittenLoadsAgain(t *testing.T) {

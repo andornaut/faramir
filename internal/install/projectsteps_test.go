@@ -10,7 +10,7 @@ import (
 
 // The irreversible step goes first and everything else runs after it: the share
 // chowns and chmods every file in the tree, so a file written before the walk
-// is one the walk then regroups.  That every step is named is
+// is one the walk then regroups. That every step is named is
 // TestEveryStepIsNamedAndRunsSomething.
 func TestTheShareIsAnEnrolmentsFirstStep(t *testing.T) {
 	steps := (&project{}).steps()
@@ -108,7 +108,7 @@ func TestAnEnrolmentCanRecordASkippedStep(t *testing.T) {
 }
 
 // A directory created for an agent's files in a tree is shared like the rest of
-// it.  The files go in group-readable because the tree is shared with the
+// it. The files go in group-readable because the tree is shared with the
 // client group; 0700 above them would make an enrolled tree's own configuration
 // the one thing in it that group cannot reach, until a later run's walk widened
 // it and reported a change on what reads as a no-op re-enrolment.
@@ -158,7 +158,7 @@ func TestAgentDirectoriesInAHomeStayPrivate(t *testing.T) {
 }
 
 // The refusals are asked before the share, which chowns and chmods every file
-// in the tree and cannot be undone.  Finding out afterwards that a settings
+// in the tree and cannot be undone. Finding out afterwards that a settings
 // file is not the operator's is finding out too late.
 func TestAnEnrolmentRefusesAnUnwritableFileBeforeSharing(t *testing.T) {
 	tree := t.TempDir()

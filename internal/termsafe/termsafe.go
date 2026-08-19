@@ -2,14 +2,14 @@
 // displays it rather than obeying it.
 //
 // Two places print strings the coding agent chose to a terminal only root sees:
-// the escalation prompt, and `faramir logs`.  Everything recorded or handed to
+// the escalation prompt, and `faramir logs`. Everything recorded or handed to
 // a question has been through redact.Feed, which strips CSI (including colour),
-// OSC and the C0 controls.  What it does not strip:
+// OSC and the C0 controls. What it does not strip:
 //
-//   - a bare "\r", CRLF alone being normalised to "\n".  It returns the cursor,
+//   - a bare "\r", CRLF alone being normalised to "\n". It returns the cursor,
 //     so the rest of the line overwrites what came before it.
 //   - ESC followed by a byte outside @-Z and \-_, which no pattern there
-//     matches.  That includes ESC c, a full terminal reset, which on many
+//     matches. That includes ESC c, a full terminal reset, which on many
 //     emulators takes the scrollback with it.
 //
 // So the rule here covers what survives redaction, and is applied at the render
@@ -23,7 +23,7 @@ import (
 	"unicode/utf8"
 )
 
-// Arg renders one argument of a command.  Ordinary arguments are returned
+// Arg renders one argument of a command. Ordinary arguments are returned
 // unchanged, a line full of quotation marks being read less carefully; anything
 // holding a control character, a space, a quote or a non-printable rune is
 // quoted, which turns every such byte into a visible escape.
@@ -45,7 +45,7 @@ func Field(value string, limit int) string {
 	return Bound(Arg(value), limit)
 }
 
-// Line renders one line of recorded output.  Escaped rather than quoted, and
+// Line renders one line of recorded output. Escaped rather than quoted, and
 // never bounded: this is the text an operator came to read, so only what a
 // terminal would act on is escaped and the rest, tabs included, is left as it
 // was written.
@@ -68,12 +68,12 @@ func Line(line string) string {
 }
 
 // unsafeRune reports whether a terminal would act on this rune rather than draw
-// it.  Tab is left alone, being layout an operator wants.
+// it. Tab is left alone, being layout an operator wants.
 //
 // C1 (U+0080..U+009F) is here for the same reason C0 is, and is not covered by
 // the strip set: that matches CSI as ESC '[', so a child writing U+009B, the
 // single-character form of the same introducer, reaches this unchanged, and a
-// terminal honouring 8-bit controls reads "2J" as a screen clear.  Arg
+// terminal honouring 8-bit controls reads "2J" as a screen clear. Arg
 // escapes these already, strconv.Quote treating them as non-printable.
 func unsafeRune(r rune) bool {
 	return (r < 0x20 && r != '\t') || (r >= 0x7f && r <= 0x9f)

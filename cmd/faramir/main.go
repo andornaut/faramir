@@ -46,7 +46,7 @@ func run(args []string) int {
 	return exitCode(root.Execute())
 }
 
-// requireRoot refuses a command that must run as root, naming why and how.  The
+// requireRoot refuses a command that must run as root, naming why and how. The
 // escalation commands use requireRootToAnswer instead: they must not suggest
 // sudo, a warm sudo timestamp being what their check exists to keep out of the
 // agent's reach.
@@ -60,7 +60,7 @@ func requireRoot(command, reason string) bool {
 }
 
 // operatorName resolves the account that works in the tree: --agent-user, then
-// SUDO_USER so `sudo faramir init` needs no flag, then the caller.  root is not
+// SUDO_USER so `sudo faramir init` needs no flag, then the caller. root is not
 // an answer at any position: chowning a checkout to root would take it from its
 // owner, so reaching root another way means passing --agent-user.
 func operatorName(flagValue string) string {
@@ -86,7 +86,7 @@ func (o *brokerOptions) add(c *cobra.Command) {
 }
 
 // opRun is the broker operation that runs a command, the one whose answer is
-// worth waiting on for longer than a round trip.  Not the `exec` subcommand,
+// worth waiting on for longer than a round trip. Not the `exec` subcommand,
 // which is the executor daemon.
 const opRun = "run"
 
@@ -149,7 +149,7 @@ func newRunCmd() *cobra.Command {
 
 // execRefs is what a command's environment is built from: every --env-file in
 // the order it was given, and then every --env, so a flag naming a variable a
-// file also names is the one that takes.  Its own function so the rule can be
+// file also names is the one that takes. Its own function so the rule can be
 // asserted without a broker to run a command against.
 func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 	refs := map[string]string{}
@@ -174,7 +174,7 @@ func execRefs(envFiles, envRefs []string) (map[string]string, error) {
 }
 
 // checkRef validates one NAME=faramir://ref pair, for both --env and
-// --env-file.  The error names the variable and never quotes the value: a
+// --env-file. The error names the variable and never quotes the value: a
 // pasted credential is the mistake this exists to prevent, and echoing one puts
 // it in the scrollback.
 func checkRef(name, uri string) error {
@@ -217,7 +217,7 @@ func readEnvFile(path string) (map[string]string, error) {
 			return nil, fmt.Errorf("%s:%d: %w", path, i+1, err)
 		}
 		// Not last-wins: silently picking one of two is how the wrong credential
-		// reaches a host.  An identical repeat is a merge artefact, so it passes.
+		// reaches a host. An identical repeat is a merge artefact, so it passes.
 		if existing, seen := refs[name]; seen && existing != uri {
 			return nil, fmt.Errorf("%s:%d: %s is given twice, as %s and %s",
 				path, i+1, name, existing, uri)
@@ -227,15 +227,15 @@ func readEnvFile(path string) (map[string]string, error) {
 	return refs, nil
 }
 
-// chunkBytes is how much text one redact request carries.  Well under the
+// chunkBytes is how much text one redact request carries. Well under the
 // broker's max_request_bytes, which applies to the JSON-encoded line: a control
 // byte becomes six characters, so this cannot exceed it however badly it
 // encodes.
 const chunkBytes = 32 << 10
 
-// newRedactCmd scrubs text that did not come from a brokered command.  As a
+// newRedactCmd scrubs text that did not come from a brokered command. As a
 // filter it reads stdin; given a command after --, it runs that command and
-// filters what it prints, preserving its exit status.  One failure policy for
+// filters what it prints, preserving its exit status. One failure policy for
 // both shapes: text that could not be redacted is never written, and the exit
 // status is non-zero.
 func newRedactCmd() *cobra.Command {
@@ -260,7 +260,7 @@ func newRedactCmd() *cobra.Command {
 }
 
 // redactChild runs the command with both its streams merged and filtered.
-// Merged because the agent reads them as one transcript.  stdin is passed
+// Merged because the agent reads them as one transcript. stdin is passed
 // through.
 func redactChild(socketPath string, argv []string) int {
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
@@ -278,7 +278,7 @@ func redactChild(socketPath string, argv []string) int {
 	streamErr := redactStream(socketPath, output, os.Stdout)
 	if streamErr != nil {
 		fmt.Fprintf(os.Stderr, "faramir redact: %v\n", streamErr)
-		// Drain, or a child that fills the pipe blocks the Wait below.  Discarded
+		// Drain, or a child that fills the pipe blocks the Wait below. Discarded
 		// rather than written: this is the text that could not be redacted.
 		_, _ = io.Copy(io.Discard, output)
 	}
@@ -294,9 +294,9 @@ func redactChild(socketPath string, argv []string) int {
 		code = 1
 	}
 	// The command still ran, and what is missing is the part of its output that
-	// could not be redacted.  Its own status is kept when it failed, and a success
+	// could not be redacted. Its own status is kept when it failed, and a success
 	// becomes a failure: withheld output must not read as a command that printed
-	// nothing.  wrap.sh does the same.
+	// nothing. wrap.sh does the same.
 	if streamErr != nil && code == 0 {
 		code = 1
 	}
@@ -304,9 +304,9 @@ func redactChild(socketPath string, argv []string) int {
 }
 
 // idleFlushInterval bounds how long buffered output waits when a live stream
-// goes quiet below chunkBytes.  Without it a backgrounded command that prints a
+// goes quiet below chunkBytes. Without it a backgrounded command that prints a
 // line and then blocks holds that line unshown until it produces a whole chunk
-// or exits, which for a server is never.  Short enough to read as immediate,
+// or exits, which for a server is never. Short enough to read as immediate,
 // long enough that a burst still coalesces into one request.
 const idleFlushInterval = 200 * time.Millisecond
 
@@ -320,7 +320,7 @@ type streamer struct {
 
 func (s *streamer) pending() bool { return len(s.buf) > 0 }
 
-// flush sends the pending bytes.  more false is the last chunk, which releases
+// flush sends the pending bytes. more false is the last chunk, which releases
 // the tail the broker holds back.
 func (s *streamer) flush(more bool) error {
 	// An empty buffer is nothing to send, except as the last chunk of a stream
@@ -340,8 +340,8 @@ func (s *streamer) flush(more bool) error {
 }
 
 // feed folds one ReadSlice result into the stream, sending a chunk when one is
-// full.  done is true once the stream is complete or has failed; retErr is what
-// redactStream should then return.  line is copied into buf, so it need only be
+// full. done is true once the stream is complete or has failed; retErr is what
+// redactStream should then return. line is copied into buf, so it need only be
 // valid for the call.
 func (s *streamer) feed(line []byte, err error) (done bool, retErr error) {
 	// Flushed before the append: a partial buffer plus a full ReadSlice would make
@@ -377,18 +377,18 @@ func (s *streamer) feed(line []byte, err error) (done bool, retErr error) {
 }
 
 // redactStream sends the input through the broker a chunk at a time, breaking
-// on a newline where it can.  ReadSlice rather than ReadBytes, which would grow
+// on a newline where it can. ReadSlice rather than ReadBytes, which would grow
 // one long line past max_request_bytes.
 //
-// Every chunk goes down one connection, each but the last marked "more".  The
+// Every chunk goes down one connection, each but the last marked "more". The
 // broker keeps one redactor for that connection, so the tail it holds back
 // covers the join: a line longer than a chunk is broken mid-line, and a value
 // across that break belongs to neither half on its own.
 //
 // A chunk that cannot be redacted is never written, and neither is anything
-// after it.  Chunks already written were redacted successfully, so they stay:
+// after it. Chunks already written were redacted successfully, so they stay:
 // buffering to be able to withhold them would mean an unbounded buffer and no
-// incremental output.  A failure shows as output that stops early.
+// incremental output. A failure shows as output that stops early.
 func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 	reader := bufio.NewReaderSize(in, chunkBytes)
 	s := &streamer{stream: &redactConn{socketPath: socketPath}, out: out}
@@ -407,9 +407,9 @@ func redactStream(socketPath string, in io.Reader, out io.Writer) error {
 // backgrounded command, which the guard pipes here.
 //
 // A reader goroutine, because ReadSlice blocks and a pipe inherited as stdin
-// does not take a read deadline.  It copies each read before sending, the
+// does not take a read deadline. It copies each read before sending, the
 // ReadSlice slice being valid only until the next read; the main loop owns buf
-// and the connection.  On an early return the deferred close(done) frees a
+// and the connection. On an early return the deferred close(done) frees a
 // goroutine parked on the send, and one still parked in ReadSlice ends with the
 // process.
 func redactStreamLive(socketPath string, in io.Reader, out io.Writer) error {
@@ -434,7 +434,7 @@ func redactStreamLive(socketPath string, in io.Reader, out io.Writer) error {
 				return
 			}
 			// ErrBufferFull is not the end: a line longer than the buffer has more to
-			// come.  Any other error, EOF included, ends the read.
+			// come. Any other error, EOF included, ends the read.
 			if err != nil && !errors.Is(err, bufio.ErrBufferFull) {
 				return
 			}
@@ -461,7 +461,7 @@ func redactStreamLive(socketPath string, in io.Reader, out io.Writer) error {
 	}
 }
 
-// redactConn is the one connection a stream's chunks go down.  Dialed on the
+// redactConn is the one connection a stream's chunks go down. Dialed on the
 // first chunk, so an input that turns out to be empty costs no connection and
 // writes no audit record.
 type redactConn struct {
@@ -491,7 +491,7 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 		rc.conn, rc.lines = conn, sockutil.NewLineReader(conn, 1<<26)
 	}
 	// Per chunk, and refreshed for each: a redact runs no command, so an answer
-	// that has not arrived by now is not coming.  The deadline covers the write as
+	// that has not arrived by now is not coming. The deadline covers the write as
 	// well.
 	_ = rc.conn.SetDeadline(time.Now().Add(quickWait))
 	request := map[string]any{"op": "redact", "text": text}
@@ -533,7 +533,7 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 }
 
 // newCallCmd builds a subcommand that takes no arguments and asks the broker
-// one question.  op is the wire name; the command is spelled with dashes.
+// one question. op is the wire name; the command is spelled with dashes.
 func newCallCmd(op, short string) *cobra.Command {
 	name := strings.ReplaceAll(op, "_", "-")
 	var o brokerOptions
@@ -551,7 +551,7 @@ func newCallCmd(op, short string) *cobra.Command {
 	return c
 }
 
-// Bounds on how long this side waits for the broker.  The socket is systemd's
+// Bounds on how long this side waits for the broker. The socket is systemd's
 // and stays listening whether or not the service behind it can start, so a
 // broker that never becomes ready accepts the connection and answers nothing.
 const (
@@ -563,12 +563,12 @@ const (
 	// kills at the timeout and still has to write the record and the response.
 	execGrace = 30 * time.Second
 	// execCeiling stands in for [command] max_timeout_sec, which cannot be read
-	// from here.  Only reached when no -t was given, where the server's own
+	// from here. Only reached when no -t was given, where the server's own
 	// default decides and this is the outer bound.
 	execCeiling = 3600 * time.Second
 )
 
-// responseWait is how long to wait for this request's answer.  A command's own
+// responseWait is how long to wait for this request's answer. A command's own
 // timeout is what makes the wait long, so it is what the bound is built from.
 func responseWait(request map[string]any) time.Duration {
 	if request["op"] != opRun {
@@ -580,7 +580,7 @@ func responseWait(request map[string]any) time.Duration {
 	return execCeiling + execGrace
 }
 
-// send performs one request/response round trip.  prog is the subcommand the
+// send performs one request/response round trip. prog is the subcommand the
 // caller typed, so a diagnostic reads `faramir <cmd>:` like the rest.
 // Everything on this side of the socket has already been redacted.
 func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) int {
@@ -693,7 +693,7 @@ func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) i
 		if response.Truncated {
 			notes = append(notes, "output truncated")
 		}
-		// So does this: output that was not text does not survive redaction.  Only
+		// So does this: output that was not text does not survive redaction. Only
 		// when a byte was actually replaced, stripping colour being ordinary.
 		if response.InvalidBytes > 0 {
 			notes = append(notes,

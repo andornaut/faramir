@@ -11,7 +11,7 @@ import (
 
 // Enrolling grants the client group read and write on the whole tree, and
 // faramir-exec is in that group: for a home that is ~/.ssh and the age key
-// under ~/.config/sops.  The walk cannot be undone.
+// under ~/.config/sops. The walk cannot be undone.
 func TestOversharingIsRefused(t *testing.T) {
 	me, err := user.Current()
 	if err != nil {

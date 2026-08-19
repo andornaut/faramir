@@ -1,4 +1,4 @@
-// Package version holds the one version string every binary reports.  Its own
+// Package version holds the one version string every binary reports. Its own
 // package, so reaching it does not link the redactor, the executor and the
 // keeper client into the CLI and the MCP server.
 package version

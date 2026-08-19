@@ -1,12 +1,12 @@
 package main
 
 // faramir escalations, approve and deny: the channel an escalation is answered
-// on.  Three commands rather than one with flags, mirroring the ops the broker
+// on. Three commands rather than one with flags, mirroring the ops the broker
 // speaks: `escalations` lists, `approve` says yes, `deny` says no.
 //
-// Root, and root only.  The coding agent runs as the operator, so an escalation
+// Root, and root only. The coding agent runs as the operator, so an escalation
 // the operator could give is one the agent could give itself; the broker checks
-// SO_PEERCRED on this connection and refuses anything but uid 0.  That check is
+// SO_PEERCRED on this connection and refuses anything but uid 0. That check is
 // the whole boundary, which is why the answer comes back over the broker's own
 // socket rather than through systemd-ask-password, whose reply socket's mode is
 // a weaker version of the same check.
@@ -36,20 +36,20 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// watchWait is how long one long poll blocks before asking again.  Bounded by
+// watchWait is how long one long poll blocks before asking again. Bounded by
 // the broker too: a watcher that never returns cannot notice the broker went
 // away.
 const watchWait = 60
 
 // requireRootToAnswer refuses a caller that is not root, naming the command it
-// was asked of.  Stated here as well as at the broker, so the message says what
+// was asked of. Stated here as well as at the broker, so the message says what
 // to do rather than arriving as a forbidden from a socket the caller could open.
 func requireRootToAnswer(command string) bool {
 	if os.Geteuid() == 0 {
 		return true
 	}
 	// Not "try sudo": reaching root that way from the account the agent runs as
-	// leaves a warm sudo timestamp in a shell the agent can use.  The three places
+	// leaves a warm sudo timestamp in a shell the agent can use. The three places
 	// named here are the ones warnIfTypeable does not warn about.
 	fmt.Fprintf(os.Stderr, "faramir %s must run as root: an escalation has to "+
 		"be answered by an account the coding agent cannot become, and it runs as "+
@@ -66,7 +66,7 @@ func cmdEscalations(args []string) int { return runCommand(newEscalationsCmd(), 
 func cmdApprove(args []string) int     { return runCommand(newApproveCmd(), args) }
 func cmdDeny(args []string) int        { return runCommand(newDenyCmd(), args) }
 
-// newEscalationsCmd lists what is waiting, or waits for it with --watch.  It
+// newEscalationsCmd lists what is waiting, or waits for it with --watch. It
 // answers nothing: the verbs are their own commands.
 func newEscalationsCmd() *cobra.Command {
 	var (
@@ -131,7 +131,7 @@ func newApproveCmd() *cobra.Command {
 	return c
 }
 
-// newDenyCmd says no.  The id is optional, unlike approving: only one question
+// newDenyCmd says no. The id is optional, unlike approving: only one question
 // is ever outstanding, and refusing something unseen is safe in a way approving
 // it is not, a refusal costing a re-run.
 func newDenyCmd() *cobra.Command {
@@ -156,7 +156,7 @@ func newDenyCmd() *cobra.Command {
 }
 
 // denyWaiting refuses the one question outstanding, without it having to be
-// named.  It prints what it refused first, so the scrollback says which command
+// named. It prints what it refused first, so the scrollback says which command
 // was turned down.
 func denyWaiting(socketPath string, asJSON bool) int {
 	questions, code := waiting(socketPath, "refused")
@@ -172,7 +172,7 @@ func denyWaiting(socketPath string, asJSON bool) int {
 }
 
 // waiting is the question outstanding, or nil and the status to exit with: 69
-// for a broker that could not be reached, 1 for nothing waiting.  One question,
+// for a broker that could not be reached, 1 for nothing waiting. One question,
 // never a queue, so the caller indexes rather than loops.
 func waiting(socketPath, verb string) ([]escalation.Question, int) {
 	questions, _, err := pending(socketPath, 0, "")
@@ -189,7 +189,7 @@ func waiting(socketPath, verb string) ([]escalation.Question, int) {
 }
 
 // listEscalations reports what is waiting and returns, for a look rather than a
-// vigil.  Non-zero on nothing waiting, so a script can tell the two apart.
+// vigil. Non-zero on nothing waiting, so a script can tell the two apart.
 func listEscalations(socketPath string, asJSON bool) int {
 	questions, code := waiting(socketPath, "approved")
 	if asJSON {
@@ -209,7 +209,7 @@ func listEscalations(socketPath string, asJSON bool) int {
 }
 
 // listAsJSON is the listing for a caller parsing stdout, carrying the same
-// status as the text form.  Nothing waiting is an empty array rather than an
+// status as the text form. Nothing waiting is an empty array rather than an
 // empty stdout, the status saying which it is; a broker that could not be
 // reached prints nothing at all, an empty array there saying the host is
 // quiet.
@@ -231,7 +231,7 @@ func listAsJSON(questions []escalation.Question, code int) int {
 
 // watchEscalations is the shape an operator leaves running: it blocks until a
 // request arrives, shows it, reads the answer from this terminal, and reports
-// how an approved run ended.  The prompt must not land where the agent can
+// how an approved run ended. The prompt must not land where the agent can
 // type, so run it somewhere the agent does not reach.
 func watchEscalations(socketPath string) int {
 	warnIfTypeable()
@@ -240,12 +240,12 @@ func watchEscalations(socketPath string) int {
 	fmt.Fprintln(os.Stderr, "waiting for escalation requests; only `yes` approves. "+
 		"Ctrl-C to stop.")
 	// No set of ids already answered: the broker drops a question the moment it
-	// is answered, refused or expired, and only one is ever outstanding.  A set
+	// is answered, refused or expired, and only one is ever outstanding. A set
 	// would be worse than unnecessary, an id being three random bytes, so a later
 	// question could draw one a stale entry holds and be skipped in silence.
 	//
 	// awaiting is the run this terminal approved and has not yet heard the end
-	// of.  One, never a list: an approved run holds every other brokered command
+	// of. One, never a list: an approved run holds every other brokered command
 	// until it ends.
 	var awaiting string
 	terminal := readLines()
@@ -254,7 +254,7 @@ func watchEscalations(socketPath string) int {
 		if err != nil {
 			// Out, rather than reconnecting: a watcher that heals itself is one whose
 			// absence is invisible, every question raised while it reconnected
-			// expiring unanswered while the terminal still says it is watching.  It
+			// expiring unanswered while the terminal still says it is watching. It
 			// is also a gap somebody else can arrange, anything that can restart or
 			// stall the broker gaining a stretch with no human on the other end.
 			//
@@ -289,7 +289,7 @@ func watchEscalations(socketPath string) int {
 			case answered:
 			}
 			approve := approves(line)
-			// The two failures are not alike.  69 is the broker not reached, so the
+			// The two failures are not alike. 69 is the broker not reached, so the
 			// answer was never delivered and the question is open with nobody
 			// attending it, which is the silent hole the poll above refuses to leave.
 			// 1 is the broker answering no to the answer -- the question expired while
@@ -299,7 +299,7 @@ func watchEscalations(socketPath string) int {
 			case 0:
 				// Named, like the ending that follows it: that one arrives after the
 				// terminal has moved on, so the two are read together only if both say
-				// which run they are about.  Only a yes is waited on: a refused run
+				// which run they are about. Only a yes is waited on: a refused run
 				// holds nothing once the question is answered, so another command may
 				// start and raise the next question.
 				if approve {
@@ -308,7 +308,7 @@ func watchEscalations(socketPath string) int {
 					break
 				}
 				// What it read, on a refusal: an answer nobody typed refuses a question
-				// exactly as one they did.  Quoted rather than printed, a stray byte
+				// exactly as one they did. Quoted rather than printed, a stray byte
 				// being the case this exists for.
 				fmt.Printf("  %s refused: %s\n", question.LogID,
 					strconv.Quote(strings.Trim(line, "\r\n")))
@@ -326,9 +326,9 @@ func watchEscalations(socketPath string) int {
 }
 
 // waitedIn is how much of the duration was the question rather than the
-// command, where that is worth saying.  The duration is wall time from fork to
+// command, where that is worth saying. The duration is wall time from fork to
 // exit and the child sits inside sudo for the whole escalation, so a slowly
-// answered run would otherwise read as a slow command.  Said rather than
+// answered run would otherwise read as a slow command. Said rather than
 // subtracted: [command] max_timeout_sec is enforced against the same clock.
 func waitedIn(outcome escalation.Outcome) string {
 	if outcome.WaitedSec < 1 {
@@ -341,7 +341,7 @@ func waitedIn(outcome escalation.Outcome) string {
 
 // printOutcome says how the approved run ended, in one line naming the record
 // rather than reproducing it: the log holds the command, the refs and the
-// output.  A run with no exit code is said to have ended without one, a zero
+// output. A run with no exit code is said to have ended without one, a zero
 // there reading as a clean exit.
 func printOutcome(outcome escalation.Outcome) {
 	id := outcome.LogID
@@ -360,15 +360,15 @@ func printOutcome(outcome escalation.Outcome) {
 }
 
 // warnIfTypeable says so when this terminal is one the coding agent could type
-// into.  The socket check makes the answer come from root; it cannot make root
+// into. The socket check makes the answer come from root; it cannot make root
 // the one doing the typing.
 //
-//   - A multiplexer.  tmux and screen keep a per-uid control socket, so any
-//     process running as the operator can `tmux send-keys` into this pane.  Same
+//   - A multiplexer. tmux and screen keep a per-uid control socket, so any
+//     process running as the operator can `tmux send-keys` into this pane. Same
 //     uid is the whole requirement; no sharing has to be intended.
-//   - A tty owned by somebody other than root.  `sudo` leaves the terminal owned
+//   - A tty owned by somebody other than root. `sudo` leaves the terminal owned
 //     by the account that invoked it, so a root process reads from a device that
-//     account still owns.  What that gives an attacker depends on the kernel and
+//     account still owns. What that gives an attacker depends on the kernel and
 //     on ptrace_scope, hence a warning rather than a claim.
 //
 // A real console, an ssh session from another machine, or a login as another
@@ -405,7 +405,7 @@ func warnIfTypeable() {
 		"-- somewhere it cannot reach the keyboard.\n\n")
 }
 
-// answers reads the operator's terminal a line at a time.  One reader for the
+// answers reads the operator's terminal a line at a time. One reader for the
 // life of the watcher: a fresh one per question would buffer past the newline
 // and eat the answer to the next.
 var answers = bufio.NewReader(os.Stdin)
@@ -458,14 +458,14 @@ func readLines() *typed {
 // was pending would be spent on the next question the instant it arrived.
 //
 // The terminal's queue and the channel, not the reader's own buffer: the
-// goroutine owns that, so touching it from here would be a data race.  In
+// goroutine owns that, so touching it from here would be a data race. In
 // canonical mode a read returns one line, so the buffer holds nothing the ioctl
 // has not already dropped.
 //
 // This narrows the window rather than closing it: a line the goroutine holds
 // between its read and its send lands after the drain.
 func (t *typed) discard() {
-	// Terminals only.  Input that was not typed was not typed early: a
+	// Terminals only. Input that was not typed was not typed early: a
 	// substituted reader is a test's script and a redirected stdin is a file, and
 	// both are meant to be read in order.
 	if !t.terminal {
@@ -494,7 +494,7 @@ type answerState int
 const (
 	// answered: the operator typed one, and it is the line returned beside this.
 	answered answerState = iota
-	// expired: the question's clock ran out while the terminal waited.  Nothing
+	// expired: the question's clock ran out while the terminal waited. Nothing
 	// is sent to the broker, which has already refused it on the way out.
 	expired
 	// stdinClosed: there is no more input to read, which is the one condition
@@ -502,9 +502,9 @@ const (
 	stdinClosed
 )
 
-// answer waits for the operator, until the question it is about expires.  A
+// answer waits for the operator, until the question it is about expires. A
 // line holding nothing printable is asked again rather than counted as a no: a
-// stray newline is nobody saying anything.  Deny by default comes from the
+// stray newline is nobody saying anything. Deny by default comes from the
 // expiry instead, which the broker applies whether or not this terminal is
 // still asking.
 func (t *typed) answer(deadline time.Time) (string, answerState) {
@@ -531,8 +531,8 @@ func (t *typed) answer(deadline time.Time) (string, answerState) {
 }
 
 // answerOf is the part of a line that carries the answer: what is left once the
-// whitespace and unprintable bytes around it are gone.  Empty is no answer at
-// all.  The edges only, so nothing is edited into a yes it did not spell:
+// whitespace and unprintable bytes around it are gone. Empty is no answer at
+// all. The edges only, so nothing is edited into a yes it did not spell:
 // "y<NUL>es" is a refusal, as it reads.
 func answerOf(line string) string {
 	return strings.TrimFunc(line, func(r rune) bool {
@@ -541,16 +541,16 @@ func answerOf(line string) string {
 }
 
 // approves is deny by default: only an explicit yes approves, and a typo, a
-// stray word or a punctuation mark is a no.  The whole word, not "y", the
+// stray word or a punctuation mark is a no. The whole word, not "y", the
 // prompt asking for `yes` and the threat being a keystroke the operator did not
 // make.
 func approves(line string) bool {
 	return strings.ToLower(answerOf(line)) == "yes"
 }
 
-// printQuestion shows one question.  Every caller-chosen string in it was
+// printQuestion shows one question. Every caller-chosen string in it was
 // rendered for a terminal by the broker (see escalation.Command), so what
-// arrives here holds no escape sequence to obey.  One field per line: a question
+// arrives here holds no escape sequence to obey. One field per line: a question
 // is read before it is answered.
 func printQuestion(question escalation.Question) {
 	// The question without the command, which is the cmd line below: a prompt
@@ -572,7 +572,7 @@ func printQuestion(question escalation.Question) {
 	}
 	// Set only when it says something the command does not, which the broker
 	// decides: a relative argv[0] resolves against the cwd, and that is a tree the
-	// coding agent writes.  Printed under the cwd it resolved against.
+	// coding agent writes. Printed under the cwd it resolved against.
 	if question.Program != "" {
 		fmt.Printf("  program  %s\n", question.Program)
 	}
@@ -580,7 +580,7 @@ func printQuestion(question escalation.Question) {
 		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
 	// What is left of the clock is what the answer is typed against, so it is
-	// always printed.  How long it had already sat comes with it, and only where
+	// always printed. How long it had already sat comes with it, and only where
 	// it is not zero: a watcher already running is answered the moment a question
 	// is filed, so the number is for a watcher started while one was pending, or a
 	// listing of one that has sat a while.

@@ -112,7 +112,7 @@ func TestResolveConfigDirFallsBackOnAnEmptyConfigList(t *testing.T) {
 	}
 }
 
-// The unit and its drop-ins, in the order systemd reads them.  init refuses a
+// The unit and its drop-ins, in the order systemd reads them. init refuses a
 // config move against the same reader, so a resolver that stopped at the main
 // unit would hand init a directory init then refuses as a move: the operator
 // passed no --config-dir, and the only way past would be --move-config, which

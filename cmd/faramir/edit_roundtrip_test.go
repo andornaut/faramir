@@ -11,7 +11,7 @@ import (
 	"github.com/andornaut/faramir/internal/sopstest"
 )
 
-// useSops points the edit path at the host's sops, or the stand-in.  A full
+// useSops points the edit path at the host's sops, or the stand-in. A full
 // decrypt, edit and re-encrypt either way.
 func useSops(t *testing.T) {
 	t.Helper()

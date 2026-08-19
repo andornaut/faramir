@@ -1,11 +1,11 @@
-# Installed as /etc/tmpfiles.d/faramir.conf.  {{.RunDir}} holds the three
-# activation sockets plus the ssh-agent socket the broker creates.  A sudo
+# Installed as /etc/tmpfiles.d/faramir.conf. {{.RunDir}} holds the three
+# activation sockets plus the ssh-agent socket the broker creates. A sudo
 # grant adds nothing here: it binds no socket and holds no file.
 #
 # Created here rather than by RuntimeDirectory= on a service: systemd chowns a
 # RuntimeDirectory recursively when its owner does not match the unit's User=,
 # rewriting the SocketUser= and SocketGroup= of every socket inside it.
 #
-# Owned by the broker, the only uid that creates anything here.  0755 so the
+# Owned by the broker, the only uid that creates anything here. 0755 so the
 # other uids can traverse to the sockets, whose own modes decide who connects.
 d {{.RunDir}} 0755 {{.BrokerUser}} {{.BrokerGroup}} -

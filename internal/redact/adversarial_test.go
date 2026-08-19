@@ -14,7 +14,7 @@ func survives(secret, needle, output string) bool {
 	return strings.Contains(r.RedactText(output), needle)
 }
 
-// A battery of output encodings thrown at the redactor.  Each case names the
+// A battery of output encodings thrown at the redactor. Each case names the
 // real tool that produces it and whether docs/redaction.md claims to cover it.
 //
 // Both directions are asserted, so this is a boundary rather than a note: a row
@@ -66,7 +66,7 @@ func TestAdversarialBattery(t *testing.T) {
 			return b.String()
 		}},
 
-		// Deliberate transforms, documented as not prevented.  bash 5.2 `set -x`
+		// Deliberate transforms, documented as not prevented. bash 5.2 `set -x`
 		// single-quotes and is covered; only printf %q's backslash form escapes,
 		// which is a re-quoting rather than the accidental xtrace path.
 		{"bash printf %q", "bash printf %q, not set -x", richSecret, false, bashPrintfQ},

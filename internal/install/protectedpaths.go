@@ -7,12 +7,12 @@ import (
 )
 
 // The paths an agent's file tools are refused, written once here and rendered
-// into each agent's own syntax.  A list per agent is a list that drifts, and a
-// rule that covers nothing looks exactly like one that covers everything.  So
+// into each agent's own syntax. A list per agent is a list that drifts, and a
+// rule that covers nothing looks exactly like one that covers everything. So
 // each entry says how it matches, and each agent's spelling is derived.
 //
 // This takes nothing away from the agent: values reach a command through the
-// broker.  What it refuses is reading or writing the material directly, which
+// broker. What it refuses is reading or writing the material directly, which
 // is the operator's own -- ~/.ssh and ~/.config/sops are covered by no uid
 // boundary, the agent running as the operator.
 type pathKind int
@@ -37,7 +37,7 @@ type protectedPath struct {
 	kind pathKind
 	// value is the name, suffix, prefix, glob or directory tail.
 	value string
-	// why is what this covers, for the comment each rendering carries.  Every
+	// why is what this covers, for the comment each rendering carries. Every
 	// entry has one: a list of bare globs is a list nobody dares delete from.
 	why string
 }
@@ -54,7 +54,7 @@ var protectedPaths = []protectedPath{
 	{kindSuffix, ".vault", "an ansible-vault file"},
 	{kindName, "vault.yml", "an ansible-vault file"},
 
-	// The keys that decrypt it.  An age key replaced is every managed file
+	// The keys that decrypt it. An age key replaced is every managed file
 	// unreadable, retroactively.
 	{kindName, "age.key", "an age identity"},
 	{kindDir, "sops/age/", "the age identities sops reads"},
@@ -101,7 +101,7 @@ func installDirs(layout Layout) []string {
 
 // linkedPaths is the files [[secret.link]] entries name, as literal paths,
 // sorted and deduplicated so two links into one file do not change what is
-// written.  An empty entry is dropped rather than rendered: in the plugin
+// written. An empty entry is dropped rather than rendered: in the plugin
 // hosts' spelling it is a prefix of every path.
 func linkedPaths(layout Layout) []string {
 	seen := make(map[string]bool, len(layout.Links))
@@ -118,7 +118,7 @@ func linkedPaths(layout Layout) []string {
 	return out
 }
 
-// The spellings.  One function per matcher rather than one parameterised over
+// The spellings. One function per matcher rather than one parameterised over
 // them: the agents differ in what a wildcard crosses.
 
 // claudePatterns renders the list in Claude Code's glob spelling, where "**/"
@@ -155,7 +155,7 @@ func pluginGlobs() []string {
 			out = append(out, p.value+"*", "*/"+p.value+"*")
 		case kindDir:
 			// Both forms again: whether these hosts' "*" crosses a separator is
-			// undocumented.  If it does, the second is redundant; if it does not,
+			// undocumented. If it does, the second is redundant; if it does not,
 			// the second is the one that matches.
 			dir := strings.TrimSuffix(p.value, "/")
 			out = append(out, "*"+dir+"/*", "*/"+dir+"/*")
@@ -165,7 +165,7 @@ func pluginGlobs() []string {
 }
 
 // claudeRules is the deny list Claude Code reads: one Read and one Edit rule
-// per path, plus this install's own directories.  Read and Edit take the same
+// per path, plus this install's own directories. Read and Edit take the same
 // list: a value the agent cannot read is one it can still destroy.
 func claudeRules(layout Layout) []string {
 	var out []string
@@ -185,7 +185,7 @@ func claudeRules(layout Layout) []string {
 }
 
 // pluginPatterns is the deny list the two plugin hosts read, which key a map by
-// the pattern rather than listing rules.  Same paths, their spelling.
+// the pattern rather than listing rules. Same paths, their spelling.
 func pluginPatterns(layout Layout) []string {
 	out := pluginGlobs()
 	for _, dir := range installDirs(layout) {
@@ -196,7 +196,7 @@ func pluginPatterns(layout Layout) []string {
 }
 
 // jsonLines renders items as the body of a JSON array: each quoted, indented,
-// comma-separated, and no trailing comma.  Here rather than in a template,
+// comma-separated, and no trailing comma. Here rather than in a template,
 // where the last comma is a conditional per line.
 func jsonLines(indent string, items []string) string {
 	var b strings.Builder

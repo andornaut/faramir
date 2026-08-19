@@ -24,9 +24,9 @@ func baseConfig() config.EscalationConfig {
 func started(t *testing.T, cfg config.EscalationConfig) *Server {
 	t.Helper()
 	s := New(cfg)
-	// A quiet host, which is what these tests are about the other half of.  It has
+	// A quiet host, which is what these tests are about the other half of. It has
 	// to be said rather than left nil: nil refuses every escalation, so that a
-	// Server built without a way to ask the kernel grants no root.  The tests that
+	// Server built without a way to ask the kernel grants no root. The tests that
 	// are about the check itself set their own.
 	s.Quiescent = func() (bool, string) { return true, "the test says so" }
 	t.Cleanup(s.Stop)
@@ -39,7 +39,7 @@ func run() Run {
 
 // mustRegister is Register for the tests that expect the host to be quiet: it
 // asserts the run was not held, which the serialization only does while another
-// command holds an escalation.  The tests that exercise the hold call
+// command holds an escalation. The tests that exercise the hold call
 // Register directly.
 func mustRegister(s *Server, r Run) string {
 	token, heldBy := s.Register(r)
@@ -189,7 +189,7 @@ func TestARefusedRequestIsDenied(t *testing.T) {
 
 // A request the broker cannot attribute to a running command is refused without
 // asking anybody: the question would name nothing, and an escalation that names
-// nothing is worth nothing.  This is what a `sudo` typed by hand as the
+// nothing is worth nothing. This is what a `sudo` typed by hand as the
 // executor's account looks like.
 func TestAnUnknownTokenIsRefusedWithoutAsking(t *testing.T) {
 	s := started(t, baseConfig())
@@ -210,7 +210,7 @@ func TestAnUnknownTokenIsRefusedWithoutAsking(t *testing.T) {
 }
 
 // One question per brokered command: ansible calls sudo once per become'd task,
-// and a question asked twenty times is one nobody reads.  The keying is by run,
+// and a question asked twenty times is one nobody reads. The keying is by run,
 // so a later sudo from the same command joins that command's question rather
 // than putting one of its own.
 func TestOneApprovalCoversTheRestOfTheCommand(t *testing.T) {
@@ -229,7 +229,7 @@ func TestOneApprovalCoversTheRestOfTheCommand(t *testing.T) {
 }
 
 // The escalation is scoped to the command, not to a stretch of time: the next
-// brokered command is asked about on its own, however soon it starts.  This is
+// brokered command is asked about on its own, however soon it starts. This is
 // what a password could not do, one being carriable from the approved run to
 // this one, and what nothing here can be, there being nothing to carry.
 func TestAnotherCommandIsAskedAboutSeparately(t *testing.T) {
@@ -271,9 +271,9 @@ func waitForQuestion(t *testing.T, s *Server) string {
 }
 
 // The serialization, one half: while a run holds an escalation and has
-// not ended, no other brokered command may start.  They share the executor's
+// not ended, no other brokered command may start. They share the executor's
 // uid, so a second could read the approved run's token from /proc and spend it
-// on the root it was never shown for.  Held, and admitted again once the run
+// on the root it was never shown for. Held, and admitted again once the run
 // ends.
 func TestAnEscalationHoldsEveryOtherCommand(t *testing.T) {
 	s := started(t, baseConfig())
@@ -294,9 +294,9 @@ func TestAnEscalationHoldsEveryOtherCommand(t *testing.T) {
 	}
 }
 
-// The two halves must be decided against the same instant.  Register admits a
+// The two halves must be decided against the same instant. Register admits a
 // run while no escalation is live; Answer approves while no other run is
-// registered.  A gap between Answer's sole-occupancy check and its marking the
+// registered. A gap between Answer's sole-occupancy check and its marking the
 // run approved is a window a second run starts in and then rides the escalation,
 // so many concurrent rounds assert the two never both happen.
 func TestAnEscalationAndASecondRunNeverCoexist(t *testing.T) {
@@ -326,7 +326,7 @@ func TestAnEscalationAndASecondRunNeverCoexist(t *testing.T) {
 }
 
 // The other half: a run is not approved while any other brokered command is
-// registered, that one being able to ride the escalation.  The yes is turned
+// registered, that one being able to ride the escalation. The yes is turned
 // into a no rather than the question being held open, which would make the
 // operator poll the one interval in which the host has to be quiet.
 func TestAnEscalationIsRefusedUntilTheHostIsQuiet(t *testing.T) {
@@ -359,7 +359,7 @@ func TestAnEscalationIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 		t.Errorf("err = %v, want it to say the host was not quiet rather than that "+
 			"the question was unknown", err)
 	}
-	// Answered, no, and closed.  Not held open for another try: that would make
+	// Answered, no, and closed. Not held open for another try: that would make
 	// the operator poll the one interval in which the host has to be quiet, and
 	// leave a yes standing against a condition that can change under it.
 	if approved := <-granted; approved {
@@ -496,7 +496,7 @@ func TestEveryRequestIsRecorded(t *testing.T) {
 
 // -- what the child is given -------------------------------------------------
 
-// A token, and nothing else.  It identifies the run rather than authorising it:
+// A token, and nothing else. It identifies the run rather than authorising it:
 // spending it is an op the broker refuses to anything but root, so what the
 // child holds cannot be used by the child, kept, or handed to a later command.
 func TestTheChildIsGivenATokenAndNothingElse(t *testing.T) {
@@ -551,7 +551,7 @@ func TestStopReleasesWhatIsWaiting(t *testing.T) {
 	}
 }
 
-// A command that ends takes its unanswered question with it.  A question left
+// A command that ends takes its unanswered question with it. A question left
 // filed would be shown by `faramir approve` and would take a yes for a command
 // that is no longer running, and it would hold the one question slot until its
 // own timeout.
@@ -590,12 +590,12 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 
 // No question is put while another command is registered, and none is queued: a
 // queue could only hold questions that cannot be answered yes, Answer refusing
-// to approve while any other run is registered.  The same argument keeps the
+// to approve while any other run is registered. The same argument keeps the
 // first of them from being put.
 func TestNoQuestionIsPutWhileAnotherCommandIsRegistered(t *testing.T) {
 	s := started(t, baseConfig())
 	h := watching(t, s, true)
-	// Both tokens before either asks.  A pending question holds a *new*
+	// Both tokens before either asks. A pending question holds a *new*
 	// registration, so the only way two commands ask at once is both registering
 	// while the host was quiet, which is what a burst of brokered commands looks
 	// like, and the case this refuses.
@@ -622,7 +622,7 @@ func TestNoQuestionIsPutWhileAnotherCommandIsRegistered(t *testing.T) {
 	}
 }
 
-// The refusals pend can give are told apart.  A host already holding a question
+// The refusals pend can give are told apart. A host already holding a question
 // and a stopping broker send an operator looking in different places, and one
 // reported as the other sends them hunting for a pending question that is not
 // there.
@@ -631,7 +631,7 @@ func TestARefusalSaysWhichLimitItHit(t *testing.T) {
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
 	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
 	// Two commands registered, so neither may be approved whatever a human types:
-	// each could read the other's token.  The refusal names the one in the way.
+	// each could read the other's token. The refusal names the one in the way.
 	if _, _, _, reason := s.pend(first, run()); !strings.Contains(reason, "playbook two") {
 		t.Errorf("reason = %q, want the other running command named", reason)
 	}
@@ -758,7 +758,7 @@ func TestAnApprovedRunPublishesItsEnding(t *testing.T) {
 	}
 }
 
-// Only the run the caller names.  The slot is never emptied when it is read, so
+// Only the run the caller names. The slot is never emptied when it is read, so
 // matching is the whole of what keeps a stale ending from printing under a
 // question it does not belong to, and what keeps a filled slot from returning
 // from every poll at once.
@@ -815,7 +815,7 @@ func TestAWatcherIsWokenByTheEnding(t *testing.T) {
 	}
 }
 
-// A run the broker never got a status for says so.  A zero exit code here would
+// A run the broker never got a status for says so. A zero exit code here would
 // read as a clean exit, which is the one thing the operator's only report of the
 // run must not get wrong.
 func TestAnEndingWithNoStatusReportsNone(t *testing.T) {
@@ -840,7 +840,7 @@ func TestAnEndingWithNoStatusReportsNone(t *testing.T) {
 // --------------------------------------------------------------------------
 
 // A refusal a human typed and a question nobody answered are not the same event:
-// one was judged, the other means nothing was watching.  Told apart only by
+// one was judged, the other means nothing was watching. Told apart only by
 // their prose they are told apart by whoever reads English, which is neither the
 // log reader nor anything selecting on a field.
 func TestEachEndingCarriesItsOwnCode(t *testing.T) {
@@ -931,7 +931,7 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 	})
 }
 
-// And the code reaches the record, which is where it is read from.  The prose
+// And the code reaches the record, which is where it is read from. The prose
 // stays beside it: it names the account that answered or the process that was in
 // the way, and neither fits in a code.
 func TestTheRecordCarriesTheCodeAndTheProse(t *testing.T) {
@@ -962,7 +962,7 @@ func TestTheRecordCarriesTheCodeAndTheProse(t *testing.T) {
 }
 
 // The last no a run was given, kept for the broker to report when the command
-// ends.  Without it a refusal and an expiry reach the caller alike, as sudo's
+// ends. Without it a refusal and an expiry reach the caller alike, as sudo's
 // own authentication failure, and one is worth running again and the other is
 // not.
 func TestARunKeepsTheNoItWasGiven(t *testing.T) {

@@ -1,13 +1,13 @@
 package escalation
 
 // Adversarial probes against the escalation gate: what a brokered command can do
-// to the question a human is shown, rather than to the answer.  Each asserts a
+// to the question a human is shown, rather than to the answer. Each asserts a
 // gap is closed rather than documenting that it is open, a probe that only
-// documents a weakness being one that stops being read.  What each defends, and
+// documents a weakness being one that stops being read. What each defends, and
 // what it cost, is with the mechanism in docs/design.md.
 //
 // The answer channel itself is not probed here: SO_PEERCRED, `requisite` and
-// `seteuid` are covered by internal/server and internal/install.  This is the
+// `seteuid` are covered by internal/server and internal/install. This is the
 // other half, the prompt being the whole security argument and the command it
 // names being chosen by the caller.
 
@@ -18,12 +18,12 @@ import (
 )
 
 // The prompt is printed to the operator's terminal with %s, and a terminal obeys
-// what it is sent.  The redactor strips CSI and OSC on the way in; what it
+// what it is sent. The redactor strips CSI and OSC on the way in; what it
 // leaves is a bare "\r" and a stray ESC, either of which rewrites what the
-// reader sees.  internal/termsafe carries the measurements.
+// reader sees. internal/termsafe carries the measurements.
 //
 // The escape below is one redaction would have removed, which is the point: this
-// asserts the prompt does not depend on that having happened.  Quoted rather
+// asserts the prompt does not depend on that having happened. Quoted rather
 // than stripped, so an argument that held one is one the operator sees held it.
 func TestThePromptDoesNotObeyTheArgv(t *testing.T) {
 	prompt := Prompt(Run{
@@ -94,7 +94,7 @@ func TestTheQuestionsFieldsDoNotObeyTheCaller(t *testing.T) {
 }
 
 // The question names the program root will run, not only the one the caller
-// asked for.  A relative argv[0] resolves against the request's cwd, which is
+// asked for. A relative argv[0] resolves against the request's cwd, which is
 // the agent's working tree, so `bin/ansible-playbook` can be a file the agent
 // wrote.
 func TestTheQuestionNamesWhatWillActuallyRun(t *testing.T) {
@@ -114,12 +114,12 @@ func TestTheQuestionNamesWhatWillActuallyRun(t *testing.T) {
 }
 
 // An escalation takes only where something outside this server's own bookkeeping
-// says the host is quiet.  The map here and the process table can part (a
+// says the host is quiet. The map here and the process table can part (a
 // cgroup teardown that gave up, a run aborted from the broker's side, this
 // process restarting), and every live executor-uid process during an approved
 // window can read the run's token and sudo on it.
 //
-// A no fails the sudo then and there, and closes the question.  Holding it open
+// A no fails the sudo then and there, and closes the question. Holding it open
 // for another try is the kinder-looking behaviour and the wrong one: it makes
 // the operator poll the one interval in which the host has to be quiet, and
 // leaves a yes standing against a condition that can change under it.
@@ -158,7 +158,7 @@ func TestAnEscalationNeedsMoreThanThisServersOwnBookkeeping(t *testing.T) {
 
 // A caller decides whether the host is ever quiet enough for a yes to take, so
 // long as it can keep starting commands: Answer refuses to approve alongside any
-// other registered run.  Holding from the moment a question is put makes the
+// other registered run. Holding from the moment a question is put makes the
 // host drain toward the answer instead of away from it.
 func TestAQuestionHoldsNewCommandsToo(t *testing.T) {
 	s := started(t, baseConfig())
@@ -182,7 +182,7 @@ func TestAQuestionHoldsNewCommandsToo(t *testing.T) {
 //
 // It matters most where the answer is a second command: `faramir approve`
 // without --watch prints the question, and the operator then types `faramir
-// approve <id>` against a clock that started when the question was raised.  How
+// approve <id>` against a clock that started when the question was raised. How
 // long it has already waited does not tell them whether they have time.
 func TestAQuestionSaysHowLongIsLeftToAnswerIt(t *testing.T) {
 	cfg := baseConfig()

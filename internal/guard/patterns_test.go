@@ -13,7 +13,7 @@ import (
 const shippedPatterns = "../../agent/hooks/deny-patterns.txt"
 
 // The shipped file is a template, so the paths it refuses are the ones an
-// install writes into it.  Rendered against the compiled defaults.
+// install writes into it. Rendered against the compiled defaults.
 func renderShippedBytes() ([]byte, error) {
 	data, err := os.ReadFile(shippedPatterns)
 	if err != nil {
@@ -62,7 +62,7 @@ func shippedLines(t *testing.T) []string {
 // A fallback weaker than the shipped list turns an install problem into a
 // silent gap.
 //
-// Byte equality is also what makes one compile check enough for both.  RE2 has
+// Byte equality is also what makes one compile check enough for both. RE2 has
 // no lookahead or backreferences, and a pattern that fails to compile is
 // skipped at load rather than reported, but TestEveryFallbackPatternCompiles
 // asserts that none of the fallback is skipped, and equality carries that to

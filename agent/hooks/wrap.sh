@@ -1,15 +1,15 @@
 # shellcheck shell=bash
-# Run one command with its output redacted.  Sourced, never executed:
+# Run one command with its output redacted. Sourced, never executed:
 #
 #   source /usr/local/libexec/faramir/wrap.sh '<command>'
 #
-# The guard rewrites every Bash tool call into that line.  Three things decide
+# The guard rewrites every Bash tool call into that line. Three things decide
 # the shape; see docs/design.md.
 #
 # Sourced, because the agent's shell persists between tool calls: a child would
-# lose every "cd", "export" and shell function the command sets.  One simple
+# lose every "cd", "export" and shell function the command sets. One simple
 # command, so the guard's idempotence check is a prefix test and the rewritten
-# text stays legible to whatever reads it next.  Redacted after the command
+# text stays legible to whatever reads it next. Redacted after the command
 # finishes, a pipeline putting it in a subshell and process substitution racing
 # the shell.
 #
@@ -22,16 +22,16 @@
 #
 # Its output arrives over the command's life, so the capture-then-redact path
 # below would buffer a long-running one (a dev server, a build) until it exited,
-# which is never.  `faramir redact` is itself a stream and fails closed on its
+# which is never. `faramir redact` is itself a stream and fails closed on its
 # own: with the broker down it withholds the output and exits non-zero, and
-# pipefail carries that out as the pipeline's status.  A subshell so pipefail and
+# pipefail carries that out as the pipeline's status. A subshell so pipefail and
 # the command's own settings do not touch the caller's shell: a backgrounded
 # command has no shell state to persist, unlike the sourced path below.
 if [ "${1:-}" = "--stream" ]; then
   ( set -o pipefail 2>/dev/null
     { eval "${2:-}"; } 2>&1 | "${FARAMIR_CLI:-/usr/local/bin/faramir}" redact )
   # The subshell's status, expanded into the eval before unset runs, then made
-  # the last command so it is what this sourced fragment returns.  return, not
+  # the last command so it is what this sourced fragment returns. return, not
   # exit: this is sourced, and the streaming form may be backgrounded into the
   # caller's own shell.
   __frc=$?
@@ -40,13 +40,13 @@ if [ "${1:-}" = "--stream" ]; then
 fi
 
 # The capture files hold unredacted output, so they go in a directory no other
-# account can enter, and nowhere else.  XDG_RUNTIME_DIR is that directory: a
-# tmpfs the login session owns at 0700.  There is deliberately no /dev/shm
+# account can enter, and nowhere else. XDG_RUNTIME_DIR is that directory: a
+# tmpfs the login session owns at 0700. There is deliberately no /dev/shm
 # fallback, which is 1777: "private" there is something to be argued rather than
 # asserted, and a directory another account can write is one where the name of a
 # file that does not exist yet is a name it can create first.
 #
-# Required, not preferred.  Without it the command does not run at all, which is
+# Required, not preferred. Without it the command does not run at all, which is
 # the same answer as a redactor that will not start: XDG_RUNTIME_DIR is unset
 # under sudo and in cron, so an agent running there gets a refusal it can read
 # rather than output nothing checked.
@@ -73,10 +73,10 @@ if [ -z "${__frf:-}" ] || [ -z "${__fro:-}" ]; then
 else
   # "exit" in the command ends this shell at the eval below, before the rm at the
   # end of this branch, and the capture file holds output that has not been
-  # redacted yet.  An EXIT trap is what bash still runs on that path.
+  # redacted yet. An EXIT trap is what bash still runs on that path.
   #
   # This is sourced, so the trap is the caller's shell's: the one it had is saved
-  # and put back once the files are gone.  On the exit path ours runs and the
+  # and put back once the files are gone. On the exit path ours runs and the
   # caller's does not, bash keeping one handler per signal rather than chaining.
   __frt=$(trap -p EXIT)
   trap 'rm -f "$__frf" "$__fro"' EXIT
@@ -92,7 +92,7 @@ else
     cat "$__fro"
   else
     # The command ran, so what it set in this shell is intact; only the output
-    # is withheld.  A missing or too-old faramir lands here too.
+    # is withheld. A missing or too-old faramir lands here too.
     echo "faramir: the output was withheld because it could not be redacted" >&2
     # A withheld output must not read as a clean success.
     [ "$__frc" -eq 0 ] && __frc=1
@@ -103,6 +103,6 @@ else
 fi
 
 # Restores the status the caller reads, and clears the variables: this runs in
-# the caller's shell.  The status is expanded into the eval string before unset
+# the caller's shell. The status is expanded into the eval string before unset
 # runs.
 eval "unset __frd __frm __frt __frf __fro __frc; ( exit $__frc )"

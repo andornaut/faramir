@@ -17,7 +17,7 @@ import (
 // newLinkCmd groups what is done to a linked secret: one a tool of yours owns,
 // read where that tool keeps it rather than copied into the managed store.
 //
-// The store's own commands are `faramir vault`.  Two nouns rather than one, and
+// The store's own commands are `faramir vault`. Two nouns rather than one, and
 // deliberately: what they share is a ref namespace, not a mechanism.
 func newLinkCmd() *cobra.Command {
 	c := &cobra.Command{
@@ -176,7 +176,7 @@ func runLinkList(f linkFlags) int {
 		return 0
 	}
 	// Whether the file is there, which is the state that changes without anybody
-	// touching the config: a credential removed, or a home not mounted.  Whether
+	// touching the config: a credential removed, or a home not mounted. Whether
 	// the broker can read it is doctor's question, that one needing to be asked as
 	// the broker.
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
@@ -196,7 +196,7 @@ func runLinkList(f linkFlags) int {
 	return 0
 }
 
-// installOptions is the install this command acts on.  The config path resolves
+// installOptions is the install this command acts on. The config path resolves
 // the way every provisioning command's does, by asking a running broker where
 // the install is when no flag names it.
 func installOptions(f linkFlags) install.Options {

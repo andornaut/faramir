@@ -3,7 +3,7 @@
 #
 # The promise: a brokered command authenticates to a managed host with a key it
 # cannot read, and what it is handed is two agent operations rather than the
-# agent protocol.  A stub cannot test that -- the interesting half is what a
+# agent protocol. A stub cannot test that -- the interesting half is what a
 # real sshd does with a real signature -- so the suite runs a second container
 # with sshd and no passwords, reachable as managed-host, and the broker's key is
 # the only way in.
@@ -68,14 +68,14 @@ head_ "3. two operations, and the rest refused"
 out=$(brokered /usr/bin/ssh-add -l)
 grep -q SHA256 <<<"$out" && ok "list identities is served: $(grep -o 'SHA256:[^ ]*' <<<"$out" | head -1 | cut -c1-26)..." \
   || bad "the agent listed nothing: ${out:0:120}"
-# -L is the same request, rendered as public keys.  A public key is not a
+# -L is the same request, rendered as public keys. A public key is not a
 # disclosure: it is in authorized_keys on every managed host already.
 out=$(brokered /usr/bin/ssh-add -L)
 grep -q '^ssh-ed25519 ' <<<"$(tail -1 <<<"$out")" && ok "and returns the public key, which is not a secret" \
   || bad "-L returned no public key: ${out:0:100}"
 grep -q 'PRIVATE' <<<"$out" && bad "the private half came back" || ok "and never the private half"
 
-# Everything below is a request the relay does not forward.  Each is checked for
+# Everything below is a request the relay does not forward. Each is checked for
 # a refusal AND for the key surviving it: an agent a brokered command can empty
 # or lock is one it can take away from every other command on the host.
 refuses() { # label, then argv
@@ -105,13 +105,13 @@ out=$(sshb deploy@$HOST /usr/bin/id -un)
 head_ "4. where that key can be used"
 #
 # The blast radius as documented: any host trusting the public key, for as long
-# as the broker holds it.  What bounds it is which accounts trust it.
+# as the broker holds it. What bounds it is which accounts trust it.
 
 out=$(sshb nosuchuser@$HOST /usr/bin/id -un)
 grep -qi 'permission denied\|denied' <<<"$out" && ok "an account that does not trust the key is refused" \
   || bad "logged in as an account that never trusted the key: ${out:0:110}"
 # No user given asks for the executor's own name, which is nobody's account
-# there.  Documented, and the first thing an agent gets wrong.
+# there. Documented, and the first thing an agent gets wrong.
 out=$(sshb $HOST /usr/bin/id -un)
 grep -q 'faramir-exec@' <<<"$out" && ok "ssh with no user asks for faramir-exec, and is refused" \
   || bad "a userless ssh did something else: ${out:0:110}"
@@ -129,7 +129,7 @@ grep -qi 'host key verification failed' <<<"$out" \
 grep -qi 'are you sure you want to continue' <<<"$out" \
   && bad "it tried to prompt" || ok "and nothing waited for an answer"
 
-# The operator's own known_hosts is not what the executor reads.  0700 and
+# The operator's own known_hosts is not what the executor reads. 0700 and
 # removed again afterwards: a ~/.ssh the executor can read is a finding of its
 # own (doctor's "agent keys"), and a suite that leaves one behind hands the
 # next suite a fault to report.
@@ -194,7 +194,7 @@ brokered /usr/bin/ssh-add -l | grep -q SHA256 && ok "and the agent still holds i
 head_ "8. agent forwarding relocates the signing capability"
 #
 # Not a defect: -A is the command's own choice, and a brokered command can
-# already sign anything.  Worth stating, because while that connection is open
+# already sign anything. Worth stating, because while that connection is open
 # the managed host can sign with the broker's key too, which is a wider reach
 # than "a brokered command can use it".
 
@@ -213,9 +213,9 @@ grep -qi 'PRIVATE KEY' <<<"$out" && bad "the key crossed to the managed host" \
 head_ "9. a prompt the command reads from its terminal"
 #
 # docs/operating.md: "Interactive prompts fail rather than hang. Stdin is
-# /dev/null."  Stdin is, and a command reading stdin does end.  The other half is
+# /dev/null."  Stdin is, and a command reading stdin does end. The other half is
 # /dev/tty, which every credential prompt worth the name reads precisely so a
-# pipe cannot feed it: ssh-add, sudo, gpg, ssh's own passphrase prompt.  The
+# pipe cannot feed it: ssh-add, sudo, gpg, ssh's own passphrase prompt. The
 # child is given the PTY for stdout and stderr but not as its controlling
 # terminal, so that open fails rather than blocking on a master nothing writes.
 
@@ -252,7 +252,7 @@ for _ in $(seq "$slots"); do
 done
 # A fixed wait rather than a waitfor, because what holds a slot is the executor
 # on the broker's side and not a process of ssh-add's own: the only observable
-# for "the slots are taken" is the busy refusal this is about to ask for.  Long
+# for "the slots are taken" is the busy refusal this is about to ask for. Long
 # enough that all of them have started, short enough that none of the 12s runs
 # above has ended.
 sleep 4
@@ -275,7 +275,7 @@ grep -q "$HOST" $LOG && ok "the brokered ssh is recorded with its argv" \
   || bad "no record names the managed host"
 # The key never passes through a record, argv or output.
 grep -q 'PRIVATE KEY' $LOG && bad "the log holds key material" || ok "and no key material"
-# A busy refusal is legible as a refusal rather than as a blank row.  Whether
+# A busy refusal is legible as a refusal rather than as a blank row. Whether
 # the run produced one at all is up to how the concurrency gate happened to fall,
 # so say when it did not: an assertion that quietly does not run reads in the
 # counts as one that was never written.

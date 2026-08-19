@@ -119,7 +119,7 @@ func TestShareTreeAppliesModesThroughout(t *testing.T) {
 	}
 }
 
-// What one directory on the path needs.  Group ownership rather than an ACL, the
+// What one directory on the path needs. Group ownership rather than an ACL, the
 // group slot being the one going spare on a home the operator owns.
 func TestTraversalAction(t *testing.T) {
 	dir := t.TempDir()
@@ -166,7 +166,7 @@ func TestTraversalAction(t *testing.T) {
 	}
 }
 
-// A regrouped directory hands the incoming group execute and nothing else.  The
+// A regrouped directory hands the incoming group execute and nothing else. The
 // group bits on the way in were the previous group's: carrying them over would
 // give the executor read on a 0750 home and write on a 0770 one.
 func TestTraversalMode(t *testing.T) {
@@ -198,7 +198,7 @@ func TestTraversalMode(t *testing.T) {
 }
 
 // Execute only: read would let these uids list the agent account's home rather than
-// pass through it.  The group is the tree's own, so nothing is regrouped and no
+// pass through it. The group is the tree's own, so nothing is regrouped and no
 // privilege is needed; TestTraversalAction covers that branch.
 func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
 	home := t.TempDir()
@@ -240,9 +240,9 @@ func TestGrantTraversalAddsExecuteAndNotRead(t *testing.T) {
 	}
 }
 
-// What Share reports is what it altered, not that it ran.  The first run
+// What Share reports is what it altered, not that it ran. The first run
 // rewrites the ownership and mode of every file in a tree; every run after it
-// re-applies what is already there.  A caller reporting "changed" reads this,
+// re-applies what is already there. A caller reporting "changed" reads this,
 // so answering the same both times says a tree it just regrouped was left
 // alone.
 func TestShareReportsWhatItAltered(t *testing.T) {
@@ -255,9 +255,9 @@ func TestShareReportsWhatItAltered(t *testing.T) {
 		t.Skip("cannot name this account's group")
 	}
 	// The only test here that drives the exported Share, which grants traversal
-	// from the agent account's home down to the tree.  With TMPDIR inside the home,
+	// from the agent account's home down to the tree. With TMPDIR inside the home,
 	// that is the real home: a 0700 one becomes 0710, and one whose group is not
-	// the primary group is regrouped and loses its group bits.  An environment
+	// the primary group is regrouped and loses its group bits. An environment
 	// guard, not a skip on the branch that would have failed.
 	if home, err := Resolve(me.HomeDir); err == nil {
 		if tmp, err := Resolve(os.TempDir()); err == nil && within(home, tmp) {
@@ -296,7 +296,7 @@ func TestShareReportsWhatItAltered(t *testing.T) {
 	}
 }
 
-// A path needing both a regroup and a widen is one path.  Counting the
+// A path needing both a regroup and a widen is one path. Counting the
 // operations instead would report a hundred files as two hundred, and the count
 // is what an operator reads.
 func TestASharedPathIsCountedOnceHoweverManyThingsItNeeds(t *testing.T) {
@@ -349,7 +349,7 @@ func TestKeepingTheGroupIsNotAChange(t *testing.T) {
 }
 
 // The bits Chmod applies, which is what a comparison deciding "did this run
-// alter the path" has to look at.  Permissions alone would miss a setuid or
+// alter the path" has to look at. Permissions alone would miss a setuid or
 // sticky bit the chmod is about to clear, and report a path it changed as one
 // it left alone; whole modes would count ModeDir and call every run a change.
 func TestChmodBitsAreTheOnesChmodApplies(t *testing.T) {
@@ -374,7 +374,7 @@ func TestChmodBitsAreTheOnesChmodApplies(t *testing.T) {
 }
 
 // A directory holding a file an enrolment wrote is sticky, so unlink and rename
-// there are the file's owner's alone.  Without it the client group has rwx on
+// there are the file's owner's alone. Without it the client group has rwx on
 // the directory and can delete .claude/settings.json and put its own there,
 // whatever mode the file itself carries.
 func TestDirectoriesHoldingAKeptFileAreSticky(t *testing.T) {
@@ -425,7 +425,7 @@ func TestDirectoriesHoldingAKeptFileAreSticky(t *testing.T) {
 }
 
 // The tree's own root is not in the set, so nothing at the top level of an
-// enrolled tree stops being renamable by a brokered command.  Stated as a test
+// enrolled tree stops being renamable by a brokered command. Stated as a test
 // because it is a trade and not an oversight: what it costs is that the
 // directory holding an agent's settings can itself be moved aside from a root
 // the client group can write.
@@ -470,7 +470,7 @@ func TestStickyIsNotAChangeOnASecondRun(t *testing.T) {
 }
 
 // Traversal is granted through descriptors, so a component swapped after it was
-// looked at reaches nothing.  These directories are the operator's and this
+// looked at reaches nothing. These directories are the operator's and this
 // runs as root: chmod and chown follow a link, so a path checked and then acted
 // on by name is root regrouping a directory of somebody else's choosing.
 func TestGrantTraversalDoesNotFollowASwappedComponent(t *testing.T) {
@@ -518,7 +518,7 @@ func TestGrantTraversalDoesNotFollowASwappedComponent(t *testing.T) {
 	}
 }
 
-// A tree that is the home has nothing above it to walk.  components answers
+// A tree that is the home has nothing above it to walk. components answers
 // with none, and asking for the tail of that is asking for element one of an
 // empty list.
 func TestGrantTraversalOnTheHomeItselfDoesNothing(t *testing.T) {

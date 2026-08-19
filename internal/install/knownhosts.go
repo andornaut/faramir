@@ -11,7 +11,7 @@ import (
 )
 
 // globalKnownHosts is the file ssh consults before any account's own, so one
-// copy answers for the executor, the operator and root at once.  Root-owned and
+// copy answers for the executor, the operator and root at once. Root-owned and
 // outside every home, which makes it the arrangement to prefer.
 const globalKnownHosts = "/etc/ssh/ssh_known_hosts"
 
@@ -41,7 +41,7 @@ func readKnownHosts(path string) ([]byte, int, error) {
 }
 
 // parseKnownHosts counts the host key entries in a known_hosts file and reports
-// the first line that is not one, zero when every line parses.  Blank lines and
+// the first line that is not one, zero when every line parses. Blank lines and
 // comments are neither.
 func parseKnownHosts(data []byte) (entries, bad int) {
 	for i, line := range strings.Split(string(data), "\n") {
@@ -75,7 +75,7 @@ func hasPrefixIn(s string, prefixes []string) bool {
 }
 
 // countKnownHosts reports how many host keys ssh would take from a file, and
-// zero for one that is absent.  Lenient where readKnownHosts refuses: ssh
+// zero for one that is absent. Lenient where readKnownHosts refuses: ssh
 // ignores a line it cannot parse, so the entries either side of a bad one still
 // verify their hosts.
 func countKnownHosts(path string) int {
@@ -90,9 +90,9 @@ func countKnownHosts(path string) int {
 // stepKnownHosts pins the host keys a brokered ssh verifies against.
 //
 // A copy rather than a reference: the executor cannot read the operator's 0700
-// ~/.ssh, and ssh names no environment variable for a known_hosts file.  Safe
+// ~/.ssh, and ssh names no environment variable for a known_hosts file. Safe
 // where copying an ssh config is not, a known_hosts file being public keys with
-// no directive that executes anything.  Silent without --known-hosts.
+// no directive that executes anything. Silent without --known-hosts.
 //
 // Replaced whole rather than merged: HashKnownHosts is on by default, so
 // entries cannot be matched by name, and appending blind would keep a rotated
@@ -115,7 +115,7 @@ func (r *runner) stepKnownHosts() error {
 			r.opts.KnownHosts, path, globalKnownHosts)
 	}
 	// A dry run runs unprivileged and cannot look inside the executor's 0700
-	// home.  Reported as a change, which does not call an install current when it
+	// home. Reported as a change, which does not call an install current when it
 	// is not.
 	if r.opts.DryRun {
 		r.step("known hosts", true, fmt.Sprintf("pin %d host key(s) from %s in %s",
@@ -144,8 +144,8 @@ func (r *runner) stepKnownHosts() error {
 // is enough and the counts are reported together.
 //
 // Never a failure: nothing pinned is what a host with no fleet looks like, and
-// a host may arrange verification some other way.  Reported because the state
-// is otherwise silent until a playbook hits it.  Needs root, the executor's
+// a host may arrange verification some other way. Reported because the state
+// is otherwise silent until a playbook hits it. Needs root, the executor's
 // file being inside a 0700 home.
 func diagnoseKnownHosts(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Ssh.Key == "" {

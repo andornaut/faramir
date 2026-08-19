@@ -8,7 +8,7 @@ import (
 )
 
 // sealed writes a file shaped like one sops encrypted: the recipient field is
-// cleartext metadata, which is all this check reads.  A real encryption would
+// cleartext metadata, which is all this check reads. A real encryption would
 // need a key and a sops on PATH to assert something the regex already decides.
 func sealed(t *testing.T, dir, name string, recipients ...string) string {
 	t.Helper()
@@ -53,7 +53,7 @@ func TestRecipientDriftPassesWhenTheStoreAgrees(t *testing.T) {
 }
 
 // The state the recipient commands exist to prevent, and the one nothing else
-// reports: the rule names a reader the ciphertext is not sealed to.  A reseal
+// reports: the rule names a reader the ciphertext is not sealed to. A reseal
 // that failed partway leaves exactly this.
 func TestRecipientDriftFailsWhenTheCiphertextLagsTheRule(t *testing.T) {
 	dir := t.TempDir()
@@ -80,7 +80,7 @@ func TestRecipientDriftFailsWhenTheCiphertextLagsTheRule(t *testing.T) {
 	}
 }
 
-// A file sealed to nothing is not sealed to the wrong set.  What it is instead
+// A file sealed to nothing is not sealed to the wrong set. What it is instead
 // belongs to `rule coverage` and to the broker's own --check, and reporting it
 // here would be two checks failing for one cause.
 func TestRecipientDriftIgnoresAFileSealedToNothing(t *testing.T) {

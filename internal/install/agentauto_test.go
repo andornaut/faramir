@@ -8,7 +8,7 @@ import (
 )
 
 // agentStep runs the account-level agent step against a home the test built,
-// and returns what it reported.  Dry run: what is asserted is which agents it
+// and returns what it reported. Dry run: what is asserted is which agents it
 // decided on, and writing into a temporary home to find that out would only
 // test the filesystem.
 func agentStep(t *testing.T, home string, agents ...string) Step {
@@ -38,7 +38,7 @@ func agentStep(t *testing.T, home string, agents ...string) Step {
 	return Step{}
 }
 
-// A home with no coding agent in it gets no rules, and is told so.  The other
+// A home with no coding agent in it gets no rules, and is told so. The other
 // direction -- writing configuration into a home for five agents the operator
 // does not run -- is not this command's to do.
 func TestInitWritesNoRulesForAHomeWithNoAgent(t *testing.T) {

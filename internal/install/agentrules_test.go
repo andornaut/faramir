@@ -38,7 +38,7 @@ func finding(t *testing.T, report DoctorReport, agent string) Finding {
 	return Finding{}
 }
 
-// Every agent gets a row, whether or not it looks in use.  Which agents an
+// Every agent gets a row, whether or not it looks in use. Which agents an
 // operator runs is not a thing this can know, so a row per agent is the report
 // and the states are what differ.
 func TestAgentRulesReportsEveryKnownAgent(t *testing.T) {
@@ -97,7 +97,7 @@ func TestAgentRulesNamesTheFilesWhenTheyAreThere(t *testing.T) {
 
 // The one state that is a fault: the agent is in this home and the rules that
 // refuse its file tools are not, so the keys under ~/.ssh and ~/.config/sops
-// are refused nothing.  Half an arrangement, and the half that is gone is the
+// are refused nothing. Half an arrangement, and the half that is gone is the
 // half that was doing the work.
 func TestAgentRulesFailWhenTheAgentIsHereAndItsRulesAreNot(t *testing.T) {
 	home := t.TempDir()
@@ -143,7 +143,7 @@ func TestAgentRulesAreOKWhereOnlyTheRulesAreThere(t *testing.T) {
 }
 
 // An agent that carries its rules in the extension an enrolment installs has
-// nothing in this home to find, and nothing missing from it either.  Reported
+// nothing in this home to find, and nothing missing from it either. Reported
 // rather than left out, a check that vanishes being indistinguishable from one
 // nobody wrote -- and not a fault, whether or not the agent is here.
 func TestAgentRulesSayWhereAnExtensionCarriesThem(t *testing.T) {

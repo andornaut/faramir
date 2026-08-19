@@ -1,5 +1,5 @@
 // Package secretlink reads one secret out of a file the operator's own tools
-// maintain, rather than out of the managed sops store.  The file stays where
+// maintain, rather than out of the managed sops store. The file stays where
 // its tool expects it, so rotating a credential is that tool's business.
 //
 // A link is for redaction as much as injection: a value the agent can already
@@ -7,7 +7,7 @@
 // so a brokered command that prints it gets a token back, with the deny rules
 // taking away the direct read.
 //
-// No error here carries file content.  A decoder's own message often quotes the
+// No error here carries file content. A decoder's own message often quotes the
 // line it failed on, and these messages reach the daemon log and `--check`, so
 // the parse errors are replaced rather than wrapped.
 package secretlink
@@ -34,7 +34,7 @@ const (
 	// KindText is the whole file, surrounding whitespace trimmed: a keyfile or a
 	// single-line token.
 	KindText = "text"
-	// KindBase64 is the whole file encoded, for one that is not text.  The value
+	// KindBase64 is the whole file encoded, for one that is not text. The value
 	// injected is the encoding, so whatever consumes it decodes.
 	KindBase64 = "base64"
 	// KindJSON, KindYAML, KindTOML and KindINI select one value out of a
@@ -49,14 +49,14 @@ const (
 // at something else should fail rather than be read into the value set.
 const MaxBytes = 1 << 20
 
-// Kinds is every kind, for the config parser's error message.  Ordered as
+// Kinds is every kind, for the config parser's error message. Ordered as
 // declared: the whole-file kinds first, then the ones that select.
 func Kinds() []string {
 	return []string{KindText, KindBase64, KindJSON, KindYAML, KindTOML, KindINI}
 }
 
 // NeedsKey reports whether a kind selects part of a file, and so requires a
-// `key`.  The whole-file kinds refuse one, a key there naming nothing.
+// `key`. The whole-file kinds refuse one, a key there naming nothing.
 func NeedsKey(kind string) bool {
 	switch kind {
 	case KindJSON, KindYAML, KindTOML, KindINI:
@@ -65,7 +65,7 @@ func NeedsKey(kind string) bool {
 	return false
 }
 
-// Read returns the value a link selects.  The error says what is wrong with the
+// Read returns the value a link selects. The error says what is wrong with the
 // file or the selector and never what is in it.
 func Read(path, kind, key string) (string, error) {
 	data, err := readBounded(path)
@@ -147,7 +147,7 @@ func KeysIn(path, kind string) ([]string, error) {
 }
 
 // Keys is every selector this file offers, for the message an operator gets
-// when theirs named nothing.  Names only, never values.  Sorted, and empty for
+// when theirs named nothing. Names only, never values. Sorted, and empty for
 // the whole-file kinds.
 func Keys(kind string, data []byte) []string {
 	var tree any
@@ -229,7 +229,7 @@ func iniKeys(data []byte) []string {
 
 // selectPath walks a decoded tree by a "path/to/key" selector, the same
 // spelling the keeper flattens a sops file into, so a ref and a selector read
-// the same way.  A list is indexed by number.
+// the same way. A list is indexed by number.
 func selectPath(tree any, key string) (string, error) {
 	node := tree
 	walked := ""
@@ -262,7 +262,7 @@ func selectPath(tree any, key string) (string, error) {
 }
 
 // splitSelector cuts a selector into segments on unescaped "/", and unescapes
-// the rest.  A key that holds a slash makes this necessary: a container
+// the rest. A key that holds a slash makes this necessary: a container
 // registry file names its entries by URL, so an unescaped
 // `auths/https://…/auth` walks four levels that are not there.
 //
@@ -297,7 +297,7 @@ func splitSelector(key string) []string {
 	return append(segments, current.String())
 }
 
-// escapeSegment spells one key so splitSelector reads it back whole.  Every
+// escapeSegment spells one key so splitSelector reads it back whole. Every
 // listing goes through it: a name offered and then refused as a selector is
 // worse than none.
 func escapeSegment(segment string) string {
@@ -348,11 +348,11 @@ func scalar(node any, key string) (string, error) {
 }
 
 // selectINI reads `key = value` lines, which is the shape of .npmrc and most
-// tool dotfiles.  A `[section]` header prefixes the keys under it, so the
+// tool dotfiles. A `[section]` header prefixes the keys under it, so the
 // selector is "section/key" there and a bare key elsewhere.
 //
 // Deliberately small: no continuations, no interpolation, and first wins on a
-// duplicate key.  Unescaped, unlike the tree kinds, so npm's
+// duplicate key. Unescaped, unlike the tree kinds, so npm's
 // `//registry.npmjs.org/:_authToken` is given as it is written; the cost is
 // that a slash in a section or a key can make two entries read alike, which is
 // refused below.
@@ -360,7 +360,7 @@ func selectINI(data []byte, key string) (string, error) {
 	if !utf8.Valid(data) {
 		return "", errors.New("not valid UTF-8")
 	}
-	// Every entry composing to this selector, by where it came from.  One key
+	// Every entry composing to this selector, by where it came from. One key
 	// twice is the file's own ambiguity, which INI answers first-wins; two
 	// different entries composing alike is this package joining with "/", and
 	// choosing between them would be choosing which credential to inject.
@@ -410,7 +410,7 @@ func selectINI(data []byte, key string) (string, error) {
 	return value, nil
 }
 
-// iniOrigin names where one matching entry sits, for the refusal above.  Names
+// iniOrigin names where one matching entry sits, for the refusal above. Names
 // only, like everything else this package reports.
 func iniOrigin(section, name string) string {
 	if section == "" {

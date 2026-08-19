@@ -49,7 +49,7 @@ func TestALinkedPathReachesTheRenderedAccountFiles(t *testing.T) {
 
 // An empty entry would be a prefix of every path in the plugin hosts' spelling,
 // so it is dropped rather than rendered: that fails closed and still breaks the
-// agent.  Duplicates and order are settled so the file does not churn.
+// agent. Duplicates and order are settled so the file does not churn.
 func TestLinkedPathsAreCleanedAndOrdered(t *testing.T) {
 	got := linkedPaths(Layout{Links: linksAt("/b", "", "/a", "/b")})
 	if !slices.Equal(got, []string{"/a", "/b"}) {
@@ -177,7 +177,7 @@ func TestDoctorFailsWhenALinkedFileIsNotRefused(t *testing.T) {
 	}
 }
 
-// Nothing to compare against is not a pass.  An account with no rule file
+// Nothing to compare against is not a pass. An account with no rule file
 // refuses nothing, and reporting OK would say the opposite.
 func TestDoctorDoesNotClaimCoverageWithNoRuleFile(t *testing.T) {
 	var report DoctorReport
@@ -250,7 +250,7 @@ func TestALongerPathDoesNotCoverAShorterOne(t *testing.T) {
 }
 
 // The drift report renders what faramir writes now and reports the difference
-// as rules to delete.  Without the linked paths in that render, every rule the
+// as rules to delete. Without the linked paths in that render, every rule the
 // links put there reads as one faramir has stopped writing, and the operator is
 // told to remove the rules the check beside it demands.
 func TestALinkedPathIsNotReportedAsStaleDrift(t *testing.T) {
@@ -289,7 +289,7 @@ func linksAt(paths ...string) []config.Link {
 	return out
 }
 
-// A value the loader refuses must never reach the file.  Writing it is what
+// A value the loader refuses must never reach the file. Writing it is what
 // makes it unrecoverable: the daemons will not start, and `faramir init`
 // refuses to run against a config it cannot parse, so the command that would
 // repair it is the one that is blocked.

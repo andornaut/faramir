@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// Every test in this package runs with the last resort fatal.  Reaching it is a
+// Every test in this package runs with the last resort fatal. Reaching it is a
 // defect in this repository rather than a condition to survive, so a change that
 // puts a record beyond the cap stops here instead of being read about later.
 //

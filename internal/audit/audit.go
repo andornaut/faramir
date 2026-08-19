@@ -1,9 +1,9 @@
 // Package audit writes the audit log, readable only by the broker's uid.
 //
 // It holds no secret value: output is recorded after redaction, the refs are
-// names, and nothing is ever substituted into argv.  The response carries a
+// names, and nothing is ever substituted into argv. The response carries a
 // log_id pointing into this file, so the agent can cite a record it cannot
-// read.  One caveat: a value refused at load is absent from the redactor, so if
+// read. One caveat: a value refused at load is absent from the redactor, so if
 // it reaches the output it arrives here in plaintext too, and `faramir broker
 // --check` names every such ref.
 //
@@ -13,13 +13,13 @@
 // account, so the guarantees are made here rather than asked of whatever reads
 // the file later:
 //
-//  1. One record is one line, and no line exceeds config.MaxRecordBytes.  The
+//  1. One record is one line, and no line exceeds config.MaxRecordBytes. The
 //     cap counts the bytes the line spends, escapes included, so a reader needs
 //     no ceiling of its own.
-//  2. An append is exclusive and all-or-nothing.  Every writer takes an
+//  2. An append is exclusive and all-or-nothing. Every writer takes an
 //     advisory lock, and a write that lands short is taken back, so no line is
 //     left open for the next record to append onto.
-//  3. Every log_id is distinct.  It carries the second it was minted in, the
+//  3. Every log_id is distinct. It carries the second it was minted in, the
 //     writer's own nonce and a counter that only advances.
 //
 // None of the three depends on how much a command wrote, how many ran at once,
@@ -54,7 +54,7 @@ const (
 	recordReserve = 32 * 1024
 
 	// fieldCeiling is what every string in a record is cut to when the line comes
-	// out over the cap anyway.  One rule for all of them: argv is the agent's,
+	// out over the cap anyway. One rule for all of them: argv is the agent's,
 	// and execve will take two megabytes of it.
 	fieldCeiling = 4 * 1024
 
@@ -66,7 +66,7 @@ const (
 	markerReserve = 128
 )
 
-// logIDs is the counter half of a log_id.  Package-level rather than per-Log:
+// logIDs is the counter half of a log_id. Package-level rather than per-Log:
 // two Logs in one process must not hand out the same id.
 var (
 	logIDs  atomic.Uint32
@@ -87,7 +87,7 @@ func processNonce() uint16 {
 const idAlphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
 
 // idClockChars is what the clock half of an id costs, and so how long it is
-// before one repeats: 36^4 seconds is 19.4 days.  Four characters rather than a
+// before one repeats: 36^4 seconds is 19.4 days. Four characters rather than a
 // timestamp: `faramir logs` reads only the live log, which logrotate turns over
 // weekly.
 const idClockChars = 4
@@ -98,7 +98,7 @@ const idClockCycle = 36 * 36 * 36 * 36
 // NewLogID is the clock, this writer's nonce, and a counter that only advances,
 // so two ids collide only when a process mints them in the same second, having
 // drawn the same nonce as another, more than 16 million apart in its own
-// counter.  It carries no readable time: every record says when it happened in
+// counter. It carries no readable time: every record says when it happened in
 // started_at or the `at` Write stamps.
 func NewLogID() string {
 	seq := logIDs.Add(1)
@@ -111,7 +111,7 @@ func NewLogID() string {
 	return fmt.Sprintf("%s%04x%06x", clock, logSeed, seq&0xffffff)
 }
 
-// Output is a command's recorded output and how much of it was left out.  The
+// Output is a command's recorded output and how much of it was left out. The
 // count travels beside the text because [Collector] drops the bytes as the run
 // streams, so nothing downstream can measure what it never held.
 type Output struct {
@@ -119,7 +119,7 @@ type Output struct {
 	Dropped int
 }
 
-// Log is an append-only JSONL sink.  One record per brokered invocation, except
+// Log is an append-only JSONL sink. One record per brokered invocation, except
 // an exec, which writes a pair sharing one log_id: one when the child starts and
 // one when it ends.
 type Log struct {
@@ -130,16 +130,16 @@ type Log struct {
 func NewLog(cfg config.AuditConfig) *Log { return &Log{config: cfg} }
 
 // OutputBudget is how many bytes of a record's line the command's output may
-// occupy, once escaped.  What [Collector] streams against, so it is the
+// occupy, once escaped. What [Collector] streams against, so it is the
 // constant-reserve estimate: the rest of the record does not exist yet while a
-// run is still producing output.  Write sizes the same field again against the
+// run is still producing output. Write sizes the same field again against the
 // record it ends up with.
 func (l *Log) OutputBudget() int {
 	return max(config.MaxRecordBytes-recordReserve, minOutputBudget)
 }
 
 // roomForOutput is what is left of the cap once everything else in the record
-// is counted, by marshalling it with an empty output field and measuring.  It
+// is counted, by marshalling it with an empty output field and measuring. It
 // is what keeps an ordinary command with a long argv from being recorded as a
 // reduced one.
 func (l *Log) roomForOutput(payload map[string]any) int {
@@ -159,7 +159,7 @@ func (l *Log) roomForOutput(payload map[string]any) int {
 	room := config.MaxRecordBytes - len(skeleton) - 1
 	if len(skeleton) >= config.MaxRecordBytes {
 		// The rest of the record is over the cap on its own, so reduction is about
-		// to cut it down and the output has room after that.  Sizing the output to
+		// to cut it down and the output has room after that. Sizing the output to
 		// nothing here would throw it away because the argv was long.
 		return l.OutputBudget()
 	}
@@ -174,7 +174,7 @@ func (l *Log) roomForOutput(payload map[string]any) int {
 // Nothing is cached across calls: what makes the log unwritable happens after
 // any cached answer was taken -- a read-only remount, an immutable bit, an owner
 // changed by a hand-edited logrotate rule -- and Unwritable would then say yes
-// to all of them.  The price is an open and a close per record.
+// to all of them. The price is an open and a close per record.
 //
 // O_CREATE though the file usually exists: logrotate renames it away, and the
 // next record makes the new one.
@@ -197,8 +197,8 @@ func (l *Log) open() (*os.File, error) {
 }
 
 // Unwritable reports why the next record could not be written, or "" when one
-// can be.  Asked before a command runs: one that cannot be recorded is refused,
-// so "it ran and nothing says so" is not a state this host reaches.  See
+// can be. Asked before a command runs: one that cannot be recorded is refused,
+// so "it ran and nothing says so" is not a state this host reaches. See
 // Server.refuseUnauditable.
 //
 // Room for one whole record, not for one byte: a filesystem with less than that
@@ -233,7 +233,7 @@ func (l *Log) Write(record map[string]any, output Output) {
 	payload := make(map[string]any, len(record)+3)
 	maps.Copy(payload, record)
 
-	// When, in a field, so no reader has to take it from the id.  Only where the
+	// When, in a field, so no reader has to take it from the id. Only where the
 	// record does not already say: an exec carries started_at, which is when its
 	// child ran rather than when this line was written, and the two differ by the
 	// length of the command.
@@ -270,7 +270,7 @@ func (l *Log) Write(record map[string]any, output Output) {
 }
 
 // appendLine writes one line under an exclusive lock, and takes back a write
-// that landed short.  The lock is what makes the truncate safe: every writer
+// that landed short. The lock is what makes the truncate safe: every writer
 // takes it, so the end of the file during the write is this record's own end.
 func appendLine(fh *os.File, line []byte, path string) {
 	if err := unix.Flock(int(fh.Fd()), unix.LOCK_EX); err != nil {
@@ -294,7 +294,7 @@ func appendLine(fh *os.File, line []byte, path string) {
 		return
 	}
 	// What landed is a line with no end on it, and the next record would append
-	// onto it, so one failure would cost two records.  Truncating back costs this
+	// onto it, so one failure would cost two records. Truncating back costs this
 	// one alone.
 	if err := fh.Truncate(end); err != nil {
 		log.Printf("audit could not take back a short write, so the next record "+

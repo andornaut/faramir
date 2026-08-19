@@ -25,9 +25,9 @@ func newExecutor(t *testing.T) (*Executor, string, string) {
 	}
 	e := New(cfg)
 	// Confinement is mandatory: an executor with no delegated cgroup refuses every
-	// command, so a test that runs one has nothing to assert on such a host.  CI
+	// command, so a test that runs one has nothing to assert on such a host. CI
 	// delegates a cgroup to the runner and exercises the real path; a workstation
-	// whose shell sits in a root-owned cgroup skips instead of failing.  Run under
+	// whose shell sits in a root-owned cgroup skips instead of failing. Run under
 	// `systemd-run --user --scope go test ./...` to get a delegated cgroup locally.
 	if e.cgroupBase == "" {
 		t.Skip("no delegated cgroup on this host; the executor refuses every command here")
@@ -76,7 +76,7 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 
 	result, err := client.Result(20 * time.Second)
 	// Drain to EOF first: the child's last write can still be in the terminal
-	// buffer when the result arrives.  Every slave fd is closed by then, so the
+	// buffer when the result arrives. Every slave fd is closed by then, so the
 	// read ends in EIO.
 	wg.Wait()
 	_ = master.Close()
@@ -84,7 +84,7 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 }
 
 // TestTheExecutorDoesNotSecondGuessArgv0 pins the absence of a check: the
-// executor runs what the broker sends, from wherever the broker says.  What
+// executor runs what the broker sends, from wherever the broker says. What
 // bounds this uid is what it holds (no key, no audit log, no SSH key) plus the
 // mode on its socket.
 func TestTheExecutorDoesNotSecondGuessArgv0(t *testing.T) {
@@ -153,7 +153,7 @@ func TestAMissingProgramIsExecFailed(t *testing.T) {
 
 // The claim the cgroup exists for: a child that calls setsid, breaking out of
 // the process group a killpg would reach, is still reaped when the run ends,
-// because it cannot leave the run's cgroup.  The command detaches a grandchild
+// because it cannot leave the run's cgroup. The command detaches a grandchild
 // that would outlive it, prints the grandchild's pid, and exits; once the run is
 // done the grandchild must be gone.
 func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
@@ -161,13 +161,13 @@ func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
 	sh := shPath(t)
 
 	// setsid detaches the grandchild into its own session and process group; it
-	// prints its pid and sleeps.  The main shell exits at once.
+	// prints its pid and sleeps. The main shell exits at once.
 	//
 	// The sleep outlasts every bound in the teardown by a wide margin, and that
-	// is what makes this an assertion.  Teardown waits for the cgroup to drain,
+	// is what makes this an assertion. Teardown waits for the cgroup to drain,
 	// so with a sleep it can outlast, "dead once the run returned" is satisfied
 	// by the sleep finishing on its own, and the test passes with the reaping
-	// disabled entirely.  Longer than any drain, only something killing it can
+	// disabled entirely. Longer than any drain, only something killing it can
 	// satisfy it.
 	_, output, err := runChild(t, sock, []string{sh, "-c",
 		"setsid sh -c 'echo GPID=$$; exec sleep 600' & sleep 0.3"}, dir)
@@ -184,15 +184,15 @@ func TestASetsidChildIsReapedWithTheRun(t *testing.T) {
 		t.Fatalf("no grandchild pid in output %q", output)
 	}
 	// The run has returned, so rcg.close() has already killed and drained the
-	// cgroup.  A process-group kill would have missed this pid; the cgroup did not.
+	// cgroup. A process-group kill would have missed this pid; the cgroup did not.
 	// "Running" excludes a zombie: a killed process the reaper has not collected is
 	// dead, holds nothing, and satisfies the claim, and kill(pid, 0) would call it
 	// alive, so the state is read instead.
 	//
-	// Waited for rather than read once.  close() bounds its own drain, so on a
+	// Waited for rather than read once. close() bounds its own drain, so on a
 	// loaded host the last exit can land just after that wait gives up, and what
 	// is being asserted is that the cgroup reaps this pid rather than how many
-	// milliseconds the kernel took.  The grandchild sleeps for a minute, so a
+	// milliseconds the kernel took. The grandchild sleeps for a minute, so a
 	// bound of seconds still separates a cgroup that reaped it from a
 	// process-group kill that never reached it.
 	if !diesWithin(gpid, 15*time.Second) {
@@ -216,7 +216,7 @@ func diesWithin(pid int, bound time.Duration) bool {
 }
 
 // running reports whether a pid is a live process, a zombie counting as dead: it
-// has been killed and holds nothing, only awaiting a reap.  Missing is dead too.
+// has been killed and holds nothing, only awaiting a reap. Missing is dead too.
 func running(pid int) bool {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
 	if err != nil {
@@ -231,7 +231,7 @@ func running(pid int) bool {
 
 // Confinement is mandatory for every run, a sudo grant or not: with no usable
 // cgroup the executor refuses to run rather than reap by process group, which a
-// setsid child escapes.  There is no fallback, so this holds on any host.  Forced
+// setsid child escapes. There is no fallback, so this holds on any host. Forced
 // by clearing the discovered base, so the refusal is exercised even where a
 // cgroup is in fact available.
 func TestAnExecutorWithoutACgroupRefusesEveryCommand(t *testing.T) {

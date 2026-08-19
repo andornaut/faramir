@@ -3,13 +3,13 @@
 #
 # It removes the broker and keeps the age key, the secrets, the config and the
 # log: deleting the key would make every managed sops file unreadable, and no
-# re-install brings that back.  So half of this suite is about what SURVIVES.
+# re-install brings that back. So half of this suite is about what SURVIVES.
 #
 # The other half is what must not: a host that was granted sudo has a sudoers
 # entry and a PAM service naming a helper, and leaving either behind is a grant
 # with nothing left to answer it.
 #
-# Destructive by design.  Run last, on a container that can be thrown away.
+# Destructive by design. Run last, on a container that can be thrown away.
 set -u
 CFGDIR=/etc/faramir
 KEY=$CFGDIR/age.key
@@ -84,7 +84,7 @@ done
 head_ "3. the sudo grant goes, all of it"
 #
 # The sudoers entry names the executor's uid and authenticates through a PAM
-# service that execs a helper.  With the broker gone nothing answers that
+# service that execs a helper. With the broker gone nothing answers that
 # question, so an entry left behind is a grant with no arrangement around it.
 
 gone /etc/sudoers.d/faramir "the sudoers entry"
@@ -119,7 +119,7 @@ systemctl list-unit-files 'faramir-*' 2>/dev/null | grep -q faramir \
 # --------------------------------------------------------------------------
 head_ "5. an enrolled working tree"
 #
-# init-project shares a tree with the executor.  Uninstall does not walk the
+# init-project shares a tree with the executor. Uninstall does not walk the
 # operator's directories, so what it leaves is worth stating: the grant on the
 # tree outlives the broker, and the account it names still exists.
 
@@ -187,7 +187,7 @@ grep -q '«SECRET:db/password»' <<<"$out" && ok "and a brokered command still g
 # --------------------------------------------------------------------------
 head_ "8. and from an archive, onto a host with nothing left of the install"
 # The documented backup: the config directory, holding the key, the rule and the
-# ciphertext together.  Section 7 rebuilds from what uninstall KEPT in place;
+# ciphertext together. Section 7 rebuilds from what uninstall KEPT in place;
 # this removes all of it, accounts included, and restores from the archive, which
 # is the procedure an operator follows when the host itself is gone.
 tar czf /tmp/faramir-backup.tgz -C / etc/faramir 2>/dev/null \

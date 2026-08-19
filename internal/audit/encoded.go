@@ -1,7 +1,7 @@
 package audit
 
 // What a string costs once json.Marshal has escaped it, and how to cut one to a
-// budget counted that way.  The cap this serves is counted in the bytes the
+// budget counted that way. The cap this serves is counted in the bytes the
 // line actually spends, so every measurement here is in encoded bytes rather
 // than in the bytes a command wrote.
 
@@ -31,7 +31,7 @@ func Excerpt(output string, budget int) (text string, dropped int) {
 }
 
 // halfBudget is what each end of an excerpt may spend: the budget less room for
-// the marker between them, split two ways.  Stated once because [Collector]
+// the marker between them, split two ways. Stated once because [Collector]
 // fills the same two ends as a run streams and [Excerpt] fills them in one go,
 // and two ends sized by different arithmetic would overrun the budget between
 // them.
@@ -43,7 +43,7 @@ func marker(dropped int) string {
 }
 
 // encodedLen is what json.Marshal will spend on s inside a string, which is what
-// the cap is counted in.  Six bytes for a byte a command picked, one for most of
+// the cap is counted in. Six bytes for a byte a command picked, one for most of
 // what it prints.
 func encodedLen(s string) int {
 	total := 0

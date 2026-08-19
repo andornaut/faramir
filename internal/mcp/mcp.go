@@ -1,10 +1,10 @@
 // Package mcp is an MCP (stdio) server exposing the broker to a coding agent,
-// run as `faramir mcp`.  The tool descriptions carry the weight: a distinct
+// run as `faramir mcp`. The tool descriptions carry the weight: a distinct
 // tool is more discoverable to a model than prose in a config file.
 //
 // Two tools, for the two things an agent has to be told: faramir_run, because a
 // credential must not go any other way, and faramir_refs, because faramir_run's
-// arguments are refs.  `faramir status` answers an operator's questions and
+// arguments are refs. `faramir status` answers an operator's questions and
 // stays a subcommand, an advertised tool costing a slot in every session's
 // context.
 //
@@ -45,7 +45,7 @@ func socketPath() string {
 	return defaultSocket
 }
 
-// Tool is one advertised tool.  Exported, with Tools below, because pi's
+// Tool is one advertised tool. Exported, with Tools below, because pi's
 // extension is rendered from this list rather than carrying a copy.
 type Tool struct {
 	Name        string `json:"name"`
@@ -53,7 +53,7 @@ type Tool struct {
 	InputSchema any    `json:"inputSchema"`
 }
 
-// Tools is what this server advertises, in the order it advertises them.  The
+// Tools is what this server advertises, in the order it advertises them. The
 // slice is a copy and each InputSchema is not: the schemas are the maps this
 // server hands to tools/list, so a caller that writes into one changes what
 // every session is told a tool takes.
@@ -234,7 +234,7 @@ func callTool(name string, arguments map[string]any) map[string]any {
 			}
 		}
 		// This process runs where the agent's session does, so its own directory is
-		// the one meant.  An explicit cwd wins.
+		// the one meant. An explicit cwd wins.
 		if _, named := request["cwd"]; !named {
 			if here, err := os.Getwd(); err == nil {
 				request["cwd"] = here
@@ -315,7 +315,7 @@ func handle(m *message) map[string]any {
 
 // Run is the `faramir mcp` subcommand.
 func Run(args []string) int {
-	// A stdio server started by the agent with a fixed argv.  A flag set, rather
+	// A stdio server started by the agent with a fixed argv. A flag set, rather
 	// than scanning argv, so --version behaves as it does for the daemons; it is
 	// how an operator confirms which build the agent talks to.
 	fs := flag.NewFlagSet("mcp", flag.ContinueOnError)

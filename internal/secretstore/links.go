@@ -11,8 +11,8 @@ import (
 	"github.com/andornaut/faramir/internal/secretlink"
 )
 
-// loadLinks reads every [[secret.link]] file.  Per-link failures are collected
-// rather than aborting, so one broken link does not blank the value set.  The
+// loadLinks reads every [[secret.link]] file. Per-link failures are collected
+// rather than aborting, so one broken link does not blank the value set. The
 // two ways a link can fail mean opposite things, as they do for a managed sops
 // file:
 //
@@ -21,7 +21,7 @@ import (
 //     Reported, not fatal.
 //   - A file that is there and will not read or parse is an error: the value is
 //     still on disk and the redactor does not have it, so the broker refuses to
-//     serve while it is set.  The permission case is this kind.
+//     serve while it is set. The permission case is this kind.
 func loadLinks(links []config.Link) (values map[string]string,
 	state []keeperclient.FileState, loadErrors, unresolved []string) {
 	values = map[string]string{}
@@ -56,7 +56,7 @@ func loadLinks(links []config.Link) (values map[string]string,
 }
 
 // statLinks fingerprints the linked files without reading them, which is what
-// the refresh poll needs.  A link whose file has gone contributes no entry, so
+// the refresh poll needs. A link whose file has gone contributes no entry, so
 // the set differs and a reload follows.
 func statLinks(links []config.Link) []keeperclient.FileState {
 	state := make([]keeperclient.FileState, 0, len(links))
@@ -72,7 +72,7 @@ func statLinks(links []config.Link) []keeperclient.FileState {
 }
 
 // linkError puts the ref in front of a reason, naming the file unless the error
-// already does.  No error from internal/secretlink carries file content, which
+// already does. No error from internal/secretlink carries file content, which
 // is what makes it safe to log.
 func linkError(link config.Link, err error) string {
 	var pathErr *fs.PathError

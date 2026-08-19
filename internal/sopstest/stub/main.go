@@ -1,6 +1,6 @@
 // Command stub is a sops stand-in for the test suite, so "go test" is not behind
 // an apt dependency: same file format, same age key handling, same output,
-// through the sops libraries.  Built at test time and never shipped, and nothing
+// through the sops libraries. Built at test time and never shipped, and nothing
 // under cmd/ imports it.
 //
 // Usage, matching the two shapes faramir invokes:
@@ -44,7 +44,7 @@ func main() {
 				recipients = os.Args[i]
 			}
 		case "-c", "--config", "--filename-override":
-			// Consumed rather than read.  Both name where the creation rules come
+			// Consumed rather than read. Both name where the creation rules come
 			// from and which name they are judged against, and this stand-in has no
 			// creation rules; what matters is that the value is not mistaken for the
 			// file to encrypt.
@@ -106,7 +106,7 @@ func decrypt(file, outputType string) error {
 	}
 
 	// Without --output-type the plaintext keeps the file's own format, which is
-	// what `faramir vault edit` edits.  The keeper asks for json.
+	// what `faramir vault edit` edits. The keeper asks for json.
 	outFormat := inFormat
 	if outputType != "" {
 		outFormat = sopsformats.FormatFromString(outputType)

@@ -23,7 +23,7 @@ func writeLog(t *testing.T, lines ...string) string {
 	return path
 }
 
-// A record's line has no length a reader may refuse.  internal/audit holds one
+// A record's line has no length a reader may refuse. internal/audit holds one
 // to the record cap, and a ceiling here would be a second opinion
 // about that: one that withholds every record in the file rather than the one
 // it could not read.
@@ -79,7 +79,7 @@ func TestTailRecordsParsesOnlyWhatItWillShow(t *testing.T) {
 	}
 }
 
-// --count bounds the listing.  Zero asks for no records, so the trim has to
+// --count bounds the listing. Zero asks for no records, so the trim has to
 // apply to a non-positive count as well: skipping it there prints the whole log
 // to someone who asked for none of it.
 func TestTailRecordsCounts(t *testing.T) {
@@ -116,7 +116,7 @@ func TestTailRecordsCounts(t *testing.T) {
 	}
 }
 
-// An interior line that does not parse is a record that was lost.  The writer
+// An interior line that does not parse is a record that was lost. The writer
 // takes back a write that lands short, so one of these means the log was
 // written by something else or damaged afterwards, and either way the listing
 // must say so rather than look complete.
@@ -139,7 +139,7 @@ func TestTailRecordsCountsInteriorLinesItSkipped(t *testing.T) {
 }
 
 // Every line that ends properly and yields no record is counted, whatever shape
-// it is.  "null" is the one that unmarshals without an error and leaves no
+// it is. "null" is the one that unmarshals without an error and leaves no
 // record behind, so a reader testing only the error shows a listing that looks
 // complete with a line missing from it, which is the failure reportSkipped
 // exists to prevent.
@@ -164,7 +164,7 @@ func TestTailRecordsCountsEveryLineThatIsNotARecord(t *testing.T) {
 }
 
 // The final line is the one an append can be caught halfway through, so it is
-// not evidence of anything and must not hide the records before it.  What marks
+// not evidence of anything and must not hide the records before it. What marks
 // it is the missing newline: nothing finished writing it.
 func TestTailRecordsDoesNotCountALineStillBeingAppended(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
@@ -260,7 +260,7 @@ func drained(t *testing.T, f *follower) []string {
 }
 
 // The point of --watch: the backlog and the records that arrive after it come
-// through one reader, positioned where the backlog ended.  A second reader
+// through one reader, positioned where the backlog ended. A second reader
 // opened afterwards would show a record written in between twice, or not at all.
 func TestFollowerShowsWhatArrivesAfterTheBacklog(t *testing.T) {
 	path := writeLog(t, `{"log_id":"a","op":"run"}`, `{"log_id":"b","op":"run"}`)
@@ -290,7 +290,7 @@ func TestFollowerShowsWhatArrivesAfterTheBacklog(t *testing.T) {
 
 // A record caught midway through its append is held, not shown and not counted
 // as lost: the rest of the line is coming, and half a record parses as no
-// record.  A listing hands that line over instead, being a reading of the file
+// record. A listing hands that line over instead, being a reading of the file
 // as it stands.
 func TestFollowerHoldsALineStillBeingAppended(t *testing.T) {
 	path := writeLog(t, `{"log_id":"a","op":"run"}`)
@@ -312,7 +312,7 @@ func TestFollowerHoldsALineStillBeingAppended(t *testing.T) {
 }
 
 // logrotate renames the log and the broker creates the next one by writing to
-// it, so a watcher has to notice that the path names a different file.  What was
+// it, so a watcher has to notice that the path names a different file. What was
 // written to the old one before the rename is drained first: those are records.
 func TestFollowerReopensAfterRotation(t *testing.T) {
 	path := writeLog(t, `{"log_id":"a","op":"run"}`)
@@ -356,7 +356,7 @@ func TestFollowerReopensAfterRotation(t *testing.T) {
 }
 
 // The other way the file stops being the log: emptied in place, leaving the
-// reader past the end of what it now holds.  Nothing the install does this, but
+// reader past the end of what it now holds. Nothing the install does this, but
 // a watcher that keeps reading from an offset the file no longer reaches shows
 // nothing again, ever.
 func TestFollowerNoticesTheLogEmptiedInPlace(t *testing.T) {
@@ -381,7 +381,7 @@ func TestFollowerNoticesTheLogEmptiedInPlace(t *testing.T) {
 }
 
 // A watcher started before the first brokered command has no file to read: the
-// broker creates the log by writing its first record.  Waiting for it is the
+// broker creates the log by writing its first record. Waiting for it is the
 // whole of --watch on a fresh host, so a follower opens detached rather than
 // failing, reads nothing while it is, and attaches when the log appears.
 func TestFollowerWaitsForALogThatIsNotThereYet(t *testing.T) {
@@ -422,7 +422,7 @@ func TestFollowerWaitsForALogThatIsNotThereYet(t *testing.T) {
 }
 
 // The file can go between the stat that reports a rotation and the open that
-// follows it: a second logrotate pass, or a hand removing it.  That leaves the
+// follows it: a second logrotate pass, or a hand removing it. That leaves the
 // follower detached rather than holding a closed reader, so the watcher waits
 // out the gap instead of failing on every pass after it.
 func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
@@ -461,7 +461,7 @@ func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
 }
 
 // A log-id names one record that is already written, so there is nothing to
-// wait for.  Refused before the root check and before the config is read, so an
+// wait for. Refused before the root check and before the config is read, so an
 // operator who typed both is told which is wrong rather than told to use sudo
 // and then told this.
 func TestLogsRefusesAWatchWithALogID(t *testing.T) {
@@ -487,7 +487,7 @@ func TestTailRecordsNamesAnAbsentLog(t *testing.T) {
 }
 
 // The third case of an empty listing, after an absent log and an empty one:
-// nothing was asked for.  Reporting that as "holds no records" is a claim about
+// nothing was asked for. Reporting that as "holds no records" is a claim about
 // the host, and the log named there may be full of them.
 func TestEmptyReasonSeparatesAskingForNoneFromHavingNone(t *testing.T) {
 	for _, count := range []int{0, -1, -5} {
@@ -575,7 +575,7 @@ func TestOutcomeReportsATimeout(t *testing.T) {
 	}
 }
 
-// A refused request never reached a command, so it has no exit code.  The
+// A refused request never reached a command, so it has no exit code. The
 // listing has to say so: the alternative renders it as a command that ran and
 // produced nothing, which is a different event.
 func TestOutcomeReportsTheRefusalCode(t *testing.T) {
@@ -597,7 +597,7 @@ func TestOutcomeReportsTheRefusalCode(t *testing.T) {
 
 // The broker also records a request that failed without being refused: the
 // program would not resolve, or the executor was lost after the child was
-// spawned.  Neither carries an exit code either.
+// spawned. Neither carries an exit code either.
 func TestOutcomeReportsAFailureWithNoExitCode(t *testing.T) {
 	for _, body := range []string{
 		`{"log_id":"x","op":"run","cmd":["/bin/nope"],"error":"no such program"}`,
@@ -746,7 +746,7 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 
 // opWidth is a number somebody has to keep true, and the case above proves only
 // that one name fits: pad appends a space to anything already at the width, so
-// an op as wide as its column shifts every column after it.  logs.go names the
+// an op as wide as its column shifts every column after it. logs.go names the
 // ops it renders rather than importing them, and this is where the two meet.
 func TestEveryOpFitsTheColumn(t *testing.T) {
 	ops := append([]string{opRunStarted, opAdd, opEdit, opRemove, opReseal, opRecipient},
@@ -828,7 +828,7 @@ func TestFindRecordPrefersTheEndingOverTheStart(t *testing.T) {
 	}
 }
 
-// A command that has started and not ended reads as started.  Blank in that
+// A command that has started and not ended reads as started. Blank in that
 // column would render it as a command that ran and did nothing, which is the one
 // reading the listing must not offer, and "running" would claim of a log read
 // later that the command is still going.
@@ -843,7 +843,7 @@ func TestAStartedExecReadsAsStarted(t *testing.T) {
 }
 
 // A question a human refused was judged; one that expired means nothing was
-// watching.  Rendered alike they read as the same event, and an operator scanning
+// watching. Rendered alike they read as the same event, and an operator scanning
 // for "nobody was there" would find neither.
 func TestEachAnswerReadsAsItsOwnEnding(t *testing.T) {
 	for _, tc := range []struct {
@@ -888,7 +888,7 @@ func TestAnAnswerWithNoCodeStillReads(t *testing.T) {
 	}
 }
 
-// A lookup stops at the record it was asked for.  Damage after it is damage in
+// A lookup stops at the record it was asked for. Damage after it is damage in
 // the way of some other question, and reporting it here says this record may be
 // incomplete when it is not.
 func TestFindRecordStopsAtTheEnding(t *testing.T) {

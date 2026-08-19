@@ -40,7 +40,7 @@ func loadRendered(t *testing.T, body []byte) *config.Config {
 }
 
 // Without --allow-sudo nothing is configured: no [escalation] section, so nothing is
-// injected and no question can be raised.  This is the promise the whole
+// injected and no question can be raised. This is the promise the whole
 // arrangement rests on: an install that did not ask for it is the install that
 // existed before it.
 func TestWithoutAllowSudoTheConfigCarriesNoSudoSection(t *testing.T) {
@@ -85,7 +85,7 @@ func TestAllowSudoRendersTheSudoSection(t *testing.T) {
 }
 
 // There is no credential anywhere in an install that allows sudo: no file, no
-// environment variable, nothing minted at start.  This is the property the
+// environment variable, nothing minted at start. This is the property the
 // design turns on: an escalation that is a decision cannot be carried to a later
 // command, because there is nothing to carry.
 func TestASudoGrantPlacesNoCredential(t *testing.T) {
@@ -109,7 +109,7 @@ func TestASudoGrantPlacesNoCredential(t *testing.T) {
 	}
 }
 
-// The grant authenticates through PAM and caches nothing.  NOPASSWD would skip
+// The grant authenticates through PAM and caches nothing. NOPASSWD would skip
 // PAM entirely, which is where the question is asked, so it is the one thing
 // that must never appear here.
 func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
@@ -148,7 +148,7 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	// `requisite`, never `sufficient`.  With sufficient a helper that REFUSES is
+	// `requisite`, never `sufficient`. With sufficient a helper that REFUSES is
 	// not fatal, the stack falls through to pam_permit below, and every escalation
 	// is granted without asking anybody.
 	if !strings.Contains(text, "auth     requisite  pam_exec.so") {
@@ -162,7 +162,7 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 			t.Errorf("a `sufficient` control flag makes a refusal non-fatal: %q", line)
 		}
 	}
-	// `seteuid`.  Without it pam_exec runs the helper with the real uid, which
+	// `seteuid`. Without it pam_exec runs the helper with the real uid, which
 	// under setuid sudo is the executor's own, and the broker answers the escalate
 	// op to root alone: the helper is refused and no escalation on the host works.
 	if !strings.Contains(text, "seteuid") {
@@ -198,7 +198,7 @@ func TestThePamHelperExecsTheInstalledBinary(t *testing.T) {
 
 // nnpImplied are the directives systemd documents as turning NoNewPrivileges=
 // on whatever the unit says, each installing a seccomp filter, and a filter
-// without CAP_SYS_ADMIN requires NNP.  With NNP on, sudo is inert, so keeping
+// without CAP_SYS_ADMIN requires NNP. With NNP on, sudo is inert, so keeping
 // any one of these does not harden the granting unit but turns the feature
 // off.
 var nnpImplied = []string{
@@ -218,7 +218,7 @@ var nnpImplied = []string{
 	"SystemCallFilter",
 }
 
-// The executor's sandbox has to permit what an escalation is for.  Two
+// The executor's sandbox has to permit what an escalation is for. Two
 // halves: the directives that bound root are dropped, and nothing is left that
 // would put NoNewPrivileges= back.
 func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
@@ -279,7 +279,7 @@ func TestTheExecutorUnitPermitsAnApprovedSudo(t *testing.T) {
 
 // The executor unit delegates its cgroup on every install, a sudo grant or not: the
 // executor confines each run to a cgroup of its own and reaps the whole cgroup
-// when the run ends, so a setsid child cannot outlive it.  That is the one
+// when the run ends, so a setsid child cannot outlive it. That is the one
 // mechanism that ends a run, so it is not conditional on the grant.
 func TestTheExecutorUnitDelegatesItsCgroup(t *testing.T) {
 	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
@@ -296,7 +296,7 @@ func TestTheExecutorUnitDelegatesItsCgroup(t *testing.T) {
 	}
 	// Nor RestrictNamespaces=, at any value: systemd implements it as a seccomp rule
 	// on clone()'s flags, cannot read the ones clone3() carries behind a pointer, and
-	// so denies clone3() outright.  The spawn above is CLONE_INTO_CGROUP, which
+	// so denies clone3() outright. The spawn above is CLONE_INTO_CGROUP, which
 	// exists only there, so setting it stops every brokered command with ENOSYS.
 	for _, layout := range []Layout{testLayout(), sudoGrantLayout(t)} {
 		if value, set := directives(t, "faramir-exec.service", layout)["RestrictNamespaces"]; set {
@@ -306,7 +306,7 @@ func TestTheExecutorUnitDelegatesItsCgroup(t *testing.T) {
 	}
 }
 
-// directives parses one rendered unit's KEY=VALUE lines, comments dropped.  The
+// directives parses one rendered unit's KEY=VALUE lines, comments dropped. The
 // last wins, as systemd takes it for a non-list directive.
 func directives(t *testing.T, unit string, layout Layout) map[string]string {
 	t.Helper()
@@ -330,7 +330,7 @@ func directives(t *testing.T, unit string, layout Layout) map[string]string {
 }
 
 // The broker never runs a prompt, so it needs no hole in its sandbox: an
-// escalation arrives over the socket it already serves.  This is the check that
+// escalation arrives over the socket it already serves. This is the check that
 // the hole stays closed, systemd's ask-password directory being root-only and
 // the reason that channel was not used.
 func TestTheBrokerUnitNeedsNoHoleForEscalations(t *testing.T) {
@@ -358,7 +358,7 @@ func notifyLayout(t *testing.T, argv ...string) (Layout, error) {
 	return opts.layout()
 }
 
-// --notify-command is the flag the ownership implies.  notify_command is init's,
+// --notify-command is the flag the ownership implies. notify_command is init's,
 // so a drop-in setting it is refused and an edit to config.toml is rewritten by
 // the next run; the flag is what is left, and without one the value is
 // unreachable on any host init runs on, which is every host under configuration
@@ -385,7 +385,7 @@ func TestNotifyCommandIsRenderedAndLoadsBack(t *testing.T) {
 }
 
 // An argument the operator wrote reaches a TOML file, and one the loader cannot
-// parse is a broker that will not start.  TOML takes a shorter set of escapes
+// parse is a broker that will not start. TOML takes a shorter set of escapes
 // than Go, rejecting \a and \v rather than misreading them, so this holds the
 // renderer's quoting to surviving the round trip.
 func TestNotifyCommandSurvivesQuotingItsArguments(t *testing.T) {
@@ -419,7 +419,7 @@ func checkNotifyRoundTrip(t *testing.T, awkward string) {
 	}
 }
 
-// Refused at install rather than at the daemon's next start.  init is the only
+// Refused at install rather than at the daemon's next start. init is the only
 // writer of this key, so a value it accepts and the loader will not is an install
 // that reported success and left the broker unable to come up.
 func TestAnUnusableNotifyCommandIsRefusedByInit(t *testing.T) {

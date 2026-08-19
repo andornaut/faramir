@@ -8,7 +8,7 @@ import (
 )
 
 // An existing .sops.yaml is kept, applying a changed rule meaning every managed
-// value is re-encrypted.  Read back, so the report answers who can decrypt with
+// value is re-encrypted. Read back, so the report answers who can decrypt with
 // what the file lists rather than with what the install would have written.
 func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	const (
@@ -39,7 +39,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 				"recipient add"},
 		},
 		{
-			// Nothing read the key, so nothing is claimed about it.  A dry run and a
+			// Nothing read the key, so nothing is claimed about it. A dry run and a
 			// removed key both land here.
 			name:   "the keeper's recipient is unknown",
 			listed: []string{backup},
@@ -105,7 +105,7 @@ func TestKeepSopsConfigDoesNotInventAnAnswerForAnUnreadableFile(t *testing.T) {
 }
 
 // --ssh-key can name a key the operator already had, which this install did not
-// mint.  That one is checked and refused, never taken over: it may sit under
+// mint. That one is checked and refused, never taken over: it may sit under
 // the operator's own home and be theirs to hold.
 func TestOwnSSHKeyRepairsOnlyWhatItMinted(t *testing.T) {
 	newKey := func(t *testing.T) string {

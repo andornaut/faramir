@@ -17,7 +17,7 @@ func newTestRedactor() *Redactor {
 func routerToken() string { return TokenFor("home/router/admin") }
 
 // One redactor, one text, and three questions: is the value gone, is its token
-// there, did the surrounding output survive.  Each encoding is a separate way
+// there, did the surrounding output survive. Each encoding is a separate way
 // for the same secret to escape.
 func TestRedactText(t *testing.T) {
 	// A quote and a backslash, so the JSON and shell forms differ from the
@@ -78,7 +78,7 @@ func TestRedactText(t *testing.T) {
 			},
 			want: []string{TokenFor("k")}},
 		// A "set -x" trace prints the shell-quoted form, which for a value
-		// holding an apostrophe carries the plain one nowhere.  Spelled out
+		// holding an apostrophe carries the plain one nowhere. Spelled out
 		// rather than built with the package's helpers, so this compares
 		// against what a shell prints.
 		{name: "shell single-quoted, as set -x prints it",
@@ -157,7 +157,7 @@ func TestValueSplitAcrossChunks(t *testing.T) {
 	}
 }
 
-// Length is the whole of the test.  A short value matches inside ordinary
+// Length is the whole of the test. A short value matches inside ordinary
 // words, so redacting it would blank unrelated output at random; that is about
 // what this program does with a value rather than about the value.
 func TestATooShortValueIsRefused(t *testing.T) {
@@ -172,7 +172,7 @@ func TestATooShortValueIsRefused(t *testing.T) {
 	}
 }
 
-// How strong a credential is belongs to whoever chose it.  A distinct-character
+// How strong a credential is belongs to whoever chose it. A distinct-character
 // or Shannon-entropy floor would refuse to carry values it graded as weak while
 // not being the strength check it reads as: "password" clears both.
 func TestAWeakButLongValueIsCarried(t *testing.T) {
@@ -223,7 +223,7 @@ func TestEmptyRedactorPassesTextThrough(t *testing.T) {
 }
 
 // The broker builds a redactor per request and two more per exec, each compiling
-// roughly ten patterns per secret, then runs every entry over every chunk.  Both
+// roughly ten patterns per secret, then runs every entry over every chunk. Both
 // costs scale with the size of the value set.
 //
 //	go test ./internal/redact/ -bench Redactor -benchmem

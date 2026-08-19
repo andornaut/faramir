@@ -11,7 +11,7 @@ import (
 
 // sockets are what gets enabled, not services: all three are socket activated,
 // so nothing starts before the operator has logged in, which is what makes a
-// config or secrets inside a home workable.  The keeper and the executor first,
+// config or secrets inside a home workable. The keeper and the executor first,
 // the broker talking to both.
 var sockets = []string{
 	"faramir-keeper.socket",
@@ -23,7 +23,7 @@ var sockets = []string{
 // other word it prints counts as down.
 const unitActive = "active"
 
-// services in restart order.  The keeper leads: it decrypts the file list the
+// services in restart order. The keeper leads: it decrypts the file list the
 // broker is served, so the other order fetches the old value set again.
 var services = []string{
 	"faramir-keeper.service",
@@ -31,8 +31,8 @@ var services = []string{
 	"faramir-broker.service",
 }
 
-// systemdRunning reports whether there is a systemd to talk to.  A container or
-// image build has none, and the units are still worth installing there.  A
+// systemdRunning reports whether there is a systemd to talk to. A container or
+// image build has none, and the units are still worth installing there. A
 // variable so a test can answer for it: the branch taken on a host without
 // systemd is unreachable from one that has it.
 var systemdRunning = func() bool {
@@ -40,17 +40,17 @@ var systemdRunning = func() bool {
 	return err == nil && info.IsDir()
 }
 
-// systemUnitDir is where the units are installed.  A variable so a test can
+// systemUnitDir is where the units are installed. A variable so a test can
 // point at a directory it wrote.
 var systemUnitDir = "/etc/systemd/system"
 
-// UnitPath is where a unit of this name is installed.  Exported so a caller
+// UnitPath is where a unit of this name is installed. Exported so a caller
 // outside this package resolves the same file this one does.
 func UnitPath(name string) string {
 	return filepath.Join(systemUnitDir, name)
 }
 
-// unitUser reads User= out of an installed unit.  Parsed rather than asked of
+// unitUser reads User= out of an installed unit. Parsed rather than asked of
 // systemctl, which answers nothing when the daemon is down, which is one of the
 // states worth examining.
 func unitUser(name string) (string, error) {
@@ -70,7 +70,7 @@ func unitUser(name string) (string, error) {
 }
 
 // UnitConfigFile is the config file the unit at this path loads, or "" when
-// there is no unit or it names none.  Read from the unit rather than asked of a
+// there is no unit or it names none. Read from the unit rather than asked of a
 // running broker: a host whose daemons are down still has an install.
 //
 // Drop-ins as well as the unit, in the order systemd reads them: a
@@ -155,7 +155,7 @@ func (r *runner) stepSystemd() error {
 	}
 
 	// Only when something the daemons read has changed: a restart kills every
-	// brokered command in flight.  A socket that is not up counts too.
+	// brokered command in flight. A socket that is not up counts too.
 	restart := r.needsRestart
 	if !restart {
 		for _, socket := range sockets {
@@ -179,7 +179,7 @@ func (r *runner) stepSystemd() error {
 		}
 	}
 	// systemd ignores a directive it does not recognise and starts the unit
-	// anyway, so a misspelled hardening key is silent.  verify exits 0 either
+	// anyway, so a misspelled hardening key is silent. verify exits 0 either
 	// way, so the output is what is checked.
 	for _, service := range services {
 		out, _ := r.commandCombined("systemd-analyze", "verify", service)
@@ -209,7 +209,7 @@ func (r *runner) stepSystemd() error {
 // loads, which is the account that will have to load it.
 //
 // --parse-only rather than --check: the question is whether the daemons can
-// load this, not whether every managed value can be read.  --check also fails
+// load this, not whether every managed value can be read. --check also fails
 // for a ref shorter than [secret] min_length, which is a value to lengthen
 // rather than a reason to refuse a restart.
 func parseInstalledConfig(run *runner) error {
@@ -234,14 +234,14 @@ func parseInstalledConfig(run *runner) error {
 	return nil
 }
 
-// Reload drops the daemons onto a changed configuration.  Exported because
+// Reload drops the daemons onto a changed configuration. Exported because
 // `faramir link` changes the config too, and none of the daemons re-reads its
 // config while running.
 //
 // The config is parsed before anything is stopped: Reload stops the services
 // and leaves the sockets listening, so a config the daemons cannot load would
 // otherwise be found by the first brokered command, waiting on a service that
-// never becomes ready.  Refusing here leaves the running daemons serving the
+// never becomes ready. Refusing here leaves the running daemons serving the
 // configuration they already have.
 func Reload() error {
 	if !systemdRunning() {

@@ -8,12 +8,12 @@
 # refused rather than taken.
 #
 # Self-provisioning: it installs the grant itself, so it can run on a container
-# brought up without one.  Run as root in the container.
+# brought up without one. Run as root in the container.
 set -u
 SECRET='hunter2-correct-horse-battery'
 CFG=/etc/faramir/config.toml
 
-# The escalation timeout, addressed by section.  [command] has a key of the same
+# The escalation timeout, addressed by section. [command] has a key of the same
 # name, and it comes first in the file, so a bare `sed -n 's/^timeout_sec/'`
 # reads the wrong one and a bare `sed -i` rewrites both -- which puts a command
 # timeout into a section whose ceiling is 600 and leaves the broker refusing to
@@ -50,7 +50,7 @@ s=socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
 s.sendall(sys.argv[1].encode()+b'\n')
 print(s.recv(65536).decode()[:160])" "$2" 2>&1; }
 
-# The notifier the grant is installed with.  A script rather than wall, which
+# The notifier the grant is installed with. A script rather than wall, which
 # writes to terminals a container has none of; what is being checked is that the
 # broker runs the thing at all and what it hands it, not what wall does with it.
 # It writes into the log directory because that is one of the two places the
@@ -158,7 +158,7 @@ quiesce
 head_ "4. a yes that lands while the host is not quiet is refused"
 #
 # The window a yes opens is the executor's uid, which every brokered command
-# shares.  A process of that uid alive outside the run being approved could ride
+# shares. A process of that uid alive outside the run being approved could ride
 # it, so the answer is refused rather than taken.
 
 sudoRun /tmp/stray.out /usr/bin/sudo /usr/bin/id -un
@@ -189,7 +189,7 @@ quiesce
 head_ "5. what one approval covers, and what the question shows of it"
 #
 # One question per run, not per sudo: a playbook's twenty become'd tasks are one
-# escalation.  What the operator judges that by is the command, so the question has
+# escalation. What the operator judges that by is the command, so the question has
 # to carry the whole of it.
 
 sudoRun /tmp/scope.out /bin/sh -c 'sudo /usr/bin/id -un; sudo /bin/cat /etc/shadow | head -1; sudo /usr/bin/whoami'
@@ -320,7 +320,7 @@ out=$(env PAM_TYPE=auth PAM_USER=faramir-exec "$HELPER" --account faramir-exec 2
 head_ "10. what became of the approved run"
 #
 # A yes is the last decision anybody makes about that command, so the terminal
-# that gave root away is told how it ended.  It comes back on the poll the
+# that gave root away is told how it ended. It comes back on the poll the
 # question came in on, which is what `faramir escalations --watch` is sitting in:
 # no second channel, and no read of the audit log.
 #
@@ -348,7 +348,7 @@ s.sendall(json.dumps(request).encode()+b'\n')
 f=json.loads(s.recv(65536).decode()).get('finished')
 print('none' if f is None else '%s %s' % (f.get('log_id'), f.get('exit_code')))" "$1"; }
 
-# What of that duration was the question rather than the command.  The answer
+# What of that duration was the question rather than the command. The answer
 # was slept on above, so the number has something to report.
 #
 # w+0 forces the comparison numeric: a missing field reads back as the string
@@ -382,7 +382,7 @@ head_ "11. the record"
   || bad "an escalation renders with no outcome"
 /usr/local/bin/faramir logs --color never -n 80 | grep -q refused && ok "and a refusal reads as refused" \
   || bad "a refusal renders with no outcome"
-# Which no it was, for each of the three this suite produced.  A denial, an
+# Which no it was, for each of the three this suite produced. A denial, an
 # expiry and a yes read alike in prose and are acted on differently.
 for want in approved denied expired; do
   [ "$(jq -r --arg c "$want" 'select(.op=="escalate" and .outcome_code==$c) | .outcome_code' $LOG 2>/dev/null | head -1)" = "$want" ] \
@@ -440,7 +440,7 @@ head_ "13. an Enter is not an answer"
 # queue, so what they need is a pty and a real question raised through PAM.
 
 # The driver: a watcher on a pty of its own, a brokered sudo to raise the
-# question, and the keystrokes written in at the moment each case is about.  It
+# question, and the keystrokes written in at the moment each case is about. It
 # reports what the terminal saw rather than deciding anything, so the assertions
 # stay in the shell with the rest of them.
 cat >/tmp/watch-answer.py <<'EOS'
@@ -507,7 +507,7 @@ if MODE == "after":
 else:
     os.write(fd, b"yes\n")
 
-# "refused: " with the colon, which is the watcher's own line.  Bare "refused"
+# "refused: " with the colon, which is the watcher's own line. Bare "refused"
 # is in every question, the expires line saying what happens if nobody answers,
 # so waiting on that returns before the answer has been read at all.
 pump(lambda b: " started" in b or "refused: " in b, 60)
@@ -545,7 +545,7 @@ out=$(/usr/bin/python3 /tmp/watch-answer.py after 2>&1)
   || bad "an Enter typed at the prompt refused the question: ${out//$'\n'/ }"
 [ "$(field "$out" STARTED)" = yes ] && ok "and the yes behind them is taken" \
   || bad "the yes behind them was lost: ${out//$'\n'/ }"
-# Five: the first prompt and one re-ask for each blank line.  Fewer means a
+# Five: the first prompt and one re-ask for each blank line. Fewer means a
 # blank line was counted as an answer; the yes surviving the burst is what says
 # a re-ask does not discard what is queued behind it.
 [ "$(field "$out" PROMPTS)" = 5 ] && ok "and each was asked again rather than counted" \
@@ -555,7 +555,7 @@ quiesce
 # --------------------------------------------------------------------------
 head_ "14. a question nobody answers, and the one raised after it"
 #
-# The prompt has a clock of its own, and it is the question's.  Without it the
+# The prompt has a clock of its own, and it is the question's. Without it the
 # watcher sat inside the read until somebody typed, so the first question's
 # clock ran out unnoticed and the second was not shown until a keystroke
 # arrived: a watcher that has stopped watching while still saying it is.
@@ -633,7 +633,7 @@ except subprocess.TimeoutExpired:
 # printed is discarded, the terminal dropping what predates the question.
 asked = buf.count(PROMPT)
 # And the host is left quiet first, which is the state every group here starts
-# from.  A yes that lands while a stray of the command just ended is still
+# from. A yes that lands while a stray of the command just ended is still
 # alive is refused for want of quiescence, which is section 4's subject rather
 # than this one's.
 subprocess.run(["pkill", "-u", "faramir-exec"], check=False)
@@ -660,7 +660,7 @@ EOS
 quiesce
 # Long enough that the second question can be raised, shown, answered and
 # started inside it, and short enough that the first expires while the driver
-# waits.  Section 8's five seconds only has to reach an expiry, and this has to
+# waits. Section 8's five seconds only has to reach an expiry, and this has to
 # reach an answer after one.
 before=$(escalation_timeout)
 set_escalation_timeout 20

@@ -23,16 +23,16 @@ var renderFuncs = template.FuncMap{
 	// to: a deny list copied per tool drifts, and a rule that has drifted into
 	// matching nothing looks like one that matches everything.
 	"list": func(items ...string) []string { return items },
-	// The paths every agent refuses, each in that agent's own spelling.  See
+	// The paths every agent refuses, each in that agent's own spelling. See
 	// protectedpaths.go: no template holds a path of its own.
 	"claudeRules":    claudeRules,
 	"pluginPatterns": pluginPatterns,
 	"jsFragments":    jsFragments,
 	"installDirs":    installDirs,
 	// The tools an agent is offered, for the host that has to register them
-	// itself.  See mcpToolsJS.
+	// itself. See mcpToolsJS.
 	"mcpToolsJS": mcpToolsJS,
-	// The rules both credentials sections state.  See credentialRules.
+	// The rules both credentials sections state. See credentialRules.
 	"credentialRules": credentialRules,
 	// The list emitters, so no template counts commas.
 	"jsonLines":   jsonLines,
@@ -44,13 +44,13 @@ var renderFuncs = template.FuncMap{
 // jsonString is one JSON string, and the only thing that should render one.
 //
 // Not strconv.Quote: it emits Go's escape set, and \a, \v and \xNN are none of
-// them JSON.  What that renders is an agent settings file the agent cannot
-// parse, so the enrolment reads as done and every rule in it is absent.  A JSON
+// them JSON. What that renders is an agent settings file the agent cannot
+// parse, so the enrolment reads as done and every rule in it is absent. A JSON
 // string is also a valid TypeScript string literal, so pi's extension template
 // takes the same function.
 //
 // SetEscapeHTML(false) so <, > and & stay literal, escaping them being valid
-// JSON that would rewrite every file containing one.  Encode appends a newline,
+// JSON that would rewrite every file containing one. Encode appends a newline,
 // hence the trim.
 func jsonString(text string) string {
 	var out bytes.Buffer
@@ -73,9 +73,9 @@ func tomlList(items []string) string {
 	return "[" + strings.Join(quoted, ", ") + "]"
 }
 
-// tomlString is one TOML basic string.  Not strconv.Quote: TOML takes a shorter
+// tomlString is one TOML basic string. Not strconv.Quote: TOML takes a shorter
 // set of escapes than Go and rejects the ones Go adds, so \a or \v in a shell
-// argument would render a config.toml the loader refuses.  Everything else
+// argument would render a config.toml the loader refuses. Everything else
 // below \x20 goes out as \uXXXX, which TOML accepts.
 func tomlString(text string) string {
 	var out strings.Builder
@@ -97,7 +97,7 @@ func tomlString(text string) string {
 		case '\r':
 			out.WriteString(`\r`)
 		default:
-			// DEL as well as the C0 range: TOML allows neither raw.  A byte that is
+			// DEL as well as the C0 range: TOML allows neither raw. A byte that is
 			// not valid UTF-8 arrives as U+FFFD and is escaped like any other
 			// rune.
 			if r < 0x20 || r == 0x7f {
@@ -115,9 +115,9 @@ func tomlString(text string) string {
 // what must never be decrypted or read, that a refusal is not to be worked
 // around, and what to do when a value arrives anyway.
 //
-// One asset rendered into both.  In an enrolled tree an agent loads both
+// One asset rendered into both. In an enrolled tree an agent loads both
 // sections at once, so copies that had drifted would read as two policies that
-// do not quite agree.  Neither section can drop it: `init` writes the home one
+// do not quite agree. Neither section can drop it: `init` writes the home one
 // only for the agents it finds, and an enrolment leaves a tree's file alone
 // when it cannot delimit the block, so each has to stand alone.
 func credentialRules() (string, error) {
@@ -129,7 +129,7 @@ func credentialRules() (string, error) {
 }
 
 // mcpToolsJS renders internal/mcp's tool list as a JSON object keyed by tool
-// name, which is also a JavaScript object literal.  pi ships no MCP and
+// name, which is also a JavaScript object literal. pi ships no MCP and
 // registers the same tools from the extension faramir installs, so without this
 // each tool's name, description and input schema are written twice and kept in
 // step by hand.
@@ -143,7 +143,7 @@ func mcpToolsJS(indent string) (string, error) {
 		Parameters  any    `json:"parameters"`
 	}
 	// Keyed by name so the template names the tool it is registering rather than
-	// indexing a list.  Marshalling sorts the keys, so the rendered extension is
+	// indexing a list. Marshalling sorts the keys, so the rendered extension is
 	// the same bytes twice.
 	byName := map[string]entry{}
 	for _, t := range mcp.Tools() {
@@ -162,7 +162,7 @@ func mcpToolsJS(indent string) (string, error) {
 	return strings.TrimRight(out.String(), "\n"), nil
 }
 
-// units maps each installed file name to its embedded template.  One map,
+// units maps each installed file name to its embedded template. One map,
 // sockets and services being written, reloaded and removed together.
 var units = map[string]string{
 	"faramir-broker.service": "systemd/faramir-broker.service.tmpl",
@@ -183,7 +183,7 @@ func unitNames() []string {
 	return names
 }
 
-// render executes one embedded template against a layout.  The templates are
+// render executes one embedded template against a layout. The templates are
 // the shipped files themselves, and a field named in one and absent from Layout
 // fails the tests rather than being ignored at runtime.
 func render(assetPath string, layout Layout) ([]byte, error) {

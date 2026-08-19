@@ -17,7 +17,7 @@ var (
 
 // The directories these walk (the config directory and the secrets directory)
 // can sit inside the operator's own home under --config-dir, and the operator is
-// the uid the agent runs as.  A path-based chmod there would take root's mode
+// the uid the agent runs as. A path-based chmod there would take root's mode
 // change to whatever the link points at.
 func TestEnsureOwnershipRefusesASymlink(t *testing.T) {
 	dir := t.TempDir()
@@ -51,7 +51,7 @@ func TestEnsureOwnershipFixesTheMode(t *testing.T) {
 	}
 	// Chmod, not the WriteFile mode: WriteFile is masked by the umask, so under the
 	// common 022 the file lands 0644 already and there is nothing for ensureOwnership
-	// to fix.  chmod ignores the umask, so the starting mode is wrong on any host.
+	// to fix. chmod ignores the umask, so the starting mode is wrong on any host.
 	if err := os.Chmod(path, 0o666); err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestChmodAndChownRefusesASymlink(t *testing.T) {
 
 // own=true is how a directory the operator created is taken back: the mode and
 // owner asserted there are what stop the account the agent runs as writing the
-// drop-ins that choose what the executor runs.  Through a symlink the chmod
+// drop-ins that choose what the executor runs. Through a symlink the chmod
 // lands on the target while the chown lands on the link, so the link keeps its
 // operator ownership and the step reports success.
 func TestEnsureDirRefusesASymlinkItWouldAssertOn(t *testing.T) {

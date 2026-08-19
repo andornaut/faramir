@@ -1,19 +1,19 @@
 #!/bin/bash
 # The opencode and Kilo Code plugins, executed.
 #
-# Two of the four supported agents do not use a hook that runs a program.  They
+# Two of the four supported agents do not use a hook that runs a program. They
 # load JavaScript into their own process, and that file is the whole enforcement
 # path: it calls `faramir guard`, applies what comes back, and refuses when it
-# cannot.  Nothing has ever run it.  The project suite proved the file is
+# cannot. Nothing has ever run it. The project suite proved the file is
 # written; this one proves it works.
 #
-# The failure it exists for is silent.  A plugin that throws where it should
+# The failure it exists for is silent. A plugin that throws where it should
 # rewrite stops the agent working, which somebody notices; a plugin that returns
 # where it should throw runs the command unredacted in a project the operator
 # believes is enrolled, and nobody notices at all.
 #
 # Every case drives the real hook with the real binary and a live broker behind
-# it.  The plugin execs the installed path rather than reading one from the
+# it. The plugin execs the installed path rather than reading one from the
 # environment, so the stub matrix (a guard that exits non-zero, answers with
 # something that is not JSON, or returns a decision it does not understand)
 # lives in the Go tests, which render the same template against a stand-in.
@@ -29,10 +29,10 @@ PROJECT=/home/op/project
 command -v node >/dev/null || { echo "node is not in this image; suite J cannot run"; exit 1; }
 
 # run drives one case against one plugin, with the guard the case needs.
-# asModule is the plugin under test with the extension node needs.  The hosts
+# asModule is the plugin under test with the extension node needs. The hosts
 # run Bun, which reads ESM out of a .js on sight; node decides from the nearest
 # package.json and there is none in a project, so it would refuse the file the
-# host loads happily.  The bytes are unchanged: only the name tells node what it
+# host loads happily. The bytes are unchanged: only the name tells node what it
 # is already looking at.
 asModule() {
   local copy
@@ -93,7 +93,7 @@ done
 head_ "pi"
 #
 # pi's extension answers differently in both directions, so it gets a driver of
-# its own.  The matrix lives in the Go tests, which run in CI with a stand-in
+# its own. The matrix lives in the Go tests, which run in CI with a stand-in
 # guard; what is checked here is the enrolled file against the real binary.
 
 PI_EXT=$PROJECT/.pi/extensions/faramir.ts
@@ -103,7 +103,7 @@ if [ ! -f "$PI_EXT" ]; then
 else
   ok "pi: the enrolled extension is at ${PI_EXT#"$PROJECT"/}"
   # The shipped bytes: the extension is a .ts carrying no type annotations, so
-  # node runs it as it is.  0644 because these probes run as the operator.
+  # node runs it as it is. 0644 because these probes run as the operator.
   cp "$PI_EXT" /tmp/pi-under-test.mjs; chmod 0644 /tmp/pi-under-test.mjs
   cat > /tmp/pi-drive.mjs <<'PIEOF'
 const m = await import("/tmp/pi-under-test.mjs")
@@ -117,7 +117,7 @@ PIEOF
   pidrive() { TOOL="$1" INPUT="$2" node /tmp/pi-drive.mjs 2>/dev/null; }
 
   # pi ships no MCP, so the extension registers what the other hosts reach
-  # through it.  Without faramir_run the guard's own refusal names a tool that
+  # through it. Without faramir_run the guard's own refusal names a tool that
   # would not exist on this host.
   cat > /tmp/pi-tools.mjs <<'TOOLEOF'
 const m = await import("/tmp/pi-under-test.mjs")
@@ -173,7 +173,7 @@ fi
 # --------------------------------------------------------------------------
 head_ "what the rewrite actually runs"
 #
-# The plugin hands the host a command string and the host runs it.  So the
+# The plugin hands the host a command string and the host runs it. So the
 # rewrite has to be something a shell can run, and running it has to redact:
 # everything up to here has only checked what the plugin returned.
 #
@@ -191,7 +191,7 @@ process.stdout.write(args.command)
 ' 2>/dev/null)
 [ -n "$rewritten" ] && ok "the plugin produced a command to run" || bad "no rewritten command"
 
-# The command prints a managed value.  What the host runs is the rewrite, so
+# The command prints a managed value. What the host runs is the rewrite, so
 # the redaction has to happen there rather than in anything faramir invoked.
 # bash, not sh: the rewrite sources the wrapper, and the hosts run the shell
 # tool through bash.

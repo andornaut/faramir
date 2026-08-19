@@ -3,7 +3,7 @@
 #
 # Everything else in this project rests on one claim: a brokered command runs as
 # a uid that holds no keys, in a cgroup of its own, with an environment the
-# broker chose, and it ends when it is told to.  A container with real cgroups
+# broker chose, and it ends when it is told to. A container with real cgroups
 # is the only place that can be checked honestly, so this is where the kill path
 # and the confinement get tested rather than reasoned about.
 set -u
@@ -18,7 +18,7 @@ CGBASE=$(systemctl show faramir-exec.service -p ControlGroup --value)
 CGPATH="/sys/fs/cgroup${CGBASE}"
 
 # strays counts processes owned by the executor's uid that are not the daemon
-# itself.  Named exactly, never by a pattern that could match the pgrep: a
+# itself. Named exactly, never by a pattern that could match the pgrep: a
 # self-matching pattern is how this kind of check quietly always passes.
 strays() {
   local out=""
@@ -54,7 +54,7 @@ refused /etc/faramir/secrets/app.sops.yml "the encrypted secrets"
 refused /var/log/faramir/audit.log "the audit log"
 refused /etc/faramir/id_ed25519 "the broker's ssh private key"
 refused /home/op/.ssh/id_ed25519 "the operator's ssh key"
-# The keeper socket is the age key by another name.  python3, not nc: nc is not
+# The keeper socket is the age key by another name. python3, not nc: nc is not
 # installed here, and "nc: not found" matches every "is it blocked" pattern
 # there is, so that check was answering a question nobody asked.
 out=$(run -- /usr/bin/python3 -c "
@@ -71,7 +71,7 @@ grep -q "REFUSED" <<<"$out" && ok "cannot reach the keeper socket ($(grep -o 'Er
 
 # The broker socket it CAN reach: the executor is in the client group, because
 # sharetree grants tree traversal to that group and the executor has to enter
-# the tree.  Recorded rather than asserted away -- what it means is in the
+# the tree. Recorded rather than asserted away -- what it means is in the
 # README's blast-radius row, and this is the fact behind it.
 out=$(run -- /usr/bin/python3 -c "
 import socket
@@ -98,11 +98,11 @@ head_ "2b. the check behind the socket mode"
 # can reach: a peer a mode turns away never gets far enough to be identified.
 # Behind them each daemon reads SO_PEERCRED and refuses a caller that is not the
 # account it serves, so a mode widened by a bad install, a umask or a drop-in is
-# not the whole boundary.  Reaching that check means getting past the mode, so
+# not the whole boundary. Reaching that check means getting past the mode, so
 # this widens it, puts the question, and puts it back.
 #
 # Every one of these answers "forbidden": the daemon identified the caller and
-# said no.  Anything else is this check failing to ask rather than the boundary
+# said no. Anything else is this check failing to ask rather than the boundary
 # holding, and each way of failing to ask says so in its own words.
 peerprobe() { # account, socket, payload
   runuser -u "$1" -- /usr/bin/python3 -c "
@@ -124,7 +124,7 @@ except Exception as e:
 print(reply.decode('utf-8', 'replace') if reply else 'NOANSWER closed unread')" "$2" "$3" 2>&1
 }
 
-# refuses ACCOUNT SOCKET PAYLOAD LABEL.  A daemon's answer is JSON, so anything
+# refuses ACCOUNT SOCKET PAYLOAD LABEL. A daemon's answer is JSON, so anything
 # that does not start with a brace is this suite failing to run the probe --
 # no python3, no such account -- and is reported as that rather than as a
 # boundary that gave way.
@@ -162,14 +162,14 @@ chmod o+x /run/faramir
 chmod o+rw /run/faramir/keeper.sock /run/faramir/exec.sock /run/faramir/broker.sock
 
 # The keeper and the executor each serve one account, the broker, and op is not
-# it.  op is the account the coding agent runs as, so this is the reach a
+# it. op is the account the coding agent runs as, so this is the reach a
 # compromised agent would have if the mode alone were the boundary.
 refuses op /run/faramir/keeper.sock '{"op":"get_values"}' \
   "the keeper refuses op, whatever the socket mode says"
 refuses op /run/faramir/exec.sock '{"op":"exec","cmd":["/bin/true"]}' \
   "the executor refuses op, whatever the socket mode says"
 # The broker admits a group rather than one account, so the peer that tests it
-# is one outside that group.  nobody is in none.
+# is one outside that group. nobody is in none.
 refuses nobody /run/faramir/broker.sock '{"op":"status"}' \
   "the broker refuses an account outside the client group"
 
@@ -210,7 +210,7 @@ out=$(run --env PW=faramir://db/password -- /usr/bin/printenv PW)
 [ "$out" = "$TOKEN" ] && ok "an injected ref is in the child's environment, redacted on the way out" \
   || bad "injected value = [$out]"
 # The same by file, which is how a playbook names a fleet's credentials once
-# rather than on every command line.  Only here: the parsing and the precedence
+# rather than on every command line. Only here: the parsing and the precedence
 # are unit tests, and what neither reaches is the ref in a file arriving in a
 # child's environment.
 runuser -u op -- tee /tmp/refs.env >/dev/null <<'ENV'
@@ -234,7 +234,7 @@ grep -q "$SECRET" <<<"$out" && bad "*** the refusal echoed the value ***" \
   || ok "and the refusal does not echo it back"
 rm -f /tmp/refs.env /tmp/literal.env
 
-# And only the ones asked for.  printenv on an unset name prints nothing and
+# And only the ones asked for. printenv on an unset name prints nothing and
 # exits 1, so empty is the answer that says it was not injected.
 out=$(run -- /usr/bin/printenv PW)
 if [ -n "$out" ]; then
@@ -251,7 +251,7 @@ out=$(run -- /bin/sh -c 'test -t 1 && echo TTY || echo PIPE')
 cols=120
 rows=40
 # From stdout, not stdin: stty reads the terminal on its standard input by
-# default, and stdin here is /dev/null by design.  The PTY is on stdout.
+# default, and stdin here is /dev/null by design. The PTY is on stdout.
 out=$(run -- /bin/sh -c 'stty size <&1 2>/dev/null')
 [ "$out" = "$rows $cols" ] && ok "sized from the config ($out)" || bad "stty size = [$out], want [$rows $cols]"
 
@@ -279,9 +279,9 @@ before_strays=$(strays); before_cgroups=$(runCgroups)
 echo "  (before: cgroups=$before_cgroups strays=[${before_strays:-none}])"
 
 # A command that times out, having forked a child that left the process group
-# and a parent that ignores SIGTERM.  Signalling the process group would miss
+# and a parent that ignores SIGTERM. Signalling the process group would miss
 # the setsid one; this is what cgroup.kill is for.
-# Backgrounded, and inspected on a clock of its own.  Waiting for the call to
+# Backgrounded, and inspected on a clock of its own. Waiting for the call to
 # return would mean checking for strays after the sleeps had ended by
 # themselves, which is a check that passes whether or not anything killed them:
 # the whole question is whether they are gone EARLY.
@@ -343,9 +343,9 @@ grep -qi "truncat" <<<"$out" && ok "and the caller is told it was truncated" \
   || bad "truncation was silent"
 
 # Output that is not text is altered rather than cut, and the caller is told the
-# same way.  On stderr, unlike the truncation marker: stdout is intact in this
+# same way. On stderr, unlike the truncation marker: stdout is intact in this
 # case except for the bytes themselves, so a line in it would corrupt what a
-# caller is piping.  Stdout is dropped below so that only the summary is read.
+# caller is piping. Stdout is dropped below so that only the summary is read.
 notice() { { runuser -u op -- /usr/local/bin/faramir run -t 30 "$@" >/dev/null; } 2>&1; }
 out=$(notice -- /bin/sh -c 'head -c 4096 /dev/urandom')
 grep -qE '[0-9]+ non-text byte\(s\) replaced' <<<"$out" \

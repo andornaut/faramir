@@ -70,7 +70,7 @@ func resultText(t *testing.T, result map[string]any) string {
 	return text
 }
 
-// wantError asserts the call came back as an error carrying each of wants.  An
+// wantError asserts the call came back as an error carrying each of wants. An
 // MCP tool reports failure in the result, so "did it fail" is a field.
 func wantError(t *testing.T, result map[string]any, wants ...string) {
 	t.Helper()
@@ -275,7 +275,7 @@ func TestToolsListAdvertisesEveryTool(t *testing.T) {
 		}
 	}
 	// Exactly those two, and the count is asserted so a tool added here has to
-	// argue for itself: see the package doc.  Every tool spends a slot in every
+	// argue for itself: see the package doc. Every tool spends a slot in every
 	// session's context, so one an agent would call rarely and act on never costs
 	// more than it answers.
 	if len(listed) != 2 {

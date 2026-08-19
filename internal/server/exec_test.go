@@ -16,7 +16,7 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// errorMessage is the message of a refusal response.  Checked rather than
+// errorMessage is the message of a refusal response. Checked rather than
 // asserted: a response of another shape is the failure under test.
 func errorMessage(t *testing.T, r map[string]any) string {
 	t.Helper()
@@ -32,7 +32,7 @@ func errorMessage(t *testing.T, r map[string]any) string {
 // or a fork.
 
 // recorder stands in for the executor: it captures the request and returns a
-// canned result.  Env is snapshotted because the broker wipes the map once the
+// canned result. Env is snapshotted because the broker wipes the map once the
 // child holds the values; liveEnv keeps the original so the wipe can be
 // asserted on.
 type recorder struct {
@@ -137,7 +137,7 @@ func errorCode(t *testing.T, r protocol.Response) string {
 // -- the timeout ------------------------------------------------------------
 
 // No timeout gets the configured default; more than max_timeout_sec is clamped
-// rather than refused.  The clamp is the only bound on how long a command holds
+// rather than refused. The clamp is the only bound on how long a command holds
 // a concurrency slot.
 func TestTimeoutDefaultsAndClamps(t *testing.T) {
 	for _, tc := range []struct {
@@ -167,7 +167,7 @@ func TestTimeoutDefaultsAndClamps(t *testing.T) {
 
 // -- the child's environment ------------------------------------------------
 
-// env plus exactly the refs asked for.  HOME is absent: it belongs to the
+// env plus exactly the refs asked for. HOME is absent: it belongs to the
 // executor's uid, which supplies it.
 //
 // This is the map the broker builds, not the child's environment; that is
@@ -302,7 +302,7 @@ func TestACwdTheBrokerCannotStatIsLeftToTheExecutor(t *testing.T) {
 
 // -- the concurrency limit --------------------------------------------------
 
-// Refused rather than queued.  max_concurrency is 2 in the test config, so the
+// Refused rather than queued. max_concurrency is 2 in the test config, so the
 // third request in flight is the one told.
 func TestOverTheConcurrencyLimitIsRefusedAsBusy(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": goodValue})
@@ -483,7 +483,7 @@ type executorError struct{ msg string }
 func (e *executorError) Error() string { return e.msg }
 
 // An exec is a pair of records sharing one log_id, and the first is written
-// before the child runs.  Without it a command is absent from the log for as
+// before the child runs. Without it a command is absent from the log for as
 // long as it takes, so `faramir logs --watch` shows a playbook only once it is
 // over and a run that never returns leaves nothing behind at all.
 func TestAnExecIsRecordedWhenItStartsAndWhenItEnds(t *testing.T) {
@@ -517,7 +517,7 @@ func TestAnExecIsRecordedWhenItStartsAndWhenItEnds(t *testing.T) {
 	if cmd, _ := started["cmd"].([]any); len(cmd) == 0 {
 		t.Errorf("the start record names no command: %v", started)
 	}
-	// And carries no outcome, there being none yet.  A zero exit code here would
+	// And carries no outcome, there being none yet. A zero exit code here would
 	// read as a command that finished cleanly the moment it began.
 	if _, ok := started["exit_code"]; ok {
 		t.Errorf("the start record carries an exit code: %v", started["exit_code"])

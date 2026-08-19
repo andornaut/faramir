@@ -5,17 +5,17 @@ import (
 	"testing"
 )
 
-// What redact.Feed leaves behind is what this has to catch.  The pairs below
+// What redact.Feed leaves behind is what this has to catch. The pairs below
 // were measured against it rather than assumed: CSI, OSC and the C0 controls are
 // stripped before anything reaches a prompt or the audit log, and these two are
 // not.
 func TestWhatSurvivesRedactionIsRendered(t *testing.T) {
 	for _, tc := range []struct{ name, in string }{
-		// Only CRLF is normalised, so a lone CR passes through.  It returns the
+		// Only CRLF is normalised, so a lone CR passes through. It returns the
 		// cursor, and the rest of the line overwrites what came before it.
 		{"carriage return", "site.yml\rls -la"},
 		// ESC c is a full terminal reset, which on many emulators takes the
-		// scrollback with it.  No pattern in the strip set matches ESC followed by
+		// scrollback with it. No pattern in the strip set matches ESC followed by
 		// a byte outside @-Z and \\-_.
 		{"terminal reset", "site.yml\x1bc"},
 	} {
@@ -35,7 +35,7 @@ func TestWhatSurvivesRedactionIsRendered(t *testing.T) {
 	}
 }
 
-// Ordinary text is returned as it was written.  A line full of quotation marks
+// Ordinary text is returned as it was written. A line full of quotation marks
 // or escapes is one that is read less carefully, which is the thing this exists
 // to protect.
 func TestOrdinaryTextIsLeftAlone(t *testing.T) {
@@ -102,7 +102,7 @@ func TestBoundSaysItTruncated(t *testing.T) {
 // C1 is the other half of what a terminal acts on, and the strip set does not
 // reach it: it matches CSI as ESC '[', so U+009B, the single-character form of
 // the same introducer, arrives here untouched and a following "2J" clears the
-// screen of a terminal that honours 8-bit controls.  Arg escapes these already,
+// screen of a terminal that honours 8-bit controls. Arg escapes these already,
 // strconv.Quote treating them as non-printable, so this is the two renderers
 // agreeing rather than a new rule.
 func TestC1ControlsAreEscaped(t *testing.T) {

@@ -1,9 +1,9 @@
 // Package execserver runs brokered commands as faramir-exec, a uid that holds
-// no secrets, audit log, age key or SSH keys.  A child forked by the broker
+// no secrets, audit log, age key or SSH keys. A child forked by the broker
 // would inherit all four.
 //
 // The PTY stays on the broker's side: it creates the pair, sends the slave over
-// SCM_RIGHTS and keeps the master.  This service does the fork, the session
+// SCM_RIGHTS and keeps the master. This service does the fork, the session
 // setup and the reaping, and reports an exit status.
 //
 // Closing the connection cancels the run and tears down its cgroup, which covers
@@ -48,8 +48,8 @@ type request struct {
 }
 
 // opQuiescent asks whether any process of this uid is alive outside the runs
-// this executor is confining.  The broker cannot answer it: its own unit sets
-// ProtectProc=invisible, so another uid's /proc is not in its view.  This
+// this executor is confining. The broker cannot answer it: its own unit sets
+// ProtectProc=invisible, so another uid's /proc is not in its view. This
 // service shares the uid with every brokered command.
 const (
 	// opExec starts a command, which is what an absent op means.
@@ -63,7 +63,7 @@ type Executor struct {
 	slots  chan struct{}
 	wg     sync.WaitGroup
 	// cgroupBase is the cgroup v2 directory each run is confined under, or ""
-	// where no delegated cgroup is available.  Set once at New.  Confinement is
+	// where no delegated cgroup is available. Set once at New. Confinement is
 	// the one reaper, so "" means every command is refused until the host is
 	// fixed.
 	cgroupBase string
@@ -77,7 +77,7 @@ type Executor struct {
 
 // maxConcurrent is a backstop, not a knob: the broker is this socket's only
 // permitted client and holds a [command] concurrency slot for the whole of each
-// run, so that number binds first.  This one bounds a broker with a bug.
+// run, so that number binds first. This one bounds a broker with a bug.
 const maxConcurrent = 16
 
 func New(cfg *config.Config) *Executor {
@@ -153,7 +153,7 @@ func (e *Executor) serveConnection(conn net.Conn) {
 		_ = sockutil.Send(conn, errorResponse("bad_request", "no usable request"))
 		return
 	}
-	// Before the terminal-fd check: a question about the host carries no PTY.  An
+	// Before the terminal-fd check: a question about the host carries no PTY. An
 	// unknown op is named rather than fed to run(), which would report it as a
 	// malformed command.
 	switch payload.Op {
@@ -291,7 +291,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	graceSec := positive(req.KillGraceSec, config.KillGraceSec)
 
 	// Nothing writes to the master, so a child reading stdin would block until its
-	// timeout; /dev/null makes that an immediate EOF.  stdout and stderr keep the
+	// timeout; /dev/null makes that an immediate EOF. stdout and stderr keep the
 	// PTY, which `test -t 1` depends on.
 	devnull, err := os.Open(os.DevNull)
 	if err != nil {
@@ -305,21 +305,21 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	cmd.Stdin = devnull
 	cmd.Stdout = slave
 	cmd.Stderr = slave
-	// Setsid and no controlling terminal.  A child that has one can open /dev/tty,
+	// Setsid and no controlling terminal. A child that has one can open /dev/tty,
 	// which is what every credential prompt reads so a pipe cannot answer it:
-	// ssh-add, sudo, gpg.  Nothing writes to the master, so that read would block
+	// ssh-add, sudo, gpg. Nothing writes to the master, so that read would block
 	// until the timeout; without a controlling terminal the open fails and the
 	// program falls back to stdin, which is /dev/null.
 	//
 	// What it gives up is the text of a prompt from a program that writes only to
 	// /dev/tty and has no fallback: that write fails, so it reaches neither the
-	// operator nor the record.  A program with a fallback prints to stderr, which
+	// operator nor the record. A program with a fallback prints to stderr, which
 	// is on the PTY and is redacted and recorded like the rest.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	// Confine the run to its own cgroup, the one reaper: a descendant that calls
 	// setsid, which a process-group kill would miss, is still reaped when the
-	// cgroup is torn down.  A host with no delegated cgroup, or a run that cannot
+	// cgroup is torn down. A host with no delegated cgroup, or a run that cannot
 	// be given one, is refused rather than reaped by process group.
 	if e.cgroupBase == "" {
 		return errorResponse("exec_failed", "this host has no delegated cgroup (needs "+
@@ -378,7 +378,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 
 // await waits for the child, watching the clock and the broker's connection.
 // done is closed by the caller's cmd.Wait goroutine, waiting twice failing with
-// ECHILD.  A timeout or a hangup ends the whole run by tearing down its cgroup,
+// ECHILD. A timeout or a hangup ends the whole run by tearing down its cgroup,
 // so a setsid descendant goes with it.
 func (e *Executor) await(rcg *runCgroup, cmd *exec.Cmd, conn net.Conn, done <-chan struct{}, timeoutSec, graceSec int) bool {
 	// A readable connection means the broker sent something or hung up; either way
@@ -444,7 +444,7 @@ type ChildResult struct {
 	TimedOut bool
 }
 
-// Client is one brokered command: start it, then collect its exit status.  Two
+// Client is one brokered command: start it, then collect its exit status. Two
 // calls, the broker reading the PTY master in between.
 type Client struct {
 	socketPath string
@@ -454,8 +454,8 @@ type Client struct {
 func NewClient(socketPath string) *Client { return &Client{socketPath: socketPath} }
 
 // Quiescent asks the executor whether anything is running as its uid outside
-// the runs it is confining.  The broker calls this before an escalation takes;
-// see Executor.quiescence for why the broker cannot answer it.  Every failure
+// the runs it is confining. The broker calls this before an escalation takes;
+// see Executor.quiescence for why the broker cannot answer it. Every failure
 // is a no: an executor that cannot be reached has not said the host is quiet.
 func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
 	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
@@ -524,7 +524,7 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	return nil
 }
 
-// Abort hangs up.  The executor tears down the run's cgroup.
+// Abort hangs up. The executor tears down the run's cgroup.
 func (c *Client) Abort() { c.Close() }
 
 func (c *Client) Result(timeout time.Duration) (*ChildResult, error) {

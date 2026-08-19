@@ -17,7 +17,7 @@ type Collector struct {
 	budget  int
 	head    strings.Builder
 	headLen int // encoded, so the budget means the same here as in the record
-	// headShut is set by the first chunk that goes to the tail.  Without it the
+	// headShut is set by the first chunk that goes to the tail. Without it the
 	// head keeps taking whatever still fits, so a chunk too large for the room
 	// left goes to the tail and a smaller one after it lands in the head, ahead of
 	// it: the record then shows a run's own output out of the order it was
@@ -39,7 +39,7 @@ func (c *Collector) Add(text string) {
 		return
 	}
 	// Fill the head first, then treat everything after it as tail, dropping from
-	// the front of the tail as it overflows.  A ring of chunks rather than of
+	// the front of the tail as it overflows. A ring of chunks rather than of
 	// bytes: chunks arrive small, and the one that overshoots is trimmed once.
 	if !c.headShut && c.headLen < c.half() {
 		keep := prefixWithin(text, c.half()-c.headLen)

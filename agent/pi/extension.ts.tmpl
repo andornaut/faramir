@@ -7,39 +7,39 @@
 // A file of its own rather than the template the opencode and Kilo Code plugins
 // share, because pi answers differently in both directions: a refusal is a
 // value returned rather than an exception thrown, and a rewrite is a mutation
-// of the event's own input rather than of an object the host passed in.  What
+// of the event's own input rather than of an object the host passed in. What
 // is shared is the guard call and the fail-closed branches, and folding three
 // dialects into one template would branch it exactly where a bug would live.
 //
 // pi ships no MCP, so the tools the other hosts reach through it are registered
-// here instead.  Without them the guard's own refusal dead-ends: it tells the
+// here instead. Without them the guard's own refusal dead-ends: it tells the
 // model to use faramir_run, and on this host there would be no such tool.
 //
 // They shell out to the CLI rather than speaking to the broker socket, so there
 // is one client of the wire protocol rather than two, and this file cannot
-// drift from docs/protocol.md.  What it formats is the JSON the CLI already
+// drift from docs/protocol.md. What it formats is the JSON the CLI already
 // prints, in the shape internal/mcp returns.
 
 // No type annotations, though the extension pi loads is a .ts: TypeScript takes
 // plain JavaScript, and without them this file runs under a bare node, which is
 // what lets the tests drive the shipped bytes rather than a stripped copy of
-// them.  Everything here was `any` in any case.
+// them. Everything here was `any` in any case.
 import { spawnSync } from "node:child_process"
 
 // The installed path, not an environment variable: see the note in the
-// opencode plugin.  The file is the operator's to edit, so this closes one
+// opencode plugin. The file is the operator's to edit, so this closes one
 // route rather than being a boundary.
 const CLI = "{{.BinDir}}/faramir"
 const HOST = "pi"
 
 // Guarded by shape rather than by name: anything carrying a command string is
-// put to the guard whatever the tool is called.  The names are what makes a
+// put to the guard whatever the tool is called. The names are what makes a
 // known shell tool arriving without one a refusal rather than a shrug.
 const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
 
 // The paths this refuses to open, GENERATED from
 // internal/install/protectedpaths.go: the same list the other four agents get,
-// in the spelling this one can apply.  Nothing here is a path of its own.
+// in the spelling this one can apply. Nothing here is a path of its own.
 //
 // pi has no account-wide rule file to write them into, so they are applied here
 // instead, and by shape rather than by tool name for the same reason the
@@ -126,10 +126,10 @@ function describe(raw, stderr) {
 // What each tool is called, what it is for and what it takes, GENERATED from
 // internal/mcp: pi ships no MCP, so the tools the other hosts reach through the
 // server are registered below from that same list rather than from a copy of
-// it.  Nothing here is a description of its own.
+// it. Nothing here is a description of its own.
 //
 // What is this host's and stays below is the label and the body that runs the
-// tool.  A model is told the same thing about a tool wherever it meets one.
+// tool. A model is told the same thing about a tool wherever it meets one.
 const MCP_TOOLS = {{ mcpToolsJS "" }}
 
 export default function faramir(pi) {
@@ -185,7 +185,7 @@ export default function faramir(pi) {
             "extension could not guard it and the call was not made",
         }
       }
-      // Not a command, so it is a file tool or something like one.  The other
+      // Not a command, so it is a file tool or something like one. The other
       // agents refuse these through a rule file of their own; pi has none, so
       // the same list is applied here.
       const refused = refusedPath(input)
@@ -220,7 +220,7 @@ export default function faramir(pi) {
     }
 
     // Nothing to say: a backgrounded command, or one already under the
-    // redactor.  See docs/design.md.
+    // redactor. See docs/design.md.
     const text = (result.stdout || "").trim()
     if (!text) return
 
@@ -241,7 +241,7 @@ export default function faramir(pi) {
         return { block: true, reason: decision.reason }
       case "rewrite":
         // event.input is the object pi executes from, so assigning into it is
-        // how this hook changes a call.  Every field, not only the command.
+        // how this hook changes a call. Every field, not only the command.
         Object.assign(input, decision.tool_input)
         return
       default:

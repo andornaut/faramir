@@ -55,7 +55,7 @@ func TestEscalationIsOffUnlessConfigured(t *testing.T) {
 }
 
 // Nothing announces a pending request by default: `faramir approve` is where a
-// question is seen and answered.  A notifier that names neither the command nor
+// question is seen and answered. A notifier that names neither the command nor
 // the question is refused, since it would say only that something is waiting.
 func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 	cfg, err := load(t, minimal)
@@ -82,7 +82,7 @@ func TestANotifierThatSaysNothingIsRefused(t *testing.T) {
 // helper derives its own deadline from MaxSudoTimeoutSec, so a question the
 // broker would hold for longer than that is one the helper would abandon while
 // it was still open, and the operator's yes would land on a sudo that had
-// already gone.  The two constants cannot drift, so this is what keeps the
+// already gone. The two constants cannot drift, so this is what keeps the
 // relationship between them true.
 func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
@@ -111,7 +111,7 @@ func TestSudoTimeoutIsBoundedAtBothEnds(t *testing.T) {
 
 // A mistyped key is named, not ignored, and so is a retired one: a config still
 // setting a key that is gone is asking for a behaviour that is not there, and
-// reading as though it were.  Where something replaced it, the message names
+// reading as though it were. Where something replaced it, the message names
 // that too, the operator's next move being to write the replacement.
 func TestUnknownKeysAreRefused(t *testing.T) {
 	for _, tc := range []struct {
@@ -157,7 +157,7 @@ func TestUnknownKeysAreRefused(t *testing.T) {
 }
 
 // [secret] for [secret], or [command] for [command]: a section nobody reads is a
-// setting that looks applied and is not.  Named, with the sections that exist.
+// setting that looks applied and is not. Named, with the sections that exist.
 func TestUnknownSectionsAreRefused(t *testing.T) {
 	// Spelled with string concatenation so a future rename pass cannot quietly
 	// turn these deliberate mistakes back into the valid names they are the
@@ -254,7 +254,7 @@ func TestTheDecryptCommandIsDerived(t *testing.T) {
 
 // env PATH decides which file a bare cmd[0] resolves to, and the broker
 // resolves it on behalf of a child that runs in the request's directory, not the
-// broker's.  A component a shell would read as "here" therefore names two
+// broker's. A component a shell would read as "here" therefore names two
 // different directories, so it is refused at load: the broker does not start,
 // rather than running a file nobody named.
 func TestBaseEnvPathMustBeAbsolute(t *testing.T) {
@@ -334,7 +334,7 @@ func TestNamingOneVariableKeepsTheRest(t *testing.T) {
 	}
 }
 
-// `status` and `--check` report which files were read.  With one config file
+// `status` and `--check` report which files were read. With one config file
 // that is a list of one, and it has to be filled in: an empty answer to "which
 // files were read" reads as none rather than as this one.
 func TestTheLoadedFileIsReported(t *testing.T) {

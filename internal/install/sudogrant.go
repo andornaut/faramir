@@ -1,9 +1,9 @@
 package install
 
-// The sudo grant `faramir init --allow-sudo` writes.  What it is for is
+// The sudo grant `faramir init --allow-sudo` writes. What it is for is
 // docs/escalation.md; what it must keep saying:
 //
-//   - PASSWD, never NOPASSWD.  A passwordless grant is usable with the broker
+//   - PASSWD, never NOPASSWD. A passwordless grant is usable with the broker
 //     out of the way, which is a brokered command skipping the escalation.
 //   - A PAM service of faramir's own, named by the entry's `pam_service`, so a
 //     mistake here leaves every other sudo on the host alone.
@@ -21,7 +21,7 @@ import (
 )
 
 // stepSudoGrant writes or removes the grant: a sudoers entry and the PAM
-// service it names.  There is no credential to place: sudo authenticates the
+// service it names. There is no credential to place: sudo authenticates the
 // executor's account against a service whose auth step asks the broker, so an
 // escalation is a decision rather than a value.
 //
@@ -37,7 +37,7 @@ func (r *runner) stepSudoGrant() error {
 		return nil
 	}
 	if !exists(sudoersDir) || !exists(pamDir) {
-		// A host with no sudo, or no PAM.  Reported rather than failed: the rest of
+		// A host with no sudo, or no PAM. Reported rather than failed: the rest of
 		// the install works.
 		r.warnf("%s or %s does not exist, so no grant was written and brokered "+
 			"commands cannot sudo here. Install sudo, then re-run this install",
@@ -82,7 +82,7 @@ func (r *runner) stepSudoGrant() error {
 			"broker and should hold no password of its own: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
-	// An earlier layout kept a password for this.  Removed rather than left: a
+	// An earlier layout kept a password for this. Removed rather than left: a
 	// credential that authenticates nothing is still a credential.
 	for _, stale := range []string{
 		filepath.Join(r.layout.RunDir, "elevate.secret"),

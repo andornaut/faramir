@@ -1,7 +1,7 @@
 package audit
 
 // The reductions that make a record fit its cap, and what is written when none
-// of them do.  See the package doc in audit.go for the guarantee this serves:
+// of them do. See the package doc in audit.go for the guarantee this serves:
 // one record is one line, and no line exceeds config.MaxRecordBytes.
 
 import (
@@ -19,10 +19,10 @@ import (
 // each a ceiling on one string and on how many entries a list or a map keeps.
 // Both are needed: a record can be too large because one field is long or
 // because there are many of them, and cutting only strings leaves the second
-// case unreachable.  Deliberately few, and each a long way below the last.
+// case unreachable. Deliberately few, and each a long way below the last.
 var reductions = [][2]int{{fieldCeiling, 64}, {256, 8}, {64, 4}}
 
-// encode is one record as one line, never longer than the cap.  It reduces
+// encode is one record as one line, never longer than the cap. It reduces
 // rather than gives up: what is over the cap is almost always one
 // caller-chosen field, and the rest of the record is the part being audited.
 func (l *Log) encode(payload map[string]any) []byte {
@@ -39,16 +39,16 @@ func (l *Log) encode(payload map[string]any) []byte {
 			// Each field, not the record: reduce bounds how many entries a collection
 			// keeps, so applied to the payload it would drop the record's own fields
 			// in sorted key order, `redactions` among them, and leave a line that
-			// reads as complete.  The field set is the code's and is never what is
+			// reads as complete. The field set is the code's and is never what is
 			// too large.
 			for key, value := range payload {
 				payload[key] = reduce(value, step[0], step[1])
 			}
 			payload["record_reduced"] = true
 			// The output field is reduced along with the rest, so what it says about
-			// itself has to keep up.  Whether it changed, not whether it shrank: clamp
+			// itself has to keep up. Whether it changed, not whether it shrank: clamp
 			// counts in encoded bytes and appends a marker, so escape-heavy output
-			// comes back longer in raw bytes than it went in.  What went is measured
+			// comes back longer in raw bytes than it went in. What went is measured
 			// with the marker taken back off.
 			if after, _ := payload["output"].(string); after != before {
 				payload["output_truncated"] = true
@@ -65,9 +65,9 @@ func (l *Log) encode(payload map[string]any) []byte {
 	return l.lastResort(payload, len(payload))
 }
 
-// strict makes reaching the last resort fatal instead of survivable.  Tests set
+// strict makes reaching the last resort fatal instead of survivable. Tests set
 // it, so a change that puts a record beyond the cap stops CI rather than being
-// noticed later in a log.  Off in the shipped binary: a panic here would take
+// noticed later in a log. Off in the shipped binary: a panic here would take
 // the broker down mid-run, killing every brokered command with it, to protect a
 // record it was about to write.
 var strict = false
@@ -78,7 +78,7 @@ var strict = false
 //
 // Not caller-controlled: everything a caller chooses is bounded by the
 // reductions above, so what is left is the record's own field set against
-// config.MaxRecordBytes.  A record grew fields, or one carries a value that will
+// config.MaxRecordBytes. A record grew fields, or one carries a value that will
 // not marshal, and both are changes made in this repository.
 //
 // It still writes the line: being a bug does not make the record less true, and
@@ -103,13 +103,13 @@ func (l *Log) lastResort(payload map[string]any, fields int) []byte {
 	return stubLine(payload)
 }
 
-// stubLine is the record cut back to its identity.  It is what makes encode
+// stubLine is the record cut back to its identity. It is what makes encode
 // total: for any input there is a line, and it is under the cap.
 func stubLine(payload map[string]any) []byte {
 	const why = "this record did not fit the record cap and was reduced to its identity"
 	// Printed and clamped rather than carried across as they stand: one route
 	// here is the first marshal failing, which skips the reductions, so these
-	// three were never bounded.  Printing them also leaves the map holding
+	// three were never bounded. Printing them also leaves the map holding
 	// strings and a bool, neither of which can fail to marshal.
 	line, err := json.Marshal(map[string]any{
 		"log_id":         clamp(fmt.Sprint(payload["log_id"]), 256),
@@ -127,12 +127,12 @@ func stubLine(payload map[string]any) []byte {
 }
 
 // reduce cuts every string in the record to strLimit encoded bytes and every
-// list and map to items entries, saying so where it does.  It walks what a
+// list and map to items entries, saying so where it does. It walks what a
 // record is made of rather than naming fields, so a field added later is
 // bounded without this having to hear about it.
 //
 // Encoded bytes, not raw ones: the cap this serves is counted in what the line
-// spends.  Two hundred arguments of a thousand '<' each are 200KB raw and 1.2MB
+// spends. Two hundred arguments of a thousand '<' each are 200KB raw and 1.2MB
 // once encoded.
 //
 // Every collection it returns is a new one: a record's fields are the caller's
@@ -200,7 +200,7 @@ func reduceTyped(value any, strLimit, items int) any {
 	return append(out, any(more(rv.Len()-items)))
 }
 
-// clampMarker is what clamp leaves in place of what it cut.  Named so a caller
+// clampMarker is what clamp leaves in place of what it cut. Named so a caller
 // counting what went can take it back off: it is appended, so a cut string is
 // not necessarily shorter than the one it replaced.
 const clampMarker = "… (cut to fit the record)"
@@ -216,7 +216,7 @@ func clamp(text string, budget int) string {
 func more(n int) string { return fmt.Sprintf("… (%d more, cut to fit the record)", n) }
 
 // dropEntries keeps the first items keys in sorted order, so which entries
-// survive is the same on every run.  It deletes in place, and is called only on
+// survive is the same on every run. It deletes in place, and is called only on
 // a map reduce has just built.
 func dropEntries[V any](entries map[string]V, items int) map[string]V {
 	if len(entries) <= items {

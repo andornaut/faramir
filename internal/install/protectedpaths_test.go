@@ -8,7 +8,7 @@ import (
 )
 
 // samples is a path per entry in protectedPaths that the entry must refuse, and
-// one nearby that it must not.  Written by hand rather than derived from the
+// one nearby that it must not. Written by hand rather than derived from the
 // entry, so a rendering and its test cannot be wrong in the same direction: a
 // generator bug that widens a pattern is caught by the second column, and one
 // that empties it by the first.
@@ -71,7 +71,7 @@ func matchesAnyPath(res []*regexp.Regexp, path string) bool {
 }
 
 // The point of the exercise: one list, and every agent that has a rule file
-// for it rendering the same paths.  Each rendering is checked
+// for it rendering the same paths. Each rendering is checked
 // for a token from every entry, so an agent whose spelling drops one fails here
 // rather than in somebody's home directory.
 //
@@ -122,7 +122,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	}
 }
 
-// Read and write take the same paths.  A value the agent cannot read is one it
+// Read and write take the same paths. A value the agent cannot read is one it
 // can still destroy, and an age key replaced is every managed file unreadable
 // retroactively, so a list that covers one and not the other is half a rule.
 func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
@@ -154,7 +154,7 @@ func TestReadAndWriteAreRefusedTheSamePaths(t *testing.T) {
 }
 
 // The two plugin hosts install the same rules, and what makes that true is that
-// they name one asset rather than two files kept in step by hand.  Asserted
+// they name one asset rather than two files kept in step by hand. Asserted
 // against the targets: rendering both and comparing would compare one file with
 // itself and pass however the targets were wired.
 func TestBothPluginHostsGetTheSameRules(t *testing.T) {

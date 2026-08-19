@@ -7,7 +7,7 @@ package main
 // encrypted file the broker never serves.
 //
 // So the editor is the way in, as it is for `edit`: the plaintext exists only
-// in a 0600 file in /dev/shm and goes with the directory.  --from is for the
+// in a 0600 file in /dev/shm and goes with the directory. --from is for the
 // file somebody already holds, and says that the source is still cleartext.
 
 import (
@@ -27,7 +27,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// opAdd is the audit record a creation writes.  Distinct from an edit: when a
+// opAdd is the audit record a creation writes. Distinct from an edit: when a
 // file entered the store is what an operator asks the log afterwards.
 const opAdd = "add"
 
@@ -139,7 +139,7 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 	target = filepath.Clean(target)
 
 	// The suffix is faramir's, not the operator's: they pick a name and this
-	// writes a YAML store.  A name that already carries a managed suffix is taken
+	// writes a YAML store. A name that already carries a managed suffix is taken
 	// as it stands, so naming a file in full is neither wrong nor doubled.
 	if !matchesPatterns(cfg.Secret.Patterns, target) {
 		target += managedSuffix
@@ -257,9 +257,9 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 }
 
 // createManaged writes a file that was not there before, 0640 like every other
-// managed one.  The group comes from the secrets directory, which is setgid to
+// managed one. The group comes from the secrets directory, which is setgid to
 // the keeper's, so a new file is readable by the daemon that opens it without
-// this naming an account.  Written beside the target and renamed, and made
+// this naming an account. Written beside the target and renamed, and made
 // durable, for the reasons writeBack does it.
 func createManaged(target string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".*")
@@ -278,7 +278,7 @@ func createManaged(target string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	// 0640 rather than tighter: the keeper's group has to open it.  The same mode
+	// 0640 rather than tighter: the keeper's group has to open it. The same mode
 	// every other managed file carries.
 	if err := os.Chmod(tmp.Name(), 0o640); err != nil { //nolint:gosec // G302: the keeper's group reads the store
 		return err

@@ -8,7 +8,7 @@
 //
 // Parsed rather than matched with a regex: a rule is a list entry whose keys
 // may be in any order, may be written in flow style, and need not lead with
-// path_regex.  What is kept out of the shipped binary is the sops libraries,
+// path_regex. What is kept out of the shipped binary is the sops libraries,
 // and a YAML parser is not one of them.
 package sopsrule
 
@@ -32,7 +32,7 @@ type Rule struct {
 	// without repeats.
 	Recipients []string
 	// ShamirThreshold is how many key groups have to come together to open a file,
-	// and zero where the rule does not split the data key.  Carried so a caller
+	// and zero where the rule does not split the data key. Carried so a caller
 	// can refuse a rule it would otherwise flatten.
 	ShamirThreshold int
 }
@@ -81,7 +81,7 @@ type file struct {
 }
 
 type rule struct {
-	// Both spellings sops takes.  `age` is the shorthand a hand-edited file often
+	// Both spellings sops takes. `age` is the shorthand a hand-edited file often
 	// carries, and only there does sops accept a comma-separated string; the
 	// installer writes key_groups.
 	Age             ageList    `yaml:"age"`
@@ -89,7 +89,7 @@ type rule struct {
 	ShamirThreshold int        `yaml:"shamir_threshold"`
 }
 
-// keyGroup is one group of a rule's key groups.  Merge is followed because sops
+// keyGroup is one group of a rule's key groups. Merge is followed because sops
 // follows it: a reader that stopped at the top level would report a rule as
 // sealing to fewer recipients than it does, and a caller re-encrypting from
 // that answer drops every reader named only under a merge.
@@ -110,7 +110,7 @@ func (g keyGroup) recipients() []string {
 	return out
 }
 
-// recipients is who the rule actually seals to.  The key groups alone where a
+// recipients is who the rule actually seals to. The key groups alone where a
 // rule carries both, because that is what sops does: it reads the `age`
 // shorthand only when there are no key groups, so a rule with `age: A` beside a
 // group naming B seals to B and to nobody else.
@@ -155,7 +155,7 @@ func (a *ageList) UnmarshalYAML(node *yaml.Node) error {
 	return nil
 }
 
-// coverTimeout bounds one Covers probe.  Long enough for sops to encrypt a line
+// coverTimeout bounds one Covers probe. Long enough for sops to encrypt a line
 // of YAML on a loaded host, short enough that a plugin recipient
 // (age1yubikey1...) sitting waiting for somebody to touch a key costs a few
 // seconds rather than a command that never returns.
@@ -215,8 +215,8 @@ func Covers(sopsPath, configPath string, recipients []string, target string) (bo
 }
 
 // probeBody is a document sops can parse as the store the target's name
-// selects.  The name decides the store, so a YAML body under a .json or .env
-// name is one sops rejects before it says anything about creation rules.  The
+// selects. The name decides the store, so a YAML body under a .json or .env
+// name is one sops rejects before it says anything about creation rules. The
 // set is what sops supports rather than what an install writes; anything
 // unrecognised is YAML, which is what sops falls back to.
 func probeBody(target string) []byte {

@@ -1,11 +1,11 @@
 // Package protocol implements the wire protocol: newline-delimited JSON, one
-// request, one response.  See docs/protocol.md.
+// request, one response. See docs/protocol.md.
 //
 // Two rules:
 //
-//   - Secrets are injected as environment variables only.  A value in argv
+//   - Secrets are injected as environment variables only. A value in argv
 //     shows up in ps, /proc/<pid>/cmdline and the child's error messages.
-//   - cmd is an array; the broker never hands a string to "sh -c".  A caller
+//   - cmd is an array; the broker never hands a string to "sh -c". A caller
 //     wanting a pipeline sends ["bash", "-lc", "..."], so the audit log shows
 //     what ran.
 package protocol
@@ -23,14 +23,14 @@ import (
 
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
-// ValidEnvName reports whether name can be an environment variable.  Exported
+// ValidEnvName reports whether name can be an environment variable. Exported
 // so the CLI can refuse one where it can still name the file and line.
 func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
 // SSH_AUTH_SOCK is here because rebinding it would decide what the child
 // authenticates against, and FARAMIR_ESCALATION_TOKEN because it names the run
-// an escalation is decided about.  SUDO_ASKPASS is reserved defensively: the
+// an escalation is decided about. SUDO_ASKPASS is reserved defensively: the
 // PAM service does not consult it, but pointing sudo's askpass at a helper of
 // the child's own is not something an injected value should do.
 var ReservedEnv = map[string]bool{
@@ -41,12 +41,12 @@ var ReservedEnv = map[string]bool{
 	"SUDO_ASKPASS": true, "FARAMIR_ESCALATION_TOKEN": true,
 }
 
-// Ops is every op this socket accepts.  Exported because each can reach the
+// Ops is every op this socket accepts. Exported because each can reach the
 // audit log, and `faramir logs` renders the op in a fixed-width column held to
 // the widest name here.
 //
 // escalations, approve and escalate are the escalation channel, and the only
-// ops the broker refuses to anything but root.  They are on this socket rather
+// ops the broker refuses to anything but root. They are on this socket rather
 // than one of their own because the check that matters is SO_PEERCRED, which
 // every connection here already carries.
 var Ops = []string{"run", "refs", "redact", "status", "escalations", "approve", "escalate"}
@@ -58,31 +58,31 @@ type Request struct {
 	HasCwd     bool
 	EnvRefs    map[string]string
 	TimeoutSec int
-	// Text is what the redact op scrubs.  Only that op reads it.
+	// Text is what the redact op scrubs. Only that op reads it.
 	Text string
 	// More marks a redact chunk that is not the last of a stream, so the redactor
 	// holds its tail back for the chunk that follows.
 	More bool
 
 	// ID names the escalation question `approve` answers, and Approve is the
-	// answer.  WaitSec is how long `escalations` may block before returning an
+	// answer. WaitSec is how long `escalations` may block before returning an
 	// empty list, so a watcher costs one connection rather than a poll a
 	// second.
 	ID      string
 	Approve bool
 	WaitSec int
 	// AwaitLogID names the run an `escalations` caller approved and is waiting to
-	// hear the end of.  Only that run's outcome is reported back, which is what
+	// hear the end of. Only that run's outcome is reported back, which is what
 	// lets the broker leave the last one filled rather than emptying it when it
 	// is read.
 	AwaitLogID string
-	// Token names the brokered command the `escalate` op asks about.  An
+	// Token names the brokered command the `escalate` op asks about. An
 	// identifier, not a credential: the op that reads it is refused to anything
 	// but root.
 	Token string
 }
 
-// Parse validates a decoded request payload.  One step per field, in the order
+// Parse validates a decoded request payload. One step per field, in the order
 // the errors are worth reading in: what the op is, then what it needs, then
 // what any op may carry.
 func Parse(payload map[string]any) (*Request, error) {
@@ -98,7 +98,7 @@ func Parse(payload map[string]any) (*Request, error) {
 	return req, nil
 }
 
-// parseOp settles which op this is.  Absent means run, which is what a caller
+// parseOp settles which op this is. Absent means run, which is what a caller
 // sending only a command means.
 func parseOp(payload map[string]any, req *Request) error {
 	if raw, ok := payload["op"]; ok && raw != nil {
@@ -114,7 +114,7 @@ func parseOp(payload map[string]any, req *Request) error {
 	return nil
 }
 
-// parseCmd takes the command a run must carry.  Every other op may carry one
+// parseCmd takes the command a run must carry. Every other op may carry one
 // too, it being what the audit record names the request by, and there it is
 // read rather than required.
 func parseCmd(payload map[string]any, req *Request) error {
@@ -301,7 +301,7 @@ func toInt(raw any) (int, bool) {
 // Response is the shape both success and failure share on the wire.
 type Response map[string]any
 
-// ErrorResponse builds the failure shape.  logID may be empty, which encodes as
+// ErrorResponse builds the failure shape. logID may be empty, which encodes as
 // JSON null.
 func ErrorResponse(code, message, logID string) Response {
 	var id any

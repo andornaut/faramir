@@ -3,14 +3,14 @@
 #
 # Doctor is the only thing that answers "is this install still doing its job",
 # and the way to test a detector is to break the host and ask whether it
-# notices.  Every check here injects one fault, reads the verdict, repairs it,
+# notices. Every check here injects one fault, reads the verdict, repairs it,
 # and reads the verdict again: the repair half is what proves the check reads
 # the live state rather than reporting a conclusion it reached some other way.
 #
-# The property that matters most is not that a fault is found.  It is that a
+# The property that matters most is not that a fault is found. It is that a
 # check which could not be made is never reported as ok: an unearned pass on a
 # boundary is worse than a failure, because it is the answer an operator acts
-# on.  D6 puts every fault to a caller that cannot ask.
+# on. D6 puts every fault to a caller that cannot ask.
 #
 # Run as root inside the e2e container.
 set -u
@@ -23,7 +23,7 @@ JSON=/tmp/doc.json
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
 
 # settle puts the host back to a running install and waits for the broker to
-# answer.  Called after any group that stops a unit: a later group reading a
+# answer. Called after any group that stops a unit: a later group reading a
 # half-started host would report the residue as its own finding, which is how a
 # fault-injection suite ends up chasing itself.
 settle() {
@@ -53,7 +53,7 @@ unasked() { jq -r .not_asked $JSON; }
 # probe injects a fault, reads the verdict, repairs, and reads it again.
 #
 # says is an optional extended regex the detail must match while the fault is
-# live.  It has to be asserted here rather than after the call: the repair below
+# live. It has to be asserted here rather than after the call: the repair below
 # re-snapshots, so a caller reading the detail afterwards reads the healed one.
 probe() { # label check want inject repair [says]
   local label=$1 check=$2 want=$3 inject=$4 repair=$5 says=${6:-} got back
@@ -104,7 +104,7 @@ snap; withOp=$(unasked)
 
 # And what the run without one reports, this being a root shell or a cron entry:
 # no SUDO_USER to take the account from, so the checks that ask what an account
-# can reach cannot be put.  Read off the same run as the count above.
+# can reach cannot be put. Read off the same run as the count above.
 [ "$(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON)" = 1 ] \
   && ok "and without one they are one finding, not one apiece" \
   || bad "boundaries reported $(jq -r '[.findings[]|select(.check=="boundaries")]|length' $JSON) findings"
@@ -131,7 +131,7 @@ probe "the age key readable by the agent" "age key" failed \
   "chown $OP $KEY" "chown faramir-keeper $KEY"
 # Not a probe: the writer chmods 0600 on every open (internal/audit), so a log
 # left world-readable is closed again by the next record rather than found by
-# doctor.  What is under test is that self-healing, and that doctor's verdict
+# doctor. What is under test is that self-healing, and that doctor's verdict
 # describes the mode that is there now.
 chmod 0644 $LOG
 runuser -u "$OP" -- /usr/local/bin/faramir run --quiet -C /home/op/project -- /bin/true >/dev/null 2>&1
@@ -143,7 +143,7 @@ snap
   || bad "audit log is [$(st 'audit log')]: $(dt 'audit log')"
 # The directory, not the file: the ciphertext is encrypted to the keeper, and
 # what would let the agent choose a value is replacing the file, which needs
-# write on the directory.  0640 vs 0644 on the file alone changes nothing an
+# write on the directory. 0640 vs 0644 on the file alone changes nothing an
 # attacker can use, and doctor checks the boundary rather than the incidental.
 probe "the secrets directory writable by the agent" "secrets" failed \
   "chmod 0777 /etc/faramir/secrets" "chmod 2750 /etc/faramir/secrets"
@@ -161,10 +161,10 @@ probe "the rotation rule removed" "log rotation" failed \
 probe "an outsider in the client group" "group" warn \
   "useradd -M -N stranger 2>/dev/null; usermod -aG dev stranger" \
   "gpasswd -d stranger dev; userdel stranger"
-# The socket check, put to doctor two ways.  Bare, doctor asks the broker where
+# The socket check, put to doctor two ways. Bare, doctor asks the broker where
 # the install is, and that connection socket-activates the units it is about to
 # examine: the fault is repaired by the examination and the finding describes
-# the host doctor made rather than the one it met.  --config-dir is what stops
+# the host doctor made rather than the one it met. --config-dir is what stops
 # it asking.
 systemctl stop faramir-broker.service faramir-broker.socket faramir-keeper.socket >/dev/null 2>&1
 /usr/local/bin/faramir doctor --agent-user "$OP" --config-dir /etc/faramir --json >$JSON 2>/dev/null
@@ -179,7 +179,7 @@ dt sockets | grep -q 'inactive' && ok "and the finding names the state systemd r
 # Back to a live broker first: the block above left it stopped, which is the
 # other case entirely and would make this one pass without testing it.
 settle || bad "the host did not come back before the reactivation case"
-# The narrow case: the broker socket up, a socket it depends on down.  Doctor
+# The narrow case: the broker socket up, a socket it depends on down. Doctor
 # asks the broker where the install is, that connection activates the chain, and
 # the socket it was about to examine is started by the examination itself.
 systemctl stop faramir-keeper.socket >/dev/null 2>&1
@@ -201,7 +201,7 @@ probe "the sops config removed" "sops config" warn \
 
 # .sops.yaml is 0644, so root can edit it directly, and nothing on that path
 # looks at what was typed: `faramir recipient add` validates a key and a hand
-# edit does not.  An identity written where a recipient belongs is the key that
+# edit does not. An identity written where a recipient belongs is the key that
 # opens the store, readable by every account on this host.
 cp /etc/faramir/.sops.yaml /tmp/sops-baseline.yaml
 probe "an age identity pasted where a recipient belongs" "sops config" failed \
@@ -219,7 +219,7 @@ probe "a rule that reaches no managed file" "rule coverage" failed \
 
 # The keeper named only in the bare `age:` beside a key group is not a reader:
 # sops seals to the groups alone, so every value written from then on is one the
-# broker cannot open.  Reported as the rule drifting off the keeper's key, which
+# broker cannot open. Reported as the rule drifting off the keeper's key, which
 # is what it is.
 probe "the keeper named only in the shorthand sops ignores" "sops config" warn \
   'printf "creation_rules:\n  - path_regex: .*\n    age: %s\n    key_groups:\n      - age:\n          - age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p\n" "$(age-keygen -y /etc/faramir/age.key)" > /etc/faramir/.sops.yaml' \
@@ -252,11 +252,11 @@ snap
 # --------------------------------------------------------------------------
 head_ "4. the broker it is examining"
 
-# A build the broker is not running.  Two binaries is the only honest way to
+# A build the broker is not running. Two binaries is the only honest way to
 # reach this, the version being compiled in.
 if [ -x /opt/faramir/faramir-skew ]; then
   # rename, not copy: the daemons are executing this inode, so writing to it is
-  # ETXTBSY.  Replacing the directory entry is what an upgrade does anyway.
+  # ETXTBSY. Replacing the directory entry is what an upgrade does anyway.
   cp /usr/local/bin/faramir /tmp/faramir.real
   cp /opt/faramir/faramir-skew /tmp/skew && mv /tmp/skew /usr/local/bin/faramir
   chmod 0755 /usr/local/bin/faramir
@@ -280,7 +280,7 @@ probe "the broker socket closed to the client group" "broker socket" failed \
 head_ "5. a value the redactor refused"
 #
 # Under [secret] min_length a value is loaded but never injected and never
-# redacted, so a command that prints it prints it in plaintext.  The broker
+# redacted, so a command that prints it prints it in plaintext. The broker
 # reports this and keeps serving.
 
 snap
@@ -308,7 +308,7 @@ fi
 [ "$(jq -r '.secrets.not_redactable|length' /tmp/chk.json)" -eq 1 ] \
   && ok "with one ref named not redactable" || bad "not_redactable is not the one condition here"
 
-# The consequence an operator meets: init cannot finish on this host.  It is the
+# The consequence an operator meets: init cannot finish on this host. It is the
 # same --check, run as validate, and init rewrites config.toml from its template
 # on the way past, so [secret] min_length cannot be relaxed to get through it.
 out=$(/usr/local/bin/faramir init --agent-user "$OP" 2>&1); code=$?
@@ -323,7 +323,7 @@ grep -q '^min_length = 8' $CFG && ok "(init rewrote config.toml, as it does)" \
 # --------------------------------------------------------------------------
 head_ "6. a check that cannot be made is never ok"
 #
-# The claim the whole report rests on.  Each fault below is real while the
+# The claim the whole report rests on. Each fault below is real while the
 # question is put to a caller that cannot ask it.
 
 asOp() { runuser -u "$OP" -- /usr/local/bin/faramir doctor --json 2>/dev/null > $JSON; }
@@ -357,7 +357,7 @@ snap
   || bad "root reports age key [$(st 'age key')]"
 chmod 0400 $KEY
 
-# runuser is the mechanism every boundary check uses.  Without it they cannot be
+# runuser is the mechanism every boundary check uses. Without it they cannot be
 # asked, and reporting them as holding would be the same unearned pass.
 if [ -x /usr/sbin/runuser ]; then
   mv /usr/sbin/runuser /usr/sbin/runuser.hidden

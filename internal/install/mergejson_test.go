@@ -18,7 +18,7 @@ func decode(t *testing.T, data []byte) map[string]any {
 }
 
 // object and array are one value of a decoded document at the type the test
-// expects.  Checked rather than asserted: a merge that produced another shape
+// expects. Checked rather than asserted: a merge that produced another shape
 // is the failure under test, and it has to read as one rather than as a panic.
 func object(t *testing.T, doc map[string]any, key string) map[string]any {
 	t.Helper()
@@ -91,7 +91,7 @@ func TestMergeJSONReplacesStaleFaramirHook(t *testing.T) {
 	}
 }
 
-// The operator's own hook is not faramir's to remove.  Both run.
+// The operator's own hook is not faramir's to remove. Both run.
 func TestMergeJSONKeepsForeignHook(t *testing.T) {
 	existing := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":` +
 		`[{"type":"command","command":"/usr/local/bin/audit-log"}]}]}}`)

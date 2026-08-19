@@ -12,7 +12,7 @@ import (
 )
 
 // stepAdopted names what this run took from the install it found, before
-// anything is written with it.  Silent on a first install and on one that named
+// anything is written with it. Silent on a first install and on one that named
 // every default.
 func (r *runner) stepAdopted() error {
 	if len(r.adopted) == 0 {
@@ -23,7 +23,7 @@ func (r *runner) stepAdopted() error {
 }
 
 // adoptInstalled fills what the operator did not name from the install this run
-// is about to re-provision, and reports what it took.  config.toml is rendered
+// is about to re-provision, and reports what it took. config.toml is rendered
 // from these values on every run, so a flag left out would revert the install:
 // without --client-group the run rewrites allowed_group and shuts the named
 // group out of the broker socket, and without --ssh-key it mints a key no
@@ -31,9 +31,9 @@ func (r *runner) stepAdopted() error {
 //
 // Each value has one source, the one doctor reads: the accounts from the units'
 // own User=, the client group and the key from the installed config, the
-// secrets group from the directory it owns.  A flag still wins.
+// secrets group from the directory it owns. A flag still wins.
 //
-// A host with no units and no config is the first install.  A config that is
+// A host with no units and no config is the first install. A config that is
 // there and does not load stops the run.
 func (o *Options) adoptInstalled() (took []string, err error) {
 	dir := o.ConfigDir
@@ -68,7 +68,7 @@ func (o *Options) adoptInstalled() (took []string, err error) {
 		keep(role.flag, account, role.fallback)
 	}
 
-	// An absent config is the first install.  One that is there and does not parse
+	// An absent config is the first install. One that is there and does not parse
 	// is a broken install and a reason to stop whether or not this run needed
 	// anything out of it: no daemon can load it either, and writing over it would
 	// replace what says why.
@@ -113,7 +113,7 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 		o.SSHKey = cfg.Ssh.Key
 		keep("--ssh-key", o.SSHKey, filepath.Join(dir, "id_ed25519"))
 	}
-	// The tunables, each kept unless a flag named one.  Zero is the unset signal,
+	// The tunables, each kept unless a flag named one. Zero is the unset signal,
 	// and `faramir init`'s own flags are blanked before they arrive here when the
 	// operator did not type them, which is what makes a bare re-run keep the
 	// install rather than reverting it.
@@ -140,8 +140,8 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 	maps.Copy(env, o.CommandEnv)
 	o.CommandEnv = env
 
-	// The links this file declares.  Adoption in the same sense the others are: a
-	// re-run keeps what the install already has.  Unlike them no flag reaches it,
+	// The links this file declares. Adoption in the same sense the others are: a
+	// re-run keeps what the install already has. Unlike them no flag reaches it,
 	// `faramir link` being what changes the list, and this is what stops a plain
 	// `init` from erasing it.
 	links, err := config.BaseLinks(configFile)

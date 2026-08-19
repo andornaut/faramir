@@ -22,7 +22,7 @@ func writeRules(t *testing.T, rel, body string) string {
 }
 
 // The shapes both kinds of rule file use, read the same way: a list of strings
-// and an object keyed by pattern.  A key whose value is not a verdict is
+// and an object keyed by pattern. A key whose value is not a verdict is
 // configuration rather than a rule, and stays out.
 func TestRuleEntriesReadsBothShapes(t *testing.T) {
 	got, err := ruleEntries([]byte(`{
@@ -160,7 +160,7 @@ func TestTheDriftFindingReportsACleanHome(t *testing.T) {
 	}
 }
 
-// What the drift check is willing to have an opinion about.  It has to cover a
+// What the drift check is willing to have an opinion about. It has to cover a
 // layout faramir has stopped using, the name being the only thing that
 // identifies one: nothing records what earlier versions wrote, and nothing
 // should, a stored list going stale the moment somebody edits the file by hand.

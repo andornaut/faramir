@@ -21,7 +21,7 @@ builds:
     ldflags: ['-s -w -X github.com/andornaut/faramir/internal/version.Version={{.Version}}']
 
 # One archive, holding the one binary plus the README and the licence for
-# whoever unpacks it.  `faramir init` needs only the binary: everything it
+# whoever unpacks it. `faramir init` needs only the binary: everything it
 # writes to a host is embedded in it, and it installs the executable it is
 # running from.
 archives:

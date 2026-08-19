@@ -60,7 +60,7 @@ func TestReadLineAcceptsALineEndedByEOF(t *testing.T) {
 // -- reading a stream of payloads -------------------------------------------
 
 // LineReader keeps whatever a read pulled in past the newline, so successive
-// payloads all arrive.  ReadLine keeps no buffer and drops it, which is why a
+// payloads all arrive. ReadLine keeps no buffer and drops it, which is why a
 // stream uses this rather than calling ReadLine twice.
 func TestALineReaderReturnsEveryPayload(t *testing.T) {
 	reader := NewLineReader(pipeWriting(t, "first\nsecond\nthird\n"), 64)
@@ -121,7 +121,7 @@ func TestAnUnlistedPeerIsRejected(t *testing.T) {
 	}
 }
 
-// allowed_user names an account, and the uid is looked up from the name.  This
+// allowed_user names an account, and the uid is looked up from the name. This
 // is the only spelling left: allowed_uids said the same thing in numbers, which
 // stopped being true the moment an account was renumbered.
 func TestAListedUserIsAllowed(t *testing.T) {

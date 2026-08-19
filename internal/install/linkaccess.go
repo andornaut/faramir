@@ -21,15 +21,15 @@ import (
 //
 // Two grants per link:
 //
-//   - The file becomes the broker's own group and group-readable.  That group
+//   - The file becomes the broker's own group and group-readable. That group
 //     holds one account, for the reason the secrets directory is in a group
 //     holding only the keeper: naming a value is not permission to read the file
 //     it came from.
 //   - The directories above it become the client group, execute only, which is
-//     what sharetree grants for an enrolled tree.  Traversal is not read.
+//     what sharetree grants for an enrolled tree. Traversal is not read.
 //
 // The owner is left alone: the file is the operator's and their tool rewrites
-// it.  Neither grant survives a tool that writes a temp file and renames over
+// it. Neither grant survives a tool that writes a temp file and renames over
 // it, the replacement being created 0600; an ACL is lost the same way.
 // `faramir doctor` asks the broker's own account whether it can still read each
 // file.
@@ -102,8 +102,8 @@ func (r *runner) stepLinkAccess() error {
 
 // LinkSteps is what an install run does about a link and nothing else: write
 // the config that names it, grant the access it needs, and re-render the deny
-// rules that refuse its file.  `faramir link` applies these rather than a whole
-// install.  stepPreconditions is not optional here: it resolves the agents
+// rules that refuse its file. `faramir link` applies these rather than a whole
+// install. stepPreconditions is not optional here: it resolves the agents
 // whose files stepAgentConfig writes, so a list without it writes no deny
 // rule.
 func (r *runner) LinkSteps() []namedStep {
@@ -117,7 +117,7 @@ func (r *runner) LinkSteps() []namedStep {
 }
 
 // keepInstalledGrant takes the sudo arrangement off the installed config so
-// that rewriting config.toml does not remove it.  `init` does the opposite,
+// that rewriting config.toml does not remove it. `init` does the opposite,
 // --allow-sudo being a switch a re-run without takes away; adding a link is not
 // a request to change that, and stepConfig renders the whole file from the
 // layout, so without this a `link add` would drop [escalation] and leave the
@@ -134,10 +134,10 @@ func keepInstalledGrant(opts *Options, configDir string) error {
 
 // AddLink adds one entry and applies everything that follows from it.
 //
-// The order is the point.  The grant comes before the probe, the question being
+// The order is the point. The grant comes before the probe, the question being
 // whether the broker can read the file; the probe comes before the entry is
 // written, a selector that names nothing otherwise leaving the broker refusing
-// every command.  A probe that fails puts the grant back: a file the broker can
+// every command. A probe that fails puts the grant back: a file the broker can
 // read but is not told about is a widening with nothing to show for it.
 func AddLink(opts Options, link config.Link) (Report, error) {
 	if err := config.ValidateLink(link); err != nil {
@@ -202,9 +202,9 @@ func revert(restore func() error, cause error) error {
 	return cause
 }
 
-// RemoveLink drops one entry and re-renders what named it.  It does not narrow
+// RemoveLink drops one entry and re-renders what named it. It does not narrow
 // the file again: it does not know the mode that file had before the grant, so
-// the caller is told what the file is now and what would narrow it.  Removing
+// the caller is told what the file is now and what would narrow it. Removing
 // the entry is what takes the value out of the redactor.
 func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	configFile := filepath.Join(configDirOr(opts.ConfigDir), "config.toml")
@@ -308,7 +308,7 @@ func (r *runner) probeLink(link config.Link) error {
 }
 
 // diagnoseLinkedAccess asks the two questions the grant exists to make true:
-// the broker can read each linked file, and the executor cannot.  Asked as
+// the broker can read each linked file, and the executor cannot. Asked as
 // those accounts rather than worked out from the mode, which is what catches a
 // tool having replaced its own file and taken the group with it.
 //

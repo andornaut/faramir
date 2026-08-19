@@ -71,7 +71,7 @@ func TestARequestedEditorMustExist(t *testing.T) {
 	if _, err := resolveEditor("/nonexistent/editor"); err == nil {
 		t.Error("accepted an editor that is not there")
 	}
-	// A root-owned program in a root-owned directory.  Skipped where the host has
+	// A root-owned program in a root-owned directory. Skipped where the host has
 	// none.
 	installed := ""
 	for _, candidate := range append([]string{"/bin/cat", "/usr/bin/cat"}, editors...) {
@@ -179,7 +179,7 @@ func TestAUnitWithoutTheVariableFallsThrough(t *testing.T) {
 
 // A daemon run from a shell finds the install rather than the compiled-in
 // default, which is what `faramir broker --check` needs on an install that
-// moved.  Under systemd the unit sets FARAMIR_CONFIG and none of this is
+// moved. Under systemd the unit sets FARAMIR_CONFIG and none of this is
 // reached; sudo clears it, which is how the check is run.
 func TestADaemonTakesTheConfigTheUnitNames(t *testing.T) {
 	want := "/home/op/.config/faramir/config.toml"
@@ -198,7 +198,7 @@ func TestADaemonTakesTheConfigTheUnitNames(t *testing.T) {
 
 // The daemons must not ask the broker which config to load: each is a process
 // that may be about to bind that socket, and connecting to it would activate
-// the installed daemon and leave the two contending for the path.  A client
+// the installed daemon and leave the two contending for the path. A client
 // command asks and takes the answer, which is what makes this observable.
 func TestADaemonDoesNotAskTheBroker(t *testing.T) {
 	live := filepath.Join(t.TempDir(), "config.toml")
@@ -218,9 +218,9 @@ func TestADaemonDoesNotAskTheBroker(t *testing.T) {
 	}
 }
 
-// The recipients come out of the sops metadata block, which is cleartext.  sops
+// The recipients come out of the sops metadata block, which is cleartext. sops
 // writes that block in the shape of the file it encrypted, so a managed dotenv
-// or ini file spells the same field with "=" and a flattened key.  Every shape
+// or ini file spells the same field with "=" and a flattened key. Every shape
 // has to be read: an unrecognised one reports "names no age recipient" after the
 // editor has exited, which discards the edit.
 func TestRecipientsOfReadsEverySopsEncoding(t *testing.T) {

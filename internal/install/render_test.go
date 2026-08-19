@@ -28,7 +28,7 @@ func testLayout() Layout {
 	if err != nil {
 		panic(err)
 	}
-	// Each service account's group, named differently from the account.  layout()
+	// Each service account's group, named differently from the account. layout()
 	// defaults each pair to the same string and stepAccounts resolves the real one
 	// before the units render, so a directive taking a group from the *User* field
 	// passes on this host and names the wrong group on one where an adopted
@@ -66,7 +66,7 @@ func unitValues() []string {
 	return out
 }
 
-// supplementaryGroups is a rendered unit's SupplementaryGroups=, or "".  Parsed
+// supplementaryGroups is a rendered unit's SupplementaryGroups=, or "". Parsed
 // rather than grepped: a unit that joins no group says so in a comment naming
 // one.
 func supplementaryGroups(t *testing.T, unit string, layout Layout) string {
@@ -86,7 +86,7 @@ func supplementaryGroups(t *testing.T, unit string, layout Layout) string {
 
 // Two groups with two jobs: the client group in the config the sockets check
 // and the unit that reaches the working tree, the secrets group on the one
-// daemon that opens the ciphertext.  Disagreeing on the first refuses every
+// daemon that opens the ciphertext. Disagreeing on the first refuses every
 // connection; confusing the two hands the file to everyone who can ask for its
 // value.
 func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
@@ -110,7 +110,7 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 	}
 	// The broker joins the executor's group to chown the ssh-agent socket, and
 	// nothing else: it holds every decrypted value already, so read on the
-	// ciphertext would only add files it never decrypts.  Its group, not its
+	// ciphertext would only add files it never decrypts. Its group, not its
 	// name: the two differ wherever an adopted account's primary group is called
 	// something else.
 	if got := supplementaryGroups(t, "faramir-broker.service", layout); got != layout.ExecGroup {
@@ -127,12 +127,12 @@ func TestGroupAgreesAcrossConfigAndUnits(t *testing.T) {
 }
 
 // Every directive naming an account or the config carries the layout's value; a
-// default left in one is a daemon running as a uid nothing created.  Checked
+// default left in one is a daemon running as a uid nothing created. Checked
 // per directive, the units referring to each other by unit name in Requires=
 // and After=.
 //
 // ExecStart too: one binary serves all three roles, so its argument is the only
-// thing that says which a unit starts.  SyslogIdentifier with it, systemd
+// thing that says which a unit starts. SyslogIdentifier with it, systemd
 // deriving that from the executable's name.
 func TestAccountDirectivesUseTheLayout(t *testing.T) {
 	layout := testLayout()
@@ -143,7 +143,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 		{"faramir-broker.service", map[string]string{
 			"User": "br", "Group": "brgrp", "StateDirectory": "br",
 			// The executor's group and nothing else: the broker holds the plaintext and
-			// asks the keeper what changed.  "exgrp" rather than "ex", the account's
+			// asks the keeper what changed. "exgrp" rather than "ex", the account's
 			// group not being assumed to share its name.
 			"SupplementaryGroups": "exgrp",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
@@ -159,7 +159,7 @@ func TestAccountDirectivesUseTheLayout(t *testing.T) {
 		}},
 		{"faramir-exec.service", map[string]string{
 			// Group is the account's own, which is not assumed to be called what the
-			// account is.  StateDirectory is a directory name, so it stays the account's.
+			// account is. StateDirectory is a directory name, so it stays the account's.
 			"User": "ex", "Group": "exgrp", "StateDirectory": "ex",
 			"SupplementaryGroups": "shared",
 			"Environment":         "FARAMIR_CONFIG=/opt/conf/config.toml",
@@ -224,7 +224,7 @@ func TestKeeperCredentialSource(t *testing.T) {
 }
 
 // The keeper runs with the homes taken away, so a config directory in one is
-// absent rather than unreadable unless it is bound back.  One bind covers the
+// absent rather than unreadable unless it is bound back. One bind covers the
 // store and the key too.
 func TestKeeperBinds(t *testing.T) {
 	tests := []struct {
@@ -335,7 +335,7 @@ func TestLayoutValidation(t *testing.T) {
 	}
 }
 
-// The SSH key renders into the base config.  A key minted and absent from the
+// The SSH key renders into the base config. A key minted and absent from the
 // file leaves the broker with an agent holding nothing.
 func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 	layout := testLayout()
@@ -350,7 +350,7 @@ func TestTheSSHKeyRendersIntoTheConfig(t *testing.T) {
 }
 
 // One is minted whether or not --ssh-key was passed, so a host always has a
-// public half to put in an authorized_keys.  Beside the age key: the key
+// public half to put in an authorized_keys. Beside the age key: the key
 // follows the config, so a config in an encrypted home has the private half in
 // there too.
 func TestTheSSHKeyDefaultsBesideTheAgeKey(t *testing.T) {

@@ -14,11 +14,11 @@ import (
 
 // The plugins opencode and Kilo Code load, run, and pi's extension below them.
 // Shipped logic that is not Go, and it fails closed: a syntax error there is
-// every command in the project refusing to run.  Driven through node, skipped
+// every command in the project refusing to run. Driven through node, skipped
 // where it is absent.
 
 // driver imports one plugin, calls its tool.execute.before, and prints what
-// happened.  Which export to call is an argument, the two differing.
+// happened. Which export to call is an argument, the two differing.
 const driver = `
 import { pathToFileURL } from "node:url"
 
@@ -78,7 +78,7 @@ func newPluginRig(t *testing.T, agent, exportKind string) *pluginRig {
 	// reading one from the environment, so a stand-in guard has to be installed
 	// where the rendered file will look for it.
 	//
-	// .mjs: a .js is CommonJS to node without a package.json.  The bytes are the
+	// .mjs: a .js is CommonJS to node without a package.json. The bytes are the
 	// shipped ones otherwise.
 	body, err := renderData("agent/plugin.js.tmpl", pluginData{
 		BinDir:        dir,
@@ -136,7 +136,7 @@ func (r *pluginRig) answers(t *testing.T, reply string) {
 	write(t, r.replyFile, reply, 0o644)
 }
 
-// plugins are the two hosts whose plugin is a shipped file of its own.  Each
+// plugins are the two hosts whose plugin is a shipped file of its own. Each
 // test loops over them itself rather than through a helper, so a failure is
 // reported against the assertion that made it.
 var plugins = []struct{ agent, exportKind string }{
@@ -242,7 +242,7 @@ func TestPluginFailsClosed(t *testing.T) {
 			})
 			t.Run("faramir is not installed", func(t *testing.T) {
 				// The binary itself, not the field: BinDir is rendered into the plugin,
-				// so what it execs is this path whatever the rig says afterwards.  A
+				// so what it execs is this path whatever the rig says afterwards. A
 				// decision it would have obeyed, so the missing binary is the only
 				// reason left for it to refuse.
 				rig.answers(t, `{"decision":"rewrite","tool_input":{"command":"wrapped"}}`)
@@ -275,7 +275,7 @@ func TestPluginIgnoresEveryOtherTool(t *testing.T) {
 }
 
 // pi answers differently in both directions: a refusal is a value returned
-// rather than an exception, and a rewrite mutates the event's own input.  Its
+// rather than an exception, and a rewrite mutates the event's own input. Its
 // extension is a file of its own, so it needs a driver of its own.
 const piDriver = `
 import { pathToFileURL } from "node:url"
@@ -428,7 +428,7 @@ func TestPiExtensionGuardsByShape(t *testing.T) {
 		t.Errorf("a tool this list never named ran a command unguarded: %+v", got)
 	}
 	// A tool carrying no command is not put to the guard, which decides about
-	// commands.  It is still checked against the path rules -- see
+	// commands. It is still checked against the path rules -- see
 	// TestPiExtensionRefusesKeyMaterial -- so the file named here is an ordinary
 	// one: this case is about the guard not being consulted, not about the call
 	// being waved through.
@@ -443,7 +443,7 @@ func TestPiExtensionGuardsByShape(t *testing.T) {
 }
 
 // pi ships no MCP, so the tools the other hosts reach through it are the
-// extension's to register.  Without faramir_run the guard's own refusal
+// extension's to register. Without faramir_run the guard's own refusal
 // dead-ends: it tells the model to use a tool that would not exist.
 func TestPiExtensionRegistersTheTools(t *testing.T) {
 	rig, _ := newPiRig(t)
@@ -480,7 +480,7 @@ func TestPiExtensionRegistersTheTools(t *testing.T) {
 }
 
 // pi has no account-wide rule file, so the deny list the other agents get
-// written into their configs is compiled into this extension instead.  It is
+// written into their configs is compiled into this extension instead. It is
 // applied by shape rather than by tool name, for the same reason the commands
 // are: a file tool whose name this does not know still carries a path.
 func TestPiExtensionRefusesKeyMaterial(t *testing.T) {

@@ -5,12 +5,12 @@ package main
 //
 // `faramir doctor` asks whether an account can read or write a path, and the
 // only honest way to ask is to be that account: access(2) answers for the
-// calling process, and supplementary groups are per-process.  doctor therefore
+// calling process, and supplementary groups are per-process. doctor therefore
 // runs this under `runuser -u ACCOUNT`.
 //
 // faramir's own subcommand rather than the host's `test`: some `test`
 // implementations (uutils) ignore supplementary group membership, which makes
-// every group-based finding wrong in both directions.  It also keeps a shell
+// every group-based finding wrong in both directions. It also keeps a shell
 // out of it, these paths coming from --ssh-key and the config, so argv carries
 // a path with no interpretation.
 
@@ -22,7 +22,7 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// newAccessCmd answers one question about one path.  Internal: it is what
+// newAccessCmd answers one question about one path. Internal: it is what
 // doctor runs as another account.
 func newAccessCmd() *cobra.Command {
 	var (

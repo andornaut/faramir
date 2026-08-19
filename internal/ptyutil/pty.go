@@ -37,7 +37,7 @@ func Open() (master, slave *os.File, err error) {
 	return m, s, nil
 }
 
-// SetWinsize sets the terminal dimensions on fd.  Failure is not fatal.
+// SetWinsize sets the terminal dimensions on fd. Failure is not fatal.
 func SetWinsize(fd uintptr, rows, cols int) {
 	_ = unix.IoctlSetWinsize(int(fd), unix.TIOCSWINSZ, &unix.Winsize{
 		Row: uint16(rows), Col: uint16(cols),

@@ -57,7 +57,7 @@ func TestTheCountsAreReported(t *testing.T) {
 	}
 }
 
-// n/a is its own total.  Folded into the ok count it would read as a host that
+// n/a is its own total. Folded into the ok count it would read as a host that
 // passed a check it never had, which is the reason the status exists.
 func TestNotApplicableIsCountedApartFromAPass(t *testing.T) {
 	var out bytes.Buffer

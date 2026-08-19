@@ -10,7 +10,7 @@ import (
 // The refusal an unadoptable SSH key raises has to name what a repair needs.
 // It compares uid AND gid, so a remedy naming only the owner is one an operator
 // can carry out in full and still be refused, by a message that then reads "X is
-// 0600 broker ... so broker cannot load it".  Both halves for the same reason:
+// 0600 broker ... so broker cannot load it". Both halves for the same reason:
 // the public one is checked too, and a remedy naming the private one leaves the
 // second run failing on the file the first message never mentioned.
 func TestTheSSHKeyRefusalNamesBothHalvesAndTheGroup(t *testing.T) {
@@ -51,7 +51,7 @@ func TestTheSSHKeyRefusalNamesBothHalvesAndTheGroup(t *testing.T) {
 }
 
 // The refusal is printed beside that remedy, so it has to report the same two
-// fields the check compares.  owns() itself stays owner-only: the checks that
+// fields the check compares. owns() itself stays owner-only: the checks that
 // compare it are about 0400 and 0600 files, where no group bit is set.
 func TestOwnsReportsOwnerAndGroup(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "f")
@@ -78,7 +78,7 @@ func TestOwnsReportsOwnerAndGroup(t *testing.T) {
 	}
 }
 
-// The refusal has to come before anything is handed to the new accounts.  A run
+// The refusal has to come before anything is handed to the new accounts. A run
 // that stops at the SSH step has already chowned the age key and the audit log,
 // and written no unit to match: the daemons keep running as the old uids and the
 // host only discovers it at the next restart.
@@ -115,7 +115,7 @@ func TestPreconditionsRunBeforeAnythingIsChowned(t *testing.T) {
 
 // Naming a second config directory does not install beside the first: there is
 // one set of units, so the daemons move and the old directory is left holding
-// its age key and its ciphertext, with its refs no longer redacted.  Refused
+// its age key and its ciphertext, with its refs no longer redacted. Refused
 // unless the run said so.
 func TestAConfigMoveIsRefusedUnlessAskedFor(t *testing.T) {
 	dir := t.TempDir()

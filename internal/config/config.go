@@ -1,4 +1,4 @@
-// Package config loads /etc/faramir/config.toml.  There is no command
+// Package config loads /etc/faramir/config.toml. There is no command
 // allowlist: the broker runs what it is asked to, as a uid that holds nothing,
 // and redacts the output.
 //
@@ -26,26 +26,26 @@ const (
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 )
 
-// The limits no config key reaches.  Variables rather than constants so a test
+// The limits no config key reaches. Variables rather than constants so a test
 // can narrow one to exercise the limit without building a megabyte of output;
 // nothing else assigns them.
 var (
-	// MaxOutputBytes bounds what a brokered command returns.  Not a property of
-	// the host: what it limits is how much text reaches the model.  Truncation is
-	// reported, so the cap is visible when it bites.  256 KiB is roughly 64k
+	// MaxOutputBytes bounds what a brokered command returns. Not a property of
+	// the host: what it limits is how much text reaches the model. Truncation is
+	// reported, so the cap is visible when it bites. 256 KiB is roughly 64k
 	// tokens, which is under the context window it exists to protect.
 	MaxOutputBytes = 256 << 10
 	// MaxRequestBytes is the largest request the broker socket will read, a
 	// guard against a malformed one rather than a size anybody chooses.
 	MaxRequestBytes = 262144
 	// MaxRecordBytes is the largest one audit record's line may be, counted in
-	// the bytes it spends once encoded.  internal/audit excerpts the output and
+	// the bytes it spends once encoded. internal/audit excerpts the output and
 	// cuts every other field to fit, so a long command degrades the record rather
-	// than failing to write one.  Matched to MaxOutputBytes, which is what fills
+	// than failing to write one. Matched to MaxOutputBytes, which is what fills
 	// it; encoding expands what a command wrote, so an output at the cap still
 	// excerpts here.
 	MaxRecordBytes = 256 << 10
-	// TermCols and TermRows are the PTY every child is given.  Cosmetic: they
+	// TermCols and TermRows are the PTY every child is given. Cosmetic: they
 	// decide where a program folds its own output.
 	TermCols = 120
 	TermRows = 40
@@ -55,7 +55,7 @@ var (
 )
 
 // MinRecordBytes is the smallest record limit internal/audit is built to
-// survive, not a value anybody sets.  A record keeps its identity when
+// survive, not a value anybody sets. A record keeps its identity when
 // everything else has been cut away -- the log_id, the op and the caller -- and
 // the reducer is held to producing one at this size, which is what makes it
 // safe at any larger one.
@@ -82,7 +82,7 @@ func DefaultSecret() SecretConfig {
 // DefaultEscalationTimeoutSec is how long a question waits for a human.
 const DefaultEscalationTimeoutSec = 120
 
-// DecryptCommand is how the keeper invokes sops.  Never a config key: the
+// DecryptCommand is how the keeper invokes sops. Never a config key: the
 // account this runs as is the one holding the age key.
 func DecryptCommand() []string {
 	return []string{"sops", "--output-type", "json", "--decrypt", "{file}"}
@@ -90,7 +90,7 @@ func DecryptCommand() []string {
 
 // SecretPatterns is the managed store, derived from where the config sits
 // rather than configured, so it cannot be pointed at a checkout that a clone or
-// a branch could move.  One extension, not the three sops can read: faramir
+// a branch could move. One extension, not the three sops can read: faramir
 // writes the store, and a second spelling would be a second way for a file to
 // be named.
 func SecretPatterns(configPath string) []string {
@@ -234,16 +234,16 @@ const maxInt = int(^uint(0) >> 1)
 
 // ServerConfig describes the broker's own socket, the one an operator reaches.
 // Callers are named by group rather than by uid, a uid list stopping being true
-// the moment an account is renumbered.  One group, `faramir init
+// the moment an account is renumbered. One group, `faramir init
 // --client-group` naming one.
 type ServerConfig struct {
 	SocketPath   string
 	AllowedGroup string
 }
 
-// CommandConfig is what a brokered command is given and what bounds it.  Named
+// CommandConfig is what a brokered command is given and what bounds it. Named
 // for the command rather than for the daemon that forks it, which is not what
-// an operator is deciding when they set a timeout.  No working directory here:
+// an operator is deciding when they set a timeout. No working directory here:
 // a brokered command runs where its caller was.
 type CommandConfig struct {
 	// Env is the child's entire environment; the broker's own is never inherited.
@@ -255,16 +255,16 @@ type CommandConfig struct {
 	// obviously, the idle bound between chunks of a redact stream.
 	MaxTimeoutSec int
 	// Concurrency is how many brokered commands run at once; the rest are refused
-	// busy.  On a host with an escalation grant, raising it makes an escalation
+	// busy. On a host with an escalation grant, raising it makes an escalation
 	// harder to get: a sudo is refused while any other brokered command is in
 	// flight.
 	Concurrency int
 }
 
 // KeeperConfig describes the process that holds the age key: separate uid,
-// separate socket, no operation that returns the key.  AllowedUser names the
+// separate socket, no operation that returns the key. AllowedUser names the
 // broker, one account rather than a list, a second being a second reader of the
-// age key.  No allowed_group, the only group in play holding the agent's own
+// age key. No allowed_group, the only group in play holding the agent's own
 // uid.
 type KeeperConfig struct {
 	SocketPath       string
@@ -273,9 +273,9 @@ type KeeperConfig struct {
 	AgeKeyFile       string
 }
 
-// ExecutorConfig describes the process that forks brokered commands.  Its uid
+// ExecutorConfig describes the process that forks brokered commands. Its uid
 // holds no age key, values, audit log or SSH keys; a child forked by the broker
-// would inherit all four.  No concurrency of its own: the broker is the only
+// would inherit all four. No concurrency of its own: the broker is the only
 // client this socket admits and holds one [command] slot for the whole of each
 // child, so that cap binds first; the executor keeps a fixed backstop.
 type ExecutorConfig struct {
@@ -284,7 +284,7 @@ type ExecutorConfig struct {
 }
 
 // SshConfig is an ssh-agent the broker owns, for a key the executor must not
-// read.  With no Key no agent is started, and SSH authenticates however the
+// read. With no Key no agent is started, and SSH authenticates however the
 // operator arranged it for the executor's uid.
 type SshConfig struct {
 	Key         string
@@ -295,23 +295,23 @@ type SshConfig struct {
 }
 
 // EscalationConfig is how a brokered command becomes root on this host: it does
-// not authenticate, it asks.  With no ExecUser nothing is granted and no
+// not authenticate, it asks. With no ExecUser nothing is granted and no
 // question can be raised, which is the install that never passed --allow-sudo.
 // Everything here but TimeoutSec is init's.
 type EscalationConfig struct {
 	// ExecUser is the account the sudoers entry was written for, and the switch
-	// for the whole arrangement.  The helper checks PAM_USER against it, so a PAM
+	// for the whole arrangement. The helper checks PAM_USER against it, so a PAM
 	// service reached for some other account authenticates nothing.
 	ExecUser string
 	// PamService is the sudoers `pam_service` name, and so the file under
 	// /etc/pam.d that sudo reads for that account alone: a mistake in it reaches
 	// this account and leaves every other sudo untouched.
 	PamService string
-	// Helper is what the PAM service execs.  Named here so --check and doctor can
+	// Helper is what the PAM service execs. Named here so --check and doctor can
 	// say whether it is there and who can write it.
 	Helper string
 	// NotifyCommand announces that a question is waiting, "{prompt}" being the
-	// line the broker builds and "{id}" the question to answer.  Optional and
+	// line the broker builds and "{id}" the question to answer. Optional and
 	// answerless: whatever it runs cannot approve anything.
 	NotifyCommand []string
 	// TimeoutSec is how long a question waits for an answer before it is refused.
@@ -320,23 +320,23 @@ type EscalationConfig struct {
 
 type SecretConfig struct {
 	// Patterns and DecryptCommand are derived rather than configured, filled in
-	// at load so that everything reading them reads one value.  See
+	// at load so that everything reading them reads one value. See
 	// SecretPatterns and DecryptCommand.
 	Patterns       []string
 	DecryptCommand []string
 	// MinRefreshSec is how often the broker asks the keeper whether a managed file
-	// changed.  It does not bound the linked files: the broker stats those on
+	// changed. It does not bound the linked files: the broker stats those on
 	// every request, so a credential another tool has just rotated is in the
 	// redactor at once.
 	MinRefreshSec int
-	// MinLength is the floor a value has to clear to be held at all.  Below it a
+	// MinLength is the floor a value has to clear to be held at all. Below it a
 	// value matches inside ordinary words and the redactor eats the output; above
 	// it a real credential is refused, absent from the redactor, and printed in
-	// the clear.  The second is the direction that leaks, which is why the floor
+	// the clear. The second is the direction that leaks, which is why the floor
 	// is low and the default is not.
 	MinLength int
 	// Links is the secrets read from files the operator's own tools maintain,
-	// each named individually rather than matched by a glob.  See Link.
+	// each named individually rather than matched by a glob. See Link.
 	Links []Link
 }
 
@@ -348,24 +348,24 @@ type SecretConfig struct {
 // the keeper runs with the homes taken away entirely, while the broker already
 // holds every plaintext value and sees the homes to stat a request's cwd.
 //
-// One entry is one ref with one selector.  Flattening a whole file would put
+// One entry is one ref with one selector. Flattening a whole file would put
 // its ordinary strings in the value set, and a registry URL is long enough to
 // clear min_length and common enough to turn unrelated output into tokens.
 type Link struct {
 	// Ref is the name a caller asks by, in the same flat namespace the sops store
-	// uses.  Nothing marks a ref as linked, or moving one into the store later
+	// uses. Nothing marks a ref as linked, or moving one into the store later
 	// would rename it.
 	Ref string `json:"ref"`
-	// Path is the file, absolute.  No "~": a config file has no home to expand.
+	// Path is the file, absolute. No "~": a config file has no home to expand.
 	Path string `json:"path"`
-	// Type is how the file is read.  See internal/secretlink.
+	// Type is how the file is read. See internal/secretlink.
 	Type string `json:"type"`
 	// Key selects one value out of a structured file, and is required for exactly
 	// the types that select.
 	Key string `json:"key,omitempty"`
 }
 
-// AuditConfig is the operator-only record of what the broker ran.  Output is
+// AuditConfig is the operator-only record of what the broker ran. Output is
 // recorded after redaction, so it holds no value.
 type AuditConfig struct {
 	LogPath string
@@ -373,7 +373,7 @@ type AuditConfig struct {
 
 type Config struct {
 	Path string
-	// Every file that contributed, which is one.  Reported by status and
+	// Every file that contributed, which is one. Reported by status and
 	// --check.
 	Sources    []string
 	Server     ServerConfig
@@ -402,14 +402,14 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 	cfg.Path = path
-	// One file, so one source.  A list because that is the shape `status` and
+	// One file, so one source. A list because that is the shape `status` and
 	// `--check` report it in.
 	cfg.Sources = []string{path}
 	return cfg, nil
 }
 
 // Check holds a config to every rule Load applies, from bytes and without
-// touching the filesystem.  The installer renders this file and then replaces
+// touching the filesystem. The installer renders this file and then replaces
 // the one the daemons read, so a value they would refuse has to be caught
 // before the write: afterwards the broker cannot start, and `faramir init`
 // refuses to run against a config it cannot parse.
@@ -423,7 +423,7 @@ func Check(data []byte, path string) error {
 }
 
 // BaseLinks is the links this install declares, for a caller about to rewrite
-// the file.  A file that is not there yields nothing, which is a first
+// the file. A file that is not there yields nothing, which is a first
 // install.
 func BaseLinks(path string) ([]Link, error) {
 	if _, err := os.Stat(path); err != nil {
@@ -460,7 +460,7 @@ func readTOML(path string) (map[string]any, error) {
 
 var (
 	// The daemon sections keep their names: [server], [keeper] and [executor] do
-	// describe faramir's own processes.  The rest are named for what an operator
+	// describe faramir's own processes. The rest are named for what an operator
 	// is deciding.
 	sections = []string{"server", "keeper", "executor", "command", "ssh",
 		"escalation", "secret", "audit"}
@@ -617,7 +617,7 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 
 	// PATH decides which file a bare cmd[0] resolves to, and the broker resolves
 	// it on behalf of a child that runs somewhere else, so a relative component
-	// names two different directories.  Refused at load rather than skipped at
+	// names two different directories. Refused at load rather than skipped at
 	// resolve time: the broker does not start, instead of running a file nobody
 	// named.
 	if out.Env["PATH"] == "" {
@@ -662,13 +662,13 @@ func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
 		return err
 	}
 	// At least 1: zero is what an unset flag looks like, so it cannot also mean
-	// "ask on every request".  A second is indistinguishable from none in
+	// "ask on every request". A second is indistinguishable from none in
 	// practice, and the linked files are not on this clock at all.
 	if out.MinRefreshSec, err = atLeast(sec, "min_refresh_sec", where, out.MinRefreshSec, 1); err != nil {
 		return err
 	}
 	// Six, not one: a shorter value is a matcher for something that occurs in
-	// ordinary text.  The floor is low rather than high because the failures are
+	// ordinary text. The floor is low rather than high because the failures are
 	// not symmetric -- a value refused here is absent from the redactor and
 	// reaches output in the clear, while one matched too eagerly only mangles the
 	// operator's own text.
@@ -678,7 +678,7 @@ func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
 	return nil
 }
 
-// loadLinks validates every [[secret.link]] entry.  Checked at load rather than
+// loadLinks validates every [[secret.link]] entry. Checked at load rather than
 // where the file is read, so a typo stops the daemon rather than surfacing
 // later as a value the redactor turns out not to have.
 func loadLinks(value any, where string) ([]Link, error) {
@@ -848,7 +848,7 @@ func loadEscalation(raw map[string]any, path string, out *EscalationConfig) erro
 		return err
 	}
 	// An announcement naming neither the command nor the question is one nobody
-	// can act on.  Empty is the default, and means the watcher is the only place
+	// can act on. Empty is the default, and means the watcher is the only place
 	// a question shows up.
 	if len(out.NotifyCommand) > 0 && !slices.ContainsFunc(out.NotifyCommand, func(arg string) bool {
 		return strings.Contains(arg, "{prompt}") || strings.Contains(arg, "{id}")
@@ -856,7 +856,7 @@ func loadEscalation(raw map[string]any, path string, out *EscalationConfig) erro
 		return fmt.Errorf("%s: notify_command names neither {prompt} nor {id}, so it "+
 			"would announce that something is waiting without saying what", where)
 	}
-	// 0 would refuse every question the instant it was raised.  See
+	// 0 would refuse every question the instant it was raised. See
 	// MaxSudoTimeoutSec for the ceiling.
 	if out.TimeoutSec, err = intInRange(sec, "timeout_sec", where, out.TimeoutSec,
 		1, MaxSudoTimeoutSec); err != nil {
@@ -867,10 +867,10 @@ func loadEscalation(raw map[string]any, path string, out *EscalationConfig) erro
 	return nil
 }
 
-// MaxSudoTimeoutSec is the longest a question may wait for a human.  The PAM
+// MaxSudoTimeoutSec is the longest a question may wait for a human. The PAM
 // helper's own deadline must outlast any question the broker will hold, or the
 // helper would give up on a question still open and the operator's yes would
-// land on a sudo that had already gone.  The helper cannot read this config --
+// land on a sudo that had already gone. The helper cannot read this config --
 // it runs from PAM with no environment and a fixed argv -- so it derives its
 // deadline from this constant and the two cannot drift.
 //

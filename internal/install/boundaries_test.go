@@ -84,7 +84,7 @@ func TestTheSudoCredentialIsCheckedOnEveryHost(t *testing.T) {
 	}
 }
 
-// Every line is present on a host that granted nothing.  A check whose subject
+// Every line is present on a host that granted nothing. A check whose subject
 // this install does not have reports n/a rather than vanishing: a line that is
 // not there is indistinguishable from one nobody wrote, and one reported ok
 // would claim a stack that gates where there is no stack at all.

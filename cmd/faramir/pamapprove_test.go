@@ -11,7 +11,7 @@ import (
 )
 
 // The PAM helper's exit status is the whole authentication: zero authenticates
-// the sudo, anything else refuses it.  So every check here is about a path that
+// the sudo, anything else refuses it. So every check here is about a path that
 // must NOT return zero, and the socket it would ask is one nothing is listening
 // on: a helper that reached the broker at all would already have got past the
 // guard being tested.
@@ -25,7 +25,7 @@ func pamApprove(t *testing.T, env map[string]string, args ...string) int {
 	return cmdPamApprove(args)
 }
 
-// The helper asks the installed broker and nothing else.  It runs inside the
+// The helper asks the installed broker and nothing else. It runs inside the
 // sudo of the account it decides about, and pam_exec hands the module that
 // account's environment: a socket read from there is one the caller could have
 // bound itself, answering "approved" to everything.
@@ -37,7 +37,7 @@ func TestThePamHelperTakesNoSocketFromTheEnvironment(t *testing.T) {
 	}
 }
 
-// pam_exec runs a module for every stage of the stack it is named in.  This one
+// pam_exec runs a module for every stage of the stack it is named in. This one
 // decides authentication, so a service file that put it on `account` or
 // `session`, where a non-zero status means something else entirely, must not be
 // able to authenticate anything.
@@ -52,7 +52,7 @@ func TestOnlyTheAuthStageDecidesAnything(t *testing.T) {
 	}
 }
 
-// The service is for one account.  A sudoers entry pointing another account's
+// The service is for one account. A sudoers entry pointing another account's
 // sudo at it, or the file being copied to /etc/pam.d/sudo where every account
 // reads it, is a service deciding calls it was not written for.
 func TestTheServiceAuthenticatesOneAccount(t *testing.T) {
@@ -63,7 +63,7 @@ func TestTheServiceAuthenticatesOneAccount(t *testing.T) {
 }
 
 // A sudo that no brokered command is above is somebody typing `sudo` as the
-// executor's account.  There is no run to approve and nobody to ask about, so
+// executor's account. There is no run to approve and nobody to ask about, so
 // it is refused without the broker being contacted at all.
 func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
 	// Nothing to unset: the walk reads this process's ancestors, which are the
@@ -74,9 +74,9 @@ func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
 	}
 }
 
-// An unreachable broker is a refusal, not a pass.  This is the shape of every
+// An unreachable broker is a refusal, not a pass. This is the shape of every
 // failure below the guards: the daemon being down, the socket being gone, the
-// question expiring.  A helper that failed open here would make stopping the
+// question expiring. A helper that failed open here would make stopping the
 // broker the way to sudo.
 //
 // Asked of askBrokerToApprove rather than through cmdPamApprove, which would
@@ -93,7 +93,7 @@ func TestAnUnreachableBrokerRefuses(t *testing.T) {
 }
 
 // Neither a usage error nor a help flag authenticates anything: PAM reads the
-// status, so both have to be non-zero.  The help flag is the trap: the flag
+// status, so both have to be non-zero. The help flag is the trap: the flag
 // parser returns 0 for it, which is success for an ordinary command and an auth
 // pass here, so this helper forces it non-zero.
 func TestNoFlagPathAuthenticates(t *testing.T) {
@@ -138,7 +138,7 @@ func walk(t *testing.T, environ []string) string {
 	command.Env = append([]string{walkProbeEnv + "=1"}, environ...)
 	// stdout only, kept apart from stderr: the probe prints the token to stdout,
 	// and a coverage-instrumented re-exec of the test binary (as CI builds it)
-	// writes "warning: GOCOVERDIR not set" to stderr.  CombinedOutput would fold
+	// writes "warning: GOCOVERDIR not set" to stderr. CombinedOutput would fold
 	// that into the token; here it stays in stderr, reported only if the run fails.
 	var stderr strings.Builder
 	command.Stderr = &stderr
@@ -150,7 +150,7 @@ func walk(t *testing.T, environ []string) string {
 }
 
 // The token is set on the outermost shell and nothing below it carries one, so
-// finding it means the walk crossed the two processes between.  Those are the
+// finding it means the walk crossed the two processes between. Those are the
 // shell and the sudo that sit between a brokered command and this helper.
 func TestTheTokenIsFoundOnAnAncestor(t *testing.T) {
 	got := walk(t, []string{escalation.TokenEnv + "=walked-to-this"})

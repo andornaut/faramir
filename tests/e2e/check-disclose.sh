@@ -1,15 +1,15 @@
 #!/bin/bash
 # What the broker tells the account it exists to keep values from.
 #
-# Every other suite asks whether a value escapes.  This one asks what the agent
+# Every other suite asks whether a value escapes. This one asks what the agent
 # is told when nothing escapes: the names, the counts, the paths, the errors and
-# the refusals.  Those are the answers an agent gets to keep, and each is a
+# the refusals. Those are the answers an agent gets to keep, and each is a
 # choice about what a compromised one learns.
 #
-# The sharpest of them is the list of refs the redactor refused.  Those are
+# The sharpest of them is the list of refs the redactor refused. Those are
 # exactly the values that would arrive in plaintext if they ever reached output,
 # so the protocol keeps that list behind `broker --check` and out of every
-# agent-facing answer.  Whether it stays there is the centre of this suite.
+# agent-facing answer. Whether it stays there is the centre of this suite.
 #
 # Run as root in the e2e container; every probe runs as op.
 set -u
@@ -88,7 +88,7 @@ carries "the agent's own broker --check" "$own"
 # --------------------------------------------------------------------------
 head_ "3. asking for a refused ref"
 #
-# The list is withheld, and a request for one ref answers for that ref.  The
+# The list is withheld, and a request for one ref answers for that ref. The
 # message is written for whoever reads the agent's transcript, and says what to
 # fix; it also confirms the ref exists and is not redactable.
 
@@ -141,7 +141,7 @@ for ref in $refused; do
 done
 
 # There is no status tool: what it answered was which config files loaded, in
-# what order, and what failed to load, and no agent acts on any of it.  Dropping
+# what order, and what failed to load, and no agent acts on any of it. Dropping
 # it narrowed what an agent is told, so being refused it is the assertion.
 out=$(mcp faramir_status '{}')
 grep -qi 'unknown tool' <<<"$out" && ok "no status tool is offered to the agent" \
@@ -181,7 +181,7 @@ head_ "7. a wrong invocation stays off stdout"
 # Only the real binary can answer this: cobra sends usage to stderr while
 # nothing has set its out writer, so an in-process test that captures stdout by
 # setting one pulls the usage block into its own capture and cannot tell a
-# correct routing from a wrong one.  What rests on it is every caller that pipes
+# correct routing from a wrong one. What rests on it is every caller that pipes
 # stdout into a parser: `--json`, and `faramir logs`.
 
 out=$(runuser -u op -- /usr/local/bin/faramir run --not-a-flag 2>/dev/null)
@@ -197,14 +197,14 @@ grep -q 'not-a-flag' <<<"$err" && ok "and named the flag on stderr" \
 head_ "8. an error from below reaches the agent as text"
 #
 # A managed file that will not load puts sops's own words into an error the
-# broker reports.  That text is written by a program reading ciphertext, so it
+# broker reports. That text is written by a program reading ciphertext, so it
 # is the one place arbitrary bytes from the store could travel outward.
 
 printf 'not a sops file at all\n' > /etc/faramir/secrets/broken.sops.yml
 chown root:faramir-keeper /etc/faramir/secrets/broken.sops.yml
 chmod 0640 /etc/faramir/secrets/broken.sops.yml
 # The store is re-read at most every refresh_sec, so the failure reaches status
-# on a later pass rather than this one.  The wait has to clear that interval
+# on a later pass rather than this one. The wait has to clear that interval
 # with margin: a shorter one gives up while the broker is still serving the
 # value set it loaded before the file appeared, and then every suite after this
 # one runs against a broker refusing `no_secrets`.
@@ -214,7 +214,7 @@ st=$(asop status)
 carries "status with a file that will not load" "$st"
 errs=$(jq -r '.secrets.errors[]?' <<<"$st" 2>/dev/null)
 # Whether the broker passes the loader's own words through to the agent is not
-# this suite's claim to make; that they carry no value is.  Recorded either way,
+# this suite's claim to make; that they carry no value is. Recorded either way,
 # so that a change in what the agent is told is visible here.
 if [ -n "$errs" ]; then
   note "status reports the load failure to the agent"

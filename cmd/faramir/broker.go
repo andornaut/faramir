@@ -16,7 +16,7 @@ import (
 )
 
 // brokerFlags is the secrets broker daemon: policy, redaction, the audit log
-// and the SSH keys.  systemd runs it as its own uid, which is the boundary.
+// and the SSH keys. systemd runs it as its own uid, which is the boundary.
 type brokerFlags struct {
 	configPath  string
 	check       bool
@@ -80,7 +80,7 @@ func runBroker(f brokerFlags) int {
 		return code
 	}
 
-	// No gate here: exec and redact refuse per request instead.  Exiting would
+	// No gate here: exec and redact refuse per request instead. Exiting would
 	// take down the process `faramir status` and `doctor` ask.
 	if reason := s.Store.Unreadable(); reason != "" {
 		log.Printf("refusing exec and redact: %s", reason)
@@ -106,7 +106,7 @@ func runBroker(f brokerFlags) int {
 	defer s.Ssh.Stop()
 	// Logged, not fatal: a key the agent does not hold breaks only commands that
 	// reach a managed host, and those fail at the point of use with ssh's own
-	// error.  `--check` and `doctor` both fail on it.  An unset [ssh] key is not
+	// error. `--check` and `doctor` both fail on it. An unset [ssh] key is not
 	// this: Start reports no error.
 	if sshErr != nil {
 		log.Printf("ssh-agent: %v", sshErr)

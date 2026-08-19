@@ -1,7 +1,7 @@
 package install
 
 // The credentials instructions faramir writes into the prose a coding agent
-// reads, at two scopes.  `init` writes the account-wide section into each
+// reads, at two scopes. `init` writes the account-wide section into each
 // agent's home instructions file, the deny rules there holding wherever the
 // agent works and otherwise arriving at the model as a bare refusal;
 // `init-project` writes the fuller section into the tree's.
@@ -17,7 +17,7 @@ import (
 )
 
 // The markers delimiting a section, which is what lets a later run replace what
-// an earlier one wrote.  These files are prose an operator edits and asks
+// an earlier one wrote. These files are prose an operator edits and asks
 // agents to rewrite, so a marker can be tidied out; that case is placeWrap,
 // which finds the section by its own text and puts the markers back.
 const (
@@ -29,7 +29,7 @@ const (
 // kept out of a shared tree for the same reason: see sharetree.Options.Keep.
 const instructionsMode = 0o640
 
-// The files that are left alone.  Returned rather than repaired, so each caller
+// The files that are left alone. Returned rather than repaired, so each caller
 // can name the command that would write the section afresh.
 var (
 	// errHalfMarked is a file carrying one marker without the other.
@@ -46,10 +46,10 @@ type sectionPlacement int
 const (
 	// placeAppend is a file with no block in it, and an empty or missing file.
 	placeAppend sectionPlacement = iota
-	// placeReplace is a file carrying both markers in order.  The span between
+	// placeReplace is a file carrying both markers in order. The span between
 	// them is faramir's to rewrite whatever it now says.
 	placeReplace
-	// placeWrap is a file carrying the section's text and no markers.  Wrapped
+	// placeWrap is a file carrying the section's text and no markers. Wrapped
 	// where it stands rather than appended, an append leaving the file with two
 	// credentials sections.
 	placeWrap
@@ -59,7 +59,7 @@ const (
 	placeRefuse
 	// placeStale is a file with no markers that already carries a credentials
 	// section in words that are not these: an earlier version's, or a copy
-	// something reworded.  placeWrap matches the text exactly and cannot take it,
+	// something reworded. placeWrap matches the text exactly and cannot take it,
 	// and appending would leave two sections contradicting each other, so it is
 	// named and left.
 	placeStale
@@ -88,10 +88,10 @@ func placeSection(current []byte, section string) (sectionPlacement, int, int) {
 }
 
 // carriesAStaleSection reports whether an unmarked file already says what this
-// section says, in words that are not these.  The section's own heading and the
+// section says, in words that are not these. The section's own heading and the
 // tool's name, both: the heading alone is something an operator may write about
 // their own credentials, and the name alone is a file that merely mentions
-// faramir.  Over-reporting costs a warning and one deletion; under-reporting
+// faramir. Over-reporting costs a warning and one deletion; under-reporting
 // costs two sets of instructions contradicting each other.
 func carriesAStaleSection(current []byte, body string) bool {
 	heading, _, ok := strings.Cut(body, "\n")
@@ -133,12 +133,12 @@ func appendSection(current []byte, block string) []byte {
 }
 
 // sectionFile writes section into path between the markers, keeping everything
-// outside them.  head goes before the markers in a file this creates, for an
+// outside them. head goes before the markers in a file this creates, for an
 // agent that loads a file only where it carries one: Antigravity's rules take
-// their activation from frontmatter.  Every error it returns of its own leaves
+// their activation from frontmatter. Every error it returns of its own leaves
 // the file exactly as it was.
 func (f fsys) sectionFile(path, section, head string, uid, gid int, within string) (bool, error) {
-	// The mode for a file this creates.  Not a parameter: there is one kind of
+	// The mode for a file this creates. Not a parameter: there is one kind of
 	// file here, and an existing one keeps its own below.
 	mode := os.FileMode(instructionsMode)
 	// A link followed and the owner checked; see fsys.editedFile.
@@ -150,7 +150,7 @@ func (f fsys) sectionFile(path, section, head string, uid, gid int, within strin
 	if info := spot.info; info != nil {
 		// Its own mode and its own owner: what faramir owns here is the block
 		// between the markers rather than the file, and the block is
-		// documentation.  Sharing is told not to widen the instructions file so
+		// documentation. Sharing is told not to widen the instructions file so
 		// that this command need not narrow it again.
 		mode = info.Mode().Perm()
 		uid, gid = ownerOf(info)
@@ -163,7 +163,7 @@ func (f fsys) sectionFile(path, section, head string, uid, gid int, within strin
 	default:
 		return false, err
 	}
-	// What a file this creates opens with.  Only where there is nothing there, an
+	// What a file this creates opens with. Only where there is nothing there, an
 	// existing file's first line staying its own.
 	if head != "" && len(bytes.TrimSpace(current)) == 0 {
 		current = []byte(head)
@@ -181,7 +181,7 @@ func (f fsys) sectionFile(path, section, head string, uid, gid int, within strin
 }
 
 // sectionProblem is what an operator is told about a file that was left as it
-// is.  One wording per reason for both scopes, and each says what to do rather
+// is. One wording per reason for both scopes, and each says what to do rather
 // than only what happened.
 func sectionProblem(err error, path, command string) string {
 	switch {
@@ -212,7 +212,7 @@ func sectionProblem(err error, path, command string) string {
 }
 
 // outOfDate reports whether an error left the section saying something other
-// than what this version writes.  Every error sectionFile returns of its own is
+// than what this version writes. Every error sectionFile returns of its own is
 // one of these, and each leaves the file exactly as it was.
 //
 // Fatal in both commands: these files carry the policy an agent is held to, and

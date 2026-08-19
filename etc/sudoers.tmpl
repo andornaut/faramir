@@ -1,18 +1,18 @@
 # {{.SudoersFile}}: what a brokered command may sudo to.
 #
-# Written by `faramir init --allow-sudo` and REWRITTEN BY EVERY RUN.  Re-running
+# Written by `faramir init --allow-sudo` and REWRITTEN BY EVERY RUN. Re-running
 # init without --allow-sudo removes this file: the grant is the one place the
 # executor's reach grows, so taking it away is a re-run rather than an edit.
 #
-# {{.ExecUser}} is the uid every brokered command runs as.  It gets full sudo
+# {{.ExecUser}} is the uid every brokered command runs as. It gets full sudo
 # and an authentication step it cannot satisfy by itself: pam_service below
 # points sudo at {{.PamFile}}, whose auth step asks the broker whether a human
-# approved the command making the call.  No password exists to be typed,
+# approved the command making the call. No password exists to be typed,
 # stored or stolen.
 #
-# NOT NOPASSWD, and that is the whole design.  NOPASSWD skips PAM entirely, so
+# NOT NOPASSWD, and that is the whole design. NOPASSWD skips PAM entirely, so
 # the question would never be asked and anything running as this uid would be
-# root for the asking.  The PASSWD tag is what makes sudo authenticate, and
+# root for the asking. The PASSWD tag is what makes sudo authenticate, and
 # authenticating is what reaches the broker.
 #
 # pam_service is what keeps a mistake here from reaching anybody else: every
@@ -20,7 +20,7 @@
 # touches.
 #
 # timestamp_timeout=0 turns off sudo's credential cache, leaving the broker to
-# decide what an approval covers.  It scopes one to the brokered command the
+# decide what an approval covers. It scopes one to the brokered command the
 # human was shown: every `sudo` that one run makes, and nothing after it ends.
 # sudo's timestamp would instead scope it to the next fifteen minutes, which
 # anything starting a command inside that window could ride.

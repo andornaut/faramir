@@ -48,7 +48,7 @@ func TestTheRuleRecipientsAreReadInOrder(t *testing.T) {
 }
 
 // Two rules mean the recipients depend on which path_regex a file matches, and
-// this cannot answer that.  Refused rather than guessed: a guess re-encrypts
+// this cannot answer that. Refused rather than guessed: a guess re-encrypts
 // part of the secrets directory to a set that never governed it, which widens
 // who can read it.
 //
@@ -96,7 +96,7 @@ func TestAShamirSplitIsRefused(t *testing.T) {
 
 // A rule carrying both spellings seals to its key groups and to nobody else,
 // which is what sops does with one: the `age` shorthand is read only where there
-// are no groups.  Reading both would re-encrypt the secrets directory to a key
+// are no groups. Reading both would re-encrypt the secrets directory to a key
 // the rule does not grant, and a hand-edited `age:` left behind after the
 // installer wrote key_groups is exactly how a file comes to carry both.
 func TestKeyGroupsWinOverTheAgeShorthand(t *testing.T) {

@@ -20,35 +20,35 @@ import (
 	"syscall"
 )
 
-// Options is one run.  Group is both what the tree is shared with and what is
+// Options is one run. Group is both what the tree is shared with and what is
 // granted traversal.
 type Options struct {
 	Dir      string
 	Operator string
 	Group    string
 	// Keep names paths, relative to Dir, whose mode is not to be widened: the
-	// files an enrolment writes into the tree.  They are still regrouped, so the
+	// files an enrolment writes into the tree. They are still regrouped, so the
 	// group can read them at the mode their writer chose; what they must not
 	// become is group-writable.
 	//
 	// That stops a write through the file and not a replacement of it, unlink and
-	// rename being permissions on the directory.  The directory each sits in is
+	// rename being permissions on the directory. The directory each sits in is
 	// made sticky for that reason; see stickyDirs, and what it leaves open at the
 	// tree's root.
 	//
 	// This narrows what a shared tree grants rather than bounding it: the
 	// invariant the install rests on is that no instruction the agent is given
-	// can move a secret.  `faramir doctor` reports a tree whose agent files
+	// can move a secret. `faramir doctor` reports a tree whose agent files
 	// stopped carrying what the enrolment wrote.
 	Keep []string
 	// Log receives one line per step, already formatted.
 	Log func(string)
 }
 
-// Resolve is the absolute, symlink-free path of a directory to share.  Chmod
+// Resolve is the absolute, symlink-free path of a directory to share. Chmod
 // and Chown follow a symlink while WalkDir does not, so a symlinked argument
 // would rewrite the mode and group of whatever it points at, share none of the
-// files under it, and report success.  Refusals compare against this too.
+// files under it, and report success. Refusals compare against this too.
 func Resolve(dir string) (string, error) {
 	absolute, err := filepath.Abs(dir)
 	if err != nil {
@@ -168,7 +168,7 @@ func (o Options) logf(format string, args ...any) {
 }
 
 // resolvedHome is the account's home with symlinks taken out, to compare
-// against a tree resolved the same way.  Empty when passwd names no home, or
+// against a tree resolved the same way. Empty when passwd names no home, or
 // one that is not there.
 func resolvedHome(owner *user.User) string {
 	if owner.HomeDir == "" {
@@ -193,7 +193,7 @@ func within(home, dir string) bool {
 // Each operation goes through an os.Root rather than through the walked path:
 // this runs as root over a tree the agent's uid can write, so between the walk
 // seeing an entry and the mode being set that uid can replace it with a
-// symlink, and os.Chmod follows one, Linux having no lchmod.  Under an os.Root
+// symlink, and os.Chmod follows one, Linux having no lchmod. Under an os.Root
 // a name resolving outside the tree is refused instead.
 //
 // os.Lchown is already symlink-safe; it is inside the root for the confinement
@@ -247,15 +247,15 @@ func shareTree(root string, gid int, keep, sticky map[string]bool) (int, error) 
 }
 
 // stickyDirs are the directories under the tree that hold a file an enrolment
-// wrote, and so get the sticky bit.  Sharing gives the client group rwx on
+// wrote, and so get the sticky bit. Sharing gives the client group rwx on
 // every directory, and unlink and rename are permissions on the directory, so
 // without this a brokered command can delete .claude/settings.json and put its
-// own there whatever the file's mode.  Sticky restricts unlink and rename to
+// own there whatever the file's mode. Sticky restricts unlink and rename to
 // the file's owner.
 //
 // The tree's own root is deliberately not among them: sticky there would stop a
 // brokered command renaming over any operator-owned file at the top level,
-// which is what a tool rewriting a lock file by rename does.  The cost is that
+// which is what a tool rewriting a lock file by rename does. The cost is that
 // a brokered command can move .claude aside and put its own directory there, so
 // this narrows the window rather than closing it; `faramir doctor` reports a
 // tree whose agent files no longer carry what the enrolment wrote.
@@ -278,7 +278,7 @@ func stickyIf(mode os.FileMode, yes bool) os.FileMode {
 }
 
 // chmodBits are the bits Chmod actually applies: the permissions, setuid,
-// setgid and sticky.  Whole modes would count ModeDir as a difference and call
+// setgid and sticky. Whole modes would count ModeDir as a difference and call
 // every run a change; the permissions alone would miss a setuid or sticky bit
 // the chmod is about to clear.
 func chmodBits(mode os.FileMode) os.FileMode {
@@ -286,8 +286,8 @@ func chmodBits(mode os.FileMode) os.FileMode {
 }
 
 // wouldRegroup and wouldReown report whether a chown to this id alters the
-// path.  A missing Stat_t answers "yes": over-reporting a change costs a report
-// line, and under-reporting says a tree was left alone when it was not.  A
+// path. A missing Stat_t answers "yes": over-reporting a change costs a report
+// line, and under-reporting says a tree was left alone when it was not. A
 // negative id is chown's "leave this as it is".
 func wouldRegroup(info os.FileInfo, gid int) bool {
 	if gid < 0 {
@@ -305,9 +305,9 @@ func wouldReown(info os.FileInfo, uid int) bool {
 	return !ok || int(st.Uid) != uid
 }
 
-// groupShared is "chmod g+rwX", plus setgid on a directory.  The X is why this
+// groupShared is "chmod g+rwX", plus setgid on a directory. The X is why this
 // is not a constant: a directory needs group execute to be entered, a file only
-// when it was already executable for somebody.  setgid is what makes it hold, a
+// when it was already executable for somebody. setgid is what makes it hold, a
 // file either party creates inheriting the group.
 func groupShared(mode os.FileMode) os.FileMode {
 	out := mode | 0o060
@@ -338,8 +338,8 @@ func components(home, dir string) []string {
 }
 
 // grantTraversal makes every directory from the home down to the tree enterable
-// by the shared group.  Execute only, never read, so these uids pass through
-// without listing.  Not "chmod o+x", which grants the same to every account on
+// by the shared group. Execute only, never read, so these uids pass through
+// without listing. Not "chmod o+x", which grants the same to every account on
 // the machine.
 func grantTraversal(home, dir string, opts Options, gid int) (int, error) {
 	// Walked through descriptors rather than by path, as shareTree walks the tree:
@@ -421,7 +421,7 @@ func grantTraversal(home, dir string, opts Options, gid int) (int, error) {
 
 // traversalMode is what one directory on the path is chmodded to: group execute
 // added, and on a regroup the group's read and write dropped first, those bits
-// having belonged to the previous group.  The owner's own bits are never
+// having belonged to the previous group. The owner's own bits are never
 // touched.
 func traversalMode(mode os.FileMode, regrouped bool) os.FileMode {
 	if regrouped {
@@ -441,7 +441,7 @@ const (
 // traversalAction decides what one directory on the path needs.
 func traversalAction(info os.FileInfo, gid int) (traversal, error) {
 	mode := info.Mode().Perm()
-	// Already open to everyone.  Tightening a directory the operator left open is
+	// Already open to everyone. Tightening a directory the operator left open is
 	// not this command's business.
 	if mode&0o001 != 0 {
 		return leaveAlone, nil

@@ -1,7 +1,7 @@
 package install
 
-// Enrolling one project, as against provisioning the host.  `init` runs once
-// per machine; this runs once per tree.  That is also what makes the working
+// Enrolling one project, as against provisioning the host. `init` runs once
+// per machine; this runs once per tree. That is also what makes the working
 // directory safe to default to here and unsafe there.
 
 import (
@@ -23,25 +23,25 @@ var agentInstructionFiles = []string{"AGENTS.md", "CLAUDE.md"}
 
 // ProjectOptions is one enrolment.
 type ProjectOptions struct {
-	// Dir is the tree to enrol.  Defaults to the working directory.
+	// Dir is the tree to enrol. Defaults to the working directory.
 	Dir string
 	// Operator owns the tree and keeps owning it; this grants group access for the
 	// executor's uid.
 	AgentUser string
-	// ConfigDir is where the client group is learned.  A flag could disagree with
+	// ConfigDir is where the client group is learned. A flag could disagree with
 	// what the sockets admit, leaving a tree the executor cannot enter.
 	ConfigDir string
 	// ClientGroup overrides the group read from the config, for a tree being
 	// enrolled against an install that is not on this machine: a checkout on
 	// shared storage, or one prepared before its host is provisioned.
 	//
-	// Not a way around a config that will not load.  This runs as root and the
+	// Not a way around a config that will not load. This runs as root and the
 	// config is 0644, so a load fails only because faramir was never installed
 	// here, the config is elsewhere, or the path given is wrong, each of which is
 	// an error naming its own fix.
 	ClientGroup string
-	// Agents names which coding agents to enrol.  Empty means AgentAuto:
-	// whichever agents this tree already carries configuration for.  A name
+	// Agents names which coding agents to enrol. Empty means AgentAuto:
+	// whichever agents this tree already carries configuration for. A name
 	// enrols that agent whether or not it is there, and composes with auto.
 	Agents []string
 	DryRun bool
@@ -74,7 +74,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		return ProjectReport{}, fmt.Errorf("no directory at %s", named)
 	}
 	// Symlinks out before anything is decided: sharing follows a link with its
-	// chmod and chown and not with its walk.  See sharetree.Resolve.
+	// chmod and chown and not with its walk. See sharetree.Resolve.
 	dir, err := sharetree.Resolve(named)
 	if err != nil {
 		return ProjectReport{}, fmt.Errorf("resolving %s: %w", named, err)
@@ -110,7 +110,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 		}
 	}
 	// Recorded last: `doctor` reads this rather than guessing which agents are in
-	// use from what is in a home.  Not fatal, the enrolment having succeeded.
+	// use from what is in a home. Not fatal, the enrolment having succeeded.
 	if !opts.DryRun {
 		names := make([]string, 0, len(run.targets))
 		for _, target := range run.targets {
@@ -126,10 +126,10 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	return run.report, nil
 }
 
-// steps is the order an enrolment is applied in.  shareTree walks the tree
+// steps is the order an enrolment is applied in. shareTree walks the tree
 // chowning and chmodding every file in it and nothing undoes that, so
 // everything else runs after the irreversible part and every refusal belongs in
-// preflight.  The share goes first because what follows writes into the tree,
+// preflight. The share goes first because what follows writes into the tree,
 // and a file written before the walk is one the walk then regroups.
 func (p *project) steps() []namedStep {
 	return []namedStep{
@@ -156,7 +156,7 @@ func (p *project) preflight() error {
 	if err := refuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
 		return err
 	}
-	// auto looks at the tree, enrolling costing something here.  Resolved before
+	// auto looks at the tree, enrolling costing something here. Resolved before
 	// anything is written, so an unknown name stops the run before the tree's
 	// ownership changes.
 	targets, err := resolveAgents(p.opts.Agents, scopeTree, p.opts.Dir)
@@ -195,9 +195,9 @@ func (p *project) refuseUnwritableFiles() error {
 }
 
 // refuseUnenterableDirs asks, of every directory these files sit in, the
-// question creating it will ask: see fsys.ensureDirsIn.  A component that is a
+// question creating it will ask: see fsys.ensureDirsIn. A component that is a
 // symlink is a directory this would make outside the tree, which
-// refuseUnwritable cannot answer for while the parent does not exist.  Asked in
+// refuseUnwritable cannot answer for while the parent does not exist. Asked in
 // a dry run, so the answer arrives before the share.
 func (p *project) refuseUnenterableDirs(paths []string) []string {
 	var refused []string
@@ -213,7 +213,7 @@ func (p *project) refuseUnenterableDirs(paths []string) []string {
 }
 
 // resolveIDs turns the operator and the client group into ids, before anything
-// is written with them.  A dry run is allowed to fail here and carry on, so a
+// is written with them. A dry run is allowed to fail here and carry on, so a
 // tree can be asked about on a host that has not been provisioned yet: the ids
 // stay keep, and nothing a dry run reaches writes.
 func (p *project) resolveIDs() error {
@@ -236,7 +236,7 @@ func (p *project) resolveIDs() error {
 }
 
 // warnMissingBinary says so when the binary every agent's hook and plugin is
-// about to be pointed at is not installed.  Warned rather than refused:
+// about to be pointed at is not installed. Warned rather than refused:
 // --client-group enrols a tree for an install that need not be on this machine.
 // On the host that runs it the hook and the plugins fail closed, refusing every
 // command in the project rather than running one unredacted.
@@ -251,10 +251,10 @@ func (p *project) warnMissingBinary(binary string) {
 }
 
 // refuseOversharing stops an enrolment that would share far more than a
-// project.  Sharing grants the client group read and write on every file in the
+// project. Sharing grants the client group read and write on every file in the
 // tree, and faramir-exec is in that group: for a home that is ~/.ssh,
 // ~/.config/sops/age/keys.txt, and group write on the shell configuration that
-// decides what the operator's next login runs.  Refused rather than warned
+// decides what the operator's next login runs. Refused rather than warned
 // about, the walk not being reversible.
 func refuseOversharing(dir, operator string) error {
 	tooBig := func(what string) error {
@@ -273,7 +273,7 @@ func refuseOversharing(dir, operator string) error {
 		return tooBig("a home directory")
 	}
 	// The account's own home as passwd records it, which catches one outside
-	// /home and /root.  Resolved, because dir is.  An unknown account fails later
+	// /home and /root. Resolved, because dir is. An unknown account fails later
 	// in shareTree, with the error that names it.
 	if entry, err := user.Lookup(operator); err == nil && entry.HomeDir != "" {
 		home, err := sharetree.Resolve(entry.HomeDir)
@@ -305,7 +305,7 @@ type project struct {
 	gid    int
 	// allowSudo is whether this host was installed with --allow-sudo, read off
 	// the config beside the client group, and decides one paragraph of the
-	// credentials section.  False for an enrolment that named --client-group and
+	// credentials section. False for an enrolment that named --client-group and
 	// so never read a config: the section then says nothing about escalations,
 	// which is the safe direction.
 	allowSudo bool
@@ -328,7 +328,7 @@ func (p *project) warnf(format string, args ...any) {
 
 // resolveGroup reads the shared group out of the installed config.
 // allowed_group is what the broker socket admits, so it is the only value that
-// makes a shared tree usable.  The sudo grant is read from the same load,
+// makes a shared tree usable. The sudo grant is read from the same load,
 // [escalation] exec_user being the switch for the whole arrangement.
 func (p *project) resolveGroup() error {
 	configFile := filepath.Join(p.opts.ConfigDir, "config.toml")
@@ -336,7 +336,7 @@ func (p *project) resolveGroup() error {
 	if p.opts.ClientGroup != "" {
 		p.report.ClientGroup = p.opts.ClientGroup
 		// The flag names an install this machine need not have, so an unreadable
-		// config is not an error here.  It does mean nothing else may be taken from
+		// config is not an error here. It does mean nothing else may be taken from
 		// this host's config: the grant is trusted only where the config loads and
 		// admits the group just named, which is what says the two are one
 		// install.
@@ -360,7 +360,7 @@ func (p *project) resolveGroup() error {
 }
 
 // warnMissingAccountRules says so when an agent's account-wide deny rules are
-// not in the agent account's home.  Enrolling a tree writes the per-project
+// not in the agent account's home. Enrolling a tree writes the per-project
 // hook; the rules that hold wherever the agent works are written by `faramir
 // init --agent`.
 func warnMissingAccountRules(p *project, target *agentTarget) {
@@ -399,7 +399,7 @@ func agentHomeFor(name string) (string, error) {
 }
 
 // pluginData is what an agent plugin's template is rendered against: the binary
-// it execs, which agent it speaks to, and the path it is written to.  Not the
+// it execs, which agent it speaks to, and the path it is written to. Not the
 // install Layout, none of the last two being install-wide.
 type pluginData struct {
 	BinDir        string
@@ -407,7 +407,7 @@ type pluginData struct {
 	Path          string
 	DefaultExport bool
 	// Dirs is this install's own directories, for a plugin that carries the path
-	// rules itself rather than writing them into a config the agent reads.  Taken
+	// rules itself rather than writing them into a config the agent reads. Taken
 	// from the enrolment's --config-dir, so a store moved into a home is the one
 	// refused rather than the default.
 	Dirs []string
@@ -433,7 +433,7 @@ func assetFor(target *agentTarget, file agentFile, configDir string) ([]byte, er
 }
 
 // keepModes is every path this enrolment writes, so sharing does not widen a
-// mode this command then narrows again.  Relative to the tree, which is how
+// mode this command then narrows again. Relative to the tree, which is how
 // sharetree matches them.
 func (p *project) keepModes() []string {
 	keep := []string{}
@@ -480,13 +480,13 @@ func (p *project) shareTree() error {
 	return nil
 }
 
-// agentConfig writes each enrolled agent's configuration into the tree.  What
+// agentConfig writes each enrolled agent's configuration into the tree. What
 // the hook costs differs by agent, Claude Code being the only one with an
 // escalation to give, so the warning below names the agent it just enrolled.
 func (p *project) agentConfig() error {
 	if len(p.targets) == 0 {
 		// The tree is shared and the instructions are written either way; what is
-		// missing is the hook, and with it the redaction.  Said rather than passed
+		// missing is the hook, and with it the redaction. Said rather than passed
 		// over, an enrolment that configured nothing reading as done.
 		p.step("agent config", false, fmt.Sprintf(
 			"no coding agent is configured in %s, so nothing was registered and "+
@@ -560,7 +560,7 @@ func (p *project) agentConfig() error {
 
 // instructions writes the credentials section into the files this project's
 // agents read as prose, between markers so a later run replaces what an earlier
-// one wrote.  Documentation, not enforcement: deleting the block changes
+// one wrote. Documentation, not enforcement: deleting the block changes
 // nothing about what is reachable.
 func (p *project) instructions() error {
 	// One block for every agent, rendered once.
@@ -588,7 +588,7 @@ func (p *project) writeSections(section string) (bool, []string, []string, error
 	var written, stale []string
 	for _, file := range p.instructionsFiles() {
 		// Shared and setgid at every level, as the walk leaves the rest of the
-		// tree: see agentConfig and ensureDirs.  An agent whose rules file sits
+		// tree: see agentConfig and ensureDirs. An agent whose rules file sits
 		// under a directory none of its config files do -- antigravity's
 		// .agents/rules -- has this as the only thing that creates it.
 		if err := p.fs.ensureDirsIn(p.opts.Dir, filepath.Dir(file.path),
@@ -616,7 +616,7 @@ func (p *project) writeSections(section string) (bool, []string, []string, error
 
 // instructionsFiles are the files this enrolment writes the credentials section
 // into: the tree's own, and one per agent that reads none of the names at the
-// tree's root.  Absolute, and in a fixed order.
+// tree's root. Absolute, and in a fixed order.
 func (p *project) instructionsFiles() []sectionTarget {
 	out := []sectionTarget{{path: p.instructionsFile()}}
 	for _, target := range p.targets {
@@ -644,7 +644,7 @@ func (p *project) relativeInstructions() ([]string, error) {
 }
 
 // sectionTarget is one file the section goes into, with what heads it where
-// this creates it.  See fsys.sectionFile.
+// this creates it. See fsys.sectionFile.
 type sectionTarget struct {
 	path string
 	head string
@@ -668,7 +668,7 @@ func (p *project) instructionsFile() string { return treeInstructionsFile(p.opts
 
 // treeInstructionsFile is the file a tree carries the credentials section in:
 // the first name an agent reads that is already there, and the first name when
-// none is.  Answered from the tree alone, so `doctor` can ask about a tree it
+// none is. Answered from the tree alone, so `doctor` can ask about a tree it
 // did not enrol.
 func treeInstructionsFile(dir string) string {
 	for _, name := range agentInstructionFiles {

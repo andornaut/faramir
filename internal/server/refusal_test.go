@@ -31,7 +31,7 @@ func records(t *testing.T, s *Server) []map[string]any {
 }
 
 // A refusal hands the caller a log_id, and `faramir mcp` passes it to the model
-// as something the operator can look up.  An id naming no record sends somebody
+// as something the operator can look up. An id naming no record sends somebody
 // to look up nothing, and it is the same question the log answers for every
 // other outcome: why did this not run.
 func TestEveryRefusalWithALogIDIsRecorded(t *testing.T) {
@@ -139,7 +139,7 @@ func TestARefusalCarriesNoValue(t *testing.T) {
 	const value = "hunter2-correct-horse"
 	s := newServer(t, map[string]string{"db/password": value})
 	// The cwd is echoed back in the message, so a value there is the way one
-	// reaches the text at all.  Under a directory this test made, because a
+	// reaches the text at all. Under a directory this test made, because a
 	// path that merely looks absent may exist and be unreadable, which the
 	// broker deliberately leaves to the executor rather than refusing.
 	missing := filepath.Join(t.TempDir(), value)

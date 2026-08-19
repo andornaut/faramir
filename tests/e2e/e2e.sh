@@ -1,5 +1,5 @@
 #!/bin/bash
-# Driver for the end-to-end suites.  Run from this directory.
+# Driver for the end-to-end suites. Run from this directory.
 #
 #   ./e2e.sh fetch         download the third-party binaries the image installs
 #   ./e2e.sh up            build the binary and image, start the container, bootstrap
@@ -11,20 +11,20 @@
 # `up` is safe to re-run: it rebuilds the binary from the current tree and
 # re-bootstraps, which is idempotent.
 #
-# `run` is single-shot.  The suites mutate the shared install (secrets are
+# `run` is single-shot. The suites mutate the shared install (secrets are
 # rotated, a sudo grant is installed, the last suite uninstalls the host), so a
 # second `run` without `up` measures the leftovers of the first and reports
-# failures that are not regressions.  `run` warns when the box is already dirty;
+# failures that are not regressions. `run` warns when the box is already dirty;
 # `up` is the clean baseline.
 #
 # Naming suites is the same hazard from the other side: each leaves what the
 # later ones examine, so a set that is not a prefix of SUITES is measured against
-# a box its predecessors never set up.  `run` warns about that too, and the way
+# a box its predecessors never set up. `run` warns about that too, and the way
 # back from either is `up` and then a whole run.
 #
 # sops, age and age-keygen must be present beside this script: the image has no
 # network, so they are copied into the build context rather than fetched inside
-# it.  `fetch` puts them there.  See README.md.
+# it. `fetch` puts them there. See README.md.
 set -eu
 
 NAME=faramir-e2e
@@ -44,7 +44,7 @@ SUITES=(init project config disclose plugin guard wrap leak stream mcp exec logs
 #
 # The digest is the point rather than a formality: these are what the suites
 # decrypt and generate keys with, so a run that says a release is fit to ship
-# says it about a tool named here.  Bumping one means changing its digest too,
+# says it about a tool named here. Bumping one means changing its digest too,
 # which `fetch` prints when it refuses.
 SOPS_VERSION=3.13.3
 SOPS_SHA256=e5bec3346a873ae91d871550f3e698c1aad962aff462a080e40f25fde17fef6b
@@ -57,7 +57,7 @@ running() { [ "$(docker inspect -f '{{.State.Running}}' $NAME 2>/dev/null)" = tr
 
 # build_skew produces a second binary reporting a version the first one does
 # not, which is what the doctor suite swaps in to make the broker and the CLI
-# disagree.  The version is a linker variable, so a stamp is the whole job and
+# disagree. The version is a linker variable, so a stamp is the whole job and
 # the tree is never edited to build it.
 build_skew() {
   ( cd "$REPO" && go build \
@@ -86,7 +86,7 @@ pinned_digest() {
 # three by hand and there is nothing here to check them against.
 pins_apply() { [ "$(uname -m)" = x86_64 ]; }
 
-# verified puts a downloaded file in place, and only the one pinned above.  A
+# verified puts a downloaded file in place, and only the one pinned above. A
 # digest that does not match is a different binary whatever the reason, and the
 # rig that decides whether a secrets broker ships is not where to find out which.
 verified() { # src, dest, sha256
@@ -97,7 +97,7 @@ verified() { # src, dest, sha256
 }
 
 # check_pinned holds a file that is already here to the same digest a download
-# would have been held to.  Without it the pin covers only the run that fetched:
+# would have been held to. Without it the pin covers only the run that fetched:
 # a version bump would leave the old binary in place, `fetch` would report it as
 # already here, and the image would be built from a tool the pin says was not
 # used.
@@ -119,7 +119,7 @@ needs_download() {
   printf '%s' "$out"
 }
 
-# cmd_fetch downloads what `up` refuses to build without.  What is already
+# cmd_fetch downloads what `up` refuses to build without. What is already
 # beside the script is checked against the pin rather than downloaded again, so
 # this is safe to run before every up; delete a file to replace it, which is
 # also how a version bump is applied.
@@ -214,7 +214,7 @@ cmd_up() {
 
 # wire_managed_host is the part no container can do for itself: the broker's
 # public key into the managed host's authorized_keys, and the managed host's
-# host key into the file the executor verifies against.  Both directions, or a
+# host key into the file the executor verifies against. Both directions, or a
 # brokered ssh fails and the suite cannot tell "the relay is broken" from "these
 # two hosts were never introduced".
 wire_managed_host() {
@@ -244,7 +244,7 @@ cmd_cp() { for f in "$@"; do docker cp "$HERE/$f" $NAME:/root/; done; }
 cmd_run() {
   running || die "the container is not up; run ./e2e.sh up"
   # The suites are single-shot: they mutate the shared install, so a run against
-  # a box a previous run already touched measures leftovers.  `up` stamps a
+  # a box a previous run already touched measures leftovers. `up` stamps a
   # marker; consume it on the first run and warn on every one after.
   if docker exec $NAME test -e /root/.e2e-fresh 2>/dev/null; then
     docker exec $NAME rm -f /root/.e2e-fresh
@@ -255,7 +255,7 @@ cmd_run() {
   local names=("$@")
   [ ${#names[@]} -eq 0 ] && names=("${SUITES[@]}")
   # And the other way round: a suite whose predecessors have not run is measured
-  # against a box they never set up.  They share one install and each leaves what
+  # against a box they never set up. They share one install and each leaves what
   # the later ones examine -- check-project runs `init --agent claude`, which
   # writes the account-wide settings check-doctor then reports missing.
   #
@@ -272,7 +272,7 @@ cmd_run() {
     printf 'e2e: failures below may be missing setup, not regressions. Run ./e2e.sh up && ./e2e.sh run for the whole order.\n' >&2
   fi
   local failed=0
-  # Beside every suite, because each one sources it.  Copied here rather than
+  # Beside every suite, because each one sources it. Copied here rather than
   # baked into the image for the same reason the suites are: editing it takes
   # effect on the next run, with no rebuild.
   docker cp "$HERE/lib.sh" $NAME:/root/ >/dev/null

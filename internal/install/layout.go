@@ -1,6 +1,6 @@
 // Package install provisions a host: accounts, directories, the age key, the
 // binaries, the systemd units, and the checks that say whether what landed
-// works.  The same values -- the shared group, the service uids -- have to
+// works. The same values -- the shared group, the service uids -- have to
 // reach several files that must agree, and all of them render from one
 // Layout.
 package install
@@ -16,7 +16,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// Default paths.  Only ConfigDir is meant to be moved; the rest are here so the
+// Default paths. Only ConfigDir is meant to be moved; the rest are here so the
 // templates have one source for them.
 const (
 	DefaultConfigDir  = "/etc/faramir"
@@ -62,17 +62,17 @@ var (
 // Layout is everything the templates and the install steps must agree on, built
 // once by Options.layout and passed down.
 type Layout struct {
-	// ClientGroup does two jobs.  It is the broker socket's SocketGroup and what
+	// ClientGroup does two jobs. It is the broker socket's SocketGroup and what
 	// [server] allowed_group names, so its members reach the broker; and it
 	// group-owns an enrolled tree, so the broker can stat a request's cwd and the
-	// executor can run there.  The operator is in it for the first, the broker
-	// and the executor for the second, and the keeper for neither.  The executor
+	// executor can run there. The operator is in it for the first, the broker
+	// and the executor for the second, and the keeper for neither. The executor
 	// therefore reaches the broker socket, which is argued in
 	// faramir-exec.service.tmpl.
 	//
 	// SecretsGroup owns the secrets directory and holds the keeper alone, that
 	// being the only account that opens a managed file; the operator is not in
-	// it, so editing a managed file needs sudo.  One group for both would let
+	// it, so editing a managed file needs sudo. One group for both would let
 	// every caller that can ask for a value by name read the file it comes from.
 	// Defaults to KeeperUser; --secrets-group names another, which adds a second
 	// reader.
@@ -104,11 +104,11 @@ type Layout struct {
 
 	AgeKeyPath string
 	// SshAgent and SshAdd are the binaries the broker execs, resolved on PATH at
-	// install time.  The broker runs them as the uid holding every plaintext
+	// install time. The broker runs them as the uid holding every plaintext
 	// value, so which binary they are is init's to decide.
 	SshAgent string
 	SshAdd   string
-	// SSHKey is the identity the broker lends to brokered commands.  It renders
+	// SSHKey is the identity the broker lends to brokered commands. It renders
 	// into config.toml's [ssh] key, so the flag and the file cannot drift apart.
 	//
 	// Never empty: one is minted whether or not a host turns out to need it, so
@@ -117,24 +117,24 @@ type Layout struct {
 	//
 	// It defaults beside the age key in the config directory, which is outside
 	// the broker's ReadWritePaths, so the account that uses the key is not the
-	// account that can replace it.  Named id_ed25519, a name the deny patterns
+	// account that can replace it. Named id_ed25519, a name the deny patterns
 	// refuse wherever it turns up rather than only under ConfigDir.
 	SSHKey string
 
 	// Links is the [[secret.link]] entries, read off the config rather than given
-	// by a flag.  They render back into config.toml, so init asserts them, and
-	// the grant they need, on every run.  One field for both jobs: the entries
+	// by a flag. They render back into config.toml, so init asserts them, and
+	// the grant they need, on every run. One field for both jobs: the entries
 	// config.toml carries, and the paths the deny rules refuse.
 	//
-	// The account-wide lists only.  A linked file is one operator's own, so
+	// The account-wide lists only. A linked file is one operator's own, so
 	// putting it in the per-project assets would change every enrolled tree
-	// whenever a link was added.  Pi has no account-wide file, so its extension
+	// whenever a link was added. Pi has no account-wide file, so its extension
 	// does not carry these.
 	Links []config.Link
 
-	// The tunables.  Each is set by a flag, rendered into config.toml, and read
+	// The tunables. Each is set by a flag, rendered into config.toml, and read
 	// back out of it on the next run, so a flag left out keeps what the install
-	// already has rather than reverting to the compiled-in value.  A value that
+	// already has rather than reverting to the compiled-in value. A value that
 	// reaches the file and is recoverable from nothing would be erased by the
 	// next command that rewrites it.
 	CommandEnv           map[string]string
@@ -150,7 +150,7 @@ type Layout struct {
 	// can be asked for.
 	AllowSudo bool
 
-	// NotifyCommand announces that a question is waiting.  Empty is the default
+	// NotifyCommand announces that a question is waiting. Empty is the default
 	// and means `faramir escalations --watch` is the only place one shows up.
 	// Written by init, as pam_service and helper are: the broker execs this as
 	// the uid holding every plaintext value.
@@ -168,7 +168,7 @@ func (l Layout) PamService() string { return pamServiceName }
 // PamFile is where that service lives.
 func (l Layout) PamFile() string { return pamServiceFile }
 
-// SudoersFile is the grant itself.  Under /etc/sudoers.d rather than in the
+// SudoersFile is the grant itself. Under /etc/sudoers.d rather than in the
 // config directory: sudo reads one place, and a grant kept where --config-dir
 // points would be a grant sudo never saw.
 func (l Layout) SudoersFile() string { return sudoersFile }
@@ -185,7 +185,7 @@ func (l Layout) SecretsDir() string { return filepath.Join(l.ConfigDir, "secrets
 
 // SopsConfigPath is where the creation rule lives: the config directory, beside
 // the other files that decide how the secrets are treated, rather than inside
-// the directory it governs.  See stepSopsConfig for why not.
+// the directory it governs. See stepSopsConfig for why not.
 func (l Layout) SopsConfigPath() string { return filepath.Join(l.ConfigDir, ".sops.yaml") }
 
 // StaleSopsConfigPath is where earlier installs put the creation rule, named so
@@ -194,21 +194,21 @@ func (l Layout) SopsConfigPath() string { return filepath.Join(l.ConfigDir, ".so
 // one for anything run from in there.
 func (l Layout) StaleSopsConfigPath() string { return filepath.Join(l.SecretsDir(), ".sops.yaml") }
 
-// AuditLogPath is the file the broker appends a record to.  Rendered into both
+// AuditLogPath is the file the broker appends a record to. Rendered into both
 // config.toml and logrotate.conf from LogDir, and created by the install so
 // that its owner is not whichever uid writes to it first.
 func (l Layout) AuditLogPath() string { return filepath.Join(l.LogDir, "audit.log") }
 
 // BrokerHome, KeeperHome and ExecHome are the service accounts' homes, derived
 // from the account names so that renaming one does not leave it living in a
-// directory named after the old one.  Each unit's StateDirectory= renders from
+// directory named after the old one. Each unit's StateDirectory= renders from
 // the same value.
 func (l Layout) BrokerHome() string { return "/var/lib/" + l.BrokerUser }
 func (l Layout) KeeperHome() string { return "/var/lib/" + l.KeeperUser }
 func (l Layout) ExecHome() string   { return "/var/lib/" + l.ExecUser }
 
 // ExecKnownHosts is where --known-hosts pins the host keys a brokered ssh
-// verifies against.  Under the executor's own home rather than
+// verifies against. Under the executor's own home rather than
 // /etc/ssh/ssh_known_hosts: ssh reads the global file first and this second, so
 // pinning here adds to what the host already trusts instead of rewriting a file
 // every other account on it reads.
@@ -222,8 +222,8 @@ func (l Layout) ExecKnownHosts() string {
 // The keeper holds the age key, so it runs with the homes taken away entirely.
 // A config directory kept in one is then absent rather than unreadable, so
 // ProtectHome drops to tmpfs and that one directory is bound back while every
-// other home stays invisible.  One entry at most, the secrets directory and the
-// key both being inside it.  Empty when the config sits outside the homes,
+// other home stays invisible. One entry at most, the secrets directory and the
+// key both being inside it. Empty when the config sits outside the homes,
 // which is the case to prefer.
 func (l Layout) KeeperBinds() []string {
 	if homeOf(l.ConfigDir) == "" {
@@ -233,7 +233,7 @@ func (l Layout) KeeperBinds() []string {
 }
 
 // homeOf returns the home directory a path sits in, or empty when it sits
-// outside every home.  Matched on the path rather than by looking accounts up:
+// outside every home. Matched on the path rather than by looking accounts up:
 // what decides this is what the keeper's ProtectHome= hides, which is /root and
 // everything directly under /home.
 func homeOf(path string) string {
@@ -270,7 +270,7 @@ func (l Layout) validate() error {
 	}
 	// Refused here rather than left to whatever renders it: these paths are
 	// interpolated into the agents' JSON settings, into config.toml and into the
-	// deny patterns, and each format escapes a different set.  A settings file the
+	// deny patterns, and each format escapes a different set. A settings file the
 	// agent cannot parse reads as an enrolment that worked with every rule in it
 	// missing.
 	if name, bad := hasControlChar(dir); bad {
@@ -313,7 +313,7 @@ func (l Layout) validate() error {
 }
 
 // hasControlChar reports whether a path holds a character no rendered format
-// takes literally, naming it so the refusal says which.  DEL as well as the C0
+// takes literally, naming it so the refusal says which. DEL as well as the C0
 // range, and an invalid UTF-8 byte with them: ranging over a string yields
 // U+FFFD for one, which is not what the operator typed.
 func hasControlChar(text string) (string, bool) {
@@ -330,7 +330,7 @@ func hasControlChar(text string) (string, bool) {
 
 // validateNotifyCommand holds the announcement to what the loader will accept,
 // so a bad one is refused before anything is written rather than at the
-// daemon's next start.  The rules are the loader's: see
+// daemon's next start. The rules are the loader's: see
 // config.loadEscalation.
 func (l Layout) validateNotifyCommand() error {
 	if len(l.NotifyCommand) == 0 {
@@ -375,9 +375,9 @@ func (l Layout) validateNotifyCommand() error {
 	return nil
 }
 
-// homeIsMounted reports whether an encrypted home has been unlocked.  Writing
+// homeIsMounted reports whether an encrypted home has been unlocked. Writing
 // into one before its owner logs in lands in the unencrypted backing directory,
-// where it is shadowed the moment the home mounts.  A mounted filesystem sits
+// where it is shadowed the moment the home mounts. A mounted filesystem sits
 // on a different device from the directory it covers, which is what this
 // compares; mountpoint(1) is not on every host, and its absence would read as
 // "not mounted".

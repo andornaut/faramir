@@ -10,7 +10,7 @@ import (
 )
 
 // Point every test at the repo's own patterns rather than at whatever is
-// installed under /usr/local/libexec.  Rendered first, because the shipped file
+// installed under /usr/local/libexec. Rendered first, because the shipped file
 // is a template whose path rules match nothing unexpanded.
 func TestMain(m *testing.M) {
 	cleanup := func() {}
@@ -49,7 +49,7 @@ func TestTheDaemonsAreNotSanctionedByThePrefix(t *testing.T) {
 
 // Answering an escalation is the operator's, and this hook gates the agent's
 // shell rather than the operator's terminal: an agent that could approve the
-// request it raised is the whole boundary gone.  Both the helper sudo runs and
+// request it raised is the whole boundary gone. Both the helper sudo runs and
 // the subcommand a human types are denied here, privileged or not.
 func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 	for _, cmd := range []string{
@@ -62,7 +62,7 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 		"sudo faramir escalations --watch",
 		"sudo faramir deny",
 		"sudo faramir deny a1b2c3",
-		// Unprivileged too.  It would reach a broker that refuses it, but a
+		// Unprivileged too. It would reach a broker that refuses it, but a
 		// refusal here says why, where SO_PEERCRED says only that it failed.
 		"faramir approve --watch",
 		"faramir escalations",
@@ -75,7 +75,7 @@ func TestTheAgentCannotAnswerItsOwnEscalation(t *testing.T) {
 }
 
 // The agent may run four subcommands, and their arguments are the only ones the
-// deny rules do not scan.  Naming them is only safe if every one is named: one
+// deny rules do not scan. Naming them is only safe if every one is named: one
 // left out has its arguments scanned, and `run`'s arguments are somebody else's
 // command.
 func TestEveryAgentSubcommandIsSanctioned(t *testing.T) {
@@ -89,7 +89,7 @@ func TestEveryAgentSubcommandIsSanctioned(t *testing.T) {
 }
 
 // And everything else faramir offers is refused to this shell, with sudo and
-// without.  These act on the install rather than through it: the account the
+// without. These act on the install rather than through it: the account the
 // agent runs as could not carry them out, so what the refusal saves is the
 // detour of learning that from a permission error and trying to get around it.
 func TestEveryOperatorSubcommandIsRefused(t *testing.T) {
@@ -103,7 +103,7 @@ func TestEveryOperatorSubcommandIsRefused(t *testing.T) {
 }
 
 // The rule that refuses them spells the list out, the shipped patterns file
-// being text rather than Go.  This is what keeps the two from drifting: a
+// being text rather than Go. This is what keeps the two from drifting: a
 // subcommand added to cli.Operator and not to cli.Agent has to appear in the
 // rule, or it is allowed to the agent by omission.
 func TestTheRefusalNamesEveryOperatorSubcommand(t *testing.T) {
@@ -141,7 +141,7 @@ func TestEveryFallbackPatternCompiles(t *testing.T) {
 }
 
 // The fallback names /etc/faramir and the documented ~/.config/faramir, so an
-// install placed anywhere else would be refused by neither.  The directory is
+// install placed anywhere else would be refused by neither. The directory is
 // taken from where the daemons take it, so moving the config moves what the
 // hook refuses instead of silently narrowing it.
 func TestTheFallbackFollowsAMovedConfigDir(t *testing.T) {

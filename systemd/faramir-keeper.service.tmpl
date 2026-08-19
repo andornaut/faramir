@@ -5,7 +5,7 @@ Requires=faramir-keeper.socket
 After=faramir-keeper.socket
 # Socket activated and restarted by an install, so repeated starts are ordinary.
 # The default limit reads that as a crash loop and latches this unit into
-# failed.  The socket unit carries the same directive, for the same reason.
+# failed. The socket unit carries the same directive, for the same reason.
 StartLimitIntervalSec=0
 
 [Service]
@@ -24,13 +24,13 @@ RestartSec=2
 TimeoutStopSec=30
 
 # {{.SecretsGroup}}, only so this process can read {{.SecretsDir}} (2750, that
-# group) to decrypt and fingerprint.  Read access to ciphertext; the key stays
-# 0400 {{.KeeperUser}}.  Redundant when the secrets group is this account's own,
+# group) to decrypt and fingerprint. Read access to ciphertext; the key stays
+# 0400 {{.KeeperUser}}. Redundant when the secrets group is this account's own,
 # which is the default, but --secrets-group can name a different one.
 SupplementaryGroups={{.SecretsGroup}}
 
 # The key is readable at $CREDENTIALS_DIRECTORY/age_key by this process alone;
-# no command the broker runs shares this uid.  The name is what [keeper]
+# no command the broker runs shares this uid. The name is what [keeper]
 # age_key_credential refers to.
 LoadCredential=age_key:{{.AgeKeyPath}}
 
@@ -49,7 +49,7 @@ ProtectSystem=strict
 # does not.
 {{if .KeeperBinds -}}
 # The config directory is inside a home, so tmpfs rather than true: every other
-# home stays invisible and only that directory is bound back.  A home is not
+# home stays invisible and only that directory is bound back. A home is not
 # mounted until its owner logs in, so the secrets are absent at boot, which the
 # broker treats as a load failure rather than an empty one.
 ProtectHome=tmpfs

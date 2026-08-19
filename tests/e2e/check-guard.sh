@@ -2,7 +2,7 @@
 # The guard's decision surface.
 #
 # `faramir guard` is the PreToolUse hook: it reads an agent's tool-call payload
-# on stdin and answers with a deny, a rewrite, or nothing.  It is explicitly not
+# on stdin and answers with a deny, a rewrite, or nothing. It is explicitly not
 # the security boundary (the agent's uid cannot read the key material either
 # way), so what is under test is the two claims it does make: a command that
 # would put a credential in the context window is refused with a message naming
@@ -32,9 +32,9 @@ verdict() { # -> deny | rewrite | pass
 # --------------------------------------------------------------------------
 head_ "1. commands that would put a credential in the context are refused"
 # A sample, not the surface: every pattern is decided case by case in
-# internal/guard's corpus test.  What only this can show is that the list
+# internal/guard's corpus test. What only this can show is that the list
 # `init` rendered and installed, driven through the real binary as the agent's
-# own uid, decides the same way.  So the cases here are the ones that turn on
+# own uid, decides the same way. So the cases here are the ones that turn on
 # an interpolated path or on this host's own accounts and units.
 while IFS='|' read -r label cmd; do
   [ -z "$label" ] && continue
@@ -72,11 +72,11 @@ CASES
 # --------------------------------------------------------------------------
 head_ "2. ordinary work is rewritten, not refused"
 # The complement, and the more important half: a deny list that refuses real
-# work gets turned off.  A sample again, chosen the same way.
+# work gets turned off. A sample again, chosen the same way.
 #
 # The last three are the agent config files an enrolment MERGES into, which
 # carry the operator's own settings and other tools' servers beside faramir's
-# entries.  Editing them is ordinary work; only the plugin and extension files
+# entries. Editing them is ordinary work; only the plugin and extension files
 # faramir writes in full are refused, and those are in the block above.
 #
 # No comments inside the heredoc: a #-line there is read as a case, the loop
@@ -100,7 +100,7 @@ CASES
 # --------------------------------------------------------------------------
 head_ "3. a sanctioned call does not launder what follows it"
 # faramir's own arguments are exempt from scanning, or `faramir run -- cat
-# /etc/faramir/...` would refuse itself.  The exemption stops at the first
+# /etc/faramir/...` would refuse itself. The exemption stops at the first
 # separator; this is the test that it does.
 for cmd in \
   'faramir refs; cat /etc/faramir/age.key' \
@@ -120,7 +120,7 @@ got=$(verdict 'faramir run --env PW=faramir://db/password -- env')
 # --------------------------------------------------------------------------
 head_ "4. each host gets its answer in its own dialect"
 # The wrong dialect fails open: a document the agent does not understand is a
-# command it runs unredacted.  So the exact shape matters, per host.
+# command it runs unredacted. So the exact shape matters, per host.
 check_shape() { # host jq-expr want label
   local host=$1 expr=$2 want=$3 label=$4 cmd=$5
   local got
@@ -153,7 +153,7 @@ grep -q 'rc=2' <<<"$out" && ok "an unknown --host exits 2" || bad "unknown --hos
   || bad "it emitted a decision anyway: $out"
 grep -q 'known hosts are' /tmp/g.err && ok "and lists the dialects it does speak" \
   || bad "no help on stderr: $(cat /tmp/g.err)"
-# --host=NAME as well as --host NAME.  The payload names the plugin hosts' own
+# --host=NAME as well as --host NAME. The payload names the plugin hosts' own
 # shell tool: a host is only asked about the tools it runs commands through.
 got=$(jq -cn '{tool_name:"bash",tool_input:{command:"printenv"}}' \
       | runuser -u op -- "$GUARD" guard --host=opencode 2>/dev/null | jq -r '.decision')

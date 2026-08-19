@@ -1,8 +1,8 @@
 package main
 
-// Colour for the commands that print a report to a human.  Off unless stdout is
+// Colour for the commands that print a report to a human. Off unless stdout is
 // a terminal; $NO_COLOR is honoured whatever its value, per
-// https://no-color.org, and --color=always overrides both.  A character-device
+// https://no-color.org, and --color=always overrides both. A character-device
 // check rather than golang.org/x/term, which is only an indirect dependency.
 
 import (

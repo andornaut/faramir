@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-// refPattern is the ref itself, without the scheme.  Written once because two
+// refPattern is the ref itself, without the scheme. Written once because two
 // things hold to it: the URI a caller sends, and the `ref` a [[secret.link]]
-// entry declares.  A link whose ref no caller could spell would load and then be
+// entry declares. A link whose ref no caller could spell would load and then be
 // unreachable.
 const refPattern = `[A-Za-z0-9][A-Za-z0-9._/-]*`
 

@@ -23,7 +23,7 @@ import (
 // Asked as the uid the claim is about, root bypassing file modes, which is what
 // makes root a requirement here.
 
-// asUser runs a command as another account and reports its output.  An empty
+// asUser runs a command as another account and reports its output. An empty
 // account is refused rather than passed on: `runuser -u -- cmd` takes the "--"
 // as the account name and fails, which every caller here would report as a
 // boundary that does not hold.
@@ -36,7 +36,7 @@ func asUser(account string, args ...string) (string, error) {
 }
 
 // asOperator runs a command as the account the broker's socket admits, root not
-// being in that group.  Directly when this already is them, runuser needing
+// being in that group. Directly when this already is them, runuser needing
 // root.
 func asOperator(opts DoctorOptions, args ...string) (string, error) {
 	if os.Geteuid() != 0 || opts.AgentUser == "" {
@@ -46,13 +46,13 @@ func asOperator(opts DoctorOptions, args ...string) (string, error) {
 	return asUser(opts.AgentUser, args...)
 }
 
-// canRead and canWrite answer access(2) as that account.  Connecting to a unix
+// canRead and canWrite answer access(2) as that account. Connecting to a unix
 // socket needs write, so a socket left 0620 passes a read check.
 //
 // Through faramir's own binary rather than the host's `test`: access(2) answers
 // for the calling process, and some `test` implementations (uutils) ignore
 // supplementary group membership, which makes every group-based finding wrong
-// in both directions.  See cmd/faramir/access.go.
+// in both directions. See cmd/faramir/access.go.
 func canRead(account, path string) bool {
 	_, err := asUser(account, selfPath(), "access", "--read", path)
 	return err == nil
@@ -64,7 +64,7 @@ func canWrite(account, path string) bool {
 }
 
 // selfPath is the binary to re-run as another account: this process's own, so a
-// doctor run from a build that is not the installed one asks itself.  The
+// doctor run from a build that is not the installed one asks itself. The
 // target account has to be able to execute it, which a build in an operator's
 // home may not be; DefaultBinDir is the fallback.
 func selfPath() string {
@@ -79,7 +79,7 @@ func selfPath() string {
 // there, and what a test compares against.
 const ownsMissing = "missing"
 
-// owns reports a file's mode and owner as "%04o account", or "missing".  The
+// owns reports a file's mode and owner as "%04o account", or "missing". The
 // owner alone: the age key is 0400 and the audit log 0600, so no group bit is
 // set and which group owns them decides nothing.
 func owns(path string) string {
@@ -107,7 +107,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 	// Split by what an unnamed operator costs, not by subject: canRead and
 	// canWrite answer false for an account they cannot name, which is the answer
 	// a boundary that holds gives, so a check turning on the operator would report
-	// an unearned OK.  A check that never asks about the operator still runs.
+	// an unearned OK. A check that never asks about the operator still runs.
 	//
 	// The ones that ask about the operator alongside other accounts are in the
 	// first list and skip it themselves rather than claiming it was asked.
@@ -140,7 +140,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		return
 	}
 	// The probe itself: every check below reads a refusal as a boundary, so a
-	// runuser that cannot run would report all of them as holding.  Every account
+	// runuser that cannot run would report all of them as holding. Every account
 	// can read /, so a refusal here is runuser failing.
 	if !canRead(opts.KeeperUser, "/") {
 		report.unaskedf("boundaries", len(checks), "cannot ask %s what it can reach, so none "+
@@ -167,7 +167,7 @@ func diagnoseBoundaries(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 }
 
 // askable drops the accounts a check cannot put a question to, and reports
-// whether any was dropped.  A check that dropped one must not go on to claim
+// whether any was dropped. A check that dropped one must not go on to claim
 // its boundary holds: canRead answers false for an account it cannot name,
 // which is what it answers for one that is properly shut out.
 func askable(accounts ...string) (named []string, skipped bool) {
@@ -181,7 +181,7 @@ func askable(accounts ...string) (named []string, skipped bool) {
 	return named, skipped
 }
 
-// diagnoseStore checks who can reach the ciphertext.  Every account but the
+// diagnoseStore checks who can reach the ciphertext. Every account but the
 // keeper must be out of the secrets group: the operator because that is the
 // split, the executor because it runs whatever an agent asks for, the broker
 // because read here would only add files no [secret] list names.
@@ -222,7 +222,7 @@ func diagnoseStore(report *DoctorReport, opts DoctorOptions, cfg *config.Config)
 
 // diagnoseConfigWritable checks the file that decides what a brokered command
 // runs: [command.env] PATH is in it, so whoever can write it chooses the
-// programs the executor resolves.  One file: a config.d left over from an older
+// programs the executor resolves. One file: a config.d left over from an older
 // install is not read, so it decides nothing.
 func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 	for _, path := range []string{
@@ -239,7 +239,7 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 		}
 	}
 	// The creation rule is kept if it already exists, so an operator-created one
-	// never went through the install's own writeFile.  Whoever can write it
+	// never went through the install's own writeFile. Whoever can write it
 	// chooses which age keys future values are readable by.
 	sopsConfig := filepath.Join(opts.ConfigDir, ".sops.yaml")
 	if exists(sopsConfig) && canWrite(opts.AgentUser, sopsConfig) {
@@ -252,7 +252,7 @@ func diagnoseConfigWritable(report *DoctorReport, opts DoctorOptions) {
 		"or the creation rule", opts.AgentUser)
 }
 
-// diagnoseInstalledFiles checks what the deny list protects.  The binary is the
+// diagnoseInstalledFiles checks what the deny list protects. The binary is the
 // hook as well as the CLI, and the two files beside it are what the hook reads;
 // an account that can write any of them replaces the thing enforcing a rule
 // rather than defeating one.
@@ -263,7 +263,7 @@ func diagnoseInstalledFiles(report *DoctorReport, opts DoctorOptions) {
 		filepath.Join(DefaultLibexecDir, "deny-patterns.txt"),
 		filepath.Join(DefaultLibexecDir, "wrap.sh"),
 		// The PAM helper is here for a different reason: nothing reads it to
-		// enforce a rule, PAM execs it as root.  An account that can write it
+		// enforce a rule, PAM execs it as root. An account that can write it
 		// decides every escalation on this host.
 		filepath.Join(DefaultLibexecDir, "pam-approve"),
 	}
@@ -339,10 +339,10 @@ func diagnoseAgeKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	report.addf("age key", StatusOK, "%s, and only %s can read it", want, opts.KeeperUser)
 }
 
-// diagnoseOperatorKeys checks what enrolling a tree granted.  init-project
+// diagnoseOperatorKeys checks what enrolling a tree granted. init-project
 // makes every directory from the home down to the tree traversable by the
 // client group, which faramir-exec is in; traversal is execute without read, so
-// only the enrolled tree is shared.  A home that was itself enrolled is
+// only the enrolled tree is shared. A home that was itself enrolled is
 // group-readable throughout, which carries the operator's SSH keys and the age
 // key under ~/.config/sops.
 func diagnoseOperatorKeys(report *DoctorReport, opts DoctorOptions) {
@@ -427,7 +427,7 @@ func diagnoseAuditLog(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 	report.addf("audit log", StatusOK, "%s, readable by nobody else", want)
 }
 
-// diagnoseSockets asks who can open each one.  The keeper's is the age key by
+// diagnoseSockets asks who can open each one. The keeper's is the age key by
 // another route and the executor's runs a command with no policy, redaction or
 // audit record; the broker's is the one that has to be reachable.
 func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
@@ -491,7 +491,7 @@ func diagnoseSockets(report *DoctorReport, opts DoctorOptions, cfg *config.Confi
 // diagnoseSocketPolicy reads what the config says the two internal sockets
 // admit, the second lock after the modes diagnoseSockets checks: a config
 // naming another account in allowed_user leaves the install one mode change
-// away from a brokered command asking the keeper for every value.  `faramir
+// away from a brokered command asking the keeper for every value. `faramir
 // broker --check` can only compare uids, so it cannot make this check as root.
 func diagnoseSocketPolicy(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil {
@@ -522,7 +522,7 @@ func diagnoseSocketPolicy(report *DoctorReport, opts DoctorOptions, cfg *config.
 }
 
 // diagnoseSSHKey covers what the agent is for: the executor authenticates and
-// never holds the key.  The private socket would hand it the whole agent
+// never holds the key. The private socket would hand it the whole agent
 // protocol rather than the list and sign the relay forwards.
 func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Ssh.Key == "" {
@@ -530,7 +530,7 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 	}
 	// The operator alongside the executor: the coding agent runs as that account,
 	// so a key it can read reaches the model's context by any route the deny
-	// patterns miss.  init asserts the mode; this catches a chmod afterwards.
+	// patterns miss. init asserts the mode; this catches a chmod afterwards.
 	operator, skipped := askable(opts.AgentUser)
 	if key := cfg.Ssh.Key; exists(key) {
 		if canRead(opts.ExecUser, key) {
@@ -567,7 +567,7 @@ func diagnoseSSHKey(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 }
 
 // diagnoseSudoGrant checks the one grant that widens what a brokered command
-// can do.  Two claims under two names: the credential is checked on every host,
+// can do. Two claims under two names: the credential is checked on every host,
 // and the arrangement that authenticates an escalation exists only where one
 // was asked for and reports n/a where it was not.
 func diagnoseSudoGrant(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
@@ -581,7 +581,7 @@ var sudoNoPasswd = passwordlessSudo
 
 // diagnoseSudoCredential checks the two ways the executor could sudo with the
 // broker out of the way: a NOPASSWD entry, which skips PAM entirely, and a
-// password of its own.  Neither may exist on any host, a grant or not.
+// password of its own. Neither may exist on any host, a grant or not.
 //
 // A claim that could not be put is a warning rather than a pass: silence would
 // report an unread file as an absent credential.
@@ -619,7 +619,7 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 
 // diagnoseSudoArrangement checks what authenticates an escalation: the PAM
 // service the executor's sudo reads says what it should, nothing the executor
-// can write decides it, and the fallback is not a free pass.  All three exist
+// can write decides it, and the fallback is not a free pass. All three exist
 // only on a host installed with --allow-sudo, so any other host reports n/a.
 func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Escalation.ExecUser == "" {
@@ -643,7 +643,7 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		report.addf("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
 		return
 	}
-	// The helper the stack execs, as root.  An account that can write it chooses
+	// The helper the stack execs, as root. An account that can write it chooses
 	// what decides every escalation on this host.
 	accounts, skipped := askable(opts.ExecUser, opts.AgentUser)
 	for _, account := range accounts {
@@ -681,7 +681,7 @@ const ptraceScopeFile = "/proc/sys/kernel/yama/ptrace_scope"
 // usernsSwitches are the kernel controls that decide whether an unprivileged
 // account may create a user namespace, in the order they are looked for: the
 // Ubuntu one is an AppArmor restriction and the Debian one a plain on/off, and
-// a host has one or neither.  A variable so a test can point at files it
+// a host has one or neither. A variable so a test can point at files it
 // wrote.
 var usernsSwitches = []struct {
 	path string
@@ -702,10 +702,10 @@ var usernsSwitches = []struct {
 // CLONE_INTO_CGROUP, which only clone3() has.
 //
 // So a brokered command can unshare a user namespace and hold a full capability
-// set inside it.  On the default install those capabilities have little to act
+// set inside it. On the default install those capabilities have little to act
 // on -- SystemCallFilter=@system-service denies the mount family, ProtectProc=
 // masks procfs, and every boundary that matters is a uid the namespace maps
-// only to itself.  On a host installed with --allow-sudo the seccomp filter is
+// only to itself. On a host installed with --allow-sudo the seccomp filter is
 // gone by design and the mount family is reachable.
 //
 // Reported rather than enforced: this is a kernel-wide sysctl every other
@@ -760,7 +760,7 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // NoNewPrivileges= on, which makes sudo inert.
 //
 // A warning rather than a failure, being a host-wide sysctl other software has
-// opinions about.  N/a without a grant: that host's unit carries
+// opinions about. N/a without a grant: that host's unit carries
 // SystemCallFilter=@system-service, which excludes @ptrace.
 func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 	if cfg == nil || cfg.Escalation.ExecUser == "" {
@@ -797,8 +797,8 @@ func diagnosePtraceScope(report *DoctorReport, cfg *config.Config) {
 
 // diagnoseCgroupDelegation checks the reaper every run depends on: the executor
 // confines a brokered command to a cgroup of its own and tears the cgroup down
-// when the run ends, so a setsid child cannot outlive it.  That needs Delegate=
-// on the unit, which `init` renders.  There is no process-group fallback, so
+// when the run ends, so a setsid child cannot outlive it. That needs Delegate=
+// on the unit, which `init` renders. There is no process-group fallback, so
 // without it the executor refuses every command.
 func diagnoseCgroupDelegation(report *DoctorReport, _ DoctorOptions, _ *config.Config) {
 	delegates, known := execUnitDelegates()
@@ -820,7 +820,7 @@ func diagnoseCgroupDelegation(report *DoctorReport, _ DoctorOptions, _ *config.C
 }
 
 // execUnitDelegates reports whether the executor unit is granted its own cgroup
-// subtree (Delegate=), and whether that could be determined.  systemctl show
+// subtree (Delegate=), and whether that could be determined. systemctl show
 // reads the unit whether or not it is running, the executor being
 // socket-activated and usually idle.
 func execUnitDelegates() (delegates, known bool) {
@@ -836,9 +836,9 @@ func execUnitDelegates() (delegates, known bool) {
 }
 
 // pamStackProblem names what is wrong with the authentication stack, or "".
-// Two things decide whether it gates anything.  `requisite` on the helper: with
+// Two things decide whether it gates anything. `requisite` on the helper: with
 // `sufficient` a refusal is not fatal, the stack falls through to whatever
-// permits below, and every escalation is granted without asking.  And
+// permits below, and every escalation is granted without asking. And
 // `seteuid`: without it pam_exec runs the helper with the real uid, which under
 // setuid sudo is the executor's own, and the broker answers the escalate op to
 // root alone.
@@ -928,12 +928,12 @@ func mainPID(unit string) string {
 }
 
 // diagnoseBrokered asks the broker to run something: the one place the answer
-// is what a brokered command actually gets.  As the operator, the broker
+// is what a brokered command actually gets. As the operator, the broker
 // checking the peer's credentials and root not being in the shared group.
 func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerServes) {
 	// Three states where the command is not sent, each reported as unasked: a
 	// broker that refuses it, one whose value set --check did not establish, and
-	// one that is not running.  Sent anyway, a refusal or an outage would come
+	// one that is not running. Sent anyway, a refusal or an outage would come
 	// back as a boundary that does not hold.
 	switch serves {
 	case servesNothing:
@@ -968,7 +968,7 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 		return
 	}
 	// The key arrives through LoadCredential=, so the credential directory and
-	// the environment are where a child might find it.  Both go through a shell,
+	// the environment are where a child might find it. Both go through a shell,
 	// being a glob and an expansion.
 	leaks := []struct{ name, script, want string }{
 		{"the environment", `echo "[${SOPS_AGE_KEY:-unset}]"`, "[unset]"},
@@ -996,7 +996,7 @@ func diagnoseBrokered(report *DoctorReport, opts DoctorOptions, serves brokerSer
 }
 
 // diagnoseRedaction is the end-to-end claim: a managed value injected into a
-// real command comes back as its token.  A failure means the plaintext is in
+// real command comes back as its token. A failure means the plaintext is in
 // that output, so what is reported is that no token appeared.
 func diagnoseRedaction(report *DoctorReport, opts DoctorOptions) {
 	faramir := filepath.Join(DefaultBinDir, "faramir")
@@ -1052,14 +1052,14 @@ func groupName(info os.FileInfo) string {
 	return gid
 }
 
-// shadowFile is where the hashes are.  A variable so a test can point at one it
+// shadowFile is where the hashes are. A variable so a test can point at one it
 // wrote.
 var shadowFile = "/etc/shadow"
 
 // shadowUsable reports whether an account has a password it could authenticate
-// with.  The second field is the hash: "!" locks it, "*" means none was ever
+// with. The second field is the hash: "!" locks it, "*" means none was ever
 // set, and empty counts as none, pam_unix refusing an empty one unless the
-// stack says nullok.  The executor must have none: a password there is a second
+// stack says nullok. The executor must have none: a password there is a second
 // way in that nothing asks the broker about.
 func shadowUsable(shadow, account string) bool {
 	for line := range strings.Lines(shadow) {
@@ -1074,7 +1074,7 @@ func shadowUsable(shadow, account string) bool {
 }
 
 // passwordlessSudo reports the executor's NOPASSWD entries, and whether the
-// question could be put at all.  `sudo -l -U` needs root and asks sudo's own
+// question could be put at all. `sudo -l -U` needs root and asks sudo's own
 // parser, which is the only thing that reads sudoers the way sudo does: an
 // entry can come from any file in sudoers.d, from a group, or from LDAP.
 // NOPASSWD is what this looks for because it skips PAM, which is where the

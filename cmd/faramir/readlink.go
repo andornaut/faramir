@@ -10,18 +10,18 @@ import (
 	"github.com/andornaut/faramir/internal/secretlink"
 )
 
-// newReadLinkCmd answers one question: would this link produce a value?  Run by
+// newReadLinkCmd answers one question: would this link produce a value? Run by
 // `faramir link add` through runuser as the broker's own account, before the
 // entry is written anywhere.
 //
 // Its own subcommand rather than a check inside `link add`, for the reason
 // `faramir access` exists: the question is about a particular uid, and the only
-// way to ask it is to be that uid.  The parent runs as root, which can read
+// way to ask it is to be that uid. The parent runs as root, which can read
 // anything and would answer yes to a file the broker cannot open.
 //
 // **It never prints the value.**  On success it prints nothing; on a selector
 // that named nothing it prints the selectors the file does offer, which are
-// names.  That is the whole of its output contract, and what makes it safe for
+// names. That is the whole of its output contract, and what makes it safe for
 // the parent to relay to a terminal.
 func newReadLinkCmd() *cobra.Command {
 	var path, kind, key string
@@ -37,10 +37,10 @@ func newReadLinkCmd() *cobra.Command {
 			}
 			if _, err := secretlink.Read(path, kind, key); err != nil {
 				fmt.Fprintf(os.Stderr, "%v\n", err)
-				// The alternatives, when there are any to offer.  Read again rather
+				// The alternatives, when there are any to offer. Read again rather
 				// than threaded out of the failure: the error deliberately carries
 				// nothing of the file, and this is the one place allowed to say what
-				// is in it, names only.  Through the same bounded read, or a link
+				// is in it, names only. Through the same bounded read, or a link
 				// pointed at something enormous would be refused for its size and
 				// then slurped anyway to enumerate it.
 				if keys, keysErr := secretlink.KeysIn(path, kind); keysErr == nil && len(keys) > 0 {

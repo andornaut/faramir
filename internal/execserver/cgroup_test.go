@@ -8,7 +8,7 @@ import (
 )
 
 // A pure-v2 host's /proc/<pid>/cgroup is one "0::" line; that path is where the
-// run cgroups go.  A v1 or hybrid host has controller lines instead and no
+// run cgroups go. A v1 or hybrid host has controller lines instead and no
 // unified one, so confinement is off there rather than pointed at a controller
 // cgroup it cannot use.
 func TestUnifiedCgroupPathReadsOnlyTheV2Line(t *testing.T) {
@@ -103,10 +103,10 @@ func TestDrainReturnsWhenEmptyAndBoundsItsWait(t *testing.T) {
 
 // cgroupBase is "" unless a host both runs cgroup v2 and hands this process a
 // delegated subtree it can write, so a host missing either refuses every run
-// rather than reaping by the escapable process group.  Where a base is found it
+// rather than reaping by the escapable process group. Where a base is found it
 // must be a real, writable cgroup directory, since a run is spawned into a child
 // of it; where it is "" the discovery declined, which is a host to fix and not
-// a state this test asserts.  Skipped rather than returned there, so a run on
+// a state this test asserts. Skipped rather than returned there, so a run on
 // such a host says it checked nothing instead of reporting a pass.
 func TestCgroupBaseIsARealDirectoryOrNothing(t *testing.T) {
 	base := cgroupBase()
@@ -120,7 +120,7 @@ func TestCgroupBaseIsARealDirectoryOrNothing(t *testing.T) {
 
 // A probe under a fixed name is left behind by anything that stops this process
 // between the mkdir and the remove, and by a second instance probing at the same
-// moment.  The next mkdir then fails with EEXIST, which reads as a host that
+// moment. The next mkdir then fails with EEXIST, which reads as a host that
 // cannot confine: every brokered command is refused, and the reason given is a
 // kernel and a unit that are not what is wrong.
 func TestEachProbeTakesANameOfItsOwn(t *testing.T) {

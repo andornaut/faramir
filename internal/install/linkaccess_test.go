@@ -258,7 +258,7 @@ func TestALinkOperationGrantsNoSudoOfItsOwn(t *testing.T) {
 }
 
 // A config.d beside the file is no longer read at all, so a link written there
-// is not a link.  The one file is the whole of it.
+// is not a link. The one file is the whole of it.
 func TestADropInIsNotRead(t *testing.T) {
 	dir := t.TempDir()
 	base := "[command]\ntimeout_sec = 600\n\n[[secret.link]]\n" +
@@ -288,7 +288,7 @@ func TestADropInIsNotRead(t *testing.T) {
 
 // `link add` rewrites the whole of config.toml from the layout it builds, so
 // every value that file carries has to survive the round trip through the
-// install and back.  A value that does not is not a visible diff: it is a
+// install and back. A value that does not is not a visible diff: it is a
 // section dropped from a running host.
 //
 // Render the file as an install would, rebuild the options the way a link

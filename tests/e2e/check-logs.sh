@@ -1,8 +1,8 @@
 #!/bin/bash
 # `faramir logs`, the operator's record.
 #
-# Every other suite tests what the broker does.  This one tests the only thing
-# that says what it did.  Three claims rest on it and nothing else checks them:
+# Every other suite tests what the broker does. This one tests the only thing
+# that says what it did. Three claims rest on it and nothing else checks them:
 #
 #   - the log_id a refusal hands the agent resolves to a record an operator can
 #     read, which is the whole point of citing an id the agent cannot read;
@@ -20,12 +20,12 @@ PROJECT=/home/op/project
 
 run()  { runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 -C "$PROJECT" "$@" 2>&1; }
 # A listing row begins with the log_id: fourteen base36 characters for one this
-# broker mints, ten hex for the tail of one an older broker wrote.  Both are
+# broker mints, ten hex for the tail of one an older broker wrote. Both are
 # matched, the live log spanning an upgrade until it rotates.
 logs() { /usr/local/bin/faramir logs --color never "$@" 2>&1; }
 
 # configFor writes a config naming a log of this suite's own making, and prints
-# its path.  `faramir logs` reads the log the config names and takes no path of
+# its path. `faramir logs` reads the log the config names and takes no path of
 # its own, so this is how a case is given a log to read: a synthetic one, a
 # damaged one, or none at all.
 configFor() {
@@ -84,7 +84,7 @@ logs -n 1 >/dev/null 2>&1 && ok "root reads it" || bad "root could not read the 
 head_ "2. the log_id a refusal hands out resolves"
 #
 # `faramir run` prints "log_id=..." on a refusal and the MCP server hands the
-# same id to the model.  An id naming no record sends somebody to look up
+# same id to the model. An id naming no record sends somebody to look up
 # nothing.
 
 cited() { # description, then the argv of a run that must be refused
@@ -144,7 +144,7 @@ grep -q '2 redacted' <<<"$(row "$idRedact")"      && ok "the redaction count is 
 grep -q 'B in' <<<"$(row "$idRedactOp")"          && ok "a redact op shows the size of what it was given" \
   || bad "redact row: [$(row "$idRedactOp")]"
 
-# The refusals from L2 ran but never started a command.  What the operator sees
+# The refusals from L2 ran but never started a command. What the operator sees
 # for them in the listing is the question here.
 idRef=$(jq -r 'select(.refused != null) | .log_id' "$LOG" | tail -1)
 if [ -n "$idRef" ]; then
@@ -175,7 +175,7 @@ else
 fi
 
 # The other shape of "this never became a finished command": an error and no
-# exit code, which the broker writes when the program will not resolve.  It
+# exit code, which the broker writes when the program will not resolve. It
 # carries no refusal code, so the row has to say something of its own.
 idNoProg=$(jq -r 'select(.refused == null and .error != null and .exit_code == null) | .log_id' "$LOG" | tail -1)
 if [ -n "$idNoProg" ]; then
@@ -211,7 +211,7 @@ head_ "4. -n asks for a count, and gets exactly that"
 total=$(wc -l <"$LOG")
 rows() { logs -n "$1" | grep -cE '^[0-9a-z]{14} '; }
 
-# That the count itself is honoured is a table in cmd/faramir's own tests.  What
+# That the count itself is honoured is a table in cmd/faramir's own tests. What
 # only a real log shows is the flag reaching it, and a count past the end coming
 # back as what there is rather than as an error.
 [ "$(rows 5)" -eq 5 ] && ok "-n 5 prints five" || bad "-n 5 printed $(rows 5)"
@@ -225,7 +225,7 @@ out=$(logs -n -5); code=$?
 [ $code -eq 0 ] && [ "$(grep -cE '^[0-9a-z]{14} ' <<<"$out")" -eq 0 ] \
   && ok "-n -5 likewise, rather than 'no limit'" || bad "-n -5: exit $code [$out]"
 
-# Asking for none and having none are different answers.  The log here is full
+# Asking for none and having none are different answers. The log here is full
 # of records, so saying it "holds no records" would be a claim about the host.
 out=$(logs -n 0)
 grep -q 'asks for no records' <<<"$out" && ok "-n 0 says the count is why, not the log" \
@@ -320,7 +320,7 @@ out=$(logsAt "$DMGCFG"); code=$?
 grep -q '/bin/one' <<<"$out" && grep -q '/bin/two' <<<"$out" \
   && ok "the records either side of the damage are shown" || bad "a good record was lost: [$out]"
 
-# Five lines end in a newline and do not parse.  The count is the whole promise:
+# Five lines end in a newline and do not parse. The count is the whole promise:
 # a listing that looks complete when a record is missing answers wrongly.
 n=$(sed -n 's/.*: \([0-9]*\) line(s) do not parse.*/\1/p' <<<"$out")
 [ "$n" = 5 ] && ok "all 5 unparseable lines are counted" \
@@ -329,7 +329,7 @@ n=$(sed -n 's/.*: \([0-9]*\) line(s) do not parse.*/\1/p' <<<"$out")
 grep -q 'no-newline-yet' <<<"$out" && bad "the half-written last line was shown" \
   || ok "the last line, still being written, is not counted as a loss"
 
-# The warning is the operator's, and must not be mistaken for a record.  The
+# The warning is the operator's, and must not be mistaken for a record. The
 # binary directly, not logs(): that helper merges the two streams, which is the
 # thing under test here.
 warn=$(/usr/local/bin/faramir logs --color never --config "$DMGCFG" 2>&1 >/dev/null)
@@ -365,7 +365,7 @@ mode=$(stat -c '%a %U:%G' "$LOG.1.gz")
 [ "$mode" = "600 faramir-broker:faramir-broker" ] && ok "and the rotated one keeps $mode" \
   || bad "the rotated log is $mode"
 
-# No copytruncate and no signal: the next append reopens by path.  Two lines,
+# No copytruncate and no signal: the next append reopens by path. Two lines,
 # an exec being a pair: one record when the child starts and one when it ends.
 run -- /bin/echo after-rotation >/dev/null
 newID=$(lastID)
@@ -420,7 +420,7 @@ rm -rf "$d"
 # --------------------------------------------------------------------------
 head_ "9. the log is the agent's text, printed on the operator's terminal"
 
-# argv is chosen by the agent.  A row it can forge is a row that lies.
+# argv is chosen by the agent. A row it can forge is a row that lies.
 run -- /bin/echo "$(printf 'x\n9999999999  00:00:00  exec   FORGED')" >/dev/null
 listing=$(logs -n 5)
 grep -qE '^9999999999' <<<"$listing" && bad "argv forged a listing row" || ok "a newline in argv cannot forge a row"
@@ -532,7 +532,7 @@ out=$(logsAt "$(configFor /var/log/faramir dir)"); code=$?
 [ $code -eq 1 ] && ok "a directory named as the log fails rather than printing junk" \
   || bad "a directory as log_path: exit $code [$(head -c 100 <<<"$out")]"
 
-# The config is the only thing that says which log is read.  A flag naming a
+# The config is the only thing that says which log is read. A flag naming a
 # path by hand is one typo away from reporting a host as quiet, and --watch
 # would wait on that path for ever.
 cp /etc/faramir/config.toml /tmp/alt.toml
@@ -659,7 +659,7 @@ grep -q halffinished "$OUT" && ok "it prints whole once its line ends" \
   || bad "the finished record did not print: [$(cat "$OUT")]"
 
 # Rotation, the way logrotate does it here: rename, then the next write creates
-# the file again.  A watcher left running has to follow the path.
+# the file again. A watcher left running has to follow the path.
 mv "$WATCH" "$WATCH.1"
 sleep 2
 kill -0 "$watcher" 2>/dev/null && ok "the gap where the path has no file is waited out" \
@@ -679,7 +679,7 @@ rows=$(grep -cE '^[0-9a-z]{14} ' "$OUT")
   || bad "the date header repeated: [$(cat "$OUT")]"
 
 # A log-id is one record that is already written, so there is nothing to wait
-# for.  Refused rather than printed-and-then-hung.
+# for. Refused rather than printed-and-then-hung.
 out=$(logsAt "$WATCHCFG" --watch w5vqeeee000004); code=$?
 [ $code -eq 2 ] && grep -q 'takes no log-id' <<<"$out" \
   && ok "--watch with a log-id is refused as usage, exit 2" || bad "--watch with an id: exit $code [$out]"
@@ -701,7 +701,7 @@ rm -f "$WATCH" "$WATCH.1" "$OUT"
 head_ "15. a command is in the log while it is still running"
 #
 # An exec is two records under one log_id: one when the child starts, one when
-# it ends.  Without the first a command is absent from the log for as long as it
+# it ends. Without the first a command is absent from the log for as long as it
 # takes, so a playbook shows up only once it is over and a run that never
 # returns leaves nothing behind at all.
 #

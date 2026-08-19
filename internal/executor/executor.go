@@ -1,7 +1,7 @@
 // Package executor owns the PTY and streams the child's output through the
-// redactor.  A PTY rather than a pipe: programs format differently when stdout
+// redactor. A PTY rather than a pipe: programs format differently when stdout
 // is a terminal, and a process can write straight to /dev/tty, which ssh and
-// sudo do for password prompts.  The cost is that stdout and stderr arrive
+// sudo do for password prompts. The cost is that stdout and stderr arrive
 // merged.
 //
 // The fork happens in faramir-exec, but the PTY does not move with it: the
@@ -51,7 +51,7 @@ type Request struct {
 }
 
 // Run executes a request through the executor, returning redacted merged
-// output.  auditSink receives the same text before the response's truncation,
+// output. auditSink receives the same text before the response's truncation,
 // so the log can hold more of a long run.
 func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	redactor *redact.Redactor, auditSink func(string), req Request) (*Result, error) {
@@ -169,7 +169,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 }
 
 // cutAtRune returns the first limit bytes of s, backing off only far enough not
-// to end on a partial rune.  Bounded like decodeUTF8: raw PTY bytes can be
+// to end on a partial rune. Bounded like decodeUTF8: raw PTY bytes can be
 // invalid anywhere, and must not take the rest of the chunk with them.
 func cutAtRune(s string, limit int) string {
 	if limit <= 0 {
@@ -213,7 +213,7 @@ func isEIO(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "input/output error")
 }
 
-// appendOutput appends output up to limit bytes.  The caller keeps draining the
+// appendOutput appends output up to limit bytes. The caller keeps draining the
 // PTY, or a chatty child blocks on a full buffer and never exits.
 func appendOutput(chunks *strings.Builder, text string, emitted, limit int, truncated bool) (int, bool) {
 	if truncated {

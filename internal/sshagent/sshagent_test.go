@@ -135,7 +135,7 @@ func startedAgent(t *testing.T) (*Agent, string) {
 	err := a.Start()
 	t.Cleanup(a.Stop)
 	// Fatal rather than skipped: requireSSH has already established that the
-	// binaries are here, so a Start that fails now is this package's bug.  Skipped
+	// binaries are here, so a Start that fails now is this package's bug. Skipped
 	// instead, it takes every proxy and relay test below with it and the suite
 	// reports green having checked none of them.
 	if err != nil {
@@ -384,7 +384,7 @@ func TestRefusedRequestsDoNotExhaustTheRelaySlots(t *testing.T) {
 // The refusal above answers on the protocol and keeps the connection, so it
 // must not also stop the clock: a peer that sends one refused message and then
 // nothing would otherwise hold its relay slot for as long as the agent runs, and
-// maxRelays of them leave the proxy with none.  Only a request the proxy will
+// maxRelays of them leave the proxy with none. Only a request the proxy will
 // actually forward means the connection is in use.
 func TestARefusedRequestDoesNotClearTheFirstRequestTimeout(t *testing.T) {
 	restore := firstRequestTimeout
@@ -398,7 +398,7 @@ func TestARefusedRequestDoesNotClearTheFirstRequestTimeout(t *testing.T) {
 	if reply := request(t, client, msgExtension); !bytes.Equal(reply, []byte{msgFailure}) {
 		t.Fatalf("reply = %v, want SSH_AGENT_FAILURE [%d]", reply, msgFailure)
 	}
-	// Now send nothing.  The deadline is still the one set when the connection
+	// Now send nothing. The deadline is still the one set when the connection
 	// opened, so the relay unwinds on its own and gives the slot back.
 	for range 100 {
 		if len(a.slots) == 0 {

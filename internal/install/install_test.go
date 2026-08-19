@@ -9,7 +9,7 @@ import (
 )
 
 // The config directory is the only one faramir creates whose parent can belong
-// to the operator, and ensureDir chowns every ancestor it has to create.  An
+// to the operator, and ensureDir chowns every ancestor it has to create. An
 // absent parent is refused before anything is written rather than coming back
 // root-owned.
 func TestPreflightRefusesAConfigDirWhoseParentIsAbsent(t *testing.T) {
@@ -50,7 +50,7 @@ func TestPreflightRefusesAConfigDirWhoseParentIsAbsent(t *testing.T) {
 }
 
 // A symlink where the install asserts a mode or an owner would apply it to the
-// target instead.  Refused before anything is written, so the answer is one
+// target instead. Refused before anything is written, so the answer is one
 // message and an untouched host rather than a run that dies with the accounts
 // created and no units.
 func TestPreflightRefusesASymlinkedPath(t *testing.T) {

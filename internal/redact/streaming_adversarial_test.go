@@ -85,13 +85,13 @@ func TestColourSpliceIsStripped(t *testing.T) {
 	}
 }
 
-// The boundary.  These splice a separator the terminal collapses (or hides) but
+// The boundary. These splice a separator the terminal collapses (or hides) but
 // ansiRE does not strip, so the value is split in the matched text and escapes.
 // All require deliberate crafting, the same class as `| rev`, which the threat
 // model documents as out of scope.
 //
 // Asserted rather than printed, so it is a boundary and not a note: each case
-// pins where stage 1 stops.  A separator that starts being stripped fails here,
+// pins where stage 1 stops. A separator that starts being stripped fails here,
 // which is the signal to widen ansiRE deliberately and move the case up to the
 // covered set rather than to discover the change by reading output.
 func TestZeroWidthSplicingSurvivesStage1(t *testing.T) {

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// renderRecord is printRecord's output, captured.  The command writes to stdout
+// renderRecord is printRecord's output, captured. The command writes to stdout
 // directly, this being what an operator reads.
 func renderRecord(t *testing.T, line string, paint palette) string {
 	t.Helper()
@@ -35,7 +35,7 @@ func renderRecord(t *testing.T, line string, paint palette) string {
 
 // The detail view is every field a record can carry, in one rendering: the
 // labelled rows, the two list fields, the refs object, the redaction counts and
-// the output.  Every field is spelled the way the writer spells it, env_refs
+// the output. Every field is spelled the way the writer spells it, env_refs
 // included -- internal/server records NAME -> ref, not a list of refs.
 const detailFixture = `{"log_id":"w5vq7dbf000007","op":"run",` +
 	`"peer":{"uid":0,"pid":4242},"cmd":["ansible-playbook","site.yml"],` +

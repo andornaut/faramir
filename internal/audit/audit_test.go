@@ -103,7 +103,7 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 }
 
 // One record is one line, and no line exceeds max_record_bytes, counted in the
-// bytes the line spends rather than the bytes a command wrote.  The table is
+// bytes the line spends rather than the bytes a command wrote. The table is
 // what a command can choose from: '<' and a C0 control each cost six as JSON,
 // so a cap counted before encoding is one whose meaning the command picks.
 func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
@@ -144,7 +144,7 @@ func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
 	}
 }
 
-// The other fields are the caller's too.  argv is the one that matters: execve
+// The other fields are the caller's too. argv is the one that matters: execve
 // will take two megabytes of it, and nothing between the agent and this record
 // shortens it.
 func TestAnEnormousArgvStillFitsTheCap(t *testing.T) {
@@ -223,9 +223,9 @@ func TestEncodedLenAgreesWithTheEncoder(t *testing.T) {
 	}
 }
 
-// An id is distinct by construction.  Random bytes alone collide
+// An id is distinct by construction. Random bytes alone collide
 // often enough to matter, and a lookup shows the first match and says nothing
-// about the second.  Asked concurrently, because the counter that orders them
+// about the second. Asked concurrently, because the counter that orders them
 // is shared.
 func TestLogIDsDoNotRepeatAcrossGoroutines(t *testing.T) {
 	const workers, each = 8, 25_000
@@ -250,7 +250,7 @@ func TestLogIDsDoNotRepeatAcrossGoroutines(t *testing.T) {
 }
 
 // An append is exclusive, so concurrent writers cannot interleave
-// and every line parses.  Two Logs over one path is what `faramir edit` beside a
+// and every line parses. Two Logs over one path is what `faramir edit` beside a
 // running broker looks like.
 func TestConcurrentWritersLeaveEveryLineParseable(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "audit.log")
@@ -288,7 +288,7 @@ func TestConcurrentWritersLeaveEveryLineParseable(t *testing.T) {
 }
 
 // The collector bounds what a run holds in memory as it streams, so a command
-// that prints for an hour costs what one record costs.  Both ends survive it.
+// that prints for an hour costs what one record costs. Both ends survive it.
 func TestCollectorKeepsBothEndsOfALongRun(t *testing.T) {
 	c := NewCollector(8 * 1024)
 	c.Add("FIRST-CHUNK\n")
@@ -347,7 +347,7 @@ func TestUnwritableNamesAnUnopenableLog(t *testing.T) {
 	}
 }
 
-// A record that does not fit is reduced, not discarded.  The ceiling reduce
+// A record that does not fit is reduced, not discarded. The ceiling reduce
 // applies is counted in encoded bytes for the same reason the cap is: two
 // hundred arguments of a thousand '<' each are 200KB raw, under any per-string
 // limit worth having, and 1.2MB once encoded.
@@ -388,7 +388,7 @@ func TestALargeArgvKeepsTheRestOfTheRecord(t *testing.T) {
 	}
 }
 
-// The same in the other shape: many entries rather than long ones.  An env_refs
+// The same in the other shape: many entries rather than long ones. An env_refs
 // map naming one value under thousands of names is over the cap however short
 // each entry is, so a ceiling on strings alone leaves it unreachable.
 func TestManyEntriesAreCutDownToo(t *testing.T) {
@@ -424,7 +424,7 @@ func TestManyEntriesAreCutDownToo(t *testing.T) {
 	}
 }
 
-// A run's output is recorded in the order it was written.  The head takes what
+// A run's output is recorded in the order it was written. The head takes what
 // fits until a chunk does not, and then it is shut: without that a chunk too
 // large for the room left goes to the tail and a smaller one after it lands in
 // the head, ahead of it, so the record shows the run out of order.
@@ -442,7 +442,7 @@ func TestTheCollectorDoesNotReorderOutput(t *testing.T) {
 
 // Unwritable is asked before every command, so it has to be about now rather
 // than about startup: a log made unwritable afterwards must be noticed, or
-// every command runs with its record going nowhere.  Posed as ENOTDIR rather
+// every command runs with its record going nowhere. Posed as ENOTDIR rather
 // than as a mode, root opening a file whatever its mode says.
 func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logdir")
@@ -471,7 +471,7 @@ func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
 
 // A long argv and a long run in the same command: the output is sized against
 // what the rest of the record costs, so this is an ordinary record rather than
-// a reduced one.  A reserve fixed in advance instead lets the two add up past
+// a reduced one. A reserve fixed in advance instead lets the two add up past
 // the cap, cutting the fields of every such command.
 func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
 	const limit = 1 << 20
@@ -514,7 +514,7 @@ func TestALongArgvAndALongRunFitWithoutReducing(t *testing.T) {
 	}
 }
 
-// A record that has to be reduced keeps every field it was given.  The item
+// A record that has to be reduced keeps every field it was given. The item
 // ceiling is for collections a caller filled; applied to the payload itself it
 // becomes a ceiling on the record's own fields, deleting them until few enough
 // are left and leaving something that reads as an ordinary complete record.
@@ -657,7 +657,7 @@ func TestNothingACallerSendsReachesTheStub(t *testing.T) {
 }
 
 // The terminal reduction is reached when a record's field set is what is too
-// large, which is the code's to decide and not a caller's.  Kept and tested
+// large, which is the code's to decide and not a caller's. Kept and tested
 // rather than deleted as unreachable: it is what makes encode total.
 func TestARecordWithTooManyFieldsIsStillARecord(t *testing.T) {
 	defer unstrict()()
@@ -719,7 +719,7 @@ func TestAnUnmarshallableRecordStillWritesALine(t *testing.T) {
 }
 
 // clamp counts in encoded bytes and appends a marker, so an output of
-// escape-heavy bytes comes back longer in raw ones than it went in.  A record
+// escape-heavy bytes comes back longer in raw ones than it went in. A record
 // whose output was cut and does not say so reads as a complete one.
 func TestAnOutputCutByAReductionSaysSoEvenWhenItGrew(t *testing.T) {
 	atLimit(t, config.MinRecordBytes)
@@ -752,7 +752,7 @@ func TestAnOutputCutByAReductionSaysSoEvenWhenItGrew(t *testing.T) {
 	}
 }
 
-// The identity fields are bounded here too.  One route to the stub is the first
+// The identity fields are bounded here too. One route to the stub is the first
 // marshal failing, which skips the reductions entirely, so nothing else has
 // bounded them and a line built from them would be as long as they are.
 func TestTheStubBoundsTheIdentityItKeeps(t *testing.T) {

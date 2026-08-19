@@ -13,7 +13,7 @@ import (
 type checkReport struct {
 	Secrets struct {
 		Count int `json:"count"`
-		// Patterns is the configured globs, Files what they named on disk.  Entries
+		// Patterns is the configured globs, Files what they named on disk. Entries
 		// naming nothing are a host waiting for its secrets; files that did not
 		// load are a fault.
 		Patterns []string `json:"patterns"`
@@ -24,18 +24,18 @@ type checkReport struct {
 		// list.
 		UnresolvedPatterns []string `json:"unresolved_patterns"`
 		// NotRedactable is the refs the store read and the redactor refused, by ref
-		// and reason.  They load and are never injected, so each is a value to
+		// and reason. They load and are never injected, so each is a value to
 		// lengthen rather than anything about the install.
 		NotRedactable map[string]string `json:"not_redactable"`
 	} `json:"secrets"`
 	// Policy is the socket-policy problems, which --check also exits non-zero
-	// for.  Read here so a caller can tell which reason it is looking at.
+	// for. Read here so a caller can tell which reason it is looking at.
 	Policy []string `json:"policy"`
 }
 
 // onlyNotRedactable reports whether a non-zero --check is accounted for by refs
 // the redactor refused and nothing else: --check exits 1 for several states, and
-// every other one is visible in the report.  The distinction earns its place
+// every other one is visible in the report. The distinction earns its place
 // because this state is not about the install: the store loaded, the daemons
 // are serving, and one value is too short to cover.
 func (c checkReport) onlyNotRedactable() bool {
@@ -57,15 +57,15 @@ func (c checkReport) refusedRefs() string {
 }
 
 // serves reports whether the broker will run exec and redact: at least one
-// managed file was read, and every file it read loaded.  The daemon's own gate,
+// managed file was read, and every file it read loaded. The daemon's own gate,
 // mirrored so a probe that runs a brokered command is skipped only when it
-// would really be refused.  Not a ref count: files that hold nothing still
+// would really be refused. Not a ref count: files that hold nothing still
 // serve.
 func (c checkReport) serves() bool {
 	return len(c.Secrets.Files) > 0 && len(c.Secrets.Errors) == 0
 }
 
-// stepValidate asks the broker what it can do with what was installed.  As the
+// stepValidate asks the broker what it can do with what was installed. As the
 // broker's own uid, not root: --check opens the SSH keys and the secrets files
 // itself, and root reads what the broker cannot.
 func (r *runner) stepValidate() error {
@@ -93,11 +93,11 @@ func (r *runner) stepValidate() error {
 	if checkErr != nil {
 		// A configured file not yet created is what every first install looks like.
 		// The running broker still refuses to serve, but failing the install over it
-		// leaves no way to reach a working host.  Anything else, including a file
+		// leaves no way to reach a working host. Anything else, including a file
 		// that is there and did not load, is fatal.
 		if absent := report.Secrets.UnresolvedPatterns; len(absent) == len(report.Secrets.Patterns) &&
 			len(absent) > 0 {
-			// What it does is refuse, not run bare.  The sentence used to say the
+			// What it does is refuse, not run bare. The sentence used to say the
 			// opposite, which reads as an exposure an operator has to hurry out of and
 			// teaches the wrong reflex for the day a value set really does fail to load.
 			r.warnf("the broker is configured for %s, which %s named no file yet, "+
@@ -109,10 +109,10 @@ func (r *runner) stepValidate() error {
 			r.step("validate", false, "no secrets yet")
 			return nil
 		}
-		// Refs the redactor refused, and nothing else wrong.  Reported and carried
+		// Refs the redactor refused, and nothing else wrong. Reported and carried
 		// on from: the store loaded and the daemons are serving, the values are
 		// never injected so nothing is exposed by continuing, and an install cannot
-		// lengthen a secret.  Failing here ends every future `init` on this host
+		// lengthen a secret. Failing here ends every future `init` on this host
 		// the same way, including the upgrade that would carry a fix.
 		if report.onlyNotRedactable() {
 			r.warnf("%d ref(s) are too short for [secret] min_length, so they are "+
@@ -130,7 +130,7 @@ func (r *runner) stepValidate() error {
 
 	// A value absent from the set is neither injectable nor redacted, so zero refs
 	// from a secrets directory that exists is a broker protecting nothing while
-	// looking healthy.  Guarded on the resolved files rather than the patterns, no
+	// looking healthy. Guarded on the resolved files rather than the patterns, no
 	// files at all being what a first install looks like.
 	if len(report.Secrets.Files) > 0 && report.Secrets.Count == 0 {
 		return fmt.Errorf("the broker read %s and loaded no refs. Nothing is "+
@@ -142,7 +142,7 @@ func (r *runner) stepValidate() error {
 	// Ansible loads every .yml under group_vars/ and host_vars/ as a vars file,
 	// and a sops file is valid YAML: each var binds to its ENC[...] ciphertext,
 	// and a name sorting after vars.yml overwrites the environment lookup the
-	// injection relies on.  Nothing errors.
+	// injection relies on. Nothing errors.
 	for _, file := range report.Secrets.Files {
 		if strings.Contains(file, "/group_vars/") || strings.Contains(file, "/host_vars/") {
 			return fmt.Errorf("%s is under group_vars/ or host_vars/, which Ansible "+
@@ -158,7 +158,7 @@ func (r *runner) stepValidate() error {
 		report.Secrets.Count, len(report.Secrets.Files)))
 
 	// Asked through the broker rather than read off disk, what matters being what
-	// a brokered command gets.  The daemon comes up without a loaded key and lets
+	// a brokered command gets. The daemon comes up without a loaded key and lets
 	// SSH fail where it is used, so nothing else would say the key is missing at
 	// install time. Gated on the key that reached disk rather than on --ssh-key,
 	// which is a relocation and empty on most runs.

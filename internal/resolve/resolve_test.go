@@ -1,6 +1,6 @@
 package resolve
 
-// Turning cmd[0] into the path the executor runs.  There is no allowlist; what
+// Turning cmd[0] into the path the executor runs. There is no allowlist; what
 // matters is resolving a name to the file the child would itself have run, since
 // getting it wrong runs a different file.
 
@@ -60,7 +60,7 @@ func TestProgram(t *testing.T) {
 			why:   "the one failure an operator will hit, so it has to be self-correcting"},
 
 		// -- PATH components that are not absolute ---------------------------
-		// A shell reads these as its working directory.  The broker's is not the
+		// A shell reads these as its working directory. The broker's is not the
 		// child's, so honouring one would test a file the executor is not going to
 		// run, and return a relative path from a function that promises absolute.
 		{name: "a leading empty PATH component is skipped",

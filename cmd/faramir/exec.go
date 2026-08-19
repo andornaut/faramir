@@ -16,8 +16,8 @@ import (
 )
 
 // cmdExec is the executor daemon, which forks brokered commands and holds
-// nothing.  To run one, use `faramir run`, which asks the broker, which asks
-// this.  Named for its account and unit (faramir-exec).
+// nothing. To run one, use `faramir run`, which asks the broker, which asks
+// this. Named for its account and unit (faramir-exec).
 type execFlags struct {
 	configPath  string
 	showVersion bool
@@ -28,7 +28,7 @@ func newExecCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "exec",
 		Short: "the executor daemon (to run a command, see \"run\" above)",
-		Long: "The executor daemon, run by faramir-exec.service.  To run a command\n" +
+		Long: "The executor daemon, run by faramir-exec.service. To run a command\n" +
 			"through the broker, use `faramir run`.",
 		GroupID: groupInternal,
 		Args:    noArgs,

@@ -1,14 +1,14 @@
 # {{.ConfigFile}}: broker configuration.
 #
-# Written by `faramir init` and REWRITTEN BY EVERY RUN.  There is one config
+# Written by `faramir init` and REWRITTEN BY EVERY RUN. There is one config
 # file and faramir owns it, so an edit here is replaced without warning.
 #
 # Nothing is lost by that: every value here is either derived from the install
 # or set by a flag this file records, so a re-run keeps what it finds and a flag
-# left out reverts nothing.  `faramir init --help` names the flags; a linked
+# left out reverts nothing. `faramir init --help` names the flags; a linked
 # secret is `faramir link`'s.
 #
-# The sections split by who decides.  Three describe faramir's own daemons; the
+# The sections split by who decides. Three describe faramir's own daemons; the
 # rest are named for what you are deciding rather than for the process that
 # carries it out.
 #
@@ -17,7 +17,7 @@
 
 [server]
 socket_path = "{{.RunDir}}/broker.sock"
-# Checked with SO_PEERCRED, on top of the socket mode.  Primary or supplementary.
+# Checked with SO_PEERCRED, on top of the socket mode. Primary or supplementary.
 allowed_group = "{{.ClientGroup}}"
 
 # Holds the age key: its own uid, execs nothing but sops.
@@ -29,7 +29,7 @@ age_key_credential = "age_key"
 # Where the keeper reads the key when there is no systemd credential.
 age_key_file = "{{.AgeKeyPath}}"
 
-# Forks brokered commands.  Its uid holds no key, values, audit log or SSH keys.
+# Forks brokered commands. Its uid holds no key, values, audit log or SSH keys.
 # No concurrency of its own: the broker holds one [command] slot for the whole
 # of each child and is this socket's only client.
 [executor]
@@ -43,21 +43,21 @@ timeout_sec = {{.CommandTimeoutSec}}
 # The ceiling every request is clamped to, and the idle bound between chunks of
 # a redact stream.
 max_timeout_sec = {{.CommandMaxTimeoutSec}}
-# How many brokered commands run at once; the rest are refused `busy`.  On a
+# How many brokered commands run at once; the rest are refused `busy`. On a
 # host installed with --allow-sudo, raising this makes an escalation harder to
 # get: a sudo is refused outright while any other brokered command is
 # registered, so the more that run at once, the rarer the quiet window an
-# escalation needs.  See docs/design.md on serialising escalations.
+# escalation needs. See docs/design.md on serialising escalations.
 concurrency = {{.CommandConcurrency}}
 
-# The child's entire environment; the broker's own is never inherited.  Naming
+# The child's entire environment; the broker's own is never inherited. Naming
 # one variable keeps the rest, so a line here adds rather than replaces.
 [command.env]
 {{range $name, $value := .CommandEnv}}{{$name}} = {{quote $value}}
 {{end}}
 # Loaded into an agent the broker owns; the child gets SSH_AUTH_SOCK only.
 # One key, minted by init, which holds both halves and prints the public one
-# every run to put in a managed host's authorized_keys.  Move the key, or adopt
+# every run to put in a managed host's authorized_keys. Move the key, or adopt
 # one of your own, with `faramir init --ssh-key`.
 [ssh]
 key = "{{.SSHKey}}"
@@ -68,14 +68,14 @@ ssh_agent = "{{.SshAgent}}"
 ssh_add = "{{.SshAdd}}"
 {{if .AllowSudo}}
 # How a brokered command becomes root on this host, written because `faramir
-# init --allow-sudo` was run.  It does not authenticate: sudo is pointed at
+# init --allow-sudo` was run. It does not authenticate: sudo is pointed at
 # {{.PamFile}}, a PAM service of faramir's own named by {{.SudoersFile}}, whose
 # authentication step asks the broker whether a human approved the command
 # making the call.
 #
 # So there is no password anywhere: nothing minted, nothing stored, nothing
 # handed out, and nothing a command approved once could keep and pass to a
-# later one.  The answer comes from `sudo faramir approve`, checked with
+# later one. The answer comes from `sudo faramir approve`, checked with
 # SO_PEERCRED to be root, so the account the coding agent runs as cannot
 # approve what the agent asked for.
 #
@@ -86,31 +86,31 @@ exec_user = "{{.ExecUser}}"
 pam_service = "{{.PamService}}"
 helper = "{{.PamHelper}}"
 # Optional: announce that a question is waiting, "{prompt}" being the line the
-# broker builds and "{id}" the question to answer.  It carries no answer and is
+# broker builds and "{id}" the question to answer. It carries no answer and is
 # not waited on, so anything will do: wall, a desktop notifier, a push.
 # Unset, `faramir escalations --watch` is the only place a question shows up.
 # Set it with `faramir init --allow-sudo --notify-command PROGRAM --notify-command ARG`,
 # which resolves the program on PATH.
 #
 # Keep "{id}" off anything that broadcasts: wall reaches every terminal on this
-# host, and the coding agent has one.  "{prompt}" says what is waiting without
+# host, and the coding agent has one. "{prompt}" says what is waiting without
 # saying what to type.
 {{if .NotifyCommand}}notify_command = {{tomlList .NotifyCommand}}{{else}}# notify_command = ["/usr/bin/wall", "{prompt}"]{{end}}
-# How long a question waits for a human before it is refused.  Between 1 and
+# How long a question waits for a human before it is refused. Between 1 and
 # 600: the PAM helper derives its own deadline from that ceiling, so a question
-# held longer than it would be one the helper had already abandoned.  While a
+# held longer than it would be one the helper had already abandoned. While a
 # question is open, sudo blocks and every other brokered command is refused.
 timeout_sec = {{.EscalationTimeoutSec}}
 {{end}}
 [secret]
 # A value shorter than this matches inside ordinary words, so the broker refuses
-# to hold it.  Length only; this judges nothing about the value.  The floor is 6:
+# to hold it. Length only; this judges nothing about the value. The floor is 6:
 # below that the redactor eats the output, and above it a real credential is
 # refused, absent from the redactor, and printed in the clear if it ever reaches
-# output.  The second is the direction that leaks.
+# output. The second is the direction that leaks.
 min_length = {{.SecretMinLength}}
 # The soonest the broker will ask the keeper again whether a managed sops file
-# changed.  A minimum rather than a schedule: the check runs when a command
+# changed. A minimum rather than a schedule: the check runs when a command
 # arrives and nothing polls in the background, so an idle host costs nothing at
 # all and this only bounds how often a busy one repeats the question.
 #
@@ -118,12 +118,12 @@ min_length = {{.SecretMinLength}}
 # per request, so a credential another tool has just rotated is covered at once.
 min_refresh_sec = {{.SecretMinRefreshSec}}
 #
-# The managed store is not a key.  It is {{.SecretsDir}}, derived from where this
+# The managed store is not a key. It is {{.SecretsDir}}, derived from where this
 # file sits, matching *.sops.yml, *.sops.yaml and *.sops.json: the three the
 # agent's deny rules already refuse, so what the broker reads and what the agent
-# cannot open cannot disagree.  How the keeper invokes sops is not a key either.
+# cannot open cannot disagree. How the keeper invokes sops is not a key either.
 {{range .Links}}
-# Managed by `faramir link`.  The file stays where its own tool keeps it; init
+# Managed by `faramir link`. The file stays where its own tool keeps it; init
 # grants {{$.BrokerUser}} read on it and re-asserts that every run.
 [[secret.link]]
 ref = {{quote .Ref}}

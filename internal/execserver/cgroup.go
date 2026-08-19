@@ -15,24 +15,24 @@ import (
 )
 
 // Per-run cgroup confinement: a brokered command is spawned into a cgroup of
-// its own and the whole cgroup is torn down when the run ends.  A descendant
+// its own and the whole cgroup is torn down when the run ends. A descendant
 // inherits the cgroup and cannot move out without write on another one, which
 // this uid does not have, so cgroup.kill reaps the whole tree atomically,
 // including a child that called setsid().
 //
 // This is the one reaper, with no process-group fallback: a host that cannot
 // confine refuses every command rather than degrading to the escapable
-// mechanism; see docs/design.md.  It needs cgroup v2, a unit granted Delegate=,
+// mechanism; see docs/design.md. It needs cgroup v2, a unit granted Delegate=,
 // and cgroup.kill (kernel >= 5.14).
 //
-// Nothing sweeps run cgroups at startup.  They are made under this executor's
+// Nothing sweeps run cgroups at startup. They are made under this executor's
 // own delegated subtree and faramir-exec.service takes systemd's default
 // KillMode=control-group, so a dead executor has that whole subtree stopped and
-// removed before the restart.  A unit edited to KillMode=process or mixed
+// removed before the restart. A unit edited to KillMode=process or mixed
 // breaks that; the strays an escalation is then refused on are the symptom.
 
 // cgroupBase is the cgroup v2 directory this executor may create run cgroups
-// under, or "" when confinement is unavailable.  Probed once at startup.
+// under, or "" when confinement is unavailable. Probed once at startup.
 func cgroupBase() string {
 	rel, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
@@ -45,7 +45,7 @@ func cgroupBase() string {
 	// Every visible cgroup2 mount is tried, not just the first: the membership
 	// path is relative to whichever mount this process's hierarchy is reached
 	// through, and joining it to an unrelated one names a directory that does not
-	// exist.  The probe below settles it.
+	// exist. The probe below settles it.
 	for _, mount := range cgroup2Mounts() {
 		if base := filepath.Join(mount, unified); usableCgroup(base) {
 			return base
@@ -55,9 +55,9 @@ func cgroupBase() string {
 }
 
 // usableCgroup reports whether run cgroups can be made under this directory:
-// two gates in one probe, creating a sub-cgroup and removing it.  The mkdir
+// two gates in one probe, creating a sub-cgroup and removing it. The mkdir
 // succeeds only where the unit was granted Delegate=, and cgroup.kill exists
-// only on a kernel >= 5.14.  Either missing means the host cannot confine, and
+// only on a kernel >= 5.14. Either missing means the host cannot confine, and
 // the executor refuses to run rather than run unreaped.
 func usableCgroup(base string) bool {
 	probe, err := probePath(base)
@@ -114,7 +114,7 @@ func cgroup2MountsIn(mounts string) []string {
 }
 
 // unifiedCgroupPath is the path from the "0::" line of /proc/<pid>/cgroup, the
-// process's cgroup v2 membership relative to the unified mount, or "".  Every
+// process's cgroup v2 membership relative to the unified mount, or "". Every
 // host that mounts v2 has this line; a pure cgroup v1 host has only controller
 // lines.
 func unifiedCgroupPath(procCgroup string) string {
@@ -126,7 +126,7 @@ func unifiedCgroupPath(procCgroup string) string {
 	return ""
 }
 
-// runCgroup is one run's cgroup.  The child is spawned directly into it via
+// runCgroup is one run's cgroup. The child is spawned directly into it via
 // clone3's CLONE_INTO_CGROUP (SysProcAttr.UseCgroupFD), so there is no window
 // in which a descendant runs outside it.
 type runCgroup struct {
@@ -155,7 +155,7 @@ func newRunCgroup(base string) (*runCgroup, error) {
 }
 
 // kill removes every process in the cgroup atomically, a setsid descendant
-// included.  cgroupBase refused a host without cgroup.kill, so this is never
+// included. cgroupBase refused a host without cgroup.kill, so this is never
 // reached on a kernel that lacks it.
 func (c *runCgroup) kill() {
 	if err := os.WriteFile(filepath.Join(c.path, "cgroup.kill"), []byte("1"), 0); err != nil {
@@ -165,7 +165,7 @@ func (c *runCgroup) kill() {
 }
 
 // terminate ends the run's tree gracefully: a SIGTERM to every member first,
-// then cgroup.kill for whatever is left once the grace runs out.  Both phases
+// then cgroup.kill for whatever is left once the grace runs out. Both phases
 // address the cgroup, so a setsid child is reached the same as the rest.
 func (c *runCgroup) terminate(graceSec int) {
 	for _, pid := range c.pids() {
@@ -197,7 +197,7 @@ func (c *runCgroup) pids() []int {
 }
 
 // drain waits until the cgroup is empty, so "the run ended" means no process of
-// it is left to sit through the next approval window.  Bounded: a member that
+// it is left to sit through the next approval window. Bounded: a member that
 // will not die is left for close to report.
 func (c *runCgroup) drain(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
@@ -290,7 +290,7 @@ func (e *Executor) strays() ([]string, error) {
 		}
 		if !hasUserspace(pid) {
 			// A kernel thread or a zombie: no address space, so no environment to
-			// read a token out of and nothing to exec sudo with.  Counting it would
+			// read a token out of and nothing to exec sudo with. Counting it would
 			// make a host permanently un-quiet.
 			continue
 		}
@@ -300,7 +300,7 @@ func (e *Executor) strays() ([]string, error) {
 	return strays, nil
 }
 
-// maxNamedStrays bounds what the refusal names.  The whole list is in the
+// maxNamedStrays bounds what the refusal names. The whole list is in the
 // executor's log; the operator reads this one off a terminal.
 const maxNamedStrays = 5
 
@@ -312,14 +312,14 @@ func listSome(items []string, limit int) string {
 		strings.Join(items[:limit], ", "), len(items)-limit)
 }
 
-// hasUserspace reports whether a pid has an address space of its own.  A kernel
+// hasUserspace reports whether a pid has an address space of its own. A kernel
 // thread's cmdline is empty, and so is a zombie's.
 func hasUserspace(pid int) bool {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
 	return err == nil && len(data) > 0
 }
 
-// comm is a pid's executable name, for a message a person reads.  Best effort:
+// comm is a pid's executable name, for a message a person reads. Best effort:
 // the name is not what the decision rests on.
 func comm(pid int) string {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "comm"))

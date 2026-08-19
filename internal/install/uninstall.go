@@ -7,7 +7,7 @@ import (
 )
 
 // Uninstall removes the broker and returns what it left behind: the accounts,
-// the config, the secrets directory and the audit log.  Deleting the age key
+// the config, the secrets directory and the audit log. Deleting the age key
 // would make every managed sops file unreadable, retroactively.
 func Uninstall(configDir string) ([]string, error) {
 	if configDir == "" {
@@ -30,10 +30,10 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
-	// The sockets went with the units above.  The sudoers grant goes with them:
+	// The sockets went with the units above. The sudoers grant goes with them:
 	// it names the executor's uid, and with the broker gone nothing is left to
 	// answer what it asks, so keeping it would leave a grant behind with no
-	// arrangement around it.  The PAM service the grant names goes too, or the
+	// arrangement around it. The PAM service the grant names goes too, or the
 	// host keeps a service that execs a helper this uninstall deleted.
 	for _, path := range []string{"/etc/tmpfiles.d/faramir.conf", logrotateConfig,
 		sudoersFile, pamServiceFile, DefaultRunDir} {

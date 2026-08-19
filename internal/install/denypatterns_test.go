@@ -29,9 +29,9 @@ func denyRules(text string) []string {
 	return out
 }
 
-// --ssh-key may put the broker's identity anywhere.  Inside the config
+// --ssh-key may put the broker's identity anywhere. Inside the config
 // directory the rules already cover it by path; outside, the id_* class is all
-// that is left, and a key named for the host it opens matches none of it.  The
+// that is left, and a key named for the host it opens matches none of it. The
 // key's own path is named, so where it is put makes no difference.
 func TestTheDenyRulesNameTheConfiguredSSHKey(t *testing.T) {
 	opts := Options{
@@ -59,7 +59,7 @@ func TestTheDenyRulesNameTheConfiguredSSHKey(t *testing.T) {
 
 // The path is interpolated into an alternation, so an empty one leaves a branch
 // that matches the empty string, and the rule then refuses every command the
-// tool list names.  Layout.SSHKey is never empty from an install, but the
+// tool list names. Layout.SSHKey is never empty from an install, but the
 // template is rendered elsewhere too, and the failure is silent and total.
 func TestAnUnsetSSHKeyDoesNotEmptyAnAlternation(t *testing.T) {
 	rules := denyRules(renderDenyPatterns(t, Layout{

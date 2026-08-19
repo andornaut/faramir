@@ -1,7 +1,7 @@
 package main
 
 // `faramir vault edit` changes a managed sops file once the secrets directory belongs
-// to the secrets group and the operator does not.  It runs sops itself rather
+// to the secrets group and the operator does not. It runs sops itself rather
 // than asking the keeper, which has no operation that returns key material;
 // under sudo this process is already root.
 //
@@ -31,11 +31,11 @@ import (
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
-// sopsBinary is resolved through PATH.  A variable so a test can point it
+// sopsBinary is resolved through PATH. A variable so a test can point it
 // elsewhere.
 var sopsBinary = "sops"
 
-// editors are tried in order when none is given.  Absolute paths only:
+// editors are tried in order when none is given. Absolute paths only:
 // "sensible-editor" and "editor" resolve through files the operator can write.
 var editors = []string{
 	"/usr/bin/nano",
@@ -79,7 +79,7 @@ func runEdit(f editFlags, args []string) int {
 	}
 
 	// Expanded here, the managed store holding globs and this process being root,
-	// so a file dropped into the secrets directory is editable at once.  Both
+	// so a file dropped into the secrets directory is editable at once. Both
 	// kinds of failure together: this is printed when the named file is not among
 	// the managed ones, and the operator wants every reason.
 	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
@@ -106,7 +106,7 @@ func runEdit(f editFlags, args []string) int {
 	}
 
 	// The install's own rules, named rather than left to sops to find: see
-	// runSops.  The same file `reseal` reads, so the two agree about what governs
+	// runSops. The same file `reseal` reads, so the two agree about what governs
 	// a managed file.
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
 
@@ -143,7 +143,7 @@ func runEdit(f editFlags, args []string) int {
 
 // resolveConfig finds the config a client command has to agree with: --config,
 // then $FARAMIR_CONFIG, then whatever discoverConfigFile finds, then the
-// compiled default if it is there.  An explicit $FARAMIR_CONFIG returns empty
+// compiled default if it is there. An explicit $FARAMIR_CONFIG returns empty
 // like the rest, the variable being config.Load's to read.
 func resolveConfig(requested, socketPath string) string {
 	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
@@ -158,7 +158,7 @@ func resolveConfig(requested, socketPath string) string {
 // The running broker is not a step here, unlike resolveConfig: this process may
 // be about to bind the broker's own socket, and connecting to it would
 // socket-activate the installed daemon and leave the two contending for the
-// path.  The unit answers the same question without the round trip.
+// path. The unit answers the same question without the round trip.
 func resolveDaemonConfig(requested string) string {
 	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
 		return requested
@@ -167,7 +167,7 @@ func resolveDaemonConfig(requested string) string {
 }
 
 // installedConfig takes what discovery found, and falls back to the compiled-in
-// default only when that file is there.  An empty result is left to
+// default only when that file is there. An empty result is left to
 // config.Load, whose error for a host with no install is the one to print.
 func installedConfig(found string) string {
 	if found != "" {
@@ -190,7 +190,7 @@ var errNoManagedFiles = errors.New("no managed sops files: the managed store nam
 	"none, so there is nothing to open. Write the first one with `faramir vault " +
 	"add NAME`")
 
-// managedSuffix is what a managed file ends in.  One spelling: the suffix
+// managedSuffix is what a managed file ends in. One spelling: the suffix
 // decides the store format sops writes and is what the [secret] pattern
 // matches, so it stays on the file and off the argument.
 const managedSuffix = ".sops.yml"
@@ -257,8 +257,8 @@ func resolveEditor(requested string) (string, error) {
 }
 
 // unsafeToRunAsRoot names why this file must not be the editor, or "" if it may
-// be.  The editor runs as root with the decrypted store open, so a file the
-// operator can write is the operator choosing what runs as root.  The directory
+// be. The editor runs as root with the decrypted store open, so a file the
+// operator can write is the operator choosing what runs as root. The directory
 // counts as much as the file: write there is permission to replace it.
 func unsafeToRunAsRoot(path string, info os.FileInfo) string {
 	if !info.Mode().IsRegular() {
@@ -291,7 +291,7 @@ func mustStat(path string) (*syscall.Stat_t, bool) {
 }
 
 // editManaged decrypts, edits and re-encrypts one file in place, and reports
-// whether the plaintext changed.  Two sops runs rather than its own `sops FILE`
+// whether the plaintext changed. Two sops runs rather than its own `sops FILE`
 // mode, which picks the editor out of the environment.
 func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 	// A tmpfs, so the plaintext never reaches a disk, and 0700 from MkdirTemp
@@ -312,7 +312,7 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 
 	// The recipients the file already had, named explicitly: an edit preserves
 	// who could read the file, and applying a changed .sops.yaml is what `faramir
-	// recipient reseal` is for.  Read before the editor runs, or a file whose
+	// recipient reseal` is for. Read before the editor runs, or a file whose
 	// metadata this cannot parse would be reported after the operator's edit had
 	// already been made and discarded.
 	recipients, err := sopsrule.SealedTo(target)
@@ -405,7 +405,7 @@ func writeBack(target string, data []byte) error {
 		return err
 	}
 	// Reported and not returned: by here the replacement is the file, and what
-	// failed is the promise that it survives a power loss.  An error would tell
+	// failed is the promise that it survives a power loss. An error would tell
 	// the operator their edit did not take, and would have `reseal` count the file
 	// among those still sealed to the recipients they had.
 	if err := syncDir(filepath.Dir(target)); err != nil {
@@ -432,14 +432,14 @@ func syncDir(path string) error {
 }
 
 // runSops execs sops with the key as a path (SOPS_AGE_KEY_FILE), as the keeper
-// supplies it, so it is absent from any environment block in /proc.  A fixed
+// supplies it, so it is absent from any environment block in /proc. A fixed
 // environment, sops reading several variables that name a key or key source.
 //
-// --config names the creation rules, which keeps them this host's own.  Left to
+// --config names the creation rules, which keeps them this host's own. Left to
 // search, sops walks up from the process's working directory, which is often an
 // enrolled tree the coding agent writes, and a .sops.yaml found there governs
 // the encryption: `unencrypted_regex` and `unencrypted_suffix` make sops write
-// the values they name in cleartext.  Recipients are safe either way, the --age
+// the values they name in cleartext. Recipients are safe either way, the --age
 // on the command line winning over a rule.
 //
 // The flag rather than the SOPS_CONFIG variable: a sops old enough not to know
@@ -459,7 +459,7 @@ func runSops(keyPath, rulePath string, args ...string) ([]byte, error) {
 }
 
 // sopsConfigPath is the creation rules to hand sops, and /dev/null where there
-// are none.  A rule file that is not there is not the same as none: sops
+// are none. A rule file that is not there is not the same as none: sops
 // refuses to start on a --config it cannot read, decrypt included, where
 // /dev/null parses as a document with no creation rules.
 func sopsConfigPath(rulePath string) string {
@@ -501,10 +501,10 @@ func ruleMustCover(rulePath, target string, recipients []string) error {
 }
 
 // ruleMustNotSplitTheKey refuses an edit under a rule that splits the data key,
-// or nil.  The refusal `faramir recipient reseal` makes, one step earlier:
+// or nil. The refusal `faramir recipient reseal` makes, one step earlier:
 // shamir_threshold means N of the rule's key groups have to come together to
 // open a file, and what an edit writes back is sealed to the recipients the
-// file already carried, as one group.  sops writes the threshold beside that
+// file already carried, as one group. sops writes the threshold beside that
 // single group, so any one of those keys then opens the file.
 func ruleMustNotSplitTheKey(rulePath string) error {
 	// A rule this cannot read leaves rules empty and nothing to refuse: the same
@@ -527,7 +527,7 @@ func ruleMustNotSplitTheKey(rulePath string) error {
 // --filename-override, because sops matches a creation rule's path_regex
 // against the file it is handed, taken relative to the rule file, and what it
 // is handed here is the copy in the tmpfs: a rule naming where the secrets live
-// would match nothing.  With the override the rule sees `secrets/<name>`, as it
+// would match nothing. With the override the rule sees `secrets/<name>`, as it
 // does under ordinary use.
 //
 // The recipients are named here rather than taken from the rule, which is what
@@ -556,12 +556,12 @@ func chownLike(path string, info os.FileInfo) error {
 }
 
 // removeOnSignal removes dir when a terminating signal arrives, and returns the
-// function that uninstalls the handler.  A deferred cleanup does not run when
+// function that uninstalls the handler. A deferred cleanup does not run when
 // the process does not return, and what is left behind is the whole decrypted
 // store, on a tmpfs that keeps it until the machine reboots.
 //
 // SIGHUP is the one that happens: closing the terminal while the editor is
-// open.  The signal is re-raised with its default disposition afterwards, so
+// open. The signal is re-raised with its default disposition afterwards, so
 // the caller still sees a process killed by a signal.
 func removeOnSignal(dir string) func() {
 	signals := make(chan os.Signal, 1)

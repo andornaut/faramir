@@ -14,9 +14,9 @@ import (
 )
 
 // sops takes the first .sops.yaml walking up from the working directory, so a
-// copy in the secrets directory shadows the one above it.  Each of the four
+// copy in the secrets directory shadows the one above it. Each of the four
 // states reads differently, the remedies being different: compare recipients
-// and delete one, or move it.  No systemd, accounts or root needed.
+// and delete one, or move it. No systemd, accounts or root needed.
 func TestDiagnoseSopsConfig(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -77,7 +77,7 @@ func TestDiagnoseSopsConfig(t *testing.T) {
 	}
 }
 
-// writeRule writes a creation rule listing the given recipients.  A real one: a
+// writeRule writes a creation rule listing the given recipients. A real one: a
 // rule listing none encrypts to nobody, and would test the empty case
 // everywhere it is used.
 func writeRule(t *testing.T, path string, recipients ...string) {
@@ -95,7 +95,7 @@ func writeRule(t *testing.T, path string, recipients ...string) {
 	}
 }
 
-// onlyFinding is the one finding under a check name.  Selected by name rather
+// onlyFinding is the one finding under a check name. Selected by name rather
 // than taken as the whole report, so a test about one check keeps passing when
 // a neighbouring check is added beside it.
 func onlyFinding(t *testing.T, report DoctorReport, name string) Finding {
@@ -244,7 +244,7 @@ func TestSopsRecipientsReadsWhatTheRuleLists(t *testing.T) {
 }
 
 // serves mirrors the daemon's gate, so the probes that run a brokered command
-// are skipped only when it would really be refused.  A ref count is the wrong
+// are skipped only when it would really be refused. A ref count is the wrong
 // question: values below min_length are refused at load, so a host whose secrets
 // are all too short reads its files and serves while counting zero.
 func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
@@ -290,9 +290,9 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 }
 
 // --check exits non-zero for several states at once, so the exit code cannot
-// say which.  Refs the redactor refused are the one state that is not about the
+// say which. Refs the redactor refused are the one state that is not about the
 // install: the store loaded, the daemons serve, and a value is too short to
-// cover.  Telling it apart is what lets init finish and doctor name it.
+// cover. Telling it apart is what lets init finish and doctor name it.
 func TestOnlyNotRedactableSeparatesAValueFromAFault(t *testing.T) {
 	loaded := func() checkReport {
 		var r checkReport
@@ -363,7 +363,7 @@ func TestRefusedRefsNamesEveryRefAndItsReason(t *testing.T) {
 }
 
 // diagnoseUnits reports the states the caller sampled before it opened the
-// broker socket.  Reading them itself would read them after that round trip,
+// broker socket. Reading them itself would read them after that round trip,
 // which starts the sockets the broker Requires=: the fault repairs itself
 // between doctor arriving and doctor looking.
 func TestUnitsReportTheStateSampledBeforeTheBrokerWasAsked(t *testing.T) {
@@ -428,7 +428,7 @@ func TestVersionSkewIsAFindingOfItsOwn(t *testing.T) {
 }
 
 // The broker declining to run the probe is a statement about the value set, not
-// about the agent.  Reported as the agent's own answer it becomes a failure
+// about the agent. Reported as the agent's own answer it becomes a failure
 // against a host whose agent is fine, and the plain answers must keep working
 // when an error is present, ssh-add exiting non-zero on an empty agent.
 func TestTheSSHProbeTellsARefusalFromAnAnswer(t *testing.T) {
@@ -476,7 +476,7 @@ func TestTheSSHProbeTellsARefusalFromAnAnswer(t *testing.T) {
 
 // A broker probe that never ran says nothing about the value set, so the ssh
 // agent check has to run rather than report a broker holding values as one
-// holding none.  A broker that answered nothing is the opposite: the probe
+// holding none. A broker that answered nothing is the opposite: the probe
 // sends a brokered command, so there is no answer to be had, and reporting it
 // as an agent that could not be reached fails a stopped install over a check
 // about something else.
@@ -532,7 +532,7 @@ func TestWhatSkipsTheSSHAgentProbe(t *testing.T) {
 }
 
 // The brokered command check runs a command rather than reading a mode, so
-// every state where the command cannot be sent has to be a skip.  Run anyway it
+// every state where the command cannot be sent has to be a skip. Run anyway it
 // reports a broker that is refusing or not running as a boundary that does not
 // hold.
 func TestTheBrokeredCommandIsSkippedWhenItCannotBeSent(t *testing.T) {
@@ -563,7 +563,7 @@ func TestTheBrokeredCommandIsSkippedWhenItCannotBeSent(t *testing.T) {
 }
 
 // A refusal is the answer against a broker holding nothing and a contradiction
-// against one --check found holding values.  Reported as a skip in the second
+// against one --check found holding values. Reported as a skip in the second
 // case it repeats a claim --check disproved and names no fault to fix.
 func TestARefusalFromABrokerHoldingValuesIsAFailure(t *testing.T) {
 	cfg := &config.Config{}
@@ -592,9 +592,9 @@ func TestARefusalFromABrokerHoldingValuesIsAFailure(t *testing.T) {
 }
 
 // stubLogrotate points the check at files a test wrote and puts a program named
-// logrotate on $PATH.  The real rule, the real state file and the real log
+// logrotate on $PATH. The real rule, the real state file and the real log
 // belong to the host running the tests, and every state worth checking here is
-// one that host is not in.  An empty body leaves that file out.
+// one that host is not in. An empty body leaves that file out.
 func stubLogrotate(t *testing.T, rule, state string) (rulePath, statePath string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -717,7 +717,7 @@ func TestDiagnoseLogRotationAsksWhatIsOnDisk(t *testing.T) {
 }
 
 // The state file is root's and the log is the broker's, so the last two
-// questions cannot be put by every caller.  Told as an answer they are the pass
+// questions cannot be put by every caller. Told as an answer they are the pass
 // a stat that failed would otherwise be read as.
 func TestLogRotationSaysWhichQuestionsNeededRoot(t *testing.T) {
 	if os.Geteuid() == 0 {

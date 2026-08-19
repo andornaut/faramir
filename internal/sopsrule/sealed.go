@@ -16,14 +16,14 @@ import (
 )
 
 // ErrNoRecipients is a file that read fine and names no age recipient: not
-// encrypted at all, or encrypted to something other than age.  Distinguished
+// encrypted at all, or encrypted to something other than age. Distinguished
 // from a read failure because only one of the two means the caller learned
 // nothing, and a caller reporting on a store has to tell them apart.
 var ErrNoRecipients = errors.New("no age recipient")
 
 // ageRecipient matches the cleartext recipient field sops writes into a file it
 // encrypted, in every store it writes: `recipient: age1...` in YAML and JSON,
-// and sops_age__list_0__map_recipient=age1... in the dotenv and ini forms.  The
+// and sops_age__list_0__map_recipient=age1... in the dotenv and ini forms. The
 // metadata is cleartext, so this needs no key.
 //
 // A regex rather than a YAML library, which would undo keeping the sops

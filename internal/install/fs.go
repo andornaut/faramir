@@ -16,20 +16,20 @@ import (
 // keep is the uid or gid value that leaves ownership as it is.
 const keep = -1
 
-// fsys is the filesystem side of an install.  Every method reports whether it
+// fsys is the filesystem side of an install. Every method reports whether it
 // changed anything, so a configuration manager need not stat the host before
-// and after.  With dryRun set each computes the same answer and writes
+// and after. With dryRun set each computes the same answer and writes
 // nothing.
 type fsys struct{ dryRun bool }
 
 // ensureDir creates a directory if it is absent and asserts its mode and
-// ownership if it is not.  own=false leaves an existing one alone, for the
+// ownership if it is not. own=false leaves an existing one alone, for the
 // directories the operator may have set up themselves.
 func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (bool, error) {
 	info, err := os.Stat(path)
 	switch {
 	// A dry run runs unprivileged and cannot answer for a directory it cannot
-	// look inside.  Reported as no change, so the rest is still produced.
+	// look inside. Reported as no change, so the rest is still produced.
 	case f.dryRun && errors.Is(err, os.ErrPermission):
 		return false, nil
 	case errors.Is(err, os.ErrNotExist):
@@ -37,7 +37,7 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 			return true, nil
 		}
 		// Every directory MkdirAll creates, not just the leaf: an intermediate left
-		// root-owned at 0700 is one its owner cannot traverse.  The ancestors take
+		// root-owned at 0700 is one its owner cannot traverse. The ancestors take
 		// the ownership but not the mode: the secrets directory's 2770 applied to
 		// its parent would hand write and rename on it to every brokered
 		// command.
@@ -69,7 +69,7 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 	}
 	// The same rule as ensureOwnership: the mode and owner set below are what take
 	// this directory back from the account the agent runs as, and through a link
-	// they would land on its target.  os.Stat above followed it; this does not.
+	// they would land on its target. os.Stat above followed it; this does not.
 	link, err := os.Lstat(path)
 	if err != nil {
 		return false, err
@@ -97,7 +97,7 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 // Pinned to root rather than walked by path, unlike ensureDir: this runs as
 // root in a tree the account the agent runs as can write, so a symlinked
 // component would put a new directory outside the tree and hand it to the
-// client group.  An os.Root refuses to traverse a symlink at all, and the case
+// client group. An os.Root refuses to traverse a symlink at all, and the case
 // below is what says which component is a link.
 //
 // A dry run answers the same question and writes nothing, which is what lets
@@ -161,7 +161,7 @@ func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) er
 }
 
 // ensureOwnership fixes an existing file's owner, group and mode without
-// touching its contents.  Lstat to decide and a descriptor to repair, never a
+// touching its contents. Lstat to decide and a descriptor to repair, never a
 // path-based chmod: the directories this walks are writable by the account the
 // assertion exists to constrain, so a symlink planted there would take root's
 // chmod to its target.
@@ -191,13 +191,13 @@ func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool
 
 // ensurePrivateFile creates an empty 0600 file if it is absent and asserts its
 // mode and ownership either way, for a file whose owner would otherwise be
-// whichever uid writes to it first.  0600 rather than a parameter: the one
+// whichever uid writes to it first. 0600 rather than a parameter: the one
 // thing this creates is the audit log.
 func (f fsys) ensurePrivateFile(path string, uid, gid int) (bool, error) {
 	const mode = os.FileMode(0o600)
 	switch _, err := os.Lstat(path); {
 	// A dry run runs unprivileged and cannot look inside a directory the broker
-	// owns.  Reported as no change, as ensureDir does.
+	// owns. Reported as no change, as ensureDir does.
 	case f.dryRun && errors.Is(err, os.ErrPermission):
 		return false, nil
 	case errors.Is(err, os.ErrNotExist):
@@ -219,7 +219,7 @@ func (f fsys) ensurePrivateFile(path string, uid, gid int) (bool, error) {
 
 // chmodAndChown repairs one file through a descriptor opened O_NOFOLLOW, so the
 // file checked and the file changed are the same file even if the path is
-// re-pointed in between.  O_NONBLOCK so a fifo does not wait for a writer.
+// re-pointed in between. O_NONBLOCK so a fifo does not wait for a writer.
 func chmodAndChown(path string, mode os.FileMode, uid, gid int) error {
 	handle, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
 	if err != nil {
@@ -236,7 +236,7 @@ func chmodAndChown(path string, mode os.FileMode, uid, gid int) error {
 }
 
 // errNotOperators is a file faramir edits rather than owns whose owner is not
-// the account it is being edited for, or a link that lands on one.  The message
+// the account it is being edited for, or a link that lands on one. The message
 // carries what to do and names no command, surfacing both through
 // sectionProblem and wrapped with its path for an agent's settings.
 var errNotOperators = errors.New("this is a file faramir edits rather than owns, " +
@@ -291,23 +291,23 @@ func (e *edited) read() ([]byte, error) {
 }
 
 // editedFile is where to write a file faramir edits rather than owns: the
-// agent's settings, the credentials section.  The caller closes it.
+// agent's settings, the credentials section. The caller closes it.
 //
 // These commands run as root on paths inside directories the account the agent
 // runs as can write, which is what each check here is for:
 //
 //   - A link is followed, so a dotfiles manager's file is updated in place
-//     rather than replaced by a regular file.  Only to a regular file the
+//     rather than replaced by a regular file. Only to a regular file the
 //     operator owns; within bounds where it may land, naming the enrolled tree
 //     where there is one and empty in a home.
-//   - An existing file must be the operator's.  Root would otherwise edit
+//   - An existing file must be the operator's. Root would otherwise edit
 //     somebody else's file, and chowning it away from them is worse.
 //   - Nothing there is no error: the caller creates it, and creation is where
 //     ownership is faramir's to set.
 //
 // uid == keep asks nothing, for a caller with no operator in hand.
 //
-// A nil info means there is nothing there.  Otherwise the caller takes the
+// A nil info means there is nothing there. Otherwise the caller takes the
 // mode and ownership from it rather than passing keep: a write renames a new
 // file over the path, so the replacement would otherwise be root's.
 func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
@@ -340,12 +340,12 @@ func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
 	}
 	// The directory, resolved, and the bound applied to it rather than to the
 	// file: Lstat declines to follow only the last component, so a symlinked
-	// directory carries the write wherever it points.  Creation goes through here
+	// directory carries the write wherever it points. Creation goes through here
 	// too.
 	dir, err := filepath.EvalSymlinks(filepath.Dir(target))
 	switch {
 	// Nothing there yet: the write creates the file and its caller the directory,
-	// both inside the tree.  It is also what a precondition sees, asking this of
+	// both inside the tree. It is also what a precondition sees, asking this of
 	// a home before anything has been written to it.
 	case errors.Is(err, os.ErrNotExist):
 		return &edited{path: path}, nil
@@ -419,7 +419,7 @@ func (f fsys) writeEdited(e *edited, data []byte, mode os.FileMode, uid, gid int
 }
 
 // writeInto is writeFile relative to an open directory: same comparison, same
-// temp-and-rename, and no path resolved twice.  The temp is created O_EXCL, so
+// temp-and-rename, and no path resolved twice. The temp is created O_EXCL, so
 // one already sitting there is an error rather than something to truncate.
 func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
 	current, err := root.ReadFile(name)
@@ -486,7 +486,7 @@ func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int
 	root, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
 		// A dry run creates no directories, so the parent of a file it would create
-		// is not there to open.  Reported as a write.
+		// is not there to open. Reported as a write.
 		if f.dryRun {
 			return true, nil
 		}
@@ -528,7 +528,7 @@ func exists(path string) bool {
 }
 
 // probe is exists with a third answer: known is false when the question needs
-// more privilege than the caller has, which only happens under a dry run.  "not
+// more privilege than the caller has, which only happens under a dry run. "not
 // there" for a key behind a 0700 directory would read as a key about to be
 // regenerated.
 func probe(path string) (present, known bool) {
@@ -579,7 +579,7 @@ func lookupUser(name string) (int, error) {
 }
 
 // lookPathOr resolves a program on PATH, falling back to a conventional path so
-// a host that lacks it gets a config naming where it should be.  The broker
+// a host that lacks it gets a config naming where it should be. The broker
 // refuses to start when the binary is not there.
 func lookPathOr(program, fallback string) string {
 	if path, err := exec.LookPath(program); err == nil {
@@ -589,7 +589,7 @@ func lookPathOr(program, fallback string) string {
 }
 
 // primaryGroup resolves an account's own group, returning both the gid and the
-// name.  Two lookups rather than one on the account name, which would find a
+// name. Two lookups rather than one on the account name, which would find a
 // group that merely shares the name.
 func primaryGroup(account string) (int, string, error) {
 	entry, err := user.Lookup(account)

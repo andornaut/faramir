@@ -32,7 +32,7 @@ func TestExtractText(t *testing.T) {
 }
 
 // A keyfile is random bytes, which cannot be an environment variable or be
-// matched in output.  The refusal has to name the way out, or an operator whose
+// matched in output. The refusal has to name the way out, or an operator whose
 // link is refused has nothing to do about it.
 func TestExtractTextRefusesBinary(t *testing.T) {
 	_, err := Extract(KindText, "", []byte{0xff, 0xfe, 0x00, 0x01})
@@ -168,7 +168,7 @@ func TestExtractUnknownKindNamesTheKnownOnes(t *testing.T) {
 }
 
 // Every error reaches the daemon log and `--check`, so none of them may quote
-// the file.  A decoder's own message often does, which is why they are replaced
+// the file. A decoder's own message often does, which is why they are replaced
 // rather than wrapped.
 func TestErrorsCarryNoFileContent(t *testing.T) {
 	const value = "SUPERSECRETVALUE"
@@ -325,7 +325,7 @@ func TestAnErrorNamesTheParentInTheSelectorsOwnSpelling(t *testing.T) {
 }
 
 // A slash in a section or a key can make two different entries compose to one
-// selector.  That is this package's own ambiguity rather than the file's, so it
+// selector. That is this package's own ambiguity rather than the file's, so it
 // is refused: picking the first would be picking which credential to inject,
 // and the one not picked is then absent from the redactor and comes back in the
 // clear if anything prints it.
@@ -348,7 +348,7 @@ func TestAnAmbiguousINISelectorIsRefused(t *testing.T) {
 }
 
 // The file holding one key twice is the file's own ambiguity, and INI's answer
-// is first wins.  That is not the case above and must not be swept into it.
+// is first wins. That is not the case above and must not be swept into it.
 func TestADuplicateINIKeyStillTakesTheFirst(t *testing.T) {
 	for name, body := range map[string]string{
 		"in a section": "[s]\nk = first\nk = second\n",

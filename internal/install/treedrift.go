@@ -14,10 +14,10 @@ import (
 //
 // A tree is shared with the client group, and unlink and rename are permissions
 // on the directory, so a brokered command can replace one of these whatever
-// mode the file carries; the sticky bit narrows that and does not close it.  A
+// mode the file carries; the sticky bit narrows that and does not close it. A
 // hand edit reaches the same place.
 //
-// So this reports and a human decides.  Warned rather than failed: the record
+// So this reports and a human decides. Warned rather than failed: the record
 // says what was enrolled and when rather than what the tree is now, so a
 // checkout that moved, a branch that never carried these files and a hand edit
 // all read the same way from here.
@@ -73,8 +73,8 @@ func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 }
 
 // carriesWhatWeWrite reports whether a file on disk still carries what an
-// enrolment puts in it.  A merged file is asked the question a merge answers:
-// if merging faramir's keys changes nothing, what is there already has them.  A
+// enrolment puts in it. A merged file is asked the question a merge answers:
+// if merging faramir's keys changes nothing, what is there already has them. A
 // file that is faramir's own is compared as bytes.
 func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir string) (bool, error) {
 	onDisk, err := os.ReadFile(path)
@@ -99,7 +99,7 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 }
 
 // diagnoseEditableFiles asks what `init` and `init-project` would refuse to
-// write, without writing.  Both stop rather than take over a file faramir edits
+// write, without writing. Both stop rather than take over a file faramir edits
 // and does not own, or follow a link out of the tree, and the operator would
 // otherwise find that out when a run they wanted stops.
 //

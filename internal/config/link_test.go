@@ -119,7 +119,7 @@ type = "text"
 	}
 }
 
-// A scalar where the array of tables goes.  Named rather than ignored: the
+// A scalar where the array of tables goes. Named rather than ignored: the
 // entries would be silently absent.
 func TestALinkThatIsNotATableIsRefused(t *testing.T) {
 	_, err := load(t, minimal+`

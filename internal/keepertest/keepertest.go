@@ -1,6 +1,6 @@
 // Package keepertest serves the keeper's protocol from a value set a test
 // chooses, so the broker and its store run without sops, an age key or a real
-// keeper.  Imported only from _test.go files.
+// keeper. Imported only from _test.go files.
 //
 // One stand-in rather than a copy per package: the staleness check is set
 // equality over keeper.FileState, so the fingerprints come from the real
@@ -32,7 +32,7 @@ type Keeper struct {
 	files  []string
 }
 
-// New serves values on a socket of its own.  files is the managed inventory
+// New serves values on a socket of its own. files is the managed inventory
 // this keeper reports on, given here because the broker stats no managed file
 // itself.
 func New(t *testing.T, values map[string]string, files ...string) *Keeper {
@@ -98,7 +98,7 @@ func (k *Keeper) SetErrors(errors []string) {
 }
 
 // SetFiles replaces the managed inventory, for a caller that configures the
-// secrets after the keeper is up.  Both get the same list.
+// secrets after the keeper is up. Both get the same list.
 func (k *Keeper) SetFiles(files []string) {
 	k.mu.Lock()
 	defer k.mu.Unlock()

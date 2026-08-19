@@ -1,4 +1,4 @@
-// Package server is the broker daemon.  Socket-activated by systemd
+// Package server is the broker daemon. Socket-activated by systemd
 // (LISTEN_FDS), falling back to binding the socket itself when run standalone.
 // Requests over [command] concurrency are refused rather than queued.
 package server
@@ -45,7 +45,7 @@ type Server struct {
 	Ssh        *sshagent.Agent
 	Escalation *escalation.Server
 
-	// exec runs one command.  A field so a test can substitute one that records
+	// exec runs one command. A field so a test can substitute one that records
 	// what it was handed, rather than reaching broker policy through a socket, a
 	// PTY and a forked process.
 	exec func(*redact.Redactor, func(string), executor.Request) (*executor.Result, error)
@@ -55,7 +55,7 @@ type Server struct {
 	wg    sync.WaitGroup
 
 	// Every connection still being served, so Close can unblock the ones parked
-	// on a peer.  See Close.
+	// on a peer. See Close.
 	connsMu sync.Mutex
 	conns   map[net.Conn]struct{}
 	closing bool
@@ -73,12 +73,12 @@ func New(cfg *config.Config) *Server {
 			return executor.Run(cfg.Command, cfg.Executor, r, sink, req)
 		},
 	}
-	// An escalation is recorded where every other op is.  The record holds the
+	// An escalation is recorded where every other op is. The record holds the
 	// command and the answer, not a value: the audit log is written after
 	// redaction.
 	s.Escalation.Record = func(entry map[string]any) { s.Audit.Write(entry, audit.Output{}) }
 	// The kernel's answer to the question the escalation server can only believe:
-	// is anything running as the executor outside the run being approved?  Asked
+	// is anything running as the executor outside the run being approved? Asked
 	// of the executor because ProtectProc=invisible keeps another uid's /proc out
 	// of the broker's view, and failing closed.
 	s.Escalation.Quiescent = func() (bool, string) {
@@ -96,7 +96,7 @@ const opRedactName = "redact"
 const quiescenceWait = 5 * time.Second
 
 // peerWait bounds what a peer is given to send its request and to take its
-// reply.  It does not bound the op between them, which is a command running.  A
+// reply. It does not bound the op between them, which is a command running. A
 // variable so a test can shorten it.
 var peerWait = 30 * time.Second
 
@@ -180,7 +180,7 @@ func (s *Server) untrack(conn net.Conn) {
 }
 
 // extend pushes a connection's deadline out, and reports whether the server is
-// still open.  Taken under the lock Close sets `closing` in, so an extension
+// still open. Taken under the lock Close sets `closing` in, so an extension
 // either lands before Close's sweep or does not happen: set outside the lock it
 // could land after the sweep and undo it, holding shutdown open.
 func (s *Server) extend(conn net.Conn, d time.Duration, writeOnly bool) bool {
@@ -206,7 +206,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 
 	// Both directions, and before the first refusal is written: a deadline on the
 	// read alone leaves a peer that connects, asks and never reads blocked in
-	// Write with nothing to time it out.  A brokered command's output can reach
+	// Write with nothing to time it out. A brokered command's output can reach
 	// the output cap, well past a socket buffer, so the write blocks as soon as
 	// the peer stops reading, and Serve waits on that goroutine to shut down.
 	if !s.extend(conn, peerWait, false) {
@@ -219,7 +219,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 	}
 
 	// One connection carries one request, except a redact stream, which carries a
-	// chunk at a time down the same one.  The redactor holds back a tail longer
+	// chunk at a time down the same one. The redactor holds back a tail longer
 	// than the longest variant so a value split between two chunks is still
 	// caught, and that tail is only useful to the chunk that follows.
 	stream := &redactStream{}
@@ -253,7 +253,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 			return
 		}
 		// Cleared for the op itself, which runs for as long as [command]
-		// max_timeout_sec allows.  The reply gets a fresh deadline once there is
+		// max_timeout_sec allows. The reply gets a fresh deadline once there is
 		// something to write.
 		_ = conn.SetDeadline(time.Time{})
 		request, parseErr := protocol.Parse(payload)
@@ -276,7 +276,7 @@ func (s *Server) serveConnection(conn net.Conn) {
 		}
 		// The next chunk of a stream already in progress is the only thing given
 		// longer than peerWait: `faramir redact -- command` sends a chunk when the
-		// command has printed one, and a quiet command is ordinary.  Bounded by
+		// command has printed one, and a quiet command is ordinary. Bounded by
 		// what a brokered command may take, so an abandoned stream still ends.
 		if !s.extend(conn, s.streamWait(), false) {
 			return // the broker is stopping; the stream does not get another chunk
@@ -294,7 +294,7 @@ func (s *Server) streamWait() time.Duration {
 // peer is.
 var errPeerNotAllowed = errors.New("peer is not in the client group")
 
-// peer performs the SO_PEERCRED check.  The socket mode already restricts this
+// peer performs the SO_PEERCRED check. The socket mode already restricts this
 // to the client group; this also gives the audit log a real uid.
 func (s *Server) peer(conn net.Conn) (*sockutil.Peer, error) {
 	peer, err := sockutil.PeerCred(conn)
@@ -320,7 +320,7 @@ func (s *Server) Handle(payload map[string]any, peer *sockutil.Peer) protocol.Re
 	return s.dispatch(request, peer, nil)
 }
 
-// dispatch routes a parsed request.  stream is the connection's redact state,
+// dispatch routes a parsed request. stream is the connection's redact state,
 // nil for a caller that answers one request and is done with it.
 func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 	stream *redactStream) protocol.Response {
@@ -351,7 +351,7 @@ func (s *Server) dispatch(request *protocol.Request, peer *sockutil.Peer,
 
 func (s *Server) opStatus() protocol.Response {
 	// Whether, not where: any member of the client group can ask, including the
-	// coding agent, so what goes here lands in a model's context.  It is also the
+	// coding agent, so what goes here lands in a model's context. It is also the
 	// whole answer, a configured key that did not load looking identical to a
 	// working one from the config's side.
 	configured, usable := s.Config.Ssh.Key != "", false
@@ -381,14 +381,14 @@ func (s *Server) opStatus() protocol.Response {
 }
 
 // opRedact scrubs text the caller already holds, so a session outside the
-// broker's uid gets the same redaction a brokered command does.  The value set
-// never leaves this process.  A deliberate oracle, and deliberately not
+// broker's uid gets the same redaction a brokered command does. The value set
+// never leaves this process. A deliberate oracle, and deliberately not
 // rate-limited; docs/design.md has the weighting.
 func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer,
 	stream *redactStream) protocol.Response {
 	if stream == nil {
 		// A caller with nowhere to keep the redactor cannot be part way through a
-		// stream.  Refused rather than quietly completed: feeding text and never
+		// stream. Refused rather than quietly completed: feeding text and never
 		// flushing would drop the tail this chunk held back.
 		if request.More {
 			return protocol.ErrorResponse("bad_request",
@@ -428,7 +428,7 @@ type redactStream struct {
 }
 
 // finish writes the stream's single audit record, at the end rather than per
-// chunk: the counts only add up once the last chunk has been through.  Called
+// chunk: the counts only add up once the last chunk has been through. Called
 // again from serveConnection for a stream the peer abandoned.
 func (st *redactStream) finish(s *Server, peer *sockutil.Peer) {
 	if st.redactor == nil || st.written {
@@ -442,9 +442,9 @@ func (st *redactStream) finish(s *Server, peer *sockutil.Peer) {
 }
 
 // requireRoot gates the three escalation ops, the only ones this socket refuses
-// to a caller it otherwise admits.  Root, checked with SO_PEERCRED: not the
+// to a caller it otherwise admits. Root, checked with SO_PEERCRED: not the
 // client group, which holds the account the coding agent runs as, and not the
-// executor, which is the side asking.  Made in the op rather than left to a
+// executor, which is the side asking. Made in the op rather than left to a
 // file mode, the socket admitting a group by design.
 func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response {
 	if peer != nil && peer.UID == 0 {
@@ -457,7 +457,7 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 }
 
 // opEscalate is what sudo's PAM helper asks, and the only thing that decides
-// whether a brokered command becomes root.  It blocks until a human answers.
+// whether a brokered command becomes root. It blocks until a human answers.
 //
 // Root, like the other two: the helper reaches it because pam_exec runs it with
 // seteuid inside sudo, and the child that holds the token cannot spend it,
@@ -472,7 +472,7 @@ func (s *Server) opEscalate(request *protocol.Request, peer *sockutil.Peer) prot
 	}
 	approved, code, reason := s.Escalation.Ask(request.Token)
 	// A refusal is a response rather than an error: the helper reports it to PAM
-	// as a failed authentication, which is what sudo has to see.  The code rides
+	// as a failed authentication, which is what sudo has to see. The code rides
 	// beside the reason, a refusal and an expiry reading alike in prose.
 	return protocol.Response{
 		"exit_code": 0, "approved": approved, "reason": reason,
@@ -540,7 +540,7 @@ func (s *Server) opApprove(request *protocol.Request, peer *sockutil.Peer) proto
 	}
 }
 
-// maxEscalationWait bounds a watcher's long poll.  It returns an empty list and
+// maxEscalationWait bounds a watcher's long poll. It returns an empty list and
 // the watcher asks again, so a broker restarted under it is noticed.
 const maxEscalationWait = 60 * time.Second
 
@@ -568,7 +568,7 @@ func (s *Server) secretsDir() string {
 }
 
 // refuseUnreadable is the gate on the two ops whose output is redacted against
-// the value set; see Store.Unreadable.  Asked here rather than at startup: a
+// the value set; see Store.Unreadable. Asked here rather than at startup: a
 // startup check judges the host as it was at boot, and exiting would take the
 // daemon down just when `faramir status` and `doctor` would explain why.
 // status and refs stay available, neither producing output that depends on the
@@ -594,7 +594,7 @@ func (s *Server) refuseUnreadable(op, phrase, logID string) *protocol.Response {
 
 // refuse answers a request that will not run, and records it under the log_id
 // the caller is given: `faramir mcp` hands that id to the model, so one naming
-// no record sends somebody to look up nothing.  Not for the refusals decided
+// no record sends somebody to look up nothing. Not for the refusals decided
 // before a request is parsed -- too_large, a forbidden peer, malformed JSON --
 // which carry no id.
 func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
@@ -617,7 +617,7 @@ func (s *Server) refuse(code, message, logID string, peer *sockutil.Peer,
 
 // refuseUnauditable is the gate on running anything at all: a command that
 // cannot be recorded is not run, and the agent can reach that state by printing
-// enough to fill the filesystem.  Nothing is recorded here, there being nowhere
+// enough to fill the filesystem. Nothing is recorded here, there being nowhere
 // to record it: the refusal goes back to the caller and to the daemon log.
 func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
 	reason := s.Audit.Unwritable()
@@ -632,8 +632,8 @@ func (s *Server) refuseUnauditable(phrase, logID string) *protocol.Response {
 	return &out
 }
 
-// The two ops a brokered command's records carry.  recordRunStarted is written
-// when the child runs; recordRun is every other record about that command.  The
+// The two ops a brokered command's records carry. recordRunStarted is written
+// when the child runs; recordRun is every other record about that command. The
 // pair is joined by the log_id, so a reader selecting recordRun still gets one
 // record per command.
 const (
@@ -662,7 +662,7 @@ type execEscalation struct {
 	// none: sudo reports a refusal and an expiry alike, as its own authentication
 	// failure.
 	code, reason string
-	// waited is seconds the child spent blocked inside sudo.  The duration is
+	// waited is seconds the child spent blocked inside sudo. The duration is
 	// wall time from fork to exit, so an escalation answered slowly reads as a
 	// slow command without it.
 	waited float64
@@ -686,7 +686,7 @@ func (a execEscalation) fields() map[string]any {
 	return out
 }
 
-// execResponse is what the caller is told about a command that ran.  What the
+// execResponse is what the caller is told about a command that ran. What the
 // escalation has to say rides along, each field present only where it says
 // something.
 func execResponse(logID string, judged execEscalation,
@@ -703,7 +703,7 @@ func execResponse(logID string, judged execEscalation,
 }
 
 // execAudit is what every record about one brokered command carries: which
-// command, run where, against which refs, and when it started.  Gathered once
+// command, run where, against which refs, and when it started. Gathered once
 // and rendered per record, so the pair sharing a log_id cannot disagree.
 type execAudit struct {
 	logID     string
@@ -716,7 +716,7 @@ type execAudit struct {
 }
 
 // execFields is one record's worth of those, less the op and the outcome, which
-// are the caller's to add.  Redacted afresh per record: the value set can change
+// are the caller's to add. Redacted afresh per record: the value set can change
 // while a command runs.
 func (s *Server) execFields(a execAudit) map[string]any {
 	record := s.redactor()
@@ -749,8 +749,8 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 		return s.refuse("bad_request", "no cwd: name the directory to run in.",
 			logID, peer, cmd, "")
 	}
-	// Fails early with a clear message; it enforces nothing.  Permission is left
-	// to the executor, whose uid may hold traversal the broker does not.  Absence
+	// Fails early with a clear message; it enforces nothing. Permission is left
+	// to the executor, whose uid may hold traversal the broker does not. Absence
 	// is refused here, being knowable from any uid.
 	info, statErr := os.Stat(cwd)
 	switch {
@@ -776,7 +776,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	}
 
 	// The only place plaintext is touched outside the store, and it goes straight
-	// into the child's environ.  HOME is left to the executor.
+	// into the child's environ. HOME is left to the executor.
 	env := make(map[string]string, len(execCfg.Env)+1)
 	maps.Copy(env, execCfg.Env)
 	// SSH_AUTH_SOCK: the child can authenticate with the keys, not read them.
@@ -798,7 +798,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	// Registered before the child starts and dropped when it ends, so a late
 	// request is refused rather than answered against a finished command.
 	//
-	// The argv is the redacted one, this reaching a terminal and the log.  One
+	// The argv is the redacted one, this reaching a terminal and the log. One
 	// redactor for the whole question; the audit write below builds its own,
 	// against whatever the store holds by then.
 	asked := s.redactor()
@@ -809,7 +809,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 		Caller: callerName(peer),
 		// What root would actually run, which is not always what argv[0] says: a
 		// relative argv[0] resolves against the request's cwd, which is the agent's
-		// working tree.  The question names both when they differ.
+		// working tree. The question names both when they differ.
 		Argv0Path: asked.RedactText(argv0Path),
 	})
 	// Held while an escalation is live or a question is waiting: the two commands
@@ -827,7 +827,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 			"has finished", logID, peer, cmd, cwd)
 	}
 	// How this run ended, read by the defer below and published to the terminal
-	// that approved it.  The zero value is a run the broker never got a status
+	// that approved it. The zero value is a run the broker never got a status
 	// for and says so: a nil ExitCode prints as an ending without one, where a
 	// zero would print as a clean exit.
 	outcome := escalation.Outcome{LogID: logID}
@@ -867,9 +867,9 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	}
 
 	// An exec is a pair of records sharing one log_id: this one when the child
-	// starts, and the one below when it ends.  Without it a command is absent
+	// starts, and the one below when it ends. Without it a command is absent
 	// from the log for as long as it runs, and a run that never returns leaves
-	// nothing at all.  No output: there is none yet.
+	// nothing at all. No output: there is none yet.
 	starting := s.execFields(audited)
 	starting["op"] = recordRunStarted
 	s.Audit.Write(starting, audit.Output{})
@@ -923,8 +923,8 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	return execResponse(logID, judged, result)
 }
 
-// redactor builds a fresh matcher over the whole value set.  Fresh because a
-// Redactor carries per-stream state and counts.  The sudo grant adds nothing to
+// redactor builds a fresh matcher over the whole value set. Fresh because a
+// Redactor carries per-stream state and counts. The sudo grant adds nothing to
 // it: an escalation is a decision rather than a value.
 func (s *Server) redactor() *redact.Redactor {
 	return redact.New(s.Store.Pairs(), s.Store.Policy)
@@ -936,7 +936,7 @@ func (s *Server) safeDetail(detail string) string {
 	return s.redactor().RedactText(detail)
 }
 
-// redactEach covers the command line an audit record carries.  The broker never
+// redactEach covers the command line an audit record carries. The broker never
 // substitutes a value into argv, but a caller can, and this record goes to
 // disk: what ran stays legible as "mysql -p«SECRET:db/root»".
 func redactEach(r *redact.Redactor, in []string) []string {
@@ -949,7 +949,7 @@ func redactEach(r *redact.Redactor, in []string) []string {
 
 // CheckOutput is the operator-facing --check report: the refs refused at load,
 // which the agent-facing status op never names, and the state of the configured
-// SSH keys.  Both exit non-zero, being a broker that serves without doing the
+// SSH keys. Both exit non-zero, being a broker that serves without doing the
 // job it was installed for.
 func (s *Server) CheckOutput() ([]byte, int) {
 	secrets := s.Store.DescribeForOperator()
@@ -1026,7 +1026,7 @@ func (s *Server) CheckOutput() ([]byte, int) {
 }
 
 // describeEscalation reports whether this host could answer an escalation, and
-// why not when it could not.  Files rather than a live probe: putting the
+// why not when it could not. Files rather than a live probe: putting the
 // question would mean waiting on a human, and `--check` runs from `init`.
 func (s *Server) describeEscalation() (map[string]any, []string) {
 	info := map[string]any{"enabled": s.Escalation.Enabled()}
@@ -1041,7 +1041,7 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 	info["notify_command"] = cfg.NotifyCommand
 
 	var problems []string
-	// The helper is what sudo's PAM service execs, as root.  Absent, every
+	// The helper is what sudo's PAM service execs, as root. Absent, every
 	// escalation fails closed.
 	if _, err := os.Stat(cfg.Helper); err != nil {
 		problems = append(problems, cfg.Helper+": "+err.Error()+
@@ -1067,15 +1067,15 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 	return info, problems
 }
 
-// policyProblems names the settings that widen what a socket admits.  The
+// policyProblems names the settings that widen what a socket admits. The
 // keeper's socket is the age key by another route, and the executor's runs a
 // command with no policy, redaction or audit record; each has exactly one
-// legitimate client, this process.  Identity by uid rather than name, the
+// legitimate client, this process. Identity by uid rather than name, the
 // accounts being renamable at install time.
 func (s *Server) policyProblems() []string {
 	problems := []string{}
 	// The socket itself, not a config key describing it: under systemd the
-	// .socket unit's SocketMode= is what the mode ends up as.  Unbound means
+	// .socket unit's SocketMode= is what the mode ends up as. Unbound means
 	// unchecked rather than passing.
 	path := s.Config.Server.SocketPath
 	if info, err := os.Stat(path); err != nil {
@@ -1122,8 +1122,8 @@ func isSelf(name string) bool {
 }
 
 // unusableReason names why ssh-add will refuse this key, or "" if it will take
-// it: a passphrase-protected key, or [ssh] key pointing at the .pub.  Either
-// leaves the broker up with an agent holding nothing.  The parse is what ssh-add
+// it: a passphrase-protected key, or [ssh] key pointing at the .pub. Either
+// leaves the broker up with an agent holding nothing. The parse is what ssh-add
 // would do, and its error carries no key material.
 func unusableReason(data []byte) string {
 	_, err := ssh.ParseRawPrivateKey(data)
@@ -1142,7 +1142,7 @@ func unusableReason(data []byte) string {
 }
 
 // describeSSH reports whether the broker can read and use the configured key,
-// and why not when it cannot.  A file check rather than a loaded-key count:
+// and why not when it cannot. A file check rather than a loaded-key count:
 // --check runs before Ssh.Start, and starting a second agent would replace a
 // running broker's socket.
 func (s *Server) describeSSH() (map[string]any, []string) {

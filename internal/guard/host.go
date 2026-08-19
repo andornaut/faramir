@@ -8,25 +8,25 @@ import (
 )
 
 // A host is the agent whose hook dialect this run speaks; only the tool names
-// and the shape of the reply differ between agents.  Named by --host rather
+// and the shape of the reply differ between agents. Named by --host rather
 // than sniffed: the wrong dialect fails open, a document the host does not
 // understand being a command it runs unredacted.
 type host struct {
 	name string
 
 	// shellTools name the tools this host runs commands through; anything else is
-	// left alone.  wrapTool is the one whose input is rewritten; Claude Code's
+	// left alone. wrapTool is the one whose input is rewritten; Claude Code's
 	// second tool reads a running command's buffer, recognised so it can be
 	// skipped deliberately.
 	shellTools []string
 	wrapTool   string
-	// anyShellTool takes every tool as one that runs a command.  For faramir's own
+	// anyShellTool takes every tool as one that runs a command. For faramir's own
 	// plugin, which asks only about a call carrying a command string, so gating on
-	// the name again would leave a renamed shell tool unguarded.  A hook host
+	// the name again would leave a renamed shell tool unguarded. A hook host
 	// cannot do this, being asked about every tool.
 	anyShellTool bool
 
-	// deny refuses the command.  The reason reaches the model, not the
+	// deny refuses the command. The reason reaches the model, not the
 	// operator.
 	deny func(reason string) map[string]any
 
@@ -64,7 +64,7 @@ var hosts = map[string]*host{
 
 	// opencode and Kilo Code extend through in-process plugins rather than a hook
 	// that runs a program, so the plugin faramir installs applies the decision
-	// itself.  Two names for one contract, so a divergence has somewhere to go.
+	// itself. Two names for one contract, so a divergence has somewhere to go.
 	"opencode": pluginHost("opencode"),
 	// pi speaks the same dialect: its extension turns a deny into a blocked tool
 	// call and a rewrite into a mutation of the call's own input.
@@ -105,7 +105,7 @@ func knownHosts() []string {
 // defaultHost is what an invocation naming none speaks.
 const defaultHost = "claude"
 
-// lookupHost resolves --host.  An unknown name is an error rather than a
+// lookupHost resolves --host. An unknown name is an error rather than a
 // fallback, the wrong dialect failing open.
 func lookupHost(name string) (*host, error) {
 	if name == "" {

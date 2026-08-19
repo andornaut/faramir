@@ -19,7 +19,7 @@ func section(t *testing.T) string {
 	return body
 }
 
-// The four placements, and what each one licenses.  The markers are what makes
+// The four placements, and what each one licenses. The markers are what makes
 // a block replaceable: what is between them is faramir's whatever it now says,
 // and everything outside them is somebody else's.
 func TestWhereTheSectionGoes(t *testing.T) {
@@ -53,7 +53,7 @@ func TestWhereTheSectionGoes(t *testing.T) {
 		{"the section and nothing else, unmarked", body, placeWrap},
 		{
 			// The wrap matches the text exactly, so a copy reworded past that is
-			// one it cannot delimit.  Appending would leave two sets of
+			// one it cannot delimit. Appending would leave two sets of
 			// credentials instructions contradicting each other.
 			"an unmarked section in words that are not these",
 			"# Project\n\n" + heading + "\n\nRun things with faramir_run, or so we used to.\n",
@@ -114,7 +114,7 @@ func TestWritingTheSectionIsIdempotent(t *testing.T) {
 
 // A section with no markers around it is wrapped where it stands, whether it
 // was written before there were markers or had them stripped by something
-// tidying the file.  Appending would leave the tree with two of them.
+// tidying the file. Appending would leave the tree with two of them.
 func TestAnUnmarkedSectionIsWrappedInPlace(t *testing.T) {
 	body := section(t)
 	before := []byte("# My project\n\n" + body + "\n## After\n\nMore notes.\n")
@@ -158,7 +158,7 @@ func TestAnEmptyFileGetsTheSectionAlone(t *testing.T) {
 }
 
 // Changing the shipped snippet must not give an already-enrolled tree a second
-// section.  The wording changes; the heading is what an older copy is found by,
+// section. The wording changes; the heading is what an older copy is found by,
 // so a change that drops it silently turns every such file into a duplicate.
 func TestARewordedSectionIsNeverAppendedBesideTheOldOne(t *testing.T) {
 	body := section(t)
@@ -179,7 +179,7 @@ func TestARewordedSectionIsNeverAppendedBesideTheOldOne(t *testing.T) {
 }
 
 // A symlinked instructions file is followed and the section written into what
-// it points at.  A dotfiles manager keeps such a file as a link into a
+// it points at. A dotfiles manager keeps such a file as a link into a
 // repository it owns, and writing to the link would leave a regular file where
 // the link was and the repository's copy stale and no longer read.
 func TestASymlinkedHomeFileIsWrittenThroughToItsTarget(t *testing.T) {
@@ -225,7 +225,7 @@ func TestASymlinkedHomeFileIsWrittenThroughToItsTarget(t *testing.T) {
 	}
 }
 
-// A link is followed only to a regular file the operator owns.  `init` runs as
+// A link is followed only to a regular file the operator owns. `init` runs as
 // root on a path inside a directory the account the agent runs as can write, so
 // a link re-pointed at a file root can write would otherwise turn this into an
 // append as root.
@@ -279,7 +279,7 @@ func TestADanglingLinkIsRefused(t *testing.T) {
 }
 
 // faramir owns the block between the markers, not the file it sits in, and the
-// block is documentation rather than something enforcement rests on.  So an
+// block is documentation rather than something enforcement rests on. So an
 // instructions file that is already there keeps the mode it has, and only one
 // this creates is given one.
 func TestAnExistingInstructionsFileKeepsItsMode(t *testing.T) {
@@ -350,7 +350,7 @@ func writeInstructions(t *testing.T, current []byte, body string) []byte {
 }
 
 // What an agent is told about waiting for an escalation only holds where one can
-// be raised.  On any other host it describes a refusal that never happens, and
+// be raised. On any other host it describes a refusal that never happens, and
 // instructions an agent cannot act on are instructions it learns to skim.
 func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 	const marker = "escalation_in_progress"
@@ -371,7 +371,7 @@ func TestTheEscalationParagraphIsWrittenOnlyOnASudoHost(t *testing.T) {
 }
 
 // initHome runs `init`'s account-level agent step for real against a home the
-// test built, so what is asserted is the bytes that land in it.  Ownership left
+// test built, so what is asserted is the bytes that land in it. Ownership left
 // alone: this runs unprivileged, and a chown to root would fail before anything
 // was written.
 func initHome(t *testing.T, home string, agents ...string) *runner {
@@ -400,7 +400,7 @@ func initHomeErr(t *testing.T, home string, agents ...string) (*runner, error) {
 }
 
 // Every agent gets the account-wide section, in the file that agent reads for
-// every project.  The deny rules hold wherever it is working, so the paragraph
+// every project. The deny rules hold wherever it is working, so the paragraph
 // explaining them has to as well.
 func TestInitWritesTheSectionIntoEveryAgentsHomeFile(t *testing.T) {
 	home := t.TempDir()
@@ -463,7 +463,7 @@ func TestInitKeepsTheOperatorsOwnProseInTheirHomeFile(t *testing.T) {
 
 // A home file this cannot bring up to date fails the run: these files carry the
 // policy an agent is held to, so reporting success would leave an operator
-// believing a host says something it does not.  The file is left exactly as it
+// believing a host says something it does not. The file is left exactly as it
 // is, where the block stops not being readable off it.
 func TestInitFailsOnAHomeFileItCannotBringUpToDate(t *testing.T) {
 	home := t.TempDir()
@@ -542,7 +542,7 @@ func TestInitProjectFailsOnAnInstructionsFileItCannotBringUpToDate(t *testing.T)
 }
 
 // A path outside the home, or one an agent does not read, is a section written
-// where nothing loads it.  Checked here because it is not visible at runtime:
+// where nothing loads it. Checked here because it is not visible at runtime:
 // the file is written, and the agent never says anything different.
 func TestEveryHomeInstructionsPathIsRelativeToTheHome(t *testing.T) {
 	for _, name := range knownAgents() {
@@ -563,7 +563,7 @@ func TestEveryHomeInstructionsPathIsRelativeToTheHome(t *testing.T) {
 
 // What the home section claims about the deny rules has to be true of the agent
 // it is written for: pi's are compiled into the extension an enrolment
-// installs, and Antigravity has nothing that refuses a file tool anything.  An
+// installs, and Antigravity has nothing that refuses a file tool anything. An
 // agent told it is refused everywhere, and finding it is not, has no reason to
 // believe the next claim.
 func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
@@ -602,7 +602,7 @@ func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 
 // The rules both sections state are one asset rendered into each, so a home and
 // a tree cannot come to state the same policy in two ways that do not quite
-// agree.  An agent in an enrolled tree reads both at once.
+// agree. An agent in an enrolled tree reads both at once.
 func TestBothSectionsStateTheSharedRulesIdentically(t *testing.T) {
 	shared, err := credentialRules()
 	if err != nil {
@@ -667,7 +667,7 @@ func TestEachSectionSaysWhatOnlyItCan(t *testing.T) {
 }
 
 // An agent's settings are a file faramir edits rather than owns, and both
-// commands run as root on a path the account the agent runs as can write.  One
+// commands run as root on a path the account the agent runs as can write. One
 // that is not the operator's fails the run: editing it would be root writing a
 // file it was never asked to, and chowning it to make that true would take it
 // from whoever has it.
@@ -743,7 +743,7 @@ func TestSymlinkedAgentSettingsAreWrittenThroughToTheirTarget(t *testing.T) {
 }
 
 // The group is asserted where it is load-bearing and left alone where it is
-// not.  A tree's files have to be readable by the client group; in a home the
+// not. A tree's files have to be readable by the client group; in a home the
 // group decides nothing, and asserting it would be one more thing a run changes
 // without being asked to.
 func TestTheGroupIsAssertedOnlyWhereItIsLoadBearing(t *testing.T) {
@@ -803,7 +803,7 @@ func TestTheGroupIsAssertedOnlyWhereItIsLoadBearing(t *testing.T) {
 }
 
 // One agent's rule file that cannot be written must not cost the others theirs,
-// nor cost every agent its credentials section.  The run still fails; what it
+// nor cost every agent its credentials section. The run still fails; what it
 // must not do is fail early enough to hide what did land.
 func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 	home := t.TempDir()
@@ -863,7 +863,7 @@ func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 	}
 }
 
-// Two agents whose files are one file are refused, and named as a pair.  A link
+// Two agents whose files are one file are refused, and named as a pair. A link
 // is the ordinary way to get one, an operator keeping a single global
 // instructions file for every agent; written, the second section would replace
 // the first and the run would report success.
@@ -909,7 +909,7 @@ func TestInitRefusesTwoAgentFilesThatAreOneFile(t *testing.T) {
 }
 
 // The same path twice is one file written once, which is what two agents
-// reading one file of their own is.  Only two different paths landing on one
+// reading one file of their own is. Only two different paths landing on one
 // are two writes with one survivor, so a repeat must not be refused with them.
 func TestRefusingOneFileTwiceAllowsTheSamePathTwice(t *testing.T) {
 	home := t.TempDir()
@@ -931,7 +931,7 @@ func TestRefusingOneFileTwiceAllowsTheSamePathTwice(t *testing.T) {
 // A link out of an enrolled tree is refused: following it would apply the
 // tree's group and mode to a file the enrolment was never pointed at, so a
 // dotfiles copy would come out readable by the account brokered commands run
-// as.  In a home there is no such bound, a dotfiles repository being wherever
+// as. In a home there is no such bound, a dotfiles repository being wherever
 // the operator keeps it.
 func TestALinkOutOfAnEnrolledTreeIsRefused(t *testing.T) {
 	outside := t.TempDir()
@@ -987,7 +987,7 @@ func TestALinkOutOfAnEnrolledTreeIsRefused(t *testing.T) {
 	}
 }
 
-// A plain file is pinned the same way a followed link is.  The check and the
+// A plain file is pinned the same way a followed link is. The check and the
 // write are two operations, and a path checked and then written by path is
 // resolved twice: the directories these sit in are the operator's, and in an
 // enrolled tree the client group's, so either can replace one in between.
@@ -1040,7 +1040,7 @@ func TestAPlainEditedFileIsPinnedToo(t *testing.T) {
 }
 
 // A followed link is written through a descriptor opened on the target's
-// directory, so the path is resolved once.  What that buys, asserted the only
+// directory, so the path is resolved once. What that buys, asserted the only
 // way it can be from here: the directory the write goes into is the one that
 // was checked, so replacing it afterwards reaches nothing this run does.
 func TestAFollowedLinkIsWrittenThroughAPinnedDirectory(t *testing.T) {
@@ -1133,7 +1133,7 @@ func TestAFollowedLinkKeepsTheTempAndRename(t *testing.T) {
 
 // The bound is on the directory, not the file: Lstat declines to follow only
 // the last component, so a symlinked parent would carry the write out of the
-// tree before the leaf is looked at.  Refused at the directory, which is the
+// tree before the leaf is looked at. Refused at the directory, which is the
 // level a run reaches first.
 func TestASymlinkedParentCannotCarryTheWriteOutOfTheTree(t *testing.T) {
 	outside := t.TempDir()

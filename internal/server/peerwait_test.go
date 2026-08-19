@@ -14,7 +14,7 @@ import (
 // A peer that asks and then never reads its reply must not hold this broker.
 //
 // The reply to an exec carries the command's output, which can be larger than a
-// socket buffer, so the write blocks until somebody reads it.  With no deadline
+// socket buffer, so the write blocks until somebody reads it. With no deadline
 // on that write the goroutine, the descriptor and the whole response are held
 // for as long as the peer cares to hold them, by the account the coding agent
 // runs as; and Serve waits on those goroutines, so the broker stops answering
@@ -49,14 +49,14 @@ func TestAPeerThatNeverReadsDoesNotHoldTheBroker(t *testing.T) {
 	if _, err := conn.Write([]byte(`{"op":"run","cmd":["true"],"cwd":"/"}` + "\n")); err != nil {
 		t.Fatal(err)
 	}
-	// And no read at all while the deadline runs out.  The connection stays open,
+	// And no read at all while the deadline runs out. The connection stays open,
 	// which is the case a peer that hung up would not exercise: a closed socket
 	// ends the write by itself.
 	time.Sleep(5 * peerWait)
 
 	// Only now, and the reply has to come up short: what the socket buffer took
 	// before the write blocked, and then the end of a connection the broker gave
-	// up on.  Without the deadline the broker is still holding the write, and
+	// up on. Without the deadline the broker is still holding the write, and
 	// draining here would collect the whole 8MB and a well-formed reply.
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	read := 0

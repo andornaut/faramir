@@ -9,13 +9,13 @@ import (
 )
 
 // An agent that gets no enforcement gets prose, and prose only works where the
-// agent reads it.  Antigravity is the case these cover: its hooks decide and
+// agent reads it. Antigravity is the case these cover: its hooks decide and
 // cannot rewrite a command, so what an enrolment leaves is the broker's tools
 // and the instructions to use them, and every claim below is about those
 // instructions arriving.
 
 // Antigravity reads no documented file at the root of a tree, so an enrolment
-// writes it one under the directory it does read.  A rules file's activation is
+// writes it one under the directory it does read. A rules file's activation is
 // frontmatter and always-on is not the default, so a file without the head is
 // one the model may never be shown, which for this agent is the whole of what
 // it was given.
@@ -71,7 +71,7 @@ func TestATreeRulesFileIsHeadedSoTheAgentLoadsIt(t *testing.T) {
 	}
 }
 
-// The head is for a file this creates.  An operator who set the activation to
+// The head is for a file this creates. An operator who set the activation to
 // something else keeps it: faramir owns the block between the markers, and the
 // file it sits in is theirs, as it is for every other instructions file.
 func TestAnExistingRulesFileKeepsItsOwnHead(t *testing.T) {
@@ -109,7 +109,7 @@ func TestAnExistingRulesFileKeepsItsOwnHead(t *testing.T) {
 }
 
 // A file two agents read is named once when a run refuses it: an operator gets
-// a list of what to fix, and one file listed twice reads as two.  No shipped
+// a list of what to fix, and one file listed twice reads as two. No shipped
 // pair shares a file, so the targets here are built rather than looked up.
 func TestAFileTwoAgentsReadIsNamedOnce(t *testing.T) {
 	const shared = "AGENTS.md"
@@ -127,7 +127,7 @@ func TestAFileTwoAgentsReadIsNamedOnce(t *testing.T) {
 }
 
 // The claim a shared file makes is the weaker of the two, whichever agent was
-// named first.  An agent told it is refused everywhere, and finding it is not,
+// named first. An agent told it is refused everywhere, and finding it is not,
 // has no reason to believe the next claim; one told to assume nothing stops it
 // has been told the truth either way.
 func TestTheClaimInASharedHomeFileIsTheWeakerOne(t *testing.T) {
@@ -157,7 +157,7 @@ func TestTheClaimInASharedHomeFileIsTheWeakerOne(t *testing.T) {
 	}
 }
 
-// Enrolling an agent nothing redacts says so.  The tree is shared and the tools
+// Enrolling an agent nothing redacts says so. The tree is shared and the tools
 // are registered either way, and an operator reading a clean report would
 // otherwise take this tree to be covered the way the others are.
 func TestEnrollingAntigravitySaysNothingItRunsIsRedacted(t *testing.T) {
@@ -189,7 +189,7 @@ func TestEnrollingAntigravitySaysNothingItRunsIsRedacted(t *testing.T) {
 	}
 }
 
-// An agent with no account-wide rules says why it has none.  Two get none and
+// An agent with no account-wide rules says why it has none. Two get none and
 // not for the same reason, and the difference between them is the difference
 // between a project that is covered and one that is not.
 func TestEveryAgentWithoutAccountRulesSaysWhy(t *testing.T) {
@@ -212,7 +212,7 @@ func TestEveryAgentWithoutAccountRulesSaysWhy(t *testing.T) {
 	}
 }
 
-// And `doctor` says that reason rather than pi's.  It is the report an operator
+// And `doctor` says that reason rather than pi's. It is the report an operator
 // reads to check coverage, and telling them an extension carries Antigravity's
 // rules names a thing that does not exist.
 func TestDoctorSaysWhyAntigravityHasNoRules(t *testing.T) {
@@ -269,7 +269,7 @@ func TestTheDirectoriesTheInstructionsNeedAreSharedAtEveryLevel(t *testing.T) {
 }
 
 // The warning is what says this tree is not covered, so it is said every time
-// the tree is enrolled and not only the once that wrote the files.  Re-running
+// the tree is enrolled and not only the once that wrote the files. Re-running
 // an enrolment is the ordinary case, and a silent one reads as a tree covered
 // the way the others are.
 func TestTheAntigravityWarningIsRepeatedOnEveryEnrolment(t *testing.T) {
@@ -297,7 +297,7 @@ func TestTheAntigravityWarningIsRepeatedOnEveryEnrolment(t *testing.T) {
 	}
 }
 
-// A step that stops partway still says what it wrote.  The tree's own file is
+// A step that stops partway still says what it wrote. The tree's own file is
 // written before an agent's own one, so a failure on the second leaves a report
 // that names neither unless the step is recorded first.
 func TestTheInstructionsStepReportsWhatItWroteBeforeFailing(t *testing.T) {
@@ -333,7 +333,7 @@ func TestTheInstructionsStepReportsWhatItWroteBeforeFailing(t *testing.T) {
 
 // A directory a level below a link is the case the file bound cannot answer:
 // there is no file yet to resolve, so the creation is what would land outside
-// the tree.  Running as root, that is a directory handed to the client group
+// the tree. Running as root, that is a directory handed to the client group
 // somewhere the enrolment was never pointed at.
 //
 // Both halves of an enrolment create directories, so both are asked.
@@ -363,7 +363,7 @@ func TestNoDirectoryIsCreatedThroughALinkOutOfTheTree(t *testing.T) {
 
 // A link that stays inside the tree is refused as well, and this is the case
 // the pin alone does not cover: a root will follow one that does not escape it,
-// so what stops this is the refusal rather than the bound.  The mode and owner
+// so what stops this is the refusal rather than the bound. The mode and owner
 // asserted on a link land on whatever it points at, which is the reason
 // ensureDir refuses one too.
 func TestNoDirectoryIsCreatedThroughALinkInsideTheTree(t *testing.T) {

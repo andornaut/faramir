@@ -21,7 +21,7 @@ import (
 )
 
 // managedFile is a file for the managed store to name, so the store reports one
-// as present.  Contents are the keeper double's business, not this file's.
+// as present. Contents are the keeper double's business, not this file's.
 func managedFile(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "managed.sops.yml")
@@ -34,7 +34,7 @@ func managedFile(t *testing.T) string {
 // secretFiles is set here because the store copies the secrets config at
 // construction, so a later assignment to s.Config.Secret reads nothing.
 // newServer is a healthy install: one managed file, present and read, which is
-// what the exec and redact gate asks for.  A test that wants the store
+// what the exec and redact gate asks for. A test that wants the store
 // unconfigured calls newUnconfiguredServer.
 func newServer(t *testing.T, values map[string]string, secretFiles ...string) *Server {
 	t.Helper()
@@ -89,7 +89,7 @@ func output(t *testing.T, r protocol.Response) string {
 
 // Produced before a request is parsed, so it has its own code rather than being
 // a bad_request: an oversized request is a client that needs to send less, not
-// one that sent nonsense.  `faramir redact` withholds the text either way, as it
+// one that sent nonsense. `faramir redact` withholds the text either way, as it
 // does for every other error -- text that reached no redactor is text nobody
 // checked -- and the code is what tells the two apart in the audit and to
 // whoever is reading the failure.
@@ -326,7 +326,7 @@ func TestCheckPassesOnAKeyTheBrokerCanUse(t *testing.T) {
 }
 
 // ssh-add cannot type a passphrase, so the broker comes up with an agent
-// holding nothing.  A readability check alone would call that healthy.
+// holding nothing. A readability check alone would call that healthy.
 func TestCheckFailsOnAPassphraseProtectedKey(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"})
 	key, _ := writeKeyPair(t, "hunter2")
@@ -464,7 +464,7 @@ func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
 // -- the gate on an empty value set -----------------------------------------
 
 // Holding nothing, the redactor is a no-op, so a command that printed a
-// credential it got from anywhere would print it in plaintext.  Refused here
+// credential it got from anywhere would print it in plaintext. Refused here
 // rather than by refusing to start, so the daemon stays diagnosable.
 func TestExecAndRedactAreRefusedWhileNoManagedFileWasRead(t *testing.T) {
 	s := newUnconfiguredServer(t, map[string]string{})
@@ -513,7 +513,7 @@ func TestExecIsRefusedWhenOneFileDidNotLoad(t *testing.T) {
 
 // The set kept when the keeper cannot be reached is the last one known to be
 // true, so it is unconfirmed rather than short, and the store stays servable:
-// refusing on it would turn a keeper hiccup into refused commands.  What the
+// refusing on it would turn a keeper hiccup into refused commands. What the
 // gate does with that answer is TestExecAndRedactAreRefusedWhileNoManagedFileWasRead.
 func TestTheStoreStaysServableWhileTheKeeperIsUnreachable(t *testing.T) {
 	file := managedFile(t)
@@ -531,7 +531,7 @@ func TestTheStoreStaysServableWhileTheKeeperIsUnreachable(t *testing.T) {
 	}
 }
 
-// The exception above covers a set that was loaded and then went unconfirmed.  A
+// The exception above covers a set that was loaded and then went unconfirmed. A
 // cold start has nothing to keep, so an unreachable keeper leaves the redactor
 // empty with no way to know what it is missing.
 func TestBothOpsAreRefusedWhenTheKeeperWasNeverReached(t *testing.T) {
@@ -560,7 +560,7 @@ func TestBothOpsAreRefusedWhenTheKeeperWasNeverReached(t *testing.T) {
 }
 
 // An install whose operator has not written a secret yet is configured
-// correctly: the file is there and was read, so nothing is missing.  Both ops
+// correctly: the file is there and was read, so nothing is missing. Both ops
 // serve, and a ref no file defines is answered by unknown_secret rather than by
 // this gate.
 func TestBothOpsAreServedWhenEveryManagedFileLoadedAndHeldNothing(t *testing.T) {
@@ -624,7 +624,7 @@ func TestCheckFailsWhileTheValueSetIsEmpty(t *testing.T) {
 
 // Deliberately unbounded: refs and run are on this socket behind the
 // same check, so a caller who could probe can instead name every ref and be
-// handed every value.  A throttle here would only slow the path nobody needs.
+// handed every value. A throttle here would only slow the path nobody needs.
 //
 // Enough calls that a limiter with any usable burst would refuse one: a couple
 // would pass against every throttle worth writing.

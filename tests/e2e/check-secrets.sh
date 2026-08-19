@@ -2,14 +2,14 @@
 # Functional test of the secret lifecycle: edit, reseal, and what happens when the
 # age key stops matching the ciphertext.
 #
-# The stakes are why this is worth a suite of its own.  Every other mistake here
+# The stakes are why this is worth a suite of its own. Every other mistake here
 # is recoverable by re-running something; re-encrypting to a recipient set that
-# leaves the keeper out is not, and neither is losing the key.  So the tests are
+# leaves the keeper out is not, and neither is losing the key. So the tests are
 # as much about what the tool REFUSES as about what it does.
 #
 # Sections 8 to 13 are the .sops.yaml a reader would not think to write: a rule
 # taken from a directory that is not this install's, and shapes sops reads
-# differently from how they look.  Each is a way the store ends up sealed to the
+# differently from how they look. Each is a way the store ends up sealed to the
 # wrong people, or written in the clear, with every command reporting success --
 # which is why they are put to a real install rather than to a parser.
 set -u
@@ -19,7 +19,7 @@ MANAGED=/etc/faramir/secrets/app.sops.yml
 LOG=/var/log/faramir/audit.log
 sum() { sha256sum "$MANAGED" | cut -c1-16; }
 brokered() { runuser -u op -- faramir run --quiet -t 25 "$@" 2>&1; }
-# reload the daemons onto a changed store.  reset-failed first and a settle
+# reload the daemons onto a changed store. reset-failed first and a settle
 # after: a socket unit carries systemd's default start limit (5 starts / 10s),
 # and this suite restarts them once per group, so without this the last group
 # measures a host the earlier ones rate-limited into `failed`.
@@ -34,12 +34,12 @@ reload_daemons() {
   return 1
 }
 
-# This suite rotates db/password, adds a ref, and rewrites .sops.yaml.  Those
+# This suite rotates db/password, adds a ref, and rewrites .sops.yaml. Those
 # values are shared: leak, stream, wrap, mcp and disclose all redact the
 # original db/password, so a suite that leaves it rotated makes those fail when
-# they run next against the same box.  Snapshot the store and rule now, restore
+# they run next against the same box. Snapshot the store and rule now, restore
 # them on the way out, and reload the daemons onto the restored file, so running
-# this suite composes with the others rather than sabotaging them.  The exit
+# this suite composes with the others rather than sabotaging them. The exit
 # status the counts imply is preserved across the restore.
 BACKUP=$(mktemp -d)
 cp -a "$MANAGED" "$BACKUP/store" 2>/dev/null || true
@@ -56,7 +56,7 @@ trap restore_baseline EXIT
 
 # --------------------------------------------------------------------------
 head_ "1. edit: the plaintext exists only in a tmpfs, 0600, and is removed"
-# The editor is where a person would be.  It records what it was handed, so the
+# The editor is where a person would be. It records what it was handed, so the
 # assertions below are about the file the operator's editor actually opens.
 cat > /usr/local/sbin/spy-editor <<'EOF'
 #!/bin/bash
@@ -117,7 +117,7 @@ head_ "2. what landed on disk is still ciphertext"
 head_ "3. the running broker picks the change up with no restart"
 # [secret] min_refresh_sec bounds how often the broker may ask the keeper
 # whether a file changed, so the pickup is on the first request after that
-# window rather than on the next request.  Polled to the interval plus slack,
+# window rather than on the next request. Polled to the interval plus slack,
 # which is the claim: no restart, not instantaneous.
 interval=$(grep -oP 'min_refresh_sec = \K[0-9]+' /etc/faramir/config.toml)
 took=""
@@ -224,7 +224,7 @@ runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
 # --------------------------------------------------------------------------
 # The shapes below are the ones a reader would not think to try: a .sops.yaml
 # written in a way an earlier version read differently from sops, and a rule
-# taken from somewhere that is not this install.  Each is a way the store gets
+# taken from somewhere that is not this install. Each is a way the store gets
 # sealed to the wrong people, or written in the clear, with every command
 # reporting success.
 
@@ -245,7 +245,7 @@ recipients() { grep -c 'recipient:' "$MANAGED"; }
 head_ "8. a .sops.yaml where the command was RUN does not govern the edit"
 # sops resolves creation rules by walking up from the working directory, and an
 # operator runs `sudo faramir vault edit` from wherever they are standing, which on
-# this host is an enrolled tree the agent writes.  A rule found there deciding
+# this host is an enrolled tree the agent writes. A rule found there deciding
 # how the store is written is `unencrypted_regex` putting managed values on disk
 # in the clear.
 rule <<YAML
@@ -280,7 +280,7 @@ rm -rf "$PLANTED"
 
 head_ "9. reseal keeps a recipient named only under a merged key group"
 # A key group may pull in others with `merge:`, and their keys seal the file
-# exactly like the ones written inline.  A reader that stops at the top level
+# exactly like the ones written inline. A reader that stops at the top level
 # re-encrypts the store without them, which takes a backup key's access away for
 # good: re-running does not give it back.
 rule <<YAML
@@ -309,7 +309,7 @@ grep -q "$SECOND" "$MANAGED" \
 grep -q "$KEEPER" "$MANAGED" && ok "and so is the keeper's" || bad "the keeper was dropped"
 
 head_ "10. a bare age: beside key_groups is the one sops ignores"
-# sops reads a rule's `age` shorthand only where it has no key groups.  Reading
+# sops reads a rule's `age` shorthand only where it has no key groups. Reading
 # both names a reader the rule does not grant, and would let a check report the
 # keeper as still listed on a rule that seals the file without it.
 rule <<YAML
@@ -380,7 +380,7 @@ ran && bad "the editor ran before the refusal" || ok "and the editor never ran"
 
 head_ "13. an edit no rule covers is refused before the editor opens"
 # sops refuses a file no creation rule matches, and it refuses it at the encrypt,
-# which is after the editor has exited.  Learning then costs the operator
+# which is after the editor has exited. Learning then costs the operator
 # everything they typed, so the question is put while there is nothing to lose.
 rule <<YAML
   - path_regex: ^nowhere-near-the-store/.*\.sops\.yml\$
@@ -407,7 +407,7 @@ cover=$(jq -r '[.findings[]|select(.check=="rule coverage")|.status]|join(",")' 
 
 head_ "14. recipient add and rm move the rule and the ciphertext together"
 # What the two-step path left open: a rule naming a reader the existing files are
-# not sealed to.  Nothing fails there, so the test is that the state never exists
+# not sealed to. Nothing fails there, so the test is that the state never exists
 # rather than that a command reports it.
 # Written with the installer's own comment, so the edit can be shown to keep it.
 cat > /etc/faramir/.sops.yaml <<YAML
@@ -447,7 +447,7 @@ faramir recipient add "$SECOND" >/tmp/add2.log 2>&1 \
   && ok "adding one already there exits 0" || bad "a repeat add failed"
 [ "$(sum)" = "$before" ] && ok "and re-encrypts nothing" || bad "a repeat add rewrote the store"
 
-# THE RESUME: a rule that is already right over a store that is not.  This is
+# THE RESUME: a rule that is already right over a store that is not. This is
 # what a pass that wrote the rule and then failed on a file leaves behind, and
 # an add that took the rule as proof would report success over it.
 rule_now=$(cat /etc/faramir/.sops.yaml)
@@ -522,7 +522,7 @@ grep -qE "$KEEPER +\(this host" /tmp/ls-root.log \
 grep -q "$SECOND" /tmp/ls.log && bad "the listing still names the removed recipient" \
   || ok "and not the one just removed"
 
-# A host whose first secret has not been written yet.  The rule governs what
+# A host whose first secret has not been written yet. The rule governs what
 # sops writes from then on, so a store with no files is not a reason to refuse.
 mkdir -p /tmp/emptystore && mv /etc/faramir/secrets/*.sops.yml /tmp/emptystore/
 if faramir recipient add "$SECOND" >/tmp/empty.log 2>&1; then
@@ -560,7 +560,7 @@ runuser -u op -- faramir refs 2>&1 | grep -q "faramir://new/ref" \
 head_ "15. add: the first managed file, without plaintext on a disk"
 # What this replaces is sops with --config and --filename-override, which leaves
 # the source cleartext on disk, writes 0644, and accepts a name the broker will
-# never read.  Each of those is asserted against here.
+# never read. Each of those is asserted against here.
 cat > /usr/local/sbin/writer <<'EOF'
 #!/bin/bash
 printf 'added:\n  by_the_editor: s3kr3t-added-4242\n' > "$1"
@@ -586,7 +586,7 @@ reload_daemons || bad "the daemons did not come back"
 runuser -u op -- faramir refs 2>&1 | grep -q 'faramir://added/by_the_editor' \
   && ok "and the broker serves the new ref" || bad "the new ref is not being served"
 
-# THE REFUSAL: outside the secrets directory.  A bare name gets the suffix, so
+# THE REFUSAL: outside the secrets directory. A bare name gets the suffix, so
 # what is left to refuse is a path the pattern cannot reach at all.
 faramir vault add --editor /usr/local/sbin/writer /tmp/outside >/tmp/badname.log 2>&1 \
   && bad "created a file outside the secrets directory, which nothing would serve" \

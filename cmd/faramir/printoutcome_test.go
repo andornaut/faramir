@@ -1,6 +1,6 @@
 package main
 
-// How a run's ending reaches the terminal that approved it.  A yes is the last
+// How a run's ending reaches the terminal that approved it. A yes is the last
 // decision the operator makes about that command, so this line is the only
 // report they get of what it did, and each of its four shapes has to say
 // something different.

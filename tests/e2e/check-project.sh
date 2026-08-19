@@ -1,13 +1,13 @@
 #!/bin/bash
 # `faramir init-project`, the enrolment that makes a tree protected.
 #
-# The stakes are the reason this is a suite of its own.  Every other command
-# fails loudly; this one fails silently.  If enrolment writes the wrong thing,
+# The stakes are the reason this is a suite of its own. Every other command
+# fails loudly; this one fails silently. If enrolment writes the wrong thing,
 # the guard and the wrapper never run, and commands execute unredacted in a
-# project the operator believes is covered.  So the assertions are about what
+# project the operator believes is covered. So the assertions are about what
 # lands on disk AND about whether the thing it lands works.
 #
-# Four agents, and until now the suites enrolled only claude.  The other three
+# Four agents, and until now the suites enrolled only claude. The other three
 # write different files in different places, so each is enrolled into a tree of
 # its own here.
 #
@@ -126,7 +126,7 @@ done
 # --------------------------------------------------------------------------
 head_ "3. the hook it registers actually runs and denies"
 #
-# The point of enrolment.  A settings.json naming a hook that does not run is
+# The point of enrolment. A settings.json naming a hook that does not run is
 # the silent failure this whole suite exists for, so the command in the file is
 # extracted and executed.
 
@@ -163,7 +163,7 @@ fi
 # --------------------------------------------------------------------------
 head_ "4. it merges into what the operator already had"
 #
-# Every shared file is merged rather than replaced.  An enrolment that discarded
+# Every shared file is merged rather than replaced. An enrolment that discarded
 # an operator's own settings would be found the hard way, in a project whose
 # other tooling stopped working.
 
@@ -207,7 +207,7 @@ after=$(find "$D" -type f -exec sha256sum {} \; | sort)
 [ "$before" = "$after" ] && ok "a settled tree keeps every file byte-identical" \
   || bad "re-enrolment changed content: $(diff <(echo "$before") <(echo "$after") | head -2 | tr '\n' ' ')"
 
-# Identical content is not the same as untouched.  writeFile documents an
+# Identical content is not the same as untouched. writeFile documents an
 # unchanged re-run as writing nothing, so the inode is what says whether it did.
 now=$(find "$D" -type f -exec stat -c '%n %i' {} \; | sort)
 [ "$inodes" = "$now" ] && ok "and rewrites none of them" \
@@ -260,7 +260,7 @@ out=$(runuser -u $OP -- /usr/local/bin/faramir run --quiet -t 20 -C "$D" -- /bin
 [ "$(tail -1 <<<"$out")" = "$D" ] && ok "so a brokered command runs in it" \
   || bad "a brokered command cannot enter the enrolled tree: ${out:0:110}"
 # What enrolment buys is reach into a tree the executor could not otherwise
-# enter.  A 0755 checkout is world-traversable and needs no enrolment for that,
+# enter. A 0755 checkout is world-traversable and needs no enrolment for that,
 # so the claim is about a private one.
 U=/home/op/p-private
 rm -rf $U; install -d -o $OP -g $OP -m 0700 $U
@@ -306,11 +306,11 @@ head_ "10. the record of what was enrolled"
 # An enrolment writes into the tree and into the operator's home, and neither
 # half names the other: a tree carries an agent's settings without saying which
 # account they were written for, and a home carries deny rules without saying
-# which trees rely on them.  This file is the only thing that can tell `doctor`
+# which trees rely on them. This file is the only thing that can tell `doctor`
 # a tree depends on rules the home it is looking at shows no sign of.
 
 REC=/etc/faramir/enrolled.json
-# agentsOf and agentUserOf read one tree's entry.  Empty when there is none,
+# agentsOf and agentUserOf read one tree's entry. Empty when there is none,
 # which is itself an assertion below.
 agentsOf()    { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.agents[]]|join(",")' $REC 2>/dev/null; }
 agentUserOf() { jq -r --arg d "$1" '[.[]|select(.dir==$d)|.agent_user]|join(",")' $REC 2>/dev/null; }
@@ -329,7 +329,7 @@ enrol "$D" --agent claude --agent antigravity >/dev/null 2>&1
 [ "$(agentUserOf "$D")" = "$OP" ] && ok "and the account it was made for" \
   || bad "recorded agent_user [$(agentUserOf "$D")], want $OP"
 
-# Keyed by directory, so a tree has one entry however often it is enrolled.  Its
+# Keyed by directory, so a tree has one entry however often it is enrolled. Its
 # agents are the ones this run named plus the ones an earlier run did that the
 # tree still carries: enrolling one by name does not say the others have gone,
 # their hook and MCP registration still being there for doctor to check.
@@ -343,7 +343,7 @@ enrol "$D" --agent opencode >/dev/null 2>&1
 # Bounded by what is in the tree, because the entry is not only read: an
 # enrolled agent whose rules are missing is a doctor failure, so a name that
 # accumulated and could never leave would fail the command for ever on an agent
-# the operator had removed.  Evidence gone is configuration gone.
+# the operator had removed. Evidence gone is configuration gone.
 rm -rf "$D/.claude"
 enrol "$D" --agent opencode >/dev/null 2>&1
 [ "$(agentsOf "$D")" = "antigravity,opencode" ] \
@@ -382,8 +382,8 @@ grep -q "$D" <<<"$(rules)" && ok "a tree that has gone since is named rather tha
 # --------------------------------------------------------------------------
 head_ "11. --agent auto, which the two commands ask of different places"
 #
-# The default on both.  `init` asks the operator's home and `init-project` asks
-# the tree, and naming an agent configures it whether or not it is there.  So
+# The default on both. `init` asks the operator's home and `init-project` asks
+# the tree, and naming an agent configures it whether or not it is there. So
 # the two compose into the union, and there is no rule about which wins.
 
 D=$(tree /home/op/p-auto-claude); install -d -o $OP -g $OP "$D/.claude"
@@ -428,7 +428,7 @@ grep -q 'unknown --agent' <<<"$out" && ok "and names the ones it does know" \
 head_ "12. the credentials section in the tree's instructions file"
 #
 # Documentation rather than enforcement: deleting the section changes nothing
-# about what is reachable.  What matters is that it is never written over
+# about what is reachable. What matters is that it is never written over
 # somebody else's words, the file being prose an operator edits and asks agents
 # to rewrite.
 
@@ -455,7 +455,7 @@ grep -q 'Always run the tests' "$D/AGENTS.md" && ok "an existing file keeps what
 grep -q '^# Credentials' "$D/AGENTS.md" && ok "and gains the section after it" \
   || bad "the section was not added to an existing file"
 
-# Naming faramir is not carrying its section.  A tree whose instructions mention
+# Naming faramir is not carrying its section. A tree whose instructions mention
 # the tool for any other reason still receives one, and keeps what was there.
 D=$(tree /home/op/p-instr-mentions)
 printf '# My notes\n\nWe use faramir here somehow.\n' > "$D/AGENTS.md"
@@ -470,9 +470,9 @@ grep -q '<!-- BEGIN faramir: credentials -->' "$D/AGENTS.md" \
 
 # A credentials section of faramir's in words that are not these, with no
 # markers around it: what a version whose snippet read differently wrote, or a
-# copy something reworded.  Which of those it is cannot be read off the file,
+# copy something reworded. Which of those it is cannot be read off the file,
 # appending would leave two sections contradicting each other, and neither is
-# faramir's to rewrite.  So it is named and left.
+# faramir's to rewrite. So it is named and left.
 D=$(tree /home/op/p-instr-drift)
 printf '# Credentials\n\nWe use faramir here somehow.\n' > "$D/AGENTS.md"
 chown $OP:$OP "$D/AGENTS.md"

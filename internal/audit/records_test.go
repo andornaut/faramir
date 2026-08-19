@@ -22,7 +22,7 @@ import (
 // has to remember to update.
 //
 // It asserts that [config.MinRecordBytes], the smallest cap an operator can set,
-// is larger than the widest record needs.  Add a field anywhere and this
+// is larger than the widest record needs. Add a field anywhere and this
 // recomputes; if the floor no longer covers it, the failure says by how much.
 
 // recordShapes is every map[string]any literal in the tree that carries a
@@ -39,7 +39,7 @@ func recordShapes(t *testing.T) map[string][]string {
 		case err != nil:
 			return err
 		case info.IsDir():
-			// The module's own source only.  Anything vendored or checked out under
+			// The module's own source only. Anything vendored or checked out under
 			// the tree is somebody else's records.
 			if name := info.Name(); name == ".git" || name == "vendor" || name == "bin" {
 				return filepath.SkipDir
@@ -120,7 +120,7 @@ func repoRoot(t *testing.T) string {
 }
 
 // The number of record literals below which this test is not looking at the
-// records any more.  A refactor that builds a record some other way (a struct, a
+// records any more. A refactor that builds a record some other way (a struct, a
 // helper, a map assembled key by key) takes it out of this test's sight, and a
 // guard that has stopped looking must say so rather than pass.
 const knownRecordShapes = 10
@@ -169,9 +169,9 @@ func TestEveryRecordThisTreeWritesFitsTheSmallestCap(t *testing.T) {
 // An ordinary record is written unreduced at config.MinRecordBytes.
 //
 // The floor is not sized by what a record's fields need, which survive far below
-// it, cut down to nothing much.  It is sized by the smallest cap at which an
+// it, cut down to nothing much. It is sized by the smallest cap at which an
 // ordinary record is written *normally*: not reduced, and with enough of the
-// command's output left to be worth reading.  Those are different numbers and
+// command's output left to be worth reading. Those are different numbers and
 // the first one is the misleading one, so both are logged beside the failure.
 func TestAnOrdinaryRecordIsUnreducedAtTheFloor(t *testing.T) {
 	// It writes below the cap that fits, on purpose: that is the boundary it is
@@ -235,7 +235,7 @@ func TestAnOrdinaryRecordIsUnreducedAtTheFloor(t *testing.T) {
 	}
 }
 
-// atLimit narrows the record bound for one test and puts it back.  The bound is
+// atLimit narrows the record bound for one test and puts it back. The bound is
 // a package variable rather than a key, so a test that swept it and did not
 // restore it would narrow every test after it.
 func atLimit(t *testing.T, limit int) {

@@ -11,7 +11,7 @@ import (
 )
 
 // The installed docs sit the way the checkout does, everything citing one by
-// the checkout's path.  Against the mapping, a real install writing root-owned
+// the checkout's path. Against the mapping, a real install writing root-owned
 // files.
 func TestTheDocsInstallNestedUnderDocs(t *testing.T) {
 	targets, err := docTargets(Layout{DocDir: "/usr/local/share/doc/faramir"})
@@ -57,7 +57,7 @@ func TestTheInstalledReadmeLinksResolve(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// What follows "](docs/" up to the closing paren.  Only those: a URL or an
+	// What follows "](docs/" up to the closing paren. Only those: a URL or an
 	// anchor is not this test's business.
 	checked := 0
 	for _, part := range strings.Split(string(body), "](docs/")[1:] {
@@ -79,14 +79,14 @@ func TestTheInstalledReadmeLinksResolve(t *testing.T) {
 }
 
 // A dashed aside reads as something nobody here typed, and one arrives whenever
-// a paragraph is written somewhere that substitutes the character.  The prose
+// a paragraph is written somewhere that substitutes the character. The prose
 // uses a comma, a colon or another sentence instead, so the character itself is
 // the check: what it would have meant is always sayable another way.
 //
 // Both dashes, not only the em: a range reads as well written out, and the one
 // place a glyph is wanted is `doctor`'s status column, which is output.
 //
-// Over the embedded assets, which is the prose that ships.  Go comments spell
+// Over the embedded assets, which is the prose that ships. Go comments spell
 // the same aside "--", and are not reached from here.
 func TestTheShippedProseHasNoDashedAsides(t *testing.T) {
 	// Spelled by code point, or this file is its own first failure.
@@ -118,7 +118,7 @@ func TestTheShippedProseHasNoDashedAsides(t *testing.T) {
 	}
 }
 
-// Every link between the shipped documents resolves, anchors included.  These
+// Every link between the shipped documents resolves, anchors included. These
 // install onto a host and are read there, where a link to a heading that was
 // renamed is a dead end with no way to look it up.
 //

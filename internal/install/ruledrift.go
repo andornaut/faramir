@@ -16,13 +16,13 @@ import (
 //
 // The account-wide rule files are merged rather than replaced, and a merge can
 // only add: an entry is a bare string in an array or a key in an object, with
-// nowhere to carry a marker saying who put it there.  Removing one
+// nowhere to carry a marker saying who put it there. Removing one
 // automatically would need to know which entries are faramir's, and an
 // operator's own rule refusing the same path is indistinguishable from one left
 // behind; a stored record of what was last written would go stale the first
 // time somebody edits the file.
 //
-// So this reports and a human decides.  A warning rather than a failure: the
+// So this reports and a human decides. A warning rather than a failure: the
 // extra rules are refusals, so the file says more than the current list asks
 // for rather than less.
 func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
@@ -95,7 +95,7 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 }
 
 // diagnoseLinkedFiles asks whether the account-wide deny rules refuse every
-// file a [[secret.link]] entry reads.  `link add` renders both together, but a
+// file a [[secret.link]] entry reads. `link add` renders both together, but a
 // link written into the config by hand, or a run that stopped between the two,
 // leaves a value in the redactor whose plaintext the agent may still open.
 //
@@ -189,7 +189,7 @@ func configuredLinks(configDir string) []config.Link {
 	return cfg.Secret.Links
 }
 
-// named reports whether any rule in a file names this path.  Containment rather
+// named reports whether any rule in a file names this path. Containment rather
 // than equality, each agent spelling the same path its own way: Claude Code
 // writes "Read(/path)" while the plugin hosts key on the path itself.
 //
@@ -210,7 +210,7 @@ func named(entries map[string]bool, path string) bool {
 }
 
 // isPathRune reports whether a byte could continue a filename, which is what
-// decides whether a match was the whole path or a prefix of a longer one.  The
+// decides whether a match was the whole path or a prefix of a longer one. The
 // separators each agent wraps a path in -- ")", quotes, whitespace, a glob --
 // are not path characters.
 func isPathRune(r rune) bool {
@@ -249,7 +249,7 @@ func staleRules(path string, current []byte, configDir string) ([]string, error)
 
 // ruleEntries is every rule an agent's config states, in either shape these
 // files use: a list of strings, as Claude Code writes its deny rules, and an
-// object keyed by pattern, as the plugin hosts write theirs.  Shape rather than
+// object keyed by pattern, as the plugin hosts write theirs. Shape rather than
 // a named path per agent, so an agent that moves its rules to another key is
 // still read; a key whose value is not a decision is not a rule.
 func ruleEntries(data []byte) (map[string]bool, error) {
@@ -284,7 +284,7 @@ func ruleEntries(data []byte) (map[string]bool, error) {
 }
 
 // decisions are the verdicts these files spell, and what tells a rule from
-// ordinary configuration.  "ask" and "allow" are here although faramir writes
+// ordinary configuration. "ask" and "allow" are here although faramir writes
 // neither, what is read being somebody else's file as well as faramir's.
 var decisions = []string{"deny", "allow", "ask"}
 
@@ -301,7 +301,7 @@ func isDecision(value string) bool {
 //
 // Generous in one direction and never the other: an operator's own rule
 // refusing a path faramir also refuses is reported alongside the leftovers, the
-// two being indistinguishable, and the finding says so.  A rule about anything
+// two being indistinguishable, and the finding says so. A rule about anything
 // else is not reported at all.
 //
 // configDir is the install being examined rather than the default, so a stale

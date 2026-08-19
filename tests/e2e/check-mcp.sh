@@ -2,7 +2,7 @@
 # The MCP server, which is the other half of the agent-facing surface.
 #
 # The guard refuses a command and tells the model to use faramir_run instead.
-# This is faramir_run.  If it is wrong the agent either cannot work at all or
+# This is faramir_run. If it is wrong the agent either cannot work at all or
 # gets a value it should never see, so the suite covers both: the protocol a
 # client holds it to, and what a model gets back when it asks for a secret.
 #
@@ -17,7 +17,7 @@ TOKEN  = "«SECRET:db/password»"
 PASS = FAIL = 0
 
 # The same primitives lib.sh gives the other suites, in the language this one is
-# written in.  A python suite cannot source it, so the output has to match by
+# written in. A python suite cannot source it, so the output has to match by
 # hand: an operator reads all eighteen as one list.
 def ok(m):
     global PASS; PASS += 1; print("  ok   " + m)
@@ -123,7 +123,7 @@ props = schema.get("properties", {})
  else bad("required = %s" % schema.get("required")))
 
 head("3. JSON-RPC conformance")
-# A notification has no id and gets no reply, ever.  Proved by what comes back
+# A notification has no id and gets no reply, ever. Proved by what comes back
 # next rather than by waiting: the ping's answer must be the very next line.
 s.send("notifications/initialized", {}, ident=False)
 s.send_raw(json.dumps({"jsonrpc": "2.0", "method": "tools/list"}))  # no id
@@ -187,9 +187,9 @@ out, _ = s.text("faramir_run", {
     "env_refs": {"PW": "faramir://db/password"}})
 # The body only: the meta line names the token too, and counting that as a
 # fourth replacement would be counting the summary as one of the things it
-# summarises.  Each encoded line keeps a tail ("K", "0a") -- printenv adds a
+# summarises. Each encoded line keeps a tail ("K", "0a") -- printenv adds a
 # newline, so what was encoded is the value plus one byte, and only the value's
-# part of the encoding matches.  No part of the value survives in it.
+# part of the encoding matches. No part of the value survives in it.
 body = out.split("\n[")[0]
 if SECRET in out:
     bad("a rendering escaped: %r" % out[:200])
@@ -223,7 +223,7 @@ else:
 # The description tells the model that transforming output (rev, cut) is a
 # policy violation rather than a puzzle, which is an admission that those are
 # not caught: the variant set covers encodings a program produces by accident,
-# not a deliberate mangling.  Pinned so a change here is noticed.
+# not a deliberate mangling. Pinned so a change here is noticed.
 out, _ = s.text("faramir_run", {"cmd": ["/bin/sh", "-c", "printenv PW | rev"],
                                 "env_refs": {"PW": "faramir://db/password"}})
 if SECRET[::-1] in out:
@@ -253,7 +253,7 @@ out, _ = s.text("faramir_refs")
 (ok("and does not offer the refused ref") if "short/pin" not in out
  else bad("the refused ref is offered as usable"))
 # There is no status tool: what it answered was which config files loaded and
-# what failed to, and no agent acts on any of it.  Being refused is the point.
+# what failed to, and no agent acts on any of it. Being refused is the point.
 out, is_err = s.text("faramir_status")
 (ok("no status tool is offered") if is_err and "unknown tool" in out
  else bad("faramir_status answered: %r" % out[:120]))
@@ -334,7 +334,7 @@ subprocess.run(["systemctl", "start", "faramir-broker.socket"], capture_output=T
 time.sleep(2)
 
 head("11. who may run it")
-# The socket admits the client group.  An account outside it gets nothing,
+# The socket admits the client group. An account outside it gets nothing,
 # whatever it asks the MCP server for.
 subprocess.run(["useradd", "-m", "outsider"], capture_output=True)
 s = Server(cwd="/tmp", user="outsider")

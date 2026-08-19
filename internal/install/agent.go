@@ -8,12 +8,12 @@ import (
 )
 
 // stepAgentConfig registers the broker with the operator's own account, which
-// is what the coding agent runs as.  Only the deny rules go here: they refuse
-// to open or overwrite key material wherever the agent is working.  The
+// is what the coding agent runs as. Only the deny rules go here: they refuse
+// to open or overwrite key material wherever the agent is working. The
 // PreToolUse hook is per-project, registering it auto-approving Bash there.
 func (r *runner) stepAgentConfig() error {
 	// Whichever agents this home carries, unless one is named, resolved in
-	// stepPreconditions.  Detecting rather than writing them all costs an agent
+	// stepPreconditions. Detecting rather than writing them all costs an agent
 	// installed afterwards its rules until somebody re-runs this, which `faramir
 	// doctor` reports as a failure naming the command.
 	targets := r.agentTargets
@@ -68,9 +68,9 @@ func (r *runner) stepAgentConfig() error {
 // them can name the same one.
 //
 // The rules written above refuse the file tools; this is what an agent is told
-// about them.  Without it a refusal on ~/.ssh/id_ed25519 reaches the model as a
+// about them. Without it a refusal on ~/.ssh/id_ed25519 reaches the model as a
 // bare permission error, which is the shape that invites a second attempt
-// through an interpreter or a base64 pipe.  Kept short: this loads into every
+// through an interpreter or a base64 pipe. Kept short: this loads into every
 // session on the machine.
 func (r *runner) agentInstructions(targets []*agentTarget) error {
 	changed, written, stale, err := r.writeSections(targets)
@@ -136,10 +136,10 @@ type homeInstructionFile struct {
 //
 // Grouped rather than written per agent: nothing stops two agents reading one
 // file, and written per agent the same span would be rewritten twice in one run
-// with the last agent's claim about the deny rules left standing.  No two share
+// with the last agent's claim about the deny rules left standing. No two share
 // one today; the rule stays because the failure it prevents is silent.
 //
-// This is the same path named twice, which is one file written once.  Two
+// This is the same path named twice, which is one file written once. Two
 // different paths that a link makes one file are refused before anything is
 // written: see oneFileTwice.
 //
@@ -167,7 +167,7 @@ func homeInstructionFiles(targets []*agentTarget) []homeInstructionFile {
 	return out
 }
 
-// homeSection is the section `init` writes into a home.  Rendered rather than
+// homeSection is the section `init` writes into a home. Rendered rather than
 // shipped as it is, for one sentence: pi carries its rules in the extension
 // `init-project` installs and Antigravity has no file that would refuse a file
 // tool anything, so telling either that its file tools are refused everywhere

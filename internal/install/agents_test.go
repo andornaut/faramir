@@ -25,7 +25,7 @@ func names(t *testing.T, values []string, scope agentScope, dir string) []string
 }
 
 // Naming no agent is naming auto, which configures what is there and nothing
-// else.  An empty directory is therefore no agents, not a default one: writing
+// else. An empty directory is therefore no agents, not a default one: writing
 // configuration for an agent the operator does not run is not this command's
 // to do.
 func TestAgentsDefaultToWhatIsThere(t *testing.T) {
@@ -65,7 +65,7 @@ func TestAgentsDeduplicate(t *testing.T) {
 	}
 }
 
-// auto and a name compose: what is installed, plus the one asked for.  No rule
+// auto and a name compose: what is installed, plus the one asked for. No rule
 // about which wins, because naming an agent only ever adds it.
 func TestAutoAndANameAreUnioned(t *testing.T) {
 	dir := t.TempDir()
@@ -87,7 +87,7 @@ func TestANamedAgentDoesNotHaveToBePresent(t *testing.T) {
 	}
 }
 
-// The two commands ask the same question of different places.  opencode is the
+// The two commands ask the same question of different places. opencode is the
 // case that separates them: opencode.json beside a project, .config/opencode
 // under a home.
 func TestAutoLooksWhereTheScopeSays(t *testing.T) {
@@ -156,7 +156,7 @@ func TestAgentAssetsExist(t *testing.T) {
 }
 
 // Every merged file has to be JSON once rendered, an interpolated path holding
-// a quote or backslash being a file the agent cannot load.  Rendered the way
+// a quote or backslash being a file the agent cannot load. Rendered the way
 // each half is in production: a tree's file against the target's own data, an
 // account file against the install layout.
 func TestMergedAgentAssetsAreJSON(t *testing.T) {
@@ -293,7 +293,7 @@ func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
 }
 
 // Detection is what auto acts on, so this covers the finding rather than the
-// deciding.  A marker is the agent's own configuration rather than anything
+// deciding. A marker is the agent's own configuration rather than anything
 // faramir wrote: an opencode project has its directory long before the plugin
 // file.
 func TestDetectionFindsAnAgentsOwnConfiguration(t *testing.T) {

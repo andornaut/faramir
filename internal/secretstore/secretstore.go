@@ -2,11 +2,11 @@
 // the keeper.
 //
 // The value set is every secret the keeper manages, not only the injected ones:
-// a managed host can print a credential no command injected.  The broker holds
+// a managed host can print a credential no command injected. The broker holds
 // no age key and cannot decrypt; plaintext lives in this heap, never on disk
 // and never in an argv.
 //
-// Cached, and reloaded on start and when a managed file's mtime changes.  The
+// Cached, and reloaded on start and when a managed file's mtime changes. The
 // keeper reports those fingerprints too, the secrets being readable by their
 // group alone, so the poll is a socket round trip bounded by min_refresh_sec.
 // Nothing reloads on a signal: the file list comes from config.toml, which the
@@ -38,7 +38,7 @@ type Store struct {
 	values  map[string]string
 	refused map[string]string
 	state   []keeperclient.FileState
-	// linkState is the same fingerprint for the [[secret.link]] files.  Kept
+	// linkState is the same fingerprint for the [[secret.link]] files. Kept
 	// apart from state because the broker stats these itself, they being the
 	// operator's own files and reachable from this uid.
 	linkState []keeperclient.FileState
@@ -47,17 +47,17 @@ type Store struct {
 	retry     bool
 	checkedAt time.Time
 
-	// A configured file that is there and did not load.  The redactor is missing
+	// A configured file that is there and did not load. The redactor is missing
 	// a value it should have, so exec and redact refuse while this is set.
 	loadErrors []string
 
-	// A configured entry that named no file.  Kept apart from loadErrors because
+	// A configured entry that named no file. Kept apart from loadErrors because
 	// it is what a first install looks like, though both refuse exec and
 	// redact.
 	unresolvedPatterns []string
 
 	// Held across a refresh-driven reload, not under mu, which Reload takes
-	// itself.  Keeps concurrent requests from each starting a round trip.
+	// itself. Keeps concurrent requests from each starting a round trip.
 	refreshing atomic.Bool
 }
 
@@ -74,14 +74,14 @@ func New(secrets config.SecretConfig, kc config.KeeperConfig) *Store {
 }
 
 // Reload re-fetches every value from the keeper, on startup and when the poll
-// sees a managed file change.  One round trip, so the fingerprints and the
+// sees a managed file change. One round trip, so the fingerprints and the
 // values cannot describe different moments.
 func (s *Store) Reload() {
 	// Per-file, so one broken file does not blank the set.
 	values, state, errors, unresolved, err := keeperclient.FetchValues(s.keeper.SocketPath)
 	if err != nil {
 		// Keep the previous set rather than dropping to empty, which would redact
-		// nothing.  The linked values are kept with it and not re-read: half a set
+		// nothing. The linked values are kept with it and not re-read: half a set
 		// refreshed against a keeper that could not answer is a set that never
 		// existed on disk.
 		s.mu.Lock()
@@ -94,7 +94,7 @@ func (s *Store) Reload() {
 			"and retrying on the next request: %v", err)
 		return
 	}
-	// The links, read here rather than asked of the keeper.  Merged before the
+	// The links, read here rather than asked of the keeper. Merged before the
 	// length gate, so a linked value is held to what a managed one is.
 	linkValues, linkState, linkErrors, linkUnresolved := loadLinks(s.config.Links)
 	for _, ref := range sortedKeys(linkValues) {
@@ -155,13 +155,13 @@ func (s *Store) Reload() {
 }
 
 // RefreshIfStale asks the keeper for the managed files' fingerprints, and
-// reloads when one changed or the last attempt failed.  A round trip rather
+// reloads when one changed or the last attempt failed. A round trip rather
 // than a stat, the secrets being readable by the keeper's group alone; the
 // keeper serves it without the key or sops, so it costs a connect.
 //
 // One refresh-driven reload runs at a time and the rest return immediately.
 func (s *Store) RefreshIfStale() {
-	// One refresh at a time, whichever half triggers it.  A caller that arrives
+	// One refresh at a time, whichever half triggers it. A caller that arrives
 	// while another is working returns rather than queueing behind it.
 	if !s.refreshing.CompareAndSwap(false, true) {
 		return
@@ -170,7 +170,7 @@ func (s *Store) RefreshIfStale() {
 
 	// The links, on every request and not on the interval: they are the
 	// operator's own files and this uid can stat them, so the cost is a stat per
-	// linked file.  The interval bounds the round trip, and applying it here
+	// linked file. The interval bounds the round trip, and applying it here
 	// would leave a credential another tool has just rotated missing from the
 	// redactor for up to min_refresh_sec.
 	s.mu.Lock()
@@ -182,7 +182,7 @@ func (s *Store) RefreshIfStale() {
 	s.mu.Unlock()
 
 	// Not while a load is outstanding: a failed load records no link state, so
-	// the comparison below would call every request a change.  The
+	// the comparison below would call every request a change. The
 	// interval-gated retry covers it.
 	if retrying {
 		s.retryUnderTheInterval()
@@ -226,7 +226,7 @@ func (s *Store) intervalElapsed() bool {
 }
 
 // keeperIfStale asks the keeper whether a managed file changed, no more often
-// than the interval allows.  This one is the socket round trip
+// than the interval allows. This one is the socket round trip
 // min_refresh_sec exists to bound.
 func (s *Store) keeperIfStale() {
 	if !s.intervalElapsed() {
@@ -268,7 +268,7 @@ func sameSet(a, b map[keeperclient.FileState]bool) bool {
 	return true
 }
 
-// Refs returns names only.  Safe to hand to the agent.
+// Refs returns names only. Safe to hand to the agent.
 func (s *Store) Refs() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -290,7 +290,7 @@ func (s *Store) Value(ref string) (string, error) {
 	return "", fmt.Errorf("unknown secret ref: %s", ref)
 }
 
-// Pairs is every (ref, value) pair: the input to the redactor's value set.  The
+// Pairs is every (ref, value) pair: the input to the redactor's value set. The
 // age key is absent, no child being able to obtain it.
 func (s *Store) Pairs() []redact.Secret {
 	s.mu.RLock()
@@ -302,7 +302,7 @@ func (s *Store) Pairs() []redact.Secret {
 	return out
 }
 
-// Describe is a loaded-state summary.  Safe for the agent-facing wire.
+// Describe is a loaded-state summary. Safe for the agent-facing wire.
 func (s *Store) Describe() map[string]any {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -318,7 +318,7 @@ func (s *Store) describeLocked() map[string]any {
 	if errs == nil {
 		errs = []string{}
 	}
-	// patterns is what was configured, files what it named on disk.  A glob makes
+	// patterns is what was configured, files what it named on disk. A glob makes
 	// them differ, which is how a first install is told apart from secrets that
 	// went missing.
 	patterns := s.config.Patterns
@@ -337,15 +337,15 @@ func (s *Store) describeLocked() map[string]any {
 		"unresolved_patterns": absent,
 		// A count, not the paths: a linked file is one of the operator's own,
 		// refused to the agent's file tools, so naming it here would hand over the
-		// location of a credential.  DescribeForOperator carries the paths.
+		// location of a credential. DescribeForOperator carries the paths.
 		"links": len(s.config.Links),
 	}
 }
 
-// DescribeForOperator is Describe plus the refs refused at load, and why.  A
+// DescribeForOperator is Describe plus the refs refused at load, and why. A
 // refused value is absent from the redactor, so the list names which secrets
 // are never tokenized: a repair list for the operator, targeting information
-// for the agent, and operator-only for that reason.  One snapshot, or a reload
+// for the agent, and operator-only for that reason. One snapshot, or a reload
 // in between would report a set that never existed.
 func (s *Store) DescribeForOperator() map[string]any {
 	s.mu.RLock()
@@ -355,7 +355,7 @@ func (s *Store) DescribeForOperator() map[string]any {
 	maps.Copy(refused, s.refused)
 	out["not_redactable"] = refused
 	// Ref to file, so `--check` and doctor can say which link is broken and where
-	// to fix it.  Operator-only for the reason describeLocked gives.
+	// to fix it. Operator-only for the reason describeLocked gives.
 	linked := make(map[string]string, len(s.config.Links))
 	for _, link := range s.config.Links {
 		linked[link.Ref] = link.Path
@@ -372,7 +372,7 @@ func (s *Store) LoadErrors() []string {
 	return append([]string{}, s.loadErrors...)
 }
 
-// UnresolvedPatterns is the configured entries that named no file.  Apart from
+// UnresolvedPatterns is the configured entries that named no file. Apart from
 // LoadErrors because it is what a first install looks like: the daemon starts
 // and says so, while `--check` and `doctor` fail on it.
 func (s *Store) UnresolvedPatterns() []string {
@@ -381,7 +381,7 @@ func (s *Store) UnresolvedPatterns() []string {
 	return append([]string{}, s.unresolvedPatterns...)
 }
 
-// Count is how many values the redactor holds.  Zero means nothing is injected
+// Count is how many values the redactor holds. Zero means nothing is injected
 // and nothing is redacted, whatever the reason.
 func (s *Store) Count() int {
 	s.mu.RLock()
@@ -390,13 +390,13 @@ func (s *Store) Count() int {
 }
 
 // Unreadable reports why the broker cannot promise redaction, or "" when it
-// can.  The gate on both exec and redact, a brokered command's output being
+// can. The gate on both exec and redact, a brokered command's output being
 // redacted against this same set.
 //
 // The risk is output holding a managed secret the redactor does not have, so
 // the test is whether a managed file exists whose contents went unread: at
-// least one file matched, and every matched file loaded.  How many secrets came
-// out of them does not enter into it.  Called per request, a reload being able
+// least one file matched, and every matched file loaded. How many secrets came
+// out of them does not enter into it. Called per request, a reload being able
 // to lose a file at any time.
 //
 // A keeper that could not be reached is the exception, but only once a set has

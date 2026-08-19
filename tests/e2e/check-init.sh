@@ -1,6 +1,6 @@
 #!/bin/bash
 # Functional test of `faramir init` against docs/layout.md, run as root inside a
-# throwaway container.  The oracle is the documentation, not what the code
+# throwaway container. The oracle is the documentation, not what the code
 # happened to produce.
 set -u
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
@@ -27,7 +27,7 @@ absent() {
   if [ -e "$1" ]; then bad "$1 exists and should not"; else ok "$1 absent"; fi
 }
 
-# canread ACCOUNT PATH -- asserts the account CANNOT read it.  runuser is what
+# canread ACCOUNT PATH -- asserts the account CANNOT read it. runuser is what
 # doctor uses for the same question.
 refused() {
   local account=$1 path=$2
@@ -115,7 +115,7 @@ absent /etc/pam.d/faramir-sudo
 head_ "the agents init writes deny rules for"
 #
 # `--agent auto` is the default, and what it asks is which agents this home
-# carries.  Read through --dry-run, which answers without writing: this suite
+# carries. Read through --dry-run, which answers without writing: this suite
 # runs before anything has enrolled, and every suite after it examines this
 # account.
 
@@ -134,9 +134,9 @@ grep -q 'antigravity, claude, kilocode, opencode, pi' <<<"$out" \
 # The marker is made and removed here: init asks the home, so a directory left
 # behind would answer for every suite after this one.
 #
-# The claim is the pair.  Nothing in the report names what auto found, and the
+# The claim is the pair. Nothing in the report names what auto found, and the
 # message for finding nothing lists every known agent by name, so matching a
-# name in it would pass whether or not the marker was read.  What says the
+# name in it would pass whether or not the marker was read. What says the
 # marker was read is that the same command stops saying it found nothing.
 install -d -o op -g op /home/op/.claude
 out=$(agentStep)
@@ -147,7 +147,7 @@ grep -q 'no coding agent found' <<<"$out" \
 absent /home/op/.claude
 
 # Naming an agent configures it whether or not the home shows any sign of it,
-# which is what makes auto safe as the default: it only ever adds.  The step
+# which is what makes auto safe as the default: it only ever adds. The step
 # carries no detail when it has rules to write, so what says the name was taken
 # is that the nothing-to-write message is gone.
 out=$(agentStep --agent pi)

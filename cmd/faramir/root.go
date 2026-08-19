@@ -9,7 +9,7 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// The three kinds of subcommand, in the order the help lists them.  A command
+// The three kinds of subcommand, in the order the help lists them. A command
 // without a group is listed under "Additional Commands", which is how a new one
 // announces that nobody decided who runs it.
 const (
@@ -19,7 +19,7 @@ const (
 )
 
 // usageError marks a wrong invocation: an unknown command, an unknown flag, or
-// an argument a command does not take.  faramir exits 2 for these and 1 for a
+// an argument a command does not take. faramir exits 2 for these and 1 for a
 // command that ran and failed, so a script can tell them apart.
 type usageError struct{ err error }
 
@@ -32,7 +32,7 @@ func usagef(format string, a ...any) error { return usageError{fmt.Errorf(format
 
 // exitCodeError carries a status a command has already explained on its own
 // stderr: a brokered command's exit status, or the 127 that says a program
-// could not be started.  Its message is never printed.
+// could not be started. Its message is never printed.
 type exitCodeError struct{ code int }
 
 func (e *exitCodeError) Error() string { return fmt.Sprintf("exit status %d", e.code) }
@@ -69,7 +69,7 @@ func runCommand(c *cobra.Command, args []string) int {
 	return exitCode(c.Execute())
 }
 
-// newRootCmd assembles every subcommand.  The groups organise the help, and
+// newRootCmd assembles every subcommand. The groups organise the help, and
 // cli.Operator and cli.Internal name the same set for the guard; a test holds
 // the two together.
 func newRootCmd() *cobra.Command {
@@ -103,7 +103,7 @@ func newRootCmd() *cobra.Command {
 		// not consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
 		// Runs once the arguments have been accepted, which is where a failure
-		// stops being a wrong invocation worth printing usage for.  Every RunE past
+		// stops being a wrong invocation worth printing usage for. Every RunE past
 		// this point returns exitCodeError, which the command has already explained
 		// on its own stderr; cobra printing it again would add "Error: exit status
 		// N" to what the caller is reading.
@@ -178,12 +178,12 @@ func newRootCmd() *cobra.Command {
 	root.CompletionOptions.HiddenDefaultCmd = true
 	// Out is deliberately unset: cobra writes a usage block through OutOrStderr,
 	// so pointing Out at stdout would send the usage that follows a wrong
-	// invocation to a caller reading the command's output.  Help still reaches
+	// invocation to a caller reading the command's output. Help still reaches
 	// stdout, which cobra writes through OutOrStdout.
 	return root
 }
 
-// noArgs refuses operands.  cobra.NoArgs reports them as an unknown command,
+// noArgs refuses operands. cobra.NoArgs reports them as an unknown command,
 // which misdescribes a command that takes no operands at all rather than one
 // that was misspelled.
 func noArgs(c *cobra.Command, args []string) error {
@@ -203,7 +203,7 @@ func atMostOneArg(what string) cobra.PositionalArgs {
 	}
 }
 
-// exactlyOneArg requires one operand, naming what it is for.  Cobra's own
+// exactlyOneArg requires one operand, naming what it is for. Cobra's own
 // message ("accepts 1 arg(s), received 0") names neither the command nor what
 // it wanted.
 func exactlyOneArg(what string) cobra.PositionalArgs {
@@ -226,7 +226,7 @@ func exactlyArgs(n int, what string) cobra.PositionalArgs {
 	}
 }
 
-// firstArg returns the first operand, or "" when there is none.  A command
+// firstArg returns the first operand, or "" when there is none. A command
 // whose operand is optional reads it through this rather than indexing.
 func firstArg(args []string) string {
 	if len(args) == 0 {

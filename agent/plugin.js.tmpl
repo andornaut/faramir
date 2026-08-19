@@ -5,11 +5,11 @@
 // {{.Agent}} loads at startup.
 //
 // It decides nothing: the deny list, the rewrite and what is left alone are
-// `faramir guard`.  This is the translation: a payload out, a decision back,
+// `faramir guard`. This is the translation: a payload out, a decision back,
 // applied rather than returned, the host having no reply document.
 //
 // One template renders this for both hosts, which differ only in what a module
-// exports.  They were two files that had to be kept in step by hand, and a fix
+// exports. They were two files that had to be kept in step by hand, and a fix
 // to the guard call or to a fail-closed branch reaching one and not the other
 // is the failure that costs a project its redaction silently.
 //
@@ -19,19 +19,19 @@
 
 import { spawnSync } from "node:child_process"
 
-// The installed path, not an environment variable.  The plugin is the
+// The installed path, not an environment variable. The plugin is the
 // operator's file to edit, so this is one route closed rather than a boundary:
 // what it stops is a stray FARAMIR_CLI in the host's environment quietly
 // deciding what guards it.
 const CLI = "{{.BinDir}}/faramir"
 const HOST = "{{.Agent}}"
 
-// The tools known to run a shell command.  This list is not what decides:
+// The tools known to run a shell command. This list is not what decides:
 // anything whose arguments carry a command string is guarded whatever the tool
 // is called, so a host that renames its shell tool or adds a second one stays
 // covered without this being updated.
 //
-// What the list is for is the other direction.  A tool named here arriving with
+// What the list is for is the other direction. A tool named here arriving with
 // no command string means the shape changed under us, and on a tool known to
 // run commands that is a reason to stop rather than to shrug: the alternative
 // is returning quietly and leaving the project unguarded.
@@ -70,7 +70,7 @@ const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
     }
 
     // Nothing to say: a backgrounded command, or one already under the
-    // redactor.  See docs/design.md.
+    // redactor. See docs/design.md.
     const text = (result.stdout || "").trim()
     if (!text) return
 
@@ -88,7 +88,7 @@ const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
         throw new Error(decision.reason)
       case "rewrite":
         // Assigned into the object the host handed in, which is how this hook
-        // changes a call.  Every field, not only the command.
+        // changes a call. Every field, not only the command.
         Object.assign(args, decision.tool_input)
         return
       default:

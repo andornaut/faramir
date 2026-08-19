@@ -9,7 +9,7 @@ import (
 )
 
 // Serve waits on every connection goroutine before it returns, and a stream
-// idling between chunks sits in a read [command] max_timeout_sec away.  Nothing
+// idling between chunks sits in a read [command] max_timeout_sec away. Nothing
 // else ends that wait, so a stop took as long as the slowest peer: systemd gives
 // TimeoutStopSec and then kills the broker instead of it exiting.
 func TestClosingDoesNotWaitOutAStreamIdlingBetweenChunks(t *testing.T) {
@@ -97,7 +97,7 @@ func TestAConnectionArrivingDuringCloseIsNotServed(t *testing.T) {
 	}
 }
 
-// A chunk the broker refuses ends the connection.  Continuing would hold a
+// A chunk the broker refuses ends the connection. Continuing would hold a
 // goroutine on the long inter-chunk deadline for a stream that has already been
 // told it is not going to be redacted.
 func TestARefusedChunkEndsTheConnection(t *testing.T) {

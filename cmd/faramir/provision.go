@@ -1,6 +1,6 @@
 package main
 
-// The subcommands that provision and inspect a host.  They act on files rather
+// The subcommands that provision and inspect a host. They act on files rather
 // than through the broker, but they ask a running one where the install is; see
 // askBroker.
 
@@ -24,7 +24,7 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// brokerUnit records the config the daemons loaded.  A variable so a test can
+// brokerUnit records the config the daemons loaded. A variable so a test can
 // point it at a fixture, and taken from install rather than written out again:
 // init refuses a config move against the same file.
 var brokerUnit = install.UnitPath("faramir-broker.service")
@@ -81,15 +81,15 @@ func askBroker(socketPath string) status {
 
 // unitConfigFile reads the config path out of the broker's unit and its
 // drop-ins, or "" when neither is readable or names one: what the broker was
-// installed to load, which is the answer left when it is not running.  The same
+// installed to load, which is the answer left when it is not running. The same
 // reader init refuses a config move against.
 func unitConfigFile() string {
 	return install.UnitConfigFile(brokerUnit)
 }
 
 // discoverConfigFile finds the config.toml this host's install uses: the
-// running broker's own answer, then the path its unit names.  Empty when
-// neither answers.  The compiled-in default is not a step here, being a guess
+// running broker's own answer, then the path its unit names. Empty when
+// neither answers. The compiled-in default is not a step here, being a guess
 // each caller decides for itself.
 func discoverConfigFile(st status) string {
 	if st.configDir != "" {
@@ -121,7 +121,7 @@ func configDirFrom(explicit string, st status) string {
 }
 
 // resolveConfigDir is configDirFrom for a caller with no other use for the
-// broker's answer.  The flag is tested here too, so naming one costs no round
+// broker's answer. The flag is tested here too, so naming one costs no round
 // trip.
 func resolveConfigDir(explicit, socketPath string) string {
 	if explicit != "" {
@@ -147,7 +147,7 @@ type initFlags struct {
 	dryRun        bool
 	asJSON        bool
 
-	// The tunables.  Each flag's default is the real one, so --help says what a
+	// The tunables. Each flag's default is the real one, so --help says what a
 	// host gets; clearUnset then blanks the ones nobody typed, a value left out
 	// meaning "keep what the install has".
 	commandEnv           []string
@@ -159,7 +159,7 @@ type initFlags struct {
 	secretMinRefreshSec  int
 }
 
-// tunables maps each flag to where it lands, for clearUnset.  One table, so a
+// tunables maps each flag to where it lands, for clearUnset. One table, so a
 // flag added to the struct and not here is one that silently reverts the
 // install every run.
 func (f *initFlags) tunables() map[string]func() {
@@ -174,7 +174,7 @@ func (f *initFlags) tunables() map[string]func() {
 }
 
 // clearUnset blanks every tunable the operator did not name, so a value left
-// out means "keep what the install has".  Zero is the unset signal, which is
+// out means "keep what the install has". Zero is the unset signal, which is
 // why no tunable takes zero as a legal value.
 func clearUnset(c *cobra.Command, f *initFlags) {
 	for name, clear := range f.tunables() {
@@ -277,7 +277,7 @@ func newInitCmd() *cobra.Command {
 	return c
 }
 
-// namedValues turns repeated NAME=VALUE flags into the table they describe.  A
+// namedValues turns repeated NAME=VALUE flags into the table they describe. A
 // value may hold "=", so only the first one separates.
 func namedValues(pairs []string) (map[string]string, error) {
 	// Empty rather than nil for no pairs: the caller merges this over the
@@ -372,7 +372,7 @@ func reportToOperator(report install.Report) {
 	}
 }
 
-// initProjectFlags is one `init-project` run.  The tree defaults to the working
+// initProjectFlags is one `init-project` run. The tree defaults to the working
 // directory, which is safe here and not on init: that one means "provision this
 // host" and would otherwise enrol wherever it was run from.
 type initProjectFlags struct {
@@ -478,7 +478,7 @@ func newDoctorCmd() *cobra.Command {
 	// Empty rather than the install defaults: doctor reads what this host runs
 	// out of the units, the config and the secrets directory, and a default here
 	// would answer about accounts a host installed with other names does not
-	// have.  Each is an override for a host whose install is not this one.
+	// have. Each is an override for a host whose install is not this one.
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"override the group admitted to the broker socket, instead of reading [server] allowed_group")
 	fl.StringVar(&f.secretsGroup, "secrets-group", "",
@@ -535,7 +535,7 @@ func runDoctor(f doctorFlags) int {
 	return 0
 }
 
-// printDiagnosis lays the findings out as status, check, detail.  The check is
+// printDiagnosis lays the findings out as status, check, detail. The check is
 // named once per run of findings that share it, and the detail wraps under
 // itself rather than being cut at the terminal edge.
 func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
@@ -598,7 +598,7 @@ func printNotAsked(w io.Writer, paint palette, count int) {
 }
 
 // statusColumn is the glyph and the word: the glyph makes the column scannable,
-// the word survives a pipe into a log or a grep for "failed".  The glyph is
+// the word survives a pipe into a log or a grep for "failed". The glyph is
 // dropped where the locale is not UTF-8.
 func statusColumn(status install.Status) string {
 	mark := map[install.Status]string{
@@ -613,7 +613,7 @@ func statusColumn(status install.Status) string {
 	return fmt.Sprintf("%s %-6s", mark, status)
 }
 
-// columns is a string's width on screen.  Every glyph above is one column wide,
+// columns is a string's width on screen. Every glyph above is one column wide,
 // so runes are the answer and len would count a check mark as three.
 func columns(text string) int { return utf8.RuneCountInString(text) }
 
@@ -648,7 +648,7 @@ func paintStatus(paint palette, status install.Status) string {
 	}
 }
 
-// wrapText breaks a detail into lines that fit.  Words only, so a path stays
+// wrapText breaks a detail into lines that fit. Words only, so a path stays
 // copyable: an over-long word overflows rather than being cut.
 func wrapText(text string, width int) []string {
 	if width < 20 {
@@ -673,7 +673,7 @@ func wrapText(text string, width int) []string {
 	return lines
 }
 
-// terminalWidth is $COLUMNS, then 80.  A wrong guess costs a wrapped line, so
+// terminalWidth is $COLUMNS, then 80. A wrong guess costs a wrapped line, so
 // this needs no dependency.
 func terminalWidth() int {
 	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 40 {

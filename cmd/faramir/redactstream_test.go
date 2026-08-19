@@ -35,7 +35,7 @@ func (s *syncBuf) String() string {
 }
 
 // stubBroker answers the redact op by echoing the text back, and records what
-// it was sent.  It carries a stream the way the real broker does: a chunk
+// it was sent. It carries a stream the way the real broker does: a chunk
 // marked "more" keeps the connection open for the next one, and the chunk
 // without it ends the stream.
 type stubBroker struct {
@@ -123,7 +123,7 @@ func (b *stubBroker) Conns() int {
 }
 
 // The broker's limit is on the encoded line, and chunkBytes is chosen so a
-// chunk cannot exceed it however badly it encodes.  A partial buffer plus a
+// chunk cannot exceed it however badly it encodes. A partial buffer plus a
 // full ReadSlice would put nearly twice that on the wire, and an oversized
 // request comes back as too_large, which passes the text through unredacted.
 func TestNoChunkExceedsTheChunkSize(t *testing.T) {
@@ -177,7 +177,7 @@ func TestALineLongerThanTheBufferIsStillSplit(t *testing.T) {
 //
 // This is what puts the broker's redactor across the joins: it holds back a
 // tail longer than the longest variant, so a value split between two chunks is
-// caught by the one that completes it.  A connection per chunk would give each
+// caught by the one that completes it. A connection per chunk would give each
 // its own redactor and leave the join scanned by neither.
 func TestAStreamIsOneConnectionAndSaysWhereItEnds(t *testing.T) {
 	broker := newStubBroker(t)
@@ -266,7 +266,7 @@ func TestABrokerThatIsNotThereWithholdsTheText(t *testing.T) {
 // must not appear is the chunk that failed, or anything after it.
 //
 // The broker goes away by dropping the connection, which is what a restart
-// looks like from here.  Unlinking the socket would not do it: a stream holds
+// looks like from here. Unlinking the socket would not do it: a stream holds
 // one connection, and an established one outlives the name it was dialed by.
 func TestAFailurePartWayThroughKeepsWhatWasRedactedAndStops(t *testing.T) {
 	broker := newStubBroker(t)
@@ -302,7 +302,7 @@ func TestALiveStreamShowsAQuietLineBeforeEOF(t *testing.T) {
 	if _, err := io.WriteString(pw, "listening on :3000\n"); err != nil {
 		t.Fatal(err)
 	}
-	// The pipe is not closed, so the command is still "running".  The idle flush
+	// The pipe is not closed, so the command is still "running". The idle flush
 	// is what makes the line appear.
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) && !strings.Contains(out.String(), "listening on :3000") {
@@ -319,7 +319,7 @@ func TestALiveStreamShowsAQuietLineBeforeEOF(t *testing.T) {
 
 // The idle flush marks its chunk "more", so the broker keeps holding the tail
 // that catches a value split across chunks: only the final chunk at EOF is
-// "more" false.  A quiet flush that ended the stream would drop that guard.
+// "more" false. A quiet flush that ended the stream would drop that guard.
 func TestAnIdleFlushDoesNotEndTheStream(t *testing.T) {
 	broker := newStubBroker(t)
 	pr, pw := io.Pipe()
@@ -358,7 +358,7 @@ func TestAnIdleFlushDoesNotEndTheStream(t *testing.T) {
 
 // A line longer than the buffer arrives from the reader as ErrBufferFull before
 // its newline; the live path must keep reading it, not mistake that for the end
-// of the stream.  It is the shape tests/e2e/check-leak.sh's chunk-offset cases
+// of the stream. It is the shape tests/e2e/check-leak.sh's chunk-offset cases
 // take.
 func TestALiveStreamCarriesALineLongerThanAChunk(t *testing.T) {
 	broker := newStubBroker(t)

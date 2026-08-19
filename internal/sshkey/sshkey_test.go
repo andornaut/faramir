@@ -44,7 +44,7 @@ func TestGenerateNeverClobbersAnExistingKey(t *testing.T) {
 	}
 }
 
-// Two halves, two modes, both from the write rather than the umask.  0600 keeps
+// Two halves, two modes, both from the write rather than the umask. 0600 keeps
 // the private half to the broker's uid; 0644 on the public half is deliberate,
 // it being copied into authorized_keys on every managed host.
 func TestGenerateWritesBothModes(t *testing.T) {

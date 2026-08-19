@@ -5,10 +5,10 @@ import "github.com/spf13/cobra"
 // newVaultCmd groups what is done to the files: write one, edit one, list them,
 // remove one.
 //
-// A vault, not a secret: each of these files holds several.  It is also the word
+// A vault, not a secret: each of these files holds several. It is also the word
 // ansible-vault uses for the same object and the one the deny rules use for a
 // protected credential store, so an agent reading "vault files are off limits"
-// and an operator running `faramir vault edit` mean the same thing by it.  Not
+// and an operator running `faramir vault edit` mean the same thing by it. Not
 // sops, which is the format underneath; who may read them is `faramir
 // recipient`.
 //

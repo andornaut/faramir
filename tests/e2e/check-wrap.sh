@@ -1,7 +1,7 @@
 #!/bin/bash
 # The rewrite, executed.
 #
-# The guard suite stopped at the decision.  This one takes the exact string the guard
+# The guard suite stopped at the decision. This one takes the exact string the guard
 # hands back and runs it in a shell standing where the agent's shell stands,
 # because everything the wrapper claims is about what happens when it runs: the
 # output is redacted, the exit status is the command's, the shell keeps what the
@@ -35,7 +35,7 @@ agentRun() {
 }
 
 # A file in the tree holding a secret in the clear: an operator's mistake, and
-# the case the wrapper exists for.  The guard has no rule against reading it,
+# the case the wrapper exists for. The guard has no rule against reading it,
 # which is the point -- a deny list only covers what someone thought to name.
 printf 'DB_PASSWORD=%s\nnote: the api token is %s\n' \
   "$SECRET" 'tok_live_0PENSESAME_9911' > /home/op/project/notes.txt
@@ -168,7 +168,7 @@ out=$(runuser -u op -- env HOME=/home/op XDG_RUNTIME_DIR=/run/user/9999 bash -c 
 
 head_ "7. a redactor that cannot answer withholds the output"
 # The most important failure: the command has already run and its output is
-# sitting in a file.  If the redactor cannot be reached, that output must not
+# sitting in a file. If the redactor cannot be reached, that output must not
 # be printed.
 rm -f /tmp/it-ran
 out=$(runuser -u op -- env HOME=/home/op XDG_RUNTIME_DIR="$RUNDIR" FARAMIR_CLI=/nonexistent/faramir \
@@ -210,7 +210,7 @@ n=$(agentRun 'seq 1 200000' | wc -l)
 [ "$n" = "200000" ] && ok "200k lines arrive complete" || bad "large output: $n lines"
 out=$(agentRun 'printf "caf\xc3\xa9 \xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e \xf0\x9f\x94\x91\n"')
 [ "$out" = "café 日本語 🔑" ] && ok "multi-byte characters survive" || bad "utf-8: [$out]"
-# Binary is what `cat` on the wrong file produces.  Counted on this side of the
+# Binary is what `cat` on the wrong file produces. Counted on this side of the
 # wrapper: `wc -c` inside the command counts the bytes before redaction has seen
 # them, so it reports what the command produced whatever came back.
 n=$(agentRun 'head -c 4096 /dev/urandom' | wc -c)
@@ -235,15 +235,15 @@ out=$(agentRun 'printf "A\x1b[31mB\x1b[0mC"')
 
 head_ "10. a backgrounded command is streamed through the redactor"
 # The wrapper cannot capture a backgrounded command's output, so it pipes it
-# through the redactor instead.  Without this a value in a tree file, read by a
+# through the redactor instead. Without this a value in a tree file, read by a
 # command ending in "&", would reach the transcript in the clear.
 #
 # Backgrounded, so the rewrite returns at once; its output is collected from a
 # file the wrapped pipeline writes, then read once the job is done.
-# bgRun runs a backgrounded rewrite and returns what it streamed.  exec sends
+# bgRun runs a backgrounded rewrite and returns what it streamed. exec sends
 # the shell's stdout to a file that the backgrounded pipeline inherits and keeps
 # writing as output arrives; a foreground sleep holds the shell open long enough
-# to collect it, since the rewrite itself returns at once.  A redirect appended
+# to collect it, since the rewrite itself returns at once. A redirect appended
 # after the command would land on the empty command past its "&", not the job.
 bgRun() { # command (ends in &), hold seconds -> streamed output so far
   local w; w=$(rewriteOf "$1")
@@ -267,7 +267,7 @@ grep -q "$TOKEN" <<<"$out" && ok "  it came back as its token instead" \
 
 # A long-running producer that goes quiet must still show what it printed: the
 # idle flush releases a held line rather than waiting for the command to exit,
-# which a server never does.  The padding clears the tail the broker holds back.
+# which a server never does. The padding clears the tail the broker holds back.
 out=$(bgRun 'yes padding-line-that-clears-the-held-tail | head -40; sleep 5 &' 3)
 lines=$(grep -c padding-line <<<"$out")
 [ "$lines" -gt 0 ] && ok "a quiet backgrounded producer's output appears before it exits ($lines line(s))" \

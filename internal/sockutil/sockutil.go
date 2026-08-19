@@ -34,7 +34,7 @@ const (
 )
 
 // RetryAccept reports whether an Accept error is one to sleep on and retry, and
-// for how long.  A loop that returned on any error would leave the socket bound
+// for how long. A loop that returned on any error would leave the socket bound
 // and accepting nothing, and exit 0, which Restart=on-failure does not restart.
 // Descriptor and memory exhaustion, and a peer that goes away before the
 // accept, are recoverable; anything else means the listener is gone.
@@ -50,7 +50,7 @@ func RetryAccept(err error, delay time.Duration) (time.Duration, bool) {
 	return 0, false
 }
 
-// bindMode is the mode a self-bound socket gets.  Not configurable: under
+// bindMode is the mode a self-bound socket gets. Not configurable: under
 // systemd the .socket unit's SocketMode= decides and this path is never
 // reached, so a config key would describe a socket rather than choose one.
 const bindMode = 0o660
@@ -83,7 +83,7 @@ func Listen(path string) (net.Listener, error) {
 		}
 	}
 	// Bind under a umask that yields bindMode: a socket created world-writable
-	// and narrowed afterwards is reachable in between.  ListenConfig with a
+	// and narrowed afterwards is reachable in between. ListenConfig with a
 	// background context, a unix bind resolving nothing and connecting to
 	// nothing.
 	previous := unix.Umask(0o777 &^ int(bindMode))
@@ -133,9 +133,9 @@ func PeerCred(conn net.Conn) (*Peer, error) {
 }
 
 // Allowed is the authorisation every faramir socket uses: this process's own
-// uid, root, the named account, or membership of the named group.  Either name
+// uid, root, the named account, or membership of the named group. Either name
 // may be empty, which is a check that does not apply rather than one that
-// passes.  One of each, every socket here admitting one account or one group.
+// passes. One of each, every socket here admitting one account or one group.
 //
 // Accounts are named, never numbered: a uid stops matching once a reinstall
 // renumbers the account.
@@ -199,7 +199,7 @@ func groupMembers(name string) []string {
 	return nil
 }
 
-// ReadLine reads one newline-terminated JSON payload, up to limit bytes.  It
+// ReadLine reads one newline-terminated JSON payload, up to limit bytes. It
 // returns nil with no error when the peer sent nothing usable.
 func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 	buf := make([]byte, 0, 4096)
@@ -233,7 +233,7 @@ func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 
 var ErrTooLarge = errors.New("request too large")
 
-// LineReader reads successive payloads from one connection.  ReadLine discards
+// LineReader reads successive payloads from one connection. ReadLine discards
 // whatever its last read pulled in past the newline, which for a stream is the
 // start of the next payload; keeping the buffer here is what lets a second call
 // see it.

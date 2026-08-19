@@ -24,7 +24,7 @@ import (
 //
 // The same shapes [Load]'s callers refuse are refused here, plus the two only a
 // writer cares about: more than one key group, and a group pulling in others by
-// merge.  Both leave two answers to "which list is the recipient list".
+// merge. Both leave two answers to "which list is the recipient list".
 func SetRecipients(body []byte, path string, want []string) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(body, &doc); err != nil {
@@ -158,7 +158,7 @@ func recipientsOfBody(body []byte, path string) ([]string, error) {
 }
 
 // Add returns body with recipient appended, and reports whether it was already
-// there.  Appended rather than sorted: the order is the operator's, and the
+// there. Appended rather than sorted: the order is the operator's, and the
 // keeper's own key leads it on every host the installer wrote.
 func Add(body []byte, path, recipient string) (out []byte, added bool, err error) {
 	current, err := recipientsOfBody(body, path)
@@ -172,7 +172,7 @@ func Add(body []byte, path, recipient string) (out []byte, added bool, err error
 	return out, err == nil, err
 }
 
-// Remove returns body without recipient, and reports whether it was there.  The
+// Remove returns body without recipient, and reports whether it was there. The
 // last one is refused: a rule naming nobody encrypts to nobody, and sops
 // reports that only when the next file is written.
 func Remove(body []byte, path, recipient string) (out []byte, removed bool, err error) {

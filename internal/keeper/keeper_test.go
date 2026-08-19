@@ -14,7 +14,7 @@ import (
 )
 
 // states, errorsIn and unresolved are one field of a keeper response at the
-// type it is documented to carry.  Checked rather than asserted: a response of
+// type it is documented to carry. Checked rather than asserted: a response of
 // another shape is a failure of the op under test, and a panic mid-test says
 // less about it than a message naming what came back.
 func states(t *testing.T, resp map[string]any) []FileState {
@@ -88,7 +88,7 @@ func TestDecryptRoundTrip(t *testing.T) {
 	}
 }
 
-// The key reaches sops as a path, never as a value.  Asserted against a real
+// The key reaches sops as a path, never as a value. Asserted against a real
 // child's environment rather than against the keeper's intent.
 func TestTheDecryptChildIsGivenTheKeyPathAndNotTheKey(t *testing.T) {
 	dir := t.TempDir()
@@ -354,7 +354,7 @@ func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 		{"a pattern and a literal inside it", []string{glob, literal},
 			[]string{filepath.Join(dir, "a.sops.yml"), filepath.Join(dir, "b.sops.yml")}, 0, 0},
 		// Named nothing rather than failed: a store not written yet is what every
-		// first install looks like.  What makes it safe is that the value set is
+		// first install looks like. What makes it safe is that the value set is
 		// then empty, and exec and redact are refused while it is.
 		{"a literal that is not there", []string{missing}, []string{}, 0, 1},
 		{"a pattern that matches nothing",
@@ -384,7 +384,7 @@ func TestResolveExpandsPatternsAndLiterals(t *testing.T) {
 }
 
 // Reported apart from the errors, an entry naming nothing being what a first
-// install looks like.  The broker starts on it and refuses exec and redact
+// install looks like. The broker starts on it and refuses exec and redact
 // while the value set is empty, and `--check` and `doctor` fail on it.
 func TestAPatternThatNamesNothingIsReportedAsUnresolved(t *testing.T) {
 	pattern := filepath.Join(t.TempDir(), "*.sops.yml")
@@ -435,7 +435,7 @@ func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
 
 // The store is one directory spelled once per extension a managed file may
 // carry, so two of the three matching nothing is the ordinary case rather than
-// a store two thirds missing.  Reporting it would fail --check and doctor on
+// a store two thirds missing. Reporting it would fail --check and doctor on
 // every host that keeps only *.sops.yml, which is every host.
 func TestUnmatchedExtensionsAreNotAMissingStore(t *testing.T) {
 	dir := t.TempDir()

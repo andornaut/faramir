@@ -2,10 +2,10 @@
 # Changing an install's configuration, which is a flag plus a reload.
 #
 # There is one config file and faramir owns it, so nothing is hand-edited and
-# there are no drop-ins to merge.  What makes this worth a suite is the property
+# there are no drop-ins to merge. What makes this worth a suite is the property
 # the whole arrangement rests on: `faramir init` rewrites the file from scratch
 # every run, so a value set by a flag has to survive a later run that does not
-# repeat that flag.  A value that does not survive is not a config option, it is
+# repeat that flag. A value that does not survive is not a config option, it is
 # a setting that silently reverts.
 #
 # The rest is what a wrong value does to a running host: refused by a fresh
@@ -30,11 +30,11 @@ why()   { runuser -u faramir-broker -- /usr/local/bin/faramir broker -c $CFG --c
 GRANT=$(grep -q '^\[escalation\]' $CFG && echo --allow-sudo || true)
 # shellcheck disable=SC2086  # GRANT is one flag or empty, deliberately unquoted
 reinit() { /usr/local/bin/faramir init --agent-user op --config-dir "$CONFIG_DIR" $GRANT "$@" >/tmp/init.log 2>&1; }
-# addkey puts a line inside a section that already exists.  Appending the header
+# addkey puts a line inside a section that already exists. Appending the header
 # again would be a duplicate table, which TOML refuses before any of faramir's
 # own rules are reached, so the test would pass on the wrong refusal.
 # Replaces the key where the section already has one, and inserts it where it
-# does not.  Appending a second copy is a duplicate key, which TOML refuses
+# does not. Appending a second copy is a duplicate key, which TOML refuses
 # before any of faramir's own rules is reached, so the test would pass on the
 # wrong refusal.
 addkey() {
@@ -72,7 +72,7 @@ n=$(check | jq -r '.secrets.not_redactable | length' 2>/dev/null)
 head_ "2. THE PROPERTY: a re-run without the flag keeps it"
 #
 # config.toml is rewritten from scratch every run, so this is the whole of what
-# makes a flag a setting rather than a one-shot.  A value that reverts here is
+# makes a flag a setting rather than a one-shot. A value that reverts here is
 # one a later `faramir init`, or a `faramir link add`, would silently undo.
 
 reinit || bad "a bare re-run failed: $(tail -2 /tmp/init.log)"
@@ -106,7 +106,7 @@ head_ "4. no tunable takes zero"
 #
 # Zero is the signal an unset flag leaves, so a key that accepted it could not
 # be told from one nobody typed: an operator asking for it would silently get
-# the install's old value back.  Refused at the loader instead.
+# the install's old value back. Refused at the loader instead.
 
 cp $CFG /tmp/config.good
 addkey secret "min_refresh_sec = 0"
@@ -136,11 +136,11 @@ out=$(runuser -u op -- /usr/local/bin/faramir run -- printenv ANSIBLE_NOCOWS 2>/
 # --------------------------------------------------------------------------
 head_ "6. a config.d beside the file is not read"
 #
-# There is no merge.  A file left over from an older install, or written by
+# There is no merge. A file left over from an older install, or written by
 # somebody expecting one, changes nothing rather than half-applying.
 
 # Counted before and after: this host holds a value shorter than min_length of
-# its own, so "none refused" is not the question.  Whether the number moves is.
+# its own, so "none refused" is not the question. Whether the number moves is.
 was=$(check | jq -r '.secrets.not_redactable | length' 2>/dev/null)
 mkdir -p $CONFIG_DIR/config.d
 printf '[secret]\nmin_length = 30\n' > $CONFIG_DIR/config.d/50-stale.toml
@@ -156,7 +156,7 @@ rm -rf $CONFIG_DIR/config.d
 head_ "7. a wrong value is refused by a fresh process"
 #
 # The daemons read this file at startup, so a bad one is caught before it is
-# served rather than after.  --check is what init and doctor read.
+# served rather than after. --check is what init and doctor read.
 
 cp $CFG /tmp/config.good
 for case in "an unknown key:secret:nonsense = 1" \
@@ -178,7 +178,7 @@ settle || bad "the host did not come back after the refusals"
 # --------------------------------------------------------------------------
 head_ "8. and the values that stopped being keys stay out"
 #
-# Each is a constant in the binary now.  Naming one is a mistake worth reporting
+# Each is a constant in the binary now. Naming one is a mistake worth reporting
 # rather than a setting that quietly does nothing.
 
 for key in max_output_bytes term_cols kill_grace_sec max_request_bytes max_record_bytes; do
@@ -197,7 +197,7 @@ settle || bad "the host did not come back"
 head_ "9. put the host back"
 #
 # Every section above changed a value, and the suites after this one run on
-# whatever is left.  Restoring is not tidiness: a shorter refresh here would
+# whatever is left. Restoring is not tidiness: a shorter refresh here would
 # make a later suite's wait pass for the wrong reason, and a longer one would
 # make it fail.
 

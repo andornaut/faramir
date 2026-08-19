@@ -19,7 +19,7 @@ import (
 // Options is one `faramir init` invocation: everything an operator can decide.
 // The paths that follow are in Layout.
 type Options struct {
-	// AgentUser is the account the coding agent runs as.  It has no account of
+	// AgentUser is the account the coding agent runs as. It has no account of
 	// its own: the work it does is the operator's, and a separate uid could reach
 	// none of it.
 	AgentUser string
@@ -30,36 +30,36 @@ type Options struct {
 	KeeperUser   string
 	ExecUser     string
 
-	// ConfigDir holds config.toml, the age key and the secrets directory.  One
+	// ConfigDir holds config.toml, the age key and the secrets directory. One
 	// path, so secrets in an encrypted home have the key that opens them there
 	// too.
 	ConfigDir string
 
 	// SSHKey relocates the identity the broker lends through an agent it owns, so
-	// the executor can authenticate with it without reading it.  Empty takes the
-	// default beside the age key; see Layout.SSHKey.  It names a keypair, and the
+	// the executor can authenticate with it without reading it. Empty takes the
+	// default beside the age key; see Layout.SSHKey. It names a keypair, and the
 	// broker holds both halves.
 	SSHKey string
 
 	// KnownHosts is a known_hosts file to pin for the executor, copied to
-	// Layout.ExecKnownHosts.  Empty pins nothing, which is the host where
-	// /etc/ssh/ssh_known_hosts already covers every account.  A copy rather than
+	// Layout.ExecKnownHosts. Empty pins nothing, which is the host where
+	// /etc/ssh/ssh_known_hosts already covers every account. A copy rather than
 	// a reference, the executor not being able to read the operator's 0700
 	// ~/.ssh; only public host keys travel.
 	KnownHosts string
 
 	// AllowSudo lets a brokered command ask to become root on this host, so one
-	// run can configure the fleet and the controller together.  Off by default,
+	// run can configure the fleet and the controller together. Off by default,
 	// being the one place the executor's reach grows; see docs/escalation.md.
 	// Re-running without it removes the grant.
 	AllowSudo bool
 
 	// NotifyCommand announces a pending escalation, "{prompt}" being the line the
-	// broker builds and "{id}" the question to answer.  Empty leaves `faramir
+	// broker builds and "{id}" the question to answer. Empty leaves `faramir
 	// escalations --watch` as the only place a question shows up.
 	//
 	// A flag rather than a drop-in because the broker execs it as the uid holding
-	// every decrypted value.  Requires AllowSudo: without the grant there is no
+	// every decrypted value. Requires AllowSudo: without the grant there is no
 	// [escalation] section and nothing to announce.
 	NotifyCommand []string
 
@@ -74,7 +74,7 @@ type Options struct {
 	SecretMinRefreshSec  int
 
 	// links is the [[secret.link]] entries, read off the installed config's base
-	// file during adoption.  Unexported: no flag names one, and `faramir link` is
+	// file during adoption. Unexported: no flag names one, and `faramir link` is
 	// what adds and removes them.
 	links []config.Link
 	// linksSet says the list above is deliberate, empty included, or removing the
@@ -92,18 +92,18 @@ type Options struct {
 	MoveConfig bool
 
 	// No tree is enrolled here: a tree is per project and this runs once per
-	// machine.  See `faramir init-project`.
+	// machine. See `faramir init-project`.
 
 	// Agents names the coding agents whose settings get the deny rules, which
-	// refuse to open key material wherever the agent is working.  Empty means
-	// AgentAuto: whichever agents the agent account's home already carries.  A
+	// refuse to open key material wherever the agent is working. Empty means
+	// AgentAuto: whichever agents the agent account's home already carries. A
 	// name writes them whether or not the agent is there, and composes with auto.
 	//
 	// The PreToolUse hook is per project, registering it auto-approving Bash
 	// there; `faramir init-project --agent` takes the same names.
 	Agents []string
 
-	// DryRun computes every answer and writes nothing.  A step needing accounts
+	// DryRun computes every answer and writes nothing. A step needing accounts
 	// that do not exist yet is reported as skipped.
 	DryRun bool
 
@@ -125,10 +125,10 @@ type Step struct {
 type runReport struct {
 	Changed bool   `json:"changed"`
 	Steps   []Step `json:"steps"`
-	// Warnings are the things that install cleanly and then do not work.  Not
+	// Warnings are the things that install cleanly and then do not work. Not
 	// failures, each having a legitimate shape.
 	Warnings []string `json:"warnings,omitempty"`
-	// log receives one line per step.  Unexported, so it is no part of the
+	// log receives one line per step. Unexported, so it is no part of the
 	// document either report serialises to.
 	log func(string)
 }
@@ -153,7 +153,7 @@ func (r *runReport) step(name string, changed bool, detail string) {
 	r.log(line)
 }
 
-// skip records a step that could not be evaluated.  Only under DryRun.
+// skip records a step that could not be evaluated. Only under DryRun.
 func (r *runReport) skip(name, why string) {
 	r.Steps = append(r.Steps, Step{Name: name, Skipped: true, Detail: why})
 	if r.log != nil {
@@ -176,7 +176,7 @@ type Report struct {
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
 	// AgeRecipients is who can decrypt the managed files: what .sops.yaml lists,
 	// read back on every run but the one that writes the file, which reports what
-	// it just sealed the store to.  Empty when the file could not be read.
+	// it just sealed the store to. Empty when the file could not be read.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
 }
 
@@ -196,7 +196,7 @@ type runner struct {
 	brokerChecked    bool
 
 	// The key the broker will load, set once it is on disk with the ownership the
-	// broker needs.  Empty under a dry run, so the validation step knows not to
+	// broker needs. Empty under a dry run, so the validation step knows not to
 	// ask a broker that was never given one.
 	sshKey string
 
@@ -204,7 +204,7 @@ type runner struct {
 	// question asked there and the files written later are about the same set.
 	agentTargets []*agentTarget
 
-	// The keeper's own age recipient, empty when it could not be read.  A
+	// The keeper's own age recipient, empty when it could not be read. A
 	// .sops.yaml written without it encrypts every later value to everyone except
 	// the account that has to decrypt them.
 	keeperRecipient string
@@ -233,7 +233,7 @@ type runner struct {
 	keeperGID    int
 }
 
-// Run provisions the host.  Idempotent: a second run with the same options
+// Run provisions the host. Idempotent: a second run with the same options
 // changes nothing and reports so.
 func Run(opts Options) (Report, error) {
 	run, err := newRunner(opts)
@@ -283,7 +283,7 @@ func (r *runner) apply(steps []namedStep) (Report, error) {
 	for _, step := range steps {
 		if err := step.run(); err != nil {
 			// Named, because a run that stops partway has applied everything before
-			// it and nothing after.  The steps that hand a file to an account are all
+			// it and nothing after. The steps that hand a file to an account are all
 			// after stepPreconditions, so a refusal there has changed no ownership.
 			return r.report, fmt.Errorf("%s: %w", step.name, err)
 		}
@@ -300,7 +300,7 @@ type namedStep struct {
 // steps is the order the install is applied in, which is itself a boundary:
 // everything before stepPreconditions adds accounts and groups and can be
 // repeated, everything after hands existing files to them and cannot be undone
-// by running init again.  A refusal that a later step could raise and
+// by running init again. A refusal that a later step could raise and
 // stepPreconditions can ask belongs in stepPreconditions.
 func (r *runner) steps() []namedStep {
 	return []namedStep{
@@ -413,7 +413,7 @@ func (o *Options) layout() (Layout, error) {
 	layout.ConfigFile = filepath.Join(layout.ConfigDir, "config.toml")
 	// Beside the config, even inside the agent account's home: what keeps the
 	// operator out is the key's 0400 keeper ownership, owning the directory being
-	// permission to unlink the file rather than to read it.  Following the config
+	// permission to unlink the file rather than to read it. Following the config
 	// puts the key inside an encrypted home when the secrets directory is already
 	// there.
 	layout.AgeKeyPath = filepath.Join(layout.ConfigDir, "age.key")
@@ -440,7 +440,7 @@ func (o *Options) layout() (Layout, error) {
 // arguments alone, as ssh_agent and ssh_add are: the broker execs this as the
 // uid holding every decrypted value, so the install decides which file a bare
 // name lands on rather than the broker's PATH at the moment a question is
-// raised.  A name that resolves to nothing is left as it was, for
+// raised. A name that resolves to nothing is left as it was, for
 // validateNotifyCommand to refuse.
 func resolveNotifyCommand(argv []string) []string {
 	if len(argv) == 0 {
@@ -497,7 +497,7 @@ func (r *runner) preflight() error {
 	if err := r.refuseSymlinks(); err != nil {
 		return err
 	}
-	// The binaries are built ahead of time.  Checked here rather than at the
+	// The binaries are built ahead of time. Checked here rather than at the
 	// install step, which is after the accounts and the age key exist.
 	if r.binaries == "" {
 		return errors.New("cannot find the directory this faramir was run from")
@@ -521,7 +521,7 @@ func (r *runner) preflight() error {
 // There is one set of units, with fixed names, so naming a second directory
 // repoints the daemons and leaves the first directory where it stands: the refs
 // it held leave the value set, so a brokered command that prints one of those
-// values prints it, while its age key and ciphertext stay on disk.  doctor
+// values prints it, while its age key and ciphertext stay on disk. doctor
 // examines only the install the units name.
 //
 // A flag-less re-run never reaches this: init resolves the config directory
@@ -560,11 +560,11 @@ func (r *runner) refuseConfigMove() error {
 }
 
 // stepPreconditions raises, before anything is handed over, every refusal a
-// later step would raise once it was too late to re-run cleanly.  It reports
+// later step would raise once it was too late to re-run cleanly. It reports
 // nothing when it passes, these being preconditions rather than work.
 func (r *runner) stepPreconditions() error {
 	// Asked whether or not this is a dry run: a dry run must not answer "this
-	// would work" about a home where it would not.  editedFile reports nothing it
+	// would work" about a home where it would not. editedFile reports nothing it
 	// cannot read unprivileged, so what a dry run cannot see it does not claim.
 	if err := r.refuseUnwritableAgentFiles(); err != nil {
 		return err
@@ -598,7 +598,7 @@ func (r *runner) refuseUnwritableAgentFiles() error {
 }
 
 // refuseUnadoptableSSHKey asks the question stepSSHKey asks, at a point where
-// the answer costs nothing.  Only for a key already on disk: one this run mints
+// the answer costs nothing. Only for a key already on disk: one this run mints
 // is adopted by whoever it is minted for.
 func (r *runner) refuseUnadoptableSSHKey() error {
 	if !exists(r.layout.SSHKey) {
@@ -608,8 +608,8 @@ func (r *runner) refuseUnadoptableSSHKey() error {
 }
 
 // refuseInvalidSudoers has visudo judge the grant before the run reaches the
-// step that installs it.  Rendered to a file of its own rather than into
-// sudoers.d, which sudo reads.  Nothing here is the operator's text, so what
+// step that installs it. Rendered to a file of its own rather than into
+// sudoers.d, which sudo reads. Nothing here is the operator's text, so what
 // this catches is a sudo too old for a directive.
 func (r *runner) refuseInvalidSudoers() error {
 	// The same two directories stepSudoGrant needs: gating on sudoers.d alone
@@ -632,7 +632,7 @@ func (r *runner) refuseInvalidSudoers() error {
 	defer func() { _ = os.RemoveAll(dir) }()
 	candidate := filepath.Join(dir, "faramir")
 	// 0600, not the 0440 the installed file gets: nothing reads this but the
-	// visudo below, which parses a file at any mode.  The mode sudo requires is
+	// visudo below, which parses a file at any mode. The mode sudo requires is
 	// asserted where the real file is written.
 	if err := os.WriteFile(candidate, body, 0o600); err != nil {
 		return err
@@ -646,12 +646,12 @@ func (r *runner) refuseInvalidSudoers() error {
 }
 
 // refuseSymlinks fails the run when any path this install asserts a mode or an
-// owner on is a symlink.  Those assertions are what keep the file out of the
+// owner on is a symlink. Those assertions are what keep the file out of the
 // agent's reach, and applying one through a link applies it to the target
 // instead.
 //
 // A precondition rather than a refusal at each step, so the answer is one
-// message with the host untouched.  It does not replace the O_NOFOLLOW repair
+// message with the host untouched. It does not replace the O_NOFOLLOW repair
 // in ensureOwnership: nothing stops the path being re-pointed after this runs,
 // so what it provides is the diagnosis rather than the enforcement.
 func (r *runner) refuseSymlinks() error {
@@ -702,7 +702,7 @@ func (r *runner) step(name string, changed bool, detail string) {
 func (r *runner) skip(name, why string) { r.report.skip(name, why) }
 
 // reportPresence is the dry-run answer for a step that only asks whether a file
-// is there.  Nothing is opened: several are key material.
+// is there. Nothing is opened: several are key material.
 func (r *runner) reportPresence(name, path, wouldCreate string) {
 	present, known := probe(path)
 	switch {
@@ -727,9 +727,9 @@ func (r *runner) warnf(format string, args ...any) {
 	r.report.warnf(format, args...)
 }
 
-// command runs a program and returns its standard output.  stdout alone: the
+// command runs a program and returns its standard output. stdout alone: the
 // broker prints its --check report there and logs on stderr, so a combined
-// capture would make every report unparseable.  stderr is carried in the
+// capture would make every report unparseable. stderr is carried in the
 // error.
 func (r *runner) command(name string, args ...string) (string, error) {
 	var stdout, stderr bytes.Buffer

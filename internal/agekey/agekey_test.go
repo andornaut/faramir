@@ -152,7 +152,7 @@ func TestRecipientNamesAFileWithNoKeyInIt(t *testing.T) {
 	}
 }
 
-// .sops.yaml is written once, kept, and 0644 by design.  Everything below is a
+// .sops.yaml is written once, kept, and 0644 by design. Everything below is a
 // string that must never reach it, or one that must.
 func TestValidateRecipient(t *testing.T) {
 	id, err := age.GenerateX25519Identity()

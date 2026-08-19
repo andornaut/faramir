@@ -16,8 +16,8 @@ import (
 	"github.com/andornaut/faramir/internal/sharetree"
 )
 
-// installedBinaries goes to BinDir.  There is one; the daemons, the MCP server
-// and the hook are subcommands of it.  LibexecDir holds the hook's deny list
+// installedBinaries goes to BinDir. There is one; the daemons, the MCP server
+// and the hook are subcommands of it. LibexecDir holds the hook's deny list
 // and wrap script.
 var installedBinaries = []string{"faramir"}
 
@@ -33,7 +33,7 @@ func (r *runner) stepDirectories() error {
 	changed := false
 
 	// The config directory itself, root-owned: it holds the file that chooses
-	// what the executor runs when a command names a bare program.  An agent runs
+	// what the executor runs when a command names a bare program. An agent runs
 	// as the operator, so operator-writable would hand that choice to the agent.
 	// own=true, so a directory already operator-owned is taken back.
 	if made, err := r.fs.ensureDir(r.layout.ConfigDir, 0o755, 0, 0, true); err != nil {
@@ -42,16 +42,16 @@ func (r *runner) stepDirectories() error {
 		changed = true
 	}
 
-	// The age key sits in the config directory, made above.  What protects it is
+	// The age key sits in the config directory, made above. What protects it is
 	// its own 0400 keeper ownership.
 
 	// The secrets directory: 2750 root with the secrets group, which holds the one
-	// account that opens a managed file.  The operator is not in it, so editing
+	// account that opens a managed file. The operator is not in it, so editing
 	// one needs sudo.
 	//
 	// setgid, so a file created here belongs to the secrets group rather than to
-	// whoever ran sudo.  Group read and traverse without write, the keeper only
-	// decrypting and fingerprinting.  Owned by root, owning the directory being
+	// whoever ran sudo. Group read and traverse without write, the keeper only
+	// decrypting and fingerprinting. Owned by root, owning the directory being
 	// permission to unlink and rename what is in it.
 	storeChanged, err := r.fs.ensureDir(r.layout.SecretsDir(), 0o2750|os.ModeSetgid, 0, r.secretsGID, true)
 	if err != nil {
@@ -61,8 +61,8 @@ func (r *runner) stepDirectories() error {
 
 	// The files already in it, handed to the secrets group with the directory, or
 	// they stay grouped to the client group and are unreadable to the account
-	// that decrypts them.  Ownership only: these are ciphertext this install has
-	// no key for.  A dry run cannot look inside and reports no change, as
+	// that decrypts them. Ownership only: these are ciphertext this install has
+	// no key for. A dry run cannot look inside and reports no change, as
 	// ensureDir does above.
 	entries, err := os.ReadDir(r.layout.SecretsDir())
 	switch {
@@ -103,7 +103,7 @@ func (r *runner) stepDirectories() error {
 	// The log file itself, not only the directory: whoever writes the first record
 	// creates it, and `faramir vault edit` runs as root, so on a fresh host the
 	// log would land root-owned and every later append from the broker would fail
-	// silently.  logrotate re-creates it broker-owned thereafter.
+	// silently. logrotate re-creates it broker-owned thereafter.
 	made, err = r.fs.ensurePrivateFile(r.layout.AuditLogPath(), r.brokerUID, r.brokerGID)
 	if err != nil {
 		return err
@@ -131,9 +131,9 @@ func (r *runner) stepBinaries() error {
 	}
 
 	// Beside the hook rather than under the config directory, so they travel with
-	// what reads them.  Rendered rather than copied, which paths are worth
+	// what reads them. Rendered rather than copied, which paths are worth
 	// refusing belonging to this install: an operator who moved the config
-	// directory gets rules naming where it is.  A hook that cannot find the file
+	// directory gets rules naming where it is. A hook that cannot find the file
 	// falls back to the compiled defaults.
 	patterns, err := render("agent/hooks/deny-patterns.txt", r.layout)
 	if err != nil {
@@ -156,9 +156,9 @@ func (r *runner) stepBinaries() error {
 	changed = changed || made
 
 	// What the PAM service execs to decide one sudo, rendered because it names the
-	// binary and the account by path.  Installed on every host, grant or not:
+	// binary and the account by path. Installed on every host, grant or not:
 	// without a PAM service and a sudoers entry nothing execs it, and a stale one
-	// left behind would be worse.  Executable, unlike wrap.sh: PAM execs this, as
+	// left behind would be worse. Executable, unlike wrap.sh: PAM execs this, as
 	// root.
 	helper, err := render("agent/hooks/pam-approve.tmpl", r.layout)
 	if err != nil {
@@ -246,7 +246,7 @@ func (r *runner) writeAsset(assetPath, dst string, mode os.FileMode) (bool, erro
 	return r.fs.writeFile(dst, data, mode, 0, 0)
 }
 
-// stepConfig writes the config on every run.  Rewritten rather than kept: the
+// stepConfig writes the config on every run. Rewritten rather than kept: the
 // file is faramir's, and what an operator sets is adopted off the installed one
 // and rendered back into it.
 func (r *runner) stepConfig() error {
@@ -256,7 +256,7 @@ func (r *runner) stepConfig() error {
 	}
 	// Held to the loader's own rules before it is written: afterwards the daemons
 	// refuse to start and the next `faramir init` refuses to run against a config
-	// it cannot parse, so the command that would fix it is blocked.  The ranges
+	// it cannot parse, so the command that would fix it is blocked. The ranges
 	// live in the loader, and a second copy here would be a second thing to keep
 	// in step.
 	if err := config.Check(body, r.layout.ConfigFile); err != nil {
@@ -277,7 +277,7 @@ func (r *runner) stepConfig() error {
 }
 
 // stepUnits writes the systemd units and the tmpfiles entry, from the same
-// Layout as the config so the uids and groups agree.  No drop-ins: the keeper's
+// Layout as the config so the uids and groups agree. No drop-ins: the keeper's
 // sandbox and credential source are conditionals inside the unit, so reverting
 // either is a re-run without the flag.
 func (r *runner) stepUnits() error {
@@ -310,7 +310,7 @@ func (r *runner) stepUnits() error {
 	return r.stepLogrotate()
 }
 
-// stepLogrotate bounds the audit log.  Its own step: nothing here is a unit and
+// stepLogrotate bounds the audit log. Its own step: nothing here is a unit and
 // no daemon reads it, so a host managing its logs another way deletes this one
 // file.
 func (r *runner) stepLogrotate() error {
@@ -324,7 +324,7 @@ func (r *runner) stepLogrotate() error {
 	}
 	// The file is inert without the program that reads it, and writing it reports
 	// "changed" either way, so a host with no logrotate looks installed and has
-	// no ceiling on the log.  `faramir doctor` checks it again.
+	// no ceiling on the log. `faramir doctor` checks it again.
 	if _, err := exec.LookPath("logrotate"); err != nil {
 		r.warnf("logrotate is not installed, so %s is inert and %s grows without a "+
 			"ceiling: the record cap bounds one record, not the file. "+
@@ -337,8 +337,8 @@ func (r *runner) stepLogrotate() error {
 
 // stepReachable makes the config directory the daemons read enterable by them,
 // before the units are written: a home is 0700, so a config kept in one is
-// invisible to all three service uids.  The config directory alone, being 0755,
-// which covers the secrets directory and the key inside it.  Traversal only,
+// invisible to all three service uids. The config directory alone, being 0755,
+// which covers the secrets directory and the key inside it. Traversal only,
 // never Share: a config a brokered command could rewrite is the policy
 // rewriting itself.
 func (r *runner) stepReachable() error {
@@ -364,7 +364,7 @@ func (r *runner) stepReachable() error {
 }
 
 // detailWithCount names the path and, when this run altered something, how many
-// paths that was.  A count rather than a list: a tree is thousands of
+// paths that was. A count rather than a list: a tree is thousands of
 // entries.
 func detailWithCount(path string, changed int) string {
 	if changed == 0 {

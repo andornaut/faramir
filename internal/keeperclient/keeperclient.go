@@ -1,4 +1,4 @@
-// Package keeperclient talks to the keeper socket.  Separate from the keeper
+// Package keeperclient talks to the keeper socket. Separate from the keeper
 // itself so the broker reaches values only by asking, in code with no access to
 // the key, the sops invocation, or the decrypted set.
 package keeperclient
@@ -14,14 +14,14 @@ import (
 	"github.com/andornaut/faramir/internal/sockutil"
 )
 
-// callTimeout bounds one round trip to the keeper, decryption included.  Above
+// callTimeout bounds one round trip to the keeper, decryption included. Above
 // the keeper's own decryptBudget, which is what bounds the reply: this is the
 // backstop for a keeper that accepts a connection and then answers nothing, not
-// a limit on how long decryption may legitimately take.  Kept as a separate
+// a limit on how long decryption may legitimately take. Kept as a separate
 // constant because this package shares no code with the one holding the key.
 const callTimeout = 10 * time.Minute
 
-// FileState is one managed file's fingerprint.  Comparable, since the staleness
+// FileState is one managed file's fingerprint. Comparable, since the staleness
 // check is set equality over these, and it carries no contents.
 type FileState struct {
 	Path  string `json:"path"`
@@ -55,7 +55,7 @@ func call(socketPath, op string) (*response, error) {
 	defer func() { _ = conn.Close() }()
 	// The caller is the broker serving a request whose own read deadline has
 	// already been cleared, so without this a keeper that accepts and never
-	// answers leaves `faramir run` hanging with nothing to report.  Generous:
+	// answers leaves `faramir run` hanging with nothing to report. Generous:
 	// get_values execs sops once per managed file.
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
@@ -84,8 +84,8 @@ func call(socketPath, op string) (*response, error) {
 }
 
 // FetchValues asks the keeper for the decrypted value set and the fingerprints
-// of the files it decrypted.  Every value, not a subset, and the state comes
-// back with them so the two describe the same moment.  A per-file failure is in
+// of the files it decrypted. Every value, not a subset, and the state comes
+// back with them so the two describe the same moment. A per-file failure is in
 // the errors slice rather than an error, so one broken file does not blank the
 // set.
 func FetchValues(socketPath string) (map[string]string, []FileState, []string, []string, error) {
@@ -100,7 +100,7 @@ func FetchValues(socketPath string) (map[string]string, []FileState, []string, [
 }
 
 // FetchState asks the keeper which managed files exist and when they changed:
-// no key, no sops, no contents, so it is what the broker polls with.  A file
+// no key, no sops, no contents, so it is what the broker polls with. A file
 // the keeper could not stat is in the errors slice and absent from the state,
 // which reads as a change and reloads.
 func FetchState(socketPath string) ([]FileState, []string, error) {

@@ -4,12 +4,12 @@ package main
 //
 // sudo execs this, as root, and reads nothing from it but the exit status: zero
 // authenticates the call, anything else refuses it, so every path here fails
-// closed.  No password is involved: it asks the broker whether the brokered
+// closed. No password is involved: it asks the broker whether the brokered
 // command making this call was approved by a human, which is why an escalation
 // cannot be carried to a later command.
 //
 // It finds which command is asking by walking /proc up from sudo until it meets
-// a process holding FARAMIR_ESCALATION_TOKEN.  PAM does not pass the caller's
+// a process holding FARAMIR_ESCALATION_TOKEN. PAM does not pass the caller's
 // environment to a module, and it does not have to: this runs as root.
 
 import (
@@ -38,7 +38,7 @@ const maxAncestors = 32
 func cmdPamApprove(args []string) int { return runPamApproveCommand(args) }
 
 // runPamApproveCommand applies the rule that nothing but a real escalation
-// exits 0.  PAM reads the status as an auth pass, and --help and a usage error
+// exits 0. PAM reads the status as an auth pass, and --help and a usage error
 // both leave cobra with 0, so the status is taken from whether an escalation
 // happened rather than from how the command returned.
 //
@@ -58,7 +58,7 @@ type pamApproveFlags struct {
 }
 
 // newPamApproveCmd decides one sudo, setting granted only on the path an
-// escalation was actually given on.  Run it through runPamApproveCommand, which
+// escalation was actually given on. Run it through runPamApproveCommand, which
 // is what reads that.
 func newPamApproveCmd(granted *bool) *cobra.Command {
 	var f pamApproveFlags
@@ -77,14 +77,14 @@ func newPamApproveCmd(granted *bool) *cobra.Command {
 // pamSocket is the broker this helper asks, and it is the compiled-in path
 // rather than socketDefault(): every other subcommand lets $FARAMIR_SOCKET move
 // it, and this one runs inside the sudo of the account being decided about,
-// whose environment pam_exec hands the module unchanged.  A broker named there
+// whose environment pam_exec hands the module unchanged. A broker named there
 // is a broker that caller could have started, and it would answer "approved" to
-// every question it was asked.  There is no flag either, for the same reason one
+// every question it was asked. There is no flag either, for the same reason one
 // path and one socket is the whole of it.
 func pamSocket() string { return defaultSocket }
 
 func runPamApprove(f pamApproveFlags, granted *bool) int {
-	// PAM_TYPE and PAM_USER come from pam_exec.  Checked, so a service file
+	// PAM_TYPE and PAM_USER come from pam_exec. Checked, so a service file
 	// pointed at another account, or at the account stage rather than auth,
 	// cannot authenticate anything.
 	if kind := os.Getenv("PAM_TYPE"); kind != "auth" {
@@ -120,7 +120,7 @@ func runPamApprove(f pamApproveFlags, granted *bool) int {
 }
 
 // findToken walks up from this process until it meets one holding the token a
-// brokered command carries.  Root reads any /proc/<pid>/environ, which is one
+// brokered command carries. Root reads any /proc/<pid>/environ, which is one
 // of the two reasons the PAM service runs this with seteuid; the other is that
 // the broker answers the escalate op to root alone.
 func findToken() string {
@@ -154,7 +154,7 @@ func tokenOf(pid int) string {
 	return ""
 }
 
-// parentOf reads the ppid out of /proc/<pid>/stat.  The executable name is
+// parentOf reads the ppid out of /proc/<pid>/stat. The executable name is
 // field two, in brackets, and can hold spaces and parentheses, so the scan
 // starts after the last ')'.
 func parentOf(pid int) (int, bool) {
@@ -178,7 +178,7 @@ func parentOf(pid int) (int, bool) {
 	return parent, true
 }
 
-// askBrokerToApprove puts the question and waits for a human's answer.  No
+// askBrokerToApprove puts the question and waits for a human's answer. No
 // deadline of its own: the broker holds the question for [escalation]
 // timeout_sec and refuses it after that.
 func askBrokerToApprove(socketPath, token string) (bool, string, error) {
@@ -206,10 +206,10 @@ func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 // give up, and this only stops a lost connection from holding sudo open for
 // ever.
 //
-// Derived rather than picked.  It must outlast any question the broker will
+// Derived rather than picked. It must outlast any question the broker will
 // hold, or the helper gives up on a question still open and the operator's yes
 // lands on a sudo that has gone; and it must be short, because until it fires
-// sudo is blocked and the host refuses every other brokered command.  So it is
+// sudo is blocked and the host refuses every other brokered command. So it is
 // [escalation] timeout_sec's own ceiling plus a margin for the round trip: the
 // helper cannot read the config, and the broker refuses to load a longer
 // timeout, so the broker always decides first.

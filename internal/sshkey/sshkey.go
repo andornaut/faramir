@@ -1,5 +1,5 @@
 // Package sshkey mints the ed25519 identity the broker lends to brokered
-// commands.  In process rather than through ssh-keygen, so the host needs no
+// commands. In process rather than through ssh-keygen, so the host needs no
 // tooling installed and no key appears on a command line.
 package sshkey
 
@@ -14,7 +14,7 @@ import (
 )
 
 // Generate writes an ed25519 keypair at path and path+".pub", returning the
-// public key in authorized_keys form.  created is false when the private key was
+// public key in authorized_keys form. created is false when the private key was
 // already there and nothing is written: regenerating one would lock the broker
 // out of every host its public half is on, so the file is opened O_EXCL.
 func Generate(path, comment string) (public string, created bool, err error) {

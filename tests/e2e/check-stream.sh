@@ -3,7 +3,7 @@
 # claim for everything the agent runs.
 #
 # The seam this replaced was invisible: exit 0, output byte-identical to input,
-# nothing logged.  So the tests here are mostly about the joins -- every offset
+# nothing logged. So the tests here are mostly about the joins -- every offset
 # around several chunk boundaries, the longest renderings across one, several
 # secrets across different ones -- plus what the connection now has to survive
 # that a one-shot request never did: a producer that goes quiet, a broker that
@@ -40,7 +40,7 @@ sys.stdout.write('.'*$offset + os.environ['SECRET'] + '.'*120 + '\n')" > /tmp/s.
       leaked=$((leaked+1)); [ -z "$first" ] && first=$offset
     fi
     # Absence of the value proves nothing on its own: empty output has none
-    # either.  The token is what says the redactor saw it and replaced it.
+    # either. The token is what says the redactor saw it and replaced it.
     grep -qF "$TOKEN" /tmp/s.out || untokened=$((untokened+1))
   done
   if [ "$leaked" -ne 0 ]; then
@@ -82,7 +82,7 @@ grep -qF "$SECOND" <<<"$out" && bad "the second value leaked" || ok "second reda
 
 head_ "3. the long renderings across a join"
 # The overlap is sized from the LONGEST rendering, not the value: hex is twice
-# the length and base64 is four thirds of it.  Those are what test the margin.
+# the length and base64 is four thirds of it. Those are what test the margin.
 straddle() { # label python-expression-producing-the-rendering
   local label=$1 expr=$2 rendering
   rendering=$(python3 -c "$expr")
@@ -111,7 +111,7 @@ head_ "4. what must survive being carried in pieces"
 head -c 3000000 /dev/urandom > /tmp/bin.in
 redact < /tmp/bin.in > /tmp/bin.out
 # Bigger than it went in: a byte that is not valid UTF-8 becomes U+FFFD, which
-# is three.  That is the redactor's own long-standing behaviour on binary, not
+# is three. That is the redactor's own long-standing behaviour on binary, not
 # something the stream introduced; what matters here is that it terminates and
 # does not truncate.
 [ "$(wc -c < /tmp/bin.out)" -gt 3000000 ] && ok "3MB of binary streams through ($(wc -c < /tmp/bin.out) bytes out, invalid bytes replaced)" \
@@ -167,7 +167,7 @@ grep -qF "$TOKEN" <<<"$out" && ok "  with the value tokenised, so the join was r
 head_ "6. a producer that goes quiet mid-stream"
 # The case the inter-chunk deadline exists for: the connection is already open
 # with a chunk sent, and the command then says nothing for longer than the
-# 30s a peer gets to send its first request.  Takes ~40s.
+# 30s a peer gets to send its first request. Takes ~40s.
 start=$(date +%s)
 out=$(runuser -u op -- /usr/local/bin/faramir redact -- /usr/bin/python3 -u -c "
 import os,sys,time
@@ -203,7 +203,7 @@ runuser -u op -- /usr/local/bin/faramir refs >/dev/null 2>&1 \
   && ok "and the broker is usable again afterwards" || bad "the broker did not come back"
 
 head_ "8. another op arriving in the middle of a stream"
-# A stream holds a redactor with a tail held back.  Whatever a confused client
+# A stream holds a redactor with a tail held back. Whatever a confused client
 # does next, that tail must not be emitted unredacted.
 out=$(runuser -u op -- /usr/bin/python3 -c "
 import socket,json,os

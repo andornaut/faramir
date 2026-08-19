@@ -2,7 +2,7 @@
 # The leak hunt.
 #
 # The guard refuses what someone thought to name; the wrapper is what covers
-# everything else.  So the question that decides whether any of this works is
+# everything else. So the question that decides whether any of this works is
 # narrow: given output that contains a secret, in whatever shape the program
 # that printed it chose, does the value reach the transcript?
 #
@@ -67,13 +67,13 @@ grep -qF "$TOKEN" <<<"$out" && ok "with CRLF line endings" || bad "CRLF leaked: 
 
 head_ "3. where in the stream it sits"
 # The redactor holds back a tail so a value split across two reads is still
-# caught.  These put the value exactly where the seam would be.
+# caught. These put the value exactly where the seam would be.
 #
 # `faramir redact` breaks its input into 32KiB requests, on a newline where it
-# can.  A line longer than that is broken mid-line, and each request is answered
+# can. A line longer than that is broken mid-line, and each request is answered
 # by its own redactor, so the held-back tail does not span the break: a value
 # that straddles it is not redacted, exit status 0, output byte-identical to
-# input.  The offsets below sit on that seam.
+# input. The offsets below sit on that seam.
 for offset in 1 1023 4095 8191 32740 65508; do
   out=$(python3 -c "
 import os,sys
@@ -138,7 +138,7 @@ out=$(head -c 200000 /dev/urandom | redact | wc -c)
 
 head_ "6. the value that is too short to redact"
 # A short value matches inside ordinary words, so redacting it would blank
-# unrelated output.  It is refused at load instead -- which means it is also
+# unrelated output. It is refused at load instead -- which means it is also
 # never injected, and the operator has to be told, or they would assume a ref
 # they can see in the file is covered.
 out=$(printf 'the pin is %s\n' "$PIN" | redact)
@@ -151,7 +151,7 @@ grep -q 'db/password' <<<"$refs" || bad "refs answered nothing, so the check bel
 grep -q 'short/pin' <<<"$refs" && bad "it is offered as an injectable ref" \
   || ok "and it is not offered as a ref that can be injected"
 # The operator has to be told, or a ref they can see in the file reads as
-# covered.  The agent must not be: status is answered to any member of the
+# covered. The agent must not be: status is answered to any member of the
 # client group, so what goes in it lands in a model's context.
 status=$(runuser -u op -- faramir status)
 grep -q 'count' <<<"$status" || bad "status answered nothing, so the check below has no subject"
@@ -184,7 +184,7 @@ grep -qF "$TOKEN" <<<"$out" \
   && bad "HTML entities are now redacted. That is an improvement, not a regression: move this to the covered set and say so in docs/redaction.md" \
   || ok "HTML entity escaping is still out of scope, as documented"
 # A file can contain the token text; the model cannot tell that from a real
-# redaction.  Not a leak, but it is what the transcript looks like.
+# redaction. Not a leak, but it is what the transcript looks like.
 out=$(printf 'note: the password is %s\n' "$TOKEN" | redact)
 grep -qF "$TOKEN" <<<"$out" && ok "a literal token in the input passes through unchanged" \
   || bad "the token itself was rewritten: $out"
@@ -196,7 +196,7 @@ out=$(printf '%s\n' "$SECRET" | redact | redact)
 
 head_ "8. the same value through the other path"
 # `faramir run` injects and redacts on its own PTY; the wrapper redacts a
-# captured file.  A value must not be covered on one path and not the other.
+# captured file. A value must not be covered on one path and not the other.
 out=$(runuser -u op -- faramir run --quiet -t 20 --env PW=faramir://db/password \
         -- /bin/sh -c 'echo $PW; echo $PW | base64; echo $PW | xxd -p' 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "the injected value came back in the clear: $out" \

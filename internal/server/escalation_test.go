@@ -15,7 +15,7 @@ import (
 )
 
 // allowSudo turns on the escalation server the way an install with --allow-sudo
-// does.  Nothing to place: there is no credential in this design.
+// does. Nothing to place: there is no credential in this design.
 func allowSudo(t *testing.T, s *Server) {
 	t.Helper()
 	s.Config.Escalation = config.EscalationConfig{
@@ -29,13 +29,13 @@ func allowSudo(t *testing.T, s *Server) {
 	s.Escalation = New(s.Config).Escalation
 	// Quiescence is a round trip to a running executor, which these tests do not
 	// have: they are about what the broker does with an answer, not about how the
-	// host is measured.  Stubbed quiet, so the check is exercised where it is the
+	// host is measured. Stubbed quiet, so the check is exercised where it is the
 	// subject: TestAnEscalationIsRefusedWhileTheHostIsNotQuiet, below.
 	s.Escalation.Quiescent = func() (bool, string) { return true, "the test says so" }
 	t.Cleanup(s.Escalation.Stop)
 }
 
-// A brokered command is given a token and nothing else.  It names the run so a
+// A brokered command is given a token and nothing else. It names the run so a
 // question can name the command; it authorises nothing, the op that spends it
 // being refused to anything but root.
 func TestExecInjectsTheToken(t *testing.T) {
@@ -48,10 +48,10 @@ func TestExecInjectsTheToken(t *testing.T) {
 	if env[escalation.TokenEnv] == "" {
 		t.Errorf("%s is unset, so a question could name no command", escalation.TokenEnv)
 	}
-	// env and the token, and nothing else at all.  Asserted as a count
+	// env and the token, and nothing else at all. Asserted as a count
 	// rather than against a list of names, so a credential added under a name
 	// nobody thought to look for fails here too: an askpass helper, a socket to
-	// answer on, a password.  A child that finds one of those has something it
+	// answer on, a password. A child that finds one of those has something it
 	// can keep, and this design gives it nothing.
 	if want := len(s.Config.Command.Env) + 1; len(env) != want {
 		t.Errorf("environment = %v, want env plus %s alone", env, escalation.TokenEnv)
@@ -149,7 +149,7 @@ func TestStatusReportsWhetherEscalationIsConfigured(t *testing.T) {
 }
 
 // The one check that stands between the coding agent and its own escalation: the
-// answer has to come from root, and the agent runs as the operator.  Made at
+// answer has to come from root, and the agent runs as the operator. Made at
 // the op rather than by the socket mode, which admits a group by design.
 func TestOnlyRootMayAnswerAnEscalation(t *testing.T) {
 	s, _ := execServer(t)
@@ -209,7 +209,7 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 
 // The executor's answer, not the broker's own map, decides whether a yes takes;
 // why that is the answer that matters is with the mechanism in
-// internal/escalation.  Here it is the wiring: a refused yes reaches root through
+// internal/escalation. Here it is the wiring: a refused yes reaches root through
 // the op with a code of its own, because "your yes was refused" and "that id is
 // not waiting" send an operator to different places.
 func TestAnEscalationIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
@@ -260,9 +260,9 @@ func errorDetail(response protocol.Response) string {
 }
 
 // askInBackground puts the question from a goroutine, Ask being the blocked
-// sudo's call, and returns the channel it answers on.  The test does not end
+// sudo's call, and returns the channel it answers on. The test does not end
 // until Ask has returned, its audit record being written after the answer and a
-// write landing during cleanup failing the test.  The escalation server is
+// write landing during cleanup failing the test. The escalation server is
 // stopped first, so a test that ended without answering does not park the wait
 // forever.
 func askInBackground(t *testing.T, s *Server, token string) <-chan bool {
@@ -328,7 +328,7 @@ func TestTheEscalationsOpReportsHowTheApprovedRunEnded(t *testing.T) {
 		LogID: "log-e", ExitCode: &code, DurationSec: 2.5,
 	})
 
-	// And only to the caller waiting on this run.  The broker holds the last
+	// And only to the caller waiting on this run. The broker holds the last
 	// ending rather than emptying it when it is read, so naming the run is what
 	// keeps a stale one off a terminal that did not approve it.
 	if response := s.Handle(map[string]any{"op": "escalations"}, root); response["finished"] != nil {

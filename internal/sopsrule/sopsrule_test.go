@@ -27,7 +27,7 @@ func load(t *testing.T, body string) []Rule {
 }
 
 // sops reads the `age` shorthand only where a rule has no key groups, so a rule
-// carrying both seals to its groups and to nobody else.  Reading both names a
+// carrying both seals to its groups and to nobody else. Reading both names a
 // reader the rule does not grant: it would re-encrypt a store to a key never
 // listed, and would report a keeper still covered by a rule whose groups leave
 // it out.
@@ -43,7 +43,7 @@ func TestKeyGroupsWinOverTheShorthand(t *testing.T) {
 	}
 }
 
-// However the shorthand is written.  A hand-edited file carries whichever of
+// However the shorthand is written. A hand-edited file carries whichever of
 // these somebody typed, and a reader that takes only one of them reports a
 // present key as absent, or refuses a file sops reads.
 func TestTheShorthandIsReadInEveryShape(t *testing.T) {
@@ -70,7 +70,7 @@ func TestTheShorthandIsReadInEveryShape(t *testing.T) {
 
 // Counted however the rules are written: a rule is a list entry whose keys are
 // in whatever order somebody typed them, so a reader anchored on path_regex
-// reads most of these as one rule.  What a caller does with the count is its
+// reads most of these as one rule. What a caller does with the count is its
 // own, but it has to be the real one.
 func TestEveryRuleIsCounted(t *testing.T) {
 	for _, tc := range []struct{ name, body string }{
@@ -119,7 +119,7 @@ func TestRecipientsAcrossEveryRule(t *testing.T) {
 }
 
 // A key group may pull in others through `merge:`, and the keys they name seal
-// the file exactly like the ones written inline.  Stopping at the top level
+// the file exactly like the ones written inline. Stopping at the top level
 // reports a rule as sealing to fewer recipients than it does, and a caller
 // re-encrypting from that answer drops every reader named only under a merge:
 // silently, and not undone by running it again.
@@ -138,7 +138,7 @@ func TestMergedKeyGroupsAreRecipientsToo(t *testing.T) {
 }
 
 // sops takes a comma-separated string only in a rule's own `age`; a key group's
-// is a list.  Reading commas there would report recipients from a file sops
+// is a list. Reading commas there would report recipients from a file sops
 // refuses to load, which is this package claiming to know better than the thing
 // it exists to agree with.
 func TestAKeyGroupTakesNoCommaSeparatedString(t *testing.T) {

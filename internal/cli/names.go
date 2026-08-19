@@ -1,11 +1,11 @@
 // Package cli names the subcommands once, for the dispatcher in cmd/faramir and
-// the guard's sanction rule.  Internal subcommands are the roles systemd and
+// the guard's sanction rule. Internal subcommands are the roles systemd and
 // the agent run, and are denied like any other privileged command.
 package cli
 
 import "slices"
 
-// Operator is every subcommand a person runs.  One missing from both lists has
+// Operator is every subcommand a person runs. One missing from both lists has
 // its arguments scanned, which is a false denial rather than a hole.
 // `escalations`, `approve` and `deny` are denied to the agent's shell: the
 // account it runs as must not read or answer the question it raised.
@@ -62,7 +62,7 @@ var Agent = []string{
 }
 
 // OperatorOnly is Operator without Agent, in Operator's order: the subcommands
-// the deny rules refuse to the agent.  Derived rather than written twice, so a
+// the deny rules refuse to the agent. Derived rather than written twice, so a
 // command added to Operator is refused until somebody decides otherwise.
 func OperatorOnly() []string {
 	out := make([]string, 0, len(Operator))

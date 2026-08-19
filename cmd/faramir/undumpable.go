@@ -10,12 +10,12 @@ package main
 // --allow-sudo the executor unit carries no seccomp filter either, a filter
 // forcing NoNewPrivileges= on and making sudo inert.
 //
-// The broker holds every decrypted value and the SSH agent.  Nothing runs as
+// The broker holds every decrypted value and the SSH agent. Nothing runs as
 // its uid but itself, so this is defence in depth there.
 //
 // Dumpable=0 refuses same-uid ptrace whatever ptrace_scope says, and reparents
 // /proc/self to root:root so the same uid cannot read the process's environ or
-// memory.  The cost is core dumps from either daemon, which handle plaintext.
+// memory. The cost is core dumps from either daemon, which handle plaintext.
 // Not a substitute for `faramir doctor` failing a host with ptrace_scope=0:
 // that setting is about every other process.
 

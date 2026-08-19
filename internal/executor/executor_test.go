@@ -12,7 +12,7 @@ import (
 )
 
 // The PTY, the streaming redaction and the truncation need a real child, since
-// bytes arrive in whatever chunks the kernel hands over.  They need no broker,
+// bytes arrive in whatever chunks the kernel hands over. They need no broker,
 // keeper, sops or agent-reachable socket.
 
 const secret = "hunter2-correct-horse-battery"
@@ -44,7 +44,7 @@ func newHarness(t *testing.T, maxOutputBytes int) *harness {
 	}
 	e := execserver.New(cfg)
 	// Every brokered command is confined to its own cgroup, so an executor without
-	// a delegated one refuses all of them and there is no output to assert on.  CI
+	// a delegated one refuses all of them and there is no output to assert on. CI
 	// delegates a cgroup to the runner and exercises the real path; run under
 	// `systemd-run --user --scope go test ./...` to do the same locally.
 	if !e.CanConfine() {
@@ -144,7 +144,7 @@ func TestOutputIsTruncatedButTheChildStillFinishes(t *testing.T) {
 	}
 }
 
-// What the overlap buffer is for.  Written a byte at a time so the split
+// What the overlap buffer is for. Written a byte at a time so the split
 // happens in the kernel rather than in a fixture.
 func TestAValueSplitAcrossReadsIsStillCaught(t *testing.T) {
 	h := newHarness(t, 1<<20)
@@ -171,7 +171,7 @@ func TestExitStatusIsReported(t *testing.T) {
 
 // EIO on the master says the slave was closed, not that the child is gone, and
 // closing the master before the status is collected would turn every such exit
-// into 129.  Closing the descriptors explicitly widens that window to the whole
+// into 129. Closing the descriptors explicitly widens that window to the whole
 // run.
 func TestAChildThatClosesTheTerminalKeepsItsExitCode(t *testing.T) {
 	h := newHarness(t, 1<<20)

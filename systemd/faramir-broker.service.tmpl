@@ -4,13 +4,13 @@ Documentation=file://{{.DocDir}}/README.md
 Requires=faramir-broker.socket faramir-keeper.socket faramir-exec.socket
 After=faramir-broker.socket faramir-keeper.socket faramir-exec.socket network.target
 # {{.RunDir}} comes from /etc/tmpfiles.d/faramir.conf and must exist, owned by
-# this unit's User=, before ReadWritePaths= builds the mount namespace.  Without
+# this unit's User=, before ReadWritePaths= builds the mount namespace. Without
 # Wants=, a manual start gets it auto-created root:root.
 Wants=systemd-tmpfiles-setup.service
 After=systemd-tmpfiles-setup.service
 # Socket activated and restarted by an install, so repeated starts are ordinary.
 # The default limit reads that as a crash loop and latches this unit into
-# failed.  The socket unit carries the same directive, for the same reason.
+# failed. The socket unit carries the same directive, for the same reason.
 StartLimitIntervalSec=0
 
 [Service]
@@ -19,9 +19,9 @@ NotifyAccess=main
 User={{.BrokerUser}}
 Group={{.BrokerGroup}}
 # The exec account's own group and nothing else, to chown the ssh-agent socket
-# to the uid that uses it.  Its group rather than its name: an adopted account's
+# to the uid that uses it. Its group rather than its name: an adopted account's
 # primary group need not be called what the account is, and a directive naming
-# the wrong one joins some other group or none.  {{.SecretsGroup}} is absent:
+# the wrong one joins some other group or none. {{.SecretsGroup}} is absent:
 # this process holds every decrypted value already, so read on the ciphertext
 # would only add files it never decrypts.
 SupplementaryGroups={{.ExecGroup}}
@@ -33,17 +33,17 @@ Environment=FARAMIR_CONFIG={{.ConfigFile}}
 Restart=on-failure
 RestartSec=2
 # What a stop spends its time on is a brokered command still running: the broker
-# waits for the result, and nothing hurries that along.  Connections merely
+# waits for the result, and nothing hurries that along. Connections merely
 # waiting on a peer are released the moment the listener closes, so this is the
-# command and only the command.  Named rather than inherited: the default is 90s,
+# command and only the command. Named rather than inherited: the default is 90s,
 # which is long enough that an operator reads a restart as hung, and the kill at
-# the end of it is the same kill either way.  30s finishes anything short and
+# the end of it is the same kill either way. 30s finishes anything short and
 # stops waiting on anything that is not.
 TimeoutStopSec=30
 
 # No LoadCredential= here: a credential is readable by the unit's uid, and this
 # is the process that composes each brokered command's environment, so a broker
-# holding the age key could put it there.  faramir-keeper.service holds it.
+# holding the age key could put it there. faramir-keeper.service holds it.
 
 # Without this the agent uid can read /proc/<pid>/environ of the broker and of
 # every command it runs.
@@ -56,9 +56,9 @@ AmbientCapabilities=
 ProtectSystem=strict
 # No ProtectHome=, unlike the keeper: the broker stats a request's cwd, which is
 # usually inside a home, and hiding /home would make every such request "cwd
-# does not exist".  What bounds this uid is file modes.
+# does not exist". What bounds this uid is file modes.
 PrivateTmp=true
-# PrivateDevices would hide /dev/ptmx, and every child runs on a PTY.  The
+# PrivateDevices would hide /dev/ptmx, and every child runs on a PTY. The
 # device ACL is narrowed instead.
 PrivateDevices=false
 DevicePolicy=closed
@@ -68,7 +68,7 @@ ReadWritePaths={{.LogDir}}
 # {{.RunDir}} is created by /etc/tmpfiles.d/faramir.conf, not by
 # RuntimeDirectory= here: systemd chowns a RuntimeDirectory recursively, which
 # would rewrite the three activation sockets' SocketUser=/SocketGroup= on every
-# start.  Writable because the broker creates ssh-agent.sock in it.
+# start. Writable because the broker creates ssh-agent.sock in it.
 #
 # Leading "-": an absent {{.RunDir}} would otherwise fail the unit with a
 # mount-namespace error rather than the broker reporting what is wrong.
@@ -79,7 +79,7 @@ ReadWritePaths=-{{.RunDir}}
 StateDirectory={{.BrokerUser}}
 LogsDirectory=faramir
 # 0750, not systemd's default 0755: a world-traversable directory hands every
-# account the log's size and mtime.  systemd reapplies this on every start, so
+# account the log's size and mtime. systemd reapplies this on every start, so
 # it is the only place the mode holds.
 LogsDirectoryMode=0750
 # Two descriptors per relayed ssh-agent connection, and a playbook authenticates
@@ -102,13 +102,13 @@ ProtectKernelLogs=true
 ProtectKernelModules=true
 ProtectKernelTunables=true
 RemoveIPC=true
-# 0077: this process creates nothing anything else has to read.  The audit log
+# 0077: this process creates nothing anything else has to read. The audit log
 # sets an explicit 0600 in internal/audit.
 UMask=0077
 
 # systemd-analyze security faramir-broker.service -> 1.7 OK (systemd 255)
 #
-# Every remaining exposure item, and why it is accepted.  Anything flagged that
+# Every remaining exposure item, and why it is accepted. Anything flagged that
 # is NOT on this list is a regression.
 #
 #   PrivateNetwork=, IPAddressDeny=, RestrictAddressFamilies=~AF_(INET|INET6|NETLINK)
@@ -118,7 +118,7 @@ UMask=0077
 #   RestrictAddressFamilies=~AF_UNIX
 #       The broker's own listening socket.
 #   SupplementaryGroups=
-#       {{.ExecGroup}}, to chown the ssh-agent socket.  Not {{.SecretsGroup}}.
+#       {{.ExecGroup}}, to chown the ssh-agent socket. Not {{.SecretsGroup}}.
 #   ProtectHome=
 #       See above: file modes already bound this uid.
 #   SystemCallFilter=~@privileged, ~@resources

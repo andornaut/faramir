@@ -3,7 +3,7 @@ package guard
 import "testing"
 
 // The corpus: every command the shipped deny list has an opinion about, and
-// what that opinion has to be.  Most refusals have a similar-looking allowed
+// what that opinion has to be. Most refusals have a similar-looking allowed
 // row beside them, which is what keeps a rule from widening until it refuses
 // ordinary work.
 type denyCase struct {

@@ -29,7 +29,7 @@ log_path = "` + filepath.Join(dir, "audit.log") + `"
 }
 
 // The daemon starts on a store it cannot load and refuses the two ops that
-// would be unsafe, which is tested at the server.  What has to hold here is
+// would be unsafe, which is tested at the server. What has to hold here is
 // that --check still fails on it: init and doctor read that exit code, and an
 // operator asking is asking to be told.
 func TestCheckFailsWhenTheStoreWillNotLoad(t *testing.T) {

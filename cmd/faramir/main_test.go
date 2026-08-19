@@ -55,7 +55,7 @@ vault_router_password=faramir://vault_router_password
 const pasted = "hunter2-correct-horse-battery"
 
 // Every line readEnvFile refuses, and the part of the message that makes it
-// actionable.  Parsing here rather than at the broker provides exactly one thing: a
+// actionable. Parsing here rather than at the broker provides exactly one thing: a
 // message naming the file and the line.
 func TestRefusedEnvFileLines(t *testing.T) {
 	for _, tc := range []struct {
@@ -162,7 +162,7 @@ func TestAnEmptySocketEnvVarFallsBackToTheDefault(t *testing.T) {
 	}
 }
 
-// The account that works in the tree, in resolution order.  The flag is the
+// The account that works in the tree, in resolution order. The flag is the
 // only way to name one where SUDO_USER is unset.
 func TestOperatorNameResolution(t *testing.T) {
 	// The last candidate, and so the answer when nothing else names one.
@@ -217,7 +217,7 @@ func TestEverySubcommandIsNamedForTheGuard(t *testing.T) {
 	}
 }
 
-// dispatcherNames returns every subcommand the root carries.  Taken from the
+// dispatcherNames returns every subcommand the root carries. Taken from the
 // assembled command tree rather than from the source, so a command registered
 // anywhere is seen.
 func dispatcherNames(t *testing.T) []string {
@@ -233,7 +233,7 @@ func dispatcherNames(t *testing.T) []string {
 
 	// A command that groups others contributes its children rather than itself,
 	// spelled the way cli.Operator spells them: the guard matches what a person
-	// types, and nobody types a bare `faramir vault`.  To the leaf, however deep,
+	// types, and nobody types a bare `faramir vault`. To the leaf, however deep,
 	// a walk that stopped short leaving those children out of the list the
 	// sanction is built from.
 	var names []string
@@ -265,7 +265,7 @@ func dispatcherNames(t *testing.T) []string {
 }
 
 // Deny by default, at the last place a human's answer is read: only an explicit
-// yes approves, so a typo, a stray word or a punctuation mark refuses.  "y" is
+// yes approves, so a typo, a stray word or a punctuation mark refuses. "y" is
 // among the refusals: the watcher asks for `yes`, and the keystroke this is
 // guarded against is one the operator did not make.
 func TestOnlyYesApproves(t *testing.T) {
@@ -296,7 +296,7 @@ func TestAnInteriorUnprintableIsNotEditedIntoAYes(t *testing.T) {
 
 // What holds nothing printable is not an answer and must not be counted as a
 // no: an unanswered question is left to expire rather than being spent by a
-// stray newline.  A punctuation mark is an answer, and so a refusal: an
+// stray newline. A punctuation mark is an answer, and so a refusal: an
 // operator who types "?" is owed the question closing.
 func TestABlankLineIsNotAnAnswer(t *testing.T) {
 	for _, line := range []string{"", "\n", "   \n", "\t\r\n", "\x1b\n"} {
@@ -339,7 +339,7 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 
 // The socket is systemd's and listens whether or not the daemon behind it
 // started, so a broker that never becomes ready accepts the connection and
-// answers nothing.  Without a bound the caller waits for ever, which for the
+// answers nothing. Without a bound the caller waits for ever, which for the
 // coding agent is a tool call that never returns.
 func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 	for _, tc := range []struct {
@@ -369,9 +369,9 @@ func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 	}
 }
 
-// `deny` needs no id: only one question is ever outstanding.  The asymmetry
+// `deny` needs no id: only one question is ever outstanding. The asymmetry
 // with approving is deliberate -- refusing something unseen is safe, and an
-// escalation that names no command is one nobody judged.  Each stops at the
+// escalation that names no command is one nobody judged. Each stops at the
 // root check rather than dialling a socket, which is enough to tell a usage
 // error from an argument that was accepted.
 func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
@@ -393,11 +393,11 @@ func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
 	}
 }
 
-// A command that ran and failed says nothing of its own.  exitCodeError carries
+// A command that ran and failed says nothing of its own. exitCodeError carries
 // a status the command has already explained on its own stderr, so a second line
 // naming it is faramir talking over the output the caller came for: a brokered
 // command that exited 3 would otherwise have "Error: exit status 3" appended to
-// what it printed.  The status still reaches the caller as the exit code.
+// what it printed. The status still reaches the caller as the exit code.
 func TestAFailedCommandPrintsNoErrorOfItsOwn(t *testing.T) {
 	var out bytes.Buffer
 	root := newRootCmd()
@@ -420,7 +420,7 @@ func TestAFailedCommandPrintsNoErrorOfItsOwn(t *testing.T) {
 }
 
 // A parse error names a flag the way the reader has to type it: two dashes for
-// a long name, one for a single-letter shorthand.  Checked through the root,
+// a long name, one for a single-letter shorthand. Checked through the root,
 // because what matters is the spelling that reaches the operator's stderr, and
 // an operator told about "-env-file" would try one faramir does not accept.
 func TestAParseErrorSpellsAFlagTheWayItIsTyped(t *testing.T) {
@@ -431,7 +431,7 @@ func TestAParseErrorSpellsAFlagTheWayItIsTyped(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			// One buffer, and it cannot be two: cobra writes usage to OutOrStderr(),
 			// which is stderr only while SetOut is unset, so a test that captures
-			// stdout by setting it pulls the usage block into its own capture.  That
+			// stdout by setting it pulls the usage block into its own capture. That
 			// stdout stays clean is asserted in check-disclose.sh, against the real
 			// binary and real file descriptors.
 			var out bytes.Buffer
@@ -449,7 +449,7 @@ func TestAParseErrorSpellsAFlagTheWayItIsTyped(t *testing.T) {
 	}
 }
 
-// The line is returned as it was read, so a refusal can quote it.  An answer
+// The line is returned as it was read, so a refusal can quote it. An answer
 // nobody typed refuses a question exactly as one they did, and a refusal that
 // does not say what it read cannot be told from the operator's own no.
 func TestReadAnswerReturnsWhatItRead(t *testing.T) {
@@ -469,7 +469,7 @@ func TestReadAnswerReturnsWhatItRead(t *testing.T) {
 }
 
 // A re-ask does not throw away what was typed against the prompt it is
-// re-asking.  The flush is for input that predates the question; after the first
+// re-asking. The flush is for input that predates the question; after the first
 // prompt there is none, and flushing again eats the answer to a blank line typed
 // ahead of it.
 func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {

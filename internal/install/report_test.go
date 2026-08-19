@@ -81,7 +81,7 @@ func TestAStepMarksTheReportChanged(t *testing.T) {
 }
 
 // Every step a run reports has a name, and no two share one: a report reads as
-// a list of blanks otherwise, and an error naming a step is ambiguous.  Per
+// a list of blanks otherwise, and an error naming a step is ambiguous. Per
 // command, the two being free to use the same name for the same work.
 func TestEveryStepIsNamedAndRunsSomething(t *testing.T) {
 	for _, tc := range []struct {

@@ -11,7 +11,7 @@ import (
 
 // A drop-in setting Environment=FARAMIR_CONFIG is what the daemons load, and
 // uninstall removes <unit>.d directories, so they are a state this install
-// expects.  Reading the main unit alone sees no move where there is one, and
+// expects. Reading the main unit alone sees no move where there is one, and
 // lets init re-provision a directory nothing loads.
 func TestUnitConfigDirReadsDropIns(t *testing.T) {
 	dir := t.TempDir()
@@ -77,7 +77,7 @@ func TestADryRunPreviewsAConfigMoveInsteadOfRefusingIt(t *testing.T) {
 }
 
 // stepSudoGrant needs both /etc/sudoers.d and /etc/pam.d, and skips with a
-// warning when either is missing.  The precondition has to gate on the same
+// warning when either is missing. The precondition has to gate on the same
 // pair, or a visudo rejection fails the whole install over a grant that would
 // never have been written.
 func TestTheSudoersPreconditionGatesOnWhatTheStepNeeds(t *testing.T) {
@@ -119,7 +119,7 @@ func TestTheSudoersPreconditionGatesOnWhatTheStepNeeds(t *testing.T) {
 }
 
 // The executor unit cannot set RestrictNamespaces=: it denies clone3(), which is
-// how every run is spawned into its cgroup.  That leaves a brokered command able
+// how every run is spawned into its cgroup. That leaves a brokered command able
 // to unshare a user namespace and hold capabilities in it, and nothing applies
 // the kernel switch that closes it, so doctor reports it, and only where the
 // grant makes it worth acting on.

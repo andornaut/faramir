@@ -8,7 +8,7 @@ import (
 )
 
 // installedConfig writes what `init` would have written into a directory an
-// enrolment can be pointed at, and answers with that directory.  Rendered from
+// enrolment can be pointed at, and answers with that directory. Rendered from
 // the shipped template rather than hand-written, so what is read here is what a
 // host actually carries.
 func installedConfig(t *testing.T, layout Layout) string {
@@ -62,7 +62,7 @@ func TestTheGroupAndTheGrantAreReadFromTheInstalledConfig(t *testing.T) {
 // A config that is present and will not load is an error rather than something
 // to enrol around: this runs as root against a 0644 file, so the ways it fails
 // are that faramir is not installed here, that the config is elsewhere, or that
-// the path is wrong.  The error names all three.
+// the path is wrong. The error names all three.
 func TestAMissingConfigStopsTheEnrolment(t *testing.T) {
 	_, err := resolved(t, t.TempDir(), "")
 	if err == nil {

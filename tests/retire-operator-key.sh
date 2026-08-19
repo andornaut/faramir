@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Retire the operator's own age identity, once the keeper is the only thing that
-# needs to open the store.  That key decrypts every managed file and is readable
+# needs to open the store. That key decrypts every managed file and is readable
 # by the account a coding agent runs as, so removing it is what makes the group
 # and ownership work load-bearing.
 #
-# Run as the operator, not under sudo.  It sudos where it needs to.
+# Run as the operator, not under sudo. It sudos where it needs to.
 #
 #   tests/retire-operator-key.sh [--config-dir DIR] [--host HOST]... [--shred]
 #
@@ -52,11 +52,11 @@ restore() {
 die() { no "$1"; restore; exit 1; }
 
 # doctor is the gate: it exits non-zero on a finding that failed, and only warns
-# for a check it could not put.  Run under sudo, or every boundary check it makes
+# for a check it could not put. Run under sudo, or every boundary check it makes
 # reports as unasked and the pass means nothing.
 verify() {
   local out=/tmp/faramir-verify.$$
-  # SC2024: the redirect is the operator's on purpose.  Only doctor needs root;
+  # SC2024: the redirect is the operator's on purpose. Only doctor needs root;
   # the transcript is theirs to read, and root-owning it in /tmp would be worse.
   # shellcheck disable=SC2024
   if sudo faramir doctor --config-dir "$CONFIG_DIR" >"$out" 2>&1; then

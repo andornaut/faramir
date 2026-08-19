@@ -1,17 +1,17 @@
-// Package keeper holds the age key.  It decrypts on request and never hands the
+// Package keeper holds the age key. It decrypts on request and never hands the
 // key out, so no process that executes a command can reach it; see
 // docs/design.md.
 //
-// It runs as its own uid and execs nothing but sops.  Executed rather than
+// It runs as its own uid and execs nothing but sops. Executed rather than
 // linked, which would pull every key source sops supports into the address
-// space holding the master key.  The key reaches sops as a path
+// space holding the master key. The key reaches sops as a path
 // (SOPS_AGE_KEY_FILE), never as a value, so it is absent from
 // /proc/<pid>/environ on both sides.
 //
 // Fingerprinting lives here because the secrets are group-readable by this uid
 // alone; the broker asks what changed rather than looking.
 //
-// Two ops, get_values and get_state, specified in docs/protocol.md.  get_values
+// Two ops, get_values and get_state, specified in docs/protocol.md. get_values
 // returns every managed value, never a subset, and carries the file state with
 // it so a reload is one round trip.
 package keeper
@@ -41,12 +41,12 @@ const (
 	maxRequestBytes = 65536
 	decryptTimeout  = 60 * time.Second
 	// decryptBudget bounds one get_values across every managed file, so a reply
-	// arrives within a time the caller can bound too.  keeperclient's own
+	// arrives within a time the caller can bound too. keeperclient's own
 	// callTimeout is set above this; the two are separate constants because that
 	// package shares no code with the one holding the key.
 	decryptBudget = 5 * time.Minute
 	// How long one peer may take to send its request, and to read the reply once
-	// it is ready.  Not the time to serve it: decryptTimeout bounds that, per
+	// it is ready. Not the time to serve it: decryptTimeout bounds that, per
 	// file.
 	requestTimeout = 30 * time.Second
 )
@@ -142,7 +142,7 @@ func (k *KeyHolder) Path() string {
 }
 
 // Scrub removes key material from text, an error string being the one thing
-// that crosses from this process to the broker.  Matching the age identity
+// that crosses from this process to the broker. Matching the age identity
 // format rather than a copy of the key is what lets it scrub without holding
 // the material.
 func (k *KeyHolder) Scrub(text string) string {
@@ -150,7 +150,7 @@ func (k *KeyHolder) Scrub(text string) string {
 }
 
 // FileState is one managed file's identity on disk: enough to notice an edit,
-// nothing about its contents.  Nanoseconds, a serialisation that rounds turning
+// nothing about its contents. Nanoseconds, a serialisation that rounds turning
 // an edit made within the same second into no change.
 type FileState struct {
 	Path  string `json:"path"`
@@ -158,17 +158,17 @@ type FileState struct {
 	Size  int64  `json:"size"`
 }
 
-// Resolve expands each managed store entry against the filesystem.  Every entry
+// Resolve expands each managed store entry against the filesystem. Every entry
 // is a glob, a literal path being one with no metacharacters, and matches are
 // deduplicated.
 //
 // Per request rather than at config load, so a file added beside the others is
-// picked up on the next refresh.  It is also the only place that can resolve:
+// picked up on the next refresh. It is also the only place that can resolve:
 // the secrets directory is group-readable by this uid alone.
 //
 // The two kinds of not-there are returned separately: an entry that named
 // nothing is a secrets directory not written yet, and a file that is there and
-// will not open is a value the redactor is missing without knowing it.  Only
+// will not open is a value the redactor is missing without knowing it. Only
 // the second is an error.
 func Resolve(files []string) (paths, errors, unresolved []string) {
 	paths = []string{}
@@ -195,7 +195,7 @@ func Resolve(files []string) (paths, errors, unresolved []string) {
 		}
 	}
 	// The entries are alternatives rather than an inventory, so "did anything
-	// match" belongs to the set.  It is asked at all because a store that matched
+	// match" belongs to the set. It is asked at all because a store that matched
 	// nothing is a broker redacting nothing, which has to be told apart from one
 	// whose files have not been written yet.
 	if len(paths) > 0 {
@@ -204,7 +204,7 @@ func Resolve(files []string) (paths, errors, unresolved []string) {
 	return paths, errors, unresolved
 }
 
-// unresolvedReason says why an entry named nothing.  A literal path gets its
+// unresolvedReason says why an entry named nothing. A literal path gets its
 // stat error, which separates "not written yet" from "the directory above is
 // unreadable".
 func unresolvedReason(entry string) string {
@@ -218,12 +218,12 @@ func unresolvedReason(entry string) string {
 	return "no such file"
 }
 
-// isPattern reports whether an entry has glob metacharacters.  The set filepath
+// isPattern reports whether an entry has glob metacharacters. The set filepath
 // treats as meta on this platform; a backslash escapes on Unix, so it counts.
 func isPattern(entry string) bool { return strings.ContainsAny(entry, `*?[\`) }
 
 // StatAll fingerprints every managed file: no key, no sops, no contents, the
-// broker calling this on every poll.  A file that cannot be stat-ed is an error
+// broker calling this on every poll. A file that cannot be stat-ed is an error
 // rather than a missing entry.
 func StatAll(secrets config.SecretConfig) ([]FileState, []string, []string) {
 	state := []FileState{}
@@ -240,7 +240,7 @@ func StatAll(secrets config.SecretConfig) ([]FileState, []string, []string) {
 	return state, errors, unresolved
 }
 
-// DecryptAll decrypts every managed file.  Per-file failures are returned as
+// DecryptAll decrypts every managed file. Per-file failures are returned as
 // errors rather than aborting, so one broken file does not blank the value
 // set.
 func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string, []string) {
@@ -261,7 +261,7 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 	// One budget across the whole set as well as one per file: otherwise the reply
 	// is bounded only by len(paths) * decryptTimeout, which no caller knows in
 	// advance, and a large enough store would time out on the broker's side while
-	// this was still working.  Files past the budget report as failures.
+	// this was still working. Files past the budget report as failures.
 	overall, cancelAll := context.WithTimeout(context.Background(), decryptBudget)
 	defer cancelAll()
 
@@ -346,7 +346,7 @@ func (k *Keeper) Listen() (net.Listener, error) {
 	return ln, nil
 }
 
-// Serve handles connections until the listener is closed.  Serial: the broker
+// Serve handles connections until the listener is closed. Serial: the broker
 // is the only client and holds a single-flight latch across a refresh, which is
 // what keeps a poll from queueing behind a long get_values.
 func (k *Keeper) Serve() error {
@@ -370,7 +370,7 @@ func (k *Keeper) Close() error {
 func (k *Keeper) serveConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 	// Serve handles one connection at a time, so a peer that connects and then
-	// neither sends nor reads would stall every later request.  Both directions,
+	// neither sends nor reads would stall every later request. Both directions,
 	// which covers the refusals below as well as the read.
 	_ = conn.SetDeadline(time.Now().Add(requestTimeout))
 	peer, err := sockutil.PeerCred(conn)
@@ -413,7 +413,7 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 		return map[string]any{"state": state, "errors": errs, "unresolved_patterns": unresolved}
 	case "get_values":
 		// Stat first, so an edit during the decrypt leaves the fingerprint older
-		// than the values and reloads once too often.  The other order would never
+		// than the values and reloads once too often. The other order would never
 		// pick the edit up.
 		state, errs, unresolved := StatAll(k.config.Secret)
 		values, decryptErrs := DecryptAll(k.config.Secret, k.Keys)

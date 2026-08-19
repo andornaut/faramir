@@ -13,12 +13,12 @@ func bashInput() *payload { return &payload{ToolName: "Bash"} }
 // which the agent reads as success.
 
 // A backgrounded job outlives the brace group, so the wrapper reads and deletes
-// the file before it writes.  Go's $ is end of text, so a trailing newline
+// the file before it writes. Go's $ is end of text, so a trailing newline
 // counts as trailing space.
 func TestABackgroundedCommandIsWrappedToStreamHoweverItEnds(t *testing.T) {
 	// A backgrounded command's output is redacted as it arrives rather than
 	// captured, and the "&" moves outside the wrapper so the whole pipeline is
-	// what backgrounds.  Capturing it would buffer a command that never exits.
+	// what backgrounds. Capturing it would buffer a command that never exits.
 	for _, command := range []string{
 		"npm run dev &",
 		"npm run dev &\n",
@@ -50,7 +50,7 @@ func TestABackgroundedCommandIsWrappedToStreamHoweverItEnds(t *testing.T) {
 }
 
 // Sourced twice in one shell, the inner copy clears the outer's state and the
-// agent gets nothing.  The emitted form names the wrap script, never the
+// agent gets nothing. The emitted form names the wrap script, never the
 // redactor, so matching only "faramir redact" misses it.
 func TestARewrittenCommandIsNotRewrittenAgain(t *testing.T) {
 	once, rewritten := wrap(hosts["claude"], "echo hello", bashInput())

@@ -85,7 +85,7 @@ func (f managedFixture) edit(t *testing.T, to string) ([]byte, error) {
 
 // sops resolves .sops.yaml by walking up from the process's working directory,
 // and for these commands that is wherever the operator was standing: very often
-// an enrolled working tree, which the coding agent writes.  A rule found there
+// an enrolled working tree, which the coding agent writes. A rule found there
 // must not decide how the managed file is written, or an 'unencrypted_regex' in
 // it puts the values it names into that file in cleartext.
 func TestACreationRuleInTheWorkingDirectoryIsNotRead(t *testing.T) {
@@ -111,7 +111,7 @@ func TestACreationRuleInTheWorkingDirectoryIsNotRead(t *testing.T) {
 }
 
 // sops matches path_regex against the file's path relative to the rule file, so
-// on an install the rule is judged against "secrets/store.sops.yml".  The
+// on an install the rule is judged against "secrets/store.sops.yml". The
 // plaintext is encrypted from a copy in a tmpfs, which is nowhere near the rule
 // file, so without --filename-override the rule is matched against the tmpfs
 // path instead and one naming where the secrets live matches nothing: every
@@ -134,7 +134,7 @@ func TestARulePinnedToTheSecretsDirectoryStillEncrypts(t *testing.T) {
 }
 
 // sops refuses a file no creation rule covers, and it refuses it at the
-// encrypt, which is after the editor has run.  So the question is put first: an
+// encrypt, which is after the editor has run. So the question is put first: an
 // edit that cannot be written back has to be refused while there is nothing to
 // lose, not after the operator has typed.
 func TestAnEditNoRuleCoversIsRefusedBeforeTheEditor(t *testing.T) {
@@ -155,7 +155,7 @@ func TestAnEditNoRuleCoversIsRefusedBeforeTheEditor(t *testing.T) {
 	}
 }
 
-// The refusal reseal already makes.  sops takes a shamir rule with one key group
+// The refusal reseal already makes. sops takes a shamir rule with one key group
 // without complaint and writes the threshold beside it, so the file still opens
 // afterwards, with any single one of the keys the split existed to keep apart.
 func TestAnEditUnderASplitKeyIsRefused(t *testing.T) {

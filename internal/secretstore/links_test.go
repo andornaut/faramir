@@ -36,7 +36,7 @@ func writeLinked(t *testing.T, name, body string) string {
 }
 
 // managedFile is a sops file that exists, for the tests that need the managed
-// half of the store to be serving.  The stand-in keeper stats what it is given,
+// half of the store to be serving. The stand-in keeper stats what it is given,
 // so a name alone would report as an entry that matched nothing.
 func managedFile(t *testing.T) string {
 	t.Helper()
@@ -101,7 +101,7 @@ func TestAnUnreadableLinkRefusesTheStore(t *testing.T) {
 }
 
 // A link whose file has gone is the other meaning: the credential is off the
-// machine, so there is nothing left to redact.  Reported, not fatal.
+// machine, so there is nothing left to redact. Reported, not fatal.
 func TestALinkNamingNothingIsReportedAndNotFatal(t *testing.T) {
 	managed := managedFile(t)
 	k := keepertest.New(t, map[string]string{"a/b": "hunter2-correct-horse"}, managed)
@@ -120,7 +120,7 @@ func TestALinkNamingNothingIsReportedAndNotFatal(t *testing.T) {
 	}
 }
 
-// A store whose only secrets are linked serves.  Without this an install that
+// A store whose only secrets are linked serves. Without this an install that
 // has written no sops file yet but does link one credential would refuse every
 // command.
 func TestLinksAloneAreEnoughToServe(t *testing.T) {
@@ -253,7 +253,7 @@ func TestDescribeCountsLinksAndNamesThemOnlyToTheOperator(t *testing.T) {
 	}
 }
 
-// A link that stats and will not read still has to be fingerprinted.  The poll
+// A link that stats and will not read still has to be fingerprinted. The poll
 // records every file that is there, so one left out of the loaded state differs
 // from the poll's view on every request: a full reload, and a log line naming a
 // change that never happened, forever.
@@ -306,9 +306,9 @@ func TestALinksOnlyStoreServesWhenTheKeeperGoesAway(t *testing.T) {
 	}
 }
 
-// The whole point of separating the two clocks.  min_refresh_sec bounds the keeper
+// The whole point of separating the two clocks. min_refresh_sec bounds the keeper
 // round trip; a linked file is the operator's own and this uid can stat it, so
-// it is checked every request.  With them on one clock, a token another tool
+// it is checked every request. With them on one clock, a token another tool
 // had just rotated would be missing from the redactor for up to a minute, and a
 // rotation is not something the operator schedules.
 func TestALinkIsPickedUpInsideTheKeeperInterval(t *testing.T) {
@@ -340,9 +340,9 @@ func TestALinkIsPickedUpInsideTheKeeperInterval(t *testing.T) {
 }
 
 // With the keeper unreachable, a load records no link state, so the link
-// comparison cannot match.  Left to itself it would call every request a
+// comparison cannot match. Left to itself it would call every request a
 // change: a full round trip each time, and a log line saying a file changed
-// when none did.  The retry belongs under the interval instead.
+// when none did. The retry belongs under the interval instead.
 func TestAnUnreachableKeeperDoesNotReloadOnEveryRequest(t *testing.T) {
 	path := writeLinked(t, "token", "gho_linked_example\n")
 	k := keepertest.New(t, map[string]string{})

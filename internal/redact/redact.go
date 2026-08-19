@@ -37,14 +37,14 @@ var ansiRE = regexp.MustCompile(strings.Join([]string{
 // How far back an incomplete escape sequence may reasonably start, in runes.
 const maxEscapeLen = 64
 
-// stripANSI removes escape sequences and normalises CRLF.  Not stream-safe on
+// stripANSI removes escape sequences and normalises CRLF. Not stream-safe on
 // its own; see stripANSIStream.
 func stripANSI(text string) string {
 	return strings.ReplaceAll(ansiRE.ReplaceAllString(text, ""), "\r\n", "\n")
 }
 
 // stripANSIStream strips escapes from buf, holding back a possibly-incomplete
-// tail.  The carry must be prepended to the next chunk: it may open an escape
+// tail. The carry must be prepended to the next chunk: it may open an escape
 // sequence, or be the first half of a CRLF.
 func stripANSIStream(buf []rune) (clean string, carry []rune) {
 	carryStart := len(buf)
@@ -88,7 +88,7 @@ func base64Variants(value string) map[string]bool {
 }
 
 // base32Variants returns the RFC 4648 base32 encodings of value, padded and
-// not.  TOTP seeds and some token formats are base32, and the unpadded form is
+// not. TOTP seeds and some token formats are base32, and the unpadded form is
 // what `otpauth://` URIs carry.
 func base32Variants(value string) map[string]bool {
 	enc := base32.StdEncoding.EncodeToString([]byte(value))
@@ -98,11 +98,11 @@ func base32Variants(value string) map[string]bool {
 	}
 }
 
-// There is deliberately no HTML/XML entity variant.  Every other encoding here
+// There is deliberately no HTML/XML entity variant. Every other encoding here
 // has one spelling or a closed set of them, which is what makes enumerating it
 // possible; entity escaping has neither, each character having a named, a
 // decimal and a hexadecimal form, and "&#112;" for a plain "p" being as valid
-// as leaving it alone.  A list of renderings would cover whichever producer it
+// as leaving it alone. A list of renderings would cover whichever producer it
 // was written against and read as coverage of the rest.
 
 // percentEncode mirrors Python's urllib.parse.quote(value, safe="").
@@ -155,7 +155,7 @@ func jsonEscape(value string) string {
 	return s
 }
 
-// variants returns every rendering of value the redactor recognises.  Not
+// variants returns every rendering of value the redactor recognises. Not
 // exhaustive by design (see docs/redaction.md), but the encodings ordinary
 // tools produce by accident.
 func variants(value string) map[string]bool {
@@ -198,7 +198,7 @@ func variants(value string) map[string]bool {
 // long enough to search output for.
 //
 // Length only: no distinct-character count and no entropy floor, neither being
-// the strength check it reads as ("password" clears both).  A short value
+// the strength check it reads as ("password" clears both). A short value
 // matches inside ordinary words, so redacting it blanks unrelated output; a
 // long low-entropy value such as "aaaaaaaa" mangles the operator's output
 // rather than letting a value escape.
@@ -240,7 +240,7 @@ type Count struct {
 	Count int    `json:"count"`
 }
 
-// Redactor replaces every known secret rendering with a stable token.  Feed
+// Redactor replaces every known secret rendering with a stable token. Feed
 // withholds a tail so a value split across two reads is still caught; Flush
 // releases it.
 type Redactor struct {
@@ -261,7 +261,7 @@ type Secret struct {
 	Value string
 }
 
-// New builds a redactor over the given secrets.  A value the policy refuses is
+// New builds a redactor over the given secrets. A value the policy refuses is
 // not matched; naming it is the secretstore package's job.
 func New(secrets []Secret, policy EligibilityPolicy) *Redactor {
 	r := &Redactor{Policy: policy, counts: map[string]int{}}
@@ -313,12 +313,12 @@ func compile(ref, value string) entry {
 
 	// The wrapped pass matches against a newline-free view of the output, so it
 	// catches a rendering a formatter split across lines: base64 wraps at 76
-	// columns, and `fold` wraps every variant the same way.  The newline guard in
+	// columns, and `fold` wraps every variant the same way. The newline guard in
 	// subWrapped keeps this pass to genuinely line-spanning matches, so the plain
 	// pass still owns everything on a single line.
 	//
 	// Newlines only: a continuation the formatter indents still has whitespace
-	// between the fragments and is not caught.  Collapsing the indentation too
+	// between the fragments and is not caught. Collapsing the indentation too
 	// would join any two words straddling an indented line break, which corrupts
 	// more output than the wrapping it would catch.
 	wrapped := pattern
@@ -353,7 +353,7 @@ func (r *Redactor) Feed(text string) string {
 	return ""
 }
 
-// Flush releases everything held back.  Call once, at end of stream.
+// Flush releases everything held back. Call once, at end of stream.
 func (r *Redactor) Flush() string {
 	tail := stripANSI(string(r.ansiCarry))
 	r.ansiCarry = nil
@@ -368,7 +368,7 @@ func (r *Redactor) RedactText(text string) string { return r.Feed(text) + r.Flus
 // InvalidBytes is how many bytes of everything fed in were not valid UTF-8.
 // Non-zero means the output was not text and what came back is not what the
 // command wrote: an invalid byte becomes U+FFFD, and the C0 controls that fill
-// binary are stripped outright.  A caller that pipes the output somewhere
+// binary are stripped outright. A caller that pipes the output somewhere
 // reports this, so a corrupted archive is visible when it is produced.
 func (r *Redactor) InvalidBytes() int { return r.invalidBytes }
 
@@ -403,7 +403,7 @@ func (r *Redactor) redact(text string) string {
 	}
 	// Built at most once per distinct text, not once per secret: every entry needs
 	// the same newline-free view, and building it per entry makes the pass
-	// quadratic in the size of the value set.  Invalidated only when an entry
+	// quadratic in the size of the value set. Invalidated only when an entry
 	// replaced something, which is why the plain pass keeps the old string on a
 	// miss.
 	var view *collapsedView

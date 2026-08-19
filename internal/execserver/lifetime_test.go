@@ -219,7 +219,7 @@ func TestAReadOfDevTtyEndsAtOnce(t *testing.T) {
 }
 
 // stdout and stderr are still the PTY, so a program that falls back to them
-// when /dev/tty will not open is captured as before.  This is what an operator
+// when /dev/tty will not open is captured as before. This is what an operator
 // still sees of a prompt.
 func TestStderrIsStillCaptured(t *testing.T) {
 	_, sock, dir := newExecutor(t)

@@ -10,10 +10,10 @@ package install
 //	group <secrets>   read on the ciphertext; the keeper's own group by default
 //
 // Three service uids because anything a uid can read, a command running as that
-// uid can read.  Two groups because being admitted to the broker socket and
-// being able to read the file a value comes from are different privileges.  The
+// uid can read. Two groups because being admitted to the broker socket and
+// being able to read the file a value comes from are different privileges. The
 // coding agent has no account: it runs as the operator, whose uid cannot read
-// what the keeper and broker hold either.  See docs/design.md.
+// what the keeper and broker hold either. See docs/design.md.
 
 import (
 	"errors"
@@ -45,11 +45,11 @@ type serviceAccount struct {
 func (r *runner) serviceAccounts() []serviceAccount {
 	return []serviceAccount{
 		// A real, writable home: it holds the SSH keys and ansible creates
-		// ~/.ansible/tmp.  In the client group because it stats a request's cwd,
+		// ~/.ansible/tmp. In the client group because it stats a request's cwd,
 		// which may sit inside a 0700 home.
 		{name: r.layout.BrokerUser, home: r.layout.BrokerHome(), sshDir: true, clientGroup: true},
 		// The keeper holds the age key and nothing else; a home only because sops
-		// writes ~/.config.  Out of the client group: it opens no path under a
+		// writes ~/.config. Out of the client group: it opens no path under a
 		// home, and it is the one uid that can decrypt every managed file.
 		{name: r.layout.KeeperUser, home: r.layout.KeeperHome()},
 		// The uid every brokered command runs as; a home because ansible creates
@@ -61,7 +61,7 @@ func (r *runner) serviceAccounts() []serviceAccount {
 func (r *runner) stepAccounts() error {
 	changed := false
 	// The shared group admits people, so it belongs in the login-account range
-	// groupadd allocates in without -r.  The secrets group is not created here:
+	// groupadd allocates in without -r. The secrets group is not created here:
 	// it defaults to the keeper's primary group, which useradd creates below, and
 	// shadow refuses to create an account whose group name is taken.
 	if !groupExists(r.layout.ClientGroup) {
@@ -80,7 +80,7 @@ func (r *runner) stepAccounts() error {
 		changed = changed || made
 	}
 	// A secrets group named with --secrets-group, or a keeper whose primary group
-	// was not named after it.  -r puts it in the system range below GID_MIN.
+	// was not named after it. -r puts it in the system range below GID_MIN.
 	if !groupExists(r.layout.SecretsGroup) {
 		if !r.opts.DryRun {
 			if _, err := r.command("groupadd", "-r", r.layout.SecretsGroup); err != nil {
@@ -90,7 +90,7 @@ func (r *runner) stepAccounts() error {
 		changed = true
 	}
 	// The one account that opens a managed file, decrypting and fingerprinting
-	// them.  A no-op when the secrets group is the keeper's own.  The broker is
+	// them. A no-op when the secrets group is the keeper's own. The broker is
 	// absent: it holds the plaintext already, so membership would add only
 	// ciphertext it never decrypts.
 	made, err := r.ensureInGroup(r.layout.KeeperUser, r.layout.SecretsGroup)
@@ -104,7 +104,7 @@ func (r *runner) stepAccounts() error {
 		strings.Join([]string{r.layout.BrokerUser, r.layout.KeeperUser, r.layout.ExecUser}, ", ")))
 
 	// A secrets group allocated without -r sits in the login-account range, where
-	// the next allocation collides with it.  Reported rather than moved: groupmod
+	// the next allocation collides with it. Reported rather than moved: groupmod
 	// leaves every file owned by the old gid behind.
 	if gid, err := lookupGroup(r.layout.SecretsGroup); err == nil {
 		if first := firstLoginGID(); gid >= first {
@@ -118,7 +118,7 @@ func (r *runner) stepAccounts() error {
 		}
 	}
 
-	// The secrets group is what makes editing a secret need sudo.  Reported rather
+	// The secrets group is what makes editing a secret need sudo. Reported rather
 	// than removed, a membership this did not add being somebody else's
 	// decision.
 	for _, who := range []string{r.layout.ExecUser, r.opts.AgentUser} {
@@ -135,7 +135,7 @@ func (r *runner) stepAccounts() error {
 	}
 
 	// A command that could read the broker's or the keeper's group holds the audit
-	// log or the age key.  Warned rather than fixed.
+	// log or the age key. Warned rather than fixed.
 	for _, forbidden := range []string{r.layout.BrokerUser, r.layout.KeeperUser} {
 		in, err := inGroup(r.layout.ExecUser, forbidden)
 		if err != nil {
@@ -261,7 +261,7 @@ func (r *runner) joinOperatorToGroup() (bool, error) {
 
 // ensureOperatorUmask appends umask 002 to the operator's .bashrc, without
 // which the operator and a brokered command fight over every new file in a
-// shared tree.  Here rather than in share-tree, belonging to the account.
+// shared tree. Here rather than in share-tree, belonging to the account.
 func (r *runner) ensureOperatorUmask() (bool, error) {
 	home, err := homeDir(r.opts.AgentUser)
 	if err != nil {
@@ -269,7 +269,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 	}
 	profile := filepath.Join(home, ".bashrc")
 	// One descriptor, opened before the contents are read and checked through
-	// that same descriptor.  A dotfile manager may symlink .bashrc, so the link
+	// that same descriptor. A dotfile manager may symlink .bashrc, so the link
 	// is followed and where it lands is checked: without the owner check,
 	// pointing it at a file root can write turns this into an arbitrary append.
 	//
@@ -300,7 +300,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 		access = os.O_RDONLY
 	}
 	// O_NONBLOCK in case the check above lost a race with the path being
-	// re-pointed: it keeps a fifo from waiting for a writer.  The descriptor is
+	// re-pointed: it keeps a fifo from waiting for a writer. The descriptor is
 	// checked again below, which is what decides.
 	handle, err := os.OpenFile(profile, access|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, os.ErrNotExist) {
@@ -351,7 +351,7 @@ func (r *runner) ensureOperatorUmask() (bool, error) {
 }
 
 // resolveIDs reads back the accounts created above, everything after this
-// writing files owned by them.  Under DryRun they may not exist, and ownership
+// writing files owned by them. Under DryRun they may not exist, and ownership
 // is then left alone.
 func (r *runner) resolveIDs() error {
 	r.operatorUID, r.brokerUID, r.keeperUID, r.execUID = keep, keep, keep, keep
@@ -386,7 +386,7 @@ func (r *runner) resolveIDs() error {
 	}
 	// Each service account's primary group, by gid and by name, rather than
 	// assuming a group exists called what the account is: an adopted account's
-	// need not.  The name renders into [ssh] exec_group and the units' Group= and
+	// need not. The name renders into [ssh] exec_group and the units' Group= and
 	// SocketGroup=, and the gid is what the installed files are chowned to.
 	for _, account := range []struct {
 		user  string
@@ -420,11 +420,11 @@ func (r *runner) resolveIDs() error {
 	return nil
 }
 
-// Where GID_MIN is configured.  A variable so a test can point at one it wrote.
+// Where GID_MIN is configured. A variable so a test can point at one it wrote.
 var loginDefs = "/etc/login.defs"
 
 // firstLoginGID is GID_MIN, the bottom of the login-account range and so one
-// past the top of the system range `groupadd -r` allocates in.  Debian and
+// past the top of the system range `groupadd -r` allocates in. Debian and
 // Ubuntu ship GID_MIN set and SYS_GID_MIN commented out; anything unreadable
 // falls back to their value.
 func firstLoginGID() int {

@@ -1,5 +1,5 @@
 // Package agekey mints and reads the age identities the keeper decrypts with,
-// so a faramir host needs no age binary.  It does not replace the sops CLI,
+// so a faramir host needs no age binary. It does not replace the sops CLI,
 // which is what edits encrypted files.
 package agekey
 
@@ -24,7 +24,7 @@ func Format(id *age.X25519Identity) string {
 	return fmt.Sprintf("# public key: %s\n%s\n", id.Recipient(), id)
 }
 
-// Generate mints an identity at path and returns its recipient.  created is
+// Generate mints an identity at path and returns its recipient. created is
 // false when the file was already there, in which case nothing is written:
 // overwriting an identity destroys access to every value it was a recipient
 // for, retroactively, so the file is opened O_EXCL and 0400.
@@ -56,12 +56,12 @@ func Generate(path string) (recipient string, created bool, err error) {
 }
 
 // ValidateRecipient reports whether s is something sops will accept in a
-// creation rule's age recipients.  Checked before it is written: .sops.yaml is
+// creation rule's age recipients. Checked before it is written: .sops.yaml is
 // world-readable, so a private half pasted there hands every account the key
 // that opens the secrets, and an unparseable recipient fails every later
 // encrypt rather than this run.
 //
-// The shapes are sops' own, from parseRecipient in its age key source.  A
+// The shapes are sops' own, from parseRecipient in its age key source. A
 // plugin recipient is taken on its shape alone, the plugin binary being the
 // only thing that can parse one.
 func ValidateRecipient(s string) error {
@@ -69,7 +69,7 @@ func ValidateRecipient(s string) error {
 		return errors.New("empty age recipient")
 	}
 	// A line break would close the list item and let what follows be read as
-	// YAML.  Refused rather than escaped: no recipient sops accepts carries
+	// YAML. Refused rather than escaped: no recipient sops accepts carries
 	// one.
 	if strings.ContainsAny(s, "\n\r") {
 		return fmt.Errorf("age recipient contains a line break: %q", s)
@@ -89,7 +89,7 @@ func ValidateRecipient(s string) error {
 			return fmt.Errorf("not a post-quantum age recipient: %w", err)
 		}
 	// bech32 spells its data part without a '1', so a second one separates a
-	// plugin name (age1yubikey1...).  sops tells the two apart this way.
+	// plugin name (age1yubikey1...). sops tells the two apart this way.
 	case strings.HasPrefix(s, "age1") && strings.Count(s, "1") > 1:
 		return nil
 	case strings.HasPrefix(s, "age1"):
@@ -112,8 +112,8 @@ func ValidateRecipient(s string) error {
 //
 // Derived from the private half wherever there is one: the "# public key:"
 // comment is a comment, absent from a hand-written key and free to disagree
-// with the identity beneath it.  A wrong answer here seals the secrets to a key
-// the host does not hold.  The comment is the fallback, for a file holding a
+// with the identity beneath it. A wrong answer here seals the secrets to a key
+// the host does not hold. The comment is the fallback, for a file holding a
 // recipient and no identity; the last of either wins.
 func Recipient(path string) (string, error) {
 	handle, err := os.Open(path)

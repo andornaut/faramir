@@ -100,7 +100,7 @@ func TestTheGroupBailOutCountsEveryGroupItSkipped(t *testing.T) {
 // Whether a rule exists and covers the log this config names is read from a
 // path and a $PATH, so it is not behind the root gate: an unbounded audit log
 // ends in every brokered command being refused, and a caller without root has
-// to hear about it.  The two questions that do need root -- whether logrotate
+// to hear about it. The two questions that do need root -- whether logrotate
 // has applied the rule, and how large the log has grown -- are reported as
 // unasked, which still names the log rather than standing in for it.
 func TestLogRotationIsReportedWithoutRoot(t *testing.T) {
@@ -145,12 +145,12 @@ func TestLogRotationIsReportedWithoutRoot(t *testing.T) {
 }
 
 // A warn either says a question could not be put, and is counted under the
-// totals, or it is a finding about this host and is not.  Nothing but the call
+// totals, or it is a finding about this host and is not. Nothing but the call
 // it goes through decides which, so this is what keeps them paired: a check that
 // says it did not ask, and does not count itself, reports a host as examined
 // that was not.
 func TestEveryWarnThatSaysItDidNotAskCountsItself(t *testing.T) {
-	// The phrasings a check uses when the question was not put.  Read from the
+	// The phrasings a check uses when the question was not put. Read from the
 	// findings rather than listed per check, so a new one is covered the day it
 	// is written.
 	didNotAsk := []string{"not asked", "was not checked", "went unchecked",

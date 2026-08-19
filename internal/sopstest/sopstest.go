@@ -1,7 +1,7 @@
 // Package sopstest builds encrypted fixtures and a sops stand-in for tests.
 // Imported only from _test.go files, so the sops libraries reach test binaries
 // and never the shipped one: the keeper execs sops rather than linking it,
-// which keeps every cloud KMS SDK out of what installs on a host.  CI fails on
+// which keeps every cloud KMS SDK out of what installs on a host. CI fails on
 // a getsops hit in "go list -deps ./cmd/faramir".
 package sopstest
 

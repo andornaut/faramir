@@ -11,7 +11,7 @@ import (
 
 // A process of this uid that belongs to no run is what an escalation must not be
 // granted alongside: it can read the approved run's token out of /proc, exec
-// with it set, and sudo on it.  So it is reported, by pid, and the answer is
+// with it set, and sudo on it. So it is reported, by pid, and the answer is
 // not quiet.
 func TestQuiescenceSeesAProcessOutsideEveryRun(t *testing.T) {
 	e := &Executor{live: map[*runCgroup]struct{}{}}
@@ -31,14 +31,14 @@ func TestQuiescenceSeesAProcessOutsideEveryRun(t *testing.T) {
 		t.Errorf("strays = %v, want the unaccounted-for pid %d named: an operator "+
 			"has to be able to find what is holding the escalation off", found, stray)
 	}
-	// The daemon asking the question is not one of them.  Left in, every host
+	// The daemon asking the question is not one of them. Left in, every host
 	// would be permanently un-quiet and no escalation would ever take.
 	if names(found, os.Getpid()) {
 		t.Errorf("strays = %v, want this process left out of its own count", found)
 	}
 }
 
-// names reports whether the list holds an entry for this pid.  The entries read
+// names reports whether the list holds an entry for this pid. The entries read
 // "<pid> (<comm>)", so the pid is matched whole rather than as a substring of a
 // longer number.
 func names(strays []string, pid int) bool {
@@ -52,14 +52,14 @@ func names(strays []string, pid int) bool {
 
 // A member of a run this executor is confining is accounted for: it is the
 // approved command, or one of its descendants, which is what the escalation is
-// for.  Tracked through the run's cgroup, so a run still tearing down still
+// for. Tracked through the run's cgroup, so a run still tearing down still
 // counts: until the cgroup is empty there is no telling the approved run's
 // processes from a straggler.
 func TestQuiescenceAccountsForAConfinedRun(t *testing.T) {
 	e := &Executor{live: map[*runCgroup]struct{}{}}
 	member := sleeper(t)
 
-	// A cgroup directory with the member in it.  The real one is made by the
+	// A cgroup directory with the member in it. The real one is made by the
 	// kernel; what is read from it is this file, and this test is about the
 	// accounting rather than the confinement.
 	dir := t.TempDir()

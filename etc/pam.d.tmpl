@@ -1,30 +1,30 @@
 # /etc/pam.d/{{.PamService}}: how sudo authenticates {{.ExecUser}}, and only
 # {{.ExecUser}}.
 #
-# Written by `faramir init --allow-sudo` and REWRITTEN BY EVERY RUN.  Re-running
+# Written by `faramir init --allow-sudo` and REWRITTEN BY EVERY RUN. Re-running
 # init without --allow-sudo removes it, along with the sudoers entry that names it.
 #
 # A service of faramir's own rather than an edit to /etc/pam.d/sudo, which is
-# what {{.SudoersFile}}'s `pam_service` selects.  Everyone else's sudo reads the
+# what {{.SudoersFile}}'s `pam_service` selects. Everyone else's sudo reads the
 # stock file and is untouched by anything here: a mistake below reaches
 # {{.ExecUser}} and nobody else, so it can neither lock this host's operators
 # out of sudo nor hand any other account a free one.
 #
-# There is no password in this.  The authentication step is a helper that asks
+# There is no password in this. The authentication step is a helper that asks
 # the broker whether the brokered command making this call was approved by a
 # human, so nothing is minted, stored or handed out, and an escalation cannot be
 # carried to a later command.
 #
 # THE TWO WORDS THAT MATTER:
 #
-#   requisite:  not `sufficient`.  With `sufficient`, a helper that REFUSES is
+#   requisite:  not `sufficient`. With `sufficient`, a helper that REFUSES is
 #                 not fatal, the stack falls through to pam_permit below, and
 #                 every escalation is granted without asking anybody.
 #   seteuid:    pam_exec otherwise runs the helper with the REAL uid, which
-#                 under setuid sudo is {{.ExecUser}}'s own.  The broker answers
+#                 under setuid sudo is {{.ExecUser}}'s own. The broker answers
 #                 the escalate op to root and to nobody else, so without this the
 #                 helper is refused and EVERY escalation fails: the feature is
-#                 off rather than loose, but it is off.  It also keeps the
+#                 off rather than loose, but it is off. It also keeps the
 #                 process doing the deciding out of the reach of the uid being
 #                 decided about, instead of resting on the kernel marking a
 #                 setuid child non-dumpable, which it does today and which is

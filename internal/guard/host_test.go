@@ -129,7 +129,7 @@ func TestHostDialects(t *testing.T) {
 	})
 }
 
-// A tool that does not run a shell command has no output to redact.  A hook
+// A tool that does not run a shell command has no output to redact. A hook
 // host is asked about every tool and answers only for its own, which is what
 // keeps a rewrite off a call that carries no command.
 func TestHostHandlesOnlyItsOwnShellTool(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// A group's members are not only what /etc/group lists.  An account whose
+// A group's members are not only what /etc/group lists. An account whose
 // PRIMARY group this is holds it without appearing there, and that is the shape
 // a renamed --keeper-user leaves behind: the secrets group defaults to the
 // keeper's own group, so reading the member list alone reports the one case
@@ -41,7 +41,7 @@ func TestPrimaryMembersFindsWhatGroupDoesNot(t *testing.T) {
 // The retired accounts a re-run leaves behind are a standing grant, and nothing
 // on the host reported them: changing --client-group leaves the old group with
 // every member, and renaming --keeper-user leaves the retired account in the
-// group that owns the ciphertext.  init does not take memberships away, so
+// group that owns the ciphertext. init does not take memberships away, so
 // doctor has to name them.
 func TestDiagnoseGroupNamesAccountsTheInstallNoLongerUses(t *testing.T) {
 	dir := t.TempDir()
@@ -95,7 +95,7 @@ func findingsNamed(report DoctorReport, name string) []Finding {
 }
 
 // The client group check cannot tell a member from a leftover without the
-// operator's name, and the operator IS a member by construction.  Reporting it
+// operator's name, and the operator IS a member by construction. Reporting it
 // as a leftover prints `gpasswd -d <operator> <client group>` as the remedy,
 // which is the one change that shuts the agent out of the broker socket.
 func TestTheGroupAuditIsNotAskedWithoutAnOperator(t *testing.T) {
@@ -123,7 +123,7 @@ func TestTheGroupAuditIsNotAskedWithoutAnOperator(t *testing.T) {
 
 // runuser reads an empty account name as the account, so asUser refuses one
 // rather than reporting "runuser: user does not exist" as a boundary that does
-// not hold.  Guarded at the source, so no caller has to remember it.
+// not hold. Guarded at the source, so no caller has to remember it.
 func TestAsUserRefusesAnUnnamedAccount(t *testing.T) {
 	if _, err := asUser("", "true"); err == nil {
 		t.Fatal("an empty account was passed to runuser, which reads it as the " +

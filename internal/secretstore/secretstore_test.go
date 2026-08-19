@@ -66,7 +66,7 @@ func TestAShortValueIsRefused(t *testing.T) {
 	}
 }
 
-// A value long enough to redact is carried whatever it looks like.  The store
+// A value long enough to redact is carried whatever it looks like. The store
 // refuses what it cannot cover, not what it disapproves of: a weak credential
 // is the operator's to fix, and refusing to serve one would leave a project
 // with no value where it expected one and nothing this end could do about it.
@@ -224,7 +224,7 @@ func TestConcurrentRefreshesDoNotStampedeTheKeeper(t *testing.T) {
 
 	var served atomic.Int32
 	// serving closes once a reload is inside the keeper call; release holds it
-	// there.  Sequenced rather than slept, so a loaded machine cannot pass this
+	// there. Sequenced rather than slept, so a loaded machine cannot pass this
 	// by arriving late.
 	serving := make(chan struct{})
 	release := make(chan struct{})
@@ -319,7 +319,7 @@ func TestAMissingFileIsUnresolvedRatherThanALoadError(t *testing.T) {
 	if errs := s.LoadErrors(); len(errs) != 0 {
 		t.Errorf("LoadErrors = %v, want none", errs)
 	}
-	// Reported instead.  What the empty value set then refuses is a server
+	// Reported instead. What the empty value set then refuses is a server
 	// concern, tested there; this double serves its values whatever the file
 	// list says.
 	if len(s.UnresolvedPatterns()) == 0 {

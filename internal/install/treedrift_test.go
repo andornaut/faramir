@@ -61,7 +61,7 @@ func TestTreeConfigIsOKWhereTheEnrolmentSurvives(t *testing.T) {
 
 // The case this exists for: a tree is shared with the client group and unlink is
 // a permission on the directory, so a brokered command can replace the file
-// naming the hook.  A hand edit reaches the same place.  Nothing else would say
+// naming the hook. A hand edit reaches the same place. Nothing else would say
 // that the project stopped being redacted.
 func TestTreeConfigReportsAFileThatNoLongerCarriesTheHook(t *testing.T) {
 	configDir := t.TempDir()
@@ -171,7 +171,7 @@ func TestEditableFilesReportsWhatAnInstallWouldRefuse(t *testing.T) {
 	}
 }
 
-// The tree's own instructions file is asked about too.  Every enrolment writes
+// The tree's own instructions file is asked about too. Every enrolment writes
 // it whatever the tree was enrolled for, and no target names it, so a tree
 // whose AGENTS.md is a link out of it would pass this check clean and then stop
 // the next `init-project`.

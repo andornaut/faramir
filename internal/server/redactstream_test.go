@@ -131,7 +131,7 @@ func TestASingleRequestStillFlushes(t *testing.T) {
 }
 
 // Handle has nowhere to keep a redactor, so a chunked request there would feed
-// text and never flush the tail.  Refused rather than quietly completed.
+// text and never flush the tail. Refused rather than quietly completed.
 func TestAChunkedRequestWithNoConnectionIsRefused(t *testing.T) {
 	s := newServer(t, map[string]string{"db/password": "hunter2-correct-horse"})
 	got := s.Handle(map[string]any{"op": "redact", "text": "x", "more": true}, &sockutil.Peer{UID: 1000})

@@ -14,7 +14,7 @@ import (
 
 // brokerGroupName is the group a chown in an error message has to name, looked
 // up from the gid this run resolved rather than assumed to share the account's
-// name.  Falls back to the account name, so the remedy is never printed with an
+// name. Falls back to the account name, so the remedy is never printed with an
 // empty field.
 func (r *runner) brokerGroupName() string {
 	if group, err := user.LookupGroupId(strconv.Itoa(r.brokerGID)); err == nil {
@@ -65,7 +65,7 @@ func (r *runner) stepAgeKey() error {
 
 // stepSopsConfig writes .sops.yaml into the config directory rather than the
 // secrets directory: sops resolves it from the working directory upward, so it
-// is found from both.  Written once, sealed to the keeper's own recipient, and
+// is found from both. Written once, sealed to the keeper's own recipient, and
 // kept on every later run: adding or dropping a recipient means re-encrypting
 // every managed value, which `faramir recipient add` does and an installer
 // should not.
@@ -82,7 +82,7 @@ func (r *runner) stepSopsConfig() error {
 		r.keepSopsConfig(path)
 		return nil
 	}
-	// A dry run does not open the age key.  Named before the check below, which
+	// A dry run does not open the age key. Named before the check below, which
 	// reaches the same empty string by the key having been lost and would print a
 	// remedy that is nonsense here.
 	if r.opts.DryRun {
@@ -99,7 +99,7 @@ func (r *runner) stepSopsConfig() error {
 			"that has it, or re-seal from the original key")
 		return nil
 	}
-	body := "# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable.  'faramir vault edit' and 'faramir recipient reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n" +
+	body := "# Which files sops encrypts, and to whom. Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable. 'faramir vault edit' and 'faramir recipient reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n" +
 		"      - age:\n          - " + r.keeperRecipient + "\n"
 	// Root-owned like the rest of the config directory, or the recipients could
 	// be rewritten by an account the secrets group exists to keep out.
@@ -119,7 +119,7 @@ func (r *runner) stepSopsConfig() error {
 }
 
 // keepSopsConfig leaves an existing .sops.yaml alone and says what it says,
-// applying a changed rule meaning every managed value is re-encrypted.  The one
+// applying a changed rule meaning every managed value is re-encrypted. The one
 // thing it reports is a rule the keeper is not named in; that is a host which
 // works today and cannot take a new value tomorrow, so it warns rather than
 // failing the run.
@@ -156,8 +156,8 @@ func (r *runner) keepSopsConfig(path string) {
 }
 
 // stepSSHKey mints the identity the broker lends to brokered commands, and
-// asserts that the broker can read it.  A key opens a host only once its public
-// half is in that host's authorized_keys, which this does not do.  An existing
+// asserts that the broker can read it. A key opens a host only once its public
+// half is in that host's authorized_keys, which this does not do. An existing
 // key at the path is adopted rather than replaced: regenerating one locks the
 // broker out of every host it is already on.
 //
@@ -208,7 +208,7 @@ func sshKeyHalves(path string) []sshKeyHalf {
 }
 
 // checkSSHKey reports why the broker could not use the key at this path, or
-// nil.  Split out from ownSSHKey so stepPreconditions can raise the same
+// nil. Split out from ownSSHKey so stepPreconditions can raise the same
 // refusal before any ownership is changed: stopping at the SSH step would leave
 // the age key and the audit log already handed to accounts whose units were
 // never written.
@@ -245,7 +245,7 @@ func (r *runner) checkSSHKey(path string, uid, gid int) error {
 
 // ownSSHKey asserts, every run, that the broker can read both halves of the
 // key: one placed by hand or left root-owned leaves the agent holding nothing.
-// A repair counts as a change.  repair is false for a key this run did not
+// A repair counts as a change. repair is false for a key this run did not
 // write, which is refused rather than taken over.
 func (r *runner) ownSSHKey(path string, repair bool) (bool, error) {
 	if !repair {

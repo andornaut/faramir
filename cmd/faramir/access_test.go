@@ -36,7 +36,7 @@ func TestAccessAnswersOnlyWhatItWasAsked(t *testing.T) {
 	}
 }
 
-// A mode that permits nothing answers no.  Skipped as root, for whom it answers
+// A mode that permits nothing answers no. Skipped as root, for whom it answers
 // yes and rightly: root's access is not what this reports on.
 func TestAccessRefusesAModeThatPermitsNothing(t *testing.T) {
 	if os.Geteuid() == 0 {

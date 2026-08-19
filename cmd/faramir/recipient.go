@@ -1,13 +1,13 @@
 package main
 
 // `faramir recipient` manages who can decrypt the managed store: the rule and
-// the ciphertext together, in one command.  Editing `.sops.yaml` on its own
+// the ciphertext together, in one command. Editing `.sops.yaml` on its own
 // leaves a state nothing reports -- a rule naming a reader the existing files
 // are not sealed to -- which surfaces whenever somebody reaches for a value
 // with a key they were told they had.
 //
 // So the rule is written and the store re-encrypted by the same command, and
-// the rule is judged before it is written.  `reseal` stays for what this cannot
+// the rule is judged before it is written. `reseal` stays for what this cannot
 // cover: a run that reached only some of the files, and a file edited by
 // hand.
 
@@ -31,7 +31,7 @@ import (
 // now readable by and who asked for that.
 const opRecipient = "recipient"
 
-// newRecipientCmd is a group spelled like `link add|rm|ls`.  The guard names a
+// newRecipientCmd is a group spelled like `link add|rm|ls`. The guard names a
 // subcommand by every token a person types, so the three here are three lines
 // in cli.Operator, held against the command tree by a test.
 func newRecipientCmd() *cobra.Command {
@@ -244,7 +244,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		return 1
 	}
 	// One record for the rule, before the per-file records the reseal writes, so
-	// the log reads in the order it happened.  Public keys only.
+	// the log reads in the order it happened. Public keys only.
 	audit.NewLog(store.cfg.Audit).Write(map[string]any{
 		"op": opRecipient, "log_id": audit.NewLogID(), "file": store.rulePath,
 		"change": addedOrRemoved(adding), "recipient": recipient, "to": wanted,
@@ -289,7 +289,7 @@ func listedOrNot(adding bool) string {
 }
 
 // runRecipientList needs no root: .sops.yaml is world-readable, holding public
-// keys and a rule and no value.  It reads that file rather than asking the
+// keys and a rule and no value. It reads that file rather than asking the
 // broker.
 func runRecipientList(f recipientFlags) int {
 	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
@@ -313,7 +313,7 @@ func runRecipientList(f recipientFlags) int {
 		return 0
 	}
 	// Which of these is this host's own means reading the age key, which is the
-	// keeper's and root's.  So the note appears where it can be known and the
+	// keeper's and root's. So the note appears where it can be known and the
 	// listing is plain where it cannot, rather than a column that says "no" and
 	// means "could not tell".
 	keeper, err := agekey.Recipient(ageKeyPath(cfg))

@@ -74,7 +74,7 @@ func bashPayload(t *testing.T, command string) string {
 }
 
 // updatedInput is the tool input a rewrite handed back, and wrappedCommand the
-// command inside it.  Checked rather than asserted: what these tests are about
+// command inside it. Checked rather than asserted: what these tests are about
 // is the shape of that answer, so a hook that returned another one has to fail
 // as a test rather than as a panic in the middle of one.
 func updatedInput(t *testing.T, hook map[string]any) map[string]any {
@@ -247,7 +247,7 @@ func TestTheRewritePreservesTheOtherInputFields(t *testing.T) {
 }
 
 // run_in_background is the tool's own flag rather than shell syntax, so it is
-// the one backgrounding case the rewrite cannot see in the command text.  The
+// the one backgrounding case the rewrite cannot see in the command text. The
 // trailing-"&" forms are TestABackgroundedCommandIsWrappedToStreamHoweverItEnds.
 func TestARunInBackgroundCallIsStreamedNotCaptured(t *testing.T) {
 	// The host backgrounds this one and reads its output later through
