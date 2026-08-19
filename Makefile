@@ -75,8 +75,8 @@ REPORT := awk ' \
 # and cgroups.
 PLATFORMS := linux-amd64 linux-arm64
 
-.PHONY: all build check coverage e2e fmt gate lint release shellcheck test \
-	install verify clean $(PLATFORMS)
+.PHONY: all build check clean coverage e2e fmt gate lint release shellcheck \
+	test $(PLATFORMS)
 
 all: build
 
@@ -173,19 +173,6 @@ check:
 	$(MAKE) gate
 	$(MAKE) test
 	$(MAKE) e2e
-
-## install: provision this host.  Deliberately NOT dependent on build: this
-## runs as root and the compiler should not.  init installs the binary it was
-## run from, so a host needs no Go of its own.
-##
-## Pass anything else through INIT_ARGS, e.g. --config-dir or --allow-sudo.
-install:
-	sudo $(BIN)/faramir init --agent-user "$$(id -un)" $(INIT_ARGS)
-
-## verify: examine a live deployment (root).  Asks each account what it can
-## reach, which is a question only root can put to another uid.
-verify:
-	sudo faramir doctor
 
 clean:
 	rm -rf $(BIN) dist

@@ -258,8 +258,6 @@ Target | Does
 `make shellcheck` | The shell scripts, as CI checks them
 `make e2e` | The functional suites against a real install in a container
 `make check` | The linters, the whole Go suite, and the end-to-end suites
-`make install` | `sudo faramir init` for this host, passing `INIT_ARGS`
-`make verify` | `sudo faramir doctor`
 
 - Everything under `systemd/`, `etc/`, `agent/` and `docs/` is embedded into the binary by `assets.go`, so `init` installs a host without a checkout, and the `.tmpl` files are the shipped files themselves. That decides where a new document goes: operator documentation in `docs/`, which ships, and developer documentation at the root, which does not.
 - Tests live where the logic does. Most of what the broker does is decide, so `internal/server` substitutes the executor; `internal/executor` uses a real child, the PTY and the streaming redactor meaning nothing against synthetic bytes.
