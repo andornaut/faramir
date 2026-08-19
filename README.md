@@ -30,7 +30,7 @@ Choosing agents with `--agent`, repeatable on `init` and `init-project`:
 - A name configures that agent regardless and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi".
 - Pi and Antigravity get no account-wide rule file. Pi has nowhere to put one, so the same rules are compiled into its extension; Antigravity's permission lists are the IDE's own state.
 
-Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)).
+Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). What varies between them, and what each contract makes of the rewrite: [docs/agents.md](docs/agents.md).
 
 > [!WARNING]
 > **Antigravity is partial support.** [Its hooks](https://antigravity.google/docs/hooks) allow, deny or ask and cannot change a tool call's arguments, so there is nothing to rewrite a command with and nothing redacts what comes back. An enrolment leaves it the broker's tools and the instructions to use them; a command it runs itself reaches the model with the value in it. Enrolling one warns that this is what was installed.

@@ -104,7 +104,7 @@ At the broker these are three ops rather than four, `deny` being `approve` with 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
 - **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.
 - **The keeper must be up before the broker is.** On a cold start there is no previous value set, so a keeper it cannot reach means nothing to redact with, and the broker refuses `run` and `redact`. Its unit `Requires=` the keeper socket. A keeper lost *later* does not stop a running broker: it keeps the set it has and retries.
-- **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so a binary too old to know the agent refuses every command in that project rather than running it unredacted.
+- **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so a binary too old to know the agent refuses every command in that project rather than running it unredacted. [What those plugins ask the guard](agents.md#opencode-and-kilo-code).
 - **Children do not inherit the broker's environment.** They get `[command.env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null` and the child gets no controlling terminal, so a prompt falls back to stderr, which is redacted and recorded; one written only to `/dev/tty` is lost ([why](redaction.md#why-a-pty-and-not-a-pipe)). Pass non-interactive flags.
 - **Output is truncated** at the output cap. The audit record keeps the head and the tail and says how many bytes it dropped.
