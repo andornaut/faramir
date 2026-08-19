@@ -38,7 +38,7 @@ const maxRequestBytes = 1 << 20
 
 type request struct {
 	// Op names anything that is not "start a command", which is what an absent op
-	// has always meant and still does.
+	// means.
 	Op           string            `json:"op"`
 	Argv         []string          `json:"argv"`
 	Cwd          string            `json:"cwd"`
@@ -49,12 +49,10 @@ type request struct {
 
 // opQuiescent asks whether any process of this uid is alive outside the runs
 // this executor is confining.  The broker cannot answer it: its own unit sets
-// ProtectProc=invisible, so another uid's /proc is not in its view at all.  This
-// service shares the uid with every brokered command, so they are in its view,
-// which is what makes it the place the question is answered.
+// ProtectProc=invisible, so another uid's /proc is not in its view.  This
+// service shares the uid with every brokered command.
 const (
-	// opExec starts a command, which is what an absent op has always meant and
-	// still means.
+	// opExec starts a command, which is what an absent op means.
 	opExec      = "exec"
 	opQuiescent = "quiescent"
 )
@@ -64,23 +62,22 @@ type Executor struct {
 	ln     net.Listener
 	slots  chan struct{}
 	wg     sync.WaitGroup
-	// cgroupBase is the cgroup v2 directory each run is confined under, or "" where
-	// no delegated cgroup is available.  Set once at New.  Confinement is the one
-	// reaper: a run that cannot be given a cgroup is refused, so "" means every
-	// command is refused until the host is fixed.
+	// cgroupBase is the cgroup v2 directory each run is confined under, or ""
+	// where no delegated cgroup is available.  Set once at New.  Confinement is
+	// the one reaper, so "" means every command is refused until the host is
+	// fixed.
 	cgroupBase string
 
-	// live is the run cgroups in flight, which is what the quiescence answer
-	// measures everything else against: a process of this uid is accounted for if
-	// it is this daemon or a member of one of these, and is a stray otherwise.
+	// live is the run cgroups in flight, which the quiescence answer measures
+	// against: a process of this uid is accounted for if it is this daemon or a
+	// member of one of these.
 	liveMu sync.Mutex
 	live   map[*runCgroup]struct{}
 }
 
-// maxConcurrent is a backstop, not a knob.  The broker is this socket's only
-// permitted client and holds a [command] concurrency slot for the whole of
-// each run, so that number binds first and this one is never reached; it bounds
-// a broker with a bug, which is why it is not a config key.
+// maxConcurrent is a backstop, not a knob: the broker is this socket's only
+// permitted client and holds a [command] concurrency slot for the whole of each
+// run, so that number binds first.  This one bounds a broker with a bug.
 const maxConcurrent = 16
 
 func New(cfg *config.Config) *Executor {
@@ -89,8 +86,7 @@ func New(cfg *config.Config) *Executor {
 		slots:  make(chan struct{}, maxConcurrent),
 		live:   map[*runCgroup]struct{}{},
 	}
-	// Probed once: per run this is a field read rather than a syscall.  "" means
-	// every command is refused until the host is fixed.
+	// Probed once: per run this is a field read rather than a syscall.
 	e.cgroupBase = cgroupBase()
 	if e.cgroupBase == "" {
 		log.Printf("this executor has no delegated cgroup, so brokered commands will be " +
@@ -157,9 +153,9 @@ func (e *Executor) serveConnection(conn net.Conn) {
 		_ = sockutil.Send(conn, errorResponse("bad_request", "no usable request"))
 		return
 	}
-	// Before the terminal-fd check: a question about the host carries no PTY.
-	// An unknown op is named rather than fed to run(), which would report it as a
-	// malformed command and send whoever debugs a version skew to the wrong place.
+	// Before the terminal-fd check: a question about the host carries no PTY.  An
+	// unknown op is named rather than fed to run(), which would report it as a
+	// malformed command.
 	switch payload.Op {
 	case "", opExec:
 	case opQuiescent:
@@ -310,26 +306,21 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	cmd.Stdout = slave
 	cmd.Stderr = slave
 	// Setsid and no controlling terminal.  A child that has one can open /dev/tty,
-	// and every credential prompt worth the name reads /dev/tty precisely so a
-	// pipe cannot answer it: ssh-add, sudo, gpg, ssh's own passphrase prompt.
-	// Nothing writes to the master, so that read blocks until the timeout, holding
-	// a [command] concurrency slot for the whole of it.  Without one the open
-	// fails, the program falls back to stdin, and stdin is /dev/null, so the
-	// prompt fails at once.
+	// which is what every credential prompt reads so a pipe cannot answer it:
+	// ssh-add, sudo, gpg.  Nothing writes to the master, so that read would block
+	// until the timeout; without a controlling terminal the open fails and the
+	// program falls back to stdin, which is /dev/null.
 	//
-	// What this gives up is the text of a prompt from a program that writes only
-	// to /dev/tty and has no fallback: that write now fails, so it reaches neither
-	// the operator nor the record.  Nothing escapes either way, a failed open
-	// being a write that never happens, and a program with a fallback prints to
-	// stderr, which is on the PTY and is redacted and recorded like the rest.
+	// What it gives up is the text of a prompt from a program that writes only to
+	// /dev/tty and has no fallback: that write fails, so it reaches neither the
+	// operator nor the record.  A program with a fallback prints to stderr, which
+	// is on the PTY and is redacted and recorded like the rest.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 
 	// Confine the run to its own cgroup, the one reaper: a descendant that calls
 	// setsid, which a process-group kill would miss, is still reaped when the
-	// cgroup is torn down.  There is no fallback.  A host with no delegated cgroup,
-	// or a run that cannot be given one, is refused rather than reaped by process
-	// group, which a setsid child escapes: a silent degrade there is exactly the
-	// gap this closes.
+	// cgroup is torn down.  A host with no delegated cgroup, or a run that cannot
+	// be given one, is refused rather than reaped by process group.
 	if e.cgroupBase == "" {
 		return errorResponse("exec_failed", "this host has no delegated cgroup (needs "+
 			"cgroup v2, a unit with Delegate=, and a kernel with cgroup.kill >= 5.14); "+
@@ -342,15 +333,10 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	}
 	cmd.SysProcAttr.UseCgroupFD = true
 	cmd.SysProcAttr.CgroupFD = rcg.fd
-	// Closed after the run on every path, a normal exit included: it kills whatever
-	// is still in the cgroup (a setsid grandchild can outlive a zero exit), waits
-	// for it to empty, and removes it.
-	//
+	// Closed after the run on every path, a normal exit included: it kills
+	// whatever is still in the cgroup, waits for it to empty, and removes it.
 	// Dropped from `live` only after that, so a run whose teardown is still under
-	// way is still accounted for: its members are the approved run's or a
-	// straggler's, and until the cgroup is empty there is no telling which.  Once
-	// it is gone, anything left of this uid is a stray and the quiescence answer
-	// says so.
+	// way is still accounted for.
 	e.track(rcg)
 	defer func() {
 		rcg.close()
@@ -361,7 +347,7 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	if err := cmd.Start(); err != nil {
 		return errorResponse("exec_failed", fmt.Sprintf("%s: %v", req.Argv[0], err))
 	}
-	// Our copy of the slave must go, or the master never reaches EOF.
+	// This copy of the slave must go, or the master never reaches EOF.
 	closeSlave()
 
 	waitDone := make(chan struct{})
@@ -391,12 +377,12 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 }
 
 // await waits for the child, watching the clock and the broker's connection.
-// done is closed by the caller's cmd.Wait goroutine, since waiting twice would
-// fail with ECHILD.  A timeout or a hangup ends the whole run by tearing down its
-// cgroup, so a setsid descendant goes with it.
+// done is closed by the caller's cmd.Wait goroutine, waiting twice failing with
+// ECHILD.  A timeout or a hangup ends the whole run by tearing down its cgroup,
+// so a setsid descendant goes with it.
 func (e *Executor) await(rcg *runCgroup, cmd *exec.Cmd, conn net.Conn, done <-chan struct{}, timeoutSec, graceSec int) bool {
 	// A readable connection means the broker sent something or hung up; either way
-	// it is no longer waiting, and the child must not outlive it.
+	// the child must not outlive it.
 	hangup := make(chan struct{})
 	go func() {
 		one := make([]byte, 1)
@@ -459,7 +445,7 @@ type ChildResult struct {
 }
 
 // Client is one brokered command: start it, then collect its exit status.  Two
-// calls, because the broker reads the PTY master in between.
+// calls, the broker reading the PTY master in between.
 type Client struct {
 	socketPath string
 	conn       *net.UnixConn
@@ -467,14 +453,10 @@ type Client struct {
 
 func NewClient(socketPath string) *Client { return &Client{socketPath: socketPath} }
 
-// Quiescent asks the executor whether anything is running as its uid outside the
-// runs it is confining.  The broker calls this before an escalation takes; see
-// Executor.quiescence for why the question cannot be answered on the broker's
-// side.
-//
-// Every failure is a no.  An executor that cannot be reached or cannot be
-// understood has not said the host is quiet, and an escalation granted on silence
-// is the thing this check exists to prevent.
+// Quiescent asks the executor whether anything is running as its uid outside
+// the runs it is confining.  The broker calls this before an escalation takes;
+// see Executor.quiescence for why the broker cannot answer it.  Every failure
+// is a no: an executor that cannot be reached has not said the host is quiet.
 func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
 	conn, err := (&net.Dialer{Timeout: timeout}).DialContext(context.Background(), "unix", socketPath)
 	if err != nil {

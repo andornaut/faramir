@@ -8,32 +8,28 @@ import (
 )
 
 // An agentTarget is one coding agent's enrolment: the files faramir writes into
-// a tree so that agent runs its commands through the broker.
-//
-// Configured for the agents that are there, or for the ones named.  Enrolling
-// trades away every Bash prompt in the project on some agents, so what `auto`
-// will not do is configure one nobody runs: naming it is what says to.
+// a tree so that agent runs its commands through the broker.  Configured for
+// the agents that are there, or for the ones named: enrolling trades away every
+// Bash prompt in the project on some agents, so `auto` will not configure one
+// nobody runs.
 type agentTarget struct {
 	name string
 
-	// files are written relative to the tree.  A list rather than named fields,
-	// since an agent may split its hook settings from its MCP registration or
-	// keep both in one file, and some have no hook to register at all.
+	// files are written relative to the tree.  A list rather than named fields:
+	// an agent may split its hook settings from its MCP registration or keep both
+	// in one file, and some have no hook to register at all.
 	files []agentFile
 
-	// accountFiles go into the agent account's home rather than a tree.  They refuse
-	// to open key material wherever the agent is working and take nothing away,
-	// so no project has to opt in.  Rendered, the paths refused being this
+	// accountFiles go into the agent account's home rather than a tree.  They
+	// refuse to open key material wherever the agent is working and take nothing
+	// away, so no project has to opt in.  Rendered, the paths refused being this
 	// install's.
 	accountFiles []agentFile
 
-	// withoutAccountRules is why this agent has none, for the report that would
-	// otherwise have to infer it.  Two agents get no rule file and not for the
-	// same reason: pi's are compiled into the extension an enrolment installs,
-	// and Antigravity has none anywhere.  A check that says the wrong one of
-	// those is a check telling an operator a project is covered when it is not.
-	//
-	// Required of every target with no accountFiles, and empty for the rest.
+	// withoutAccountRules is why this agent has no accountFiles: pi's rules are
+	// compiled into the extension an enrolment installs, and Antigravity has none
+	// anywhere, which is the difference between covered and not.  Required of
+	// every target with no accountFiles, and empty for the rest.
 	withoutAccountRules string
 
 	// detect names the paths that mean this tree is already configured for this
@@ -41,41 +37,30 @@ type agentTarget struct {
 	// writes; generic names stay out, a .mcp.json naming no particular agent.
 	detect []string
 
-	// detectHome is the same question about the agent account's home rather than a
-	// tree, and a different answer: an agent keeps its per-project configuration
-	// beside the project and its own under a home, and the two are not the same
-	// paths.  opencode is the plain case -- opencode.json in a tree, and
-	// .config/opencode in a home.
-	//
-	// faramir's own rule file counts as evidence here, which is deliberate: it
-	// is what makes a second `init` refresh what the first one wrote instead of
-	// deciding the agent is gone.
+	// detectHome is the same question about the agent account's home: an agent
+	// keeps its per-project configuration beside the project and its own under a
+	// home, and the two are not the same paths.  faramir's own rule file counts
+	// as evidence, which is what makes a second `init` refresh what the first
+	// wrote instead of deciding the agent is gone.
 	detectHome []string
 
 	// homeInstructions is the file this agent reads as prose wherever it is
-	// working, relative to the agent account's home, and is where `init` writes the
-	// account-wide credentials section.  Its own path per agent, and not
-	// derivable from detectHome: opencode keeps its config under
-	// .config/opencode and reads AGENTS.md from there, pi keeps its under .pi
-	// and reads .pi/agent/AGENTS.md, and Kilo Code reads every .md in a rules
-	// directory rather than one named file.
+	// working, relative to the agent account's home, and is where `init` writes
+	// the account-wide credentials section.  Its own path per agent and not
+	// derivable from detectHome.
 	//
 	// Written because the deny rules beside it hold wherever the agent works and
-	// arrive at the model as a bare permission error.  A refusal with no reason
-	// is what invites the workaround: another tool, an interpreter, a base64
-	// pipe.  This is what makes the refusal legible, in the one file that is
-	// read in a tree faramir has never been run in.
+	// otherwise arrive at the model as a bare permission error, which is what
+	// invites the workaround: another tool, an interpreter, a base64 pipe.
 	//
 	// Two agents may name the same file, and what is written there then has to
 	// hold for both.  See runner.agentInstructions.
 	homeInstructions string
 
 	// treeInstructions is where this agent reads prose in one tree, for an agent
-	// that reads none of the names at the tree's root.  Antigravity is the case:
-	// it loads .agents/rules and no documented file beside them, so the section
-	// `init-project` writes into a tree's AGENTS.md never reaches it.
-	//
-	// Empty for every other agent, which reads the tree's own file.
+	// that reads none of the names at the tree's root: Antigravity loads
+	// .agents/rules and no documented file beside them.  Empty for every other
+	// agent, which reads the tree's own file.
 	treeInstructions treeRules
 
 	// autoApprovesBash records what enrolling costs on this agent.  Claude Code
@@ -89,10 +74,8 @@ type agentTarget struct {
 	note string
 
 	// noteStands says the note describes what this tree is rather than what this
-	// run just did, so it is warned about on every enrolment and not only the one
-	// that wrote the files.  A cost taken on is news once; a tree nothing redacts
-	// is true every time somebody asks, and re-running an enrolment is the
-	// ordinary case.
+	// run just did, so it is warned about on every enrolment rather than only on
+	// the one that wrote the files.
 	noteStands bool
 }
 
@@ -103,37 +86,30 @@ type treeRules struct {
 	// what this agent reads.
 	path string
 	// head is written before the markers in a file this creates, and only there:
-	// an existing file's first line is its own, this having no way to tell one
-	// faramir wrote from one the operator did.
+	// an existing file's first line is its own, and one faramir wrote cannot be
+	// told from one the operator did.
 	head string
 }
 
 type agentFile struct {
 	// path is relative to the tree.
 	path string
-	// asset is the embedded file to write.  Every asset is rendered as a
-	// text/template whatever it is named: agent/claude/settings.json carries
-	// {{.ConfigDir}} without a .tmpl suffix, and the paths the installed binary
-	// and its libexec sit at are named once in the layout rather than written
-	// into each file that has to exec one.  What each is rendered against
-	// differs: accountFiles against the install Layout, files against the
+	// asset is the embedded file to write, rendered as a text/template whatever
+	// it is named: accountFiles against the install Layout, files against the
 	// per-target pluginData.
 	asset string
 	// mode is 0o640 throughout: an enrolled tree is shared with the client group,
 	// so group-readable is what the rest of the tree is, and group-writable is
-	// what these must never be.  .claude/settings.json names the PreToolUse hook
-	// and the executor is in that group.
-	//
-	// It keeps the group from writing through the file, and not from replacing
-	// it: unlink is a permission on the directory.  See sharetree.Options.Keep.
+	// what these must never be, .claude/settings.json naming the PreToolUse hook.
+	// It keeps the group from writing through the file and not from replacing it,
+	// unlink being a permission on the directory.  See sharetree.Options.Keep.
 	mode os.FileMode
 	// defaultExport renders a plugin as a default-exported { id, server } rather
 	// than a named export.  The one thing the two plugin hosts disagree about.
 	defaultExport bool
-	// merge merges faramir's keys into an existing file rather than replacing
-	// it, and requires the asset to be JSON.  True for every shared config;
-	// false only where the path is faramir's own, so what is there is a previous
-	// version of the same file.
+	// merge merges faramir's keys into an existing file rather than replacing it,
+	// and requires the asset to be JSON.  True for every shared config; false
+	// only where the path is faramir's own.
 	merge bool
 }
 
@@ -246,27 +222,24 @@ var agentTargets = map[string]*agentTarget{
 	// What an enrolment leaves is a route and the prose telling it to take one:
 	// the MCP tools, and the credentials section in the two files it reads.  An
 	// agent that skips the prose runs the command itself and the value reaches
-	// the model, which is the whole of what makes this weaker than the rest.
-	//
-	// Configured anyway rather than declined, because the route is worth having
-	// where it is taken, and an agent nothing was written for is one the operator
-	// is not told about at all.  What holds the claim honest is that the reports
-	// and the docs say which half is missing.
+	// the model.  Configured anyway rather than declined, the route being worth
+	// having where it is taken, and the reports and the docs say which half is
+	// missing.
 	"antigravity": {
 		name: "antigravity",
 		files: []agentFile{
 			{path: ".agents/mcp_config.json", asset: "agent/mcp.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Nothing account-wide: its permission lists are the IDE's own state and
-		// its hooks can only decide, so there is no file an install may write here
-		// that would refuse a file tool anything.
+		// its hooks can only decide, so no file an install writes would refuse a
+		// file tool anything.
 		withoutAccountRules: "has no file an install can write rules into, its " +
 			"permission lists being the IDE's own state, so nothing on this host " +
 			"refuses its file tools key material: it is told the policy and nothing " +
 			"enforces it",
-		// The workspace and legacy customization directories, named by the files
-		// in them rather than by the directory: .agents is a name other tools may
-		// come to keep their own things under.
+		// The workspace and legacy customization directories, named by the files in
+		// them rather than by the directory: .agents is a name other tools may keep
+		// their own things under.
 		detect: []string{".agents/rules", ".agents/mcp_config.json", ".agent/rules"},
 		// Its own directories, and the customization directory the whole
 		// Antigravity family reads.
@@ -285,8 +258,7 @@ var agentTargets = map[string]*agentTarget{
 		// Nothing is approved on its behalf, there being no escalation to give.
 		autoApprovesBash: false,
 		// Said on every enrolment: what is missing here is missing for as long as
-		// the tree is enrolled, and a re-run that said nothing would read as a tree
-		// covered the way the others are.
+		// the tree is enrolled.
 		noteStands: true,
 		note: "nothing written here redacts what Antigravity runs. Its hooks decide " +
 			"and cannot rewrite a command, so the broker is a route it has to take " +
@@ -297,17 +269,13 @@ var agentTargets = map[string]*agentTarget{
 }
 
 // writeAgentFiles writes one list of an agent's files under root, and reports
-// whether it changed anything and what it wrote.
+// whether it changed anything and what it wrote.  One function for both
+// commands: `init` writes the account-wide rules into a home and `init-project`
+// the hook and the MCP registration into a tree.
 //
-// One function for both commands: `init` writes the account-wide rules into a
-// home and `init-project` the hook and the MCP registration into a tree, and
-// what differs is which list, what each file is rendered against, and who ends
-// up owning it.  Everything else was written twice, which is how the two came
-// to disagree about when to create a parent directory.
+// render is the caller's, the two rendering against different things: the
+// install layout for an account file, the target's own data for a tree's.
 //
-// render is supplied by the caller, the two having different things to render
-// against: the install layout for an account file, the target's own data for a
-// tree's.
 // inTree says which root this is.  A tree's files are group-owned so the client
 // group can read what the hook and the MCP registration are written into, and a
 // link out of the tree would carry that group to a file the enrolment was never
@@ -321,17 +289,12 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 	for _, file := range files {
 		path := filepath.Join(root, file.path)
 		// Only created, never re-owned: the directory is the account's or the
-		// project's.  With the operator's own group, not keep: `init` runs as
-		// root, so a ~/.config that does not exist yet would be created
-		// operator:root and break every other tool that keeps state there.
-		// preflight refuses to create ConfigDir's parent for the same reason.
+		// project's, and with the operator's own group, `init` running as root so a
+		// new ~/.config would otherwise be operator:root.
 		//
-		// Skipped where the file sits at the root, which has an owner already and
-		// is not this command's to assert.
-		//
-		// In a tree, every level: see ensureDirs.  In a home the leaf only, an
-		// ancestor there being ~/.config, which 0755 is right for and this
-		// command's 0700 is not.
+		// Skipped where the file sits at the root, which has an owner already.  In
+		// a tree, every level: see ensureDirs.  In a home the leaf only, an
+		// ancestor there being ~/.config, which 0755 is right for.
 		if parent := filepath.Dir(path); parent != filepath.Clean(root) {
 			ensure := func() error {
 				_, err := fs.ensureDir(parent, dirMode, uid, gid, false)
@@ -346,10 +309,9 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 				return changed, written, err
 			}
 		}
-		// A link followed, the owner checked, and nothing there left to the write
-		// below.  These are the operator's and the project's files, and both
-		// commands run as root on a path the account the agent runs as can write.
-		// See fsys.editedFile.
+		// A link followed and the owner checked: these are the operator's and the
+		// project's files, and both commands run as root on a path the account the
+		// agent runs as can write.  See fsys.editedFile.
 		bound := ""
 		if inTree {
 			bound = root
@@ -380,18 +342,15 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 			}
 			data = merged
 		}
-		// Ownership is set on a file this creates and left alone on one that is
-		// already there, editedFile having established that it is the operator's.
-		// The group is asserted either way in a tree, where the client group has
-		// to read them; in a home it decides nothing, and asserting it would be
-		// one more thing a run changes without being asked to.
-		//
-		// The mode is asserted throughout, unlike the credentials section's: these
+		// Ownership is set on a file this creates and left alone on one already
+		// there, editedFile having established that it is the operator's.  The
+		// group is asserted in a tree, where the client group has to read these;
+		// in a home it decides nothing.  The mode is asserted throughout: these
 		// carry the hook, and group-writable is what they must never be.
 		writeUID, writeGID := uid, gid
 		if spot.info != nil {
-			// Its own, read off the file: a write renames a new file over the
-			// path, so anything not named here comes out owned by root.
+			// Read off the file: a write renames a new file over the path, so
+			// anything not named here comes out owned by root.
 			ownerUID, ownerGID := ownerOf(spot.info)
 			writeUID = ownerUID
 			if !inTree {
@@ -412,17 +371,14 @@ func writeAgentFiles(fs fsys, root string, uid, gid int, dirMode os.FileMode,
 // refuseUnwritable asks, of every file a run is about to edit, the question the
 // write will ask, and answers with what it would refuse.
 //
-// Asked before anything is written, which is the rule `init` states of its own
-// preconditions: a refusal that can be put earlier belongs earlier, and these
-// can.  An enrolment's first step chowns and chmods every file in the tree and
-// nothing undoes that, so finding out afterwards that a settings file is not
-// the operator's is finding out too late.
+// Asked before anything is written: an enrolment's first step chowns and chmods
+// every file in the tree and nothing undoes that, so finding out afterwards
+// that a settings file is not the operator's is too late.
 //
 // Every path, not the first refusal: an operator fixing these wants the list.
-//
 // One call per root, and every path a run writes there in it: two of them
-// resolving to one file is a refusal, and a caller that asks in several calls
-// asks about a smaller set each time and finds fewer of them.
+// resolving to one file is a refusal, which a caller asking in several calls
+// would not find.
 func refuseUnwritable(fs fsys, root string, uid int, within string, paths []string) []string {
 	var refused []string
 	// The file each path resolves to, against the path that named it first.  A
@@ -454,15 +410,10 @@ func refuseUnwritable(fs fsys, root string, uid int, within string, paths []stri
 }
 
 // oneFileTwice is what a run says about two of its paths resolving to one file.
-//
-// Refused rather than written, and refused rather than reconciled: each of
-// these files is written for the agent that reads it, so one file standing in
-// for two carries what was meant for the other and keeps whichever was written
-// last.  What that leaves is an agent whose configuration is another agent's,
-// reported as a run that succeeded.
-//
-// Naming the path that claimed it first, since the refusal is about the pair
-// and neither half of it is wrong on its own.
+// Refused rather than reconciled: each file is written for the agent that reads
+// it, so one standing in for two keeps whichever was written last and leaves an
+// agent holding another agent's configuration.  It names the path that claimed
+// the file first, neither half of the pair being wrong on its own.
 func oneFileTwice(first string) string {
 	return "this and " + first + " are one file, and each is written for the " +
 		"agent that reads it, so nothing was written: what one holds would be " +
@@ -488,8 +439,7 @@ func editedPaths(target *agentTarget, inTree bool, instructions string) []string
 }
 
 // homeEditedPaths are the files `init` edits in a home for these agents, each
-// named once: two agents can read one instructions file, and an operator given
-// the list of what to fix does not need it twice.
+// named once: two agents can read one instructions file.
 func homeEditedPaths(targets []*agentTarget) []string {
 	var out []string
 	seen := map[string]bool{}
@@ -507,7 +457,7 @@ func homeEditedPaths(targets []*agentTarget) []string {
 
 // pluginNote is what an enrolment says about an agent that matches its bash
 // permission rules against the command text.  Whether those rules run after the
-// rewrite is documented by neither agent, so this states the symptom.
+// rewrite is undocumented, so this states the symptom.
 func pluginNote(agent string) string {
 	const wrapper = "source " + DefaultLibexecDir + "/wrap.sh"
 	return agent + " matches its bash permission rules against the command text, and the " +
@@ -523,9 +473,8 @@ func pluginNote(agent string) string {
 // pi".
 const AgentAuto = "auto"
 
-// agentScope is where auto looks for evidence.  The two commands ask the same
-// question of different places: `init` writes into the agent account's home, and
-// `init-project` into one tree.
+// agentScope is where auto looks for evidence: `init` writes into the agent
+// account's home, and `init-project` into one tree.
 type agentScope int
 
 const (
@@ -560,13 +509,9 @@ func knownAgents() []string {
 // what dir carries.  An unknown name is an error rather than a skip, which
 // would leave an operator believing something is covered.
 //
-// Naming an agent is what makes it configured whether or not it is here; auto
-// only ever adds what it finds.  So the two compose without a rule about which
-// wins: the result is the union, and an operator who wants an agent configured
-// ahead of installing it says so by name.
-//
-// Returned in a fixed order, so a report reads the same twice and a second run
-// writes the same files in the same sequence.
+// Naming an agent configures it whether or not it is here and auto only adds
+// what it finds, so the result is the union of the two.  Returned in a fixed
+// order, so a report reads the same twice.
 func resolveAgents(names []string, scope agentScope, dir string) ([]*agentTarget, error) {
 	if len(names) == 0 {
 		names = []string{AgentAuto}
@@ -594,13 +539,10 @@ func resolveAgents(names []string, scope agentScope, dir string) ([]*agentTarget
 	return out, nil
 }
 
-// detectAgents reports which known agents dir carries evidence of, in the sense
-// the scope means: an agent's own configuration in a home, or its per-project
-// configuration in a tree.
-//
-// Evidence, not proof.  A directory left behind by trying an agent once reads
-// the same as one in daily use, which is why naming an agent is what configures
-// it unconditionally and this only ever adds.
+// detectAgents reports which known agents dir carries evidence of: an agent's
+// own configuration in a home, or its per-project configuration in a tree.
+// Evidence, not proof -- a directory left behind by trying an agent once reads
+// the same as one in daily use -- which is why this only ever adds.
 func detectAgents(scope agentScope, dir string) []string {
 	if dir == "" {
 		return nil

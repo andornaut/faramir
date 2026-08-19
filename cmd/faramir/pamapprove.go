@@ -3,16 +3,14 @@ package main
 // faramir pam-approve: the authentication step of faramir's own PAM service.
 //
 // sudo execs this, as root, and reads nothing from it but the exit status: zero
-// authenticates the call, anything else refuses it.  So every path here fails
-// closed.  There is no password involved anywhere: what it does is ask the
-// broker whether the brokered command making this call was approved by a human,
-// which is why an escalation cannot be carried to a later command: there is
-// nothing to carry.
+// authenticates the call, anything else refuses it, so every path here fails
+// closed.  No password is involved: it asks the broker whether the brokered
+// command making this call was approved by a human, which is why an escalation
+// cannot be carried to a later command.
 //
 // It finds which command is asking by walking /proc up from sudo until it meets
 // a process holding FARAMIR_ESCALATION_TOKEN.  PAM does not pass the caller's
-// environment to a module, and it does not have to: this runs as root and the
-// ancestry is right there.
+// environment to a module, and it does not have to: this runs as root.
 
 import (
 	"bytes"
@@ -31,25 +29,21 @@ import (
 	"github.com/andornaut/faramir/internal/escalation"
 )
 
-// maxAncestors bounds the walk.  A brokered command's tree is a handful deep
-// (sudo, a shell, ansible, the command), and a cycle in /proc would otherwise
-// spin.
+// maxAncestors bounds the walk: a brokered command's tree is a handful deep,
+// and a cycle in /proc would otherwise spin.
 const maxAncestors = 32
 
-// cmdPamApprove runs pam-approve on its own, which is how the tests reach it.
+// cmdPamApprove runs pam-approve on its own, which is how the tests reach
+// it.
 func cmdPamApprove(args []string) int { return runPamApproveCommand(args) }
 
-// runPamApproveCommand applies the rule that nothing but a real escalation exits
-// 0.  PAM reads the status, so success here is an auth pass: --help and a
-// usage error both leave cobra with 0, and 0 is the one thing this helper must
-// never say without an escalation behind it.  The status is therefore taken from
-// whether an escalation actually happened, not from how the command returned.
-// Neither is reachable through the installed stack, whose argv is fixed, but
-// both are closed anyway.
+// runPamApproveCommand applies the rule that nothing but a real escalation
+// exits 0.  PAM reads the status as an auth pass, and --help and a usage error
+// both leave cobra with 0, so the status is taken from whether an escalation
+// happened rather than from how the command returned.
 //
 // Every caller goes through here: the root registers a command that forwards
-// its arguments untouched rather than parsing them itself, so there is one
-// path and one place the rule lives.
+// its arguments untouched, so there is one path and one place the rule lives.
 func runPamApproveCommand(args []string) int {
 	granted := false
 	code := runCommand(newPamApproveCmd(&granted), args)
@@ -90,9 +84,9 @@ func newPamApproveCmd(granted *bool) *cobra.Command {
 func pamSocket() string { return defaultSocket }
 
 func runPamApprove(f pamApproveFlags, granted *bool) int {
-	// PAM_TYPE and PAM_USER come from pam_exec.  Checked, so a service file that
-	// somebody pointed at another account, or at the account stage rather than
-	// auth, cannot authenticate anything.
+	// PAM_TYPE and PAM_USER come from pam_exec.  Checked, so a service file
+	// pointed at another account, or at the account stage rather than auth,
+	// cannot authenticate anything.
 	if kind := os.Getenv("PAM_TYPE"); kind != "auth" {
 		fmt.Fprintf(os.Stderr, "faramir pam-approve: PAM_TYPE is %q; this decides "+
 			"authentication and nothing else\n", kind)
@@ -106,9 +100,8 @@ func runPamApprove(f pamApproveFlags, granted *bool) int {
 
 	token := findToken()
 	if token == "" {
-		// Nothing above this call is a brokered command, so there is no run to
-		// approve and nobody to ask about.  This is what a `sudo` typed by hand as
-		// the executor's account looks like.
+		// Nothing above this call is a brokered command, which is what a `sudo`
+		// typed by hand as the executor's account looks like.
 		fmt.Fprintln(os.Stderr, "faramir pam-approve: this is not a brokered command, "+
 			"so there is nothing for the broker to approve")
 		return 1
@@ -129,8 +122,7 @@ func runPamApprove(f pamApproveFlags, granted *bool) int {
 // findToken walks up from this process until it meets one holding the token a
 // brokered command carries.  Root reads any /proc/<pid>/environ, which is one
 // of the two reasons the PAM service runs this with seteuid; the other is that
-// the broker answers the escalate op to root alone, so as the executor's own uid
-// this would be refused and no escalation on the host would work.
+// the broker answers the escalate op to root alone.
 func findToken() string {
 	pid := os.Getppid()
 	for range maxAncestors {
@@ -162,9 +154,9 @@ func tokenOf(pid int) string {
 	return ""
 }
 
-// parentOf reads the ppid out of /proc/<pid>/stat.  The fields before it can
-// contain spaces and parentheses (the executable name is field two, in
-// brackets), so the scan starts after the last ')'.
+// parentOf reads the ppid out of /proc/<pid>/stat.  The executable name is
+// field two, in brackets, and can hold spaces and parentheses, so the scan
+// starts after the last ')'.
 func parentOf(pid int) (int, bool) {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
 	if err != nil {
@@ -186,9 +178,9 @@ func parentOf(pid int) (int, bool) {
 	return parent, true
 }
 
-// askBrokerToApprove puts the question and waits for the answer, which is a
-// human's.  No deadline of its own: the broker holds the question for [escalation]
-// timeout_sec and refuses it after that, so a wait here always ends.
+// askBrokerToApprove puts the question and waits for a human's answer.  No
+// deadline of its own: the broker holds the question for [escalation]
+// timeout_sec and refuses it after that.
 func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 	line, err := roundTrip(socketPath, map[string]any{"op": "escalate", "token": token}, escalationWait)
 	if err != nil {
@@ -210,25 +202,17 @@ func askBrokerToApprove(socketPath, token string) (bool, string, error) {
 	return response.Approved, response.Reason, nil
 }
 
-// escalationWait is the ceiling on one question: the broker is what decides when
-// to give up, and this only stops a lost connection from holding sudo open for
+// escalationWait is the ceiling on one question: the broker decides when to
+// give up, and this only stops a lost connection from holding sudo open for
 // ever.
 //
-// Derived rather than picked, and that is the whole point of it.  Two rules pull
-// in opposite directions.  It must outlast any question the broker will hold,
-// or the helper gives up on a question still open and the operator's yes lands
-// on a sudo that has already gone; and it must be short, because until it fires
-// sudo is blocked, the run holds its slot, and the host refuses every other
-// brokered command.  A constant chosen by hand satisfies the first by being
-// absurd about the second: a value long enough to outlast every question the
-// broker might hold is the same value a broker that died without closing the
-// socket holds a sudo open for.
-//
-// So it is [escalation] timeout_sec's own ceiling plus a margin for the round trip.
-// The helper cannot read the config (PAM gives it no environment and its argv
-// is fixed at install time), and config.MaxSudoTimeoutSec is what makes reading
-// it unnecessary: the broker refuses to load a longer timeout, so the broker
-// always decides first and this never fires on a question that is still alive.
+// Derived rather than picked.  It must outlast any question the broker will
+// hold, or the helper gives up on a question still open and the operator's yes
+// lands on a sudo that has gone; and it must be short, because until it fires
+// sudo is blocked and the host refuses every other brokered command.  So it is
+// [escalation] timeout_sec's own ceiling plus a margin for the round trip: the
+// helper cannot read the config, and the broker refuses to load a longer
+// timeout, so the broker always decides first.
 const escalationMarginSec = 30
 
 var escalationWait = time.Duration(config.MaxSudoTimeoutSec+escalationMarginSec) * time.Second

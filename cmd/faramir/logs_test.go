@@ -59,7 +59,7 @@ func TestTailRecordsParsesOnlyWhatItWillShow(t *testing.T) {
 		lines = append(lines, fmt.Sprintf(`{"log_id":"id-%02d","op":"run"}`, i))
 	}
 	// A line in the part that is skipped, which would fail to parse if it were
-	// read: reaching it at all is the regression.
+	// read: reaching it at all is the failure.
 	lines[10] = `{"log_id":"unparseable","op":`
 	path := writeLog(t, lines...)
 
@@ -542,8 +542,8 @@ func TestSummariseReportsWhatRanAndHowItEnded(t *testing.T) {
 	line := summarise(rec(t, `{"log_id":"w5vq7dbf00a91f","op":"run",`+
 		`"cmd":["ansible-playbook","msmtp.yml"],"exit_code":0,"duration_sec":1.5,`+
 		`"redactions":[{"token":"«SECRET:a»","count":2}]}`), plain(t))
-	// The whole id, which is what a lookup takes: asserting on its tail would pass
-	// a row that printed only that, which is what this column used to do.
+	// The whole id, which is what a lookup takes: asserting on its tail would
+	// pass a row that printed only the tail.
 	for _, want := range []string{"w5vq7dbf00a91f", "run", "exit 0", "1.50s", "2 redacted",
 		"ansible-playbook msmtp.yml"} {
 		if !strings.Contains(line, want) {
@@ -744,14 +744,10 @@ func TestSummariseKeepsTheColumnsApartForALongOp(t *testing.T) {
 	}
 }
 
-// opWidth is a number somebody has to keep true, and the case above only proves
-// one name fits.  pad appends a space to anything already at the width, so an op
-// as wide as its column runs into the next one and every column after it shifts.
-//
-// This reader is pointed at a file rather than linked to the daemon, which is
-// why logs.go names the ops it renders instead of importing them.  A test is
-// where the two are allowed to meet: it fails when an op is added that the
-// column cannot hold, which is the moment the constant needs raising.
+// opWidth is a number somebody has to keep true, and the case above proves only
+// that one name fits: pad appends a space to anything already at the width, so
+// an op as wide as its column shifts every column after it.  logs.go names the
+// ops it renders rather than importing them, and this is where the two meet.
 func TestEveryOpFitsTheColumn(t *testing.T) {
 	ops := append([]string{opRunStarted, opAdd, opEdit, opRemove, opReseal, opRecipient},
 		protocol.Ops...)

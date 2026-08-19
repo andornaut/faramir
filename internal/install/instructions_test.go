@@ -461,14 +461,10 @@ func TestInitKeepsTheOperatorsOwnProseInTheirHomeFile(t *testing.T) {
 	}
 }
 
-// A home file this cannot bring up to date fails the run.  What these files
-// carry is the policy an agent is held to, so a run that reports success having
-// failed to update one leaves an operator believing a host says something it
-// does not.
-//
-// The file is left exactly as it is either way: where the block stops cannot be
-// read off it, and rewriting past the wrong point takes somebody's prose with
-// it.
+// A home file this cannot bring up to date fails the run: these files carry the
+// policy an agent is held to, so reporting success would leave an operator
+// believing a host says something it does not.  The file is left exactly as it
+// is, where the block stops not being readable off it.
 func TestInitFailsOnAHomeFileItCannotBringUpToDate(t *testing.T) {
 	home := t.TempDir()
 	path := filepath.Join(home, agentTargets["claude"].homeInstructions)
@@ -566,11 +562,10 @@ func TestEveryHomeInstructionsPathIsRelativeToTheHome(t *testing.T) {
 }
 
 // What the home section claims about the deny rules has to be true of the agent
-// it is written for.  Three get rules in the home that refuse their file tools
-// wherever they work; pi gets none, its rules being compiled into the extension
-// an enrolment installs, and Antigravity has nothing that refuses a file tool
-// anything.  An agent told it is refused everywhere, and finding it is not, has
-// no reason to believe the next claim.
+// it is written for: pi's are compiled into the extension an enrolment
+// installs, and Antigravity has nothing that refuses a file tool anything.  An
+// agent told it is refused everywhere, and finding it is not, has no reason to
+// believe the next claim.
 func TestTheHomeSectionClaimsOnlyWhatTheAgentHas(t *testing.T) {
 	const everywhere = "wherever you are working"
 	seen := map[bool]int{}
@@ -868,13 +863,10 @@ func TestInitWritesEveryOtherAgentBeforeFailingOnOne(t *testing.T) {
 	}
 }
 
-// Two agents whose files are one file are refused, and named as a pair.
-//
-// A link is the ordinary way to get one: an operator keeping a single global
-// instructions file for every agent points ~/.gemini/GEMINI.md, which is
-// Antigravity's, at ~/.claude/CLAUDE.md.  Written, the second section would
-// replace the first in the one file both agents read, and the run would report
-// success.
+// Two agents whose files are one file are refused, and named as a pair.  A link
+// is the ordinary way to get one, an operator keeping a single global
+// instructions file for every agent; written, the second section would replace
+// the first and the run would report success.
 func TestInitRefusesTwoAgentFilesThatAreOneFile(t *testing.T) {
 	home := t.TempDir()
 	claude := filepath.Join(home, ".claude", "CLAUDE.md")
@@ -1139,13 +1131,10 @@ func TestAFollowedLinkKeepsTheTempAndRename(t *testing.T) {
 	}
 }
 
-// The bound is on the directory, not the file.  Lstat declines to follow only
+// The bound is on the directory, not the file: Lstat declines to follow only
 // the last component, so a symlinked parent would carry the write out of the
-// tree before the leaf is ever looked at, and the tree's group and mode would
-// land on a file the enrolment was never pointed at.
-//
-// Refused at the directory rather than at the file: what a run reaches first is
-// the level it would have created.
+// tree before the leaf is looked at.  Refused at the directory, which is the
+// level a run reaches first.
 func TestASymlinkedParentCannotCarryTheWriteOutOfTheTree(t *testing.T) {
 	outside := t.TempDir()
 	const before = "{}\n"

@@ -197,12 +197,10 @@ func TestThePamHelperExecsTheInstalledBinary(t *testing.T) {
 }
 
 // nnpImplied are the directives systemd documents as turning NoNewPrivileges=
-// on whatever the unit says, because each installs a seccomp filter and a
-// filter without CAP_SYS_ADMIN requires NNP.  With NNP on, sudo is inert.
-//
-// Written out rather than grepped for, because this is the check that the
-// granting unit's NoNewPrivileges=false is not quietly overridden: keeping any
-// one of these does not harden the unit, it turns the feature off.
+// on whatever the unit says, each installing a seccomp filter, and a filter
+// without CAP_SYS_ADMIN requires NNP.  With NNP on, sudo is inert, so keeping
+// any one of these does not harden the granting unit but turns the feature
+// off.
 var nnpImplied = []string{
 	"DynamicUser",
 	"LockPersonality",
@@ -386,13 +384,10 @@ func TestNotifyCommandIsRenderedAndLoadsBack(t *testing.T) {
 	}
 }
 
-// An argument the operator wrote reaches a TOML file, and a file the loader
-// cannot parse is a broker that will not start.  The quoting is the renderer's
-// rather than each template's, so this holds it to surviving the round trip.
-//
-// TOML takes a shorter set of escapes than Go: \a and \v are rejected rather
-// than misread, so a renderer using strconv.Quote writes a file the loader
-// refuses for an argument a shell hands over without complaint.
+// An argument the operator wrote reaches a TOML file, and one the loader cannot
+// parse is a broker that will not start.  TOML takes a shorter set of escapes
+// than Go, rejecting \a and \v rather than misreading them, so this holds the
+// renderer's quoting to surviving the round trip.
 func TestNotifyCommandSurvivesQuotingItsArguments(t *testing.T) {
 	for _, awkward := range []string{
 		"it said \"{prompt}\" \\ here",

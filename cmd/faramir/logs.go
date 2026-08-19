@@ -3,20 +3,15 @@ package main
 // faramir logs: read the audit log without having to remember where it is.
 //
 // Root only, and not brokered: the log is 0600 faramir-broker, and serving it
-// over the broker socket would hand it to the group the agent runs as.
+// over the broker socket would hand it to the group the agent runs as.  It
+// holds no secret value -- output was recorded after redaction, refs are names,
+// nothing is substituted into argv -- so this prints what it finds.
 //
-// It holds no secret value (output was recorded after redaction, refs are names,
-// and nothing is substituted into argv), so this prints what it finds.
-//
-// Which file it reads is the config's to say, through [audit] log_path, and
-// there is no flag naming another: a reader pointed at a path by hand is a
-// typo away from reporting a host as quiet, and --watch would wait on that
-// path for ever.  --config and FARAMIR_CONFIG move it, and both name a file
-// that has to exist.  Rotated files are not read; name one to zless.
-//
-// --watch is the one place rotation is followed rather than ignored: a watcher
-// left running across a logrotate run reopens the path and carries on, and one
-// started before the first brokered command waits for the log to be created.
+// [audit] log_path says which file, and there is no flag naming another: a
+// reader pointed at a path by hand is a typo away from reporting a host as
+// quiet.  --config and FARAMIR_CONFIG move it.  Rotated files are not read;
+// name one to zless.  --watch is the one place rotation is followed: a watcher
+// left running across a logrotate run reopens the path and carries on.
 
 import (
 	"bufio"
@@ -45,12 +40,9 @@ import (
 // is asked for by log_id.
 const defaultLogCount = 20
 
-// watchPoll is how often a watcher looks for what has been appended.  Records
-// arrive when a brokered command starts and again when it ends, so this is a
-// human's idea of "as it happens" rather than a rate anything depends on: an
-// interval short enough that a row follows the command that wrote it, and long
-// enough that a terminal left open overnight is not a stat per hundredth of a
-// second.
+// watchPoll is how often a watcher looks for what has been appended: short
+// enough that a row follows the command that wrote it, long enough that a
+// terminal left open overnight is not a stat per hundredth of a second.
 const watchPoll = 500 * time.Millisecond
 
 type logsFlags struct {
@@ -85,19 +77,16 @@ func runLogs(f logsFlags, args []string) int {
 		return 2
 	}
 
-	// A log-id names a command already recorded, and this prints what is known of
-	// it and returns; a command that printed that and then sat there would look
-	// like it had hung.
-	// Refused here rather than below the root check, so the answer is the same
-	// whoever typed it.
+	// A log-id names a command already recorded, so there is nothing to watch for.
+	// Refused before the root check, so the answer is the same whoever typed it.
 	if f.watch && firstArg(args) != "" {
 		fmt.Fprintln(os.Stderr, "faramir logs: --watch prints records as they arrive, "+
 			"so it takes no log-id. Drop one or the other")
 		return 2
 	}
 
-	// Refused rather than attempted: otherwise a bare permission error on a
-	// path the caller did not name.
+	// Refused rather than attempted: otherwise a bare permission error on a path
+	// the caller did not name.
 	if !requireRoot("logs", "the audit log is readable only by the broker and by root") {
 		return 1
 	}
@@ -159,9 +148,8 @@ func runLogs(f logsFlags, args []string) int {
 }
 
 // logPrinter is the listing's rows and the date header above the first row of
-// each day.  The header is once per day rather than on every line, which would
-// crowd out the columns that differ, and the day it last printed is state: a
-// watcher left running prints a new header when the day turns under it.
+// each day.  The day it last printed is state, so a watcher left running prints
+// a new header when the day turns under it.
 type logPrinter struct {
 	paint palette
 	day   string
@@ -177,11 +165,9 @@ func (p *logPrinter) row(record map[string]any) {
 
 // runWatch prints the last count records and then the records appended after
 // them, until it is interrupted.  It returns only on an error it cannot read
-// past: there is no end to a log that is still being written.
-//
-// One reader throughout, positioned at the end of the file the backlog was read
-// from, so a record written while the backlog is being printed is shown once
-// rather than twice or not at all.
+// past.  One reader throughout, positioned at the end of the file the backlog
+// was read from, so a record written while the backlog is printing is shown
+// once rather than twice or not at all.
 func runWatch(path string, f logsFlags, paint palette) int {
 	follow, err := openFollower(path)
 	if err != nil {
@@ -192,10 +178,8 @@ func runWatch(path string, f logsFlags, paint palette) int {
 
 	printer := logPrinter{paint: paint}
 	skipped := 0
-	// A record on the way past.  --json prints one value per record rather than the
-	// array the listing prints: there is no last record to close an array after, and
-	// a stream of values is what a decoder reading stdout can consume as they
-	// arrive.
+	// A record on the way past.  --json prints one value per record rather than
+	// the listing's array: there is no last record to close an array after.
 	emit := func(line []byte) {
 		record, lost := parseLine(line)
 		switch {
@@ -210,8 +194,8 @@ func runWatch(path string, f logsFlags, paint palette) int {
 		}
 	}
 
-	// The backlog, read through the same reader: what is already in the log, kept
-	// as bytes and parsed at the end, exactly as the listing does it.
+	// The backlog, read through the same reader: kept as bytes and parsed at the
+	// end, as the listing does it.
 	backlog := newLineRing(f.count)
 	if err := follow.drain(backlog.add); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
@@ -220,9 +204,8 @@ func runWatch(path string, f logsFlags, paint palette) int {
 	records, lost := parseLines(backlog.ordered())
 	reportSkipped(path, lost)
 	// Said only where the count asked for records: `--watch -n 0` asked for the
-	// arriving ones alone, and emptyReason's advice would be an answer to a
-	// question nobody put.  A log that is not there yet is its own answer, and
-	// not the listing's: this waits for it rather than reporting it.
+	// arriving ones alone.  A log that is not there yet is its own answer, this
+	// waiting for it rather than reporting it as empty.
 	switch {
 	case !follow.following():
 		fmt.Fprintf(os.Stderr, "no audit log at %s yet: nothing has been brokered "+
@@ -245,7 +228,7 @@ func runWatch(path string, f logsFlags, paint palette) int {
 			return 1
 		}
 		// Per pass rather than per line: a run of lines that will not parse is one
-		// report, and the count is what makes it a report worth reading.
+		// report.
 		reportSkipped(path, skipped)
 		skipped = 0
 
@@ -257,25 +240,22 @@ func runWatch(path string, f logsFlags, paint palette) int {
 		if rotated {
 			switch err := follow.reopen(); {
 			case err == nil:
-				// Straight round again rather than waiting a poll: the file at the path is
-				// a new one, read from its start.
+				// Straight round again rather than waiting a poll: the file at the path
+				// is a new one, read from its start.
 				continue
 			case !os.IsNotExist(err):
 				fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 				return 1
 			}
-			// The file went between the stat and the open, so the follower is detached
-			// and reads nothing until one is back at the path.  A pass that finds one
-			// reports a rotation again and reopens onto it.
+			// The file went between the stat and the open, so the follower is
+			// detached and reads nothing until one is back at the path.
 		}
 		time.Sleep(watchPoll)
 	}
 }
 
 // printJSON writes a record, or a list of them, to stdout as indented JSON: the
-// machine-readable form of what the text listing shows.  The fields hold no
-// secret value (output was recorded after redaction, refs are names, nothing is
-// substituted into argv), which is why logs prints what it finds.
+// machine-readable form of what the text listing shows.
 func printJSON(v any) int {
 	body, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
@@ -288,14 +268,8 @@ func printJSON(v any) int {
 
 // scanAuditLog calls visit with each line of the log, in order, and stops early
 // when visit returns false.  It holds one line at a time, so what it costs is
-// the largest record rather than the file: the record cap bounds a
-// line at the writer, which is the only place that can bound it.
-//
-// No ceiling on a line's length here, and none is needed.  A ceiling in a reader
-// is a size the agent picks -- a record carries its command's output, and '<',
-// '>', '&' and every C0 control cost six bytes apiece once encoded -- and
-// exceeding it would not lose one record: the read would stop there, withholding
-// every record before and after it too.
+// the largest record rather than the file; the record cap bounds a line at the
+// writer, which is the only place that can bound it.
 //
 // visit is handed the line with its newline where it had one.  A line with none
 // is the last, caught midway through an append.
@@ -321,9 +295,9 @@ func scanAuditLog(path string, visit func(line []byte) bool) error {
 	}
 }
 
-// openAuditLog is the log, with the missing-file case named: every caller of
-// this is examining an install, and "no such file" alone reads as a path typo
-// rather than as a host where nothing has been brokered.
+// openAuditLog is the log, with the missing-file case named: "no such file"
+// alone reads as a path typo rather than as a host where nothing has been
+// brokered.
 func openAuditLog(path string) (*os.File, error) {
 	fh, err := os.Open(path)
 	if err != nil && os.IsNotExist(err) {
@@ -334,7 +308,7 @@ func openAuditLog(path string) (*os.File, error) {
 
 // missingLog is that message on its own, for a caller that opens the log itself
 // because it has to tell "not there" from every other reason a file will not
-// open: os.IsNotExist does not survive being rewritten into a sentence.
+// open.
 func missingLog(path string) error {
 	return fmt.Errorf("no audit log at %s. Nothing has been brokered on "+
 		"this host, or [audit] log_path names somewhere else", path)
@@ -342,12 +316,10 @@ func missingLog(path string) error {
 
 // parseLine is one line as a record, and whether losing it means a record was
 // lost.  The one unparseable line that is not evidence of a loss is the last,
-// with no newline on the end: nothing finished writing it.  A line that ends
-// properly and will not parse is a record gone.
+// with no newline on the end: nothing finished writing it.
 //
-// A nil record counts as lost too.  "null" is valid JSON and unmarshals into a
-// map without error, leaving it nil, so testing the error alone drops that line
-// silently: the one line this reader would neither show nor count.
+// A nil record counts as lost too: "null" unmarshals into a map without error,
+// leaving it nil, so testing the error alone would drop that line silently.
 func parseLine(line []byte) (record map[string]any, lost bool) {
 	if err := json.Unmarshal(line, &record); err != nil || record == nil {
 		return nil, bytes.HasSuffix(line, []byte("\n"))
@@ -355,10 +327,9 @@ func parseLine(line []byte) (record map[string]any, lost bool) {
 	return record, false
 }
 
-// ringCapMax bounds what the ring is sized to up front.  --count is a number the
-// caller names and the flag accepts any int, so sizing to it costs a slice
-// header times that number before a single line has been read; the ring grows to
-// what the log actually holds instead.
+// ringCapMax bounds what the ring is sized to up front: --count accepts any
+// int, so sizing to it would cost a slice header times that number before a
+// line has been read.  The ring grows to what the log actually holds.
 const ringCapMax = 1024
 
 func ringCap(count int) int { return min(count, ringCapMax) }
@@ -417,17 +388,13 @@ func parseLines(lines [][]byte) ([]map[string]any, int) {
 	return records, skipped
 }
 
-// tailRecords is the last count records, parsed.
+// tailRecords is the last count records, parsed.  The last count lines are kept
+// as bytes and parsed at the end, so what this holds is bounded by what was
+// asked for rather than by how long the log is.
 //
-// The last count *lines* are kept as bytes and parsed at the end, so what this
-// holds is bounded by what was asked for rather than by how long the log is.
-// Scanning bytes is cheap and bounded; parsing every record to throw all but
-// twenty away is what is not, and costs the whole log on one an agent has grown.
-//
-// A count of zero or less asks for nothing and gets nothing: treating it as "no
-// limit" would print the whole log to somebody who asked for none of it.  The
-// log is still opened, so a host with no log at all says so rather than
-// reporting the count the caller passed as an empty log.
+// A count of zero or less asks for nothing and gets nothing.  The log is still
+// opened, so a host with no log at all says so rather than reporting an empty
+// listing.
 func tailRecords(path string, count int) ([]map[string]any, int, error) {
 	if count <= 0 {
 		fh, err := openAuditLog(path)
@@ -449,18 +416,15 @@ func tailRecords(path string, count int) ([]map[string]any, int, error) {
 }
 
 // follower reads a log that is still being written.  It holds the reader open
-// between passes, so what it costs on a quiet host is a stat per poll rather
-// than a re-read of the file.
+// between passes, so a quiet host costs a stat per poll rather than a re-read.
 //
 // Complete lines only: a record still being appended is held until its newline
-// arrives.  scanAuditLog does the opposite -- it hands the last line over
-// whether or not it ends -- because a listing is a reading of a file as it
-// stands, while a watcher is going to see the rest of that line in a moment.
+// arrives, where scanAuditLog hands the last line over whether or not it ends.
 //
-// A follower with no file is a state rather than a failure: the path holds
-// none between logrotate's rename and the next record, and none at all on a
-// host where nothing has been brokered yet.  Detached, it reads nothing and
-// reports no rotation until a file is there, and the next pass attaches to it.
+// A follower with no file is a state rather than a failure: the path holds none
+// between logrotate's rename and the next record, and none at all on a host
+// where nothing has been brokered yet.  Detached, it reads nothing and reports
+// no rotation until a file is there.
 type follower struct {
 	path    string
 	fh      *os.File
@@ -480,12 +444,10 @@ func openFollower(path string) (*follower, error) {
 	return f, nil
 }
 
-// open is the raw error, not openAuditLog's sentence: the caller has to tell a
-// path with no file at it from a path that cannot be opened at all, and the
-// first of those is a pass to wait rather than a failure.
-//
-// Every field is cleared first, so a failure leaves a detached follower rather
-// than one still holding the reader it just closed.
+// open returns the raw error, not openAuditLog's sentence: the caller has to
+// tell a path with no file at it, which is a pass to wait, from one that cannot
+// be opened at all.  Every field is cleared first, so a failure leaves a
+// detached follower rather than one holding a closed reader.
 func (f *follower) open() error {
 	f.fh, f.reader, f.info = nil, nil, nil
 	f.pending, f.offset = nil, 0
@@ -507,9 +469,8 @@ func (f *follower) open() error {
 func (f *follower) following() bool { return f.reader != nil }
 
 // reopen is the file the path names now, read from its start.  The half-written
-// line held from the file before it is dropped with it: it belongs to a record
-// that is in the rotated file, and pasting it onto the first line of the new one
-// would make a line that is neither.
+// line held from the file before is dropped with it: it belongs to a record in
+// the rotated file.
 func (f *follower) reopen() error {
 	f.close()
 	return f.open()
@@ -522,11 +483,9 @@ func (f *follower) close() {
 }
 
 // drain calls visit with each line completed since the last pass, and returns
-// when it reaches the end of what has been written.  Blank lines are skipped, as
-// in scanAuditLog: they carry no record either way.
-//
-// Nothing to read while detached, which is not an error: the caller polls on,
-// and rotated() is what says a file has appeared.
+// when it reaches the end of what has been written.  Blank lines are skipped,
+// as in scanAuditLog.  Nothing to read while detached, which is not an error:
+// rotated() is what says a file has appeared.
 func (f *follower) drain(visit func(line []byte)) error {
 	if !f.following() {
 		return nil
@@ -549,23 +508,14 @@ func (f *follower) drain(visit func(line []byte)) error {
 	}
 }
 
-// rotated is whether the file being read is no longer the log.
-//
-// Two ways it stops being the log.  logrotate's rule renames it and the broker
-// creates the next one by writing a record, so the path comes to name a
-// different file; and anything that empties the log in place leaves the same
-// file shorter than what has already been read.  Either way the reader is on a
-// file nothing will append to again, and every record written from here lands
-// somewhere it is not looking.
+// rotated is whether the file being read is no longer the log: logrotate
+// renamed it and the path now names a different file, or something emptied it
+// in place and it is shorter than what has already been read.
 //
 // A path with nothing at it is neither: that is the gap between logrotate's
-// rename and the next record, and the file it is reading is still the one those
-// records were written to.
-//
-// A file at a path a detached follower holds counts, which is what attaches it:
-// os.SameFile is false against the nil info of a follower that has none, so the
-// first record written on a host where nothing had been brokered reads as a
-// rotation and the caller reopens onto it.
+// rename and the next record.  A file at a path a detached follower holds
+// counts, os.SameFile being false against its nil info, which is what attaches
+// the follower to the first log a host ever writes.
 func (f *follower) rotated() (bool, error) {
 	info, err := os.Stat(f.path)
 	if err != nil {
@@ -577,16 +527,14 @@ func (f *follower) rotated() (bool, error) {
 	return !os.SameFile(info, f.info) || info.Size() < f.offset, nil
 }
 
-// findRecord is the last record whose id matches, or nil.  It parses one line at
-// a time and keeps only the match, so looking a record up costs the same on a
-// log of any length.
+// findRecord is the last record whose id matches, or nil.  It parses one line
+// at a time and keeps only the match, so a lookup costs the same on a log of
+// any length.
 //
-// The last rather than the first, because an exec writes a pair sharing one
-// log_id: the record when the child starts, and the record when it ends.  The
-// last is the one that answers what was asked, an ending where there is one and
-// the start where the command is still running.  A log_id is distinct by
-// construction (see audit.NewLogID), so the pair is the only reason there is
-// ever more than one.
+// The last rather than the first, because a run writes a pair sharing one
+// log_id: an ending where there is one, and the start where the command is
+// still running.  A log_id is distinct by construction (see audit.NewLogID), so
+// the pair is the only reason there is ever more than one.
 func findRecord(path, id string) (map[string]any, int, error) {
 	var found map[string]any
 	skipped := 0
@@ -600,20 +548,17 @@ func findRecord(path, id string) (map[string]any, int, error) {
 		}
 		found = record
 		// Stopped at the ending, which is the last of the pair: reading on would
-		// cost a scan of the whole file for a record already in hand, and would
-		// count damage past it as damage in the way of this lookup.  A start half
-		// is not the end of the pair, so that one reads on.
+		// scan the whole file for a record already in hand.  A start half is not
+		// the end of the pair, so that one reads on.
 		return str(record, "op") == opRunStarted
 	})
 	return found, skipped, err
 }
 
-// reportSkipped says what was not shown.  Swallowing it would be the worse
-// failure: a listing that looks complete when a record is missing from it is a
-// listing that answers the question wrongly, and this file exists to answer that
-// question.  Since internal/audit takes back a short write, a line that will not
-// parse now means the log was written by something else, or damaged after the
-// fact.
+// reportSkipped says what was not shown: a listing that looks complete when a
+// record is missing from it answers the question wrongly.  internal/audit takes
+// back a short write, so a line that will not parse was written by something
+// else or damaged after the fact.
 func reportSkipped(path string, skipped int) {
 	if skipped == 0 {
 		return
@@ -625,10 +570,8 @@ func reportSkipped(path string, skipped int) {
 }
 
 // emptyReason is why the listing is empty.  A count that asked for nothing and
-// a log that holds nothing are different answers, and one message for both
-// reports the state of the host to somebody who typed -n 0: the log named there
-// may be full of records.  An absent log is neither, and is reported before
-// this by tailRecords opening it whatever the count was.
+// a log that holds nothing are different answers.  An absent log is neither,
+// and tailRecords reports it by opening the file whatever the count was.
 func emptyReason(path string, count int) string {
 	if count <= 0 {
 		return fmt.Sprintf("--count %d asks for no records. Pass a positive count to "+
@@ -637,19 +580,14 @@ func emptyReason(path string, count int) string {
 	return path + " holds no records to show"
 }
 
-// logIDWidth is what audit.NewLogID mints plus the separating space.  Sized past
-// the id rather than to it, for the reason opWidth is: pad appends a space to
-// anything already at the width, so a column exactly as wide as its content puts
-// every following column of that row somewhere else.
+// logIDWidth is what audit.NewLogID mints plus the separating space, sized past
+// the id rather than to it; see opWidth.
 const logIDWidth = 15
 
-// opWidth is the longest op the broker writes, `escalations` and `run_started`
-// at eleven, plus the separating space.  Sized past the longest rather than to
-// it: pad appends a single space to anything already at the width, so a column
-// exactly as wide as its longest value renders that value one character wider
-// than every other row and puts every following column of that row somewhere
-// else.  A listing whose columns move from row to row has to be read a row at a
-// time.
+// opWidth is the longest op recorded, `run_started` at eleven, plus the
+// separating space.  Sized past the longest rather than to it: pad appends a
+// space to anything already at the width, so a column exactly as wide as its
+// longest value puts every following column of that row somewhere else.
 const opWidth = 12
 
 // opRunStarted is the first half of the pair a run writes, and the one record
@@ -657,9 +595,7 @@ const opWidth = 12
 // this reader is pointed at a file, not linked to the daemon.
 const opRunStarted = "run_started"
 
-// opEdit and opReseal are the two records this binary writes itself rather than
-// reads from a daemon.  Named beside the ops it renders so that one place holds
-// every op the column has to fit.
+// opEdit and opReseal are what the edit and reseal commands record.
 const (
 	opEdit   = "edit"
 	opReseal = "reseal"
@@ -667,7 +603,7 @@ const (
 
 // summarise is one record on one line: when, what, how it ended, how many
 // values it touched, and the id to ask for the rest.  The id is printed whole,
-// there being no other form of it, and is what a lookup takes.
+// which is what a lookup takes.
 func summarise(record map[string]any, paint palette) string {
 	var b strings.Builder
 	b.WriteString(paint.dim(pad(str(record, "log_id"), logIDWidth)))
@@ -713,10 +649,8 @@ func paintOutcome(record map[string]any, paint palette) string {
 }
 
 // answerLabel is how a question's ending reads in the listing's column, or the
-// code itself where this reader does not know it.  The code rather than a blank
-// or an "unknown": a log written by a newer broker is read by whatever version
-// is installed, and a row that says nothing about how a question ended is the
-// one thing this column must not print.
+// code itself where this reader does not know it: a log written by a newer
+// broker is read by whatever version is installed.
 func answerLabel(code string) string {
 	labels := map[string]string{
 		escalation.CodeApproved:      "approved",
@@ -739,14 +673,11 @@ func answerLabel(code string) string {
 // outcome is how an exec ended, and whether that is a failure.  A redact ran no
 // command, so it has neither.
 func outcome(record map[string]any) (string, bool) {
-	// The first half of an exec's pair, which has no ending yet by construction:
-	// said rather than left blank, which would render a command still running as
-	// one that ran and did nothing.
-	//
-	// "started" rather than "running": this is a record of a moment, and a log is
-	// mostly read later.  A row claiming a command is running says something false
-	// about one the broker lost three days ago, where "it began" stays true and
-	// the missing second record is what says it never reported an ending.
+	// The first half of a run's pair, which has no ending yet: said rather than
+	// left blank, which would render a command still running as one that ran and
+	// did nothing.  "started" rather than "running", a log being read later: the
+	// record is of a moment, and the missing second record is what says the
+	// command never reported an ending.
 	if str(record, "op") == opRunStarted {
 		return "started", false
 	}
@@ -754,14 +685,9 @@ func outcome(record map[string]any) (string, bool) {
 		return "timed out", true
 	}
 	// An escalation ends in an answer rather than an exit code.  Everything but a
-	// yes is painted as a failure, not because refusing is wrong (it is the safe
-	// answer) but because something asked, and that is what an operator is scanning
-	// for.
-	//
-	// Which no it was, by the code rather than the sentence beside it: a question
-	// a human refused was judged, and one that expired means nothing was watching.
-	// Rendered alike they read as the same event, and they are acted on
-	// differently.
+	// yes is painted as a failure, not because refusing is wrong but because
+	// something asked, which is what an operator is scanning for.  Which no it
+	// was comes from the code rather than the sentence beside it.
 	if code := str(record, "outcome_code"); code != "" {
 		return answerLabel(code), code != escalation.CodeApproved
 	}
@@ -771,20 +697,17 @@ func outcome(record map[string]any) (string, bool) {
 		}
 		return "refused", true
 	}
-	// The refusal's own code, which is the string the caller was answered with:
-	// an operator handed a log_id can confirm they are reading the refusal that
-	// was cited, and the listing can be scanned for one kind of refusal.
+	// The refusal's own code, which is the string the caller was answered with,
+	// so an operator handed a log_id can confirm they are reading the refusal
+	// that was cited.
 	if refused := str(record, "refused"); refused != "" {
 		return refused, true
 	}
 	code, ok := num(record, "exit_code")
 	if !ok {
-		// No exit code and an error: the broker recorded that this never became a
-		// finished command.  Named generically because the two records shaped this
-		// way differ in how far they got -- one could not resolve the program, the
-		// other lost the executor after the child was spawned -- and the error is
-		// on the detail view for both.  Blank here would render them as a command
-		// that ran and did nothing.
+		// No exit code and an error: this never became a finished command.  Named
+		// generically, the records shaped this way differing in how far they got,
+		// and the error is on the detail view for all of them.
 		if str(record, "error") != "" {
 			return "failed", true
 		}
@@ -804,8 +727,7 @@ type redaction struct {
 }
 
 // redactions is the record's counts, read once for both the listing's sum and
-// the detail view's per-token line: two readers of the same array disagreeing
-// about its shape would print two different answers to the same question.
+// the detail view's per-token line.
 func redactions(record map[string]any) []redaction {
 	entries, ok := record["redactions"].([]any)
 	if !ok {
@@ -824,7 +746,7 @@ func redactions(record map[string]any) []redaction {
 }
 
 // redactionTotal is how many values this record stood in for, summed across
-// tokens: a credential was used, without saying which value it had.
+// tokens: a credential was used, without saying which.
 func redactionTotal(record map[string]any) string {
 	total := 0
 	for _, entry := range redactions(record) {
@@ -837,9 +759,7 @@ func redactionTotal(record map[string]any) string {
 }
 
 // printField is one labelled line of the detail view, skipped when there is
-// nothing under the label.  The label's width is stated once here: a row whose
-// label column is a different width from the row above it is read as a
-// different kind of row.
+// nothing under the label.
 func printField(paint palette, label, value string) {
 	const labelWidth = 10
 	if value == "" {
@@ -850,34 +770,24 @@ func printField(paint palette, label, value string) {
 
 // printRecord is the whole of one record, output included.
 func printRecord(record map[string]any, paint palette) {
-	// The summary line leads with the id, so it is not repeated as a field below:
-	// the two were once different renderings of it, the row printing a tail, and
-	// an id has one form now.
+	// The summary line leads with the id, so it is not repeated as a field
+	// below.
 	fmt.Println(summarise(record, paint))
-	// Above the fields it qualifies rather than under them: what a reduced record
-	// holds was cut to fit the cap, so a reader has to know that before believing
-	// a short argv or a list of refs that ends where the record ran out of room.
+	// Above the fields it qualifies rather than under them: a reader has to know
+	// the record was cut before believing a short argv or a truncated ref list.
 	if reduced, _ := boolean(record, "record_reduced"); reduced {
 		printField(paint, "reduced", paint.dim(
 			"fields were cut to fit the record cap"))
 	}
 	printField(paint, "caller", describePeer(record))
-	// The labels are not all the field names.  argv0_path is what root or the
-	// executor actually ran, which can differ from the command: a relative argv[0]
-	// resolves against the cwd, and that is a tree the coding agent writes.  It
-	// reads as `program`, the word the escalation question uses for the same thing,
-	// and sits under the cwd it resolved against.
-	//
-	// outcome is the escalation's own reason (why it was refused, or that it was
-	// approved), reason is why a refusal that never reached a command refused it,
-	// and run_log_id is the command's record, so an escalation reads in both
-	// directions.
+	// The labels are not all the field names.  argv0_path reads as `program`, the
+	// word the escalation question uses for what root or the executor actually
+	// ran, and sits under the cwd a relative argv[0] resolved against.  outcome is
+	// the escalation's own reason, and run_log_id is the command's record, so an
+	// escalation reads in both directions.
 	//
 	// Rendered, not printed: all of these carry text chosen by the account this
-	// log exists to hold to account -- the cwd and the program are the caller's,
-	// and error and outcome quote what failed (an escalation's reason carries the
-	// command it was refused for, and the names of the processes that held the
-	// host).
+	// log exists to hold to account.
 	for _, row := range []struct{ field, label string }{
 		{"cwd", "cwd"}, {"argv0_path", "program"}, {"error", "error"},
 		{"outcome", "outcome"}, {"reason", "reason"}, {"run_log_id", "run_log_id"},
@@ -887,9 +797,9 @@ func printRecord(record map[string]any, paint palette) {
 		}
 	}
 	printField(paint, "refs", paint.ref(envRefs(record)))
-	// A reseal's recipients, which are the whole of what it changed: who could
-	// read that file before, and who can now.  Public keys, so printing them
-	// discloses nothing the ciphertext does not already carry.
+	// A reseal's recipients: who could read that file before, and who can now.
+	// Public keys, so printing them discloses nothing the ciphertext does not
+	// already carry.
 	for _, field := range []string{"from", "to"} {
 		printField(paint, field, paint.ref(strings.Join(list(record, field), ", ")))
 	}
@@ -901,8 +811,7 @@ func printRecord(record map[string]any, paint palette) {
 	fmt.Printf("  %s\n", paint.key("output"))
 	// One line at a time and escaped, never quoted or truncated: this is the text
 	// the operator came to read.  redact.Feed already took the colour and the CSI
-	// on the way in, so nothing legible is lost here; what is left to escape is a
-	// bare "\r" and a stray ESC, either of which rewrites what the reader sees.
+	// on the way in, so what is left to escape is a bare "\r" or a stray ESC.
 	for line := range strings.SplitSeq(strings.TrimRight(output, "\n"), "\n") {
 		fmt.Printf("    %s\n", paint.token(termsafe.Line(line)))
 	}
@@ -911,15 +820,10 @@ func printRecord(record map[string]any, paint palette) {
 	}
 }
 
-// envRefs is what the command asked to be injected, as NAME=ref.
-//
-// The record holds an object rather than a list, NAME -> ref, and the pairing
-// is the whole of what an operator checks an injection against: which variable
-// carried which ref.  Neither half is a value -- the ref names a secret and the
-// store holds it -- so this prints what the record carries.
-//
-// Sorted by variable name, so the same command reads the same way every time
-// rather than in whatever order the map iterated.
+// envRefs is what the command asked to be injected, as NAME=ref: which variable
+// carried which ref, which is what an operator checks an injection against.
+// Neither half is a value.  Sorted by variable name, so the same command reads
+// the same way every time.
 func envRefs(record map[string]any) string {
 	fields, ok := record["env_refs"].(map[string]any)
 	if !ok {
@@ -932,9 +836,8 @@ func envRefs(record map[string]any) string {
 		}
 	}
 	sort.Strings(pairs)
-	// Rendered like every other field taken from a record: both halves are
-	// bounded by what the protocol accepts, but a log written by something else
-	// is one of the things this reader is for.
+	// Rendered like every other field taken from a record: a log written by
+	// something else is one of the things this reader is for.
 	return termsafe.Line(strings.Join(pairs, ", "))
 }
 
@@ -949,7 +852,7 @@ func redactionCounts(record map[string]any) string {
 }
 
 // joinCmd is the recorded argv as one line, rendered for a terminal: it is the
-// coding agent's own text, and this is printed to the operator's.
+// coding agent's own text, printed to the operator's.
 func joinCmd(record map[string]any) string {
 	args := list(record, "cmd")
 	for i, arg := range args {
@@ -963,8 +866,8 @@ func joinCmd(record map[string]any) string {
 const dateLayout = "2006-01-02 MST"
 
 // startedAt is when the record's subject happened: started_at where the record
-// has one, which is an exec's child rather than the moment the line was
-// written, and otherwise the at every other record carries.
+// has one, which is the child's fork rather than the moment the line was
+// written, and otherwise the `at` every other record carries.
 func startedAt(record map[string]any) time.Time {
 	for _, field := range []string{"started_at", "at"} {
 		if seconds, ok := num(record, field); ok {
@@ -983,9 +886,8 @@ func clockTime(record map[string]any) string {
 	return at.Format("15:04:05")
 }
 
-// matchesID is the log_id as it is printed, there being no other form of it: an
-// id is what a listing shows and what a refusal cites, so what is on screen
-// pastes back.
+// matchesID compares the log_id as it is printed, so what is on screen pastes
+// back.
 func matchesID(record map[string]any, want string) bool {
 	return str(record, "log_id") == want
 }
@@ -1026,18 +928,16 @@ func str(record map[string]any, key string) string {
 	return value
 }
 
-// num is a recorded number and whether the field was there.  Every number in a
-// record comes back from encoding/json as a float64, whatever it was written
-// as, and the callers here want to tell an absent exit code from an exit code
-// of zero.
+// num is a recorded number and whether the field was there.  encoding/json
+// returns every number as a float64, and the callers here have to tell an
+// absent exit code from one of zero.
 func num(record map[string]any, key string) (float64, bool) {
 	value, ok := record[key].(float64)
 	return value, ok
 }
 
-// boolean is a recorded flag and whether the field was there.  `flag` is the
-// standard library's package name here, and this file's callers are already
-// reading command-line flags by that word.
+// boolean is a recorded flag and whether the field was there.  Not `flag`,
+// which is a standard library package this file's callers use.
 func boolean(record map[string]any, key string) (bool, bool) {
 	value, ok := record[key].(bool)
 	return value, ok
@@ -1057,13 +957,10 @@ func list(record map[string]any, key string) []string {
 	return out
 }
 
-// pad is one column of the listing, widened to width.  A value that is already
-// that wide still gets a space: without one it runs into the column after it
-// (`run_started` overruns the op column, and the row reads
-// `run_startedstarted`), and a row whose columns have merged is read wrong.
-// Counted in runes, not bytes: a value carrying the ellipsis a cut record's
-// fields end with is three bytes and one column, and a column padded by its
-// byte count is one that does not line up with the row above it.
+// pad is one column of the listing, widened to width.  A value already that
+// wide still gets a space, or it runs into the column after it.  Counted in
+// runes, not bytes: the ellipsis a cut record's fields end with is three bytes
+// and one column.
 func pad(text string, width int) string {
 	spent := utf8.RuneCountInString(text)
 	if spent >= width {

@@ -9,8 +9,7 @@ package install
 //     mistake here leaves every other sudo on the host alone.
 //
 // Re-running init without --allow-sudo takes the grant away: the file goes and
-// the account's password is locked.  init installs and does not migrate, but
-// this direction removes reach rather than leaving an older layout lying about.
+// the account's password is locked.
 
 import (
 	"context"
@@ -22,12 +21,9 @@ import (
 )
 
 // stepSudoGrant writes or removes the grant: a sudoers entry and the PAM
-// service it names.
-//
-// There is no credential to place, which is the point of this design.  sudo
-// authenticates the executor's account against a service whose auth step asks
-// the broker, so an escalation is a decision rather than a value and cannot be
-// kept, copied or carried to a later command.
+// service it names.  There is no credential to place: sudo authenticates the
+// executor's account against a service whose auth step asks the broker, so an
+// escalation is a decision rather than a value.
 //
 // After stepConfig, which renders [escalation] from the same layout, and before
 // anything restarts a daemon.
@@ -42,7 +38,7 @@ func (r *runner) stepSudoGrant() error {
 	}
 	if !exists(sudoersDir) || !exists(pamDir) {
 		// A host with no sudo, or no PAM.  Reported rather than failed: the rest of
-		// the install works, and what does not is named.
+		// the install works.
 		r.warnf("%s or %s does not exist, so no grant was written and brokered "+
 			"commands cannot sudo here. Install sudo, then re-run this install",
 			sudoersDir, pamDir)
@@ -50,15 +46,15 @@ func (r *runner) stepSudoGrant() error {
 		return nil
 	}
 
-	// The PAM service first.  A sudoers entry naming a service that is not there
-	// sends sudo to /etc/pam.d/other, which asks for a password nothing supplies:
-	// closed, but for the wrong reason and with a worse message.
+	// The PAM service first: a sudoers entry naming a service that is not there
+	// sends sudo to /etc/pam.d/other, which asks for a password nothing
+	// supplies.
 	pam, err := render("etc/pam.d.tmpl", r.layout)
 	if err != nil {
 		return err
 	}
-	// 0644 root:root, as every file in /etc/pam.d is: PAM reads it as root, and
-	// an account that could write it would be choosing how it authenticates.
+	// 0644 root:root, as every file in /etc/pam.d is: an account that could write
+	// it would be choosing how it authenticates.
 	authChanged, err := r.fs.writeFile(r.layout.PamFile(), pam, 0o644, 0, 0)
 	if err != nil {
 		return err
@@ -68,8 +64,7 @@ func (r *runner) stepSudoGrant() error {
 	if err != nil {
 		return err
 	}
-	// 0440 root:root, which is what sudo requires of a file in sudoers.d and
-	// refuses to read otherwise.
+	// 0440 root:root, which is what sudo requires of a file in sudoers.d.
 	granted, err := r.fs.writeFile(sudoersFile, body, 0o440, 0, 0)
 	if err != nil {
 		return err
@@ -80,16 +75,15 @@ func (r *runner) stepSudoGrant() error {
 		}
 	}
 	// The account authenticates through the broker and never with a password, so
-	// it must not have one: a usable hash would be a second way in, and one the
-	// broker is not asked about.  Re-asserted every run.
+	// a usable hash would be a second way in that the broker is not asked about.
+	// Re-asserted every run.
 	if _, err := r.command("usermod", "-L", r.layout.ExecUser); err != nil {
 		r.warnf("could not lock %s's password (%v); it authenticates through the "+
 			"broker and should hold no password of its own: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
-	// An earlier layout kept a password for this. Removed rather than left: it is
-	// a credential that no longer authenticates anything, and leaving one lying
-	// about is what this design exists to avoid.
+	// An earlier layout kept a password for this.  Removed rather than left: a
+	// credential that authenticates nothing is still a credential.
 	for _, stale := range []string{
 		filepath.Join(r.layout.RunDir, "elevate.secret"),
 		filepath.Join(r.layout.ConfigDir, "elevate.secret"),
@@ -112,7 +106,7 @@ func (r *runner) stepSudoGrant() error {
 	return nil
 }
 
-// revokeSudoGrant is what an install without --allow-sudo does.  It removes what
+// revokeSudoGrant is what an install without --allow-sudo does: it removes what
 // an install with it wrote, and leaves the account locked.
 func (r *runner) revokeSudoGrant() error {
 	stale := []string{
@@ -129,8 +123,7 @@ func (r *runner) revokeSudoGrant() error {
 		}
 	}
 	if !found {
-		// Never enabled, which is every default install.  Not a step: there is
-		// nothing here to report on a host that has no such arrangement.
+		// Never enabled, which is every default install: nothing to report.
 		return nil
 	}
 	if r.opts.DryRun {
@@ -146,8 +139,8 @@ func (r *runner) revokeSudoGrant() error {
 			return err
 		}
 	}
-	// Locking rather than clearing: an account with an empty password field is
-	// one some PAM stacks let in without asking.
+	// Locking rather than clearing: an account with an empty password field is one
+	// some PAM stacks let in without asking.
 	if _, err := r.command("usermod", "-L", r.layout.ExecUser); err != nil {
 		r.warnf("could not lock %s's password (%v); the grant is gone, so nothing "+
 			"can sudo, but lock it by hand: usermod -L %s",
@@ -160,8 +153,8 @@ func (r *runner) revokeSudoGrant() error {
 }
 
 // validateSudoers has visudo judge what was written, and takes it back out
-// again if visudo will not have it.  A malformed file in sudoers.d is not a
-// broken faramir, it is a host where nobody can sudo at all.
+// again if visudo will not have it: a malformed file in sudoers.d is a host
+// where nobody can sudo at all.
 func (r *runner) validateSudoers() error {
 	path, err := exec.LookPath("visudo")
 	if err != nil {

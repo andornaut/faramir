@@ -5,9 +5,9 @@
 // ssh-agent's own socket cannot be handed over, whatever its mode: it calls
 // getpeereid() and drops any peer that is neither root nor itself.  So
 // ssh-agent binds a private socket and the broker relays a second one to the
-// executor's group.  The relayed connection is the broker's own, so ssh-agent
-// decides nothing about the peer and the relay decides instead: it makes the
-// SO_PEERCRED check and forwards only the two requests the executor needs.
+// executor's group.  The relayed connection is the broker's own, so the relay
+// makes the SO_PEERCRED check and forwards only the two requests the executor
+// needs.
 //
 // Optional: with no [ssh] key no agent is started and nothing is injected.
 package sshagent
@@ -37,9 +37,9 @@ import (
 const (
 	socketWait = 10 * time.Second
 	// How many executor connections the proxy relays at once, each costing two
-	// descriptors.  It has to clear a real playbook's fork count, since
-	// ansible-playbook -f 100 authenticates to a hundred hosts at once.  It bounds
-	// the broker's descriptor table, not fairness between commands.
+	// descriptors.  It has to clear a real playbook's fork count, ansible-playbook
+	// -f 100 authenticating to a hundred hosts at once, and bounds the broker's
+	// descriptor table rather than fairness between commands.
 	maxRelays = 256
 	// How long the agent the proxy relays to may take over one request.  It is
 	// the broker's own ssh-agent signing with a key already loaded, so this bounds
@@ -49,22 +49,18 @@ const (
 	maxAgentMessage = 256 * 1024
 	// The mode the proxy socket ends up with once its group is the executor's.
 	// Not configurable: it is one half of a boundary whose other half is
-	// exec_group, which init derives, and widening it here would admit accounts
-	// no group names.
+	// exec_group, and widening it would admit accounts no group names.
 	socketMode = 0o660
 )
 
 // firstRequestTimeout is how long a connection may sit before its first relayed
-// request.  Dropped once one arrives, and an idle connection is then held for as
-// long as the peer keeps it open: an ssh session may go hours between
+// request.  Dropped once one arrives, an ssh session going hours between
 // signatures, so there is no idle bound to be had here.
 //
-// A refused request does not drop it.  That closes the cheapest way to sit on a
-// relay slot (one message the proxy will not forward) and no more: a peer
-// that sends a real REQUEST_IDENTITIES first reaches the same idle state, so
-// maxRelays, not this, is what bounds a peer determined to hold slots.
-//
-// A variable so a test need not wait it out.
+// A refused request does not drop it: that closes the cheapest way to sit on a
+// relay slot and no more, a peer that sends a real REQUEST_IDENTITIES first
+// reaching the same idle state.  maxRelays is what bounds a peer determined to
+// hold slots.  A variable so a test need not wait it out.
 var firstRequestTimeout = 30 * time.Second
 
 // The two requests the executor may make: list the public halves, and sign.
@@ -111,10 +107,8 @@ func (a *Agent) Env() map[string]string {
 
 // Start brings the agent up and loads the configured key.  Failure is returned
 // rather than logged, so the caller decides: the broker logs it and comes up,
-// letting SSH fail where it is used, while `--check` and `doctor` fail on it.
-//
-// No key is not a failure.  That is the host where SSH is arranged for the
-// executor's uid some other way.
+// while `--check` and `doctor` fail on it.  No key is not a failure: that is
+// the host where SSH is arranged for the executor's uid some other way.
 func (a *Agent) Start() error {
 	if !a.Enabled() {
 		log.Printf("no [ssh] key configured; not starting an agent")
@@ -197,7 +191,7 @@ func (a *Agent) serve(listener net.Listener, private string) {
 				return
 			}
 			// Returning would leave a live socket accepting nothing, so a command's
-			// connect sits in the backlog until its own timeout.
+			// connect would sit in the backlog until its own timeout.
 			next, retry := sockutil.RetryAccept(err, delay)
 			if !retry {
 				log.Printf("ssh-agent proxy stopped accepting: %v", err)
@@ -225,15 +219,10 @@ func (a *Agent) serve(listener net.Listener, private string) {
 }
 
 // relay carries one executor connection to ssh-agent and back, one exchange at
-// a time.
-//
-// Not a blind byte pipe: the agent protocol has no read-only mode, so a
-// connection that can sign can also send REMOVE_ALL_IDENTITIES or ADD_IDENTITY.
-// Only listing and signing are forwarded.
-//
-// Serialized because refusing a request means writing to the client, which a
-// concurrent copy would interleave with.  The protocol is request/response per
-// connection, so nothing is lost.
+// a time.  Not a blind byte pipe: the agent protocol has no read-only mode, so
+// a connection that can sign can also send REMOVE_ALL_IDENTITIES; only listing
+// and signing are forwarded.  Serialised because refusing a request means
+// writing to the client, which a concurrent copy would interleave with.
 func (a *Agent) relay(client net.Conn, private string) {
 	defer func() { _ = client.Close() }()
 	if !a.permitted(client) {
@@ -252,8 +241,8 @@ func (a *Agent) relay(client net.Conn, private string) {
 
 	deadline := time.Now().Add(firstRequestTimeout)
 	for {
-		// Only the first request is on the clock: an ssh session may go hours between
-		// signatures.
+		// Only the first request is on the clock: an ssh session may go hours
+		// between signatures.
 		_ = client.SetReadDeadline(deadline)
 		request, err := readMessage(client)
 		if err != nil {
@@ -335,10 +324,10 @@ func (a *Agent) closeRelays() {
 	}
 }
 
-// permitted is the SO_PEERCRED check every other faramir socket makes.  Since
-// the relayed connection is the broker's own, ssh-agent's getpeereid() passes
-// whoever reaches this socket, leaving socketMode and the socket's group as
-// the only other boundary.
+// permitted is the SO_PEERCRED check every other faramir socket makes.  The
+// relayed connection is the broker's own, so ssh-agent's getpeereid() passes
+// whoever reaches this socket, leaving socketMode and the socket's group as the
+// only other boundary.
 func (a *Agent) permitted(client net.Conn) bool {
 	peer, err := sockutil.PeerCred(client)
 	if err != nil {

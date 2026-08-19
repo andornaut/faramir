@@ -15,8 +15,8 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// cmdBroker is the secrets broker daemon: policy, redaction, the audit log and
-// the SSH keys.  systemd runs it as its own uid, which is the boundary.
+// brokerFlags is the secrets broker daemon: policy, redaction, the audit log
+// and the SSH keys.  systemd runs it as its own uid, which is the boundary.
 type brokerFlags struct {
 	configPath  string
 	check       bool
@@ -81,8 +81,7 @@ func runBroker(f brokerFlags) int {
 	}
 
 	// No gate here: exec and redact refuse per request instead.  Exiting would
-	// take down the process `faramir status` and `doctor` ask, which is the
-	// process that explains why the secrets are missing.
+	// take down the process `faramir status` and `doctor` ask.
 	if reason := s.Store.Unreadable(); reason != "" {
 		log.Printf("refusing exec and redact: %s", reason)
 		log.Printf("every command the agent hook wraps has its output withheld " +
@@ -91,9 +90,8 @@ func runBroker(f brokerFlags) int {
 			"the secrets directory, and no restart is needed")
 	}
 
-	// Same shape and for the same reasons: said at startup so an operator finds
-	// out here, and asked again per request, because a filesystem fills after
-	// boot and the answer at boot would be the wrong one by then.
+	// Same shape: said at startup so an operator finds out here, and asked again
+	// per request, a filesystem filling after boot.
 	if reason := s.Audit.Unwritable(); reason != "" {
 		log.Printf("refusing every brokered command: the audit log cannot be "+
 			"written: %s", reason)
@@ -108,12 +106,8 @@ func runBroker(f brokerFlags) int {
 	defer s.Ssh.Stop()
 	// Logged, not fatal: a key the agent does not hold breaks only commands that
 	// reach a managed host, and those fail at the point of use with ssh's own
-	// error.  Taking the daemon down over it would stop the commands that never
-	// touch SSH and remove the process status and doctor ask.  `--check` and
-	// `doctor` both fail on it.
-	//
-	// An unset [ssh] key is not this: Start reports no error, and the host
-	// authenticates however the operator arranged it.
+	// error.  `--check` and `doctor` both fail on it.  An unset [ssh] key is not
+	// this: Start reports no error.
 	if sshErr != nil {
 		log.Printf("ssh-agent: %v", sshErr)
 		log.Printf("no SSH identity is loaded, so every brokered command that " +
@@ -121,10 +115,9 @@ func runBroker(f brokerFlags) int {
 			"restart faramir-broker, or unset [ssh] key")
 	}
 
-	// Nothing to start: escalation binds no socket and holds no credential.  A
-	// question lives in this process and is answered through the broker's own
-	// socket, so the only thing to arrange is releasing whatever is waiting when
-	// this stops.
+	// Nothing to start: escalation binds no socket and holds no credential, so
+	// the only thing to arrange is releasing whatever is waiting when this
+	// stops.
 	defer s.Escalation.Stop()
 
 	if _, err := s.Listen(); err != nil {
@@ -134,8 +127,8 @@ func runBroker(f brokerFlags) int {
 	defer func() { _ = s.Close() }()
 
 	// No SIGHUP: an edit is picked up by the mtime poll, and a change to
-	// config.toml means restarting both daemons, since the file list this process
-	// started with is the one the keeper decrypts.
+	// config.toml means restarting both daemons, the file list this process
+	// started with being the one the keeper decrypts.
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM, syscall.SIGINT)
 	go func() {

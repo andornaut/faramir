@@ -5,25 +5,14 @@ package main
 //
 // `faramir doctor` asks whether an account can read or write a path, and the
 // only honest way to ask is to be that account: access(2) answers for the
-// calling process, and supplementary groups are per-process, so root cannot put
-// the question on somebody else's behalf and no in-process trick covers the
-// group case.  doctor therefore runs something under `runuser -u ACCOUNT`, and
-// this is what it runs.
+// calling process, and supplementary groups are per-process.  doctor therefore
+// runs this under `runuser -u ACCOUNT`.
 //
-// It used to run the host's `test -r` / `test -w`.  That is a dependency on
-// whatever coreutils the distribution shipped, and Ubuntu 25.10 replaced GNU
-// coreutils with uutils, whose `test` ignores supplementary group membership:
-// on a file that is root:dev 0660, asked as an account whose membership of dev
-// is what grants it, it answers no.  Every group-based finding was then wrong,
-// in both directions: a socket the client group reaches reported as closed to
-// it, and a boundary that group membership had actually opened reported as
-// holding.
-//
-// A subcommand of faramir's own rather than a shell builtin, which is also
-// correct: `sh -c "test -w PATH"` puts a shell between doctor and the question,
-// and these paths come from --ssh-key and the config, so it would need quoting
-// that a root process must not get wrong.  argv carries a path with no
-// interpretation.
+// faramir's own subcommand rather than the host's `test`: some `test`
+// implementations (uutils) ignore supplementary group membership, which makes
+// every group-based finding wrong in both directions.  It also keeps a shell
+// out of it, these paths coming from --ssh-key and the config, so argv carries
+// a path with no interpretation.
 
 import (
 	"fmt"
@@ -34,8 +23,7 @@ import (
 )
 
 // newAccessCmd answers one question about one path.  Internal: it is what
-// doctor runs as another account, and an operator asking whether they can read
-// a file has `test` for that.
+// doctor runs as another account.
 func newAccessCmd() *cobra.Command {
 	var (
 		read  bool

@@ -21,13 +21,13 @@ import (
 	"github.com/andornaut/faramir/internal/version"
 )
 
-// DoctorOptions is what Diagnose needs to find an install it did not perform.
+// DoctorOptions names the accounts, groups and paths Diagnose examines.
 type DoctorOptions struct {
 	ConfigDir   string
 	AgentUser   string
 	ClientGroup string
-	// The three service accounts, so the group audit recognises the ones this
-	// install created rather than reporting them as intruders.
+	// The three service accounts, so the group audit does not report them as
+	// unexpected members.
 	BrokerUser string
 	KeeperUser string
 	ExecUser   string
@@ -35,30 +35,21 @@ type DoctorOptions struct {
 	// group as install leaves it.
 	SecretsGroup string
 
-	// SecretsPatterns is the managed store, for the rule coverage check.  Read
-	// from the config Diagnose already loads and set on the way past, so it is
-	// filled in for every caller rather than being a field each one has to
-	// remember to pass, and there is no second load free to disagree with the
-	// first.  A test may set it to reach the check without a config.
-	//
-	// Empty where the config did not load, and the check reports as unasked rather
-	// than as a pass: a rule reaching none of the files looks exactly like a rule
-	// reaching all of nothing.
+	// SecretsPatterns is the managed store, for the rule coverage check.
+	// Diagnose fills it from the config it loads; a test may set it to reach the
+	// check without a config.  Empty leaves the check reported as unasked rather
+	// than as a pass.
 	SecretsPatterns []string
 
 	// BrokerVersion is what the running broker reported, empty when it did not
-	// answer.  Passed in rather than asked for here, the caller already having
-	// opened the socket to find the install.
+	// answer.
 	BrokerVersion string
 
-	// SocketStates is each socket unit's state as it was before the broker was
-	// asked anything, unit name to what `systemctl is-active` said.  Sampled by
-	// the caller because the caller's own round trip changes it: opening the
-	// broker socket activates the service, which Requires= the keeper and
-	// executor sockets, so a socket that was down comes up and the examination
-	// reports the host it made rather than the one it met.
-	//
-	// Empty when the caller did not sample, and then the state is read here.
+	// SocketStates maps each socket unit to what `systemctl is-active` said
+	// before the broker was asked anything.  The caller samples it because
+	// opening the broker socket activates the service, which Requires= the keeper
+	// and executor sockets, so a socket that was down comes up.  Empty when the
+	// caller did not sample, and then the state is read here.
 	SocketStates map[string]string
 }
 
@@ -74,9 +65,8 @@ func SampleSockets() map[string]string {
 		out, err := run.command("systemctl", "is-active", socket)
 		state := strings.TrimSpace(out)
 		// systemctl prints the state even when it exits non-zero, so an empty
-		// answer is systemctl itself having failed.  Named, or the finding reads
-		// "<socket> is ;".  An error alongside "active" is the same contradiction
-		// and is not reported as a unit that is up.
+		// answer is systemctl itself having failed, as is an error alongside
+		// "active".
 		if state == "" || (err != nil && state == unitActive) {
 			state = "unreportable"
 		}
@@ -85,28 +75,15 @@ func SampleSockets() map[string]string {
 	return states
 }
 
-// Status is a finding's verdict.  Four levels, because a broker that is
-// running and holding nothing is neither a pass nor a fail, and neither is a
-// check whose subject this host does not have.
+// Status is a finding's verdict.
 //
-// Warn means the question could not be asked, and the reason is how doctor was
-// invoked or what this host is: no root, no runuser, no systemd, nothing
-// managed to probe with, a socket-activated broker still idle.  The install may
-// be perfect.
+// Warn means the question could not be put, for want of root, runuser, systemd
+// or a broker holding values; the install may be perfect.  A check that can
+// reach its subject and cannot establish it fails instead of guessing.
 //
-// It does not mean "tried to read something every install has and failed".
-// That is a fail: .sops.yaml that will not parse is one sops cannot parse
-// either, a client group whose members cannot be listed is an admission nobody
-// verified, and a broker that will not answer is a broker not doing its job.
-// A confident answer about the wrong thing is worse than no answer, so a check
-// that cannot establish its own subject fails rather than guessing.
-//
-// N/a means the question does not arise here: the subject belongs to an
-// arrangement this host was not installed with, so there is nothing to pass or
-// fail.  It is reported rather than left out, a check that vanishes being
-// indistinguishable from one nobody wrote.  It is not counted in NotAsked:
-// re-running as root is not what would answer it, and nothing about this host
-// is unexamined.
+// N/a means the subject belongs to an arrangement this host was not installed
+// with.  It is reported rather than left out, and is not counted in NotAsked:
+// re-running as root would not answer it.
 type Status string
 
 const (
@@ -117,10 +94,9 @@ const (
 )
 
 // brokerServes is what the --check probe established about the value set.  A
-// probe that did not run has to stay distinct from one that ran and found
-// nothing: --check needs root, so reading the two as the same reports every
-// broker examined without sudo as one holding no values, and skips the probes
-// that key off it citing a state the broker is not in.
+// probe that did not run stays distinct from one that ran and found nothing:
+// --check needs root, so conflating them would report every broker examined
+// without sudo as one holding no values.
 type brokerServes int
 
 const (
@@ -130,13 +106,11 @@ const (
 )
 
 // refusedCode is the error code the broker returns for an op it will not serve
-// while a managed file went unread.  A probe that runs a brokered command has
-// to tell that refusal from an answer, or it reports the refusal as whatever it
-// was probing for.
+// while a managed file went unread.
 const refusedCode = "no_secrets"
 
-// sshAgentRefused is stated once, being reported both before the probe runs and
-// after the broker refuses it.
+// sshAgentRefused is reported both before the probe runs and after the broker
+// refuses it.
 const sshAgentRefused = "not asked: the broker holds no managed values, so it " +
 	"refuses the brokered command this probe runs"
 
@@ -153,14 +127,11 @@ type Finding struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// DoctorReport is the whole examination; Failed is the exit code a caller
-// reads.
+// DoctorReport is the whole examination; Failed is the exit code a caller reads.
 //
-// NotAsked counts the checks that could not be put, for want of root, of a
-// broker holding values or of one running at all.  A caller has to report it
-// alongside the findings: one warn line stands for a dozen unasked questions,
-// so the totals alone read as a complete examination of a host that was barely
-// examined.
+// NotAsked counts the checks that could not be put.  A caller has to report it
+// alongside the findings: one warn line can stand for a dozen unasked
+// questions.
 type DoctorReport struct {
 	Failed   bool      `json:"failed"`
 	NotAsked int       `json:"not_asked"`
@@ -176,15 +147,11 @@ func (d *DoctorReport) addf(name string, status Status, format string, args ...a
 	}
 }
 
-// unasked is a check that could not be put: the warn line a reader sees and the
-// count under the totals, which have to move together.  count is what the one
-// line stands for, which is more than one wherever a bail-out skips a list.
-//
-// The pairing is here rather than at each site because nothing else enforces it.
-// A warn added through add() is the other kind: a finding this host has, worth
-// reporting and short of a failure -- an open sysctl, a stale rule, a group with
-// members nobody recognises -- and re-running as root would not change it.  Which
-// kind a warn is, is now which call it goes through.
+// unaskedf records a check that could not be put: the warn line a reader sees
+// and the count under the totals, which have to move together.  count is what
+// the one line stands for, more than one wherever a bail-out skips a list.  A
+// warn added through addf is the other kind, something this host has that
+// re-running as root would not change.
 func (d *DoctorReport) unaskedf(name string, count int, format string, args ...any) {
 	d.NotAsked += count
 	d.addf(name, StatusWarn, format, args...)
@@ -198,9 +165,9 @@ func (d *DoctorReport) merge(other DoctorReport) {
 	d.NotAsked += other.NotAsked
 }
 
-// Diagnose reports whether an install is doing its job: the questions the
-// install steps cannot answer, everything having been written correctly and the
-// result still protecting nothing.
+// Diagnose reports whether an install is doing its job, which the install steps
+// cannot answer: everything can be written correctly and still protect
+// nothing.
 func Diagnose(opts DoctorOptions) DoctorReport {
 	if opts.ConfigDir == "" {
 		opts.ConfigDir = DefaultConfigDir
@@ -222,10 +189,8 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 		report.addf("config", StatusFailed, "%s does not load: %v", configFile, err)
 		return report
 	}
-	// Taken from the config that just loaded rather than from the caller: the
-	// patterns are this install's, and a caller passing its own would be a second
-	// reading of the same file.  A test that set them keeps them, having no
-	// config to take them from.
+	// A test that set the patterns keeps them, having no config to take them
+	// from.
 	if len(opts.SecretsPatterns) == 0 {
 		opts.SecretsPatterns = cfg.Secret.Patterns
 	}
@@ -237,16 +202,14 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 		return report
 	}
 
-	// The broker probe first, whatever order it is reported in: it is what says
-	// whether the broker serves anything, which the ssh agent and boundaries
-	// checks both need before they run.  Its own findings are buffered so they
-	// still land in name order below.
+	// The broker probe first, whatever order it is reported in: the ssh agent and
+	// boundaries checks both need to know whether the broker serves anything.  Its
+	// findings are buffered so they still land in name order below.
 	var brokerReport DoctorReport
 	serves := diagnoseBroker(&brokerReport, configFile, opts.BrokerUser)
 
-	// What any account can answer, in name order.  The ssh agent probe belongs
-	// here: it runs a brokered command as the operator, which is the caller's own
-	// account whenever doctor was not run as root.
+	// What any account can answer, in name order.  The ssh agent probe runs a
+	// brokered command as the caller's own account.
 	diagnoseGroup(&report, opts)
 	diagnoseLogRotation(&report, cfg)
 	diagnoseUnits(&report, opts)
@@ -268,21 +231,14 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	return report
 }
 
-// diagnoseAgentRules reports every agent, and what is configured for it.  The
-// rules in question are what refuse the file tools, and what they cover is the
-// operator's own key material: ~/.ssh, ~/.config/sops and the like, which no
-// uid boundary reaches because the agent runs as the operator.  Enrolling a
-// tree does not write them; `faramir init --agent` does.
+// diagnoseAgentRules reports every agent and what is configured for it.  The
+// rules are what refuse the agent's file tools the operator's own key material
+// -- ~/.ssh, ~/.config/sops and the like -- which no uid boundary reaches
+// because the agent runs as the operator.  `faramir init --agent` writes them;
+// enrolling a tree does not.
 //
-// One row each rather than only for the ones that look in use.  Which agents an
-// operator runs is not a thing this can know, and inferring it from a directory
-// is wrong in both directions: a leftover from an abandoned tool reads as in
-// use, and one not yet opened reads as absent.
-//
-// Only one of the states is a fault.  An agent with nothing here is an agent
-// nobody runs, which is not something a host is worse for; an agent that is
-// here with its rules missing is half an arrangement, and the half that is gone
-// is the one refusing the file tools.
+// One row each, in use or not: which agents an operator runs cannot be inferred
+// from a directory.  Only rules missing from an agent in use is a fault.
 func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent rules", 1, "the agent account is not named, so what "+
@@ -299,8 +255,7 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 	enrolled, stale := enrolledAgents(opts.ConfigDir)
 	reportAgentRules(report, home, enrolled)
 	// A tree that has moved or been deleted since it was enrolled.  Reported
-	// rather than removed: this record is not the authority on what exists, and
-	// an unmounted tree is not a deleted one.
+	// rather than removed: an unmounted tree is not a deleted one.
 	for _, tree := range stale {
 		report.addf("agent rules", StatusWarn, "%s was enrolled for %s and is no "+
 			"longer there, so that entry says nothing about this host. Re-run "+
@@ -309,21 +264,15 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 	}
 }
 
-// reportAgentRules is diagnoseAgentRules against a home already resolved, so a
-// test can put one somewhere other than a real account's: what is asserted is
-// which state each agent is reported in, and every one of those is a question
-// about files under a directory rather than about the passwd database.
-// enrolled names the agents some tree was enrolled for, which is the half a
-// home cannot show: a tree relies on rules that live somewhere else, and the
-// agent it was enrolled for may leave no trace in this account at all.
+// reportAgentRules is diagnoseAgentRules against a home already resolved, every
+// question being about files under a directory rather than about the passwd
+// database.  enrolled names the agents some tree was enrolled for, which the
+// home cannot show: an enrolled agent may leave no trace in this account.
 func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 	for _, name := range agentNames() {
 		target := agentTargets[name]
-		// An agent with no account-wide file to write, which the target says why
-		// of: pi's rules are compiled into the extension an enrolment installs,
-		// and Antigravity's are nowhere.  Either way there is nothing in this home
-		// for this check to find and nothing missing from it, and the difference
-		// between the two is the difference between covered and not.
+		// An agent with no account-wide file to write, so there is nothing here to
+		// find and nothing missing.  The target says why.
 		if len(target.accountFiles) == 0 {
 			report.addf("agent rules", StatusNA, "%s: %s", name, target.withoutAccountRules)
 			continue
@@ -357,10 +306,8 @@ func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
 }
 
 // agentInUse reports whether this agent is present in the home at all: its own
-// directory, or any of the rules faramir writes for it.
-// The home markers, not the tree ones: this is the same question `init --agent
-// auto` asks, and the two have to agree or doctor reports a gap that re-running
-// init would not close.
+// directory, or any of the rules faramir writes for it.  The home markers
+// rather than the tree ones, so this agrees with `init --agent auto`.
 func agentInUse(home string, target *agentTarget) bool {
 	for _, marker := range target.detectHome {
 		if exists(filepath.Join(home, marker)) {
@@ -386,12 +333,10 @@ func accountPaths(target *agentTarget) []string {
 
 // diagnoseSopsConfig reports a creation rule left inside the secrets directory.
 // sops takes the first .sops.yaml it finds walking up from the working
-// directory, so a copy in the secrets directory shadows the one above it and
-// new values encrypt to different recipients depending on the working directory
-// sops was run from.
-//
-// Reported rather than moved: answering which is current wrongly writes values
-// nothing can decrypt.
+// directory, so a copy there shadows the one above it and new values encrypt to
+// different recipients depending on where sops was run from.  Reported rather
+// than moved: guessing which is current wrongly writes values nothing can
+// decrypt.
 func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 	layout := Layout{ConfigDir: opts.ConfigDir}
 	current, stale := layout.SopsConfigPath(), layout.StaleSopsConfigPath()
@@ -415,11 +360,8 @@ func diagnoseSopsConfig(report *DoctorReport, opts DoctorOptions) {
 }
 
 // diagnoseSopsRecipients answers who can decrypt what the secrets directory
-// will hold next.
-//
-// The keeper's own recipient is the one that has to be there: without it the
-// broker cannot read the next value, and it starts and reports healthy anyway.
-// Every other difference is a backup key that turns out to open nothing.  init
+// will hold next.  The keeper's own recipient has to be there: without it the
+// broker cannot read the next value and still starts and reports healthy.  init
 // writes this file once, so a key restored or re-minted leaves the rule naming
 // the recipient it used to have.
 func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path string) {
@@ -434,13 +376,10 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 			"encrypts a new file in the secrets directory to nobody and refuses", path)
 		return
 	}
-	// What is written here has to be something sops will take, and the file is
-	// 0644.  `init` validates what --recipient names, but adding a recipient
-	// afterwards is editing this file by hand, and nothing on that path looks at
-	// what was typed: a private half pasted here is the key that opens the secrets
-	// directory, readable by every account on the host.  Asked before the keeper's
-	// own recipient, which is a question about a file that at least parses as
-	// recipients.
+	// The file is 0644 and a recipient added after install is typed into it by
+	// hand, so a private half pasted here is the key to the secrets directory,
+	// readable by every account.  Asked first, the rest assuming entries that at
+	// least parse as recipients.
 	if !recipientsAreWellFormed(report, listed, path) {
 		return
 	}
@@ -469,9 +408,8 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 }
 
 // recipientsAreWellFormed reports every entry sops would refuse, and whether
-// there were none.  Failed rather than a warning: sops encrypts nothing into
-// this directory while one is there, and the private-half case is a key
-// disclosed to the host rather than a key that opens nothing.
+// there were none.  Failed rather than warned: sops encrypts nothing into this
+// directory while one is there.
 func recipientsAreWellFormed(report *DoctorReport, listed []string, path string) bool {
 	ok := true
 	for _, recipient := range listed {
@@ -480,8 +418,8 @@ func recipientsAreWellFormed(report *DoctorReport, listed []string, path string)
 			continue
 		}
 		ok = false
-		// The message names what to do, including the rotation a private half
-		// needs, so it is carried rather than summarised.
+		// The error names what to do, including the rotation a private half needs,
+		// so it is carried rather than summarised.
 		report.addf("sops config", StatusFailed, "%s lists something sops will not "+
 			"take as a recipient: %v", path, err)
 	}
@@ -489,29 +427,21 @@ func recipientsAreWellFormed(report *DoctorReport, listed []string, path string)
 }
 
 // diagnoseSopsRuleCoverage asks whether the creation rules reach every managed
-// file, which decides whether `faramir vault edit` and `faramir recipient reseal` can write one
-// back at all: both hand sops this rule and match it against the file's real
-// path, and sops refuses a file no rule covers.
+// file, which decides whether `faramir vault edit` and `faramir recipient
+// reseal` can write one back: sops refuses a file no rule covers.
 //
-// Asked of sops rather than answered here.  Which files a rule governs is sops'
-// question -- it matches path_regex against the path taken relative to the rule
-// file, falling back to the absolute one -- and a second implementation of that
-// is free to disagree with the first, which would tell an operator their store
-// is covered right up until an edit fails on it.  So each file is put to sops as
-// an encryption of a throwaway document under its own name, and what sops says
-// is the answer.
+// Each file is put to sops as an encryption of a throwaway document under its
+// own name, rather than matching path_regex here: a second implementation of
+// that match is free to disagree with sops.
 func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath string) {
 	if len(opts.SecretsPatterns) == 0 {
 		report.unaskedf("rule coverage", 1, "the managed store could not be read, so "+
 			"which files %s has to cover is unknown here", rulePath)
 		return
 	}
-	// Asked whatever was matched, not only when nothing was.  The secrets
-	// directory is 2750 and the group is the keeper's, and filepath.Glob reports a
-	// directory it cannot list as no matches and no error, so a caller who can
-	// read one pattern's directory and not another's gets a confident answer about
-	// half a store.  Reported and then carried on from: what did resolve is still
-	// worth checking, and the count says the rest was not.
+	// filepath.Glob reports a directory it cannot list as no matches and no
+	// error, so a caller who cannot read one pattern's directory would get a
+	// confident answer about half a store.  What did resolve is still checked.
 	unlistable := unlistableDirs(opts.SecretsPatterns)
 	if len(unlistable) > 0 {
 		report.unaskedf("rule coverage", 1, "the directories the managed store "+
@@ -522,9 +452,9 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 	managed, _, _ := keeper.Resolve(opts.SecretsPatterns)
 	if len(managed) == 0 {
 		if len(unlistable) > 0 {
-			// Nothing resolved and a door was closed, so the count above stands on its
-			// own: saying there is nothing to cover would report the closed door as an
-			// empty store.
+			// Nothing resolved and a directory was unreadable, so the count above
+			// stands on its own: reporting nothing to cover would read as an empty
+			// store.
 			return
 		}
 		report.addf("rule coverage", StatusNA, "no managed file matches [secret] "+
@@ -537,9 +467,8 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 			"decides which rule governs a file: %v", err)
 		return
 	}
-	// The rule's own recipients, named on the command line, so what is being asked
-	// is whether a rule matches rather than whether its keys work: a recipient
-	// sops will not take is the check above's to report.
+	// The rule's own recipients, named on the command line, so what is asked is
+	// whether a rule matches rather than whether its keys work.
 	recipients, err := sopsRecipients(rulePath)
 	if err != nil {
 		report.unaskedf("rule coverage", 1, "%s could not be read, so which files it "+
@@ -561,27 +490,19 @@ func diagnoseSopsRuleCoverage(report *DoctorReport, opts DoctorOptions, rulePath
 				"the store where the rule already looks", rulePath, target)
 		}
 	}
-	// Only where every one of them was asked about and answered yes.  With a
-	// directory closed to this caller the sentence would claim the whole store,
-	// and the files behind that door are the ones nobody looked at.
+	// Only where every file was asked about and answered yes: an unreadable
+	// directory would otherwise be claimed as covered.
 	if covered == len(managed) && len(unlistable) == 0 {
 		report.addf("rule coverage", StatusOK, "%s covers all %d managed file(s)",
 			rulePath, covered)
 	}
 }
 
-// diagnoseRecipientDrift asks the one question the recipient commands exist to
-// keep answered: is every managed file sealed to what the rule says?
-//
-// Nothing else asks it.  `sops config` asks whether the rule names the keeper's
-// own recipient, `rule coverage` whether the rule reaches each file, and a store
-// passes both while its ciphertext is sealed to a set the rule no longer names:
-// a reseal that failed partway, or a rule changed by hand and never applied.
-//
-// Nothing fails in that state, which is why it needs a check.  Files written
-// from then on take the new list, the ones already there keep the old, and it
-// surfaces when somebody reaches for a value with a key they were told they
-// had.
+// diagnoseRecipientDrift asks whether every managed file is sealed to what the
+// rule names.  A store passes `sops config` and `rule coverage` while its
+// ciphertext is sealed to a set the rule no longer names: a reseal that failed
+// partway, or a rule changed by hand and never applied.  Nothing fails in that
+// state until somebody reaches for a value with a key they were told they had.
 //
 // The recipients sops writes into a file are cleartext, so this needs no key,
 // only the ability to read the file.
@@ -607,15 +528,13 @@ func diagnoseRecipientDrift(report *DoctorReport, opts DoctorOptions, rulePath s
 	for _, target := range managed {
 		was, err := sopsrule.SealedTo(target)
 		switch {
-		// Not drift.  A file sealed to nothing is not sealed to the wrong set, and
-		// what it is instead -- unencrypted, or encrypted to something other than
-		// age -- is `rule coverage`'s to report and the broker's --check to fail on.
+		// Not drift: a file sealed to nothing is unencrypted or sealed to something
+		// other than age, which `rule coverage` and the broker's --check report.
 		case errors.Is(err, sopsrule.ErrNoRecipients):
 			sealedToNothing++
 			continue
-		// Unasked rather than failed: the secrets directory is the keeper's group,
-		// so a caller who cannot open a file has learned nothing about whether it
-		// agrees.
+		// Unasked rather than failed: a caller who cannot open the file has learned
+		// nothing about whether it agrees.
 		case err != nil:
 			report.unaskedf("recipient drift", 1, "%s could not be read, so whether "+
 				"it agrees with %s went unchecked: %v", target, rulePath, err)
@@ -631,9 +550,8 @@ func diagnoseRecipientDrift(report *DoctorReport, opts DoctorOptions, rulePath s
 			"grants may. Run: sudo faramir recipient reseal",
 			target, strings.Join(was, ", "), rulePath, strings.Join(wanted, ", "))
 	}
-	// Only where every file that is sealed to anything was reached and agreed.
-	// With none of them sealed there is nothing this check has an opinion about,
-	// and a pass would read as a store confirmed rather than a store not examined.
+	// Only where every file sealed to anything was reached and agreed.  With none
+	// sealed there is nothing to pass.
 	if drifted == 0 && checked > 0 && checked+sealedToNothing == len(managed) {
 		report.addf("recipient drift", StatusOK, "all %d encrypted file(s) are sealed "+
 			"to what %s names", checked, rulePath)
@@ -649,9 +567,8 @@ func unlistableDirs(patterns []string) []string {
 		dir := filepath.Dir(pattern)
 		handle, err := os.Open(dir)
 		if err != nil {
-			// Only a directory that is there and closed to this account.  One that is
-			// absent is a store not written yet, which is the case the caller reports
-			// as nothing to cover.
+			// Only a directory that is there and closed to this account; an absent one
+			// is a store not written yet.
 			if os.IsPermission(err) && !slices.Contains(out, dir) {
 				out = append(out, dir)
 			}
@@ -666,28 +583,19 @@ func unlistableDirs(patterns []string) []string {
 	return out
 }
 
-// diagnoseLogRotation asks whether anything bounds the audit log.
-//
-// the record cap bounds one record, and nothing in faramir bounds the
-// file: rotation is logrotate's, which is a program that has to be installed,
-// has to name this log, and has to be run on it.  Worth a check of its own
-// because the install writes the config whether or not the program exists, so
-// the step reports "changed" on a host where it does nothing, and because the
-// account that fills the log is the one this whole install exists to bound: a
-// brokered command's output is what a record carries, so an agent that prints
-// enough writes the disk full, and a full disk is where brokered commands stop
+// diagnoseLogRotation asks whether anything bounds the audit log.  The record
+// cap bounds one record and nothing in faramir bounds the file: rotation is
+// logrotate's, which has to be installed, has to name this log, and has to be
+// run on it.  A record carries a brokered command's output, so an agent that
+// prints enough fills the disk, and a full disk is where brokered commands stop
 // running at all.
 //
-// Every question here is asked of what is on disk rather than of the install's
-// own intentions, because each of them has an answer that looks exactly like a
-// working rotation from the install's side: a rule bounding the path config.toml
-// named before it was edited, and a rule no run of logrotate ever reads, both
-// leave the file present, the program installed and the log growing.
-//
-// The first two questions read a path and a $PATH and ask no account anything.
-// The last two read logrotate's state and the log itself, which belong to root
-// and to the broker, so a caller without root is told they went unasked rather
-// than given the pass they would otherwise infer from a stat that failed.
+// Every question is asked of what is on disk: a rule bounding the path
+// config.toml named before it was edited, and a rule no run of logrotate ever
+// reads, both look like a working rotation from the install's side.  The last
+// two read logrotate's state and the log itself, which belong to root and to
+// the broker, so a caller without root is told they went unasked rather than
+// given the pass a failed stat would otherwise imply.
 func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	if cfg == nil || cfg.Audit.LogPath == "" {
 		return
@@ -707,9 +615,8 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 	}
 
 	// The rule has to name the file the broker appends to.  Both are rendered
-	// from one layout, so they agree wherever init wrote them together and part
-	// wherever [audit] log_path was moved afterwards, which leaves the rule
-	// bounding a path nothing writes and the log growing under the old name.
+	// from one layout, so they part only where [audit] log_path moved after init,
+	// leaving the rule bounding a path nothing writes.
 	named, err := logrotateLogs(logrotateConfig)
 	switch {
 	case err != nil:
@@ -729,10 +636,9 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 		return
 	}
 
-	// What logrotate has processed, which is the only account of whether the rule
-	// is read by the runs that happen rather than merely installed.  A rule the
-	// include line does not reach, or one a syntax error earlier in the set
-	// abandons, is skipped every run and says nothing about it anywhere else.
+	// What logrotate has processed, the only evidence that the rule is read rather
+	// than merely installed: one the include line does not reach, or that a syntax
+	// error earlier in the set abandons, is skipped every run.
 	statePath := firstExisting(logrotateStatePaths)
 	if statePath == "" {
 		report.addf("log rotation", StatusWarn, "logrotate keeps no state at %s, so it "+
@@ -764,10 +670,9 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 		return
 	}
 
-	// The config says 16MB, so a log far past it is one logrotate is not being
-	// run on, whatever is installed.  A multiple rather than the number itself:
-	// rotation is scheduled rather than continuous, and a log over the size
-	// between two runs is ordinary.
+	// The rule rotates at 16MB, so a log far past it is one logrotate is not being
+	// run on.  A multiple rather than the size itself: rotation is scheduled, so a
+	// log over it between two runs is ordinary.
 	const rotateSize = 16 << 20
 	info, err := os.Stat(logPath)
 	switch {
@@ -791,15 +696,11 @@ func diagnoseLogRotation(report *DoctorReport, cfg *config.Config) {
 }
 
 // logrotateLogs is the log files a rule file names: every path outside a
-// directive block, which is where logrotate takes its file list from.
-//
-// A parser rather than `logrotate -d`, whose answer is prose that differs
-// between versions.  It reads the form init writes and the forms a hand edit
-// produces: several paths to one block, quoted paths, comments, globs.  Blocks
-// are skipped by brace depth, so a postrotate script carrying braces of its own
-// is the one edit that can hide a path from this, and finding none at all is
-// reported as a rule that could not be read rather than as one that misses the
-// log.
+// directive block, which is where logrotate takes its file list from.  A parser
+// rather than `logrotate -d`, whose output is prose that differs between
+// versions.  Blocks are skipped by brace depth, so a postrotate script carrying
+// braces of its own can hide a path from this; the caller reports finding none
+// as a rule it could not read.
 func logrotateLogs(path string) ([]string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -851,10 +752,9 @@ func logrotateCovers(named []string, logPath string) bool {
 
 // logrotateStateLogs is every log logrotate's state file names, which is every
 // log it has processed.  One line per log, the path first and quoted since
-// version 2, then the date it was last rotated -- which is not read here: a
-// quiet log is not rotated at all under notifempty, so the date says how busy
-// the host has been rather than whether the rule is applied, and how large the
-// log has grown answers that better.
+// version 2, then the date it was last rotated, which is not read here: under
+// notifempty a quiet log is never rotated, so the date says how busy the host
+// has been rather than whether the rule is applied.
 func logrotateStateLogs(path string) ([]string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -907,10 +807,9 @@ func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 			"%d socket unit(s) are listening was not asked", len(sockets))
 		return
 	}
-	// What the caller saw before it opened the broker socket, where it sampled.
-	// Reading the state here instead would read it after that round trip, which
-	// starts any socket the broker depends on: the fault repairs itself between
-	// arriving and looking, and all three report as listening.
+	// What the caller saw before it opened the broker socket.  Reading the state
+	// here would read it after that round trip, which starts any socket the broker
+	// depends on, so all three would report as listening.
 	states := opts.SocketStates
 	if len(states) == 0 {
 		states = SampleSockets()
@@ -931,12 +830,9 @@ func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 
 // diagnoseVersion compares the running broker against the binary asking.  They
 // diverge when a new binary was installed and the daemons were not restarted
-// onto it, which every other finding here would then describe wrongly: the
-// checks read this build's paths, modes and config rules against a host running
-// the previous one.
-//
-// A fail rather than a warn.  Nothing is wrong with either build; what is wrong
-// is that an upgrade did not finish, and re-running init is what finishes it.
+// onto it, which leaves every other finding describing the wrong build: the
+// checks read this build's paths, modes and config rules.  A fail rather than a
+// warn: an upgrade did not finish, and re-running init is what finishes it.
 func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 	switch {
 	case opts.BrokerVersion == "":
@@ -957,8 +853,7 @@ func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 // secrets directory that exists is protecting nothing and looks healthy.
 //
 // Run as the broker's own uid, which is why this needs root: --check opens the
-// keeper socket, the SSH keys and the secrets files itself, and root and an
-// ordinary account each get a different answer.
+// keeper socket, the SSH keys and the secrets files itself.
 func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerServes {
 	if os.Geteuid() != 0 {
 		report.unaskedf("broker", 1, "run doctor as root to ask this: --check "+
@@ -981,13 +876,10 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 		report.addf("broker", StatusFailed, "could not read the --check report: %v", err)
 		return servesUnknown
 	}
-	// Every one of these fails.  The daemon is more forgiving on purpose, coming
-	// up while the secrets are not written yet and refusing exec and redact until
-	// they are; doctor is the audit, and a broker serving nothing is what an
-	// operator ran it to be told about.
-	//
+	// Every one of these fails, though the daemon itself comes up while the
+	// secrets are not written yet and refuses exec and redact until they are.
 	// Named apart from the `secrets` boundary check, which asks who owns the
-	// directory: two findings under one name read as one check reported twice.
+	// directory.
 	const store = "secrets store"
 	explained := true
 	switch {
@@ -996,7 +888,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 			"nothing is injectable and nothing is redacted")
 	case len(check.Secrets.UnresolvedPatterns) > 0:
 		// The unresolved entries alone: another pattern beside them may have
-		// matched and loaded, and naming that one too would say the untrue thing.
+		// matched and loaded.
 		report.addf(store, StatusFailed, "%s. Either the secrets have not been "+
 			"written yet, or they are on a filesystem that is not mounted; %d ref(s) "+
 			"loaded from what did resolve",
@@ -1010,10 +902,10 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 		explained = false
 	}
 	// Refs the store read and the redactor refused.  Named here rather than left
-	// to the fallback below, which would report the one condition --check
-	// describes precisely as one it cannot explain.  A warning, not a failure:
-	// they are never injected, so what is wrong is that a ref does not work, not
-	// that the install is failing to hold a boundary.
+	// to the fallback below, which would report a condition --check describes
+	// precisely as one it cannot explain.  A warning, not a failure: they are
+	// never injected, so a ref does not work rather than a boundary going
+	// unheld.
 	if len(check.Secrets.NotRedactable) > 0 {
 		report.addf("redaction", StatusWarn, "%d ref(s) are shorter than [secret] "+
 			"min_length, so they are never injected and never redacted: %s. Lengthen "+
@@ -1026,8 +918,7 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// --check fails for reasons the switch does not cover: an unusable [ssh] key,
 	// a bound socket with world bits.  Judged on whether this function accounted
 	// for the exit code rather than on whether anything else in the report
-	// failed, which would swallow this one whenever another check had already
-	// failed for reasons of its own.
+	// failed.
 	if checkErr != nil && !explained {
 		report.addf("broker", StatusFailed, "--check failed as %s for a reason not "+
 			"reported above: %v", brokerUser, checkErr)
@@ -1041,16 +932,12 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 }
 
 // diagnoseSSHAgent asks what a brokered command would actually get, rather than
-// reading the key off disk, and asks as the operator, root not being in the
-// client group the broker checks against.
+// reading the key off disk, and asks as the operator: root is not in the client
+// group the broker checks against.
 //
-// Skipped when no key is configured: that is the host where SSH is arranged for
-// the executor's uid some other way, and `ssh-add -l` there exits non-zero
-// because no agent is running, which is not a fault to report.
-//
-// Not skipped for want of root: the probe runs as the caller's own account,
-// which is the operator either way.  Deciding the skip and reading the answer
-// are split out so both can be tested without a broker.
+// Skipped when no key is configured: SSH is then arranged for the executor's
+// uid some other way, and `ssh-add -l` exits non-zero for want of an agent,
+// which is not a fault.  Not skipped for want of root.
 func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
 	if cfg == nil || cfg.Ssh.Key == "" {
 		report.addf("ssh agent", StatusOK, "no [ssh] key configured, so no agent runs "+
@@ -1067,13 +954,10 @@ func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Conf
 }
 
 // skipSSHProbe reports why the probe cannot be put, empty when it can.  The
-// probe sends a brokered command, so a broker that refuses one and a broker
-// that answers nothing are both states where there is no answer to be had, and
-// reporting either as the agent's own fails a host whose agent is fine.
-//
-// The established refusal first: it names the fault to fix.  An empty version
-// is what the install lookup got from a broker that is not running, which the
-// sockets and version checks report.
+// probe sends a brokered command, so a broker that refuses one or answers
+// nothing leaves no answer to be had, and reporting either as the agent's own
+// would fail a host whose agent is fine.  The established refusal comes first:
+// it names the fault to fix.
 func skipSSHProbe(serves brokerServes, brokerVersion string) string {
 	switch {
 	case serves == servesNothing:
@@ -1084,12 +968,10 @@ func skipSSHProbe(serves brokerServes, brokerVersion string) string {
 	return ""
 }
 
-// reportSSHProbe turns the probe's answer into a finding.
-//
-// A refusal from a broker --check found holding values is the one answer that
-// is neither the agent's nor a skip: --check reads the managed files itself, so
-// a daemon refusing what those files cover is one that came up before they were
-// written.
+// reportSSHProbe turns the probe's answer into a finding.  A refusal from a
+// broker --check found holding values is neither the agent's answer nor a skip:
+// --check reads the managed files itself, so a daemon refusing what those files
+// cover came up before they were written.
 func reportSSHProbe(report *DoctorReport, cfg *config.Config, serves brokerServes, out string, err error) {
 	switch classifySSHProbe(out, err) {
 	case sshProbeHasKey:
@@ -1124,12 +1006,10 @@ const (
 	sshProbeUnreachable
 )
 
-// classifySSHProbe reads the probe's answer.
-//
-// Success first: ssh-add exits non-zero both when the agent is empty and when
-// it could not be reached, so err alone does not say which and the output
-// decides.  The refusal is the broker declining to run the probe at all, a
-// statement about the value set rather than about the agent.
+// classifySSHProbe reads the probe's answer.  Success first: ssh-add exits
+// non-zero both when the agent is empty and when it could not be reached, so
+// err alone does not say which and the output decides.  The refusal is the
+// broker declining to run the probe at all.
 func classifySSHProbe(out string, err error) sshProbeResult {
 	switch {
 	case strings.Contains(out, "SHA256"):
@@ -1142,38 +1022,31 @@ func classifySSHProbe(out string, err error) sshProbeResult {
 	return sshProbeUnreachable
 }
 
-// diagnoseGroup lists members of the two groups that grant something, which
-// this install does not account for.  Reported rather than removed: whose grant
-// that is, is not this command's to decide, and `init` adds to these groups but
-// has never taken anything out of one it did not create.
+// diagnoseGroup lists members of the two granting groups that this install does
+// not account for.  Reported rather than removed: whose grant that is, is not
+// this command's to decide.
 //
-// Both groups, because both survive a re-run that renames what they are for.
-// Changing --client-group leaves the old group intact with every member; naming
-// a new --keeper-user leaves the retired account in the group that owns the
-// ciphertext.  Nothing else on this host reports either, and the standing grant
-// is what is left of an account the install has otherwise stopped using.
+// Both groups, because both survive a re-run that renames what they are for:
+// changing --client-group leaves the old group intact with every member, and a
+// new --keeper-user leaves the retired account in the group owning the
+// ciphertext.
 func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
-	// Held as a list so the bail-out below can say how many went unasked: on a
-	// host with a --secrets-group of its own there are two, and a count written
-	// out separately would report one.
+	// A list so the bail-out below can say how many went unasked.
 	type granting struct{ label, name, grants string }
 	groups := []granting{
 		{"group", opts.ClientGroup,
 			"reach the broker socket, and enter a tree enrolled with it"},
 	}
-	// The second only when it is a group of its own.  Defaulted, the secrets group
-	// IS the keeper's primary group, and the keeper being in it is the arrangement
-	// rather than a leftover; the loop below would name every retired keeper
-	// correctly and the current one too.
+	// Only where the secrets group is not the client group, which is already
+	// listed.
 	if opts.SecretsGroup != "" && opts.SecretsGroup != opts.ClientGroup {
 		groups = append(groups, granting{"secrets group", opts.SecretsGroup,
 			"read and replace the ciphertext in the secrets directory"})
 	}
-	// Without the operator's name there is no way to tell the account this install
-	// deliberately admitted from one left behind, and the operator IS a member of
-	// the client group by construction.  Reporting it as a leftover would print
-	// `gpasswd -d <the operator> <the client group>` as the remedy, which is the
-	// one change that shuts the agent out of the broker socket.
+	// The operator is a member of the client group by construction, so without
+	// their name the account this install admitted cannot be told from one left
+	// behind, and the remedy printed would be the one change that shuts the agent
+	// out of the broker socket.
 	if opts.AgentUser == "" {
 		report.unaskedf("group", len(groups), "the agent account is not named, so a "+
 			"member of %s cannot be told from an account left behind: pass "+
@@ -1188,13 +1061,9 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 }
 
 // diagnoseGroupOutsiders is one group's membership against the accounts this
-// install uses.
-//
-// Primary membership as well as supplementary: /etc/group lists only the
-// second, and an account whose primary group IS this one holds it without
-// appearing there.  That is exactly the shape a renamed --keeper-user leaves,
-// the secrets group defaulting to the keeper's own group, so reading the member
-// list alone would report the one case worth reporting as clean.
+// install uses.  Primary membership as well as supplementary: /etc/group lists
+// only the second, and a renamed --keeper-user leaves an account holding the
+// secrets group as its primary, which is the case worth reporting.
 func diagnoseGroupOutsiders(report *DoctorReport, label, name string, known []string, grants string) {
 	gid, members, err := groupEntry(name)
 	if err != nil {
@@ -1226,7 +1095,7 @@ func diagnoseGroupOutsiders(report *DoctorReport, label, name string, known []st
 }
 
 // passwdFile is where the accounts are.  A variable so a test can point at one
-// it wrote, as loginDefs and shadowFile are.
+// it wrote.
 var passwdFile = "/etc/passwd"
 
 // primaryMembers is the accounts whose primary gid is this group, which
@@ -1247,13 +1116,12 @@ func primaryMembers(gid string) ([]string, error) {
 }
 
 // groupFile is where the groups are.  A variable so a test can point at one it
-// wrote, as loginDefs and shadowFile are.
+// wrote.
 var groupFile = "/etc/group"
 
 // groupEntry is a group's gid and its supplementary members, read from the same
-// line.  Both, because the gid is what the primary members are found by, and
-// looking it up separately through the system would answer for a different file
-// from the one the members came out of.
+// line so both describe one entry.  The gid is what the primary members are
+// found by.
 func groupEntry(name string) (gid string, members []string, err error) {
 	body, readErr := os.ReadFile(groupFile)
 	if readErr != nil {
@@ -1273,23 +1141,17 @@ func groupEntry(name string) (gid string, members []string, err error) {
 }
 
 // resolveIdentities finds the accounts and groups this install actually uses,
-// rather than the ones a default would name.
-//
-// Every check below asks what a named account can reach, so a name that is not
-// the one running answers a question nobody asked and answers it confidently:
-// on a host installed with --keeper-user other, defaulting to faramir-keeper
-// reports the boundaries of an account that does not exist.
+// rather than the ones a default would name: every check below asks what a
+// named account can reach, so a wrong name answers confidently about an account
+// this host may not have.
 //
 // The unit is the source of truth for a service account, being what systemd
 // reads; the config for the client group, being what the broker checks; and the
 // secrets directory's own group for the secrets group, being what the modes are
-// actually set to.  A flag still wins, for a host whose install is not the one
-// on this machine.
+// set to.  A flag still wins, for a host whose install is not this machine's.
 //
-// Failing rather than falling back, and stopping rather than carrying on: each
-// of these is readable on any working install, so not reading one means the
-// install is broken, and every finding after it would name an account this host
-// may not have.
+// Failing rather than falling back: each of these is readable on any working
+// install.
 func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Config) (DoctorOptions, bool) {
 	for _, role := range []struct {
 		unit string

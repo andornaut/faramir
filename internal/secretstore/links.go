@@ -12,21 +12,16 @@ import (
 )
 
 // loadLinks reads every [[secret.link]] file.  Per-link failures are collected
-// rather than aborting, so one broken link does not blank the value set.
+// rather than aborting, so one broken link does not blank the value set.  The
+// two ways a link can fail mean opposite things, as they do for a managed sops
+// file:
 //
-// The two ways a link can fail to produce a value are kept apart, and they mean
-// opposite things, the same way they do for a managed sops file:
-//
-//   - A path that is not there is an entry naming nothing.  The credential has
-//     been removed from the machine (a logout, a tool uninstalled), so there is
-//     nothing left to leak and nothing to redact.  Reported, not fatal.
-//   - A file that is there and will not read or parse is an error.  The value is
-//     still on disk and can still reach output, and the redactor does not have
-//     it, so the broker refuses to serve while it is set.
-//
-// The permission case is the second kind on purpose: a link whose ACL was
-// dropped by a tool rewriting its own file is exactly a value the redactor is
-// missing without knowing it.
+//   - A path that is not there is an entry naming nothing: the credential has
+//     left the machine, so there is nothing to leak and nothing to redact.
+//     Reported, not fatal.
+//   - A file that is there and will not read or parse is an error: the value is
+//     still on disk and the redactor does not have it, so the broker refuses to
+//     serve while it is set.  The permission case is this kind.
 func loadLinks(links []config.Link) (values map[string]string,
 	state []keeperclient.FileState, loadErrors, unresolved []string) {
 	values = map[string]string{}
@@ -44,10 +39,9 @@ func loadLinks(links []config.Link) (values map[string]string,
 			loadErrors = append(loadErrors, linkError(link, err))
 			continue
 		}
-		// Fingerprinted whether or not it reads.  statLinks records every file
-		// that is there, so a link left out here because it would not parse would
-		// differ from the poll's view on every request and reload the whole set
-		// each time, logging a change that never happened.
+		// Fingerprinted whether or not it reads: statLinks records every file that
+		// is there, so one left out here would differ from the poll's view on every
+		// request and reload the whole set each time.
 		state = append(state, keeperclient.FileState{
 			Path: link.Path, MTime: info.ModTime().UnixNano(), Size: info.Size()})
 
@@ -79,7 +73,7 @@ func statLinks(links []config.Link) []keeperclient.FileState {
 
 // linkError puts the ref in front of a reason, naming the file unless the error
 // already does.  No error from internal/secretlink carries file content, which
-// is what makes it safe to log and to report from `--check`.
+// is what makes it safe to log.
 func linkError(link config.Link, err error) string {
 	var pathErr *fs.PathError
 	if errors.As(err, &pathErr) {

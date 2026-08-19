@@ -1,19 +1,15 @@
 package main
 
-// `faramir recipient` manages who can decrypt the managed store: the rule
-// and the ciphertext together, in one command.
+// `faramir recipient` manages who can decrypt the managed store: the rule and
+// the ciphertext together, in one command.  Editing `.sops.yaml` on its own
+// leaves a state nothing reports -- a rule naming a reader the existing files
+// are not sealed to -- which surfaces whenever somebody reaches for a value
+// with a key they were told they had.
 //
-// The two were separate, an editor for `.sops.yaml` and `reseal` for the files,
-// and between them lay a state nothing reports: a rule naming a reader the
-// existing files are not sealed to.  Nothing fails there.  New files get the new
-// list, old ones keep the old, and the divergence surfaces whenever somebody
-// next reaches for a value with a key they were told they had.
-//
-// So the rule is written and the store is re-encrypted by the same command, and
-// the rule is judged before it is written rather than after.  `reseal` stays for
-// what this cannot cover: a run that reached only some of the files, and a file
-// edited by hand, root being able to write a root-owned file whatever the docs
-// say.
+// So the rule is written and the store re-encrypted by the same command, and
+// the rule is judged before it is written.  `reseal` stays for what this cannot
+// cover: a run that reached only some of the files, and a file edited by
+// hand.
 
 import (
 	"encoding/json"
@@ -30,15 +26,14 @@ import (
 	"github.com/andornaut/faramir/internal/sopsrule"
 )
 
-// opRecipient is the audit record a rule change writes, one per command rather
-// than one per file: the per-file records are the reseal's own, and what this
-// adds is who the store is now readable by and who asked for that.
+// opRecipient is the audit record a rule change writes, one per command: the
+// per-file records are the reseal's own, and what this adds is who the store is
+// now readable by and who asked for that.
 const opRecipient = "recipient"
 
-// A group of its own under `sops`, spelled like `link add|rm|ls`.  The guard
-// names a subcommand by every token a person types, so the three here are three
-// lines in cli.Operator and the test that holds that list against the command
-// tree is what keeps them in step.
+// newRecipientCmd is a group spelled like `link add|rm|ls`.  The guard names a
+// subcommand by every token a person types, so the three here are three lines
+// in cli.Operator, held against the command tree by a test.
 func newRecipientCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "recipient",
@@ -151,10 +146,9 @@ func runReseal(f recipientFlags, args []string) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	// Checked before anything is decrypted.  Re-encrypting to a rule the keeper is
+	// Checked before anything is decrypted: re-encrypting to a rule the keeper is
 	// not named in produces a secrets directory that opens for nobody the broker
-	// can ask, one file at a time, and the failure only shows up at the next
-	// refresh.
+	// can ask, one file at a time.
 	if err := keeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
@@ -163,17 +157,15 @@ func runReseal(f recipientFlags, args []string) int {
 }
 
 // runRecipientChange is add and rm, which differ only in the edit they ask for.
-//
-// The order is the whole point: validate, edit in memory, judge the result, and
-// only then write.  A rule that would leave the keeper out, or that this cannot
-// read back, is one the file never comes to hold, so there is no state to
-// recover from.
+// The order is the point: validate, edit in memory, judge the result, and only
+// then write, so a rule that would leave the keeper out is one the file never
+// comes to hold.
 func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 	label := "recipient rm"
 	if adding {
 		label = "recipient add"
-		// Before root, before the config, before anything: a typo in a public key
-		// should not need sudo to find out about.
+		// Before root and before the config: a typo in a public key should not need
+		// sudo to find out about.
 		if err := agekey.ValidateRecipient(recipient); err != nil {
 			fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 			return 1
@@ -184,10 +176,9 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 	if store == nil {
 		return code
 	}
-	// Named here rather than left to keeperStaysAReader below.  That check is
-	// written for a rule somebody edited by hand, and its advice is to put the
-	// key back under `- age:`; to an operator who has just asked to remove it,
-	// that reads as an instruction to undo what they typed.
+	// Named here rather than left to keeperStaysAReader below, whose advice is to
+	// put the key back under `- age:`: to an operator who has just asked to
+	// remove it, that reads as an instruction to undo what they typed.
 	if !adding {
 		if keeper, err := agekey.Recipient(store.keyPath); err == nil && keeper == recipient {
 			fmt.Fprintf(os.Stderr, "faramir %s: %s is the key %s decrypts with, so removing "+
@@ -202,8 +193,8 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: creation rule: %v\n", label, err)
 		// Named because it is a dead end otherwise: this command edits that file
-		// and cannot create one, having no way to know who else should be able to
-		// read the store.  init writes it with the keeper's own recipient.
+		// and cannot create one, having no way to know who else should read the
+		// store.
 		if os.IsNotExist(err) {
 			fmt.Fprintf(os.Stderr, "faramir %s: `sudo faramir init` writes one naming "+
 				"the keeper's own key, and this adds to it\n", label)
@@ -216,11 +207,9 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	// No early return where the rule already says this.  A pass that wrote the
-	// rule and then failed on a file leaves exactly that state, and a command
-	// that took the rule as proof would report success over a store still sealed
-	// to the old set.  So the reseal runs either way and re-running this command
-	// is how such a pass is resumed; it rewrites nothing where everything agrees.
+	// No early return where the rule already says this: a pass that wrote the rule
+	// and then failed on a file leaves exactly that state, so the reseal runs
+	// either way and re-running is how such a pass is resumed.
 	if !changed {
 		fmt.Fprintf(os.Stderr, "faramir %s: %s already %s %s; checking the store agrees\n",
 			label, store.rulePath, listedOrNot(adding), recipient)
@@ -231,8 +220,8 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
-	// Judged against the edit rather than the file on disk, and before the write.
-	// A store sealed to a rule the keeper is not named in opens for nobody the
+	// Judged against the edit rather than the file on disk, and before the write:
+	// a store sealed to a rule the keeper is not named in opens for nobody the
 	// broker can ask, and re-running does not undo it.
 	if err := keeperStaysAReader(store.keyPath, wanted, store.rulePath); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
@@ -255,8 +244,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		return 1
 	}
 	// One record for the rule, before the per-file records the reseal writes, so
-	// the log reads in the order it happened.  Public keys only; no value of any
-	// kind passes through here.
+	// the log reads in the order it happened.  Public keys only.
 	audit.NewLog(store.cfg.Audit).Write(map[string]any{
 		"op": opRecipient, "log_id": audit.NewLogID(), "file": store.rulePath,
 		"change": addedOrRemoved(adding), "recipient": recipient, "to": wanted,
@@ -266,8 +254,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		label, addedOrRemoved(adding), recipient, store.rulePath, len(wanted))
 
 	// A rule the files are not yet sealed to is the state this command exists to
-	// avoid, so its exit status is the reseal's: a partial pass is a failure here
-	// even though the rule was written.
+	// avoid, so its exit status is the reseal's.
 	return resealStore(label, store, wanted, false)
 }
 
@@ -303,8 +290,7 @@ func listedOrNot(adding bool) string {
 
 // runRecipientList needs no root: .sops.yaml is world-readable, holding public
 // keys and a rule and no value.  It reads that file rather than asking the
-// broker, the question being who the store is sealed to rather than what is in
-// it.
+// broker.
 func runRecipientList(f recipientFlags) int {
 	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
 	if err != nil {
@@ -326,10 +312,10 @@ func runRecipientList(f recipientFlags) int {
 		fmt.Println(string(out))
 		return 0
 	}
-	// Which of these is this host's own is the question two keys raise, and
-	// answering it means reading the age key, which is the keeper's and root's.
-	// So the note appears where it can be known and the listing is plain where it
-	// cannot, rather than a column that says "no" and means "could not tell".
+	// Which of these is this host's own means reading the age key, which is the
+	// keeper's and root's.  So the note appears where it can be known and the
+	// listing is plain where it cannot, rather than a column that says "no" and
+	// means "could not tell".
 	keeper, err := agekey.Recipient(ageKeyPath(cfg))
 	if err != nil {
 		keeper = ""

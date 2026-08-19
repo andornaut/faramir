@@ -1,8 +1,8 @@
 package main
 
 // The subcommands that provision and inspect a host.  They act on files rather
-// than through the broker, but they ask a running one where the install is: see
-// askBroker.  init also runs its own checks through it at the end.
+// than through the broker, but they ask a running one where the install is; see
+// askBroker.
 
 import (
 	"context"
@@ -26,8 +26,7 @@ import (
 
 // brokerUnit records the config the daemons loaded.  A variable so a test can
 // point it at a fixture, and taken from install rather than written out again:
-// init refuses a config move against the same file, so a second literal here
-// would drift from the one the refusal reads.
+// init refuses a config move against the same file.
 var brokerUnit = install.UnitPath("faramir-broker.service")
 
 // status is what a running broker says about itself: where its config is, and
@@ -74,27 +73,23 @@ func askBroker(socketPath string) status {
 	}
 	out := status{version: body.Version}
 	if len(body.Configs) > 0 {
-		// The base config is first by construction; the rest are its drop-ins.
+		// The base config is first by construction.
 		out.configDir = filepath.Dir(body.Configs[0])
 	}
 	return out
 }
 
 // unitConfigFile reads the config path out of the broker's unit and its
-// drop-ins, or "" when neither is readable or names one.  What the broker was
-// installed to load, which is the answer left when the broker itself is not
-// running.
-//
-// The same reader init refuses a config move against, so what this resolves and
-// what that compares it to cannot disagree.
+// drop-ins, or "" when neither is readable or names one: what the broker was
+// installed to load, which is the answer left when it is not running.  The same
+// reader init refuses a config move against.
 func unitConfigFile() string {
 	return install.UnitConfigFile(brokerUnit)
 }
 
 // discoverConfigFile finds the config.toml this host's install uses: the
 // running broker's own answer, then the path its unit names.  Empty when
-// neither answers, which is a host with no install rather than one whose
-// install moved.  The compiled-in default is not a step here, being a guess
+// neither answers.  The compiled-in default is not a step here, being a guess
 // each caller decides for itself.
 func discoverConfigFile(st status) string {
 	if st.configDir != "" {
@@ -105,14 +100,13 @@ func discoverConfigFile(st status) string {
 	return unitConfigFile()
 }
 
-// configDirFrom picks the install to act on, given an answer already asked
-// for: a flag first, so a host whose install is not the one on this machine can
+// configDirFrom picks the install to act on, given an answer already asked for:
+// a flag first, so a host whose install is not the one on this machine can
 // still be named, and the compiled-in default last.
 //
 // The broker's answer is taken as it stands rather than required to hold a
-// file, which is where this differs from discoverConfigFile: the caller is
-// about to report on the directory or remove it, and one that is not there is
-// the finding.
+// file, unlike discoverConfigFile: the caller is about to report on the
+// directory or remove it, and one that is not there is the finding.
 func configDirFrom(explicit string, st status) string {
 	if explicit != "" {
 		return explicit
@@ -127,8 +121,8 @@ func configDirFrom(explicit string, st status) string {
 }
 
 // resolveConfigDir is configDirFrom for a caller with no other use for the
-// broker's answer.  The flag is tested here as well, so naming one costs no
-// round trip.
+// broker's answer.  The flag is tested here too, so naming one costs no round
+// trip.
 func resolveConfigDir(explicit, socketPath string) string {
 	if explicit != "" {
 		return explicit
@@ -155,9 +149,8 @@ type initFlags struct {
 	recipients    []string
 
 	// The tunables.  Each flag's default is the real one, so --help says what a
-	// host gets; clearUnset then blanks the ones nobody typed, because a value
-	// left out has to mean "keep what the install has" rather than "put the
-	// compiled-in value back".
+	// host gets; clearUnset then blanks the ones nobody typed, a value left out
+	// meaning "keep what the install has".
 	commandEnv           []string
 	commandTimeoutSec    int
 	commandMaxTimeoutSec int
@@ -168,7 +161,7 @@ type initFlags struct {
 }
 
 // tunables maps each flag to where it lands, for clearUnset.  One table, so a
-// flag added to the struct and not here is a flag that silently reverts the
+// flag added to the struct and not here is one that silently reverts the
 // install every run.
 func (f *initFlags) tunables() map[string]func() {
 	return map[string]func(){
@@ -181,11 +174,9 @@ func (f *initFlags) tunables() map[string]func() {
 	}
 }
 
-// clearUnset blanks every tunable the operator did not name, so that a value
-// left out means "keep what the install has" rather than "put the compiled-in
-// default back".  Zero is the unset signal, which is why no tunable takes zero
-// as a legal value: one that did could not be told from an omitted flag once
-// cobra has stopped knowing which were typed.
+// clearUnset blanks every tunable the operator did not name, so a value left
+// out means "keep what the install has".  Zero is the unset signal, which is
+// why no tunable takes zero as a legal value.
 func clearUnset(c *cobra.Command, f *initFlags) {
 	for name, clear := range f.tunables() {
 		if !c.Flags().Changed(name) {
@@ -250,8 +241,7 @@ func newInitCmd() *cobra.Command {
 			"default, and re-running without it takes the grant away")
 	fl.StringArrayVar(&f.notifyCommand, "notify-command", nil,
 		// The backquoted word is cobra's placeholder for the value, taken from the
-		// first one in the string; without it the help reads "stringArray", and any
-		// other backquoted phrase in here becomes the placeholder instead.
+		// first one in the string; without it the help reads "stringArray".
 		"announce a waiting escalation: one `ARG` each, repeatable, "+
 			"--notify-command /usr/bin/wall --notify-command '{prompt}'. \"{prompt}\" "+
 			"is the line the broker builds and \"{id}\" the question to answer, and one "+
@@ -268,8 +258,8 @@ func newInitCmd() *cobra.Command {
 			"Refused without this")
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
-	// The tunables.  Named for what they bound rather than for the section they
-	// land in, and sorted together in help by that name.
+	// The tunables, named for what they bound rather than for the section they
+	// land in.
 	command, secret := config.DefaultCommand(), config.DefaultSecret()
 	fl.StringArrayVar(&f.commandEnv, "command-env", nil,
 		"NAME=VALUE in a brokered command's environment; repeatable, and it adds to the built-in table rather than replacing it")
@@ -291,19 +281,17 @@ func newInitCmd() *cobra.Command {
 }
 
 // namedValues turns repeated NAME=VALUE flags into the table they describe.  A
-// value may hold "=" (a PATH does not, but a JSON blob might), so only the
-// first one separates.
+// value may hold "=", so only the first one separates.
 func namedValues(pairs []string) (map[string]string, error) {
 	// Empty rather than nil for no pairs: the caller merges this over the
-	// built-in table either way, and a nil map is not an answer worth a special
-	// case.
+	// built-in table either way.
 	out := make(map[string]string, len(pairs))
 	for _, pair := range pairs {
 		name, value, found := strings.Cut(pair, "=")
 		if !found {
 			// Refused rather than skipped: `--command-env FOO` reads as setting
-			// something, and accepting it silently would leave the operator with a
-			// child that does not have it and no reason given.
+			// something, and accepting it would leave the child without it and no
+			// reason given.
 			return nil, fmt.Errorf("--command-env %q names no value; write it as NAME=VALUE", pair)
 		}
 		out[name] = value
@@ -348,10 +336,9 @@ func runInit(f initFlags) int {
 	// --json entirely.
 	if !f.asJSON {
 		opts.Log = func(line string) { fmt.Fprintln(os.Stderr, line) }
-		// Named before anything is written.  Without --config-dir this was
+		// Named before anything is written: without --config-dir this was
 		// discovered, and an install written somewhere the operator did not expect
-		// is a second install rather than an error: new keys, an empty secrets
-		// directory, and the units pointed at it.
+		// is a second install rather than an error.
 		fmt.Fprintf(os.Stderr, "faramir init: provisioning the install at %s\n", opts.ConfigDir)
 	}
 
@@ -373,7 +360,8 @@ func runInit(f initFlags) int {
 }
 
 // reportToOperator prints what a person needs after a run: what installs
-// cleanly and then does not work, and the public key the fleet must authorize.
+// cleanly and then does not work, and the public key the fleet must
+// authorize.
 func reportToOperator(report install.Report) {
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(os.Stderr, "\nWARNING: %s\n", warning)
@@ -388,9 +376,9 @@ func reportToOperator(report install.Report) {
 	}
 }
 
-// cmdInitProject enrols one tree, defaulting to the working directory.  Safe
-// here and not on init, which means "provision this host" and would otherwise
-// enrol wherever it was run from.
+// initProjectFlags is one `init-project` run.  The tree defaults to the working
+// directory, which is safe here and not on init: that one means "provision this
+// host" and would otherwise enrol wherever it was run from.
 type initProjectFlags struct {
 	agentUser   string
 	configDir   string
@@ -491,11 +479,10 @@ func newDoctorCmd() *cobra.Command {
 	fl := c.Flags()
 	fl.StringVar(&f.configDir, "config-dir", "", "where config.toml was installed (default: ask the broker)")
 	fl.StringVar(&f.agentUser, "agent-user", "", "account the coding agent runs as")
-	// Empty rather than the install defaults: doctor reads what this host
-	// actually runs out of the units, the config and the secrets directory, and
-	// a default here would shadow that and answer about accounts a host
-	// installed with other names does not have.  Each names an override for a
-	// host whose install is not the one on this machine.
+	// Empty rather than the install defaults: doctor reads what this host runs
+	// out of the units, the config and the secrets directory, and a default here
+	// would answer about accounts a host installed with other names does not
+	// have.  Each is an override for a host whose install is not this one.
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"override the group admitted to the broker socket, instead of reading [server] allowed_group")
 	fl.StringVar(&f.secretsGroup, "secrets-group", "",
@@ -520,8 +507,7 @@ func runDoctor(f doctorFlags) int {
 	}
 	// Before the round trip below, which changes what it would report: opening
 	// the broker socket activates the service, and that starts the keeper and
-	// executor sockets it Requires=.  Sampled here, a socket that was down is
-	// still down in the finding.
+	// executor sockets it Requires=.
 	sockets := install.SampleSockets()
 	// One round trip: the same answer decides which install this is and whether
 	// the daemons are running the code that was installed.
@@ -554,9 +540,8 @@ func runDoctor(f doctorFlags) int {
 }
 
 // printDiagnosis lays the findings out as status, check, detail.  The check is
-// named once per run of findings that share it, so three sockets read as one
-// check with three answers, and the detail wraps under itself rather than being
-// cut at the terminal edge.
+// named once per run of findings that share it, and the detail wraps under
+// itself rather than being cut at the terminal edge.
 func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 	statusWidth := columns(statusColumn(install.StatusFailed)) // the longest
 	name := 0
@@ -598,9 +583,8 @@ func printDiagnosis(w io.Writer, paint palette, report install.DoctorReport) {
 }
 
 // printNotAsked says how much of the examination did not happen, outside the
-// findings and outside the totals.  A check that was skipped is one warn line
-// whatever it stood for, so the totals read the same on a host examined in full
-// and on one where a dozen questions were never put.
+// findings and the totals: a skipped check is one warn line whatever it stood
+// for, so the totals alone read the same on a host barely examined.
 func printNotAsked(w io.Writer, paint palette, count int) {
 	if count == 0 {
 		return
@@ -655,7 +639,7 @@ func paintStatus(paint palette, status install.Status) string {
 	case install.StatusOK:
 		return paint.ok(text)
 	// Dim rather than a colour of its own: nothing was claimed, so the line is
-	// there to be read past by someone scanning for the one that is not ok.
+	// there to be read past.
 	case install.StatusNA:
 		return paint.dim(text)
 	case install.StatusWarn:

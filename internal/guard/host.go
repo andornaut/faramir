@@ -7,28 +7,27 @@ import (
 	"strings"
 )
 
-// A host is the agent whose hook dialect this run speaks.  Only the tool names
-// and the shape of the reply differ between agents.
-//
-// Named by --host rather than sniffed: the wrong dialect fails open, because a
-// document the host does not understand is a command it runs unredacted.
+// A host is the agent whose hook dialect this run speaks; only the tool names
+// and the shape of the reply differ between agents.  Named by --host rather
+// than sniffed: the wrong dialect fails open, a document the host does not
+// understand being a command it runs unredacted.
 type host struct {
 	name string
 
-	// shellTools name the tools this host runs commands through; anything else
-	// is left alone.  wrapTool is the one whose input is rewritten; Claude Code's
-	// second tool reads a running command's buffer, which is recognised so it can
-	// be skipped deliberately.
+	// shellTools name the tools this host runs commands through; anything else is
+	// left alone.  wrapTool is the one whose input is rewritten; Claude Code's
+	// second tool reads a running command's buffer, recognised so it can be
+	// skipped deliberately.
 	shellTools []string
 	wrapTool   string
-	// anyShellTool takes every tool as one that runs a command, whatever it is
-	// called.  For faramir's own plugin, which asks only about a call carrying a
-	// command string: the host has established that before the payload is built,
-	// and gating on the name again is what leaves a renamed or newly added shell
-	// tool unguarded.  A hook host cannot do this, being asked about every tool.
+	// anyShellTool takes every tool as one that runs a command.  For faramir's own
+	// plugin, which asks only about a call carrying a command string, so gating on
+	// the name again would leave a renamed shell tool unguarded.  A hook host
+	// cannot do this, being asked about every tool.
 	anyShellTool bool
 
-	// deny refuses the command.  The reason reaches the model, not the operator.
+	// deny refuses the command.  The reason reaches the model, not the
+	// operator.
 	deny func(reason string) map[string]any
 
 	// rewrite replaces the tool input, and is handed every field the payload
@@ -40,7 +39,8 @@ const rewriteReason = "faramir: output redacted; the deny list is what refuses a
 
 var hosts = map[string]*host{
 	// The allow is load-bearing: a rewritten command matches no permission rule,
-	// so without it every command would prompt with nothing able to pre-approve.
+	// so without it every command would prompt with nothing able to
+	// pre-approve.
 	"claude": {
 		name:       "claude",
 		shellTools: []string{"Bash", "BashOutput"},
@@ -62,13 +62,12 @@ var hosts = map[string]*host{
 		},
 	},
 
-	// opencode and Kilo Code extend through in-process plugins rather than a
-	// hook that runs a program, so the plugin faramir installs applies the
-	// decision itself.  Two names for one contract today, so a divergence has
-	// somewhere to go.
+	// opencode and Kilo Code extend through in-process plugins rather than a hook
+	// that runs a program, so the plugin faramir installs applies the decision
+	// itself.  Two names for one contract, so a divergence has somewhere to go.
 	"opencode": pluginHost("opencode"),
-	// pi speaks the same dialect: its extension turns a deny into a blocked
-	// tool call and a rewrite into a mutation of the call's own input.
+	// pi speaks the same dialect: its extension turns a deny into a blocked tool
+	// call and a rewrite into a mutation of the call's own input.
 	"pi":       pluginHost("pi"),
 	"kilocode": pluginHost("kilocode"),
 }
@@ -79,11 +78,8 @@ var hosts = map[string]*host{
 func pluginHost(name string) *host {
 	return &host{
 		name: name,
-		// Named for the message and for the wrap, not as a gate.  faramir's own
-		// plugin asks only about a call that carries a command string, so by the
-		// time a payload arrives the host has already established that this runs
-		// one; refusing it here for being called something else is how a renamed
-		// or newly added shell tool would go unguarded.
+		// Named for the message and for the wrap, not as a gate: see
+		// anyShellTool.
 		anyShellTool: true,
 		shellTools:   []string{"bash", "shell", "exec"},
 		wrapTool:     "bash",
@@ -106,12 +102,11 @@ func knownHosts() []string {
 	return out
 }
 
-// defaultHost is what an invocation naming none speaks, since guards installed
-// before --host existed are registered without it.
+// defaultHost is what an invocation naming none speaks.
 const defaultHost = "claude"
 
 // lookupHost resolves --host.  An unknown name is an error rather than a
-// fallback, because the wrong dialect fails open.
+// fallback, the wrong dialect failing open.
 func lookupHost(name string) (*host, error) {
 	if name == "" {
 		name = defaultHost

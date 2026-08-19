@@ -102,12 +102,10 @@ func TestARecordWithBinaryOutputIsNotGutted(t *testing.T) {
 	}
 }
 
-// One record is one line, and no line exceeds max_record_bytes,
-// counted in the bytes the line spends rather than the bytes a command wrote.
-//
-// The table is what a command can choose from: '<' and a C0 control each cost
-// six as JSON, an invalid byte three.  A cap counted before encoding is a cap
-// whose meaning the command picks.
+// One record is one line, and no line exceeds max_record_bytes, counted in the
+// bytes the line spends rather than the bytes a command wrote.  The table is
+// what a command can choose from: '<' and a C0 control each cost six as JSON,
+// so a cap counted before encoding is one whose meaning the command picks.
 func TestNoRecordExceedsTheCapWhateverACommandPrints(t *testing.T) {
 	const limit = 64 * 1024
 	for _, tc := range []struct{ name, output string }{
@@ -443,13 +441,9 @@ func TestTheCollectorDoesNotReorderOutput(t *testing.T) {
 }
 
 // Unwritable is asked before every command, so it has to be about now rather
-// than about startup: a log made unwritable afterwards (a read-only remount, an
-// immutable bit, an owner changed by a hand-edited logrotate rule) must be
-// noticed, or every command runs with its record going nowhere.
-//
-// Posed as ENOTDIR rather than as a mode, because the account that asks this in
-// production is a daemon and the account that runs the tests is often root, and
-// root opens a file whatever its mode says.
+// than about startup: a log made unwritable afterwards must be noticed, or
+// every command runs with its record going nowhere.  Posed as ENOTDIR rather
+// than as a mode, root opening a file whatever its mode says.
 func TestUnwritableNoticesALogThatBreaksAfterTheFirstWrite(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "logdir")
 	atLimit(t, 64*1024)
@@ -564,12 +558,10 @@ func TestReducingARecordKeepsEveryFieldOfIt(t *testing.T) {
 	}
 }
 
-// Writing a record must not change what it is a record of.  The reductions cut
-// strings and drop entries, and the fields they cut are the caller's own live
-// state: internal/escalation hands over the argv it holds for a run and keeps
-// rendering that argv into the question, the refusal messages and every later
-// record.  A reduction reaching back into it would truncate the command
-// everywhere it is named, on the strength of one record having been too long.
+// Writing a record must not change what it is a record of: the fields the
+// reductions cut are the caller's own live state, internal/escalation handing
+// over the argv it holds for a run and going on rendering it into the question
+// and every later record.
 func TestWritingARecordLeavesTheCallersFieldsAlone(t *testing.T) {
 	defer unstrict()()
 	argv := []string{"ansible-playbook", "--extra-vars", strings.Repeat("x", 8*1024)}
@@ -616,9 +608,8 @@ func TestWritingARecordLeavesTheCallersFieldsAlone(t *testing.T) {
 }
 
 // The identity stub is the backstop for a record that cannot be made to fit.
-// With every caller-chosen field bounded (strings by encoded length, lists and
-// maps by entry count, whatever their element type) there is no record a caller
-// can compose that reaches it, and this is the assertion that says so: the
+// Every caller-chosen field is bounded -- strings by encoded length, lists and
+// maps by entry count -- so no record a caller composes reaches it: the
 // smallest cap the config allows, against every field as large as anything
 // upstream could make it.
 func TestNothingACallerSendsReachesTheStub(t *testing.T) {

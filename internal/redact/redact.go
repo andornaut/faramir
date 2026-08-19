@@ -88,8 +88,8 @@ func base64Variants(value string) map[string]bool {
 }
 
 // base32Variants returns the RFC 4648 base32 encodings of value, padded and
-// not.  TOTP seeds and some token formats are base32; the encoding is
-// upper-case, and the unpadded form is what `otpauth://` URIs carry.
+// not.  TOTP seeds and some token formats are base32, and the unpadded form is
+// what `otpauth://` URIs carry.
 func base32Variants(value string) map[string]bool {
 	enc := base32.StdEncoding.EncodeToString([]byte(value))
 	return map[string]bool{
@@ -99,17 +99,11 @@ func base32Variants(value string) map[string]bool {
 }
 
 // There is deliberately no HTML/XML entity variant.  Every other encoding here
-// has one spelling, or a closed set of them, which is what makes enumerating it
-// possible at all.  Entity escaping has neither: each character has a named, a
-// decimal and a hexadecimal form, an encoder chooses which characters to escape
-// at all, and "&#112;" for a plain "p" is as valid as leaving it alone.  The set
-// is unbounded, so a list of renderings covers whichever producer it was written
-// against and reads as coverage of the rest: Go's html.EscapeString, PHP's
-// htmlspecialchars ("&#039;") and XML ("&apos;") spell the same character three
-// ways.
-//
-// A value reflected into a page is the child choosing the encoding of its own
-// output, which the README already names as out of scope.
+// has one spelling or a closed set of them, which is what makes enumerating it
+// possible; entity escaping has neither, each character having a named, a
+// decimal and a hexadecimal form, and "&#112;" for a plain "p" being as valid
+// as leaving it alone.  A list of renderings would cover whichever producer it
+// was written against and read as coverage of the rest.
 
 // percentEncode mirrors Python's urllib.parse.quote(value, safe="").
 // Unreserved characters are the ASCII letters, digits, and "_.-~".
@@ -146,8 +140,8 @@ func shlexQuote(value string) string {
 
 // jsonEscape returns the JSON string encoding of value without the quotes.
 func jsonEscape(value string) string {
-	// SetEscapeHTML(false) keeps <, > and & literal, which is what ordinary
-	// tools print.
+	// SetEscapeHTML(false) keeps <, > and & literal, which is what ordinary tools
+	// print.
 	var b strings.Builder
 	enc := json.NewEncoder(&b)
 	enc.SetEscapeHTML(false)
@@ -203,15 +197,11 @@ func variants(value string) map[string]bool {
 // EligibilityPolicy is the one property of a value this decides: whether it is
 // long enough to search output for.
 //
-// Length only: no distinct-character count and no entropy floor.  Neither is
-// the strength check it reads as ("password" clears both), and how strong a
-// credential is belongs to whoever chose it.
-//
-// Length is different in kind.  A short value matches inside ordinary words, so
-// redacting it blanks unrelated output at random, which is this program's own
-// behaviour rather than a property of the secret.  A long low-entropy value
-// such as "aaaaaaaa" matches any run of eight, but that mangles the operator's
-// output rather than letting a value escape.
+// Length only: no distinct-character count and no entropy floor, neither being
+// the strength check it reads as ("password" clears both).  A short value
+// matches inside ordinary words, so redacting it blanks unrelated output; a
+// long low-entropy value such as "aaaaaaaa" mangles the operator's output
+// rather than letting a value escape.
 type EligibilityPolicy struct {
 	MinLength int
 }
@@ -228,8 +218,8 @@ func (p EligibilityPolicy) Check(value string) string {
 	return ""
 }
 
-// TokenFor is the placeholder a secret is replaced with, stable across turns and
-// processes so the model can reason about a value without seeing it.
+// TokenFor is the placeholder a secret is replaced with, stable across turns
+// and processes so the model can reason about a value without seeing it.
 func TokenFor(ref string) string { return "«SECRET:" + ref + "»" }
 
 // --------------------------------------------------------------------------
@@ -323,17 +313,14 @@ func compile(ref, value string) entry {
 
 	// The wrapped pass matches against a newline-free view of the output, so it
 	// catches a rendering a formatter split across lines: base64 wraps at 76
-	// columns by default, and `fold` wraps the raw value and every other variant
-	// the same way.  It is the full variant set, not base64 alone; the newline
-	// guard in subWrapped keeps this pass to genuinely line-spanning matches, so
-	// the plain pass still owns everything on a single line.
+	// columns, and `fold` wraps every variant the same way.  The newline guard in
+	// subWrapped keeps this pass to genuinely line-spanning matches, so the plain
+	// pass still owns everything on a single line.
 	//
-	// Newlines only.  A continuation the formatter indents (`pr`, and the nested
-	// fields of `openssl -text`) still has its whitespace between the fragments
-	// and is not caught, and `fmt` breaks at word boundaries so it never splits a
-	// value at all.  Collapsing the indentation too would join any two words that
-	// happen to straddle an indented line break, which corrupts more output than
-	// the wrapping it would catch.
+	// Newlines only: a continuation the formatter indents still has whitespace
+	// between the fragments and is not caught.  Collapsing the indentation too
+	// would join any two words straddling an indented line break, which corrupts
+	// more output than the wrapping it would catch.
 	wrapped := pattern
 
 	longest := 0
@@ -350,11 +337,9 @@ func (r *Redactor) Feed(text string) string {
 	if text == "" {
 		return ""
 	}
-	// Counted before the conversion below, which is what replaces an invalid
-	// byte and so is the last moment one can be told from a U+FFFD the command
-	// actually wrote.  Callers report the count rather than act on it: it is the
-	// signal that output was binary, where redaction and the terminal-safety
-	// rules together mean the bytes do not survive.
+	// Counted before the conversion below, which replaces an invalid byte and so
+	// is the last moment one can be told from a U+FFFD the command wrote.
+	// Callers report the count rather than act on it.
 	r.invalidBytes += invalidUTF8Bytes(text)
 	r.ansiCarry = append(r.ansiCarry, []rune(text)...)
 	clean, carry := stripANSIStream(r.ansiCarry)
@@ -381,12 +366,10 @@ func (r *Redactor) Flush() string {
 func (r *Redactor) RedactText(text string) string { return r.Feed(text) + r.Flush() }
 
 // InvalidBytes is how many bytes of everything fed in were not valid UTF-8.
-//
-// Non-zero means the output was not text, and what came back is not what the
-// command wrote: an invalid byte becomes U+FFFD, which is three, and the C0
-// controls that fill binary are stripped outright.  A caller that pipes the
-// output somewhere reports this, so that a corrupted archive is visible at the
-// moment it is produced rather than when something later fails to open it.
+// Non-zero means the output was not text and what came back is not what the
+// command wrote: an invalid byte becomes U+FFFD, and the C0 controls that fill
+// binary are stripped outright.  A caller that pipes the output somewhere
+// reports this, so a corrupted archive is visible when it is produced.
 func (r *Redactor) InvalidBytes() int { return r.invalidBytes }
 
 // invalidUTF8Bytes counts the bytes in text that do not begin a valid rune.
@@ -418,11 +401,11 @@ func (r *Redactor) redact(text string) string {
 	if text == "" {
 		return text
 	}
-	// Built at most once per distinct text, not once per secret: every entry
-	// needs the same newline-free view, and building it per entry makes the
-	// pass quadratic in the size of the value set.  Invalidated only when an entry
-	// replaced something, which is why the plain pass below keeps the old
-	// string on a miss.
+	// Built at most once per distinct text, not once per secret: every entry needs
+	// the same newline-free view, and building it per entry makes the pass
+	// quadratic in the size of the value set.  Invalidated only when an entry
+	// replaced something, which is why the plain pass keeps the old string on a
+	// miss.
 	var view *collapsedView
 	for i := range r.entries {
 		e := &r.entries[i]
@@ -440,8 +423,8 @@ func (r *Redactor) redact(text string) string {
 			n++
 			return e.token
 		})
-		// Assigned only on a hit: ReplaceAllStringFunc allocates a copy even
-		// when it matched nothing, and taking it would throw the view away.
+		// Assigned only on a hit: ReplaceAllStringFunc allocates a copy even when
+		// it matched nothing, and taking it would throw the view away.
 		if n > 0 {
 			text = replaced
 			r.counts[e.token] += n
@@ -452,20 +435,17 @@ func (r *Redactor) redact(text string) string {
 }
 
 // collapsedView is one haystack with its line breaks taken out, plus what maps
-// a match back onto the original.  A formatter wraps a value across lines
-// (base64 at 76 columns, or `fold`/`fmt`/`openssl -text` on anything), so the
-// value arrives with newlines inside it; matching happens against view and the
-// replaced span is in the original.
+// a match back onto the original: a formatter can wrap a value across lines, so
+// matching happens against view and the replaced span is in the original.
 type collapsedView struct {
 	// runes is the original, indexed the way the spans below are.
 	runes []rune
 	view  string
 	// byteStart maps a byte offset in view to the index in runes of the rune
-	// beginning there, plus one entry for the end.  A slice, a map of one entry
-	// per byte being most of what this cost.
+	// beginning there, plus one entry for the end.
 	byteStart []int
-	// collapsed is false when there were no line breaks, in which case the
-	// plain pass covers everything this would find.
+	// collapsed is false when there were no line breaks, in which case the plain
+	// pass covers everything this would find.
 	collapsed bool
 }
 
@@ -505,8 +485,8 @@ func (r *Redactor) subWrapped(v *collapsedView, e *entry) (string, bool) {
 		if loc[1] <= loc[0] {
 			continue
 		}
-		// byteStart is indexed by byte, so the end comes from the match's last
-		// byte rather than the offset after it.
+		// byteStart is indexed by byte, so the end comes from the match's last byte
+		// rather than the offset after it.
 		start, end := v.byteStart[loc[0]], v.byteStart[loc[1]-1]+1
 		if strings.ContainsAny(string(v.runes[start:end]), "\n\r") {
 			spans = append(spans, span{start, end})

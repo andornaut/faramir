@@ -1,25 +1,16 @@
 // Package mcp is an MCP (stdio) server exposing the broker to a coding agent,
-// run as `faramir mcp`.  The tool descriptions carry the weight: a distinct tool
-// is more discoverable to a model than prose in a config file.
+// run as `faramir mcp`.  The tool descriptions carry the weight: a distinct
+// tool is more discoverable to a model than prose in a config file.
 //
-// Which is also where the tool list stops.  A tool is for what an agent has to
-// be told: faramir_run, because a credential must not go any other way, and
-// faramir_refs, because faramir_run's arguments are refs and this is
-// where they come from.
-//
-// `faramir status` is neither.  It answers an operator's questions -- which
-// files loaded, in what order, what failed to, whether this host was installed
-// with a sudo grant -- and an agent acts on none of them.  Nor does it need to
-// ask what it may do here: it finds that out by running a command, a refusal
-// naming what failed and where to fix it, which is the whole point of writing
-// the errors that way.  Advertised, it would cost a slot in every session's
-// context to be acted on never, so it stays a subcommand.
+// Two tools, for the two things an agent has to be told: faramir_run, because a
+// credential must not go any other way, and faramir_refs, because faramir_run's
+// arguments are refs.  `faramir status` answers an operator's questions and
+// stays a subcommand, an advertised tool costing a slot in every session's
+// context.
 //
 // This list is the one list: pi ships no MCP and registers the same tools from
-// the extension faramir installs, shelling out to the CLI rather than to the
-// socket, and that extension is rendered from Tools() below rather than
-// carrying a copy.  So a tool added or dropped here is one added or dropped
-// there, and the test that drives the extension asserts the names against this.
+// the extension faramir installs, rendered from Tools() below rather than
+// carrying a copy.
 //
 // Protocol: JSON-RPC 2.0 over stdio, MCP 2025-06-18.
 package mcp
@@ -54,22 +45,18 @@ func socketPath() string {
 	return defaultSocket
 }
 
-// Tool is one advertised tool.  Exported, with Tools below, because pi ships no
-// MCP and registers the same tools from an extension faramir installs: that
-// extension is rendered from this list rather than carrying a copy of it.
+// Tool is one advertised tool.  Exported, with Tools below, because pi's
+// extension is rendered from this list rather than carrying a copy.
 type Tool struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	InputSchema any    `json:"inputSchema"`
 }
 
-// Tools is what this server advertises, in the order it advertises them.
-//
-// The slice is a copy and each InputSchema is not: the schemas are the maps
-// this server hands to tools/list, so a caller that writes into one changes
-// what every session is told a tool takes.  Read them.  Copying them deeply to
-// say so would be machinery guarding against a caller that does not exist, the
-// one there being a template that only renders.
+// Tools is what this server advertises, in the order it advertises them.  The
+// slice is a copy and each InputSchema is not: the schemas are the maps this
+// server hands to tools/list, so a caller that writes into one changes what
+// every session is told a tool takes.
 func Tools() []Tool { return slices.Clone(tools) }
 
 var tools = []Tool{
@@ -223,8 +210,8 @@ func callTool(name string, arguments map[string]any) map[string]any {
 	var request map[string]any
 	switch name {
 	case "faramir_run":
-		// The likeliest way to call this wrong.  Without it the broker gets a
-		// null argv and answers about a malformed request instead.
+		// The likeliest way to call this wrong: without it the broker gets a null
+		// argv and answers about a malformed request.
 		cmd, ok := arguments["cmd"].([]any)
 		if !ok {
 			return textResult("cmd must be an array of strings, not a shell string. "+
@@ -246,8 +233,8 @@ func callTool(name string, arguments map[string]any) map[string]any {
 				request[key] = v
 			}
 		}
-		// This process runs where the agent's session does, so its own
-		// directory is the one meant.  An explicit cwd wins.
+		// This process runs where the agent's session does, so its own directory is
+		// the one meant.  An explicit cwd wins.
 		if _, named := request["cwd"]; !named {
 			if here, err := os.Getwd(); err == nil {
 				request["cwd"] = here
@@ -281,8 +268,8 @@ func handle(m *message) map[string]any {
 
 	switch {
 	case m.Method == "initialize":
-		// Echoed only when this server speaks it; otherwise the client holds
-		// the server to a version it never supported.
+		// Echoed only when this server speaks it; otherwise the client holds the
+		// server to a version it never supported.
 		negotiated := protocolVersion
 		if m.Params.ProtocolVersion == protocolVersion {
 			negotiated = m.Params.ProtocolVersion

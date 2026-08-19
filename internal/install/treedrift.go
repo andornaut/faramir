@@ -8,19 +8,19 @@ import (
 	"strings"
 )
 
-// What an enrolled tree still carries of what `init-project` wrote into it.
+// What an enrolled tree still carries of what `init-project` wrote into it: the
+// hook, the plugin that calls it and the MCP registration, which between them
+// are what makes an agent in that tree run its commands through the broker.
 //
-// The files are the hook, the plugin that calls it and the MCP registration,
-// and between them they are what makes an agent in that tree run its commands
-// through the broker.  A tree is shared with the client group, and unlink and
-// rename are permissions on the directory, so a brokered command can replace
-// one of these whatever mode the file itself carries; the sticky bit sharing
-// sets narrows that and does not close it.  A hand edit reaches the same place.
+// A tree is shared with the client group, and unlink and rename are permissions
+// on the directory, so a brokered command can replace one of these whatever
+// mode the file carries; the sticky bit narrows that and does not close it.  A
+// hand edit reaches the same place.
 //
-// So this reports and a human decides, as the account-wide drift check does.
-// Warned rather than failed: the record says what was enrolled and when, not
-// what the tree is now, and a checkout that moved, a branch that never carried
-// these files and a hand edit all read the same way from here.
+// So this reports and a human decides.  Warned rather than failed: the record
+// says what was enrolled and when rather than what the tree is now, so a
+// checkout that moved, a branch that never carried these files and a hand edit
+// all read the same way from here.
 func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 	trees := readEnrolled(opts.ConfigDir)
 	if len(trees) == 0 {
@@ -73,12 +73,9 @@ func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 }
 
 // carriesWhatWeWrite reports whether a file on disk still carries what an
-// enrolment puts in it.
-//
-// A merged file is asked the question a merge answers: if merging faramir's
-// keys into what is there changes nothing, then what is there already has them,
-// whatever else the project added beside them.  A file that is faramir's own is
-// compared as bytes, that being the whole of what it should hold.
+// enrolment puts in it.  A merged file is asked the question a merge answers:
+// if merging faramir's keys changes nothing, what is there already has them.  A
+// file that is faramir's own is compared as bytes.
 func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir string) (bool, error) {
 	onDisk, err := os.ReadFile(path)
 	if err != nil {
@@ -101,16 +98,14 @@ func carriesWhatWeWrite(target *agentTarget, file agentFile, path, configDir str
 	return bytes.Equal(merged, onDisk), nil
 }
 
-// What `init` and `init-project` would refuse to write, asked without writing.
+// diagnoseEditableFiles asks what `init` and `init-project` would refuse to
+// write, without writing.  Both stop rather than take over a file faramir edits
+// and does not own, or follow a link out of the tree, and the operator would
+// otherwise find that out when a run they wanted stops.
 //
-// Both commands now stop rather than take over a file faramir edits but does
-// not own, or follow a link out of the tree. That is the right answer at the
-// time, and it is a poor way to learn: the operator finds out when a run they
-// wanted stops. `doctor` exists to answer this before it costs anybody a run.
-//
-// Warned, not failed. Nothing is unguarded: the deny rules and the hook are
-// whatever the last successful run left, and what this names is a file the next
-// run will not be able to update.
+// Warned, not failed: the deny rules and the hook are whatever the last
+// successful run left, and what this names is a file the next run cannot
+// update.
 func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent file ownership", 1, "the agent account is not "+
@@ -134,8 +129,8 @@ func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
 }
 
 // reportEditableFiles is diagnoseEditableFiles against a home and an operator
-// already resolved, so a test can put one somewhere other than a real account's
-// rather than skipping wherever the developer has a ~/.claude of their own.
+// already resolved, so a test can put one somewhere other than a real
+// account's.
 func reportEditableFiles(report *DoctorReport, home string, uid int, opts DoctorOptions) {
 	fs := fsys{}
 	names := agentNames()
@@ -150,18 +145,18 @@ func reportEditableFiles(report *DoctorReport, home string, uid int, opts Doctor
 		}
 		treeUID := uid
 		if tree.AgentUser != opts.AgentUser {
-			// The tree was enrolled for somebody else, and this is their file to
-			// own rather than the account doctor was pointed at.
+			// The tree was enrolled for somebody else, and this is their file to own
+			// rather than the account doctor was pointed at.
 			if other, err := lookupUser(tree.AgentUser); err == nil {
 				treeUID = other
 			}
 		}
 		// Every path this tree's enrolment writes, asked in one call: two of them
-		// resolving to one file is refuseUnwritable's to find, and it finds it
-		// only among the paths it is given together.
+		// resolving to one file is refuseUnwritable's to find, and only among the
+		// paths it is given together.
 		var paths []string
-		// The tree's own instructions file, which every enrolment writes whatever
-		// it was enrolled for, and which no target names.
+		// The tree's own instructions file, which every enrolment writes and no
+		// target names.
 		if rel, err := filepath.Rel(tree.Dir, treeInstructionsFile(tree.Dir)); err == nil {
 			paths = append(paths, rel)
 		}

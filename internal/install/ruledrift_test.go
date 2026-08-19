@@ -54,7 +54,7 @@ func TestAStaleRuleIsFound(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// One rule faramir used to write, one it still writes, and one that is the
+	// One rule faramir no longer writes, one it still writes, and one that is the
 	// operator's own.
 	home := writeRules(t, ".claude/settings.json", `{
 	  "permissions": {"deny": [

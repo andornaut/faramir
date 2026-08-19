@@ -16,24 +16,15 @@ import (
 //
 // The account-wide rule files are merged rather than replaced, and a merge can
 // only add: an entry is a bare string in an array or a key in an object, with
-// nowhere to carry a marker saying who put it there.  So when the list changes
-// spelling, what the last version wrote stays, and nothing removes it.
+// nowhere to carry a marker saying who put it there.  Removing one
+// automatically would need to know which entries are faramir's, and an
+// operator's own rule refusing the same path is indistinguishable from one left
+// behind; a stored record of what was last written would go stale the first
+// time somebody edits the file.
 //
-// Removing it automatically would need to know which entries are faramir's, and
-// the only honest answer is that it cannot: an operator's own rule refusing the
-// same path is indistinguishable from one of ours left behind.  A record of what
-// was last written would go stale the first time somebody edits the file by hand
-// or has an agent tidy it, and acting on a stale record is the one outcome worth
-// avoiding, being the one that destroys somebody's configuration.
-//
-// So this reports and a human decides.  What it costs is a line in `faramir
-// doctor` that an operator has to read; what it buys is that nothing faramir
-// does not understand is ever deleted.
-//
-// The extra rules are refusals, so a host carrying them refuses more than the
-// current list asks for.  That is why this is a warning and not a failure:
-// nothing is unguarded, the file is merely untidy and says things faramir would
-// not say now.
+// So this reports and a human decides.  A warning rather than a failure: the
+// extra rules are refusals, so the file says more than the current list asks
+// for rather than less.
 func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
 	if opts.AgentUser == "" {
 		report.unaskedf("agent rule drift", 1, "the agent account is not named, so "+
@@ -53,8 +44,8 @@ func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
 // reportRuleDrift is diagnoseAgentRuleDrift against a home already resolved, so
 // a test can put one somewhere other than a real account's.
 func reportRuleDrift(report *DoctorReport, home, configDir string) {
-	// With the linked paths, or each one is a rule faramir writes and this render
-	// does not, which is exactly what staleRules reports as drift to delete.
+	// With the linked paths, or each is a rule faramir writes and this render does
+	// not, which staleRules would report as drift to delete.
 	layout := Layout{ConfigDir: configDir, Links: configuredLinks(configDir)}
 
 	var stale, unread []string
@@ -77,9 +68,8 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 			read++
 			ruleCount += len(found)
 			if len(found) > 0 {
-				// The file named once with its rules under it.  "file: rule" reads as
-				// two paths, and the reader has to guess which of the two the finding
-				// wants removed; it is neither, it is the entry inside the file.
+				// The file named once with its rules under it: "file: rule" reads as two
+				// paths, where what is to be removed is the entry inside the file.
 				stale = append(stale, fmt.Sprintf("in ~/%s: %s",
 					file.path, strings.Join(found, ", ")))
 			}
@@ -105,17 +95,12 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 }
 
 // diagnoseLinkedFiles asks whether the account-wide deny rules refuse every
-// file a [[secret.link]] entry reads.
+// file a [[secret.link]] entry reads.  `link add` renders both together, but a
+// link written into the config by hand, or a run that stopped between the two,
+// leaves a value in the redactor whose plaintext the agent may still open.
 //
-// The two are written by different commands and that is what makes this a
-// check rather than an invariant: `link add` renders both together, but a link
-// written into the config by hand, or a run that stopped between the two, leaves
-// a value in the redactor whose plaintext the agent may still open directly,
-// which is the disclosure linking exists to close.
-//
-// Failed rather than a warning, unlike rule drift beside it: a stale rule
-// refuses more than the current list asks for, while this refuses less than the
-// operator was promised.
+// Failed rather than a warning, unlike rule drift: a stale rule refuses more
+// than the current list asks for, while this refuses less.
 func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	const name = "linked files"
 	links := make([]string, 0, len(cfg.Secret.Links))
@@ -170,8 +155,7 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 			if len(missing) > 0 {
 				sort.Strings(missing)
 				// The file named once with the paths under it, as the drift report
-				// does: "file: path" reads as two paths and the reader has to guess
-				// which one the finding is about.
+				// does.
 				uncovered = append(uncovered, fmt.Sprintf("in ~/%s: %s",
 					file.path, strings.Join(missing, ", ")))
 			}
@@ -194,9 +178,9 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 	}
 }
 
-// configuredLinks is every link the install names, merged view, or
-// nothing when the config cannot be read.  Nothing here fails on that: a config
-// that does not load is reported by the check that loads it.
+// configuredLinks is every link the install names, or nothing when the config
+// cannot be read: a config that does not load is reported by the check that
+// loads it.
 func configuredLinks(configDir string) []config.Link {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {
@@ -206,10 +190,8 @@ func configuredLinks(configDir string) []config.Link {
 }
 
 // named reports whether any rule in a file names this path.  Containment rather
-// than equality, because each agent spells the same path its own way: Claude
-// Code writes "Read(/path)" and "Edit(/path)" while the plugin hosts key on the
-// path itself, and asking each renderer what it would have written would tie
-// this check to the spellings rather than to the question.
+// than equality, each agent spelling the same path its own way: Claude Code
+// writes "Read(/path)" while the plugin hosts key on the path itself.
 //
 // The match ends at a path character, so a longer path does not vouch for a
 // shorter one: with ~/.npmrc and ~/.npmrc-work both linked, a rule naming only
@@ -230,8 +212,7 @@ func named(entries map[string]bool, path string) bool {
 // isPathRune reports whether a byte could continue a filename, which is what
 // decides whether a match was the whole path or a prefix of a longer one.  The
 // separators each agent wraps a path in -- ")", quotes, whitespace, a glob --
-// are not path characters, so a rule ends the match and a longer sibling does
-// not.
+// are not path characters.
 func isPathRune(r rune) bool {
 	switch {
 	case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
@@ -268,11 +249,9 @@ func staleRules(path string, current []byte, configDir string) ([]string, error)
 
 // ruleEntries is every rule an agent's config states, in either shape these
 // files use: a list of strings, as Claude Code writes its deny rules, and an
-// object keyed by pattern, as the plugin hosts write theirs.
-//
-// Shape rather than a named path per agent, so an agent that moves its rules to
-// another key is still read.  A key whose value is not a decision is not a rule,
-// which is what keeps "permission" and "read" out of the answer.
+// object keyed by pattern, as the plugin hosts write theirs.  Shape rather than
+// a named path per agent, so an agent that moves its rules to another key is
+// still read; a key whose value is not a decision is not a rule.
 func ruleEntries(data []byte) (map[string]bool, error) {
 	var root any
 	if err := json.Unmarshal(data, &root); err != nil {
@@ -305,9 +284,8 @@ func ruleEntries(data []byte) (map[string]bool, error) {
 }
 
 // decisions are the verdicts these files spell, and what tells a rule from
-// ordinary configuration: the key of one of these is a path being ruled on.
-// "ask" and "allow" are here although faramir writes neither, because what is
-// being read is somebody else's file as well as ours.
+// ordinary configuration.  "ask" and "allow" are here although faramir writes
+// neither, what is read being somebody else's file as well as faramir's.
 var decisions = []string{"deny", "allow", "ask"}
 
 // isDecision reports whether a value is a permission verdict rather than
@@ -317,29 +295,20 @@ func isDecision(value string) bool {
 }
 
 // looksManaged reports whether an entry names something on faramir's list.
+// Nothing here is a record of what earlier versions wrote, a stored list going
+// stale the first time somebody edits the file, so this infers from the name: a
+// rule naming a layout faramir has stopped using names it by that name.
 //
-// Nothing here is a record of what earlier versions wrote, and none should be:
-// a stored list goes stale the first time somebody edits the file by hand, and
-// acting on a stale record is the one outcome worth avoiding.  So this infers,
-// and the name is the strongest thing it has to infer from.  A rule naming a
-// layout faramir has stopped using names it by that name, and nothing else
-// does: ~/.faramir after the config moved under ~/.config, or a --config-dir
-// that has since changed.  Matching the compiled-in defaults alone sees only the
-// installs that never moved.
+// Generous in one direction and never the other: an operator's own rule
+// refusing a path faramir also refuses is reported alongside the leftovers, the
+// two being indistinguishable, and the finding says so.  A rule about anything
+// else is not reported at all.
 //
-// Deliberately generous in one direction and never the other: an operator's own
-// rule refusing a path faramir also refuses is reported alongside the leftovers,
-// because the two cannot be told apart, and the finding says so.  A rule about
-// anything else is not reported at all, which is what keeps this from naming
-// every line of somebody's settings.
-//
-// configDir is the install being examined rather than the default, the caller
-// having resolved it already: a stale rule naming a non-default directory that
-// is still in use is exactly what this is for, and reading it off Layout{} threw
-// that answer away.
+// configDir is the install being examined rather than the default, so a stale
+// rule naming a non-default directory still in use is found.
 func looksManaged(entry, configDir string) bool {
-	// Its own name.  Anything under a path with "faramir" in it is faramir's to
-	// ask about, whatever layout put it there.
+	// Its own name: anything under a path with "faramir" in it is faramir's to ask
+	// about, whatever layout put it there.
 	if strings.Contains(entry, "faramir") {
 		return true
 	}

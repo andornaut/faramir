@@ -1,19 +1,14 @@
 package main
 
 // `faramir vault add` writes the first managed file, and every one after it.
+// Running sops by hand instead leaves three things wrong, none of which
+// announces itself: the plaintext source survives, the file lands 0644 where a
+// managed one is 0640, and a name matching no [secret] pattern produces a valid
+// encrypted file the broker never serves.
 //
-// What it replaces is an incantation faramir's own error messages used to hand
-// the operator: sops with --config and --filename-override, encrypting a
-// plaintext file into the secrets directory.  Three things about that are wrong
-// and none of them announces itself.  The plaintext source survives, which is
-// what `edit` goes to a tmpfs to avoid.  The file lands 0644 where a managed one
-// is 0640.  And a name matching no [secret] pattern produces a perfectly valid
-// encrypted file the broker will never serve, discovered whenever somebody goes
-// looking for the ref.
-//
-// So the editor is the way in, as it is for `edit`: the plaintext exists only in
-// a 0600 file in /dev/shm and goes with the directory.  --from is for the file
-// somebody already holds, and says that the source is still cleartext.
+// So the editor is the way in, as it is for `edit`: the plaintext exists only
+// in a 0600 file in /dev/shm and goes with the directory.  --from is for the
+// file somebody already holds, and says that the source is still cleartext.
 
 import (
 	"bytes"
@@ -32,9 +27,8 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// opAdd is the audit record a creation writes.  Distinct from an edit: what an
-// operator asks the log afterwards is when a file entered the store, which an
-// `edit` record cannot answer.
+// opAdd is the audit record a creation writes.  Distinct from an edit: when a
+// file entered the store is what an operator asks the log afterwards.
 const opAdd = "add"
 
 type addFlags struct {
@@ -121,21 +115,18 @@ func runAdd(f addFlags, name string) int {
 	fmt.Fprintf(os.Stderr, "faramir %s: wrote %s; the broker picks it up within one "+
 		"refresh interval\n", label, target)
 	if f.from != "" {
-		// Said rather than done.  Removing somebody's file is not this command's to
-		// decide, and a plaintext copy nobody remembers is the thing this command
-		// exists to keep off the disk.
+		// Said rather than done: removing somebody's file is not this command's to
+		// decide, and a plaintext copy nobody remembers is what this exists to keep
+		// off the disk.
 		fmt.Fprintf(os.Stderr, "faramir %s: %s is still cleartext on disk\n", label, f.from)
 	}
 	return 0
 }
 
 // newManagedPath is where a new file goes, or why it may not go there.
-//
-// Relative to the secrets directory, because that is the only place the broker
-// reads and a bare name is what an operator types.  Checked against the
-// patterns rather than against the directory alone: a name the globs do not
-// match encrypts perfectly well and is then served to nobody, which is a
-// mistake discovered whenever somebody next goes looking for the ref.
+// Relative to the secrets directory, which is the only place the broker reads,
+// and checked against the patterns rather than the directory alone: a name the
+// globs do not match encrypts perfectly well and is then served to nobody.
 func newManagedPath(cfg *config.Config, name string) (string, error) {
 	if len(cfg.Secret.Patterns) == 0 {
 		return "", errors.New("[secret] patterns names no location for a managed file")
@@ -148,9 +139,8 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 	target = filepath.Clean(target)
 
 	// The suffix is faramir's, not the operator's: they pick a name and this
-	// writes a YAML store, which is what an edit opens in front of them.  A name
-	// that already carries a managed suffix is taken as it stands, so naming a
-	// file in full is neither wrong nor doubled.
+	// writes a YAML store.  A name that already carries a managed suffix is taken
+	// as it stands, so naming a file in full is neither wrong nor doubled.
 	if !matchesPatterns(cfg.Secret.Patterns, target) {
 		target += managedSuffix
 	}
@@ -163,9 +153,8 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 		return "", fmt.Errorf("%s is already there; `faramir vault edit %s` opens it",
 			target, filepath.Base(target))
 	}
-	// Named rather than left to the write to fail on: the message from a missing
-	// directory is about a path, and what it means here is an install that has
-	// not been run.
+	// Named rather than left to the write to fail on: a missing directory here
+	// means an install that has not been run.
 	if !exists(dir) {
 		return "", fmt.Errorf("%s is not there, so there is nowhere to put a managed "+
 			"file: `sudo faramir init` creates it", dir)
@@ -193,10 +182,8 @@ func joinPatterns(patterns []string) string {
 }
 
 // addManaged writes the new file, with the plaintext living only in a tmpfs.
-//
-// The same shape as an edit and for the same reasons, minus the decrypt: there
-// is nothing to decrypt, and the recipients come from the rule rather than from
-// the file, which has none yet.
+// The same shape as an edit minus the decrypt, and the recipients come from the
+// rule rather than from the file, which has none yet.
 func addManaged(keyPath, rulePath, editorPath, from, target string) error {
 	dir, err := os.MkdirTemp("/dev/shm", "faramir-add-")
 	if err != nil {
@@ -214,9 +201,8 @@ func addManaged(keyPath, rulePath, editorPath, from, target string) error {
 	if err != nil {
 		return err
 	}
-	// Asked before the editor opens, for the reason an edit asks it: sops refuses
-	// a file no creation rule covers and refuses it at the encrypt, which is after
-	// everything has been typed.
+	// Asked before the editor opens, as an edit asks it: sops refuses a file no
+	// creation rule covers at the encrypt, after everything has been typed.
 	if err := ruleMustCover(rulePath, target, recipients); err != nil {
 		return err
 	}
@@ -262,8 +248,8 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 	if err != nil {
 		return err
 	}
-	// An empty file is how somebody says they changed their mind, and creating one
-	// leaves a managed file naming no ref for the broker to serve.
+	// An empty file is how somebody says they changed their mind, and creating
+	// one leaves a managed file naming no ref for the broker to serve.
 	if len(bytes.TrimSpace(body)) == 0 {
 		return errors.New("nothing was written, so no file was created")
 	}
@@ -272,12 +258,9 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 
 // createManaged writes a file that was not there before, 0640 like every other
 // managed one.  The group comes from the secrets directory, which is setgid to
-// the keeper's, so a new file is readable by the daemon that has to open it
-// without this having to name an account.
-//
-// Written beside the target and renamed, and both halves made durable, for the
-// reasons writeBack does it: this is the other operation that decides whether a
-// managed file exists.
+// the keeper's, so a new file is readable by the daemon that opens it without
+// this naming an account.  Written beside the target and renamed, and made
+// durable, for the reasons writeBack does it.
 func createManaged(target string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(target), filepath.Base(target)+".*")
 	if err != nil {
@@ -295,8 +278,7 @@ func createManaged(target string, data []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	// 0640 rather than tighter: the keeper's group has to open it, which is what
-	// makes the file readable by the daemon and by nothing else.  The same mode
+	// 0640 rather than tighter: the keeper's group has to open it.  The same mode
 	// every other managed file carries.
 	if err := os.Chmod(tmp.Name(), 0o640); err != nil { //nolint:gosec // G302: the keeper's group reads the store
 		return err

@@ -14,29 +14,25 @@ import (
 	"time"
 )
 
-// Per-run cgroup confinement: a brokered command is spawned into a cgroup of its
-// own and the whole cgroup is torn down when the run ends.  A descendant
+// Per-run cgroup confinement: a brokered command is spawned into a cgroup of
+// its own and the whole cgroup is torn down when the run ends.  A descendant
 // inherits the cgroup and cannot move out without write on another one, which
 // this uid does not have, so cgroup.kill reaps the whole tree atomically,
-// including a child that called setsid() and left the process group behind.
+// including a child that called setsid().
 //
 // This is the one reaper, with no process-group fallback: a host that cannot
 // confine refuses every command rather than degrading to the escapable
-// mechanism.  See docs/design.md for why there is no fallback.  It needs cgroup
-// v2, a unit granted Delegate=, and cgroup.kill (kernel >= 5.14).
+// mechanism; see docs/design.md.  It needs cgroup v2, a unit granted Delegate=,
+// and cgroup.kill (kernel >= 5.14).
 //
-// The unit's own cgroup is the outer one, which is why nothing sweeps run
-// cgroups at startup.  Run cgroups are made under this executor's own delegated
-// subtree, and faramir-exec.service takes systemd's default
-// KillMode=control-group: a dead executor, SIGKILLed included, has that whole
-// subtree stopped and removed before the restart, and a member cannot move out
-// of it.  So a run cgroup never outlives the process that made it, and a startup
-// sweep would find nothing.  A unit edited to KillMode=process or mixed breaks
-// that; the strays an escalation is then refused on are the symptom.
+// Nothing sweeps run cgroups at startup.  They are made under this executor's
+// own delegated subtree and faramir-exec.service takes systemd's default
+// KillMode=control-group, so a dead executor has that whole subtree stopped and
+// removed before the restart.  A unit edited to KillMode=process or mixed
+// breaks that; the strays an escalation is then refused on are the symptom.
 
 // cgroupBase is the cgroup v2 directory this executor may create run cgroups
-// under, or "" when confinement is unavailable.  Probed once at startup: per run
-// it is a field read, not a syscall.
+// under, or "" when confinement is unavailable.  Probed once at startup.
 func cgroupBase() string {
 	rel, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
@@ -46,11 +42,10 @@ func cgroupBase() string {
 	if unified == "" {
 		return "" // no v2 membership line: a cgroup v1 host, or none at all
 	}
-	// Every visible cgroup2 mount is tried, not just the first: the membership path
-	// is relative to whichever mount this process's hierarchy is reached through,
-	// and joining it to an unrelated one names a directory that does not exist.
-	// The probe below is what settles it, so the mount that answers is the mount
-	// that gets used.
+	// Every visible cgroup2 mount is tried, not just the first: the membership
+	// path is relative to whichever mount this process's hierarchy is reached
+	// through, and joining it to an unrelated one names a directory that does not
+	// exist.  The probe below settles it.
 	for _, mount := range cgroup2Mounts() {
 		if base := filepath.Join(mount, unified); usableCgroup(base) {
 			return base
@@ -59,14 +54,11 @@ func cgroupBase() string {
 	return ""
 }
 
-// usableCgroup reports whether run cgroups can be made under this directory.
-// Two gates in one probe: a sub-cgroup is created and removed.  The mkdir
-// succeeds only where the unit was granted Delegate=: without it systemd owns
-// this directory and the uid cannot write here, which is the real delegation
-// check, a mode being able to lie about who may write.  Its cgroup.kill file
-// exists only on a kernel >= 5.14, which is the feature this reaps a tree with.
-// Either missing means the host cannot confine, and the executor will refuse to
-// run rather than run unreaped.
+// usableCgroup reports whether run cgroups can be made under this directory:
+// two gates in one probe, creating a sub-cgroup and removing it.  The mkdir
+// succeeds only where the unit was granted Delegate=, and cgroup.kill exists
+// only on a kernel >= 5.14.  Either missing means the host cannot confine, and
+// the executor refuses to run rather than run unreaped.
 func usableCgroup(base string) bool {
 	probe, err := probePath(base)
 	if err != nil {
@@ -80,12 +72,10 @@ func usableCgroup(base string) bool {
 	return killErr == nil
 }
 
-// probePath names one probe, and names it differently every time.  A fixed name
-// is left behind by anything that stops this process between the mkdir above and
-// the remove after it, and by a second instance probing at the same moment; the
-// next mkdir then fails with EEXIST, which reads here as a host that cannot
-// confine.  That refuses every brokered command, and says the host needs cgroup
-// v2, a delegated unit and a 5.14 kernel, none of which is what is wrong.
+// probePath names one probe, and names it differently every time: a fixed name
+// is left behind by anything that stops this process between the mkdir and the
+// remove, and the next mkdir then fails with EEXIST, which reads as a host that
+// cannot confine and refuses every brokered command.
 func probePath(base string) (string, error) {
 	var raw [8]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -95,16 +85,14 @@ func probePath(base string) (string, error) {
 }
 
 // CanConfine reports whether this executor found a delegated cgroup at startup.
-// It is false where every command would be refused, which is a host to fix.
+// False is a host where every command is refused.
 func (e *Executor) CanConfine() bool { return e.cgroupBase != "" }
 
 // cgroup2Mounts is where the unified hierarchy is mounted, in the order
-// /proc/self/mounts lists it.  It is /sys/fs/cgroup on a pure-v2 host and a
-// subdirectory of it on a hybrid one, so the location is looked up rather than
-// assumed, and a namespace can show more than one.  Read the per-process file,
-// never /proc/mounts: a unit setting ProcSubset=pid mounts procfs with subset=pid
-// and hides every non-pid top-level entry, /proc/mounts among them, while
-// /proc/self/mounts stays readable.
+// /proc/self/mounts lists it: /sys/fs/cgroup on a pure-v2 host and a
+// subdirectory of it on a hybrid one, and a namespace can show more than one.
+// The per-process file, never /proc/mounts: a unit setting ProcSubset=pid hides
+// every non-pid top-level entry while /proc/self/mounts stays readable.
 func cgroup2Mounts() []string {
 	data, err := os.ReadFile("/proc/self/mounts")
 	if err != nil {
@@ -127,8 +115,8 @@ func cgroup2MountsIn(mounts string) []string {
 
 // unifiedCgroupPath is the path from the "0::" line of /proc/<pid>/cgroup, the
 // process's cgroup v2 membership relative to the unified mount, or "".  Every
-// host that mounts v2 at all has this line (it is "/" for a process in the root
-// of the hierarchy); a pure cgroup v1 host has only controller lines and none.
+// host that mounts v2 has this line; a pure cgroup v1 host has only controller
+// lines.
 func unifiedCgroupPath(procCgroup string) string {
 	for line := range strings.SplitSeq(procCgroup, "\n") {
 		if after, ok := strings.CutPrefix(line, "0::"); ok {
@@ -139,9 +127,8 @@ func unifiedCgroupPath(procCgroup string) string {
 }
 
 // runCgroup is one run's cgroup.  The child is spawned directly into it via
-// clone3's CLONE_INTO_CGROUP (SysProcAttr.UseCgroupFD), so the confinement holds
-// from the first instruction and there is no window in which a descendant runs
-// outside it.
+// clone3's CLONE_INTO_CGROUP (SysProcAttr.UseCgroupFD), so there is no window
+// in which a descendant runs outside it.
 type runCgroup struct {
 	path string
 	fd   int
@@ -168,8 +155,8 @@ func newRunCgroup(base string) (*runCgroup, error) {
 }
 
 // kill removes every process in the cgroup atomically, a setsid descendant
-// included.  cgroup.kill is guaranteed here: cgroupBase refused a host without
-// it, so the executor never reaches this on a kernel that lacks it.
+// included.  cgroupBase refused a host without cgroup.kill, so this is never
+// reached on a kernel that lacks it.
 func (c *runCgroup) kill() {
 	if err := os.WriteFile(filepath.Join(c.path, "cgroup.kill"), []byte("1"), 0); err != nil {
 		log.Printf("cgroup %s: cgroup.kill failed (%v); tree may not be reaped",
@@ -179,9 +166,7 @@ func (c *runCgroup) kill() {
 
 // terminate ends the run's tree gracefully: a SIGTERM to every member first,
 // then cgroup.kill for whatever is left once the grace runs out.  Both phases
-// address the cgroup, so a setsid child that left the process group is reached
-// the same as the rest.  There is no separate process-group signal; this is the
-// one mechanism.
+// address the cgroup, so a setsid child is reached the same as the rest.
 func (c *runCgroup) terminate(graceSec int) {
 	for _, pid := range c.pids() {
 		_ = syscall.Kill(pid, syscall.SIGTERM)
@@ -213,7 +198,7 @@ func (c *runCgroup) pids() []int {
 
 // drain waits until the cgroup is empty, so "the run ended" means no process of
 // it is left to sit through the next approval window.  Bounded: a member that
-// will not die is left for close to report rather than waited on for ever.
+// will not die is left for close to report.
 func (c *runCgroup) drain(timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
 	for {
@@ -246,15 +231,12 @@ func (e *Executor) untrack(c *runCgroup) {
 }
 
 // quiescence reports whether any process of this uid is alive outside this
-// daemon and outside the runs it is confining.
-//
-// That is the fact an escalation rests on.  Every brokered command runs as this
-// uid and /proc/<pid>/environ is readable within a uid, so a process the broker
-// does not know about can read an approved run's token, exec with it set, and
-// sudo on it.  The broker's own map cannot see that: a bounded drain that gave
-// up, a run whose teardown it did not wait for, or its own restart all leave the
-// map saying one thing and the process table another.  So before an escalation
-// takes, the map is checked against the kernel here.
+// daemon and outside the runs it is confining, which is the fact an escalation
+// rests on: /proc/<pid>/environ is readable within a uid, so a process the
+// broker does not know about can read an approved run's token and sudo on it.
+// The broker's own map can part from the process table -- a bounded drain that
+// gave up, a teardown it did not wait for, its own restart -- so the map is
+// checked against the kernel here.
 //
 // Fails closed on every path it cannot answer: an unreadable /proc is not
 // evidence of quiet.
@@ -275,9 +257,8 @@ func (e *Executor) quiescence() map[string]any {
 			"(%s)", len(strays), listSome(strays, maxNamedStrays))}
 }
 
-// strays is every process of this uid that belongs neither to this daemon nor to
-// a run it is confining, named for a person, longest-standing order not being
-// interesting here.
+// strays is every process of this uid that belongs neither to this daemon nor
+// to a run it is confining, named for a person.
 func (e *Executor) strays() ([]string, error) {
 	ours := os.Getuid()
 	accounted := map[int]bool{os.Getpid(): true}
@@ -308,10 +289,9 @@ func (e *Executor) strays() ([]string, error) {
 			continue
 		}
 		if !hasUserspace(pid) {
-			// A kernel thread or a zombie: no address space, so no environment to read
-			// a token out of and nothing to exec sudo with.  It cannot ride an
-			// escalation, and counting it would make a host permanently un-quiet for a
-			// process that is not a process in the sense this is asking about.
+			// A kernel thread or a zombie: no address space, so no environment to
+			// read a token out of and nothing to exec sudo with.  Counting it would
+			// make a host permanently un-quiet.
 			continue
 		}
 		strays = append(strays, entry.Name()+" ("+strings.TrimSpace(comm(pid))+")")
@@ -321,8 +301,7 @@ func (e *Executor) strays() ([]string, error) {
 }
 
 // maxNamedStrays bounds what the refusal names.  The whole list is in the
-// executor's log; the operator reads this one off a terminal, and a message that
-// fills a screen is one that says less than a short one.
+// executor's log; the operator reads this one off a terminal.
 const maxNamedStrays = 5
 
 func listSome(items []string, limit int) string {
@@ -334,8 +313,7 @@ func listSome(items []string, limit int) string {
 }
 
 // hasUserspace reports whether a pid has an address space of its own.  A kernel
-// thread's cmdline is empty, and so is a zombie's; neither can read an environ
-// or exec anything.
+// thread's cmdline is empty, and so is a zombie's.
 func hasUserspace(pid int) bool {
 	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "cmdline"))
 	return err == nil && len(data) > 0
@@ -353,13 +331,13 @@ func comm(pid int) string {
 
 // close kills whatever is left, waits for the cgroup to empty, and removes it.
 // Run on every exit, a normal one included: the child may have returned zero
-// while a setsid grandchild lives on, and reaping that is what this exists for.
+// while a setsid grandchild lives on.
 func (c *runCgroup) close() {
 	_ = syscall.Close(c.fd)
 	c.kill()
 	if !c.drain(5 * time.Second) {
-		// A run whose descendants would not die: reported so an operator sees it, and
-		// on a host that allows sudo it is the quiescence the serialization needs.
+		// A run whose descendants would not die: reported so an operator sees it,
+		// and on a host that allows sudo it is what refuses the next escalation.
 		log.Printf("cgroup %s still holds %d process(es) after kill",
 			filepath.Base(c.path), len(c.pids()))
 	}

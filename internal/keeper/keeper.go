@@ -1,5 +1,5 @@
-// Package keeper holds the age key.  It decrypts on request, and never hands
-// the key out: no process that executes a command can reach the master key. See
+// Package keeper holds the age key.  It decrypts on request and never hands the
+// key out, so no process that executes a command can reach it; see
 // docs/design.md.
 //
 // It runs as its own uid and execs nothing but sops.  Executed rather than
@@ -11,9 +11,9 @@
 // Fingerprinting lives here because the secrets are group-readable by this uid
 // alone; the broker asks what changed rather than looking.
 //
-// Two ops, get_values and get_state, shaped like the broker socket's and
-// specified in docs/protocol.md.  get_values returns every managed value, never
-// a subset, and carries the file state with it so a reload is one round trip.
+// Two ops, get_values and get_state, specified in docs/protocol.md.  get_values
+// returns every managed value, never a subset, and carries the file state with
+// it so a reload is one round trip.
 package keeper
 
 import (
@@ -43,7 +43,7 @@ const (
 	// decryptBudget bounds one get_values across every managed file, so a reply
 	// arrives within a time the caller can bound too.  keeperclient's own
 	// callTimeout is set above this; the two are separate constants because that
-	// package deliberately shares no code with the one holding the key.
+	// package shares no code with the one holding the key.
 	decryptBudget = 5 * time.Minute
 	// How long one peer may take to send its request, and to read the reply once
 	// it is ready.  Not the time to serve it: decryptTimeout bounds that, per
@@ -62,9 +62,8 @@ func flattenNode(node any, prefix string, out map[string]string) {
 	switch v := node.(type) {
 	case map[string]any:
 		for key, value := range v {
-			// Exactly the top-level "sops" key, sops' own metadata block.  A prefix
-			// match at any depth would drop real secrets (sops_backup_token,
-			// home/sopsuser) from the value set.
+			// Exactly the top-level "sops" key, sops' own metadata block: a prefix
+			// match at any depth would drop real secrets such as sops_backup_token.
 			if prefix == "" && key == "sops" {
 				continue
 			}
@@ -142,39 +141,35 @@ func (k *KeyHolder) Path() string {
 	return ""
 }
 
-// Scrub removes key material from text.  An error string is the one thing that
-// crosses from this process to the broker.  Matching the age identity format
-// rather than a copy of the key is what lets it scrub without holding the
-// material.
+// Scrub removes key material from text, an error string being the one thing
+// that crosses from this process to the broker.  Matching the age identity
+// format rather than a copy of the key is what lets it scrub without holding
+// the material.
 func (k *KeyHolder) Scrub(text string) string {
 	return ageSecretKeyRe.ReplaceAllString(text, "«AGE-KEY»")
 }
 
 // FileState is one managed file's identity on disk: enough to notice an edit,
-// nothing about its contents.  Nanoseconds, because a serialization that rounds
-// turns an edit made within the same second into no change.
+// nothing about its contents.  Nanoseconds, a serialisation that rounds turning
+// an edit made within the same second into no change.
 type FileState struct {
 	Path  string `json:"path"`
 	MTime int64  `json:"mtime_unix_nano"`
 	Size  int64  `json:"size"`
 }
 
-// Resolve expands each the managed store entry against the filesystem.  Every
-// entry is a glob, a literal path being one with no metacharacters, and an
-// entry naming no file is an error: unmounted and deleted both leave the broker
-// configured for values it does not have.
+// Resolve expands each managed store entry against the filesystem.  Every entry
+// is a glob, a literal path being one with no metacharacters, and matches are
+// deduplicated.
 //
 // Per request rather than at config load, so a file added beside the others is
 // picked up on the next refresh.  It is also the only place that can resolve:
 // the secrets directory is group-readable by this uid alone.
 //
-// Deduplicated, since the base config globs that directory and a drop-in may
-// name a file in it as well.
-//
-// The two kinds of not-there are returned separately because they mean opposite
-// things to a daemon.  An entry that named nothing is a secrets directory not
-// written yet; a file that is there and will not open is a value the redactor
-// is missing without knowing it.  Only the second is an error.
+// The two kinds of not-there are returned separately: an entry that named
+// nothing is a secrets directory not written yet, and a file that is there and
+// will not open is a value the redactor is missing without knowing it.  Only
+// the second is an error.
 func Resolve(files []string) (paths, errors, unresolved []string) {
 	paths = []string{}
 	errors = []string{}
@@ -199,14 +194,10 @@ func Resolve(files []string) (paths, errors, unresolved []string) {
 			paths = append(paths, match)
 		}
 	}
-	// The entries are alternatives, not an inventory: the store is one directory
-	// spelled three ways, once per extension a managed file may carry.  So the
-	// question "did anything match" belongs to the set rather than to each
-	// entry, and a host holding only *.sops.yml is not two thirds broken.
-	//
-	// It is asked at all because a store that matched nothing is a broker
-	// redacting nothing, which has to be told apart from one whose files simply
-	// have not been written yet.
+	// The entries are alternatives rather than an inventory, so "did anything
+	// match" belongs to the set.  It is asked at all because a store that matched
+	// nothing is a broker redacting nothing, which has to be told apart from one
+	// whose files have not been written yet.
 	if len(paths) > 0 {
 		unresolved = []string{}
 	}
@@ -231,9 +222,9 @@ func unresolvedReason(entry string) string {
 // treats as meta on this platform; a backslash escapes on Unix, so it counts.
 func isPattern(entry string) bool { return strings.ContainsAny(entry, `*?[\`) }
 
-// StatAll fingerprints every managed file: no key, no sops, no contents, since
-// the broker calls this on every poll.  A file that cannot be stat-ed is an
-// error rather than a missing entry.
+// StatAll fingerprints every managed file: no key, no sops, no contents, the
+// broker calling this on every poll.  A file that cannot be stat-ed is an error
+// rather than a missing entry.
 func StatAll(secrets config.SecretConfig) ([]FileState, []string, []string) {
 	state := []FileState{}
 	paths, errors, unresolved := Resolve(secrets.Patterns)
@@ -250,7 +241,8 @@ func StatAll(secrets config.SecretConfig) ([]FileState, []string, []string) {
 }
 
 // DecryptAll decrypts every managed file.  Per-file failures are returned as
-// errors rather than aborting, so one broken file does not blank the value set.
+// errors rather than aborting, so one broken file does not blank the value
+// set.
 func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string, []string) {
 	values := map[string]string{}
 	paths, errors, _ := Resolve(secrets.Patterns)
@@ -266,13 +258,10 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 		env = append(env, "SOPS_AGE_KEY_FILE="+path)
 	}
 
-	// One budget across the whole set as well as one per file.  Without it the
-	// reply is bounded only by len(paths) * decryptTimeout, which neither the
-	// caller nor its own deadline knows in advance; a store big enough would then
-	// time out on the broker's side while this was still working, and the next
-	// request would start over with nothing cached.  Files past the budget report
-	// as failures rather than being waited on, which is what a per-file failure
-	// already looks like here.
+	// One budget across the whole set as well as one per file: otherwise the reply
+	// is bounded only by len(paths) * decryptTimeout, which no caller knows in
+	// advance, and a large enough store would time out on the broker's side while
+	// this was still working.  Files past the budget report as failures.
 	overall, cancelAll := context.WithTimeout(context.Background(), decryptBudget)
 	defer cancelAll()
 
@@ -357,14 +346,14 @@ func (k *Keeper) Listen() (net.Listener, error) {
 	return ln, nil
 }
 
-// Serve handles connections until the listener is closed.  Serial, because the
-// broker is the only client and holds a single-flight latch across a refresh,
-// which is what keeps a poll from queueing behind a long get_values.
+// Serve handles connections until the listener is closed.  Serial: the broker
+// is the only client and holds a single-flight latch across a refresh, which is
+// what keeps a poll from queueing behind a long get_values.
 func (k *Keeper) Serve() error {
 	for {
 		conn, err := k.ln.Accept()
 		if err != nil {
-			// A closed listener is how this ends: Stop closes it.
+			// A closed listener is how this ends: Close closes it.
 			return nil //nolint:nilerr // the close is the stop signal
 		}
 		k.serveConnection(conn)
@@ -381,9 +370,8 @@ func (k *Keeper) Close() error {
 func (k *Keeper) serveConnection(conn net.Conn) {
 	defer func() { _ = conn.Close() }()
 	// Serve handles one connection at a time, so a peer that connects and then
-	// neither sends nor reads would stall every later request: the broker's
-	// RefreshIfStale would block and `faramir run` would hang rather than fail.
-	// Both directions, which covers the refusals below as well as the read.
+	// neither sends nor reads would stall every later request.  Both directions,
+	// which covers the refusals below as well as the read.
 	_ = conn.SetDeadline(time.Now().Add(requestTimeout))
 	peer, err := sockutil.PeerCred(conn)
 	if err != nil {
@@ -404,8 +392,7 @@ func (k *Keeper) serveConnection(conn net.Conn) {
 		return
 	}
 	// Cleared before Handle: get_values execs sops once per managed file, which is
-	// not on the same clock as reading one line of JSON.  The reply gets a fresh
-	// deadline once there is something to write.
+	// not on the same clock as reading one line of JSON.
 	_ = conn.SetDeadline(time.Time{})
 	response := k.Handle(payload)
 	_ = conn.SetWriteDeadline(time.Now().Add(requestTimeout))
@@ -420,14 +407,14 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 	op, _ := payload["op"].(string)
 	switch op {
 	case "get_state":
-		// The poll: no key, no sops, and unlogged, since with a refresh interval of 0
-		// it runs as often as commands arrive.
+		// The poll: no key, no sops, and unlogged, this running as often as the
+		// refresh interval allows.
 		state, errs, unresolved := StatAll(k.config.Secret)
 		return map[string]any{"state": state, "errors": errs, "unresolved_patterns": unresolved}
 	case "get_values":
-		// Stat first, so an edit during the decrypt leaves the fingerprint older than
-		// the values and reloads once too often.  The other order would never pick
-		// the edit up.
+		// Stat first, so an edit during the decrypt leaves the fingerprint older
+		// than the values and reloads once too often.  The other order would never
+		// pick the edit up.
 		state, errs, unresolved := StatAll(k.config.Secret)
 		values, decryptErrs := DecryptAll(k.config.Secret, k.Keys)
 		errs = append(errs, decryptErrs...)

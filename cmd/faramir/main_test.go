@@ -233,10 +233,9 @@ func dispatcherNames(t *testing.T) []string {
 
 	// A command that groups others contributes its children rather than itself,
 	// spelled the way cli.Operator spells them: the guard matches what a person
-	// types, and nobody types a bare `faramir vault`.  To the leaf, however deep:
-	// a group nested inside a group is still one command somebody types in full,
-	// and a walk that stopped short would name a parent nobody runs while leaving
-	// the children it holds out of the list the sanction is built from.
+	// types, and nobody types a bare `faramir vault`.  To the leaf, however deep,
+	// a walk that stopped short leaving those children out of the list the
+	// sanction is built from.
 	var names []string
 	var walk func(prefix string, c *cobra.Command)
 	walk = func(prefix string, c *cobra.Command) {
@@ -266,13 +265,9 @@ func dispatcherNames(t *testing.T) []string {
 }
 
 // Deny by default, at the last place a human's answer is read: only an explicit
-// yes approves, so a typo, a stray word or a punctuation mark refuses.
-//
-// "y" is among the refusals, not the escalations.  The watcher asks for `yes` and
-// the keystroke this answer is guarded against is one the operator did not
-// make: a tmux pane the agent can send-keys into, a tty the operator's account
-// owns.  A tool that accepts less than it asks for is one whose prompt is not
-// the rule.
+// yes approves, so a typo, a stray word or a punctuation mark refuses.  "y" is
+// among the refusals: the watcher asks for `yes`, and the keystroke this is
+// guarded against is one the operator did not make.
 func TestOnlyYesApproves(t *testing.T) {
 	// The last two are what a terminal puts around an answer rather than part of
 	// one: the newline it is read up to, and the carriage return of a CRLF ending.
@@ -299,13 +294,10 @@ func TestAnInteriorUnprintableIsNotEditedIntoAYes(t *testing.T) {
 	}
 }
 
-// What holds nothing printable is not an answer, and must not be counted as a
-// no: an unanswered question is left to expire, which the broker refuses on the
-// way out, rather than being spent by a stray newline.
-//
-// A punctuation mark is an answer, and so a refusal.  Only alphanumerics
-// counting would leave "?" in neither bucket, and an operator who types it is
-// owed the question closing rather than the terminal going quiet at them.
+// What holds nothing printable is not an answer and must not be counted as a
+// no: an unanswered question is left to expire rather than being spent by a
+// stray newline.  A punctuation mark is an answer, and so a refusal: an
+// operator who types "?" is owed the question closing.
 func TestABlankLineIsNotAnAnswer(t *testing.T) {
 	for _, line := range []string{"", "\n", "   \n", "\t\r\n", "\x1b\n"} {
 		if answerOf(line) != "" {
@@ -377,14 +369,11 @@ func TestTheWaitForAnAnswerIsBounded(t *testing.T) {
 	}
 }
 
-// `deny` needs no id: only one question is ever outstanding, so "the one that
-// is waiting" names exactly one thing.  The asymmetry with approving is
-// deliberate and worth holding in place.  Refusing something unseen is safe, and
-// `approve` requires an id, because an escalation that names no command is one
-// nobody judged.
-//
-// Each stops at the root check rather than dialling a socket, which is enough to
-// tell a usage error from an argument that was accepted.
+// `deny` needs no id: only one question is ever outstanding.  The asymmetry
+// with approving is deliberate -- refusing something unseen is safe, and an
+// escalation that names no command is one nobody judged.  Each stops at the
+// root check rather than dialling a socket, which is enough to tell a usage
+// error from an argument that was accepted.
 func TestDenyNeedsNoIDAndApproveDoes(t *testing.T) {
 	if code := cmdDeny(nil); code == 2 {
 		t.Error("faramir deny = 2, want it accepted without an id")
@@ -440,12 +429,11 @@ func TestAParseErrorSpellsAFlagTheWayItIsTyped(t *testing.T) {
 		{"shorthand", "-Z", "unknown shorthand flag: 'Z' in -Z"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			// One buffer, and it cannot be two.  Cobra writes usage to
-			// OutOrStderr(), which is stderr only while SetOut is unset, so a test
-			// that captures stdout by setting it pulls the usage block into its own
-			// capture and can no longer tell a correct routing from a wrong one.
-			// That stdout stays clean is asserted where it can be: check-disclose.sh,
-			// against the real binary and real file descriptors.
+			// One buffer, and it cannot be two: cobra writes usage to OutOrStderr(),
+			// which is stderr only while SetOut is unset, so a test that captures
+			// stdout by setting it pulls the usage block into its own capture.  That
+			// stdout stays clean is asserted in check-disclose.sh, against the real
+			// binary and real file descriptors.
 			var out bytes.Buffer
 			root := newRootCmd()
 			root.SetOut(&out)

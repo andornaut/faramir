@@ -14,32 +14,25 @@ import (
 // stepLinkAccess makes each [[secret.link]] file readable by the account that
 // reads it, and by nothing else.
 //
-// **Modes and ownership, never an ACL**, and not as a preference: a stacked
-// filesystem does not carry one.  An eCryptfs home takes `setfacl` without
-// error and reads the entry back from its own cache, so a grant made that way
-// looks applied, cannot be removed, and is not what decides the read.
-// Ownership and modes belong to the lower filesystem and hold everywhere.
+// Modes and ownership, never an ACL: a stacked filesystem does not carry one.
+// An eCryptfs home takes `setfacl` without error and reads the entry back from
+// its own cache, so a grant made that way looks applied, cannot be removed, and
+// is not what decides the read.
 //
-// Two grants per link, each a shape this install already uses:
+// Two grants per link:
 //
 //   - The file becomes the broker's own group and group-readable.  That group
-//     holds one account, which is the reasoning that puts the secrets directory
-//     in a group holding only the keeper: naming a value is not permission to
-//     read the file it came from, so the executor must not be in it.
+//     holds one account, for the reason the secrets directory is in a group
+//     holding only the keeper: naming a value is not permission to read the file
+//     it came from.
 //   - The directories above it become the client group, execute only, which is
-//     what sharetree grants for an enrolled tree.  Traversal is not read: the
-//     file's own mode still refuses every account but the broker's.
+//     what sharetree grants for an enrolled tree.  Traversal is not read.
 //
-// The owner is left alone.  The file is the operator's and their tool rewrites
-// it, so taking it over would be taking it away from the thing that maintains
-// it, and a rewrite would hand it straight back.
-//
-// Neither grant survives a tool that writes a temp file and renames over it:
-// the replacement is created fresh, and its 0600 creation mode leaves nothing
-// for a group to read.  An ACL is lost the same way, its inherited entry masked
-// to nothing by that same mode, so this is not a cost of choosing modes.  What
-// catches it is `faramir doctor`, which asks the broker's own account whether it
-// can still read each file.
+// The owner is left alone: the file is the operator's and their tool rewrites
+// it.  Neither grant survives a tool that writes a temp file and renames over
+// it, the replacement being created 0600; an ACL is lost the same way.
+// `faramir doctor` asks the broker's own account whether it can still read each
+// file.
 func (r *runner) stepLinkAccess() error {
 	links := r.opts.links
 	if len(links) == 0 {
@@ -59,15 +52,15 @@ func (r *runner) stepLinkAccess() error {
 			if os.IsNotExist(err) {
 				// Not a failure: a link naming nothing is a credential that has left
 				// the machine, or a home not mounted yet, and the broker reports it
-				// per request rather than the install refusing to finish over it.
+				// per request.
 				absent = append(absent, path)
 				continue
 			}
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		// Before the directories: a symlink here would send the grant to whatever
-		// it points at, and ensureOwnership refuses one, so the refusal should
-		// arrive before anything above it has been regrouped.
+		// it points at, so the refusal should arrive before anything above it has
+		// been regrouped.
 		if info.Mode()&os.ModeSymlink != 0 {
 			return fmt.Errorf("%s is a symlink, so the mode and group granted here "+
 				"would land on whatever it points at. Name that file in the link "+
@@ -84,8 +77,7 @@ func (r *runner) stepLinkAccess() error {
 		granted += result.Changed
 
 		// The owner's own bits as they are, group read, and nothing for anybody
-		// else.  Widening only what the broker needs: a file the operator keeps at
-		// 0400 stays unwritable by them.
+		// else: a file the operator keeps at 0400 stays unwritable by them.
 		mode := (info.Mode().Perm() & 0o700) | 0o040
 		changed, err := r.fs.ensureOwnership(path, mode, keep, r.brokerGID)
 		if err != nil {
@@ -99,8 +91,8 @@ func (r *runner) stepLinkAccess() error {
 	detail := fmt.Sprintf("%d linked file(s) readable by %s",
 		len(links)-len(absent), r.layout.BrokerUser)
 	if len(absent) > 0 {
-		// Named rather than counted: which file is missing is what says whether
-		// this is a credential that has gone or a home that is not mounted.
+		// Named rather than counted: which file is missing says whether this is a
+		// credential that has gone or a home that is not mounted.
 		detail += fmt.Sprintf("; %d not there yet: %s",
 			len(absent), strings.Join(absent, ", "))
 	}
@@ -111,10 +103,9 @@ func (r *runner) stepLinkAccess() error {
 // LinkSteps is what an install run does about a link and nothing else: write
 // the config that names it, grant the access it needs, and re-render the deny
 // rules that refuse its file.  `faramir link` applies these rather than a whole
-// install, so adding a link does not reinstall the binary or rewrite the units.
-// stepPreconditions is not optional here even though nothing in it is about
-// links: it is what resolves the agents whose files stepAgentConfig writes, so
-// a list without it writes no deny rule at all and says it found no agent.
+// install.  stepPreconditions is not optional here: it resolves the agents
+// whose files stepAgentConfig writes, so a list without it writes no deny
+// rule.
 func (r *runner) LinkSteps() []namedStep {
 	return []namedStep{
 		{"resolveIDs", r.resolveIDs},
@@ -126,14 +117,11 @@ func (r *runner) LinkSteps() []namedStep {
 }
 
 // keepInstalledGrant takes the sudo arrangement off the installed config so
-// that rewriting config.toml does not remove it.
-//
-// `init` deliberately does the opposite: --allow-sudo is a switch, and a re-run
-// without it takes the grant away, which is the direction that reduces reach.
-// Adding a link is not a request to change any of that, and stepConfig renders
-// the whole file from the layout, so without this a `link add` on a host
-// installed with --allow-sudo would silently drop [escalation] and leave the sudoers
-// entry and PAM service pointing at a broker that no longer names them.
+// that rewriting config.toml does not remove it.  `init` does the opposite,
+// --allow-sudo being a switch a re-run without takes away; adding a link is not
+// a request to change that, and stepConfig renders the whole file from the
+// layout, so without this a `link add` would drop [escalation] and leave the
+// sudoers entry pointing at a broker that no longer names it.
 func keepInstalledGrant(opts *Options, configDir string) error {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {
@@ -146,13 +134,11 @@ func keepInstalledGrant(opts *Options, configDir string) error {
 
 // AddLink adds one entry and applies everything that follows from it.
 //
-// The order is the point.  The grant comes before the probe, because the
-// question is whether the *broker* can read the file and it cannot until it has
-// been granted; the probe comes before the entry is written, because a selector
-// that names nothing would otherwise leave the broker refusing every command
-// until somebody noticed.  A probe that fails puts the grant back: a file the
-// broker can read but is not told about is a widening with nothing to show for
-// it.
+// The order is the point.  The grant comes before the probe, the question being
+// whether the broker can read the file; the probe comes before the entry is
+// written, a selector that names nothing otherwise leaving the broker refusing
+// every command.  A probe that fails puts the grant back: a file the broker can
+// read but is not told about is a widening with nothing to show for it.
 func AddLink(opts Options, link config.Link) (Report, error) {
 	if err := config.ValidateLink(link); err != nil {
 		return Report{}, err
@@ -169,9 +155,8 @@ func AddLink(opts Options, link config.Link) (Report, error) {
 				configFile, link.Ref, other.Path)
 		}
 	}
-	// Refused rather than recorded.  The probe is what this command is for, and a
-	// link nothing could verify is one that may refuse every brokered command
-	// later, at a moment nobody chose.
+	// Refused rather than recorded: a link nothing could verify may refuse every
+	// brokered command later, at a moment nobody chose.
 	if _, err := os.Stat(link.Path); err != nil {
 		return Report{}, fmt.Errorf("%s: %w\nA link is checked when it is added, so "+
 			"the file has to be there. If this is an encrypted home, mount it first",
@@ -194,10 +179,10 @@ func AddLink(opts Options, link config.Link) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	// Put back on any failure from here on, not only the probe's.  The file has
-	// been regrouped and the entry has not been written, so a run that stops
-	// anywhere in between leaves exactly what the rollback exists to prevent:
-	// a credential file readable by the broker that nothing told it about.
+	// Put back on any failure from here on, not only the probe's: the file has
+	// been regrouped and the entry has not been written, so a run that stops in
+	// between leaves a credential file readable by the broker that nothing told
+	// it about.
 	if err := run.probeLink(link); err != nil {
 		return Report{}, revert(restore, err)
 	}
@@ -217,13 +202,10 @@ func revert(restore func() error, cause error) error {
 	return cause
 }
 
-// RemoveLink drops one entry and re-renders what named it.
-//
-// What it does not do is narrow the file again.  It does not know the mode that
-// file had before the grant, and guessing would be as likely to break the tool
-// that owns it as to tidy anything; the caller is told what the file is now and
-// what would narrow it.  Removing the entry is what takes the value out of the
-// redactor, which is the part that had to be exact.
+// RemoveLink drops one entry and re-renders what named it.  It does not narrow
+// the file again: it does not know the mode that file had before the grant, so
+// the caller is told what the file is now and what would narrow it.  Removing
+// the entry is what takes the value out of the redactor.
 func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	configFile := filepath.Join(configDirOr(opts.ConfigDir), "config.toml")
 	existing, err := config.BaseLinks(configFile)
@@ -256,8 +238,7 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	return report, removed, err
 }
 
-// Links is what the install declares, for `faramir link ls`.  The base file
-// alone, which is the set this command owns.
+// Links is what the install declares, for `faramir link ls`.
 func Links(configDir string) ([]config.Link, error) {
 	return config.BaseLinks(filepath.Join(configDirOr(configDir), "config.toml"))
 }
@@ -306,9 +287,8 @@ func (r *runner) grantOne(link config.Link) (func() error, error) {
 }
 
 // probeLink asks whether the broker's own account can read the file and get a
-// value out of it, by being that account.  Root can read anything and would
-// answer yes to a file the broker cannot open, which is the failure this exists
-// to catch.
+// value out of it, by being that account: root can read anything and would
+// answer yes to a file the broker cannot open.
 func (r *runner) probeLink(link config.Link) error {
 	args := []string{selfPath(), "read-link", "--path", link.Path, "--type", link.Type}
 	if link.Key != "" {
@@ -328,16 +308,12 @@ func (r *runner) probeLink(link config.Link) error {
 }
 
 // diagnoseLinkedAccess asks the two questions the grant exists to make true:
-// the broker can read each linked file, and the executor cannot.
+// the broker can read each linked file, and the executor cannot.  Asked as
+// those accounts rather than worked out from the mode, which is what catches a
+// tool having replaced its own file and taken the group with it.
 //
-// Asked as those accounts rather than worked out from the mode, which is what
-// makes it worth running: it is the one check that catches a tool having
-// replaced its own file, taking the group with it, and it answers the same way
-// whatever mechanism granted the access and whatever filesystem the home is.
-//
-// A file that is not there is neither answer.  The credential has left the
-// machine, or the home holding it is not mounted, and both are reported by the
-// broker per request.
+// A file that is not there is neither answer: the credential has left the
+// machine, or the home holding it is not mounted.
 func diagnoseLinkedAccess(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	const name = "linked file access"
 	if len(cfg.Secret.Links) == 0 {

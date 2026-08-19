@@ -12,22 +12,17 @@ import (
 
 // globalKnownHosts is the file ssh consults before any account's own, so one
 // copy answers for the executor, the operator and root at once.  Root-owned and
-// outside every home, which is why it is the arrangement to prefer where a
-// configuration manager already writes it.
+// outside every home, which makes it the arrangement to prefer.
 const globalKnownHosts = "/etc/ssh/ssh_known_hosts"
 
 // knownHostsKeyTypes are the algorithm prefixes a host key line can carry.
 // Prefixes rather than an exact list: a type a later OpenSSH adds is still a
-// host key, and refusing it here would refuse a file ssh accepts.
+// host key.
 var knownHostsKeyTypes = []string{"ssh-", "ecdsa-", "sk-", "webauthn-"}
 
 // readKnownHosts reads a known_hosts file and reports how many host keys it
-// holds, refusing a file that is not one.
-//
-// The shape is checked because the flag takes a path from the operator and what
-// it names is copied into an account that must never hold key material: a
-// mistyped path that reaches a private key is the one mistake worth naming
-// before anything is written.
+// holds, refusing a file that is not one: what the flag names is copied into an
+// account that must never hold key material.
 func readKnownHosts(path string) ([]byte, int, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -80,11 +75,9 @@ func hasPrefixIn(s string, prefixes []string) bool {
 }
 
 // countKnownHosts reports how many host keys ssh would take from a file, and
-// zero for one that is absent.
-//
-// Lenient where readKnownHosts refuses: ssh reads a known_hosts file line by
-// line and ignores what it cannot parse, so the entries either side of a bad
-// line still verify their hosts.
+// zero for one that is absent.  Lenient where readKnownHosts refuses: ssh
+// ignores a line it cannot parse, so the entries either side of a bad one still
+// verify their hosts.
 func countKnownHosts(path string) int {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -97,18 +90,13 @@ func countKnownHosts(path string) int {
 // stepKnownHosts pins the host keys a brokered ssh verifies against.
 //
 // A copy rather than a reference: the executor cannot read the operator's 0700
-// ~/.ssh, and ssh names no environment variable for a known_hosts file, so the
-// entries have to be where ssh looks for the uid the command runs as.  Copying
-// this is safe where copying an ssh config is not, a known_hosts file being
-// public keys with no directive that executes anything.
+// ~/.ssh, and ssh names no environment variable for a known_hosts file.  Safe
+// where copying an ssh config is not, a known_hosts file being public keys with
+// no directive that executes anything.  Silent without --known-hosts.
 //
-// Silent without --known-hosts, doctor being what reports a host with nothing
-// pinned anywhere.
-//
-// Replaced whole rather than merged: HashKnownHosts is on by default, so entries
-// cannot be matched by name, and appending blind would keep a rotated host's old
-// key as a second line ssh still accepts.  The named file is the authority,
-// including for an entry removed from it.
+// Replaced whole rather than merged: HashKnownHosts is on by default, so
+// entries cannot be matched by name, and appending blind would keep a rotated
+// host's old key as a second line ssh still accepts.
 func (r *runner) stepKnownHosts() error {
 	if r.opts.KnownHosts == "" {
 		return nil
@@ -118,31 +106,30 @@ func (r *runner) stepKnownHosts() error {
 		return err
 	}
 	path := r.layout.ExecKnownHosts()
-	// The file is replaced whole, so pinning an empty one removes what is there.
+	// The file is replaced whole, so pinning an empty one removes what is
+	// there.
 	if entries == 0 {
 		r.warnf("%s holds no host keys, so this removes whatever %s had pinned and "+
 			"leaves a brokered ssh verifying against %s alone. Re-run with a file that "+
 			"holds the fleet's host keys, or leave --known-hosts out to keep what is pinned",
 			r.opts.KnownHosts, path, globalKnownHosts)
 	}
-	// A dry run runs unprivileged and cannot look inside the executor's 0700 home,
-	// so whether the file already holds these entries is unanswerable.  Reported
-	// as a change, that being the direction which does not call an install current
-	// when it is not.
+	// A dry run runs unprivileged and cannot look inside the executor's 0700
+	// home.  Reported as a change, which does not call an install current when it
+	// is not.
 	if r.opts.DryRun {
 		r.step("known hosts", true, fmt.Sprintf("pin %d host key(s) from %s in %s",
 			entries, r.opts.KnownHosts, path))
 		return nil
 	}
-	// Created by the accounts step; asserted here so a run after it was removed by
-	// hand writes into a directory with the mode it needs rather than failing.
+	// Created by the accounts step; asserted here so a run after it was removed
+	// by hand writes into a directory with the mode it needs.
 	made, err := r.fs.ensureDir(filepath.Dir(path), 0o700, r.execUID, r.execGID, true)
 	if err != nil {
 		return err
 	}
 	// World-readable like the other public halves this installs, and the
-	// executor's own: the home above it is 0700, so the account that can rewrite
-	// this file is the one that could unlink it whatever it is owned by.
+	// executor's own: the home above it is 0700.
 	changed, err := r.fs.writeFile(path, data, 0o644, r.execUID, r.execGID)
 	if err != nil {
 		return err
@@ -152,16 +139,14 @@ func (r *runner) stepKnownHosts() error {
 	return nil
 }
 
-// diagnoseKnownHosts reports what a brokered ssh can verify a host against.  ssh
-// reads the global file before the account's own, so either holding entries is
-// enough and the counts are reported together.
+// diagnoseKnownHosts reports what a brokered ssh can verify a host against.
+// ssh reads the global file before the account's own, so either holding entries
+// is enough and the counts are reported together.
 //
-// Never a failure.  A key is minted on every install whether or not the host
-// turns out to reach anything, so nothing pinned is what a host with no fleet
-// looks like, and a host may arrange verification some other way.  It is
-// reported because the state is otherwise silent until a playbook hits it.
-//
-// Needs root: the executor's file is inside a 0700 home.
+// Never a failure: nothing pinned is what a host with no fleet looks like, and
+// a host may arrange verification some other way.  Reported because the state
+// is otherwise silent until a playbook hits it.  Needs root, the executor's
+// file being inside a 0700 home.
 func diagnoseKnownHosts(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Ssh.Key == "" {
 		return
@@ -174,9 +159,7 @@ func diagnoseKnownHosts(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		return
 	}
 	// Counted as root and read as the executor, which are different questions:
-	// root's mode bypass reads a file the account that runs the command cannot,
-	// and reporting those entries would say a host is verified when nothing
-	// verifies it.
+	// root's mode bypass reads a file the account that runs the command cannot.
 	own, global := 0, 0
 	unreadable := []string{}
 	for _, file := range []struct {
@@ -192,8 +175,8 @@ func diagnoseKnownHosts(report *DoctorReport, opts DoctorOptions, cfg *config.Co
 		}
 		*file.count = countKnownHosts(file.path)
 	}
-	// An unreadable file is named rather than failed on: the other one may hold the
-	// whole fleet, and which hosts each covers is not something to guess at.
+	// An unreadable file is named rather than failed on: the other may hold the
+	// whole fleet.
 	ignored := ""
 	if len(unreadable) > 0 {
 		ignored = fmt.Sprintf(". %s cannot read %s, so nothing in it verifies anything; "+

@@ -1,6 +1,6 @@
-// Package agekey mints and reads the age identities the keeper decrypts with, so
-// a faramir host needs no age binary.  It does not replace the sops CLI, which
-// is what edits encrypted files.
+// Package agekey mints and reads the age identities the keeper decrypts with,
+// so a faramir host needs no age binary.  It does not replace the sops CLI,
+// which is what edits encrypted files.
 package agekey
 
 import (
@@ -26,8 +26,8 @@ func Format(id *age.X25519Identity) string {
 
 // Generate mints an identity at path and returns its recipient.  created is
 // false when the file was already there, in which case nothing is written:
-// overwriting an identity destroys access to every value it was a recipient for,
-// retroactively, so the file is opened O_EXCL and 0400.
+// overwriting an identity destroys access to every value it was a recipient
+// for, retroactively, so the file is opened O_EXCL and 0400.
 func Generate(path string) (recipient string, created bool, err error) {
 	handle, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o400)
 	if errors.Is(err, os.ErrExist) {
@@ -58,12 +58,12 @@ func Generate(path string) (recipient string, created bool, err error) {
 // ValidateRecipient reports whether s is something sops will accept in a
 // creation rule's age recipients.  Checked before it is written: .sops.yaml is
 // world-readable, so a private half pasted there hands every account the key
-// that opens the secrets, and the file is written once and kept, so an
-// unparseable recipient fails every later encrypt instead of this run.
+// that opens the secrets, and an unparseable recipient fails every later
+// encrypt rather than this run.
 //
-// The shapes are sops' own, from parseRecipient in its age key source.  A plugin
-// recipient is taken on its shape alone, the plugin binary being the only thing
-// that can parse one.
+// The shapes are sops' own, from parseRecipient in its age key source.  A
+// plugin recipient is taken on its shape alone, the plugin binary being the
+// only thing that can parse one.
 func ValidateRecipient(s string) error {
 	if s == "" {
 		return errors.New("empty age recipient")

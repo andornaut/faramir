@@ -10,8 +10,8 @@ import (
 )
 
 // The three kinds of subcommand, in the order the help lists them.  A command
-// without a group would be listed under "Additional Commands", which is how a
-// new one announces that it was added without deciding who runs it.
+// without a group is listed under "Additional Commands", which is how a new one
+// announces that nobody decided who runs it.
 const (
 	groupOperator     = "operator"
 	groupProvisioning = "provisioning"
@@ -20,7 +20,7 @@ const (
 
 // usageError marks a wrong invocation: an unknown command, an unknown flag, or
 // an argument a command does not take.  faramir exits 2 for these and 1 for a
-// command that ran and failed, so that a script can tell them apart.
+// command that ran and failed, so a script can tell them apart.
 type usageError struct{ err error }
 
 func (e usageError) Error() string { return e.err.Error() }
@@ -31,14 +31,14 @@ func (e usageError) Unwrap() error { return e.err }
 func usagef(format string, a ...any) error { return usageError{fmt.Errorf(format, a...)} }
 
 // exitCodeError carries a status a command has already explained on its own
-// stderr: a brokered command's own exit status, or the 127 that says a program
+// stderr: a brokered command's exit status, or the 127 that says a program
 // could not be started.  Its message is never printed.
 type exitCodeError struct{ code int }
 
 func (e *exitCodeError) Error() string { return fmt.Sprintf("exit status %d", e.code) }
 
-// codeErr turns a subcommand's status into the error a RunE returns.  nil for
-// success, so the common path stays an ordinary return.
+// codeErr turns a subcommand's status into the error a RunE returns; nil for
+// success.
 func codeErr(code int) error {
 	if code == 0 {
 		return nil
@@ -69,12 +69,12 @@ func runCommand(c *cobra.Command, args []string) int {
 	return exitCode(c.Execute())
 }
 
-// newRootCmd assembles every subcommand.  The groups are what the help is
-// organised by, and cli.Operator and cli.Internal name the same set for the
-// guard; TestEverySubcommandIsNamedForTheGuard holds the two together.
+// newRootCmd assembles every subcommand.  The groups organise the help, and
+// cli.Operator and cli.Internal name the same set for the guard; a test holds
+// the two together.
 func newRootCmd() *cobra.Command {
-	// The listing follows the order the commands are added, which groups them
-	// by what they are for: run first, because it is what faramir is for.
+	// The listing follows the order the commands are added: run first, because it
+	// is what faramir is for.
 	cobra.EnableCommandSorting = false
 
 	root := &cobra.Command{
@@ -91,26 +91,22 @@ func newRootCmd() *cobra.Command {
 		// A wrong invocation is cobra's to print, and is refused before
 		// PersistentPreRunE runs; what comes after it is silenced there.
 		SilenceErrors: false,
-		// Naming a command is how anything happens, and --help is how help is
-		// asked for, so a bare `faramir` is a wrong invocation rather than a
-		// request for the help it used to print.
+		// Naming a command is how anything happens and --help is how help is asked
+		// for, so a bare `faramir` is a wrong invocation.
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) > 0 {
 				return usagef("unknown command %q for %q", args[0], c.CommandPath())
 			}
 			return usagef("%s requires a command", c.CommandPath())
 		},
-		// Never reached, since the arguments never validate, but a command cobra
-		// does not consider runnable has its arguments ignored altogether.
+		// Never reached, the arguments never validating, but a command cobra does
+		// not consider runnable has its arguments ignored altogether.
 		RunE: func(c *cobra.Command, args []string) error { return nil },
-		// Runs once the arguments have been accepted and before any command does
-		// its work, which is where a failure stops being a wrong invocation worth
-		// printing usage for, and stops being an error worth printing at all.
-		// Every RunE past this point returns exitCodeError, which carries a status
-		// the command has already explained on its own stderr; cobra printing it
-		// again adds "Error: exit status N" to what the caller is reading, and a
-		// brokered command that merely exited non-zero is not an error of
-		// faramir's to report.
+		// Runs once the arguments have been accepted, which is where a failure
+		// stops being a wrong invocation worth printing usage for.  Every RunE past
+		// this point returns exitCodeError, which the command has already explained
+		// on its own stderr; cobra printing it again would add "Error: exit status
+		// N" to what the caller is reading.
 		PersistentPreRunE: func(c *cobra.Command, args []string) error {
 			c.SilenceUsage = true
 			c.SilenceErrors = true
@@ -130,8 +126,8 @@ func newRootCmd() *cobra.Command {
 		newRedactCmd(),
 		newRefsCmd(),
 		newCallCmd("status", "show broker status"),
-		// `faramir version` as well as --version, because it was a subcommand
-		// before cobra and is written down as one.
+		// `faramir version` as well as --version, the subcommand being what the
+		// docs name.
 		&cobra.Command{
 			Use:     "version",
 			Short:   "print the version and exit",
@@ -169,8 +165,7 @@ func newRootCmd() *cobra.Command {
 	)
 
 	// Registered here so that cobra does not add it with a "-v" shorthand of its
-	// own.  -v is --vault in mrs, and a letter that means two things across the
-	// tools is a trap for the person typing, not for the parser.
+	// own.
 	root.Flags().Bool("version", false, "version for faramir")
 	// help and completion are cobra's, and land under "Additional Commands"
 	// unless they are told which group they belong to.
@@ -178,14 +173,13 @@ func newRootCmd() *cobra.Command {
 	root.SetCompletionCommandGroupID(groupOperator)
 	// A flag cobra could not parse is a wrong invocation, and exits 2 like one.
 	root.SetFlagErrorFunc(func(c *cobra.Command, err error) error { return usageError{err} })
-	// The generated completion command is not one of the three groups, and
-	// still works when it is not listed.
+	// The generated completion command is in none of the three groups, and still
+	// works unlisted.
 	root.CompletionOptions.HiddenDefaultCmd = true
-	// Out is deliberately left unset.  cobra writes a usage block through
-	// OutOrStderr, so pointing Out at stdout would send the usage that follows
-	// a wrong invocation there, where a caller reading the command's output
-	// would receive it.  Unset, help still reaches stdout, which cobra writes
-	// through OutOrStdout.
+	// Out is deliberately unset: cobra writes a usage block through OutOrStderr,
+	// so pointing Out at stdout would send the usage that follows a wrong
+	// invocation to a caller reading the command's output.  Help still reaches
+	// stdout, which cobra writes through OutOrStdout.
 	return root
 }
 

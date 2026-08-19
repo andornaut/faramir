@@ -1,9 +1,7 @@
 // Package executor owns the PTY and streams the child's output through the
-// redactor.
-//
-// A PTY rather than a pipe, for two reasons: programs format differently when
-// stdout is a terminal, and a process can write straight to /dev/tty, which ssh
-// and sudo do for password prompts.  The cost is that stdout and stderr arrive
+// redactor.  A PTY rather than a pipe: programs format differently when stdout
+// is a terminal, and a process can write straight to /dev/tty, which ssh and
+// sudo do for password prompts.  The cost is that stdout and stderr arrive
 // merged.
 //
 // The fork happens in faramir-exec, but the PTY does not move with it: the
@@ -28,7 +26,8 @@ import (
 
 const readSize = 65536
 
-// How long past the executor's own kill deadline we wait before giving up.
+// How long past the executor's own kill deadline this waits before giving
+// up.
 const backstopMarginSec = 10
 
 type Result struct {
@@ -53,7 +52,7 @@ type Request struct {
 
 // Run executes a request through the executor, returning redacted merged
 // output.  auditSink receives the same text before the response's truncation,
-// so the log can hold more of a long run without holding anything else.
+// so the log can hold more of a long run.
 func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	redactor *redact.Redactor, auditSink func(string), req Request) (*Result, error) {
 
@@ -64,16 +63,16 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 		return nil, err
 	}
 	// The master must outlive the exit status: closing it SIGHUPs the child's
-	// process group, and EIO only says the slave was closed, which a child does
-	// on the way out.  Closing early replaces its exit code with 128+SIGHUP.
+	// process group, and EIO only says the slave was closed, which a child does on
+	// the way out.
 	defer func() { _ = master.Close() }()
 	ptyutil.SetWinsize(master.Fd(), config.TermRows, config.TermCols)
 	started := time.Now()
 
 	client := execserver.NewClient(executorCfg.SocketPath)
 	startErr := client.Start(argv, cwd, env, timeoutSec, config.KillGraceSec, slave.Fd())
-	// The executor holds its own copy; ours must go or the master never reaches
-	// EOF.
+	// The executor holds its own copy; this one must go or the master never
+	// reaches EOF.
 	_ = slave.Close()
 	if startErr != nil {
 		return nil, startErr
@@ -87,8 +86,8 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	// backstop for it not coming back at all.
 	deadline := started.Add(time.Duration(timeoutSec+config.KillGraceSec+backstopMarginSec) * time.Second)
 
-	// Every path producing output goes through here, so the log and the
-	// response cannot drift apart.
+	// Every path producing output goes through here, so the log and the response
+	// cannot drift apart.
 	emit := func(safe string) {
 		if safe == "" {
 			return
@@ -136,8 +135,8 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	}
 
 	if len(carry) > 0 {
-		// Feed releases what the overlap buffer no longer needs; dropping it
-		// would drop that much output.
+		// Feed releases what the overlap buffer no longer needs; dropping it would
+		// drop that much output.
 		emit(redactor.Feed(string(carry)))
 	}
 	emit(redactor.Flush())

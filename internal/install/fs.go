@@ -18,7 +18,8 @@ const keep = -1
 
 // fsys is the filesystem side of an install.  Every method reports whether it
 // changed anything, so a configuration manager need not stat the host before
-// and after.  With dryRun set each computes the same answer and writes nothing.
+// and after.  With dryRun set each computes the same answer and writes
+// nothing.
 type fsys struct{ dryRun bool }
 
 // ensureDir creates a directory if it is absent and asserts its mode and
@@ -27,8 +28,8 @@ type fsys struct{ dryRun bool }
 func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (bool, error) {
 	info, err := os.Stat(path)
 	switch {
-	// A dry run runs unprivileged and cannot answer for a directory it cannot look
-	// inside.  Reported as no change, so the rest still gets produced.
+	// A dry run runs unprivileged and cannot answer for a directory it cannot
+	// look inside.  Reported as no change, so the rest is still produced.
 	case f.dryRun && errors.Is(err, os.ErrPermission):
 		return false, nil
 	case errors.Is(err, os.ErrNotExist):
@@ -36,11 +37,10 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 			return true, nil
 		}
 		// Every directory MkdirAll creates, not just the leaf: an intermediate left
-		// root-owned at 0700 is one its owner cannot traverse.
-		//
-		// The ancestors take the ownership but not the mode, 0755 being traversal and
-		// nothing more: the secrets directory's 2770 applied to its parent would hand
-		// write and rename on the secrets directory to every brokered command.
+		// root-owned at 0700 is one its owner cannot traverse.  The ancestors take
+		// the ownership but not the mode: the secrets directory's 2770 applied to
+		// its parent would hand write and rename on it to every brokered
+		// command.
 		created := missingAncestors(path)
 		if err := os.MkdirAll(path, mode); err != nil {
 			return false, err
@@ -67,10 +67,9 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 	if !own {
 		return false, nil
 	}
-	// Asserted from here down, so the same rule as ensureOwnership applies: the
-	// mode and owner set below are what take this directory back from the account
-	// the agent runs as, and through a link they would land on its target while
-	// the link kept its own ownership.  os.Stat above followed it; this does not.
+	// The same rule as ensureOwnership: the mode and owner set below are what take
+	// this directory back from the account the agent runs as, and through a link
+	// they would land on its target.  os.Stat above followed it; this does not.
 	link, err := os.Lstat(path)
 	if err != nil {
 		return false, err
@@ -95,16 +94,11 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 // ensureDirsIn creates every missing directory between root and path, each with
 // mode and owner, and leaves the ones already there alone.
 //
-// Pinned to root rather than walked by path, unlike ensureDir.  A directory
-// already there is left as it is, and where that directory is a symlink the
-// next level lands on the far side of it: this runs as root in a tree the
-// account the agent runs as can write, so what it would create is a directory
-// outside the tree, handed to the client group.  A root refuses to traverse a
-// symlink at all, whether or not it escapes, which is what closes that.
-//
-// The symlink case below changes no outcome, then: it is what says which
-// component is a link and what to do about it, the pin answering "path escapes
-// from parent" and a bare Lstat "exists and is not a directory".
+// Pinned to root rather than walked by path, unlike ensureDir: this runs as
+// root in a tree the account the agent runs as can write, so a symlinked
+// component would put a new directory outside the tree and hand it to the
+// client group.  An os.Root refuses to traverse a symlink at all, and the case
+// below is what says which component is a link.
 //
 // A dry run answers the same question and writes nothing, which is what lets
 // preflight ask it before the share that cannot be undone.
@@ -137,8 +131,8 @@ func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) er
 				"would land wherever it points rather than in %s: replace it with a "+
 				"real directory", here, root)
 		case err == nil && info.IsDir():
-			// The project's own, and not this command's to re-own: the share is
-			// what settles the mode of a directory that was already there.
+			// The project's own, and not this command's to re-own: the share settles
+			// the mode of a directory that was already there.
 			continue
 		case err == nil:
 			return fmt.Errorf("%s exists and is not a directory", here)
@@ -146,7 +140,8 @@ func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) er
 			return err
 		}
 		if f.dryRun {
-			// Nothing below it can be there either, so there is nothing left to ask.
+			// Nothing below it can be there either, so there is nothing left to
+			// ask.
 			return nil
 		}
 		if err := handle.Mkdir(at, mode.Perm()); err != nil {
@@ -166,11 +161,10 @@ func (f fsys) ensureDirsIn(root, path string, mode os.FileMode, uid, gid int) er
 }
 
 // ensureOwnership fixes an existing file's owner, group and mode without
-// touching its contents, for a file only its owner can read.
-//
-// Lstat to decide and a descriptor to repair, never a path-based chmod: the
-// directories this walks are writable by the account the assertion exists to
-// constrain, so a symlink planted there would take root's chmod to its target.
+// touching its contents.  Lstat to decide and a descriptor to repair, never a
+// path-based chmod: the directories this walks are writable by the account the
+// assertion exists to constrain, so a symlink planted there would take root's
+// chmod to its target.
 func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -178,8 +172,7 @@ func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
 		// Refused rather than skipped: the mode and owner asserted here are what
-		// keeps the file out of the agent's reach, and a link left in place is one
-		// whose target the agent may own.  Replace it with a regular file.
+		// keep the file out of the agent's reach.
 		return false, fmt.Errorf("%s is a symlink, and its mode and owner would be "+
 			"applied to whatever it points at: replace it with a regular file", path)
 	}
@@ -198,9 +191,8 @@ func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool
 
 // ensurePrivateFile creates an empty 0600 file if it is absent and asserts its
 // mode and ownership either way, for a file whose owner would otherwise be
-// whichever uid happens to write to it first.  0600 rather than a parameter:
-// the one thing this creates is the audit log, and a mode that let another
-// account read it would undo what the separate uid is for.
+// whichever uid writes to it first.  0600 rather than a parameter: the one
+// thing this creates is the audit log.
 func (f fsys) ensurePrivateFile(path string, uid, gid int) (bool, error) {
 	const mode = os.FileMode(0o600)
 	switch _, err := os.Lstat(path); {
@@ -225,8 +217,8 @@ func (f fsys) ensurePrivateFile(path string, uid, gid int) (bool, error) {
 	return f.ensureOwnership(path, mode, uid, gid)
 }
 
-// chmodAndChown repairs one file through a descriptor opened O_NOFOLLOW, so
-// the file checked and the file changed are the same file even if the path is
+// chmodAndChown repairs one file through a descriptor opened O_NOFOLLOW, so the
+// file checked and the file changed are the same file even if the path is
 // re-pointed in between.  O_NONBLOCK so a fifo does not wait for a writer.
 func chmodAndChown(path string, mode os.FileMode, uid, gid int) error {
 	handle, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
@@ -244,11 +236,9 @@ func chmodAndChown(path string, mode os.FileMode, uid, gid int) error {
 }
 
 // errNotOperators is a file faramir edits rather than owns whose owner is not
-// the account it is being edited for, or a link that lands on one.
-//
-// The message carries what to do, because this surfaces in two places: through
-// sectionProblem for a credentials section, and wrapped with its path for an
-// agent's settings.  Naming no command, the two having different ones.
+// the account it is being edited for, or a link that lands on one.  The message
+// carries what to do and names no command, surfacing both through
+// sectionProblem and wrapped with its path for an agent's settings.
 var errNotOperators = errors.New("this is a file faramir edits rather than owns, " +
 	"and it is not the operator's, so nothing was written: editing it would be root " +
 	"writing a file it was never asked to, and chowning it to make that true would " +
@@ -259,12 +249,10 @@ var errNotOperators = errors.New("this is a file faramir edits rather than owns,
 // edited is where a file faramir edits rather than owns is to be written.
 //
 // A link that was followed leaves root open on the target's directory and name
-// set to the file inside it, and everything after that goes through that
-// descriptor.  The point is that the resolution happens once: a path checked
-// and then written by path is resolved twice, and between the two the account
-// the agent runs as can replace a directory it owns with a link, which would
-// have root renaming a file into somewhere of its choosing.  Pinned to the
-// descriptor, a swap afterwards reaches nothing.
+// set to the file inside it, and everything after goes through that descriptor,
+// so the resolution happens once: a path checked and then written by path is
+// resolved twice, and in between the account the agent runs as can replace a
+// directory it owns with a link.
 //
 // The temp-and-rename is kept, so a write that fails partway leaves the file it
 // found rather than half of a new one.
@@ -306,34 +294,30 @@ func (e *edited) read() ([]byte, error) {
 // agent's settings, the credentials section.  The caller closes it.
 //
 // These commands run as root on paths inside directories the account the agent
-// runs as can write, which is what makes each check here worth its cost:
+// runs as can write, which is what each check here is for:
 //
 //   - A link is followed, so a dotfiles manager's file is updated in place
 //     rather than replaced by a regular file.  Only to a regular file the
-//     operator owns: a link re-pointed anywhere else would have root writing,
-//     or a merge reading, a file it was never asked to.  within bounds where it
-//     may land, naming the enrolled tree where there is one and empty in a home.
+//     operator owns; within bounds where it may land, naming the enrolled tree
+//     where there is one and empty in a home.
 //   - An existing file must be the operator's.  Root would otherwise edit
-//     somebody else's file, and chowning it away from them to make that true is
-//     the more surprising of the two.
+//     somebody else's file, and chowning it away from them is worse.
 //   - Nothing there is no error: the caller creates it, and creation is where
 //     ownership is faramir's to set.
 //
 // uid == keep asks nothing, for a caller with no operator in hand.
 //
-// A nil info means there is nothing there.  Otherwise it is the file's, and the
-// caller keeps its mode and its ownership from it rather than passing keep: a
-// write renames a new file over the path, so the replacement takes the writing
-// process's own ids, which are root's.  keep would leave a root-owned file
-// where the operator's was, which is the opposite of leaving it alone.
+// A nil info means there is nothing there.  Otherwise the caller takes the
+// mode and ownership from it rather than passing keep: a write renames a new
+// file over the path, so the replacement would otherwise be root's.
 func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
 	link, err := os.Lstat(path)
 	exists := true
 	switch {
 	case errors.Is(err, os.ErrNotExist):
 		exists = false
-	// A dry run is the one form that does not need root, so a path it cannot
-	// look at is left to the write, which writes nothing either way.
+	// A dry run is the one form that does not need root, so a path it cannot look
+	// at is left to the write, which writes nothing either way.
 	case f.dryRun && errors.Is(err, os.ErrPermission):
 		return &edited{path: path}, nil
 	case err != nil:
@@ -345,8 +329,8 @@ func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
 		switch {
 		case f.dryRun && errors.Is(err, os.ErrPermission):
 			return &edited{path: path}, nil
-		// A dangling link names a path that is not there, and creating it would
-		// put a root-made file wherever the link happens to aim.
+		// A dangling link names a path that is not there, and creating it would put
+		// a root-made file wherever the link aims.
 		case errors.Is(err, os.ErrNotExist):
 			return nil, errNotOperators
 		case err != nil:
@@ -355,17 +339,14 @@ func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
 		target = resolved
 	}
 	// The directory, resolved, and the bound applied to it rather than to the
-	// file.  Lstat declines to follow only the last component, so a symlinked
-	// directory carries the write wherever it points before the leaf is ever
-	// looked at, and asking the question of the leaf alone answers about the
-	// wrong path.  Creation goes through here too: a file this run makes lands
-	// in that directory as surely as one it edits.
+	// file: Lstat declines to follow only the last component, so a symlinked
+	// directory carries the write wherever it points.  Creation goes through here
+	// too.
 	dir, err := filepath.EvalSymlinks(filepath.Dir(target))
 	switch {
-	// Nothing there yet.  The write creates the file and its caller the
-	// directory, both inside the tree, so there is nothing here that could be
-	// somebody else's.  It is also what a precondition sees, asking this of a
-	// home before anything has been written to it.
+	// Nothing there yet: the write creates the file and its caller the directory,
+	// both inside the tree.  It is also what a precondition sees, asking this of
+	// a home before anything has been written to it.
 	case errors.Is(err, os.ErrNotExist):
 		return &edited{path: path}, nil
 	case f.dryRun && errors.Is(err, os.ErrPermission):
@@ -386,8 +367,8 @@ func (f fsys) editedFile(path string, uid int, within string) (*edited, error) {
 	name := filepath.Base(target)
 	out := &edited{path: filepath.Join(dir, name), root: root, name: name}
 	if !exists {
-		// Nothing to check and nothing to keep: the caller creates it, and
-		// creation is where ownership is faramir's to set.
+		// Nothing to check and nothing to keep: the caller creates it, and creation
+		// is where ownership is faramir's to set.
 		return out, nil
 	}
 	info, err := out.stat()
@@ -494,20 +475,18 @@ func ownerOf(info os.FileInfo) (int, int) {
 	return int(st.Uid), int(st.Gid)
 }
 
-// writeFile writes data when the file is absent or differs.  Compared by
-// content, so an unchanged re-run reports nothing.
+// writeFile writes data when the file is absent or differs, compared by content
+// so an unchanged re-run reports nothing.
 //
 // Through a descriptor opened on the parent, so the directory is resolved once
-// and the temp and the rename below cannot land in two different places: some
-// of what this writes sits in the agent account's home, in an enrolled tree, or in
-// the executor's own, and those are directories an account other than root can
-// replace while a run is in progress.
+// and the temp and the rename cannot land in two different places: some of what
+// this writes sits in the agent account's home or in an enrolled tree, which an
+// account other than root can replace while a run is in progress.
 func (f fsys) writeFile(path string, data []byte, mode os.FileMode, uid, gid int) (bool, error) {
 	root, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
-		// A dry run creates no directories, so the parent of a file it would
-		// create is not there to open.  Reported as it always was: this would
-		// write something.
+		// A dry run creates no directories, so the parent of a file it would create
+		// is not there to open.  Reported as a write.
 		if f.dryRun {
 			return true, nil
 		}
@@ -549,7 +528,7 @@ func exists(path string) bool {
 }
 
 // probe is exists with a third answer: known is false when the question needs
-// more privilege than the caller has, which only happens under a dry run. "not
+// more privilege than the caller has, which only happens under a dry run.  "not
 // there" for a key behind a 0700 directory would read as a key about to be
 // regenerated.
 func probe(path string) (present, known bool) {
@@ -600,9 +579,8 @@ func lookupUser(name string) (int, error) {
 }
 
 // lookPathOr resolves a program on PATH, falling back to a conventional path so
-// a host that has it somewhere unusual still gets an absolute path, and one
-// that lacks it gets a config naming where it should be.  The broker refuses to
-// start when the binary is not there, which is where that is reported.
+// a host that lacks it gets a config naming where it should be.  The broker
+// refuses to start when the binary is not there.
 func lookPathOr(program, fallback string) string {
 	if path, err := exec.LookPath(program); err == nil {
 		return path

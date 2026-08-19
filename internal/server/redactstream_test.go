@@ -59,7 +59,7 @@ func chunk(t *testing.T, conn net.Conn, lines *sockutil.LineReader, text string,
 	return response.Output
 }
 
-// The bug this shape exists for: a value split between two chunks.
+// The case this shape exists for: a value split between two chunks.
 //
 // The client has to break a line longer than one chunk somewhere, and before
 // the broker kept a redactor for the connection that break landed between two

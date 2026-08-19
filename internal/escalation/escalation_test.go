@@ -326,11 +326,9 @@ func TestAnEscalationAndASecondRunNeverCoexist(t *testing.T) {
 }
 
 // The other half: a run is not approved while any other brokered command is
-// registered, because that other command could ride the escalation.  The yes is
-// turned into a no there and then rather than the question being held open --
-// holding it open would make the operator poll the one interval in which the
-// host has to be quiet, and leave a yes standing against a condition that can
-// change under it.
+// registered, that one being able to ride the escalation.  The yes is turned
+// into a no rather than the question being held open, which would make the
+// operator poll the one interval in which the host has to be quiet.
 func TestAnEscalationIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, run())
@@ -590,15 +588,10 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 	}
 }
 
-// No question is put while another command is registered, and none is queued.
-//
-// A queue could only ever hold questions that cannot be answered yes: two
-// questions mean two registered runs, and Answer refuses to approve while any
-// other run is registered, because the second could read the approved run's
-// token and ride it.  A queued question's only outcomes are a refusal and an
-// expiry, so all a queue adds is prompts.  The same argument keeps the *first*
-// of them from being put: a human interrupted for a question that can only be
-// refused is the cost being avoided, whether it is one or a list.
+// No question is put while another command is registered, and none is queued: a
+// queue could only hold questions that cannot be answered yes, Answer refusing
+// to approve while any other run is registered.  The same argument keeps the
+// first of them from being put.
 func TestNoQuestionIsPutWhileAnotherCommandIsRegistered(t *testing.T) {
 	s := started(t, baseConfig())
 	h := watching(t, s, true)

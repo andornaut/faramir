@@ -54,27 +54,25 @@ func Program(argv0, cwd string, execCfg config.CommandConfig) (string, error) {
 
 	if strings.Contains(argv0, "/") {
 		resolved := realpath(join(cwd, argv0))
-		// Existence, not executability: the executor's uid can hold permissions
-		// the broker does not, and it reports its own failure.  Absence is the
-		// same answer from any uid.
+		// Existence, not executability: the executor's uid can hold permissions the
+		// broker does not.  Absence is the same answer from any uid.
 		if !isFile(resolved) {
 			return "", fmt.Errorf("%s: no such program (resolved to %s)", argv0, resolved)
 		}
 		return resolved, nil
 	}
 
-	// A PATH search skips what cannot be executed.  The bit is read as the
-	// broker, not the uid that will run it, so a program executable only by the
+	// A PATH search skips what cannot be executed.  The bit is read as the broker
+	// rather than the uid that will run it, so a program executable only by the
 	// executor reports as not found; an absolute path in cmd[0] is the way past
 	// that.
 	path := execCfg.Env["PATH"]
 	found := ""
 	for dir := range strings.SplitSeq(path, ":") {
 		// An empty or relative component means the working directory to a shell,
-		// and the broker's is not the child's: the file tested here and the file the
-		// executor runs would be two different files.  Skipped rather than resolved
-		// against the request's cwd, a PATH the operator writes being no place to
-		// name a directory the agent chooses.
+		// and the broker's is not the child's.  Skipped rather than resolved against
+		// the request's cwd, a PATH the operator writes being no place to name a
+		// directory the agent chooses.
 		if !filepath.IsAbs(dir) {
 			continue
 		}

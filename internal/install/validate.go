@@ -13,33 +13,31 @@ import (
 type checkReport struct {
 	Secrets struct {
 		Count int `json:"count"`
-		// Patterns is the configured globs, Files what they named on disk.
-		// Entries naming nothing are a host waiting for its secrets; entries naming
-		// files that did not load are a fault.
+		// Patterns is the configured globs, Files what they named on disk.  Entries
+		// naming nothing are a host waiting for its secrets; files that did not
+		// load are a fault.
 		Patterns []string `json:"patterns"`
 		Files    []string `json:"files"`
 		Errors   []string `json:"errors"`
 		// UnresolvedPatterns is the entries that named nothing, which the broker
-		// cannot work out for itself: the secrets directory is the keeper's to list.
+		// cannot work out for itself: the secrets directory is the keeper's to
+		// list.
 		UnresolvedPatterns []string `json:"unresolved_patterns"`
 		// NotRedactable is the refs the store read and the redactor refused, by ref
-		// and reason.  They load and are never injected, so they are a value the
-		// operator has to lengthen rather than anything about the install.
+		// and reason.  They load and are never injected, so each is a value to
+		// lengthen rather than anything about the install.
 		NotRedactable map[string]string `json:"not_redactable"`
 	} `json:"secrets"`
 	// Policy is the socket-policy problems, which --check also exits non-zero
-	// for.  Read here so a caller can tell which of the reasons it is looking at.
+	// for.  Read here so a caller can tell which reason it is looking at.
 	Policy []string `json:"policy"`
 }
 
 // onlyNotRedactable reports whether a non-zero --check is accounted for by refs
-// the redactor refused and nothing else.  --check exits 1 for several states at
-// once, so the exit code alone cannot say which; every other state it fails for
-// is visible in the report, and their absence is what leaves this one.
-//
-// The distinction earns its place because this state is not about the install.
-// The store loaded, the daemons are serving, and one value is too short to
-// cover: nothing an install can do, and the same answer every time it re-runs.
+// the redactor refused and nothing else: --check exits 1 for several states, and
+// every other one is visible in the report.  The distinction earns its place
+// because this state is not about the install: the store loaded, the daemons
+// are serving, and one value is too short to cover.
 func (c checkReport) onlyNotRedactable() bool {
 	return len(c.Secrets.NotRedactable) > 0 &&
 		len(c.Policy) == 0 &&
@@ -60,9 +58,9 @@ func (c checkReport) refusedRefs() string {
 
 // serves reports whether the broker will run exec and redact: at least one
 // managed file was read, and every file it read loaded.  The daemon's own gate,
-// mirrored so a probe that runs a brokered command is skipped only when it would
-// really be refused.  Not a ref count: files that are there and hold nothing
-// still serve.
+// mirrored so a probe that runs a brokered command is skipped only when it
+// would really be refused.  Not a ref count: files that hold nothing still
+// serve.
 func (c checkReport) serves() bool {
 	return len(c.Secrets.Files) > 0 && len(c.Secrets.Errors) == 0
 }

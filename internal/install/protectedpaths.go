@@ -7,21 +7,14 @@ import (
 )
 
 // The paths an agent's file tools are refused, written once here and rendered
-// into each agent's own syntax.
-//
-// A list per agent is a list that drifts, and the drift is silent: a rule that
-// covers nothing looks exactly like a rule that covers everything until
-// somebody tests it, and one character is the difference.
-//
-// So each entry says how it matches rather than what it looks like in any one
-// agent's config, and each agent's spelling is derived.  Adding a path is one
-// line here and no lines anywhere else.
+// into each agent's own syntax.  A list per agent is a list that drifts, and a
+// rule that covers nothing looks exactly like one that covers everything.  So
+// each entry says how it matches, and each agent's spelling is derived.
 //
 // This takes nothing away from the agent: values reach a command through the
-// broker, which is the whole arrangement.  What it refuses is the agent reading
-// or writing the material directly, which is the operator's own -- ~/.ssh and
-// ~/.config/sops are not covered by any uid boundary, the agent running as the
-// operator.
+// broker.  What it refuses is reading or writing the material directly, which
+// is the operator's own -- ~/.ssh and ~/.config/sops are covered by no uid
+// boundary, the agent running as the operator.
 type pathKind int
 
 const (
@@ -49,8 +42,8 @@ type protectedPath struct {
 	why string
 }
 
-// protectedPaths is the list itself.  Ordered by what it protects rather than
-// alphabetically, so a reader can see the groups.
+// protectedPaths is the list itself, ordered by what it protects rather than
+// alphabetically.
 var protectedPaths = []protectedPath{
 	// The managed store, by the names sops files are given.
 	{kindGlobName, "secrets*.yml", "a managed sops file"},
@@ -84,15 +77,13 @@ var protectedPaths = []protectedPath{
 	{kindDir, ".config/faramir/", "faramir's configuration"},
 }
 
-// installDirs are the paths this install occupies, which are known only once it
-// is laid out.  Kept apart from protectedPaths because they are rendered as
-// literal directories rather than as patterns: a config and store moved into a
-// home are then the ones refused rather than the defaults.
-// Defaults are filled in for a Layout that carries only some of them, which is
-// every caller that built one to answer a different question.  Not cosmetic: an
-// empty string here becomes a rule matching "" and then every path under it, so
-// a half-filled Layout would produce a rule that refuses the whole filesystem.
-// That fails closed, which is the safe direction and still a broken agent.
+// installDirs are the paths this install occupies, known only once it is laid
+// out and rendered as literal directories rather than as patterns, so a config
+// and store moved into a home are the ones refused.
+//
+// Defaults are filled in for a Layout that carries only some of them: an empty
+// string would become a rule matching "" and then every path under it, which
+// fails closed and still breaks the agent.
 func installDirs(layout Layout) []string {
 	if layout.ConfigDir == "" {
 		layout.ConfigDir = DefaultConfigDir
@@ -108,14 +99,10 @@ func installDirs(layout Layout) []string {
 	}
 }
 
-// linkedPaths is the files [[secret.link]] entries name, as literal paths.
-// Sorted and deduplicated so that two links into one file, or the order the
-// drop-ins happened to be read in, do not change what is written.
-//
-// An empty entry is dropped rather than rendered: as a Claude rule "" would be a
-// pattern matching nothing, but in the plugin hosts' spelling it is a prefix of
-// every path, and a rule refusing the whole filesystem fails closed and still
-// breaks the agent.
+// linkedPaths is the files [[secret.link]] entries name, as literal paths,
+// sorted and deduplicated so two links into one file do not change what is
+// written.  An empty entry is dropped rather than rendered: in the plugin
+// hosts' spelling it is a prefix of every path.
 func linkedPaths(layout Layout) []string {
 	seen := make(map[string]bool, len(layout.Links))
 	out := make([]string, 0, len(layout.Links))
@@ -132,9 +119,7 @@ func linkedPaths(layout Layout) []string {
 }
 
 // The spellings.  One function per matcher rather than one parameterised over
-// them: the agents differ in what a wildcard crosses, and a knob for that is a
-// knob somebody sets wrong.  Each of these is short enough to read against the
-// agent's own documentation.
+// them: the agents differ in what a wildcard crosses.
 
 // claudePatterns renders the list in Claude Code's glob spelling, where "**/"
 // means "in any directory" and a plain "*" does not cross a separator, so a
@@ -157,9 +142,8 @@ func claudePatterns() []string {
 }
 
 // pluginGlobs renders the list for the two plugin hosts, whose "*" matches any
-// run of characters including separators.  One leading wildcard therefore does
-// the work of both "in any directory" and "any name ending this way", and a
-// second would only widen it.
+// run of characters including separators, so one leading wildcard does the work
+// of both "in any directory" and "any name ending this way".
 func pluginGlobs() []string {
 	out := make([]string, 0, len(protectedPaths)+1)
 	for _, p := range protectedPaths {
@@ -170,11 +154,9 @@ func pluginGlobs() []string {
 			// Both forms: at the root of what is matched, and in a directory.
 			out = append(out, p.value+"*", "*/"+p.value+"*")
 		case kindDir:
-			// Both forms again, and deliberately: whether these hosts' "*" crosses
-			// a separator is undocumented, and the list this replaces was written
-			// both ways, so it is not a thing to have an opinion about.  If it
-			// does cross, the second is redundant; if it does not, the second is
-			// the one that matches.
+			// Both forms again: whether these hosts' "*" crosses a separator is
+			// undocumented.  If it does, the second is redundant; if it does not,
+			// the second is the one that matches.
 			dir := strings.TrimSuffix(p.value, "/")
 			out = append(out, "*"+dir+"/*", "*/"+dir+"/*")
 		}
@@ -183,11 +165,8 @@ func pluginGlobs() []string {
 }
 
 // claudeRules is the deny list Claude Code reads: one Read and one Edit rule
-// per path, plus this install's own directories.
-//
-// Read and Edit take the same list.  A value the agent cannot read is one it can
-// still destroy, and an age key replaced is every managed file unreadable
-// retroactively.
+// per path, plus this install's own directories.  Read and Edit take the same
+// list: a value the agent cannot read is one it can still destroy.
 func claudeRules(layout Layout) []string {
 	var out []string
 	add := func(pattern string) {
@@ -217,8 +196,8 @@ func pluginPatterns(layout Layout) []string {
 }
 
 // jsonLines renders items as the body of a JSON array: each quoted, indented,
-// comma-separated, and no trailing comma.  Here rather than in a template
-// because getting the last comma right in one is a conditional per line.
+// comma-separated, and no trailing comma.  Here rather than in a template,
+// where the last comma is a conditional per line.
 func jsonLines(indent string, items []string) string {
 	var b strings.Builder
 	for i, item := range items {
@@ -247,8 +226,7 @@ func jsonDenyMap(indent string, items []string) string {
 }
 
 // jsFragments renders the list for an agent whose rules are applied by a plugin
-// this installs, as JavaScript regex source.  The same alternation, with the
-// character classes JavaScript reads the same way every other flavour does.
+// this installs, as JavaScript regex source.
 func jsFragments() []string {
 	out := make([]string, 0, len(protectedPaths))
 	for _, p := range protectedPaths {

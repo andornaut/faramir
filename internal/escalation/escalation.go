@@ -38,18 +38,15 @@ const (
 	notifyTimeout = 10 * time.Second
 	// TokenEnv is how a brokered command's descendants name the run they belong
 	// to.  The helper reads it out of /proc rather than being passed it, because
-	// PAM does not carry the child's environment into the module.
-	//
-	// The value is the name of an environment variable, not a credential: what it
-	// names identifies a run, and the op that spends it is refused to anything but
-	// root.  gosec keys G101 off the "TOKEN" in the identifier, hence the exception.
+	// PAM does not carry the child's environment into the module.  It names a
+	// run rather than authorising one; the op that spends it is refused to
+	// anything but root.
 	TokenEnv = "FARAMIR_ESCALATION_TOKEN" //nolint:gosec // G101: an env var name, not a credential
 )
 
-// Run is the brokered command a request is made on behalf of.  It is what the
-// question names, and naming it is what makes the answer worth anything: an
-// approval the human cannot attribute to a command they initiated grants root
-// to whatever asked.
+// Run is the brokered command a request is made on behalf of.  Naming it is
+// what makes the answer worth anything: an approval the human cannot attribute
+// to a command they initiated grants root to whatever asked.
 type Run struct {
 	// Argv is the command the broker started, already redacted: a caller can put
 	// a value in argv even though the broker never does, and this reaches a
@@ -58,16 +55,15 @@ type Run struct {
 	Cwd  string
 	// Argv0Path is what the broker resolved Argv[0] to, and so the program root
 	// will actually run.  A relative Argv[0] resolves against the request's cwd,
-	// which is the agent's working tree, so the two can name different files and
-	// the question has to say which one it is about.
+	// which is the agent's working tree, so the two can name different files.
 	Argv0Path string
 	// LogID is the exec record this belongs to, so the log reads in both
-	// directions: what a command was approved for, and what an approval was spent on.
+	// directions: what a command was approved for, and what an approval was
+	// spent on.
 	LogID string
 	// Caller is the account that asked for the command, which is not the one that
-	// would run it: every brokered command runs as the executor, and what the
-	// question is about is who wanted this one.  More than one account can be in
-	// the client group.
+	// would run it: every brokered command runs as the executor, and more than
+	// one account can be in the client group.
 	Caller string
 
 	// approved is set once a human has said yes to this run, and is what makes
@@ -76,33 +72,23 @@ type Run struct {
 	approved bool
 
 	// refusedCode and refusedReason are the last no this run was given, kept so
-	// the broker can say why the command failed.  Without them a refusal and an
-	// expiry reach the caller alike, as sudo's own authentication failure, and
-	// which one it was decides whether running it again is worth anything.
-	//
-	// The last rather than the first: a run asks once per sudo, and what its
-	// caller is owed is why the one it just made was turned down.
+	// the broker can say why the command failed: a refusal and an expiry both
+	// reach the caller as sudo's own authentication failure, and which one it was
+	// decides whether running it again is worth anything.
 	refusedCode   string
 	refusedReason string
 
 	// waited is how long this run's questions have held it, and waitingSince is
-	// when the one outstanding began, zero where none is.  The command's own
-	// duration is wall time from fork to exit, so an escalation answered slowly is
-	// inside it: without this the log reads as though the command were slow, when
-	// what was slow was somebody reaching a terminal.
-	//
-	// The question's lifetime rather than each sudo's own wait, which is both
-	// less and more than the truth: a sudo that joins the question another
-	// raised would count the same seconds twice, and a run killed by its own
-	// deadline while the question was open would count none of them, that sudo
-	// never returning to report what it had spent.
+	// when the one outstanding began, zero where none is.  Duration is wall time
+	// from fork to exit, so without this a slowly answered question reads as a
+	// slow command.  The question's lifetime rather than each sudo's own wait,
+	// which would double-count a sudo that joined a question another raised.
 	waited       time.Duration
 	waitingSince time.Time
 }
 
 // resolvedProgram is what argv[0] resolved to when that is not what argv[0]
-// says, and "" when the two agree.  One rule, applied here, so no caller has to
-// re-derive it from rendered text.
+// says, and "" when the two agree.
 func (r Run) resolvedProgram() string {
 	if len(r.Argv) == 0 || r.Argv0Path == "" || r.Argv0Path == r.Argv[0] {
 		return ""
@@ -111,19 +97,16 @@ func (r Run) resolvedProgram() string {
 }
 
 // maxCommandChars bounds what a question spends on the command.  Argv is the
-// caller's and can be as long as it likes; a question whose real content has
-// scrolled off the top of a terminal is one nobody read.  The audit record keeps
-// the whole of it.
+// caller's and can be as long as it likes; a question whose content has
+// scrolled off the top of a terminal is one nobody read.  The audit record
+// keeps the whole of it.
 const maxCommandChars = 240
 
-// Command is the run as one line, rendered for a terminal.
-//
-// Every string in it is the caller's, and this reaches the operator's terminal
-// through `faramir escalations`, the refusal messages and [escalation] notify_command.
-// Left raw, a run could return the cursor with a "\r" and overwrite the question
-// it is being judged on, which would defeat the only thing that makes an
-// escalation worth anything, that the prompt names the command.  termsafe says
-// what survives redaction and why.
+// Command is the run as one line, rendered for a terminal.  Every string in it
+// is the caller's and reaches the operator through `faramir escalations`, the
+// refusal messages and [escalation] notify_command, so left raw a run could
+// return the cursor with a "\r" and overwrite the question it is judged on.
+// termsafe says what survives that rendering.
 func (r Run) Command() string {
 	parts := make([]string, 0, len(r.Argv))
 	for _, arg := range r.Argv {
@@ -138,8 +121,7 @@ func safeField(value string) string { return termsafe.Field(value, maxCommandCha
 
 // safeComposed is for a field the broker wrote rather than took from a caller:
 // escaped and bounded like the rest, and not quoted.  safeField quotes anything
-// holding a space, which is right for an argument somebody chose and noise
-// around the broker's own words.
+// holding a space, which is noise around the broker's own words.
 func safeComposed(value string) string {
 	if value == "" {
 		return ""
@@ -163,51 +145,32 @@ type Server struct {
 	Record func(map[string]any)
 
 	// Quiescent asks the kernel what this server only believes: is any process of
-	// the executor's uid alive outside the runs this server knows about?
+	// the executor's uid alive outside the runs it knows about?
+	// /proc/<pid>/environ is readable within a uid, so such a process can read an
+	// approved run's token and sudo on it, and the map below can part from the
+	// process table -- a teardown that does not finish, a run aborted from the
+	// broker's side, this process restarting.
 	//
-	// Everything else here is bookkeeping, and bookkeeping is what an escalation
-	// must not rest on alone.  /proc/<pid>/environ is readable within a uid, so
-	// any live executor-uid process during an approved window can read the
-	// approved run's token, exec with it set and sudo on it, which means the
-	// map below has to agree with the process table, and three things can part
-	// them: a cgroup teardown that does not finish (the drain is bounded and
-	// reports by logging), a run aborted from the broker's side, whose teardown
-	// the broker does not wait for, and this process restarting, which forgets
-	// every run while the executor is still killing one.
-	//
-	// Set by the broker to a call on the executor, which is the only account that
-	// can see those processes at all: the broker's own unit sets
-	// ProtectProc=invisible, so another uid's /proc is not there to read.
-	//
-	// Nil refuses every escalation, so a Server built without one grants no root
-	// rather than granting it on bookkeeping alone.  Everything else in this path
-	// fails closed, and an unwired check is the one way it could have failed open,
-	// which is not a property to leave to whoever writes the next constructor.
+	// Set by the broker to a call on the executor, the only account that can see
+	// those processes.  Nil refuses every escalation.
 	Quiescent func() (quiet bool, detail string)
 
 	mu sync.Mutex
 	// runs is what is in flight, keyed by the token in each child's environment.
 	runs map[string]Run
 	// waiting is the question a human has not answered yet, or nil.  One, never a
-	// queue: the second task of a playbook joins the question the first one raised
-	// (one question per command rather than one per sudo), and a second *command*
-	// is refused rather than filed behind it.
-	//
-	// A field rather than a map keyed by token, so "at most one" is what the type
-	// says rather than what a comment claims and pend enforces.  Joining and
-	// dropping both compare against the token this already carries.
+	// queue: the second task of a playbook joins the question the first raised,
+	// and a second command is refused rather than filed behind it.  A field
+	// rather than a map keyed by token, so "at most one" is what the type says.
 	waiting *escalation
 	// changed is closed and replaced whenever waiting does, so `faramir escalations
 	// --watch` can block on the next change rather than poll for it.
 	changed chan struct{}
 	// finished is how the last approved run ended, for the terminal that approved
 	// it.  One, for the same reason waiting is one: an approved run holds every
-	// other brokered command until it ends, so two can never be in flight.
-	//
-	// Never emptied when it is read.  A caller names the run it is waiting on and
-	// is told about that one only, so leaving this filled costs nothing: two
-	// watchers both see the ending, neither consumes the other's, and a watcher
-	// that approved nothing is told nothing.
+	// other brokered command until it ends.  Never emptied when it is read, so
+	// two watchers both see the ending and neither consumes the other's; a caller
+	// names the run it is waiting on and is told about that one only.
 	finished *Outcome
 	stopped  bool
 }
@@ -216,24 +179,22 @@ type Server struct {
 // long poll the question arrived on, so the terminal that gave root away says
 // what became of it without reading the audit log.
 type Outcome struct {
-	// LogID is the exec record, and what a caller matches against: it is the id
-	// the question carried, so the line prints under the question it belongs to.
+	// LogID is the exec record, and what a caller matches against: the question
+	// carried the same id, so the line prints under the question it belongs to.
 	LogID string `json:"log_id"`
 	// ExitCode is nil when the broker never got a status for the run, which is
-	// what Error then says.  A pointer rather than an int, because a zero here
-	// reads as a clean exit: a run that reported nothing must not be published as
-	// one that succeeded.
+	// what Error then says.  A pointer rather than an int: a zero would read as a
+	// clean exit.
 	ExitCode    *int    `json:"exit_code"`
 	DurationSec float64 `json:"duration_sec"`
 	// WaitedSec is how much of DurationSec the command spent blocked on its own
 	// escalation.  Reported beside it rather than subtracted from it: the exec
-	// timeout is enforced against the same wall clock the duration measures, and
-	// a duration that no longer matched it would be a second, quieter number.
+	// timeout is enforced against the same wall clock the duration measures.
 	WaitedSec float64 `json:"waited_sec,omitempty"`
 	TimedOut  bool    `json:"timed_out"`
-	// Error is the broker's own failure, and is already through the redaction the
-	// audit record gets: this is printed to a terminal by the same route the
-	// question was.
+	// Error is the broker's own failure, already through the redaction the audit
+	// record gets: this is printed to a terminal by the same route the question
+	// was.
 	Error string `json:"error"`
 }
 
@@ -254,15 +215,11 @@ type escalation struct {
 	reason   string
 }
 
-// How a question ended, as one word rather than the sentence beside it.  A
-// refusal a human typed and a question nobody answered are not the same event
-// and are not acted on alike: one was judged, the other means nothing was
-// watching. Told apart only by their prose, they are told apart by whoever reads
-// English, which is neither the log reader nor anything selecting on a field.
-//
-// The `outcome` beside this stays the sentence: it names the account that
-// answered, the process that was in the way, or the command that held the host,
-// none of which fits in a code.
+// How a question ended, as one word rather than the sentence beside it: a
+// refusal a human typed and a question nobody answered are not the same event,
+// and nothing selecting on a field can tell them apart by their prose.  The
+// `outcome` beside this stays the sentence, naming the account that answered or
+// the command that held the host.
 const (
 	CodeApproved      = "approved"
 	CodeDenied        = "denied"
@@ -290,10 +247,8 @@ func New(cfg config.EscalationConfig) *Server {
 func (s *Server) Enabled() bool { return s.config.ExecUser != "" }
 
 // Env is what to add to a child's environment: a token, and nothing else.
-//
-// Inert in the child's hands.  Spending it means the `escalate` op, which the
-// broker refuses to anything but root, so the token identifies a run rather
-// than authorising one.
+// Inert in the child's hands, spending it meaning the `escalate` op, which the
+// broker refuses to anything but root.
 func (s *Server) Env(token string) map[string]string {
 	if !s.Enabled() || token == "" {
 		return map[string]string{}
@@ -304,24 +259,14 @@ func (s *Server) Env(token string) map[string]string {
 // Register records the command a token stands for and returns the token.  Empty
 // where nothing is granted, which Env reads as nothing to inject.
 //
-// held is the serialization, and the reason an escalation is safe on a host that
-// runs other agent work.  While one command holds an escalation, no
-// other brokered command may start: they share the executor's uid, so a second
-// process could read the first's token out of /proc and ride the escalation it was
-// never shown for.  A held command must not run: the broker turns it into a
-// terminal `escalation_in_progress`, which nothing retries.  This is one half of a
-// symmetry: registering a run also blocks a *new* escalation (Answer requires sole
-// occupancy), so a live escalation and any other registered run never coexist.
-//
-// A question merely *pending* holds a new command too, and that is not the same
-// rule twice.  Answer refuses to approve while any other run is registered, so
-// a caller free to keep starting commands is a caller who decides whether the
-// host is ever quiet enough for a yes to take: the operator answers, is refused
-// for want of quiescence, and answers again.  Holding from the moment the
-// question is put makes the host drain toward the answer instead of away from
-// it.  The cost is that one unanswered question stalls unrelated brokered work
-// for up to [escalation] timeout_sec, which is the same cost an approved run already
-// imposes for its whole length.
+// heldBy is the serialisation: while one command holds an escalation no other
+// brokered command may start, the two sharing the executor's uid, so the second
+// could read the first's token out of /proc and ride the escalation.
+// Registering a run also blocks a new escalation, Answer requiring sole
+// occupancy.  A merely pending question holds a new command too, or a caller
+// free to keep starting commands decides whether the host is ever quiet enough
+// for a yes to take; the cost is that one unanswered question stalls unrelated
+// work for up to [escalation] timeout_sec.
 func (s *Server) Register(run Run) (token, heldBy string) {
 	if !s.Enabled() {
 		return "", ""
@@ -339,10 +284,9 @@ func (s *Server) Register(run Run) (token, heldBy string) {
 	if s.stopped {
 		return "", ""
 	}
-	// The reason, not a bool: it names the command holding the host, and an
-	// `escalation_in_progress` is terminal, so this message is all the caller gets.
-	// The sudo-side refusal in pend names it too, and the two enforcement points
-	// should answer alike.
+	// The reason, not a bool: `escalation_in_progress` is terminal, so this
+	// message is all the caller gets.  The sudo-side refusal in pend names the
+	// holding command too.
 	if why := s.holdLocked(); why != "" {
 		log.Printf("escalation: holding a new command: %s", why)
 		return "", why
@@ -379,10 +323,9 @@ func (s *Server) waitingForLocked(token string) *escalation {
 	return nil
 }
 
-// escalationLiveLocked names the command whose escalation currently holds the host,
-// or "".  At most one is ever live: approving requires sole occupancy and a live
-// escalation holds every new run, so a second can never be approved while the
-// first still runs.
+// escalationLiveLocked names the command whose escalation currently holds the
+// host, or "".  At most one is ever live: approving requires sole occupancy and
+// a live escalation holds every new run.
 func (s *Server) escalationLiveLocked() string {
 	for _, run := range s.runs {
 		if run.approved {
@@ -393,8 +336,8 @@ func (s *Server) escalationLiveLocked() string {
 }
 
 // otherRunLocked names a registered run whose token is not the given one, or
-// "".  That is precisely what an escalation would let ride: a second process on
-// the executor's uid, in flight while root is handed out.
+// "": a second process on the executor's uid, in flight while root is handed
+// out, is what could ride the escalation.
 func (s *Server) otherRunLocked(token string) string {
 	for t, run := range s.runs {
 		if t != token {
@@ -404,17 +347,13 @@ func (s *Server) otherRunLocked(token string) string {
 	return ""
 }
 
-// Release drops a token when its command ends, so a request that arrives after
-// is refused rather than answered against a command that is over.  This is what
-// makes an approval die with the run it was given for.
+// Release drops a token when its command ends, which is what makes an approval
+// die with the run it was given for.  The command's unanswered question goes
+// with it: one left filed would take a yes for a command that is no longer
+// running, and would hold the one question slot until it timed out.
 //
-// The command's unanswered question goes with it.  One left filed would be shown
-// by `faramir escalations` and would take a yes for a command that is no longer
-// running, which is an escalation a human cannot judge, and it would hold the one
-// question slot until it timed out.
-// outcome is published only for a run somebody approved.  A run nobody was
-// asked about is one no terminal is waiting to hear the end of, and a line under
-// a question that was never put is a line nobody can place.
+// outcome is published only for a run somebody approved; no terminal is waiting
+// to hear the end of one nobody was asked about.
 func (s *Server) Release(token string, outcome Outcome) {
 	if token == "" {
 		return
@@ -436,12 +375,11 @@ func (s *Server) Release(token string, outcome Outcome) {
 	}
 }
 
-// Ask is the whole of what a sudo asks for: may this command become root?
-//
-// It blocks until a human answers, the question expires, or the broker stops.
-// The caller is the PAM helper's request, which the broker has already checked
-// came from root; sudo is blocked on it, which is what makes the wait a
-// password prompt from sudo's point of view.
+// Ask is the whole of what a sudo asks for: may this command become root?  It
+// blocks until a human answers, the question expires, or the broker stops.  The
+// caller is the PAM helper's request, which the broker has already checked came
+// from root, and sudo is blocked on it, which is what makes the wait a password
+// prompt from sudo's point of view.
 func (s *Server) Ask(token string) (approved bool, code, reason string) {
 	if !s.Enabled() {
 		return false, CodeNoGrant, "this host grants no escalation"
@@ -450,8 +388,7 @@ func (s *Server) Ask(token string) (approved bool, code, reason string) {
 	run, known := s.runs[token]
 	s.mu.Unlock()
 	if !known {
-		// Refused rather than asked about: without the token the broker cannot say
-		// what it would be approving, and an escalation that names no command is
+		// Refused rather than asked about: an escalation that names no command is
 		// one a human cannot judge.  This is what a request from outside a brokered
 		// command, or after one ended, looks like.
 		log.Printf("escalation: refusing a request whose token names no running command")
@@ -480,7 +417,7 @@ func (s *Server) Ask(token string) (approved bool, code, reason string) {
 }
 
 // refuse keeps the no this run was given, for the broker to report when the
-// command ends.  Dropped with the run, so nothing outlives what it is about.
+// command ends.  Dropped with the run.
 func (s *Server) refuse(token, code, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -490,9 +427,9 @@ func (s *Server) refuse(token, code, reason string) {
 	}
 }
 
-// waitingLocked starts the clock on a run whose question has just been filed,
-// unless one is already running: a second sudo joining the same question is the
-// same wait, not another.
+// startWaitingLocked starts the clock on a run whose question has just been
+// filed, unless one is already running: a second sudo joining the same question
+// is the same wait, not another.
 func (s *Server) startWaitingLocked(token string) {
 	if run, known := s.runs[token]; known && run.waitingSince.IsZero() {
 		run.waitingSince = time.Now()
@@ -512,8 +449,8 @@ func (s *Server) stopWaitingLocked(token string) {
 }
 
 // Waited is how long this run has spent held by its questions, including one
-// still open: the broker reads this when the command ends, which for a run its
-// own deadline killed is while the question it is waiting on is outstanding.
+// still open: a run its own deadline killed ends while its question is still
+// outstanding.
 func (s *Server) Waited(token string) time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -538,11 +475,10 @@ func (s *Server) Refusal(token string) (code, reason string) {
 // put the question.
 //
 // One question per brokered command, not per sudo: ansible-playbook calls sudo
-// once per become'd task, and a question asked twenty times is one nobody reads
-// by the tenth.  That is not sudo's timestamp by another name: a timestamp is a
-// stretch of time, and anything starting a command inside it rides an escalation
-// given for something else.  This is scoped to the command the human
-// was shown, dies when the run ends, and cannot be reached by a second run.
+// once per become'd task.  Not sudo's timestamp by another name, which is a
+// stretch of time anything can start a command inside; this is scoped to the
+// command the human was shown, dies when the run ends, and cannot be reached by
+// a second run.
 func (s *Server) ask(token string, run Run) (approved, prompted bool, code, reason string) {
 	pending, raised, refusedCode, refused := s.pend(token, run)
 	if pending == nil {
@@ -561,10 +497,8 @@ func (s *Server) ask(token string, run Run) (approved, prompted bool, code, reas
 }
 
 // pend files the question, or hands back the one this command already raised.
-// The second return is whether this call is the one that raised it; the last two
-// are why no question could be filed, when none was.  The refusals are reported
-// apart: a host already holding a question and a stopping broker send an
-// operator looking in different places.
+// The second return is whether this call is the one that raised it; the last
+// two are why no question could be filed, when none was.
 func (s *Server) pend(token string, run Run) (*escalation, bool, string, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -585,27 +519,11 @@ func (s *Server) pend(token string, run Run) (*escalation, bool, string, string)
 		return nil, false, CodeBrokerStopped,
 			"the broker is stopping, so nothing can be approved now"
 	}
-	// A question is filed only by a command that is the only one registered, and
-	// the rest are refused rather than queued.
-	//
-	// The rule is Answer's, asked one step earlier: Answer refuses to approve
-	// while any other run is registered, because the two share the executor's uid
-	// and the other could read this one's token and ride the escalation.  So a
-	// question filed while another command runs has exactly one outcome, whatever
-	// a human types: a prompt, a yes, and a refusal.  Asking here spends that
-	// attention for nothing, and this design spends it carefully.
-	//
-	// One check, not two.  "Another question is already waiting" is the narrower
-	// case of this one -- the command that filed it is registered, or it could not
-	// have filed it -- and Register admits nothing new while a question waits, so
-	// a second command cannot arrive to ask.
-	//
-	// Requests from the *same* run joined their question above, before this, so
-	// this refuses another command rather than another sudo.
-	//
-	// It makes an escalation no more available than it was.  What clears this is the
-	// other command ending, which nothing new is admitted alongside once a
-	// question waits, so a host with the grant drains toward an answerable state.
+	// A question is filed only by a command that is the only one registered:
+	// Answer would refuse to approve alongside another run anyway, so filing it
+	// would spend a human's attention on a prompt whose only outcome is a
+	// refusal.  Requests from the same run joined their question above, so this
+	// refuses another command rather than another sudo.
 	if other := s.otherRunLocked(token); other != "" {
 		return nil, false, CodeOtherCommand, fmt.Sprintf("%s is also running, and root is handed to a "+
 			"brokered command only when it is the only one: the two share the "+
@@ -628,13 +546,11 @@ func (s *Server) pend(token string, run Run) (*escalation, bool, string, string)
 	return pending, true, "", ""
 }
 
-// finish answers a question once, releasing every request waiting on it.
-//
-// It does not set the run's approved flag: Answer does that under the same lock
-// as its sole-occupancy check, because a gap between the two is a window a second
-// run could start in and ride the escalation.  finish only carries the answer to
-// the sudos blocked on this question.  (expire and Stop reach here too, always
-// with approved=false, which touches no run.)
+// finish answers a question once, releasing every request waiting on it.  It
+// does not set the run's approved flag: Answer does that under the same lock as
+// its sole-occupancy check, a gap between the two being a window a second run
+// could start in and ride the escalation.  expire and Stop reach here too,
+// always with approved=false.
 func (s *Server) finish(pending *escalation, approved bool, code, reason string) {
 	pending.once.Do(func() {
 		s.mu.Lock()
@@ -672,8 +588,8 @@ func (s *Server) wakeLocked() {
 }
 
 // notify announces a pending question, and reads nothing back.  Whatever it
-// runs (wall, a desktop notifier, a push) cannot approve anything: the
-// answer comes over the broker socket from a caller SO_PEERCRED says is root.
+// runs cannot approve anything: the answer comes over the broker socket from a
+// caller SO_PEERCRED says is root.
 func (s *Server) notify(pending *escalation) {
 	if len(s.config.NotifyCommand) == 0 {
 		return
@@ -684,11 +600,9 @@ func (s *Server) notify(pending *escalation) {
 		arg = strings.ReplaceAll(arg, "{prompt}", prompt)
 		argv = append(argv, strings.ReplaceAll(arg, "{id}", pending.id))
 	}
-	// The deadline is the context's, and the kill runs from inside cmd.Wait: a
-	// timeout that signalled from a goroutine of its own could fire after the
-	// process had been reaped, and the kernel reuses a pid once nothing holds it,
-	// so the signal would reach some unrelated process group of the broker's uid.
-	// Wait has not returned while Cancel runs, so the pid is still this notifier's.
+	// The kill runs from inside cmd.Wait: a goroutine signalling on its own could
+	// fire after the process was reaped, and the kernel reuses a pid, so the
+	// signal would reach an unrelated process group of the broker's uid.
 	ctx, cancel := context.WithTimeout(context.Background(), notifyTimeout)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	// The broker's own environment is never inherited by anything it starts.
@@ -713,14 +627,10 @@ func (s *Server) notify(pending *escalation) {
 	}()
 }
 
-// newID names a question in something a person can type.  Short: it is read off
-// one terminal and typed into another, and it names a question that lives for
-// seconds, and is the only one outstanding while it does.
-//
-// Empty when there is no randomness, and the caller refuses the request rather
-// than substituting a constant: two questions sharing an id are two questions
-// Answer picks between by map order, which is to say at random.  A question that
-// cannot be named is one nobody can answer on purpose.
+// newID names a question in something a person can type: it is read off one
+// terminal and typed into another, and only one question is outstanding at a
+// time.  Empty when there is no randomness, and the caller then refuses the
+// request rather than substituting a constant.
 func newID() string {
 	var raw [3]byte
 	if _, err := rand.Read(raw[:]); err != nil {
@@ -729,24 +639,17 @@ func newID() string {
 	return hex.EncodeToString(raw[:])
 }
 
-// Prompt is what the human is asked.  Exported so a test, the CLI and the
-// README can agree on it, and because it is the whole security argument in one
-// line: the command is named, so the answer means something.
-//
-// One line and the command, nothing else.  The host, the cwd, the program root
-// will run and what a yes covers are fields of the Question, printed under it,
-// and repeating them here made the line long enough to be skimmed.  Every
-// caller-chosen part of it is rendered through Command, for the reason given
-// there: this string is printed to a terminal, and a terminal obeys escape
-// sequences.
+// Prompt is what the human is asked: one line and the command, so the answer
+// means something.  The host, the cwd and the program root will run are fields
+// of the Question, printed under it.  Exported so a test, the CLI and the
+// notifier agree on it.
 func Prompt(run Run) string {
 	return fmt.Sprintf("%s `%s`", PromptPrefix, run.Command())
 }
 
 // PromptPrefix is the question without the command, for the terminal that
-// prints the command on a line of its own below it.  A prompt repeating it
-// there pushed the fields off the screen for a command of any length, and the
-// notifier still gets the whole sentence: it has no second line to put one on.
+// prints the command on a line of its own below it.  The notifier gets the
+// whole sentence, having no second line to put one on.
 const PromptPrefix = "faramir: Approve this command to run as root?"
 
 // hostname is what the question says it is about, and never empty: a question
@@ -774,27 +677,24 @@ type Question struct {
 	ID     string `json:"id"`
 	Prompt string `json:"prompt"`
 	Cmd    string `json:"cmd"`
-	// Host is where the command would become root.  A field rather than part of
-	// the prompt, because an operator watching two hosts reads it off the same
-	// block as everything else the question is about.
+	// Host is where the command would become root.
 	Host string `json:"host"`
 	Cwd  string `json:"cwd"`
-	// Caller is the account that asked, rendered as a person reads it.  Not the
-	// account the command would run as, which is the executor's and the same on
-	// every question.
+	// Caller is the account that asked, not the account the command would run as,
+	// which is the executor's and the same on every question.
 	Caller string `json:"caller"`
 	// Program is what argv[0] resolved to, and so what root will run.  Shown
 	// separately from Cmd because they can differ: a relative argv[0] resolves
 	// against the request's cwd, which the agent writes.
 	Program string `json:"program"`
 	LogID   string `json:"log_id"`
-	// WaitingSec says how long sudo has been sitting on this.  Read with
-	// ExpiresInSec it also says whether anything was watching: a question shown at
-	// 40s waited 40 seconds for somebody to arrive.
+	// WaitingSec says how long sudo has been sitting on this, which read with
+	// ExpiresInSec also says whether anything was watching.
 	WaitingSec int `json:"waiting_sec"`
-	// ExpiresInSec is what is left of [escalation] timeout_sec, after which the question
-	// is refused.  It matters most where the answer is a second command typed
-	// after this one was read, which is `faramir escalations` without --watch.
+	// ExpiresInSec is what is left of [escalation] timeout_sec, after which the
+	// question is refused.  It matters most where the answer is a second command
+	// typed after this one was read, which is `faramir escalations` without
+	// --watch.
 	ExpiresInSec int `json:"expires_in_sec"`
 }
 
@@ -814,16 +714,14 @@ func (s *Server) questionsLocked() []Question {
 	waited := int(time.Since(pending.asked).Seconds())
 	return []Question{{
 		ID: pending.id, Prompt: Prompt(pending.run),
-		// Rendered like the command, and for the same reason: these are the
-		// caller's strings and they are printed to a terminal.  Absent stays
-		// absent: safeArg would render "" as a pair of quotation marks, which the
-		// caller would then print as a field holding nothing.
+		// Rendered like the command: these are the caller's strings and they are
+		// printed to a terminal.  Absent stays absent, safeField rendering "" as a
+		// pair of quotation marks.
 		Cmd: pending.run.Command(), Host: hostname(), Cwd: safeUnlessEmpty(pending.run.Cwd),
 		Caller: safeComposed(pending.run.Caller),
-		// Only when it says something the command does not, which is the case worth
-		// a human's attention: a relative argv[0] resolves against the request's
-		// cwd, so `bin/ansible-playbook` can be a file the agent wrote.  Decided
-		// here rather than in the CLI, which would be a second opinion about it.
+		// Only when it says something the command does not: a relative argv[0]
+		// resolves against the request's cwd, so `bin/ansible-playbook` can be a
+		// file the agent wrote.
 		Program: safeUnlessEmpty(pending.run.resolvedProgram()), LogID: pending.run.LogID,
 		WaitingSec:   waited,
 		ExpiresInSec: max(0, s.config.TimeoutSec-waited),
@@ -831,15 +729,11 @@ func (s *Server) questionsLocked() []Question {
 }
 
 // Poll is Questions for a watcher: it returns at once if there is anything for
-// this caller, and otherwise blocks until there is or the wait runs out.  A long
-// poll rather than a subscription, because the caller is a person with a
-// terminal and the broker keeps no client state.
-//
-// awaitLogID names the run the caller approved and has not yet heard the end of,
-// and is what keeps the outcome slot from turning this into a spin: an ending
-// nobody asked about is not something to return early for, and the slot is never
-// emptied.  Empty asks about no run, which is a listing and a watcher that has
-// approved nothing.
+// this caller, and otherwise blocks until there is or the wait runs out.  A
+// long poll rather than a subscription, the broker keeping no client state.
+// awaitLogID names the run the caller approved and has not yet heard the end
+// of, which is what keeps the never-emptied outcome slot from turning this into
+// a spin.
 func (s *Server) Poll(wait time.Duration, awaitLogID string) ([]Question, *Outcome) {
 	s.mu.Lock()
 	if s.waiting != nil || s.finishedLocked(awaitLogID) != nil {
@@ -869,19 +763,16 @@ func (s *Server) finishedLocked(awaitLogID string) *Outcome {
 }
 
 // Answer decides one question.  The caller is checked to be root before this is
-// reached: it is the whole boundary, since the account the coding agent runs as
-// must not be able to approve what the agent asked for.
+// reached: the account the coding agent runs as must not be able to approve
+// what the agent asked for.
 func (s *Server) Answer(id string, approve bool, who string) error {
 	if _, err := s.find(id); err != nil {
 		return err
 	}
 	// Outside the lock, and before it: the check is a round trip to the executor.
-	//
-	// Checking first and locking after is sound, and worth saying why.  A process
-	// that appeared between the two would have to have been spawned by something
-	// already running (which this check would have seen) or by the run being
-	// approved, which is what the escalation is for; and a new *run* starting in
-	// that gap is caught by the sole-occupancy check below, under the lock.
+	// A process appearing between the two was spawned either by something already
+	// running, which this check saw, or by the run being approved; a new run
+	// starting in that gap is caught by the sole-occupancy check below.
 	if approve {
 		if s.Quiescent == nil {
 			return s.refuseForNoise(id, "this broker has no way to ask whether the host "+
@@ -900,23 +791,16 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		return err
 	}
 	// Sole occupancy: root is handed to a run only when it is the one brokered
-	// command running.  Anything else on the executor's uid could read this run's
-	// token and ride the escalation, so the host has to be quiet before a yes takes.
-	// Refusing here answers the question no rather than holding it open; see
-	// refuseForNoise.  A refusal (no) needs no such quiet.
+	// command running, anything else on the executor's uid being able to read its
+	// token and ride the escalation.  A refusal needs no such quiet, and refusing
+	// here answers the question no rather than holding it open; see
+	// refuseForNoise.
 	//
-	// The backstop rather than the binding check.  pend refuses to file a question
-	// while another run is registered, and Register admits none beside one that is
-	// waiting, so a question reaching here is one whose run was alone when it was
-	// put.  This is what that rests on, and it is the check between a live escalation
-	// and a command that could ride it, so it is made rather than assumed.
-	//
-	// The check and the flag it stands on are set under one lock hold, on purpose:
-	// Register admits a new run whenever no escalation is live, so a gap between "no
-	// other run is registered" and "this run is marked approved" is a window in
-	// which a second command starts and then rides this escalation.  Marking it here,
-	// still holding mu, is what closes that window; finish only carries the
-	// answer to the waiters.
+	// The backstop rather than the binding check, pend and Register having
+	// already refused the states this rules out, and made rather than assumed.
+	// The check and the flag it stands on are set under one lock hold: a gap
+	// between the two is a window in which a second command starts and rides this
+	// escalation.
 	if approve {
 		if other := s.otherRunLocked(pending.token); other != "" {
 			s.mu.Unlock()
@@ -925,11 +809,9 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		}
 		if run, ok := s.runs[pending.token]; ok {
 			run.approved = true
-			// And the no it was given before this one is not the answer any more.
-			// A run asks once per sudo, so a first that expired while nobody was
-			// watching and a second the operator then approved are the same run: left
-			// standing, the expiry would be reported for a command that went on to
-			// become root and exit cleanly.
+			// The no it was given before this one is not the answer any more: left
+			// standing, an earlier expiry would be reported for a command that went
+			// on to become root and exit cleanly.
 			run.refusedCode, run.refusedReason = "", ""
 			s.runs[pending.token] = run
 		}
@@ -940,9 +822,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 		code, reason = CodeApproved, "approved by "+who
 	}
 	// Not recorded here: the answer reaches every request waiting on it through
-	// `reason`, and each of those writes a record naming who answered.  One
-	// record per sudo, so the log says how many the escalation covered rather than
-	// leaving it to be counted.
+	// `reason`, and each of those writes a record naming who answered.
 	log.Printf("escalation: %s %s by %s", id,
 		map[bool]string{true: "approved", false: "refused"}[approve], who)
 	s.finish(pending, approve, code, reason)
@@ -950,23 +830,15 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 }
 
 // ErrNotQuiescent is what a yes becomes when the host was not quiet enough to
-// take it.  Exported so the broker can give it an error code of its own: an
-// operator who typed yes and got a refusal is owed a different answer from one
-// who typed an id that had expired.
+// take it.  Exported so the broker can give it an error code of its own,
+// distinct from an id that had expired.
 var ErrNotQuiescent = errors.New("the host was not quiet, so this was refused rather than approved")
 
 // refuseForNoise answers a question no, on behalf of an operator who said yes.
-//
-// Fail early, and do not hold the question open for another try.  Leaving it
-// open reads as the kinder behaviour, the run keeping its place while the
-// operator answers again once the host settles, and it is the wrong shape: it
-// makes the
-// operator poll the one interval in which the host must be quiet, and it leaves a
-// yes standing against a question whose answer depends on a condition that can
-// change under it.  A refusal is a decision that was safe to make at the moment
-// it was made, which is the only kind this design has.  The sudo fails now, the
-// question is closed, and running the command again is a fresh question with a
-// fresh answer.
+// The question is not held open for another try: that would make the operator
+// poll the one interval in which the host must be quiet, and would leave a yes
+// standing against a condition that can change under it.  The sudo fails now,
+// and running the command again is a fresh question.
 func (s *Server) refuseForNoise(id, detail string) error {
 	pending, err := s.find(id)
 	if err != nil {
@@ -997,9 +869,9 @@ func (s *Server) findLocked(id string) (*escalation, error) {
 		"already, or its command may have given up", id)
 }
 
-// Stop releases everything waiting and refuses anything later.  A question
+// Stop releases everything waiting and refuses anything later: a question
 // nobody can answer any more is one sudo would otherwise sit on until its own
-// timeout, after the broker has already gone.
+// timeout.
 func (s *Server) Stop() {
 	s.mu.Lock()
 	s.stopped = true

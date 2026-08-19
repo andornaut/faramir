@@ -2,10 +2,9 @@ package main
 
 // Listing the store, and taking a file out of it.
 //
-// `ls` is the operator's view and `refs` is the broker's, and they answer
-// different questions on purpose.  A managed file the broker refused to load is
-// invisible to `refs`, because the broker never got it; `ls` reads the directory
-// and so sees it, which is the state an operator most needs named.
+// `ls` is the operator's view and `refs` is the broker's.  A managed file the
+// broker refused to load is invisible to `refs`; `ls` reads the directory and
+// sees it, which is the state an operator most needs named.
 
 import (
 	"bufio"
@@ -27,16 +26,14 @@ import (
 )
 
 // opRemove is the audit record taking a file out of the store writes.  It names
-// the refs that went with it, which is the one thing nothing else can answer
-// afterwards: the file is gone and the log is what is left of it.
+// the refs that went with it: the file is gone and the log is what is left of
+// it.
 const opRemove = "remove"
 
 // managedFile is one file as `ls` reports it.
 type managedFile struct {
-	// Name is what an operator types, and Path is what is on disk.  Both, because
-	// a listing that gave only the short name could not be pasted into anything
-	// else, and one that gave only the path would not match the argument the
-	// commands beside this one take.
+	// Name is what an operator types, and Path is what is on disk.  Both, so the
+	// listing can be pasted into another command and read as a path.
 	Name       string   `json:"name"`
 	Path       string   `json:"path"`
 	Refs       []string `json:"refs"`
@@ -45,8 +42,8 @@ type managedFile struct {
 	// which is what `faramir recipient reseal` is for.
 	Drifted bool `json:"drifted"`
 	// Problem is why this file could not be read or parsed, and "" otherwise.  A
-	// file the broker would refuse is exactly what an operator comes here to find,
-	// so it is a row rather than a reason to stop.
+	// file the broker would refuse is what an operator comes here to find, so it
+	// is a row rather than a reason to stop.
 	Problem string `json:"problem,omitempty"`
 }
 
@@ -77,8 +74,8 @@ func newVaultListCmd() *cobra.Command {
 func runVaultList(f vaultListFlags) int {
 	const label = "vault ls"
 	// The secrets directory is 2750 and the group is the keeper's, so the operator
-	// cannot so much as list it.  Refused with the reason rather than reported as
-	// an empty store, which is what a bare permission error would look like.
+	// cannot list it.  Refused with the reason rather than reported as an empty
+	// store.
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
@@ -111,7 +108,7 @@ func runVaultList(f vaultListFlags) int {
 			"`faramir vault add NAME` writes the first\n", label)
 	} else {
 		// The directory once, above the rows, so the names are the ones the other
-		// commands take and a full path is still there to be read off.
+		// commands take and a full path is still readable.
 		fmt.Println(filepath.Dir(cfg.Secret.Patterns[0]))
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 		_, _ = fmt.Fprintln(w, "NAME\tREFS\tREADERS\tSTATE")
@@ -122,8 +119,7 @@ func runVaultList(f vaultListFlags) int {
 		_ = w.Flush()
 	}
 	// Named after the listing rather than mixed into it: a pattern that matched
-	// nothing is not a file, and a caller who cannot read a directory has a store
-	// this listing does not cover.
+	// nothing is not a file.
 	for _, reason := range slices.Concat(failures, absent) {
 		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, reason)
 	}
@@ -145,9 +141,8 @@ func stateOf(file managedFile) string {
 	return "ok"
 }
 
-// describeManaged reads one file without decrypting it.  Both the ref names and
-// the recipients are cleartext in a sops file, which is what makes this cheap
-// and what keeps it out of the keeper's way.
+// describeManaged reads one file without decrypting it: both the ref names and
+// the recipients are cleartext in a sops file.
 func describeManaged(path string, wanted []string, haveRule bool) managedFile {
 	file := managedFile{Name: managedStem(path), Path: path}
 	recipients, err := sopsrule.SealedTo(path)
@@ -168,13 +163,9 @@ func describeManaged(path string, wanted []string, haveRule bool) managedFile {
 }
 
 // refsIn is the refs a managed file names, taken from its structure rather than
-// from its values.
-//
-// sops encrypts values and leaves keys readable, which is what makes a diff of
-// one reviewable, and what lets this answer without the age key.  Nothing here
-// is decrypted and no value is returned: [keeper.Flatten] is given the file as
-// it sits on disk, so what it maps each ref onto is the ciphertext, and only the
-// names are kept.
+// its values.  sops encrypts values and leaves keys readable, so this answers
+// without the age key: [keeper.Flatten] is given the file as it sits on disk,
+// so each ref maps onto ciphertext and only the names are kept.
 func refsIn(path string) ([]string, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
@@ -232,7 +223,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 		return 1
 	}
 	// Resolved against the managed list, so this cannot delete a file the broker
-	// never read: what is not in the store is not this command's to remove.
+	// never read.
 	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
 	target, err := resolveManaged(managed, name)
 	if err != nil {
@@ -271,12 +262,9 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	return 0
 }
 
-// confirmRemoval puts the question to whoever is at the terminal, and takes only
-// the file's own name for an answer.
-//
-// The name rather than "yes": what makes this safe is having read which file it
-// is, and a y/n prompt is answered by reflex.  Deny by default, so a closed
-// stdin, an empty line or anything else is a no.
+// confirmRemoval puts the question to whoever is at the terminal, and takes
+// only the file's own name for an answer: a y/n prompt is answered by reflex.
+// Deny by default, so a closed stdin or an empty line is a no.
 func confirmRemoval(target string, refs []string, refsErr error) bool {
 	fmt.Fprintf(os.Stderr, "%s\n", target)
 	switch {
@@ -288,10 +276,8 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 	default:
 		fmt.Fprintf(os.Stderr, "  %d ref(s) go with it: %s\n", len(refs), strings.Join(refs, ", "))
 	}
-	// The expected word is shown rather than guessed at.  What makes this safe is
-	// having read which file it is and typed its name deliberately, not having
-	// worked out what to type; a prompt that withheld it would be answered by
-	// trial.
+	// The expected word is shown rather than guessed at: what makes this safe is
+	// having read which file it is, not having worked out what to type.
 	name := managedStem(target)
 	fmt.Fprintf(os.Stderr, "Every value in it is destroyed, and nothing here brings "+
 		"it back.\nType %s to remove it: ", name)
@@ -307,13 +293,10 @@ func confirmRemoval(target string, refs []string, refsErr error) bool {
 }
 
 // newRefsCmd is what the broker is serving, which is not the same question as
-// what is in the directory.
-//
-// Top level rather than under `vault`, beside `run`, `redact` and `status`: it
-// is one of the four an agent may run, and every other member of that group is
-// the operator's.  A group split across the two would need the deny rule to
-// carve one leaf out of it by name, which is a hand-maintained exception in a
-// list whose whole value is that it needs no thought.
+// what is in the directory.  Top level rather than under `vault`, beside `run`,
+// `redact` and `status`: it is one of the four an agent may run, and a group
+// split across the two would need the deny rule to carve one leaf out by
+// name.
 func newRefsCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{

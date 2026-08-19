@@ -66,8 +66,8 @@ func newEditCmd() *cobra.Command {
 
 func runEdit(f editFlags, args []string) int {
 
-	// Refused rather than attempted: the bare permission error on the age key does
-	// not say what to do.
+	// Refused rather than attempted: the bare permission error on the age key
+	// does not say what to do.
 	if !requireRoot("vault edit", "the age key is readable only by the keeper and by root") {
 		return 1
 	}
@@ -78,11 +78,10 @@ func runEdit(f editFlags, args []string) int {
 		return 1
 	}
 
-	// Expanded here, since the managed store holds globs and this process is root
-	// where the broker cannot read the secrets directory.  So a sops
-	// file dropped into the secrets directory is editable at once.
-	// Both kinds together: this is a diagnostic printed when the named file is
-	// not among the managed ones, and the operator wants every reason.
+	// Expanded here, the managed store holding globs and this process being root,
+	// so a file dropped into the secrets directory is editable at once.  Both
+	// kinds of failure together: this is printed when the named file is not among
+	// the managed ones, and the operator wants every reason.
 	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
 	unresolvable := slices.Concat(failures, absent)
 	target, err := resolveManaged(managed, args[0])
@@ -107,17 +106,15 @@ func runEdit(f editFlags, args []string) int {
 	}
 
 	// The install's own rules, named rather than left to sops to find: see
-	// runSops.  Beside the config like the age key, and the same file `reseal`
-	// reads, so an edit and a reseal on one host agree about what governs a
-	// managed file.
+	// runSops.  The same file `reseal` reads, so the two agree about what governs
+	// a managed file.
 	rulePath := filepath.Join(filepath.Dir(cfg.Path), ".sops.yaml")
 
 	changed, err := editManaged(keyPath, rulePath, editorPath, target)
 	record := map[string]any{
 		"op": opEdit,
 		// "log_id", the spelling the broker writes and the only one `faramir logs`
-		// reads: under any other key the record has no id to look up and no timestamp
-		// to sort by, both of which it derives from this one.
+		// reads: it is what the record is looked up and sorted by.
 		"log_id": audit.NewLogID(),
 		"file":   target,
 		"editor": editorPath,
@@ -146,15 +143,8 @@ func runEdit(f editFlags, args []string) int {
 
 // resolveConfig finds the config a client command has to agree with: --config,
 // then $FARAMIR_CONFIG, then whatever discoverConfigFile finds, then the
-// compiled default if it is there.
-//
-// An explicit $FARAMIR_CONFIG returns empty like the rest: the variable is
-// config.Load's to read, so returning a path here would override the caller's
-// own choice.
-//
-// Reaching the unit matters under sudo on an install whose config moved into a
-// home: sudo clears the environment, and the socket goes unanswered whenever
-// the broker is not running.
+// compiled default if it is there.  An explicit $FARAMIR_CONFIG returns empty
+// like the rest, the variable being config.Load's to read.
 func resolveConfig(requested, socketPath string) string {
 	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
 		return requested
@@ -163,15 +153,12 @@ func resolveConfig(requested, socketPath string) string {
 }
 
 // resolveDaemonConfig is resolveConfig for the three daemon entry points, which
-// under systemd are given no -c at all: the unit sets FARAMIR_CONFIG instead.
-// Run by hand with neither, the install still has to be found rather than
-// assumed, `faramir broker --check` being the invocation that reaches this.
+// under systemd are given no -c at all, the unit setting FARAMIR_CONFIG.
 //
 // The running broker is not a step here, unlike resolveConfig: this process may
 // be about to bind the broker's own socket, and connecting to it would
 // socket-activate the installed daemon and leave the two contending for the
-// path.  The unit answers the same question without the round trip, being where
-// a running broker's config came from.
+// path.  The unit answers the same question without the round trip.
 func resolveDaemonConfig(requested string) string {
 	if requested != "" || os.Getenv("FARAMIR_CONFIG") != "" {
 		return requested
@@ -180,9 +167,8 @@ func resolveDaemonConfig(requested string) string {
 }
 
 // installedConfig takes what discovery found, and falls back to the compiled-in
-// default only when that file is there.  An empty result is deferred to
-// config.Load rather than guessed at: Load names the default itself, and the
-// error it reports for a host with no install is the one to print.
+// default only when that file is there.  An empty result is left to
+// config.Load, whose error for a host with no install is the one to print.
 func installedConfig(found string) string {
 	if found != "" {
 		return found
@@ -199,31 +185,27 @@ func exists(path string) bool {
 }
 
 // errNoManagedFiles is what `edit` reports when the secrets directory is empty.
-// `reseal` has its own, saying what it in particular had nothing to do: the fix
-// is the same for both and the sentence is not, and the one an operator reads is
-// the one their command printed.
+// `reseal` has its own, saying what it in particular had nothing to do.
 var errNoManagedFiles = errors.New("no managed sops files: the managed store named " +
 	"none, so there is nothing to open. Write the first one with `faramir vault " +
 	"add NAME`")
 
-// resolveManaged maps the argument onto one of the configured files, matching a
-// bare name against each base name and against each name without its suffix.  Anything unmanaged is refused, an edit
-// outside the list being a file the broker never reads.
-// managedSuffix is what a managed file ends in.  One spelling, because an
-// operator picks a name and faramir picks the format: the suffix decides the
-// store sops writes and is what the [secret] pattern matches, so it stays on
-// the file and off the argument.
+// managedSuffix is what a managed file ends in.  One spelling: the suffix
+// decides the store format sops writes and is what the [secret] pattern
+// matches, so it stays on the file and off the argument.
 const managedSuffix = ".sops.yml"
 
 // managedStem is a managed file's name without its suffix, which is what an
-// operator types.  The suffix decides the store format sops writes and is what
-// the [secret] patterns match, so it stays on the file; it is only spared from
-// the argument.
+// operator types.
 func managedStem(path string) string {
 	stem, _ := strings.CutSuffix(filepath.Base(path), managedSuffix)
 	return stem
 }
 
+// resolveManaged maps the argument onto one of the configured files, matching a
+// bare name against each base name and against each name without its suffix.
+// Anything unmanaged is refused, an edit outside the list being a file the
+// broker never reads.
 func resolveManaged(managed []string, arg string) (string, error) {
 	if len(managed) == 0 {
 		return "", errNoManagedFiles
@@ -328,23 +310,19 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 	// anything else would match no rule and encrypt to no recipient.
 	plain := filepath.Join(dir, filepath.Base(target))
 
-	// The recipients the file already had, named explicitly: sops resolves
-	// .sops.yaml by walking up from the file, which here is in a tmpfs, and an
-	// edit should preserve who could read the file; applying a changed .sops.yaml
-	// is what `faramir recipient reseal` is for.
-	//
-	// Read before the editor runs.  It is knowable from the ciphertext, and a
-	// file whose metadata this cannot parse would otherwise be reported only
-	// after the operator had already made their edit, which is then discarded.
+	// The recipients the file already had, named explicitly: an edit preserves
+	// who could read the file, and applying a changed .sops.yaml is what `faramir
+	// recipient reseal` is for.  Read before the editor runs, or a file whose
+	// metadata this cannot parse would be reported after the operator's edit had
+	// already been made and discarded.
 	recipients, err := sopsrule.SealedTo(target)
 	if err != nil {
 		return false, err
 	}
 
-	// Asked here, beside the recipients, and for the same reason: sops refuses a
-	// file no creation rule covers, and it refuses it at the encrypt, which is
-	// after the editor has run.  Learning then costs the operator everything they
-	// typed, so the question is put while there is nothing to lose.
+	// Asked here for the same reason: sops refuses a file no creation rule covers
+	// at the encrypt, which is after the editor has run and would cost the
+	// operator everything they typed.
 	if err := ruleMustCover(rulePath, target, recipients); err != nil {
 		return false, err
 	}
@@ -377,9 +355,8 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 
 	reencrypted, err := sealTo(keyPath, rulePath, target, recipients, plain)
 	if err != nil {
-		// Said plainly, because the plaintext is about to go with the tmpfs
-		// directory and the operator's typing goes with it.  Keeping it would be
-		// leaving a decrypted store on a machine after a command that failed.
+		// Said plainly: the plaintext goes with the tmpfs directory, and keeping it
+		// would leave a decrypted store on the machine after a failed command.
 		return false, fmt.Errorf("encrypt: %w. The edit was not saved and the "+
 			"decrypted copy has been removed, so make it again once this is fixed", err)
 	}
@@ -389,16 +366,14 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 // writeBack replaces the managed file without changing who owns it, written
 // beside the target and renamed so a partial failure leaves no truncated store.
 //
-// Both halves are made durable before this returns, which is not ceremony here:
-// this is the one operation in faramir that overwrites the only copy of the
-// secrets on the host, and `reseal` performs it once per managed file.  The
-// contents are flushed before the rename, or a crash can leave the new name
-// pointing at a file whose data never landed and whose predecessor is gone; the
-// directory is flushed after it, or the rename itself is what is missing.
+// Both halves are made durable before this returns, this being the one
+// operation that overwrites the only copy of the secrets on the host: the
+// contents are flushed before the rename, or a crash leaves the new name
+// pointing at a file whose data never landed, and the directory after it, or
+// the rename itself is what is missing.
 //
 // The mode before the owner: the temporary file is created 0600 and root's, so
-// widening it while it is still root:root gives nothing away, where chowning
-// first would hand it over at whatever mode it happened to have.
+// widening it while it is still root:root gives nothing away.
 func writeBack(target string, data []byte) error {
 	info, err := os.Stat(target)
 	if err != nil {
@@ -429,12 +404,10 @@ func writeBack(target string, data []byte) error {
 	if err := os.Rename(tmp.Name(), target); err != nil {
 		return err
 	}
-	// Reported and not returned.  By here the replacement is the file: what failed
-	// is the promise that it survives a power loss, not the write.  Returning an
-	// error would tell the operator their edit did not take, sending them to make
-	// it again over content that has already changed, and would have `reseal` count
-	// the file among those "still open to the recipients they had", which is the
-	// one thing that is certainly false about it.
+	// Reported and not returned: by here the replacement is the file, and what
+	// failed is the promise that it survives a power loss.  An error would tell
+	// the operator their edit did not take, and would have `reseal` count the file
+	// among those still sealed to the recipients they had.
 	if err := syncDir(filepath.Dir(target)); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir: %s was replaced, but %s could not be "+
 			"flushed (%v), so the change may not survive a power loss until "+
@@ -460,22 +433,18 @@ func syncDir(path string) error {
 
 // runSops execs sops with the key as a path (SOPS_AGE_KEY_FILE), as the keeper
 // supplies it, so it is absent from any environment block in /proc.  A fixed
-// environment, since sops reads several variables naming a key or key source.
+// environment, sops reading several variables that name a key or key source.
 //
-// --config names the creation rules, and naming them is what keeps them this
-// host's own.  Left to search, sops resolves .sops.yaml by walking up from the
-// process's working directory, which here is wherever the operator was standing
-// when they typed the command, and that is very often an enrolled working tree
-// the coding agent writes.  A .sops.yaml found there governs the encryption:
-// `unencrypted_regex` and `unencrypted_suffix` make sops write the values they
-// name in cleartext into the managed file.  Recipients are safe either way, the
-// --age on the command line winning over anything a rule lists, but the shape of
-// the file is not.
+// --config names the creation rules, which keeps them this host's own.  Left to
+// search, sops walks up from the process's working directory, which is often an
+// enrolled tree the coding agent writes, and a .sops.yaml found there governs
+// the encryption: `unencrypted_regex` and `unencrypted_suffix` make sops write
+// the values they name in cleartext.  Recipients are safe either way, the --age
+// on the command line winning over a rule.
 //
-// The flag rather than the SOPS_CONFIG variable that does the same thing: the
-// variable is the newer of the two, and a sops old enough not to know it ignores
-// it and searches anyway -- which is this guard silently absent rather than
-// failing.  An argument sops does not understand is an error instead.
+// The flag rather than the SOPS_CONFIG variable: a sops old enough not to know
+// the variable ignores it and searches anyway, where an argument it does not
+// understand is an error.
 func runSops(keyPath, rulePath string, args ...string) ([]byte, error) {
 	argv := append([]string{"--config", sopsConfigPath(rulePath)}, args...)
 	cmd := exec.CommandContext(context.Background(), sopsBinary, argv...)
@@ -490,13 +459,9 @@ func runSops(keyPath, rulePath string, args ...string) ([]byte, error) {
 }
 
 // sopsConfigPath is the creation rules to hand sops, and /dev/null where there
-// are none to hand it.
-//
-// A rule file that is not there is not the same as none: sops refuses to start
-// on a --config it cannot read, decrypt included, so naming an absent path would
-// take away the ability to open a file rather than the ability to search for a
-// rule.  /dev/null parses as a document with no creation rules, which is what a
-// host without one has.
+// are none.  A rule file that is not there is not the same as none: sops
+// refuses to start on a --config it cannot read, decrypt included, where
+// /dev/null parses as a document with no creation rules.
 func sopsConfigPath(rulePath string) string {
 	if rulePath != "" && exists(rulePath) {
 		return rulePath
@@ -505,15 +470,11 @@ func sopsConfigPath(rulePath string) string {
 }
 
 // ruleMustCover refuses an edit the creation rules cannot write back, or nil.
+// A host with no rule encrypts with sops' defaults, which cover every file, and
+// sopsConfigPath has already turned that into /dev/null.
 //
-// A host with no rule at all encrypts with sops' defaults, which covers every
-// file, so there is nothing to ask there: sopsConfigPath has already turned that
-// into /dev/null and this returns at once.
-//
-// A probe that cannot be put is not a refusal.  What is being ruled out is the
-// one case that is certain to fail later, and refusing an edit because sops
-// could not be run would take away a command over a question nobody needed
-// answered.
+// A probe that cannot be put is not a refusal: what is ruled out is the case
+// certain to fail later.
 func ruleMustCover(rulePath, target string, recipients []string) error {
 	configPath := sopsConfigPath(rulePath)
 	if configPath == os.DevNull {
@@ -522,8 +483,8 @@ func ruleMustCover(rulePath, target string, recipients []string) error {
 	if err := ruleMustNotSplitTheKey(rulePath); err != nil {
 		return err
 	}
-	// Covered unless the probe says otherwise, which is what makes an unputtable
-	// probe leave the edit alone.
+	// Covered unless the probe says otherwise, which is what makes a probe that
+	// cannot be put leave the edit alone.
 	covered := true
 	if sops, err := exec.LookPath(sopsBinary); err == nil {
 		if answer, err := sopsrule.Covers(sops, configPath, recipients, target); err == nil {
@@ -540,23 +501,14 @@ func ruleMustCover(rulePath, target string, recipients []string) error {
 }
 
 // ruleMustNotSplitTheKey refuses an edit under a rule that splits the data key,
-// or nil.
-//
-// The refusal `faramir recipient reseal` already makes, made here for the same reason and
-// one step earlier.  shamir_threshold means N of the rule's key groups have to
-// come together to open a file; what an edit writes back is sealed to the
-// recipients the file already carried, as one group.  sops takes that without
-// complaint and writes the threshold beside the single group, so the file still
-// opens -- with any one of those keys, which is what the rule was written to
-// prevent.  A protection removed by a command nobody asked to remove it is worse
-// than an edit that will not run.
-//
-// A rule this cannot read is not a refusal: the same rule reaches sops next, and
-// what it says about it is the answer the operator should see.
+// or nil.  The refusal `faramir recipient reseal` makes, one step earlier:
+// shamir_threshold means N of the rule's key groups have to come together to
+// open a file, and what an edit writes back is sealed to the recipients the
+// file already carried, as one group.  sops writes the threshold beside that
+// single group, so any one of those keys then opens the file.
 func ruleMustNotSplitTheKey(rulePath string) error {
-	// A rule this cannot read leaves rules empty and nothing to refuse, which is
-	// the intent: the same file reaches sops next, and what sops says about it is
-	// the answer the operator should be given.
+	// A rule this cannot read leaves rules empty and nothing to refuse: the same
+	// file reaches sops next, and what sops says about it is the better answer.
 	rules, _ := sopsrule.Load(rulePath)
 	for _, rule := range rules {
 		if rule.ShamirThreshold > 0 {
@@ -573,16 +525,13 @@ func ruleMustNotSplitTheKey(rulePath string) error {
 // sealTo encrypts the plaintext copy of target and returns the ciphertext.
 //
 // --filename-override, because sops matches a creation rule's path_regex
-// against the path of the file it is handed taken relative to the rule file, and
-// what it is handed here is the copy in the tmpfs: nowhere near the rule, so the
-// absolute tmpfs path is what a rule would be judged against, and one naming
-// where the secrets live matches nothing.  Every edit would end in "no matching
-// creation rules found".  With the override the rule sees what it sees under
-// ordinary use, which on an install is `secrets/<name>`.
+// against the file it is handed, taken relative to the rule file, and what it
+// is handed here is the copy in the tmpfs: a rule naming where the secrets live
+// would match nothing.  With the override the rule sees `secrets/<name>`, as it
+// does under ordinary use.
 //
 // The recipients are named here rather than taken from the rule, which is what
-// makes an edit preserve who could already read the file: applying a changed
-// rule is `faramir recipient reseal`.
+// makes an edit preserve who could already read the file.
 func sealTo(keyPath, rulePath, target string, recipients []string, plain string) ([]byte, error) {
 	return runSops(keyPath, rulePath, "--encrypt",
 		"--age", strings.Join(recipients, ","),
@@ -608,14 +557,12 @@ func chownLike(path string, info os.FileInfo) error {
 
 // removeOnSignal removes dir when a terminating signal arrives, and returns the
 // function that uninstalls the handler.  A deferred cleanup does not run when
-// the process does not return, and what is left behind here is the whole
-// decrypted store, on a tmpfs that keeps it until the machine reboots.
+// the process does not return, and what is left behind is the whole decrypted
+// store, on a tmpfs that keeps it until the machine reboots.
 //
 // SIGHUP is the one that happens: closing the terminal while the editor is
 // open.  The signal is re-raised with its default disposition afterwards, so
-// the caller still sees a process killed by a signal rather than an exit code
-// invented here.  Every signal caught here would have terminated the process
-// anyway, so nothing survives that did not before.
+// the caller still sees a process killed by a signal.
 func removeOnSignal(dir string) func() {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGHUP, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)

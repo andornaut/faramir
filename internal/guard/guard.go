@@ -43,8 +43,8 @@ func patternsFile() string {
 // build the same rules for a path known only at run time.  Readers carry
 // interpreters and copiers as well as pagers: reading a key with python, or
 // copying it somewhere unmatched and reading it there, is the same disclosure.
-// "sed" is a writer only, editing far more often than it dumps; "grep" is
-// neither, so naming a .env file in a search is not refused.
+// "sed" is a writer only; "grep" is neither, so naming a .env file in a search
+// is not refused.
 const (
 	readCommands = `\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|` +
 		`hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|` +
@@ -91,33 +91,29 @@ var fallback = []string{
 		`(age\.key|sops/age|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml|\.vault\b)`,
 	`>\s*\S*(age\.key|sops/age|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml)`,
 	// The plugin and extension an enrolment installs, which are faramir's own
-	// files: init-project overwrites each in full every run, so an edit is
-	// discarded, and a removal only stops that agent's commands reaching the
-	// guard.  The merged files (.claude/settings.json, .mcp.json, opencode.json,
+	// files.  The merged files (.claude/settings.json, .mcp.json, opencode.json,
 	// kilo.json, .agents/mcp_config.json) are deliberately absent: they carry the
-	// operator's own settings beside faramir's, so editing them is ordinary work.
-	// `faramir doctor` reports a registration that went missing from any of them.
+	// operator's own settings beside faramir's, so editing them is ordinary work,
+	// and `faramir doctor` reports a registration that went missing.
 	writeCommands + `[^|]*` +
 		`(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
 	`>\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
-	// faramir under sudo, whichever subcommand: the daemons, the internal helpers,
-	// the escalation channel and every provisioning command at once.  Nothing an
-	// agent may run needs root -- `run`, `redact`, `status` and `refs` all
-	// answer as the agent's own account -- so a sudo here is either a daemon, a
-	// decision that is the operator's, or a change to the install.  Only sudo's
-	// own flags may precede the name.  Managing a unit is not this, so
-	// "systemctl restart faramir-keeper" stays allowed; journalctl likewise, the
-	// daemons logging ref names and counts and never values.
+	// faramir under sudo, whichever subcommand.  Nothing an agent may run needs
+	// root -- `run`, `redact`, `status` and `refs` all answer as the agent's own
+	// account -- so a sudo here is a daemon, a decision that is the operator's, or
+	// a change to the install.  Only sudo's own flags may precede the name.
+	// Managing a unit is not this, so "systemctl restart faramir-keeper" stays
+	// allowed, as does journalctl.
 	`\bsudo\b(\s+-\S+)*\s+faramir\b`,
-	// The same commands unprivileged.  They act on the install rather than
-	// through it, so they are the operator's whether or not sudo is in front:
-	// refused here so the agent is told that, rather than meeting a permission
-	// error it will try to work around.  Held to cli.OperatorOnly by a test.
+	// The same commands unprivileged.  They act on the install rather than through
+	// it, so they are the operator's whether or not sudo is in front: refused here
+	// so the agent is told that rather than meeting a permission error it will try
+	// to work around.  Held to cli.OperatorOnly by a test.
 	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|recipient[ \t]+add|recipient[ \t]+rm|recipient[ \t]+ls|recipient[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|logs|escalations|approve|deny|doctor|reload|uninstall)\b`,
 	`\bsudo\b.*-u\s+faramir`,
-	// Refused for what it costs, not because it hides anything: the wrapper
-	// fails closed, so a stopped broker withholds every command's output in
-	// every enrolled tree at once, and undoing it needs the operator.
+	// Refused for what it costs, not because it hides anything: the wrapper fails
+	// closed, so a stopped broker withholds every command's output in every
+	// enrolled tree at once.
 	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,
 }
 
@@ -131,10 +127,9 @@ const advice = "Blocked: this command would put a credential (or an encrypted bl
 	"Call faramir_refs to see the available names. You do not need the " +
 	"value of a secret to use it, and you will not be given one."
 
-// adviceOperator is for a command that is the operator's to run.  It discloses
-// nothing and changes nothing by being refused here: the account this agent runs
-// as could not have carried it out, so what the refusal saves is the detour of
-// finding that out from a permission error and trying to get around it.
+// adviceOperator is for a command that is the operator's to run.  The account
+// this agent runs as could not have carried it out, so the refusal saves the
+// detour of finding that out from a permission error.
 const adviceOperator = "Blocked: this is an operator command. It acts on the faramir " +
 	"install rather than through it, so it is refused to this shell whether or not " +
 	"sudo is in front of it, and the account you run as could not carry it out " +
@@ -145,11 +140,9 @@ const adviceOperator = "Blocked: this is an operator command. It acts on the far
 	"for."
 
 // adviceOwn is for the rules that are not about disclosure.  Acting on
-// faramir's own files, accounts or units discloses nothing, so the disclosure
-// advice would name a consequence that is not the reason and, worse, offer
-// faramir_run as the way to proceed: a brokered command runs as an account with
-// less reach rather than more, so following it either fails on a permission or
-// does the very thing that was refused.
+// faramir's own files, accounts or units discloses nothing, and the disclosure
+// advice would offer faramir_run as the way to proceed: a brokered command runs
+// as an account with less reach rather than more.
 const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
 	"because the command would disclose anything, but because it would change or " +
 	"stop what keeps credentials out of this conversation.\n\n" +
@@ -159,11 +152,9 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
 	"to achieve and let them decide."
 
 // ownershipMarkers are the substrings that identify a pattern as being about
-// faramir's own things rather than about disclosure.
-//
-// Matched against the pattern's own text, which is the same string in the
-// compiled fallback and in the shipped file, so a host reading either
-// classifies alike.  A prefix of writeCommands rather than the constant, the
+// faramir's own things rather than about disclosure.  Matched against the
+// pattern's own text, which is the same string in the compiled fallback and in
+// the shipped file.  A prefix of writeCommands rather than the constant, the
 // shipped file carrying the expansion rather than the name.
 var ownershipMarkers = []string{
 	`(?-i:rm|shred|truncate`, // writeCommands: editing or destroying
@@ -172,19 +163,17 @@ var ownershipMarkers = []string{
 }
 
 // operatorMarkers are the rules that refuse a command for being the operator's
-// rather than for what it would disclose or change.  Named the same way and for
-// the same reason: a refusal offering faramir_run to somebody who ran `faramir
-// doctor` names a remedy for a problem they do not have.
+// rather than for what it would disclose or change: a refusal offering
+// faramir_run to somebody who ran `faramir doctor` names a remedy for a problem
+// they do not have.
 var operatorMarkers = []string{
 	`\s+faramir\b`,         // any faramir subcommand under sudo
 	`\bfaramir[-\s]+(init`, // the same set unprivileged
 }
 
 // adviceFor picks the explanation that matches why the command was refused.
-//
 // Unclassified means disclosure, which is the larger half and the safer
-// default: telling an agent it put a credential at risk when it did not is a
-// smaller error than telling it nothing was at risk when something was.
+// default.
 func adviceFor(pattern string) string {
 	for _, marker := range operatorMarkers {
 		if strings.Contains(pattern, marker) {
@@ -204,11 +193,9 @@ type compiled struct {
 	re     *regexp.Regexp
 }
 
-// configDir is where this host's config, secrets and keys actually are.  Taken
+// configDir is where this host's config, secrets and keys actually are, taken
 // from the same place the daemons take it, so an install moved with
-// --config-dir moves what these rules refuse.  A hardcoded convention would
-// refuse one layout and go silent for a config placed anywhere else, an operator
-// who moved XDG_CONFIG_HOME among them.
+// --config-dir moves what these rules refuse.
 func configDir() string {
 	path := os.Getenv("FARAMIR_CONFIG")
 	if path == "" {
@@ -218,8 +205,8 @@ func configDir() string {
 }
 
 // configDirRules refuses reads and writes of one directory, whatever it is
-// called.  The same three shapes the literal rules use, so a moved install is
-// covered the way /etc/faramir is: read it, write it, or redirect into it.
+// called: the same three shapes the literal rules use, so a moved install is
+// covered the way /etc/faramir is.
 func configDirRules(dir string) []string {
 	quoted := regexp.QuoteMeta(dir)
 	return []string{
@@ -231,9 +218,8 @@ func configDirRules(dir string) []string {
 
 func loadPatterns() []compiled {
 	raw := fallback
-	// Only for a directory the literals do not already name: appending a
-	// duplicate of /etc/faramir would compile three more regexps per command
-	// for nothing, and this runs on every Bash call.
+	// Only for a directory the literals do not already name: this runs on every
+	// Bash call, and a duplicate would compile three more regexps each time.
 	if dir := configDir(); dir != "" && dir != "/" && dir != filepath.Dir(config.DefaultConfigPath) {
 		raw = append(slices.Clone(raw), configDirRules(dir)...)
 	}
@@ -268,8 +254,8 @@ type payload struct {
 		Args     []any  `json:"args"`
 		InBackgd bool   `json:"run_in_background"`
 	} `json:"tool_input"`
-	// The same object undecoded: a rewrite replaces the whole tool input, so
-	// every field has to be handed back, not only the one it changed.
+	// The same object undecoded: a rewrite replaces the whole tool input, so every
+	// field has to be handed back, not only the one it changed.
 	RawInput map[string]any `json:"-"`
 }
 
@@ -289,23 +275,21 @@ func commandOf(p *payload) string {
 
 // faramirCall matches a sanctioned faramir invocation so its own arguments are
 // not scanned.  RE2 has no lookbehind, so the leading separator is captured and
-// put back by "$1".  The match stops at the first separator, so the rest of a
+// put back by "$1"; the match stops at the first separator, so the rest of a
 // chain is still scanned.  Subcommands are named rather than matched by shape,
-// because the daemons are subcommands of this binary too.
+// the daemons being subcommands of this binary too.
 //
 // cli.Agent rather than cli.Operator: the exemption is for the arguments that
 // would otherwise trip the read rules, which is `run`'s inner command and
-// `redact`'s text.  Every other subcommand is refused below, and a refused
-// command needs no exemption.
+// `redact`'s text.
 var faramirCall = regexp.MustCompile(
 	`(^|[;&|\n])\s*faramir[ \t]+(` +
 		sanctionAlternation(cli.Agent) + `)\b[^;&|\n]*`)
 
 // sanctionAlternation renders subcommand names as one alternation.  A grouped
 // command is named as two tokens, so the space between them becomes the
-// whitespace a shell would accept there: `sops edit` has to match `sops   edit`
-// and must not match `sopsedit`.  Nothing else in a subcommand name is a
-// metacharacter, and quoting holds that true if one ever is.
+// whitespace a shell would accept: `vault edit` has to match `vault   edit` and
+// must not match `vaultedit`.
 func sanctionAlternation(names []string) string {
 	out := make([]string, 0, len(names))
 	for _, name := range names {
@@ -329,9 +313,7 @@ func decide(command string) (string, bool) {
 // Run is the `faramir guard` subcommand.
 func Run(args []string) int {
 	// Parsed before stdin is read, so running this by hand does not hang on a
-	// payload.  A flag set, rather than scanning argv, so --host and --version
-	// behave as they do elsewhere; the argv is fixed by the agent config faramir
-	// writes, so a flag this refuses never reaches here in practice.
+	// payload.
 	fs := flag.NewFlagSet("guard", flag.ContinueOnError)
 	hostName := fs.String("host", "", "the agent whose hook dialect to speak")
 	showVersion := fs.Bool("version", false, "print the version and exit")
@@ -356,7 +338,7 @@ func Run(args []string) int {
 	}
 	var p payload
 	if err := json.Unmarshal(data, &p); err != nil {
-		return 0 // never block on a payload we do not understand
+		return 0 // never block on a payload this does not understand
 	}
 	var raw struct {
 		ToolInput map[string]any `json:"tool_input"`
@@ -376,9 +358,9 @@ func Run(args []string) int {
 		return emit(activeHost.deny(adviceFor(pattern) + "\n\n(matched deny pattern: " + pattern + ")"))
 	}
 
-	// A deny list only covers what someone thought to name, so everything else
-	// is rewritten to run under the redactor rather than refused.  Exit status
-	// and both streams are preserved; known values come back as tokens.
+	// A deny list only covers what someone thought to name, so everything else is
+	// rewritten to run under the redactor rather than refused.  Exit status and
+	// both streams are preserved; known values come back as tokens.
 	wrapped, ok := wrap(activeHost, command, &p)
 	if !ok {
 		return 0
@@ -389,10 +371,10 @@ func Run(args []string) int {
 	updated["command"] = wrapped
 
 	// The rewrite approves as well as rewrites: a wrapper that redacts output
-	// cannot be allow-listed (the permission matcher refuses rules naming
-	// source, eval or a compound statement), so returning "ask" would prompt on
-	// every command with no rule able to pre-approve any of it.  For Bash, the
-	// deny list above replaces the permission prompt.
+	// cannot be allow-listed, the permission matcher refusing rules naming source,
+	// eval or a compound statement, so "ask" would prompt on every command with no
+	// rule able to pre-approve any of it.  For Bash, the deny list above replaces
+	// the permission prompt.
 	return emit(activeHost.rewrite(updated))
 }
 
@@ -407,10 +389,9 @@ func emit(document map[string]any) int {
 }
 
 // isWrapped reports whether this command is one the rewrite already produced.
-// A prefix test, not a match anywhere: a match anywhere would leave whatever is
-// chained after it unwrapped.  A command merely piping into the redactor is not
-// covered either, because a pipe carries stdout and leaves stderr unredacted;
-// wrapping it costs one idempotent extra pass.
+// A prefix test, not a match anywhere, which would leave whatever is chained
+// after it unwrapped.  A command merely piping into the redactor is not covered
+// either: a pipe carries stdout and leaves stderr unredacted.
 func isWrapped(command string) bool {
 	trimmed := strings.TrimSpace(command)
 	for _, verb := range []string{"source ", ". "} {
@@ -423,16 +404,15 @@ func isWrapped(command string) bool {
 
 // backgrounded matches a command ending by putting a job in the background,
 // whose output arrives after the wrapper has read and deleted the file.  A
-// trailing "&&" is not this.  Newlines count as trailing space, since Go's $ is
+// trailing "&&" is not this.  Newlines count as trailing space, Go's $ being
 // end of text rather than end of line.
 var backgrounded = regexp.MustCompile(`(^|[^&])&[ \t\r\n]*$`)
 
-// wrap rewrites a shell command so its output is redacted.  See docs/design.md
-// for why it sources a script rather than piping: the agent's shell persists
-// between tool calls, so the command must not run in a child.
-//
-// Not applied to BashOutput, which reads a running command's buffer rather than
-// starting one, nor to a command this rewrite already produced.
+// wrap rewrites a shell command so its output is redacted.  It sources a script
+// rather than piping because the agent's shell persists between tool calls, so
+// the command must not run in a child; see docs/design.md.  Not applied to
+// BashOutput, which reads a running command's buffer rather than starting one,
+// nor to a command this rewrite already produced.
 func wrap(h *host, command string, p *payload) (string, bool) {
 	switch {
 	case !h.wraps(p.ToolName):
@@ -453,19 +433,16 @@ func wrap(h *host, command string, p *payload) (string, bool) {
 		return "source " + wrapScript() + " --stream " + shellQuote(command), true
 	}
 
-	// One simple command rather than a compound statement built from "{ ...; }"
-	// and ";", so the rewritten text stays one word and one argument for whatever
-	// reads it next: a classifier in auto mode, or an operator in the transcript.
-	// It is not allow-listable either way, per the rewrite path above.
-	// Quoted for exactly one round trip through the sourced script's eval; see
+	// One simple command rather than a compound statement, so the rewritten text
+	// stays one word and one argument for whatever reads it next.  Quoted for
+	// exactly one round trip through the sourced script's eval; see
 	// agent/hooks/wrap.sh.
 	return "source " + wrapScript() + " " + shellQuote(command), true
 }
 
 // stripTrailingAmp removes the trailing "&" that backgrounded matched, and the
-// space around it, leaving the command the redactor is to run.  Only the last
-// one: an inner "a & b &" keeps its first, which the eval below backgrounds as
-// the caller wrote it.
+// space around it.  Only the last one: an inner "a & b &" keeps its first,
+// which the eval backgrounds as the caller wrote it.
 func stripTrailingAmp(command string) string {
 	trimmed := strings.TrimRight(command, " \t\r\n")
 	trimmed = strings.TrimSuffix(trimmed, "&")

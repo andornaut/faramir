@@ -1,14 +1,11 @@
 // Package secretlink reads one secret out of a file the operator's own tools
-// maintain, rather than out of the managed sops store.  A linked value is not
-// copied anywhere: the file stays where its tool expects it, so rotating a
-// credential is that tool's business and nothing here goes stale.
+// maintain, rather than out of the managed sops store.  The file stays where
+// its tool expects it, so rotating a credential is that tool's business.
 //
-// What a link is for is redaction as much as injection.  A value the agent can
-// already read is plaintext one command away; linking it puts it in the value
-// set, so a brokered command that prints it gets a token back, and the deny
-// rules take away the direct read.  Linking something the agent *cannot* reach
-// is the opposite trade and is not what this is for: every managed value is
-// reachable through env_refs by any brokered command.
+// A link is for redaction as much as injection: a value the agent can already
+// read is plaintext one command away, and linking it puts it in the value set
+// so a brokered command that prints it gets a token back, with the deny rules
+// taking away the direct read.
 //
 // No error here carries file content.  A decoder's own message often quotes the
 // line it failed on, and these messages reach the daemon log and `--check`, so
@@ -34,7 +31,7 @@ import (
 
 // The kinds, which are how a file is read rather than what it is called.
 const (
-	// KindText is the whole file, surrounding whitespace trimmed.  A keyfile or a
+	// KindText is the whole file, surrounding whitespace trimmed: a keyfile or a
 	// single-line token.
 	KindText = "text"
 	// KindBase64 is the whole file encoded, for one that is not text.  The value
@@ -48,13 +45,12 @@ const (
 	KindINI  = "ini"
 )
 
-// MaxBytes bounds a linked file.  A credential file is small, and a link
-// pointed at something else should fail rather than be read into the value set.
+// MaxBytes bounds a linked file: a credential file is small, and a link pointed
+// at something else should fail rather than be read into the value set.
 const MaxBytes = 1 << 20
 
-// Kinds is every kind, for the config parser's error message and its tests.
-// Ordered as declared rather than alphabetically: the whole-file kinds first,
-// then the ones that select.
+// Kinds is every kind, for the config parser's error message.  Ordered as
+// declared: the whole-file kinds first, then the ones that select.
 func Kinds() []string {
 	return []string{KindText, KindBase64, KindJSON, KindYAML, KindTOML, KindINI}
 }
@@ -141,9 +137,7 @@ func Extract(kind, key string, data []byte) (string, error) {
 		kind, strings.Join(Kinds(), ", "))
 }
 
-// KeysIn is Keys against a file, read through the same bound Read uses: a link
-// pointed at something too large to be a credential must not be read whole to
-// enumerate it either.
+// KeysIn is Keys against a file, read through the same bound Read uses.
 func KeysIn(path, kind string) ([]string, error) {
 	data, err := readBounded(path)
 	if err != nil {
@@ -153,10 +147,8 @@ func KeysIn(path, kind string) ([]string, error) {
 }
 
 // Keys is every selector this file offers, for the message an operator gets
-// when theirs named nothing.  Names only: a key is not a value, and printing
-// the values would defeat the whole arrangement.
-//
-// Sorted, and empty for the whole-file kinds, which select nothing.
+// when theirs named nothing.  Names only, never values.  Sorted, and empty for
+// the whole-file kinds.
 func Keys(kind string, data []byte) []string {
 	var tree any
 	switch kind {
@@ -270,13 +262,12 @@ func selectPath(tree any, key string) (string, error) {
 }
 
 // splitSelector cuts a selector into segments on unescaped "/", and unescapes
-// the rest.  A key that holds a slash is what makes this necessary: a container
-// registry file names its entries by URL, so an unescaped `auths/https://…/auth`
-// walks four levels that are not there.  Escaped, it names the two that are.
+// the rest.  A key that holds a slash makes this necessary: a container
+// registry file names its entries by URL, so an unescaped
+// `auths/https://…/auth` walks four levels that are not there.
 //
-// The whole-file kinds and ini do not come through here.  ini matches a key
-// whole, so a slash in one is already literal, and escaping it would break the
-// npm registry keys that are the reason ini is a kind at all.
+// The whole-file kinds and ini do not come through here: ini matches a key
+// whole, so a slash in one is already literal.
 func splitSelector(key string) []string {
 	segments := []string{}
 	var current strings.Builder
@@ -284,8 +275,8 @@ func splitSelector(key string) []string {
 	for _, r := range key {
 		switch {
 		case escaped:
-			// Only "/" and the escape itself are special.  An escape before anything
-			// else is a literal backslash, so a Windows path is not rejected for one.
+			// Only "/" and the escape itself are special; an escape before anything
+			// else is a literal backslash.
 			if r != '/' && r != '\\' {
 				current.WriteRune('\\')
 			}
@@ -318,7 +309,7 @@ func escapeSegment(segment string) string {
 func parentOf(walked string) string {
 	// Through the selector spelling rather than the last "/" byte: walked is
 	// already escaped, so a key holding a slash would otherwise be cut inside
-	// itself and the error would name a parent nobody wrote.
+	// itself.
 	segments := splitSelector(walked)
 	if len(segments) < 2 {
 		return "the file"
@@ -330,9 +321,9 @@ func parentOf(walked string) string {
 	return strings.Join(parts, "/")
 }
 
-// scalar converts a selected leaf, refusing what is never a credential.  The
-// same rule the keeper applies when it flattens: a bool would put "true" in the
-// value set and redact half the output.
+// scalar converts a selected leaf, refusing what is never a credential: the
+// same rule the keeper applies when it flattens, a bool putting "true" in the
+// value set and redacting half the output.
 func scalar(node any, key string) (string, error) {
 	switch value := node.(type) {
 	case string:
@@ -356,28 +347,23 @@ func scalar(node any, key string) (string, error) {
 	return "", fmt.Errorf("%s is a table or a list, not a value", key)
 }
 
-// selectINI reads `key = value` lines, which is the shape of .npmrc, .netrc's
-// relatives and most tool dotfiles.  A `[section]` header prefixes the keys
-// under it, so the selector is "section/key" there and a bare key elsewhere.
+// selectINI reads `key = value` lines, which is the shape of .npmrc and most
+// tool dotfiles.  A `[section]` header prefixes the keys under it, so the
+// selector is "section/key" there and a bare key elsewhere.
 //
-// Deliberately small: no continuations, no interpolation, no duplicate-key
-// policy beyond first wins.  A file needing more than this is one the operator
-// should select out of with a different type.
-//
-// Unescaped, unlike the tree kinds: a selector here is one key matched whole,
-// which is what lets npm's `//registry.npmjs.org/:_authToken` be given as it is
-// written.  The cost is that a slash in a section or a key can make two
-// different entries read alike, and that case is refused below rather than
-// guessed at.
+// Deliberately small: no continuations, no interpolation, and first wins on a
+// duplicate key.  Unescaped, unlike the tree kinds, so npm's
+// `//registry.npmjs.org/:_authToken` is given as it is written; the cost is
+// that a slash in a section or a key can make two entries read alike, which is
+// refused below.
 func selectINI(data []byte, key string) (string, error) {
 	if !utf8.Valid(data) {
 		return "", errors.New("not valid UTF-8")
 	}
-	// Every entry composing to this selector, by where it came from.  A file
-	// holding one key twice is the file's own ambiguity and INI's answer is first
-	// wins; two *different* entries composing alike is this package joining with
-	// "/", and choosing between them would be choosing which credential to
-	// inject.
+	// Every entry composing to this selector, by where it came from.  One key
+	// twice is the file's own ambiguity, which INI answers first-wins; two
+	// different entries composing alike is this package joining with "/", and
+	// choosing between them would be choosing which credential to inject.
 	origins := []string{}
 	value, found := "", false
 	section := ""

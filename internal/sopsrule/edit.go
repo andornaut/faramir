@@ -1,16 +1,15 @@
 package sopsrule
 
-// Writing the recipient list back, for the commands that manage who can read the
-// managed store.
+// Writing the recipient list back, for the commands that manage who can read
+// the managed store.
 //
 // A node tree rather than a re-render: the file carries comments, an escaped
-// path_regex and whatever indentation was chosen for it, and an operator who
-// opens it after an edit should find the file they had with one line different.
-// Marshalling a struct back would keep the recipients and throw the rest away.
+// path_regex and whatever indentation was chosen for it, and marshalling a
+// struct back would keep the recipients and throw the rest away.
 //
-// Every shape this refuses is one where "the recipient list" names more than one
-// list.  Editing either of two is a choice nobody made, and the half not edited
-// is what a later reseal seals the store to.
+// Every shape this refuses is one where "the recipient list" names more than
+// one list: editing either of two is a choice nobody made, and the half not
+// edited is what a later reseal seals the store to.
 
 import (
 	"bytes"
@@ -20,14 +19,12 @@ import (
 	yaml "go.yaml.in/yaml/v3"
 )
 
-// SetRecipients returns body with the creation rule's age recipients replaced by
-// want, and everything else in the file left as it was.
+// SetRecipients returns body with the creation rule's age recipients replaced
+// by want, and everything else in the file left as it was.
 //
-// The rule has to be unambiguous for this to mean anything, so the same shapes
-// [Load]'s callers refuse are refused here, plus the two that only a writer
-// cares about: more than one key group, and a group pulling in others by merge.
-// Both leave two answers to "which list is the recipient list", and a writer
-// that picked one would drop every reader named in the other at the next reseal.
+// The same shapes [Load]'s callers refuse are refused here, plus the two only a
+// writer cares about: more than one key group, and a group pulling in others by
+// merge.  Both leave two answers to "which list is the recipient list".
 func SetRecipients(body []byte, path string, want []string) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(body, &doc); err != nil {
@@ -80,9 +77,8 @@ func recipientList(doc *yaml.Node, path string) (*yaml.Node, error) {
 		return shorthand, nil
 	}
 	// sops reads the shorthand only where there are no key groups, so a file
-	// carrying both has a list that governs and a list that does not.  Editing the
-	// one that governs would leave the other behind saying something else, which is
-	// what the next reader of this file goes by.
+	// carrying both has a list that governs and a list that does not, and the
+	// second is what the next reader of this file may go by.
 	if shorthand != nil {
 		return nil, fmt.Errorf("%s has both 'age' and 'key_groups' in one rule, and "+
 			"sops reads the key groups alone: remove the 'age:' line so there is one "+
@@ -176,9 +172,8 @@ func Add(body []byte, path, recipient string) (out []byte, added bool, err error
 	return out, err == nil, err
 }
 
-// Remove returns body without recipient, and reports whether it was there.
-//
-// The last one is refused: a rule naming nobody encrypts to nobody, and sops
+// Remove returns body without recipient, and reports whether it was there.  The
+// last one is refused: a rule naming nobody encrypts to nobody, and sops
 // reports that only when the next file is written.
 func Remove(body []byte, path, recipient string) (out []byte, removed bool, err error) {
 	current, err := recipientsOfBody(body, path)

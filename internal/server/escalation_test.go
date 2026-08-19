@@ -101,15 +101,11 @@ func TestEscalationAddsNothingToTheValueSet(t *testing.T) {
 
 // While one command holds an escalation, opExec refuses a second with
 // `escalation_in_progress` rather than running it: the two share the executor's
-// uid, so the new one would be a route to the root approved for the first.  This
-// is the wiring of the serialization the escalation server enforces, checked
-// through real dispatch.
+// uid, so the new one would be a route to the root approved for the first.
 //
-// Its own code rather than `busy`, and the difference is the point: `busy`
-// invites a retry, and a caller retrying against a live escalation is one polling
-// the exact interval the serialization exists to protect.  The code names the
-// host's state rather than the request's, so nothing in it can be read as this
-// command having been queued.
+// Its own code rather than `busy`: `busy` invites a retry, and a caller
+// retrying against a live escalation is one polling the exact interval the
+// serialisation exists to protect.
 func TestAnEscalationHoldsOtherCommands(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
@@ -264,12 +260,11 @@ func errorDetail(response protocol.Response) string {
 }
 
 // askInBackground puts the question from a goroutine, Ask being the blocked
-// sudo's call, and returns the channel it answers on.
-//
-// The test does not end until Ask has returned: it writes its audit record
-// after the answer, and a write that lands while the test's temporary directory
-// is being removed fails the test.  The escalation server is stopped first, so a
-// test that ended without answering does not park the wait forever.
+// sudo's call, and returns the channel it answers on.  The test does not end
+// until Ask has returned, its audit record being written after the answer and a
+// write landing during cleanup failing the test.  The escalation server is
+// stopped first, so a test that ended without answering does not park the wait
+// forever.
 func askInBackground(t *testing.T, s *Server, token string) <-chan bool {
 	t.Helper()
 	granted := make(chan bool, 1)

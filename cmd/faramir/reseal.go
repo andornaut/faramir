@@ -1,14 +1,14 @@
 package main
 
 // Re-encrypting the managed store to what `.sops.yaml` says, which is the
-// second half of every recipient change and the whole of `recipient
-// reseal`.  What that is for is docs/operating.md.
+// second half of every recipient change and the whole of `recipient reseal`.
+// What that is for is docs/operating.md.
 //
 // It walks the managed files rather than leaving the operator to run `sops
 // updatekeys` per file, which rewrites in place with no regard for ownership: a
 // managed file that stops being readable by the secrets group is one the keeper
 // cannot open.  Ownership is preserved by the same writeBack an edit uses, and
-// each file is recorded in the audit log the way an edit is.
+// each file is recorded in the audit log.
 //
 // It runs as root for the same reason edit does: the age key is readable by the
 // keeper and by root, and re-encrypting means decrypting first.
@@ -42,17 +42,14 @@ type storeContext struct {
 // exit code where the run cannot proceed, having already said why.
 //
 // label is how the command names itself in its messages, so an operator reading
-// a failure sees the command they ran rather than the one that happens to hold
-// this code.
-// emptyStoreOK says whether a store naming no file yet is a reason to stop.  It
-// is for `reseal`, whose whole job is files, and is not for a recipient change:
-// the rule governs what sops writes from now on, so changing it on a host whose
-// first secret has not been written is not only valid, it is when an operator
-// who missed --recipient at install has to do it.
+// a failure sees the command they ran.  emptyStoreOK says whether a store
+// naming no file yet is a reason to stop: it is for `reseal`, whose whole job
+// is files, and not for a recipient change, the rule governing what sops writes
+// from now on.
 func loadStore(label, configPath, socket string, named []string,
 	emptyStoreOK bool) (*storeContext, int) {
 	// Refused rather than attempted, like edit: as the operator this fails on the
-	// age key with a bare permission error, and the fix is not obvious from it.
+	// age key with a bare permission error.
 	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
 		return nil, 1
 	}
@@ -68,16 +65,15 @@ func loadStore(label, configPath, socket string, named []string,
 		return nil, 1
 	}
 
-	// Both kinds together: this is a diagnostic printed when the named file is
-	// not among the managed ones, and the operator wants every reason.
+	// Both kinds together: this is printed when the named file is not among the
+	// managed ones, and the operator wants every reason.
 	managed, failures, absent := keeper.Resolve(cfg.Secret.Patterns)
 	unresolvable := slices.Concat(failures, absent)
 	targets, err := resealTargets(managed, named)
 	if err != nil && emptyStoreOK && errors.Is(err, errNoFilesToReseal) {
-		// Said once, and the per-pattern reasons dropped with it.  Each of those is
-		// "this glob matched nothing", which is the same fact three times and reads
-		// as three problems on a host whose first secret has simply not been
-		// written yet.
+		// Said once, and the per-pattern reasons dropped with it: each is "this glob
+		// matched nothing", which reads as three problems on a host whose first
+		// secret has not been written.
 		fmt.Fprintf(os.Stderr, "faramir %s: the managed store names no file yet, so "+
 			"there is nothing to re-encrypt; the rule governs what sops writes from "+
 			"now on\n", label)
@@ -95,19 +91,16 @@ func loadStore(label, configPath, socket string, named []string,
 		return nil, 1
 	}
 	// Reported even when enough resolved to proceed, unlike edit, which opens the
-	// one file it was asked for.  Here a pattern that named nothing is a managed
-	// file this run did not reach, and none may be left behind.
+	// one file it was asked for: here a pattern that named nothing is a managed
+	// file this run did not reach.
 	for _, reason := range unresolvable {
 		fmt.Fprintf(os.Stderr, "faramir %s: not reached: %s\n", label, reason)
 	}
 
-	// This install's own rule, and no flag naming another.  What these commands
-	// are for is making the ciphertext agree with what <config-dir>/.sops.yaml
-	// says, so a run sealing the secrets directory to some other file's recipients
-	// produces the state they exist to remove: a host whose ciphertext and whose
-	// rule name different readers, with `doctor` and every file sops creates from
-	// then on still reading the rule.  --config moves the whole install, which is
-	// the honest way to act on another one.
+	// This install's own rule, and no flag naming another: these commands make
+	// the ciphertext agree with <config-dir>/.sops.yaml, so a run sealing the
+	// secrets directory to another file's recipients produces the state they
+	// exist to remove.  --config moves the whole install.
 	return &storeContext{
 		cfg:      cfg,
 		keyPath:  keyPath,
@@ -117,23 +110,16 @@ func loadStore(label, configPath, socket string, named []string,
 }
 
 // errNoFilesToReseal is errNoManagedFiles said for this command: nothing to
-// re-encrypt rather than nothing to open, which is `edit`'s sentence and belongs
-// to `edit`.
+// re-encrypt rather than nothing to open.
 var errNoFilesToReseal = errors.New("no managed sops files: the managed store " +
 	"named none, so there is nothing to re-encrypt. Write the first one with " +
 	"`faramir vault add NAME`")
 
 // ageKeyPath is the key a run decrypts with: the install's own, beside its
-// config, and no flag names another.
-//
-// Naming another would be naming which key keeperStaysAReader checks, that
-// check reading whichever key it is handed.  A run pointed at a second identity
-// could then take the host's own key out of the rule and reseal the store
-// without it, and no re-run undoes that.
-//
-// What it would have been for is a host holding ciphertext it cannot read, and
-// that does not arise where the thing backed up is the config directory: the key
-// comes back with the files it opens.
+// config, and no flag names another.  A flag would name which key
+// keeperStaysAReader checks, so a run pointed at a second identity could take
+// the host's own key out of the rule and reseal the store without it, which no
+// re-run undoes.
 func ageKeyPath(cfg *config.Config) string {
 	return filepath.Join(filepath.Dir(cfg.Path), "age.key")
 }
@@ -149,13 +135,10 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 	for _, target := range targets {
 		was, err := sopsrule.SealedTo(target)
 		if err != nil {
-			// Recorded like every other outcome of this loop.  A file this run could
-			// not read is one it did not reach, and a log that says nothing about it
-			// reads as a reseal that covered the whole secrets directory.
-			//
-			// Not on a dry run, which writes nothing at all: the log is a record of
-			// what a run did to this host, and a run that was asked to do nothing did
-			// nothing to it.
+			// Recorded like every other outcome of this loop: a file this run could
+			// not read is one it did not reach, and a log silent about it reads as a
+			// reseal that covered the whole secrets directory.  Not on a dry run,
+			// which does nothing to this host.
 			if !dryRun {
 				log.Write(map[string]any{
 					"op": opReseal, "log_id": audit.NewLogID(), "file": target,
@@ -180,8 +163,8 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 
 		err = reencrypt(store.keyPath, store.rulePath, wanted, target)
 		// One record per file, naming the recipients on both sides and never the
-		// values: who can read the secrets directory is exactly what an operator
-		// needs the log to be able to answer afterwards.
+		// values: who can read the secrets directory is what an operator needs the
+		// log to answer afterwards.
 		record := map[string]any{
 			"op": opReseal, "log_id": audit.NewLogID(), "file": target,
 			"from": was, "to": wanted,
@@ -201,9 +184,8 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 		changed++
 	}
 
-	// Named rather than left implicit: a reseal that reached only some of the files
-	// is the state an operator has to know about, because the rest is still sealed
-	// to the old recipients.
+	// Named rather than left implicit: a reseal that reached only some of the
+	// files leaves the rest sealed to the old recipients.
 	if failed > 0 {
 		fmt.Fprintf(os.Stderr, "faramir %s: %d of %d file(s) could not be re-encrypted; "+
 			"those still open to the recipients they had\n", label, failed, len(targets))
@@ -220,12 +202,10 @@ func resealStore(label string, store *storeContext, wanted []string, dryRun bool
 	return 0
 }
 
-// resealTargets is every managed file, or just the ones named.
-//
-// Naming none is the command's usual shape, so it is the default; naming
-// some is for a secrets directory where one file is meant to stay as it is.
-// Either way a path that is not managed is refused by resolveManaged, so a
-// reseal cannot walk out of the secrets directory.
+// resealTargets is every managed file, or just the ones named, which is for a
+// secrets directory where one file is meant to stay as it is.  Either way a
+// path that is not managed is refused by resolveManaged, so a reseal cannot
+// walk out of the secrets directory.
 func resealTargets(managed, named []string) ([]string, error) {
 	if len(named) == 0 {
 		if len(managed) == 0 {
@@ -247,12 +227,9 @@ func resealTargets(managed, named []string) ([]string, error) {
 }
 
 // ruleRecipients reads who .sops.yaml says a managed file should be encrypted
-// to.
-//
-// One creation rule only.  The shipped file has exactly one, matching any
-// *.sops.yml wherever it sits, so every managed file is governed by the same
-// list.  With two rules the answer depends on which one a path matches, which is
-// a path_regex question this cannot answer, so it refuses rather than
+// to.  One creation rule only: the shipped file has exactly one, matching any
+// *.sops.yml wherever it sits.  With two the answer depends on which path_regex
+// a file matches, which this cannot answer, so it refuses rather than
 // re-encrypting half the secrets directory to the wrong set.
 func ruleRecipients(path string) ([]string, error) {
 	body, err := os.ReadFile(path)
@@ -263,9 +240,8 @@ func ruleRecipients(path string) ([]string, error) {
 }
 
 // ruleRecipientsFrom is ruleRecipients for a caller holding the bytes, which is
-// what a command that has just edited the rule and not yet written it has.
-// Judging the edit before it lands is the point: a rule this refuses is one the
-// file should never come to hold.
+// what a command that has edited the rule and not yet written it has: a rule
+// this refuses is one the file should never come to hold.
 func ruleRecipientsFrom(body []byte, path string) ([]string, error) {
 	rules, err := sopsrule.Parse(body, path)
 	if err != nil {
@@ -277,12 +253,10 @@ func ruleRecipientsFrom(body []byte, path string) ([]string, error) {
 			"per file, which is the only thing that can answer it", path, len(rules))
 	}
 	for _, rule := range rules {
-		// A split data key is refused rather than flattened.  shamir_threshold means
-		// N of the key groups have to come together to open the file, and this
-		// re-encrypts to one list of recipients, which is one group holding every
-		// key: any one of them would then open what took N of them before.  That is
-		// the same mistake as widening the recipient list, made to a rule that was
-		// written to narrow it.
+		// A split data key is refused rather than flattened: shamir_threshold means
+		// N key groups have to come together to open the file, and this re-encrypts
+		// to one list of recipients, so any one of them would open what took N
+		// before.
 		if rule.ShamirThreshold > 0 {
 			return nil, fmt.Errorf("%s sets shamir_threshold, so the data key is "+
 				"split across key groups and %d of them are needed together: "+
@@ -300,12 +274,10 @@ func ruleRecipientsFrom(body []byte, path string) ([]string, error) {
 }
 
 // keeperStaysAReader refuses a rule that leaves out the key this host decrypts
-// with.
-//
-// The recipients are public keys, so the check is the public half of the age
-// key against the list.  Getting this wrong is not recoverable by re-running:
-// the files would already be sealed to a set that no longer includes the only
-// identity on the host.
+// with.  The recipients are public keys, so the check is the public half of the
+// age key against the list.  Getting it wrong is not recoverable by re-running:
+// the files would already be sealed to a set without the only identity on the
+// host.
 func keeperStaysAReader(keyPath string, wanted []string, rulePath string) error {
 	recipient, err := agekey.Recipient(keyPath)
 	if err != nil {
@@ -320,13 +292,11 @@ func keeperStaysAReader(keyPath string, wanted []string, rulePath string) error 
 		rulePath, recipient, keyPath)
 }
 
-// reencrypt rewrites one managed file, sealed to the given recipients.
-//
-// The plaintext goes through a 0600 file in a tmpfs rather than through this
-// process's memory and back, because sops encrypts a file and takes its name:
-// the file's own name is what decides its format, so the copy keeps it.  Which
-// creation rule governs it is settled by --filename-override rather than by
-// where the copy sits; see sealTo.
+// reencrypt rewrites one managed file, sealed to the given recipients.  The
+// plaintext goes through a 0600 file in a tmpfs because sops encrypts a file
+// and takes its name, which is what decides its format, so the copy keeps it.
+// Which creation rule governs it is settled by --filename-override; see
+// sealTo.
 func reencrypt(keyPath, rulePath string, recipients []string, target string) error {
 	decrypted, err := runSops(keyPath, rulePath, "--decrypt", target)
 	if err != nil {

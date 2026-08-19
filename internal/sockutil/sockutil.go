@@ -52,8 +52,7 @@ func RetryAccept(err error, delay time.Duration) (time.Duration, bool) {
 
 // bindMode is the mode a self-bound socket gets.  Not configurable: under
 // systemd the .socket unit's SocketMode= decides and this path is never
-// reached, so a config key for it described a socket rather than choosing one,
-// and `--check` reading that key tested a value systemd had already overruled.
+// reached, so a config key would describe a socket rather than choose one.
 const bindMode = 0o660
 
 // Listen uses the systemd-passed socket if present, else binds its own.
@@ -83,13 +82,10 @@ func Listen(path string) (net.Listener, error) {
 			return nil, err
 		}
 	}
-	// Bind under a umask that yields bindMode: a socket created world-writable and
-	// narrowed afterwards is reachable in between.
-	//
-	// ListenConfig rather than net.Listen, and the background context rather than
-	// one of the caller's: a unix bind resolves nothing and connects to nothing,
-	// so there is no wait for a context to cut short.  What bounds this is the
-	// umask around it.
+	// Bind under a umask that yields bindMode: a socket created world-writable
+	// and narrowed afterwards is reachable in between.  ListenConfig with a
+	// background context, a unix bind resolving nothing and connecting to
+	// nothing.
 	previous := unix.Umask(0o777 &^ int(bindMode))
 	ln, err := (&net.ListenConfig{}).Listen(context.Background(), "unix", path)
 	unix.Umask(previous)
@@ -100,8 +96,8 @@ func Listen(path string) (net.Listener, error) {
 		_ = ln.Close()
 		return nil, err
 	}
-	// Go unlinks on Close, which is right for a self-bound socket and wrong for an
-	// activated one; that branch returns above.
+	// Go unlinks on Close, which is right for a self-bound socket and wrong for
+	// an activated one; that branch returns above.
 	log.Printf("listening on %s", path)
 	return ln, nil
 }
@@ -136,12 +132,10 @@ func PeerCred(conn net.Conn) (*Peer, error) {
 	return &Peer{PID: cred.Pid, UID: int32(cred.Uid), GID: int32(cred.Gid)}, nil
 }
 
-// Allowed is the authorisation every faramir socket uses: our own uid, root,
-// the named account, or membership of the named group.  Either name may be
-// empty, which is a check that does not apply rather than one that passes.
-//
-// One of each, not a list of each: every socket here admits one account or one
-// group, and init derives both from a flag.
+// Allowed is the authorisation every faramir socket uses: this process's own
+// uid, root, the named account, or membership of the named group.  Either name
+// may be empty, which is a check that does not apply rather than one that
+// passes.  One of each, every socket here admitting one account or one group.
 //
 // Accounts are named, never numbered: a uid stops matching once a reinstall
 // renumbers the account.
@@ -164,8 +158,7 @@ func Allowed(peer *Peer, account, group string) bool {
 }
 
 // AllowedUser is Allowed without a group, for the two internal sockets: each
-// has exactly one legitimate client and names it.  No group form, the only
-// group in play holding the agent's own uid.
+// has exactly one legitimate client and names it.
 func AllowedUser(peer *Peer, account string) bool {
 	return Allowed(peer, account, "")
 }
@@ -206,7 +199,7 @@ func groupMembers(name string) []string {
 	return nil
 }
 
-// ReadLine reads one newline-terminated JSON payload, up to limit bytes. It
+// ReadLine reads one newline-terminated JSON payload, up to limit bytes.  It
 // returns nil with no error when the peer sent nothing usable.
 func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 	buf := make([]byte, 0, 4096)
@@ -240,13 +233,10 @@ func ReadLine(conn net.Conn, limit int) ([]byte, error) {
 
 var ErrTooLarge = errors.New("request too large")
 
-// LineReader reads successive payloads from one connection.
-//
-// ReadLine discards whatever its last read pulled in past the newline, which is
-// right for a connection carrying one request and wrong for one carrying a
-// stream of them: those bytes are the start of the next payload.  Keeping the
-// buffer here is what lets a second call see them, so a peer that writes two
-// payloads before either is read does not lose the second.
+// LineReader reads successive payloads from one connection.  ReadLine discards
+// whatever its last read pulled in past the newline, which for a stream is the
+// start of the next payload; keeping the buffer here is what lets a second call
+// see it.
 type LineReader struct {
 	reader *bufio.Reader
 	limit  int
