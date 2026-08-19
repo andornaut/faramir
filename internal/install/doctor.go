@@ -376,10 +376,11 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 			"encrypts a new file in the secrets directory to nobody and refuses", path)
 		return
 	}
-	// The file is 0644 and a recipient added after install is typed into it by
-	// hand, so a private half pasted here is the key to the secrets directory,
-	// readable by every account.  Asked first, the rest assuming entries that at
-	// least parse as recipients.
+	// The file is 0644, so root can edit it directly, and nothing on that path
+	// looks at what was typed: `faramir recipient add` validates a key and a hand
+	// edit does not.  A private half pasted here is the key to the secrets
+	// directory, readable by every account.  Asked first, the rest assuming
+	// entries that at least parse as recipients.
 	if !recipientsAreWellFormed(report, listed, path) {
 		return
 	}

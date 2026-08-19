@@ -174,9 +174,9 @@ type Report struct {
 	// BrokerPublicKey has to be in authorized_keys on every managed host.
 	// Reported every run, not only when it was generated.
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
-	// AgeRecipients is who can decrypt the managed files, read back from
-	// .sops.yaml rather than assumed: `faramir recipient add` writes that file
-	// too.  Empty when it could not be read.
+	// AgeRecipients is who can decrypt the managed files: what .sops.yaml lists,
+	// read back on every run but the one that writes the file, which reports what
+	// it just sealed the store to.  Empty when the file could not be read.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
 }
 

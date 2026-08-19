@@ -199,10 +199,10 @@ probe "the sops config removed" "sops config" warn \
   "mv /etc/faramir/.sops.yaml /tmp/sops.bak" \
   "mv /tmp/sops.bak /etc/faramir/.sops.yaml"
 
-# .sops.yaml is 0644 and the documented way to add a recipient is to edit it by
-# hand, so nothing between the operator and the file looks at what was typed.
-# An identity written where a recipient belongs is the key that opens the store,
-# readable by every account on this host.
+# .sops.yaml is 0644, so root can edit it directly, and nothing on that path
+# looks at what was typed: `faramir recipient add` validates a key and a hand
+# edit does not.  An identity written where a recipient belongs is the key that
+# opens the store, readable by every account on this host.
 cp /etc/faramir/.sops.yaml /tmp/sops-baseline.yaml
 probe "an age identity pasted where a recipient belongs" "sops config" failed \
   'printf "creation_rules:\n  - path_regex: .*\n    key_groups:\n      - age:\n          - AGE-SECRET-KEY-1QQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQQ\n" > /etc/faramir/.sops.yaml' \
