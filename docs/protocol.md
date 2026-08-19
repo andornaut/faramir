@@ -19,11 +19,14 @@ Every request on all three sockets carries `version`, the version string the sen
 There is one binary: the three daemons are it under three units, and the CLI and the MCP server are it as the agent's own processes. Two versions on one host is therefore a process that outlived the install which replaced the binary under it, and the refusal names that.
 
 ```json
-{"error": {"code": "bad_request",
+{"version": "0.6.0",
+ "error": {"code": "bad_request",
            "message": "the caller names faramir 0.1.4 and this is faramir 0.6.0:
                        restart it. An MCP server is a child of the coding agent, so
                        it is reconnected there rather than restarted on its own"}}
 ```
+
+Every error response from the broker carries `version`, the build that answered. A request refused for naming another version is the one case where the caller cannot read that out of an op, the refusal coming before the op is read, and it is what [`doctor`](operating.md#checking-an-install) reports skew from.
 
 A caller that sends no `version` is refused the same way and told it named none. The alternative is failing later on whichever op or field changed in between: an op the daemon no longer has is refused as unknown, which reads as a caller asking for something that never existed, and a field it no longer reads is ignored, so a setting the caller sent goes silently unapplied.
 

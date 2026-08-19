@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/install"
+	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // statusBroker answers the status op with the given config list, the body being
@@ -135,5 +137,57 @@ func TestTheUnitReaderTakesTheDropInTheDaemonsLoad(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "absent.sock")
 	if got := resolveConfigDir("", missing); got != "/srv/faramir" {
 		t.Errorf("resolveConfigDir = %q, want the directory the daemons load", got)
+	}
+}
+
+// refusingBroker answers every request the way a daemon of another release
+// does: the op is never read, so there is no body, and the response names the
+// build that answered, which here is this one.
+func refusingBroker(t *testing.T) string {
+	t.Helper()
+	socketPath := filepath.Join(t.TempDir(), "b.sock")
+	listener, err := (&net.ListenConfig{}).Listen(t.Context(), "unix", socketPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close(); _ = os.Remove(socketPath) })
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer func() { _ = conn.Close() }()
+				if _, err := sockutil.ReadLine(conn, 1<<20); err != nil {
+					return
+				}
+				_ = sockutil.Send(conn, protocol.ErrorResponse(
+					"bad_request", version.Mismatch("0.0.1"), ""))
+			}()
+		}
+	}()
+	return socketPath
+}
+
+// Skew is the one state where the broker refuses the very question that would
+// report it, the version being checked before the op is read. The refusal names
+// the build that answered, so it is the answer: taken any other way, `doctor`
+// reports a broker that said nothing, which is a warning naming no build and is
+// what a stopped install looks like.
+func TestAskBrokerTakesTheVersionFromARefusal(t *testing.T) {
+	// The fixture answers as this build, which is what a running broker of
+	// another release is to the binary asking.
+	got := askBroker(refusingBroker(t))
+	if got.version != version.Version {
+		t.Errorf("askBroker version = %q, want %q from the refusal",
+			got.version, version.Version)
+	}
+	// There is no status body in a refusal, so nothing may be claimed about
+	// where that broker's config sits: discoverConfigFile reads the unit.
+	if got.configDir != "" {
+		t.Errorf("askBroker configDir = %q, want empty: a refusal carries no body",
+			got.configDir)
 	}
 }

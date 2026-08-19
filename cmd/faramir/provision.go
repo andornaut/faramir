@@ -61,10 +61,21 @@ func askBroker(socketPath string) status {
 	}
 	// The status body is itself JSON, carried as the response's output string.
 	var response struct {
-		Output string `json:"output"`
+		Output  string `json:"output"`
+		Version string `json:"version"`
+		Error   *struct {
+			Code string `json:"code"`
+		} `json:"error"`
 	}
 	if err := json.Unmarshal(line, &response); err != nil {
 		return status{}
+	}
+	// A broker of another release refuses this before it reads the op, so the
+	// refusal is the answer: what refused names the build that is running, and
+	// there is no status body to read. Reported as skew rather than as a broker
+	// that said nothing.
+	if response.Error != nil {
+		return status{version: response.Version}
 	}
 	var body struct {
 		Configs []string `json:"configs"`

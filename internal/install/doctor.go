@@ -838,6 +838,9 @@ func diagnoseUnits(report *DoctorReport, opts DoctorOptions) {
 func diagnoseVersion(report *DoctorReport, opts DoctorOptions) {
 	switch {
 	case opts.BrokerVersion == "":
+		// A broker that is running answers this even when it refuses the
+		// request for naming another version, every error naming the build
+		// that answered, so nothing here is a broker that is not up.
 		report.unaskedf("version", 1, "the broker did not answer, so which build "+
 			"is running is unknown; this binary is %s", version.Version)
 	case opts.BrokerVersion != version.Version:

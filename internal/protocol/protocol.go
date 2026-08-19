@@ -329,6 +329,11 @@ type Response map[string]any
 
 // ErrorResponse builds the failure shape. logID may be empty, which encodes as
 // JSON null.
+//
+// Every failure names the version of the binary answering, because a request
+// refused for naming another version is the one case where the caller cannot
+// read the answer out of any op: the refusal comes before the op is read. It is
+// what `doctor` reports skew from.
 func ErrorResponse(code, message, logID string) Response {
 	var id any
 	if logID != "" {
@@ -340,6 +345,7 @@ func ErrorResponse(code, message, logID string) Response {
 		"truncated":  false,
 		"redactions": []any{},
 		"log_id":     id,
+		"version":    version.Version,
 		"error":      map[string]string{"code": code, "message": message},
 	}
 }
