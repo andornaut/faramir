@@ -56,7 +56,6 @@ const watchPoll = 500 * time.Millisecond
 type logsFlags struct {
 	configPath string
 	count      int
-	socket     string
 	asJSON     bool
 	watch      bool
 	when       string
@@ -73,7 +72,6 @@ func newLogsCmd() *cobra.Command {
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().IntVarP(&f.count, "count", "n", defaultLogCount, "how many recent records to list")
-	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	c.Flags().BoolVar(&f.asJSON, "json", false, "print the records as JSON")
 	c.Flags().BoolVar(&f.watch, "watch", false, "keep printing records as they are appended")
 	c.Flags().StringVar(&f.when, "color", "auto", "colourise: auto, always or never")
@@ -104,7 +102,7 @@ func runLogs(f logsFlags, args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
 		return 1

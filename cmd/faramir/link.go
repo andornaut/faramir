@@ -33,7 +33,6 @@ func newLinkCmd() *cobra.Command {
 
 type linkFlags struct {
 	configPath string
-	socket     string
 	agentUser  string
 	kind       string
 	key        string
@@ -46,8 +45,6 @@ func (f *linkFlags) register(c *cobra.Command) {
 	// the other provisioning commands that take one spell it this way.
 	fl.StringVar(&f.configPath, "config-dir", "",
 		"the install to act on (default: where the running broker says it is)")
-	fl.StringVar(&f.socket, "socket", socketDefault(),
-		"broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	fl.StringVar(&f.agentUser, "agent-user", "",
 		"account the coding agent runs as (default $SUDO_USER, then you)")
 }
@@ -211,7 +208,7 @@ func installOptions(f linkFlags) install.Options {
 }
 
 func installConfigDir(f linkFlags) string {
-	return resolveConfigDir(f.configPath, f.socket)
+	return resolveConfigDir(f.configPath, socketDefault())
 }
 
 // printLinkReport prints what changed, the steps having already been logged as

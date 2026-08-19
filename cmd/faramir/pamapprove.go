@@ -60,7 +60,6 @@ func runPamApproveCommand(args []string) int {
 }
 
 type pamApproveFlags struct {
-	socket  string
 	account string
 }
 
@@ -77,10 +76,18 @@ func newPamApproveCmd(granted *bool) *cobra.Command {
 			return codeErr(runPamApprove(f, granted))
 		},
 	}
-	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask")
 	c.Flags().StringVar(&f.account, "account", "", "the account this PAM service is for")
 	return c
 }
+
+// pamSocket is the broker this helper asks, and it is the compiled-in path
+// rather than socketDefault(): every other subcommand lets $FARAMIR_SOCKET move
+// it, and this one runs inside the sudo of the account being decided about,
+// whose environment pam_exec hands the module unchanged.  A broker named there
+// is a broker that caller could have started, and it would answer "approved" to
+// every question it was asked.  There is no flag either, for the same reason one
+// path and one socket is the whole of it.
+func pamSocket() string { return defaultSocket }
 
 func runPamApprove(f pamApproveFlags, granted *bool) int {
 	// PAM_TYPE and PAM_USER come from pam_exec.  Checked, so a service file that
@@ -106,7 +113,7 @@ func runPamApprove(f pamApproveFlags, granted *bool) int {
 			"so there is nothing for the broker to approve")
 		return 1
 	}
-	approved, reason, err := askBrokerToApprove(f.socket, token)
+	approved, reason, err := askBrokerToApprove(pamSocket(), token)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir pam-approve: %v\n", err)
 		return 1

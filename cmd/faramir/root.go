@@ -82,8 +82,8 @@ func newRootCmd() *cobra.Command {
 		Short: "A secrets broker for local AI coding agents",
 		Long: "A secrets broker for local AI coding agents: it runs the commands that need\n" +
 			"credentials and keeps the values out of the agent's context.\n\n" +
-			"Every command that talks to the broker accepts --socket PATH (default\n" +
-			"$FARAMIR_SOCKET, else " + defaultSocket + ") and --json.\n\n" +
+			"Every command that talks to the broker finds it at $FARAMIR_SOCKET, else\n" +
+			defaultSocket + ", and accepts --json.\n\n" +
 			"Name secrets with --env NAME=faramir://ref, or --env-file for a file of them.\n\n" +
 			"Secrets are injected as environment variables only; they are never substituted\n" +
 			"into the command line.",

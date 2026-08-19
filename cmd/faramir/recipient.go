@@ -55,7 +55,6 @@ func newRecipientCmd() *cobra.Command {
 type recipientFlags struct {
 	configPath string
 	dryRun     bool
-	socket     string
 	json       bool
 }
 
@@ -63,8 +62,6 @@ func (f *recipientFlags) register(c *cobra.Command, writes bool) {
 	fl := c.Flags()
 	fl.StringVarP(&f.configPath, "config", "c", "",
 		"config file (default $FARAMIR_CONFIG, then the installed one)")
-	fl.StringVar(&f.socket, "socket", socketDefault(),
-		"broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	if !writes {
 		fl.BoolVar(&f.json, "json", false, "print the recipients as JSON")
 		return
@@ -145,7 +142,7 @@ func newRecipientResealCmd() *cobra.Command {
 // stands and the store is brought to it.
 func runReseal(f recipientFlags, args []string) int {
 	const label = "recipient reseal"
-	store, code := loadStore(label, f.configPath, f.socket, args, false)
+	store, code := loadStore(label, f.configPath, socketDefault(), args, false)
 	if store == nil {
 		return code
 	}
@@ -183,7 +180,7 @@ func runRecipientChange(f recipientFlags, recipient string, adding bool) int {
 		}
 	}
 
-	store, code := loadStore(label, f.configPath, f.socket, nil, true)
+	store, code := loadStore(label, f.configPath, socketDefault(), nil, true)
 	if store == nil {
 		return code
 	}
@@ -309,7 +306,7 @@ func listedOrNot(adding bool) string {
 // broker, the question being who the store is sealed to rather than what is in
 // it.
 func runRecipientList(f recipientFlags) int {
-	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir recipient ls: %v\n", err)
 		return 1

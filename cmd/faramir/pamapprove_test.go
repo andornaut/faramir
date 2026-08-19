@@ -22,7 +22,19 @@ func pamApprove(t *testing.T, env map[string]string, args ...string) int {
 	for name, value := range env {
 		t.Setenv(name, value)
 	}
-	return cmdPamApprove(append([]string{"--socket", noBroker}, args...))
+	return cmdPamApprove(args)
+}
+
+// The helper asks the installed broker and nothing else.  It runs inside the
+// sudo of the account it decides about, and pam_exec hands the module that
+// account's environment: a socket read from there is one the caller could have
+// bound itself, answering "approved" to everything.
+func TestThePamHelperTakesNoSocketFromTheEnvironment(t *testing.T) {
+	t.Setenv("FARAMIR_SOCKET", noBroker)
+	if got := pamSocket(); got != defaultSocket {
+		t.Errorf("the helper would ask %q: the environment moved the broker it "+
+			"asks, and the caller owns that environment", got)
+	}
 }
 
 // pam_exec runs a module for every stage of the stack it is named in.  This one

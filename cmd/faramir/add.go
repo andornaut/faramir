@@ -41,7 +41,6 @@ type addFlags struct {
 	configPath string
 	editor     string
 	from       string
-	socket     string
 }
 
 func newAddCmd() *cobra.Command {
@@ -64,8 +63,6 @@ func newAddCmd() *cobra.Command {
 	c.Flags().StringVar(&f.editor, "editor", "", "editor to run (default $VISUAL, $EDITOR, then vi)")
 	c.Flags().StringVar(&f.from, "from", "",
 		"encrypt this plaintext `FILE` instead of opening an editor; it is left where it is")
-	c.Flags().StringVar(&f.socket, "socket", socketDefault(),
-		"broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	return c
 }
 
@@ -74,7 +71,7 @@ func runAdd(f addFlags, name string) int {
 	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
 		return 1
 	}
-	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1

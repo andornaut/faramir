@@ -12,10 +12,10 @@ import (
 	"github.com/andornaut/faramir/internal/mcp"
 )
 
-// The plugins opencode and Kilo Code load, run.  The one piece of shipped logic
-// that is not Go, and it fails closed: a syntax error there is every command in
-// the project refusing to run.  Driven through node, skipped where it is
-// absent.
+// The plugins opencode and Kilo Code load, run, and pi's extension below them.
+// Shipped logic that is not Go, and it fails closed: a syntax error there is
+// every command in the project refusing to run.  Driven through node, skipped
+// where it is absent.
 
 // driver imports one plugin, calls its tool.execute.before, and prints what
 // happened.  Which export to call is an argument, the two differing.

@@ -52,7 +52,6 @@ type managedFile struct {
 
 type vaultListFlags struct {
 	configPath string
-	socket     string
 	json       bool
 }
 
@@ -71,8 +70,6 @@ func newVaultListCmd() *cobra.Command {
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "",
 		"config file (default $FARAMIR_CONFIG, then the installed one)")
-	c.Flags().StringVar(&f.socket, "socket", socketDefault(),
-		"broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	c.Flags().BoolVar(&f.json, "json", false, "print the listing as JSON")
 	return c
 }
@@ -85,7 +82,7 @@ func runVaultList(f vaultListFlags) int {
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
-	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
@@ -197,7 +194,6 @@ func refsIn(path string) ([]string, error) {
 
 type vaultRemoveFlags struct {
 	configPath string
-	socket     string
 	force      bool
 }
 
@@ -220,8 +216,6 @@ func newVaultRemoveCmd() *cobra.Command {
 	}
 	c.Flags().StringVarP(&f.configPath, "config", "c", "",
 		"config file (default $FARAMIR_CONFIG, then the installed one)")
-	c.Flags().StringVar(&f.socket, "socket", socketDefault(),
-		"broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	c.Flags().BoolVar(&f.force, "force", false,
 		"do not ask; the file and every value in it go without confirmation")
 	return c
@@ -232,7 +226,7 @@ func runVaultRemove(f vaultRemoveFlags, name string) int {
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1
 	}
-	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
@@ -332,7 +326,7 @@ func newRefsCmd() *cobra.Command {
 			"Needs no root, and returns names only. Never a value.",
 		Args: noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(send("refs", o.socket, map[string]any{"op": "refs"},
+			return codeErr(send("refs", socketDefault(), map[string]any{"op": "refs"},
 				o.json, true))
 		},
 	}

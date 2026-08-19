@@ -48,7 +48,6 @@ var editors = []string{
 type editFlags struct {
 	configPath string
 	editor     string
-	socket     string
 }
 
 func newEditCmd() *cobra.Command {
@@ -62,7 +61,6 @@ func newEditCmd() *cobra.Command {
 	c.Flags().StringVarP(&f.configPath, "config", "c", "", "config file (default $FARAMIR_CONFIG, then the installed one)")
 	c.Flags().StringVar(&f.editor, "editor", "", "absolute path to the editor to run (default: the first of "+
 		strings.Join(editors, ", ")+" that exists)")
-	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket to ask where the install is ($FARAMIR_SOCKET)")
 	return c
 }
 
@@ -74,7 +72,7 @@ func runEdit(f editFlags, args []string) int {
 		return 1
 	}
 
-	cfg, err := config.Load(resolveConfig(f.configPath, f.socket))
+	cfg, err := config.Load(resolveConfig(f.configPath, socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir vault edit: %v\n", err)
 		return 1

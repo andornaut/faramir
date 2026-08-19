@@ -37,7 +37,6 @@ Flag | Default | Sets
 `--agent NAME` | `auto` | Which agents get deny rules and a credentials section in this home ([which file, per agent](layout.md)). Finding no agent writes nothing and says so
 `--allow-sudo` | off | Lets a brokered command *ask* to become root, through a password-required sudoers entry and a PAM service of faramir's own. Not passing the flag takes it back. [What it writes](escalation.md#the-decision-is-made-at-init-per-host)
 `--notify-command ARG` | none | Announces a waiting escalation, one argument per flag. Must name `{prompt}` or `{id}`; needs `--allow-sudo`
-`--socket PATH` | `$FARAMIR_SOCKET`, then `/run/faramir/broker.sock` | Which broker to ask where the install is, so it decides which install a flagless re-run provisions
 `--dry-run` | off | Report what would change and write nothing. The one form that does not need root
 `--json` | off | The report as JSON, one entry per step with a `changed` flag
 

@@ -144,7 +144,6 @@ type initFlags struct {
 	keeperUser    string
 	execUser      string
 	configDir     string
-	socket        string
 	sshKey        string
 	knownHosts    string
 	initAgents    []string
@@ -229,7 +228,6 @@ func newInitCmd() *cobra.Command {
 	fl.StringVar(&f.configDir, "config-dir", "",
 		"where config.toml, the age key and the managed sops files are "+
 			"installed (default: ask the broker, then read its unit, then "+install.DefaultConfigDir+")")
-	fl.StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	fl.StringVar(&f.sshKey, "ssh-key", "",
 		"where the identity the broker lends to brokered commands lives "+
 			"(default: what the install uses, then id_ed25519 beside the age key; "+
@@ -328,7 +326,7 @@ func runInit(f initFlags) int {
 		BrokerUser:    f.brokerUser,
 		KeeperUser:    f.keeperUser,
 		ExecUser:      f.execUser,
-		ConfigDir:     resolveConfigDir(f.configDir, f.socket),
+		ConfigDir:     resolveConfigDir(f.configDir, socketDefault()),
 		AgeRecipients: f.recipients,
 		SSHKey:        f.sshKey,
 		KnownHosts:    f.knownHosts,
@@ -396,7 +394,6 @@ func reportToOperator(report install.Report) {
 type initProjectFlags struct {
 	agentUser   string
 	configDir   string
-	socket      string
 	clientGroup string
 	hook        bool
 	agents      []string
@@ -419,7 +416,6 @@ func newInitProjectCmd() *cobra.Command {
 	fl.StringVar(&f.configDir, "config-dir", "",
 		"where the installed config is, which is where the client group is read from "+
 			"(default: ask the broker, then read its unit)")
-	fl.StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"override the client group instead of reading it from the installed config")
 	fl.BoolVar(&f.hook, "hook", true,
@@ -441,7 +437,7 @@ func runInitProject(f initProjectFlags, args []string) int {
 	opts := install.ProjectOptions{
 		Dir:         firstArg(args),
 		AgentUser:   operatorName(f.agentUser),
-		ConfigDir:   resolveConfigDir(f.configDir, f.socket),
+		ConfigDir:   resolveConfigDir(f.configDir, socketDefault()),
 		ClientGroup: f.clientGroup,
 		Hook:        f.hook,
 		Agents:      f.agents,
@@ -479,7 +475,6 @@ func runInitProject(f initProjectFlags, args []string) int {
 
 type doctorFlags struct {
 	configDir    string
-	socket       string
 	agentUser    string
 	clientGroup  string
 	secretsGroup string
@@ -501,7 +496,6 @@ func newDoctorCmd() *cobra.Command {
 	}
 	fl := c.Flags()
 	fl.StringVar(&f.configDir, "config-dir", "", "where config.toml was installed (default: ask the broker)")
-	fl.StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	fl.StringVar(&f.agentUser, "agent-user", "", "account the coding agent runs as")
 	// Empty rather than the install defaults: doctor reads what this host
 	// actually runs out of the units, the config and the secrets directory, and
@@ -537,7 +531,7 @@ func runDoctor(f doctorFlags) int {
 	sockets := install.SampleSockets()
 	// One round trip: the same answer decides which install this is and whether
 	// the daemons are running the code that was installed.
-	broker := askBroker(f.socket)
+	broker := askBroker(socketDefault())
 	report := install.Diagnose(install.DoctorOptions{
 		ConfigDir:     configDirFrom(f.configDir, broker),
 		BrokerVersion: broker.version,
@@ -716,7 +710,6 @@ func terminalWidth() int {
 
 type uninstallFlags struct {
 	configDir string
-	socket    string
 }
 
 func newUninstallCmd() *cobra.Command {
@@ -730,7 +723,6 @@ func newUninstallCmd() *cobra.Command {
 	}
 	c.Flags().StringVar(&f.configDir, "config-dir", "",
 		"where config.toml was installed (default: ask the broker, then read its unit)")
-	c.Flags().StringVar(&f.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	return c
 }
 
@@ -739,7 +731,7 @@ func runUninstall(f uninstallFlags) int {
 	if !requireRoot("uninstall", "it removes the units and the installed files") {
 		return 1
 	}
-	left, err := install.Uninstall(resolveConfigDir(f.configDir, f.socket))
+	left, err := install.Uninstall(resolveConfigDir(f.configDir, socketDefault()))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir uninstall: %v\n", err)
 		return 1

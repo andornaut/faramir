@@ -433,7 +433,7 @@ func TestAFailedCommandPrintsNoErrorOfItsOwn(t *testing.T) {
 // A parse error names a flag the way the reader has to type it: two dashes for
 // a long name, one for a single-letter shorthand.  Checked through the root,
 // because what matters is the spelling that reaches the operator's stderr, and
-// an operator told about "-socket" would try one faramir does not accept.
+// an operator told about "-env-file" would try one faramir does not accept.
 func TestAParseErrorSpellsAFlagTheWayItIsTyped(t *testing.T) {
 	for _, c := range []struct{ name, arg, want string }{
 		{"long name", "--bogus", "unknown flag: --bogus"},

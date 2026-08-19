@@ -94,9 +94,9 @@ func newEscalationsCmd() *cobra.Command {
 				return codeErr(1)
 			}
 			if watch {
-				return codeErr(watchEscalations(o.socket))
+				return codeErr(watchEscalations(socketDefault()))
 			}
-			return codeErr(listEscalations(o.socket, o.json))
+			return codeErr(listEscalations(socketDefault(), o.json))
 		},
 	}
 	o.add(c)
@@ -130,7 +130,7 @@ func newApproveCmd() *cobra.Command {
 			if !requireRootToAnswer("approve") {
 				return codeErr(1)
 			}
-			return codeErr(answer("approve", o.socket, args[0], true, o.json))
+			return codeErr(answer("approve", socketDefault(), args[0], true, o.json))
 		},
 	}
 	o.add(c)
@@ -153,9 +153,9 @@ func newDenyCmd() *cobra.Command {
 				return codeErr(1)
 			}
 			if len(args) == 1 && args[0] != "" {
-				return codeErr(answer("deny", o.socket, args[0], false, o.json))
+				return codeErr(answer("deny", socketDefault(), args[0], false, o.json))
 			}
-			return codeErr(denyWaiting(o.socket, o.json))
+			return codeErr(denyWaiting(socketDefault(), o.json))
 		},
 	}
 	o.add(c)

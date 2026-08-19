@@ -27,7 +27,10 @@ import (
 
 const defaultSocket = "/run/faramir/broker.sock"
 
-// socketDefault lets FARAMIR_SOCKET move every subcommand at once.
+// socketDefault is where every subcommand looks for the broker, and
+// FARAMIR_SOCKET is the only way to move it: no subcommand takes a socket
+// flag, an install writing `[server] socket_path` from a fixed run directory
+// and one variable moving the lot rather than a flag per command.
 func socketDefault() string {
 	if v := os.Getenv("FARAMIR_SOCKET"); v != "" {
 		return v
@@ -75,14 +78,12 @@ func operatorName(flagValue string) string {
 	return ""
 }
 
-// brokerOptions are the flags every broker-facing subcommand shares.
+// brokerOptions is what every broker-facing subcommand shares.
 type brokerOptions struct {
-	socket string
-	json   bool
+	json bool
 }
 
 func (o *brokerOptions) add(c *cobra.Command) {
-	c.Flags().StringVar(&o.socket, "socket", socketDefault(), "broker socket path ($FARAMIR_SOCKET)")
 	c.Flags().BoolVar(&o.json, "json", false, "print the raw response")
 }
 
@@ -136,7 +137,7 @@ func newRunCmd() *cobra.Command {
 			if timeout > 0 {
 				request["timeout_sec"] = timeout
 			}
-			return codeErr(send("run", o.socket, request, o.json, quiet))
+			return codeErr(send("run", socketDefault(), request, o.json, quiet))
 		},
 	}
 	o.add(c)
@@ -252,9 +253,9 @@ func newRedactCmd() *cobra.Command {
 		GroupID: groupOperator,
 		RunE: func(c *cobra.Command, child []string) error {
 			if len(child) > 0 {
-				return codeErr(redactChild(o.socket, child))
+				return codeErr(redactChild(socketDefault(), child))
 			}
-			if err := redactStreamLive(o.socket, os.Stdin, os.Stdout); err != nil {
+			if err := redactStreamLive(socketDefault(), os.Stdin, os.Stdout); err != nil {
 				fmt.Fprintf(os.Stderr, "faramir redact: %v\n", err)
 				return codeErr(1)
 			}
@@ -564,7 +565,7 @@ func newCallCmd(op, short string) *cobra.Command {
 		Args:    noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			// Only run has --quiet.
-			return codeErr(send(name, o.socket, map[string]any{"op": op}, o.json, true))
+			return codeErr(send(name, socketDefault(), map[string]any{"op": op}, o.json, true))
 		},
 	}
 	o.add(c)

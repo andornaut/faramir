@@ -135,7 +135,7 @@ Reports whether the install is doing its job, and as root what each account can 
 3. Write the refs beside the project, one `NAME=faramir://ref` per line.
 4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
-Enrol the projects where managed credentials are in play, not every tree; `--hook=false` shares one without the hook. A brokered command runs where its caller was, so nothing needs a tree of its own.
+Enrol the projects where managed credentials are in play, not every tree. The hook is what the table above registers per agent: it rewrites what the agent runs in the tree into a brokered command and hands the output back redacted. `--hook=false` shares the tree and writes the instructions without registering any of it, so that tree gets no hook, no tools, and no redaction of anything the agent runs in it.
 
 ```bash
 faramir refs
@@ -161,8 +161,9 @@ faramir redact -- ./deploy.sh
 `--env NAME=faramir://ref` | Once per secret
 `--env-file FILE` | `NAME=faramir://ref` per line, `#` comments
 `--quiet` | Suppress the redaction summary on stderr. Not why a `sudo` was refused: that is printed either way, being what says whether running the command again is worth anything
-`--cwd`/`-C`, `--timeout`/`-t` | Working directory, runtime ceiling
-`--socket`, `--json` | On every broker-facing command
+`--cwd`/`-C` | Where the command runs. Defaults to the caller's directory
+`--timeout`/`-t` | Seconds before the broker kills it. Defaults to `[command] timeout_sec`, and `max_timeout_sec` is the ceiling
+`--json` | The raw response, on every broker-facing command
 
 - The child's exit code is faramir's own. A broker that is not running exits 69 (`EX_UNAVAILABLE`).
 - **`faramir redact` writes nothing it could not redact**, in either shape. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero: for `-- CMD` the child's own status when it failed, else 1. Chunks already redacted are kept, so a broker lost mid-stream truncates rather than empties.
@@ -237,4 +238,4 @@ Target | Does
 - The Go suite runs under one uid, so it never covers the uid boundary. That is real only on a host, which is what `sudo faramir doctor` and [tests/e2e](tests/e2e/README.md) are for. Adversarial exfiltration is asserted nowhere, as [Not prevented](#not-prevented) says.
 - The tests need cgroup v2 with `cgroup.kill` (kernel 5.14 or newer) and a cgroup the test process can subdivide, every brokered command being confined to its own. `make test` supplies one with `systemd-run --user --scope`; without it a couple of dozen tests skip, so the run ends by naming what it did not check. On a runner with no such scope, delegate a cgroup first, as [the test workflow](.github/workflows/test.yml) does. cgroup v1 is unsupported.
 - The suite needs no `sops` on `PATH`: `internal/sopstest` builds a stand-in from the sops libraries, imported only from `_test.go`. What keeps them out of the shipped binary is `cmd/faramir/nosops_test.go`, which walks `go list -deps` and carries a positive control, so the check cannot pass by matching nothing.
-- The opencode and Kilo Code plugins are the only shipped logic that is not Go, so node drives the shipped file against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed. Skipped where node is absent. No test covers a running opencode or Kilo Code, or Bun.
+- The shipped logic that is not Go is the plugin opencode and Kilo Code load, Pi's extension, and the shell of `wrap.sh` and the PAM helper. Node drives the two rendered files against a stand-in guard, covering the rewrite, the refusal, a tool that is not a shell, and each way of failing closed; skipped where node is absent. The shell is ShellCheck's, and [tests/e2e](tests/e2e/README.md) runs all of it against a real install. No test covers a running opencode, Kilo Code or Pi, or Bun.

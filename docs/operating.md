@@ -41,7 +41,7 @@ Order | Source
 --- | ---
 1 | `--config-dir`, or `--config` on `edit`, `reseal` and `logs`
 2 | `$FARAMIR_CONFIG`, on `edit`, `reseal` and `logs` only, short-circuiting the rest
-3 | the running broker's own answer
+3 | the running broker's own answer, asked at `$FARAMIR_SOCKET`, else `/run/faramir/broker.sock`
 4 | the `FARAMIR_CONFIG=` its unit names, which covers a host whose config moved and whose broker is down
 5 | the compiled-in default
 

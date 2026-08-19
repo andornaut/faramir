@@ -12,4 +12,4 @@
 # zero authenticates, anything else does not.  So it must fail closed, which is
 # what `faramir pam-approve` does on every path: an unreachable broker, an
 # unknown token, a refusal and a timeout all exit non-zero.
-exec {{.BinDir}}/faramir pam-approve --socket {{.RunDir}}/broker.sock --account {{.ExecUser}}
+exec {{.BinDir}}/faramir pam-approve --account {{.ExecUser}}
