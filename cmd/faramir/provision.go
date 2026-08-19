@@ -190,7 +190,7 @@ func newInitCmd() *cobra.Command {
 	var f initFlags
 	c := &cobra.Command{
 		Use:     "init [options]",
-		Short:   "install or re-install faramir on this host",
+		Short:   "Install or re-install faramir on this host",
 		GroupID: groupProvisioning,
 		Args:    noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
@@ -390,7 +390,7 @@ func newInitProjectCmd() *cobra.Command {
 	var f initProjectFlags
 	c := &cobra.Command{
 		Use:     "init-project [options] [DIR]",
-		Short:   "enrol one working tree: share it, and configure its agents",
+		Short:   "Enrol one working tree: share it, and configure its agents",
 		GroupID: groupProvisioning,
 		Args:    atMostOneArg("directory"),
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runInitProject(f, args)) },
@@ -469,7 +469,7 @@ func newDoctorCmd() *cobra.Command {
 	var f doctorFlags
 	c := &cobra.Command{
 		Use:     "doctor [options]",
-		Short:   "report whether the install is doing its job",
+		Short:   "Report whether the install is doing its job",
 		GroupID: groupProvisioning,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runDoctor(f)) },
@@ -692,7 +692,7 @@ func newUninstallCmd() *cobra.Command {
 	var f uninstallFlags
 	c := &cobra.Command{
 		Use:     "uninstall [options]",
-		Short:   "remove the broker, keeping the key, the secrets directory and the log",
+		Short:   "Remove the broker, keeping the key, the secrets directory and the log",
 		GroupID: groupProvisioning,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runUninstall(f)) },
@@ -724,7 +724,7 @@ func runUninstall(f uninstallFlags) int {
 func newReloadCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:     "reload",
-		Short:   "drop the daemons onto a changed configuration",
+		Short:   "Drop the daemons onto a changed configuration",
 		GroupID: groupProvisioning,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runReload()) },

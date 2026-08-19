@@ -29,7 +29,7 @@ func newMCPCmd() *cobra.Command {
 func newPamApproveRootCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:                "pam-approve",
-		Short:              "decide one sudo, inside a brokered command (run by PAM)",
+		Short:              "Decide one sudo, inside a brokered command (run by PAM)",
 		GroupID:            groupInternal,
 		DisableFlagParsing: true,
 		RunE: func(c *cobra.Command, args []string) error {

@@ -102,7 +102,7 @@ func newRunCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:     "run [options] [--] program [args...]",
-		Short:   "run a command with secrets injected",
+		Short:   "Run a command with secrets injected",
 		GroupID: groupOperator,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -243,7 +243,7 @@ func newRedactCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:     "redact [options] [-- command [args...]]",
-		Short:   "scrub secrets out of text, or out of a command's output",
+		Short:   "Scrub secrets out of text, or out of a command's output",
 		GroupID: groupOperator,
 		RunE: func(c *cobra.Command, child []string) error {
 			if len(child) > 0 {

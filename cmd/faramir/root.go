@@ -125,12 +125,12 @@ func newRootCmd() *cobra.Command {
 		newRunCmd(),
 		newRedactCmd(),
 		newRefsCmd(),
-		newCallCmd("status", "show broker status"),
+		newCallCmd("status", "Show broker status"),
 		// `faramir version` as well as --version, the subcommand being what the
 		// docs name.
 		&cobra.Command{
 			Use:     "version",
-			Short:   "print the version and exit",
+			Short:   "Print the version and exit",
 			GroupID: groupOperator,
 			Args:    noArgs,
 			RunE: func(c *cobra.Command, args []string) error {

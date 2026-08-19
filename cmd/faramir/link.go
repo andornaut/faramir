@@ -22,7 +22,7 @@ import (
 func newLinkCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "link",
-		Short:   "manage secrets read out of files another tool maintains",
+		Short:   "Manage secrets read out of files another tool maintains",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
@@ -53,7 +53,7 @@ func newLinkAddCmd() *cobra.Command {
 	var f linkFlags
 	c := &cobra.Command{
 		Use:   "add [options] REF FILE",
-		Short: "read a secret out of a file another tool maintains",
+		Short: "Read a secret out of a file another tool maintains",
 		Long: "Adds one [[secret.link]] entry and applies everything that follows: the\n" +
 			"broker's account is granted read on the file, the file is refused to the\n" +
 			"agent's file tools, and the daemons are reloaded.\n\n" +
@@ -100,7 +100,7 @@ func newLinkRemoveCmd() *cobra.Command {
 	var f linkFlags
 	c := &cobra.Command{
 		Use:   "rm [options] REF",
-		Short: "stop reading a linked secret",
+		Short: "Stop reading a linked secret",
 		Long: "Removes the entry, so the value leaves the redactor and stops being\n" +
 			"injectable.\n\n" +
 			"Two things it does not undo. The deny rule stays: the agent rule files are\n" +
@@ -146,7 +146,7 @@ func newLinkListCmd() *cobra.Command {
 	var f linkFlags
 	c := &cobra.Command{
 		Use:   "ls [options]",
-		Short: "list the linked secrets this install declares",
+		Short: "List the linked secrets this install declares",
 		Args:  noArgs,
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runLinkList(f)) },
 	}

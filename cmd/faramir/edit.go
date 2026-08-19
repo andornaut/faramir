@@ -54,7 +54,7 @@ func newEditCmd() *cobra.Command {
 	var f editFlags
 	c := &cobra.Command{
 		Use:   "edit [options] FILE",
-		Short: "edit a managed sops file",
+		Short: "Edit a managed sops file",
 		Args:  exactlyOneArg("file"),
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runEdit(f, args)) },
 	}

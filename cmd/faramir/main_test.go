@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/spf13/cobra"
 
@@ -214,6 +216,44 @@ func TestEverySubcommandIsNamedForTheGuard(t *testing.T) {
 		if !have[name] {
 			t.Errorf("cli names %q, which is no longer a subcommand", name)
 		}
+	}
+}
+
+// The listing is one column of descriptions, and `help` and `completion` are
+// cobra's: it writes "Help about any command", so a lowercase description
+// beside that one reads as a command of a different kind rather than as one
+// this project wrote. Sentence case throughout, cobra's own included, which is
+// what nothing but this holds a new command to.
+func TestEveryCommandIsDescribedInSentenceCase(t *testing.T) {
+	root := newRootCmd()
+	// cobra adds `help` and `completion` while executing, not while building.
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	root.SetArgs([]string{"--help"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("assembling the root: %s", err)
+	}
+
+	checked := 0
+	var walk func(*cobra.Command)
+	walk = func(c *cobra.Command) {
+		for _, sub := range c.Commands() {
+			checked++
+			first, _ := utf8.DecodeRuneInString(sub.Short)
+			switch {
+			case sub.Short == "":
+				t.Errorf("%s carries no description, so the listing has a blank row",
+					sub.CommandPath())
+			case !unicode.IsUpper(first):
+				t.Errorf("%s is described as %q, which opens in lower case where "+
+					"cobra's own do not", sub.CommandPath(), sub.Short)
+			}
+			walk(sub)
+		}
+	}
+	walk(root)
+	if checked == 0 {
+		t.Fatal("the root carries no subcommands, so this asserts nothing")
 	}
 }
 

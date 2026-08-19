@@ -27,7 +27,7 @@ func newReadLinkCmd() *cobra.Command {
 	var path, kind, key string
 	c := &cobra.Command{
 		Use:    "read-link --path FILE --type TYPE [--key KEY]",
-		Short:  "report whether a linked secret reads, as this account",
+		Short:  "Report whether a linked secret reads, as this account",
 		Hidden: true,
 		Args:   noArgs,
 		RunE: func(c *cobra.Command, args []string) error {

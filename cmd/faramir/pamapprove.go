@@ -64,7 +64,7 @@ func newPamApproveCmd(granted *bool) *cobra.Command {
 	var f pamApproveFlags
 	c := &cobra.Command{
 		Use:   "pam-approve",
-		Short: "decide one sudo, inside a brokered command (run by PAM)",
+		Short: "Decide one sudo, inside a brokered command (run by PAM)",
 		Args:  noArgs,
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runPamApprove(f, granted))

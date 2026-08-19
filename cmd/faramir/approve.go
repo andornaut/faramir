@@ -76,7 +76,7 @@ func newEscalationsCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:     "escalations [options]",
-		Short:   "list the escalation a brokered command is waiting on",
+		Short:   "List the escalation a brokered command is waiting on",
 		GroupID: groupProvisioning,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) > 0 {
@@ -108,7 +108,7 @@ func newApproveCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:     "approve [options] ID",
-		Short:   "say yes to one, by id",
+		Short:   "Say yes to one, by id",
 		GroupID: groupProvisioning,
 		// The command line before the caller: a malformed one is worth saying
 		// whoever is asking, and the other two commands check in that order.
@@ -139,7 +139,7 @@ func newDenyCmd() *cobra.Command {
 	var o brokerOptions
 	c := &cobra.Command{
 		Use:     "deny [options] [ID]",
-		Short:   "say no, to that one or to whatever is waiting",
+		Short:   "Say no, to that one or to whatever is waiting",
 		GroupID: groupProvisioning,
 		Args:    atMostOneArg("id"),
 		RunE: func(c *cobra.Command, args []string) error {

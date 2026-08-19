@@ -28,7 +28,7 @@ func newBrokerCmd() *cobra.Command {
 	var f brokerFlags
 	c := &cobra.Command{
 		Use:     "broker",
-		Short:   "the secrets broker daemon",
+		Short:   "The secrets broker daemon",
 		GroupID: groupInternal,
 		Args:    noArgs,
 		RunE:    func(c *cobra.Command, args []string) error { return codeErr(runBroker(f)) },

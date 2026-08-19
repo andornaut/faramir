@@ -19,7 +19,7 @@ import "github.com/spf13/cobra"
 func newVaultCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:     "vault",
-		Short:   "the managed vaults: write, edit, list and remove them",
+		Short:   "The managed vaults: write, edit, list and remove them",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		// Never reached, the arguments never validating; a command cobra does not

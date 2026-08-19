@@ -27,7 +27,7 @@ func newExecCmd() *cobra.Command {
 	var f execFlags
 	c := &cobra.Command{
 		Use:   "exec",
-		Short: "the executor daemon (to run a command, see \"run\" above)",
+		Short: "The executor daemon (to run a command, see \"run\" above)",
 		Long: "The executor daemon, run by faramir-exec.service. To run a command\n" +
 			"through the broker, use `faramir run`.",
 		GroupID: groupInternal,

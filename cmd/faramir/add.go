@@ -41,7 +41,7 @@ func newAddCmd() *cobra.Command {
 	var f addFlags
 	c := &cobra.Command{
 		Use:   "add [options] NAME",
-		Short: "write a new managed sops file",
+		Short: "Write a new managed sops file",
 		Long: "Creates one file in the secrets directory, encrypted to the recipients\n" +
 			".sops.yaml names.\n\n" +
 			"NAME is a name, relative to the secrets directory: `.sops.yml` is added\n" +

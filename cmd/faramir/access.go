@@ -31,7 +31,7 @@ func newAccessCmd() *cobra.Command {
 	)
 	c := &cobra.Command{
 		Use:     "access [options] PATH",
-		Short:   "answer access(2) as this process's own account (run by doctor)",
+		Short:   "Answer access(2) as this process's own account (run by doctor)",
 		GroupID: groupInternal,
 		Args: func(c *cobra.Command, args []string) error {
 			if len(args) != 1 {
