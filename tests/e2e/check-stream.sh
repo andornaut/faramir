@@ -15,6 +15,9 @@ TOKEN='«SECRET:db/password»'
 TOKEN2='«SECRET:api/token»'
 CHUNK=32768
 SOCK=/run/faramir/broker.sock
+# The two raw clients below speak the protocol by hand, and a daemon refuses a
+# request naming another version before it reads the op.
+VERSION=$(faramir version | awk '{print $NF}')
 RUNDIR=/run/user/$(id -u op)
 
 . "$(dirname "$0")/lib.sh" || { echo "e2e: lib.sh is missing beside $0" >&2; exit 2; }
@@ -210,7 +213,7 @@ import socket,json,os
 s=socket.socket(socket.AF_UNIX); s.connect('$SOCK')
 f=s.makefile('rwb')
 def send(o):
-    f.write((json.dumps(o)+'\n').encode()); f.flush()
+    f.write((json.dumps(dict(o, version='$VERSION'))+'\n').encode()); f.flush()
     return json.loads(f.readline())
 sec=os.environ['SECRET']
 a=send({'op':'redact','text':'head '+sec[:10],'more':True})
@@ -240,17 +243,17 @@ out=$(runuser -u op -- /usr/bin/python3 -c "
 import socket,json,os
 s=socket.socket(socket.AF_UNIX); s.connect('$SOCK')
 f=s.makefile('rwb')
-f.write((json.dumps({'op':'redact','text':'x'*100+os.environ['SECRET'],'more':True})+'\n').encode())
+f.write((json.dumps({'op':'redact','version':'$VERSION','text':'x'*100+os.environ['SECRET'],'more':True})+'\n').encode())
 f.flush()
 r=json.loads(f.readline())
-print('OUT:'+r.get('output',''))
+print('ERR:'+json.dumps(r['error']) if 'error' in r else 'OUT:'+r.get('output',''))
 s.close()
 " 2>&1)
 grep -qF "$SECRET" <<<"$out" && bad "an abandoned stream emitted the held-back value" \
   || ok "a stream dropped part way emits nothing it was holding"
-# A chunk that was answered at all, or the absence above is a round trip that
-# never happened.
-grep -q '^OUT:' <<<"$out" && ok "  and the chunk before it was answered" \
+# The chunk has to come back carrying its own head, or the absence above is a
+# refusal or a round trip that never happened rather than a value held back.
+grep -q '^OUT:xxxx' <<<"$out" && ok "  and the chunk before it was answered" \
   || bad "the broker answered no chunk, so the line above asserts nothing: ${out:0:110}"
 
 head_ "10. streams at the same time, and beside a brokered command"

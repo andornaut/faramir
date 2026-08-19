@@ -13,6 +13,10 @@ TOKEN='«SECRET:db/password»'
 
 run() { runuser -u op -- /usr/local/bin/faramir run --quiet -t 30 "$@" 2>&1; }
 
+# Every client sends the version of the binary it is, and a daemon refuses a
+# request naming another one before it reads the op.
+VERSION=$(faramir version | awk '{print $NF}')
+
 EXECD=$(systemctl show faramir-exec.service -p MainPID --value)
 CGBASE=$(systemctl show faramir-exec.service -p ControlGroup --value)
 CGPATH="/sys/fs/cgroup${CGBASE}"
@@ -87,7 +91,7 @@ grep -q "CONNECTED" <<<"$out" \
 out=$(run -- /usr/bin/python3 -c "
 import socket, json
 s = socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
-s.sendall(json.dumps({'op':'escalations'}).encode()+b'\n')
+s.sendall(json.dumps({'op':'escalations','version':'$VERSION'}).encode()+b'\n')
 print(s.recv(400).decode()[:120])")
 grep -q "forbidden" <<<"$out" && ok "and is still refused the escalation ops, which are root's" \
   || bad "the executor was answered an escalation op: $out"
@@ -109,8 +113,6 @@ head_ "2b. the check behind the socket mode"
 # the peer check: a daemon refuses a request naming another version whoever
 # sent it, and that refusal would read as a boundary that did not identify the
 # caller.
-VERSION=$(faramir version | awk '{print $NF}')
-
 peerprobe() { # account, socket, payload
   runuser -u "$1" -- /usr/bin/python3 -c "
 import json, socket, sys

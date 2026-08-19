@@ -149,7 +149,7 @@ quiesce
 head_ "3. the token a child holds is an identifier, not a credential"
 
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sh -c '
-  printf "{\"op\":\"escalate\",\"token\":\"$FARAMIR_ESCALATION_TOKEN\"}\n" |
+  printf "{\"op\":\"escalate\",\"version\":\"'"$VERSION"'\",\"token\":\"$FARAMIR_ESCALATION_TOKEN\"}\n" |
   timeout 5 /usr/bin/python3 -c "
 import socket,sys
 s=socket.socket(socket.AF_UNIX); s.connect(\"/run/faramir/broker.sock\")
@@ -346,7 +346,7 @@ wait $RUN 2>/dev/null
 ending() { /usr/bin/python3 -c "
 import socket,sys,json
 s=socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
-request={'op':'escalations'}
+request={'op':'escalations','version':'$VERSION'}
 if sys.argv[1]: request['await_log_id']=sys.argv[1]
 s.sendall(json.dumps(request).encode()+b'\n')
 f=json.loads(s.recv(65536).decode()).get('finished')
