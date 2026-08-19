@@ -522,8 +522,7 @@ grep -qE "$KEEPER +\(this host" /tmp/ls-root.log \
 grep -q "$SECOND" /tmp/ls.log && bad "the listing still names the removed recipient" \
   || ok "and not the one just removed"
 
-# A host whose first secret has not been written yet.  This is when an operator
-# who missed --recipient at install has to add one, and the rule governs what
+# A host whose first secret has not been written yet.  The rule governs what
 # sops writes from then on, so a store with no files is not a reason to refuse.
 mkdir -p /tmp/emptystore && mv /etc/faramir/secrets/*.sops.yml /tmp/emptystore/
 if faramir recipient add "$SECOND" >/tmp/empty.log 2>&1; then

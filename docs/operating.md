@@ -136,9 +136,9 @@ The operational rules are above; this is the shape of the line they are written 
 
 ## Adding a recipient
 
-`--recipient` is read once, at the install that creates `.sops.yaml`. `init` keeps that file afterwards, so passing the flag to an installed host adds nothing: applying a changed rule means re-encrypting every managed value, which a re-run of the installer should not do unasked. A run that keeps the file reads it back, reports the recipients it lists as `age_recipients`, and warns naming any key you asked for that is not there. `faramir vault edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
+`init` seals the store to one key: the keeper's own, minted on the host. It writes `.sops.yaml` once and keeps that file on every later run, reading it back and reporting the recipients it lists as `age_recipients`, so nothing about a recipient is decided by re-running the installer. `faramir vault edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
 
-Applying one afterwards is one command, as root:
+Granting a second key is one command, as root, at any point in a host's life:
 
 ```bash
 sudo faramir recipient add age1hwvv...    # the rule and the ciphertext together

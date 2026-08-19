@@ -12,7 +12,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -35,12 +34,6 @@ type Options struct {
 	// path, so secrets in an encrypted home have the key that opens them there
 	// too.
 	ConfigDir string
-
-	// AgeRecipients are listed in .sops.yaml alongside the keeper's, so an account
-	// that is not the keeper can read the files it is responsible for.  Public
-	// keys only: a second private key is a second way into the secrets
-	// directory.
-	AgeRecipients []string
 
 	// SSHKey relocates the identity the broker lends through an agent it owns, so
 	// the executor can authenticate with it without reading it.  Empty takes the
@@ -182,8 +175,8 @@ type Report struct {
 	// Reported every run, not only when it was generated.
 	BrokerPublicKey string `json:"broker_public_key,omitempty"`
 	// AgeRecipients is who can decrypt the managed files, read back from
-	// .sops.yaml rather than taken from --recipient: the two agree only on the
-	// run that creates it.  Empty when the file could not be read.
+	// .sops.yaml rather than assumed: `faramir recipient add` writes that file
+	// too.  Empty when it could not be read.
 	AgeRecipients []string `json:"age_recipients,omitempty"`
 }
 
@@ -472,14 +465,6 @@ func (r *runner) preflight() error {
 	}
 	if !userExists(r.opts.AgentUser) {
 		return fmt.Errorf("no such user: %s", r.opts.AgentUser)
-	}
-	// Before .sops.yaml is written, that file being written once and then kept: a
-	// bad recipient would break every later encrypt, nowhere near the run that
-	// accepted it.  The keeper's own is read out of the key and needs no check.
-	for _, recipient := range r.opts.AgeRecipients {
-		if err := agekey.ValidateRecipient(recipient); err != nil {
-			return fmt.Errorf("--recipient: %w", err)
-		}
 	}
 	// Read before an account or a key exists: reporting a typo at the step would
 	// leave a half-finished install to re-run.

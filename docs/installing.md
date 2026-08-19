@@ -31,7 +31,6 @@ Flag | Default | Sets
 `--config-dir DIR` | [found the usual way](operating.md#checking-an-install) | Where `config.toml`, the age key and the managed sops files live. Absolute, parent must exist, and a *different* one needs `--move-config`
 `--move-config` | off | Consent to that move. The refs the old directory served leave the value set
 `--broker-user`, `--exec-user`, `--keeper-user` | the install's, then `faramir-broker`, `faramir-exec`, `faramir-keeper` | The three service accounts, created if missing. No two may share a name
-`--recipient KEY` | none | A **public** age or ssh key that may also decrypt the store, repeatable. An identity is refused, `.sops.yaml` being world-readable. Read only at the install that creates that file; later changes are [`faramir recipient add`](operating.md#adding-a-recipient)
 `--ssh-key PATH` | the install's, then `<config-dir>/id_ed25519` | Where the keypair the broker lends lives. One is minted either way, so this relocates rather than enables. An existing key is adopted, and must be `faramir-broker`-owned `0600` with its `.pub` beside it at `0644`
 `--known-hosts PATH` | none | A `known_hosts` file copied to `<exec-home>/.ssh/known_hosts` and replaced whole each run. One that is not a `known_hosts` file is refused
 `--agent NAME` | `auto` | Which agents get deny rules and a credentials section in this home ([which file, per agent](layout.md)). Finding no agent writes nothing and says so

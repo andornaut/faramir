@@ -146,7 +146,6 @@ type initFlags struct {
 	moveConfig    bool
 	dryRun        bool
 	asJSON        bool
-	recipients    []string
 
 	// The tunables.  Each flag's default is the real one, so --help says what a
 	// host gets; clearUnset then blanks the ones nobody typed, a value left out
@@ -275,8 +274,6 @@ func newInitCmd() *cobra.Command {
 		"refuse a secret shorter than this: it cannot be redacted without matching inside ordinary words (at least 6)")
 	fl.IntVar(&f.secretMinRefreshSec, "secret-min-refresh-sec", secret.MinRefreshSec,
 		"the soonest the broker will ask the keeper again whether a managed file changed, at least 1; nothing polls in the background, and linked files are checked every request regardless")
-	fl.StringArrayVar(&f.recipients, "recipient", nil,
-		"a PUBLIC key that may also decrypt the secrets directory: an age recipient (age1...) or an ssh public key, never an identity. Added to .sops.yaml beside the keeper's own, so a backup of the ciphertext opens without the keeper's key; repeatable, and only read at the install that creates the file")
 	return c
 }
 
@@ -315,7 +312,6 @@ func runInit(f initFlags) int {
 		KeeperUser:    f.keeperUser,
 		ExecUser:      f.execUser,
 		ConfigDir:     resolveConfigDir(f.configDir, socketDefault()),
-		AgeRecipients: f.recipients,
 		SSHKey:        f.sshKey,
 		KnownHosts:    f.knownHosts,
 		Agents:        f.initAgents,

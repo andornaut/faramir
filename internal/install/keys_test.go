@@ -8,8 +8,8 @@ import (
 )
 
 // An existing .sops.yaml is kept, applying a changed rule meaning every managed
-// value is re-encrypted.  Kept and read back, so --recipient on an
-// installed host does not read as applied when it was not.
+// value is re-encrypted.  Read back, so the report answers who can decrypt with
+// what the file lists rather than with what the install would have written.
 func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	const (
 		keeper = "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"
@@ -17,40 +17,32 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 	)
 	for _, tc := range []struct {
 		name string
-		// listed is the file on disk; requested is --recipient plus the keeper's
-		// own.
-		listed    []string
-		requested []string
-		keeper    string
-		want      []string
-		warns     []string
-		noWarn    bool
+		// listed is the file on disk.
+		listed []string
+		keeper string
+		want   []string
+		warns  []string
+		noWarn bool
 	}{
 		{
-			name:   "asking for what is already there",
-			listed: []string{keeper, backup}, requested: []string{backup, keeper},
+			name:   "the keeper and a key added since",
+			listed: []string{keeper, backup},
 			keeper: keeper, want: []string{keeper, backup}, noWarn: true,
-		},
-		{
-			// Names the key it did not add, and the command that adds it.
-			name:   "a recipient asked for and not in the file",
-			listed: []string{keeper}, requested: []string{backup, keeper},
-			keeper: keeper, want: []string{keeper},
-			warns: []string{"--recipient", backup, "recipient add"},
 		},
 		{
 			// What replacing the age key leaves behind: every value from now on is one
 			// the keeper cannot read.
 			name:   "the file has drifted off the keeper's key",
-			listed: []string{backup}, requested: []string{keeper},
+			listed: []string{backup},
 			keeper: keeper, want: []string{backup},
-			warns: []string{"does not list the keeper", keeper, "redacts nothing"},
+			warns: []string{"does not list the keeper", keeper, "redacts nothing",
+				"recipient add"},
 		},
 		{
 			// Nothing read the key, so nothing is claimed about it.  A dry run and a
 			// removed key both land here.
 			name:   "the keeper's recipient is unknown",
-			listed: []string{backup}, requested: nil,
+			listed: []string{backup},
 			keeper: "", want: []string{backup}, noWarn: true,
 		},
 	} {
@@ -59,7 +51,6 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 			run := &runner{
 				layout: Layout{ConfigDir: dir, KeeperUser: "faramir-keeper",
 					AgeKeyPath: filepath.Join(dir, "age.key")},
-				opts:            Options{AgeRecipients: tc.requested},
 				keeperRecipient: tc.keeper,
 			}
 			writeRule(t, run.layout.SopsConfigPath(), tc.listed...)
@@ -68,8 +59,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 
 			if got := strings.Join(run.report.AgeRecipients, " "); got != strings.Join(tc.want, " ") {
 				t.Errorf("reported recipients = %q, want %q: the report answers who "+
-					"can decrypt, which is what the file lists and not what was asked for",
-					run.report.AgeRecipients, tc.want)
+					"can decrypt, which is what the file lists", run.report.AgeRecipients, tc.want)
 			}
 			warnings := strings.Join(run.report.Warnings, "\n")
 			if tc.noWarn {
@@ -79,7 +69,7 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 				return
 			}
 			if warnings == "" {
-				t.Fatal("kept the file and said nothing, which is the whole bug")
+				t.Fatal("kept a file the keeper cannot read and said nothing")
 			}
 			for _, want := range tc.warns {
 				if !strings.Contains(warnings, want) {
@@ -96,7 +86,6 @@ func TestKeepSopsConfigDoesNotInventAnAnswerForAnUnreadableFile(t *testing.T) {
 	dir := t.TempDir()
 	run := &runner{
 		layout:          Layout{ConfigDir: dir, KeeperUser: "faramir-keeper"},
-		opts:            Options{AgeRecipients: []string{"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"}},
 		keeperRecipient: "age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p",
 	}
 	path := run.layout.SopsConfigPath()

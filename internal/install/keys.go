@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
-	"strings"
 
 	"github.com/andornaut/faramir/internal/agekey"
 	"github.com/andornaut/faramir/internal/sshkey"
@@ -60,24 +59,16 @@ func (r *runner) stepAgeKey() error {
 		}
 	}
 	r.keeperRecipient = recipient
-	r.addRecipient(recipient)
 	r.step("age key", changed, fmt.Sprintf("%s, 0400 %s", r.layout.AgeKeyPath, r.layout.KeeperUser))
 	return nil
 }
 
-// addRecipient records an age recipient for .sops.yaml, in a stable order.
-func (r *runner) addRecipient(recipient string) {
-	if recipient == "" || slices.Contains(r.opts.AgeRecipients, recipient) {
-		return
-	}
-	r.opts.AgeRecipients = append(r.opts.AgeRecipients, recipient)
-}
-
 // stepSopsConfig writes .sops.yaml into the config directory rather than the
 // secrets directory: sops resolves it from the working directory upward, so it
-// is found from both.  Kept if it already exists, adding or dropping a
-// recipient meaning every managed value is re-encrypted, and read back (see
-// keepSopsConfig) so --recipient does not silently mean nothing.
+// is found from both.  Written once, sealed to the keeper's own recipient, and
+// kept on every later run: adding or dropping a recipient means re-encrypting
+// every managed value, which `faramir recipient add` does and an installer
+// should not.
 func (r *runner) stepSopsConfig() error {
 	path := r.layout.SopsConfigPath()
 	if exists(path) {
@@ -89,10 +80,6 @@ func (r *runner) stepSopsConfig() error {
 			return err
 		}
 		r.keepSopsConfig(path)
-		return nil
-	}
-	if len(r.opts.AgeRecipients) == 0 {
-		r.skip("sops config", "no age recipient known yet")
 		return nil
 	}
 	// A dry run does not open the age key.  Named before the check below, which
@@ -112,11 +99,8 @@ func (r *runner) stepSopsConfig() error {
 			"that has it, or re-seal from the original key")
 		return nil
 	}
-	var recipients strings.Builder
-	for _, recipient := range r.opts.AgeRecipients {
-		fmt.Fprintf(&recipients, "          - %s\n", recipient)
-	}
-	body := "# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable.  'faramir vault edit' and 'faramir recipient reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n      - age:\n" + recipients.String()
+	body := "# Which files sops encrypts, and to whom.  Any *.sops.yml, wherever it sits:\n# a rule naming one layout refuses to encrypt a file kept anywhere else, and\n# reports it as \"no matching creation rules found\".\n# sops encrypts values and leaves keys readable, so diffs stay per-key and\n# reviewable.  'faramir vault edit' and 'faramir recipient reseal' read this file to decide the\n# shape of what they write back, so a key added here governs them too.\ncreation_rules:\n  - path_regex: \\.sops\\.ya?ml$\n    key_groups:\n" +
+		"      - age:\n          - " + r.keeperRecipient + "\n"
 	// Root-owned like the rest of the config directory, or the recipients could
 	// be rewritten by an account the secrets group exists to keep out.
 	// World-readable, holding public keys and a rule and no value.
@@ -124,16 +108,21 @@ func (r *runner) stepSopsConfig() error {
 	if err != nil {
 		return err
 	}
-	r.report.AgeRecipients = slices.Clone(r.opts.AgeRecipients)
-	r.step("sops config", changed, fmt.Sprintf("%s, %d recipient(s)", path, len(r.opts.AgeRecipients)))
+	r.report.AgeRecipients = []string{r.keeperRecipient}
+	// The one run that creates this file, so the one place to say how a second
+	// key gets in: sealed to this host alone, a backup of the ciphertext opens
+	// with nothing but the key beside it.
+	r.step("sops config", changed, fmt.Sprintf("%s, sealed to %s alone; "+
+		"`faramir recipient add KEY` grants a key that opens it without this host's",
+		path, r.layout.KeeperUser))
 	return nil
 }
 
 // keepSopsConfig leaves an existing .sops.yaml alone and says what it says,
-// applying a changed rule meaning every managed value is re-encrypted.  Every
-// difference between what was asked for and what is in the file is reported;
-// nothing here fails the run, each being a host that works today and is wrong
-// about who can read it tomorrow.
+// applying a changed rule meaning every managed value is re-encrypted.  The one
+// thing it reports is a rule the keeper is not named in; that is a host which
+// works today and cannot take a new value tomorrow, so it warns rather than
+// failing the run.
 func (r *runner) keepSopsConfig(path string) {
 	listed, err := sopsRecipients(path)
 	if err != nil {
@@ -145,13 +134,10 @@ func (r *runner) keepSopsConfig(path string) {
 		r.step("sops config", false, "keeping "+path)
 		return
 	}
-	// What the file says, not what was asked for: on every run but the first the
-	// request had no part in it.
+	// What the file says: nothing else asks for a recipient, `faramir recipient
+	// add` being what changes one.
 	r.report.AgeRecipients = listed
 
-	// The keeper's first and separately: the others are a key that does not open
-	// the secrets directory, this one is a secrets directory the keeper cannot
-	// open.
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
 		r.warnf("%s does not list the keeper's own recipient (%s), so every value "+
 			"encrypted into the secrets directory from now on is one %s cannot "+
@@ -164,24 +150,6 @@ func (r *runner) keepSopsConfig(path string) {
 			"were sealed to can read them",
 			path, r.keeperRecipient, r.layout.KeeperUser,
 			r.keeperRecipient, r.layout.AgeKeyPath)
-	}
-
-	var missing []string
-	for _, want := range r.opts.AgeRecipients {
-		if want != r.keeperRecipient && !slices.Contains(listed, want) {
-			missing = append(missing, want)
-		}
-	}
-	if len(missing) > 0 {
-		r.warnf("--recipient named %s, and %s already exists and is kept, so "+
-			"nothing was added: that key decrypts no managed value. Applying it means "+
-			"re-encrypting every managed file, which is one command as root, once "+
-			"per key:\n"+
-			"  sudo faramir recipient add %s\n"+
-			"It writes the rule and re-seals the store together, and refuses a rule "+
-			"%s could not read the store through",
-			strings.Join(missing, ", "), path,
-			missing[0], r.layout.KeeperUser)
 	}
 
 	r.step("sops config", false, fmt.Sprintf("keeping %s, %d recipient(s)", path, len(listed)))
