@@ -397,10 +397,11 @@ func diagnoseSopsRecipients(report *DoctorReport, opts DoctorOptions, path strin
 	// so this is a host that works today and cannot take a new value tomorrow.
 	if !slices.Contains(listed, keeper) {
 		report.addf("sops config", StatusWarn, "%s lists %s, none of which is the "+
-			"recipient of %s (%s). Every value encrypted into the secrets directory from now on is "+
-			"one %s cannot decrypt, and a broker that loads nothing still starts. Add it "+
-			"under `- age:`, then re-key each existing file with sops updatekeys",
-			path, strings.Join(listed, ", "), keyPath, keeper, opts.KeeperUser)
+			"recipient of %s (%s). Every value encrypted into the secrets directory "+
+			"from now on is one %s cannot decrypt, and a broker that loads nothing "+
+			"still starts. Put it back with `sudo faramir recipient add %s`, which "+
+			"writes the rule and re-seals the store to it",
+			path, strings.Join(listed, ", "), keyPath, keeper, opts.KeeperUser, keeper)
 		return
 	}
 	report.addf("sops config", StatusOK, "%s, %d recipient(s) including %s's",

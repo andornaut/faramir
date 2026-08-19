@@ -154,13 +154,16 @@ func (r *runner) keepSopsConfig(path string) {
 	// open.
 	if r.keeperRecipient != "" && !slices.Contains(listed, r.keeperRecipient) {
 		r.warnf("%s does not list the keeper's own recipient (%s), so every value "+
-			"encrypted into the secrets directory from now on is one %s cannot decrypt: the broker "+
-			"starts, loads nothing, and redacts nothing. This is what replacing %s "+
-			"leaves behind. Add it under `- age:` and re-key the existing files:\n"+
-			"  sudoedit %s\n"+
-			"  sudo SOPS_AGE_KEY_FILE=%s sops updatekeys %s/NAME.sops.yml",
-			path, r.keeperRecipient, r.layout.KeeperUser, r.layout.AgeKeyPath,
-			path, r.layout.AgeKeyPath, r.layout.SecretsDir())
+			"encrypted into the secrets directory from now on is one %s cannot "+
+			"decrypt: the broker starts, loads nothing, and redacts nothing. Put it "+
+			"back with:\n"+
+			"  sudo faramir recipient add %s\n"+
+			"which writes the rule and re-seals the store to it in one pass. That "+
+			"works while the managed files still open with %s; where they do not, "+
+			"this is what replacing that key leaves behind, and only the key they "+
+			"were sealed to can read them",
+			path, r.keeperRecipient, r.layout.KeeperUser,
+			r.keeperRecipient, r.layout.AgeKeyPath)
 	}
 
 	var missing []string
@@ -172,12 +175,13 @@ func (r *runner) keepSopsConfig(path string) {
 	if len(missing) > 0 {
 		r.warnf("--recipient named %s, and %s already exists and is kept, so "+
 			"nothing was added: that key decrypts no managed value. Applying it means "+
-			"re-encrypting each file, which is two steps as root:\n"+
-			"  sudoedit %s\n"+
-			"  sudo SOPS_AGE_KEY_FILE=%s sops updatekeys %s/NAME.sops.yml\n"+
-			"Repeat the second per file; nothing walks the secrets directory.",
+			"re-encrypting every managed file, which is one command as root, once "+
+			"per key:\n"+
+			"  sudo faramir recipient add %s\n"+
+			"It writes the rule and re-seals the store together, and refuses a rule "+
+			"%s could not read the store through",
 			strings.Join(missing, ", "), path,
-			path, r.layout.AgeKeyPath, r.layout.SecretsDir())
+			missing[0], r.layout.KeeperUser)
 	}
 
 	r.step("sops config", false, fmt.Sprintf("keeping %s, %d recipient(s)", path, len(listed)))

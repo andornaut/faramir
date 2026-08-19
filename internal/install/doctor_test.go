@@ -151,7 +151,7 @@ func TestDiagnoseSopsRecipients(t *testing.T) {
 			// Well-formed, in the right place, naming a key the keeper does not hold.
 			name: "the rule has drifted off the keeper's key",
 			rule: []string{"age1ql3z7hjy54pw3hyww5ayyfg7zqgvc7w3j2elw8zmrj2kg5sfn9aqmcac8p"},
-			want: StatusWarn, says: []string{"none of which", "cannot decrypt", "updatekeys"},
+			want: StatusWarn, says: []string{"none of which", "cannot decrypt", "recipient add"},
 		},
 		{
 			name: "a rule listing nobody", rule: nil,

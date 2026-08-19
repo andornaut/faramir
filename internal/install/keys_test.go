@@ -32,11 +32,11 @@ func TestKeepSopsConfigReportsWhatTheFileActuallySays(t *testing.T) {
 			keeper: keeper, want: []string{keeper, backup}, noWarn: true,
 		},
 		{
-			// Names the key it did not add, the next move being to add it by hand.
+			// Names the key it did not add, and the command that adds it.
 			name:   "a recipient asked for and not in the file",
 			listed: []string{keeper}, requested: []string{backup, keeper},
 			keeper: keeper, want: []string{keeper},
-			warns: []string{"--recipient", backup, "updatekeys"},
+			warns: []string{"--recipient", backup, "recipient add"},
 		},
 		{
 			// What replacing the age key leaves behind: every value from now on is one
