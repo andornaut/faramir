@@ -83,8 +83,9 @@ func TestTreeConfigReportsAFileThatNoLongerCarriesTheHook(t *testing.T) {
 	if !strings.Contains(got[0].Detail, settings) {
 		t.Errorf("the finding does not name the file: %s", got[0].Detail)
 	}
-	// Warned, not failed: a tree enrolled with --hook=false reads the same way
-	// and the record cannot tell the two apart.
+	// Warned, not failed: the record says what was enrolled, not what the tree
+	// is now, and a checkout that moved or a branch without these files reads
+	// the same way from here.
 	if report.Failed {
 		t.Error("tree config drift failed the report rather than warning")
 	}

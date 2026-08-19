@@ -18,9 +18,9 @@ import (
 // sets narrows that and does not close it.  A hand edit reaches the same place.
 //
 // So this reports and a human decides, as the account-wide drift check does.
-// Warned rather than failed, because a tree enrolled with --hook=false is a
-// tree that legitimately carries none of this and the record cannot tell the
-// two apart.
+// Warned rather than failed: the record says what was enrolled and when, not
+// what the tree is now, and a checkout that moved, a branch that never carried
+// these files and a hand edit all read the same way from here.
 func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 	trees := readEnrolled(opts.ConfigDir)
 	if len(trees) == 0 {
@@ -67,8 +67,7 @@ func diagnoseTreeConfig(report *DoctorReport, opts DoctorOptions) {
 	if len(drifted) > 0 {
 		report.addf("tree config", StatusWarn, "%d file(s) an enrolment wrote no "+
 			"longer carry what it writes, so nothing those agents run in that tree "+
-			"is redacted: %s. Re-run `sudo faramir init-project` in the tree. A tree "+
-			"enrolled with --hook=false reads the same way and is not a fault",
+			"is redacted: %s. Re-run `sudo faramir init-project` in the tree",
 			len(drifted), strings.Join(drifted, ", "))
 	}
 }

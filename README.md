@@ -135,7 +135,7 @@ Reports whether the install is doing its job, and as root what each account can 
 3. Write the refs beside the project, one `NAME=faramir://ref` per line.
 4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
-Enrol the projects where managed credentials are in play, not every tree. The hook is what the table above registers per agent: it rewrites what the agent runs in the tree into a brokered command and hands the output back redacted. `--hook=false` shares the tree and writes the instructions without registering any of it, so that tree gets no hook, no tools, and no redaction of anything the agent runs in it.
+Enrol the projects where managed credentials are in play, not every tree. Enrolling one registers the hook the table above names for each agent it finds: it rewrites what the agent runs in the tree into a brokered command and hands the output back redacted. There is no enrolment without it, redaction being what an enrolment is for.
 
 ```bash
 faramir refs

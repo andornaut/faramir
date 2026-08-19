@@ -395,7 +395,6 @@ type initProjectFlags struct {
 	agentUser   string
 	configDir   string
 	clientGroup string
-	hook        bool
 	agents      []string
 	dryRun      bool
 	asJSON      bool
@@ -418,10 +417,6 @@ func newInitProjectCmd() *cobra.Command {
 			"(default: ask the broker, then read its unit)")
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"override the client group instead of reading it from the installed config")
-	fl.BoolVar(&f.hook, "hook", true,
-		"register the PreToolUse hook, which redacts this project's command output. "+
-			"On Claude Code that auto-approves Bash here as a consequence; the other "+
-			"agents have no escalation to give, so it costs them nothing")
 	fl.StringArrayVar(&f.agents, "agent", nil,
 		"coding agent to enrol, repeatable. Default \""+install.AgentAuto+"\": "+
 			"whichever agents this tree already carries configuration for. A name "+
@@ -439,7 +434,6 @@ func runInitProject(f initProjectFlags, args []string) int {
 		AgentUser:   operatorName(f.agentUser),
 		ConfigDir:   resolveConfigDir(f.configDir, socketDefault()),
 		ClientGroup: f.clientGroup,
-		Hook:        f.hook,
 		Agents:      f.agents,
 		DryRun:      f.dryRun,
 	}

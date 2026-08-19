@@ -27,7 +27,7 @@ func TestATreeRulesFileIsHeadedSoTheAgentLoadsIt(t *testing.T) {
 	}
 	tree := t.TempDir()
 	run := &project{
-		opts:    ProjectOptions{Dir: tree, Hook: true, ConfigDir: t.TempDir()},
+		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
 		uid:     keep,
 		gid:     keep,
 		targets: []*agentTarget{target},
@@ -86,7 +86,7 @@ func TestAnExistingRulesFileKeepsItsOwnHead(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := &project{
-		opts:    ProjectOptions{Dir: tree, Hook: true, ConfigDir: t.TempDir()},
+		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
 		uid:     keep,
 		gid:     keep,
 		targets: []*agentTarget{target},
@@ -163,7 +163,7 @@ func TestTheClaimInASharedHomeFileIsTheWeakerOne(t *testing.T) {
 func TestEnrollingAntigravitySaysNothingItRunsIsRedacted(t *testing.T) {
 	tree := t.TempDir()
 	run := &project{
-		opts:    ProjectOptions{Dir: tree, Hook: true, ConfigDir: t.TempDir()},
+		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
 		uid:     keep,
 		gid:     keep,
 		targets: []*agentTarget{agentTargets["antigravity"]},
@@ -235,13 +235,14 @@ func TestDoctorSaysWhyAntigravityHasNoRules(t *testing.T) {
 }
 
 // Every directory an enrolment creates in a tree is shared, at every level.
-// With --hook=false nothing else creates the one an agent's rules file sits in,
-// and an ancestor left outside the share is one a later walk widens, reporting
-// a change on a re-enrolment an operator reads as a no-op.
+// Antigravity's rules file sits under a directory its config file does not, so
+// the instructions step is what creates it, and an ancestor left outside the
+// share is one a later walk widens, reporting a change on a re-enrolment an
+// operator reads as a no-op.
 func TestTheDirectoriesTheInstructionsNeedAreSharedAtEveryLevel(t *testing.T) {
 	tree := t.TempDir()
 	run := &project{
-		opts:    ProjectOptions{Dir: tree, Hook: false, ConfigDir: t.TempDir()},
+		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
 		uid:     keep,
 		gid:     keep,
 		targets: []*agentTarget{agentTargets["antigravity"]},
@@ -273,7 +274,7 @@ func TestTheDirectoriesTheInstructionsNeedAreSharedAtEveryLevel(t *testing.T) {
 // the way the others are.
 func TestTheAntigravityWarningIsRepeatedOnEveryEnrolment(t *testing.T) {
 	tree := t.TempDir()
-	opts := ProjectOptions{Dir: tree, Hook: true, ConfigDir: t.TempDir()}
+	opts := ProjectOptions{Dir: tree, ConfigDir: t.TempDir()}
 	first := &project{opts: opts, uid: keep, gid: keep,
 		targets: []*agentTarget{agentTargets["antigravity"]}}
 	if err := first.agentConfig(); err != nil {
@@ -307,7 +308,7 @@ func TestTheInstructionsStepReportsWhatItWroteBeforeFailing(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := &project{
-		opts:    ProjectOptions{Dir: tree, Hook: true, ConfigDir: t.TempDir()},
+		opts:    ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
 		uid:     keep,
 		gid:     keep,
 		targets: []*agentTarget{agentTargets["antigravity"]},
@@ -385,7 +386,7 @@ func testNoDirectoryThroughALink(t *testing.T, tree, at, link, made string,
 	write func(*project) error) {
 	t.Helper()
 	run := &project{
-		opts: ProjectOptions{Dir: tree, Hook: true, ConfigDir: t.TempDir()},
+		opts: ProjectOptions{Dir: tree, ConfigDir: t.TempDir()},
 		uid:  keep,
 		gid:  keep,
 		targets: []*agentTarget{

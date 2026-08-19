@@ -42,11 +42,6 @@ type ProjectOptions struct {
 	// the config is elsewhere, and that the path given is wrong, and each of
 	// those is an error naming its own fix rather than something to work around.
 	ClientGroup string
-	// Hook registers the PreToolUse hook in the project's agent settings, which
-	// redacts the output of everything the agent runs there.  It auto-approves
-	// Bash for the project: a rewritten command matches no permission rule, so the
-	// hook's deny list is what refuses one.
-	Hook bool
 	// Agents names which coding agents to enrol.  Empty means AgentAuto:
 	// whichever agents this tree already carries configuration for.  A name
 	// enrols that agent whether or not it is there, and composes with auto,
@@ -192,19 +187,13 @@ func (p *project) preflight() error {
 // this tree will ask.  The share chowns and chmods every file in the tree and
 // nothing undoes it, so finding out afterwards that a settings file is not the
 // operator's is finding out too late.
-//
-// Only where the hook is being registered: --hook=false writes none of those
-// files, and refusing over one it will not touch would stop an enrolment for a
-// reason it does not have.  The instructions are written either way.
 func (p *project) refuseUnwritableFiles() error {
 	paths, err := p.relativeInstructions()
 	if err != nil {
 		return err
 	}
-	if p.opts.Hook {
-		for _, target := range p.targets {
-			paths = append(paths, editedPaths(target, true, "")...)
-		}
+	for _, target := range p.targets {
+		paths = append(paths, editedPaths(target, true, "")...)
 	}
 	refused := refuseUnwritable(p.fs, p.opts.Dir, p.uid, p.opts.Dir, paths)
 	refused = append(refused, p.refuseUnenterableDirs(paths)...)
@@ -531,11 +520,6 @@ func (p *project) shareTree() error {
 // reported: a PreToolUse hook that cannot exec fails every command the agent
 // runs.
 func (p *project) agentConfig() error {
-	if !p.opts.Hook {
-		p.step("agent config", false, "--hook=false, so nothing this agent runs "+
-			"here is redacted and its prompts are untouched")
-		return nil
-	}
 	if len(p.targets) == 0 {
 		// The tree is shared and the instructions are written either way; what is
 		// missing is the hook, and with it the redaction.  Said rather than
@@ -648,9 +632,9 @@ func (p *project) writeSections(section string) (bool, []string, []string, error
 	var written, stale []string
 	for _, file := range p.instructionsFiles() {
 		// Shared and setgid at every level, as the walk leaves the rest of the
-		// tree: see agentConfig and ensureDirs.  --hook=false writes none of the
-		// agent files, so this is the only thing that creates the directory an
-		// agent's own rules file sits in.
+		// tree: see agentConfig and ensureDirs.  An agent whose rules file sits
+		// under a directory none of its config files do -- antigravity's
+		// .agents/rules -- has this as the only thing that creates it.
 		if err := p.fs.ensureDirsIn(p.opts.Dir, filepath.Dir(file.path),
 			0o2770|os.ModeSetgid, p.uid, p.gid); err != nil {
 			return changed, written, stale, err
