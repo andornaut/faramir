@@ -32,6 +32,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 const maxRequestBytes = 1 << 20
@@ -39,7 +40,11 @@ const maxRequestBytes = 1 << 20
 type request struct {
 	// Op names anything that is not "start a command", which is what an absent op
 	// means.
-	Op           string            `json:"op"`
+	Op string `json:"op"`
+	// Version is what the broker's binary reports. The daemons are one binary
+	// under three units, so a difference is one of them left running across the
+	// install that replaced it, and every request it sends is refused.
+	Version      string            `json:"version"`
 	Argv         []string          `json:"argv"`
 	Cwd          string            `json:"cwd"`
 	Env          map[string]string `json:"env"`
@@ -151,6 +156,16 @@ func (e *Executor) serveConnection(conn net.Conn) {
 			_ = unix.Close(slaveFD)
 		}
 		_ = sockutil.Send(conn, errorResponse("bad_request", "no usable request"))
+		return
+	}
+	// Before the op and the terminal-fd check both: a caller of another release
+	// is refused whatever it asked for, and told that rather than told about
+	// whichever field changed under it.
+	if why := version.Mismatch(payload.Version); why != "" {
+		if slaveFD >= 0 {
+			_ = unix.Close(slaveFD)
+		}
+		_ = sockutil.Send(conn, errorResponse("bad_request", why))
 		return
 	}
 	// Before the terminal-fd check: a question about the host carries no PTY. An
@@ -466,7 +481,7 @@ func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(timeout))
 
-	if err := sockutil.Send(conn, request{Op: opQuiescent}); err != nil {
+	if err := sockutil.Send(conn, request{Op: opQuiescent, Version: version.Version}); err != nil {
 		return false, fmt.Sprintf("the executor could not be asked whether this host "+
 			"is quiet (%v)", err)
 	}
@@ -507,7 +522,8 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	c.conn = conn
 
 	line, err := json.Marshal(request{
-		Argv: argv, Cwd: cwd, Env: env,
+		Version: version.Version,
+		Argv:    argv, Cwd: cwd, Env: env,
 		TimeoutSec: timeoutSec, KillGraceSec: killGraceSec,
 	})
 	if err != nil {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // Serve waits on every connection goroutine before it returns, and a stream
@@ -31,7 +32,8 @@ func TestClosingDoesNotWaitOutAStreamIdlingBetweenChunks(t *testing.T) {
 	// One chunk saying another follows, and then nothing: the broker is now
 	// parked in a read for as long as a brokered command may take.
 	if err := sockutil.Send(conn, map[string]any{
-		"op": "redact", "text": "x", "more": true}); err != nil {
+		"op": "redact", "text": "x", "more": true,
+		"version": version.Version}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := lines.Next(); err != nil {
@@ -107,7 +109,8 @@ func TestARefusedChunkEndsTheConnection(t *testing.T) {
 	conn, lines := dial()
 
 	if err := sockutil.Send(conn, map[string]any{
-		"op": "redact", "text": "x", "more": true}); err != nil {
+		"op": "redact", "text": "x", "more": true,
+		"version": version.Version}); err != nil {
 		t.Fatal(err)
 	}
 	line, err := lines.Next()

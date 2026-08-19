@@ -264,6 +264,13 @@ if [ -x /opt/faramir/faramir-skew ]; then
   [ "$(st version)" = failed ] && ok "a binary newer than the running broker -> version failed" \
     || bad "version skew is [$(st version)]: $(dt version)"
   dt version | grep -q '9\.9\.9' && ok "and names both builds" || bad "does not name the builds: $(dt version)"
+  # The same skew over the socket. doctor is the operator asking; this is what a
+  # client of that build is told when it tries to work, which is the half an
+  # agent sees. The MCP server is the process that reaches it, being a
+  # long-lived child of the agent that outlives an install.
+  out=$(runuser -u "$OP" -- /usr/local/bin/faramir refs 2>&1)
+  grep -q '9\.9\.9' <<<"$out" && ok "and the broker refuses a client of that build, naming its version" \
+    || bad "the broker did not name the caller's version: ${out:0:160}"
   mv /tmp/faramir.real /usr/local/bin/faramir; chmod 0755 /usr/local/bin/faramir
   snap
   [ "$(st version)" = ok ] && ok "and back to ok on the matching build" || bad "version stayed [$(st version)]"

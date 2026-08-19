@@ -79,3 +79,28 @@ func modulePath(t *testing.T) string {
 	t.Fatal("go.mod names no module")
 	return ""
 }
+
+// Mismatch is what every socket says about a caller of another release, so it
+// has to name both versions and what to do: a message that says only "refused"
+// leaves an operator reading the code to find out why.
+func TestMismatchNamesBothVersionsAndTheRemedy(t *testing.T) {
+	if why := Mismatch(Version); why != "" {
+		t.Errorf("this binary's own version was refused: %s", why)
+	}
+	for _, tc := range []struct{ name, caller, wants string }{
+		{"an older release", "0.1.4", "faramir 0.1.4"},
+		{"a newer one", "9.9.9", "faramir 9.9.9"},
+		// What a client built before the field sends, which is the case the field
+		// exists for.
+		{"none at all", "", "no version"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			why := Mismatch(tc.caller)
+			for _, want := range []string{tc.wants, Version, "restart it"} {
+				if !strings.Contains(why, want) {
+					t.Errorf("the message does not name %q: %s", want, why)
+				}
+			}
+		})
+	}
+}

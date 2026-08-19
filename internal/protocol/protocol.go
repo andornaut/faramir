@@ -19,6 +19,7 @@ import (
 	"strings"
 
 	"github.com/andornaut/faramir/internal/secretref"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
@@ -52,6 +53,9 @@ var ReservedEnv = map[string]bool{
 var Ops = []string{"run", "refs", "redact", "status", "escalations", "approve", "escalate"}
 
 type Request struct {
+	// Version is what the caller's own binary reports, which every client sends
+	// and every request is refused without.
+	Version    string
 	Op         string
 	Cmd        []string
 	Cwd        string
@@ -88,7 +92,7 @@ type Request struct {
 func Parse(payload map[string]any) (*Request, error) {
 	req := &Request{Op: "run", EnvRefs: map[string]string{}}
 	for _, step := range []func(map[string]any, *Request) error{
-		parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
+		parseVersion, parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
 		parseEscalations, parseApprove, parseEscalate, parseWaits,
 	} {
 		if err := step(payload, req); err != nil {
@@ -96,6 +100,28 @@ func Parse(payload map[string]any) (*Request, error) {
 		}
 	}
 	return req, nil
+}
+
+// parseVersion settles whether the caller is of this binary's own release, and
+// refuses it where it is not. Both halves of every socket are built from this
+// repository and installed together, so a caller of another release is a
+// process that outlived the install which replaced the binary under it.
+//
+// First of the steps: refused here, that caller is told what it is, and refused
+// nowhere, it fails instead on whichever op or field changed under it, which
+// names a symptom.
+func parseVersion(payload map[string]any, req *Request) error {
+	if raw, ok := payload["version"]; ok && raw != nil {
+		named, isStr := raw.(string)
+		if !isStr {
+			return errors.New("'version' must be the version string the caller's binary reports")
+		}
+		req.Version = named
+	}
+	if why := version.Mismatch(req.Version); why != "" {
+		return errors.New(why)
+	}
+	return nil
 }
 
 // parseOp settles which op this is. Absent means run, which is what a caller

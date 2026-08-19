@@ -23,6 +23,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 const defaultSocket = "/run/faramir/broker.sock"
@@ -494,7 +495,7 @@ func (rc *redactConn) send(text string, more bool) (string, error) {
 	// that has not arrived by now is not coming. The deadline covers the write as
 	// well.
 	_ = rc.conn.SetDeadline(time.Now().Add(quickWait))
-	request := map[string]any{"op": "redact", "text": text}
+	request := map[string]any{"op": "redact", "text": text, "version": version.Version}
 	if more {
 		request["more"] = true
 	}
@@ -585,6 +586,7 @@ func responseWait(request map[string]any) time.Duration {
 // Everything on this side of the socket has already been redacted.
 func send(prog, socketPath string, request map[string]any, asJSON, quiet bool) int {
 	wait := responseWait(request)
+	request["version"] = version.Version
 	conn, err := (&net.Dialer{Timeout: dialWait}).DialContext(
 		context.Background(), "unix", socketPath)
 	if err != nil {

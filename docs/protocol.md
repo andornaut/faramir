@@ -12,6 +12,23 @@ The internal sockets are root-owned so neither the keeper's nor the executor's o
 
 All three drop a connection that sends no request within 30s. Only the broker answers with an error code first.
 
+## version
+
+Every request on all three sockets carries `version`, the version string the sending binary reports, and one naming anything but the receiving daemon's own is refused before its op is read.
+
+There is one binary: the three daemons are it under three units, and the CLI and the MCP server are it as the agent's own processes. Two versions on one host is therefore a process that outlived the install which replaced the binary under it, and the refusal names that.
+
+```json
+{"error": {"code": "bad_request",
+           "message": "the caller names faramir 0.1.4 and this is faramir 0.6.0:
+                       restart it. An MCP server is a child of the coding agent, so
+                       it is reconnected there rather than restarted on its own"}}
+```
+
+A caller that sends no `version` is refused the same way and told it named none. The alternative is failing later on whichever op or field changed in between: an op the daemon no longer has is refused as unknown, which reads as a caller asking for something that never existed, and a field it no longer reads is ignored, so a setting the caller sent goes silently unapplied.
+
+The MCP server is the process this is for. It is a long-lived child of the coding agent, so it is the one client that survives an install, and it is reconnected through the agent rather than restarted on its own.
+
 ## The broker socket
 
 The mode is one check; the broker also tests `SO_PEERCRED` against `[server] allowed_group`, and records the peer's uid, gid and pid in every audit record.
@@ -33,6 +50,7 @@ The three root-only ops are checked with `SO_PEERCRED`: the account the coding a
 ```json
 {
   "op": "run",
+  "version": "0.6.0",
   "cmd": ["printenv", "ROUTER_PW"],
   "cwd": "/home/you/src/project",
   "env_refs": { "ROUTER_PW": "faramir://home/router/admin" },
@@ -42,6 +60,7 @@ The three root-only ops are checked with `SO_PEERCRED`: the account the coding a
 
 Field | Required | Notes
 --- | --- | ---
+`version` | yes | The sending binary's own version. Every op on every socket takes it, and a mismatch is refused before the op is read. See [version](#version).
 `cmd` | yes | Non-empty array of strings. A string is rejected with guidance; the broker never runs `sh -c` for you.
 `cwd` | yes | Absolute, and must be an existing directory. A relative `cmd[0]` resolves against it. The CLI and the MCP server fill in their own working directory, so this is a refusal only on the socket.
 `env_refs` | no | `NAME` to `faramir://ref`. `NAME` must match `^[A-Za-z_][A-Za-z0-9_]*$` and must not be reserved. Values cannot be passed.
@@ -57,7 +76,7 @@ SSH_AUTH_SOCK  SSH_AGENT_PID  SUDO_ASKPASS  FARAMIR_ESCALATION_TOKEN
 
 ### redact, and streaming it
 
-`{"op": "redact", "text": "…"}` returns the ordinary response shape with `output` carrying the scrubbed text and `exit_code` 0, no command having run. `text` is required; `more` is the only other field the op reads.
+`{"op": "redact", "version": "…", "text": "…"}` returns the ordinary response shape with `output` carrying the scrubbed text and `exit_code` 0, no command having run. `text` is required; `more` is the only other field the op reads.
 
 A caller with more text than one request may carry sends it a chunk at a time **down one connection**, every chunk but the last marked `{"more": true}`. The broker keeps one redactor per connection, holding back a tail longer than the longest rendering of any value, so a secret split between two chunks is caught by the chunk that completes it. A connection per chunk gives each its own redactor, and a value across the join comes back in the clear. Ordinary output reaches this: a single-line JSON document, a minified bundle and `base64 -w0` all have to be broken somewhere.
 
@@ -121,7 +140,7 @@ A `redact` response carries no `timed_out` or `duration_sec`. An error nulls `ex
 
 Code | Meaning
 --- | ---
-`bad_request` | Malformed request, bad or reserved env var name, a malformed `faramir://` reference, or a `cwd` that does not exist or is not a directory
+`bad_request` | Malformed request, a `version` that is not this daemon's own, bad or reserved env var name, a malformed `faramir://` reference, or a `cwd` that does not exist or is not a directory
 `unknown_secret` | The ref is in no managed file, or was refused at load as not redactable
 `unknown_question` | `approve` named a question that is no longer waiting: already answered, or its command gave up
 `busy` | At `[command] concurrency`; retry
@@ -142,7 +161,7 @@ There is no command allowlist, so there is no `denied`. Messages name what faile
 Peer uid is checked against `[keeper] allowed_user` on top of the mode. There is no group form, the only group in play holding the agent's own uid. Two ops, and **none that returns the age key**; adding one would defeat the reason the keeper is a separate service.
 
 ```json
-{"op": "get_values"}
+{"op": "get_values", "version": "0.6.0"}
 {"values": {"home/router/admin": "…"},
  "state": [{"path": "/etc/faramir/secrets/x.sops.yml",
             "mtime_unix_nano": 1743160000000000000, "size": 812}],
@@ -152,7 +171,7 @@ Peer uid is checked against `[keeper] allowed_user` on top of the mode. There is
 Every managed value, never a subset: the redactor is built from the whole value set, because a managed host can print a credential no command injected. The `state` is the fingerprint of each file this decrypt read, returned with the values so the two describe the same moment. Fetched separately it could fingerprint a file edited after the decrypt, and that edit would never be noticed.
 
 ```json
-{"op": "get_state"}
+{"op": "get_state", "version": "0.6.0"}
 {"state": [{"path": "…", "mtime_unix_nano": 1743160000000000000, "size": 812}],
  "errors": [], "unresolved_patterns": []}
 ```
@@ -175,7 +194,8 @@ The staleness poll, and where the managed store globs are expanded, so a file ad
 One request, carrying a single file descriptor as ancillary data:
 
 ```json
-{"argv": ["/usr/bin/printenv", "ROUTER_PW"],
+{"version": "0.6.0",
+ "argv": ["/usr/bin/printenv", "ROUTER_PW"],
  "cwd": "/home/you/src/project",
  "env": {"ROUTER_PW": "…"},
  "timeout_sec": 600,
@@ -191,11 +211,11 @@ The descriptor is the **slave** end of a PTY the broker created. The broker keep
 A second op shares the socket. `"op": "exec"` and an absent `op` both mean the request above:
 
 ```json
-{"op": "quiescent"}
+{"op": "quiescent", "version": "0.6.0"}
 
 {"quiescent": false, "detail": "1 process(es) are running as the executor outside any brokered command (4821 (sleep))"}
 ```
 
-The broker asks this before an escalation takes: is any process of the executor's uid alive outside that daemon and outside the runs it is confining? It is asked here because the broker cannot see the answer, its own unit setting `ProtectProc=invisible`. Every failure is a no. An op this daemon does not know is refused `bad_request` with the name in the message, so a version skew says what it is.
+The broker asks this before an escalation takes: is any process of the executor's uid alive outside that daemon and outside the runs it is confining? It is asked here because the broker cannot see the answer, its own unit setting `ProtectProc=invisible`. Every failure is a no. An op this daemon does not know is refused `bad_request` with the name in the message, and a broker of another release is refused before that, by [version](#version).
 
 The executor owns the timeout, because it owns the run's cgroup. **Closing the connection is how the broker cancels a run**, and the whole cgroup is killed and drained, including a `setsid` child that broke out of the process group. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.

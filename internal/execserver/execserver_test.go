@@ -2,6 +2,8 @@ package execserver
 
 import (
 	"bytes"
+	"encoding/json"
+	"net"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -12,6 +14,8 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/ptyutil"
+	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 func newExecutor(t *testing.T) (*Executor, string, string) {
@@ -251,5 +255,54 @@ func TestAnExecutorWithoutACgroupRefusesEveryCommand(t *testing.T) {
 	if _, _, err := runChild(t, sock, []string{"/bin/sh", "-c", "true"}, dir); err == nil ||
 		!strings.Contains(err.Error(), "cgroup") {
 		t.Errorf("err = %v, want a refusal naming the missing cgroup", err)
+	}
+}
+
+// The three daemons are one binary under three units, so an executor answering
+// a broker of another release is one of them left running across the install
+// that replaced it. Refused before the op and before the terminal fd, since
+// what changed under it may be either.
+func TestARequestOfAnotherReleaseIsRefused(t *testing.T) {
+	_, sock, _ := newExecutor(t)
+	for _, probe := range []struct{ name, caller string }{
+		{"an older release", "0.1.4"},
+		{"none, which is what a client built before the field sends", ""},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			conn, err := net.Dial("unix", sock)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = conn.Close() }()
+			// opQuiescent carries no PTY, so a refusal here is the version check and
+			// not the missing fd.
+			if err := sockutil.Send(conn, request{
+				Op: opQuiescent, Version: probe.caller}); err != nil {
+				t.Fatal(err)
+			}
+			line, err := sockutil.ReadLine(conn, maxRequestBytes)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var response struct {
+				Quiescent bool `json:"quiescent"`
+				Error     *struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(line, &response); err != nil {
+				t.Fatal(err)
+			}
+			if response.Error == nil {
+				t.Fatalf("not refused: %s", line)
+			}
+			if response.Error.Code != "bad_request" {
+				t.Errorf("code = %q, want bad_request", response.Error.Code)
+			}
+			if !strings.Contains(response.Error.Message, version.Version) {
+				t.Errorf("the refusal does not name this release: %s", response.Error.Message)
+			}
+		})
 	}
 }

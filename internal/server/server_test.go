@@ -473,7 +473,7 @@ func TestExecAndRedactAreRefusedWhileNoManagedFileWasRead(t *testing.T) {
 		{"op": "redact", "text": "anything"},
 		{"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir()},
 	} {
-		got := s.Handle(op, peer)
+		got := handle(s, op, peer)
 		failure, ok := got["error"].(map[string]string)
 		if !ok {
 			t.Fatalf("%v was served with an empty value set: %v", op["op"], got)
@@ -502,7 +502,7 @@ func TestExecIsRefusedWhenOneFileDidNotLoad(t *testing.T) {
 		t.Fatal("this case is only interesting while some values did load")
 	}
 
-	got := s.Handle(map[string]any{
+	got := handle(s, map[string]any{
 		"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir(),
 	}, &sockutil.Peer{UID: 1000})
 	failure, ok := got["error"].(map[string]string)
@@ -552,7 +552,7 @@ func TestBothOpsAreRefusedWhenTheKeeperWasNeverReached(t *testing.T) {
 		{"op": "redact", "text": "x"},
 		{"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir()},
 	} {
-		got := s.Handle(op, peer)
+		got := handle(s, op, peer)
 		if got["error"] == nil {
 			t.Errorf("%v was served, want refused", op["op"])
 		}
@@ -574,10 +574,10 @@ func TestBothOpsAreServedWhenEveryManagedFileLoadedAndHeldNothing(t *testing.T) 
 		t.Errorf("Unreadable = %q, want served: the file is there and was read", reason)
 	}
 	peer := &sockutil.Peer{UID: 1000}
-	if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
+	if got := handle(s, map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
 		t.Errorf("redact was refused: %v", got["error"])
 	}
-	got := s.Handle(map[string]any{
+	got := handle(s, map[string]any{
 		"op": "run", "cmd": []any{"true"}, "cwd": t.TempDir(),
 	}, peer)
 	if failure, ok := got["error"].(map[string]string); ok && failure["code"] == "no_secrets" {
@@ -606,7 +606,7 @@ func TestStatusAndListStayAvailableWhileNoManagedFileWasRead(t *testing.T) {
 	s := newUnconfiguredServer(t, map[string]string{})
 	peer := &sockutil.Peer{UID: 1000}
 	for _, op := range []string{"status", "refs"} {
-		if got := s.Handle(map[string]any{"op": op}, peer); got["error"] != nil {
+		if got := handle(s, map[string]any{"op": op}, peer); got["error"] != nil {
 			t.Errorf("%s was refused: %v", op, got["error"])
 		}
 	}
@@ -632,7 +632,7 @@ func TestRedactIsNotRateLimited(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": "hunter2-correct-horse"}, managedFile(t))
 	peer := &sockutil.Peer{UID: 1000}
 	for i := range 500 {
-		if got := s.Handle(map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
+		if got := handle(s, map[string]any{"op": "redact", "text": "x"}, peer); got["error"] != nil {
 			t.Fatalf("call %d was refused: %v", i+1, got["error"])
 		}
 	}

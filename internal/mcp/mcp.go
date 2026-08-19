@@ -140,6 +140,7 @@ func textResult(content string, isError bool) map[string]any {
 
 // call performs one request/response round trip against the broker socket.
 func call(request map[string]any) (*brokerResponse, error) {
+	request["version"] = version.Version
 	conn, err := (&net.Dialer{}).DialContext(context.Background(), "unix", socketPath())
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", socketPath(), err)

@@ -35,6 +35,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 const (
@@ -403,6 +404,13 @@ func (k *Keeper) serveConnection(conn net.Conn) {
 func (k *Keeper) Handle(payload map[string]any) map[string]any {
 	if payload == nil {
 		return errorResponse("bad_request", "request must be a JSON object")
+	}
+	// Before the op: the broker and the keeper are one binary under two units, so
+	// a caller of another release is one of them left running across the install
+	// that replaced it. Refused whatever it asked for, and told which.
+	caller, _ := payload["version"].(string)
+	if why := version.Mismatch(caller); why != "" {
+		return errorResponse("bad_request", why)
 	}
 	op, _ := payload["op"].(string)
 	switch op {

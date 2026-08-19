@@ -34,6 +34,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/escalation"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // watchWait is how long one long poll blocks before asking again. Bounded by
@@ -634,6 +635,7 @@ func answer(prog, socketPath, id string, approve, asJSON bool) int {
 // deadline of its own: the escalations op holds the connection open on
 // purpose.
 func roundTrip(socketPath string, request map[string]any, timeout time.Duration) ([]byte, error) {
+	request["version"] = version.Version
 	conn, err := (&net.Dialer{Timeout: 5 * time.Second}).DialContext(
 		context.Background(), "unix", socketPath)
 	if err != nil {

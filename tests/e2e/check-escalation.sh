@@ -43,12 +43,16 @@ sudoRun() { # outfile, then argv
   setsid runuser -u op -- /usr/local/bin/faramir run --quiet -t 45 -- "$@" >"$out" 2>&1 </dev/null &
   RUN=$!
 }
-# ask sends one request to the broker as an account, and prints the answer.
+# ask sends one request to the broker as an account, and prints the answer. The
+# version every client sends is filled in, the broker refusing a request naming
+# another before it reads the op.
+VERSION=$(faramir version | awk '{print $NF}')
 ask() { runuser -u "$1" -- /usr/bin/python3 -c "
-import socket,sys
+import json,socket,sys
+p=json.loads(sys.argv[1]); p.setdefault('version', sys.argv[2])
 s=socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
-s.sendall(sys.argv[1].encode()+b'\n')
-print(s.recv(65536).decode()[:160])" "$2" 2>&1; }
+s.sendall(json.dumps(p).encode()+b'\n')
+print(s.recv(65536).decode()[:160])" "$2" "$VERSION" 2>&1; }
 
 # The notifier the grant is installed with. A script rather than wall, which
 # writes to terminals a container has none of; what is being checked is that the

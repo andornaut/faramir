@@ -14,6 +14,7 @@ import (
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/redact"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // errorMessage is the message of a refusal response. Checked rather than
@@ -106,6 +107,16 @@ func execServer(t *testing.T) (*Server, *recorder) {
 	return s, (&recorder{}).install(s)
 }
 
+// handle is Server.Handle with the version every client sends filled in, the
+// broker refusing a request that names another. What the gate itself does is
+// TestARequestOfAnotherReleaseIsRefused.
+func handle(s *Server, request map[string]any, peer *sockutil.Peer) protocol.Response {
+	if _, ok := request["version"]; !ok {
+		request["version"] = version.Version
+	}
+	return s.Handle(request, peer)
+}
+
 // A directory is filled in unless the test named one, since the broker refuses
 // a request carrying none.
 func exec(t *testing.T, s *Server, request map[string]any) protocol.Response {
@@ -122,7 +133,7 @@ func execAsGiven(t *testing.T, s *Server, request map[string]any) protocol.Respo
 	if _, ok := request["op"]; !ok {
 		request["op"] = "run"
 	}
-	return s.Handle(request, &sockutil.Peer{PID: 1, UID: 1000, GID: 1000})
+	return handle(s, request, &sockutil.Peer{PID: 1, UID: 1000, GID: 1000})
 }
 
 func errorCode(t *testing.T, r protocol.Response) string {

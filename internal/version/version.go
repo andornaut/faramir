@@ -4,6 +4,7 @@
 package version
 
 import (
+	"fmt"
 	"runtime/debug"
 	"strings"
 )
@@ -64,4 +65,26 @@ func releaseVersion(v string) string {
 		}
 	}
 	return digits
+}
+
+// Mismatch reports why a caller's version is not this binary's, and "" where it
+// is. Every request on every socket names the version of the binary that sent
+// it, and a difference is refused rather than tolerated: a caller from another
+// release is a process that outlived the install which replaced the binary
+// under it, so the alternative is failing later on whichever op or field
+// changed in between, which says nothing about why.
+//
+// Lives here rather than in the protocol package because all three sockets make
+// the same check and say the same thing about it.
+func Mismatch(caller string) string {
+	if caller == Version {
+		return ""
+	}
+	named := "faramir " + caller
+	if caller == "" {
+		named = "no version"
+	}
+	return fmt.Sprintf("the caller names %s and this is faramir %s: restart it. "+
+		"An MCP server is a child of the coding agent, so it is reconnected there "+
+		"rather than restarted on its own", named, Version)
 }

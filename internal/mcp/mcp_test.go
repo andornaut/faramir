@@ -11,6 +11,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/protocol"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // fakeBroker answers one canned response per connection and records the
@@ -152,7 +153,8 @@ func TestEveryToolProducesARequestTheBrokerAccepts(t *testing.T) {
 				"timeout_sec": float64(30),
 			},
 			want: protocol.Request{
-				Op: "run", Cmd: []string{"ansible-playbook", "site.yml"},
+				Version: version.Version,
+				Op:      "run", Cmd: []string{"ansible-playbook", "site.yml"},
 				Cwd: "/home/agent/work", HasCwd: true,
 				EnvRefs: map[string]string{"PW": "faramir://a/b"}, TimeoutSec: 30,
 			},
@@ -160,7 +162,8 @@ func TestEveryToolProducesARequestTheBrokerAccepts(t *testing.T) {
 		{
 			tool: "faramir_refs",
 			args: map[string]any{},
-			want: protocol.Request{Op: "refs", EnvRefs: map[string]string{}},
+			want: protocol.Request{
+				Version: version.Version, Op: "refs", EnvRefs: map[string]string{}},
 		},
 	} {
 		t.Run(tc.tool, func(t *testing.T) {

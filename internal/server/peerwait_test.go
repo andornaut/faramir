@@ -9,6 +9,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/executor"
 	"github.com/andornaut/faramir/internal/redact"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // A peer that asks and then never reads its reply must not hold this broker.
@@ -46,7 +47,8 @@ func TestAPeerThatNeverReadsDoesNotHoldTheBroker(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close() }()
-	if _, err := conn.Write([]byte(`{"op":"run","cmd":["true"],"cwd":"/"}` + "\n")); err != nil {
+	if _, err := conn.Write([]byte(
+		`{"op":"run","version":"` + version.Version + `","cmd":["true"],"cwd":"/"}` + "\n")); err != nil {
 		t.Fatal(err)
 	}
 	// And no read at all while the deadline runs out. The connection stays open,
@@ -109,7 +111,8 @@ func TestALongOpDoesNotRunOutTheRequestDeadline(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = conn.Close() }()
-	if _, err := conn.Write([]byte(`{"op":"run","cmd":["true"],"cwd":"/"}` + "\n")); err != nil {
+	if _, err := conn.Write([]byte(
+		`{"op":"run","version":"` + version.Version + `","cmd":["true"],"cwd":"/"}` + "\n")); err != nil {
 		t.Fatal(err)
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(10 * time.Second))

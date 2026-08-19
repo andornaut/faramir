@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // records returns every audit record written so far.
@@ -55,7 +56,7 @@ func TestEveryRefusalWithALogIDIsRecorded(t *testing.T) {
 	} {
 		t.Run(probe.name, func(t *testing.T) {
 			s := newServer(t, map[string]string{"db/password": value})
-			response := s.Handle(probe.request, peer)
+			response := handle(s, probe.request, peer)
 
 			failure, ok := response["error"].(map[string]string)
 			if !ok {
@@ -93,7 +94,7 @@ func TestEveryRefusalWithALogIDIsRecorded(t *testing.T) {
 // been recorded.
 func TestARefusalDecidedBeforeParsingCarriesNoLogID(t *testing.T) {
 	s := newServer(t, map[string]string{"db/password": "hunter2-correct-horse"})
-	response := s.Handle(map[string]any{
+	response := handle(s, map[string]any{
 		"op": "run", "cmd": []any{"/bin/true"}, "cwd": "/tmp",
 		"env_refs": map[string]any{"X": "not-a-uri"}},
 		&sockutil.Peer{PID: 7, UID: 1000, GID: 1000})
@@ -115,7 +116,7 @@ func TestABusyRefusalIsRecorded(t *testing.T) {
 	s.slots = make(chan struct{}, 1)
 	s.slots <- struct{}{} // the one slot, taken
 
-	response := s.Handle(map[string]any{
+	response := handle(s, map[string]any{
 		"op": "run", "cmd": []any{"/bin/true"}, "cwd": "/tmp"},
 		&sockutil.Peer{PID: 7, UID: 1000, GID: 1000})
 
@@ -143,7 +144,7 @@ func TestARefusalCarriesNoValue(t *testing.T) {
 	// path that merely looks absent may exist and be unreadable, which the
 	// broker deliberately leaves to the executor rather than refusing.
 	missing := filepath.Join(t.TempDir(), value)
-	response := s.Handle(map[string]any{
+	response := handle(s, map[string]any{
 		"op": "run", "cmd": []any{"/bin/true"}, "cwd": missing},
 		&sockutil.Peer{PID: 7, UID: 1000, GID: 1000})
 
@@ -157,5 +158,36 @@ func TestARefusalCarriesNoValue(t *testing.T) {
 	body, _ := os.ReadFile(s.Config.Audit.LogPath)
 	if strings.Contains(string(body), value) {
 		t.Error("the audit record carries the value")
+	}
+}
+
+// The broker refuses a caller of another release whatever it asked for, so a
+// process left over from before an install is told what it is rather than told
+// about whichever op or field changed under it. Sent to Handle rather than
+// through the test helper, which fills the field in.
+func TestARequestOfAnotherReleaseIsRefused(t *testing.T) {
+	s := newServer(t, map[string]string{"db/password": "hunter2-correct-horse"})
+	peer := &sockutil.Peer{PID: 1, UID: 1000, GID: 1000}
+	for _, probe := range []struct{ name, caller string }{
+		{"an older release", "0.1.4"},
+		{"none, which is what a client built before the field sends", ""},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			request := map[string]any{"op": "run", "cmd": []any{"/bin/true"}, "cwd": "/tmp"}
+			if probe.caller != "" {
+				request["version"] = probe.caller
+			}
+			response := s.Handle(request, peer)
+			failure, ok := response["error"].(map[string]string)
+			if !ok {
+				t.Fatalf("not refused: %v", response)
+			}
+			if failure["code"] != "bad_request" {
+				t.Errorf("code %q, want bad_request", failure["code"])
+			}
+			if !strings.Contains(failure["message"], version.Version) {
+				t.Errorf("the refusal does not name this release: %s", failure["message"])
+			}
+		})
 	}
 }

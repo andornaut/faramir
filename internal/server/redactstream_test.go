@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // serving starts the broker on its socket and returns a dialer for it.
@@ -33,7 +34,7 @@ func serving(t *testing.T, s *Server) func() (net.Conn, *sockutil.LineReader) {
 // chunk sends one redact chunk and returns what came back.
 func chunk(t *testing.T, conn net.Conn, lines *sockutil.LineReader, text string, more bool) string {
 	t.Helper()
-	request := map[string]any{"op": "redact", "text": text}
+	request := map[string]any{"op": "redact", "text": text, "version": version.Version}
 	if more {
 		request["more"] = true
 	}
@@ -134,7 +135,7 @@ func TestASingleRequestStillFlushes(t *testing.T) {
 // text and never flush the tail. Refused rather than quietly completed.
 func TestAChunkedRequestWithNoConnectionIsRefused(t *testing.T) {
 	s := newServer(t, map[string]string{"db/password": "hunter2-correct-horse"})
-	got := s.Handle(map[string]any{"op": "redact", "text": "x", "more": true}, &sockutil.Peer{UID: 1000})
+	got := handle(s, map[string]any{"op": "redact", "text": "x", "more": true}, &sockutil.Peer{UID: 1000})
 	failure, ok := got["error"].(map[string]string)
 	if !ok {
 		t.Fatalf("a chunked request outside a stream was answered: %v", got)
@@ -156,9 +157,11 @@ func TestAMalformedRedactRequestIsRefused(t *testing.T) {
 		{"no text at all", map[string]any{"op": "redact"}},
 		{"text that is not a string", map[string]any{"op": "redact", "text": 42}},
 		{"more as a string", map[string]any{"op": "redact", "text": "x", "more": "yes"}},
+		{"a caller of another release", map[string]any{
+			"op": "redact", "text": "x", "version": "0.1.4"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := s.Handle(tc.request, &sockutil.Peer{UID: 1000}); got["error"] == nil {
+			if got := handle(s, tc.request, &sockutil.Peer{UID: 1000}); got["error"] == nil {
 				t.Errorf("accepted: %v", got)
 			}
 		})

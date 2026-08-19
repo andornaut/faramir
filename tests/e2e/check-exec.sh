@@ -104,24 +104,34 @@ head_ "2b. the check behind the socket mode"
 # Every one of these answers "forbidden": the daemon identified the caller and
 # said no. Anything else is this check failing to ask rather than the boundary
 # holding, and each way of failing to ask says so in its own words.
+#
+# peerprobe fills in the version every client sends, so what these measure is
+# the peer check: a daemon refuses a request naming another version whoever
+# sent it, and that refusal would read as a boundary that did not identify the
+# caller.
+VERSION=$(faramir version | awk '{print $NF}')
+
 peerprobe() { # account, socket, payload
   runuser -u "$1" -- /usr/bin/python3 -c "
-import socket, sys
+import json, socket, sys
 s = socket.socket(socket.AF_UNIX)
 s.settimeout(10)
 try:
     s.connect(sys.argv[1])
 except Exception as e:
     print('UNREACHABLE %s' % e); raise SystemExit(0)
+payload = json.loads(sys.argv[2])
+payload.setdefault('version', sys.argv[3])
 try:
-    s.sendall(sys.argv[2].encode() + b'\n')
+    s.sendall(json.dumps(payload).encode() + b'\n')
 except Exception:
     pass  # refused and closed before reading; the answer may be here already
 try:
     reply = s.recv(400)
 except Exception as e:
     print('NOANSWER %s' % e); raise SystemExit(0)
-print(reply.decode('utf-8', 'replace') if reply else 'NOANSWER closed unread')" "$2" "$3" 2>&1
+print(reply.decode('utf-8', 'replace') if reply else 'NOANSWER closed unread')" \
+    "$2" "$3" "$VERSION" 2>&1
 }
 
 # refuses ACCOUNT SOCKET PAYLOAD LABEL. A daemon's answer is JSON, so anything

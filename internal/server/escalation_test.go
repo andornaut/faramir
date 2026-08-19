@@ -115,7 +115,7 @@ func TestAnEscalationHoldsOtherCommands(t *testing.T) {
 	// this test releases it.
 	held, question, _ := raiseAndWait(t, s, "log-h")
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
-	if response := s.Handle(map[string]any{
+	if response := handle(s, map[string]any{
 		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
 		t.Fatalf("root could not approve the standing run: %v", response["error"])
 	}
@@ -166,7 +166,7 @@ func TestOnlyRootMayAnswerAnEscalation(t *testing.T) {
 		// its own sudo.
 		{"op": "escalate", "token": "abc123"},
 	} {
-		response := s.Handle(request, operator)
+		response := handle(s, request, operator)
 		if code := errorCode(t, response); code != "forbidden" {
 			t.Errorf("%v as uid 1000 = %q, want forbidden: that account is the one the "+
 				"agent runs as", request, code)
@@ -177,7 +177,7 @@ func TestOnlyRootMayAnswerAnEscalation(t *testing.T) {
 	}
 
 	// And root is admitted, reaching the question rather than the check.
-	if response := s.Handle(map[string]any{"op": "escalations"},
+	if response := handle(s, map[string]any{"op": "escalations"},
 		&sockutil.Peer{PID: 1, UID: 0, GID: 0}); response["error"] != nil {
 		t.Errorf("root was refused the escalations op: %v", response["error"])
 	}
@@ -195,7 +195,7 @@ func TestRootAnswersTheQuestionARunRaised(t *testing.T) {
 		t.Errorf("the question does not name the command: %q", question.Prompt)
 	}
 
-	if response := s.Handle(map[string]any{
+	if response := handle(s, map[string]any{
 		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
 		t.Fatalf("root could not answer: %v", response["error"])
 	}
@@ -222,7 +222,7 @@ func TestAnEscalationIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 	_, question, granted := raiseAndWait(t, s, "log-q")
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 
-	response := s.Handle(map[string]any{
+	response := handle(s, map[string]any{
 		"op": "approve", "id": question.ID, "approve": true}, root)
 	if code := errorCode(t, response); code != "not_quiescent" {
 		t.Errorf("code = %q, want not_quiescent: a yes that was refused is not an id "+
@@ -243,7 +243,7 @@ func TestAnEscalationIsRefusedWhileTheHostIsNotQuiet(t *testing.T) {
 func TestAnsweringAnUnknownQuestionIsAnError(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
-	response := s.Handle(map[string]any{"op": "approve", "id": "beef00", "approve": true},
+	response := handle(s, map[string]any{"op": "approve", "id": "beef00", "approve": true},
 		&sockutil.Peer{PID: 1, UID: 0, GID: 0})
 	if code := errorCode(t, response); code != "unknown_question" {
 		t.Errorf("code = %q, want unknown_question", code)
@@ -292,7 +292,7 @@ func raiseAndWait(t *testing.T, s *Server, logID string) (string, escalation.Que
 	granted := askInBackground(t, s, token)
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		response := s.Handle(map[string]any{"op": "escalations", "wait_sec": 1}, root)
+		response := handle(s, map[string]any{"op": "escalations", "wait_sec": 1}, root)
 		if questions, _ := response["questions"].([]escalation.Question); len(questions) > 0 {
 			return token, questions[0], granted
 		}
@@ -311,14 +311,14 @@ func TestTheEscalationsOpReportsHowTheApprovedRunEnded(t *testing.T) {
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 
 	held, question, _ := raiseAndWait(t, s, "log-e")
-	if response := s.Handle(map[string]any{
+	if response := handle(s, map[string]any{
 		"op": "approve", "id": question.ID, "approve": true}, root); response["error"] != nil {
 		t.Fatalf("root could not approve the run: %v", response["error"])
 	}
 
 	// Nothing yet: the run is still going, and a poll that answered now would be
 	// reporting an ending that has not happened.
-	if response := s.Handle(map[string]any{
+	if response := handle(s, map[string]any{
 		"op": "escalations", "await_log_id": "log-e"}, root); response["finished"] != nil {
 		t.Errorf("a run still in flight reported an ending: %v", response["finished"])
 	}
@@ -331,10 +331,10 @@ func TestTheEscalationsOpReportsHowTheApprovedRunEnded(t *testing.T) {
 	// And only to the caller waiting on this run. The broker holds the last
 	// ending rather than emptying it when it is read, so naming the run is what
 	// keeps a stale one off a terminal that did not approve it.
-	if response := s.Handle(map[string]any{"op": "escalations"}, root); response["finished"] != nil {
+	if response := handle(s, map[string]any{"op": "escalations"}, root); response["finished"] != nil {
 		t.Errorf("a caller that approved nothing was told how a run ended: %v", response["finished"])
 	}
-	response := s.Handle(map[string]any{"op": "escalations", "await_log_id": "log-e"}, root)
+	response := handle(s, map[string]any{"op": "escalations", "await_log_id": "log-e"}, root)
 	finished, ok := response["finished"].(*escalation.Outcome)
 	if !ok {
 		t.Fatalf("the approved run's ending did not reach root: %v", response["finished"])
@@ -355,7 +355,7 @@ func TestTheEscalationsOpReportsHowTheApprovedRunEnded(t *testing.T) {
 func TestAMalformedAwaitLogIDIsRefused(t *testing.T) {
 	s, _ := execServer(t)
 	allowSudo(t, s)
-	response := s.Handle(map[string]any{"op": "escalations", "await_log_id": 7},
+	response := handle(s, map[string]any{"op": "escalations", "await_log_id": 7},
 		&sockutil.Peer{PID: 1, UID: 0, GID: 0})
 	if code := errorCode(t, response); code != "bad_request" {
 		t.Errorf("a non-string await_log_id got %q, want bad_request", code)
@@ -372,7 +372,7 @@ func TestAnExecReportsWhyItsSudoWasRefused(t *testing.T) {
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 
 	held, question, granted := raiseAndWait(t, s, "log-r")
-	if response := s.Handle(map[string]any{
+	if response := handle(s, map[string]any{
 		"op": "approve", "id": question.ID, "approve": false}, root); response["error"] != nil {
 		t.Fatalf("root could not refuse the run: %v", response["error"])
 	}
@@ -411,7 +411,7 @@ func TestAQuestionNamesTheAccountThatAsked(t *testing.T) {
 	root := &sockutil.Peer{PID: 1, UID: 0, GID: 0}
 	var question escalation.Question
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
-		response := s.Handle(map[string]any{"op": "escalations", "wait_sec": 1}, root)
+		response := handle(s, map[string]any{"op": "escalations", "wait_sec": 1}, root)
 		if questions, _ := response["questions"].([]escalation.Question); len(questions) > 0 {
 			question = questions[0]
 			break

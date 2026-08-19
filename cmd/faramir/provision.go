@@ -22,6 +22,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/install"
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // brokerUnit records the config the daemons loaded. A variable so a test can
@@ -47,7 +48,8 @@ func askBroker(socketPath string) status {
 	defer func() { _ = conn.Close() }()
 	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
 
-	if err := sockutil.Send(conn, map[string]any{"op": "status"}); err != nil {
+	if err := sockutil.Send(conn, map[string]any{
+		"op": "status", "version": version.Version}); err != nil {
 		return status{}
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {

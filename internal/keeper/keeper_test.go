@@ -11,6 +11,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/sopstest"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // states, errorsIn and unresolved are one field of a keeper response at the
@@ -175,11 +176,23 @@ func TestOneBadFileDoesNotBlankTheSet(t *testing.T) {
 	}
 }
 
+// handle is Keeper.Handle with the version the broker sends filled in, the
+// keeper refusing a request that names another. What the gate itself does is
+// TestARequestOfAnotherReleaseIsRefused.
+func handle(k *Keeper, request map[string]any) map[string]any {
+	if request != nil {
+		if _, ok := request["version"]; !ok {
+			request["version"] = version.Version
+		}
+	}
+	return k.Handle(request)
+}
+
 // get_values and get_state, and nothing else.
 func TestKeeperRefusesEveryOtherOp(t *testing.T) {
 	k := &Keeper{config: &config.Config{}, Keys: newKeyHolder(config.KeeperConfig{})}
 	for _, op := range []string{"get_age_key", "get_key", "", "decrypt", "exec"} {
-		resp := k.Handle(map[string]any{"op": op})
+		resp := handle(k, map[string]any{"op": op})
 		errObj, ok := resp["error"].(map[string]string)
 		if !ok {
 			t.Fatalf("op %q was not refused: %v", op, resp)
@@ -209,7 +222,7 @@ func TestGetStateFingerprintsWithoutDecrypting(t *testing.T) {
 		Keys: newKeyHolder(config.KeeperConfig{}),
 	}
 
-	resp := k.Handle(map[string]any{"op": "get_state"})
+	resp := handle(k, map[string]any{"op": "get_state"})
 	if _, leaked := resp["values"]; leaked {
 		t.Error("get_state returned values")
 	}
@@ -234,7 +247,7 @@ func TestGetStateReportsAFileItCannotStat(t *testing.T) {
 		Keys:   newKeyHolder(config.KeeperConfig{}),
 	}
 
-	resp := k.Handle(map[string]any{"op": "get_state"})
+	resp := handle(k, map[string]any{"op": "get_state"})
 	if state := states(t, resp); len(state) != 0 {
 		t.Errorf("state = %v, want empty", state)
 	}
@@ -250,7 +263,7 @@ func TestGetValuesCarriesTheFileState(t *testing.T) {
 	secrets, keys := fixture(t, sops.TreeBranch{{Key: "flat", Value: "s3cr3t-value-here"}})
 	k := &Keeper{config: &config.Config{Secret: secrets}, Keys: keys}
 
-	resp := k.Handle(map[string]any{"op": "get_values"})
+	resp := handle(k, map[string]any{"op": "get_values"})
 	values, ok := resp["values"].(map[string]string)
 	if !ok || values["flat"] != "s3cr3t-value-here" {
 		t.Fatalf("values = %v", resp["values"])
@@ -393,7 +406,7 @@ func TestAPatternThatNamesNothingIsReportedAsUnresolved(t *testing.T) {
 		Keys:   newKeyHolder(config.KeeperConfig{}),
 	}
 
-	resp := k.Handle(map[string]any{"op": "get_state"})
+	resp := handle(k, map[string]any{"op": "get_state"})
 	if state := states(t, resp); len(state) != 0 {
 		t.Errorf("state = %v, want empty", state)
 	}
@@ -421,13 +434,13 @@ func TestAFileAddedToTheStoreIsPickedUp(t *testing.T) {
 		Keys: newKeyHolder(config.KeeperConfig{}),
 	}
 
-	if state := states(t, k.Handle(map[string]any{"op": "get_state"})); len(state) != 1 {
+	if state := states(t, handle(k, map[string]any{"op": "get_state"})); len(state) != 1 {
 		t.Fatalf("state = %v, want the one file", state)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "b.sops.yml"), []byte("y"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	state := states(t, k.Handle(map[string]any{"op": "get_state"}))
+	state := states(t, handle(k, map[string]any{"op": "get_state"}))
 	if len(state) != 2 {
 		t.Errorf("state = %v, want both files without a reload of the config", state)
 	}
@@ -462,5 +475,39 @@ func TestAStoreThatMatchedNothingIsStillReported(t *testing.T) {
 	_, _, unresolved := Resolve([]string{filepath.Join(dir, "*.sops.yml")})
 	if len(unresolved) != 1 {
 		t.Errorf("unresolved = %v, want the entry that named nothing", unresolved)
+	}
+}
+
+// The keeper and the broker are one binary under two units. A caller of another
+// release is one of them left running across the install that replaced it, and
+// is refused before the op: the alternative is serving the value set to a
+// broker built against a different response shape. Sent to Handle rather than
+// through the test helper, which fills the field in.
+func TestARequestOfAnotherReleaseIsRefused(t *testing.T) {
+	k := &Keeper{config: &config.Config{}, Keys: newKeyHolder(config.KeeperConfig{})}
+	for _, probe := range []struct{ name, caller string }{
+		{"an older release", "0.1.4"},
+		{"none, which is what a client built before the field sends", ""},
+	} {
+		t.Run(probe.name, func(t *testing.T) {
+			request := map[string]any{"op": "get_values"}
+			if probe.caller != "" {
+				request["version"] = probe.caller
+			}
+			resp := k.Handle(request)
+			errObj, ok := resp["error"].(map[string]string)
+			if !ok {
+				t.Fatalf("not refused: %v", resp)
+			}
+			if errObj["code"] != "bad_request" {
+				t.Errorf("code = %q, want bad_request", errObj["code"])
+			}
+			if !strings.Contains(errObj["message"], version.Version) {
+				t.Errorf("the refusal does not name this release: %s", errObj["message"])
+			}
+			if _, leaked := resp["values"]; leaked {
+				t.Error("a refused request came back with values")
+			}
+		})
 	}
 }

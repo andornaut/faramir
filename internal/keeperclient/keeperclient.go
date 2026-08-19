@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/andornaut/faramir/internal/sockutil"
+	"github.com/andornaut/faramir/internal/version"
 )
 
 // callTimeout bounds one round trip to the keeper, decryption included. Above
@@ -59,7 +60,8 @@ func call(socketPath, op string) (*response, error) {
 	// get_values execs sops once per managed file.
 	_ = conn.SetDeadline(time.Now().Add(callTimeout))
 
-	if err := sockutil.Send(conn, map[string]any{"op": op}); err != nil {
+	if err := sockutil.Send(conn, map[string]any{
+		"op": op, "version": version.Version}); err != nil {
 		return nil, fmt.Errorf("keeper: %w", err)
 	}
 	if uc, ok := conn.(*net.UnixConn); ok {
