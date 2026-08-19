@@ -1,13 +1,6 @@
 # Design decisions and their costs
 
-## What this defends
-
-The [Prevented](../README.md#prevented) and [Not prevented](../README.md#not-prevented) tables are the boundary, including that the agent's own reach is not part of it. Two more things this does not cover:
-
-Not defended | Why
---- | ---
-The fleet | The account Ansible connects as has passwordless sudo on every managed host. The operator's arrangement.
-Personal credentials at rest | `.env`, `~/.npmrc` and the like are read by the tools that need them. Scope and rotation are the mitigations.
+The [Prevented](../README.md#prevented) and [Not prevented](../README.md#not-prevented) tables are the boundary, including that the agent's own reach is not part of it. What follows is why the pieces inside it are shaped the way they are.
 
 ## The decisions
 
