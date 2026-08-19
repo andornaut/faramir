@@ -44,7 +44,7 @@ Placement | Result
 `/tmp`, `/var/tmp` | Installs, then finds nothing: `PrivateTmp=true` gives each unit its own. Nothing refuses this at install time; it surfaces when a daemon starts.
 inside a home | Works. `init` drops the keeper's `ProtectHome=` to `tmpfs` and binds that directory back. An *unmounted encrypted* home is refused, the write landing in the backing directory and being shadowed the moment the home mounts.
 
-A home is not mounted until its owner logs in, so the secrets are absent at boot and to cron. A file may be missing because it was never written or because the filesystem holding it is not mounted, and only the second is dangerous, so both are refused, per request rather than at startup. The rule and its one exception are with [the gate](configuration.md#the-install-gate-and-the-same-gate-at-startup).
+An encrypted home is not mounted until its owner logs in, so an install inside one has its secrets absent at boot and to cron. A file may be missing because it was never written or because the filesystem holding it is not mounted, and only the second is dangerous, so both are refused, per request rather than at startup. The rule and its one exception are with [the gate](configuration.md#the-install-gate-and-the-same-gate-at-startup).
 
 ## Linked secrets are read by the broker
 
