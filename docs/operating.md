@@ -67,11 +67,42 @@ The section tells an agent to wait for an escalation only where one can be raise
 
 A brokered command cannot delete these files: each agent's own directory in a tree is sticky, so unlink and rename there belong to the file's owner, which the settings' own `0640` would not have decided. The tree root is deliberately not sticky, which keeps a tool rewriting a lock file by rename working and leaves a brokered command able to move an agent's directory aside from above. `doctor` reports a tree whose agent files stopped carrying what the enrolment wrote.
 
+## Operator commands
+
+**Every one of these is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`; the rest act on the install rather than through it.
+
+- All need root except `doctor`, which degrades, and the two that only read: `recipient ls` and `link ls`.
+- Three group: `faramir vault` acts on the managed store, `faramir link` on a secret another tool owns, and `faramir recipient` on who can decrypt the store. The first two share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
+
+Command | Does
+--- | ---
+`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory: [shares the tree](layout.md), registers the hook and the MCP server in each enrolled agent's settings, and writes the credentials section into the tree's agent instructions file. A home directory, `/`, and anything above a home are refused, symlinks resolved first
+`sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. [What it checks](#checking-an-install)
+`sudo faramir vault add NAME` | Writes a new managed file, `NAME` relative to the secrets directory with `.sops.yml` added for you. `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk; `--from FILE` encrypts one you already hold
+`sudo faramir vault ls` | The managed files by name, how many refs each names, who can read it, and whether it agrees with the rule. Reads the directory rather than asking the broker, so a file the broker refused to load is listed with the reason. Decrypts nothing. `--json`
+`sudo faramir vault rm NAME` | Takes a file out of the store, naming the refs it will destroy and asking for the file's name back; `--force` answers for a script. The audit record keeps the refs it held
+`sudo faramir vault edit FILE` | Opens a managed sops file, decrypting to a `0600` file in a root-owned tmpfs and re-encrypting on the way out. `FILE` is any managed file, by name, base name or path. `--editor` names the editor
+`sudo faramir recipient add KEY` | Lets one more key decrypt the store: validates it, adds it to `<config-dir>/.sops.yaml`, and re-encrypts every managed file to it, so the rule and the ciphertext never disagree. `--dry-run` writes neither. [What it refuses](#adding-a-recipient)
+`sudo faramir recipient rm KEY` | The same in reverse. Reaches no copy of the ciphertext somebody already holds
+`faramir recipient ls` | Who the store is sealed to. Needs no root, `.sops.yaml` holding public keys and no value; as root it also marks this host's own keeper. `--json`
+`sudo faramir recipient reseal [FILE...]` | Re-encrypts to the recipients `<config-dir>/.sops.yaml` names now: every managed file unless some are named. The repair path for a pass that reached only some of them. `--dry-run` writes nothing
+`sudo faramir link add REF FILE` | Reads a secret out of a file another tool maintains, instead of copying it in; `--type` and `--key` say how. Grants the broker read, refuses the file to the agent's file tools, writes the entry and reloads. Read once as the broker's own account first, so a selector naming nothing fails here rather than in every later command. [Detail](configuration.md#linked-secrets)
+`sudo faramir link rm REF` | Drops the entry, so the value leaves the redactor. It undoes neither the grant nor the deny rule, a merged rule file only being addable to, and prints both with what would narrow them
+`faramir link ls` | The linked secrets this install declares, and whether each file is there
+`sudo faramir logs [LOG-ID]` | Recent audit records, one row each: log id, local time, op, outcome, values stood in for, and the command. With an id, one record in full. `--count`/`-n` bounds what is parsed as well as printed, `--json` prints records rather than rows, `--watch` follows the log across a rotation. Reads the log `[audit] log_path` names and takes no path of its own. Rotated files are not searched
+`sudo faramir escalations [--watch]` | Lists the escalation a brokered command is waiting on. `--watch` waits for questions, answers them from that terminal, and reports how each approved run ended
+`sudo faramir approve ID` | Say yes. The id is required: an escalation that names no command is one nobody judged
+`sudo faramir deny [ID]` | Say no. The id is optional, one question being outstanding at a time
+`sudo faramir reload` | Stops the daemons, so the next brokered command starts them on a changed config. All three are socket activated
+`sudo faramir uninstall` | Removes the broker from the install it finds. Leaves the accounts, the config, the secrets, the key and the audit log, and says so: deleting the age key would make every managed sops file unreadable, retroactively
+
+At the broker these are three ops rather than four, `deny` being `approve` with a no: `escalations`, `approve` and `escalate` are root-only there too, checked with `SO_PEERCRED`, so the account the coding agent runs as cannot answer what the agent asked for. `escalate` is the one sudo's PAM helper asks, and so the one that decides whether a brokered command becomes root.
+
 ## Rules a command does not state
 
 - **Adding or editing a managed sops file needs no config change**, but both daemons must be running for the new values to be picked up.
 - **Changing `config.toml` needs both daemons restarted, keeper first.** Neither re-reads it while running.
-- **The keeper must be up before the broker is.** On a cold start there is no previous value set, so a keeper it cannot reach means nothing to redact with, and the broker refuses `exec` and `redact`. Its unit `Requires=` the keeper socket. A keeper lost *later* does not stop a running broker: it keeps the set it has and retries.
+- **The keeper must be up before the broker is.** On a cold start there is no previous value set, so a keeper it cannot reach means nothing to redact with, and the broker refuses `run` and `redact`. Its unit `Requires=` the keeper socket. A keeper lost *later* does not stop a running broker: it keeps the set it has and retries.
 - **Run `init` before enrolling a project with opencode or Kilo Code.** Their plugins fail closed, so a binary too old to know the agent refuses every command in that project rather than running it unredacted.
 - **Children do not inherit the broker's environment.** They get `[command.env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null` and the child gets no controlling terminal, so `/dev/tty` will not open either: that is the one every credential prompt reads so a pipe cannot answer it. A program that prompts falls back to stderr, which is on the PTY and is redacted and recorded; one that writes only to `/dev/tty` loses that text. Pass non-interactive flags.
@@ -79,7 +110,7 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 - **The audit log rotates weekly**, 8 kept, compressed, early at 16MB. the record cap bounds one record, not the file. `doctor` fails when logrotate is not installed, when `/etc/logrotate.d/faramir` is absent or unreadable, and when the rule names a log the broker does not write; it warns when logrotate's state shows the rule has never been applied. Rotating some other way means `doctor` failing on that host.
 - **A command that cannot be recorded does not run.** Before anything starts the broker checks the log can be opened and its filesystem has room for one record; a host failing either refuses every brokered command with `no_audit`. Reachable without anyone being at fault: a brokered command's output is what a record carries, so an agent that prints enough fills that filesystem itself.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
-- **An exec is two records sharing one `log_id`.** `exec_started` when the child runs, naming the command, the cwd and the refs; `exec` when it ends, adding the exit code, the duration and the output. So `faramir logs --watch` shows a playbook while it runs rather than only once it is over, and a run that never returns still leaves a row. `faramir logs <id>` shows the ending where there is one and the start where there is not. A reader selecting `op == "exec"` still gets one record per command, the one that says how it went.
+- **A brokered command is two records sharing one `log_id`.** `run_started` when the child runs, naming the command, the cwd and the refs; `run` when it ends, adding the exit code, the duration and the output. So `faramir logs --watch` shows a playbook while it runs rather than only once it is over, and a run that never returns still leaves a row. `faramir logs <id>` shows the ending where there is one and the start where there is not. A reader selecting `op == "run"` still gets one record per command, the one that says how it went.
 - **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config into an encrypted home the way the age key does. `--ssh-key` moves or adopts one.
 - **A brokered `ssh` logs in as the executor.** `ssh host` naming no user asks for `faramir-exec`, which is nobody's account on a managed host. Give the login (`ssh deploy@host.example.com`), or write one `User` per host into `/var/lib/faramir-exec/.ssh/config` as root, that being the child's `HOME`. Ansible needs neither, `ansible_user` being in the inventory.
 - **A brokered `ssh` verifies against `/etc/ssh/ssh_known_hosts` and the executor's own**, either sufficing. The executor's starts absent and nothing can prompt you to add to it, so a host trusted only in your `~/.ssh/known_hosts` is refused before the broker's key is offered. `init --known-hosts PATH` pins a file for the executor, replaced whole each run; the system-wide file is the alternative, covering every account at once. An entry is filed under the name ssh dials, port-bracketed where that is not 22 (`[host.example.com]:2222`).
@@ -93,6 +124,14 @@ A brokered command cannot delete these files: each agent's own directory in a tr
 
   The removal first makes it re-runnable. Take every type the host offers, the algorithm being negotiated per connection. [ansible-ctrl's faramir role](https://github.com/andornaut/ansible-ctrl/blob/main/roles/faramir/tasks/ssh.yml) does this across a fleet.
 - **Encrypt the disk.** LUKS on the root filesystem covers the age key, the secrets, the audit log and swap in one move.
+
+## What a record is
+
+The operational rules are above; this is the shape of the line they are written on. Every field is chosen by the account the log exists to hold to account, so a record's bounds are decided where it is built.
+
+- One record is one line within the record cap, counted in encoded bytes: `<`, `>`, `&` and every control character cost six apiece as JSON.
+- An append is exclusive and all-or-nothing. A write that lands short is taken back, so a torn line cannot swallow the record after it.
+- Every `log_id` is distinct: the second it was minted in, the writer's nonce, and a counter that only advances. Fourteen characters, carrying no readable time, every record saying when it happened in a field of its own.
 
 ## Adding a recipient
 
