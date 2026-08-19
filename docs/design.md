@@ -67,7 +67,7 @@ What catches a lost grant is `faramir doctor`, which asks the broker's own accou
 
 **One ref per entry, with an explicit selector.** There is no whole-file flatten. A config file is mostly not secret, and a value in the set is a value the redactor searches output for: `https://registry.npmjs.org/` clears `min_length` and would tokenize unrelated output. `min_length` is a bound on what can be searched for safely, not a filter for what is secret.
 
-**A ref does not say where it is kept.** One flat namespace, and a cross-source collision refused at load naming both sides. Tagging the source into the name (`faramir://sops/...`) would make moving a secret between the store and a link a rename, breaking every `faramir.env` and playbook naming it, which is the drift linking exists to avoid.
+**faramir puts no source in a ref.** One flat namespace, and a cross-source collision refused at load naming both sides. Tagging the source into the name (`faramir://sops/...`) would make moving a secret between the store and a link a rename, breaking every `faramir.env` and playbook naming it, which is the drift linking exists to avoid.
 
 **A link that is there and will not read is held to the same gate as a managed file that did not decrypt**, because it is the same state: a value on disk that the redactor does not have. What that costs day to day is in [configuration.md](configuration.md#linked-secrets).
 
