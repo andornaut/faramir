@@ -36,7 +36,7 @@ The boundaries are around the secrets, not the agent. The operator reaches the k
 - sops resolves that file from the working directory upward, so a parent is found from the secrets directory as well as from itself.
 - the managed store globs the secrets directory and `filepath.Glob` matches dotfiles, so a rule file among the ciphertext is one glob spelling away from being loaded as a managed file that does not decrypt.
 
-`--config-dir` moves the secrets, the config and the age key together, so the key cannot sit on an unencrypted disk while the secrets it opens live in an encrypted home. What the units can see decides where, not the modes:
+`--config-dir` moves the secrets, the config and the age key together: the key and the ciphertext it opens are one placement decision rather than three, so no part of an install stays behind at a path the rest has left. What the units can see decides where, not the modes:
 
 Placement | Result
 --- | ---
