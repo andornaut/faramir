@@ -46,7 +46,7 @@ All five are gitignored. `up` refuses to build without the three you supply, rat
 
 **Naming suites is the same hazard from the other side.** Each leaves what the later ones examine (`check-project` runs `init --agent claude`, which writes the account-wide settings `check-doctor` then reports missing), so a set that is not a prefix of the run order is measured against a box its predecessors never set up. `run` warns about that too, and `./e2e.sh run logs doctor` above is one: useful while changing those two suites, and not a verdict on the build.
 
-`check-secrets.sh` is the one exception: it rotates the shared `db/password` that five other suites redact against, so it snapshots the store and `.sops.yaml` on the way in and restores them on the way out.
+`check-secrets.sh` and `check-link.sh` are the exceptions. The first rotates the shared `db/password` that five other suites redact against; the second adds refs to the running install and regroups two files in the operator's home. Each snapshots what it changes on the way in and restores it on the way out.
 
 Each suite prints one line per check and exits non-zero if any failed.
 
@@ -76,6 +76,7 @@ Each suite prints one line per check and exits non-zero if any failed.
 | `check-logs.sh` | `faramir logs`, the operator's record |
 | `check-doctor.sh` | `faramir doctor` as a fault detector |
 | `check-secrets.sh` | the secret lifecycle: edit, reseal, the `.sops.yaml` shapes that seal a store to the wrong people, and a store that will not open |
+| `check-link.sh` | `[[secret.link]]`: a value read out of a file another tool maintains, and the grant that lets the broker read it and nobody else |
 | `check-uninstall.sh` | `faramir uninstall`, and what it is right to leave behind |
 
 ## Writing a check
@@ -99,3 +100,5 @@ Helper | Use
 `check-mcp.sh` is a Python suite and holds its own copy of the primitives, matched by hand.
 
 Assert on what an operator or an agent can observe, not on how it is implemented, and prefer a check that would have caught a real bug over one that restates the code.
+
+A value's absence is not evidence on its own. The broker builds its redactor over the whole value set rather than over the refs a request asked for, so brokered output missing a secret may be output that was redacted rather than output that was refused. Pair the absence with what should be there instead: the token, where the redactor is what covered it, and the refusal, where an account boundary is.

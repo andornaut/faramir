@@ -262,6 +262,10 @@ func TestEveryKeyOfferedCanBeSelected(t *testing.T) {
 		             "back\\slash": "c", "trailing\\": {"leaf": "e"}, "list": ["d"]}`},
 		{KindYAML, "plain: a\n\"with/slash\": b\n\"back\\\\slash\": c\nlist:\n  - d\n"},
 		{KindTOML, "plain = \"a\"\n\"with/slash\" = \"b\"\n[table]\nkey = \"c\"\n"},
+		// ini matches a key whole and escapes nothing, so what pins it is the
+		// section prefix: the listing joins with "/" and the selector splits on it,
+		// and a name offered under the wrong prefix selects nothing.
+		{KindINI, "plain = a\n//registry.npmjs.org/:_authToken = b\n[table]\nkey = c\n"},
 	} {
 		t.Run(tc.kind, func(t *testing.T) {
 			dir := t.TempDir()
