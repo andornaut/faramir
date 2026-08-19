@@ -73,7 +73,7 @@ What catches a lost grant is `faramir doctor`, which asks the broker's own accou
 
 **A link is install state**, re-asserted by every `init` run rather than applied once, which is why `faramir link add` applies those same steps rather than a private copy of them.
 
-Rendering linked paths into the per-project assets instead would change every enrolled tree's files whenever a link was added, and report drift in all of them until each was enrolled again. Pi has no account-wide rule file, so its extension does not carry linked paths; that is the gap it already has.
+Rendering linked paths into the per-project assets instead would change every enrolled tree's files whenever a link was added, and report drift in all of them until each was enrolled again. Pi's extension is the only file it gets, so covering its links would mean exactly that, and only in the trees it has been trusted in. It carries none, which is the gap it already has.
 
 ## Three layers
 
