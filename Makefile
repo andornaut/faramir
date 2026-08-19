@@ -123,13 +123,15 @@ coverage:
 fmt:
 	golangci-lint fmt
 
-## lint: every linter that reads this tree, ShellCheck included, so that
-## `make lint` means the same here as in a repository holding no shell.
-## `make shellcheck` still runs that alone.
+## lint: golangci-lint and ShellCheck, so that `make lint` covers the shell as
+## well as the Go and means here what it means in a repository holding no shell.
+## `make shellcheck` still runs that alone. CI's Lint job also runs markdownlint
+## and `goreleaser check`, which need tooling this repository does not otherwise
+## ask for, so they are left to CI.
 ##
-## `run` accepts an unknown key inside
-## `linters.settings` and exits 0, which leaves that setting disabled while CI
-## stays green, so `config verify` is what rejects a misspelled one.
+## `run` accepts an unknown key inside `linters.settings` and exits 0, which
+## leaves that setting disabled while CI stays green, so `config verify` is what
+## rejects a misspelled one.
 lint: shellcheck
 	golangci-lint config verify
 	golangci-lint run
