@@ -17,7 +17,7 @@ Four get full redaction: what the agent runs in an enrolled project is rewritten
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
-[Claude Code](https://claude.com/product/claude-code) | `PreToolUse` hook and MCP server in the tree; deny rules in `~/.claude/settings.json` | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/design.md#what-this-gives-up)
+[Claude Code](https://claude.com/product/claude-code) | `PreToolUse` hook and MCP server in the tree; deny rules in `~/.claude/settings.json` | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/agents.md#claude-code)
 [opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) and `opencode.json` in the tree; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved
 [Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) under `.kilo/plugin/`, loaded by the CLI and the VS Code extension; `kilo.json` and `~/.config/kilo/kilo.json` | Same as opencode
 [Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) under `.pi/extensions/`. Pi ships no MCP, so the extension registers the two tools itself | None. Project-local extensions load only once the project is trusted, so a tree Pi has not been trusted in is unguarded
@@ -212,7 +212,8 @@ Doc | Covers
 --- | ---
 [docs/integrations.md](docs/integrations.md) | Wiring a tool to the broker: per-tool recipes, linked credentials, SSH, and Ansible end to end
 [docs/configuration.md](docs/configuration.md) | Every setting, which flag sets it, what `--check` fails on
-[docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what enrolment costs
+[docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what it gives up
+[docs/agents.md](docs/agents.md) | What varies between the agents, how the rules reach each, what enrolling one costs
 [docs/installing.md](docs/installing.md) | Every `init` flag, what a re-run adopts, where the config directory may not go
 [docs/layout.md](docs/layout.md) | Every path the install creates, with its mode and owner
 [docs/escalation.md](docs/escalation.md) | Granting `sudo` to a brokered command, answering a question, what the grant costs

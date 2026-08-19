@@ -123,47 +123,19 @@ The already-covered test is a prefix rather than a match anywhere, because two f
 - **A command that merely names the wrap script.** The path is in this project's documentation and in the wrapper itself, so a match anywhere would leave `echo /usr/local/libexec/faramir/wrap.sh; cat secrets` unrewritten.
 - **A command piping into the redactor.** A pipe carries stdout, so whatever the upstream wrote to stderr reaches the transcript unredacted, and chaining past it with `;`, `&&` or `||` runs the rest of the line uncovered. Wrapping one captures both streams and costs a second redaction pass, which changes nothing because a token is not a value.
 
-## Agents
-
-The guard is one program speaking each agent's contract. What varies is the tool that runs a command, the shape of the reply and where it is registered; what does not is that the command is rewritten to redact its own output. Which agents, and what enrolling each costs, is the table in the [README](../README.md#supported-agents).
-
-`--agent` defaults to `auto`, which configures the agents already there and nothing else: `init` asks that of the operator's home, `init-project` of the tree, and they are not the same paths, opencode keeping `opencode.json` beside a project and `.config/opencode` under a home. Naming one configures it regardless, which is how a tree is set up for an agent before it is installed. Detection only ever adds, so the two need no rule about which wins.
-
-Beside the rules goes prose saying what they refuse and why, in the file each agent reads for every project. A model given a refusal and no explanation tries the next route: another tool, an interpreter, a base64 pipe. The section is also the only thing faramir says in a tree `init-project` has never been run in, where the deny rules still hold and there is no broker to name. The tree's own section is the longer one, there being a route there to point at.
-
-The paths those rules refuse are written once, in [internal/install/protectedpaths.go](../internal/install/protectedpaths.go), and rendered into each agent's own spelling. A copy per agent drifts silently: a rule that covers nothing looks exactly like a rule that covers everything, and one character is the difference. Pi has no rule file to write, so its rules are compiled into the extension and applied by shape, a file tool whose name it does not know still carrying a path.
-
-opencode and Kilo Code have no hook that runs a program. A plugin in the agent's own process blocks a call by throwing and changes one by mutating its arguments, so it asks the guard and applies the answer:
-
-```json
-{"decision": "deny", "reason": "<what the model is told>"}
-{"decision": "rewrite", "tool_input": {"command": "source .../wrap.sh '<command>'"}}
-```
-
-The rewrite carries back every field of the original tool input with only `command` replaced. Nothing written is a call left alone. Every other answer fails closed: a guard that cannot be run, a non-zero exit, an answer that is not JSON, a decision the plugin does not know. That covers version skew, so run `faramir init` before enrolling one of these: a binary too old to know the agent refuses every command in that project rather than running it unredacted.
-
-Antigravity gets one half of this ([which half](../README.md#supported-agents)) and is told so: shipping prose silently would say a project is covered when the thing that covers it is absent, so the enrolment warns.
-
-A file two agents read is written once, and claims only what holds for both: a file that told one of them its file tools are refused everywhere would be telling the other something false. No two share one today, and the rule stays because the failure it prevents is silent. A rules file faramir creates carries the frontmatter that makes it always-on, that being what decides whether the model is shown it at all.
+What each agent does with that rewrite, how the rules reach it, and what enrolling one costs is in [agents.md](agents.md).
 
 ## What this gives up
 
 Cost | Detail
 --- | ---
 No kernel boundary around the agent process | Hooks and the deny list, which is the trade for an agent that can do the operator's work.
-For Bash on Claude Code, the deny list replaces the permission prompt | Matching runs against the rewritten command, so a rule keyed on the program name no longer fires, and the wrapper cannot be allow-listed. There is no `ask` to return instead: it would prompt on every command including `ls`, show the rewritten text rather than what was typed, and strand an unattended run on the first command.
 The shipped deny list names credential disclosure and nothing destructive | Enrolling drops whatever Bash prompting stood between the agent and `rm -rf` and puts nothing in its place. Prompts on `Write` and `Edit` do not cover it, Bash writing and deleting without them.
 A killed command loses its output | Redaction happens after the command finishes, so a timeout or interrupt yields nothing where an unwrapped command would have shown partial output. The cost of the buffering the persistent shell forces.
 The wrapper needs a private `XDG_RUNTIME_DIR` | It captures output before redacting it, so that file holds plaintext and belongs where no other account can enter. `/dev/shm` is 1777, where a name nothing has created yet is one another account can create first. A session without one, which includes `sudo` and `cron`, gets a refusal on every Bash command.
 The wrapper takes the caller's `EXIT` trap | A command that runs `exit` ends the sourced shell at the `eval`, before the cleanup, and an `EXIT` trap is what bash still runs there. The caller's is saved and put back afterwards. Two ways past it, both leaving a `0600` capture file only the operator can reach: `SIGKILL`, which runs no trap, and a command that installs an `EXIT` trap of its own.
 
-Hooks fire in every Claude Code permission mode and a `deny` is enforced in each, `--dangerously-skip-permissions` included, so what enrolment costs depends on the mode:
-
-Mode | Cost
---- | ---
-`default` | Bash would have prompted and now does not. This is what the warning is about.
-`acceptEdits` | Auto-accepts `Write` and `Edit`, leaves Bash prompting. Same cost as default.
-`bypassPermissions` | Bash never prompted, so approving it removes nothing. Enrolment is purely additive.
+What each agent gives up on top of this, Claude Code's cost per permission mode included, is in [agents.md](agents.md#claude-code).
 
 Rewriting rather than denying is the point: a deny list covers what somebody thought to name, and the command that leaks a credential is usually one nobody would have.
 
