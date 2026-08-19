@@ -76,9 +76,9 @@ What catches a lost grant is `faramir doctor`, which asks the broker's own accou
 
 **A ref does not say where it is kept.** One flat namespace, and a cross-source collision refused at load naming both sides. Tagging the source into the name (`faramir://sops/...`) would make moving a secret between the store and a link a rename, breaking every `faramir.env` and playbook naming it, which is the drift linking exists to avoid.
 
-**A link that is there and will not read is held to the same gate as a managed file that did not decrypt**, because it is the same state: a value on disk that the redactor does not have. Nothing survives a tool rewriting its own file, ACL or group alike, which is why `doctor` asks whether the read still works rather than trusting what was granted. What that costs day to day is in [configuration.md](configuration.md#linked-secrets).
+**A link that is there and will not read is held to the same gate as a managed file that did not decrypt**, because it is the same state: a value on disk that the redactor does not have. What that costs day to day is in [configuration.md](configuration.md#linked-secrets).
 
-**A link is install state**, re-asserted by every `init` run rather than applied once. That is what heals a grant a tool took away, and it is why `faramir link add` applies the same steps rather than a private copy of them.
+**A link is install state**, re-asserted by every `init` run rather than applied once, which is why `faramir link add` applies those same steps rather than a private copy of them.
 
 Rendering linked paths into the per-project assets instead would change every enrolled tree's files whenever a link was added, and report drift in all of them until each was enrolled again. Pi has no account-wide rule file, so its extension does not carry linked paths; that is the gap it already has.
 
@@ -178,7 +178,7 @@ Rewriting rather than denying is the point: a deny list covers what somebody tho
 
 ## Allowing sudo on the controller
 
-How to install and run this is in [operating.md](operating.md#allowing-sudo-on-the-controller); this is the reasoning.
+How to install and run this is in [escalation.md](escalation.md); this is the reasoning.
 
 **An escalation is the same kind of oracle as `redact`, weighted the other way.** A human can answer wrongly, so it survives that weighting by being deny-by-default: silence is a refusal, an unreachable answer channel is a refusal, and anything that is not `yes` is a refusal.
 

@@ -27,7 +27,7 @@ Flag | Key | Default | Bounds
 
 `[[secret.link]]` is the eighth thing the file carries and is `faramir link`'s, [below](#linked-secrets).
 
-**`--secret-min-length` has a floor of 6 and a reason for being low.** The two failures are not symmetric: a value refused for being too short is absent from the redactor and reaches output in the clear, while one matched too eagerly only mangles the operator's own text. The default of 8 is not the safe point it looks like, `password` being eight characters and a word.
+**`--secret-min-length` has a floor of 6, and a reason for being low.** The two failures are not symmetric: a value refused for being too short is absent from the redactor and reaches output in the clear, while one matched too eagerly only mangles the operator's own text. `password` is eight characters, so the default is not the safe point it looks like. [What the gate is for](redaction.md#the-pipeline-in-order).
 
 ## What is derived
 
@@ -91,7 +91,7 @@ Key | Rule
 `ref` | The name a caller asks by, in the same namespace the sops store uses. Nothing marks a ref as linked: where a secret is kept is not part of its name, or moving one into the store later would rename it, and every `faramir.env` naming it with it. A link claiming a ref the store already defines is refused too.
 `path` | Absolute. No `~`, which nothing expands here: the broker runs as its own account, so a home would be the wrong one.
 `type` | `text` or `base64` for the whole file, `json`, `yaml`, `toml` or `ini` to select out of it.
-`key` | Required for the four that select, refused for the two that do not. `a/b/c` walks a tree the way a sops ref does, a number indexing a list, and a key holding a slash is escaped `a\/b`; for `ini` it is the whole key, or `section/key`, matched whole so a slash in one needs no escape, and two entries a slash makes read alike are refused rather than guessed between.
+`key` | Required for the four that select, refused for the two that do not. `a/b/c` walks a tree the way a sops ref does, a number indexing a list; `ini` matches the whole key instead. [Selectors, escaping and the per-tool recipes](integrations.md#linking-a-credential-another-tool-owns).
 
 faramir grants the broker read, so there is nothing to arrange by hand:
 
@@ -102,10 +102,9 @@ every directory above it, down from the home | the client group, execute only, t
 
 Why it is shaped this way (one ref per entry rather than a whole-file flatten, the broker reading these rather than the keeper, and modes rather than an ACL) is in [design.md](design.md#linked-secrets-are-read-by-the-broker). What follows is what it costs you day to day.
 
-- **Link what the agent can already read.** Linking turns plaintext the agent could print into a value the redactor covers, and takes away the direct read. Pointed at something the agent *cannot* reach it does the opposite, since every managed value is reachable through `env_refs` by any brokered command.
 - **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi is the exception, having no account-wide rule file.
 - **A tool that replaces its own file rather than rewriting it takes the grant with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file; `faramir init` grants it again.
-- **A link that is there and will not read stops the host.** It is a value the redactor is missing while the plaintext is still on disk, so `run` and `redact` refuse until it is fixed, and `broker --check` and `doctor` name the ref. A link whose *path* is gone is the other case and is not fatal: the credential has left the machine, so there is nothing to redact.
+- **A link that is there and will not read stops the host**, being a value the redactor is missing while the plaintext is still on disk: `run` and `redact` refuse until it is fixed. A link whose *path* is gone is the other case and is not fatal, the credential having left the machine.
 
 ## The sockets belong to their units
 

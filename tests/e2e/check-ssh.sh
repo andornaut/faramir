@@ -213,10 +213,11 @@ grep -qi 'PRIVATE KEY' <<<"$out" && bad "the key crossed to the managed host" \
 head_ "9. a prompt the command reads from its terminal"
 #
 # docs/operating.md: "Interactive prompts fail rather than hang. Stdin is
-# /dev/null."  Stdin is, and a command reading stdin does end.  But the child is
-# given the PTY as its controlling terminal, so /dev/tty is open, and every
-# credential prompt worth the name reads /dev/tty precisely so a pipe cannot
-# feed it: ssh-add, sudo, gpg, ssh's own passphrase prompt.
+# /dev/null."  Stdin is, and a command reading stdin does end.  The other half is
+# /dev/tty, which every credential prompt worth the name reads precisely so a
+# pipe cannot feed it: ssh-add, sudo, gpg, ssh's own passphrase prompt.  The
+# child is given the PTY for stdout and stderr but not as its controlling
+# terminal, so that open fails rather than blocking on a master nothing writes.
 
 out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 6 -- \
   /bin/sh -c 'head -1; echo STDIN-ENDED' 2>&1)

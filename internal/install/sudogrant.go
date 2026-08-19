@@ -1,7 +1,7 @@
 package install
 
 // The sudo grant `faramir init --allow-sudo` writes.  What it is for is
-// docs/operating.md; what it must keep saying:
+// docs/escalation.md; what it must keep saying:
 //
 //   - PASSWD, never NOPASSWD.  A passwordless grant is usable with the broker
 //     out of the way, which is a brokered command skipping the escalation.

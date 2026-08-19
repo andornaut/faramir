@@ -985,23 +985,27 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 	// up while the secrets are not written yet and refusing exec and redact until
 	// they are; doctor is the audit, and a broker serving nothing is what an
 	// operator ran it to be told about.
+	//
+	// Named apart from the `secrets` boundary check, which asks who owns the
+	// directory: two findings under one name read as one check reported twice.
+	const store = "secrets store"
 	explained := true
 	switch {
 	case len(check.Secrets.Patterns) == 0:
-		report.addf("secrets", StatusFailed, "no managed sops files are configured, so "+
+		report.addf(store, StatusFailed, "no managed sops files are configured, so "+
 			"nothing is injectable and nothing is redacted")
 	case len(check.Secrets.UnresolvedPatterns) > 0:
 		// The unresolved entries alone: another pattern beside them may have
 		// matched and loaded, and naming that one too would say the untrue thing.
-		report.addf("secrets", StatusFailed, "%s. Either the secrets have not been "+
+		report.addf(store, StatusFailed, "%s. Either the secrets have not been "+
 			"written yet, or they are on a filesystem that is not mounted; %d ref(s) "+
 			"loaded from what did resolve",
 			strings.Join(check.Secrets.UnresolvedPatterns, "; "), check.Secrets.Count)
 	case check.Secrets.Count == 0:
-		report.addf("secrets", StatusFailed, "read %s and loaded no refs. %s",
+		report.addf(store, StatusFailed, "read %s and loaded no refs. %s",
 			strings.Join(check.Secrets.Files, ", "), loadErrorDetail(check.Secrets.Errors))
 	default:
-		report.addf("secrets", StatusOK, "%d ref(s) from %d file(s)",
+		report.addf(store, StatusOK, "%d ref(s) from %d file(s)",
 			check.Secrets.Count, len(check.Secrets.Files))
 		explained = false
 	}

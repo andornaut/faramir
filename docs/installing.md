@@ -1,6 +1,6 @@
 # Installing
 
-`faramir init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. It is idempotent, so it is also the upgrade, and it never migrates: it writes what this version wants and leaves an older layout's leftovers alone.
+`faramir init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. It is idempotent, so it is also the upgrade, and it never migrates: it writes this version's layout and leaves an older one's leftovers alone.
 
 ```bash
 make build
@@ -35,7 +35,7 @@ Flag | Default | Sets
 `--ssh-key PATH` | the install's, then `<config-dir>/id_ed25519` | Where the keypair the broker lends lives. One is minted either way, so this relocates rather than enables. An existing key is adopted, and must be `faramir-broker`-owned `0600` with its `.pub` beside it at `0644`
 `--known-hosts PATH` | none | A `known_hosts` file copied to `<exec-home>/.ssh/known_hosts` and replaced whole each run. One that is not a `known_hosts` file is refused
 `--agent NAME` | `auto` | Which agents get deny rules and a credentials section in this home ([which file, per agent](layout.md)). Finding no agent writes nothing and says so
-`--allow-sudo` | off | Lets a brokered command *ask* to become root, through a password-required sudoers entry and a PAM service of faramir's own. Not passing the flag takes it back. [What it writes](operating.md#the-decision-is-made-at-init-per-host)
+`--allow-sudo` | off | Lets a brokered command *ask* to become root, through a password-required sudoers entry and a PAM service of faramir's own. Not passing the flag takes it back. [What it writes](escalation.md#the-decision-is-made-at-init-per-host)
 `--notify-command ARG` | none | Announces a waiting escalation, one argument per flag. Must name `{prompt}` or `{id}`; needs `--allow-sudo`
 `--socket PATH` | `$FARAMIR_SOCKET`, then `/run/faramir/broker.sock` | Which broker to ask where the install is, so it decides which install a flagless re-run provisions
 `--dry-run` | off | Report what would change and write nothing. The one form that does not need root

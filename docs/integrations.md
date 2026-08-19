@@ -43,7 +43,7 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 
 - A pipeline is requested explicitly as `["bash", "-lc", "…"]`; the broker never hands a string to a shell.
 - A bare command name is looked up on `[command.env] PATH`. Venv, pipx and shim directories belong there.
-- Anything that wants to decrypt sops itself does not onboard. It gets named values instead.
+- A tool that decrypts sops itself does not onboard. It gets named values instead.
 - `cd <project> && sudo faramir init-project` last, which shares the tree so a brokered command can run in it and configures whichever agents it already carries.
 
 ## Linking a credential another tool owns
@@ -88,11 +88,11 @@ c     = three
 
 That is refused, naming all of them, rather than answered with whichever came first: choosing would be choosing which credential to inject, and the ones not chosen are then absent from the redactor and come back in the clear if anything prints them. Rename a section, or link the file as `text`. A file holding the *same* key twice is a different thing and keeps INI's own answer, the first one.
 
-It has not come up in practice. If it does, the alternative is to escape `ini` like the others and accept npm's key becoming `\/\/registry.npmjs.org\/:_authToken`.
+The alternative, should this come up in practice, is to escape `ini` like the others and accept npm's key becoming `\/\/registry.npmjs.org\/:_authToken`.
 
 **A linked file is bounded at 1 MiB.** A link pointed at something larger fails rather than reading it into the value set, a credential file being small and this being the difference between a link and a mistake.
 
-**Link what the agent can already read.** The agent runs as the operator, so `~/.npmrc` is one file read away; linking puts that value in the redactor and refuses the path, closing both halves. Pointed at a file the agent *cannot* read it inverts, every managed value being reachable through `env_refs` by any brokered command. A root-owned keyfile belongs outside the store for that reason.
+**Link what the agent can already read.** The agent runs as the operator, so `~/.npmrc` is one file read away; linking puts that value in the redactor and refuses the path, closing both halves. Pointed at a file the agent *cannot* read it inverts, so a root-owned keyfile belongs outside the store.
 
 Why it is shaped this way is in [design.md](design.md#linked-secrets-are-read-by-the-broker); what an entry looks like and what a lost grant costs is in [configuration.md](configuration.md#linked-secrets).
 
@@ -102,10 +102,10 @@ Brokered commands run as `faramir-exec`, which must *use* the key that reaches m
 
 `faramir init` mints one beside the age key and renders `[ssh] key` itself. Put the public half it prints into `authorized_keys` on each managed host. The broker keeps both halves under its own uid, loads the private one into an `ssh-agent` it owns, and passes the child only `SSH_AUTH_SOCK`.
 
-- A key the agent cannot load does not stop the broker: it is logged, `--check` and `doctor` fail on it, and only commands that reach a host fail, with ssh's own error.
-- The agent lives and dies with the broker, so nothing outlives the process holding the key in memory.
+- The `ssh-agent` lives and dies with the broker, so nothing outlives the process holding the key in memory.
+- A key it cannot load is logged rather than fatal: `--check` and `doctor` name it, and only commands that reach a host fail, with ssh's own error.
 - The executor's account cannot read the key, so `ssh` problems are debugged through `faramir run` or from the audit log via the reported `log_id`.
-- A bare `ssh host` asks for `faramir-exec`, which is nobody's account on a managed host. Give the login, or write one `User` per host into the executor's own `.ssh/config`.
+- A bare `ssh host` logs in as `faramir-exec`, which is nobody's account on a managed host. Give the login, or write one `User` per host into the executor's own `.ssh/config`.
 
 Two settings that are not defaults:
 
@@ -186,7 +186,7 @@ The controller is different, and by default it has to be left out, a brokered co
 faramir run --env-file faramir.env -- ansible-playbook msmtp.yml --limit '!controller'
 ```
 
-A playbook that touches every host then splits in two: the fleet through the broker, the controller as root some other way. `sudo faramir init --allow-sudo` closes that: a brokered command's `sudo` puts a question to a human, answered per run by `sudo faramir approve ID`, with no password anywhere. How to run it is [operating.md](operating.md#allowing-sudo-on-the-controller); the reasoning is [design.md](design.md#allowing-sudo-on-the-controller).
+A playbook that touches every host then splits in two: the fleet through the broker, the controller as root some other way. `sudo faramir init --allow-sudo` closes that: a brokered command's `sudo` puts a question to a human, answered per run by `sudo faramir approve ID`, with no password anywhere. How to run it is [escalation.md](escalation.md); the reasoning is [design.md](design.md#allowing-sudo-on-the-controller).
 
 The Ansible side is one variable, on the controller host only:
 
@@ -203,4 +203,4 @@ Nothing else changes: no `--ask-become-pass`, no vault, and no become password i
 sudo faramir escalations --watch
 ```
 
-One approval covers the whole playbook run rather than one task. [What it does and does not bound](operating.md#one-question-per-run-and-what-to-expect), including which other commands are refused meanwhile.
+One approval covers the whole playbook run rather than one task. [What it does and does not bound](escalation.md#one-question-per-run-and-what-to-expect), including which other commands are refused meanwhile.

@@ -23,7 +23,7 @@ The difference is deliberate. A linked file changes when another tool rotates th
 
 Programs behave differently when stdout is not a terminal: colour, progress meters and buffering all change. More to the point, **a process can write straight to `/dev/tty`**, which no stdout redirection sees; `ssh` and `sudo` do it for password prompts.
 
-The child gets a PTY for stdout and stderr and no controlling terminal, so `/dev/tty` cannot be opened at all and a prompt falls back to stderr, which the redactor is reading. `internal/execserver` pins the failed open and that stderr is still captured; the end-to-end suites pin the fallback coming back as a token, in `check-wrap.sh`.
+The child gets a PTY for stdout and stderr and no controlling terminal, so `/dev/tty` cannot be opened at all and a prompt falls back to stderr, which the redactor is reading. `internal/execserver` pins the failed open and that stderr is still captured; the end-to-end suites pin the same open failing on a real host (`check-ssh.sh`) and stderr coming back as a token (`check-wrap.sh`).
 
 The broker creates the pair, passes the *slave* over `SCM_RIGHTS` and keeps the master, so redaction runs with no extra hop. Stdin is `/dev/null`, or any command reading it blocks until timeout holding a concurrency slot. Cost: stdout and stderr arrive merged.
 

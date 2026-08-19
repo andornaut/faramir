@@ -114,7 +114,7 @@ make build
 sudo ./bin/faramir init
 ```
 
-`init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. Idempotent, so it is also the upgrade, and it never migrates: it writes what this version wants and leaves an older layout's leftovers alone. A re-run with a flag left out keeps what the install already uses rather than reverting to the default.
+`init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. Idempotent, so it is also the upgrade, and it never migrates: it writes this version's layout and leaves an older one's leftovers alone. A re-run with a flag left out keeps what the install already uses rather than reverting to the default.
 
 Every flag, what a re-run adopts, and where the config directory may not go: [docs/installing.md](docs/installing.md).
 
@@ -130,7 +130,7 @@ Reports whether the install is doing its job, and as root what each account can 
 
 ### Onboarding a project
 
-1. Put the values in one sops file under `/etc/faramir/secrets`, named after what consumes them. The store is that directory, so a file put there is picked up on the next refresh (10 seconds by default). A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
+1. Write the values, one file per thing that consumes them: `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk. `--from FILE` encrypts one you already hold and leaves that copy cleartext where it is; `sudo faramir vault edit NAME` reopens a file later. Nothing restarts: the next refresh picks the file up, 10 seconds by default. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
 2. Have the project read each credential from an environment variable rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
 3. Write the refs beside the project, one `NAME=faramir://ref` per line.
 4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
@@ -172,13 +172,13 @@ faramir redact -- ./deploy.sh
 
 A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that also configures the controller has to leave it out with `--limit '!controller'`. `sudo faramir init --allow-sudo` closes that split: no password, a PAM service that asks the broker, and one question per run answered by `sudo faramir approve ID`. An approved command gets real root and can make it permanent, so approving is trusting *that command* with permanent root.
 
-- How to run it: [docs/operating.md](docs/operating.md#allowing-sudo-on-the-controller)
+- How to run it: [docs/escalation.md](docs/escalation.md)
 - Why it is shaped this way: [docs/design.md](docs/design.md#allowing-sudo-on-the-controller)
 - With Ansible: [docs/integrations.md](docs/integrations.md#becoming-root-on-the-controller)
 
 ### Operator commands
 
-**Every operator command is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`; the rest act on the install rather than through it.
+**Every operator command is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`, plus `version`, `help` and `completion`, which reach no broker; the rest act on the install rather than through it.
 
 Group | Commands
 --- | ---
@@ -214,6 +214,7 @@ Doc | Covers
 [docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what enrolment costs
 [docs/installing.md](docs/installing.md) | Every `init` flag, what a re-run adopts, where the config directory may not go
 [docs/layout.md](docs/layout.md) | Every path the install creates, with its mode and owner
+[docs/escalation.md](docs/escalation.md) | Granting `sudo` to a brokered command, answering a question, what the grant costs
 [docs/operating.md](docs/operating.md) | Checking an install, every operator command, [the rules a command does not state](docs/operating.md#rules-a-command-does-not-state), adding an age recipient
 [docs/protocol.md](docs/protocol.md) | Request and response shapes on the socket
 [docs/redaction.md](docs/redaction.md) | What the redactor covers, and what it cannot
