@@ -3,6 +3,8 @@ package config
 import (
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/secretlink"
 )
 
 func TestLinksLoad(t *testing.T) {
@@ -66,7 +68,7 @@ path = "/x"`, "type is required"},
 		"unknown type": {`
 ref = "a/b"
 path = "/x"
-type = "toml"`, `unknown type "toml"`},
+type = "xml"`, `unknown type "xml"`},
 		"key required": {`
 ref = "a/b"
 path = "/x"
@@ -129,5 +131,24 @@ link = "gh/token"
 	}
 	if !strings.Contains(err.Error(), "[[secret.link]]") {
 		t.Errorf("error %q does not name the shape wanted", err)
+	}
+}
+
+// Every selecting kind has to survive the loader, not only the reader: a type
+// secretlink can extract and the config refuses is one no operator can declare.
+func TestEverySelectingKindLoads(t *testing.T) {
+	for _, kind := range secretlink.Kinds() {
+		body := "\nref = \"a/b\"\npath = \"/x\"\ntype = \"" + kind + "\"\n"
+		if secretlink.NeedsKey(kind) {
+			body += "key = \"k\"\n"
+		}
+		cfg, err := load(t, minimal+"\n[[secret.link]]"+body)
+		if err != nil {
+			t.Errorf("type %q is extractable and will not load: %v", kind, err)
+			continue
+		}
+		if len(cfg.Secret.Links) != 1 || cfg.Secret.Links[0].Type != kind {
+			t.Errorf("type %q did not round trip: %+v", kind, cfg.Secret.Links)
+		}
 	}
 }

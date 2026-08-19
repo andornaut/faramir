@@ -22,11 +22,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/BurntSushi/toml"
 	yaml "go.yaml.in/yaml/v3"
 )
 
@@ -38,9 +40,11 @@ const (
 	// KindBase64 is the whole file encoded, for one that is not text.  The value
 	// injected is the encoding, so whatever consumes it decodes.
 	KindBase64 = "base64"
-	// KindJSON, KindYAML and KindINI select one value out of a structured file.
+	// KindJSON, KindYAML, KindTOML and KindINI select one value out of a
+	// structured file.
 	KindJSON = "json"
 	KindYAML = "yaml"
+	KindTOML = "toml"
 	KindINI  = "ini"
 )
 
@@ -49,17 +53,17 @@ const (
 const MaxBytes = 1 << 20
 
 // Kinds is every kind, for the config parser's error message and its tests.
-// Ordered as declared rather than alphabetically: whole-file first, then the
-// three that select.
+// Ordered as declared rather than alphabetically: the whole-file kinds first,
+// then the ones that select.
 func Kinds() []string {
-	return []string{KindText, KindBase64, KindJSON, KindYAML, KindINI}
+	return []string{KindText, KindBase64, KindJSON, KindYAML, KindTOML, KindINI}
 }
 
 // NeedsKey reports whether a kind selects part of a file, and so requires a
 // `key`.  The whole-file kinds refuse one, a key there naming nothing.
 func NeedsKey(kind string) bool {
 	switch kind {
-	case KindJSON, KindYAML, KindINI:
+	case KindJSON, KindYAML, KindTOML, KindINI:
 		return true
 	}
 	return false
@@ -124,6 +128,12 @@ func Extract(kind, key string, data []byte) (string, error) {
 			return "", errors.New("is not valid YAML")
 		}
 		return selectPath(tree, key)
+	case KindTOML:
+		var table map[string]any
+		if err := toml.Unmarshal(data, &table); err != nil {
+			return "", errors.New("is not valid TOML")
+		}
+		return selectPath(table, key)
 	case KindINI:
 		return selectINI(data, key)
 	}
@@ -158,6 +168,12 @@ func Keys(kind string, data []byte) []string {
 		if yaml.Unmarshal(data, &tree) != nil {
 			return nil
 		}
+	case KindTOML:
+		var table map[string]any
+		if toml.Unmarshal(data, &table) != nil {
+			return nil
+		}
+		tree = table
 	case KindINI:
 		return iniKeys(data)
 	default:
@@ -173,9 +189,9 @@ func Keys(kind string, data []byte) []string {
 func collect(node any, prefix string, out *[]string) {
 	join := func(segment string) string {
 		if prefix == "" {
-			return segment
+			return escapeSegment(segment)
 		}
-		return prefix + "/" + segment
+		return prefix + "/" + escapeSegment(segment)
 	}
 	switch container := node.(type) {
 	case map[string]any:
@@ -225,11 +241,11 @@ func iniKeys(data []byte) []string {
 func selectPath(tree any, key string) (string, error) {
 	node := tree
 	walked := ""
-	for segment := range strings.SplitSeq(key, "/") {
+	for _, segment := range splitSelector(key) {
 		if walked == "" {
-			walked = segment
+			walked = escapeSegment(segment)
 		} else {
-			walked += "/" + segment
+			walked += "/" + escapeSegment(segment)
 		}
 		switch container := node.(type) {
 		case map[string]any:
@@ -253,12 +269,65 @@ func selectPath(tree any, key string) (string, error) {
 	return scalar(node, key)
 }
 
+// splitSelector cuts a selector into segments on unescaped "/", and unescapes
+// the rest.  A key that holds a slash is what makes this necessary: a container
+// registry file names its entries by URL, so an unescaped `auths/https://…/auth`
+// walks four levels that are not there.  Escaped, it names the two that are.
+//
+// The whole-file kinds and ini do not come through here.  ini matches a key
+// whole, so a slash in one is already literal, and escaping it would break the
+// npm registry keys that are the reason ini is a kind at all.
+func splitSelector(key string) []string {
+	segments := []string{}
+	var current strings.Builder
+	escaped := false
+	for _, r := range key {
+		switch {
+		case escaped:
+			// Only "/" and the escape itself are special.  An escape before anything
+			// else is a literal backslash, so a Windows path is not rejected for one.
+			if r != '/' && r != '\\' {
+				current.WriteRune('\\')
+			}
+			current.WriteRune(r)
+			escaped = false
+		case r == '\\':
+			escaped = true
+		case r == '/':
+			segments = append(segments, current.String())
+			current.Reset()
+		default:
+			current.WriteRune(r)
+		}
+	}
+	if escaped {
+		current.WriteRune('\\')
+	}
+	return append(segments, current.String())
+}
+
+// escapeSegment spells one key so splitSelector reads it back whole.  Every
+// listing goes through it: a name offered and then refused as a selector is
+// worse than none.
+func escapeSegment(segment string) string {
+	segment = strings.ReplaceAll(segment, `\`, `\\`)
+	return strings.ReplaceAll(segment, "/", `\/`)
+}
+
 // parentOf names the part of a selector that ran out, for the error above.
 func parentOf(walked string) string {
-	if i := strings.LastIndexByte(walked, '/'); i >= 0 {
-		return walked[:i]
+	// Through the selector spelling rather than the last "/" byte: walked is
+	// already escaped, so a key holding a slash would otherwise be cut inside
+	// itself and the error would name a parent nobody wrote.
+	segments := splitSelector(walked)
+	if len(segments) < 2 {
+		return "the file"
 	}
-	return "the file"
+	parts := make([]string, 0, len(segments)-1)
+	for _, segment := range segments[:len(segments)-1] {
+		parts = append(parts, escapeSegment(segment))
+	}
+	return strings.Join(parts, "/")
 }
 
 // scalar converts a selected leaf, refusing what is never a credential.  The
@@ -294,10 +363,23 @@ func scalar(node any, key string) (string, error) {
 // Deliberately small: no continuations, no interpolation, no duplicate-key
 // policy beyond first wins.  A file needing more than this is one the operator
 // should select out of with a different type.
+//
+// Unescaped, unlike the tree kinds: a selector here is one key matched whole,
+// which is what lets npm's `//registry.npmjs.org/:_authToken` be given as it is
+// written.  The cost is that a slash in a section or a key can make two
+// different entries read alike, and that case is refused below rather than
+// guessed at.
 func selectINI(data []byte, key string) (string, error) {
 	if !utf8.Valid(data) {
 		return "", errors.New("not valid UTF-8")
 	}
+	// Every entry composing to this selector, by where it came from.  A file
+	// holding one key twice is the file's own ambiguity and INI's answer is first
+	// wins; two *different* entries composing alike is this package joining with
+	// "/", and choosing between them would be choosing which credential to
+	// inject.
+	origins := []string{}
+	value, found := "", false
 	section := ""
 	for line := range strings.SplitSeq(string(data), "\n") {
 		line = strings.TrimSpace(line)
@@ -308,23 +390,45 @@ func selectINI(data []byte, key string) (string, error) {
 			section = strings.TrimSpace(line[1 : len(line)-1])
 			continue
 		}
-		name, value, found := strings.Cut(line, "=")
-		if !found {
+		name, raw, cut := strings.Cut(line, "=")
+		if !cut {
 			continue
 		}
 		name = strings.TrimSpace(name)
+		composed := name
 		if section != "" {
-			name = section + "/" + name
+			composed = section + "/" + name
 		}
-		if name != key {
+		if composed != key {
 			continue
 		}
-		value = strings.TrimSpace(value)
-		value = strings.Trim(value, `"'`)
-		if value == "" {
-			return "", fmt.Errorf("%s is empty", key)
+		if origin := iniOrigin(section, name); !slices.Contains(origins, origin) {
+			origins = append(origins, origin)
 		}
-		return value, nil
+		if !found {
+			value, found = strings.Trim(strings.TrimSpace(raw), `"'`), true
+		}
 	}
-	return "", fmt.Errorf("has no %s", key)
+	if len(origins) > 1 {
+		return "", fmt.Errorf("names %d entries at once (%s), and choosing between "+
+			"them would be choosing which credential to inject: a slash in a section "+
+			"or a key makes them read alike. Rename one, or link the file with "+
+			"type = \"text\"", len(origins), strings.Join(origins, ", "))
+	}
+	if !found {
+		return "", fmt.Errorf("has no %s", key)
+	}
+	if value == "" {
+		return "", fmt.Errorf("%s is empty", key)
+	}
+	return value, nil
+}
+
+// iniOrigin names where one matching entry sits, for the refusal above.  Names
+// only, like everything else this package reports.
+func iniOrigin(section, name string) string {
+	if section == "" {
+		return name + " outside any section"
+	}
+	return name + " under [" + section + "]"
 }
