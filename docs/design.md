@@ -93,13 +93,13 @@ source /usr/local/libexec/faramir/wrap.sh '<command>'
 
 **The agent's shell persists between tool calls**, so a `cd` or `export` must survive. That constraint decides the shape:
 
-Wrapper | State | Output | Allow-listable
---- | --- | --- | ---
-`faramir redact -- bash -lc '<cmd>'` | lost, runs in a grandchild | fine | yes
-`{ <cmd>; } 2>&1 \| faramir redact` | lost, pipeline elements are subshells | fine | no
-`{ <cmd>; } > >(faramir redact) 2>&1` | kept | races the redactor | no
-inline `{ <cmd>; } >"$f" 2>&1` | kept | complete | no
-`source wrap.sh '<cmd>'` | kept | complete | no
+Wrapper | State | Output
+--- | --- | ---
+`faramir redact -- bash -lc '<cmd>'` | lost, runs in a grandchild | fine
+`{ <cmd>; } 2>&1 \| faramir redact` | lost, pipeline elements are subshells | fine
+`{ <cmd>; } > >(faramir redact) 2>&1` | kept | races the redactor
+inline `{ <cmd>; } >"$f" 2>&1` | kept | complete
+`source wrap.sh '<cmd>'` | kept | complete
 
 Every failure fails closed. No `XDG_RUNTIME_DIR` and the command does not run, there being nowhere private to capture what it would print; output captured but not redacted is withheld. Both say so on stderr and return non-zero, so a withheld output cannot read as a command that printed nothing.
 
