@@ -135,8 +135,20 @@ func TestAnEnrolmentRefusesAPathThatIsNotADirectory(t *testing.T) {
 // tree against itself.
 func treeState(t *testing.T, dir string) string {
 	t.Helper()
+	// Read through an os.Root rather than by absolute path: a walk hands the
+	// callback a path it resolved a moment earlier, so reading it again follows
+	// whatever the name points at now. Rooted reads refuse to leave dir.
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if err := root.Close(); err != nil {
+			t.Error(err)
+		}
+	}()
 	var lines []string
-	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+	err = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -146,7 +158,7 @@ func treeState(t *testing.T, dir string) string {
 		}
 		line := rel + " " + info.Mode().String()
 		if !info.IsDir() {
-			body, err := os.ReadFile(path)
+			body, err := root.ReadFile(rel)
 			if err != nil {
 				return err
 			}
