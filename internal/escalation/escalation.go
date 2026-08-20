@@ -688,8 +688,10 @@ type Question struct {
 	// against the request's cwd, which the agent writes.
 	Program string `json:"program"`
 	LogID   string `json:"log_id"`
-	// WaitingSec says how long sudo has been sitting on this, which read with
-	// ExpiresInSec also says whether anything was watching.
+	// WaitingSec says how long sudo has been sitting on this, counted from the
+	// moment it asked. A second or two of it is the caller reaching the question
+	// at all, so it answers whether anything was watching only at the sizes
+	// where that dwarfs a round trip.
 	WaitingSec int `json:"waiting_sec"`
 	// ExpiresInSec is what is left of [escalation] timeout_sec, after which the
 	// question is refused. It matters most where the answer is a second command

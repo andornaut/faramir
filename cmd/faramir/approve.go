@@ -581,10 +581,14 @@ func printQuestion(question escalation.Question) {
 		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
 	// What is left of the clock is what the answer is typed against, so it is
-	// always printed. How long it had already sat comes with it, and only where
-	// it is not zero: a watcher already running is answered the moment a question
-	// is filed, so the number is for a watcher started while one was pending, or a
-	// listing of one that has sat a while.
+	// always printed. How long the command has been blocked comes with it, from
+	// the moment sudo asked, wherever that rounds to a second or more.
+	//
+	// Which is not the same as saying nobody was watching. A watcher running the
+	// whole time still shows a second here when its own start, the password it
+	// was run under, or the poll round trip took that long. The number is the
+	// command's wait, not a report on whoever is answering: read it at the sizes
+	// that mean something, a question that sat while nothing attended it.
 	waited := ""
 	if question.WaitingSec > 0 {
 		waited = fmt.Sprintf(" (waited %ds)", question.WaitingSec)
