@@ -1,7 +1,6 @@
 package install
 
 import (
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -123,6 +122,14 @@ func linkedPaths(layout Layout) []string {
 // as literal paths, sorted and deduplicated the way linkedPaths are. Named for
 // the rules it renders, RefusedPaths being what lists the entries themselves.
 //
+// Each renders the path and the subtree under it, whether or not it is a
+// directory today. What it is, is not asked: these rules have to be a function
+// of the config alone. Asking the filesystem writes no subtree rule for a key
+// on a volume that is not mounted, which is the case an entry is most often
+// for, and re-renders a different set once it mounts, which the drift check
+// reports as rules to delete. A subtree rule on a file matches nothing; a
+// missing one on a directory leaves every key in it readable.
+//
 // A directory is rendered as a directory, so naming ~/.ssh refuses what is
 // under it rather than only the name itself. Which it is, is asked of the
 // filesystem: a path that is not there is rendered as a file, that being the
@@ -143,11 +150,22 @@ func refusedRulePaths(layout Layout) []string {
 	return out
 }
 
-// isDir reports whether path is a directory now. A variable so a test can put
-// the question somewhere other than the real filesystem.
-var isDir = func(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
+// perInstallPaths is every literal path this install names, linked and refused
+// together, deduplicated across the two. A path may be both, and the agent rule
+// files are merged rather than replaced, so a rule written twice is a rule
+// nothing takes back out.
+func perInstallPaths(layout Layout) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(layout.Links)+len(layout.Refused))
+	for _, path := range append(linkedPaths(layout), refusedRulePaths(layout)...) {
+		if seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // The spellings. One function per matcher rather than one parameterised over
@@ -210,14 +228,12 @@ func claudeRules(layout Layout) []string {
 	for _, dir := range installDirs(layout) {
 		add(dir + "/**")
 	}
-	for _, path := range linkedPaths(layout) {
+	for _, path := range perInstallPaths(layout) {
 		add(path)
 	}
 	for _, path := range refusedRulePaths(layout) {
-		add(path)
-		if isDir(path) {
-			add(path + "/**")
-		}
+		// Both forms, without asking the filesystem: see refusedRulePaths.
+		add(path + "/**")
 	}
 	return out
 }
@@ -229,12 +245,9 @@ func pluginPatterns(layout Layout) []string {
 	for _, dir := range installDirs(layout) {
 		out = append(out, dir+"/*")
 	}
-	out = append(out, linkedPaths(layout)...)
+	out = append(out, perInstallPaths(layout)...)
 	for _, path := range refusedRulePaths(layout) {
-		out = append(out, path)
-		if isDir(path) {
-			out = append(out, path+"/*")
-		}
+		out = append(out, path+"/*")
 	}
 	return out
 }

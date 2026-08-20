@@ -73,19 +73,67 @@ func TestARefusedDirectoryCarriesWhatIsUnderIt(t *testing.T) {
 	}
 }
 
-// A path that is not there is rendered as a file, that being the narrower of
-// the two spellings. An unmounted volume is the case: the rule is written now
-// and holds when the volume appears.
-func TestAnAbsentRefusedPathIsRenderedAsAFile(t *testing.T) {
+// The case the feature is most often for: a key on a volume that is not
+// mounted. The rules cannot depend on what is there now, because nothing
+// re-renders them when it appears, so an entry added while the volume is away
+// has to already cover what turns up inside it.
+func TestAnAbsentRefusedPathStillCoversWhatAppearsUnderIt(t *testing.T) {
+	absent := "/mnt/nothing-is-mounted-here/keys"
 	layout := testLayout()
-	layout.Refused = refusedAt("/mnt/nothing-is-mounted-here/luks.key")
+	layout.Refused = refusedAt(absent)
 
 	rules := claudeRules(layout)
-	if !slices.Contains(rules, "Read(/mnt/nothing-is-mounted-here/luks.key)") {
-		t.Error("an absent path was not refused at all")
+	for _, want := range []string{
+		"Read(" + absent + ")",
+		"Read(" + absent + "/**)",
+		"Edit(" + absent + "/**)",
+	} {
+		if !slices.Contains(rules, want) {
+			t.Errorf("the rules do not carry %q, so a key inside it is readable "+
+				"once the volume mounts", want)
+		}
 	}
-	if slices.Contains(rules, "Read(/mnt/nothing-is-mounted-here/luks.key/**)") {
-		t.Error("an absent path was rendered as a directory, refusing a subtree nobody named")
+	if !slices.Contains(pluginPatterns(layout), absent+"/*") {
+		t.Error("the plugin hosts' patterns do not reach under an absent path")
+	}
+}
+
+// And the rules are the same whether the path is there or not, or the drift
+// check re-renders a different set from the one that was written and reports
+// the difference as rules to delete.
+func TestRefusedRulesDoNotDependOnWhatIsOnDisk(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "keys")
+	layout := testLayout()
+	layout.Refused = refusedAt(dir)
+
+	away := claudeRules(layout)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	there := claudeRules(layout)
+
+	if !slices.Equal(away, there) {
+		t.Errorf("the rules changed when the directory appeared:\nabsent:  %v\npresent: %v",
+			away, there)
+	}
+}
+
+// A path that is both linked and refused renders one rule, not two. The agent
+// rule files are merged rather than replaced, so a duplicate written once is a
+// duplicate nothing removes.
+func TestAPathBothLinkedAndRefusedRendersOneRule(t *testing.T) {
+	layout := testLayout()
+	layout.Links = linksAt("/etc/luks/volume.key")
+	layout.Refused = refusedAt("/etc/luks/volume.key")
+
+	n := 0
+	for _, rule := range claudeRules(layout) {
+		if rule == "Read(/etc/luks/volume.key)" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("Read(/etc/luks/volume.key) rendered %d times, want 1", n)
 	}
 }
 
