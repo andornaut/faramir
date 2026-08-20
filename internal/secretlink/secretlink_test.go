@@ -351,9 +351,11 @@ func TestAnAmbiguousINISelectorIsRefused(t *testing.T) {
 	}
 }
 
-// The file holding one key twice is the file's own ambiguity, and INI's answer
-// is first wins. That is not the case above and must not be swept into it.
-func TestADuplicateINIKeyStillTakesTheFirst(t *testing.T) {
+// The file holding one key twice is refused rather than resolved. git and npm
+// read these files last-wins, so taking the first would inject a value the tool
+// beside it does not use, and taking the last would still be this package
+// answering a question the file left open.
+func TestADuplicateINIKeyIsRefused(t *testing.T) {
 	for name, body := range map[string]string{
 		"in a section": "[s]\nk = first\nk = second\n",
 		"at top level": "k = first\nk = second\n",
@@ -364,11 +366,42 @@ func TestADuplicateINIKeyStillTakesTheFirst(t *testing.T) {
 		}
 		t.Run(name, func(t *testing.T) {
 			got, err := Extract(KindINI, key, []byte(body))
-			if err != nil {
-				t.Fatalf("a duplicate key was refused: %v", err)
+			if err == nil {
+				t.Fatalf("a duplicate key resolved to %q", got)
 			}
-			if got != "first" {
-				t.Errorf("got %q, want the first", got)
+			// The count and the key, so the operator can find both lines. Neither
+			// value is named: a refusal that quotes one has printed the credential
+			// it would not inject.
+			for _, want := range []string{key, "2 times"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Errorf("the refusal does not name %q: %v", want, err)
+				}
+			}
+			for _, value := range []string{"first", "second"} {
+				if strings.Contains(err.Error(), value) {
+					t.Errorf("the refusal quotes a value: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// One key once still reads, which is the case the refusal above must not reach.
+func TestASingleINIKeyStillReads(t *testing.T) {
+	for name, tc := range map[string]struct{ key, body string }{
+		"in a section": {"s/k", "[s]\nk = only\n"},
+		"at top level": {"k", "k = only\n"},
+		// Two sections each naming k: one entry composes to s/k, so this is not a
+		// duplicate of anything.
+		"same name under two sections": {"s/k", "[s]\nk = only\n[t]\nk = other\n"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := Extract(KindINI, tc.key, []byte(tc.body))
+			if err != nil {
+				t.Fatalf("Extract: %v", err)
+			}
+			if got != "only" {
+				t.Errorf("got %q, want %q", got, "only")
 			}
 		})
 	}
