@@ -123,13 +123,17 @@ func TestATrailingCommentIsNotPartOfTheEntry(t *testing.T) {
 // was written, and truncating there would leave a ref that may exist and hold
 // another credential, injected under a name whose line said otherwise.
 func TestAHashInsideARefIsNotAComment(t *testing.T) {
-	refs, err := readEnvFile(writeEnvFile(t, "TOKEN=faramir://api#token\n"))
-	if err != nil {
-		t.Fatal(err)
+	_, err := readEnvFile(writeEnvFile(t, "TOKEN=faramir://api#token\n"))
+
+	// A "#" is not a character a ref may carry, so the line is refused. What
+	// this holds is where it was refused and what it was called: the whole ref
+	// as written. Cut at the "#", it would have read as faramir://api, which is
+	// a ref that may exist and hold another credential.
+	if err == nil {
+		t.Fatal("a ref carrying a # was accepted")
 	}
-	if got := refs["TOKEN"]; got != "faramir://api#token" {
-		t.Errorf("TOKEN = %q, want the ref as written: cutting at the # would ask "+
-			"for faramir://api, which is another credential", got)
+	if !strings.Contains(err.Error(), "faramir://api#token") {
+		t.Errorf("the refusal names %q, want the ref as written: the # was cut", err)
 	}
 }
 
@@ -690,5 +694,34 @@ func TestTheLastEnvFileWins(t *testing.T) {
 	}
 	if refs["PW"] != "faramir://second" {
 		t.Errorf("PW = %q, want the later file's ref", refs["PW"])
+	}
+}
+
+// A bare name has to be a usable ref as well as a usable variable name: the two
+// namespaces differ at the first character, an environment variable being
+// allowed to open with an underscore where a ref is not. Refused with the file
+// and the line, which is what the bare form promises, rather than at the broker
+// with the line long gone.
+func TestABareNameThatCannotBeARefIsRefusedHere(t *testing.T) {
+	_, err := readEnvFile(writeEnvFile(t, "_DEPLOY_TOKEN\n"))
+	if err == nil {
+		t.Fatal("a bare name that is not a usable ref was accepted")
+	}
+	for _, want := range []string{"_DEPLOY_TOKEN", "not a ref"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error is %q, want it to name %q", err, want)
+		}
+	}
+}
+
+// And the ordinary bare name still works, or the check above would be refusing
+// the form it exists to support.
+func TestAnOrdinaryBareNameStillResolves(t *testing.T) {
+	refs, err := readEnvFile(writeEnvFile(t, "MSMTP_PASSWORD\n"))
+	if err != nil {
+		t.Fatalf("an ordinary bare name was refused: %v", err)
+	}
+	if refs["MSMTP_PASSWORD"] != "faramir://MSMTP_PASSWORD" {
+		t.Errorf("refs = %v", refs)
 	}
 }

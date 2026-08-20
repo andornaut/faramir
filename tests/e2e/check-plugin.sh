@@ -13,11 +13,11 @@
 # believes is enrolled, and nobody notices at all.
 #
 # Every case drives the real hook with the real binary and a live broker behind
-# it. The plugin execs the installed path rather than reading one from the
-# environment, so the stub matrix (a guard that exits non-zero, answers with
-# something that is not JSON, or returns a decision it does not understand)
-# lives in the Go tests, which render the same template against a stand-in.
-# What is checked here is the enrolled file against the real thing.
+# it. The stub matrix is here too (a guard that exits non-zero, answers with
+# something that is not JSON, or returns a decision it does not understand),
+# driven through the enrolled file rather than a template rendered against a
+# stand-in: what each host does with an answer it cannot use is the host's own
+# contract, and only the installed plugin under a real agent shows it.
 #
 # Run as root in the e2e container.
 set -u

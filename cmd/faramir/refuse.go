@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"text/tabwriter"
@@ -155,14 +156,21 @@ func runRefuseList(f refuseFlags) int {
 	// The same state column `link ls` carries, and for the same reason: whether
 	// the path is there changes without anybody touching the config. Absent is
 	// not a fault here, a rule waiting for a volume being the point.
+	//
+	// "not there" means the path is not there, so a stat that failed for any
+	// other reason says so instead: this command needs no root, and a refused
+	// path under a directory only root can enter would otherwise read as an
+	// entry waiting for a volume that is never coming.
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "PATH\tSTATE")
 	for _, entry := range refused {
 		state := "present"
 		info, err := os.Stat(entry.Path)
 		switch {
-		case err != nil:
+		case errors.Is(err, os.ErrNotExist):
 			state = "not there"
+		case err != nil:
+			state = "cannot tell (" + errReason(err) + ")"
 		case info.IsDir():
 			state = "present (directory)"
 		}
@@ -170,6 +178,14 @@ func runRefuseList(f refuseFlags) int {
 	}
 	_ = w.Flush()
 	return 0
+}
+
+// errReason is why a stat failed, in the few words a table cell has room for.
+func errReason(err error) string {
+	if errors.Is(err, os.ErrPermission) {
+		return "no permission to look"
+	}
+	return "stat failed"
 }
 
 func refuseOptions(f refuseFlags) install.Options {

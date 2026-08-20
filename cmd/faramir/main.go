@@ -22,6 +22,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/andornaut/faramir/internal/protocol"
+	"github.com/andornaut/faramir/internal/secretref"
 	"github.com/andornaut/faramir/internal/sockutil"
 	"github.com/andornaut/faramir/internal/version"
 )
@@ -191,6 +192,15 @@ func checkRef(name, uri string) error {
 	if !strings.HasPrefix(uri, "faramir://") {
 		return fmt.Errorf("%s must be a faramir:// reference; "+
 			"secrets are named here, never pasted", name)
+	}
+	// The ref itself, not only the scheme. The two namespaces are not the same
+	// shape: an environment variable may open with an underscore and a ref may
+	// not, so a bare `_NAME` line is a usable variable name whose ref no store
+	// can hold. Refused here, with the file and the line, rather than at the
+	// broker with the line long gone.
+	if _, err := secretref.Parse(uri); err != nil {
+		return fmt.Errorf("%s names %s, which is not a ref a store can hold: "+
+			"letters, digits, and then any of . _ - /", name, uri)
 	}
 	return nil
 }
