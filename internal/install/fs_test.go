@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 )
@@ -230,5 +231,76 @@ func TestEnsureDirAllowsASymlinkItOnlyReadsThrough(t *testing.T) {
 	}
 	if got := info.Mode().Perm(); got != 0o700 {
 		t.Errorf("the link's target is %04o, want 0700: it was modified anyway", got)
+	}
+}
+
+// The question both preflights ask of the directories a write would create.
+// A symlinked component is the one that matters: the write would land wherever
+// it points rather than under root, and refuseUnwritable cannot answer for it
+// while the directory itself is not there.
+func TestRefuseUnenterableDirsNamesASymlinkedComponent(t *testing.T) {
+	root := t.TempDir()
+	elsewhere := t.TempDir()
+	if err := os.Symlink(elsewhere, filepath.Join(root, ".config")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, ".claude"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+
+	refused := refuseUnenterableDirs(root, 0o700, os.Getuid(), os.Getgid(), []string{
+		".claude/settings.json",          // a real directory that is already there
+		".config/opencode/opencode.json", // through the symlink
+		".pi/agent/AGENTS.md",            // a directory that does not exist yet
+	})
+
+	if len(refused) != 1 {
+		t.Fatalf("refused %v, want the symlinked component alone", refused)
+	}
+	if !strings.Contains(refused[0], "symlink") {
+		t.Errorf("the refusal does not say why: %s", refused[0])
+	}
+	// Asked through a dry run, so nothing was created for the two it accepted.
+	if _, err := os.Stat(filepath.Join(root, ".pi")); err == nil {
+		t.Error("the check created a directory: it must answer and write nothing")
+	}
+}
+
+// A home where an agent's settings directory is a symlink into a dotfiles
+// checkout is one writeAgentFiles writes to happily: it calls ensureDir with
+// own=false, which reads through the link on purpose. So the precondition that
+// stands in for that write has to accept it too, or `init`, `link add` and
+// `refuse add` all refuse an install that would have worked.
+//
+// The tree side keeps the strict rule, which refuseUnenterableDirs is for: there
+// the directory is handed to the client group, so a link would hand out whatever
+// it points at.
+func TestAHomeAcceptsASymlinkedAgentDirectory(t *testing.T) {
+	home := t.TempDir()
+	target := filepath.Join(home, "dotfiles", "claude")
+	if err := os.MkdirAll(target, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(target, filepath.Join(home, ".claude")); err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{".claude/settings.json"}
+
+	if refused := refuseUncreatableDirs(home, 0o700, keep, keep, paths); len(refused) > 0 {
+		t.Errorf("a symlinked agent directory was refused, though the write accepts "+
+			"it: %s", refused[0])
+	}
+	// And the tree's question still refuses it, the two being different questions.
+	if refused := refuseUnenterableDirs(home, 0o700, keep, keep, paths); len(refused) == 0 {
+		t.Error("the tree-side check accepted a symlinked component")
+	}
+}
+
+// A directory that is not there is not a refusal either: the write creates it.
+func TestAHomeAcceptsAnAgentDirectoryThatIsNotThereYet(t *testing.T) {
+	home := t.TempDir()
+	if refused := refuseUncreatableDirs(home, 0o700, keep, keep,
+		[]string{".claude/settings.json"}); len(refused) > 0 {
+		t.Errorf("a directory the write would create was refused: %s", refused[0])
 	}
 }

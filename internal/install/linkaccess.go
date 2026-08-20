@@ -8,8 +8,43 @@ import (
 	"syscall"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/secretlink"
 	"github.com/andornaut/faramir/internal/sharetree"
 )
+
+// linkFile is one linked file that is there, with the stat the grant reads.
+type linkFile struct {
+	path string
+	info os.FileInfo
+}
+
+// inspectLinks asks of every entry the questions that can refuse this step, and
+// alters nothing: which files are there, and whether any is a symlink, whose
+// grant would land on whatever it points at rather than on the file named.
+//
+// Separate from the loop that grants, so a refusal arrives before the first
+// file has been regrouped rather than between two of them. An absent file is
+// not a refusal: a link naming nothing is a credential that has left the
+// machine, or a home not mounted yet, and the broker reports it per request.
+func inspectLinks(links []config.Link) (present []linkFile, absent []string, err error) {
+	for _, link := range links {
+		info, statErr := os.Lstat(link.Path)
+		if statErr != nil {
+			if os.IsNotExist(statErr) {
+				absent = append(absent, link.Path)
+				continue
+			}
+			return nil, nil, fmt.Errorf("%s: %w", link.Path, statErr)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return nil, nil, fmt.Errorf("%s is a symlink, so the mode and group "+
+				"granted here would land on whatever it points at. Name that file "+
+				"in the link instead", link.Path)
+		}
+		present = append(present, linkFile{path: link.Path, info: info})
+	}
+	return present, absent, nil
+}
 
 // stepLinkAccess makes each [[secret.link]] file readable by the account that
 // reads it, and by nothing else.
@@ -44,35 +79,27 @@ func (r *runner) stepLinkAccess() error {
 		return nil
 	}
 
-	granted, absent := 0, []string{}
-	for _, link := range links {
-		path := link.Path
-		info, err := os.Lstat(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				// Not a failure: a link naming nothing is a credential that has left
-				// the machine, or a home not mounted yet, and the broker reports it
-				// per request.
-				absent = append(absent, path)
-				continue
-			}
-			return fmt.Errorf("%s: %w", path, err)
-		}
-		// Before the directories: a symlink here would send the grant to whatever
-		// it points at, so the refusal should arrive before anything above it has
-		// been regrouped.
-		if info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("%s is a symlink, so the mode and group granted here "+
-				"would land on whatever it points at. Name that file in the link "+
-				"instead", path)
-		}
+	// Every file judged before the first one is granted: a refusal raised part
+	// way through the loop leaves the links before it regrouped and the
+	// directories above them opened, for a run that then stopped. One link the
+	// operator cannot use is not a reason to have altered the others.
+	present, absent, err := inspectLinks(links)
+	if err != nil {
+		return err
+	}
 
+	granted := 0
+	for _, file := range present {
+		path, info := file.path, file.info
+		// The file, not its directory: Reachable leaves the last component of the
+		// path it is given alone, so naming the directory stops one hop short and
+		// leaves the one holding the file unenterable.
 		result, err := sharetree.Reachable(sharetree.Options{
-			Dir: filepath.Dir(path), Operator: r.opts.AgentUser,
+			Dir: path, Operator: r.opts.AgentUser,
 			Group: r.layout.ClientGroup,
 		})
 		if err != nil {
-			return fmt.Errorf("%s: %w", filepath.Dir(path), err)
+			return fmt.Errorf("%s: %w", path, err)
 		}
 		granted += result.Changed
 
@@ -161,6 +188,16 @@ func AddLink(opts Options, link config.Link) (Report, error) {
 		return Report{}, fmt.Errorf("%s: %w\nA link is checked when it is added, so "+
 			"the file has to be there. If this is an encrypted home, mount it first",
 			link.Path, err)
+	}
+	// What the file itself answers, asked before anything is altered: the wrong
+	// --type, or a --key naming nothing, is a link that was never going to work,
+	// and finding that out after the grant leaves a credential file regrouped and
+	// the directories above it opened up for it. Root reads what the broker
+	// cannot, so this is not the probe below: this says the content yields a
+	// value, and probeLink says the broker can reach it.
+	if _, err := secretlink.Read(link.Path, link.Type, link.Key); err != nil {
+		return Report{}, fmt.Errorf("%s: %w", link.Path,
+			secretlink.Refusal(link.Path, link.Type, err))
 	}
 
 	opts.links, opts.linksSet = append(append([]config.Link{}, existing...), link), true
@@ -270,11 +307,15 @@ func (r *runner) grantOne(link config.Link) (func() error, error) {
 	}
 	was, wasGID := info.Mode().Perm(), int(stat.Gid)
 
+	// The file, not its directory: Reachable grants every directory above the
+	// path it is given and leaves the last component alone, so naming the
+	// directory would stop one hop short and leave the one holding the file
+	// unenterable. The file itself is granted below.
 	if _, err := sharetree.Reachable(sharetree.Options{
-		Dir: filepath.Dir(link.Path), Operator: r.opts.AgentUser,
+		Dir: link.Path, Operator: r.opts.AgentUser,
 		Group: r.layout.ClientGroup,
 	}); err != nil {
-		return nil, fmt.Errorf("%s: %w", filepath.Dir(link.Path), err)
+		return nil, fmt.Errorf("%s: %w", link.Path, err)
 	}
 	mode := (info.Mode().Perm() & 0o700) | 0o040
 	if _, err := r.fs.ensureOwnership(link.Path, mode, keep, r.brokerGID); err != nil {

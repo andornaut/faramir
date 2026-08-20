@@ -52,6 +52,87 @@ vault_router_password=faramir://vault_router_password
 	}
 }
 
+// A name on its own asks for the ref of that name, so the one file that says
+// which credentials a run needs does not say each name twice. Mixed with the
+// mapping form, which is what a credential whose ref is named differently still
+// needs.
+func TestABareNameIsTheRefOfThatName(t *testing.T) {
+	refs, err := readEnvFile(writeEnvFile(t, `
+# the fleet's credentials
+msmtp_password
+
+  deploy_token
+vault_api_token = faramir://home/api/token
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"msmtp_password":  "faramir://msmtp_password",
+		"deploy_token":    "faramir://deploy_token",
+		"vault_api_token": "faramir://home/api/token",
+	}
+	if len(refs) != len(want) {
+		t.Fatalf("got %d refs, want %d: %v", len(refs), len(want), refs)
+	}
+	for name, uri := range want {
+		if refs[name] != uri {
+			t.Errorf("%s = %q, want %q", name, refs[name], uri)
+		}
+	}
+}
+
+// The two forms must not disagree about one name: a bare name and a mapping of
+// that name to another ref are two different credentials under one variable, and
+// picking one is how the wrong one reaches a host.
+func TestABareNameAndAMappingOfItDisagree(t *testing.T) {
+	_, err := readEnvFile(writeEnvFile(t,
+		"msmtp_password\nmsmtp_password=faramir://other\n"))
+	if err == nil {
+		t.Fatal("accepted a name given twice, as itself and as another ref")
+	}
+	if !strings.Contains(err.Error(), "msmtp_password") {
+		t.Errorf("the message does not name the duplicate: %v", err)
+	}
+}
+
+// A comment after an entry, which is what a shell and most dotenv readers take.
+// It is the only place a bare line can say what a credential is for.
+func TestATrailingCommentIsNotPartOfTheEntry(t *testing.T) {
+	refs, err := readEnvFile(writeEnvFile(t,
+		"msmtp_password   # the fleet's relay\n"+
+			"ROUTER_PW=faramir://home/router/admin\t# the one behind the desk\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"msmtp_password": "faramir://msmtp_password",
+		"ROUTER_PW":      "faramir://home/router/admin",
+	}
+	if len(refs) != len(want) {
+		t.Fatalf("got %d refs, want %d: %v", len(refs), len(want), refs)
+	}
+	for name, uri := range want {
+		if refs[name] != uri {
+			t.Errorf("%s = %q, want %q", name, refs[name], uri)
+		}
+	}
+}
+
+// The whitespace is what makes the cut safe. Without it the "#" is part of what
+// was written, and truncating there would leave a ref that may exist and hold
+// another credential, injected under a name whose line said otherwise.
+func TestAHashInsideARefIsNotAComment(t *testing.T) {
+	refs, err := readEnvFile(writeEnvFile(t, "TOKEN=faramir://api#token\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := refs["TOKEN"]; got != "faramir://api#token" {
+		t.Errorf("TOKEN = %q, want the ref as written: cutting at the # would ask "+
+			"for faramir://api, which is another credential", got)
+	}
+}
+
 // The pasted value that must never be echoed back: an error message reaches the
 // terminal, the scrollback and the agent's context.
 const pasted = "hunter2-correct-horse-battery"

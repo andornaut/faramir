@@ -29,6 +29,19 @@ faramir run --env TOKEN=faramir://svc/token -- ./deploy.sh
 faramir run --env-file faramir.env -- ansible-playbook site.yml
 ```
 
+The file takes two forms per line, and they mix. A name on its own asks for the ref of that name, which is what a credential named after the variable that carries it needs; the mapping form is for the rest.
+
+```text
+# faramir.env
+msmtp_password                          # -> faramir://msmtp_password
+deploy_token                            # -> faramir://deploy_token
+ROUTER_PW=faramir://home/router/admin   # a ref named something else
+```
+
+`#` starts a comment, at the start of a line or after whitespace. The space is what makes the cut safe: `faramir://api#token` is a ref written wrong, so it stays whole and is refused, rather than being cut to `faramir://api`, which may be a ref that exists and holds another credential.
+
+Name a credential after its variable and the file is a list of what a run needs, said once. It holds refs and never values either way, and a bare line is held to the same rule as a mapped one, so anything that cannot be an environment variable name is refused with the file and the line rather than becoming a ref nothing serves.
+
 Only step 2 really varies:
 
 What you are running | Step 2
@@ -39,7 +52,7 @@ A database task | `PGPASSWORD`, `MYSQL_PWD`. The connection string goes in `argv
 A registry push | `bash -lc 'printf %s "$TOKEN" \| docker login -u me --password-stdin'`
 An HTTP call | `curl -H "Authorization: Bearer $TOKEN"` inside `bash -lc`, so the shell expands it
 A tool needing a credentials *file* | Have the command write it, use it, remove it. Injection is environment-only
-Ansible | `lookup('env', 'NAME')` in a committed vars file. [Worked example below](#worked-example-ansible)
+Ansible | `lookup('env', 'NAME')` in a committed vars file, or a vars plugin reading `faramir.env`. [Worked example below](#worked-example-ansible)
 Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the child gets `SSH_AUTH_SOCK`. [Below](#ssh-keys-and-host-verification)
 
 - A pipeline is requested explicitly as `["bash", "-lc", "…"]`; the broker never hands a string to a shell.
@@ -49,7 +62,9 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 
 ## Linking a credential another tool owns
 
-`link add` grants the broker read on the file, reads it once as the broker's own account to check the selector, writes the entry and reloads. The value joins the redactor, and the path is refused to the agent's file tools.
+`link add` reads the file as root to check that the type and the selector yield a value, then grants the broker read on it, then reads it again as the broker's own account to check that the grant landed, and only then writes the entry and reloads. The value joins the redactor, and the path is refused to the agent's file tools.
+
+The two reads answer different questions and are in that order for a reason. Root can read what the broker cannot, so the first says the content is ingestible and the second says the broker can reach it. Asking the content first means a wrong `--type` or a `--key` naming nothing costs nothing: the file's mode and group, and the directories above it, are untouched. A selector that names nothing fails the command and lists the selectors the file does offer, names only.
 
 ```bash
 sudo faramir link add gh/token ~/.config/gh/hosts.yml --type yaml --key github.com/oauth_token
@@ -65,6 +80,8 @@ A container registry | `~/.docker/config.json` | `json` | `auths/ghcr.io/auth`
 Cargo | `~/.cargo/credentials.toml` | `toml` | `registry/token`
 A keyfile or single-line token | any | `text` | none
 A file that is not text | any | `base64` | none
+
+Each row is where that tool puts a credential it keeps in a file, and several of them no longer do. `gh` writes to the login keyring where one is available, leaving `hosts.yml` holding `git_protocol` and the account name; `docker login` writes to the keyring wherever `credsStore` is set, leaving `auths.<registry>` an empty object. A link reads files, so there is nothing to link in either case, and `link add` says so by listing what the file does offer. `gh auth status` names its store, and `jq -r '.credsStore' ~/.docker/config.json` names docker's.
 
 `json`, `yaml` and `toml` walk the selector by `/` and index a list by number, which is what `users/0/user/token` is doing. `ini` matches the whole key, or `section/key` where the file has sections, which is why npm's sectionless `//registry...` key is given whole.
 
@@ -122,8 +139,10 @@ Ansible is the one integration that needs more than a variable name, because a p
 
 ```text
 /etc/faramir/secrets/ansible-ctrl.sops.yml   the values, outside every checkout
-group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME')
-faramir.env                                  NAME=faramir://ref, one per line
+faramir.env                                  NAME=faramir://ref, one per line,
+                                             or a bare NAME for the ref of that name
+group_vars/all/vars.yml                      committed: var -> lookup('env', 'NAME'),
+                                             or a vars plugin reading faramir.env instead
 ```
 
 ### Where the encrypted file goes
@@ -148,6 +167,15 @@ api_token: …        # faramir://api_token
 
 ### Reading the environment
 
+Two ways to turn an injected environment variable into an Ansible variable. Neither holds a secret; they differ in how many lists have to agree.
+
+Approach | Costs | Buys
+--- | --- | ---
+A committed lookup file | Every credential named a second time, in a file that must agree with `faramir.env` | No code, and every credential visible in the repo
+A vars plugin | About twenty lines of Python, and `faramir.env` becomes required for every route rather than only the brokered one | One list, and no mapping at all where a role already reads a variable of that name
+
+#### A committed lookup file
+
 A committed, **unencrypted** vars file maps each var to the environment variable the broker will inject. It holds no secrets:
 
 ```yaml
@@ -156,6 +184,41 @@ router_password: "{{ lookup('env', 'ROUTER_PW') }}"
 api_token: "{{ lookup('env', 'API_TOKEN') }}"
 ```
 
+#### A vars plugin
+
+The plugin reads `faramir.env` for its names and exposes each as a variable of that name, so the lookup file above is not written at all:
+
+```python
+# vars_plugins/faramir_env.py, enabled by name in ansible.cfg
+class VarsModule(BaseVarsPlugin):
+    def get_vars(self, loader, path, entities, cache=True):
+        super().get_vars(loader, path, entities)
+        return {name: os.environ[name]
+                for name in declared_names(loader.get_basedir())
+                if os.environ.get(name)}
+```
+
+`declared_names` takes the left of each `NAME=faramir://ref` line, and the whole of a line that is only a name. Only the names: a ref is not a value, and the file holds none.
+
+Name a credential after the variable that carries it and the file needs neither half twice:
+
+```text
+msmtp_password
+deploy_token
+```
+
+Name a credential for what it is (`msmtp_password`), and where a role already reads a variable of that name it needs no mapping. Where the destination is named something else, or where one host draws two values from the same store, `host_vars/` keeps a line and that line is the routing:
+
+```yaml
+app_sensor_password: "{{ sensor_password_west }}"
+```
+
+Two things to know before choosing it. `vars_plugins_enabled` in `ansible.cfg` **replaces** the default list rather than adding to it, so it must keep naming `host_group_vars` or `host_vars/` stops loading. And a store key the env file does not name becomes invisible to Ansible, which is the same statement as one list saying what a run needs.
+
+A missing or unreadable env file should yield no names rather than an error: every credential is then undefined and the first task to read one fails naming it, which is what a run nobody injected anything into should do, and what an ad-hoc command against a host needing no credential wants.
+
+#### Running it, either way
+
 ```bash
 faramir run \
     --env ROUTER_PW=faramir://home/router/admin \
@@ -163,7 +226,7 @@ faramir run \
     ansible-playbook site.yml --limit routers
 ```
 
-Verify once, which proves the var resolved *and* that printing it produces a token:
+Verify once, which proves the var resolved *and* that printing it produces a token. The variable is whatever the approach above named it: the lookup file's own name, or the ref's:
 
 ```bash
 faramir run --env ROUTER_PW=faramir://home/router/admin -- \
@@ -175,6 +238,7 @@ Symptom | Cause
 --- | ---
 `ENC[AES256_GCM,...]` | The encrypted file is somewhere Ansible auto-loads it, per the table above
 An empty string, usually a task failing further along | The ref was not injected. Check `env_refs` first when a playbook behaves as though a credential were blank
+`undefined variable`, with the name | Either approach, working as intended: nothing was injected, or the lookup file and `faramir.env` disagree, or the plugin's env file does not name that key
 
 ### Becoming root on the controller
 

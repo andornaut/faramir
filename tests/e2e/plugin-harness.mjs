@@ -130,6 +130,18 @@ switch (name) {
     pass("a guard with nothing to say leaves the command alone")
     break
   }
+  case "rewrite-without-command-throws": {
+    // The one malformed answer that used to run: Object.assign ignores a null
+    // source, so the hook returned having changed nothing and the command went
+    // out as the model wrote it.
+    const { input, output } = shell("echo hello")
+    const r = await call(input, output)
+    if (!r.threw) fail("a rewrite naming no command let the original through")
+    if (output.args.command !== "echo hello") fail("it changed the command anyway")
+    if (!/named no command|not run/i.test(r.message)) fail(`unclear: ${r.message.slice(0, 80)}`)
+    pass("a rewrite naming no command fails closed")
+    break
+  }
   case "unknown-decision-throws": {
     const { input, output } = shell("echo hello")
     const r = await call(input, output)

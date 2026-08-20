@@ -546,3 +546,37 @@ func TestGrantTraversalOnTheHomeItselfDoesNothing(t *testing.T) {
 		t.Errorf("the home is %04o, want the 0700 it had", info.Mode().Perm())
 	}
 }
+
+// components is the walk list, and the last element of the path is never on
+// it: whatever names a path grants it. Share sets the tree it is about to
+// share, and `faramir link add` grants the file it is about to read, so a
+// caller wanting the directories that hold a file names the file. Naming the
+// directory instead stops one hop short and leaves the directory holding the
+// file unenterable, which is a broker that cannot open a link it was told to
+// serve.
+func TestComponentsStopAboveTheLastElement(t *testing.T) {
+	const home = "/home/op"
+	for _, tc := range []struct {
+		name, path string
+		want       []string
+	}{
+		{"a linked file, whose own directory has to be entered",
+			"/home/op/.config/gh/hosts.yml",
+			[]string{home, "/home/op/.config", "/home/op/.config/gh"}},
+		{"a linked file in the home itself", "/home/op/.npmrc", []string{home}},
+		{"a tree, whose own step sets it", "/home/op/src/project", []string{home, "/home/op/src"}},
+		{"the home itself, with nothing above it to walk", home, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := components(home, tc.path)
+			if len(got) != len(tc.want) {
+				t.Fatalf("components = %v, want %v", got, tc.want)
+			}
+			for i := range got {
+				if got[i] != tc.want[i] {
+					t.Errorf("components[%d] = %q, want %q", i, got[i], tc.want[i])
+				}
+			}
+		})
+	}
+}

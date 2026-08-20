@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -56,6 +57,15 @@ func TestAddLinkRefusesBeforeItChangesAnything(t *testing.T) {
 			wantErr: "already names gh/token",
 		},
 		{
+			// The file itself answers this one, and it is asked as root, before the
+			// grant: a --key naming nothing is a link that was never going to work,
+			// and finding it out afterwards leaves a credential file regrouped and
+			// the directories above it opened up for an entry never written.
+			name:    "a key naming nothing in the file",
+			link:    config.Link{Ref: "a/ref", Path: present, Type: secretlink.KindYAML, Key: "oauth_token"},
+			wantErr: "this file offers: token",
+		},
+		{
 			// Refused rather than recorded: a link nothing could verify may refuse
 			// every brokered command later, at a moment nobody chose.
 			name:    "a file that is not there",
@@ -77,6 +87,20 @@ func TestAddLinkRefusesBeforeItChangesAnything(t *testing.T) {
 			}
 			if after := readConfigFile(t, dir); after != before {
 				t.Errorf("the config was rewritten:\n%s", after)
+			}
+			// The grant is a mode and a group on the file, and this whole table is
+			// the refusals that come before it. A file left regrouped for an entry
+			// that was never written is access nothing declares and nothing removes.
+			info, statErr := os.Stat(tc.link.Path)
+			if statErr != nil {
+				return // the cases whose file is not there, or whose path is relative
+			}
+			if got := info.Mode().Perm(); got != 0o600 {
+				t.Errorf("the file's mode became %o, want 600, untouched", got)
+			}
+			if stat, ok := info.Sys().(*syscall.Stat_t); ok && int(stat.Gid) != os.Getgid() {
+				t.Errorf("the file was regrouped to gid %d, want %d, untouched",
+					stat.Gid, os.Getgid())
 			}
 		})
 	}

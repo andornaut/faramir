@@ -137,6 +137,24 @@ func Extract(kind, key string, data []byte) (string, error) {
 		kind, strings.Join(Kinds(), ", "))
 }
 
+// Refusal is what a caller may show when Read failed: the error itself, and
+// where the kind selects, the selectors the file does offer. Names only and
+// never a value, which is what makes it safe to print and to relay across a
+// process boundary.
+//
+// The offers are read again rather than threaded out of the failure: the error
+// deliberately carries nothing of the file, and this is the one place allowed
+// to say what is in it. Through the same bounded read, or a link pointed at
+// something enormous would be refused for its size and then slurped anyway to
+// enumerate it.
+func Refusal(path, kind string, cause error) error {
+	keys, err := KeysIn(path, kind)
+	if err != nil || len(keys) == 0 {
+		return cause
+	}
+	return fmt.Errorf("%w\nthis file offers: %s", cause, strings.Join(keys, ", "))
+}
+
 // KeysIn is Keys against a file, read through the same bound Read uses.
 func KeysIn(path, kind string) ([]string, error) {
 	data, err := readBounded(path)

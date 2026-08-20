@@ -56,6 +56,31 @@ run() { # plugin-path, case
   esac
 }
 
+# The plugin runs the installed path and reads no environment variable that could
+# redirect it, which is the whole point of naming the path. So a guard that
+# answers badly is that binary replaced for one case and put back.
+REAL=/usr/local/bin/faramir
+ASIDE=/usr/local/bin/faramir.aside
+
+# On the way out as well as between cases: twelve suites run against this box
+# after this one, and every one of them needs the binary where it was.
+restore_binary() {
+  local rc=$?
+  [ -e "$ASIDE" ] && mv -f "$ASIDE" "$REAL"
+  return "$rc"
+}
+trap restore_binary EXIT
+
+withStub() { # shell-body, plugin-path, case
+  local body=$1 plugin=$2 name=$3
+  mv "$REAL" "$ASIDE"
+  printf '#!/bin/sh\n%s\n' "$body" > "$REAL"
+  chmod 0755 "$REAL"
+  run "$plugin" "$name"
+  rm -f "$REAL"
+  mv "$ASIDE" "$REAL"
+}
+
 for agent in opencode kilocode; do
   case $agent in
     opencode) plugin=$PROJECT/.opencode/plugins/faramir.js ;;
@@ -84,9 +109,19 @@ for agent in opencode kilocode; do
 
   # The guard unable to run at all, which is the one fail-closed path the
   # installed path can still be made to take: move the binary aside.
-  mv /usr/local/bin/faramir /usr/local/bin/faramir.aside
+  mv "$REAL" "$ASIDE"
   run "$plugin" guard-missing-throws
-  mv /usr/local/bin/faramir.aside /usr/local/bin/faramir
+  mv "$ASIDE" "$REAL"
+
+  # The guard running and answering badly. Every one of these must fail closed
+  # but the silent one, which is how the guard says it has nothing to change.
+  withStub 'exit 3' "$plugin" guard-nonzero-throws
+  withStub 'printf %s "not json"' "$plugin" guard-garbage-throws
+  withStub 'printf %s ""' "$plugin" guard-silent-allows
+  withStub 'printf %s "{\"decision\":\"maybe\"}"' "$plugin" unknown-decision-throws
+  # A rewrite is the one answer that changes the call, so an incomplete one has
+  # to stop it: assigning nothing would run the command as the model wrote it.
+  withStub 'printf %s "{\"decision\":\"rewrite\"}"' "$plugin" rewrite-without-command-throws
 done
 
 # --------------------------------------------------------------------------

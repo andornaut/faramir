@@ -86,11 +86,24 @@ const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
         // Reaches the model, not the operator, and names the tool to use
         // instead.
         throw new Error(decision.reason)
-      case "rewrite":
+      case "rewrite": {
+        // Held to carrying a command before anything is assigned. Object.assign
+        // ignores null and undefined, and takes index properties off a string, so
+        // a rewrite that arrives without a usable tool_input would leave the
+        // command as the model wrote it and this hook would return having changed
+        // nothing: the one answer that runs unredacted rather than failing closed.
+        const rewritten = decision.tool_input
+        if (!rewritten || typeof rewritten !== "object" || typeof rewritten.command !== "string") {
+          throw new Error(
+            "faramir: the guard asked for a rewrite and named no command to run " +
+              "instead, so this command was not run",
+          )
+        }
         // Assigned into the object the host handed in, which is how this hook
         // changes a call. Every field, not only the command.
-        Object.assign(args, decision.tool_input)
+        Object.assign(args, rewritten)
         return
+      }
       default:
         throw new Error(
           "faramir: the guard returned a decision this plugin does not understand, " +

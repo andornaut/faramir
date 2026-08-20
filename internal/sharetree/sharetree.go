@@ -134,9 +134,16 @@ func Share(opts Options) (Result, error) {
 }
 
 // Reachable is Share's second job alone: every directory from the operator's
-// home down to dir is made enterable by the group, and dir is left as it was.
-// For the directories the daemons only read, Share being wrong for those: a
-// config a brokered command can rewrite is the policy rewriting itself.
+// home down to the path named is made enterable by the group, and that path
+// itself is left as it was. For the directories the daemons only read, Share
+// being wrong for those: a config a brokered command can rewrite is the policy
+// rewriting itself.
+//
+// The last component is left alone whatever it is, because whatever names it
+// grants it: Share sets the tree it is about to share, and a link grants the
+// file it is about to read. So a caller wanting the directories that hold a
+// file names the file, and one naming the directory gets everything above it
+// and not the directory itself.
 func Reachable(opts Options) (Result, error) {
 	var result Result
 	dir, err := Resolve(opts.Dir)

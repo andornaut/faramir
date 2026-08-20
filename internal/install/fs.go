@@ -91,6 +91,47 @@ func (f fsys) ensureDir(path string, mode os.FileMode, uid, gid int, own bool) (
 	return true, chmodAndChown(path, mode, uid, gid)
 }
 
+// refuseUnenterableDirs asks, of every directory these files sit in, the
+// question creating it will ask: see fsys.ensureDirsIn. A component that is a
+// symlink is a directory a write would make outside root, which refuseUnwritable
+// cannot answer for while the parent does not exist.
+//
+// Asked through a dry run, which answers and writes nothing, so both callers
+// get it before what they do next cannot be undone: init-project before the
+// share that walks the tree, and init before it hands files to the accounts.
+// paths are relative to root, as the writers take them.
+// refuseUncreatableDirs is refuseUnenterableDirs for a home, where the writer
+// asks a different question: writeAgentFiles calls ensureDir on the leaf parent
+// with own=false, which reads through a symlink deliberately, an agent's
+// settings directory being wherever the operator keeps their dotfiles. Asking
+// the stricter question here would refuse an install that then writes fine.
+func refuseUncreatableDirs(root string, mode os.FileMode, uid, gid int, paths []string) []string {
+	var refused []string
+	ask := fsys{dryRun: true}
+	for _, rel := range paths {
+		dir := filepath.Dir(filepath.Join(root, rel))
+		if dir == filepath.Clean(root) {
+			continue
+		}
+		if _, err := ask.ensureDir(dir, mode, uid, gid, false); err != nil {
+			refused = append(refused, err.Error())
+		}
+	}
+	return refused
+}
+
+func refuseUnenterableDirs(root string, mode os.FileMode, uid, gid int, paths []string) []string {
+	var refused []string
+	ask := fsys{dryRun: true}
+	for _, rel := range paths {
+		dir := filepath.Dir(filepath.Join(root, rel))
+		if err := ask.ensureDirsIn(root, dir, mode, uid, gid); err != nil {
+			refused = append(refused, err.Error())
+		}
+	}
+	return refused
+}
+
 // ensureDirsIn creates every missing directory between root and path, each with
 // mode and owner, and leaves the ones already there alone.
 //

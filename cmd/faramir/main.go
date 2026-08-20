@@ -144,7 +144,8 @@ func newRunCmd() *cobra.Command {
 	c.Flags().StringVarP(&cwd, "cwd", "C", "", "working directory for the command (default: the caller's)")
 	c.Flags().IntVarP(&timeout, "timeout", "t", 0, "timeout in seconds")
 	c.Flags().StringArrayVar(&envRefs, "env", nil, "NAME=faramir://ref (repeatable)")
-	c.Flags().StringArrayVar(&envFiles, "env-file", nil, "file of NAME=faramir://ref lines (repeatable)")
+	c.Flags().StringArrayVar(&envFiles, "env-file", nil,
+		"file of NAME=faramir://ref lines, or a bare NAME for the ref of that name (repeatable)")
 	return c
 }
 
@@ -194,7 +195,34 @@ func checkRef(name, uri string) error {
 	return nil
 }
 
-// readEnvFile reads NAME=faramir://ref lines, one per line, # for a comment.
+// dropComment cuts a trailing comment: a "#" that follows whitespace, as one
+// does in a shell and in most dotenv readers. The whitespace is required, and is
+// what keeps this unambiguous. Elsewhere a "#" may be part of a value, and the
+// quoting rules that tell those apart are the awkward half of every such parser;
+// the right of a line here is a ref, which cannot hold one.
+//
+// A malformed ref can, though, and cutting "faramir://api#token" at the "#" would
+// leave "faramir://api", which may be a ref that exists and holds another
+// credential. Written without a space it stays whole and is refused as what it is.
+func dropComment(line string) string {
+	// From 1: a leading "#" is a whole-line comment, and the caller took it.
+	for i := 1; i < len(line); i++ {
+		if line[i] == '#' && (line[i-1] == ' ' || line[i-1] == '\t') {
+			return line[:i]
+		}
+	}
+	return line
+}
+
+// readEnvFile reads NAME=faramir://ref lines, one per line. A line that is only a
+// name asks for the ref of that name, NAME meaning NAME=faramir://NAME: naming a
+// credential after the variable that carries it is the ordinary case, and writing
+// both halves out says the same word twice in the one file that says which
+// credentials a run needs.
+//
+// A comment runs to the end of the line, whole-line or after whitespace; see
+// dropComment.
+//
 // The file holds refs and never values, so it lives beside the playbook it
 // belongs to.
 func readEnvFile(path string) (map[string]string, error) {
@@ -208,9 +236,14 @@ func readEnvFile(path string) (map[string]string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
+		line = strings.TrimSpace(dropComment(line))
 		name, uri, ok := strings.Cut(line, "=")
 		if !ok {
-			return nil, fmt.Errorf("%s:%d: expected NAME=faramir://ref, got %q", path, i+1, line)
+			// A name on its own. Not taken on trust: checkRef below holds it to
+			// what an environment variable may be called, so a line that is not a
+			// name at all is refused naming this file and this line, as it was when
+			// every line had to carry a ref.
+			name, uri = line, "faramir://"+line
 		}
 		name, uri = strings.TrimSpace(name), strings.TrimSpace(uri)
 		// Checked here so the message can name the file and the line.

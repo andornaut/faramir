@@ -132,7 +132,14 @@ Reports whether the install is doing its job, and as root what each account can 
 
 1. Write the values, one file per thing that consumes them: `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk. `--from FILE` encrypts one you already hold and leaves that copy cleartext where it is; `sudo faramir vault edit NAME` reopens a file later. Nothing restarts: the next refresh picks the file up, 10 seconds by default. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
 2. Have the project read each credential from an environment variable rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
-3. Write the refs beside the project, one `NAME=faramir://ref` per line.
+3. Write the refs beside the project, one per line. A name on its own asks for the ref of that name, which is the ordinary case; the mapping form is for a variable whose ref is called something else:
+
+    ```text
+    # deploy.env
+    msmtp_password
+    deploy_token
+    ROUTER_PW=faramir://home/router/admin
+    ```
 4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
 Enrol the projects where managed credentials are in play, not every tree. Enrolling one registers the hook the table above names for each agent it finds: it rewrites what the agent runs in the tree into a brokered command and hands the output back redacted. There is no enrolment without it, redaction being what an enrolment is for.
@@ -159,7 +166,7 @@ faramir redact -- ./deploy.sh
 `faramir run` | Effect
 --- | ---
 `--env NAME=faramir://ref` | Once per secret
-`--env-file FILE` | `NAME=faramir://ref` per line, `#` comments
+`--env-file FILE` | `NAME=faramir://ref` per line, or a bare `NAME` meaning `faramir://NAME`. `#` starts a comment, at the start of a line or after whitespace
 `--quiet` | Suppress the redaction summary on stderr. Not why a `sudo` was refused: that is printed either way, being what says whether running the command again is worth anything
 `--cwd`/`-C` | Where the command runs. Defaults to the caller's directory
 `--timeout`/`-t` | Seconds before the broker kills it. Defaults to `[command] timeout_sec`, and `max_timeout_sec` is the ceiling
@@ -167,7 +174,7 @@ faramir redact -- ./deploy.sh
 
 - The child's exit code is faramir's own. A broker that is not running exits 69 (`EX_UNAVAILABLE`).
 - **`faramir redact` writes nothing it could not redact**, in either shape. A chunk the broker cannot cover is withheld, the stream stops there, and the exit status is non-zero: for `-- CMD` the child's own status when it failed, else 1. Chunks already redacted are kept, so a broker lost mid-stream truncates rather than empties.
-- Both `--env` and `--env-file` refuse a literal value and a name that cannot be an environment variable. One file refuses a name given twice with different refs; across sources a later `--env-file` beats an earlier one, and `--env` beats both. A bad line is reported with file and line, and the offending value never appears.
+- Both `--env` and `--env-file` refuse a literal value and a name that cannot be an environment variable. One file refuses a name given twice with different refs, the bare and the mapping form counting as the same name; across sources a later `--env-file` beats an earlier one, and `--env` beats both. A bad line is reported with file and line, and the offending value never appears. A bare line is held to the same rule, so anything that is not a usable variable name is refused where it is written rather than becoming a ref nothing serves.
 
 ### Allowing sudo on the controller
 
@@ -187,7 +194,7 @@ The install | `init`, `init-project`, `doctor`, `reload`, `uninstall`
 The managed store | `vault add`, `vault ls`, `vault rm`, `vault edit`
 Who can decrypt it | `recipient add`, `recipient rm`, `recipient ls`, `recipient reseal`
 A secret another tool owns | `link add`, `link rm`, `link ls`
-A path faramir will not read | `refuse add`, `refuse rm`, `refuse ls`
+A path refused to the agent | `refuse add`, `refuse rm`, `refuse ls`
 The record, and sudo | `logs`, `escalations`, `approve`, `deny`
 
 All need root except `doctor`, which degrades, and the three that only read: `recipient ls`, `link ls` and `refuse ls`. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).

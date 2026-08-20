@@ -2,6 +2,7 @@ package install
 
 import (
 	"os"
+	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -234,4 +235,69 @@ func TestDiagnoseKnownHostsSaysNothingWithoutAKey(t *testing.T) {
 	if len(report.Findings) != 0 {
 		t.Errorf("reported %+v for a host with no [ssh] key", report.Findings)
 	}
+}
+
+// The three ways --known-hosts names the wrong file, asked where the answer
+// costs nothing. stepKnownHosts runs after the age key, the sops rule, the
+// binary, the config and the SSH key are written, so the same refusal raised
+// there is a host part way provisioned for a path typed wrong.
+func TestKnownHostsIsJudgedBeforeAnythingIsWritten(t *testing.T) {
+	dir := t.TempDir()
+	privateKey := filepath.Join(dir, "the-key-beside-it")
+	if err := os.WriteFile(privateKey,
+		[]byte("-----BEGIN OPENSSH PRIVATE KEY-----\nnot a real one\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prose := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(prose, []byte("just some prose\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct{ name, path, wantErr string }{
+		{"a file that is not there", filepath.Join(dir, "gone"), "no such file"},
+		{"the private key rather than the host keys", privateKey, "holds a private key"},
+		{"a file that is not known_hosts at all", prose, "is not a known_hosts entry"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Through preflight rather than the reader it calls, so what this
+			// holds is that the refusal comes before anything is written: a test
+			// against the reader alone passes however late it is asked.
+			run := &runner{opts: Options{KnownHosts: tc.path, DryRun: true,
+				AgentUser: currentUserName(t)}}
+
+			err := run.preflight()
+
+			if err == nil {
+				t.Fatal("accepted")
+			}
+			if !strings.Contains(err.Error(), tc.wantErr) {
+				t.Errorf("err = %v, want it to contain %q", err, tc.wantErr)
+			}
+			if !strings.Contains(err.Error(), "--known-hosts") {
+				t.Errorf("the refusal does not name the flag: %v", err)
+			}
+		})
+	}
+
+	// Naming none is not a refusal: the option is optional, and leaving it out
+	// keeps whatever the executor already has pinned.
+	run := &runner{opts: Options{DryRun: true, AgentUser: currentUserName(t)}}
+	if err := run.preflight(); err != nil && strings.Contains(err.Error(), "--known-hosts") {
+		t.Errorf("no --known-hosts was refused: %v", err)
+	}
+}
+
+// currentUserName is an account preflight will accept: it must exist and must
+// not be root, and a dry run is what lets the rest of preflight be reached
+// without being root.
+func currentUserName(t *testing.T) string {
+	t.Helper()
+	me, err := user.Current()
+	if err != nil {
+		t.Skipf("no current user: %v", err)
+	}
+	if me.Username == "root" {
+		t.Skip("preflight refuses root as the agent account")
+	}
+	return me.Username
 }

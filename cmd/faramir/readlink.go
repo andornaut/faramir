@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -36,16 +35,10 @@ func newReadLinkCmd() *cobra.Command {
 				return codeErr(2)
 			}
 			if _, err := secretlink.Read(path, kind, key); err != nil {
-				fmt.Fprintf(os.Stderr, "%v\n", err)
-				// The alternatives, when there are any to offer. Read again rather
-				// than threaded out of the failure: the error deliberately carries
-				// nothing of the file, and this is the one place allowed to say what
-				// is in it, names only. Through the same bounded read, or a link
-				// pointed at something enormous would be refused for its size and
-				// then slurped anyway to enumerate it.
-				if keys, keysErr := secretlink.KeysIn(path, kind); keysErr == nil && len(keys) > 0 {
-					fmt.Fprintf(os.Stderr, "this file offers: %s\n", strings.Join(keys, ", "))
-				}
+				// Refusal adds the selectors the file offers, and is what `link add`
+				// prints for the same failure found as root, so one wrong --key reads
+				// the same whichever account met it first.
+				fmt.Fprintf(os.Stderr, "%v\n", secretlink.Refusal(path, kind, err))
 				return codeErr(1)
 			}
 			return nil

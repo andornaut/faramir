@@ -187,29 +187,13 @@ func (p *project) refuseUnwritableFiles() error {
 		paths = append(paths, editedPaths(target, true, "")...)
 	}
 	refused := refuseUnwritable(p.fs, p.opts.Dir, p.uid, p.opts.Dir, paths)
-	refused = append(refused, p.refuseUnenterableDirs(paths)...)
+	// The mode the share settles on, so what this asks is what the write asks.
+	refused = append(refused, refuseUnenterableDirs(
+		p.opts.Dir, 0o2770|os.ModeSetgid, p.uid, p.gid, paths)...)
 	if len(refused) > 0 {
 		return errors.New(strings.Join(refused, "\n"))
 	}
 	return nil
-}
-
-// refuseUnenterableDirs asks, of every directory these files sit in, the
-// question creating it will ask: see fsys.ensureDirsIn. A component that is a
-// symlink is a directory this would make outside the tree, which
-// refuseUnwritable cannot answer for while the parent does not exist. Asked in
-// a dry run, so the answer arrives before the share.
-func (p *project) refuseUnenterableDirs(paths []string) []string {
-	var refused []string
-	ask := fsys{dryRun: true}
-	for _, rel := range paths {
-		dir := filepath.Dir(filepath.Join(p.opts.Dir, rel))
-		if err := ask.ensureDirsIn(
-			p.opts.Dir, dir, 0o2770|os.ModeSetgid, p.uid, p.gid); err != nil {
-			refused = append(refused, err.Error())
-		}
-	}
-	return refused
 }
 
 // resolveIDs turns the operator and the client group into ids, before anything

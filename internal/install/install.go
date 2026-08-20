@@ -596,8 +596,14 @@ func (r *runner) refuseUnwritableAgentFiles() error {
 		return err
 	}
 	r.agentTargets = targets
-	refused := refuseUnwritable(r.fs, r.operatorHome, r.operatorUID, "",
-		homeEditedPaths(targets))
+	paths := homeEditedPaths(targets)
+	refused := refuseUnwritable(r.fs, r.operatorHome, r.operatorUID, "", paths)
+	// And the directories those files sit in, which stepAgentConfig creates when
+	// they are missing. The home's own question, not the tree's: a symlinked
+	// component there is the operator's dotfiles, and writeAgentFiles reads
+	// through it on purpose. 0700 is the mode it makes them with.
+	refused = append(refused, refuseUncreatableDirs(
+		r.operatorHome, 0o700, r.operatorUID, r.operatorGID, paths)...)
 	if len(refused) > 0 {
 		return errors.New(strings.Join(refused, "\n"))
 	}

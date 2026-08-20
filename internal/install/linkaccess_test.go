@@ -159,6 +159,52 @@ func TestALinkedSymlinkIsRefused(t *testing.T) {
 	}
 }
 
+// The refusal above, with a good link ahead of the bad one. Every file is
+// judged before the first is granted, so one entry the operator cannot use
+// leaves the others as they were rather than half of them regrouped for a run
+// that stopped.
+func TestARefusedLinkLeavesTheOthersUntouched(t *testing.T) {
+	gid := secondGroup(t)
+	dir := t.TempDir()
+	good := filepath.Join(dir, "hosts.yml")
+	if err := os.WriteFile(good, []byte("token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "real")
+	if err := os.WriteFile(target, []byte("token\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bad := filepath.Join(dir, "link.yml")
+	if err := os.Symlink(target, bad); err != nil {
+		t.Fatal(err)
+	}
+
+	// The good one first, so a loop that grants as it goes would have granted it
+	// by the time it met the symlink.
+	err := linkRunner(t, gid, good, bad).stepLinkAccess()
+	if err == nil {
+		t.Fatal("a symlinked linked file was accepted")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Errorf("the refusal does not say why: %v", err)
+	}
+	info, statErr := os.Stat(good)
+	if statErr != nil {
+		t.Fatal(statErr)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("the accepted link's mode became %o, want 600, untouched", got)
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		t.Fatal("cannot read ownership")
+	}
+	if int(stat.Gid) != os.Getgid() {
+		t.Errorf("the accepted link was regrouped to gid %d, want %d, untouched",
+			stat.Gid, os.Getgid())
+	}
+}
+
 func TestLinkAccessIsSkippedWithNoLinks(t *testing.T) {
 	run := &runner{}
 	if err := run.stepLinkAccess(); err != nil {
