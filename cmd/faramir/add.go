@@ -140,8 +140,10 @@ func newManagedPath(cfg *config.Config, name string) (string, error) {
 
 	// The suffix is faramir's, not the operator's: they pick a name and this
 	// writes a YAML store. A name that already carries a managed suffix is taken
-	// as it stands, so naming a file in full is neither wrong nor doubled.
-	if !matchesPatterns(cfg.Secret.Patterns, target) {
+	// as it stands, so naming a file in full is neither wrong nor doubled: the
+	// refusal below then names what was typed, which is what the operator has to
+	// correct.
+	if !matchesPatterns(cfg.Secret.Patterns, target) && !carriesManagedSuffix(target) {
 		target += managedSuffix
 	}
 	if !matchesPatterns(cfg.Secret.Patterns, target) {

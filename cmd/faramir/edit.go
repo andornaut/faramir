@@ -195,6 +195,24 @@ var errNoManagedFiles = errors.New("no managed sops files: the managed store nam
 // matches, so it stays on the file and off the argument.
 const managedSuffix = ".sops.yml"
 
+// managedSuffixes is what a name already spelled in full ends in. A write always
+// produces managedSuffix, but a [secret] pattern may name any of these, so a name
+// carrying one is the operator naming the file rather than the stem of one.
+var managedSuffixes = []string{managedSuffix, ".sops.yaml", ".sops.json"}
+
+// carriesManagedSuffix reports whether this is already a managed file's name.
+// Asked separately from the [secret] patterns: a name may end in a managed
+// suffix and still match no pattern, and appending a second suffix to that one
+// refuses it under a name the operator never typed.
+func carriesManagedSuffix(path string) bool {
+	for _, suffix := range managedSuffixes {
+		if strings.HasSuffix(path, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
 // managedStem is a managed file's name without its suffix, which is what an
 // operator types.
 func managedStem(path string) string {
