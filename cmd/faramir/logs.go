@@ -220,7 +220,7 @@ func runWatch(path string, f logsFlags, paint palette) int {
 		}
 		printer.row(record)
 	}
-	fmt.Fprintf(os.Stderr, "watching %s for new records. Ctrl-C to stop.\n", path)
+	fmt.Fprintf(os.Stderr, "watching %s for new records. Ctrl-c to stop.\n", path)
 
 	for {
 		if err := follow.drain(emit); err != nil {

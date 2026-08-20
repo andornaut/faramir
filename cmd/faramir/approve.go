@@ -239,7 +239,7 @@ func watchEscalations(socketPath string) int {
 	// The one rule the prompt below does not show: it asks for [y/n], which
 	// reads as though only "n" refuses.
 	fmt.Fprintln(os.Stderr, "waiting for escalation requests; only `y` approves. "+
-		"Ctrl-C to stop.")
+		"Ctrl-c to stop.")
 	// No set of ids already answered: the broker drops a question the moment it
 	// is answered, refused or expired, and only one is ever outstanding. A set
 	// would be worse than unnecessary, an id being three random bytes, so a later
