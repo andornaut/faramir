@@ -45,11 +45,11 @@ func TestAgentRulesReportsEveryKnownAgent(t *testing.T) {
 	var report DoctorReport
 	reportAgentRules(&report, t.TempDir(), nil)
 
-	if len(report.Findings) != len(agentNames()) {
+	if len(report.Findings) != len(knownAgents()) {
 		t.Fatalf("%d rows for %d agents: %+v",
-			len(report.Findings), len(agentNames()), report.Findings)
+			len(report.Findings), len(knownAgents()), report.Findings)
 	}
-	for _, name := range agentNames() {
+	for _, name := range knownAgents() {
 		finding(t, report, name)
 	}
 }

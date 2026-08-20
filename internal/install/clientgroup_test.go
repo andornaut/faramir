@@ -56,8 +56,9 @@ func TestAConfigThatAdmitsNoGroupIsRefused(t *testing.T) {
 	}
 }
 
-// No config and no flag: the enrolment cannot name the group, and the message
-// carries all three ways out rather than only the first.
+// No config: the enrolment cannot name the group, and it cannot write the deny
+// rules either, the linked and refused paths among them being only in that
+// file. The message carries both ways out.
 func TestAnEnrolmentWithNoConfigToReadSaysWhatToDo(t *testing.T) {
 	run := &project{opts: ProjectOptions{ConfigDir: t.TempDir()}}
 
@@ -66,18 +67,24 @@ func TestAnEnrolmentWithNoConfigToReadSaysWhatToDo(t *testing.T) {
 	if err == nil {
 		t.Fatal("an enrolment with no config to read was accepted")
 	}
-	for _, want := range []string{"faramir init", "--config-dir", "--client-group"} {
+	for _, want := range []string{"faramir init", "--config-dir"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("err = %v, want it to name %q", err, want)
 		}
 	}
+	// --client-group is not among them: it overrides one value and does not
+	// stand in for the file, so naming it here would send an operator after a
+	// flag that no longer answers this.
+	if strings.Contains(err.Error(), "--client-group") {
+		t.Errorf("err = %v, want it not to offer --client-group as a way past a "+
+			"missing config", err)
+	}
 }
 
-// --client-group names an install this machine need not have, so an unreadable
-// config is not an error. What it must not do is take anything else off this
-// host's config: the sudo grant decides a paragraph of the credentials section,
-// and a section describing an escalation that cannot be raised here is one the
-// agent learns to skim.
+// --client-group overrides the group the config names. What it must not do is
+// take anything else off this host's config: the sudo grant decides a paragraph
+// of the credentials section, and a section describing an escalation that
+// cannot be raised here is one the agent learns to skim.
 func TestANamedGroupTakesTheSudoGrantOnlyFromTheSameInstall(t *testing.T) {
 	const granted = sharedGroupConfig + "\n[escalation]\nexec_user = \"faramir-exec\"\n"
 	for _, tc := range []struct {
@@ -100,11 +107,6 @@ func TestANamedGroupTakesTheSudoGrantOnlyFromTheSameInstall(t *testing.T) {
 			config: granted,
 			group:  "another-install",
 			want:   false,
-		},
-		{
-			name:  "there is no config to read",
-			group: "faramir-clients",
-			want:  false,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

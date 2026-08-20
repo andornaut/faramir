@@ -56,8 +56,11 @@ const PROTECTED_PATHS = [
 // filter(Boolean) is not decoration: an empty string here would make every
 // absolute path start with it, and refuse the whole filesystem.
 const PROTECTED_DIRS = [
-{{- range $dir := .Dirs }}
+{{- range $dir := installDirs .Layout }}
   {{ printf "%s" (quote $dir) }},
+{{- end }}
+{{- range $path := perInstallPaths .Layout }}
+  {{ printf "%s" (quote $path) }},
 {{- end }}
 ].filter(Boolean)
 

@@ -352,14 +352,19 @@ func runInit(f initFlags) int {
 	}
 
 	report, err := install.Run(opts)
+	// The run's own failure first, then the document: a report that will not
+	// marshal must not be the only thing said about an install that failed. The
+	// document is printed whether or not the run failed, and a marshal that
+	// fails is itself fatal; see printJSON.
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
+	}
 	if f.asJSON {
-		body, marshalErr := json.MarshalIndent(report, "", "  ")
-		if marshalErr == nil {
-			fmt.Println(string(body))
+		if code := printJSON("init", report); code != 0 {
+			return code
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir init: %v\n", err)
 		return 1
 	}
 	if !f.asJSON {
@@ -413,7 +418,10 @@ func newInitProjectCmd() *cobra.Command {
 		"where the installed config is, which is where the client group is read from "+
 			"(default: ask the broker, then read its unit)")
 	fl.StringVar(&f.clientGroup, "client-group", "",
-		"override the client group instead of reading it from the installed config")
+		"share the tree with this group instead of the one the installed config "+
+			"admits. It overrides that one value: the config still has to load, the "+
+			"linked and refused paths in the deny rules an enrolment writes being "+
+			"only there")
 	fl.StringArrayVar(&f.agents, "agent", nil,
 		"coding agent to enrol, repeatable. Default \""+install.AgentAuto+"\": "+
 			"whichever agents this tree already carries configuration for. A name "+
@@ -439,14 +447,16 @@ func runInitProject(f initProjectFlags, args []string) int {
 	}
 
 	report, err := install.Project(opts)
+	// The failure before the document; see runInit.
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
+	}
 	if f.asJSON {
-		body, marshalErr := json.MarshalIndent(report, "", "  ")
-		if marshalErr == nil {
-			fmt.Println(string(body))
+		if code := printJSON("init-project", report); code != 0 {
+			return code
 		}
 	}
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir init-project: %v\n", err)
 		return 1
 	}
 	if !f.asJSON {
@@ -533,12 +543,9 @@ func runDoctor(f doctorFlags) int {
 		SecretsGroup:  f.secretsGroup,
 	})
 	if f.asJSON {
-		body, err := json.MarshalIndent(report, "", "  ")
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "faramir doctor: %v\n", err)
-			return 1
+		if code := printJSON("doctor", report); code != 0 {
+			return code
 		}
-		fmt.Println(string(body))
 	} else {
 		printDiagnosis(os.Stdout, paint, report)
 	}

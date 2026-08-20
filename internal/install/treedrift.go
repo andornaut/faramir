@@ -133,7 +133,7 @@ func diagnoseEditableFiles(report *DoctorReport, opts DoctorOptions) {
 // account's.
 func reportEditableFiles(report *DoctorReport, home string, uid int, opts DoctorOptions) {
 	fs := fsys{}
-	names := agentNames()
+	names := knownAgents()
 	targets := make([]*agentTarget, 0, len(names))
 	for _, name := range names {
 		targets = append(targets, agentTargets[name])

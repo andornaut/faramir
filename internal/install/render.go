@@ -29,6 +29,9 @@ var renderFuncs = template.FuncMap{
 	"pluginPatterns": pluginPatterns,
 	"jsFragments":    jsFragments,
 	"installDirs":    installDirs,
+	// The literal paths this install names as linked or refused, for the agent
+	// that carries its rules rather than writing them into a config.
+	"perInstallPaths": perInstallPaths,
 	// The tools an agent is offered, for the host that has to register them
 	// itself. See mcpToolsJS.
 	"mcpToolsJS": mcpToolsJS,

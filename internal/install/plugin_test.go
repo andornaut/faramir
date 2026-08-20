@@ -329,7 +329,7 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 		// The rig drives the shipped bytes, so it renders them the way an
 		// enrolment does: the path rules are compiled in, and one rendered
 		// without them is not the file anybody installs.
-		Dirs: installDirs(Layout{ConfigDir: "/opt/conf"}),
+		Layout: Layout{ConfigDir: "/opt/conf"},
 	})
 	if err != nil {
 		t.Fatal(err)

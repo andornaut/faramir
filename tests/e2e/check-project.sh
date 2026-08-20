@@ -46,7 +46,7 @@ head_ "1. each agent's own file set"
 
 D=$(tree /home/op/p-claude); enrol "$D" --agent claude >/tmp/p-claude.log 2>&1 \
   || bad "claude enrolment failed: $(tail -2 /tmp/p-claude.log)"
-owned "$D/.claude/settings.json" "claude: project settings"
+owned "$D/.claude/settings.local.json" "claude: project settings"
 owned "$D/.mcp.json" "claude: MCP registration"
 
 
@@ -93,7 +93,7 @@ done
 # --------------------------------------------------------------------------
 head_ "2. every file it writes is valid to the tool that reads it"
 
-for f in /home/op/p-claude/.claude/settings.json /home/op/p-claude/.mcp.json \
+for f in /home/op/p-claude/.claude/settings.local.json /home/op/p-claude/.mcp.json \
          /home/op/p-antigravity/.agents/mcp_config.json \
          /home/op/p-opencode/opencode.json /home/op/p-kilo/kilo.json \
          $HOME_OP/.claude/settings.json $HOME_OP/.config/opencode/opencode.json \
@@ -117,7 +117,7 @@ for js in /home/op/p-opencode/.opencode/plugins/faramir.js /home/op/p-kilo/.kilo
   fi
 done
 # And each names the binary that is actually installed.
-for f in /home/op/p-claude/.claude/settings.json \
+for f in /home/op/p-claude/.claude/settings.local.json \
          /home/op/p-antigravity/.agents/mcp_config.json; do
   grep -q '/usr/local/bin/faramir' "$f" && ok "names the installed binary: ${f#/home/op/}" \
     || bad "does not name the binary: $f"
@@ -126,11 +126,11 @@ done
 # --------------------------------------------------------------------------
 head_ "3. the hook it registers actually runs and denies"
 #
-# The point of enrolment. A settings.json naming a hook that does not run is
+# The point of enrolment. A settings.local.json naming a hook that does not run is
 # the silent failure this whole suite exists for, so the command in the file is
 # extracted and executed.
 
-hook=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' /home/op/p-claude/.claude/settings.json 2>/dev/null)
+hook=$(jq -r '.hooks.PreToolUse[0].hooks[0].command' /home/op/p-claude/.claude/settings.local.json 2>/dev/null)
 if [ -n "$hook" ] && [ "$hook" != null ]; then
   ok "claude settings name a PreToolUse command: ${hook:0:48}"
   out=$(printf '{"tool_name":"Bash","tool_input":{"command":"cat /etc/faramir/age.key"}}' \
@@ -169,7 +169,7 @@ head_ "4. it merges into what the operator already had"
 
 D=$(tree /home/op/p-merge)
 runuser -u $OP -- mkdir -p "$D/.claude"
-runuser -u $OP -- tee "$D/.claude/settings.json" >/dev/null <<'JSON'
+runuser -u $OP -- tee "$D/.claude/settings.local.json" >/dev/null <<'JSON'
 {"model": "opus", "env": {"MY_OWN": "keep me"}, "hooks": {"PostToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "/usr/bin/true"}]}]}}
 JSON
 runuser -u $OP -- tee "$D/.mcp.json" >/dev/null <<'JSON'
@@ -177,13 +177,13 @@ runuser -u $OP -- tee "$D/.mcp.json" >/dev/null <<'JSON'
 JSON
 enrol "$D" --agent claude >/tmp/p-merge.log 2>&1 || bad "merge enrolment failed"
 
-jq -e '.model == "opus"' "$D/.claude/settings.json" >/dev/null \
-  && ok "the operator's own scalar survived the merge" || bad "settings.json lost .model"
-jq -e '.env.MY_OWN == "keep me"' "$D/.claude/settings.json" >/dev/null \
-  && ok "and their own env entry" || bad "settings.json lost .env.MY_OWN"
-jq -e '.hooks.PostToolUse[0].hooks[0].command == "/usr/bin/true"' "$D/.claude/settings.json" >/dev/null \
-  && ok "and their own unrelated hook" || bad "settings.json lost the operator's PostToolUse hook"
-jq -e '.hooks.PreToolUse != null' "$D/.claude/settings.json" >/dev/null \
+jq -e '.model == "opus"' "$D/.claude/settings.local.json" >/dev/null \
+  && ok "the operator's own scalar survived the merge" || bad "settings.local.json lost .model"
+jq -e '.env.MY_OWN == "keep me"' "$D/.claude/settings.local.json" >/dev/null \
+  && ok "and their own env entry" || bad "settings.local.json lost .env.MY_OWN"
+jq -e '.hooks.PostToolUse[0].hooks[0].command == "/usr/bin/true"' "$D/.claude/settings.local.json" >/dev/null \
+  && ok "and their own unrelated hook" || bad "settings.local.json lost the operator's PostToolUse hook"
+jq -e '.hooks.PreToolUse != null' "$D/.claude/settings.local.json" >/dev/null \
   && ok "while faramir's PreToolUse hook was added beside it" || bad "the faramir hook was not added"
 jq -e '.mcpServers.mine.command == "/usr/bin/true"' "$D/.mcp.json" >/dev/null \
   && ok "the operator's own MCP server survived" || bad ".mcp.json lost the operator's server"
@@ -191,7 +191,7 @@ jq -e '.mcpServers.faramir != null' "$D/.mcp.json" >/dev/null \
   && ok "and faramir's was added beside it" || bad "faramir's MCP server was not added"
 
 # A file the operator owns stays theirs after root has written to it.
-owned "$D/.claude/settings.json" "the merged file is still the operator's"
+owned "$D/.claude/settings.local.json" "the merged file is still the operator's"
 
 # --------------------------------------------------------------------------
 head_ "5. enrolling twice changes nothing"
@@ -218,7 +218,7 @@ n=$(/usr/local/bin/faramir init-project --agent-user $OP --agent claude --json "
 [ "$n" -eq 0 ] && ok "and reports nothing changed" \
   || bad "a no-op enrolment reports $n step(s) changed, so an operator cannot tell a real run from this one"
 # And the hook is registered once, not twice.
-n=$(jq '[.hooks.PreToolUse[]?.hooks[]? | select(.command | test("faramir"))] | length' "$D/.claude/settings.json")
+n=$(jq '[.hooks.PreToolUse[]?.hooks[]? | select(.command | test("faramir"))] | length' "$D/.claude/settings.local.json")
 [ "$n" -eq 1 ] && ok "the faramir hook is registered once, not appended again" \
   || bad "$n faramir hooks after two enrolments"
 
@@ -228,7 +228,7 @@ head_ "6. several agents in one tree"
 D=$(tree /home/op/p-multi)
 enrol "$D" --agent claude --agent antigravity --agent opencode --agent kilocode >/tmp/p-multi.log 2>&1 \
   || bad "multi-agent enrolment failed: $(tail -2 /tmp/p-multi.log)"
-for f in .claude/settings.json .mcp.json .agents/mcp_config.json \
+for f in .claude/settings.local.json .mcp.json .agents/mcp_config.json \
          .opencode/plugins/faramir.js opencode.json .kilo/plugin/faramir.js kilo.json; do
   [ -e "$D/$f" ] && ok "  $f" || bad "  $f was not written by the multi-agent enrolment"
 done
@@ -248,7 +248,7 @@ mode=$(stat -c '%a' "$D/.claude")
 [ "$mode" = "3770" ] && ok "and the agent's own directory is $mode: sticky" \
   || bad ".claude is $mode, want 3770: a brokered command can unlink the hook settings"
 # What that buys, asked of the account it is meant to stop.
-if runuser -u faramir-exec -- rm -f "$D/.claude/settings.json" 2>/dev/null; then
+if runuser -u faramir-exec -- rm -f "$D/.claude/settings.local.json" 2>/dev/null; then
   bad "the executor deleted the settings naming the hook"
 else
   ok "and the executor cannot delete the settings naming the hook"

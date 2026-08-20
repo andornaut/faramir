@@ -100,7 +100,8 @@ type agentFile struct {
 	asset string
 	// mode is 0o640 throughout: an enrolled tree is shared with the client group,
 	// so group-readable is what the rest of the tree is, and group-writable is
-	// what these must never be, .claude/settings.json naming the PreToolUse hook.
+	// what these must never be, .claude/settings.local.json naming the PreToolUse
+	// hook.
 	// It keeps the group from writing through the file and not from replacing it,
 	// unlink being a permission on the directory. See sharetree.Options.Keep.
 	mode os.FileMode
@@ -111,13 +112,18 @@ type agentFile struct {
 	// and requires the asset to be JSON. True for every shared config; false
 	// only where the path is faramir's own.
 	merge bool
+	// local says the agent reads this file as the operator's rather than the
+	// repository's, so it belongs in git's ignores: everything faramir writes
+	// into one names a path this machine decided. An enrolment says so when it
+	// is not ignored; see project.warnUncommittableFiles.
+	local bool
 }
 
 var agentTargets = map[string]*agentTarget{
 	"claude": {
 		name: "claude",
 		files: []agentFile{
-			{path: ".claude/settings.json", asset: "agent/claude/settings.project.json.tmpl", mode: 0o640, merge: true},
+			{path: ".claude/settings.local.json", asset: "agent/claude/settings.local.json.tmpl", mode: 0o640, merge: true, local: true},
 			{path: ".mcp.json", asset: "agent/mcp.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Read and Edit rules only: Claude Code matches file permission checks
@@ -144,7 +150,7 @@ var agentTargets = map[string]*agentTarget{
 			// faramir's own file: what is there is a previous version of this
 			// plugin, so replacing it is the update.
 			{path: ".opencode/plugins/faramir.js", asset: "agent/plugin.js.tmpl", mode: 0o640},
-			{path: "opencode.json", asset: "agent/mcp.local.json.tmpl", mode: 0o640, merge: true},
+			{path: "opencode.json", asset: "agent/plugin-host.project.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Deny rules only, and no catch-all. The last matching wildcard wins
 		// and the merge re-serialises with keys sorted, so an operator's rule
@@ -195,7 +201,7 @@ var agentTargets = map[string]*agentTarget{
 			{path: ".kilo/plugin/faramir.js", asset: "agent/plugin.js.tmpl", mode: 0o640, defaultExport: true},
 			// kilo.json rather than the docs' kilo.jsonc: a merge cannot
 			// preserve the comments a .jsonc is kept for. Both are read.
-			{path: "kilo.json", asset: "agent/mcp.local.json.tmpl", mode: 0o640, merge: true},
+			{path: "kilo.json", asset: "agent/plugin-host.project.json.tmpl", mode: 0o640, merge: true},
 		},
 		// Deny rules only, and no catch-all, for the reason given on opencode's.
 		accountFiles: []agentFile{
@@ -562,13 +568,3 @@ func detectAgents(scope agentScope, dir string) []string {
 // detectedAgents is detectAgents over a tree, for the report that names what
 // was found and not enrolled.
 func detectedAgents(dir string) []string { return detectAgents(scopeTree, dir) }
-
-// agentNames are the known agents, sorted, so a report reads the same twice.
-func agentNames() []string {
-	out := make([]string, 0, len(agentTargets))
-	for name := range agentTargets {
-		out = append(out, name)
-	}
-	sort.Strings(out)
-	return out
-}

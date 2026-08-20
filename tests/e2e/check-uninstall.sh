@@ -136,7 +136,7 @@ if [ -d $PROJECT ]; then
     && note "so faramir-exec, which is kept, can still enter it" \
     || note "and faramir-exec is not in that group"
   # The agent's own config, which now names a socket that is gone.
-  for f in .claude/settings.json .mcp.json; do
+  for f in .claude/settings.local.json .mcp.json; do
     [ -e "$PROJECT/$f" ] && ok "  $f is left, naming a broker that is not there" \
       || bad "  $f was removed from the operator's tree"
   done

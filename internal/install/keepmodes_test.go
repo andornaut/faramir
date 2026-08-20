@@ -21,7 +21,7 @@ func everyTarget(t *testing.T) []*agentTarget {
 }
 
 // The share widens every file in the tree to group-writable, and these are the
-// files that must not become one: .claude/settings.json names the PreToolUse
+// files that must not become one: .claude/settings.local.json names the PreToolUse
 // hook, the plugins are JavaScript the agent loads, and the MCP registrations
 // name the binary each of them execs. A path missing from Keep is one the walk
 // widens, and nothing afterwards narrows it again.

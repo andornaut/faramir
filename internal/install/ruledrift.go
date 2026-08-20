@@ -48,15 +48,11 @@ func reportRuleDrift(report *DoctorReport, home, configDir string) {
 	// render does not, which staleRules would report as drift to delete. Both
 	// kinds: a refused path is only ever a rule, so being told to delete it is
 	// being told to undo the entry.
-	layout := Layout{
-		ConfigDir: configDir,
-		Links:     configuredLinks(configDir),
-		Refused:   configuredRefusedPaths(configDir),
-	}
+	layout := ruleLayout(configDir)
 
 	var stale, unread []string
 	read, ruleCount := 0, 0
-	for _, name := range agentNames() {
+	for _, name := range knownAgents() {
 		for _, file := range agentTargets[name].accountFiles {
 			path := filepath.Join(home, file.path)
 			if !exists(path) {
@@ -137,7 +133,7 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 // two checks that ask this: a linked file and a refused path are rendered into
 // the same rule files by the same step.
 func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
-	for _, agent := range agentNames() {
+	for _, agent := range knownAgents() {
 		for _, file := range agentTargets[agent].accountFiles {
 			path := filepath.Join(home, file.path)
 			if !exists(path) {
@@ -245,6 +241,21 @@ func reportRefusedPaths(report *DoctorReport, home string, paths []string) {
 			"`faramir refuse add` renders the rules with the entry, so this is an "+
 			"entry written by hand or a run that stopped early; `faramir init` "+
 			"renders them again: %s", strings.Join(uncovered, "; "))
+	}
+}
+
+// ruleLayout is what an agent's rule file is rendered against: this install's
+// own directories, and the paths its config names as linked or refused. One
+// function for both sides, so what `init-project` writes into a tree is what
+// `doctor` re-renders to compare it with, and a re-render is not read as drift.
+func ruleLayout(configDir string) Layout {
+	if configDir == "" {
+		configDir = DefaultConfigDir
+	}
+	return Layout{
+		ConfigDir: configDir,
+		Links:     configuredLinks(configDir),
+		Refused:   configuredRefusedPaths(configDir),
 	}
 }
 

@@ -1,6 +1,8 @@
 package install
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -94,7 +96,7 @@ func TestEveryAgentsRulesCoverEveryProtectedPath(t *testing.T) {
 	// pi's rules are in the extension it installs rather than in a config file.
 	body, err := renderData("agent/pi/extension.ts.tmpl", pluginData{
 		BinDir: "/usr/local/bin", Agent: "pi", Path: ".pi/extensions/faramir.ts",
-		Dirs: installDirs(layout),
+		Layout: layout,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -188,5 +190,83 @@ func TestInstallDirsAreNeverEmpty(t *testing.T) {
 				t.Errorf("installDirs(%+v) yielded %q, which refuses everything", layout, dir)
 			}
 		}
+	}
+}
+
+// Enrolling a tree writes the deny rules into it, not only the hook. A tree can
+// be enrolled on a host where `faramir init --agent` never ran, and the
+// enrolment is what the operator did: without this the agent's file tools are
+// refused nothing in the one project faramir was pointed at.
+func TestEnrollingATreeWritesTheDenyRules(t *testing.T) {
+	for _, tc := range []struct {
+		agent string
+		file  string
+		want  string
+	}{
+		{"claude", ".claude/settings.local.json", `"Read(**/id_ed25519)"`},
+		{"opencode", "opencode.json", `"*id_ed25519": "deny"`},
+		{"kilocode", "kilo.json", `"*id_ed25519": "deny"`},
+	} {
+		t.Run(tc.agent, func(t *testing.T) {
+			target := agentTargets[tc.agent]
+			var file agentFile
+			for _, candidate := range target.files {
+				if candidate.path == tc.file {
+					file = candidate
+				}
+			}
+			if file.path == "" {
+				t.Fatalf("%s writes no %s", tc.agent, tc.file)
+			}
+			body, err := assetFor(target, file, "/etc/faramir")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), tc.want) {
+				t.Errorf("%s carries no deny rule for an SSH key:\n%s", tc.file, body)
+			}
+			// This install's own directories with them, which are literal rather
+			// than patterns: a store moved by --config-dir is the one refused.
+			if !strings.Contains(string(body), "/etc/faramir/secrets") {
+				t.Errorf("%s does not refuse this install's secrets directory:\n%s",
+					tc.file, body)
+			}
+		})
+	}
+}
+
+// The rules an enrolment writes are the rules doctor re-renders to compare
+// against. Both go through ruleLayout, so a tree that was just enrolled is not
+// reported as drifted.
+func TestWhatAnEnrolmentWritesIsWhatDoctorCompares(t *testing.T) {
+	dir := t.TempDir()
+	tree := filepath.Join(dir, "project")
+	if err := os.MkdirAll(filepath.Join(tree, ".claude"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := agentTargets["claude"]
+	file := target.files[0]
+	body, err := assetFor(target, file, "/etc/faramir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Through the merge, as writeAgentFiles writes it: the first write is
+	// byte-for-byte what a second would produce, and the asset as authored is
+	// not.
+	merged, err := mergeJSON(nil, body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(tree, file.path)
+	if err := os.WriteFile(path, merged, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	carries, err := carriesWhatWeWrite(target, file, path, "/etc/faramir")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !carries {
+		t.Error("a file written by an enrolment reads as drifted to the check that " +
+			"compares it, so doctor would report every enrolled tree")
 	}
 }

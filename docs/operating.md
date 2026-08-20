@@ -54,7 +54,7 @@ Two kinds, and which one a file is decides what a run may do to it.
 
 **Faramir's own** are replaced whole and owned outright: the plugins, and Pi's extension. Nothing else is, the MCP registrations included: those are yours, and a re-enrolment merges into them.
 
-**Yours** are edited and left yours. Each agent's settings get only faramir's keys merged in; your agent instructions file gets only the block between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`. A file already there keeps its owner and mode, and its group except in a tree, where the client group has to read what the hook is written into. Only a file a run creates takes an owner from it, and only one created in a rules directory gets the frontmatter that agent needs to load it.
+**Yours** are edited and left yours. Each agent's settings get only faramir's keys merged in, and for Claude Code that is `.claude/settings.local.json` rather than `.claude/settings.json`: everything written there names a path this machine decided, and the second file is the one Claude Code shares with your team. It is not git-ignored unless something ignores it, so an enrolment says so when nothing does; your agent instructions file gets only the block between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`. A file already there keeps its owner and mode, and its group except in a tree, where the client group has to read what the hook is written into. Only a file a run creates takes an owner from it, and only one created in a rules directory gets the frontmatter that agent needs to load it.
 
 A run stops rather than write one it should not, leaving it exactly as it is:
 
@@ -78,7 +78,7 @@ A brokered command cannot delete these files, each agent's own directory in a tr
 
 Command | Does
 --- | ---
-`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory: [shares the tree](layout.md), registers the hook and the MCP server in each enrolled agent's settings, and writes the credentials section into the tree's agent instructions file. A home directory, `/`, and anything above a home are refused, symlinks resolved first
+`sudo faramir init-project [DIR]` | Enrols one working tree, `DIR` defaulting to the current working directory: [shares the tree](layout.md), registers the hook, the deny rules and the MCP server in each enrolled agent's settings, and writes the credentials section into the tree's agent instructions file. The installed `config.toml` has to be readable, the linked and refused paths among those rules being only there. A home directory, `/`, anything above a home, the system directories (`/etc`, `/usr`, `/var` and their kind) and faramir's own directories are refused, symlinks resolved first
 `sudo faramir doctor` | Reports whether the install is doing its job, and as root what each account can reach. [What it checks](#checking-an-install)
 `sudo faramir vault add NAME` | Writes a new managed file, `NAME` relative to the secrets directory with `.sops.yml` added for you. `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk; `--from FILE` encrypts one you already hold
 `sudo faramir vault ls` | The managed files by name, how many refs each names, who can read it, and whether it agrees with the rule. Reads the directory rather than asking the broker, so a file the broker refused to load is listed with the reason. Decrypts nothing. `--json`

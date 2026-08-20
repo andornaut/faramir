@@ -112,7 +112,7 @@ func runLogs(f logsFlags, args []string) int {
 			return 1
 		}
 		if f.asJSON {
-			return printJSON(record)
+			return printJSON("logs", record)
 		}
 		printRecord(record, paint)
 		return 0
@@ -134,7 +134,7 @@ func runLogs(f logsFlags, args []string) int {
 		if records == nil {
 			records = []map[string]any{}
 		}
-		return printJSON(records)
+		return printJSON("logs", records)
 	}
 	if len(records) == 0 {
 		fmt.Fprintln(os.Stderr, emptyReason(path, f.count))
@@ -188,7 +188,7 @@ func runWatch(path string, f logsFlags, paint palette) int {
 				skipped++
 			}
 		case f.asJSON:
-			_ = printJSON(record)
+			_ = printJSON("logs", record)
 		default:
 			printer.row(record)
 		}
@@ -215,7 +215,7 @@ func runWatch(path string, f logsFlags, paint palette) int {
 	}
 	for _, record := range records {
 		if f.asJSON {
-			_ = printJSON(record)
+			_ = printJSON("logs", record)
 			continue
 		}
 		printer.row(record)
@@ -254,12 +254,18 @@ func runWatch(path string, f logsFlags, paint palette) int {
 	}
 }
 
-// printJSON writes a record, or a list of them, to stdout as indented JSON: the
-// machine-readable form of what the text listing shows.
-func printJSON(v any) int {
+// printJSON writes a record, a list of them or a report to stdout as indented
+// JSON: the machine-readable form of what the text listing shows. One function
+// for every command that takes --json, so a marshal that fails is an exit code
+// in each rather than an empty stdout in some of them: under --json the
+// document is the whole answer, and exiting 0 having printed nothing reads to a
+// configuration manager as a host that needed no work.
+//
+// label names the subcommand for the error, the caller having it and this not.
+func printJSON(label string, v any) int {
 	body, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir logs: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir %s: %v\n", label, err)
 		return 1
 	}
 	fmt.Println(string(body))

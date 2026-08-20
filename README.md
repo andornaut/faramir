@@ -17,7 +17,7 @@ Four get full redaction: what the agent runs in an enrolled project is rewritten
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
-[Claude Code](https://claude.com/product/claude-code) | `PreToolUse` hook and MCP server in the tree; deny rules in `~/.claude/settings.json` | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
+[Claude Code](https://claude.com/product/claude-code) | `PreToolUse` hook, deny rules and MCP server in the tree; deny rules in `~/.claude/settings.json` | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
 [opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) and `opencode.json` in the tree; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved
 [Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) under `.kilo/plugin/`, loaded by the CLI and the VS Code extension; `kilo.json` and `~/.config/kilo/kilo.json` | Same as opencode
 [Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) under `.pi/extensions/`. Pi ships no MCP, so the extension registers the two tools itself | None. Project-local extensions load only once the project is trusted, so a tree Pi has not been trusted in is unguarded

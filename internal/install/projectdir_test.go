@@ -42,8 +42,8 @@ func TestADryRunEnrolmentLeavesTheTreeExactlyAsItWas(t *testing.T) {
 		t.Fatal(err)
 	}
 	for path, body := range map[string]string{
-		"AGENTS.md":             "# Project\n\nMy own notes.\n",
-		".claude/settings.json": "{\n  \"model\": \"mine\"\n}\n",
+		"AGENTS.md":                   "# Project\n\nMy own notes.\n",
+		".claude/settings.local.json": "{\n  \"model\": \"mine\"\n}\n",
 	} {
 		if err := os.WriteFile(filepath.Join(dir, path), []byte(body), 0o644); err != nil {
 			t.Fatal(err)
@@ -63,7 +63,7 @@ func TestADryRunEnrolmentLeavesTheTreeExactlyAsItWas(t *testing.T) {
 		t.Error("the report does not say it was a dry run")
 	}
 	for _, want := range []struct{ step, file string }{
-		{"agent config", ".claude/settings.json"},
+		{"agent config", ".claude/settings.local.json"},
 		{"instructions", "AGENTS.md"},
 	} {
 		if !reportedWriting(report, want.step, want.file) {

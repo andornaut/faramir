@@ -5,11 +5,14 @@ package install
 // directory safe to default to here and unsafe there.
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -31,14 +34,15 @@ type ProjectOptions struct {
 	// ConfigDir is where the client group is learned. A flag could disagree with
 	// what the sockets admit, leaving a tree the executor cannot enter.
 	ConfigDir string
-	// ClientGroup overrides the group read from the config, for a tree being
-	// enrolled against an install that is not on this machine: a checkout on
-	// shared storage, or one prepared before its host is provisioned.
+	// ClientGroup overrides the group the config names, for a tree shared with a
+	// group other than the one this host's socket admits.
 	//
-	// Not a way around a config that will not load. This runs as root and the
-	// config is 0644, so a load fails only because faramir was never installed
-	// here, the config is elsewhere, or the path given is wrong, each of which is
-	// an error naming its own fix.
+	// It overrides one value and does not stand in for the config, which still
+	// has to load: an enrolment writes this install's deny rules into the tree,
+	// and the linked and refused paths among them are only in that file. This
+	// runs as root and the config is 0644, so a load fails only because faramir
+	// was never installed here, the config is elsewhere, or the path given is
+	// wrong, each of which is an error naming its own fix.
 	ClientGroup string
 	// Agents names which coding agents to enrol. Empty means AgentAuto:
 	// whichever agents this tree already carries configuration for. A name
@@ -156,6 +160,9 @@ func (p *project) preflight() error {
 	if err := refuseOversharing(p.opts.Dir, p.opts.AgentUser); err != nil {
 		return err
 	}
+	if err := refuseInstallDirs(p.opts.Dir, p.opts.ConfigDir); err != nil {
+		return err
+	}
 	// auto looks at the tree, enrolling costing something here. Resolved before
 	// anything is written, so an unknown name stops the run before the tree's
 	// ownership changes.
@@ -253,6 +260,9 @@ func refuseOversharing(dir, operator string) error {
 	case "/home":
 		return tooBig("every home on this host")
 	}
+	if slices.Contains(systemRoots, dir) {
+		return tooBig("a system directory rather than a project")
+	}
 	if home := homeOf(dir); home == dir {
 		return tooBig("a home directory")
 	}
@@ -270,6 +280,63 @@ func refuseOversharing(dir, operator string) error {
 		if encloses(dir, home) {
 			return tooBig("above " + operator + "'s home directory")
 		}
+	}
+	return nil
+}
+
+// systemRoots are the directories a walk must not be pointed at. Sharing chowns
+// the directory to the operator, chmods it 2770 and applies g+rwX to everything
+// under it, so one of these regrouped is a host repaired from outside faramir
+// or not at all.
+//
+// Named rather than derived from "outside /home": a checkout on shared storage
+// is a tree an operator may legitimately enrol, needing the drop-in extending
+// ReadWritePaths= that shareTree warns about. /root is absent, homeOf naming it
+// as the home it is.
+//
+// The merged-/usr targets are listed with the links that point at them: the
+// directory reaching this has been through sharetree.Resolve, so /bin arrives
+// as /usr/bin on most hosts and as itself on the rest.
+var systemRoots = []string{
+	"/bin", "/boot", "/dev", "/etc", "/lib", "/lib32", "/lib64", "/libx32",
+	"/opt", "/proc", "/run", "/sbin", "/snap", "/srv", "/sys", "/tmp",
+	"/usr", "/var",
+	"/usr/bin", "/usr/include", "/usr/lib", "/usr/lib32", "/usr/lib64",
+	"/usr/libx32", "/usr/local", "/usr/sbin", "/usr/share", "/var/tmp",
+}
+
+// refuseInstallDirs stops an enrolment that would walk faramir's own
+// directories. The age key is 0400 and keeper-owned, and sharing ORs group read
+// and write onto every file in the tree and regroups it: one walk over the
+// config directory hands the client group, which faramir-exec is in, the key
+// that decrypts every managed file.
+//
+// Both directions. A tree above one of these reaches it through the walk, and a
+// tree inside one is part of it. systemRoots names /etc and its kind; this
+// names what an install puts inside them, and reaches a --config-dir moved
+// under a home, which no fixed list can name.
+func refuseInstallDirs(dir, configDir string) error {
+	// BinDir with them: it holds the binary every hook and plugin execs, and
+	// group write there is a brokered command replacing what the agent runs.
+	dirs := append(installDirs(Layout{ConfigDir: configDir}), DefaultBinDir)
+	for _, installed := range dirs {
+		installed = filepath.Clean(installed)
+		holds := encloses(dir, installed)
+		if !holds && !encloses(installed, dir) {
+			continue
+		}
+		relation := "holds"
+		switch {
+		case installed == dir:
+			relation = "is"
+		case !holds:
+			relation = "is inside"
+		}
+		return fmt.Errorf("refusing to enrol %s: it %s %s, which is faramir's own. "+
+			"Enrolling a tree gives the client group read and write on every file in "+
+			"it, and faramir-exec is in that group: what it would reach here is the "+
+			"age key and the ciphertext that key opens. Name the project directory "+
+			"instead", dir, relation, installed)
 	}
 	return nil
 }
@@ -314,32 +381,49 @@ func (p *project) warnf(format string, args ...any) {
 // allowed_group is what the broker socket admits, so it is the only value that
 // makes a shared tree usable. The sudo grant is read from the same load,
 // [escalation] exec_user being the switch for the whole arrangement.
+//
+// The config has to load, --client-group or not. It is where the linked and
+// refused paths are, and those are rules an enrolment writes into the tree: a
+// tree enrolled without them carries a deny list that names the built-in paths
+// and not the credential file this install added, which reads exactly like one
+// that covers everything. --client-group overrides the group it found, and is
+// not a way to enrol against no config at all.
 func (p *project) resolveGroup() error {
 	configFile := filepath.Join(p.opts.ConfigDir, "config.toml")
 	cfg, err := config.Load(configFile)
+	if err != nil {
+		// A dry run writes nothing, so it has no incomplete rules to prevent, and
+		// asking about a tree from a host that has not been provisioned yet is what
+		// it is for. The same latitude resolveIDs takes.
+		if p.opts.DryRun {
+			p.warnf("cannot read %s (%v), so this reports on the tree alone: the "+
+				"group it would be shared with and the deny rules an enrolment would "+
+				"write are both in that file", configFile, err)
+			p.report.ClientGroup = p.opts.ClientGroup
+			return nil
+		}
+		return fmt.Errorf("cannot read %s: %w\n"+
+			"An enrolment writes this install's deny rules into the tree, and the "+
+			"linked and refused paths among them are in that file, so a tree enrolled "+
+			"without it would carry a rule list missing the paths this install added. "+
+			"Run `faramir init` first, or pass --config-dir if the config is "+
+			"elsewhere", configFile, err)
+	}
+	// The grant is this host's, and says nothing about a tree shared with a group
+	// this host's socket does not admit: that names another install, whose
+	// escalation arrangement is its own.
+	if p.opts.ClientGroup == "" || cfg.Server.AllowedGroup == p.opts.ClientGroup {
+		p.allowSudo = cfg.Escalation.ExecUser != ""
+	}
 	if p.opts.ClientGroup != "" {
 		p.report.ClientGroup = p.opts.ClientGroup
-		// The flag names an install this machine need not have, so an unreadable
-		// config is not an error here. It does mean nothing else may be taken from
-		// this host's config: the grant is trusted only where the config loads and
-		// admits the group just named, which is what says the two are one
-		// install.
-		if err == nil && cfg.Server.AllowedGroup == p.opts.ClientGroup {
-			p.allowSudo = cfg.Escalation.ExecUser != ""
-		}
 		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("cannot read the client group from %s: %w\n"+
-			"Run faramir init first, pass --config-dir if the config is elsewhere, "+
-			"or pass --client-group to name it directly", configFile, err)
 	}
 	if cfg.Server.AllowedGroup == "" {
 		return fmt.Errorf("%s admits no group, so a shared tree would reach nothing. "+
 			"Run `faramir init --client-group NAME`", configFile)
 	}
 	p.report.ClientGroup = cfg.Server.AllowedGroup
-	p.allowSudo = cfg.Escalation.ExecUser != ""
 	return nil
 }
 
@@ -390,11 +474,12 @@ type pluginData struct {
 	Agent         string
 	Path          string
 	DefaultExport bool
-	// Dirs is this install's own directories, for a plugin that carries the path
-	// rules itself rather than writing them into a config the agent reads. Taken
-	// from the enrolment's --config-dir, so a store moved into a home is the one
-	// refused rather than the default.
-	Dirs []string
+	// Layout is what the rule renderers take: this install's own directories and
+	// the paths its config names as linked or refused. Built from the enrolment's
+	// --config-dir, so a store moved into a home is the one refused rather than
+	// the default, and built by ruleLayout so what an enrolment writes is what
+	// `doctor` re-renders to compare it with.
+	Layout Layout
 }
 
 // assetFor is one agent file's contents, rendered whatever the asset is named.
@@ -412,7 +497,7 @@ func assetFor(target *agentTarget, file agentFile, configDir string) ([]byte, er
 		Agent:         target.name,
 		Path:          file.path,
 		DefaultExport: file.defaultExport,
-		Dirs:          installDirs(Layout{ConfigDir: configDir}),
+		Layout:        ruleLayout(configDir),
 	})
 }
 
@@ -516,6 +601,7 @@ func (p *project) agentConfig() error {
 		if target.note != "" && (made || target.noteStands) {
 			p.warnf("%s: %s", target.name, target.note)
 		}
+		p.warnUncommittableFiles(target)
 	}
 	// Named rather than counted, so an operator knows which file to merge.
 	p.step(labelAgentConfig, changed, strings.Join(written, ", "))
@@ -540,6 +626,51 @@ func (p *project) agentConfig() error {
 			unenrolled)
 	}
 	return nil
+}
+
+// warnUncommittableFiles says so when a file this enrolment wrote is one the
+// agent treats as yours rather than the repository's, and git is not ignoring
+// it. Claude Code adds settings.local.json to the git excludes when it writes
+// the file itself; one faramir created is not covered by that.
+//
+// Said rather than done: what a repository ignores is the operator's to decide,
+// and writing into .git or a tracked .gitignore is not this command's to do.
+// Nothing in the file is secret, only specific to this machine: the binary the
+// hook execs, and the directories this install occupies.
+func (p *project) warnUncommittableFiles(target *agentTarget) {
+	for _, file := range target.files {
+		if !file.local || p.isIgnored(file.path) {
+			continue
+		}
+		p.warnf("%s is not ignored by git, and %s reads it as yours rather than the "+
+			"repository's. It names the directories this install occupies and the "+
+			"binary the hook execs, so committing it puts one machine's layout in the "+
+			"tree. Add it to .gitignore, or to .git/info/exclude to keep that local",
+			file.path, target.name)
+	}
+}
+
+// isIgnored asks git, which is the only thing that can answer: the rule may be
+// in a .gitignore at any level, in .git/info/exclude, or in the operator's
+// global excludes.
+//
+// Exit 0 is ignored and exit 1 is not; anything else is git declining to answer,
+// which a tree that is no repository and a host with no git both are. Those
+// answer true, so the warning is withheld rather than guessed at.
+func (p *project) isIgnored(rel string) bool {
+	// --no-index, or a file already committed is reported as not ignored on the
+	// strength of being tracked, which is not the question being put.
+	cmd := exec.CommandContext(context.Background(), "git", "-C", p.opts.Dir,
+		"check-ignore", "--quiet", "--no-index", "--", rel)
+	err := cmd.Run()
+	if err == nil {
+		return true
+	}
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return false
+	}
+	return true
 }
 
 // instructions writes the credentials section into the files this project's

@@ -1,0 +1,42 @@
+{{- /*
+What enrolling a tree writes for Claude Code: the PreToolUse hook that routes a
+Bash command through the broker, and the same deny rules `faramir init` writes
+into the home.
+
+settings.local.json rather than settings.json: everything here names a path this
+machine decided, the binary the hook execs and the directories this install
+occupies, and settings.json is the file Claude Code shares with a team. Claude
+Code reads both for hooks and permissions, and permission rules merge across
+scopes rather than one shadowing the other.
+
+The rules are written here as well as in the home because a tree can be enrolled
+on a host where `faramir init --agent claude` never ran, and the enrolment is
+what the operator did. Duplication costs nothing: deny rules merge, and a rule
+written twice refuses the same thing once.
+
+GENERATED. The paths come from internal/install/protectedpaths.go, written once
+and rendered into each agent's own spelling; nothing here is a path of its own.
+Add one there.
+*/ -}}
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{.BinDir}}/faramir guard",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  },
+  "permissions": {
+    "deny": [
+{{ jsonLines "      " (claudeRules .Layout) }}
+    ]
+  }
+}

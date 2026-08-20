@@ -171,7 +171,7 @@ func TestAnEnrolmentRefusesAnUnwritableFileBeforeSharing(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(outside, "settings.json"),
-		filepath.Join(tree, ".claude", "settings.json")); err != nil {
+		filepath.Join(tree, ".claude", "settings.local.json")); err != nil {
 		t.Fatal(err)
 	}
 	run := &project{
@@ -186,7 +186,7 @@ func TestAnEnrolmentRefusesAnUnwritableFileBeforeSharing(t *testing.T) {
 	if err == nil {
 		t.Fatal("an enrolment accepted a file its own write would refuse")
 	}
-	if !strings.Contains(err.Error(), ".claude/settings.json") {
+	if !strings.Contains(err.Error(), ".claude/settings.local.json") {
 		t.Errorf("the error does not name the file: %v", err)
 	}
 	// Nothing was written and nothing shared: this ran before either.
@@ -213,7 +213,7 @@ func TestPreflightRefusesBeforeAnyStepRuns(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(filepath.Join(outside, "settings.json"),
-		filepath.Join(tree, ".claude", "settings.json")); err != nil {
+		filepath.Join(tree, ".claude", "settings.local.json")); err != nil {
 		t.Fatal(err)
 	}
 	run := &project{
@@ -230,7 +230,7 @@ func TestPreflightRefusesBeforeAnyStepRuns(t *testing.T) {
 	if err == nil {
 		t.Fatal("preflight accepted a tree whose settings file the write would refuse")
 	}
-	if !strings.Contains(err.Error(), ".claude/settings.json") {
+	if !strings.Contains(err.Error(), ".claude/settings.local.json") {
 		t.Errorf("the error does not name the file: %v", err)
 	}
 	// The share is step one and this ran before any step: the tree is untouched.

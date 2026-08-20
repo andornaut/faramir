@@ -68,26 +68,42 @@ func TestAMissingConfigStopsTheEnrolment(t *testing.T) {
 	if err == nil {
 		t.Fatal("an enrolment with no config to read was allowed to proceed")
 	}
-	for _, want := range []string{"faramir init", "--config-dir", "--client-group"} {
+	for _, want := range []string{"faramir init", "--config-dir"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("the error does not name %s as a way out: %v", want, err)
 		}
 	}
 }
 
-// --client-group names an install that need not be on this machine, so a config
-// that cannot be read is what the flag is for rather than a failure.
-func TestANamedGroupEnrolsWithNoConfigToRead(t *testing.T) {
-	run, err := resolved(t, t.TempDir(), "elsewhere")
-	if err != nil {
-		t.Fatal(err)
+// --client-group overrides the group and does not stand in for the file. An
+// enrolment writes this install's deny rules into the tree, and the linked and
+// refused paths among them are only in the config: a tree enrolled without it
+// would carry a list naming the built-in paths and not the credential file this
+// install added, which reads exactly like one that covers everything.
+func TestANamedGroupStillNeedsAConfigToRead(t *testing.T) {
+	if _, err := resolved(t, t.TempDir(), "elsewhere"); err == nil {
+		t.Fatal("a named group enrolled a tree against no config at all")
+	}
+}
+
+// A dry run writes nothing, so it has no incomplete rules to prevent: asking
+// about a tree from a host that has not been provisioned yet is what it is for.
+func TestADryRunReportsOnATreeWithNoConfigToRead(t *testing.T) {
+	run := &project{opts: ProjectOptions{
+		ConfigDir: t.TempDir(), ClientGroup: "elsewhere", DryRun: true,
+	}}
+	if err := run.resolveGroup(); err != nil {
+		t.Fatalf("a dry run against an unprovisioned host was refused: %v", err)
 	}
 	if run.report.ClientGroup != "elsewhere" {
 		t.Errorf("group = %q, want the one named", run.report.ClientGroup)
 	}
 	if run.allowSudo {
-		t.Error("a tree enrolled against an install this host has no config for was " +
-			"told this host's sudo grant")
+		t.Error("a tree reported on with no config to read was described using a " +
+			"sudo grant nothing established")
+	}
+	if len(run.report.Warnings) == 0 {
+		t.Error("a dry run that could not read the config said so nowhere")
 	}
 }
 

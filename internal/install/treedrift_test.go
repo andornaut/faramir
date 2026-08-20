@@ -66,7 +66,7 @@ func TestTreeConfigIsOKWhereTheEnrolmentSurvives(t *testing.T) {
 func TestTreeConfigReportsAFileThatNoLongerCarriesTheHook(t *testing.T) {
 	configDir := t.TempDir()
 	tree := enrolTree(t, configDir, "claude")
-	settings := filepath.Join(tree, ".claude", "settings.json")
+	settings := filepath.Join(tree, ".claude", "settings.local.json")
 	// What replacing it looks like: valid configuration of somebody's own, with
 	// nothing of faramir's in it.
 	if err := os.WriteFile(settings, []byte(`{"model":"whatever"}`+"\n"), 0o640); err != nil {
@@ -96,7 +96,7 @@ func TestTreeConfigReportsAFileThatNoLongerCarriesTheHook(t *testing.T) {
 func TestTreeConfigAcceptsTheProjectsOwnKeysBesideOurs(t *testing.T) {
 	configDir := t.TempDir()
 	tree := enrolTree(t, configDir, "claude")
-	settings := filepath.Join(tree, ".claude", "settings.json")
+	settings := filepath.Join(tree, ".claude", "settings.local.json")
 
 	current, err := os.ReadFile(settings)
 	if err != nil {

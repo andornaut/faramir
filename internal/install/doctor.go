@@ -270,7 +270,7 @@ func diagnoseAgentRules(report *DoctorReport, opts DoctorOptions) {
 // database. enrolled names the agents some tree was enrolled for, which the
 // home cannot show: an enrolled agent may leave no trace in this account.
 func reportAgentRules(report *DoctorReport, home string, enrolled []string) {
-	for _, name := range agentNames() {
+	for _, name := range knownAgents() {
 		target := agentTargets[name]
 		// An agent with no account-wide file to write, so there is nothing here to
 		// find and nothing missing. The target says why.
