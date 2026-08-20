@@ -97,9 +97,9 @@ func (r *runner) stepValidate() error {
 		// that is there and did not load, is fatal.
 		if absent := report.Secrets.UnresolvedPatterns; len(absent) == len(report.Secrets.Patterns) &&
 			len(absent) > 0 {
-			// What it does is refuse, not run bare. The sentence used to say the
-			// opposite, which reads as an exposure an operator has to hurry out of and
-			// teaches the wrong reflex for the day a value set really does fail to load.
+			// What it does is refuse, not run bare. Said that way round: a warning
+			// that reads as an exposure teaches the wrong reflex for the day a value
+			// set really does fail to load.
 			r.warnf("the broker is configured for %s, which %s named no file yet, "+
 				"so it is serving nothing: with no value set it refuses every brokered "+
 				"command rather than running one unredacted. Write the secrets directory "+

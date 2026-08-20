@@ -225,7 +225,11 @@ func (r *runner) ensureServiceAccount(account serviceAccount) (bool, error) {
 	if id, err := lookupUser(account.name); err == nil {
 		uid = id
 	}
-	if id, err := lookupGroup(account.name); err == nil {
+	// The account's primary group, not a group that happens to share its name:
+	// an adopted account's need not be called after it, and the home and the
+	// .ssh below are chowned to whatever this answers. resolveIDs reads the
+	// same way, and this runs before it.
+	if id, _, err := primaryGroup(account.name); err == nil {
 		gid = id
 	}
 	// Created but not re-asserted: each home is a StateDirectory=, and systemd

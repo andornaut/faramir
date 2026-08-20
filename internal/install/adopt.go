@@ -133,8 +133,10 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 		}
 	}
 	// The environment merges the other way round: what the file holds first, then
-	// what a flag names on top, so naming one variable neither drops the rest nor
-	// re-adds one the operator removed.
+	// what a flag names on top, so naming one variable keeps the rest. The
+	// built-in table is the floor either way, applyDefaults laying it under this:
+	// a variable deleted from config.toml by hand comes back on the next run, as
+	// every other rendered value does.
 	env := map[string]string{}
 	maps.Copy(env, cfg.Command.Env)
 	maps.Copy(env, o.CommandEnv)

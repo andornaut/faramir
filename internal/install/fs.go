@@ -484,6 +484,17 @@ func (f fsys) writeInto(root *os.Root, name string, data []byte, mode os.FileMod
 	}
 	tmp := name + ".faramir-tmp"
 	handle, err := root.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	if errors.Is(err, os.ErrExist) {
+		// O_EXCL, so one already there is not something to truncate: it is either
+		// a run in progress or what a killed one left, and neither is this write's
+		// to overwrite. Named through the root's own path and wrapped: the bare
+		// error says a file exists without saying which, and tmp is a base name
+		// whose directory is the one thing an operator cannot guess.
+		return false, fmt.Errorf("%s is already there, so nothing was written: it is "+
+			"the temporary file a write goes through, left by a run that was "+
+			"interrupted, or in use by one happening now. Delete it once no faramir "+
+			"command is running: %w", filepath.Join(root.Name(), tmp), err)
+	}
 	if err != nil {
 		return false, fmt.Errorf("%s: %w", tmp, err)
 	}
