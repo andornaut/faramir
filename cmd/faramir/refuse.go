@@ -50,15 +50,13 @@ func newRefuseAddCmd() *cobra.Command {
 	c := &cobra.Command{
 		Use:   "add [options] PATH",
 		Short: "Refuse a path to the agent's file tools",
-		Long: "Adds one [[secret.refuse]] entry and re-renders your agent's deny rules\n" +
+		Long: "Adds one [[secret.refuse]] entry and re-renders your agent's deny rules,\n" +
 			"so the path is refused to its file tools. For a credential faramir has no\n" +
 			"use for the value of: a LUKS keyfile, an SSH identity.\n\n" +
-			"The file is never opened. Nothing is granted to any account, the mode is\n" +
-			"left as it is, and no value enters the redactor.\n\n" +
-			"Which is the limit of it, and worth knowing: this stops the agent's own\n" +
-			"file tools. A command the broker runs may still read the file if its mode\n" +
-			"allows, and the output comes back in the clear, there being no value in\n" +
-			"the redactor to match. `faramir link` is the entry that covers both, at\n" +
+			"The file is never opened: nothing is granted, the mode is left alone, and\n" +
+			"no value enters the redactor. So this stops the agent's own file tools and\n" +
+			"nothing else. A command the broker runs may still read the file if its\n" +
+			"mode allows, and prints it in the clear. `faramir link` covers both, at\n" +
 			"the price of faramir reading the value.\n\n" +
 			"A path that is not there is still recorded, an unmounted volume being one\n" +
 			"of the cases this exists for. You are told, since a typo looks the same.",
@@ -75,7 +73,7 @@ func runRefuseAdd(f refuseFlags, path string) int {
 	if !requireRoot("refuse add", "it writes the config and your agent's rule files") {
 		return 1
 	}
-	report, err := install.AddRefused(refuseOptions(f), config.RefusedPath{Path: path})
+	report, err := install.AddRefusedPath(refuseOptions(f), config.RefusedPath{Path: path})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir refuse add: %v\n", err)
 		return 1
@@ -94,9 +92,9 @@ func newRefuseRemoveCmd() *cobra.Command {
 		Use:   "rm [options] PATH",
 		Short: "Stop refusing a path",
 		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
-			"What it does not do is take the rule out of your agent's settings. Those\n" +
-			"files are merged rather than replaced, and a merge can only add, so\n" +
-			"nothing here can remove an entry from one. It is printed, with what would.",
+			"It does not take the rule out of your agent's settings: those files are\n" +
+			"merged rather than replaced, and a merge can only add. Remove that line\n" +
+			"yourself, which this says on the way out.",
 		Args: exactlyOneArg("path"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runRefuseRemove(f, args[0])) },
 	}
@@ -108,7 +106,7 @@ func runRefuseRemove(f refuseFlags, path string) int {
 	if !requireRoot("refuse rm", "it writes the config") {
 		return 1
 	}
-	report, removed, err := install.RemoveRefused(refuseOptions(f), path)
+	report, removed, err := install.RemoveRefusedPath(refuseOptions(f), path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir refuse rm: %v\n", err)
 		return 1

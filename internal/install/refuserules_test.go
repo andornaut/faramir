@@ -22,18 +22,18 @@ func refusedAt(paths ...string) []config.RefusedPath {
 // does not reach the rules does nothing whatsoever.
 func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 	layout := testLayout()
-	layout.Refused = refusedAt("/etc/tron/luks.key")
+	layout.Refused = refusedAt("/etc/luks/volume.key")
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
-		"Read(/etc/tron/luks.key)",
-		"Edit(/etc/tron/luks.key)",
+		"Read(/etc/luks/volume.key)",
+		"Edit(/etc/luks/volume.key)",
 	} {
 		if !slices.Contains(rules, want) {
 			t.Errorf("the Claude rules do not carry %q", want)
 		}
 	}
-	if !slices.Contains(pluginPatterns(layout), "/etc/tron/luks.key") {
+	if !slices.Contains(pluginPatterns(layout), "/etc/luks/volume.key") {
 		t.Error("the plugin hosts' patterns do not carry the refused path")
 	}
 }
@@ -42,14 +42,14 @@ func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 // not enough.
 func TestARefusedPathReachesTheRenderedAccountFiles(t *testing.T) {
 	layout := testLayout()
-	layout.Refused = refusedAt("/etc/tron/luks.key")
+	layout.Refused = refusedAt("/etc/luks/volume.key")
 
 	for _, asset := range []string{"agent/claude/settings.json", "agent/permissions.json.tmpl"} {
 		body, err := render(asset, layout)
 		if err != nil {
 			t.Fatalf("%s: %v", asset, err)
 		}
-		if !strings.Contains(string(body), "/etc/tron/luks.key") {
+		if !strings.Contains(string(body), "/etc/luks/volume.key") {
 			t.Errorf("%s does not refuse the path", asset)
 		}
 	}
@@ -92,9 +92,9 @@ func TestAnAbsentRefusedPathIsRenderedAsAFile(t *testing.T) {
 // Duplicates and order are settled so the rule files do not churn, and an empty
 // entry is dropped: in the plugin hosts' spelling it is a prefix of every path.
 func TestRefusedPathsAreCleanedAndOrdered(t *testing.T) {
-	got := refusedPaths(Layout{Refused: refusedAt("/b", "", "/a", "/b")})
+	got := refusedRulePaths(Layout{Refused: refusedAt("/b", "", "/a", "/b")})
 	if !slices.Equal(got, []string{"/a", "/b"}) {
-		t.Errorf("refusedPaths = %v, want the two paths sorted and deduplicated", got)
+		t.Errorf("refusedRulePaths = %v, want the two paths sorted and deduplicated", got)
 	}
 }
 
@@ -113,7 +113,7 @@ func TestNoRefusedPathsChangeNothing(t *testing.T) {
 // half alone would erase them, and erasing them drops the deny rules.
 func TestRefusedPathsRoundTripThroughTheRenderedConfig(t *testing.T) {
 	layout := testLayout()
-	layout.Refused = refusedAt("/etc/tron/luks.key", "/home/operator/.ssh")
+	layout.Refused = refusedAt("/etc/luks/volume.key", "/home/operator/.ssh")
 
 	body, err := render("etc/config.toml.tmpl", layout)
 	if err != nil {
@@ -128,14 +128,14 @@ func TestRefusedPathsRoundTripThroughTheRenderedConfig(t *testing.T) {
 	if _, err := config.Load(path); err != nil {
 		t.Fatalf("the rendered config does not load: %v\n%s", err, body)
 	}
-	back, err := config.BaseRefused(path)
+	back, err := config.BaseRefusedPaths(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(back) != 2 {
 		t.Fatalf("read back %+v, want the two entries", back)
 	}
-	if back[0].Path != "/etc/tron/luks.key" || back[1].Path != "/home/operator/.ssh" {
+	if back[0].Path != "/etc/luks/volume.key" || back[1].Path != "/home/operator/.ssh" {
 		t.Errorf("read back %+v", back)
 	}
 }
@@ -145,12 +145,12 @@ func TestRefusedPathsRoundTripThroughTheRenderedConfig(t *testing.T) {
 func TestDoctorPassesWhenARefusedPathIsRefused(t *testing.T) {
 	home := writeRules(t, ".claude/settings.json", `{
 	  "permissions": {"deny": [
-	    "Read(/etc/tron/luks.key)",
-	    "Edit(/etc/tron/luks.key)"
+	    "Read(/etc/luks/volume.key)",
+	    "Edit(/etc/luks/volume.key)"
 	  ]}
 	}`)
 	var report DoctorReport
-	reportRefusedPaths(&report, home, []string{"/etc/tron/luks.key"})
+	reportRefusedPaths(&report, home, []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "refused paths")
 	if finding.Status != StatusOK {
@@ -166,13 +166,13 @@ func TestDoctorFailsWhenARefusedPathIsNotRefused(t *testing.T) {
 	  "permissions": {"deny": ["Read(**/*.pem)"]}
 	}`)
 	var report DoctorReport
-	reportRefusedPaths(&report, home, []string{"/etc/tron/luks.key"})
+	reportRefusedPaths(&report, home, []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "refused paths")
 	if finding.Status != StatusFailed {
 		t.Errorf("status = %v, want Failed: %s", finding.Status, finding.Detail)
 	}
-	for _, want := range []string{"/etc/tron/luks.key", "faramir init"} {
+	for _, want := range []string{"/etc/luks/volume.key", "faramir init"} {
 		if !strings.Contains(finding.Detail, want) {
 			t.Errorf("the finding does not name %q: %s", want, finding.Detail)
 		}
@@ -183,7 +183,7 @@ func TestDoctorFailsWhenARefusedPathIsNotRefused(t *testing.T) {
 // refuses nothing, and reporting OK would say the opposite.
 func TestDoctorDoesNotClaimARefusedPathIsCoveredWithNoRuleFile(t *testing.T) {
 	var report DoctorReport
-	reportRefusedPaths(&report, t.TempDir(), []string{"/etc/tron/luks.key"})
+	reportRefusedPaths(&report, t.TempDir(), []string{"/etc/luks/volume.key"})
 
 	finding := findingFor(t, report, "refused paths")
 	if finding.Status == StatusOK {
@@ -215,5 +215,35 @@ func TestDoctorSaysSoWhenNothingIsRefused(t *testing.T) {
 	finding := findingFor(t, report, "refused paths")
 	if finding.Status != StatusOK {
 		t.Errorf("status = %v, want OK: %s", finding.Status, finding.Detail)
+	}
+}
+
+// A refused path is only ever a rule, so drift telling the operator to delete
+// one is drift telling them to undo the entry. The drift check renders what
+// faramir would write and calls anything else stale, so that render has to
+// carry the refused paths as well as the linked ones.
+//
+// The path ends in .key, which looksManaged matches, so a finding would name it.
+func TestARefusedPathIsNotReportedAsDriftToRemove(t *testing.T) {
+	dir := t.TempDir()
+	body := "[command]\ntimeout_sec = 600\n\n[[secret.refuse]]\n" +
+		"path = \"/etc/luks/volume.key\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	home := writeRules(t, ".claude/settings.json", `{
+	  "permissions": {"deny": [
+	    "Read(/etc/luks/volume.key)",
+	    "Edit(/etc/luks/volume.key)"
+	  ]}
+	}`)
+
+	var report DoctorReport
+	reportRuleDrift(&report, home, dir)
+
+	finding := findingFor(t, report, "agent rule drift")
+	if strings.Contains(finding.Detail, "/etc/luks/volume.key") {
+		t.Errorf("a refused path was reported as a rule to remove, which would "+
+			"undo the entry: %s", finding.Detail)
 	}
 }

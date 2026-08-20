@@ -108,33 +108,33 @@ Why it is shaped this way (one ref per entry rather than a whole-file flatten, t
 
 ## Refused paths
 
-A `[[secret.refuse]]` entry refuses one path to the agent's file tools, and that is the whole of it. For a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity, anything whose value it should never hold.
+A `[[secret.refuse]]` entry refuses one path to the agent's file tools, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. [When to reach for one](integrations.md#where-the-value-lives).
 
 ```sh
-sudo faramir refuse add /etc/tron/luks.key
+sudo faramir refuse add /etc/luks/volume.key
 ```
 
-**It is the weaker of the two entries, and the names are the wrong way round about it.** A link reads the file, so it can do three things this cannot:
+**It is the weaker of the two entries.** A link reads the file, so it does three things this one cannot:
 
 What happens to the file | `[[secret.link]]` | `[[secret.refuse]]`
 --- | --- | ---
 refused to the agent's file tools | yes | yes
-regrouped to the broker's group, so a brokered command is refused it too | yes | no, the mode is left as it is
+regrouped to the broker's group, so a brokered command is refused it too | yes | no, the mode is left alone
 the value in the redactor, tokenised wherever it appears | yes | no, faramir never reads it
 injectable by ref | yes | no
 
-So a command the broker runs may still open a refused path if its mode allows, and what it prints comes back in the clear: there is nothing in the redactor to match. Reach for `link` where faramir can hold the value, and for this where it should not.
+So a command the broker runs may still open a refused path, and print it in the clear.
 
 Key | Rule
 --- | ---
-`path` | Absolute, and in its shortest form: a deny rule matches the path as written, so `/etc/./k` and `/etc/k` would be two rules of which one matches nothing. No `~`, which nothing expands here. `/` is refused, being every file on the host
+`path` | Absolute, and in its shortest form: a rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. No `~`, which nothing expands here. `/` is refused, being every file on the host
 
-- **A path that is not there is still recorded**, and you are told. A rule costs nothing while its file is absent and is already in place when the volume mounts, which is the case these exist for. A path spelled wrong looks exactly the same, so the message says both.
-- **A directory refuses what is under it.** Which it is, is asked of the filesystem when the rules are rendered, and a path that is not there is rendered as a file: the narrower of the two, rather than a subtree nobody named.
-- **Nothing is reloaded.** No daemon reads these entries, so a `refuse add` does not restart the broker out from under a running command.
-- **Pi is the exception**, as it is for linked paths: its rules are compiled into the extension and it has no account-wide file to render one into.
+- **A path that is not there is still recorded**, and you are told. The rule costs nothing while the file is absent and holds once the volume mounts, which is the case these exist for. A path spelled wrong looks the same, so the message says both.
+- **A directory refuses what is under it.** Which it is, is asked of the filesystem as the rules are rendered, and a path that is not there renders as a file: the narrower of the two.
+- **Nothing is reloaded.** No daemon reads these entries, so `refuse add` does not restart the broker under a running command.
+- **Pi is the exception**, as it is for linked paths: its rules are compiled into the extension, so there is no account-wide file to render one into.
 
-Entries live in `config.toml` and `init` reads them back before rewriting the file, so every rule is re-asserted on each run. That is what heals one an agent's own settings lost.
+`init` reads the entries back before rewriting `config.toml`, so every rule is re-asserted on each run. That is what restores one an agent's settings dropped.
 
 ## The sockets belong to their units
 

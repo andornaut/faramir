@@ -463,10 +463,10 @@ func BaseLinks(path string) ([]Link, error) {
 	return cfg.Secret.Links, nil
 }
 
-// BaseRefused is the refused paths this install declares, for a caller about to
+// BaseRefusedPaths is the refused paths this install declares, for a caller about to
 // rewrite the file. A file that is not there yields nothing, which is a first
 // install.
-func BaseRefused(path string) ([]RefusedPath, error) {
+func BaseRefusedPaths(path string) ([]RefusedPath, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -703,7 +703,7 @@ func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
 	if out.Links, err = loadLinks(sec["link"], where); err != nil {
 		return err
 	}
-	if out.Refused, err = loadRefused(sec["refuse"], where); err != nil {
+	if out.Refused, err = loadRefusedPaths(sec["refuse"], where); err != nil {
 		return err
 	}
 	// At least 1: zero is what an unset flag looks like, so it cannot also mean
@@ -771,14 +771,14 @@ func loadLinks(value any, where string) ([]Link, error) {
 	return out, nil
 }
 
-// loadRefused validates every [[secret.refuse]] entry. Held to the same rules a
+// loadRefusedPaths validates every [[secret.refuse]] entry. Held to the same rules a
 // link's path is, minus everything about reading the file: there is no type, no
 // key and no ref, because nothing is read out of it.
 //
 // A path that is not there is accepted. These are keys on volumes that are not
 // always mounted, and a deny rule costs nothing while the file is absent, so
 // refusing one would mean refusing the case the feature exists for.
-func loadRefused(value any, where string) ([]RefusedPath, error) {
+func loadRefusedPaths(value any, where string) ([]RefusedPath, error) {
 	if value == nil {
 		return nil, nil
 	}

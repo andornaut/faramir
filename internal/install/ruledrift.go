@@ -44,9 +44,15 @@ func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
 // reportRuleDrift is diagnoseAgentRuleDrift against a home already resolved, so
 // a test can put one somewhere other than a real account's.
 func reportRuleDrift(report *DoctorReport, home, configDir string) {
-	// With the linked paths, or each is a rule faramir writes and this render does
-	// not, which staleRules would report as drift to delete.
-	layout := Layout{ConfigDir: configDir, Links: configuredLinks(configDir)}
+	// With every per-install path, or each is a rule faramir writes and this
+	// render does not, which staleRules would report as drift to delete. Both
+	// kinds: a refused path is only ever a rule, so being told to delete it is
+	// being told to undo the entry.
+	layout := Layout{
+		ConfigDir: configDir,
+		Links:     configuredLinks(configDir),
+		Refused:   configuredRefusedPaths(configDir),
+	}
 
 	var stale, unread []string
 	read, ruleCount := 0, 0
@@ -251,6 +257,16 @@ func configuredLinks(configDir string) []config.Link {
 		return nil
 	}
 	return cfg.Secret.Links
+}
+
+// configuredRefusedPaths is every refused path the install names, on the same
+// terms as configuredLinks.
+func configuredRefusedPaths(configDir string) []config.RefusedPath {
+	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
+	if err != nil {
+		return nil
+	}
+	return cfg.Secret.Refused
 }
 
 // named reports whether any rule in a file names this path. Containment rather

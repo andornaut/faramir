@@ -15,7 +15,7 @@ Case | Where | Why
 --- | --- | ---
 You own the credential | The managed store, `sudo faramir vault add NAME` | faramir encrypts it and owns its rotation
 Another tool already owns the file | A `[[secret.link]]` entry, `sudo faramir link add` | The file stays where that tool expects it, so rotating stays that tool's business and nothing here goes stale
-No command needs the value, the agent just must not read it | A `[[secret.refuse]]` entry, `sudo faramir refuse add` | A LUKS keyfile or an SSH identity. faramir refuses the path and never opens it, which also means it cannot redact it: [what that costs](configuration.md#refused-paths)
+No command needs the value; the agent must simply not read it | A `[[secret.refuse]]` entry, `sudo faramir refuse add` | A LUKS keyfile or an SSH identity. The path is refused and never opened, so it is also never redacted: [what that costs](configuration.md#refused-paths)
 Neither, you only want output scrubbed | Nothing | `faramir redact -- ./script.sh`, or use it as a filter
 
 ## Onboarding, in three steps

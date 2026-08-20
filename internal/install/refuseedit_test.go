@@ -20,7 +20,7 @@ func writeRefuseConfig(t *testing.T, entries string) string {
 // ways it declines: the entry is held to what the loader would accept, and the
 // path has to be one the install does not already refuse.
 func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
-	taken := "[[secret.refuse]]\npath = \"/etc/tron/luks.key\"\n"
+	taken := "[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n"
 
 	for _, tc := range []struct {
 		name    string
@@ -33,7 +33,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 		{"no path at all", "", "", "path is required"},
 		{"an uncleaned path", "", "/etc/./luks.key", "shortest form"},
 		{"the whole filesystem", "", "/", "every file on the host"},
-		{"a path already refused", taken, "/etc/tron/luks.key", "already refuses"},
+		{"a path already refused", taken, "/etc/luks/volume.key", "already refuses"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := writeRefuseConfig(t, tc.entries)
@@ -42,7 +42,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, err = AddRefused(Options{ConfigDir: dir}, config.RefusedPath{Path: tc.path})
+			_, err = AddRefusedPath(Options{ConfigDir: dir}, config.RefusedPath{Path: tc.path})
 			if err == nil {
 				t.Fatalf("added %q, want a refusal naming %q", tc.path, tc.wantErr)
 			}
@@ -65,7 +65,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 // which of several entries was rejected.
 func TestAddRefusedNamesThePathItRefused(t *testing.T) {
 	dir := writeRefuseConfig(t, "")
-	_, err := AddRefused(Options{ConfigDir: dir}, config.RefusedPath{Path: "relative/path"})
+	_, err := AddRefusedPath(Options{ConfigDir: dir}, config.RefusedPath{Path: "relative/path"})
 	if err == nil {
 		t.Fatal("a relative path was accepted")
 	}
@@ -77,9 +77,9 @@ func TestAddRefusedNamesThePathItRefused(t *testing.T) {
 // Removing something the install does not refuse says so, and says where to
 // look. Silence would read as a path that had been refused and now is not.
 func TestRemoveRefusedOnAPathTheInstallDoesNotRefuse(t *testing.T) {
-	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/tron/luks.key\"\n")
+	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n")
 
-	_, _, err := RemoveRefused(Options{ConfigDir: dir}, "/etc/other.key")
+	_, _, err := RemoveRefusedPath(Options{ConfigDir: dir}, "/etc/other.key")
 	if err == nil {
 		t.Fatal("removed a path the config does not name")
 	}
@@ -93,14 +93,14 @@ func TestRemoveRefusedOnAPathTheInstallDoesNotRefuse(t *testing.T) {
 // What `refuse ls` reads. An install that refuses nothing is not an error: it
 // is every install until the first entry.
 func TestRefusedPathsReadsWhatTheConfigDeclares(t *testing.T) {
-	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/tron/luks.key\"\n\n"+
+	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n\n"+
 		"[[secret.refuse]]\npath = \"/home/op/.ssh\"\n")
 
 	got, err := RefusedPaths(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Path != "/etc/tron/luks.key" || got[1].Path != "/home/op/.ssh" {
+	if len(got) != 2 || got[0].Path != "/etc/luks/volume.key" || got[1].Path != "/home/op/.ssh" {
 		t.Fatalf("RefusedPaths = %+v", got)
 	}
 
@@ -116,13 +116,13 @@ func TestRefusedPathsReadsWhatTheConfigDeclares(t *testing.T) {
 // Adoption is what stops a plain `init` from erasing the entries: no flag names
 // one, so a run that did not read them back would drop every rule they render.
 func TestARerunKeepsTheRefusedPaths(t *testing.T) {
-	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/tron/luks.key\"\n")
+	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n")
 	opts := Options{ConfigDir: dir}
 
 	if _, err := opts.adoptInstalled(); err != nil {
 		t.Fatal(err)
 	}
-	if len(opts.refused) != 1 || opts.refused[0].Path != "/etc/tron/luks.key" {
+	if len(opts.refused) != 1 || opts.refused[0].Path != "/etc/luks/volume.key" {
 		t.Fatalf("adopted %+v, want the entry the config declares", opts.refused)
 	}
 }
@@ -131,7 +131,7 @@ func TestARerunKeepsTheRefusedPaths(t *testing.T) {
 // removing the last entry would read as "nothing was named" and adoption would
 // put it back.
 func TestRemovingTheLastRefusedPathIsNotMistakenForSilence(t *testing.T) {
-	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/tron/luks.key\"\n")
+	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n")
 	opts := Options{ConfigDir: dir, refused: nil, refusedSet: true}
 
 	if _, err := opts.adoptInstalled(); err != nil {
@@ -149,13 +149,13 @@ func TestRemovingTheLastRefusedPathIsNotMistakenForSilence(t *testing.T) {
 func TestChangingOneKindOfEntryKeepsTheOther(t *testing.T) {
 	both := "[[secret.link]]\nref = \"gh/token\"\npath = \"/home/op/.config/gh/hosts.yml\"\n" +
 		"type = \"yaml\"\nkey = \"token\"\n\n" +
-		"[[secret.refuse]]\npath = \"/etc/tron/luks.key\"\n"
+		"[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n"
 
 	t.Run("refuse add keeps the links", func(t *testing.T) {
 		dir := writeRefuseConfig(t, both)
 		opts := Options{
 			ConfigDir: dir,
-			refused: append(refusedAt("/etc/tron/luks.key"),
+			refused: append(refusedAt("/etc/luks/volume.key"),
 				config.RefusedPath{Path: "/etc/other.key"}),
 			refusedSet: true,
 		}
@@ -183,7 +183,7 @@ func TestChangingOneKindOfEntryKeepsTheOther(t *testing.T) {
 		if _, err := opts.adoptInstalled(); err != nil {
 			t.Fatal(err)
 		}
-		if len(opts.refused) != 1 || opts.refused[0].Path != "/etc/tron/luks.key" {
+		if len(opts.refused) != 1 || opts.refused[0].Path != "/etc/luks/volume.key" {
 			t.Errorf("refused = %+v, want the entry the config declares", opts.refused)
 		}
 		if len(opts.links) != 2 {

@@ -22,9 +22,13 @@ import (
 // trade: reading the value to redact it would mean holding it, and these are
 // the files whose value faramir should not hold.
 
-// RefuseSteps is what an entry changes: the config it is written into, and the
-// agent rule files rendered from it. No grant, so no step for one.
-func (r *runner) RefuseSteps() []namedStep {
+// RefusedPathSteps is what an entry changes: the config it is written into,
+// and the agent rule files rendered from it. No grant, so no step for one.
+//
+// Named for the entry rather than for the verb. In this package refuseX aborts
+// a run because of X (refuseSymlinks, refuseUnwritable), so a name built the
+// same way would read as the opposite of what this is.
+func (r *runner) RefusedPathSteps() []namedStep {
 	return []namedStep{
 		{"resolveIDs", r.resolveIDs},
 		{"preconditions", r.stepPreconditions},
@@ -33,7 +37,7 @@ func (r *runner) RefuseSteps() []namedStep {
 	}
 }
 
-// AddRefused adds one entry and re-renders the rule files that name it.
+// AddRefusedPath adds one entry and re-renders the rule files that name it.
 //
 // Nothing is read and nothing is granted, so there is no order to get right and
 // nothing to put back on a failure: unlike AddLink, this either writes the
@@ -43,13 +47,13 @@ func (r *runner) RefuseSteps() []namedStep {
 // always mounted, and a rule costs nothing while its file is absent, so
 // refusing one would refuse the case the entry exists for. The caller is told,
 // because the other thing an absent path means is a typo.
-func AddRefused(opts Options, refused config.RefusedPath) (Report, error) {
+func AddRefusedPath(opts Options, refused config.RefusedPath) (Report, error) {
 	if err := config.ValidateRefusedPath(refused); err != nil {
 		return Report{}, err
 	}
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
-	existing, err := config.BaseRefused(configFile)
+	existing, err := config.BaseRefusedPaths(configFile)
 	if err != nil {
 		return Report{}, fmt.Errorf("%s: %w", configFile, err)
 	}
@@ -74,7 +78,7 @@ func AddRefused(opts Options, refused config.RefusedPath) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	report, err := run.apply(run.RefuseSteps())
+	report, err := run.apply(run.RefusedPathSteps())
 	if err != nil {
 		return report, err
 	}
@@ -95,13 +99,14 @@ func AddRefused(opts Options, refused config.RefusedPath) (Report, error) {
 	return report, nil
 }
 
-// RemoveRefused drops one entry and re-renders. It does not take the rule out
-// of an agent's file: those are merged rather than replaced, so nothing here
-// can remove an entry from one, and a rule carries no sign of who wrote it.
-func RemoveRefused(opts Options, path string) (Report, config.RefusedPath, error) {
+// RemoveRefusedPath drops one entry and re-renders. It does not take the rule
+// out of an agent's file: those are merged rather than replaced, so nothing
+// here can remove an entry from one, and a rule carries no sign of who wrote
+// it.
+func RemoveRefusedPath(opts Options, path string) (Report, config.RefusedPath, error) {
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
-	existing, err := config.BaseRefused(configFile)
+	existing, err := config.BaseRefusedPaths(configFile)
 	if err != nil {
 		return Report{}, config.RefusedPath{}, fmt.Errorf("%s: %w", configFile, err)
 	}
@@ -127,11 +132,11 @@ func RemoveRefused(opts Options, path string) (Report, config.RefusedPath, error
 	if err != nil {
 		return Report{}, config.RefusedPath{}, err
 	}
-	report, err := run.apply(run.RefuseSteps())
+	report, err := run.apply(run.RefusedPathSteps())
 	return report, removed, err
 }
 
 // RefusedPaths is what the install declares, for `faramir refuse ls`.
 func RefusedPaths(configDir string) ([]config.RefusedPath, error) {
-	return config.BaseRefused(filepath.Join(configDirOr(configDir), "config.toml"))
+	return config.BaseRefusedPaths(filepath.Join(configDirOr(configDir), "config.toml"))
 }

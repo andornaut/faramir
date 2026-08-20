@@ -10,7 +10,7 @@ func TestRefusedPathsLoad(t *testing.T) {
 [secret]
 
 [[secret.refuse]]
-path = "/etc/tron/luks.key"
+path = "/etc/luks/volume.key"
 
 [[secret.refuse]]
 path = "/home/operator/.ssh"
@@ -21,7 +21,7 @@ path = "/home/operator/.ssh"
 	if len(cfg.Secret.Refused) != 2 {
 		t.Fatalf("refused = %v, want two", cfg.Secret.Refused)
 	}
-	if cfg.Secret.Refused[0].Path != "/etc/tron/luks.key" {
+	if cfg.Secret.Refused[0].Path != "/etc/luks/volume.key" {
 		t.Errorf("first = %+v", cfg.Secret.Refused[0])
 	}
 	if cfg.Secret.Refused[1].Path != "/home/operator/.ssh" {
@@ -91,29 +91,29 @@ func TestTheCleanedPathARefusalSuggestsIsAccepted(t *testing.T) {
 	}
 }
 
-// BaseRefused is what a command about to rewrite config.toml reads first, so a
+// BaseRefusedPaths is what a command about to rewrite config.toml reads first, so a
 // re-run keeps the entries rather than erasing them.
 func TestBaseRefusedReadsTheEntriesBack(t *testing.T) {
 	path := writeBase(t, minimal+`
 [[secret.refuse]]
-path = "/etc/tron/luks.key"
+path = "/etc/luks/volume.key"
 `)
-	refused, err := BaseRefused(path)
+	refused, err := BaseRefusedPaths(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(refused) != 1 || refused[0].Path != "/etc/tron/luks.key" {
-		t.Fatalf("BaseRefused = %+v", refused)
+	if len(refused) != 1 || refused[0].Path != "/etc/luks/volume.key" {
+		t.Fatalf("BaseRefusedPaths = %+v", refused)
 	}
 }
 
 // A first install has no file, which is not an error: there is nothing to keep.
 func TestBaseRefusedOnAFileThatIsNotThere(t *testing.T) {
-	refused, err := BaseRefused(t.TempDir() + "/config.toml")
+	refused, err := BaseRefusedPaths(t.TempDir() + "/config.toml")
 	if err != nil {
 		t.Fatalf("a first install reported an error: %v", err)
 	}
 	if len(refused) != 0 {
-		t.Fatalf("BaseRefused = %+v, want nothing", refused)
+		t.Fatalf("BaseRefusedPaths = %+v, want nothing", refused)
 	}
 }

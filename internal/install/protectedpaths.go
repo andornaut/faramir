@@ -119,18 +119,16 @@ func linkedPaths(layout Layout) []string {
 	return out
 }
 
-// refusedPaths is the files and directories [[secret.refuse]] entries name, as
-// literal paths, sorted and deduplicated the way linkedPaths are.
+// refusedRulePaths is the files and directories [[secret.refuse]] entries name,
+// as literal paths, sorted and deduplicated the way linkedPaths are. Named for
+// the rules it renders, RefusedPaths being what lists the entries themselves.
 //
 // A directory is rendered as a directory, so naming ~/.ssh refuses what is
 // under it rather than only the name itself. Which it is, is asked of the
 // filesystem: a path that is not there is rendered as a file, that being the
 // narrower of the two, and a rule that turns out to cover one path too few is
 // better than one covering a subtree nobody meant to name.
-//
-// Named for the entry rather than for the verb: refuseUnwritableAgentFiles and
-// its neighbours refuse to install, which is a different thing entirely.
-func refusedPaths(layout Layout) []string {
+func refusedRulePaths(layout Layout) []string {
 	seen := make(map[string]bool, len(layout.Refused))
 	out := make([]string, 0, len(layout.Refused))
 	for _, refused := range layout.Refused {
@@ -215,7 +213,7 @@ func claudeRules(layout Layout) []string {
 	for _, path := range linkedPaths(layout) {
 		add(path)
 	}
-	for _, path := range refusedPaths(layout) {
+	for _, path := range refusedRulePaths(layout) {
 		add(path)
 		if isDir(path) {
 			add(path + "/**")
@@ -232,7 +230,7 @@ func pluginPatterns(layout Layout) []string {
 		out = append(out, dir+"/*")
 	}
 	out = append(out, linkedPaths(layout)...)
-	for _, path := range refusedPaths(layout) {
+	for _, path := range refusedRulePaths(layout) {
 		out = append(out, path)
 		if isDir(path) {
 			out = append(out, path+"/*")

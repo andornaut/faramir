@@ -19,7 +19,7 @@ set -u
 
 CFG=/etc/faramir/config.toml
 # The file, at a path faramir did not choose, with a mode its owner decides.
-KEYDIR=/home/op/.tron
+KEYDIR=/home/op/.luks
 KEY=$KEYDIR/luks.key
 KEY_VALUE=luks_refused_e2e_value_0001
 # A path that is not there: a key on a volume nobody has mounted.
