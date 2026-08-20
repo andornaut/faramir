@@ -59,8 +59,13 @@ func readEnrolled(configDir string) []EnrolledTree {
 // this run enrolled plus the ones an earlier run did that the tree still
 // carries. 0600: `init-project` writes it and `doctor` reads it, both as
 // root.
+//
+// An entry naming no agent is still recorded. The enrolment shared the tree and
+// wrote its instructions file whether or not an agent was found, and doctor
+// checks that file off this record: dropping the entry would leave a tree
+// faramir has written to and reports nothing about.
 func recordEnrolment(configDir string, tree EnrolledTree) error {
-	if len(tree.Agents) == 0 || tree.Dir == "" {
+	if tree.Dir == "" {
 		return nil
 	}
 	trees := readEnrolled(configDir)
@@ -95,7 +100,12 @@ func recordEnrolment(configDir string, tree EnrolledTree) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(enrolledPath(configDir), append(body, '\n'), 0o600)
+	// Written beside the file and renamed over it, as every other write here is:
+	// doctor reads this, and a run interrupted partway through a truncating write
+	// leaves a record that does not parse, which readEnrolled takes for no
+	// enrolment at all.
+	_, err = fsys{}.writeFile(enrolledPath(configDir), append(body, '\n'), 0o600, keep, keep)
+	return err
 }
 
 // enrolledAgents is every agent named by an enrolment whose tree is still

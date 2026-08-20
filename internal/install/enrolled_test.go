@@ -26,6 +26,34 @@ func enrolledTree(t *testing.T, dir string, agents ...string) string {
 	return tree
 }
 
+// A tree carrying no agent is still an enrolment. The share happened and the
+// instructions file was written, and doctor checks that file off this record:
+// an entry dropped here is a tree faramir has written to and reports nothing
+// about.
+func TestRecordingAnEnrolmentKeepsATreeWithNoAgent(t *testing.T) {
+	dir := t.TempDir()
+	tree := enrolledTree(t, dir)
+
+	if err := recordEnrolment(dir, EnrolledTree{Dir: tree, AgentUser: "op"}); err != nil {
+		t.Fatal(err)
+	}
+	got := readEnrolled(dir)
+	if len(got) != 1 {
+		t.Fatalf("recorded %d entries, want 1: %+v", len(got), got)
+	}
+	if got[0].Dir != tree {
+		t.Errorf("recorded %q, want %q", got[0].Dir, tree)
+	}
+	// The positive control: a record naming no directory is still nothing to
+	// write, so this does not pass by having dropped the guard entirely.
+	if err := recordEnrolment(dir, EnrolledTree{AgentUser: "op"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := readEnrolled(dir); len(got) != 1 {
+		t.Errorf("a record naming no tree was written: %+v", got)
+	}
+}
+
 // An enrolment is the one thing that knows a tree was enrolled and for what.
 // One entry per directory, and enrolling one agent by name does not drop the
 // others: their hook and MCP registration are still in the tree, and an entry
