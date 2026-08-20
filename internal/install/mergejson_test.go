@@ -91,6 +91,78 @@ func TestMergeJSONReplacesStaleFaramirHook(t *testing.T) {
 	}
 }
 
+// A hook of the operator's own, in a tree whose path holds the word. What
+// makes an entry faramir's is the program it invokes, not that its text
+// mentions the project: a checkout under a directory named faramir names that
+// path in every hook it registers, and dropping those would delete the
+// operator's own configuration on every enrolment.
+func TestMergeJSONKeepsAHookUnderAFaramirPath(t *testing.T) {
+	existing := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Write","hooks":` +
+		`[{"type":"command","command":"/home/op/src/github.com/andornaut/faramir/scripts/lint.sh"}]}]}}`)
+	ours := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":` +
+		`[{"type":"command","command":"/usr/local/bin/faramir guard"}]}]}}`)
+
+	merged, err := mergeJSON(existing, ours)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(merged), "lint.sh") {
+		t.Errorf("the operator's own hook was dropped: %s", merged)
+	}
+	// The positive control: faramir's own is still the one entry it adds, so this
+	// does not pass by having stopped recognising anything.
+	hooks := array(t, object(t, decode(t, merged), "hooks"), "PreToolUse")
+	if len(hooks) != 2 {
+		t.Errorf("PreToolUse has %d entries, want 2: %s", len(hooks), merged)
+	}
+}
+
+// The operator's own hook, added to the matcher group faramir wrote rather than
+// to one of its own. Groups are keyed by matcher, so that is the ordinary edit:
+// dropping the group over faramir's entry inside it would take theirs with it.
+func TestMergeJSONKeepsAHookSharingFaramirsGroup(t *testing.T) {
+	existing := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[` +
+		`{"type":"command","command":"/usr/local/bin/faramir guard"},` +
+		`{"type":"command","command":"/usr/local/bin/audit-log"}]}]}}`)
+	ours := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[` +
+		`{"type":"command","command":"/usr/local/bin/faramir guard"}]}]}}`)
+
+	merged, err := mergeJSON(existing, ours)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(merged), "audit-log") {
+		t.Errorf("the operator's hook was dropped with faramir's group: %s", merged)
+	}
+	// The positive control: faramir's own entry is there once, not twice. The
+	// stale one is pruned out of the operator's group and re-added as its own.
+	if got := strings.Count(string(merged), "faramir guard"); got != 1 {
+		t.Errorf("faramir's hook appears %d times, want 1: %s", got, merged)
+	}
+}
+
+// An argv is ordered and positional, so faramir's replaces what is there. A
+// union leaves the old program standing as the new one's first argument, and
+// the server it registers never starts.
+func TestMergeJSONReplacesArgvRatherThanUnioningIt(t *testing.T) {
+	existing := []byte(`{"mcp":{"faramir":{"type":"local",` +
+		`"command":["/usr/local/libexec/faramir/faramir-mcp"],"enabled":true}}}`)
+	ours := []byte(`{"mcp":{"faramir":{"type":"local",` +
+		`"command":["/usr/local/bin/faramir","mcp"],"enabled":true}}}`)
+
+	merged, err := mergeJSON(existing, ours)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(merged), "faramir-mcp") {
+		t.Errorf("the old argv survived beside the new one: %s", merged)
+	}
+	command := array(t, object(t, object(t, decode(t, merged), "mcp"), "faramir"), "command")
+	if len(command) != 2 || command[0] != "/usr/local/bin/faramir" {
+		t.Errorf("command = %#v, want the argv this run writes: %s", command, merged)
+	}
+}
+
 // The operator's own hook is not faramir's to remove. Both run.
 func TestMergeJSONKeepsForeignHook(t *testing.T) {
 	existing := []byte(`{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":` +

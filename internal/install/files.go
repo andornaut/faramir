@@ -16,10 +16,15 @@ import (
 	"github.com/andornaut/faramir/internal/sharetree"
 )
 
+// binaryName is what the installed program is called, wherever it is installed.
+// Spelled once: a merge recognises faramir's own entries in an agent's config by
+// the program they invoke.
+const binaryName = "faramir"
+
 // installedBinaries goes to BinDir. There is one; the daemons, the MCP server
 // and the hook are subcommands of it. LibexecDir holds the hook's deny list
 // and wrap script.
-var installedBinaries = []string{"faramir"}
+var installedBinaries = []string{binaryName}
 
 // legacyBinaries is what an earlier layout installed, one binary per role.
 // Only uninstall names them: init installs and never migrates, but a teardown
