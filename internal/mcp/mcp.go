@@ -36,6 +36,11 @@ const (
 	serverName      = "faramir"
 	protocolVersion = "2025-06-18"
 	defaultSocket   = "/run/faramir/broker.sock"
+	// The schema's own type names and the only JSON-RPC version there is. These
+	// are the wire format's vocabulary, not this package's.
+	typeObject     = "object"
+	typeString     = "string"
+	jsonrpcVersion = "2.0"
 )
 
 func socketPath() string {
@@ -80,21 +85,21 @@ var tools = []Tool{
 			"spawned for you. A bare command name is looked up on the broker's " +
 			"configured PATH; pass an absolute path for anything else.",
 		InputSchema: map[string]any{
-			"type": "object",
+			"type": typeObject,
 			"properties": map[string]any{
 				"cmd": map[string]any{
 					"type":        "array",
-					"items":       map[string]any{"type": "string"},
+					"items":       map[string]any{"type": typeString},
 					"minItems":    1,
 					"description": "argv array. Not a shell string; no shell is spawned for you.",
 				},
 				"env_refs": map[string]any{
-					"type":                 "object",
-					"additionalProperties": map[string]any{"type": "string"},
+					"type":                 typeObject,
+					"additionalProperties": map[string]any{"type": typeString},
 					"description":          "Map of ENV_VAR name -> faramir:// URI to inject.",
 				},
 				"cwd": map[string]any{
-					"type": "string",
+					"type": typeString,
 					"description": "Absolute working directory. Defaults to the working tree; " +
 						"your edits are picked up as soon as they are saved.",
 				},
@@ -111,7 +116,7 @@ var tools = []Tool{
 		Name: "faramir_refs",
 		Description: "List the faramir:// references the broker can inject. Returns names only, " +
 			"never values. Use this to find the right ref for faramir_run's env_refs.",
-		InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		InputSchema: map[string]any{"type": typeObject, "properties": map[string]any{}},
 	},
 }
 
@@ -301,7 +306,7 @@ func handle(m *message) map[string]any {
 			return nil
 		}
 		return map[string]any{
-			"jsonrpc": "2.0", "id": m.ID,
+			"jsonrpc": jsonrpcVersion, "id": m.ID,
 			"error": map[string]any{
 				"code": -32601, "message": "method not found: " + m.Method,
 			},
@@ -311,7 +316,7 @@ func handle(m *message) map[string]any {
 	if len(m.ID) == 0 || string(m.ID) == "null" {
 		return nil
 	}
-	return map[string]any{"jsonrpc": "2.0", "id": m.ID, "result": result}
+	return map[string]any{"jsonrpc": jsonrpcVersion, "id": m.ID, "result": result}
 }
 
 // Run is the `faramir mcp` subcommand.
@@ -346,7 +351,7 @@ func serve(stdin io.Reader, stdout io.Writer) int {
 		var m message
 		if err := json.Unmarshal([]byte(line), &m); err != nil {
 			emit(out, map[string]any{
-				"jsonrpc": "2.0", "id": nil,
+				"jsonrpc": jsonrpcVersion, "id": nil,
 				"error": map[string]any{"code": -32700, "message": "parse error"},
 			})
 			continue

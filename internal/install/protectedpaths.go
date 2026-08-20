@@ -44,13 +44,20 @@ type protectedPath struct {
 
 // protectedPaths is the list itself, ordered by what it protects rather than
 // alphabetically.
+// What a protected path is, for the paths that share a description. Several
+// patterns describe one kind of file, and the wording is what a refusal says.
+const (
+	descSopsFile = "a managed sops file"
+	descSSHKey   = "an SSH private key"
+)
+
 var protectedPaths = []protectedPath{
 	// The managed store, by the names sops files are given.
-	{kindGlobName, "secrets*.yml", "a managed sops file"},
-	{kindGlobName, "secrets*.yaml", "a managed sops file"},
-	{kindSuffix, ".sops.yml", "a managed sops file"},
-	{kindSuffix, ".sops.yaml", "a managed sops file"},
-	{kindSuffix, ".sops.json", "a managed sops file"},
+	{kindGlobName, "secrets*.yml", descSopsFile},
+	{kindGlobName, "secrets*.yaml", descSopsFile},
+	{kindSuffix, ".sops.yml", descSopsFile},
+	{kindSuffix, ".sops.yaml", descSopsFile},
+	{kindSuffix, ".sops.json", descSopsFile},
 	{kindSuffix, ".vault", "an ansible-vault file"},
 	{kindName, "vault.yml", "an ansible-vault file"},
 
@@ -62,10 +69,10 @@ var protectedPaths = []protectedPath{
 
 	// The operator's own credentials, which no uid boundary reaches: the agent
 	// runs as the operator.
-	{kindName, "id_rsa", "an SSH private key"},
-	{kindName, "id_dsa", "an SSH private key"},
-	{kindName, "id_ecdsa", "an SSH private key"},
-	{kindName, "id_ed25519", "an SSH private key"},
+	{kindName, "id_rsa", descSSHKey},
+	{kindName, "id_dsa", descSSHKey},
+	{kindName, "id_ecdsa", descSSHKey},
+	{kindName, "id_ed25519", descSSHKey},
 	{kindSuffix, ".key", "a private key"},
 	{kindSuffix, ".pem", "a private key or certificate"},
 	{kindName, "credentials", "a credentials file"},

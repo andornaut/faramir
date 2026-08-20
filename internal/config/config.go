@@ -24,6 +24,9 @@ import (
 const (
 	DefaultConfigPath = "/etc/faramir/config.toml"
 	defaultPATH       = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	// The one key three sections share, named once so the list of keys a section
+	// accepts and the lookup that reads it cannot drift apart.
+	keySocketPath = "socket_path"
 )
 
 // The limits no config key reaches. Variables rather than constants so a test
@@ -505,10 +508,10 @@ var (
 	// is deciding.
 	sections = []string{"server", "keeper", "executor", "command", "ssh",
 		"escalation", "secret", "audit"}
-	serverKeys = []string{"socket_path", "allowed_group"}
-	keeperKeys = []string{"socket_path", "allowed_user",
+	serverKeys = []string{keySocketPath, "allowed_group"}
+	keeperKeys = []string{keySocketPath, "allowed_user",
 		"age_key_credential", "age_key_file"}
-	executorKeys = []string{"socket_path", "allowed_user"}
+	executorKeys = []string{keySocketPath, "allowed_user"}
 	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency"}
 	sshKeys      = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
@@ -569,7 +572,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 		SocketPath:   "/run/faramir/broker.sock",
 		AllowedGroup: "dev",
 	}
-	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
+	if out.SocketPath, err = str(sec[keySocketPath], where, out.SocketPath); err != nil {
 		return err
 	}
 	if out.AllowedGroup, err = str(sec["allowed_group"], where, out.AllowedGroup); err != nil {
@@ -591,7 +594,7 @@ func loadKeeper(raw map[string]any, path string, out *KeeperConfig) error {
 		SocketPath:  "/run/faramir/keeper.sock",
 		AllowedUser: "faramir-broker", AgeKeyCredential: "age_key",
 	}
-	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
+	if out.SocketPath, err = str(sec[keySocketPath], where, out.SocketPath); err != nil {
 		return err
 	}
 	if out.AllowedUser, err = str(sec["allowed_user"], where, out.AllowedUser); err != nil {
@@ -619,7 +622,7 @@ func loadExecutor(raw map[string]any, path string, out *ExecutorConfig) error {
 		SocketPath:  "/run/faramir/exec.sock",
 		AllowedUser: "faramir-broker",
 	}
-	if out.SocketPath, err = str(sec["socket_path"], where, out.SocketPath); err != nil {
+	if out.SocketPath, err = str(sec[keySocketPath], where, out.SocketPath); err != nil {
 		return err
 	}
 	if out.AllowedUser, err = str(sec["allowed_user"], where, out.AllowedUser); err != nil {

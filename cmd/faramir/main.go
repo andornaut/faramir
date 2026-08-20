@@ -29,6 +29,14 @@ import (
 
 const defaultSocket = "/run/faramir/broker.sock"
 
+// The Use line every ls subcommand shares, and the environment a child editor is
+// started with. Each is spelled in several commands, so each is spelled once.
+const (
+	useLs   = "ls [options]"
+	envPATH = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+	envLANG = "LANG=C.UTF-8"
+)
+
 // socketDefault is where every subcommand looks for the broker, and
 // FARAMIR_SOCKET is the only way to move it: no subcommand takes a socket
 // flag, an install writing `[server] socket_path` from a fixed run directory

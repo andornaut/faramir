@@ -135,11 +135,11 @@ func (r *runner) stepLinkAccess() error {
 // rule.
 func (r *runner) LinkSteps() []namedStep {
 	return []namedStep{
-		{"resolveIDs", r.resolveIDs},
-		{"preconditions", r.stepPreconditions},
-		{"config", r.stepConfig},
+		{labelResolveIDs, r.resolveIDs},
+		{labelPreconditions, r.stepPreconditions},
+		{labelConfig, r.stepConfig},
 		{"linked files", r.stepLinkAccess},
-		{"agent config", r.stepAgentConfig},
+		{labelAgentConfig, r.stepAgentConfig},
 	}
 }
 

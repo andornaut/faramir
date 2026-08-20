@@ -20,7 +20,7 @@ func (r *runner) stepAgentConfig() error {
 	if len(targets) == 0 {
 		// Not an error and not a silent pass: nothing was written, and the reason
 		// is a home with no agent in it.
-		r.step("agent config", false, fmt.Sprintf(
+		r.step(labelAgentConfig, false, fmt.Sprintf(
 			"no coding agent found in %s, so no deny rules were written. "+
 				"`faramir init --agent NAME` writes them anyway (%s)",
 			r.operatorHome, strings.Join(knownAgents(), ", ")))
@@ -50,7 +50,7 @@ func (r *runner) stepAgentConfig() error {
 		}
 		changed = changed || made
 	}
-	r.step("agent config", changed, strings.Join(written, ", "))
+	r.step(labelAgentConfig, changed, strings.Join(written, ", "))
 	// The sections first, so one refused rule file does not cost every agent its
 	// instructions, and then both halves together: an operator who fixes the rule
 	// files should not then meet section failures they were never shown.

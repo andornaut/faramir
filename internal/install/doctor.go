@@ -176,17 +176,17 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	configFile := filepath.Join(opts.ConfigDir, "config.toml")
 
 	if !exists(configFile) {
-		report.addf("config", StatusFailed, "%s is missing; the daemons read it at "+
+		report.addf(labelConfig, StatusFailed, "%s is missing; the daemons read it at "+
 			"startup and exit without one", configFile)
 		return report
 	}
-	report.addf("config", StatusOK, "%s", configFile)
+	report.addf(labelConfig, StatusOK, "%s", configFile)
 
 	// The daemons' own paths rather than the defaults, or a host whose store and
 	// sockets moved is examined at addresses nothing uses.
 	cfg, err := config.Load(configFile)
 	if err != nil {
-		report.addf("config", StatusFailed, "%s does not load: %v", configFile, err)
+		report.addf(labelConfig, StatusFailed, "%s does not load: %v", configFile, err)
 		return report
 	}
 	// A test that set the patterns keeps them, having no config to take them
@@ -1164,9 +1164,9 @@ func resolveIdentities(report *DoctorReport, opts DoctorOptions, cfg *config.Con
 		into *string
 		flag string
 	}{
-		{"faramir-broker.service", &opts.BrokerUser, "--broker-user"},
-		{"faramir-keeper.service", &opts.KeeperUser, "--keeper-user"},
-		{"faramir-exec.service", &opts.ExecUser, "--exec-user"},
+		{brokerUnit, &opts.BrokerUser, "--broker-user"},
+		{keeperUnit, &opts.KeeperUser, "--keeper-user"},
+		{execUnit, &opts.ExecUser, "--exec-user"},
 	} {
 		if *role.into != "" {
 			continue

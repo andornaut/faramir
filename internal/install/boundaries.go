@@ -828,7 +828,7 @@ func execUnitDelegates() (delegates, known bool) {
 		return false, false
 	}
 	run := &runner{}
-	out, err := run.command("systemctl", "show", "faramir-exec.service", "-p", "Delegate", "--value")
+	out, err := run.command("systemctl", "show", execUnit, "-p", "Delegate", "--value")
 	if err != nil {
 		return false, false
 	}
@@ -891,7 +891,7 @@ func permissiveAuth(body string) bool {
 // diagnoseProtectProc: a brokered command's value is in the executor's
 // environment while it runs, and /proc is where another account would read it.
 func diagnoseProtectProc(report *DoctorReport, opts DoctorOptions) {
-	pid := mainPID("faramir-broker.service")
+	pid := mainPID(brokerUnit)
 	if pid == "" {
 		// Warn, not fail: the unit is socket-activated, so idle is its resting
 		// state, and a broker that cannot be reached at all is already reported by

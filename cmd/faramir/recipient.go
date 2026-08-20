@@ -88,7 +88,7 @@ func newRecipientRemoveCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
 		Use:     "rm [options] RECIPIENT",
-		Aliases: []string{"remove"},
+		Aliases: []string{opRemove},
 		Short:   "Stop one key from decrypting the managed store",
 		Long: "Removes an age recipient from .sops.yaml and re-encrypts every managed\n" +
 			"file without it.\n\n" +
@@ -106,7 +106,7 @@ func newRecipientRemoveCmd() *cobra.Command {
 func newRecipientListCmd() *cobra.Command {
 	var f recipientFlags
 	c := &cobra.Command{
-		Use:     "ls [options]",
+		Use:     useLs,
 		Aliases: []string{"list"},
 		Short:   "Who can decrypt the managed store",
 		Args:    noArgs,

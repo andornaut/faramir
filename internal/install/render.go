@@ -165,12 +165,12 @@ func mcpToolsJS(indent string) (string, error) {
 // units maps each installed file name to its embedded template. One map,
 // sockets and services being written, reloaded and removed together.
 var units = map[string]string{
-	"faramir-broker.service": "systemd/faramir-broker.service.tmpl",
-	"faramir-broker.socket":  "systemd/faramir-broker.socket.tmpl",
-	"faramir-keeper.service": "systemd/faramir-keeper.service.tmpl",
-	"faramir-keeper.socket":  "systemd/faramir-keeper.socket.tmpl",
-	"faramir-exec.service":   "systemd/faramir-exec.service.tmpl",
-	"faramir-exec.socket":    "systemd/faramir-exec.socket.tmpl",
+	brokerUnit:              "systemd/faramir-broker.service.tmpl",
+	"faramir-broker.socket": "systemd/faramir-broker.socket.tmpl",
+	keeperUnit:              "systemd/faramir-keeper.service.tmpl",
+	"faramir-keeper.socket": "systemd/faramir-keeper.socket.tmpl",
+	execUnit:                "systemd/faramir-exec.service.tmpl",
+	"faramir-exec.socket":   "systemd/faramir-exec.socket.tmpl",
 }
 
 // unitNames is units' keys in a fixed order.

@@ -26,9 +26,9 @@ const unitActive = "active"
 // services in restart order. The keeper leads: it decrypts the file list the
 // broker is served, so the other order fetches the old value set again.
 var services = []string{
-	"faramir-keeper.service",
-	"faramir-exec.service",
-	"faramir-broker.service",
+	keeperUnit,
+	execUnit,
+	brokerUnit,
 }
 
 // systemdRunning reports whether there is a systemd to talk to. A container or
@@ -214,7 +214,7 @@ func (r *runner) stepSystemd() error {
 // for a ref shorter than [secret] min_length, which is a value to lengthen
 // rather than a reason to refuse a restart.
 func parseInstalledConfig(run *runner) error {
-	unit := UnitPath("faramir-broker.service")
+	unit := UnitPath(brokerUnit)
 	configFile := UnitConfigFile(unit)
 	if configFile == "" {
 		configFile = filepath.Join(DefaultConfigDir, "config.toml")

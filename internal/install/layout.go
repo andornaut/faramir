@@ -28,6 +28,12 @@ const (
 
 	// Not derived from a layout field: the path is the distribution's.
 	pamServiceName = "faramir-sudo"
+	// The three units, named once: several tables key on them and systemctl is
+	// handed them verbatim, so a rename that reached only some would leave a
+	// daemon nobody restarts.
+	brokerUnit = "faramir-broker.service"
+	keeperUnit = "faramir-keeper.service"
+	execUnit   = "faramir-exec.service"
 
 	DefaultClientGroup = "dev"
 	DefaultBrokerUser  = "faramir-broker"

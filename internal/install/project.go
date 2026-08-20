@@ -134,7 +134,7 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 func (p *project) steps() []namedStep {
 	return []namedStep{
 		{"share tree", p.shareTree},
-		{"agent config", p.agentConfig},
+		{labelAgentConfig, p.agentConfig},
 		{"instructions", p.instructions},
 	}
 }
@@ -472,7 +472,7 @@ func (p *project) agentConfig() error {
 		// The tree is shared and the instructions are written either way; what is
 		// missing is the hook, and with it the redaction. Said rather than passed
 		// over, an enrolment that configured nothing reading as done.
-		p.step("agent config", false, fmt.Sprintf(
+		p.step(labelAgentConfig, false, fmt.Sprintf(
 			"no coding agent is configured in %s, so nothing was registered and "+
 				"nothing this tree runs is redacted. `sudo faramir init-project "+
 				"--agent NAME` enrols one anyway (%s)",
@@ -518,7 +518,7 @@ func (p *project) agentConfig() error {
 		}
 	}
 	// Named rather than counted, so an operator knows which file to merge.
-	p.step("agent config", changed, strings.Join(written, ", "))
+	p.step(labelAgentConfig, changed, strings.Join(written, ", "))
 
 	// What auto would have taken and this run did not, which only happens when
 	// the operator named agents explicitly.

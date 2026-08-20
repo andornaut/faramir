@@ -53,9 +53,9 @@ func (o *Options) adoptInstalled() (took []string, err error) {
 		flag     string
 		fallback string
 	}{
-		{"faramir-broker.service", &o.BrokerUser, "--broker-user", DefaultBrokerUser},
-		{"faramir-keeper.service", &o.KeeperUser, "--keeper-user", DefaultKeeperUser},
-		{"faramir-exec.service", &o.ExecUser, "--exec-user", DefaultExecUser},
+		{brokerUnit, &o.BrokerUser, "--broker-user", DefaultBrokerUser},
+		{keeperUnit, &o.KeeperUser, "--keeper-user", DefaultKeeperUser},
+		{execUnit, &o.ExecUser, "--exec-user", DefaultExecUser},
 	} {
 		if *role.into != "" {
 			continue

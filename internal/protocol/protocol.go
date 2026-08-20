@@ -42,6 +42,10 @@ var ReservedEnv = map[string]bool{
 	"SUDO_ASKPASS": true, "FARAMIR_ESCALATION_TOKEN": true,
 }
 
+// opRun is the op an absent one means, named once because the accepted list,
+// the default and the check that a request is one all have to agree.
+const opRun = "run"
+
 // Ops is every op this socket accepts. Exported because each can reach the
 // audit log, and `faramir logs` renders the op in a fixed-width column held to
 // the widest name here.
@@ -50,7 +54,7 @@ var ReservedEnv = map[string]bool{
 // ops the broker refuses to anything but root. They are on this socket rather
 // than one of their own because the check that matters is SO_PEERCRED, which
 // every connection here already carries.
-var Ops = []string{"run", "refs", "redact", "status", "escalations", "approve", "escalate"}
+var Ops = []string{opRun, "refs", "redact", "status", "escalations", "approve", "escalate"}
 
 type Request struct {
 	// Version is what the caller's own binary reports, which every client sends
@@ -90,7 +94,7 @@ type Request struct {
 // the errors are worth reading in: what the op is, then what it needs, then
 // what any op may carry.
 func Parse(payload map[string]any) (*Request, error) {
-	req := &Request{Op: "run", EnvRefs: map[string]string{}}
+	req := &Request{Op: opRun, EnvRefs: map[string]string{}}
 	for _, step := range []func(map[string]any, *Request) error{
 		parseVersion, parseOp, parseCmd, parseRedact, parseCwd, parseEnvRefs,
 		parseEscalations, parseApprove, parseEscalate, parseWaits,
@@ -145,7 +149,7 @@ func parseOp(payload map[string]any, req *Request) error {
 // read rather than required.
 func parseCmd(payload map[string]any, req *Request) error {
 	rawCmd, hasCmd := payload["cmd"]
-	if req.Op != "run" {
+	if req.Op != opRun {
 		if list, isList := rawCmd.([]any); isList {
 			for _, a := range list {
 				if s, isStr := a.(string); isStr {

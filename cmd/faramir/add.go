@@ -239,8 +239,8 @@ func fillPlaintext(editorPath, from, dir, plain string) error {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	// Fixed: the editor runs as root, and the operator can set every variable one
 	// reads for configuration.
-	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"TERM=" + os.Getenv("TERM"), "LANG=C.UTF-8", "HOME=" + dir}
+	cmd.Env = []string{envPATH,
+		"TERM=" + os.Getenv("TERM"), envLANG, "HOME=" + dir}
 	if err := cmd.Run(); err != nil {
 		return fmt.Errorf("editor: %w", err)
 	}

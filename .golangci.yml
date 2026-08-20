@@ -72,14 +72,14 @@ linters:
     exhaustive:
       default-signifies-exhaustive: true
     goconst:
-      # A composite literal is where this project spells a wire format: the keys
-      # of an audit record, a cobra Use string, the rows of a table keyed by unit
-      # name. The field around the string already names it, and a constant would
-      # put the spelling somewhere other than where it is read. Added to the
-      # default of Call; goconst applies everywhere else.
-      exclude-types:
-        - Call
-        - CompositeLit
+      # A map key is where this project spells a wire format: the fields of an
+      # audit record, a JSON-RPC envelope, a JSON Schema. Naming them would not
+      # only move the spelling away from where it is read; internal/audit checks
+      # every record against the size cap by finding `map[string]any` literals
+      # with a "log_id" key, and a constant is not a literal, so the records
+      # would leave its sight and it would check nothing. Everything else goconst
+      # looks at still applies, and the repeated values it found are constants.
+      ignore-map-keys: true
     gosec:
       excludes:
         - G109 # strconv.Atoi to int32 - uid and gid values from the passwd database

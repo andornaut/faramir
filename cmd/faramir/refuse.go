@@ -123,7 +123,7 @@ func runRefuseRemove(f refuseFlags, path string) int {
 func newRefuseListCmd() *cobra.Command {
 	var f refuseFlags
 	c := &cobra.Command{
-		Use:   "ls [options]",
+		Use:   useLs,
 		Short: "List the paths this install refuses",
 		Args:  noArgs,
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runRefuseList(f)) },

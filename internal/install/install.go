@@ -140,6 +140,15 @@ type runReport struct {
 }
 
 // step records one unit of work and its outcome.
+// The names a step reports itself under. Several flows run the same steps, and
+// doctor reports on the same concerns, so each is spelled once.
+const (
+	labelResolveIDs    = "resolveIDs"
+	labelPreconditions = "preconditions"
+	labelAgentConfig   = "agent config"
+	labelConfig        = "config"
+)
+
 func (r *runReport) step(name string, changed bool, detail string) {
 	r.Steps = append(r.Steps, Step{Name: name, Changed: changed, Detail: detail})
 	if changed {
@@ -312,13 +321,13 @@ func (r *runner) steps() []namedStep {
 	return []namedStep{
 		{"adopted", r.stepAdopted},
 		{"accounts", r.stepAccounts},
-		{"resolveIDs", r.resolveIDs},
-		{"preconditions", r.stepPreconditions},
+		{labelResolveIDs, r.resolveIDs},
+		{labelPreconditions, r.stepPreconditions},
 		{"directories", r.stepDirectories},
 		{"age key", r.stepAgeKey},
 		{"sops config", r.stepSopsConfig},
 		{"binaries", r.stepBinaries},
-		{"config", r.stepConfig},
+		{labelConfig, r.stepConfig},
 		// After the config, which is where [ssh] key is recorded, and before any
 		// daemon starts: a key the broker cannot read leaves the agent holding
 		// nothing.
@@ -339,7 +348,7 @@ func (r *runner) steps() []namedStep {
 		{"linked files", r.stepLinkAccess},
 		{"units", r.stepUnits},
 		{"systemd", r.stepSystemd},
-		{"agent config", r.stepAgentConfig},
+		{labelAgentConfig, r.stepAgentConfig},
 		{"validate", r.stepValidate},
 	}
 }
@@ -534,7 +543,7 @@ func (r *runner) preflight() error {
 // A flag-less re-run never reaches this: init resolves the config directory
 // from the running broker and then from the unit.
 func (r *runner) refuseConfigMove() error {
-	installed := unitConfigDir("faramir-broker.service")
+	installed := unitConfigDir(brokerUnit)
 	if installed == "" || installed == r.layout.ConfigDir {
 		return nil
 	}

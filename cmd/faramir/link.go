@@ -145,7 +145,7 @@ func runLinkRemove(f linkFlags, ref string) int {
 func newLinkListCmd() *cobra.Command {
 	var f linkFlags
 	c := &cobra.Command{
-		Use:   "ls [options]",
+		Use:   useLs,
 		Short: "List the linked secrets this install declares",
 		Args:  noArgs,
 		RunE:  func(c *cobra.Command, args []string) error { return codeErr(runLinkList(f)) },

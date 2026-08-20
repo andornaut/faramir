@@ -30,10 +30,10 @@ import (
 // same way would read as the opposite of what this is.
 func (r *runner) RefusedPathSteps() []namedStep {
 	return []namedStep{
-		{"resolveIDs", r.resolveIDs},
-		{"preconditions", r.stepPreconditions},
-		{"config", r.stepConfig},
-		{"agent config", r.stepAgentConfig},
+		{labelResolveIDs, r.resolveIDs},
+		{labelPreconditions, r.stepPreconditions},
+		{labelConfig, r.stepConfig},
+		{labelAgentConfig, r.stepAgentConfig},
 	}
 }
 

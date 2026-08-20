@@ -270,9 +270,9 @@ func (r *runner) stepConfig() error {
 		return err
 	}
 	if changed {
-		r.restartFor("config")
+		r.restartFor(labelConfig)
 	}
-	r.step("config", changed, r.layout.ConfigFile)
+	r.step(labelConfig, changed, r.layout.ConfigFile)
 	return nil
 }
 

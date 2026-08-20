@@ -55,7 +55,7 @@ type vaultListFlags struct {
 func newVaultListCmd() *cobra.Command {
 	var f vaultListFlags
 	c := &cobra.Command{
-		Use:   "ls [options]",
+		Use:   useLs,
 		Short: "The managed files, their refs and who can read them",
 		Long: "Reads the secrets directory rather than asking the broker, so a file the\n" +
 			"broker refused to load is listed here with the reason. `faramir secret\n" +
@@ -192,7 +192,7 @@ func newVaultRemoveCmd() *cobra.Command {
 	var f vaultRemoveFlags
 	c := &cobra.Command{
 		Use:     "rm [options] NAME",
-		Aliases: []string{"remove"},
+		Aliases: []string{opRemove},
 		Short:   "Take a file out of the managed store",
 		Long: "Deletes one managed file. Every value in it goes with it: no reseal and\n" +
 			"no re-run brings it back, and only a backup of the ciphertext or of the\n" +

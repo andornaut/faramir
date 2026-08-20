@@ -339,8 +339,8 @@ func editManaged(keyPath, rulePath, editorPath, target string) (bool, error) {
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
 	// Fixed: the editor runs as root, and the operator can set every variable one
 	// reads for configuration.
-	cmd.Env = []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-		"TERM=" + os.Getenv("TERM"), "LANG=C.UTF-8", "HOME=" + dir}
+	cmd.Env = []string{envPATH,
+		"TERM=" + os.Getenv("TERM"), envLANG, "HOME=" + dir}
 	if err := cmd.Run(); err != nil {
 		return false, fmt.Errorf("editor: %w", err)
 	}
@@ -449,9 +449,9 @@ func runSops(keyPath, rulePath string, args ...string) ([]byte, error) {
 	argv := append([]string{"--config", sopsConfigPath(rulePath)}, args...)
 	cmd := exec.CommandContext(context.Background(), sopsBinary, argv...)
 	cmd.Env = []string{
-		"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+		envPATH,
 		"HOME=" + envOr("HOME", "/tmp"),
-		"LANG=C.UTF-8",
+		envLANG,
 		"SOPS_AGE_KEY_FILE=" + keyPath,
 	}
 	cmd.Stderr = os.Stderr
