@@ -37,7 +37,7 @@ sudo faramir escalations --watch
      host     controller
      log_id   w5vq7dbf000119
      expires  120s
-     approve? [y/no]
+     approve? [y/n]
    ```
 
    Field | What it says
@@ -52,7 +52,7 @@ sudo faramir escalations --watch
 4. Anything but `y` is a refusal, `yes` included, and so is silence: the question expires after `[escalation] timeout_sec`, 120s by default and at most 600, counted from when it was raised. A blank line is asked again rather than counted as a no, and the prompt gives up on the same clock the broker does:
 
    ```text
-     approve? [y/no]
+     approve? [y/n]
      w9h4d78d000016 expired
    ```
 

@@ -236,8 +236,8 @@ func listAsJSON(questions []escalation.Question, code int) int {
 // type, so run it somewhere the agent does not reach.
 func watchEscalations(socketPath string) int {
 	warnIfTypeable()
-	// The one rule the prompt below does not show: it asks for [y/no], which
-	// reads as though only "no" refuses.
+	// The one rule the prompt below does not show: it asks for [y/n], which
+	// reads as though only "n" refuses.
 	fmt.Fprintln(os.Stderr, "waiting for escalation requests; only `y` approves. "+
 		"Ctrl-C to stop.")
 	// No set of ids already answered: the broker drops a question the moment it
@@ -511,7 +511,7 @@ const (
 func (t *typed) answer(deadline time.Time) (string, answerState) {
 	t.discard()
 	for {
-		fmt.Print("  approve? [y/no] ")
+		fmt.Print("  approve? [y/n] ")
 		select {
 		case line, open := <-t.lines:
 			if !open {

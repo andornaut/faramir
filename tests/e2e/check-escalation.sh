@@ -485,7 +485,7 @@ def pump(until, timeout):
 
 def give_up(why):
     print("FAILED", why)
-    print("PROMPTS", buf.count("approve? [y/no]"))
+    print("PROMPTS", buf.count("approve? [y/n]"))
     os.kill(pid, 9)
     sys.exit(0)
 
@@ -504,7 +504,7 @@ run = subprocess.Popen(
      "-t", "45", "--", "/usr/bin/sudo", "/usr/bin/id", "-un"],
     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-if not pump(lambda b: "approve? [y/no]" in b, 60):
+if not pump(lambda b: "approve? [y/n]" in b, 60):
     give_up("no prompt appeared")
 
 if MODE == "after":
@@ -524,7 +524,7 @@ except subprocess.TimeoutExpired:
     run.kill()
 os.kill(pid, 15)
 
-print("PROMPTS", buf.count("approve? [y/no]"))
+print("PROMPTS", buf.count("approve? [y/n]"))
 print("REFUSED", "yes" if "refused: " in buf else "no")
 print("STARTED", "yes" if " started" in buf else "no")
 EOS
@@ -569,7 +569,7 @@ head_ "14. a question nobody answers, and the one raised after it"
 cat >/tmp/watch-expire.py <<'EOS'
 import os, pty, select, subprocess, sys, time
 
-PROMPT = "approve? [y/no]"
+PROMPT = "approve? [y/n]"
 
 pid, fd = pty.fork()
 if pid == 0:
