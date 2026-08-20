@@ -696,15 +696,24 @@ head_ "15. what a brokered command's sudo is given"
 # names, which that uid cannot write.
 
 ENVFILE=/usr/local/libexec/faramir/sudo-env
-[ -f "$ENVFILE" ] && ok "the grant's env_file is there" \
+[ -f "$ENVFILE" ] && ok "the environment file is there" \
   || bad "$ENVFILE was not written"
 owner=$(stat -c '%U:%G %a' "$ENVFILE" 2>/dev/null)
 [ "$owner" = "root:root 644" ] \
-  && ok "and is root's at 0644, sudoers reading it as part of the policy" \
+  && ok "and is root's at 0644, PAM reading it as root" \
   || bad "$ENVFILE is '$owner', not 'root:root 644'"
-grep -q "env_file=$ENVFILE" /etc/sudoers.d/faramir \
-  && ok "and the grant names it as its env_file" \
-  || bad "the sudoers entry does not name $ENVFILE"
+# Read by pam_env in whichever file carries faramir's stack, rather than named as
+# the grant's env_file: sudo-rs has no such setting, so one mechanism is carried
+# for both. Which file that is, the install recorded.
+STACK=$(sed -n '/^\[escalation\]/,/^\[/{s/^pam_stack *= *"\(.*\)".*/\1/p}' $CFG | head -1)
+[ -n "$STACK" ] \
+  && ok "[escalation] pam_stack names $STACK" \
+  || bad "the config records no pam_stack, so nothing says where the stack is"
+[ -e "$STACK" ] \
+  && ok "and that file is there" || bad "$STACK is recorded and absent"
+grep -q "pam_env.so envfile=$ENVFILE" "$STACK" \
+  && ok "and it reads the environment file with pam_env" \
+  || bad "$STACK does not read $ENVFILE"
 # Under libexec rather than the config directory, which an uninstall keeps and so
 # must never remove whole. A file at the old path would pass every check above.
 [ -e /etc/faramir/sudo-env ] \
@@ -734,10 +743,261 @@ else
     && ok "and a [command] env value survives the sudo too" \
     || bad "DEBIAN_FRONTEND did not survive: $(grep '^DEBIAN_FRONTEND=' /tmp/sudoenv.out || echo absent)"
   # PATH is sudo's own on the far side whatever the file says, so what is checked
-  # is that root has one rather than which one: an env_file naming PATH is ignored,
+  # is that root has one rather than which one: a PATH from pam_env is overridden,
   # which is why the install leaves it out without a word.
   grep -q '^PATH=' /tmp/sudoenv.out && ok "and root has a PATH of sudo's own choosing" \
     || bad "root got no PATH at all"
+fi
+quiesce
+
+# --------------------------------------------------------------------------
+head_ "15b. sudo -n reaches the question"
+
+# The grant sets noninteractive_auth, and integrations.md tells operators they
+# can drop the `ansible_become_flags: '-H'` workaround because of it. Without the
+# setting, sudo refuses before the PAM stack runs and no question is ever put, so
+# the whole become path fails while a human watches for something that never
+# arrives. `become` passes -n by default, so this is what most brokered sudo
+# actually looks like.
+grep -q 'noninteractive_auth' /etc/sudoers.d/faramir \
+  && ok "the grant sets noninteractive_auth" \
+  || bad "the grant does not set noninteractive_auth"
+sudoRun /tmp/nonint.out /usr/bin/sudo -n /usr/bin/id
+ID=$(waitq)
+if [ -z "$ID" ]; then
+  bad "sudo -n filed no question, so it refused before the PAM stack ran: $(head -2 /tmp/nonint.out)"
+else
+  ok "a question was filed for a sudo run with -n ($ID)"
+  /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+  wait $RUN 2>/dev/null
+  grep -q 'uid=0' /tmp/nonint.out \
+    && ok "and the approved -n command reached root" \
+    || bad "sudo -n did not end at root: $(head -2 /tmp/nonint.out)"
+fi
+quiesce
+# And a refusal under -n is still a refusal rather than a fall-through.
+sudoRun /tmp/nonint.deny /usr/bin/sudo -n /usr/bin/id
+ID=$(waitq)
+if [ -z "$ID" ]; then
+  bad "no question was filed for the -n refusal check"
+else
+  /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
+  wait $RUN 2>/dev/null
+  grep -q 'uid=0' /tmp/nonint.deny \
+    && bad "a refused sudo -n reached root" || ok "and a no still refuses under -n"
+fi
+quiesce
+
+# --------------------------------------------------------------------------
+head_ "16. the other sudo, and switching to it"
+
+# Ubuntu ships two implementations behind one alternatives group, and they take
+# different settings out of the same /etc/sudoers.d. Every group above ran under
+# whichever this stack's host has; this one switches to the OTHER and checks that
+# `init` writes what that sudo can read, that what it needs lands without
+# changing what the shared stacks say for anybody else, and that a real
+# escalation still ends at root.
+#
+# Last, and it puts the host back: leaving the box on the other implementation
+# would hand the next suite an install this one rewrote.
+SUDORS=/usr/lib/cargo/bin/sudo
+SUDOWS=/usr/bin/sudo.ws
+# Where this stack started, and where it is going. FARAMIR_E2E_SUDO is set by
+# e2e.sh from its own SUDO.
+case "${FARAMIR_E2E_SUDO:-classic}" in
+  rs) HOME_SUDO=$SUDORS; OTHER_SUDO=$SUDOWS; OTHER_NAME="the original sudo"; OTHER_IS_RS=no ;;
+  *)  HOME_SUDO=$SUDOWS; OTHER_SUDO=$SUDORS; OTHER_NAME="sudo-rs"; OTHER_IS_RS=yes ;;
+esac
+# The `sudo grant` check's status, or "missing". Defined here rather than inside
+# the arrangement branch below: the restore at the end asks for it whichever way
+# that branch went.
+grant_status() {
+  /usr/local/bin/faramir doctor --agent-user op --json 2>/dev/null \
+    | jq -r '[.findings[]|select(.check=="sudo grant")|.status]|first // "missing"'
+}
+restore_sudo() {
+  update-alternatives --set sudo "$HOME_SUDO" >/dev/null 2>&1
+  /usr/local/bin/faramir init --allow-sudo --agent-user op \
+    --notify-command /usr/local/bin/e2e-notify --notify-command '{prompt}' \
+    >/tmp/sudo-restore.log 2>&1
+  systemctl restart faramir-exec.socket >/dev/null 2>&1
+}
+
+if [ ! -x "$OTHER_SUDO" ]; then
+  note "$OTHER_NAME is not installed here, so the second arrangement went untested"
+else
+  # What the stock stacks say before faramir touches them, so the claim that
+  # everything outside the block survives is measured rather than asserted.
+  cp /etc/pam.d/sudo /tmp/sudo.stack.before
+  update-alternatives --set sudo "$OTHER_SUDO" >/dev/null 2>&1
+  [ "$(readlink -f /etc/alternatives/sudo)" = "$OTHER_SUDO" ] \
+    && ok "the host's sudo is now $OTHER_NAME" \
+    || bad "switching the alternatives group did not change which sudo runs"
+
+  if ! /usr/local/bin/faramir init --allow-sudo --agent-user op \
+      --notify-command /usr/local/bin/e2e-notify --notify-command '{prompt}' \
+      >/tmp/other-init.log 2>&1; then
+    bad "init refused to write a grant for $OTHER_NAME: $(tail -2 /tmp/other-init.log)"
+  else
+    ok "init wrote a grant for it"
+    systemctl restart faramir-exec.socket >/dev/null 2>&1
+    sleep 2
+
+    # The grant names only what this sudo parses, and visudo -- which follows the
+    # same alternatives group -- takes the file.
+    if [ "$OTHER_IS_RS" = yes ]; then
+      grep -qE '^Defaults.*pam_(service|login_service)' /etc/sudoers.d/faramir \
+        && bad "the grant still names a setting sudo-rs cannot parse" \
+        || ok "and it names no pam_service"
+    else
+      grep -qE '^Defaults.*pam_service' /etc/sudoers.d/faramir \
+        && ok "and it names pam_service, which this sudo does read" \
+        || bad "the grant names no pam_service for a sudo that needs one"
+    fi
+    visudo -cf /etc/sudoers.d/faramir >/dev/null 2>&1 \
+      && ok "and this host's visudo parses it" \
+      || bad "visudo rejects the grant this host was given"
+
+    if [ "$OTHER_IS_RS" = yes ]; then
+      # The branch, in both stacks: the service name is the launch type, so a host
+      # covered for `sudo` and not for `sudo -i` fails one of them.
+      for stack in /etc/pam.d/sudo /etc/pam.d/sudo-i; do
+        grep -q '^# BEGIN faramir' "$stack" \
+          && ok "$stack carries the branch" \
+          || bad "$stack has no faramir block, so nothing asks the broker there"
+        # And the jump clears every faramir module below it. One short and it lands
+        # on the block's own pam_permit, which authenticates everybody else.
+        jump=$(sed -n '/^# BEGIN faramir/,/^# END faramir/p' "$stack" \
+          | grep -m1 '^auth' | grep -oE 'default=[0-9]+' | cut -d= -f2)
+        after=$(sed -n '/^# BEGIN faramir/,/^# END faramir/p' "$stack" \
+          | grep -c '^auth')
+        [ "$jump" = "$((after - 1))" ] \
+          && ok "and its branch skips all $jump module(s) below it" \
+          || bad "$stack: the branch skips $jump of $((after - 1)) modules in the block"
+      done
+      # No service file: sudo-rs reaches the service named `sudo` and nothing a
+      # caller may name, so one beside the block would be a stack nothing reads.
+      [ -e /etc/pam.d/faramir-sudo ] \
+        && bad "/etc/pam.d/faramir-sudo is there on a sudo-rs host, where nothing reads it" \
+        || ok "and no service file was left beside it"
+    else
+      [ -e /etc/pam.d/faramir-sudo ] \
+        && ok "/etc/pam.d/faramir-sudo is there, which this sudo can be sent to" \
+        || bad "no service file for a sudo that selects one by name"
+      grep -q '^# BEGIN faramir' /etc/pam.d/sudo \
+        && bad "a block is left in /etc/pam.d/sudo, which this sudo needs none of" \
+        || ok "and no block was left in the shared stack"
+    fi
+    # And nothing the distribution put there was touched.
+    grep -q 'common-auth' /etc/pam.d/sudo \
+      && ok "and what the stack already said is still in it" \
+      || bad "the shared stack lost the distribution's own lines"
+
+    # THE ONE THAT MATTERS. An ordinary account with a PASSWD: entry must still
+    # be asked for its password, and a wrong one must still be refused.
+    #
+    # NOPASSWD is no use here: it skips PAM entirely, so an arrangement that
+    # authenticates every account for free passes a NOPASSWD check exactly as a
+    # correct one does. What the branch can get wrong is landing such an account
+    # on faramir's own pam_permit, and only a PASSWD: account can see it.
+    useradd -m -s /bin/bash e2e-alice 2>/dev/null
+    echo 'e2e-alice:correcthorse-e2e' | chpasswd
+    echo 'e2e-alice ALL=(ALL:ALL) PASSWD: ALL' >/etc/sudoers.d/e2e-alice
+    chmod 440 /etc/sudoers.d/e2e-alice
+    echo wrongpassword | runuser -u e2e-alice -- /usr/bin/sudo -S /usr/bin/id \
+      >/tmp/alice.wrong 2>&1
+    grep -q 'uid=0' /tmp/alice.wrong \
+      && bad "an ordinary account reached root with a WRONG password: whatever \
+faramir wrote authenticates every account on this host" \
+      || ok "an ordinary account is refused a wrong password"
+    printf '\n' | runuser -u e2e-alice -- /usr/bin/sudo -S /usr/bin/id \
+      >/tmp/alice.empty 2>&1
+    grep -q 'uid=0' /tmp/alice.empty \
+      && bad "an ordinary account reached root with an EMPTY password" \
+      || ok "and refused an empty one"
+    echo correcthorse-e2e | runuser -u e2e-alice -- /usr/bin/sudo -S /usr/bin/id \
+      >/tmp/alice.right 2>&1
+    grep -q 'uid=0' /tmp/alice.right \
+      && ok "and still let through with the right one, so the branch fell through" \
+      || bad "an ordinary account cannot sudo at all with the branch in place: \
+$(tail -1 /tmp/alice.right)"
+    userdel -r e2e-alice >/dev/null 2>&1
+    rm -f /etc/sudoers.d/e2e-alice
+
+    # The claim the whole arrangement exists for: a yes still ends at root, and
+    # the environment still crosses the sudo.
+    quiesce
+    sudoRun /tmp/rs.out /usr/bin/sudo /usr/bin/printenv
+    ID=$(waitq)
+    if [ -z "$ID" ]; then
+      bad "no question was filed for a brokered sudo under sudo-rs"
+    else
+      ok "a question was filed under sudo-rs ($ID)"
+      /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+      wait $RUN 2>/dev/null
+      grep -q '^FARAMIR_OPERATOR=op$' /tmp/rs.out \
+        && ok "an approved command reached root, and was told whose host it is" \
+        || bad "the escalation did not end at root under sudo-rs: $(head -2 /tmp/rs.out)"
+      grep -q '^DEBIAN_FRONTEND=noninteractive$' /tmp/rs.out \
+        && ok "and pam_env carried [command] env across the sudo" \
+        || bad "a [command] env value did not survive: $(grep '^DEBIAN_FRONTEND=' /tmp/rs.out || echo absent)"
+    fi
+    quiesce
+
+    # A refusal is still a refusal, which is the half that matters.
+    sudoRun /tmp/rs.deny.out /usr/bin/sudo /usr/bin/id
+    ID=$(waitq)
+    if [ -z "$ID" ]; then
+      bad "no question was filed for the refusal check under sudo-rs"
+    else
+      /usr/local/bin/faramir deny "$ID" >/dev/null 2>&1
+      wait $RUN 2>/dev/null
+      grep -q 'uid=0' /tmp/rs.deny.out \
+        && bad "a refused escalation reached root under sudo-rs" \
+        || ok "and a no still refuses"
+    fi
+    quiesce
+
+    # doctor asks the same questions of this arrangement.
+    [ "$(grant_status)" = ok ] \
+      && ok "doctor passes the sudo-rs arrangement" \
+      || bad "doctor says sudo grant is $(grant_status): $(/usr/local/bin/faramir doctor --agent-user op 2>&1 | grep -A1 'sudo grant' | head -2)"
+
+    # Switching back without re-running init is the drift doctor has to catch:
+    # the grant then names settings this sudo does not read, and whatever selects
+    # faramir's stack is the other implementation's.
+    update-alternatives --set sudo "$HOME_SUDO" >/dev/null 2>&1
+    [ "$(grant_status)" = failed ] \
+      && ok "and switching the alternatives group back without re-running init fails doctor" \
+      || bad "doctor says sudo grant is $(grant_status) on a host whose sudo no longer matches its grant"
+  fi
+
+  # Back to where this stack started, with a grant written for it, so the next
+  # suite gets the install it expects.
+  restore_sudo
+  if [ "$OTHER_IS_RS" = yes ]; then
+    # Home is the original: the service file comes back and the block goes.
+    [ -e /etc/pam.d/faramir-sudo ] \
+      && ok "and the original sudo gets its service file back" \
+      || bad "no /etc/pam.d/faramir-sudo after re-installing for the original sudo"
+    grep -q '^# BEGIN faramir' /etc/pam.d/sudo \
+      && bad "the branch outlived a re-install made for the original sudo" \
+      || ok "and re-running init takes the branch out again"
+    diff -q /tmp/sudo.stack.before /etc/pam.d/sudo >/dev/null 2>&1 \
+      && ok "leaving /etc/pam.d/sudo byte for byte what it was" \
+      || bad "the stack did not come back: $(diff /tmp/sudo.stack.before /etc/pam.d/sudo | head -4)"
+  else
+    # Home is sudo-rs: the block comes back and the service file goes.
+    grep -q '^# BEGIN faramir' /etc/pam.d/sudo \
+      && ok "and sudo-rs gets its branch back" \
+      || bad "no faramir block after re-installing for sudo-rs"
+    [ -e /etc/pam.d/faramir-sudo ] \
+      && bad "the service file outlived a re-install made for sudo-rs" \
+      || ok "and the service file nothing would read is gone again"
+  fi
+  [ "$(grant_status)" = ok ] \
+    && ok "and doctor passes the arrangement this stack came back to" \
+    || bad "doctor says sudo grant is $(grant_status) after restoring"
 fi
 quiesce
 

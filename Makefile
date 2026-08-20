@@ -89,8 +89,10 @@ build:
 	done
 
 ## test: everything that tests this, the Go suite and the end-to-end suites
-## both, so that `make test` means the same here as in a repository whose
-## end-to-end tests are Go files. `make e2e` still runs those alone.
+## alike, so that `make test` means the same here as in a repository whose
+## end-to-end tests are Go files. `make e2e` still runs those alone, and runs
+## them under both sudo implementations, so this pulls in two containers rather
+## than one: half the arrangements would not be everything.
 ##
 ## Needs no sops installed: the round trip runs
 ## through a stand-in built from the sops libraries at test time. The tests
@@ -148,8 +150,14 @@ shellcheck:
 ## `up` every time because it is the clean baseline: the suites share one
 ## install and mutate it, so a `run` without it measures the last run's
 ## leftovers and reports failures that are not regressions.
+##
+## `both` rather than `up && run`: the two sudo implementations take different
+## settings out of the same /etc/sudoers.d, so `--allow-sudo` installs a
+## different arrangement for each and a run that does not say which covers one of
+## them. They run at the same time, on stacks that share nothing. `SUDO=rs
+## ./e2e.sh up` is one of them alone.
 e2e:
-	cd tests/e2e && ./e2e.sh fetch && ./e2e.sh up && ./e2e.sh run
+	cd tests/e2e && ./e2e.sh fetch && ./e2e.sh both
 
 ## install: build, then copy the binaries to $(BINPREFIX). Only the copy runs
 ## as root: the build is a prerequisite, so the compiler runs as whoever typed

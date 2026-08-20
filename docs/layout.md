@@ -19,7 +19,8 @@ Every path the install creates, what owns it, and what each account can reach th
 /run/faramir/exec.sock          socket-activated, 0660 root:<broker's group>
 /run/faramir/ssh-agent.sock     0660 faramir-broker:<exec group>, only when [ssh] exec_group is set
 /etc/sudoers.d/faramir          0440 root:root, password-required; --allow-sudo only
-/etc/pam.d/faramir-sudo         0644 root:root, how sudo authenticates faramir-exec and nobody else; --allow-sudo only
+/etc/pam.d/faramir-sudo         0644 root:root, how sudo authenticates faramir-exec and nobody else; --allow-sudo only, and only where the host's sudo can be sent to a service by name
+/etc/pam.d/sudo, sudo-i         the distribution's, gaining a `# BEGIN faramir` block on a sudo-rs host, which has no faramir-sudo at all; --allow-sudo only
 
 <config-dir>/age.key            0400 faramir-keeper:faramir-keeper
 <config-dir>/id_ed25519         0600 faramir-broker:faramir-broker, the key it lends; .pub 0644

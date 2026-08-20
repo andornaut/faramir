@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -439,6 +440,12 @@ func (o *Options) layout() (Layout, error) {
 	// section off it: an install that never passed --allow-sudo renders no
 	// section, writes no PAM service and grants no sudoers entry.
 	layout.AllowSudo = o.AllowSudo
+	// Probed only where a grant is being written. On every other install it
+	// decides nothing, and a version probe run to say nothing is a command in the
+	// strace of every host that never asked for an escalation.
+	if o.AllowSudo {
+		layout.SudoRs = sudoRsProbe()
+	}
 	layout.NotifyCommand = resolveNotifyCommand(o.NotifyCommand)
 	layout.Links = o.links
 	layout.Refused = o.refused
@@ -669,25 +676,91 @@ func (r *runner) refuseInvalidSudoers() error {
 	return nil
 }
 
-// sudoRsNote names sudo-rs where that is what rejected the grant, or "".
+// sudoRsNote names the version floor the grant sits on, or "".
 //
-// sudo-rs has no pam_service setting and refuses the whole file over it, so
-// visudo's own message reads as a typo in a directive faramir wrote on purpose,
-// and every other line of the grant is reported as invalid with it. Nothing here
-// can be worked around: the escalation is a PAM service of faramir's own, and
-// sudo-rs reaches no PAM stack a caller may name.
+// The grant is rendered for whichever sudo this host has, so a rejection is no
+// longer a question of which implementation is installed but of how old it is.
+// Both grew `noninteractive_auth` after their first releases, and it is the one
+// setting here that a sudo old enough will not know: `unknown setting` from
+// visudo reads as a typo in a directive faramir wrote deliberately, and every
+// other line of the grant is reported as invalid with it.
 //
 // Read only once the check has failed. A version probe on every install would be
 // a command run to say nothing on every host that works.
 func sudoRsNote(visudo string) string {
 	out, err := exec.CommandContext(context.Background(), visudo, "-V").CombinedOutput()
-	if err != nil || !strings.Contains(strings.ToLower(string(out)), "sudo-rs") {
+	if err != nil {
 		return ""
 	}
-	return "\nThis host's sudo is sudo-rs, which has no pam_service setting and refuses " +
-		"the whole entry over it. --allow-sudo needs classic sudo. Without the flag the " +
-		"install grants nothing, which is the default arrangement and the rest of this " +
-		"install is unaffected."
+	banner := strings.TrimSpace(firstLine(string(out)))
+	floor, older := "sudo 1.9.11", olderThanFloor(banner)
+	// bannerIsSudoRs, not a substring: sudo-rs 0.2.2 answers visudo -V with
+	// "visudo version 0.2.2" and names no implementation, and that is exactly the
+	// release this note is most likely to be printed for.
+	if bannerIsSudoRs(banner) {
+		floor = "sudo-rs 0.2.9"
+	}
+	// Only where the version is a cause this rejection could have. Every other
+	// rejection is about the file, which visudo has already said its piece about,
+	// and a note on all of them sends operators after a sudo upgrade they do not
+	// need. Silent where the version could not be read: a guess is worse than
+	// nothing.
+	if !older {
+		return ""
+	}
+	return "\nThis host reports " + banner + ". The grant needs " + floor +
+		" or newer, that being where noninteractive_auth arrived: without it " +
+		"`sudo -n` fails before the PAM stack runs, so no question is ever put. " +
+		"Upgrade sudo, or install without --allow-sudo, which grants nothing and " +
+		"is the default arrangement."
+}
+
+// olderThanFloor reports whether a version banner names a release without
+// noninteractive_auth: sudo before 1.9.11, sudo-rs before 0.2.9. A banner it
+// cannot parse answers false, so an unrecognised sudo draws no note.
+func olderThanFloor(banner string) bool {
+	digits := func(s string) []int {
+		var out []int
+		for _, part := range strings.FieldsFunc(s, func(r rune) bool {
+			return r < '0' || r > '9'
+		}) {
+			n, err := strconv.Atoi(part)
+			if err != nil {
+				return nil
+			}
+			out = append(out, n)
+		}
+		return out
+	}
+	fields := strings.Fields(banner)
+	version := ""
+	for _, field := range fields {
+		if strings.ContainsAny(field, "0123456789") && strings.Contains(field, ".") {
+			version = field
+			break
+		}
+	}
+	parts := digits(version)
+	if len(parts) < 3 {
+		return false
+	}
+	floor := []int{1, 9, 11}
+	if bannerIsSudoRs(banner) {
+		floor = []int{0, 2, 9}
+	}
+	for i := range floor {
+		if parts[i] != floor[i] {
+			return parts[i] < floor[i]
+		}
+	}
+	return false
+}
+
+// firstLine is what a version banner's first line says, both implementations
+// printing more than one.
+func firstLine(text string) string {
+	head, _, _ := strings.Cut(text, "\n")
+	return head
 }
 
 // refuseSymlinks fails the run when any path this install asserts a mode or an

@@ -7,14 +7,33 @@ A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that
 Not a runtime toggle and not a config key, because saying yes writes files only root may place and changes how the executor is sandboxed:
 
 - a **password-required sudoers entry** for `faramir-exec` in `/etc/sudoers.d/faramir`
-- a **PAM service of faramir's own**, `/etc/pam.d/faramir-sudo`, that the entry points sudo at
-- an **environment file**, `/usr/local/libexec/faramir/sudo-env`, that the entry names as `env_file`
+- a **PAM stack of faramir's own**, whose auth step asks the broker. Where it lives depends on the host's sudo ([why](#the-two-sudos)): `/etc/pam.d/faramir-sudo` under the original, and a delimited block in `/etc/pam.d/sudo` and `/etc/pam.d/sudo-i` under sudo-rs, which has no service file at all
+- an **environment file**, `/usr/local/libexec/faramir/sudo-env`, holding what that command keeps across its sudo
 - the executor account **locked** (`usermod -L`), so a password is never a second way in
 - `faramir-exec.service` **rendered without the sandbox that bounds root** ([what that costs](#what-escalation-costs-beyond-the-grant))
 
 Off by default, an install grants nothing. **Re-running without `--allow-sudo` takes it back.** `faramir doctor` reports which arrangement a host is in.
 
-**It needs classic sudo.** Ubuntu 26.04 ships sudo-rs, which has no `pam_service` setting and rejects the whole entry over it, so the grant cannot be installed there. `init` refuses before writing anything and names sudo-rs as the cause; the rest of the install is unaffected, and a host without the flag is the default arrangement.
+### The two sudos
+
+Ubuntu ships two implementations from 25.10 on, and both read `/etc/sudoers.d`. Which one is `/usr/bin/sudo` is the `sudo` alternatives group: sudo-rs at priority 50, the original at 40 as `sudo.ws`. `init` probes it and writes the arrangement that sudo can read, so the flag works on either.
+
+They differ in one thing: where the stack that decides an escalation lives, and so what sends a brokered command's sudo to it.
+
+| | The original sudo | sudo-rs |
+| --- | --- | --- |
+| Where the stack that decides an escalation lives | `/etc/pam.d/faramir-sudo`, selected by `pam_service` and `pam_login_service` in the grant | a `# BEGIN faramir` block in `/etc/pam.d/sudo` and `/etc/pam.d/sudo-i` |
+| Files every account's sudo reads | none touched | two, each gaining four auth lines: a branch on the account, and the three it skips |
+
+That is the whole of it. The environment a brokered command keeps across its `sudo` is read the same way on both, by a `pam_env` line in whichever of those two carries the stack: sudoers has an `env_file` that does the same job, and sudo-rs has no such setting, so one mechanism that works everywhere is carried instead of two that each work in one place.
+
+sudo-rs has neither setting and compiles in the service names `sudo` and `sudo-i`, so there is no stack there for it to be pointed at, and no separate service file is written. The block *is* faramir's stack on such a host: a branch on the account, then the three modules that decide, carry the environment and end it. Every other account skips all three and meets what the file already said. A missing module or an unparseable line ends with `faramir-exec` falling into the stock stack, where its locked password refuses.
+
+**The branch's jump is the load-bearing number.** `default=3` is the three modules after it, and they are written from one template so the count cannot drift from the lines it counts. One short and an account that is *not* the executor lands inside the block, on faramir's own `sufficient pam_permit`, and is authenticated with no password at all. That is why the block carries the whole stack rather than an `auth include` of a file that could be edited separately: a jump can only be correct about modules in its own file. `faramir doctor` re-counts it on the host, and `init` refuses to leave a block it did not render.
+
+**On a sudo-rs host the grant is worth `faramir doctor` after a package upgrade.** `/etc/pam.d/sudo` is a dpkg conffile, so an upgrade that installs the maintainer's version drops the block and every escalation fails after it. The `sudo grant` check reports exactly that, and re-running `init --allow-sudo` puts it back. It also reports a host whose alternatives group was switched after an install, the arrangement then being one that sudo cannot use.
+
+**Version floor.** The grant sets `noninteractive_auth`, which arrived in sudo 1.9.11 and sudo-rs 0.2.9. `init` validates with `visudo` before writing anything and names the floor if the host is older.
 
 ## What happens when a command runs `sudo`
 
@@ -24,7 +43,7 @@ Leave a watcher running, as root, somewhere the coding agent cannot type:
 sudo faramir escalations --watch
 ```
 
-1. `sudo` reaches the `auth` step of `faramir-sudo` and `pam_exec` runs the helper as **root**. The helper walks up its own process ancestry and sends the pids it finds. The broker asks the executor which of its runs forked one of them, that being the only party that knows: it did the fork, and holds a pidfd taken at the time, so a number the kernel has since handed on answers for nothing. An ancestry no live run owns is refused without asking anybody, and nothing is carried in the command's environment for a caller to copy or hand on.
+1. `sudo` reaches the `auth` step of faramir's stack, `/etc/pam.d/faramir-sudo` or the block in `/etc/pam.d/sudo` depending on [which sudo this host has](#the-two-sudos), and `pam_exec` runs the helper as **root**. The helper walks up its own process ancestry and sends the pids it finds. The broker asks the executor which of its runs forked one of them, that being the only party that knows: it did the fork, and holds a pidfd taken at the time, so a number the kernel has since handed on answers for nothing. An ancestry no live run owns is refused without asking anybody, and nothing is carried in the command's environment for a caller to copy or hand on.
 2. The broker files the question and holds the helper's connection open, which is the wait an authentication step is from `sudo`'s point of view.
 3. Your watcher prints it and reads your answer from **its** terminal:
 
@@ -109,7 +128,9 @@ What that looks like while a question is open, and why, is [design.md](design.md
 
 ## What a brokered command keeps across `sudo`
 
-`sudo` discards the caller's environment, and should: the executor's uid is shared by every brokered command, so anything it was holding is a value one of them chose. What a command gets instead is named by the grant, `env_file=/usr/local/libexec/faramir/sudo-env`, which is root's and which the executor cannot write. Not `env_keep`, which would put the caller's own value back under the same name.
+`sudo` discards the caller's environment, and should: the executor's uid is shared by every brokered command, so anything it was holding is a value one of them chose. What a command gets instead comes from `/usr/local/libexec/faramir/sudo-env`, which is root's and which the executor cannot write. Not `env_keep`, which would put the caller's own value back under the same name.
+
+It is read by a `pam_env` line in whichever file carries faramir's stack on that host ([which one](#the-two-sudos)). sudoers has an `env_file` that does this, but sudo-rs has no such setting, so faramir carries the one mechanism both understand rather than two. What PAM puts in the environment it hands back is what the command gets.
 
 The file holds two things:
 
@@ -139,7 +160,7 @@ Not dropped is anything bounding the uid below the escalation: `ProtectProc=invi
 Check | Asserts | No grant
 --- | --- | ---
 `sudo credential` | `faramir-exec` holds no `NOPASSWD` entry and no password of its own, the two ways it could sudo with the broker out of the way | still checked
-`sudo grant` | The PAM service gates rather than falls open (`requisite`, `seteuid`, faramir's own helper), the helper and the `env_file` are unwritable by the executor and by you, and `/etc/pam.d/other` is not a free pass | `n/a`
+`sudo grant` | The PAM stack gates rather than falls open (`requisite`, `seteuid`, faramir's own helper), the helper and the environment file are unwritable by the executor and by you, `/etc/pam.d/other` is not a free pass, and the arrangement matches the sudo this host actually has: on sudo-rs the branch is still in both shared stacks, and on the original no branch is left over | `n/a`
 `cgroup delegation` | The executor unit is delegated a cgroup, so a run is confined and a `setsid` child cannot outlive it | still checked, and a failure
 `ptrace scope` | `/proc/sys/kernel/yama/ptrace_scope` is not `0`. A warning: `sysctl -w kernel.yama.ptrace_scope=1`, plus a line in `/etc/sysctl.d`. The daemons mark themselves undumpable, so this is about brokered commands with respect to each other | `n/a`, `@system-service` excluding `@ptrace`
 `user namespaces` | Unprivileged user namespaces are restricted. A warning: the uid boundaries hold either way, the namespace mapping only the executor's own uid. The unit cannot refuse one, `RestrictNamespaces=` being a seccomp rule on `clone()`'s flags, which `clone3()` carries behind a pointer seccomp cannot read | `n/a`, `@system-service` excluding `@mount`

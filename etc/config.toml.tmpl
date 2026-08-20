@@ -88,6 +88,12 @@ ssh_add = "{{.SshAdd}}"
 [escalation]
 exec_user = "{{.ExecUser}}"
 pam_service = "{{.PamService}}"
+# Which file actually carries that stack here. Not always the one above names: a
+# host whose sudo is sudo-rs has no pam_service setting and reaches the service
+# called `sudo` for everybody, so the stack is a delimited block inside a file
+# the distribution owns and there is no service file at all. Written by init from
+# what it found, so reading this says which arrangement this host is in.
+pam_stack = "{{.PamStack}}"
 helper = "{{.PamHelper}}"
 # Optional: announce that a question is waiting, "{prompt}" being the line the
 # broker builds and "{id}" the question to answer. It carries no answer and is

@@ -4,11 +4,16 @@
 # Written by `faramir init --allow-sudo` and REWRITTEN BY EVERY RUN. Re-running
 # init without --allow-sudo removes it, along with the sudoers entry that names it.
 #
-# A service of faramir's own rather than an edit to /etc/pam.d/sudo, which is
-# what {{.SudoersFile}}'s `pam_service` selects. Everyone else's sudo reads the
-# stock file and is untouched by anything here: a mistake below reaches
-# {{.ExecUser}} and nobody else, so it can neither lock this host's operators
-# out of sudo nor hand any other account a free one.
+# A service of faramir's own rather than the stack every account's sudo reads,
+# selected by {{.SudoersFile}}'s `pam_service` and `pam_login_service`. Everyone
+# else's sudo reads the stock stack and is untouched by anything here: a mistake
+# below reaches {{.ExecUser}} and nobody else, so it can neither lock this host's
+# operators out of sudo nor hand any other account a free one.
+#
+# ONLY ON A HOST WHOSE SUDO IS THE ORIGINAL. sudo-rs has no pam_service, reaches
+# no service a caller may name, and so has no way to be sent here; there the same
+# four lines are written into {{.SudoPamFile}} behind a branch on the account,
+# and this file is not written at all. See etc/pam.d-sudo.tmpl.
 #
 # There is no password in this. The authentication step is a helper that asks
 # the broker whether the brokered command making this call was approved by a
@@ -34,6 +39,15 @@
 # non-zero helper all end in a refusal, because nothing here authenticates
 # except by reaching pam_permit past a requisite that succeeded.
 auth     requisite  pam_exec.so quiet seteuid {{.PamHelper}}
+#
+# pam_env is where {{.SudoEnvFile}} is read, on every host: what PAM puts in the
+# environment it hands back is what a brokered command keeps across its sudo.
+# sudoers has an env_file that does the same job, but sudo-rs has no such
+# setting, and one mechanism that works on both beats two that each work on one.
+# `optional`, because a variable that did not arrive is not a reason to grant or
+# refuse root -- the decision is the line above. sudo sets PATH, HOME and SUDO_*
+# over whatever this names, which is the precedence env_file had.
+auth     optional   pam_env.so envfile={{.SudoEnvFile}} readenv=1
 auth     required   pam_permit.so
 account  required   pam_permit.so
 session  required   pam_permit.so

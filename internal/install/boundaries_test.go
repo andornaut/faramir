@@ -128,6 +128,10 @@ func sudoArrangement(t *testing.T) (*config.Config, string) {
 	original := pamDir
 	pamDir = dir
 	t.Cleanup(func() { pamDir = original })
+	// Which sudo this host has decides which arrangement is diagnosed, and the
+	// fixture below is the classic one. Pinned rather than probed, or the suite
+	// would pass or fail on what the machine running it happens to have installed.
+	pinSudo(t, false)
 
 	helper := filepath.Join(dir, "faramir-approve")
 	cfg := &config.Config{}
@@ -135,7 +139,9 @@ func sudoArrangement(t *testing.T) (*config.Config, string) {
 	cfg.Escalation.PamService = "faramir-sudo"
 	cfg.Escalation.Helper = helper
 	if err := os.WriteFile(filepath.Join(dir, cfg.Escalation.PamService),
-		[]byte("auth requisite pam_exec.so seteuid quiet "+helper+"\n"), 0o644); err != nil {
+		[]byte("auth requisite pam_exec.so seteuid quiet "+helper+"\n"+
+			"auth optional pam_env.so envfile="+filepath.Join(dir, "sudo-env")+" readenv=1\n"),
+		0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "sudo-env"),

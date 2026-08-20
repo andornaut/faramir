@@ -122,19 +122,33 @@ func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
 	for _, rule := range []string{
 		"ex ALL=(ALL:ALL) PASSWD: ALL",
 		"Defaults:ex timestamp_timeout=0",
-		// The private service is what confines a mistake to this one account.
+		// The private service is what confines a mistake to this one account, and
+		// both launch types reach it: sudo authenticates `sudo -i` against a service
+		// of its own.
 		"Defaults:ex pam_service=faramir-sudo",
-		// What root is given comes from a file this policy names, not from what the
-		// caller happened to be holding. The literal path rather than
-		// layout.SudoEnvFile(), which is what the template renders and so cannot
-		// disagree with it: this fixture puts the config under /opt/conf, so the
-		// literal also says the file does not follow --config-dir, an uninstall
-		// keeping that directory and never removing it whole.
-		"Defaults:ex env_file=/usr/local/libexec/faramir/sudo-env",
+		"Defaults:ex pam_login_service=faramir-sudo",
 	} {
 		if !strings.Contains(text, rule) {
 			t.Errorf("the sudoers file does not carry %q:\n%s", rule, text)
 		}
+	}
+	// What root is given comes from a file root names, not from what the caller
+	// happened to be holding. sudoers has an env_file that does this and sudo-rs
+	// has no such setting, so it is read by pam_env in the service instead, on
+	// every host. The literal path rather than layout.SudoEnvFile(), which is what
+	// the template renders and so cannot disagree with it: this fixture puts the
+	// config under /opt/conf, so the literal also says the file does not follow
+	// --config-dir, an uninstall keeping that directory and never removing it whole.
+	service, err := render("etc/pam.d.tmpl", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(service),
+		"pam_env.so envfile=/usr/local/libexec/faramir/sudo-env") {
+		t.Errorf("the PAM service does not read the environment file:\n%s", service)
+	}
+	if strings.Contains(text, "env_file=") {
+		t.Errorf("the grant still names an env_file, which sudo-rs cannot parse:\n%s", text)
 	}
 	for line := range strings.Lines(text) {
 		if strings.HasPrefix(strings.TrimSpace(line), "#") {
@@ -216,18 +230,28 @@ func TestThePamServiceGatesAndIsPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := string(body)
-	// `requisite`, never `sufficient`. With sufficient a helper that REFUSES is
-	// not fatal, the stack falls through to pam_permit below, and every escalation
-	// is granted without asking anybody.
-	if !strings.Contains(text, "auth     requisite  pam_exec.so") {
-		t.Errorf("the auth line is not `requisite`:\n%s", text)
-	}
-	for line := range strings.Lines(text) {
-		if strings.HasPrefix(strings.TrimSpace(line), "#") {
-			continue
+	// `requisite` on the helper, in both renderings. It is what makes a refusal
+	// fatal where it is read rather than merely unsuccessful: anything softer and
+	// the stack carries on to whatever permits below, which under sudo-rs is this
+	// file's own pam_permit and under either is the password check in the stack
+	// this one is reached from. Fatal here is also why a refusal does not rest on
+	// the executor's password being locked -- that is a second boundary, checked
+	// separately, and the stack must hold without it.
+	for _, rs := range []bool{false, true} {
+		variant := layout
+		variant.SudoRs = rs
+		rendered, renderErr := render("etc/pam.d.tmpl", variant)
+		if renderErr != nil {
+			t.Fatal(renderErr)
 		}
-		if strings.Contains(line, "sufficient") {
-			t.Errorf("a `sufficient` control flag makes a refusal non-fatal: %q", line)
+		for line := range strings.Lines(uncommented(string(rendered))) {
+			if !strings.Contains(line, "pam_exec.so") {
+				continue
+			}
+			if !strings.Contains(line, "requisite") {
+				t.Errorf("sudo-rs=%v: the helper's line is not `requisite`: %q", rs,
+					strings.TrimSpace(line))
+			}
 		}
 	}
 	// `seteuid`. Without it pam_exec runs the helper with the real uid, which

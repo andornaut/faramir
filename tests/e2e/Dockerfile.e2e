@@ -1,12 +1,18 @@
 FROM ubuntu:26.04
 ENV container=docker DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      systemd systemd-sysv dbus sudo logrotate ca-certificates \
+      systemd systemd-sysv dbus sudo sudo-rs logrotate ca-certificates \
       openssh-client python3 xxd jq less bsdextrautils \
       nodejs \
     && rm -rf /var/lib/apt/lists/* \
     && find /etc/systemd/system /lib/systemd/system \
-         -path '*.wants/*' -name '*getty*' -delete
+         -path '*.wants/*' -name '*getty*' -delete \
+# Both sudo implementations, so a stack can be brought up under either. They
+# share one `sudo` alternatives group and sudo-rs takes it by priority, so the
+# image is pinned here and `e2e.sh up` sets it per stack from SUDO: which one an
+# install finds is what decides the arrangement it writes, and a default that
+# moved with the archive would change what the suites measured.
+    && update-alternatives --set sudo /usr/bin/sudo.ws
 # sops and age are how the operator writes the store; the suites drive both.
 # Vendored into the image so a run does not depend on the machine that built it.
 COPY sops age age-keygen /usr/local/bin/

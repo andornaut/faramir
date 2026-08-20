@@ -215,7 +215,21 @@ jobs:
   e2e:
     name: E2E
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    # Both sudo implementations: they take different settings out of the same
+    # /etc/sudoers.d, so `--allow-sudo` installs a different arrangement for each
+    # and only one of them is exercised by a run that does not say which.
+    #
+    # A matrix rather than `./e2e.sh both`, which runs them at once: that is
+    # right on a desktop and a bad bet on a 2-CPU runner, a stack being a
+    # privileged systemd container and an sshd host. Separate jobs also name
+    # which arrangement failed without reading a combined log.
+    strategy:
+      fail-fast: false
+      matrix:
+        sudo: [classic, rs]
+    env:
+      SUDO: ${{ matrix.sudo }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v7.0.1

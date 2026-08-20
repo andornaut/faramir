@@ -5,11 +5,18 @@ package install
 //
 //   - PASSWD, never NOPASSWD. A passwordless grant is usable with the broker
 //     out of the way, which is a brokered command skipping the escalation.
-//   - A PAM service of faramir's own, named by the entry's `pam_service`, so a
-//     mistake here leaves every other sudo on the host alone.
+//   - A PAM service of faramir's own, so a mistake in what decides an escalation
+//     reaches the executor and no other account.
 //
-// Re-running init without --allow-sudo takes the grant away: the file goes and
-// the account's password is locked.
+// What selects that service is the one thing the two sudo implementations do not
+// share. The original takes `pam_service` and `pam_login_service` in the entry
+// below, and faramir touches nothing else. sudo-rs has neither and compiles in
+// the service names `sudo` and `sudo-i`, so there the selection is a delimited
+// branch in those two stacks: see pamsudo.go. Which arrangement a host gets is
+// probed rather than configured, and doctor re-asks on every run.
+//
+// Re-running init without --allow-sudo takes the grant away: the files go, the
+// branch comes out, and the account's password is locked.
 
 import (
 	"context"
@@ -34,8 +41,15 @@ func (r *runner) stepSudoGrant() error {
 		return r.revokeSudoGrant()
 	}
 	if r.opts.DryRun {
+		// Named for the arrangement this host would get: there is no PamFile on a
+		// sudo-rs host, so naming it would send an operator to a path init is not
+		// going to write.
+		stack := r.layout.PamFile()
+		if r.layout.SudoRs {
+			stack = "a faramir block in " + r.layout.SudoPamFile()
+		}
 		r.step("sudo grant", !exists(sudoersFile), "would grant "+r.layout.ExecUser+
-			" sudo, authenticated by "+r.layout.PamFile())
+			" sudo, authenticated by "+stack)
 		return nil
 	}
 	if !exists(sudoersDir) || !exists(pamDir) {
@@ -49,15 +63,13 @@ func (r *runner) stepSudoGrant() error {
 	}
 
 	// The PAM service first: a sudoers entry naming a service that is not there
-	// sends sudo to /etc/pam.d/other, which asks for a password nothing
-	// supplies.
-	pam, err := render("etc/pam.d.tmpl", r.layout)
-	if err != nil {
-		return err
-	}
-	// 0644 root:root, as every file in /etc/pam.d is: an account that could write
-	// it would be choosing how it authenticates.
-	authChanged, err := r.fs.writeFile(r.layout.PamFile(), pam, 0o644, 0, 0)
+	// sends sudo to /etc/pam.d/other, which asks for a password nothing supplies.
+	//
+	// Only on a host whose sudo is the original, which is the only one that can be
+	// sent here. Under sudo-rs the same stack is written into the shared files
+	// behind a branch on the account, and a service file beside it would be one
+	// nothing reads: see writeSudoPamBlock.
+	authChanged, err := r.syncPamService()
 	if err != nil {
 		return err
 	}
@@ -83,6 +95,26 @@ func (r *runner) stepSudoGrant() error {
 			return err
 		}
 	}
+
+	// The branch in the stacks every account's sudo reads, LAST of the three and
+	// only once the grant is on disk and visudo has taken it. A rejection above
+	// removes the grant and fails the run, and a block written before that point
+	// would outlive it: a branch in a shared file on a host that was granted
+	// nothing.
+	//
+	// The other side removes a block rather than skipping one: an install that
+	// wrote it and an operator who has since switched the `sudo` alternatives
+	// group would otherwise leave a branch in a stack the host's sudo no longer
+	// reads that way.
+	var branchChanged bool
+	if r.layout.SudoRs {
+		branchChanged, err = r.writeSudoPamBlock()
+	} else {
+		branchChanged, err = removeSudoPamBlock(r.fs)
+	}
+	if err != nil {
+		return err
+	}
 	// The account authenticates through the broker and never with a password, so
 	// a usable hash would be a second way in that the broker is not asked about.
 	// Re-asserted every run.
@@ -106,13 +138,46 @@ func (r *runner) stepSudoGrant() error {
 		}
 	}
 
-	if granted || authChanged || envChanged {
+	if granted || authChanged || envChanged || branchChanged {
 		r.restartFor("sudo grant")
 	}
-	r.step("sudo grant", granted || authChanged || envChanged, fmt.Sprintf(
+	// The sentence names what selects the service, that being the whole of the
+	// difference between the two arrangements and the thing an operator has to
+	// know before reading /etc/pam.d.
+	answers := r.layout.PamFile() + ", selected by " + r.layout.SudoersFile() +
+		"'s pam_service"
+	if r.layout.SudoRs {
+		answers = "a faramir block in " + r.layout.SudoPamFile() +
+			", this host's sudo being sudo-rs and reaching no service a caller may name"
+	}
+	r.step("sudo grant", granted || authChanged || envChanged || branchChanged, fmt.Sprintf(
 		"%s may ask to sudo on this host; %s answers, one escalation per command",
-		r.layout.ExecUser, r.layout.PamFile()))
+		r.layout.ExecUser, answers))
 	return nil
+}
+
+// syncPamService writes faramir's own service file, or removes one that should
+// not be there.
+//
+// It should be there only on a host whose sudo is the original, that being the
+// only one that can be sent to a service by name. Under sudo-rs the same stack
+// is the block in the shared files, and a service file beside it is one nothing
+// reads: left behind by an install made before the `sudo` alternatives group was
+// switched, and misleading to anyone who finds it.
+func (r *runner) syncPamService() (bool, error) {
+	if r.layout.SudoRs {
+		if !exists(r.layout.PamFile()) {
+			return false, nil
+		}
+		return true, os.Remove(r.layout.PamFile())
+	}
+	pam, err := render("etc/pam.d.tmpl", r.layout)
+	if err != nil {
+		return false, err
+	}
+	// 0644 root:root, as every file in /etc/pam.d is: an account that could write
+	// it would be choosing how it authenticates.
+	return r.fs.writeFile(r.layout.PamFile(), pam, 0o644, 0, 0)
 }
 
 // revokeSudoGrant is what an install without --allow-sudo does: it removes what
@@ -132,7 +197,16 @@ func (r *runner) revokeSudoGrant() error {
 			found = true
 		}
 	}
-	if !found {
+	// The branch in the shared stacks counts as the grant being here: a host whose
+	// files were removed by hand and whose /etc/pam.d/sudo still carries a branch
+	// has something left to take out.
+	//
+	// An error reading those files is not one: every install that grants nothing
+	// reaches this, which is most of them, and none of them should fail over a
+	// /etc/pam.d this run cannot read. Treated as nothing to remove, and the
+	// removal below says so if there was.
+	branched, _ := sudoPamBlockPresent()
+	if !found && !branched {
 		// Never enabled, which is every default install: nothing to report.
 		return nil
 	}
@@ -148,6 +222,14 @@ func (r *runner) revokeSudoGrant() error {
 		if err := os.Remove(path); err != nil {
 			return err
 		}
+	}
+	if _, err := removeSudoPamBlock(r.fs); err != nil {
+		// Reported rather than fatal, and named: the grant's own files are gone by
+		// now, so nothing can sudo either way, but a branch left in a shared stack
+		// is a line pointing at a helper this run deleted.
+		r.warnf("the faramir block could not be taken out of a shared PAM stack "+
+			"(%v). The grant is gone, so nothing can escalate, but remove the lines "+
+			"between %q and %q by hand", err, pamBlockBegin, pamBlockEnd)
 	}
 	// Locking rather than clearing: an account with an empty password field is one
 	// some PAM stacks let in without asking.
@@ -185,8 +267,9 @@ func (r *runner) validateSudoers() error {
 }
 
 // writeSudoEnv renders what a brokered command's sudo is given on top of what
-// sudo builds. Root's, 0644: sudoers reads it as part of the policy, and the
-// executor's uid must not be able to write what root will be handed.
+// sudo builds. Root's, 0644: PAM reads it as root through the pam_env line in
+// faramir's own service, and the executor's uid must not be able to write what
+// root will be handed.
 //
 // A value carrying a newline would be a second variable this file never named,
 // so one is refused rather than written -- the operator is told, and the rest of
@@ -241,17 +324,17 @@ func (r *runner) sudoEnv() Layout {
 				r.layout.SudoEnvFile())
 			continue
 		}
-		// What env_refs refuses, refused here too. sudoers reads this file without
-		// env_keep or env_check, so a name that redirects the loader, the interpreter
-		// or sops reaches root through it -- and sudo's own env_reset used to strip
-		// exactly these before this file existed.
+		// What env_refs refuses, refused here too. What PAM hands back is not put
+		// through env_keep or env_check, so a name that redirects the loader, the
+		// interpreter or sops reaches root through it -- and sudo's own env_reset used
+		// to strip exactly these before this file existed.
 		if protocol.ReservedEnv[name] {
 			// Quietly for the ones sudo sets itself. PATH is a [command] env default,
 			// so warning about it would put a line on every clean install that names
 			// nothing the operator did and nothing they can act on -- and this is the
 			// same channel that has to carry a '#' in a value or a name that is not a
-			// name. sudo adds an env_file entry only where it has not set one already,
-			// so leaving these out changes nothing either way.
+			// name. sudo sets these over whatever PAM handed back, so leaving them out
+			// changes nothing either way.
 			if !sudoSetsItself[name] {
 				r.warnf("[command] env %s is left out of %s: it is one of the names an "+
 					"injected value may not carry either, and this file is read without "+

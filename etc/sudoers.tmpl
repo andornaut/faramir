@@ -4,35 +4,63 @@
 # init without --allow-sudo removes this file: the grant is the one place the
 # executor's reach grows, so taking it away is a re-run rather than an edit.
 #
-# {{.ExecUser}} is the uid every brokered command runs as. It gets full sudo
-# and an authentication step it cannot satisfy by itself: pam_service below
-# points sudo at {{.PamFile}}, whose auth step asks the broker whether a human
-# approved the command making the call. No password exists to be typed,
-# stored or stolen.
+# {{.ExecUser}} is the uid every brokered command runs as. It gets full sudo and
+# an authentication step it cannot satisfy by itself: a PAM stack whose auth step
+# asks the broker whether a human approved the command making the call. No
+# password exists to be typed, stored or stolen.
 #
 # NOT NOPASSWD, and that is the whole design. NOPASSWD skips PAM entirely, so
 # the question would never be asked and anything running as this uid would be
 # root for the asking. The PASSWD tag is what makes sudo authenticate, and
 # authenticating is what reaches the broker.
 #
-# pam_service is what keeps a mistake here from reaching anybody else: every
-# other account's sudo reads the stock /etc/pam.d/sudo, which faramir never
-# touches.
+# THIS FILE IS RENDERED FOR THE SUDO THAT WILL READ IT. Both implementations
+# read /etc/sudoers.d, and they do not take the same settings, so init asks
+# which one /usr/bin/sudo resolves to and writes what that one parses. Flipping
+# the `sudo` alternatives group after an install leaves a grant the host's sudo
+# cannot use: `faramir doctor` reports that, and re-running init rewrites it.
 #
+# The environment is not part of that split. What a brokered command keeps
+# across its sudo is read by a pam_env line in that stack, wherever it is, and
+# never by this file: sudo-rs has no env_file, and there is no reason to carry
+# two ways of doing it. env_reset still discards what the caller had, which is
+# right: the
+# executor's uid is shared by every brokered command, so anything it was
+# holding is a value one of them chose. Not env_keep, which would put that value
+# back under the same name.
+{{if .SudoRs}}#
+# THIS HOST'S SUDO IS SUDO-RS, which has no pam_service setting and reaches the
+# service named `sudo` for everybody, so there is nothing to point at a service
+# of faramir's own and no {{.PamFile}} on this host at all. The stack is instead
+# a delimited block in {{.SudoPamFile}}: a branch that tests the account, then
+# the modules that decide, carry the environment and end it. {{.ExecUser}} meets
+# those; every other account skips them and meets what the file already said.
+{{else}}#
+# pam_service is what keeps a mistake here from reaching anybody else: it sends
+# {{.ExecUser}} to {{.PamFile}}, and every other account's sudo reads the stock
+# {{.SudoPamFile}}, which faramir never touches on a host whose sudo is the
+# original.
+#
+# pam_login_service is the same setting for `sudo -i`, which sudo authenticates
+# against a service of its own. Without it a login shell escalation reads the
+# stock sudo-i stack and meets a password check {{.ExecUser}} cannot pass, so
+# the question is never put and the command fails with nothing naming why.
+{{end}}#
 # timestamp_timeout=0 turns off sudo's credential cache, leaving the broker to
 # decide what an approval covers. It scopes one to the brokered command the
 # human was shown: every `sudo` that one run makes, and nothing after it ends.
 # sudo's timestamp would instead scope it to the next fifteen minutes, which
 # anything starting a command inside that window could ride.
 #
-# env_file is the other half of env_reset. sudo discards the caller's
-# environment, which is right -- the executor's uid is shared by every brokered
-# command, so anything it carries is a value one of them chose. What a brokered
-# command should have instead comes from a file this policy names, which that uid
-# cannot write. Not env_keep, which would preserve the caller's own value under
-# the same name and hand root exactly what the reset threw away.
-Defaults:{{.ExecUser}} pam_service={{.PamService}}
-Defaults:{{.ExecUser}} timestamp_timeout=0
+# noninteractive_auth is what lets `sudo -n` reach the question at all. Without
+# it sudo refuses before the PAM stack runs, so a caller that passes -n -- which
+# ansible's become does by default -- fails every task with `a password is
+# required` while a human sits watching for a question nothing ever asked. There
+# is no prompt to protect: this stack reads no terminal, so the setting admits
+# the one authentication method the host has rather than widening it.
+{{if not .SudoRs}}Defaults:{{.ExecUser}} pam_service={{.PamService}}
+Defaults:{{.ExecUser}} pam_login_service={{.PamService}}
+{{end}}Defaults:{{.ExecUser}} timestamp_timeout=0
 Defaults:{{.ExecUser}} passwd_tries=1
-Defaults:{{.ExecUser}} env_file={{.SudoEnvFile}}
+Defaults:{{.ExecUser}} noninteractive_auth
 {{.ExecUser}} ALL=(ALL:ALL) PASSWD: ALL

@@ -7,6 +7,12 @@
 #   ./e2e.sh sh [cmd...]   a shell in the container, or one command
 #   ./e2e.sh cp FILE...    copy a script in without running it
 #   ./e2e.sh down          remove the container and image
+#   ./e2e.sh both          a stack per sudo implementation, at the same time
+#
+# SUDO=classic (the default) or SUDO=rs picks which sudo the stack's host runs,
+# and so which arrangement `--allow-sudo` installs. Every container, image and
+# network name takes a suffix from it, so the two stacks are separate and can be
+# up together; `both` is that pair run concurrently.
 #
 # `up` is safe to re-run: it rebuilds the binary from the current tree and
 # re-bootstraps, which is idempotent.
@@ -27,13 +33,31 @@
 # it. `fetch` puts them there. See README.md.
 set -eu
 
-NAME=faramir-e2e
-IMAGE=faramir-e2e
+# Which sudo this stack's host runs, and so which arrangement `--allow-sudo`
+# installs: the two implementations take different settings out of the same
+# /etc/sudoers.d, and the one most Ubuntu hosts now have is sudo-rs. Both are in
+# the image; this picks the `sudo` alternatives group inside the container.
+#
+# Every name below takes a suffix from it, so `SUDO=rs ./e2e.sh up` builds a
+# stack of its own and the two run side by side. Unset is the original sudo and
+# the names it has always had, so nothing that does not ask for this changes.
+SUDO=${SUDO:-classic}
+case $SUDO in
+  classic) SUFFIX= ;;
+  rs)      SUFFIX=-rs ;;
+  *) echo "e2e: SUDO is '$SUDO', want 'classic' or 'rs'" >&2; exit 2 ;;
+esac
+NAME=${NAME:-faramir-e2e$SUFFIX}
+IMAGE=${IMAGE:-faramir-e2e$SUFFIX}
 # A second host the broker's key is the only way into, on a network of their
 # own, so the ssh suite can put the relay to a real sshd rather than to a stub.
-MANAGED=managed-host
-MANAGED_IMAGE=faramir-managed
-NETWORK=faramirnet
+MANAGED=${MANAGED:-managed-host$SUFFIX}
+# What the suites dial it by, which is NOT the container name: the two stacks are
+# on networks of their own, so both can answer to the same alias, and a suite
+# that hardcodes it works in either.
+MANAGED_HOST=managed-host
+MANAGED_IMAGE=${MANAGED_IMAGE:-faramir-managed$SUFFIX}
+NETWORK=${NETWORK:-faramirnet$SUFFIX}
 HERE=$(cd "$(dirname "$0")" && pwd)
 # The tree under test, two levels up from tests/e2e.
 REPO=${REPO:-$(cd "$HERE/../.." && pwd)}
@@ -53,7 +77,7 @@ AGE_SHA256=0c6ddc31c276f55e9414fe27af4aada4579ce2fb824c1ec3f207873a77a49752
 AGE_KEYGEN_SHA256=e279f64ccd11347e57b8d28304e3e358ae1a5ef4f19107e7a1f9c9156fdcad91
 
 die() { printf 'e2e: %s\n' "$1" >&2; exit 1; }
-running() { [ "$(docker inspect -f '{{.State.Running}}' $NAME 2>/dev/null)" = true ]; }
+running() { [ "$(docker inspect -f '{{.State.Running}}' "$NAME" 2>/dev/null)" = true ]; }
 
 # build_skew produces a second binary reporting a version the first one does
 # not, which is what the doctor suite swaps in to make the broker and the CLI
@@ -183,33 +207,41 @@ cmd_up() {
     check_pinned "$tool"
   done
   echo "== building the image"
-  docker build -q -f "$HERE/Dockerfile.e2e" -t $IMAGE "$HERE" >/dev/null
+  docker build -q -f "$HERE/Dockerfile.e2e" -t "$IMAGE" "$HERE" >/dev/null
   echo "== building the managed host image"
-  docker build -q -f "$HERE/Dockerfile.managed" -t $MANAGED_IMAGE "$HERE" >/dev/null
-  docker network inspect $NETWORK >/dev/null 2>&1 || docker network create $NETWORK >/dev/null
+  docker build -q -f "$HERE/Dockerfile.managed" -t "$MANAGED_IMAGE" "$HERE" >/dev/null
+  docker network inspect "$NETWORK" >/dev/null 2>&1 || docker network create "$NETWORK" >/dev/null
   echo "== starting the containers"
-  docker rm -f $NAME $MANAGED >/dev/null 2>&1 || true
+  docker rm -f "$NAME" "$MANAGED" >/dev/null 2>&1 || true
   # --network-alias, so the broker dials the name the suite and the known_hosts
   # entry both use.
-  docker run -d --name $MANAGED --network $NETWORK --network-alias $MANAGED \
-    $MANAGED_IMAGE >/dev/null
+  docker run -d --name "$MANAGED" --network "$NETWORK" --network-alias "$MANAGED_HOST" \
+    "$MANAGED_IMAGE" >/dev/null
   # Privileged with the host's cgroup namespace: systemd inside a container
   # needs a writable cgroup tree, and a private namespace leaves it exiting 255.
-  docker run -d --name $NAME --privileged --cgroupns=host --network $NETWORK \
-    -v /sys/fs/cgroup:/sys/fs/cgroup:rw $IMAGE >/dev/null
+  docker run -d --name "$NAME" --privileged --cgroupns=host --network "$NETWORK" \
+    -v /sys/fs/cgroup:/sys/fs/cgroup:rw "$IMAGE" >/dev/null
   for _ in $(seq 30); do
-    [ "$(docker exec $NAME systemctl is-system-running 2>/dev/null)" = running ] && break
+    [ "$(docker exec "$NAME" systemctl is-system-running 2>/dev/null)" = running ] && break
     sleep 1
   done
   running || die "the container did not come up"
   echo "== bootstrapping"
-  docker cp "$HERE/plugin-harness.mjs" $NAME:/root/
-  docker cp "$HERE/bootstrap.sh" $NAME:/root/
-  docker exec $NAME bash /root/bootstrap.sh
+  docker cp "$HERE/plugin-harness.mjs" "$NAME":/root/
+  # Which sudo this stack's host runs. Set before bootstrap, `faramir init`
+  # reading it to decide which arrangement the grant gets. The image installs
+  # both and pins the original, so this is the only thing that moves it.
+  case $SUDO in
+    classic) docker exec "$NAME" update-alternatives --set sudo /usr/bin/sudo.ws >/dev/null ;;
+    rs)      docker exec "$NAME" update-alternatives --set sudo /usr/lib/cargo/bin/sudo >/dev/null ;;
+  esac
+  echo "== sudo is $(docker exec "$NAME" sudo -V 2>/dev/null | head -1)"
+  docker cp "$HERE/bootstrap.sh" "$NAME":/root/
+  docker exec "$NAME" bash /root/bootstrap.sh
   wire_managed_host
   # The marker cmd_run consumes to tell a first run on a clean box from a re-run
   # against one the suites have already mutated.
-  docker exec $NAME touch /root/.e2e-fresh
+  docker exec "$NAME" touch /root/.e2e-fresh
 }
 
 # wire_managed_host is the part no container can do for itself: the broker's
@@ -218,36 +250,61 @@ cmd_up() {
 # brokered ssh fails and the suite cannot tell "the relay is broken" from "these
 # two hosts were never introduced".
 wire_managed_host() {
-  echo "== introducing the broker and $MANAGED"
+  echo "== introducing the broker and $MANAGED_HOST"
   for _ in $(seq 30); do
-    docker exec $MANAGED test -f /etc/ssh/ssh_host_ed25519_key.pub && break
+    docker exec "$MANAGED" test -f /etc/ssh/ssh_host_ed25519_key.pub && break
     sleep 1
   done
   local pub
-  pub=$(docker exec $NAME cat /etc/faramir/id_ed25519.pub)
-  docker exec $MANAGED bash -c "printf '%s\n' '$pub' > /home/deploy/.ssh/authorized_keys
+  pub=$(docker exec "$NAME" cat /etc/faramir/id_ed25519.pub)
+  docker exec "$MANAGED" bash -c "printf '%s\n' '$pub' > /home/deploy/.ssh/authorized_keys
     chown deploy:deploy /home/deploy/.ssh/authorized_keys
     chmod 0600 /home/deploy/.ssh/authorized_keys"
   # The system-wide file, which every account reads: the executor has no way to
   # be prompted to accept a key, so an unpinned host is refused before the
   # broker's key is offered.
   local hostkey
-  hostkey=$(docker exec $MANAGED cat /etc/ssh/ssh_host_ed25519_key.pub)
-  docker exec $NAME bash -c "printf '%s %s\n' '$MANAGED' '$(printf '%s' "$hostkey" | cut -d" " -f1,2)' \
+  hostkey=$(docker exec "$MANAGED" cat /etc/ssh/ssh_host_ed25519_key.pub)
+  docker exec "$NAME" bash -c "printf '%s %s\n' '$MANAGED_HOST' '$(printf '%s' "$hostkey" | cut -d" " -f1,2)' \
     >> /etc/ssh/ssh_known_hosts; chmod 0644 /etc/ssh/ssh_known_hosts"
-  docker exec $NAME sh -c "command -v ssh >/dev/null" \
+  docker exec "$NAME" sh -c "command -v ssh >/dev/null" \
     || echo "e2e: the broker image has no ssh client; the ssh suite will not run"
 }
 
-cmd_cp() { for f in "$@"; do docker cp "$HERE/$f" $NAME:/root/; done; }
+# cmd_both runs a stack per arrangement, at the same time. They share nothing:
+# separate containers, images and network, and each container's systemd roots
+# under its own docker-<id>.scope, so the cgroup trees do not meet.
+cmd_both() {
+  local status=0 pids=() sudo
+  # Under the invoking uid, /tmp being shared: another account's log of the same
+  # name is one this cannot write and would report as an empty run.
+  local logs
+  logs="${TMPDIR:-/tmp}/faramir-e2e-$(id -u)"
+  for sudo in classic rs; do
+    ( SUDO=$sudo "$0" fetch >/dev/null 2>&1
+      SUDO=$sudo "$0" up  >"$logs-$sudo-up.log"  2>&1 &&
+      SUDO=$sudo "$0" run >"$logs-$sudo-run.log" 2>&1 ) &
+    pids+=($!)
+  done
+  for pid in "${pids[@]}"; do wait "$pid" || status=1; done
+  for sudo in classic rs; do
+    printf '\n######## %s (%s-%s-run.log)\n' "$sudo" "$logs" "$sudo"
+    grep -E "^(==|####|e2e:)" "$logs-$sudo-run.log" 2>/dev/null ||
+      { echo "  no run log; the stack did not come up"; tail -5 "$logs-$sudo-up.log" 2>/dev/null; }
+  done
+  [ $status -eq 0 ] && echo "e2e: both arrangements passed" || echo "e2e: an arrangement failed"
+  return $status
+}
+
+cmd_cp() { for f in "$@"; do docker cp "$HERE/$f" "$NAME":/root/; done; }
 
 cmd_run() {
   running || die "the container is not up; run ./e2e.sh up"
   # The suites are single-shot: they mutate the shared install, so a run against
   # a box a previous run already touched measures leftovers. `up` stamps a
   # marker; consume it on the first run and warn on every one after.
-  if docker exec $NAME test -e /root/.e2e-fresh 2>/dev/null; then
-    docker exec $NAME rm -f /root/.e2e-fresh
+  if docker exec "$NAME" test -e /root/.e2e-fresh 2>/dev/null; then
+    docker exec "$NAME" rm -f /root/.e2e-fresh
   else
     printf 'e2e: this box has already been run against; the suites have accumulated state.\n' >&2
     printf 'e2e: failures below may be leftovers, not regressions. Run ./e2e.sh up for a clean baseline.\n' >&2
@@ -275,13 +332,13 @@ cmd_run() {
   # Beside every suite, because each one sources it. Copied here rather than
   # baked into the image for the same reason the suites are: editing it takes
   # effect on the next run, with no rebuild.
-  docker cp "$HERE/lib.sh" $NAME:/root/ >/dev/null
+  docker cp "$HERE/lib.sh" "$NAME":/root/ >/dev/null
   for n in "${names[@]}"; do
     local script="check-$n.sh"
     [ -f "$HERE/$script" ] || die "no $script here"
-    docker cp "$HERE/$script" $NAME:/root/ >/dev/null
+    docker cp "$HERE/$script" "$NAME":/root/ >/dev/null
     printf '\n######## %s\n' "$script"
-    docker exec $NAME bash "/root/$script" || failed=1
+    docker exec -e FARAMIR_E2E_SUDO="$SUDO" "$NAME" bash "/root/$script" || failed=1
   done
   printf '\n'
   [ $failed -eq 0 ] && echo "e2e: every suite passed" || echo "e2e: at least one suite failed"
@@ -290,14 +347,25 @@ cmd_run() {
 
 cmd_sh() {
   running || die "the container is not up; run ./e2e.sh up"
-  if [ $# -eq 0 ]; then docker exec -it $NAME bash; else docker exec $NAME "$@"; fi
+  if [ $# -eq 0 ]; then docker exec -it "$NAME" bash; else docker exec "$NAME" "$@"; fi
 }
 
+# cmd_down removes every stack, not the one this invocation is addressed to:
+# `both` leaves two up, and a `down` that took away half of them would leave
+# containers running under names the next `down` has no reason to name either.
 cmd_down() {
-  docker rm -f $NAME $MANAGED >/dev/null 2>&1 || true
-  docker rmi -f $IMAGE $MANAGED_IMAGE >/dev/null 2>&1 || true
-  docker network rm $NETWORK >/dev/null 2>&1 || true
-  echo "e2e: containers, images and network removed"
+  local suffix
+  for suffix in "" -rs; do
+    docker rm -f "faramir-e2e$suffix" "managed-host$suffix" >/dev/null 2>&1 || true
+    docker rmi -f "faramir-e2e$suffix" "faramir-managed$suffix" >/dev/null 2>&1 || true
+    docker network rm "faramirnet$suffix" >/dev/null 2>&1 || true
+  done
+  # And whatever this invocation was pointed at, which the loop above misses when
+  # a name was given rather than derived.
+  docker rm -f "$NAME" "$MANAGED" >/dev/null 2>&1 || true
+  docker rmi -f "$IMAGE" "$MANAGED_IMAGE" >/dev/null 2>&1 || true
+  docker network rm "$NETWORK" >/dev/null 2>&1 || true
+  echo "e2e: containers, images and networks removed, both arrangements"
 }
 
 case "${1:-}" in
@@ -307,5 +375,6 @@ case "${1:-}" in
   sh) shift; cmd_sh "$@";;
   cp) shift; cmd_cp "$@";;
   down) shift; cmd_down "$@";;
+  both) shift; cmd_both "$@";;
   *) sed -n '2,13p' "$0" | sed 's/^# \?//'; exit 2;;
 esac

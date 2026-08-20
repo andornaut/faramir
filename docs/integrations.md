@@ -245,14 +245,9 @@ faramir run --env-file faramir.env -- ansible-playbook msmtp.yml --limit '!contr
 
 A playbook that touches every host then splits in two: the fleet through the broker, the controller as root some other way. `sudo faramir init --allow-sudo` closes that: a brokered command's `sudo` puts a question to a human, answered per run by `sudo faramir approve ID`, with no password anywhere. How to run it is [escalation.md](escalation.md); the reasoning is [design.md](design.md#allowing-sudo-on-the-controller).
 
-The Ansible side is one variable, on the controller host only:
+The Ansible side needs nothing. `become` passes `-n` by default, which tells `sudo` to fail rather than authenticate; the grant sets `noninteractive_auth` for the executor alone, which is what lets the PAM stack run under it and the question be put. Nothing here prompts, so there is no `SUDO_ASKPASS` and no `-A`.
 
-```yaml
-# host_vars/controller.yml
-ansible_become_flags: '-H'
-```
-
-Dropping the default `-n` is the whole of it: `-n` tells `sudo` to fail rather than authenticate, and it does so before the PAM stack runs, so the question is never put and every task fails with `sudo: a password is required` even when a human is watching. Nothing here prompts, so there is no `SUDO_ASKPASS` and no `-A`. `-H` sets `HOME` to root's, which is what `become` normally does for you.
+An install made before that setting existed left `-n` to be dropped by hand, with `ansible_become_flags: '-H'` in `host_vars`. Re-running `faramir init --allow-sudo` rewrites the grant, after which the variable can go; leaving it in place still works.
 
 Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. Leave a watcher running as root, in a terminal the coding agent cannot type into, and the first task that runs sudo puts its question there naming the playbook:
 

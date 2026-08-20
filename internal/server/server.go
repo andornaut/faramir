@@ -1065,13 +1065,18 @@ func (s *Server) describeEscalation() (map[string]any, []string) {
 		problems = append(problems, cfg.Helper+": "+err.Error()+
 			" (the PAM service execs it, so no escalation can be approved)")
 	}
-	// Absent, PAM falls back to /etc/pam.d/other, which asks for a password
-	// nothing supplies on a normal host and authenticates anything on one whose
-	// `other` is permissive; doctor checks that too.
-	pamFile := "/etc/pam.d/" + cfg.PamService
-	if _, err := os.Stat(pamFile); err != nil {
-		problems = append(problems, pamFile+": "+err.Error()+
-			" (sudo would fall back to /etc/pam.d/other for "+cfg.ExecUser+")")
+	// The stack that execs it, wherever it is on this host: a service file of
+	// faramir's own where sudo can be sent to one by name, and a block in the
+	// stacks every account reads where it cannot. Absent either way, PAM falls
+	// back to /etc/pam.d/other, which asks for a password nothing supplies on a
+	// normal host and authenticates anything on one whose `other` is permissive;
+	// doctor checks that too.
+	if stack, err := escalation.Stack(escalation.PamDir, cfg.PamStack, cfg.PamService); err != nil {
+		problems = append(problems, "nothing here authenticates an escalation: "+
+			err.Error()+" (sudo would fall back to /etc/pam.d/other for "+
+			cfg.ExecUser+")")
+	} else {
+		info["pam_stack"] = stack
 	}
 	// The notifier is optional, `faramir escalations --watch` being where a
 	// question is seen, but one configured and absent announces nothing,

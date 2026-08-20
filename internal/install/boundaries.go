@@ -632,17 +632,67 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 		return
 	}
 
+	// Where the stack that decides an escalation actually is, which is the one
+	// thing the two implementations do not share. On a host whose sudo is the
+	// original it is a service file of faramir's own, named by the grant. Under
+	// sudo-rs there is no way to name one, so the same stack is the block in the
+	// shared files and there is no service file at all.
+	//
+	// The block is also the tell for which implementation the install was made
+	// for: one that found sudo-rs always writes it and one that found the original
+	// never does. So the checks below catch a host whose `sudo` alternatives group
+	// was switched after an install, in either direction, without reading the
+	// grant -- which is 0440 and root's, and so out of reach of a doctor run that
+	// is not.
+	//
+	// The executor is taken from the config rather than from opts, which is
+	// derived from the exec unit and may not have been resolved: an empty name
+	// would make the branch's own account test match anything.
+	sudoRs := sudoRsProbe()
+	execUser := cfg.Escalation.ExecUser
 	pamFile := filepath.Join(pamDir, cfg.Escalation.PamService)
-	body, err := os.ReadFile(pamFile)
-	if err != nil {
-		report.addf("sudo grant", StatusFailed, "%s is configured to authenticate "+
-			"through %s, which cannot be read (%v): sudo falls back to %s/other for "+
-			"that account. Re-run `faramir init --allow-sudo`",
-			opts.ExecUser, pamFile, err, pamDir)
-		return
+	var (
+		body []byte
+		err  error
+	)
+	if sudoRs {
+		if problem := sudoPamBranchProblem(execUser, cfg.Escalation.Helper); problem != "" {
+			report.addf("sudo grant", StatusFailed, "%s", problem)
+			return
+		}
+		// The block is the stack, so it is what the stack checks below are put to.
+		// The first shared file that is actually there: a distribution that does not
+		// split the login case out has no sudo-i, and one that names sudo-i only is
+		// not a host to report a missing sudo about.
+		pamFile = cfg.Escalation.PamStack
+		if pamFile == "" || !exists(pamFile) {
+			pamFile = firstExistingStack()
+		}
+		if body, err = sudoPamBlock(pamFile); err != nil {
+			report.addf("sudo grant", StatusFailed, "%s: %v. Re-run `faramir init "+
+				"--allow-sudo`", pamFile, err)
+			return
+		}
+	} else {
+		if body, err = os.ReadFile(pamFile); err != nil {
+			report.addf("sudo grant", StatusFailed, "%s is configured to authenticate "+
+				"through %s, which cannot be read (%v): sudo falls back to %s/other for "+
+				"that account. Re-run `faramir init --allow-sudo`",
+				execUser, pamFile, err, pamDir)
+			return
+		}
 	}
 	if problem := pamStackProblem(string(body), cfg.Escalation.Helper); problem != "" {
 		report.addf("sudo grant", StatusFailed, "%s: %s", pamFile, problem)
+		return
+	}
+	if present, err := sudoPamBlockPresent(); !sudoRs && err == nil && present {
+		report.addf("sudo grant", StatusFailed, "a faramir block is still in %s "+
+			"while this host's sudo is the original, which selects %s with the "+
+			"grant's own pam_service: the block is left over from an install made "+
+			"when the `sudo` alternatives group pointed elsewhere, and the grant "+
+			"beside it may name settings this sudo does not read. Re-run `faramir "+
+			"init --allow-sudo`", strings.Join(sudoPamFiles(), " or "), pamFile)
 		return
 	}
 	// The helper the stack execs, as root. An account that can write it chooses
@@ -656,23 +706,33 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 			return
 		}
 	}
-	// The environment file the sudoers entry names as env_file. sudo reads it as
-	// part of the policy, so an account that can write it chooses what root is
-	// handed; a missing one makes sudo warn on every brokered command. Beside the
-	// helper, which is the one path this diagnosis is given.
+	// The environment file a brokered command's sudo hands root. An account that
+	// can write it chooses that environment, and a missing one means what a
+	// command was given does not survive its sudo. Beside the helper, which is the
+	// one path this diagnosis is given.
+	//
+	// Read by a pam_env line in faramir's own service, on every host: sudoers has
+	// an env_file that does the same job and sudo-rs has no such setting, so the
+	// one mechanism that works on both is the one this asks about.
 	sudoEnv := filepath.Join(filepath.Dir(cfg.Escalation.Helper), "sudo-env")
+	names := pamFile + " reads it with pam_env"
+	if !strings.Contains(string(body), "pam_env.so") {
+		report.addf("sudo grant", StatusFailed, "%s has no pam_env line, so nothing "+
+			"puts %s into what a brokered command's sudo hands root: FARAMIR_OPERATOR "+
+			"and [command] env do not survive it. Re-run `faramir init --allow-sudo`",
+			pamFile, sudoEnv)
+		return
+	}
 	if _, err := os.Stat(sudoEnv); err != nil {
-		report.addf("sudo grant", StatusFailed, "%s names %s as its env_file, which "+
-			"cannot be read (%v): sudo warns on every brokered command and the "+
+		report.addf("sudo grant", StatusFailed, "%s, and it cannot be read (%v): the "+
 			"variables a command is given do not survive its sudo. Re-run "+
-			"`faramir init --allow-sudo`", sudoersFile, sudoEnv, err)
+			"`faramir init --allow-sudo`", names, err)
 		return
 	}
 	for _, account := range accounts {
 		if canWrite(account, sudoEnv) {
-			report.addf("sudo grant", StatusFailed, "%s can write %s, which sudo reads "+
-				"as part of the policy: it would be choosing the environment root is "+
-				"handed", account, sudoEnv)
+			report.addf("sudo grant", StatusFailed, "%s can write %s, and %s: it would "+
+				"be choosing the environment root is handed", account, sudoEnv, names)
 			return
 		}
 	}

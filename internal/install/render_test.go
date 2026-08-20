@@ -47,6 +47,7 @@ func TestTemplatesRender(t *testing.T) {
 		"etc/logrotate.conf.tmpl",
 		"etc/sudoers.tmpl",
 		"etc/pam.d.tmpl",
+		"etc/pam.d-sudo.tmpl",
 		"agent/hooks/pam-approve.tmpl",
 		"systemd/faramir.tmpfiles.conf.tmpl",
 	}, unitValues()...)

@@ -311,10 +311,20 @@ type EscalationConfig struct {
 	// for the whole arrangement. The helper checks PAM_USER against it, so a PAM
 	// service reached for some other account authenticates nothing.
 	ExecUser string
-	// PamService is the sudoers `pam_service` name, and so the file under
-	// /etc/pam.d that sudo reads for that account alone: a mistake in it reaches
-	// this account and leaves every other sudo untouched.
+	// PamService is the sudoers `pam_service` name, which on a host whose sudo
+	// takes that setting is the file under /etc/pam.d that sudo reads for this
+	// account alone: a mistake in it reaches this account and leaves every other
+	// sudo untouched.
 	PamService string
+	// PamStack is the file that actually carries that stack on this host, which
+	// is not always the one PamService names. sudo-rs has no pam_service and
+	// reaches the service called `sudo` for everybody, so there the stack is a
+	// delimited block inside /etc/pam.d/sudo and no service file exists at all.
+	//
+	// Recorded rather than inferred, so reading config.toml says what this host
+	// is. Empty in a config written before the key existed, and every reader
+	// falls back to looking for either arrangement.
+	PamStack string
 	// Helper is what the PAM service execs. Named here so --check and doctor can
 	// say whether it is there and who can write it.
 	Helper string
@@ -520,7 +530,7 @@ var (
 	commandKeys  = []string{"env", "timeout_sec", "max_timeout_sec", "concurrency"}
 	sshKeys      = []string{"key", "agent_socket", "exec_group",
 		"ssh_agent", "ssh_add"}
-	escalationKeys = []string{"exec_user", "pam_service", "helper",
+	escalationKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
 		"notify_command", "timeout_sec"}
 	secretKeys = []string{"min_length", "min_refresh_sec", "link", "refuse"}
 	linkKeys   = []string{"ref", "path", "type", "key"}
@@ -962,7 +972,12 @@ func loadEscalation(raw map[string]any, path string, out *EscalationConfig) erro
 	// entry: the rest describes where things would go if one ever did.
 	*out = EscalationConfig{
 		PamService: "faramir-sudo",
-		Helper:     "/usr/local/libexec/faramir/pam-approve",
+		// No default: which file carries the stack depends on which sudo the host
+		// has, and a guess here would be a config asserting something nobody
+		// established. Absent means "look for either", which is what an install
+		// made before this key existed leaves behind.
+		PamStack: "",
+		Helper:   "/usr/local/libexec/faramir/pam-approve",
 		// Nothing by default: `faramir escalations --watch` is where a question is
 		// seen and answered.
 		NotifyCommand: nil,
@@ -972,6 +987,9 @@ func loadEscalation(raw map[string]any, path string, out *EscalationConfig) erro
 		return err
 	}
 	if out.PamService, err = str(sec["pam_service"], where, out.PamService); err != nil {
+		return err
+	}
+	if out.PamStack, err = str(sec["pam_stack"], where, out.PamStack); err != nil {
 		return err
 	}
 	if out.Helper, err = str(sec["helper"], where, out.Helper); err != nil {

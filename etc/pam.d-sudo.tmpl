@@ -1,0 +1,40 @@
+# BEGIN faramir
+# Written by `faramir init --allow-sudo` on a host whose sudo is sudo-rs, which
+# has no pam_service setting and reads the service named `sudo` for everybody.
+# Removed by a re-run without the flag, and by `faramir uninstall`. Everything
+# outside these two markers is the distribution's and is left as it was.
+#
+# On this host these four lines ARE faramir's PAM stack. There is no separate
+# service file: a stack reached by `auth include` is inlined into this one, and
+# the jump below would then be counting modules that live in another file, where
+# an edit or a re-render changes how many there are. What a wrong count does is
+# not a broken escalation -- it is the branch skipping the module that decides
+# and landing on the one that permits, which authenticates EVERY OTHER ACCOUNT
+# ON THE HOST with no password. So the jump and the modules it skips are written
+# together, from one template, and `faramir doctor` checks that what is on disk
+# is what was rendered.
+#
+# THE FIRST LINE IS THE BRANCH, AND `default=3` IS THE THREE LINES AFTER IT.
+# Any account that is not {{.ExecUser}} skips all three and meets the stack this
+# file already had, unchanged. Change the number of auth lines below and this
+# number changes with it, or the branch stops landing where it means to.
+auth [success=ok default=3] pam_succeed_if.so quiet user = {{.ExecUser}}
+#
+# What decides one escalation, as root. `requisite`: a refusal is fatal here and
+# now, so it does not depend on the account's password being locked, and it
+# cannot fall through to the pam_permit below. `seteuid` because pam_exec
+# otherwise runs the helper with the real uid, which under setuid sudo is
+# {{.ExecUser}}'s own, and the broker answers the escalate op to root alone.
+auth requisite   pam_exec.so quiet seteuid {{.PamHelper}}
+#
+# What a brokered command keeps across its sudo. `optional`: a variable that did
+# not arrive is not a reason to grant or refuse root. sudo sets PATH, HOME and
+# SUDO_* over whatever this names.
+auth optional    pam_env.so envfile={{.SudoEnvFile}} readenv=1
+#
+# Reached only by {{.ExecUser}}, and only past a requisite that succeeded, which
+# is a human having said yes. `sufficient` ends the stack here rather than
+# falling through to the password check this file has for everybody else, which
+# an account with a locked password cannot pass.
+auth sufficient  pam_permit.so
+# END faramir

@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/escalation"
 )
 
 // Default paths. Only ConfigDir is meant to be moved; the rest are here so the
@@ -46,8 +47,11 @@ const (
 // Variables rather than constants so a test can point at files it wrote: a host
 // with one and not the other is a state no test can create at the real paths.
 var (
-	sudoersDir      = "/etc/sudoers.d"
-	pamDir          = "/etc/pam.d"
+	sudoersDir = "/etc/sudoers.d"
+	// pamDir is internal/escalation's, not a second copy: the broker reads the
+	// same directory when it answers whether this host can escalate at all, and a
+	// test that moved one of two would exercise code still looking at /etc.
+	pamDir          = escalation.PamDir
 	sudoersFile     = sudoersDir + "/faramir"
 	pamServiceFile  = pamDir + "/" + pamServiceName
 	logrotateConfig = "/etc/logrotate.d/faramir"
@@ -167,6 +171,14 @@ type Layout struct {
 	// can be asked for.
 	AllowSudo bool
 
+	// SudoRs says which sudo will read what this install writes. Both
+	// implementations read /etc/sudoers.d and they take different settings, so
+	// the grant, the PAM service and the question of whether a shared stack is
+	// edited at all are rendered for the one /usr/bin/sudo resolves to. Probed at
+	// install time rather than configured: it follows the `sudo` alternatives
+	// group, which an operator changes without telling faramir.
+	SudoRs bool
+
 	// NotifyCommand announces that a question is waiting. Empty is the default
 	// and means `faramir escalations --watch` is the only place one shows up.
 	// Written by init, as pam_service and helper are: the broker execs this as
@@ -185,13 +197,43 @@ func (l Layout) PamService() string { return pamServiceName }
 // PamFile is where that service lives.
 func (l Layout) PamFile() string { return pamServiceFile }
 
-// SudoEnvFile is what the grant's env_file points at. Beside the other files this
-// install renders for its own use, and so with the hook that reads them: not
-// under /etc/sudoers.d, which sudo parses in its entirety, and not under the
-// config directory, which an uninstall keeps and so must never remove wholesale.
-// Nowhere the executor's uid can write either, since sudoers reads this as part
-// of the policy and a file that uid could rewrite would be that uid choosing
-// root's environment.
+// sudoPamFiles is the stacks every account's sudo reads. faramir writes a
+// delimited block into these only where the host's sudo is sudo-rs, which has no
+// pam_service and so reaches no service a caller may name. Two of them because
+// the service name is the launch type: `sudo` for a command, `sudo-i` for a login
+// shell, and an arrangement covering one is one that fails on the other.
+//
+// A function rather than a variable: pamDir is redirected by tests, and a list
+// built at package init would keep pointing at /etc.
+func sudoPamFiles() []string { return []string{pamDir + "/sudo", pamDir + "/sudo-i"} }
+
+// PamStack is the file that carries the stack a brokered command's sudo
+// authenticates against on this host: faramir's own service where sudo can be
+// sent to one by name, and the shared stack it reads for every account where it
+// cannot. Rendered into [escalation] pam_stack, so nothing downstream has to
+// work out which arrangement an install made.
+func (l Layout) PamStack() string {
+	if l.SudoRs {
+		return l.SudoPamFile()
+	}
+	return l.PamFile()
+}
+
+// SudoPamFile is the command's stack, named by the templates so they can say
+// what faramir does and does not touch there.
+func (l Layout) SudoPamFile() string { return sudoPamFiles()[0] }
+
+// SudoPamFiles is every shared stack the block goes into.
+func (l Layout) SudoPamFiles() []string { return sudoPamFiles() }
+
+// SudoEnvFile is what a brokered command's sudo hands root on top of what sudo
+// builds, read by the pam_env line in faramir's own PAM service. Beside the
+// other files this install renders for its own use, and so with the hook that
+// reads them: not under /etc/sudoers.d, which sudo parses in its entirety, and
+// not under the config directory, which an uninstall keeps and so must never
+// remove wholesale. Nowhere the executor's uid can write either, since PAM reads
+// it as root and a file that uid could rewrite would be that uid choosing root's
+// environment.
 func (l Layout) SudoEnvFile() string { return filepath.Join(l.LibexecDir, "sudo-env") }
 
 // SudoersFile is the grant itself. Under /etc/sudoers.d rather than in the

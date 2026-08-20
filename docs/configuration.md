@@ -37,7 +37,7 @@ Key | Derived from
 --- | ---
 `socket_path` on `[server]`, `[keeper]`, `[executor]` | rendered with the `.socket` units
 `[server] allowed_group` | `--client-group`
-`[server] agent_user` | `--agent-user`, defaulting to `$SUDO_USER` and then to you. Given to every brokered command as `FARAMIR_OPERATOR`, and to its `sudo` through the grant's `env_file`
+`[server] agent_user` | `--agent-user`, defaulting to `$SUDO_USER` and then to you. Given to every brokered command as `FARAMIR_OPERATOR`, and to its `sudo` through the environment file its PAM service reads
 `[keeper] allowed_user`, `[executor] allowed_user` | `--broker-user`
 `[keeper] age_key_file` | `--config-dir`
 `[keeper] age_key_credential` | rendered with the keeper unit's `LoadCredential=`
@@ -45,7 +45,7 @@ Key | Derived from
 `[ssh] exec_group` | `--exec-user`, resolved to that account's own group
 `[ssh] ssh_agent`, `[ssh] ssh_add` | resolved on `PATH` at install time; the broker execs them as its own uid
 `[ssh] agent_socket`, `[audit] log_path` | no flag: `/run/faramir` and `/var/log/faramir`, fixed at build time
-`[escalation] exec_user`, `pam_service`, `helper` | `--allow-sudo`
+`[escalation] exec_user`, `pam_service`, `pam_stack`, `helper` | `--allow-sudo`. `pam_stack` is the file that carries faramir's PAM stack on this host, which is not always what `pam_service` names: see [the two sudos](escalation.md#the-two-sudos)
 `[escalation] notify_command` | `--notify-command`, repeatable, one argument each
 
 ## What is not a key at all

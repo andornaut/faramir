@@ -46,6 +46,10 @@ func Uninstall(configDir string) ([]string, error) {
 	if configDir == "" {
 		configDir = DefaultConfigDir
 	}
+	// What this run could not take back out, reported with everything else it
+	// leaves. Appended to rather than returned early: an uninstall that stopped
+	// here would leave a host with its units gone and no daemon-reload.
+	var leftBehind []string
 	if systemdRunning() {
 		run := &runner{}
 		units := append(append([]string{"disable", "--now"}, sockets...), services...)
@@ -68,6 +72,20 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
+	// The block a sudo-rs host's grant put in the stacks every account's sudo
+	// reads. Not a file to remove: everything around them is the distribution's,
+	// so this is a splice, and it runs whatever the host's sudo is now -- an
+	// install that wrote the block and an operator who has since switched the
+	// `sudo` alternatives group would otherwise keep a branch pointing at a
+	// service this uninstall just deleted.
+	// Reported rather than fatal: by this point the units and the files are gone,
+	// so failing here would leave a half-uninstalled host and no daemon-reload.
+	// The one case that fails is a stack carrying one marker without the other,
+	// which is an edit somebody made and which this must not guess at.
+	if _, err := removeSudoPamBlock(fsys{}); err != nil {
+		leftBehind = append(leftBehind, "the faramir block in a shared PAM stack: "+
+			err.Error())
+	}
 	if systemdRunning() {
 		run := &runner{}
 		if _, err := run.command("systemctl", "daemon-reload"); err != nil {
@@ -84,23 +102,23 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
-	return []string{
-		filepath.Join(configDir, "age.key") +
+	return append(leftBehind,
+		filepath.Join(configDir, "age.key")+
 			" -- deleting it makes every managed sops file unreadable",
-		filepath.Join(configDir, "secrets") + "/ -- the managed sops files",
-		filepath.Join(configDir, "config.toml") + " -- the base config",
-		DefaultLogDir + "/ -- the audit log",
+		filepath.Join(configDir, "secrets")+"/ -- the managed sops files",
+		filepath.Join(configDir, "config.toml")+" -- the base config",
+		DefaultLogDir+"/ -- the audit log",
 		fmt.Sprintf("users %s, %s and %s, and the shared group. %s's own password "+
 			"is not cleared: `usermod -L %s`",
 			DefaultBrokerUser, DefaultKeeperUser, DefaultExecUser,
 			DefaultExecUser, DefaultExecUser),
 		"a shared tree's group and setgid bits, and the traversal granted to reach it",
-		"each enrolled agent's configuration in a project: the settings naming the " +
+		"each enrolled agent's configuration in a project: the settings naming the "+
 			"hook, the plugin that calls it, and the MCP registration",
-		"each agent's account-wide configuration in the agent account's home: the deny " +
-			"rules, and the credentials section between " + sectionBegin + " and " +
-			sectionEnd + " in the file that agent reads for every project. Both are " +
-			"in files the operator owns and edits, so removing the section is " +
+		"each agent's account-wide configuration in the agent account's home: the deny "+
+			"rules, and the credentials section between "+sectionBegin+" and "+
+			sectionEnd+" in the file that agent reads for every project. Both are "+
+			"in files the operator owns and edits, so removing the section is "+
 			"deleting those lines",
-	}, nil
+	), nil
 }
