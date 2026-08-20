@@ -28,10 +28,14 @@ var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // so the CLI can refuse one where it can still name the file and line.
 func ValidEnvName(name string) bool { return envNameRe.MatchString(name) }
 
+// OperatorEnv names the account this host belongs to. Reserved below: the broker
+// sets it, and a caller naming a different account would be telling a brokered
+// command whose home to go looking in.
+const OperatorEnv = "FARAMIR_OPERATOR"
+
 // ReservedEnv names the broker sets itself; a caller may not overwrite them.
 // SSH_AUTH_SOCK is here because rebinding it would decide what the child
-// authenticates against, and FARAMIR_ESCALATION_TOKEN because it names the run
-// an escalation is decided about. SUDO_ASKPASS is reserved defensively: the
+// authenticates against. SUDO_ASKPASS is reserved defensively: the
 // PAM service does not consult it, but pointing sudo's askpass at a helper of
 // the child's own is not something an injected value should do.
 var ReservedEnv = map[string]bool{
@@ -39,7 +43,7 @@ var ReservedEnv = map[string]bool{
 	"IFS": true, "BASH_ENV": true, "ENV": true, "SOPS_AGE_KEY": true,
 	"SOPS_AGE_KEY_FILE": true, "CREDENTIALS_DIRECTORY": true,
 	"SSH_AUTH_SOCK": true, "SSH_AGENT_PID": true,
-	"SUDO_ASKPASS": true, "FARAMIR_ESCALATION_TOKEN": true,
+	"SUDO_ASKPASS": true, OperatorEnv: true,
 }
 
 // opRun is the op an absent one means, named once because the accepted list,
@@ -84,10 +88,11 @@ type Request struct {
 	// lets the broker leave the last one filled rather than emptying it when it
 	// is read.
 	AwaitLogID string
-	// Token names the brokered command the `escalate` op asks about. An
-	// identifier, not a credential: the op that reads it is refused to anything
-	// but root.
-	Token string
+	// Procs is the ancestry above the sudo the `escalate` op asks about, most
+	// recent first. Claims rather than facts, and worth something only because
+	// the executor checks them against what it forked: a caller presents nothing
+	// it was given, so there is nothing it could have been given to copy.
+	Procs []int
 }
 
 // Parse validates a decoded request payload. One step per field, in the order
@@ -277,11 +282,22 @@ func parseEscalate(payload map[string]any, req *Request) error {
 	if req.Op != "escalate" {
 		return nil
 	}
-	token, isStr := payload["token"].(string)
-	if !isStr || token == "" {
-		return errors.New("'token' must name the brokered command asking to sudo")
+	raw, isList := payload["procs"].([]any)
+	if !isList || len(raw) == 0 {
+		return errors.New("'procs' must name the processes above the sudo asking to escalate")
 	}
-	req.Token = token
+	procs := make([]int, 0, len(raw))
+	for _, entry := range raw {
+		// float64 because that is what a JSON number unmarshals to. A pid below 1 is
+		// not one: 0 and negatives are how kill() names a process group, and pid 1
+		// is init, which no brokered command is.
+		pid, isNumber := entry.(float64)
+		if !isNumber || pid <= 1 || pid != float64(int(pid)) {
+			return errors.New("each entry of 'procs' must be a pid")
+		}
+		procs = append(procs, int(pid))
+	}
+	req.Procs = procs
 	return nil
 }
 

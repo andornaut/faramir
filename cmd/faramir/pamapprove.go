@@ -8,19 +8,18 @@ package main
 // command making this call was approved by a human, which is why an escalation
 // cannot be carried to a later command.
 //
-// It finds which command is asking by walking /proc up from sudo until it meets
-// a process holding FARAMIR_ESCALATION_TOKEN. PAM does not pass the caller's
-// environment to a module, and it does not have to: this runs as root.
+// It says which command is asking by walking /proc up from sudo and sending the
+// pids it finds. PAM does not pass the caller's environment to a module, and it
+// does not have to: this runs as root and the ancestry is the kernel's. Nothing
+// here is trusted on its own -- the broker asks the executor which of its runs
+// forked one of those processes, and the executor checks each against a handle it
+// took at the fork, so a pid the kernel has since handed on answers for nothing.
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/spf13/cobra"
@@ -28,10 +27,6 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 	"github.com/andornaut/faramir/internal/escalation"
 )
-
-// maxAncestors bounds the walk: a brokered command's tree is a handful deep,
-// and a cycle in /proc would otherwise spin.
-const maxAncestors = 32
 
 // cmdPamApprove runs pam-approve on its own, which is how the tests reach
 // it.
@@ -83,6 +78,13 @@ func newPamApproveCmd(granted *bool) *cobra.Command {
 // path and one socket is the whole of it.
 func pamSocket() string { return defaultSocket }
 
+// ancestryOf is escalation.Ancestry, and a variable so a test can say what is
+// above this process. A test binary's own ancestors are whatever ran `go test`,
+// so the one branch that cannot otherwise be reached is the one where nothing
+// above is readable -- which is the branch that must refuse without the broker
+// being contacted at all.
+var ancestryOf = escalation.Ancestry
+
 func runPamApprove(f pamApproveFlags, granted *bool) int {
 	// PAM_TYPE and PAM_USER come from pam_exec. Checked, so a service file
 	// pointed at another account, or at the account stage rather than auth,
@@ -98,15 +100,18 @@ func runPamApprove(f pamApproveFlags, granted *bool) int {
 		return 1
 	}
 
-	token := findToken()
-	if token == "" {
-		// Nothing above this call is a brokered command, which is what a `sudo`
-		// typed by hand as the executor's account looks like.
-		fmt.Fprintln(os.Stderr, "faramir pam-approve: this is not a brokered command, "+
-			"so there is nothing for the broker to approve")
+	// The kernel's account of who forked this, up to the executor. Sent whole: the
+	// helper cannot tell which of them the executor started, and asking it to
+	// guess would be asking the caller's own process tree to decide.
+	ancestors := ancestryOf(os.Getppid())
+	if len(ancestors) == 0 {
+		// Nothing above this call, which is what a `sudo` typed by hand as the
+		// executor's account looks like once its shell is gone.
+		fmt.Fprintln(os.Stderr, "faramir pam-approve: nothing above this sudo could be "+
+			"read, so there is nothing for the broker to attribute it to")
 		return 1
 	}
-	approved, reason, err := askBrokerToApprove(pamSocket(), token)
+	approved, reason, err := askBrokerToApprove(pamSocket(), ancestors)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir pam-approve: %v\n", err)
 		return 1
@@ -119,70 +124,11 @@ func runPamApprove(f pamApproveFlags, granted *bool) int {
 	return 0
 }
 
-// findToken walks up from this process until it meets one holding the token a
-// brokered command carries. Root reads any /proc/<pid>/environ, which is one
-// of the two reasons the PAM service runs this with seteuid; the other is that
-// the broker answers the escalate op to root alone.
-func findToken() string {
-	pid := os.Getppid()
-	for range maxAncestors {
-		if pid <= 1 {
-			return ""
-		}
-		if token := tokenOf(pid); token != "" {
-			return token
-		}
-		parent, ok := parentOf(pid)
-		if !ok {
-			return ""
-		}
-		pid = parent
-	}
-	return ""
-}
-
-func tokenOf(pid int) string {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "environ"))
-	if err != nil {
-		return ""
-	}
-	for entry := range strings.SplitSeq(string(data), "\x00") {
-		if value, found := strings.CutPrefix(entry, escalation.TokenEnv+"="); found {
-			return value
-		}
-	}
-	return ""
-}
-
-// parentOf reads the ppid out of /proc/<pid>/stat. The executable name is
-// field two, in brackets, and can hold spaces and parentheses, so the scan
-// starts after the last ')'.
-func parentOf(pid int) (int, bool) {
-	data, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
-	if err != nil {
-		return 0, false
-	}
-	end := bytes.LastIndexByte(data, ')')
-	if end < 0 {
-		return 0, false
-	}
-	fields := strings.Fields(string(data)[end+1:])
-	// state, ppid: the two fields after the name.
-	if len(fields) < 2 {
-		return 0, false
-	}
-	parent, err := strconv.Atoi(fields[1])
-	if err != nil {
-		return 0, false
-	}
-	return parent, true
-}
-
 // askBrokerToApprove puts the question and waits for a human's answer. No
 // deadline of its own: the broker holds the question for [escalation]
 // timeout_sec and refuses it after that.
-func askBrokerToApprove(socketPath, token string) (bool, string, error) {
-	line, err := roundTrip(socketPath, map[string]any{"op": "escalate", "token": token}, escalationWait)
+func askBrokerToApprove(socketPath string, ancestors []int) (bool, string, error) {
+	line, err := roundTrip(socketPath, map[string]any{"op": "escalate", "procs": ancestors}, escalationWait)
 	if err != nil {
 		return false, "", err
 	}

@@ -2,10 +2,10 @@
 # The --allow-sudo escalation channel, the one path that hands out root.
 #
 # Not "does sudo work" but the claims the design makes about it: root is handed
-# out one command at a time, only a human at a root shell hands it out, the
-# token a child holds cannot spend itself, no second brokered command runs
-# beside an escalation, and a yes that lands while the host is not quiet is
-# refused rather than taken.
+# out one command at a time, only a human at a root shell hands it out, a child
+# cannot decide its own escalation, no second brokered command runs beside an
+# escalation, and a yes that lands while the host is not quiet is refused rather
+# than taken.
 #
 # Self-provisioning: it installs the grant itself, so it can run on a container
 # brought up without one. Run as root in the container.
@@ -146,16 +146,19 @@ wait $RUN 2>/dev/null
 quiesce
 
 # --------------------------------------------------------------------------
-head_ "3. the token a child holds is an identifier, not a credential"
+head_ "3. a child asking about itself is refused, truthful claim and all"
+#
+# The child holds nothing to present, so what it sends is its own ancestry --
+# which really is inside a live run. It is refused anyway, because `escalate` is
+# root's. What protects the op is who may call it, not what a caller knows.
 
-out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- /bin/sh -c '
-  printf "{\"op\":\"escalate\",\"version\":\"'"$VERSION"'\",\"token\":\"$FARAMIR_ESCALATION_TOKEN\"}\n" |
-  timeout 5 /usr/bin/python3 -c "
-import socket,sys
-s=socket.socket(socket.AF_UNIX); s.connect(\"/run/faramir/broker.sock\")
-s.sendall(sys.stdin.buffer.read()); print(s.recv(65536).decode()[:200])"' 2>&1)
-grep -qi 'forbidden\|root' <<<"$out" && ok "a child spending its own token is refused" \
-  || bad "a child spent its own token: ${out:0:140}"
+out=$(runuser -u op -- /usr/local/bin/faramir run --quiet -t 20 -- timeout 5 /usr/bin/python3 -c "
+import json,os,socket
+s = socket.socket(socket.AF_UNIX); s.connect('/run/faramir/broker.sock')
+s.sendall((json.dumps({'op': 'escalate', 'version': '$VERSION', 'procs': [os.getpid()]}) + '\n').encode())
+print(s.recv(65536).decode()[:200])" 2>&1)
+grep -qi 'forbidden\|root' <<<"$out" && ok "a child asking about its own run is refused" \
+  || bad "a child decided its own escalation: ${out:0:140}"
 quiesce
 
 # --------------------------------------------------------------------------
@@ -482,7 +485,7 @@ def pump(until, timeout):
 
 def give_up(why):
     print("FAILED", why)
-    print("PROMPTS", buf.count("approve? [yes/no]"))
+    print("PROMPTS", buf.count("approve? [y/no]"))
     os.kill(pid, 9)
     sys.exit(0)
 
@@ -501,15 +504,15 @@ run = subprocess.Popen(
      "-t", "45", "--", "/usr/bin/sudo", "/usr/bin/id", "-un"],
     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
-if not pump(lambda b: "approve? [yes/no]" in b, 60):
+if not pump(lambda b: "approve? [y/no]" in b, 60):
     give_up("no prompt appeared")
 
 if MODE == "after":
     # One burst, the blank lines and the answer behind them: separate writes
     # would pass even where each re-ask throws away what is queued behind it.
-    os.write(fd, b"\n\n\n\nyes\n")
+    os.write(fd, b"\n\n\n\ny\n")
 else:
-    os.write(fd, b"yes\n")
+    os.write(fd, b"y\n")
 
 # "refused: " with the colon, which is the watcher's own line. Bare "refused"
 # is in every question, the expires line saying what happens if nobody answers,
@@ -521,7 +524,7 @@ except subprocess.TimeoutExpired:
     run.kill()
 os.kill(pid, 15)
 
-print("PROMPTS", buf.count("approve? [yes/no]"))
+print("PROMPTS", buf.count("approve? [y/no]"))
 print("REFUSED", "yes" if "refused: " in buf else "no")
 print("STARTED", "yes" if " started" in buf else "no")
 EOS
@@ -566,7 +569,7 @@ head_ "14. a question nobody answers, and the one raised after it"
 cat >/tmp/watch-expire.py <<'EOS'
 import os, pty, select, subprocess, sys, time
 
-PROMPT = "approve? [yes/no]"
+PROMPT = "approve? [y/no]"
 
 pid, fd = pty.fork()
 if pid == 0:
@@ -647,7 +650,7 @@ time.sleep(1)
 second = raise_question("second")
 shown = pump(lambda b: b.count(PROMPT) > asked, 60)
 if shown:
-    os.write(fd, b"yes\n")
+    os.write(fd, b"y\n")
     pump(lambda b: " started" in b, 60)
 try:
     second.wait(timeout=60)
@@ -682,6 +685,60 @@ out=$(/usr/bin/python3 /tmp/watch-expire.py 2>&1)
 
 set_escalation_timeout "${before:-120}"
 systemctl restart faramir-broker.socket faramir-broker.service >/dev/null 2>&1; sleep 3
+quiesce
+
+# --------------------------------------------------------------------------
+head_ "15. what a brokered command's sudo is given"
+#
+# env_reset throws away what the caller was holding, which is right: the
+# executor's uid is shared by every brokered command, so anything it carries is a
+# value one of them chose. What root gets instead comes from the file the grant
+# names, which that uid cannot write.
+
+ENVFILE=/usr/local/libexec/faramir/sudo-env
+[ -f "$ENVFILE" ] && ok "the grant's env_file is there" \
+  || bad "$ENVFILE was not written"
+owner=$(stat -c '%U:%G %a' "$ENVFILE" 2>/dev/null)
+[ "$owner" = "root:root 644" ] \
+  && ok "and is root's at 0644, sudoers reading it as part of the policy" \
+  || bad "$ENVFILE is '$owner', not 'root:root 644'"
+grep -q "env_file=$ENVFILE" /etc/sudoers.d/faramir \
+  && ok "and the grant names it as its env_file" \
+  || bad "the sudoers entry does not name $ENVFILE"
+# Under libexec rather than the config directory, which an uninstall keeps and so
+# must never remove whole. A file at the old path would pass every check above.
+[ -e /etc/faramir/sudo-env ] \
+  && bad "a sudo-env is in the config directory, which uninstall must not remove" \
+  || ok "and it is not in the config directory"
+
+# The claim itself: a value the file names reaches root, having been discarded on
+# the way in. printenv rather than a shell, so what is asserted is the
+# environment sudo built and not what a shell would add to it.
+sudoRun /tmp/sudoenv.out /usr/bin/sudo /usr/bin/printenv
+ID=$(waitq)
+if [ -z "$ID" ]; then
+  bad "no question was filed for a sudo that reads its own environment"
+else
+  /usr/local/bin/faramir approve "$ID" >/dev/null 2>&1
+  wait $RUN 2>/dev/null
+  grep -q '^FARAMIR_OPERATOR=op$' /tmp/sudoenv.out \
+    && ok "root is told which account the host belongs to" \
+    || bad "FARAMIR_OPERATOR did not survive the sudo: $(grep '^FARAMIR_OPERATOR=' /tmp/sudoenv.out || echo absent)"
+  # Which SUDO_USER cannot say, and this is the check that shows why the variable
+  # exists at all: sudo names the account that invoked it, and that is the
+  # executor on every brokered command.
+  grep -q '^SUDO_USER=faramir-exec$' /tmp/sudoenv.out \
+    && ok "and SUDO_USER names the executor, which is why the operator is named apart" \
+    || bad "SUDO_USER is $(grep '^SUDO_USER=' /tmp/sudoenv.out || echo absent)"
+  grep -q '^DEBIAN_FRONTEND=noninteractive$' /tmp/sudoenv.out \
+    && ok "and a [command] env value survives the sudo too" \
+    || bad "DEBIAN_FRONTEND did not survive: $(grep '^DEBIAN_FRONTEND=' /tmp/sudoenv.out || echo absent)"
+  # PATH is sudo's own on the far side whatever the file says, so what is checked
+  # is that root has one rather than which one: an env_file naming PATH is ignored,
+  # which is why the install leaves it out without a word.
+  grep -q '^PATH=' /tmp/sudoenv.out && ok "and root has a PATH of sudo's own choosing" \
+    || bad "root got no PATH at all"
+fi
 quiesce
 
 # --------------------------------------------------------------------------

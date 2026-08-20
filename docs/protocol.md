@@ -74,8 +74,10 @@ Reserved `env_refs` names, refused so injection cannot redirect the loader, the 
 ```text
 PATH  HOME  IFS  BASH_ENV  ENV  LD_PRELOAD  LD_LIBRARY_PATH
 SOPS_AGE_KEY  SOPS_AGE_KEY_FILE  CREDENTIALS_DIRECTORY
-SSH_AUTH_SOCK  SSH_AGENT_PID  SUDO_ASKPASS  FARAMIR_ESCALATION_TOKEN
+SSH_AUTH_SOCK  SSH_AGENT_PID  SUDO_ASKPASS  FARAMIR_OPERATOR
 ```
+
+**`FARAMIR_OPERATOR` is set rather than merely refused.** Every brokered command is given it, from `[server] agent_user`: it names the account whose host and home the run is about, which the executor's own uid does not, every brokered command running as that one. Reserved so a caller cannot name a different account. On a host that grants sudo the [grant names it too](escalation.md#what-a-brokered-command-keeps-across-sudo), `env_reset` otherwise dropping it where a command most needs it.
 
 ### redact, and streaming it
 
@@ -93,7 +95,7 @@ A caller with more text than one request may carry sends it a chunk at a time **
 
 It also takes an optional `await_log_id`, naming the run the caller approved and has not yet heard the end of. When that run ends the response carries `finished`: `log_id`, `exit_code`, `duration_sec`, `waited_sec`, `timed_out` and `error`, and the poll returns as soon as the run ends rather than waiting out `wait_sec`. `exit_code` is `null` where the broker got no status for the run, `error` saying why; a zero there would read as a clean exit. Only an approved run has an ending to report, and only the caller naming it is told: the broker holds the last one rather than emptying it when it is read, so two watchers both see it and a caller that approved nothing sees none.
 
-`escalate` names the run by the token in the brokered command's environment and blocks until a human answers, the question expires, or the broker stops. `sudo` is blocked on it throughout, which is what makes the wait an authentication step. A token naming no running command is refused without asking anybody.
+`escalate` carries `procs`, the ancestry above the asking `sudo`, most recent first: a non-empty array of pids, each an integer above 1 (`0` and negatives name a process group to `kill`, and pid 1 is `init`, which no brokered command is). It blocks until a human answers, the question expires, or the broker stops. The broker asks the [executor](#the-executor-socket) which of its live runs forked one of them; an ancestry none owns is refused without asking anybody. A pid is a claim, not proof, so the executor checks each against a handle it took at the fork: a number the kernel has since handed to something else answers for nothing. `sudo` is blocked on it throughout, which is what makes the wait an authentication step.
 
 `outcome_code` is which of those it was, in one word, `reason` being the sentence beside it. A refusal a human typed and a question nobody answered are different events and are acted on differently, so the code carries the difference and nothing has to parse the prose to find it. The same code is written to the audit record, where `faramir logs` reads it.
 
@@ -107,7 +109,7 @@ Code | Means
 `broker_stopped` | the broker stopped, or was stopping when the request arrived
 `other_command` | another brokered command was registered, so no question could be put
 `unnamed_question` | the question could not be given an id, so nothing could answer it
-`unknown_token` | the token named no running command
+`unowned_run` | no live run forked the process that asked
 `no_grant` | this host was installed without `--allow-sudo`
 
 ### Responses
@@ -201,6 +203,7 @@ One request, carrying a single file descriptor as ancillary data:
  "argv": ["/usr/bin/printenv", "ROUTER_PW"],
  "cwd": "/home/you/src/project",
  "env": {"ROUTER_PW": "…"},
+ "run_id": "3f8c…",
  "timeout_sec": 600,
  "kill_grace_sec": 5}
 
@@ -211,7 +214,9 @@ The descriptor is the **slave** end of a PTY the broker created. The broker keep
 
 `argv[0]` arrives already resolved to an absolute path and the executor checks nothing about it. What bounds a brokered command is the uid it runs as (no age key, no audit log, no SSH key) and the mode on this socket, which the executor's own uid cannot open. An exit code is `128+signal` where the child was signalled.
 
-A second op shares the socket. `"op": "exec"` and an absent `op` both mean the request above:
+`run_id` is what the broker calls this run, passed through so a `sudo` raised inside it can be attributed back to the command a human was shown. Empty where the host grants no escalation, which leaves the run unattributable and so unable to sudo.
+
+Two more ops share the socket. `"op": "exec"` and an absent `op` both mean the request above:
 
 ```json
 {"op": "quiescent", "version": "0.6.0"}
@@ -219,6 +224,18 @@ A second op shares the socket. `"op": "exec"` and an absent `op` both mean the r
 {"quiescent": false, "detail": "1 process(es) are running as the executor outside any brokered command (4821 (sleep))"}
 ```
 
-The broker asks this before an escalation takes: is any process of the executor's uid alive outside that daemon and outside the runs it is confining? It is asked here because the broker cannot see the answer, its own unit setting `ProtectProc=invisible`. Every failure is a no. An op this daemon does not know is refused `bad_request` with the name in the message, and a broker of another release is refused before that, by [version](#version).
+The broker asks this before an escalation takes: is any process of the executor's uid alive outside that daemon and outside the runs it is confining? It is asked here because the broker cannot see the answer, its own unit setting `ProtectProc=invisible`. Every failure is a no.
+
+```json
+{"op": "owner", "version": "0.6.0", "procs": [4821, 4820, 4815]}
+
+{"run_id": "3f8c…", "detail": "pid 4815 is the command this run was forked as, and is still running"}
+```
+
+The broker asks this when an [escalation](#escalations) is raised, `procs` being the ancestry the PAM helper walked. Only this daemon can answer it: it did the fork, and the broker never sees the pid. An empty `run_id` is none of them, `detail` saying why, and every failure is an empty `run_id`.
+
+A pid alone would not settle it, the kernel handing the number on once the process is reaped. The start time that would settle it cannot be read here either: a brokered command that execs `sudo` gets a root-owned `/proc` entry, which `ProtectProc=invisible` hides from this uid. So the fork answers instead. `clone3` returns a pidfd, taken before the exec and referring to the process rather than to the number, and signal `0` through it asks whether that process is still alive. Alive means the number is still its own, a pid not being reused until its holder is reaped. A kernel without `CLONE_PIDFD` leaves the run unowned, so nothing inside it can sudo.
+
+An op this daemon does not know is refused `bad_request` with the name in the message, and a broker of another release is refused before that, by [version](#version).
 
 The executor owns the timeout, because it owns the run's cgroup. **Closing the connection is how the broker cancels a run**, and the whole cgroup is killed and drained, including a `setsid` child that broke out of the process group. That covers the broker dying mid-command, which would otherwise leave an orphan holding a credential in its environment.

@@ -29,8 +29,46 @@ func started(t *testing.T, cfg config.EscalationConfig) *Server {
 	// Server built without a way to ask the kernel grants no root. The tests that
 	// are about the check itself set their own.
 	s.Quiescent = func() (bool, string) { return true, "the test says so" }
+	// The executor's half: which run forked the process that asked. Stubbed from
+	// the registry, so a test hands Ask an ancestry the way the PAM helper does
+	// and gets back the run it belongs to, the way the executor answers.
+	s.Owner = ownerFromRegistry(s)
 	t.Cleanup(s.Stop)
 	return s
+}
+
+// pidFor is the process a test's run was forked as. Derived from the run id so
+// no test has to carry a second identifier around.
+func pidFor(runID string) int {
+	sum := 1000
+	for _, b := range []byte(runID) {
+		sum = sum*31 + int(b)
+		sum %= 1 << 20
+	}
+	return sum + 2
+}
+
+// procsFor is the ancestry the PAM helper would send from inside this run: one
+// process, which is enough, the walk's length being the helper's business.
+func procsFor(runID string) []int {
+	return []int{pidFor(runID)}
+}
+
+// ownerFromRegistry stands in for the executor: it answers for a run this server
+// has registered and for nothing else, which is the property the real one has.
+func ownerFromRegistry(s *Server) func([]int) (string, string) {
+	return func(ancestors []int) (string, string) {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, pid := range ancestors {
+			for runID := range s.runs {
+				if pidFor(runID) == pid {
+					return runID, "the test forked it"
+				}
+			}
+		}
+		return "", "the test forked none of these"
+	}
 }
 
 func run() Run {
@@ -119,7 +157,7 @@ func (h *human) first(t *testing.T) Question {
 
 // -- disabled by default ----------------------------------------------------
 
-// With no exec_user nothing is granted and nothing is injected, which is the
+// With no exec_user nothing is granted and no run is named, which is the
 // install that never passed --allow-sudo.
 func TestNoExecUserMeansNothingToAsk(t *testing.T) {
 	cfg := baseConfig()
@@ -131,10 +169,7 @@ func TestNoExecUserMeansNothingToAsk(t *testing.T) {
 	if token := mustRegister(s, run()); token != "" {
 		t.Errorf("Register returned %q where nothing is granted", token)
 	}
-	if env := s.Env("anything"); len(env) != 0 {
-		t.Errorf("Env = %v, want empty", env)
-	}
-	if approved, _, _ := s.Ask("anything"); approved {
+	if approved, _, _ := s.Ask(procsFor("anything")); approved {
 		t.Error("an escalation was approved on a host that grants none")
 	}
 }
@@ -151,7 +186,7 @@ func TestAnApprovedRequestIsAllowed(t *testing.T) {
 	if token == "" {
 		t.Fatal("Register returned no token")
 	}
-	approved, _, reason := s.Ask(token)
+	approved, _, reason := s.Ask(procsFor(token))
 	if !approved {
 		t.Fatalf("Ask = false (%s), want approved", reason)
 	}
@@ -178,7 +213,7 @@ func TestARefusedRequestIsDenied(t *testing.T) {
 	s := started(t, baseConfig())
 	watching(t, s, false)
 
-	approved, _, reason := s.Ask(mustRegister(s, run()))
+	approved, _, reason := s.Ask(procsFor(mustRegister(s, run())))
 	if approved {
 		t.Fatal("a refused request was approved")
 	}
@@ -198,10 +233,10 @@ func TestAnUnknownTokenIsRefusedWithoutAsking(t *testing.T) {
 	token := mustRegister(s, run())
 	s.Release(token, Outcome{})
 
-	if approved, _, _ := s.Ask(token); approved {
+	if approved, _, _ := s.Ask(procsFor(token)); approved {
 		t.Error("a released token was approved")
 	}
-	if approved, _, _ := s.Ask("0123456789abcdef"); approved {
+	if approved, _, _ := s.Ask(procsFor("0123456789abcdef")); approved {
 		t.Error("an invented token was approved")
 	}
 	if h.questions() != 0 {
@@ -219,7 +254,7 @@ func TestOneApprovalCoversTheRestOfTheCommand(t *testing.T) {
 
 	token := mustRegister(s, run())
 	for i := range 5 {
-		if approved, _, reason := s.Ask(token); !approved {
+		if approved, _, reason := s.Ask(procsFor(token)); !approved {
 			t.Fatalf("request %d: %s", i, reason)
 		}
 	}
@@ -237,7 +272,7 @@ func TestAnotherCommandIsAskedAboutSeparately(t *testing.T) {
 	h := watching(t, s, true)
 
 	first := mustRegister(s, run())
-	if approved, _, _ := s.Ask(first); !approved {
+	if approved, _, _ := s.Ask(procsFor(first)); !approved {
 		t.Fatal("the first command was refused")
 	}
 	// The first run ends before the next starts, which is what the serialization
@@ -245,7 +280,7 @@ func TestAnotherCommandIsAskedAboutSeparately(t *testing.T) {
 	s.Release(first, Outcome{})
 
 	second := mustRegister(s, Run{Argv: []string{"rm", "-rf", "/"}, Cwd: "/srv"})
-	if approved, _, _ := s.Ask(second); !approved {
+	if approved, _, _ := s.Ask(procsFor(second)); !approved {
 		t.Fatal("the second command was refused")
 	}
 	if h.questions() != 2 {
@@ -279,7 +314,7 @@ func TestAnEscalationHoldsEveryOtherCommand(t *testing.T) {
 	s := started(t, baseConfig())
 	first := mustRegister(s, run())
 
-	go s.Ask(first)
+	go s.Ask(procsFor(first))
 	id := waitForQuestion(t, s)
 	if err := s.Answer(id, true, "operator"); err != nil {
 		t.Fatalf("the first run was the only one, so it should approve: %v", err)
@@ -302,8 +337,9 @@ func TestAnEscalationHoldsEveryOtherCommand(t *testing.T) {
 func TestAnEscalationAndASecondRunNeverCoexist(t *testing.T) {
 	for range 400 {
 		s := New(baseConfig())
+		s.Owner = ownerFromRegistry(s)
 		first := mustRegister(s, run())
-		go s.Ask(first)
+		go s.Ask(procsFor(first))
 		id := waitForQuestion(t, s)
 
 		var wg sync.WaitGroup
@@ -335,7 +371,7 @@ func TestAnEscalationIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 
 	granted := make(chan bool, 1)
 	go func() {
-		approved, _, _ := s.Ask(first)
+		approved, _, _ := s.Ask(procsFor(first))
 		granted <- approved
 	}()
 	id := waitForQuestion(t, s)
@@ -374,7 +410,7 @@ func TestAnEscalationIsRefusedUntilTheHostIsQuiet(t *testing.T) {
 	s.Release(other, Outcome{})
 	s.Release(first, Outcome{})
 	second := mustRegister(s, run())
-	go s.Ask(second)
+	go s.Ask(procsFor(second))
 	if err := s.Answer(waitForQuestion(t, s), true, "operator"); err != nil {
 		t.Fatalf("still refused after the host went quiet: %v", err)
 	}
@@ -386,11 +422,11 @@ func TestAnEscalationDoesNotOutliveItsCommand(t *testing.T) {
 	watching(t, s, true)
 
 	token := mustRegister(s, run())
-	if approved, _, _ := s.Ask(token); !approved {
+	if approved, _, _ := s.Ask(procsFor(token)); !approved {
 		t.Fatal("refused")
 	}
 	s.Release(token, Outcome{})
-	if approved, _, _ := s.Ask(token); approved {
+	if approved, _, _ := s.Ask(procsFor(token)); approved {
 		t.Error("an approved token was still allowed after its command ended")
 	}
 }
@@ -403,7 +439,7 @@ func TestARefusalIsNotCarried(t *testing.T) {
 
 	token := mustRegister(s, run())
 	for i := range 2 {
-		if approved, _, _ := s.Ask(token); approved {
+		if approved, _, _ := s.Ask(procsFor(token)); approved {
 			t.Fatalf("request %d was approved", i)
 		}
 	}
@@ -419,7 +455,7 @@ func TestAnUnansweredQuestionExpires(t *testing.T) {
 	cfg.TimeoutSec = 1
 	s := started(t, cfg)
 
-	approved, _, reason := s.Ask(mustRegister(s, run()))
+	approved, _, reason := s.Ask(procsFor(mustRegister(s, run())))
 	if approved {
 		t.Error("a question nobody answered approved an escalation")
 	}
@@ -442,7 +478,7 @@ func TestConcurrentRequestsShareOneQuestion(t *testing.T) {
 	refused := make(chan string, 3)
 	for range 3 {
 		wg.Go(func() {
-			if approved, _, reason := s.Ask(token); !approved {
+			if approved, _, reason := s.Ask(procsFor(token)); !approved {
 				refused <- reason
 			}
 		})
@@ -471,7 +507,7 @@ func TestEveryRequestIsRecorded(t *testing.T) {
 	}
 	watching(t, s, false)
 
-	if approved, _, _ := s.Ask(mustRegister(s, run())); approved {
+	if approved, _, _ := s.Ask(procsFor(mustRegister(s, run()))); approved {
 		t.Fatal("a refused request was approved")
 	}
 	mu.Lock()
@@ -494,23 +530,40 @@ func TestEveryRequestIsRecorded(t *testing.T) {
 	}
 }
 
-// -- what the child is given -------------------------------------------------
+// -- what a request has to prove ---------------------------------------------
 
-// A token, and nothing else. It identifies the run rather than authorising it:
-// spending it is an op the broker refuses to anything but root, so what the
-// child holds cannot be used by the child, kept, or handed to a later command.
-func TestTheChildIsGivenATokenAndNothingElse(t *testing.T) {
+// A request from a process the executor did not fork is refused, and refused
+// without asking anybody, even while a run is registered and somebody is
+// watching for questions. This is the whole of what identifies a run: there is
+// nothing a caller holds, so there is nothing for one to present.
+func TestAProcessTheExecutorDidNotForkIsRefused(t *testing.T) {
 	s := started(t, baseConfig())
-	token := mustRegister(s, run())
-	env := s.Env(token)
+	h := watching(t, s, true)
+	mustRegister(s, run())
 
-	if len(env) != 1 || env[TokenEnv] != token {
-		t.Errorf("Env = %v, want only %s", env, TokenEnv)
+	stranger := []int{999999}
+	approved, code, _ := s.Ask(stranger)
+	if approved {
+		t.Error("a process no run forked was allowed to escalate")
 	}
-	for name := range env {
-		if strings.Contains(strings.ToUpper(name), "PASS") {
-			t.Errorf("%s looks like a credential; this design has none", name)
-		}
+	if code != CodeUnownedRun {
+		t.Errorf("code = %q, want %q", code, CodeUnownedRun)
+	}
+	if asked := h.questions(); asked != 0 {
+		t.Errorf("%d question(s) were put about a process no run forked", asked)
+	}
+}
+
+// A run this server does not hold is refused however the ancestry is shaped:
+// whether a pid still names the process it was forked as is the executor's
+// question, asked in that package by TestOwnerOfRefusesAReapedProcess.
+func TestAnAncestryTheExecutorDoesNotOwnIsRefused(t *testing.T) {
+	s := started(t, baseConfig())
+	mustRegister(s, run())
+
+	if approved, code, _ := s.Ask([]int{424242}); approved || code != CodeUnownedRun {
+		t.Errorf("approved = %v, code = %q; a process no run forked was attributed "+
+			"to a live run", approved, code)
 	}
 }
 
@@ -522,7 +575,7 @@ func TestStopReleasesWhatIsWaiting(t *testing.T) {
 
 	done := make(chan string, 1)
 	go func() {
-		approved, _, reason := s.Ask(token)
+		approved, _, reason := s.Ask(procsFor(token))
 		if approved {
 			done <- "approved"
 			return
@@ -561,7 +614,7 @@ func TestReleasingACommandDropsItsUnansweredQuestion(t *testing.T) {
 
 	done := make(chan string, 1)
 	go func() {
-		approved, _, reason := s.Ask(token)
+		approved, _, reason := s.Ask(procsFor(token))
 		if approved {
 			done <- "approved"
 			return
@@ -602,7 +655,7 @@ func TestNoQuestionIsPutWhileAnotherCommandIsRegistered(t *testing.T) {
 	first := mustRegister(s, Run{Argv: []string{"playbook", "one"}})
 	second := mustRegister(s, Run{Argv: []string{"playbook", "two"}})
 
-	approved, _, reason := s.Ask(first)
+	approved, _, reason := s.Ask(procsFor(first))
 	if approved {
 		t.Fatal("a sudo was approved while a second command shared the executor's uid")
 	}
@@ -674,7 +727,7 @@ func TestPollBlocksUntilSomethingIsAsked(t *testing.T) {
 		t.Errorf("Poll = %v with nothing waiting", got)
 	}
 	token := mustRegister(s, run())
-	go func() { _, _, _ = s.Ask(token) }()
+	go func() { _, _, _ = s.Ask(procsFor(token)) }()
 
 	questions, _ := s.Poll(5*time.Second, "")
 	if len(questions) != 1 {
@@ -697,7 +750,7 @@ func TestTheEarlyRefusalDoesNotBlock(t *testing.T) {
 	_ = mustRegister(s, Run{Argv: []string{"playbook", "two"}})
 
 	done := make(chan struct{})
-	go func() { _, _, _ = s.Ask(first); close(done) }()
+	go func() { _, _, _ = s.Ask(procsFor(first)); close(done) }()
 	select {
 	case <-done:
 	case <-time.After(2 * time.Second):
@@ -716,7 +769,7 @@ func TestTheQuestionIsPutOnceTheOtherCommandEnds(t *testing.T) {
 		t.Fatal("a question was filed with two commands registered")
 	}
 	s.Release(second, Outcome{})
-	go func() { _, _, _ = s.Ask(first) }()
+	go func() { _, _, _ = s.Ask(procsFor(first)) }()
 	waitForQuestion(t, s) // fails if none was put after the other command ended
 }
 
@@ -731,7 +784,7 @@ func approved(t *testing.T, s *Server) string {
 	t.Helper()
 	watching(t, s, true)
 	token := mustRegister(s, run())
-	if ok, _, reason := s.Ask(token); !ok {
+	if ok, _, reason := s.Ask(procsFor(token)); !ok {
 		t.Fatalf("the run was not approved: %s", reason)
 	}
 	return token
@@ -848,7 +901,7 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 		s := started(t, baseConfig())
 		watching(t, s, false)
 		token := mustRegister(s, run())
-		approved, code, _ := s.Ask(token)
+		approved, code, _ := s.Ask(procsFor(token))
 		if approved {
 			t.Fatal("a refusal was approved")
 		}
@@ -861,7 +914,7 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 		s := started(t, baseConfig())
 		watching(t, s, true)
 		token := mustRegister(s, run())
-		if approved, code, _ := s.Ask(token); !approved || code != CodeApproved {
+		if approved, code, _ := s.Ask(procsFor(token)); !approved || code != CodeApproved {
 			t.Errorf("approved=%v code=%q, want true and %q", approved, code, CodeApproved)
 		}
 	})
@@ -871,7 +924,7 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 		cfg.TimeoutSec = 1
 		s := started(t, cfg)
 		token := mustRegister(s, run())
-		approved, code, reason := s.Ask(token)
+		approved, code, reason := s.Ask(procsFor(token))
 		if approved {
 			t.Fatal("a question nobody answered was approved")
 		}
@@ -886,7 +939,7 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 		token := mustRegister(s, run())
 		asked := make(chan string, 1)
 		go func() {
-			_, code, _ := s.Ask(token)
+			_, code, _ := s.Ask(procsFor(token))
 			asked <- code
 		}()
 		waitForQuestion(t, s)
@@ -902,7 +955,7 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 		token := mustRegister(s, run())
 		asked := make(chan string, 1)
 		go func() {
-			_, code, _ := s.Ask(token)
+			_, code, _ := s.Ask(procsFor(token))
 			asked <- code
 		}()
 		id := waitForQuestion(t, s)
@@ -918,14 +971,14 @@ func TestEachEndingCarriesItsOwnCode(t *testing.T) {
 
 	t.Run("a token naming nothing", func(t *testing.T) {
 		s := started(t, baseConfig())
-		if _, code, _ := s.Ask("0123456789abcdef"); code != CodeUnknownToken {
-			t.Errorf("code = %q, want %q", code, CodeUnknownToken)
+		if _, code, _ := s.Ask(procsFor("0123456789abcdef")); code != CodeUnownedRun {
+			t.Errorf("code = %q, want %q", code, CodeUnownedRun)
 		}
 	})
 
 	t.Run("a host that grants nothing", func(t *testing.T) {
 		s := started(t, config.EscalationConfig{})
-		if _, code, _ := s.Ask("whatever"); code != CodeNoGrant {
+		if _, code, _ := s.Ask(procsFor("whatever")); code != CodeNoGrant {
 			t.Errorf("code = %q, want %q", code, CodeNoGrant)
 		}
 	})
@@ -946,7 +999,7 @@ func TestTheRecordCarriesTheCodeAndTheProse(t *testing.T) {
 		entries = append(entries, entry)
 	}
 	token := mustRegister(s, run())
-	s.Ask(token)
+	s.Ask(procsFor(token))
 
 	mu.Lock()
 	defer mu.Unlock()
@@ -974,7 +1027,7 @@ func TestARunKeepsTheNoItWasGiven(t *testing.T) {
 	if code, _ := s.Refusal(token); code != "" {
 		t.Errorf("a run nobody refused reports %q", code)
 	}
-	s.Ask(token)
+	s.Ask(procsFor(token))
 	code, reason := s.Refusal(token)
 	if code != CodeExpired {
 		t.Errorf("code = %q, want %q", code, CodeExpired)
@@ -996,7 +1049,7 @@ func TestAnApprovedRunKeepsNoRefusal(t *testing.T) {
 	s := started(t, baseConfig())
 	watching(t, s, true)
 	token := mustRegister(s, run())
-	if approved, _, reason := s.Ask(token); !approved {
+	if approved, _, reason := s.Ask(procsFor(token)); !approved {
 		t.Fatalf("the run was not approved: %s", reason)
 	}
 	if code, _ := s.Refusal(token); code != "" {
@@ -1014,13 +1067,13 @@ func TestAYesClearsTheNoBeforeIt(t *testing.T) {
 	s := started(t, cfg)
 	token := mustRegister(s, run())
 
-	s.Ask(token)
+	s.Ask(procsFor(token))
 	if code, _ := s.Refusal(token); code != CodeExpired {
 		t.Fatalf("the first sudo reports %q, want %q", code, CodeExpired)
 	}
 
 	watching(t, s, true)
-	if approved, _, reason := s.Ask(token); !approved {
+	if approved, _, reason := s.Ask(procsFor(token)); !approved {
 		t.Fatalf("the second sudo was not approved: %s", reason)
 	}
 	if code, reason := s.Refusal(token); code != "" {
@@ -1038,7 +1091,7 @@ func TestAWaitIsCountedWhileTheQuestionIsStillOpen(t *testing.T) {
 	s := started(t, cfg)
 	token := mustRegister(s, run())
 
-	go func() { _, _, _ = s.Ask(token) }()
+	go func() { _, _, _ = s.Ask(procsFor(token)) }()
 	waitForQuestion(t, s)
 	time.Sleep(300 * time.Millisecond)
 
@@ -1054,9 +1107,9 @@ func TestJoiningAQuestionDoesNotCountTheWaitTwice(t *testing.T) {
 	s := started(t, baseConfig())
 	token := mustRegister(s, run())
 
-	go func() { _, _, _ = s.Ask(token) }()
+	go func() { _, _, _ = s.Ask(procsFor(token)) }()
 	waitForQuestion(t, s)
-	go func() { _, _, _ = s.Ask(token) }()
+	go func() { _, _, _ = s.Ask(procsFor(token)) }()
 	time.Sleep(300 * time.Millisecond)
 
 	if waited := s.Waited(token); waited > 3*time.Second {
@@ -1084,7 +1137,7 @@ func TestARunKeepsHowLongItWaitedToBeApproved(t *testing.T) {
 			_ = s.Answer(id, true, "the test")
 		}
 	}()
-	if approved, _, reason := s.Ask(token); !approved {
+	if approved, _, reason := s.Ask(procsFor(token)); !approved {
 		t.Fatalf("the run was not approved: %s", reason)
 	}
 	waited := s.Waited(token)

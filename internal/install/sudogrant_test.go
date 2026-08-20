@@ -124,6 +124,13 @@ func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
 		"Defaults:ex timestamp_timeout=0",
 		// The private service is what confines a mistake to this one account.
 		"Defaults:ex pam_service=faramir-sudo",
+		// What root is given comes from a file this policy names, not from what the
+		// caller happened to be holding. The literal path rather than
+		// layout.SudoEnvFile(), which is what the template renders and so cannot
+		// disagree with it: this fixture puts the config under /opt/conf, so the
+		// literal also says the file does not follow --config-dir, an uninstall
+		// keeping that directory and never removing it whole.
+		"Defaults:ex env_file=/usr/local/libexec/faramir/sudo-env",
 	} {
 		if !strings.Contains(text, rule) {
 			t.Errorf("the sudoers file does not carry %q:\n%s", rule, text)
@@ -136,6 +143,67 @@ func TestTheSudoersGrantAuthenticatesThroughThePrivateService(t *testing.T) {
 		if strings.Contains(line, "NOPASSWD") {
 			t.Errorf("NOPASSWD skips PAM, which is where the question is asked: %q", line)
 		}
+		// env_keep would put the caller's own value back under the same name, which
+		// is what env_reset threw away and why env_file is what this uses.
+		if strings.Contains(line, "env_keep") {
+			t.Errorf("env_keep preserves what the executor's uid was holding: %q", line)
+		}
+	}
+}
+
+// The sudo environment is the install's own: the operator it belongs to, and
+// what [command] env configures. Rendered from a file the executor's uid cannot
+// write, so none of it is the caller's word.
+func TestTheSudoEnvironmentIsTheInstallsOwn(t *testing.T) {
+	layout := sudoGrantLayout(t)
+	layout.CommandEnv = map[string]string{"DEBIAN_FRONTEND": "noninteractive"}
+	body, err := render("etc/sudo-env.tmpl", layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range []string{
+		// SUDO_USER names the executor, which is nobody's identity: this is the
+		// account whose host and home the run is about.
+		"FARAMIR_OPERATOR=operator",
+		"DEBIAN_FRONTEND=noninteractive",
+	} {
+		if !strings.Contains(string(body), line) {
+			t.Errorf("the sudo environment does not carry %q:\n%s", line, body)
+		}
+	}
+}
+
+// Three ways a [command] env entry must not reach root. sudoers reads this file
+// without env_keep or env_check, so what is filtered here is all that is
+// filtered: before it existed, sudo's own env_reset stripped the last of them.
+func TestTheSudoEnvironmentRefusesWhatWouldReachRootUnchecked(t *testing.T) {
+	r := &runner{layout: sudoGrantLayout(t), fs: fsys{dryRun: true}}
+	r.layout.CommandEnv = map[string]string{
+		"SAFE": "yes",
+		// --command-env splits on the first '=', so everything after one in the name
+		// arrives as part of the name, a newline included.
+		"SMUGGLE\nLD_PRELOAD": "/tmp/evil.so",
+		// A value ends its own line, so a newline there does the same.
+		"ALSO_SMUGGLE": "yes\nBASH_ENV=/tmp/evil.sh",
+		// And '#' starts a comment anywhere on the line, so this would reach root
+		// truncated rather than whole.
+		"TRUNCATED": "before#after",
+		// And a name env_refs refuses for the same reason this file must.
+		"LD_LIBRARY_PATH": "/tmp/evil",
+	}
+
+	body, err := render("etc/sudo-env.tmpl", r.sudoEnv())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(body)
+	for _, refused := range []string{"LD_PRELOAD", "BASH_ENV", "LD_LIBRARY_PATH", "TRUNCATED"} {
+		if strings.Contains(text, refused) {
+			t.Errorf("%s reached root's environment:\n%s", refused, text)
+		}
+	}
+	if !strings.Contains(text, "SAFE=yes") {
+		t.Errorf("the rest of the file went with the refused entries:\n%s", text)
 	}
 }
 
@@ -487,5 +555,42 @@ func TestNotifyCommandIsPinnedToAPathAtInstallTime(t *testing.T) {
 	// The arguments are the operator's and are left alone.
 	if got := layout.NotifyCommand[1]; got != "{prompt}" {
 		t.Errorf("notify_command[1] = %q, want it untouched", got)
+	}
+}
+
+// A clean install says nothing about the sudo environment. PATH is both a
+// [command] env default and a name sudo sets itself, so warning about it would
+// put a line on every install that names nothing the operator did -- in the
+// channel that has to carry the entries which would really have reached root.
+func TestAStockSudoEnvironmentIsQuiet(t *testing.T) {
+	r := &runner{layout: sudoGrantLayout(t)}
+	r.layout.CommandEnv = map[string]string{
+		"PATH": "/usr/bin:/bin", "TERM": "xterm", "LANG": "C.UTF-8",
+		"LC_ALL": "C.UTF-8", "DEBIAN_FRONTEND": "noninteractive",
+	}
+	env := r.sudoEnv()
+
+	if _, kept := env.CommandEnv["PATH"]; kept {
+		t.Error("PATH reached the sudo environment; sudo's secure_path is what sets it")
+	}
+	if len(r.report.Warnings) != 0 {
+		t.Errorf("a stock install warned: %v", r.report.Warnings)
+	}
+	// And the ones that are neither reserved nor unsafe are still there.
+	if env.CommandEnv["DEBIAN_FRONTEND"] != "noninteractive" {
+		t.Errorf("CommandEnv = %v, want the entries sudo does not set itself", env.CommandEnv)
+	}
+}
+
+// But a name that would really have reached root still says so: that is what the
+// warning is for, and quieting PATH must not quiet these.
+func TestAReservedNameThatWouldReachRootIsReported(t *testing.T) {
+	r := &runner{layout: sudoGrantLayout(t)}
+	r.layout.CommandEnv = map[string]string{"LD_PRELOAD": "/tmp/evil.so"}
+	if env := r.sudoEnv(); len(env.CommandEnv) != 0 {
+		t.Errorf("CommandEnv = %v, want LD_PRELOAD left out", env.CommandEnv)
+	}
+	if len(r.report.Warnings) == 0 {
+		t.Error("LD_PRELOAD was dropped without a word, so nobody learns it was ignored")
 	}
 }

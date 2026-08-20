@@ -200,13 +200,6 @@ class VarsModule(BaseVarsPlugin):
 
 `declared_names` takes the left of each `NAME=faramir://ref` line, and the whole of a line that is only a name. Only the names: a ref is not a value, and the file holds none.
 
-Name a credential after the variable that carries it and the file needs neither half twice:
-
-```text
-msmtp_password
-deploy_token
-```
-
 Name a credential for what it is (`msmtp_password`), and where a role already reads a variable of that name it needs no mapping. Where the destination is named something else, or where one host draws two values from the same store, `host_vars/` keeps a line and that line is the routing:
 
 ```yaml

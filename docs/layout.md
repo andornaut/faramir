@@ -8,6 +8,7 @@ Every path the install creates, what owns it, and what each account can reach th
   deny-patterns.txt             0644 root:root, rendered per install
   wrap.sh                       0644 root:root, copied verbatim
   pam-approve                   0755 root:root, rendered; installed on every host, grant or not
+  sudo-env                      0644 root:root, what a brokered command's sudo is given; --allow-sudo only
 /usr/local/share/doc/faramir/   0755 root:root, README, LICENSE and docs/, embedded and written out
 
 /etc/systemd/system/faramir-*   0644 root:root, three .service and three .socket units
@@ -37,6 +38,8 @@ Every path the install creates, what owns it, and what each account can reach th
 <config-dir>/enrolled.json      0600 root:root, which trees were enrolled and for what; advisory, and doctor's
 <any tree you enrol>            2770 <operator>:<client-group>, setgid
 ```
+
+`sudo-env` is the one file here sudo reads as policy, so it stays out of `<config-dir>`: the grant names one path wherever `--config-dir` points, and an uninstall keeps the config directory and so must never remove it whole. Root-owned and never writable by the executor, or that uid would be choosing root's environment.
 
 `init` also grants access to any file a `[[secret.link]]` entry names, which is a file it does not own and does not create:
 

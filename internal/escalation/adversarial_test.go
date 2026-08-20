@@ -61,7 +61,7 @@ func TestThePromptIsBounded(t *testing.T) {
 func asked(t *testing.T, r Run) Question {
 	t.Helper()
 	s := started(t, baseConfig())
-	go s.Ask(mustRegister(s, r))
+	go s.Ask(procsFor(mustRegister(s, r)))
 	waitForQuestion(t, s)
 	return s.Questions()[0]
 }
@@ -132,7 +132,7 @@ func TestAnEscalationNeedsMoreThanThisServersOwnBookkeeping(t *testing.T) {
 	token := mustRegister(s, run())
 	granted := make(chan bool, 1)
 	go func() {
-		approved, _, _ := s.Ask(token)
+		approved, _, _ := s.Ask(procsFor(token))
 		granted <- approved
 	}()
 	id := waitForQuestion(t, s)
@@ -165,7 +165,7 @@ func TestAQuestionHoldsNewCommandsToo(t *testing.T) {
 	s.Quiescent = func() (bool, string) { return true, "the test says so" }
 
 	token := mustRegister(s, run())
-	go func() { _, _, _ = s.Ask(token) }()
+	go func() { _, _, _ = s.Ask(procsFor(token)) }()
 	id := waitForQuestion(t, s)
 
 	if _, heldBy := s.Register(Run{Argv: []string{"true"}, Cwd: "/srv/ctrl"}); heldBy == "" {
@@ -190,7 +190,7 @@ func TestAQuestionSaysHowLongIsLeftToAnswerIt(t *testing.T) {
 	s := started(t, cfg)
 
 	token := mustRegister(s, run())
-	go func() { _, _, _ = s.Ask(token) }()
+	go func() { _, _, _ = s.Ask(procsFor(token)) }()
 	waitForQuestion(t, s)
 
 	question := s.Questions()[0]
@@ -218,7 +218,7 @@ func TestAnUnwiredQuiescenceCheckRefuses(t *testing.T) {
 	token := mustRegister(s, run())
 	granted := make(chan bool, 1)
 	go func() {
-		approved, _, _ := s.Ask(token)
+		approved, _, _ := s.Ask(procsFor(token))
 		granted <- approved
 	}()
 	id := waitForQuestion(t, s)

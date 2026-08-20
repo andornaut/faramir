@@ -19,6 +19,10 @@
 socket_path = "{{.RunDir}}/broker.sock"
 # Checked with SO_PEERCRED, on top of the socket mode. Primary or supplementary.
 allowed_group = "{{.ClientGroup}}"
+# Who this host belongs to, given to a brokered command as FARAMIR_OPERATOR. Every
+# brokered command runs as the executor, and sudo names that account too, so
+# without this nothing inside a run can resolve the operator's home or identity.
+agent_user = "{{.AgentUser}}"
 
 # Holds the age key: its own uid, execs nothing but sops.
 [keeper]

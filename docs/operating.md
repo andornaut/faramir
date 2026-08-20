@@ -46,7 +46,7 @@ Order | Source
 4 | the `FARAMIR_CONFIG=` its unit names, which covers a host whose config moved and whose broker is down
 5 | the compiled-in default
 
-`init` follows the same chain and prints what it settled on before writing; naming `--config-dir` is still what puts an install somewhere new. The daemons skip step 3: each may be about to bind that socket, and connecting would socket-activate the installed daemon and leave the two contending for the path. Under systemd none of this is reached, the units setting `FARAMIR_CONFIG` themselves; it is what makes `faramir broker --check` work from a shell on an install that is not at the default path.
+`init` follows the same chain and prints what it settled on before writing; naming `--config-dir` is still what puts an install somewhere new. The daemons skip step 3: each may be about to bind that socket, and connecting would activate the installed daemon and leave the two contending for the path. Under systemd none of this is reached, the units setting `FARAMIR_CONFIG` themselves; it is what makes `faramir broker --check` work from a shell on an install away from the default path.
 
 ## The files an install writes into your agent's config
 
@@ -54,20 +54,20 @@ Two kinds, and which one a file is decides what a run may do to it.
 
 **Faramir's own** are replaced whole and owned outright: the plugins, and Pi's extension. Nothing else is, the MCP registrations included: those are yours, and a re-enrolment merges into them.
 
-**Yours** are edited and left yours. Each agent's settings get only faramir's keys merged in; your agent instructions file gets only the block between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`. A file already there keeps its owner and its mode, and its group except in a tree, where the client group has to read what the hook is written into. Only a file a run creates takes an owner from it, and only one it creates in a rules directory is given the frontmatter that agent needs to load it.
+**Yours** are edited and left yours. Each agent's settings get only faramir's keys merged in; your agent instructions file gets only the block between `<!-- BEGIN faramir: credentials -->` and `<!-- END faramir: credentials -->`. A file already there keeps its owner and mode, and its group except in a tree, where the client group has to read what the hook is written into. Only a file a run creates takes an owner from it, and only one created in a rules directory gets the frontmatter that agent needs to load it.
 
 A run stops rather than write one it should not, leaving it exactly as it is:
 
 - **Not yours.** These commands run as root on paths in directories the account your agent runs as can write. Editing somebody else's file would be root writing what it was never asked to, and chowning it to make that true would take it from them.
 - **A link this will not follow.** A link is followed and what it points at written, so a dotfiles-managed `CLAUDE.md` or `settings.json` is updated in place rather than replaced by a regular file. Only to a regular file you own, and in a tree only inside the tree: otherwise the tree's group and mode would land on a dotfiles copy outside it.
 - **Markers it cannot delimit.** One marker without the other, or a credentials section that is not between markers and is not what is written now, which would leave two sets of instructions contradicting each other. Restore the markers or delete the section, then run again.
-- **One file twice.** Two paths in the same run that a link makes one file, such as `~/.gemini/GEMINI.md` pointing at `~/.claude/CLAUDE.md`. Each of these files is written for the agent that reads it, so one file standing in for two would hold what was written for the other and keep only the last write, and the run would report success. Point one at a file of its own. Two agents that read the same file *by name* are not this: that is one file written once, and the section it gets claims only what holds for both.
+- **One file twice.** Two paths in the same run that a link makes one file, such as `~/.gemini/GEMINI.md` pointing at `~/.claude/CLAUDE.md`. Each is written for the agent that reads it, so one file standing in for two would keep only the last write and report success. Point one at a file of its own. Two agents that read the same file *by name* are not this: that is one file written once, and the section it gets claims only what holds for both.
 
 Each is asked before anything is written, so a refusal costs nothing: `init` stops before it has handed a file to any account, `init-project` before it has shared the tree. `init` names every file it refused rather than the first. `doctor` asks the same questions under `agent file ownership`.
 
 The section tells an agent to wait for an escalation only where one can be raised, `init-project` reading `[escalation] exec_user` from the config.
 
-A brokered command cannot delete these files, each agent's own directory in a tree being sticky ([modes](layout.md#what-the-modes-decide)). The tree root is deliberately not sticky, which keeps a tool rewriting a lock file by rename working and leaves a brokered command able to move an agent's directory aside from above. `doctor` reports a tree whose agent files stopped carrying what the enrolment wrote.
+A brokered command cannot delete these files, each agent's own directory in a tree being sticky ([modes](layout.md#what-the-modes-decide)). The tree root is deliberately not sticky, which keeps a tool rewriting a lock file by rename working and leaves a brokered command able to move an agent's directory aside from above.
 
 ## Operator commands
 
@@ -112,8 +112,8 @@ At the broker these are three ops rather than four, `deny` being `approve` with 
 - **Children do not inherit the broker's environment.** They get `[command.env]` plus injected secrets. Add what a tool needs there.
 - **Interactive prompts fail rather than hang.** Stdin is `/dev/null` and the child gets no controlling terminal, so a prompt falls back to stderr, which is redacted and recorded; one written only to `/dev/tty` is lost ([why](redaction.md#why-a-pty-and-not-a-pipe)). Pass non-interactive flags.
 - **Output is truncated** at the output cap. The audit record keeps the head and the tail and says how many bytes it dropped.
-- **The audit log rotates weekly**, 8 kept, compressed, early at 16MB. the record cap bounds one record, not the file. `doctor` fails when logrotate is not installed, when `/etc/logrotate.d/faramir` is absent or unreadable, and when the rule names a log the broker does not write; it warns when logrotate's state shows the rule has never been applied. Rotating some other way means `doctor` failing on that host.
-- **A command that cannot be recorded does not run.** Before anything starts the broker checks the log can be opened and its filesystem has room for one record; a host failing either refuses every brokered command with `no_audit`. Reachable without anyone being at fault: a brokered command's output is what a record carries, so an agent that prints enough fills that filesystem itself.
+- **The audit log rotates weekly**, 8 kept, compressed, early at 16MB. The record cap bounds one record, not the file. `doctor` fails when logrotate is not installed, when `/etc/logrotate.d/faramir` is absent or unreadable, and when the rule names a log the broker does not write; it warns when logrotate's state shows the rule has never been applied. Rotating some other way means `doctor` failing on that host.
+- **A command that cannot be recorded does not run.** Before anything starts the broker checks the log can be opened and its filesystem has room for one record; a host failing either refuses every brokered command with `no_audit`. Reachable without anyone being at fault: a record carries the command's output, so an agent that prints enough fills that filesystem itself.
 - **The audit log holds no value.** Output is recorded after redaction and `argv` is redacted on the way in.
 - **A brokered command is two records sharing one `log_id`.** `run_started` when the child runs, naming the command, the cwd and the refs; `run` when it ends, adding the exit code, the duration and the output. So `faramir logs --watch` shows a playbook while it runs rather than only once it is over, and a run that never returns still leaves a row. `faramir logs <id>` shows the ending where there is one and the start where there is not. A reader selecting `op == "run"` still gets one record per command, the one that says how it went.
 - **There is one SSH key and `init` owns it.** It mints both halves into `<config-dir>`, so the key follows the config wherever `--config-dir` puts it, the way the age key does. `--ssh-key` moves or adopts one.
@@ -132,7 +132,7 @@ At the broker these are three ops rather than four, `deny` being `approve` with 
 
 ## What a record is
 
-The operational rules are above; this is what one record is. Its content comes from the account being recorded: the command, the cwd and the output are all the agent's, so every bound below is applied where the record is built rather than trusted to whatever reads it.
+A record's content comes from the account being recorded: the command, the cwd and the output are all the agent's, so every bound below is applied where the record is built rather than trusted to whatever reads it.
 
 - One record is one line within the record cap, counted in encoded bytes: `<`, `>`, `&` and every control character cost six apiece as JSON.
 - An append is exclusive and all-or-nothing. A write that lands short is taken back, so a torn line cannot swallow the record after it.
@@ -140,7 +140,7 @@ The operational rules are above; this is what one record is. Its content comes f
 
 ## Adding a recipient
 
-`init` seals the store to one key: the keeper's own, minted on the host. It writes `.sops.yaml` once and keeps that file on every later run, reading it back and reporting the recipients it lists as `age_recipients`, so nothing about a recipient is decided by re-running the installer. `faramir vault edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
+`init` seals the store to one key: the keeper's own, minted on the host. It writes `.sops.yaml` once and keeps it on every later run, reading it back and reporting the recipients it lists as `age_recipients`, so nothing about a recipient is decided by re-running the installer. `faramir vault edit` does not apply a changed rule either, re-encrypting to the recipients a file already carries, so an edit cannot drop a reader mid-edit.
 
 Granting a second key is one command, as root, at any point in a host's life:
 
@@ -148,19 +148,16 @@ Granting a second key is one command, as root, at any point in a host's life:
 sudo faramir recipient add age1hwvv...    # the rule and the ciphertext together
 ```
 
-Where the key comes from is not faramir's business. Another operator hands you theirs, a second host's `init` minted its own, or a plugin holds one. One nobody has yet is minted with `age-keygen -o FILE`, on the machine that will hold it.
+Where the key comes from is not faramir's business: another operator hands you theirs, a second host's `init` minted its own, or a plugin holds one. One nobody has yet is minted with `age-keygen -o FILE`, on the machine that will hold it.
 
 A second recipient and a backup answer different losses. Another reader keeps the *values* readable if this host's key is gone; the [archive below](#backing-up-and-restoring) is what rebuilds *this host*. Neither substitutes for the other.
 
-It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says. `--dry-run` reports the rule change and which files would be rewritten, and writes neither. The [three recipient commands](#operator-commands) are above.
+It validates the key, edits the rule, checks the keeper is still a reader, writes the file, and re-encrypts every managed value to what it now says, keeping each file's ownership and mode. `--dry-run` reports the rule change and which files would be rewritten, and writes neither.
 
 - **The rule and the ciphertext are changed together**, which is what makes this one command rather than two. A rule naming a reader the existing files are not sealed to fails nothing: new files get the new list, old ones keep the old, and the divergence surfaces whenever somebody reaches for a value with a key they were told they had.
 - **The key is checked before anything is written.** An identity where a recipient belongs is refused by name, `.sops.yaml` being `0644`: one that lands there is the key to the store readable by every account on the host, so treat it as disclosed and rotate. `sudo faramir doctor` asks the same question of a file however it was written, under `sops config`.
-- **Ownership and mode are preserved.** This is why these walk the store rather than looping over `sops updatekeys`, which rewrites in place with no regard for either: a managed file that stops being readable by the secrets group is one the keeper cannot open.
 - **A rule that drops the keeper's own key is refused**, before anything is decrypted, that leaving secrets nothing on the host can open.
-- **Files already sealed to the rule are skipped.** Re-encrypting rewrites the data key even when the recipients are identical, so a pass that did not compare first would make every file look changed.
 - **Dropping a recipient reaches no copy already held elsewhere.** Treat what that key could read as read.
-- **A pass that reached only some of the files is resumed by running the same command again.** `add` and `rm` reseal whether or not the rule changed, so a rule that is already right and a store that is not is a state re-running fixes rather than one it reports as done.
 - **`recipient reseal` is for a `.sops.yaml` changed some other way**, root being able to write a root-owned file whatever this page says. It takes the rule as it stands and brings the store to it.
 - **`doctor` reports the disagreement** under `recipient drift`, so a drifted store is reported rather than met when a value will not decrypt.
 - **A `.sops.yaml` with more than one creation rule is refused**, the recipients then depending on which `path_regex` a file matches. The count holds however the rules are written: keys in any order, flow style, `age:` as a string or a list. Use `sops updatekeys` per file, the only thing that can answer which rule governs which.
@@ -183,7 +180,7 @@ sudo tar xzf faramir-backup.tgz -C /
 sudo faramir init --agent-user <account>
 ```
 
-`init` adopts what it finds rather than replacing it. An `age.key` already in place is reported `ok` rather than `changed` and is never overwritten, and an existing `.sops.yaml` is kept and read back, so the accounts, the units, the modes and the group are rebuilt around the key and the ciphertext and nothing is re-encrypted. The same run is how a store from elsewhere is imported: put the files where they belong first.
+`init` adopts what it finds rather than replacing it. An `age.key` already in place is reported `ok` rather than `changed` and is never overwritten, and an existing `.sops.yaml` is kept and read back, so the accounts, units, modes and group are rebuilt around the key and the ciphertext and nothing is re-encrypted. The same run imports a store from elsewhere: put the files where they belong first.
 
 - **The archive is the secret.** Everything under `secrets/` opens with the key beside it, so the two travel together and the archive is worth exactly what the store is.
 - **Nothing exports the identity**, because `tar` and `cp` already do. A command for it would be a second name for the same act and a second thing an agent could be talked into running.

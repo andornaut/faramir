@@ -130,18 +130,10 @@ Reports whether the install is doing its job, and as root what each account can 
 
 ### Onboarding a project
 
-1. Write the values, one file per thing that consumes them: `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk. `--from FILE` encrypts one you already hold and leaves that copy cleartext where it is; `sudo faramir vault edit NAME` reopens a file later. Nothing restarts: the next refresh picks the file up, 10 seconds by default. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
-2. Have the project read each credential from an environment variable rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
-3. Write the refs beside the project, one per line. A name on its own asks for the ref of that name, which is the ordinary case; the mapping form is for a variable whose ref is called something else:
-
-    ```text
-    # deploy.env
-    msmtp_password
-    deploy_token
-    ROUTER_PW=faramir://home/router/admin
-    ```
-
-4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
+1. **Write the values**, one file per thing that consumes them. `sudo faramir vault add NAME` creates `NAME.sops.yml` in the secrets directory, taking the content from `$EDITOR` on a `0600` file in a tmpfs, so no plaintext reaches a disk. Nothing restarts: the next refresh picks the file up. A credential another tool already owns is [linked](docs/integrations.md#linking-a-credential-another-tool-owns) instead of copied in.
+2. **Have the project read each credential from an environment variable** rather than a file or a vault of its own. Most tools already work this way; Ansible needs `lookup('env', 'NAME')`.
+3. **Write the refs beside the project**, one per line, in a file that holds refs and never values: [the two line forms](docs/integrations.md#onboarding-in-three-steps).
+4. **`cd <project> && sudo faramir init-project`.** Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
 Enrol the projects where managed credentials are in play, not every tree. Enrolling one registers the hook the table above names for each agent it finds: it rewrites what the agent runs in the tree into a brokered command and hands the output back redacted. There is no enrolment without it, redaction being what an enrolment is for.
 
@@ -180,6 +172,8 @@ faramir redact -- ./deploy.sh
 ### Allowing sudo on the controller
 
 A brokered command runs as `faramir-exec`, which has no sudo, so a playbook that also configures the controller has to leave it out with `--limit '!controller'`. `sudo faramir init --allow-sudo` closes that split: no password, a PAM service that asks the broker, and one question per run answered by `sudo faramir approve ID`. An approved command gets real root and can make it permanent, so approving is trusting *that command* with permanent root.
+
+**Not on a host whose `sudo` is `sudo-rs`**, which Ubuntu 26.04 ships in place of the original. The grant is a sudoers entry naming `pam_service`, and `sudo-rs` does not implement that setting: it rejects the directive and calls the whole file invalid (measured against `sudo-rs` 0.2.13). The install checks with `visudo` and removes the file again on rejection, so `--allow-sudo` fails rather than leaving a broken entry in `/etc/sudoers.d` -- the host's `sudo` is not affected, and one left without the grant refuses every escalation rather than mis-granting one. Everything else works there; only the escalation does not. Classic `sudo` (1.9.x) is what the grant needs.
 
 - How to run it: [docs/escalation.md](docs/escalation.md)
 - Why it is shaped this way: [docs/design.md](docs/design.md#allowing-sudo-on-the-controller)

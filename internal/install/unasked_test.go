@@ -45,20 +45,9 @@ func TestTheSSHKeyCheckDoesNotPassOnAnUnaskedOperator(t *testing.T) {
 // The same for the account that would be choosing its own answer: an operator
 // that can write the helper decides every escalation on the host.
 func TestTheSudoArrangementDoesNotPassOnAnUnaskedOperator(t *testing.T) {
-	dir := t.TempDir()
-	original := pamDir
-	pamDir = dir
-	t.Cleanup(func() { pamDir = original })
-
-	helper := filepath.Join(dir, "faramir-approve")
-	cfg := &config.Config{}
-	cfg.Escalation.ExecUser = "ex"
-	cfg.Escalation.PamService = "faramir-sudo"
-	cfg.Escalation.Helper = helper
-	if err := os.WriteFile(filepath.Join(dir, cfg.Escalation.PamService),
-		[]byte("auth requisite pam_exec.so seteuid quiet "+helper+"\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	// A whole granting host, so what this reports is the unasked question rather
+	// than a part of the arrangement the fixture left out.
+	cfg, _ := sudoArrangement(t)
 
 	var unnamed DoctorReport
 	diagnoseSudoArrangement(&unnamed, DoctorOptions{ExecUser: "ex"}, cfg)

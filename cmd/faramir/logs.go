@@ -661,7 +661,7 @@ func answerLabel(code string) string {
 		escalation.CodeBrokerStopped: "broker stopped",
 		escalation.CodeOtherCommand:  "other command",
 		escalation.CodeUnnamed:       "unnamed",
-		escalation.CodeUnknownToken:  "unknown token",
+		escalation.CodeUnownedRun:    "unowned run",
 		escalation.CodeNoGrant:       "no grant",
 	}
 	if label, known := labels[code]; known {

@@ -32,7 +32,7 @@ func startChild(t *testing.T, sock string, argv []string, cwd string, timeoutSec
 		t.Fatal(err)
 	}
 	client := NewClient(sock)
-	err = client.Start(argv, cwd, map[string]string{"PATH": "/usr/bin:/bin"}, timeoutSec, 1, slave.Fd())
+	err = client.Start(argv, cwd, map[string]string{"PATH": "/usr/bin:/bin"}, "", timeoutSec, 1, slave.Fd())
 	_ = slave.Close()
 	if err != nil {
 		_ = master.Close()
@@ -243,7 +243,7 @@ func TestAMissingSocketIsAClearError(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = master.Close() }()
-	err = client.Start([]string{"/bin/true"}, "/tmp", nil, 5, 1, slave.Fd())
+	err = client.Start([]string{"/bin/true"}, "/tmp", nil, "", 5, 1, slave.Fd())
 	_ = slave.Close()
 	if err == nil {
 		t.Fatal("connecting to a missing socket succeeded")

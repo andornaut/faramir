@@ -206,10 +206,18 @@ done
 out=$(runuser -u op -- env LEAKED_FROM_CALLER=yes /usr/local/bin/faramir run --quiet -t 20 -- /usr/bin/printenv 2>&1)
 grep -q "LEAKED_FROM_CALLER" <<<"$out" && bad "the caller's environment reached the child" \
   || ok "a variable set by the caller does not reach the child"
-# Nor anything of the daemon's own.
-grep -qE "^(FARAMIR_|LISTEN_|NOTIFY_|INVOCATION_ID|JOURNAL_)" <<<"$env_out" \
-  && bad "daemon environment leaked: $(grep -E '^(FARAMIR_|LISTEN_|NOTIFY_|INVOCATION_ID|JOURNAL_)' <<<"$env_out" | head -2)" \
+# Nor anything of the daemon's own. FARAMIR_OPERATOR is set on purpose and is
+# checked on its own below, so it is taken out here rather than widening the
+# pattern: anything else wearing the prefix is still a leak.
+deliberate=$(grep -v '^FARAMIR_OPERATOR=' <<<"$env_out")
+grep -qE "^(FARAMIR_|LISTEN_|NOTIFY_|INVOCATION_ID|JOURNAL_)" <<<"$deliberate" \
+  && bad "daemon environment leaked: $(grep -E '^(FARAMIR_|LISTEN_|NOTIFY_|INVOCATION_ID|JOURNAL_)' <<<"$deliberate" | head -2)" \
   || ok "and none of the daemon's own activation environment does either"
+# The one it does set: who the host belongs to. Every brokered command runs as the
+# executor, so without this nothing inside a run can name the operator.
+grep -q '^FARAMIR_OPERATOR=op$' <<<"$env_out" \
+  && ok "and the child is told which account is the operator" \
+  || bad "FARAMIR_OPERATOR does not name the operator: $(grep '^FARAMIR_OPERATOR=' <<<"$env_out")"
 # Nor the key that decrypts everything. Named apart from the daemon prefixes
 # above because this is the one variable whose arrival would undo the whole
 # arrangement: a child holding it needs no broker, and sops reads both spellings.

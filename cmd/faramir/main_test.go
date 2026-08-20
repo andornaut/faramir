@@ -391,29 +391,29 @@ func dispatcherNames(t *testing.T) []string {
 }
 
 // Deny by default, at the last place a human's answer is read: only an explicit
-// yes approves, so a typo, a stray word or a punctuation mark refuses. "y" is
-// among the refusals: the watcher asks for `yes`, and the keystroke this is
-// guarded against is one the operator did not make.
-func TestOnlyYesApproves(t *testing.T) {
+// y approves, so a typo, a stray word or a punctuation mark refuses. "yes" is
+// among the refusals: one token approves, and a second spelling of it is a
+// second thing to get wrong.
+func TestOnlyYApproves(t *testing.T) {
 	// The last two are what a terminal puts around an answer rather than part of
 	// one: the newline it is read up to, and the carriage return of a CRLF ending.
-	for _, line := range []string{"yes", "YES", " yes ", "yes\n", "yes\r\n"} {
+	for _, line := range []string{"y", "Y", " y ", "y\n", "y\r\n"} {
 		if !approves(line) {
 			t.Errorf("%q did not approve", line)
 		}
 	}
-	for _, line := range []string{"no", "y", "Y", "", "\n", "y e s", "sure", "yes please", "ok", "1"} {
+	for _, line := range []string{"no", "n", "yes", "YES", "", "\n", "y e s", "sure", "y please", "ok", "1"} {
 		if approves(line) {
 			t.Errorf("%q approved an escalation", line)
 		}
 	}
 }
 
-// Only the edges are stripped, so nothing is edited into a yes it did not spell:
-// a line needing an unprintable byte removed from the middle of it to read as
-// "yes" was not somebody typing yes.
-func TestAnInteriorUnprintableIsNotEditedIntoAYes(t *testing.T) {
-	for _, line := range []string{"y\x00es", "y\res", "ye\x1bs"} {
+// Only the edges are stripped, so nothing is edited down into an approval it did
+// not spell: a line needing an unprintable byte removed from the middle of it to
+// read as "y" was not somebody typing y.
+func TestAnInteriorUnprintableIsNotEditedIntoAnApproval(t *testing.T) {
+	for _, line := range []string{"y\x00e", "y\re", "y\x1bs", "y\x00es"} {
 		if approves(line) {
 			t.Errorf("%q approved an escalation", line)
 		}
@@ -430,7 +430,7 @@ func TestABlankLineIsNotAnAnswer(t *testing.T) {
 			t.Errorf("%q was read as an answer", line)
 		}
 	}
-	for _, line := range []string{"no\n", "yes\n", "?\n"} {
+	for _, line := range []string{"no\n", "y\n", "?\n"} {
 		if answerOf(line) == "" {
 			t.Errorf("%q was not read as an answer", line)
 		}
@@ -443,11 +443,11 @@ func TestABlankLineIsNotAnAnswer(t *testing.T) {
 func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 	original := answers
 	t.Cleanup(func() { answers = original })
-	answers = bufio.NewReader(strings.NewReader("yes please\n\nyes\n"))
+	answers = bufio.NewReader(strings.NewReader("y please\n\ny\n"))
 	terminal := readLines()
 	for _, want := range []bool{
-		false, // "yes please" is not yes, and is still an answer
-		true,  // the blank line is asked again, and the yes after it read
+		false, // "y please" is not y, and is still an answer
+		true,  // the blank line is asked again, and the y after it read
 	} {
 		line, state := terminal.answer(time.Now().Add(time.Minute))
 		if state != answered {
@@ -602,10 +602,10 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	original := answers
 	t.Cleanup(func() { answers = original })
 	// One burst: a stray newline, then the answer behind it.
-	answers = bufio.NewReader(strings.NewReader("\nyes\n"))
+	answers = bufio.NewReader(strings.NewReader("\ny\n"))
 	line, state := readLines().answer(time.Now().Add(time.Minute))
 	if state != answered || !approves(line) {
-		t.Errorf("the wait gave (%q, %v), want the yes behind the blank line", line, state)
+		t.Errorf("the wait gave (%q, %v), want the y behind the blank line", line, state)
 	}
 }
 

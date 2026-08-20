@@ -242,6 +242,11 @@ const maxInt = int(^uint(0) >> 1)
 type ServerConfig struct {
 	SocketPath   string
 	AllowedGroup string
+	// AgentUser is the account the coding agent runs as, which is the operator.
+	// Named in a brokered command's environment as FARAMIR_OPERATOR, and in the
+	// sudo one too: every brokered command runs as the executor, so nothing a
+	// command can read of its own identity says whose host it is on.
+	AgentUser string
 }
 
 // CommandConfig is what a brokered command is given and what bounds it. Named
@@ -508,7 +513,7 @@ var (
 	// is deciding.
 	sections = []string{"server", "keeper", "executor", "command", "ssh",
 		"escalation", "secret", "audit"}
-	serverKeys = []string{keySocketPath, "allowed_group"}
+	serverKeys = []string{keySocketPath, "allowed_group", "agent_user"}
 	keeperKeys = []string{keySocketPath, "allowed_user",
 		"age_key_credential", "age_key_file"}
 	executorKeys = []string{keySocketPath, "allowed_user"}
@@ -576,6 +581,9 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 		return err
 	}
 	if out.AllowedGroup, err = str(sec["allowed_group"], where, out.AllowedGroup); err != nil {
+		return err
+	}
+	if out.AgentUser, err = str(sec["agent_user"], where, out.AgentUser); err != nil {
 		return err
 	}
 	return nil

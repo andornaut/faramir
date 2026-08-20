@@ -2,10 +2,15 @@
 // a human's consent, and holds no credential that could do it again. Why it is
 // shaped this way is docs/design.md; this is what the code must maintain.
 //
-//   - The child's environment carries FARAMIR_ESCALATION_TOKEN and nothing else.
-//     Inert on its own: the op that spends it is refused to anything but root.
-//   - The PAM helper finds the token by walking /proc up from sudo, so nothing
-//     has to be threaded through PAM, and asks the broker over its socket.
+//   - A run is named by the process the executor forked for it, and a sudo says
+//     which run it is inside by its own ancestry. Nothing is carried in an
+//     environment, so there is nothing to copy, read out of /proc or leak into a
+//     log: a process cannot choose its parent, and ptrace_scope keeps a process
+//     of the same uid out of another run's tree.
+//   - The PAM helper walks /proc up from sudo and sends what it finds, so nothing
+//     has to be threaded through PAM, and asks the broker over its socket. The
+//     executor answers which of its runs owns one of those processes, being the
+//     only party that knows what it forked.
 //   - The broker files a question, a human answers it through `faramir
 //     approve`, and the answer releases every request from that one command.
 //
@@ -36,13 +41,19 @@ const (
 	// How long the notifier may run before it is killed. It announces a pending
 	// question and returns nothing, so nothing waits on it.
 	notifyTimeout = 10 * time.Second
-	// TokenEnv is how a brokered command's descendants name the run they belong
-	// to. The helper reads it out of /proc rather than being passed it, because
-	// PAM does not carry the child's environment into the module. It names a
-	// run rather than authorising one; the op that spends it is refused to
-	// anything but root.
-	TokenEnv = "FARAMIR_ESCALATION_TOKEN" //nolint:gosec // G101: an env var name, not a credential
 )
+
+// A pid is enough, and a start time is not available to the party that would
+// have to record one. The executor runs as the uid every brokered command runs
+// as; a command that execs a setuid binary -- `sudo` itself, which is the whole
+// point here -- gets a root-owned /proc entry, and ProtectProc=invisible then
+// hides it from that uid. So the executor cannot read the start time of the child
+// it just forked.
+//
+// It does not need one. A pid is unique among live processes, and the kernel does
+// not reuse it until the process is reaped: the executor holds each child unreaped
+// for exactly as long as it owns the run, so no other process can be wearing that
+// number while an escalation is attributed to it.
 
 // Run is the brokered command a request is made on behalf of. Naming it is
 // what makes the answer worth anything: an approval the human cannot attribute
@@ -145,23 +156,31 @@ type Server struct {
 	Record func(map[string]any)
 
 	// Quiescent asks the kernel what this server only believes: is any process of
-	// the executor's uid alive outside the runs it knows about?
-	// /proc/<pid>/environ is readable within a uid, so such a process can read an
-	// approved run's token and sudo on it, and the map below can part from the
-	// process table -- a teardown that does not finish, a run aborted from the
-	// broker's side, this process restarting.
+	// the executor's uid alive outside the runs it knows about? Such a process is
+	// one this server cannot attribute to anything a human approved, and the map
+	// below can part from the process table -- a teardown that does not finish, a
+	// run aborted from the broker's side, this process restarting.
 	//
 	// Set by the broker to a call on the executor, the only account that can see
 	// those processes. Nil refuses every escalation.
 	Quiescent func() (quiet bool, detail string)
 
+	// Owner says which run forked one of these processes, or "" for none of them.
+	// The executor answers it, being the only party that knows what it forked; the
+	// ancestry comes from the PAM helper, and neither end takes the asking
+	// process's word for anything.
+	//
+	// Set by the broker to a call on the executor. Nil refuses every escalation.
+	Owner func(ancestors []int) (runID, detail string)
+
 	mu sync.Mutex
-	// runs is what is in flight, keyed by the token in each child's environment.
+	// runs is what is in flight, keyed by the id the executor knows each run's
+	// forked process by.
 	runs map[string]Run
 	// waiting is the question a human has not answered yet, or nil. One, never a
 	// queue: the second task of a playbook joins the question the first raised,
 	// and a second command is refused rather than filed behind it. A field
-	// rather than a map keyed by token, so "at most one" is what the type says.
+	// rather than a map keyed by runID, so "at most one" is what the type says.
 	waiting *escalation
 	// changed is closed and replaced whenever waiting does, so `faramir escalations
 	// --watch` can block on the next change rather than poll for it.
@@ -202,7 +221,7 @@ type Outcome struct {
 // waits on the same one.
 type escalation struct {
 	id    string
-	token string
+	runID string
 	run   Run
 	asked time.Time
 
@@ -229,9 +248,22 @@ const (
 	CodeBrokerStopped = "broker_stopped"
 	CodeOtherCommand  = "other_command"
 	CodeUnnamed       = "unnamed_question"
-	CodeUnknownToken  = "unknown_token"
+	CodeUnownedRun    = "unowned_run"
 	CodeNoGrant       = "no_grant"
 )
+
+// owner asks the executor which run forked one of these processes. Nil Owner is
+// a refusal rather than a pass: without it nothing can attribute a sudo to a
+// command, and an escalation nobody can attribute is what this exists to avoid.
+func (s *Server) owner(ancestors []int) (runID, detail string) {
+	if len(ancestors) == 0 {
+		return "", "the request named no processes"
+	}
+	if s.Owner == nil {
+		return "", "this broker cannot ask the executor what it forked"
+	}
+	return s.Owner(ancestors)
+}
 
 func New(cfg config.EscalationConfig) *Server {
 	return &Server{
@@ -246,39 +278,32 @@ func New(cfg config.EscalationConfig) *Server {
 // is an install that never passed --allow-sudo.
 func (s *Server) Enabled() bool { return s.config.ExecUser != "" }
 
-// Env is what to add to a child's environment: a token, and nothing else.
-// Inert in the child's hands, spending it meaning the `escalate` op, which the
-// broker refuses to anything but root.
-func (s *Server) Env(token string) map[string]string {
-	if !s.Enabled() || token == "" {
-		return map[string]string{}
-	}
-	return map[string]string{TokenEnv: token}
-}
-
-// Register records the command a token stands for and returns the token. Empty
-// where nothing is granted, which Env reads as nothing to inject.
+// Register records the command a run id stands for and returns the id. Empty
+// where nothing is granted, which the broker reads as a run to confine to a
+// cgroup of the executor's own choosing rather than to a named one.
 //
 // heldBy is the serialisation: while one command holds an escalation no other
-// brokered command may start, the two sharing the executor's uid, so the second
-// could read the first's token out of /proc and ride the escalation.
+// brokered command may start. Nothing is carried in an environment for a second
+// command to read, but the two share the executor's uid, and one that can ptrace
+// its way into the approved run's tree is inside that run as far as an escalation
+// is concerned, ancestry being what attributes one.
 // Registering a run also blocks a new escalation, Answer requiring sole
 // occupancy. A merely pending question holds a new command too, or a caller
 // free to keep starting commands decides whether the host is ever quiet enough
 // for a yes to take; the cost is that one unanswered question stalls unrelated
 // work for up to [escalation] timeout_sec.
-func (s *Server) Register(run Run) (token, heldBy string) {
+func (s *Server) Register(run Run) (runID, heldBy string) {
 	if !s.Enabled() {
 		return "", ""
 	}
 	var raw [16]byte
 	if _, err := rand.Read(raw[:]); err != nil {
-		// Without a token the broker cannot say what it is approving, and an
+		// Without a runID the broker cannot say what it is approving, and an
 		// unnamed escalation is the thing this exists to avoid.
-		log.Printf("escalation: no randomness for a token (%v); this command cannot sudo", err)
+		log.Printf("escalation: no randomness for a runID (%v); this command cannot sudo", err)
 		return "", ""
 	}
-	token = hex.EncodeToString(raw[:])
+	runID = hex.EncodeToString(raw[:])
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.stopped {
@@ -291,8 +316,8 @@ func (s *Server) Register(run Run) (token, heldBy string) {
 		log.Printf("escalation: holding a new command: %s", why)
 		return "", why
 	}
-	s.runs[token] = run
-	return token, ""
+	s.runs[runID] = run
+	return runID, ""
 }
 
 // holdLocked says why a new brokered command may not start now, or "".
@@ -314,10 +339,10 @@ func (s *Server) waitingLocked() string {
 	return s.waiting.run.Command()
 }
 
-// waitingForLocked is the outstanding question if it belongs to this token, or
-// nil. The token comparison is what the map key used to do.
-func (s *Server) waitingForLocked(token string) *escalation {
-	if s.waiting != nil && s.waiting.token == token {
+// waitingForLocked is the outstanding question if it belongs to this runID, or
+// nil. The runID comparison is what the map key used to do.
+func (s *Server) waitingForLocked(runID string) *escalation {
+	if s.waiting != nil && s.waiting.runID == runID {
 		return s.waiting
 	}
 	return nil
@@ -335,39 +360,39 @@ func (s *Server) escalationLiveLocked() string {
 	return ""
 }
 
-// otherRunLocked names a registered run whose token is not the given one, or
+// otherRunLocked names a registered run whose runID is not the given one, or
 // "": a second process on the executor's uid, in flight while root is handed
 // out, is what could ride the escalation.
-func (s *Server) otherRunLocked(token string) string {
+func (s *Server) otherRunLocked(runID string) string {
 	for t, run := range s.runs {
-		if t != token {
+		if t != runID {
 			return run.Command()
 		}
 	}
 	return ""
 }
 
-// Release drops a token when its command ends, which is what makes an approval
+// Release drops a runID when its command ends, which is what makes an approval
 // die with the run it was given for. The command's unanswered question goes
 // with it: one left filed would take a yes for a command that is no longer
 // running, and would hold the one question slot until it timed out.
 //
 // outcome is published only for a run somebody approved; no terminal is waiting
 // to hear the end of one nobody was asked about.
-func (s *Server) Release(token string, outcome Outcome) {
-	if token == "" {
+func (s *Server) Release(runID string, outcome Outcome) {
+	if runID == "" {
 		return
 	}
 	s.mu.Lock()
-	run, known := s.runs[token]
-	delete(s.runs, token)
+	run, known := s.runs[runID]
+	delete(s.runs, runID)
 	if known && run.approved {
 		s.finished = &outcome
 		// So a watcher parked on the long poll prints the ending when the run ends
 		// rather than up to a whole wait later.
 		s.wakeLocked()
 	}
-	pending := s.waitingForLocked(token)
+	pending := s.waitingForLocked(runID)
 	s.mu.Unlock()
 	if pending != nil {
 		// Outside the lock: finish takes it.
@@ -380,30 +405,32 @@ func (s *Server) Release(token string, outcome Outcome) {
 // caller is the PAM helper's request, which the broker has already checked came
 // from root, and sudo is blocked on it, which is what makes the wait a password
 // prompt from sudo's point of view.
-func (s *Server) Ask(token string) (approved bool, code, reason string) {
+func (s *Server) Ask(ancestors []int) (approved bool, code, reason string) {
 	if !s.Enabled() {
 		return false, CodeNoGrant, "this host grants no escalation"
 	}
+	runID, detail := s.owner(ancestors)
 	s.mu.Lock()
-	run, known := s.runs[token]
+	run, known := s.runs[runID]
 	s.mu.Unlock()
-	if !known {
+	if runID == "" || !known {
 		// Refused rather than asked about: an escalation that names no command is
-		// one a human cannot judge. This is what a request from outside a brokered
-		// command, or after one ended, looks like.
-		log.Printf("escalation: refusing a request whose token names no running command")
+		// one a human cannot judge. This is what a `sudo` typed by hand as the
+		// executor's account looks like, and what one whose run has already ended
+		// looks like too.
+		log.Printf("escalation: refusing a request no running command owns (%s)", detail)
 		s.record(map[string]any{
 			"log_id": audit.NewLogID(), "op": "escalate", "approved": false,
-			"outcome_code": CodeUnknownToken,
-			"outcome":      "the token named no running command",
+			"outcome_code": CodeUnownedRun,
+			"outcome":      "no running command owns the process that asked: " + detail,
 		})
-		return false, CodeUnknownToken,
-			"this request names no brokered command, so there is nothing to approve"
+		return false, CodeUnownedRun,
+			"this request comes from no brokered command, so there is nothing to approve"
 	}
 
-	approved, prompted, code, reason := s.ask(token, run)
+	approved, prompted, code, reason := s.ask(runID, run)
 	if !approved {
-		s.refuse(token, code, reason)
+		s.refuse(runID, code, reason)
 	}
 	s.record(map[string]any{
 		"log_id": audit.NewLogID(), "op": "escalate", "approved": approved,
@@ -418,43 +445,43 @@ func (s *Server) Ask(token string) (approved bool, code, reason string) {
 
 // refuse keeps the no this run was given, for the broker to report when the
 // command ends. Dropped with the run.
-func (s *Server) refuse(token, code, reason string) {
+func (s *Server) refuse(runID, code, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if run, known := s.runs[token]; known {
+	if run, known := s.runs[runID]; known {
 		run.refusedCode, run.refusedReason = code, reason
-		s.runs[token] = run
+		s.runs[runID] = run
 	}
 }
 
 // startWaitingLocked starts the clock on a run whose question has just been
 // filed, unless one is already running: a second sudo joining the same question
 // is the same wait, not another.
-func (s *Server) startWaitingLocked(token string) {
-	if run, known := s.runs[token]; known && run.waitingSince.IsZero() {
+func (s *Server) startWaitingLocked(runID string) {
+	if run, known := s.runs[runID]; known && run.waitingSince.IsZero() {
 		run.waitingSince = time.Now()
-		s.runs[token] = run
+		s.runs[runID] = run
 	}
 }
 
 // stopWaitingLocked folds the question just settled into the run's total.
-func (s *Server) stopWaitingLocked(token string) {
-	run, known := s.runs[token]
+func (s *Server) stopWaitingLocked(runID string) {
+	run, known := s.runs[runID]
 	if !known || run.waitingSince.IsZero() {
 		return
 	}
 	run.waited += time.Since(run.waitingSince)
 	run.waitingSince = time.Time{}
-	s.runs[token] = run
+	s.runs[runID] = run
 }
 
 // Waited is how long this run has spent held by its questions, including one
 // still open: a run its own deadline killed ends while its question is still
 // outstanding.
-func (s *Server) Waited(token string) time.Duration {
+func (s *Server) Waited(runID string) time.Duration {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	run := s.runs[token]
+	run := s.runs[runID]
 	if run.waitingSince.IsZero() {
 		return run.waited
 	}
@@ -464,10 +491,10 @@ func (s *Server) Waited(token string) time.Duration {
 // Refusal is the last no a run was given, or empty where it was given none.
 // Read by the broker when the command ends, so a caller is told why its sudo
 // failed rather than being left with sudo's own account of it.
-func (s *Server) Refusal(token string) (code, reason string) {
+func (s *Server) Refusal(runID string) (code, reason string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	run := s.runs[token]
+	run := s.runs[runID]
 	return run.refusedCode, run.refusedReason
 }
 
@@ -479,8 +506,8 @@ func (s *Server) Refusal(token string) (code, reason string) {
 // stretch of time anything can start a command inside; this is scoped to the
 // command the human was shown, dies when the run ends, and cannot be reached by
 // a second run.
-func (s *Server) ask(token string, run Run) (approved, prompted bool, code, reason string) {
-	pending, raised, refusedCode, refused := s.pend(token, run)
+func (s *Server) ask(runID string, run Run) (approved, prompted bool, code, reason string) {
+	pending, raised, refusedCode, refused := s.pend(runID, run)
 	if pending == nil {
 		return false, false, refusedCode, refused
 	}
@@ -499,20 +526,20 @@ func (s *Server) ask(token string, run Run) (approved, prompted bool, code, reas
 // pend files the question, or hands back the one this command already raised.
 // The second return is whether this call is the one that raised it; the last
 // two are why no question could be filed, when none was.
-func (s *Server) pend(token string, run Run) (*escalation, bool, string, string) {
+func (s *Server) pend(runID string, run Run) (*escalation, bool, string, string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	// Re-checked under the lock: the requests of a playbook arrive in a rush, and
 	// one that read "not approved" outside it may have been overtaken.
-	if s.runs[token].approved {
+	if s.runs[runID].approved {
 		answered := &escalation{done: make(chan struct{}), approved: true,
 			code:   CodeApproved,
 			reason: "covered by the escalation given for this command"}
 		close(answered.done)
 		return answered, false, "", ""
 	}
-	if existing := s.waitingForLocked(token); existing != nil {
-		s.startWaitingLocked(token)
+	if existing := s.waitingForLocked(runID); existing != nil {
+		s.startWaitingLocked(runID)
 		return existing, false, "", ""
 	}
 	if s.stopped {
@@ -524,10 +551,10 @@ func (s *Server) pend(token string, run Run) (*escalation, bool, string, string)
 	// would spend a human's attention on a prompt whose only outcome is a
 	// refusal. Requests from the same run joined their question above, so this
 	// refuses another command rather than another sudo.
-	if other := s.otherRunLocked(token); other != "" {
+	if other := s.otherRunLocked(runID); other != "" {
 		return nil, false, CodeOtherCommand, fmt.Sprintf("%s is also running, and root is handed to a "+
 			"brokered command only when it is the only one: the two share the "+
-			"executor's uid, so the other could read this one's token and ride the "+
+			"executor's uid, so the other could read this one's runID and ride the "+
 			"escalation. Run this again once that one has finished", other)
 	}
 	id := newID()
@@ -536,11 +563,11 @@ func (s *Server) pend(token string, run Run) (*escalation, bool, string, string)
 			"this question could not be named, so nothing could answer it"
 	}
 	pending := &escalation{
-		id: id, token: token, run: run, asked: time.Now(),
+		id: id, runID: runID, run: run, asked: time.Now(),
 		done: make(chan struct{}),
 	}
 	s.waiting = pending
-	s.startWaitingLocked(token)
+	s.startWaitingLocked(runID)
 	s.wakeLocked()
 	log.Printf("escalation: %s is waiting to be approved: %s", pending.id, run.Command())
 	return pending, true, "", ""
@@ -555,8 +582,8 @@ func (s *Server) finish(pending *escalation, approved bool, code, reason string)
 	pending.once.Do(func() {
 		s.mu.Lock()
 		pending.approved, pending.code, pending.reason = approved, code, reason
-		s.stopWaitingLocked(pending.token)
-		// Only if it is still the outstanding one: a token released and
+		s.stopWaitingLocked(pending.runID)
+		// Only if it is still the outstanding one: a runID released and
 		// re-registered would otherwise lose its own.
 		if s.waiting == pending {
 			s.waiting = nil
@@ -794,7 +821,7 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	}
 	// Sole occupancy: root is handed to a run only when it is the one brokered
 	// command running, anything else on the executor's uid being able to read its
-	// token and ride the escalation. A refusal needs no such quiet, and refusing
+	// runID and ride the escalation. A refusal needs no such quiet, and refusing
 	// here answers the question no rather than holding it open; see
 	// refuseForNoise.
 	//
@@ -804,18 +831,18 @@ func (s *Server) Answer(id string, approve bool, who string) error {
 	// between the two is a window in which a second command starts and rides this
 	// escalation.
 	if approve {
-		if other := s.otherRunLocked(pending.token); other != "" {
+		if other := s.otherRunLocked(pending.runID); other != "" {
 			s.mu.Unlock()
 			return s.refuseForNoise(id, "another brokered command is registered ("+
 				other+"), which shares the executor's uid and could ride the escalation")
 		}
-		if run, ok := s.runs[pending.token]; ok {
+		if run, ok := s.runs[pending.runID]; ok {
 			run.approved = true
 			// The no it was given before this one is not the answer any more: left
 			// standing, an earlier expiry would be reported for a command that went
 			// on to become root and exit cleanly.
 			run.refusedCode, run.refusedReason = "", ""
-			s.runs[pending.token] = run
+			s.runs[pending.runID] = run
 		}
 	}
 	s.mu.Unlock()

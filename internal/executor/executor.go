@@ -48,6 +48,10 @@ type Request struct {
 	Cwd        string
 	Env        map[string]string
 	TimeoutSec int
+	// RunID is what the escalation server calls this run, passed through so the
+	// executor can say which run forked a process asking to sudo. Empty where the
+	// host grants no escalation.
+	RunID string
 }
 
 // Run executes a request through the executor, returning redacted merged
@@ -70,7 +74,7 @@ func Run(execCfg config.CommandConfig, executorCfg config.ExecutorConfig,
 	started := time.Now()
 
 	client := execserver.NewClient(executorCfg.SocketPath)
-	startErr := client.Start(argv, cwd, env, timeoutSec, config.KillGraceSec, slave.Fd())
+	startErr := client.Start(argv, cwd, env, req.RunID, timeoutSec, config.KillGraceSec, slave.Fd())
 	// The executor holds its own copy; this one must go or the master never
 	// reaches EOF.
 	_ = slave.Close()

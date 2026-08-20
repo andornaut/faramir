@@ -18,6 +18,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/protocol"
 )
 
 // stepSudoGrant writes or removes the grant: a sudoers entry and the PAM
@@ -60,6 +62,13 @@ func (r *runner) stepSudoGrant() error {
 		return err
 	}
 
+	// Before the sudoers entry that names it: an entry pointing at a file that is
+	// not there makes sudo warn on every call, and validateSudoers below reads it.
+	envChanged, err := r.writeSudoEnv()
+	if err != nil {
+		return err
+	}
+
 	body, err := render("etc/sudoers.tmpl", r.layout)
 	if err != nil {
 		return err
@@ -97,10 +106,10 @@ func (r *runner) stepSudoGrant() error {
 		}
 	}
 
-	if granted || authChanged {
+	if granted || authChanged || envChanged {
 		r.restartFor("sudo grant")
 	}
-	r.step("sudo grant", granted || authChanged, fmt.Sprintf(
+	r.step("sudo grant", granted || authChanged || envChanged, fmt.Sprintf(
 		"%s may ask to sudo on this host; %s answers, one escalation per command",
 		r.layout.ExecUser, r.layout.PamFile()))
 	return nil
@@ -112,6 +121,7 @@ func (r *runner) revokeSudoGrant() error {
 	stale := []string{
 		sudoersFile,
 		pamServiceFile,
+		r.layout.SudoEnvFile(),
 		// Where earlier layouts kept a password.
 		filepath.Join(r.layout.RunDir, "elevate.secret"),
 		filepath.Join(r.layout.ConfigDir, "elevate.secret"),
@@ -172,4 +182,86 @@ func (r *runner) validateSudoers() error {
 			sudoersFile, removeErr, err, strings.TrimSpace(string(out)))
 	}
 	return nil
+}
+
+// writeSudoEnv renders what a brokered command's sudo is given on top of what
+// sudo builds. Root's, 0644: sudoers reads it as part of the policy, and the
+// executor's uid must not be able to write what root will be handed.
+//
+// A value carrying a newline would be a second variable this file never named,
+// so one is refused rather than written -- the operator is told, and the rest of
+// the file is still correct.
+func (r *runner) writeSudoEnv() (bool, error) {
+	body, err := render("etc/sudo-env.tmpl", r.sudoEnv())
+	if err != nil {
+		return false, err
+	}
+	// No directory to make: this goes beside the PAM helper, in a directory the
+	// install has already created by now. Nothing here makes a directory faramir
+	// does not own outright, which is how a path it merely shares ends up deleted
+	// by an uninstall that thinks it owns it.
+	return r.fs.writeFile(r.layout.SudoEnvFile(), body, 0o644, 0, 0)
+}
+
+// sudoSetsItself is the reserved names sudo fills in on its own: PATH from
+// secure_path and HOME from the target user. Left out of the file like the rest,
+// but without a word about it, an entry sudo would ignore being nothing for an
+// operator to fix.
+var sudoSetsItself = map[string]bool{"PATH": true, "HOME": true}
+
+// sudoEnv is the layout with [command] env cut down to what may be handed to
+// root. Split out so the filter is what a test exercises: it is the only thing
+// standing between that setting and root's environment, sudoers reading this
+// file without env_keep or env_check.
+func (r *runner) sudoEnv() Layout {
+	safe := map[string]string{}
+	for name, value := range r.layout.CommandEnv {
+		// The name first, and against what an environment variable may be called
+		// rather than against a list of characters: --command-env splits on the
+		// first '=', so everything after one in the name arrives here as part of the
+		// name, and a newline there renders a second line this file never named.
+		// sudo skips the line without an '=' and applies the one after it.
+		if !protocol.ValidEnvName(name) {
+			r.warnf("[command] env %q is not a variable name, so it is left out of %s: "+
+				"what follows the first '=' is the value, and anything else in the name "+
+				"would be read as another variable", name, r.layout.SudoEnvFile())
+			continue
+		}
+		// The same for the value, which ends its own line. '#' with it: sudo reads
+		// this file with comments recognised anywhere on a line rather than only at
+		// the start, so it keeps what precedes one and drops the rest. Left out
+		// rather than written, because the harm is silence -- the run would hold the
+		// whole value and its sudo a shorter one, and nothing would say so. Quoting
+		// does not help: the value still truncates, and the opening quote survives
+		// into it (measured on sudo 1.9.15p5).
+		if strings.ContainsAny(value, "\n\r#") {
+			r.warnf("[command] env %s is left out of %s: a value carrying a newline or "+
+				"a '#' does not survive it whole, and a value that differs between a "+
+				"command and its sudo is worse than one that is absent", name,
+				r.layout.SudoEnvFile())
+			continue
+		}
+		// What env_refs refuses, refused here too. sudoers reads this file without
+		// env_keep or env_check, so a name that redirects the loader, the interpreter
+		// or sops reaches root through it -- and sudo's own env_reset used to strip
+		// exactly these before this file existed.
+		if protocol.ReservedEnv[name] {
+			// Quietly for the ones sudo sets itself. PATH is a [command] env default,
+			// so warning about it would put a line on every clean install that names
+			// nothing the operator did and nothing they can act on -- and this is the
+			// same channel that has to carry a '#' in a value or a name that is not a
+			// name. sudo adds an env_file entry only where it has not set one already,
+			// so leaving these out changes nothing either way.
+			if !sudoSetsItself[name] {
+				r.warnf("[command] env %s is left out of %s: it is one of the names an "+
+					"injected value may not carry either, and this file is read without "+
+					"sudo's own environment checks", name, r.layout.SudoEnvFile())
+			}
+			continue
+		}
+		safe[name] = value
+	}
+	env := r.layout
+	env.CommandEnv = safe
+	return env
 }

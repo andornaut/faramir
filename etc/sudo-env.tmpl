@@ -1,0 +1,19 @@
+# {{.SudoEnvFile}}: what a brokered command's sudo is given, on top of what sudo
+# builds for it.
+#
+# Written by the install when it grants sudo, and REWRITTEN BY EVERY RUN. Removed
+# by a re-run that grants none, with the rest of the grant.
+#
+# sudoers reads this as part of the policy: root's, and never writable by the
+# executor's uid, or that uid would be choosing root's environment. It is the
+# other half of env_reset -- what the caller had is discarded, and what this
+# names is put back from a file the caller cannot touch. A variable here is only
+# added if sudo did not already set one, so HOME, PATH and SUDO_* stay sudo's.
+#
+# FARAMIR_OPERATOR is who the host belongs to. SUDO_USER cannot say it: sudo sets
+# that from the account that invoked it, which for a brokered command is the
+# executor, whose home holds none of the operator's configuration.
+FARAMIR_OPERATOR={{.AgentUser}}
+{{- range $name, $value := .CommandEnv}}
+{{$name}}={{$value}}
+{{- end}}

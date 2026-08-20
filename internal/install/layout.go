@@ -149,7 +149,12 @@ type Layout struct {
 	// already has rather than reverting to the compiled-in value. A value that
 	// reaches the file and is recoverable from nothing would be erased by the
 	// next command that rewrites it.
-	CommandEnv           map[string]string
+	CommandEnv map[string]string
+	// AgentUser is the account the coding agent runs as, which is the operator.
+	// Named in the sudo environment so a command that reaches root through the
+	// broker can still resolve whose host it is on: sudo sets SUDO_USER from the
+	// executor account, which is nobody's home and nobody's identity.
+	AgentUser            string
 	CommandTimeoutSec    int
 	CommandMaxTimeoutSec int
 	CommandConcurrency   int
@@ -179,6 +184,15 @@ func (l Layout) PamService() string { return pamServiceName }
 
 // PamFile is where that service lives.
 func (l Layout) PamFile() string { return pamServiceFile }
+
+// SudoEnvFile is what the grant's env_file points at. Beside the other files this
+// install renders for its own use, and so with the hook that reads them: not
+// under /etc/sudoers.d, which sudo parses in its entirety, and not under the
+// config directory, which an uninstall keeps and so must never remove wholesale.
+// Nowhere the executor's uid can write either, since sudoers reads this as part
+// of the policy and a file that uid could rewrite would be that uid choosing
+// root's environment.
+func (l Layout) SudoEnvFile() string { return filepath.Join(l.LibexecDir, "sudo-env") }
 
 // SudoersFile is the grant itself. Under /etc/sudoers.d rather than in the
 // config directory: sudo reads one place, and a grant kept where --config-dir

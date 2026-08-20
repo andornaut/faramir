@@ -4,7 +4,7 @@ package main
 //
 // The executor daemon runs as the uid every brokered command runs as, is in no
 // run's cgroup, and receives each run's whole environment over its socket, so
-// it is the one place every run's escalation token can be read from at once.
+// it is the one place every injected value can be read from at once.
 // What stands between it and a brokered command is ptrace_scope, which is 1 on
 // Debian and Ubuntu and 0 on RHEL, Fedora and Arch; on a host installed with
 // --allow-sudo the executor unit carries no seccomp filter either, a filter

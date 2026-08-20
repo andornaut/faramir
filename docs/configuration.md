@@ -17,7 +17,7 @@ Seven values, each rendered into the file and read back out of it on the next ru
 
 Flag | Key | Default | Bounds
 --- | --- | --- | ---
-`--command-env NAME=VALUE` | `[command.env] NAME` | `PATH`, `TERM`, `LANG`, `LC_ALL`, `DEBIAN_FRONTEND` | repeatable, and it **adds**: naming one variable keeps the rest. `PATH` may not be emptied, and every component must be absolute
+`--command-env NAME=VALUE` | `[command.env] NAME` | `PATH`, `TERM`, `LANG`, `LC_ALL`, `DEBIAN_FRONTEND` | repeatable, and it **adds**: naming one variable keeps the rest. `PATH` may not be emptied, and every component must be absolute. On a host that grants sudo they are written to `/usr/local/libexec/faramir/sudo-env` too, so a command keeps them across `sudo`: `env_reset` discards what the caller held, and this is put back from a file the caller cannot write. Not all of them: `HOME`, `PATH` and `SUDO_*` stay sudo's own, and a reserved name or a value holding a newline or a `#` is [left out with a warning](escalation.md#what-a-brokered-command-keeps-across-sudo)
 `--command-timeout-sec` | `[command] timeout_sec` | 600 | at least 1
 `--command-max-timeout-sec` | `[command] max_timeout_sec` | 3600 | at least 1, and not below `timeout_sec`, which it would otherwise silently replace for every command
 `--command-concurrency` | `[command] concurrency` | 10 | at least 1: zero refuses every request as busy
@@ -37,6 +37,7 @@ Key | Derived from
 --- | ---
 `socket_path` on `[server]`, `[keeper]`, `[executor]` | rendered with the `.socket` units
 `[server] allowed_group` | `--client-group`
+`[server] agent_user` | `--agent-user`, defaulting to `$SUDO_USER` and then to you. Given to every brokered command as `FARAMIR_OPERATOR`, and to its `sudo` through the grant's `env_file`
 `[keeper] allowed_user`, `[executor] allowed_user` | `--broker-user`
 `[keeper] age_key_file` | `--config-dir`
 `[keeper] age_key_credential` | rendered with the keeper unit's `LoadCredential=`
@@ -49,17 +50,17 @@ Key | Derived from
 
 ## What is not a key at all
 
-Eight values are constants in the binary. None was ever set by an install, and each says what the thing is rather than offering a preference:
+Eight values are constants in the binary, none of them ever set by an install:
 
-Value | Why not a key
+Value | Is
 --- | ---
-`max_output_bytes` (256 KiB) | It bounds how much text reaches the model, which belongs to the conversation rather than to the host. Roughly 64k tokens: a megabyte was more than the window it exists to protect, so it could not bind. The only use for a larger one is putting more in front of the model, and truncation is reported rather than silent
-`max_request_bytes` (256 KiB) | A guard against a malformed request
-`max_record_bytes` (256 KiB) | Matched to the output cap, which is what fills it: the record keeps the head and the tail of the same output and cuts every other field to fit
-`term_cols`, `term_rows` (120x40) | Where a program folds its own output, on a stream a model reads
-`kill_grace_sec` (5) | A window that opens only once a command has overrun its timeout
-the managed store | `<config-dir>/secrets/` matching `*.sops.yml`. One spelling: faramir writes the store, so an operator picks a name and `vault add` picks the format. Derived from where the config sits, so the store cannot be pointed at a checkout. What the agent cannot open is the directory, which the deny rules name by path
-the decrypt command | A second way to invoke sops is a second thing that could be pointed elsewhere, by the account holding the age key
+`max_output_bytes` | 256 KiB, roughly 64k tokens. It bounds how much text reaches the model, so it belongs to the conversation rather than to the host; truncation is reported rather than silent
+`max_request_bytes` | 256 KiB
+`max_record_bytes` | 256 KiB, matched to the output cap: a record keeps the head and the tail of the same output and cuts every other field to fit
+`term_cols`, `term_rows` | 120x40, where a program folds its own output
+`kill_grace_sec` | 5 seconds, opening only once a command has overrun its timeout
+the managed store | `<config-dir>/secrets/` matching `*.sops.yml`. Derived from where the config sits, so the store cannot be pointed at a checkout. What the agent cannot open is the directory, which the deny rules name by path
+the decrypt command | sops, invoked one way. A second way is a second thing that could be pointed elsewhere, by the account holding the age key
 
 ## Linked secrets
 

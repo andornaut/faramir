@@ -24,7 +24,15 @@
 # human was shown: every `sudo` that one run makes, and nothing after it ends.
 # sudo's timestamp would instead scope it to the next fifteen minutes, which
 # anything starting a command inside that window could ride.
+#
+# env_file is the other half of env_reset. sudo discards the caller's
+# environment, which is right -- the executor's uid is shared by every brokered
+# command, so anything it carries is a value one of them chose. What a brokered
+# command should have instead comes from a file this policy names, which that uid
+# cannot write. Not env_keep, which would preserve the caller's own value under
+# the same name and hand root exactly what the reset threw away.
 Defaults:{{.ExecUser}} pam_service={{.PamService}}
 Defaults:{{.ExecUser}} timestamp_timeout=0
 Defaults:{{.ExecUser}} passwd_tries=1
+Defaults:{{.ExecUser}} env_file={{.SudoEnvFile}}
 {{.ExecUser}} ALL=(ALL:ALL) PASSWD: ALL

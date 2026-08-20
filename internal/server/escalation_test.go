@@ -35,53 +35,54 @@ func allowSudo(t *testing.T, s *Server) {
 	t.Cleanup(s.Escalation.Stop)
 }
 
-// A brokered command is given a token and nothing else. It names the run so a
-// question can name the command; it authorises nothing, the op that spends it
-// being refused to anything but root.
-func TestExecInjectsTheToken(t *testing.T) {
+// A brokered command is given nothing of the escalation's, on a host that grants
+// one and on a host that does not. A run is named by the process the executor
+// forked, so there is nothing to put in the child's hands: nothing it can read,
+// copy, hand to a later command, or print into a log.
+func TestExecGivesTheChildNothingOfTheEscalations(t *testing.T) {
+	for _, granted := range []bool{true, false} {
+		t.Run(map[bool]string{true: "sudo granted", false: "no grant"}[granted], func(t *testing.T) {
+			s, rec := execServer(t)
+			if granted {
+				allowSudo(t, s)
+			}
+
+			exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
+			env := rec.only(t).Env
+
+			// [command] env and nothing else at all. Asserted as a count rather than
+			// against a list of names, so anything added under a name nobody thought
+			// to look for fails here too: a token, an askpass helper, a socket to
+			// answer on, a password.
+			if want := len(s.Config.Command.Env); len(env) != want {
+				t.Errorf("environment = %v, want [command] env alone", env)
+			}
+			// The id goes to the executor instead, which is the whole of where it
+			// goes: it names what to attribute an escalation to, and a host that
+			// grants none has nothing to attribute.
+			if runID := rec.only(t).RunID; (runID != "") != granted {
+				t.Errorf("the executor was given run id %q, granted = %v", runID, granted)
+			}
+		})
+	}
+}
+
+// A run is dropped when its command ends, so a request that arrives after it is
+// refused rather than answered against a finished command. The executor stops
+// owning the process at the same moment, so both halves have to fail closed.
+func TestARunDoesNotOutliveItsCommand(t *testing.T) {
 	s, rec := execServer(t)
 	allowSudo(t, s)
 
 	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
-	env := rec.only(t).Env
-
-	if env[escalation.TokenEnv] == "" {
-		t.Errorf("%s is unset, so a question could name no command", escalation.TokenEnv)
+	if rec.only(t).RunID == "" {
+		t.Fatal("the executor was given no run id, so this proves nothing")
 	}
-	// env and the token, and nothing else at all. Asserted as a count
-	// rather than against a list of names, so a credential added under a name
-	// nobody thought to look for fails here too: an askpass helper, a socket to
-	// answer on, a password. A child that finds one of those has something it
-	// can keep, and this design gives it nothing.
-	if want := len(s.Config.Command.Env) + 1; len(env) != want {
-		t.Errorf("environment = %v, want env plus %s alone", env, escalation.TokenEnv)
-	}
-}
-
-// Without an install that asked for escalation, nothing is injected and sudo
-// fails the way it does on any host that granted nothing.
-func TestExecInjectsNothingWithoutASudoGrant(t *testing.T) {
-	s, rec := execServer(t)
-	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
-	if value, set := rec.only(t).Env[escalation.TokenEnv]; set {
-		t.Errorf("%s = %q on a host that granted no sudoers entry", escalation.TokenEnv, value)
-	}
-}
-
-// The token is dropped when the command ends, so a request that arrives after
-// it names nothing and is refused rather than answered against a finished
-// command.
-func TestTheTokenDoesNotOutliveTheCommand(t *testing.T) {
-	s, rec := execServer(t)
-	allowSudo(t, s)
-
-	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
-	token := rec.only(t).Env[escalation.TokenEnv]
-	if token == "" {
-		t.Fatal("no token was injected")
-	}
-	if approved, _, _ := s.Escalation.Ask(token); approved {
-		t.Error("a token was approved after its command ended")
+	// The command has ended, so the broker holds no run and the executor owns no
+	// process. Any ancestry at all is unattributable now.
+	ancestry := []int{os.Getpid()}
+	if approved, _, _ := s.Escalation.Ask(ancestry); approved {
+		t.Error("an escalation was approved after its command ended")
 	}
 }
 
@@ -161,10 +162,12 @@ func TestOnlyRootMayAnswerAnEscalation(t *testing.T) {
 	for _, request := range []map[string]any{
 		{"op": "escalations"},
 		{"op": "approve", "id": "abc123", "approve": true},
-		// escalate is the one that spends the token, so it is the one an agent
-		// would reach for: answered by anything but root, a command could approve
-		// its own sudo.
-		{"op": "escalate", "token": "abc123"},
+		// escalate is the one that decides a sudo, so it is the one an agent would
+		// reach for: answered by anything but root, a command could approve its
+		// own sudo.
+		// float64 because that is what a JSON body unmarshals to, which is the
+		// only way this op is ever reached.
+		{"op": "escalate", "procs": []any{float64(42)}},
 	} {
 		response := handle(s, request, operator)
 		if code := errorCode(t, response); code != "forbidden" {
@@ -265,13 +268,19 @@ func errorDetail(response protocol.Response) string {
 // write landing during cleanup failing the test. The escalation server is
 // stopped first, so a test that ended without answering does not park the wait
 // forever.
-func askInBackground(t *testing.T, s *Server, token string) <-chan bool {
+func askInBackground(t *testing.T, s *Server, runID string) <-chan bool {
 	t.Helper()
+	// The executor's half, which these tests do not have: it answers that the run
+	// under test forked the process asking. What it is checking is exercised where
+	// it is the subject, in the escalation package's own tests.
+	s.Escalation.Owner = func([]int) (string, string) {
+		return runID, "the test forked it"
+	}
 	granted := make(chan bool, 1)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		approved, _, _ := s.Escalation.Ask(token)
+		approved, _, _ := s.Escalation.Ask([]int{os.Getpid()})
 		granted <- approved
 	}()
 	t.Cleanup(func() {
@@ -424,4 +433,26 @@ func TestAQuestionNamesTheAccountThatAsked(t *testing.T) {
 		t.Errorf("caller = %q, want the uid that asked", question.Caller)
 	}
 	s.Escalation.Release(token, escalation.Outcome{})
+}
+
+// The operator's account reaches a brokered command, and cannot be chosen by
+// one. Every brokered command runs as the executor, so without this nothing
+// inside a run can resolve whose host it is on or whose home holds their
+// configuration -- and a caller that could name it would be choosing where a
+// root run went looking.
+func TestExecNamesTheOperator(t *testing.T) {
+	s, rec := execServer(t)
+	s.Config.Server.AgentUser = "operator"
+
+	exec(t, s, map[string]any{"cmd": []any{"/bin/true"}})
+	if got := rec.only(t).Env[protocol.OperatorEnv]; got != "operator" {
+		t.Errorf("%s = %q, want the configured operator", protocol.OperatorEnv, got)
+	}
+
+	// And a caller cannot name it: reserved, so the request is refused rather than
+	// merged, which is what stops one choosing where a run goes looking.
+	if !protocol.ReservedEnv[protocol.OperatorEnv] {
+		t.Errorf("%s is not reserved, so a caller could name the operator",
+			protocol.OperatorEnv)
+	}
 }

@@ -53,7 +53,7 @@ func runChild(t *testing.T, sock string, argv []string, cwd string) (*ChildResul
 		t.Fatal(err)
 	}
 	client := NewClient(sock)
-	startErr := client.Start(argv, cwd, map[string]string{"PATH": "/usr/bin:/bin"}, 5, 2, slave.Fd())
+	startErr := client.Start(argv, cwd, map[string]string{"PATH": "/usr/bin:/bin"}, "", 5, 2, slave.Fd())
 	_ = slave.Close()
 	if startErr != nil {
 		_ = master.Close()

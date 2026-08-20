@@ -443,6 +443,7 @@ func (o *Options) layout() (Layout, error) {
 	layout.Links = o.links
 	layout.Refused = o.refused
 	layout.CommandEnv = o.CommandEnv
+	layout.AgentUser = o.AgentUser
 	layout.CommandTimeoutSec = o.CommandTimeoutSec
 	layout.CommandMaxTimeoutSec = o.CommandMaxTimeoutSec
 	layout.CommandConcurrency = o.CommandConcurrency
@@ -662,9 +663,31 @@ func (r *runner) refuseInvalidSudoers() error {
 	if out, checkErr := exec.CommandContext(context.Background(), visudo, "-cf", candidate).
 		CombinedOutput(); checkErr != nil {
 		return fmt.Errorf("visudo rejects the grant --allow-sudo would install, so "+
-			"nothing was written: %w: %s", checkErr, strings.TrimSpace(string(out)))
+			"nothing was written: %w: %s%s", checkErr, strings.TrimSpace(string(out)),
+			sudoRsNote(visudo))
 	}
 	return nil
+}
+
+// sudoRsNote names sudo-rs where that is what rejected the grant, or "".
+//
+// sudo-rs has no pam_service setting and refuses the whole file over it, so
+// visudo's own message reads as a typo in a directive faramir wrote on purpose,
+// and every other line of the grant is reported as invalid with it. Nothing here
+// can be worked around: the escalation is a PAM service of faramir's own, and
+// sudo-rs reaches no PAM stack a caller may name.
+//
+// Read only once the check has failed. A version probe on every install would be
+// a command run to say nothing on every host that works.
+func sudoRsNote(visudo string) string {
+	out, err := exec.CommandContext(context.Background(), visudo, "-V").CombinedOutput()
+	if err != nil || !strings.Contains(strings.ToLower(string(out)), "sudo-rs") {
+		return ""
+	}
+	return "\nThis host's sudo is sudo-rs, which has no pam_service setting and refuses " +
+		"the whole entry over it. --allow-sudo needs classic sudo. Without the flag the " +
+		"install grants nothing, which is the default arrangement and the rest of this " +
+		"install is unaffected."
 }
 
 // refuseSymlinks fails the run when any path this install asserts a mode or an

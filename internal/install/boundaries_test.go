@@ -3,6 +3,7 @@ package install
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/andornaut/faramir/internal/config"
@@ -115,6 +116,63 @@ func TestWithoutAGrantTheSudoChecksReportNotApplicable(t *testing.T) {
 				t.Error("n/a failed the report")
 			}
 		})
+	}
+}
+
+// sudoArrangement is a granting host as diagnoseSudoArrangement reads one: the
+// PAM service, the helper its stack execs, and the environment file the grant
+// names beside that helper. Returns the directory the three live in.
+func sudoArrangement(t *testing.T) (*config.Config, string) {
+	t.Helper()
+	dir := t.TempDir()
+	original := pamDir
+	pamDir = dir
+	t.Cleanup(func() { pamDir = original })
+
+	helper := filepath.Join(dir, "faramir-approve")
+	cfg := &config.Config{}
+	cfg.Escalation.ExecUser = "ex"
+	cfg.Escalation.PamService = "faramir-sudo"
+	cfg.Escalation.Helper = helper
+	if err := os.WriteFile(filepath.Join(dir, cfg.Escalation.PamService),
+		[]byte("auth requisite pam_exec.so seteuid quiet "+helper+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sudo-env"),
+		[]byte("FARAMIR_OPERATOR=op\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return cfg, dir
+}
+
+// The environment file is part of the arrangement, not an extra: the sudoers
+// entry names it as env_file, so a host without it makes sudo warn on every
+// brokered command and drops what [command] env configured at the sudo. Missing
+// is a failure rather than a silence.
+func TestTheSudoGrantCheckReadsTheEnvironmentFile(t *testing.T) {
+	cfg, dir := sudoArrangement(t)
+	opts := DoctorOptions{ExecUser: "ex", AgentUser: "op"}
+
+	var whole DoctorReport
+	diagnoseSudoArrangement(&whole, opts, cfg)
+	if got := only(t, whole); got.Status != StatusOK {
+		t.Fatalf("status %q, want %q with the whole arrangement in place: %s",
+			got.Status, StatusOK, got.Detail)
+	}
+
+	// The same host with only that file gone, which is the drift this catches.
+	if err := os.Remove(filepath.Join(dir, "sudo-env")); err != nil {
+		t.Fatal(err)
+	}
+	var without DoctorReport
+	diagnoseSudoArrangement(&without, opts, cfg)
+	finding := only(t, without)
+	if finding.Status != StatusFailed {
+		t.Errorf("status %q, want %q with the environment file gone: %s",
+			finding.Status, StatusFailed, finding.Detail)
+	}
+	if !strings.Contains(finding.Detail, "sudo-env") {
+		t.Errorf("the failure does not name the file it is about: %s", finding.Detail)
 	}
 }
 

@@ -84,6 +84,13 @@ func New(cfg *config.Config) *Server {
 	s.Escalation.Quiescent = func() (bool, string) {
 		return execserver.Quiescent(cfg.Executor.SocketPath, quiescenceWait)
 	}
+	// Which run forked the process asking to sudo. Asked of the executor for the
+	// same reason: it is the only party that knows what it forked, and the broker
+	// cannot see another uid's /proc. Failing closed, an unattributable escalation
+	// being the one thing this must never grant.
+	s.Escalation.Owner = func(ancestors []int) (string, string) {
+		return execserver.Owner(cfg.Executor.SocketPath, ancestors, quiescenceWait)
+	}
 	return s
 }
 
@@ -460,17 +467,19 @@ func (s *Server) requireRoot(op string, peer *sockutil.Peer) *protocol.Response 
 // whether a brokered command becomes root. It blocks until a human answers.
 //
 // Root, like the other two: the helper reaches it because pam_exec runs it with
-// seteuid inside sudo, and the child that holds the token cannot spend it,
-// which is what makes the token an identifier rather than a credential.
+// seteuid inside sudo. What it sends is an ancestry rather than anything it was
+// given, so a caller has nothing to present and nothing to copy: the answer comes
+// from comparing the kernel's account of who forked whom against what the
+// executor forked.
 func (s *Server) opEscalate(request *protocol.Request, peer *sockutil.Peer) protocol.Response {
 	if refused := s.requireRoot("escalate", peer); refused != nil {
 		return *refused
 	}
-	if request.Token == "" {
+	if len(request.Procs) == 0 {
 		return protocol.ErrorResponse("bad_request",
-			"'token' must name the brokered command asking to sudo", "")
+			"'procs' must name the processes above the sudo asking to escalate", "")
 	}
-	approved, code, reason := s.Escalation.Ask(request.Token)
+	approved, code, reason := s.Escalation.Ask(request.Procs)
 	// A refusal is a response rather than an error: the helper reports it to PAM
 	// as a failed authentication, which is what sudo has to see. The code rides
 	// beside the reason, a refusal and an expiry reading alike in prose.
@@ -668,9 +677,9 @@ type execEscalation struct {
 	waited float64
 }
 
-func (s *Server) escalationOf(token string) execEscalation {
-	code, reason := s.Escalation.Refusal(token)
-	return execEscalation{code: code, reason: reason, waited: s.Escalation.Waited(token).Seconds()}
+func (s *Server) escalationOf(runID string) execEscalation {
+	code, reason := s.Escalation.Refusal(runID)
+	return execEscalation{code: code, reason: reason, waited: s.Escalation.Waited(runID).Seconds()}
 }
 
 // fields is what a record carries of it, each present only where it says
@@ -793,8 +802,10 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 			s.Config.Command.Concurrency), logID, peer, cmd, cwd)
 	}
 
-	// A token, and nothing else: spending it is an op the broker refuses to
-	// anything but root, so it names the run rather than authorising it.
+	// An id and nothing else: it goes to the executor, never into the child's
+	// environment, so there is nothing inside the run to read, copy or leak.
+	// FARAMIR_OPERATOR below is not part of it -- it names the host's operator,
+	// which is not a secret and attributes nothing.
 	// Registered before the child starts and dropped when it ends, so a late
 	// request is refused rather than answered against a finished command.
 	//
@@ -802,7 +813,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	// redactor for the whole question; the audit write below builds its own,
 	// against whatever the store holds by then.
 	asked := s.redactor()
-	token, heldBy := s.Escalation.Register(escalation.Run{
+	runID, heldBy := s.Escalation.Register(escalation.Run{
 		Argv: redactEach(asked, cmd), Cwd: cwd, LogID: logID,
 		// Who asked, which the executor's own uid does not say: every brokered
 		// command runs as that one.
@@ -831,8 +842,14 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	// for and says so: a nil ExitCode prints as an ending without one, where a
 	// zero would print as a clean exit.
 	outcome := escalation.Outcome{LogID: logID}
-	defer func() { s.Escalation.Release(token, outcome) }()
-	maps.Copy(env, s.Escalation.Env(token))
+	defer func() { s.Escalation.Release(runID, outcome) }()
+	// Who the host belongs to. Reserved, so a caller cannot name a different
+	// account, and set on both sides of a sudo: the same value goes into the
+	// grant's env_file, because sudo's env_reset would otherwise drop it exactly
+	// where a command most needs to resolve the operator's home.
+	if s.Config.Server.AgentUser != "" {
+		env[protocol.OperatorEnv] = s.Config.Server.AgentUser
+	}
 	injected := map[string]string{}
 	for name, uri := range envRefs {
 		ref, err := secretref.Parse(uri)
@@ -879,6 +896,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 		Cwd:        cwd,
 		Env:        env,
 		TimeoutSec: timeout,
+		RunID:      runID,
 	})
 	// Drop the plaintext as soon as the child has it; the store keeps the values.
 	for k := range env {
@@ -900,7 +918,7 @@ func (s *Server) opRun(request *protocol.Request, peer *sockutil.Peer) protocol.
 	}
 
 	// Read before the deferred Release drops the run.
-	judged := s.escalationOf(token)
+	judged := s.escalationOf(runID)
 
 	outcome.ExitCode = &result.ExitCode
 	outcome.DurationSec, outcome.TimedOut = result.DurationSec, result.TimedOut

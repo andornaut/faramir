@@ -236,9 +236,9 @@ func listAsJSON(questions []escalation.Question, code int) int {
 // type, so run it somewhere the agent does not reach.
 func watchEscalations(socketPath string) int {
 	warnIfTypeable()
-	// The one rule the prompt below does not show: it asks for [yes/no], which
-	// reads as though "y" would do and as though only "no" refuses.
-	fmt.Fprintln(os.Stderr, "waiting for escalation requests; only `yes` approves. "+
+	// The one rule the prompt below does not show: it asks for [y/no], which
+	// reads as though only "no" refuses.
+	fmt.Fprintln(os.Stderr, "waiting for escalation requests; only `y` approves. "+
 		"Ctrl-C to stop.")
 	// No set of ids already answered: the broker drops a question the moment it
 	// is answered, refused or expired, and only one is ever outstanding. A set
@@ -511,7 +511,7 @@ const (
 func (t *typed) answer(deadline time.Time) (string, answerState) {
 	t.discard()
 	for {
-		fmt.Print("  approve? [yes/no] ")
+		fmt.Print("  approve? [y/no] ")
 		select {
 		case line, open := <-t.lines:
 			if !open {
@@ -533,20 +533,22 @@ func (t *typed) answer(deadline time.Time) (string, answerState) {
 
 // answerOf is the part of a line that carries the answer: what is left once the
 // whitespace and unprintable bytes around it are gone. Empty is no answer at
-// all. The edges only, so nothing is edited into a yes it did not spell:
-// "y<NUL>es" is a refusal, as it reads.
+// all. The edges only, so nothing is edited down into an approval it did not
+// spell: "y<NUL>e" is a refusal, as it reads.
 func answerOf(line string) string {
 	return strings.TrimFunc(line, func(r rune) bool {
 		return unicode.IsSpace(r) || !unicode.IsPrint(r)
 	})
 }
 
-// approves is deny by default: only an explicit yes approves, and a typo, a
-// stray word or a punctuation mark is a no. The whole word, not "y", the
-// prompt asking for `yes` and the threat being a keystroke the operator did not
-// make.
+// approves is deny by default: only an explicit y approves, and a typo, a
+// stray word or a punctuation mark is a no, "yes" among them.
+//
+// One character, so one keystroke answers the prompt. That is what the flush at
+// the top of typed.answer is for: input that arrived before the question was
+// shown must not be able to spell the answer to it.
 func approves(line string) bool {
-	return strings.ToLower(answerOf(line)) == "yes"
+	return strings.ToLower(answerOf(line)) == "y"
 }
 
 // printQuestion shows one question. Every caller-chosen string in it was

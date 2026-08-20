@@ -66,8 +66,14 @@ func TestTheServiceAuthenticatesOneAccount(t *testing.T) {
 // executor's account. There is no run to approve and nobody to ask about, so
 // it is refused without the broker being contacted at all.
 func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
-	// Nothing to unset: the walk reads this process's ancestors, which are the
-	// test runner's, and setting it here would not be seen either way.
+	// The walk, said rather than performed: this process's ancestors are whatever
+	// ran `go test`, and the socket the helper asks is the compiled-in one, so
+	// without this the call reaches whatever broker the host is running and passes
+	// on a stranger's answer instead of on the branch under test.
+	original := ancestryOf
+	ancestryOf = func(int) []int { return nil }
+	t.Cleanup(func() { ancestryOf = original })
+
 	env := map[string]string{"PAM_TYPE": "auth", "PAM_USER": "faramir-exec"}
 	if code := pamApprove(t, env, "--account", "faramir-exec"); code == 0 {
 		t.Error("a sudo with no brokered command above it was authenticated")
@@ -79,11 +85,10 @@ func TestASudoUnderNoBrokeredCommandIsRefused(t *testing.T) {
 // question expiring. A helper that failed open here would make stopping the
 // broker the way to sudo.
 //
-// Asked of askBrokerToApprove rather than through cmdPamApprove, which would
-// stop at the walk: this process's ancestors are the test runner's, and none of
-// them carries a token.
+// Asked of askBrokerToApprove rather than through cmdPamApprove, so the subject
+// is the answer to an unreachable broker rather than the walk above it.
 func TestAnUnreachableBrokerRefuses(t *testing.T) {
-	approved, _, err := askBrokerToApprove(noBroker, "a-token-nothing-is-listening-for")
+	approved, _, err := askBrokerToApprove(noBroker, []int{os.Getpid()})
 	if err == nil {
 		t.Fatal("a broker that is not there answered")
 	}
@@ -105,9 +110,9 @@ func TestNoFlagPathAuthenticates(t *testing.T) {
 	}
 }
 
-// findToken is how the helper learns which brokered command is asking: PAM
+// The ancestry is how the helper says which brokered command is asking: PAM
 // passes a module none of the caller's environment, and it does not have to,
-// this running as root with the ancestry in /proc.
+// this running as root with the process tree in /proc.
 //
 // Run by re-execing this test binary underneath two shells, which is the only
 // way to give the real walk real ancestors: a call made here would start at the
@@ -116,7 +121,9 @@ const walkProbeEnv = "FARAMIR_TEST_PAM_WALK"
 
 func TestMain(m *testing.M) {
 	if os.Getenv(walkProbeEnv) != "" {
-		fmt.Println(findToken())
+		for _, pid := range escalation.Ancestry(os.Getppid()) {
+			fmt.Println(pid)
+		}
 		os.Exit(0)
 	}
 	os.Exit(m.Run())
@@ -136,7 +143,7 @@ func walk(t *testing.T, environ []string) string {
 	}
 	command := exec.CommandContext(t.Context(), "/bin/sh", "-c", "/bin/sh -c '\""+self+"\"'")
 	command.Env = append([]string{walkProbeEnv + "=1"}, environ...)
-	// stdout only, kept apart from stderr: the probe prints the token to stdout,
+	// stdout only, kept apart from stderr: the probe prints the ancestry to stdout,
 	// and a coverage-instrumented re-exec of the test binary (as CI builds it)
 	// writes "warning: GOCOVERDIR not set" to stderr. CombinedOutput would fold
 	// that into the token; here it stays in stderr, reported only if the run fails.
@@ -149,22 +156,24 @@ func walk(t *testing.T, environ []string) string {
 	return strings.TrimSpace(string(out))
 }
 
-// The token is set on the outermost shell and nothing below it carries one, so
-// finding it means the walk crossed the two processes between. Those are the
-// shell and the sudo that sit between a brokered command and this helper.
-func TestTheTokenIsFoundOnAnAncestor(t *testing.T) {
-	got := walk(t, []string{escalation.TokenEnv + "=walked-to-this"})
-	if got != "walked-to-this" {
-		t.Errorf("the walk found %q, want the ancestor's token: it decides which "+
-			"run the human is asked about", got)
+// The walk crosses the two shells between the probe and the test binary, which
+// stand in for the shell and the sudo that sit between a brokered command and
+// this helper. What the executor forked is somewhere above, so a walk that
+// stopped early would leave a real escalation unattributable.
+func TestTheAncestryReachesPastTheProcessesBetween(t *testing.T) {
+	lines := strings.Fields(walk(t, []string{"PATH=/usr/bin:/bin"}))
+	if len(lines) < 3 {
+		t.Fatalf("the walk reported %d process(es) (%v); the two shells and what "+
+			"started them are all above the probe", len(lines), lines)
 	}
-}
-
-// Nothing above holds one, so the walk ends rather than reporting somebody
-// else's: a `sudo` typed by hand must not pick up the token of a brokered
-// command running elsewhere on the host.
-func TestTheWalkStopsRatherThanGuessing(t *testing.T) {
-	if got := walk(t, []string{"PATH=/usr/bin:/bin"}); got != "" {
-		t.Errorf("the walk reported %q where no ancestor carries a token", got)
+	seen := map[string]bool{}
+	for _, pid := range lines {
+		if pid == "" || pid == "0" || pid == "1" {
+			t.Errorf("%q is not a process a run could have forked", pid)
+		}
+		if seen[pid] {
+			t.Errorf("pid %s was reported twice: the walk is going in a circle", pid)
+		}
+		seen[pid] = true
 	}
 }

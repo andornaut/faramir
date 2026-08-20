@@ -617,10 +617,12 @@ func diagnoseSudoCredential(report *DoctorReport, opts DoctorOptions) {
 		"broker out of the way", opts.ExecUser)
 }
 
-// diagnoseSudoArrangement checks what authenticates an escalation: the PAM
-// service the executor's sudo reads says what it should, nothing the executor
-// can write decides it, and the fallback is not a free pass. All three exist
-// only on a host installed with --allow-sudo, so any other host reports n/a.
+// diagnoseSudoArrangement checks what authenticates an escalation and what it
+// hands root: the PAM service the executor's sudo reads says what it should,
+// nothing the executor can write decides it, the environment file the grant names
+// is there and is not that account's to rewrite, and the fallback is not a free
+// pass. All of it exists only on a host installed with --allow-sudo, so any other
+// host reports n/a.
 func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	if cfg == nil || cfg.Escalation.ExecUser == "" {
 		report.addf("sudo grant", StatusNA, "no [escalation] section, so nothing here "+
@@ -651,6 +653,26 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 			report.addf("sudo grant", StatusFailed, "%s can write %s, which is what "+
 				"decides every escalation: it would be choosing its own answer",
 				account, cfg.Escalation.Helper)
+			return
+		}
+	}
+	// The environment file the sudoers entry names as env_file. sudo reads it as
+	// part of the policy, so an account that can write it chooses what root is
+	// handed; a missing one makes sudo warn on every brokered command. Beside the
+	// helper, which is the one path this diagnosis is given.
+	sudoEnv := filepath.Join(filepath.Dir(cfg.Escalation.Helper), "sudo-env")
+	if _, err := os.Stat(sudoEnv); err != nil {
+		report.addf("sudo grant", StatusFailed, "%s names %s as its env_file, which "+
+			"cannot be read (%v): sudo warns on every brokered command and the "+
+			"variables a command is given do not survive its sudo. Re-run "+
+			"`faramir init --allow-sudo`", sudoersFile, sudoEnv, err)
+		return
+	}
+	for _, account := range accounts {
+		if canWrite(account, sudoEnv) {
+			report.addf("sudo grant", StatusFailed, "%s can write %s, which sudo reads "+
+				"as part of the policy: it would be choosing the environment root is "+
+				"handed", account, sudoEnv)
 			return
 		}
 	}
@@ -750,7 +772,9 @@ func diagnoseUserns(report *DoctorReport, opts DoctorOptions, cfg *config.Config
 // diagnosePtraceScope checks what stands between a brokered command and the
 // other processes of the executor's uid, on a host that grants an escalation.
 // The executor daemon outlives every run, is in no run's cgroup, and receives
-// each run's whole environment, so it can see every escalation token.
+// each run's whole environment, so it can see every injected value. A process
+// that can attach to a member of an approved run is inside that run as far as an
+// escalation is concerned, ancestry being what attributes one.
 //
 // The daemons mark themselves undumpable, which refuses same-uid ptrace
 // whatever this setting says; this check is about everything else of that uid.

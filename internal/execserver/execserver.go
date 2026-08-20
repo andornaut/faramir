@@ -50,6 +50,14 @@ type request struct {
 	Env          map[string]string `json:"env"`
 	TimeoutSec   int               `json:"timeout_sec"`
 	KillGraceSec int               `json:"kill_grace_sec"`
+	// RunID is what the broker calls this run, so an escalation raised inside it
+	// can be attributed back to the command a human was shown. Empty where the
+	// host grants no escalation, which leaves the run unattributable and so
+	// unable to sudo.
+	RunID string `json:"run_id"`
+	// Procs is what an owner question asks about: the pids the PAM helper walked,
+	// most recent first.
+	Procs []int `json:"procs"`
 }
 
 // opQuiescent asks whether any process of this uid is alive outside the runs
@@ -60,6 +68,10 @@ const (
 	// opExec starts a command, which is what an absent op means.
 	opExec      = "exec"
 	opQuiescent = "quiescent"
+	// opOwner names the run that forked one of a list of processes. The broker
+	// cannot answer it either: only this service knows what it forked, and it is
+	// what lets a sudo be attributed to a command a human approved.
+	opOwner = "owner"
 )
 
 type Executor struct {
@@ -78,6 +90,16 @@ type Executor struct {
 	// member of one of these.
 	liveMu sync.Mutex
 	live   map[*runCgroup]struct{}
+
+	// owned is what each in-flight run was forked as, keyed by the id the broker
+	// gave it. An escalation is attributed by comparing this against the ancestry
+	// the PAM helper walked: the broker holds what a run is, this holds what it
+	// forked, and neither takes the asking process's word for either.
+	//
+	// Recorded after the fork, because that is when the pid exists, and dropped
+	// with the run: a request naming a process no live run owns is refused.
+	ownedMu sync.Mutex
+	owned   map[string]ownedRun
 }
 
 // maxConcurrent is a backstop, not a knob: the broker is this socket's only
@@ -90,6 +112,7 @@ func New(cfg *config.Config) *Executor {
 		config: cfg,
 		slots:  make(chan struct{}, maxConcurrent),
 		live:   map[*runCgroup]struct{}{},
+		owned:  map[string]ownedRun{},
 	}
 	// Probed once: per run this is a field read rather than a syscall.
 	e.cgroupBase = cgroupBase()
@@ -178,6 +201,12 @@ func (e *Executor) serveConnection(conn net.Conn) {
 			_ = unix.Close(slaveFD)
 		}
 		_ = sockutil.Send(conn, e.quiescence())
+		return
+	case opOwner:
+		if slaveFD >= 0 {
+			_ = unix.Close(slaveFD)
+		}
+		_ = sockutil.Send(conn, e.ownerOf(payload.Procs))
 		return
 	default:
 		if slaveFD >= 0 {
@@ -331,6 +360,12 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 	// operator nor the record. A program with a fallback prints to stderr, which
 	// is on the PTY and is redacted and recorded like the rest.
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	// A handle on the process about to be forked, taken by the fork itself and so
+	// before the exec that can hide it: what an escalation raised inside this run
+	// is attributed by. -1 where the kernel has no CLONE_PIDFD, which own() reports
+	// and refuses to attribute anything to.
+	pidfd := -1
+	cmd.SysProcAttr.PidFD = &pidfd
 
 	// Confine the run to its own cgroup, the one reaper: a descendant that calls
 	// setsid, which a process-group kill would miss, is still reaped when the
@@ -360,14 +395,31 @@ func (e *Executor) run(req *request, slaveFD int, conn net.Conn) map[string]any 
 
 	started := time.Now()
 	if err := cmd.Start(); err != nil {
+		if pidfd >= 0 {
+			_ = unix.Close(pidfd)
+		}
 		return errorResponse("exec_failed", fmt.Sprintf("%s: %v", req.Argv[0], err))
 	}
+	// As soon as there is a pid to record, which is after the fork: the child is
+	// running by then, so a run that reaches sudo before this line is refused as
+	// unowned. The window is the few instructions to here against sudo's whole PAM
+	// stack, and it fails closed -- an escalation nobody can attribute is refused,
+	// never granted. own takes the pidfd, and closes it on the paths it does not
+	// keep it.
+	e.own(req.RunID, cmd.Process.Pid, pidfd)
+	// A backstop for the paths that never reach the wait below; the reap is what
+	// normally ends ownership, because the pid is the kernel's to reuse after it.
+	defer e.disown(req.RunID)
 	// This copy of the slave must go, or the master never reaches EOF.
 	closeSlave()
 
 	waitDone := make(chan struct{})
 	go func() {
 		_ = cmd.Wait()
+		// Before anything else learns the child is gone: once it is reaped its pid
+		// is the kernel's to hand to another process, and an entry outliving the
+		// reap would attribute an escalation to whatever got it.
+		e.disown(req.RunID)
 		close(waitDone)
 	}()
 	timedOut := e.await(rcg, cmd, conn, waitDone, timeoutSec, graceSec)
@@ -510,7 +562,7 @@ func Quiescent(socketPath string, timeout time.Duration) (bool, string) {
 }
 
 func (c *Client) Start(argv []string, cwd string, env map[string]string,
-	timeoutSec, killGraceSec int, slaveFD uintptr) error {
+	runID string, timeoutSec, killGraceSec int, slaveFD uintptr) error {
 	addr, err := net.ResolveUnixAddr("unix", c.socketPath)
 	if err != nil {
 		return fmt.Errorf("executor socket %s: %w", c.socketPath, err)
@@ -524,6 +576,7 @@ func (c *Client) Start(argv []string, cwd string, env map[string]string,
 	line, err := json.Marshal(request{
 		Version: version.Version,
 		Argv:    argv, Cwd: cwd, Env: env,
+		RunID:      runID,
 		TimeoutSec: timeoutSec, KillGraceSec: killGraceSec,
 	})
 	if err != nil {

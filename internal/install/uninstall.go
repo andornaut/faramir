@@ -6,6 +6,39 @@ import (
 	"path/filepath"
 )
 
+// uninstallPaths is what is removed before the daemons are reloaded, each with
+// os.RemoveAll.
+//
+// The sockets went with the units. The sudoers grant goes with them: it names
+// the executor's uid, and with the broker gone nothing is left to answer what it
+// asks, so keeping it would leave a grant behind with no arrangement around it.
+// The PAM service the grant names goes too, or the host keeps a service that
+// execs a helper this uninstall deleted. The environment file the grant names
+// goes with uninstallDirs below, being one of the files this install renders into
+// its own libexec directory.
+//
+// Nothing here or there may name the config directory or one above it: removing
+// it would take the age key and the managed sops files with it, which is the one
+// thing an uninstall must not do. TestUninstallLeavesTheConfigDirectory holds
+// that.
+func uninstallPaths() []string {
+	return []string{
+		"/etc/tmpfiles.d/faramir.conf",
+		logrotateConfig,
+		sudoersFile,
+		pamServiceFile,
+		DefaultRunDir,
+	}
+}
+
+// uninstallDirs is what this install rendered or copied for its own use, removed
+// whole. Everything in them is faramir's own: the hook's deny list, the wrapper
+// it sources, the PAM helper, the environment file the grant named, and the
+// documentation written out beside them.
+func uninstallDirs() []string {
+	return []string{DefaultLibexecDir, DefaultDocDir}
+}
+
 // Uninstall removes the broker and returns what it left behind: the accounts,
 // the config, the secrets directory and the audit log. Deleting the age key
 // would make every managed sops file unreadable, retroactively.
@@ -30,13 +63,7 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
-	// The sockets went with the units above. The sudoers grant goes with them:
-	// it names the executor's uid, and with the broker gone nothing is left to
-	// answer what it asks, so keeping it would leave a grant behind with no
-	// arrangement around it. The PAM service the grant names goes too, or the
-	// host keeps a service that execs a helper this uninstall deleted.
-	for _, path := range []string{"/etc/tmpfiles.d/faramir.conf", logrotateConfig,
-		sudoersFile, pamServiceFile, DefaultRunDir} {
+	for _, path := range uninstallPaths() {
 		if err := os.RemoveAll(path); err != nil {
 			return nil, err
 		}
@@ -52,7 +79,7 @@ func Uninstall(configDir string) ([]string, error) {
 			return nil, err
 		}
 	}
-	for _, dir := range []string{DefaultLibexecDir, DefaultDocDir} {
+	for _, dir := range uninstallDirs() {
 		if err := os.RemoveAll(dir); err != nil {
 			return nil, err
 		}
