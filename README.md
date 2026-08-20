@@ -140,6 +140,7 @@ Reports whether the install is doing its job, and as root what each account can 
     deploy_token
     ROUTER_PW=faramir://home/router/admin
     ```
+
 4. `cd <project> && sudo faramir init-project`. Shares the tree so a brokered command can run in it, and configures whichever agents it already carries.
 
 Enrol the projects where managed credentials are in play, not every tree. Enrolling one registers the hook the table above names for each agent it finds: it rewrites what the agent runs in the tree into a brokered command and hands the output back redacted. There is no enrolment without it, redaction being what an enrolment is for.
