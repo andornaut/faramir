@@ -1,6 +1,6 @@
 module github.com/andornaut/faramir
 
-go 1.26
+go 1.27
 
 require (
 	filippo.io/age v1.3.1

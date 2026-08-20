@@ -283,8 +283,7 @@ func DecryptAll(secrets config.SecretConfig, keys *KeyHolder) (map[string]string
 		cancel()
 
 		if err != nil {
-			var exitErr *exec.ExitError
-			if goerrors.As(err, &exitErr) {
+			if exitErr, ok := goerrors.AsType[*exec.ExitError](err); ok {
 				errors = append(errors, keys.Scrub(fmt.Sprintf(
 					"%s: decrypt failed (%d): %s", path, exitErr.ExitCode(),
 					lastLine(string(exitErr.Stderr)))))

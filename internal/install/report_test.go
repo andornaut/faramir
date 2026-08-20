@@ -20,14 +20,13 @@ func TestTheReportsSerialiseTheFieldsTheyPromise(t *testing.T) {
 	}{
 		{
 			"init",
-			Report{Version: "v", runReport: runReport{Steps: []Step{{Name: "s"}}}},
+			Report{Version: "v", Steps: []Step{{Name: "s"}}},
 			[]string{"version", "changed", "steps"},
 		},
 		{
 			"init-project",
-			ProjectReport{Version: "v", Dir: "/d", ClientGroup: "g", runReport: runReport{
-				Steps: []Step{{Name: "s"}},
-			}},
+			ProjectReport{Version: "v", Dir: "/d", ClientGroup: "g",
+				Steps: []Step{{Name: "s"}}},
 			[]string{"version", "dir", "group", "changed", "steps"},
 		},
 	} {

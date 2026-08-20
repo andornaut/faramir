@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -49,8 +50,8 @@ func stripANSI(text string) string {
 func stripANSIStream(buf []rune) (clean string, carry []rune) {
 	carryStart := len(buf)
 	esc := -1
-	for i := len(buf) - 1; i >= 0; i-- {
-		if buf[i] == '\x1b' {
+	for i, r := range slices.Backward(buf) {
+		if r == '\x1b' {
 			esc = i
 			break
 		}

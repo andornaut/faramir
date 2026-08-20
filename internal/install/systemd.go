@@ -111,10 +111,9 @@ func unitConfigDir(name string) string {
 // unitFiles is a unit and its drop-ins, in the order systemd applies them: the
 // unit first, then <unit>.d/*.conf sorted by name, later winning.
 func unitFiles(unit string) []string {
-	files := []string{unit}
 	entries, err := os.ReadDir(unit + ".d")
 	if err != nil {
-		return files
+		return []string{unit}
 	}
 	var dropIns []string
 	for _, entry := range entries {
@@ -123,6 +122,8 @@ func unitFiles(unit string) []string {
 		}
 	}
 	slices.Sort(dropIns)
+	files := make([]string, 0, 1+len(dropIns))
+	files = append(files, unit)
 	return append(files, dropIns...)
 }
 

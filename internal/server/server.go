@@ -1130,8 +1130,7 @@ func unusableReason(data []byte) string {
 	if err == nil {
 		return ""
 	}
-	var needsPassphrase *ssh.PassphraseMissingError
-	if errors.As(err, &needsPassphrase) {
+	if _, ok := errors.AsType[*ssh.PassphraseMissingError](err); ok {
 		return "passphrase-protected; the broker has no way to type one, " +
 			"so ssh-add will refuse it"
 	}

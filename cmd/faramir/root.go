@@ -51,12 +51,10 @@ func exitCode(err error) int {
 	if err == nil {
 		return 0
 	}
-	var e *exitCodeError
-	if errors.As(err, &e) {
+	if e, ok := errors.AsType[*exitCodeError](err); ok {
 		return e.code
 	}
-	var u usageError
-	if errors.As(err, &u) {
+	if _, ok := errors.AsType[usageError](err); ok {
 		return 2
 	}
 	return 1

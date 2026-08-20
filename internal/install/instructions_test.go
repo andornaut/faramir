@@ -121,7 +121,7 @@ func TestAnUnmarkedSectionIsWrappedInPlace(t *testing.T) {
 
 	out := string(writeInstructions(t, before, body))
 
-	heading := strings.SplitN(body, "\n", 2)[0]
+	heading, _, _ := strings.Cut(body, "\n")
 	if n := strings.Count(out, heading); n != 1 {
 		t.Errorf("%q appears %d times, want 1:\n%s", heading, n, out)
 	}

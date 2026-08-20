@@ -183,6 +183,7 @@ func TestRefusedEnvFileLines(t *testing.T) {
 
 // A merge artefact, not an ambiguity: one value it could mean.
 func TestAnIdenticalRepeatIsAllowed(t *testing.T) {
+	//nolint:dupword // the repeated line is the fixture: this is the repeat
 	if _, err := readEnvFile(writeEnvFile(t, "PW=faramir://a/b\nPW=faramir://a/b\n")); err != nil {
 		t.Errorf("an identical repeat was rejected: %v", err)
 	}

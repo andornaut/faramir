@@ -89,10 +89,10 @@ func Project(opts ProjectOptions) (ProjectReport, error) {
 	// operator's file to root.
 	run := &project{opts: opts, fs: fsys{dryRun: opts.DryRun}, uid: keep, gid: keep}
 	run.report = ProjectReport{
-		Version:   version.Version,
-		Dir:       dir,
-		DryRun:    opts.DryRun,
-		runReport: runReport{log: opts.Log},
+		Version: version.Version,
+		Dir:     dir,
+		DryRun:  opts.DryRun,
+		log:     opts.Log,
 	}
 	// The tree being changed is not the one that was named.
 	if dir != named {

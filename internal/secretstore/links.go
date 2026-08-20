@@ -75,8 +75,7 @@ func statLinks(links []config.Link) []keeperclient.FileState {
 // already does. No error from internal/secretlink carries file content, which
 // is what makes it safe to log.
 func linkError(link config.Link, err error) string {
-	var pathErr *fs.PathError
-	if errors.As(err, &pathErr) {
+	if _, ok := errors.AsType[*fs.PathError](err); ok {
 		return fmt.Sprintf("%s: %v", link.Ref, err)
 	}
 	return fmt.Sprintf("%s: %s %v", link.Ref, link.Path, err)

@@ -13,8 +13,14 @@ linters:
     - whitespace
     # Bans `if err := f(); err != nil`, which is the error idiom used here.
     - noinlineerr
-    # Every struct literal must set every field, including its zero values.
+    # Superseded by gomodguard_v2, which `default: all` enables in its place.
+    # Named here only to stop the deprecation warning it prints otherwise.
+    - gomodguard
+    # Every struct literal must set every field, including its zero values. Both
+    # names, as with wsl above: `default: all` enables what a rename leaves
+    # unmatched, so a stale entry here reads as disabled and is not.
     - exhaustruct
+    - exhaustruct_v5
     # Minimum identifier length, and a ban on named returns.
     - varnamelen
     - nonamedreturns
@@ -65,6 +71,15 @@ linters:
     # are written; without this the linter wants every case spelled out anyway.
     exhaustive:
       default-signifies-exhaustive: true
+    goconst:
+      # A composite literal is where this project spells a wire format: the keys
+      # of an audit record, a cobra Use string, the rows of a table keyed by unit
+      # name. The field around the string already names it, and a constant would
+      # put the spelling somewhere other than where it is read. Added to the
+      # default of Call; goconst applies everywhere else.
+      exclude-types:
+        - Call
+        - CompositeLit
     gosec:
       excludes:
         - G109 # strconv.Atoi to int32 - uid and gid values from the passwd database
@@ -97,14 +112,15 @@ linters:
           - unparam
         path: _test\.go
       # gosec by rule rather than wholesale, so everything it checks still
-      # applies to tests except the four that only describe a fixture: a file
-      # written 0644 into a temp dir the test made (G306, G302, G301), and a
+      # applies to tests except the five that only describe a fixture: a file
+      # written 0644 into a temp dir the test made (G306, G302, G301), a
       # password spelled out in the fixture that is the point of the fixture
-      # (G101).
+      # (G101), and a walk over a tree the test itself laid out, where the
+      # symlink race G122 is about needs somebody to race with (G122).
       - linters:
           - gosec
         path: _test\.go
-        text: G(101|301|302|306)
+        text: G(101|122|301|302|306)
       # Local to this repository. Every `err` shadow here is the same shape:
       # `if err := f(); err != nil` in a function whose outer err has already
       # been returned, so the shadowed one is dead and renaming 88 of them would
