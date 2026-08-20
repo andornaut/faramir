@@ -50,7 +50,7 @@ Every path an install creates, with its mode and owner, is in [layout.md](layout
 
 ## Deny rules
 
-The rules `--agent` installs refuse the agent's file tools against key material by name and suffix (`id_ed25519`, `.pem`, `.env*`, credentials and sops files) and against the sops, age and faramir config directories. Which file each agent reads them from is in [layout.md](layout.md); what they cost that agent is in [agents.md](agents.md).
+The rules `--agent` installs refuse the agent's file tools against key material by name and suffix (`id_ed25519`, `.pem`, `.env*`, credentials and sops files) and against the sops, age and faramir config directories. Which file each agent reads them from is in [layout.md](layout.md); what they cost that agent is in [agents.md](coding-agents.md).
 
 ## Checking it worked
 

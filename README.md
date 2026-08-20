@@ -17,7 +17,7 @@ Four get full redaction: what the agent runs in an enrolled project is rewritten
 
 Agent | Registered in | Enrolment cost
 --- | --- | ---
-[Claude Code](https://claude.com/product/claude-code) | `PreToolUse` hook and MCP server in the tree; deny rules in `~/.claude/settings.json` | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/agents.md#claude-code)
+[Claude Code](https://claude.com/product/claude-code) | `PreToolUse` hook and MCP server in the tree; deny rules in `~/.claude/settings.json` | Bash is approved without asking, except what the deny list refuses. That list names credential disclosure and nothing destructive. [Cost per permission mode](docs/coding-agents.md#claude-code)
 [opencode](https://open-code.ai/) | [`tool.execute.before` plugin](https://open-code.ai/en/docs/plugins) and `opencode.json` in the tree; deny patterns in `~/.config/opencode/opencode.json` | None: there is no allow to return, so a plugin that has not denied has not approved
 [Kilo Code](https://kilo.ai/) | [Same plugin API](https://kilo.ai/docs/automate/extending/plugins) under `.kilo/plugin/`, loaded by the CLI and the VS Code extension; `kilo.json` and `~/.config/kilo/kilo.json` | Same as opencode
 [Pi](https://pi.dev/) | [`tool_call` extension](https://github.com/earendil-works/pi/blob/main/packages/coding-agent/docs/extensions.md) under `.pi/extensions/`. Pi ships no MCP, so the extension registers the two tools itself | None. Project-local extensions load only once the project is trusted, so a tree Pi has not been trusted in is unguarded
@@ -30,7 +30,7 @@ Choosing agents with `--agent`, repeatable on `init` and `init-project`:
 - A name configures that agent regardless and composes, so `--agent auto --agent pi` is "whatever is installed, plus pi".
 - Pi and Antigravity get no account-wide rule file. Pi has nowhere to put one, so the same rules are compiled into its extension; Antigravity's permission lists are the IDE's own state.
 
-Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). What varies between them, and what each contract makes of the rewrite: [docs/agents.md](docs/agents.md).
+Each agent is also told what those rules refuse and why, in the file it reads for every project ([which file, per agent](docs/layout.md)). What varies between them, and what each contract makes of the rewrite: [docs/coding-agents.md](docs/coding-agents.md).
 
 > [!WARNING]
 > **Antigravity is partial support.** [Its hooks](https://antigravity.google/docs/hooks) allow, deny or ask and cannot change a tool call's arguments, so there is nothing to rewrite a command with and nothing redacts what comes back. An enrolment leaves it the broker's tools and the instructions to use them; a command it runs itself reaches the model with the value in it. Enrolling one warns that this is what was installed.
@@ -216,7 +216,7 @@ Doc | Covers
 [docs/integrations.md](docs/integrations.md) | Wiring a tool to the broker: per-tool recipes, linked credentials, SSH, and Ansible end to end
 [docs/configuration.md](docs/configuration.md) | Every setting, which flag sets it, what `--check` fails on
 [docs/design.md](docs/design.md) | Why the agent runs as the operator, how the rewrite works, what it gives up
-[docs/agents.md](docs/agents.md) | What varies between the agents, how the rules reach each, what enrolling one costs
+[docs/coding-agents.md](docs/coding-agents.md) | What varies between the agents, how the rules reach each, what enrolling one costs
 [docs/installing.md](docs/installing.md) | Every `init` flag, what a re-run adopts, where the config directory may not go
 [docs/layout.md](docs/layout.md) | Every path the install creates, with its mode and owner
 [docs/escalation.md](docs/escalation.md) | Granting `sudo` to a brokered command, answering a question, what the grant costs
