@@ -187,9 +187,10 @@ The install | `init`, `init-project`, `doctor`, `reload`, `uninstall`
 The managed store | `vault add`, `vault ls`, `vault rm`, `vault edit`
 Who can decrypt it | `recipient add`, `recipient rm`, `recipient ls`, `recipient reseal`
 A secret another tool owns | `link add`, `link rm`, `link ls`
+A path faramir will not read | `refuse add`, `refuse rm`, `refuse ls`
 The record, and sudo | `logs`, `escalations`, `approve`, `deny`
 
-All need root except `doctor`, which degrades, and the two that only read: `recipient ls` and `link ls`. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
+All need root except `doctor`, which degrades, and the three that only read: `recipient ls`, `link ls` and `refuse ls`. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
 
 ### MCP tools
 

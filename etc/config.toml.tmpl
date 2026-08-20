@@ -131,6 +131,12 @@ path = {{quote .Path}}
 type = {{quote .Type}}
 {{if .Key}}key = {{quote .Key}}
 {{end}}{{end}}
-
+{{range .Refused}}
+# Managed by `faramir refuse`. Refused to the agent's file tools and nothing
+# more: faramir never reads this file, so no account is granted anything and no
+# value of its enters the redactor.
+[[secret.refuse]]
+path = {{quote .Path}}
+{{end}}
 [audit]
 log_path = "{{.LogDir}}/audit.log"

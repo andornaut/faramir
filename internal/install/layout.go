@@ -132,6 +132,12 @@ type Layout struct {
 	// does not carry these.
 	Links []config.Link
 
+	// Refused is the [[secret.refuse]] entries, read off the config the same way
+	// and rendering into the same deny rules. Separate from Links because that
+	// is the whole difference between them: these paths are refused to the
+	// agent and never read, so no grant is asked for and no value is held.
+	Refused []config.RefusedPath
+
 	// The tunables. Each is set by a flag, rendered into config.toml, and read
 	// back out of it on the next run, so a flag left out keeps what the install
 	// already has rather than reverting to the compiled-in value. A value that

@@ -46,7 +46,7 @@ All five are gitignored. `up` refuses to build without the three you supply, rat
 
 **Naming suites is the same hazard from the other side.** Each leaves what the later ones examine (`check-project` runs `init --agent claude`, which writes the account-wide settings `check-doctor` then reports missing), so a set that is not a prefix of the run order is measured against a box its predecessors never set up. `run` warns about that too, and `./e2e.sh run logs doctor` above is one: useful while changing those two suites, and not a verdict on the build.
 
-`check-secrets.sh` and `check-link.sh` are the exceptions. The first rotates the shared `db/password` that five other suites redact against; the second adds refs to the running install and regroups two files in the operator's home. Each snapshots what it changes on the way in and restores it on the way out.
+`check-secrets.sh`, `check-link.sh` and `check-refuse.sh` are the exceptions. The first rotates the shared `db/password` that five other suites redact against; the second adds refs to the running install and regroups two files in the operator's home; the third writes entries into the config and renders rules into the operator's settings. Each snapshots what it changes on the way in and restores it on the way out.
 
 Each suite prints one line per check and exits non-zero if any failed.
 
@@ -77,6 +77,7 @@ Each suite prints one line per check and exits non-zero if any failed.
 | `check-doctor.sh` | `faramir doctor` as a fault detector |
 | `check-secrets.sh` | the secret lifecycle: edit, reseal, the `.sops.yaml` shapes that seal a store to the wrong people, and a store that will not open |
 | `check-link.sh` | `[[secret.link]]`: a value read out of a file another tool maintains, and the grant that lets the broker read it and nobody else |
+| `check-refuse.sh` | `[[secret.refuse]]`: a path refused to the agent's file tools and never read, and the two things that deliberately follow from never reading it |
 | `check-uninstall.sh` | `faramir uninstall`, and what it is right to leave behind |
 
 ## Writing a check

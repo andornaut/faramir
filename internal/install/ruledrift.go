@@ -126,11 +126,11 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 	reportLinkedFiles(report, home, links)
 }
 
-// reportLinkedFiles is diagnoseLinkedFiles against a home already resolved, so
-// a test can put one somewhere other than a real account's.
-func reportLinkedFiles(report *DoctorReport, home string, links []string) {
-	const name = "linked files"
-	files, uncovered := 0, []string{}
+// uncoveredIn reports, for every account-wide rule file under home, which of
+// paths no rule in it names, and how many files were read at all. Shared by the
+// two checks that ask this: a linked file and a refused path are rendered into
+// the same rule files by the same step.
+func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
 	for _, agent := range agentNames() {
 		for _, file := range agentTargets[agent].accountFiles {
 			path := filepath.Join(home, file.path)
@@ -147,9 +147,9 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 			}
 			files++
 			var missing []string
-			for _, link := range links {
-				if !named(entries, link) {
-					missing = append(missing, link)
+			for _, want := range paths {
+				if !named(entries, want) {
+					missing = append(missing, want)
 				}
 			}
 			if len(missing) > 0 {
@@ -161,6 +161,14 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 			}
 		}
 	}
+	return files, uncovered
+}
+
+// reportLinkedFiles is diagnoseLinkedFiles against a home already resolved, so
+// a test can put one somewhere other than a real account's.
+func reportLinkedFiles(report *DoctorReport, home string, links []string) {
+	const name = "linked files"
+	files, uncovered := uncoveredIn(home, links)
 
 	switch {
 	case files == 0:
@@ -174,6 +182,62 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 			"file tools, so its value is in the redactor while the plaintext is still "+
 			"one read away. `faramir link add` renders the rules with the entry, so this "+
 			"is a link written by hand or a run that stopped early; `faramir init` "+
+			"renders them again: %s", strings.Join(uncovered, "; "))
+	}
+}
+
+// diagnoseRefusedPaths asks whether the account-wide deny rules refuse every
+// [[secret.refuse]] path. The rule is the entire content of one of these
+// entries, so an entry the rules do not carry is an entry doing nothing at all.
+//
+// Failed rather than a warning, for the reason the linked-file check fails: a
+// stale rule refuses more than the list asks for, while this refuses less.
+func diagnoseRefusedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
+	const name = "refused paths"
+	paths := make([]string, 0, len(cfg.Secret.Refused))
+	for _, entry := range cfg.Secret.Refused {
+		paths = append(paths, entry.Path)
+	}
+	if len(paths) == 0 {
+		report.addf(name, StatusOK, "no [[secret.refuse]] entries are configured")
+		return
+	}
+	if opts.AgentUser == "" {
+		report.unaskedf(name, len(paths), "the agent account is not named, so the "+
+			"deny rules were not compared with the %d refused path(s): pass "+
+			"--agent-user, or run through sudo so SUDO_USER carries it", len(paths))
+		return
+	}
+	home, err := agentHomeFor(opts.AgentUser)
+	if err != nil || home == "" {
+		report.unaskedf(name, len(paths), "could not read %s's home, so the deny "+
+			"rules were not compared with the %d refused path(s)", opts.AgentUser, len(paths))
+		return
+	}
+	reportRefusedPaths(report, home, paths)
+}
+
+// reportRefusedPaths is diagnoseRefusedPaths against a home already resolved.
+//
+// Whether the path is there is not asked. An entry for a key on an unmounted
+// volume is doing its job by being in the rules, and a check that failed on the
+// absence would fail every time the volume was unmounted.
+func reportRefusedPaths(report *DoctorReport, home string, paths []string) {
+	const name = "refused paths"
+	files, uncovered := uncoveredIn(home, paths)
+
+	switch {
+	case files == 0:
+		report.unaskedf(name, len(paths), "no agent rule file is installed under %s, "+
+			"so there is nothing the %d refused path(s) could be refused by", home, len(paths))
+	case len(uncovered) == 0:
+		report.addf(name, StatusOK, "%d refused path(s) are refused to the agent's "+
+			"file tools in %d rule file(s)", len(paths), files)
+	default:
+		report.addf(name, StatusFailed, "a path this install refuses is not refused "+
+			"by the agent's rules, which is the whole of what the entry does. "+
+			"`faramir refuse add` renders the rules with the entry, so this is an "+
+			"entry written by hand or a run that stopped early; `faramir init` "+
 			"renders them again: %s", strings.Join(uncovered, "; "))
 	}
 }

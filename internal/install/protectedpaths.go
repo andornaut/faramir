@@ -1,6 +1,7 @@
 package install
 
 import (
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -118,6 +119,39 @@ func linkedPaths(layout Layout) []string {
 	return out
 }
 
+// refusedPaths is the files and directories [[secret.refuse]] entries name, as
+// literal paths, sorted and deduplicated the way linkedPaths are.
+//
+// A directory is rendered as a directory, so naming ~/.ssh refuses what is
+// under it rather than only the name itself. Which it is, is asked of the
+// filesystem: a path that is not there is rendered as a file, that being the
+// narrower of the two, and a rule that turns out to cover one path too few is
+// better than one covering a subtree nobody meant to name.
+//
+// Named for the entry rather than for the verb: refuseUnwritableAgentFiles and
+// its neighbours refuse to install, which is a different thing entirely.
+func refusedPaths(layout Layout) []string {
+	seen := make(map[string]bool, len(layout.Refused))
+	out := make([]string, 0, len(layout.Refused))
+	for _, refused := range layout.Refused {
+		path := refused.Path
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		out = append(out, path)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// isDir reports whether path is a directory now. A variable so a test can put
+// the question somewhere other than the real filesystem.
+var isDir = func(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 // The spellings. One function per matcher rather than one parameterised over
 // them: the agents differ in what a wildcard crosses.
 
@@ -181,6 +215,12 @@ func claudeRules(layout Layout) []string {
 	for _, path := range linkedPaths(layout) {
 		add(path)
 	}
+	for _, path := range refusedPaths(layout) {
+		add(path)
+		if isDir(path) {
+			add(path + "/**")
+		}
+	}
 	return out
 }
 
@@ -192,6 +232,12 @@ func pluginPatterns(layout Layout) []string {
 		out = append(out, dir+"/*")
 	}
 	out = append(out, linkedPaths(layout)...)
+	for _, path := range refusedPaths(layout) {
+		out = append(out, path)
+		if isDir(path) {
+			out = append(out, path+"/*")
+		}
+	}
 	return out
 }
 

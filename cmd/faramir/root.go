@@ -145,6 +145,7 @@ func newRootCmd() *cobra.Command {
 		newVaultCmd(),
 		newRecipientCmd(),
 		newLinkCmd(),
+		newRefuseCmd(),
 		newLogsCmd(),
 		newEscalationsCmd(),
 		newApproveCmd(),

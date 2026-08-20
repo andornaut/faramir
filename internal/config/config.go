@@ -338,6 +338,10 @@ type SecretConfig struct {
 	// Links is the secrets read from files the operator's own tools maintain,
 	// each named individually rather than matched by a glob. See Link.
 	Links []Link
+	// Refused is the paths the agent's file tools are refused without faramir
+	// reading them. Under [secret] because that is what these files hold, not
+	// because the broker serves anything out of them. See RefusedPath.
+	Refused []RefusedPath
 }
 
 // Link is one secret the broker reads from a file outside the managed store: an
@@ -363,6 +367,26 @@ type Link struct {
 	// Key selects one value out of a structured file, and is required for exactly
 	// the types that select.
 	Key string `json:"key,omitempty"`
+}
+
+// RefusedPath is a file the agent's own tools are refused and faramir does not
+// read: a LUKS keyfile, an SSH identity, anything whose value it has no use
+// for. One field, because a path is the whole of what it is.
+//
+// The weaker half of the pair, and deliberately so. A [[secret.link]] entry
+// regroups its file to the broker's group, so a brokered command is refused it
+// too, and puts the value in the redactor, so the value is tokenised wherever
+// it turns up. This does neither: it renders one deny rule into each agent's
+// rule file and stops there. A command the broker runs may still open the file
+// if its mode allows, and what it prints is in the clear, there being no value
+// in the redactor to match.
+//
+// That is the trade it exists for. Reading the value would mean holding it,
+// and these are the files whose value faramir should never hold.
+type RefusedPath struct {
+	// Path is the file or directory, absolute. No "~", for the reason a link's
+	// path carries none: nothing expands one here.
+	Path string `json:"path"`
 }
 
 // AuditConfig is the operator-only record of what the broker ran. Output is
@@ -439,6 +463,23 @@ func BaseLinks(path string) ([]Link, error) {
 	return cfg.Secret.Links, nil
 }
 
+// BaseRefused is the refused paths this install declares, for a caller about to
+// rewrite the file. A file that is not there yields nothing, which is a first
+// install.
+func BaseRefused(path string) ([]RefusedPath, error) {
+	if _, err := os.Stat(path); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		return nil, err
+	}
+	return cfg.Secret.Refused, nil
+}
+
 // ValidateLink holds one entry to what the loader would accept, for a command
 // that builds one before anything writes it.
 func ValidateLink(link Link) error { return validateLink(link, "[[secret.link]]") }
@@ -473,8 +514,9 @@ var (
 		"ssh_agent", "ssh_add"}
 	escalationKeys = []string{"exec_user", "pam_service", "helper",
 		"notify_command", "timeout_sec"}
-	secretKeys = []string{"min_length", "min_refresh_sec", "link"}
+	secretKeys = []string{"min_length", "min_refresh_sec", "link", "refuse"}
 	linkKeys   = []string{"ref", "path", "type", "key"}
+	refuseKeys = []string{"path"}
 	auditKeys  = []string{"log_path"}
 )
 
@@ -661,6 +703,9 @@ func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
 	if out.Links, err = loadLinks(sec["link"], where); err != nil {
 		return err
 	}
+	if out.Refused, err = loadRefused(sec["refuse"], where); err != nil {
+		return err
+	}
 	// At least 1: zero is what an unset flag looks like, so it cannot also mean
 	// "ask on every request". A second is indistinguishable from none in
 	// practice, and the linked files are not on this clock at all.
@@ -724,6 +769,83 @@ func loadLinks(value any, where string) ([]Link, error) {
 		out = append(out, link)
 	}
 	return out, nil
+}
+
+// loadRefused validates every [[secret.refuse]] entry. Held to the same rules a
+// link's path is, minus everything about reading the file: there is no type, no
+// key and no ref, because nothing is read out of it.
+//
+// A path that is not there is accepted. These are keys on volumes that are not
+// always mounted, and a deny rule costs nothing while the file is absent, so
+// refusing one would mean refusing the case the feature exists for.
+func loadRefused(value any, where string) ([]RefusedPath, error) {
+	if value == nil {
+		return nil, nil
+	}
+	entries, ok := value.([]map[string]any)
+	if !ok {
+		return nil, fmt.Errorf("%s: expected [[secret.refuse]] tables, got %T "+
+			"(write each entry as its own [[secret.refuse]] header)", where, value)
+	}
+	out := make([]RefusedPath, 0, len(entries))
+	seen := map[string]bool{}
+	for i, entry := range entries {
+		at := fmt.Sprintf("%s: [[secret.refuse]] #%d", where, i+1)
+		if err := rejectUnknownKeys(entry, refuseKeys, at); err != nil {
+			return nil, err
+		}
+		refused := RefusedPath{}
+		var err error
+		if refused.Path, err = str(entry["path"], at, ""); err != nil {
+			return nil, err
+		}
+		if err := validateRefusedPath(refused, at); err != nil {
+			return nil, err
+		}
+		// Two entries naming one path render one rule, so the second is an
+		// operator who thinks something more was added.
+		if seen[refused.Path] {
+			return nil, fmt.Errorf("%s: path %q is named by more than one entry",
+				at, refused.Path)
+		}
+		seen[refused.Path] = true
+		out = append(out, refused)
+	}
+	return out, nil
+}
+
+// ValidateRefusedPath holds one entry to what the loader would accept, for a
+// command that builds one before anything writes it.
+func ValidateRefusedPath(refused RefusedPath) error {
+	return validateRefusedPath(refused, "[[secret.refuse]]")
+}
+
+func validateRefusedPath(refused RefusedPath, at string) error {
+	if refused.Path == "" {
+		return fmt.Errorf("%s: path is required; it is the whole of the entry", at)
+	}
+	if strings.HasPrefix(refused.Path, "~") {
+		return fmt.Errorf("%s: path %q starts with ~, which nothing expands here. "+
+			"Write the path in full", at, refused.Path)
+	}
+	if !filepath.IsAbs(refused.Path) {
+		return fmt.Errorf("%s: path %q is relative, and a deny rule is matched "+
+			"against a path the agent names in full. Write it in full", at, refused.Path)
+	}
+	// A rule is a literal string in someone else's config, so the path that
+	// reaches it has to be the one an agent would name. "/etc/./k" and "/etc/k"
+	// are one file and would be two rules, one of which matches nothing.
+	if clean := filepath.Clean(refused.Path); clean != refused.Path {
+		return fmt.Errorf("%s: path %q is not in its shortest form, and a deny rule "+
+			"matches the path as written. Use %q", at, refused.Path, clean)
+	}
+	// "/" would render a rule refusing the whole filesystem, which fails closed
+	// and leaves the agent unable to read anything at all.
+	if refused.Path == "/" {
+		return fmt.Errorf("%s: path is /, which would refuse the agent every file "+
+			"on the host. Name the file or the directory that holds it", at)
+	}
+	return nil
 }
 
 func validateLink(link Link, at string) error {

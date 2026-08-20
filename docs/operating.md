@@ -18,6 +18,7 @@ Key material | `age key`, `agent keys`, `audit log`, `ssh key` | The age key rea
 Files | `config ownership`, `installed files`, `deny patterns` | The config, `.sops.yaml`, the binary, `wrap.sh` and the PAM helper not writable by the operator, and the deny list rendered for *this* config directory
 Sockets | `keeper socket`, `executor socket`, `broker socket`, and a `policy` check for each of the first two | The internal sockets closed to the accounts that must not open them, the broker's open to the operator, and each `allowed_user` naming the broker
 Linked secrets | `linked file access`, `linked files` | Each linked file readable by the broker's own account and not by the executor, asked as those accounts rather than read off the mode; and every linked path refused by the agent's deny rules
+Refused paths | `refused paths` | Every `[[secret.refuse]]` path refused by the agent's deny rules, which is the whole of what one of those entries does. Whether the path is there is not asked, an entry for a key on an unmounted volume being one that is doing its job
 Behaviour | `brokered command`, `ssh agent`, `redaction`, `known hosts` | A managed value injected into a real command comes back as its token, the relay answers, and how many host keys a brokered `ssh` can verify against
 sops | `sops config`, `rule coverage`, `recipient drift` | `.sops.yaml` names the keeper's own recipient rather than one it used to have, and nothing sops would refuse; its rule reaches every file the managed store names; and every encrypted file is sealed to what that rule says rather than to a set it used to name
 Agents | `agent rules`, `agent rule drift`, `tree config`, `agent file ownership` | Each agent's deny rules present, absent, or carried in an extension; rules an earlier version wrote that this one does not; enrolled trees whose agent files no longer carry what the enrolment wrote; and files an install would now refuse to write
@@ -72,8 +73,8 @@ A brokered command cannot delete these files, each agent's own directory in a tr
 
 **Every one of these is refused to the coding agent's shell**, with sudo and without. An agent may run `run`, `redact`, `status` and `refs`, plus `version`, `help` and `completion`, which reach no broker; the rest act on the install rather than through it.
 
-- All need root except `doctor`, which degrades, and the two that only read: `recipient ls` and `link ls`.
-- Three group: `faramir vault` acts on the managed store, `faramir link` on a secret another tool owns, and `faramir recipient` on who can decrypt the store. The first two share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
+- All need root except `doctor`, which degrades, and the three that only read: `recipient ls`, `link ls` and `refuse ls`.
+- Four group: `faramir vault` acts on the managed store, `faramir link` on a secret another tool owns, `faramir refuse` on a path faramir will not read at all, and `faramir recipient` on who can decrypt the store. The first two share one ref namespace and nothing else, so nothing marks a ref as linked and moving a secret between them does not rename it.
 
 Command | Does
 --- | ---
@@ -90,6 +91,9 @@ Command | Does
 `sudo faramir link add REF FILE` | Reads a secret out of a file another tool maintains, instead of copying it in; `--type` and `--key` say how. Grants the broker read, refuses the file to the agent's file tools, writes the entry and reloads. Read once as the broker's own account first, so a selector naming nothing fails here rather than in every later command. [Detail](configuration.md#linked-secrets)
 `sudo faramir link rm REF` | Drops the entry, so the value leaves the redactor. It undoes neither the grant nor the deny rule, a merged rule file only being addable to, and prints both with what would narrow them
 `faramir link ls` | The linked secrets this install declares, and whether each file is there
+`sudo faramir refuse add PATH` | Refuses one path to the agent's file tools, without reading it or being able to. Writes the entry and re-renders the rules, and does nothing else: no account is granted anything, no mode changes, and no value enters the redactor. A path that is not there is recorded and reported, an unmounted volume being the case it is for. [Detail](configuration.md#refused-paths)
+`sudo faramir refuse rm PATH` | Drops the entry, so `init` stops rendering the rule. It does not take the rule out of an agent's file, a merged rule file only being addable to, and says so
+`faramir refuse ls` | The paths this install refuses, and whether each is there
 `sudo faramir logs [LOG-ID]` | Recent audit records, one row each: log id, local time, op, outcome, values stood in for, and the command. With an id, one record in full. `--count`/`-n` bounds what is parsed as well as printed, `--json` prints records rather than rows, `--watch` follows the log across a rotation. Reads the log `[audit] log_path` names and takes no path of its own. Rotated files are not searched
 `sudo faramir escalations [--watch]` | Lists the escalation a brokered command is waiting on. `--watch` waits for questions, answers them from that terminal, and reports how each approved run ended. [How to run a watcher](escalation.md#what-happens-when-a-command-runs-sudo)
 `sudo faramir approve ID` | Say yes. The id is required: an escalation that names no command is one nobody judged

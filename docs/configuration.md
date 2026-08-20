@@ -25,7 +25,7 @@ Flag | Key | Default | Bounds
 `--secret-min-length` | `[secret] min_length` | 8 | at least 6
 `--secret-min-refresh-sec` | `[secret] min_refresh_sec` | 10 | at least 1. A minimum, not a schedule: the check runs when a command arrives and nothing polls in the background, so an idle host costs nothing. It bounds the keeper round trip only; linked files are stat'ed on every request
 
-`[[secret.link]]` is the eighth thing the file carries and is `faramir link`'s, [below](#linked-secrets).
+`[[secret.link]]` is the eighth thing the file carries and is `faramir link`'s, [below](#linked-secrets). `[[secret.refuse]]` is the ninth and is `faramir refuse`'s, [below that](#refused-paths).
 
 **`--secret-min-length` has a floor of 6, and a reason for being low.** The two failures are not symmetric: a value refused for being too short is absent from the redactor and reaches output in the clear, while one matched too eagerly only mangles the operator's own text. `password` is eight characters, so the default is not the safe point it looks like. [What the gate is for](redaction.md#the-pipeline-in-order).
 
@@ -105,6 +105,36 @@ Why it is shaped this way (one ref per entry rather than a whole-file flatten, t
 - **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi is the exception, having no account-wide rule file.
 - **A tool that replaces its own file rather than rewriting it takes the grant with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file; `faramir init` grants it again.
 - **A link that is there and will not read stops the host**, being a value the redactor is missing while the plaintext is still on disk: `run` and `redact` refuse until it is fixed. A link whose *path* is gone is the other case and is not fatal, the credential having left the machine.
+
+## Refused paths
+
+A `[[secret.refuse]]` entry refuses one path to the agent's file tools, and that is the whole of it. For a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity, anything whose value it should never hold.
+
+```sh
+sudo faramir refuse add /etc/tron/luks.key
+```
+
+**It is the weaker of the two entries, and the names are the wrong way round about it.** A link reads the file, so it can do three things this cannot:
+
+What happens to the file | `[[secret.link]]` | `[[secret.refuse]]`
+--- | --- | ---
+refused to the agent's file tools | yes | yes
+regrouped to the broker's group, so a brokered command is refused it too | yes | no, the mode is left as it is
+the value in the redactor, tokenised wherever it appears | yes | no, faramir never reads it
+injectable by ref | yes | no
+
+So a command the broker runs may still open a refused path if its mode allows, and what it prints comes back in the clear: there is nothing in the redactor to match. Reach for `link` where faramir can hold the value, and for this where it should not.
+
+Key | Rule
+--- | ---
+`path` | Absolute, and in its shortest form: a deny rule matches the path as written, so `/etc/./k` and `/etc/k` would be two rules of which one matches nothing. No `~`, which nothing expands here. `/` is refused, being every file on the host
+
+- **A path that is not there is still recorded**, and you are told. A rule costs nothing while its file is absent and is already in place when the volume mounts, which is the case these exist for. A path spelled wrong looks exactly the same, so the message says both.
+- **A directory refuses what is under it.** Which it is, is asked of the filesystem when the rules are rendered, and a path that is not there is rendered as a file: the narrower of the two, rather than a subtree nobody named.
+- **Nothing is reloaded.** No daemon reads these entries, so a `refuse add` does not restart the broker out from under a running command.
+- **Pi is the exception**, as it is for linked paths: its rules are compiled into the extension and it has no account-wide file to render one into.
+
+Entries live in `config.toml` and `init` reads them back before rewriting the file, so every rule is re-asserted on each run. That is what heals one an agent's own settings lost.
 
 ## The sockets belong to their units
 
