@@ -834,3 +834,44 @@ func TestALogIDIsShortAndCarriesNoTimestamp(t *testing.T) {
 		}
 	}
 }
+
+// encodedLen sizes what Excerpt keeps, so being wrong about a byte does not
+// overrun the cap (encode marshals and reduces) but does spend the budget
+// wrongly: guess high and output that would have fitted is dropped, guess low
+// and the record is reduced instead of excerpted, which costs the other fields.
+//
+// Asserted against the encoder rather than against encodedLen, so it holds
+// whatever the encoder spends and does not restate the arithmetic it is
+// checking. Invalid bytes are the case that has moved between Go releases.
+func TestAnExcerptSpendsTheBudgetItWasGiven(t *testing.T) {
+	const budget = 4096
+	for _, tc := range []struct{ name, output string }{
+		{"invalid bytes", strings.Repeat("\xff", 200_000)},
+		{"plain text", strings.Repeat("ok: [host.example.com]\n", 20_000)},
+		{"angle brackets", strings.Repeat("<", 200_000)},
+		{"multi-byte runes", strings.Repeat("é", 200_000)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			text, dropped := Excerpt(tc.output, budget)
+			if dropped == 0 {
+				t.Fatalf("nothing was dropped from %d bytes, so this asserts nothing",
+					len(tc.output))
+			}
+			line, err := json.Marshal(text)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spent := len(line) - 2
+			if spent > budget {
+				t.Errorf("the excerpt spends %d encoded bytes for a budget of %d, so "+
+					"the record will be reduced rather than excerpted", spent, budget)
+			}
+			// Three quarters, not the whole: the marker between the two ends is
+			// part of the budget and each end is cut at a rune boundary.
+			if spent < budget*3/4 {
+				t.Errorf("the excerpt spends only %d encoded bytes of %d, so output "+
+					"that would have fitted was dropped", spent, budget)
+			}
+		})
+	}
+}

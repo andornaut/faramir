@@ -6,6 +6,7 @@ package audit
 // than in the bytes a command wrote.
 
 import (
+	"encoding/json"
 	"fmt"
 	"unicode/utf8"
 )
@@ -42,9 +43,31 @@ func marker(dropped int) string {
 		"is what a record keeps]\n", dropped)
 }
 
+// invalidByteLen is what the encoder linked into this binary spends on one
+// invalid byte, measured from the encoder itself at startup.
+//
+// The other costs in encodedRuneLen are fixed by the JSON grammar; this one is
+// the encoder's choice and has differed between Go releases. Measuring it is
+// what keeps the cap counted in the unit the line is actually written in, on
+// whichever toolchain built this.
+var invalidByteLen = measureInvalidByteLen()
+
+func measureInvalidByteLen() int {
+	line, err := json.Marshal("\xff")
+	if err != nil {
+		// Unreachable: a string always marshals. Six is the wider of the two
+		// answers a Go release has given, and the safer way to be wrong: encode
+		// marshals and checks, so what over-counting costs is output, while
+		// under-counting costs the record's other fields.
+		return 6
+	}
+	// Less the two quotes the marshalled form carries.
+	return len(line) - 2
+}
+
 // encodedLen is what json.Marshal will spend on s inside a string, which is what
-// the cap is counted in. Six bytes for a byte a command picked, one for most of
-// what it prints.
+// the cap is counted in. Six bytes for most of what a command picks, one for
+// most of what it prints.
 func encodedLen(s string) int {
 	total := 0
 	for i := 0; i < len(s); {
@@ -65,10 +88,14 @@ func encodedRuneLen(r rune, size int) int {
 	// is what makes a page of XML the cheapest way to write a very long line.
 	case r == '<' || r == '>' || r == '&':
 		return 6
-	// An invalid byte is recorded as the escape \ufffd rather than as the three
-	// bytes that rune encodes to, so it costs six like the rest of them.
+	// An invalid byte is replaced by U+FFFD, which the encoder either escapes as
+	// \ufffd or writes as the rune itself. Which one is asked of the encoder
+	// rather than assumed: guess high and Excerpt drops output that would have
+	// fitted, guess low and the record overshoots the cap on the first marshal
+	// and is reduced, which cuts every other field to save the one that was
+	// mismeasured.
 	case r == utf8.RuneError && size == 1:
-		return 6
+		return invalidByteLen
 	// Escaped by encoding/json whatever the settings are, for JSONP's sake.
 	case r == '\u2028' || r == '\u2029':
 		return 6
