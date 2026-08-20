@@ -213,7 +213,7 @@ jobs:
   # base-image bump changes the userland every group and permission check reads,
   # so without this a bump merges on a green run that never built it.
   e2e:
-    name: E2E
+    name: E2E arrangement
     runs-on: ubuntu-latest
     timeout-minutes: 25
     # Both sudo implementations: they take different settings out of the same
@@ -267,3 +267,18 @@ jobs:
         if: always()
         working-directory: tests/e2e
         run: ./e2e.sh down
+
+  # The check the require-ci ruleset names. A matrix reports one check per leg
+  # ("E2E arrangement (classic)" and "(rs)"), so nothing would answer to "E2E"
+  # and the rule could never be satisfied. This is that name, and it passes only
+  # if every arrangement did.
+  e2e-result:
+    name: E2E
+    runs-on: ubuntu-latest
+    needs: e2e
+    if: always()
+    steps:
+      - name: Every arrangement passed
+        run: |
+          echo "e2e matrix result: ${{ needs.e2e.result }}"
+          [ "${{ needs.e2e.result }}" = success ]
