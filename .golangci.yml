@@ -13,9 +13,11 @@ linters:
     - whitespace
     # Bans `if err := f(); err != nil`, which is the error idiom used here.
     - noinlineerr
-    # Superseded by gomodguard_v2, which `default: all` enables in its place.
-    # Named here only to stop the deprecation warning it prints otherwise.
+    # Import allowlist, same reason as depguard below. Both names: the
+    # deprecated one to stop the warning it prints, the successor because
+    # `default: all` would otherwise enable it in its place.
     - gomodguard
+    - gomodguard_v2
     # Every struct literal must set every field, including its zero values. Both
     # names, as with wsl above: `default: all` enables what a rename leaves
     # unmatched, so a stale entry here reads as disabled and is not.
@@ -56,16 +58,6 @@ linters:
     # init() is how cobra registers commands and their flags, and the ones here
     # say in a comment why a flag is registered where it is.
     - gochecknoinits
-  enable:
-    - bodyclose
-    - copyloopvar
-    - goconst
-    - gocritic
-    - gosec
-    - misspell
-    - revive
-    - unconvert
-    - unparam
   settings:
     # A default clause handles the cases not named, which is how these switches
     # are written; without this the linter wants every case spelled out anyway.
@@ -73,12 +65,14 @@ linters:
       default-signifies-exhaustive: true
     goconst:
       # A map key is where this project spells a wire format: the fields of an
-      # audit record, a JSON-RPC envelope, a JSON Schema. Naming them would not
-      # only move the spelling away from where it is read; internal/audit checks
-      # every record against the size cap by finding `map[string]any` literals
-      # with a "log_id" key, and a constant is not a literal, so the records
-      # would leave its sight and it would check nothing. Everything else goconst
-      # looks at still applies, and the repeated values it found are constants.
+      # audit record, a JSON-RPC envelope. Naming them would not only move the
+      # spelling away from where it is read; internal/audit checks every record
+      # against the size cap by finding `map[string]any` literals with a
+      # "log_id" key, and a constant is not a literal, so the records would
+      # leave its sight and it would check nothing. This drops map-key
+      # occurrences from the count rather than only suppressing a report
+      # positioned at one, so a string spelled both as a map key and elsewhere
+      # can fall under min-occurrences and go unreported.
       ignore-map-keys: true
     gosec:
       excludes:
@@ -88,7 +82,6 @@ linters:
         - G301 # directory permissions 0755 are standard and appropriate
         - G304 # file operations with user paths are the tool's purpose
         - G703 # path traversal - validating user paths is the tool's purpose
-        - G705 # XSS taint analysis - the only writes are to a terminal and to stdio
         - G706 # log injection - logging environment variables
     govet:
       disable:
