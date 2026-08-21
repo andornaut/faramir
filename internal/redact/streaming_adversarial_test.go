@@ -46,7 +46,7 @@ func TestOverlapHoldsPathologicalWrap(t *testing.T) {
 		{"raw/wrap1", wrapEvery(streamSecret, 1)},
 		{"raw/wrap3", wrapEvery(streamSecret, 3)},
 		{"hex/wrap1", wrapEvery(hexOf(streamSecret), 1)},
-		{"percent/wrap1", wrapEvery(percentEncode(streamSecret, false), 1)},
+		{"percent/wrap1", wrapEvery(percentEncode(streamSecret, safeQuote, false, false), 1)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := New([]Secret{{Ref: "svc/token", Value: streamSecret}}, DefaultPolicy())

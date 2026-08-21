@@ -106,22 +106,59 @@ func base32Variants(value string) map[string]bool {
 // as leaving it alone. A list of renderings would cover whichever producer it
 // was written against and read as coverage of the rest.
 
-// percentEncode mirrors Python's urllib.parse.quote(value, safe="").
-// Unreserved characters are the ASCII letters, digits, and "_.-~".
-func percentEncode(value string, plus bool) string {
+// The characters a percent-encoder leaves alone, beyond the unreserved set.
+// Which one a producer uses is the whole difference between its output and
+// another's, so each is named for the function that has it.
+const (
+	// safeQuote is Python's urllib.parse.quote(value, safe=""): nothing beyond
+	// the unreserved set.
+	safeQuote = ""
+	// safeComponent is JavaScript's encodeURIComponent.
+	safeComponent = "!*'()"
+	// safeURI is JavaScript's encodeURI, which is meant to leave a whole URL
+	// usable and so keeps the reserved delimiters too.
+	safeURI = "!*'();,/?:@&=+$#"
+)
+
+// percentEncode renders value the way a percent-encoder would, with safe naming
+// the characters left alone beyond the unreserved ASCII letters, digits and
+// "_.-~". plus writes a space as "+", which HTML form encoding does. lower emits
+// the hex digits in lower case: the RFC prefers upper and most encoders write
+// it, but enough write "%3c" that both spellings are worth carrying.
+func percentEncode(value, safe string, plus, lower bool) string {
+	format := "%%%02X"
+	if lower {
+		format = "%%%02x"
+	}
 	var b strings.Builder
 	for _, c := range []byte(value) {
 		switch {
 		case (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
-			(c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-' || c == '~':
+			(c >= '0' && c <= '9') || c == '_' || c == '.' || c == '-' || c == '~',
+			strings.IndexByte(safe, c) >= 0:
 			b.WriteByte(c)
 		case plus && c == ' ':
 			b.WriteByte('+')
 		default:
-			fmt.Fprintf(&b, "%%%02X", c)
+			fmt.Fprintf(&b, format, c)
 		}
 	}
 	return b.String()
+}
+
+// percentVariants returns every percent-encoded rendering of value: each safe
+// set in both hex cases, and the form encoding that writes a space as "+".
+// A value holding none of the characters the sets differ over collapses to one
+// string, so this costs nothing on the ordinary case.
+func percentVariants(value string) map[string]bool {
+	out := map[string]bool{}
+	for _, safe := range []string{safeQuote, safeComponent, safeURI} {
+		for _, lower := range []bool{false, true} {
+			out[percentEncode(value, safe, false, lower)] = true
+			out[percentEncode(value, safe, true, lower)] = true
+		}
+	}
+	return out
 }
 
 // shlexUnsafe matches Python's shlex.quote find set: anything outside
@@ -171,8 +208,9 @@ func variants(value string) map[string]bool {
 	h := hex.EncodeToString([]byte(value))
 	out[h] = true
 	out[strings.ToUpper(h)] = true
-	out[percentEncode(value, false)] = true
-	out[percentEncode(value, true)] = true
+	for v := range percentVariants(value) {
+		out[v] = true
+	}
 	js := jsonEscape(value)
 	out[js] = true
 	// PHP's json_encode and many JSON serializers escape "/" as "\/" by default.

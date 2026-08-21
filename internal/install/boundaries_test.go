@@ -148,6 +148,12 @@ func sudoArrangement(t *testing.T) (*config.Config, string) {
 		[]byte("FARAMIR_OPERATOR=op\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// The helper the stack execs. Named on a requisite line, so a fixture without
+	// it is a host where no escalation can be approved rather than a whole
+	// arrangement.
+	if err := os.WriteFile(helper, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	return cfg, dir
 }
 
@@ -223,5 +229,35 @@ func TestTheCredentialAndTheArrangementAreSeparateFindings(t *testing.T) {
 	}
 	if got := report.Findings[1]; got.Name != "sudo grant" || got.Status != StatusNA {
 		t.Errorf("second finding is %q %q, want the arrangement n/a", got.Name, got.Status)
+	}
+}
+
+// The helper is what the stack's requisite line execs, so a host missing it can
+// approve nothing. Checked by this name as well as by installed files: a verdict
+// has to be true on its own terms, or an operator reading the grant line alone
+// is told the grant works on a host where no escalation can be approved.
+func TestTheSudoGrantCheckReadsTheHelper(t *testing.T) {
+	cfg, _ := sudoArrangement(t)
+	opts := DoctorOptions{ExecUser: "ex", AgentUser: "op"}
+
+	var whole DoctorReport
+	diagnoseSudoArrangement(&whole, opts, cfg)
+	if got := only(t, whole); got.Status != StatusOK {
+		t.Fatalf("status %q, want %q with the whole arrangement in place: %s",
+			got.Status, StatusOK, got.Detail)
+	}
+
+	if err := os.Remove(cfg.Escalation.Helper); err != nil {
+		t.Fatal(err)
+	}
+	var without DoctorReport
+	diagnoseSudoArrangement(&without, opts, cfg)
+	finding := only(t, without)
+	if finding.Status != StatusFailed {
+		t.Fatalf("status %q, want %q with the helper gone: %s",
+			finding.Status, StatusFailed, finding.Detail)
+	}
+	if !strings.Contains(finding.Detail, cfg.Escalation.Helper) {
+		t.Errorf("the failure does not name the helper it is about: %s", finding.Detail)
 	}
 }

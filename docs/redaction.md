@@ -46,7 +46,7 @@ base64, padded and unpadded | `\| base64`, JSON payloads, `Authorization: Basic`
 base64 URL-safe, padded and unpadded | JWTs, signed URLs
 base32, padded and unpadded | TOTP seeds, `otpauth://` URIs, some token formats
 hex, lower and upper case | `xxd -p`, `od -An -tx1`, `hexdump`, `openssl`, hex BLOB columns
-percent-encoded, with `%20` and with `+` for a space | any URL or form body carrying a credential
+percent-encoded, in the `quote(safe="")`, `encodeURIComponent` and `encodeURI` safe sets, each in upper and lower hex, and with `%20` or `+` for a space | any URL or form body carrying a credential
 JSON string-escaped, and with `\/` | `-vvv` output, API responses, PHP `json_encode`
 shell single-quoted, both the `'\''` and `'"'"'` escapes | `set -x` traces, Python's `shlex.quote`
 shell double-quoted (`\\`, `\$`, `` \` ``, `\"`) | `set -x` traces

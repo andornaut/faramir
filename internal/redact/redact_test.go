@@ -69,11 +69,11 @@ func TestRedactText(t *testing.T) {
 			gone: []string{secret[:len(secret)/2]}, want: []string{routerToken()}},
 		{name: "percent and JSON encodings",
 			secrets: []Secret{{Ref: "k", Value: specials}},
-			text: "url=" + percentEncode(specials, false) +
-				" plus=" + percentEncode(specials, true) +
+			text: "url=" + percentEncode(specials, safeQuote, false, false) +
+				" plus=" + percentEncode(specials, safeQuote, true, false) +
 				" json=" + jsonEscape(specials),
 			gone: []string{
-				percentEncode(specials, false), percentEncode(specials, true),
+				percentEncode(specials, safeQuote, false, false), percentEncode(specials, safeQuote, true, false),
 				jsonEscape(specials),
 			},
 			want: []string{TokenFor("k")}},

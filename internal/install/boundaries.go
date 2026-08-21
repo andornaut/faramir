@@ -695,8 +695,19 @@ func diagnoseSudoArrangement(report *DoctorReport, opts DoctorOptions, cfg *conf
 			"init --allow-sudo`", strings.Join(sudoPamFiles(), " or "), pamFile)
 		return
 	}
-	// The helper the stack execs, as root. An account that can write it chooses
-	// what decides every escalation on this host.
+	// The helper the stack execs, as root. It is named on a requisite line, so a
+	// helper that is not there fails every escalation: nothing can be approved on
+	// this host. Checked here as well as by the installed-files diagnosis, so that
+	// this verdict is true on its own terms -- an operator reading the grant line
+	// alone is told the grant works only where it does.
+	if _, err := os.Stat(cfg.Escalation.Helper); err != nil {
+		report.addf("sudo grant", StatusFailed, "%s execs %s, which cannot be read "+
+			"(%v): that line is requisite, so no escalation can be approved on this "+
+			"host. Re-run `faramir init --allow-sudo`",
+			pamFile, cfg.Escalation.Helper, err)
+		return
+	}
+	// An account that can write the helper chooses what decides every escalation.
 	accounts, skipped := askable(opts.ExecUser, opts.AgentUser)
 	for _, account := range accounts {
 		if canWrite(account, cfg.Escalation.Helper) {

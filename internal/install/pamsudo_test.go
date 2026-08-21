@@ -217,6 +217,12 @@ func sudoRsArrangement(t *testing.T) (*config.Config, string) {
 		[]byte("FARAMIR_OPERATOR=op\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// Named on the block's requisite line, so the arrangement is not whole
+	// without it.
+	if err := os.WriteFile(cfg.Escalation.Helper, []byte("#!/bin/sh\nexit 0\n"),
+		0o755); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := run.writeSudoPamBlock(); err != nil {
 		t.Fatal(err)
 	}
