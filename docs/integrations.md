@@ -137,7 +137,7 @@ Setting | Why
 
 ## Worked example: Ansible
 
-Ansible is the one integration that needs more than a variable name, because a playbook also configures the controller it runs on.
+Ansible is the one integration that needs more than a variable name, because a playbook also configures the controller it runs on. [ansible-ctrl](https://github.com/andornaut/ansible-ctrl) is a fleet run this way, and carries a working copy of each piece below: the [role that installs a host](https://github.com/andornaut/ansible-ctrl/tree/main/roles/faramir) and the [vars plugin](https://github.com/andornaut/ansible-ctrl/blob/main/vars_plugins/faramir_env.py).
 
 ```text
 /etc/faramir/secrets/ansible.sops.yml        the values, outside every checkout
@@ -188,7 +188,7 @@ api_token: "{{ lookup('env', 'API_TOKEN') }}"
 
 #### A vars plugin
 
-The plugin reads `faramir.env` for its names and exposes each as a variable of that name, so the lookup file above is not written at all:
+The plugin reads `faramir.env` for its names and exposes each as a variable of that name, so the lookup file above is not written at all. Abridged here; the whole of it, `declared_names` included, is [in ansible-ctrl](https://github.com/andornaut/ansible-ctrl/blob/main/vars_plugins/faramir_env.py):
 
 ```python
 # vars_plugins/faramir_env.py, enabled by name in ansible.cfg
