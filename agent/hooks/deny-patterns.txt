@@ -44,7 +44,7 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 #
 # GENERATED from internal/install/protectedpaths.go, which is the same set the
 # agents' own deny rules are rendered from: this install's directories at the
-# paths this host uses, every file a [[secret.link]] or [[secret.refuse]] entry
+# paths this host uses, every file a [[secret.link]] or [[secret.block]] entry
 # names, and every pattern one declares. A rule that refused an agent's file
 # tools and said nothing about `cat` covered half of what an operator declaring
 # a path would assume, so the two entry points are spelled from one list.
@@ -98,6 +98,6 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 # it, so they are the operator's whether or not sudo is in front: refused here so
 # the agent is told that, rather than meeting a permission error it will try to
 # work around.
-\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|recipient[ \t]+add|recipient[ \t]+rm|recipient[ \t]+ls|recipient[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|refuse[ \t]+add|refuse[ \t]+rm|refuse[ \t]+ls|logs|escalations|approve|deny|doctor|reload|uninstall)\b
+\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|recipient[ \t]+add|recipient[ \t]+rm|recipient[ \t]+ls|recipient[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|block[ \t]+add|block[ \t]+rm|block[ \t]+ls|logs|escalations|approve|deny|doctor|reload|uninstall)\b
 \bsudo\b.*-u\s+faramir
 \bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-

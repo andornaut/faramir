@@ -77,7 +77,7 @@ func TestAMissingConfigStopsTheEnrolment(t *testing.T) {
 
 // --client-group overrides the group and does not stand in for the file. An
 // enrolment writes this install's deny rules into the tree, and the linked and
-// refused paths among them are only in the config: a tree enrolled without it
+// blocked paths among them are only in the config: a tree enrolled without it
 // would carry a list naming the built-in paths and not the credential file this
 // install added, which reads exactly like one that covers everything.
 func TestANamedGroupStillNeedsAConfigToRead(t *testing.T) {

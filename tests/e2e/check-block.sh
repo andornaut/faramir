@@ -1,6 +1,6 @@
 #!/bin/bash
-# A path the agent's file tools are refused and faramir never reads:
-# [[secret.refuse]].
+# A path the agent's file tools are blocked from and faramir never reads:
+# [[secret.block]].
 #
 # The weaker of the two entries a file can get, and the one thing only a real
 # install can show is exactly where that weakness sits. A link draws three
@@ -35,9 +35,9 @@ MADE_CLAUDE_HOME=
 faramir=/usr/local/bin/faramir
 asop() { runuser -u op -- env HOME=/home/op "$faramir" "$@"; }
 brokered() { asop run --quiet -t 25 "$@" 2>&1; }
-# `faramir refuse` as an operator runs it. --agent-user because this suite runs
+# `faramir block` as an operator runs it. --agent-user because this suite runs
 # as root with no SUDO_USER to carry it.
-refuse() { "$faramir" refuse --agent-user op "$@" 2>&1; }
+block() { "$faramir" block --agent-user op "$@" 2>&1; }
 
 # This suite writes entries into a shared install and renders them into the
 # operator's rule files. Later suites read both, so put the config back and take
@@ -47,7 +47,7 @@ cp -a $CFG "$BACKUP/config.toml"
 restore_baseline() {
   local rc=$?
   for path in "$KEY" "$ABSENT" "$SSHDIR"; do
-    "$faramir" refuse rm --agent-user op "$path" >/dev/null 2>&1 || true
+    "$faramir" block rm --agent-user op "$path" >/dev/null 2>&1 || true
   done
   cp -a "$BACKUP/config.toml" $CFG
   # Section 9 empties the rule file to check that a re-add restores it.
@@ -55,7 +55,7 @@ restore_baseline() {
   rm -rf "$BACKUP" "$KEYDIR" "$SSHDIR"
   rm -f /etc/refused-world.key
   "$faramir" link rm --agent-user op gh/refuse-suite >/dev/null 2>&1 || true
-  "$faramir" refuse rm --agent-user op /etc/beside-a-link.key >/dev/null 2>&1 || true
+  "$faramir" block rm --agent-user op /etc/beside-a-link.key >/dev/null 2>&1 || true
   rm -rf /home/op/.config/gh
   [ -n "$MADE_CLAUDE_HOME" ] && rm -rf "$CLAUDE_HOME"
   "$faramir" reload >/dev/null 2>&1 || true
@@ -64,7 +64,7 @@ restore_baseline() {
 }
 trap restore_baseline EXIT
 
-# The account-wide rule files are what a [[secret.refuse]] entry renders into,
+# The account-wide rule files are what a [[secret.block]] entry renders into,
 # and `--agent auto` writes them only for an agent the home already carries. The
 # container's home has none: the project suite enrols a tree, which is a
 # different set of files. So the marker is created here, and removed on the way
@@ -86,7 +86,7 @@ chmod 600 $SSHDIR/id_test
 
 # --------------------------------------------------------------------------
 head_ "1. what is refused before anything is written"
-# There is no grant and no probe here, so these are the only ways `refuse add`
+# There is no grant and no probe here, so these are the only ways `block add`
 # declines. Each is checked against the config as well as the exit status: a
 # refusal that had already rewritten the file would be worse than no refusal.
 before=$(cat $CFG)
@@ -100,7 +100,7 @@ for case in \
   "/|every file on the host"; do
   path=${case%%|*}
   want=${case##*|}
-  out=$(refuse add "$path" 2>&1)
+  out=$(block add "$path" 2>&1)
   if grep -qF "$want" <<<"$out"; then
     ok "refused $path: names '$want'"
   else
@@ -113,10 +113,10 @@ done
 
 # --------------------------------------------------------------------------
 head_ "2. the entry, and the rule it exists for"
-out=$(refuse add "$KEY")
-grep -q "refused $KEY" <<<"$out" \
-  && ok "refuse add reports what it refused" \
-  || bad "refuse add: ${out:0:160}"
+out=$(block add "$KEY")
+grep -q "blocked $KEY" <<<"$out" \
+  && ok "block add reports what it blocked" \
+  || bad "block add: ${out:0:160}"
 
 grep -q "$KEY" $CFG \
   && ok "the entry is in config.toml" \
@@ -142,7 +142,7 @@ head_ "3. what it deliberately does not do"
 mode=$(stat -c '%a %U:%G' $KEY)
 [ "$mode" = "600 op:op" ] \
   && ok "the file's owner and mode are untouched (600 op:op)" \
-  || bad "refuse add changed the file: $mode"
+  || bad "block add changed the file: $mode"
 
 # Nothing was granted, so the broker's own account gained nothing either.
 if runuser -u faramir-broker -- test -r $KEY 2>/dev/null; then
@@ -179,7 +179,7 @@ WORLD=/etc/refused-world.key
 WORLD_VALUE=luks_refused_e2e_world_0002
 printf '%s\n' "$WORLD_VALUE" > $WORLD
 chmod 644 $WORLD
-refuse add "$WORLD" >/dev/null 2>&1
+block add "$WORLD" >/dev/null 2>&1
 out=$(brokered -- /bin/cat $WORLD)
 if grep -qF "$WORLD_VALUE" <<<"$out"; then
   ok "a brokered command still reads a refused file, in the clear: only the agent's own tools are stopped"
@@ -188,12 +188,12 @@ elif grep -q 'SECRET:' <<<"$out"; then
 else
   bad "the brokered read neither returned the value nor a token: ${out:0:140}"
 fi
-refuse rm "$WORLD" >/dev/null 2>&1
+block rm "$WORLD" >/dev/null 2>&1
 rm -f $WORLD
 
 # --------------------------------------------------------------------------
 head_ "4. a path that is not there"
-out=$(refuse add "$ABSENT")
+out=$(block add "$ABSENT")
 grep -q 'not there' <<<"$out" \
   && ok "an absent path is recorded and reported as absent" \
   || bad "adding an absent path said nothing about it: ${out:0:160}"
@@ -206,10 +206,10 @@ grep -q "$ABSENT" $CFG \
 
 # --------------------------------------------------------------------------
 head_ "5. a directory refuses what is under it"
-out=$(refuse add "$SSHDIR")
-grep -q "refused $SSHDIR" <<<"$out" \
+out=$(block add "$SSHDIR")
+grep -q "blocked $SSHDIR" <<<"$out" \
   && ok "a directory is accepted" \
-  || bad "refuse add on a directory: ${out:0:160}"
+  || bad "block add on a directory: ${out:0:160}"
 if [ -f $RULES ]; then
   grep -qF "Read($SSHDIR)" $RULES \
     && ok "the directory itself is refused" \
@@ -230,9 +230,9 @@ snap() { "$faramir" doctor --agent-user op --json >$JSON 2>/dev/null; }
 st() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.status]|join(",")' $JSON; }
 dt() { jq -r --arg c "$1" '[.findings[]|select(.check==$c)|.detail]|join(" ")' $JSON; }
 snap
-[ "$(st 'refused paths')" = ok ] \
-  && ok "doctor is OK on the refused paths with the rules in place" \
-  || bad "refused paths is [$(st 'refused paths')]: $(dt 'refused paths')"
+[ "$(st 'blocked paths')" = ok ] \
+  && ok "doctor is OK on the blocked paths with the rules in place" \
+  || bad "blocked paths is [$(st 'blocked paths')]: $(dt 'blocked paths')"
 
 # The state the check exists for: the entry in the config and no rule naming
 # it, which is the whole of what the entry does gone missing.
@@ -246,17 +246,17 @@ doc["permissions"]["deny"] = [r for r in deny if key not in r]
 json.dump(doc, open(path, "w"), indent=2)
 STRIP
 snap
-[ "$(st 'refused paths')" = failed ] \
+[ "$(st 'blocked paths')" = failed ] \
   && ok "a rule taken out of the settings is a failure, not a warning" \
-  || bad "refused paths is [$(st 'refused paths')] with the rule gone: $(dt 'refused paths')"
-dt 'refused paths' | grep -qF "$KEY" \
+  || bad "blocked paths is [$(st 'blocked paths')] with the rule gone: $(dt 'blocked paths')"
+dt 'blocked paths' | grep -qF "$KEY" \
   && ok "and the finding names the path that lost its rule" \
-  || bad "the finding does not name $KEY: $(dt 'refused paths')"
+  || bad "the finding does not name $KEY: $(dt 'blocked paths')"
 cp -a "$BACKUP/settings.json" $RULES
 snap
-[ "$(st 'refused paths')" = ok ] \
+[ "$(st 'blocked paths')" = ok ] \
   && ok "and it is OK again once the rule is back" \
-  || bad "refused paths stayed [$(st 'refused paths')] after the rule was restored"
+  || bad "blocked paths stayed [$(st 'blocked paths')] after the rule was restored"
 
 # --------------------------------------------------------------------------
 head_ "7. init re-asserts what refuse wrote"
@@ -265,7 +265,7 @@ head_ "7. init re-asserts what refuse wrote"
 "$faramir" init --agent-user op >/dev/null 2>&1
 grep -q "$KEY" $CFG \
   && ok "a plain init keeps the entries" \
-  || bad "init erased the refused paths"
+  || bad "init erased the blocked paths"
 [ -f $RULES ] && grep -qF "Read($KEY)" $RULES \
   && ok "and renders their rules again" \
   || bad "init did not render the rule"
@@ -273,7 +273,7 @@ grep -q "$KEY" $CFG \
 # --------------------------------------------------------------------------
 head_ "8. the two kinds of entry share one config"
 # Both live in config.toml and every write rewrites the whole file from the
-# layout, so each has to survive the other being changed. A `refuse add` that
+# layout, so each has to survive the other being changed. A `block add` that
 # dropped the links would take their values out of the redactor, which is the
 # quietest way this feature could break the other one.
 LINKDIR=/home/op/.config/gh
@@ -290,16 +290,16 @@ chmod 600 $LINKFILE
   --type yaml --key github.com/oauth_token >/dev/null 2>&1
 waitfor 25 asop refs >/dev/null 2>&1
 if asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite'; then
-  ok "a link is serving beside the refused paths"
-  refuse add /etc/beside-a-link.key >/dev/null 2>&1
+  ok "a link is serving beside the blocked paths"
+  block add /etc/beside-a-link.key >/dev/null 2>&1
   grep -q 'gh/refuse-suite' $CFG \
-    && ok "and refuse add leaves its entry in config.toml" \
-    || bad "refuse add erased the [[secret.link]] entry"
+    && ok "and block add leaves its entry in config.toml" \
+    || bad "block add erased the [[secret.link]] entry"
   waitfor 25 asop refs >/dev/null 2>&1
   asop refs 2>/dev/null | grep -q 'faramir://gh/refuse-suite' \
     && ok "and the ref is still served, so the value is still redacted" \
-    || bad "the linked ref stopped being served after a refuse add"
-  refuse rm /etc/beside-a-link.key >/dev/null 2>&1
+    || bad "the linked ref stopped being served after a block add"
+  block rm /etc/beside-a-link.key >/dev/null 2>&1
 else
   bad "the link never started serving, so this section asserts nothing"
 fi
@@ -312,7 +312,7 @@ head_ "9. adding what is already there"
 # ordinary case rather than a mistake: the entry stands and the rules are
 # rendered again.
 before=$(cat $CFG)
-out=$(refuse add "$KEY" --json)
+out=$(block add "$KEY" --json)
 rc=$?
 [ $rc -eq 0 ] \
   && ok "a path this install already refuses is not an error" \
@@ -329,28 +329,28 @@ grep -q '"changed": false' <<<"$out" \
 cp -a $RULES "$BACKUP/settings.json"
 printf '{}\n' > $RULES
 chown op:op $RULES
-refuse add "$KEY" >/dev/null 2>&1
+block add "$KEY" >/dev/null 2>&1
 grep -qF "Read($KEY)" $RULES \
   && ok "and a rule that left the agent's settings comes back" \
   || bad "the rule was not restored to $RULES"
 
 # --------------------------------------------------------------------------
 head_ "10. ls and rm"
-out=$(refuse ls)
+out=$(block ls)
 grep -q "$KEY" <<<"$out" && grep -q "$ABSENT" <<<"$out" \
-  && ok "refuse ls lists the entries" \
-  || bad "refuse ls: ${out:0:200}"
+  && ok "block ls lists the entries" \
+  || bad "block ls: ${out:0:200}"
 grep -q 'not there' <<<"$out" \
   && ok "and says which path is not there" \
-  || bad "refuse ls does not report the absent path's state: ${out:0:200}"
-asop refuse ls >/dev/null 2>&1 \
+  || bad "block ls does not report the absent path's state: ${out:0:200}"
+asop block ls >/dev/null 2>&1 \
   && ok "and needs no root, reading only the config" \
-  || note "refuse ls as the agent's account was refused (the guard denies it in a shell)"
+  || note "block ls as the agent's account was refused (the guard denies it in a shell)"
 
-out=$(refuse rm "$ABSENT")
-grep -q "stopped refusing $ABSENT" <<<"$out" \
-  && ok "refuse rm reports what it removed" \
-  || bad "refuse rm: ${out:0:160}"
+out=$(block rm "$ABSENT")
+grep -q "stopped blocking $ABSENT" <<<"$out" \
+  && ok "block rm reports what it removed" \
+  || bad "block rm: ${out:0:160}"
 grep -q "$ABSENT" $CFG \
   && bad "the entry is still in config.toml" \
   || ok "the entry is gone from config.toml"
@@ -359,14 +359,14 @@ grep -q 'deny rule' <<<"$out" \
   || bad "removal does not say the rule stays: ${out:0:160}"
 
 before=$(cat $CFG)
-out=$(refuse rm /no/such/path 2>&1)
+out=$(block rm /no/such/path 2>&1)
 rc=$?
 [ $rc -eq 0 ] \
   && ok "removing a path this install does not refuse is not an error" \
-  || bad "refuse rm on an unknown path exited $rc: ${out:0:160}"
-grep -q 'faramir refuse ls' <<<"$out" \
+  || bad "block rm on an unknown path exited $rc: ${out:0:160}"
+grep -q 'faramir block ls' <<<"$out" \
   && ok "and names the command that lists the ones it does" \
-  || bad "refuse rm on an unknown path: ${out:0:160}"
+  || bad "block rm on an unknown path: ${out:0:160}"
 [ "$(cat $CFG)" = "$before" ] \
   && ok "and writes nothing" \
   || bad "removing a path that is not refused rewrote the config"
@@ -379,27 +379,27 @@ head_ "11. a name rather than a path"
 # that was rendered rather than on a tool being refused, that rule being the
 # whole of what the entry does.
 NAME='*.e2e-htpasswd'
-out=$(refuse add --name "$NAME")
+out=$(block add --name "$NAME")
 grep -qF 'ends in ".e2e-htpasswd"' <<<"$out" \
-  && ok "refuse add --name says what the pattern will match" \
-  || bad "refuse add --name printed no match description: ${out:0:200}"
+  && ok "block add --name says what the pattern will match" \
+  || bad "block add --name printed no match description: ${out:0:200}"
 grep -qF 'name = "*.e2e-htpasswd"' $CFG \
   && ok "and the entry is written as a name" \
   || bad "the name entry is not in config.toml"
 grep -qF 'Read(**/*.e2e-htpasswd)' $RULES \
   && ok "and the agent's rules carry it in their own spelling" \
   || bad "the rule was not rendered into $RULES"
-out=$(refuse add --name "$NAME")
+out=$(block add --name "$NAME")
 grep -q 'already refused' <<<"$out" \
   && ok "adding the same name again is not an error" \
   || bad "a second add of one name: ${out:0:160}"
-out=$(refuse add --name '*' 2>&1)
+out=$(block add --name '*' 2>&1)
 grep -q 'every file on the host' <<<"$out" \
   && ok "and a pattern matching everything is refused" \
   || bad "'*' was not refused: ${out:0:160}"
 
-refuse ls --declared | grep -q "$NAME" \
-  && ok "refuse ls --declared lists what the config carries" \
+block ls --declared | grep -q "$NAME" \
+  && ok "block ls --declared lists what the config carries" \
   || bad "--declared does not list the declared name"
 
 # There are no built-in rules, so nothing is unremovable: an entry naming what
@@ -407,10 +407,10 @@ refuse ls --declared | grep -q "$NAME" \
 # is the no-op it has always been.
 before=$(cat $CFG)
 for pattern in 'age.key' '*.pem'; do
-  out=$(refuse rm --name "$pattern" 2>&1)
+  out=$(block rm --name "$pattern" 2>&1)
   rc=$?
   [ $rc -eq 0 ] \
-    && ok "refuse rm --name $pattern is not refused as a built-in" \
+    && ok "block rm --name $pattern is not refused as a built-in" \
     || bad "removing $pattern exited $rc: ${out:0:200}"
   grep -q 'compiled into faramir' <<<"$out" \
     && bad "$pattern is still read as a built-in: ${out:0:160}" \
@@ -433,24 +433,24 @@ guard_says "cat /etc/hostname" | grep -q '"permissionDecision":"deny"' \
   && bad "the guard denies an ordinary read" \
   || ok "and an ordinary read is left alone"
 
-out=$(refuse ls)
+out=$(block ls)
 grep -qE '^declared +(path|name|suffix|glob|dir) ' <<<"$out" \
-  && ok "refuse ls lists what the config declares" \
-  || bad "refuse ls carries no declared entry: ${out:0:200}"
+  && ok "block ls lists what the config declares" \
+  || bad "block ls carries no declared entry: ${out:0:200}"
 grep -q 'command rule(s), which no entry changes' <<<"$out" \
   && ok "and the command rules faramir carries itself" \
-  || bad "refuse ls does not list the command rules: ${out: -300}"
+  || bad "block ls does not list the command rules: ${out: -300}"
 grep -q 'file tools, commands' <<<"$out" \
   && ok "and says a declared entry covers both entry points" \
-  || bad "refuse ls does not say where an entry is enforced: ${out:0:300}"
-refuse ls --declared | grep -q 'command rule(s)' \
+  || bad "block ls does not say where an entry is enforced: ${out:0:300}"
+block ls --declared | grep -q 'command rule(s)' \
   && bad "--declared listed the command rules" \
   || ok "and --declared is the config's own half"
 
-out=$(refuse rm --name "$NAME")
-grep -qF "stopped refusing $NAME" <<<"$out" \
-  && ok "refuse rm --name removes it" \
-  || bad "refuse rm --name: ${out:0:160}"
+out=$(block rm --name "$NAME")
+grep -qF "stopped blocking $NAME" <<<"$out" \
+  && ok "block rm --name removes it" \
+  || bad "block rm --name: ${out:0:160}"
 grep -qF 'name = "*.e2e-htpasswd"' $CFG \
   && bad "the name entry is still in config.toml" \
   || ok "and the entry is gone from config.toml"

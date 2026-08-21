@@ -67,7 +67,7 @@ type protectedPath struct {
 // look more protective than it is.
 //
 // What a host should refuse beyond its own install is the operator's to name:
-// `faramir refuse add`, or a configuration manager declaring what a fleet
+// `faramir block add`, or a configuration manager declaring what a fleet
 // keeps. What that costs a host nobody declares anything on is in
 // installing.md.
 //
@@ -75,7 +75,7 @@ type protectedPath struct {
 // entry becomes one of these and is spelled for each agent by the same code.
 var protectedPaths []protectedPath
 
-// refusedNameRules is the [[secret.refuse]] entries that named a pattern rather
+// blockedNameRules is the [[secret.block]] entries that named a pattern rather
 // than a path, in the same form the built-in rules take, so the renderers below
 // spell them the way they spell everything else.
 //
@@ -85,25 +85,25 @@ var protectedPaths []protectedPath
 // shown which one their pattern became before it is written. Getting it wrong
 // refuses more or fewer files of the same kind; it cannot turn a rule into one
 // that silently matches nothing, which is what an inferred path would do.
-func refusedNameRules(layout Layout) []protectedPath {
-	seen := make(map[string]bool, len(layout.Refused))
-	out := make([]protectedPath, 0, len(layout.Refused))
-	for _, refused := range layout.Refused {
+func blockedNameRules(layout Layout) []protectedPath {
+	seen := make(map[string]bool, len(layout.Blocked))
+	out := make([]protectedPath, 0, len(layout.Blocked))
+	for _, refused := range layout.Blocked {
 		if refused.Name == "" || seen[refused.Name] {
 			continue
 		}
 		seen[refused.Name] = true
-		out = append(out, refusedNameRule(refused.Name))
+		out = append(out, blockedNameRule(refused.Name))
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].value < out[j].value })
 	return out
 }
 
-// refusedNameRule is one pattern's kind and value. The order is the order the
+// blockedNameRule is one pattern's kind and value. The order is the order the
 // shapes exclude each other in: a trailing separator is a directory whatever
 // else it holds, and a wildcard at one end is an open end rather than a name
 // with a hole in it.
-func refusedNameRule(name string) protectedPath {
+func blockedNameRule(name string) protectedPath {
 	const why = "a path this install refuses"
 	switch {
 	case strings.HasSuffix(name, "/"):
@@ -118,39 +118,39 @@ func refusedNameRule(name string) protectedPath {
 	return protectedPath{kindName, name, why}
 }
 
-// BuiltInRefusal is one compiled-in rule, for `faramir refuse ls`. The list is
+// BuiltInRule is one compiled-in rule, for `faramir block ls`. The list is
 // otherwise invisible: an agent meets it as a file tool refusing a path, and an
 // operator had no way to ask what it covers short of tripping it, which reports
 // the one rule that matched and not the set. A rule nobody can enumerate is one
 // that gets declared a second time or reported as a gap.
-type BuiltInRefusal struct {
+type BuiltInRule struct {
 	Kind  string `json:"kind"`
 	Entry string `json:"entry"`
 	Why   string `json:"why"`
 }
 
-// BuiltInRefusals is the compiled-in list, in the order it is written, which
+// BuiltInRules is the compiled-in list, in the order it is written, which
 // groups it by what it protects.
-func BuiltInRefusals() []BuiltInRefusal {
-	out := make([]BuiltInRefusal, 0, len(protectedPaths))
+func BuiltInRules() []BuiltInRule {
+	out := make([]BuiltInRule, 0, len(protectedPaths))
 	for _, p := range protectedPaths {
-		out = append(out, BuiltInRefusal{p.kind.String(), p.value, p.why})
+		out = append(out, BuiltInRule{p.kind.String(), p.value, p.why})
 	}
 	return out
 }
 
-// BuiltInRefusalCovering is the compiled-in rule that already refuses a path,
+// BuiltInRuleCovering is the compiled-in rule that already refuses a path,
 // and whether there is one. For the operator who names the file rather than the
 // pattern: "stop refusing ~/.ssh/id_rsa" is the same request as naming the
 // built-in, and answering it with "that was not refused" would be false twice
 // over.
-func BuiltInRefusalCovering(path string) (BuiltInRefusal, bool) {
+func BuiltInRuleCovering(path string) (BuiltInRule, bool) {
 	for _, p := range protectedPaths {
 		if p.covers(path) {
-			return BuiltInRefusal{p.kind.String(), p.value, p.why}, true
+			return BuiltInRule{p.kind.String(), p.value, p.why}, true
 		}
 	}
-	return BuiltInRefusal{}, false
+	return BuiltInRule{}, false
 }
 
 // covers is whether this rule matches a path, in the terms each kind is written
@@ -178,29 +178,29 @@ func (p protectedPath) covers(path string) bool {
 	return false
 }
 
-// BuiltInRefusalFor is the compiled-in rule a pattern names, and whether there
+// BuiltInRuleFor is the compiled-in rule a pattern names, and whether there
 // is one.
 //
 // Compared as the rule each becomes rather than as the string typed: "*.pem"
 // and the built-in suffix ".pem" are one rule written two ways, while ".pem" on
 // its own is a file of that name and a different rule. A comparison on the
 // text would answer no to the first and yes to the second, both wrong.
-func BuiltInRefusalFor(name string) (BuiltInRefusal, bool) {
-	asked := refusedNameRule(name)
+func BuiltInRuleFor(name string) (BuiltInRule, bool) {
+	asked := blockedNameRule(name)
 	for _, p := range protectedPaths {
 		if p.kind == asked.kind && p.value == asked.value {
-			return BuiltInRefusal{p.kind.String(), p.value, p.why}, true
+			return BuiltInRule{p.kind.String(), p.value, p.why}, true
 		}
 	}
-	return BuiltInRefusal{}, false
+	return BuiltInRule{}, false
 }
 
-// RefusedNameMatches says in a sentence what a name pattern will match, for the
+// BlockedNameMatches says in a sentence what a name pattern will match, for the
 // command that writes one and the listing that shows it. A pattern's breadth is
 // the thing about it that goes unnoticed, so it is stated at the moment the
 // operator can still change it.
-func RefusedNameMatches(name string) string {
-	rule := refusedNameRule(name)
+func BlockedNameMatches(name string) string {
+	rule := blockedNameRule(name)
 	switch rule.kind {
 	case kindSuffix:
 		return fmt.Sprintf("any file whose name ends in %q, in any directory", rule.value)
@@ -223,9 +223,9 @@ func RefusedNameMatches(name string) string {
 	return fmt.Sprintf("any file named %q, in any directory", rule.value)
 }
 
-// RefusedNameKind is the shape a pattern was read as, for a listing that shows
+// BlockedNameKind is the shape a pattern was read as, for a listing that shows
 // the built-in rules and the declared ones side by side.
-func RefusedNameKind(name string) string { return refusedNameRule(name).kind.String() }
+func BlockedNameKind(name string) string { return blockedNameRule(name).kind.String() }
 
 // String names a kind the way the listing and the messages spell it.
 func (k pathKind) String() string {
@@ -249,7 +249,7 @@ func (k pathKind) String() string {
 // for each agent by the same code that spells a built-in, rather than by a
 // second path through the renderers.
 func protectedFor(layout Layout) []protectedPath {
-	return append(append([]protectedPath{}, protectedPaths...), refusedNameRules(layout)...)
+	return append(append([]protectedPath{}, protectedPaths...), blockedNameRules(layout)...)
 }
 
 // installDirs are the paths this install occupies, known only once it is laid
@@ -310,9 +310,9 @@ func linkedPaths(layout Layout) []string {
 	return out
 }
 
-// refusedRulePaths is the files and directories [[secret.refuse]] entries name,
+// blockedRulePaths is the files and directories [[secret.block]] entries name,
 // as literal paths, sorted and deduplicated the way linkedPaths are. Named for
-// the rules it renders, RefusedPaths being what lists the entries themselves.
+// the rules it renders, BlockedPaths being what lists the entries themselves.
 //
 // Each renders the path and the subtree under it, whether or not it is a
 // directory today. What it is, is not asked: these rules have to be a function
@@ -327,10 +327,10 @@ func linkedPaths(layout Layout) []string {
 // filesystem: a path that is not there is rendered as a file, that being the
 // narrower of the two, and a rule that turns out to cover one path too few is
 // better than one covering a subtree nobody meant to name.
-func refusedRulePaths(layout Layout) []string {
-	seen := make(map[string]bool, len(layout.Refused))
-	out := make([]string, 0, len(layout.Refused))
-	for _, refused := range layout.Refused {
+func blockedRulePaths(layout Layout) []string {
+	seen := make(map[string]bool, len(layout.Blocked))
+	out := make([]string, 0, len(layout.Blocked))
+	for _, refused := range layout.Blocked {
 		path := refused.Path
 		if path == "" || seen[path] {
 			continue
@@ -348,8 +348,8 @@ func refusedRulePaths(layout Layout) []string {
 // nothing takes back out.
 func perInstallPaths(layout Layout) []string {
 	seen := map[string]bool{}
-	out := make([]string, 0, len(layout.Links)+len(layout.Refused))
-	for _, path := range append(linkedPaths(layout), refusedRulePaths(layout)...) {
+	out := make([]string, 0, len(layout.Links)+len(layout.Blocked))
+	for _, path := range append(linkedPaths(layout), blockedRulePaths(layout)...) {
 		if seen[path] {
 			continue
 		}
@@ -425,8 +425,8 @@ func claudeRules(layout Layout) []string {
 	for _, path := range perInstallPaths(layout) {
 		add(path)
 	}
-	for _, path := range refusedRulePaths(layout) {
-		// Both forms, without asking the filesystem: see refusedRulePaths.
+	for _, path := range blockedRulePaths(layout) {
+		// Both forms, without asking the filesystem: see blockedRulePaths.
 		add(path + "/**")
 	}
 	return out
@@ -440,7 +440,7 @@ func pluginPatterns(layout Layout) []string {
 		out = append(out, dir+"/*")
 	}
 	out = append(out, perInstallPaths(layout)...)
-	for _, path := range refusedRulePaths(layout) {
+	for _, path := range blockedRulePaths(layout) {
 		out = append(out, path+"/*")
 	}
 	return out

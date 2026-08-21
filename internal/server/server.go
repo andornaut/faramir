@@ -395,7 +395,7 @@ func (s *Server) opRedact(request *protocol.Request, peer *sockutil.Peer,
 	stream *redactStream) protocol.Response {
 	if stream == nil {
 		// A caller with nowhere to keep the redactor cannot be part way through a
-		// stream. Refused rather than quietly completed: feeding text and never
+		// stream. Blocked rather than quietly completed: feeding text and never
 		// flushing would drop the tail this chunk held back.
 		if request.More {
 			return protocol.ErrorResponse("bad_request",

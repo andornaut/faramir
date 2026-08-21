@@ -55,9 +55,9 @@ var corpus = []denyCase{
 
 	// -- a credential faramir does not manage, which is declared or nothing --
 	//
-	// Refused by neither entry point until this host names it, and then by both:
+	// Blocked by neither entry point until this host names it, and then by both:
 	// the agents' rules and these patterns are rendered from one set, so
-	// `faramir refuse add --name id_rsa` covers a file tool and `cat` alike.
+	// `faramir block add --name id_rsa` covers a file tool and `cat` alike.
 	// TestADeclaredEntryReachesTheCommandRules is the other half of this.
 	{"cat ~/.ssh/id_rsa", false, "an SSH key is the operator's to declare"},
 	{"base32 ~/.ssh/id_rsa", false, "whatever reads it"},
@@ -124,7 +124,7 @@ var corpus = []denyCase{
 	//
 	// These occur in ordinary projects, and faramir neither writes nor reads
 	// them, so it ships no rule for one. A host that wants them says so:
-	// `faramir refuse add --name '.env*' --name '*.pem' --name credentials`.
+	// `faramir block add --name '.env*' --name '*.pem' --name credentials`.
 	{"cat .env", false, "a dotenv is the operator's to name"},
 	{"hexdump -C secrets.yml", false, "and a secrets file"},
 	{"rev group_vars/all/vault.sops.yml", false, "and a vault"},

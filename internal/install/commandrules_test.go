@@ -7,7 +7,7 @@ import (
 )
 
 // The point of one protected set: a declared entry covers both entry points.
-// Before this, `refuse add` rendered a rule into every agent's file tools and
+// Before this, `block add` rendered a rule into every agent's file tools and
 // said nothing to the command guard, so `cat` on the very path an operator had
 // just refused was allowed, and nothing said so.
 func TestADeclaredEntryReachesTheCommandRules(t *testing.T) {
@@ -15,7 +15,7 @@ func TestADeclaredEntryReachesTheCommandRules(t *testing.T) {
 		ConfigDir:  "/etc/faramir",
 		LogDir:     "/var/log/faramir",
 		LibexecDir: "/usr/local/libexec/faramir",
-		Refused: []config.RefusedPath{
+		Blocked: []config.BlockedPath{
 			{Path: "/etc/luks/volume.key"},
 			{Name: "*.pem"},
 			{Name: "id_rsa"},
@@ -77,7 +77,7 @@ func TestAnInstallThatDeclaresNothingRefusesItsOwn(t *testing.T) {
 func TestADeclaredDirectoryCoversItself(t *testing.T) {
 	rules := commandRules(Layout{
 		ConfigDir: "/etc/faramir",
-		Refused:   []config.RefusedPath{{Name: ".ssh/"}},
+		Blocked:   []config.BlockedPath{{Name: ".ssh/"}},
 	})
 	for _, tc := range []struct {
 		command string

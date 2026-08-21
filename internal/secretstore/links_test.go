@@ -171,7 +171,7 @@ func TestAShortLinkedValueIsRefused(t *testing.T) {
 	}
 }
 
-// Refused rather than resolved either way: one of the two would then rotate
+// Blocked rather than resolved either way: one of the two would then rotate
 // with nothing reading it.
 func TestALinkShadowingAManagedRefIsRefused(t *testing.T) {
 	path := writeLinked(t, "token", "gho_linked_example\n")

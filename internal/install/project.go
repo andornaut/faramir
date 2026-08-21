@@ -39,7 +39,7 @@ type ProjectOptions struct {
 	//
 	// It overrides one value and does not stand in for the config, which still
 	// has to load: an enrolment writes this install's deny rules into the tree,
-	// and the linked and refused paths among them are only in that file. This
+	// and the linked and blocked paths among them are only in that file. This
 	// runs as root and the config is 0644, so a load fails only because faramir
 	// was never installed here, the config is elsewhere, or the path given is
 	// wrong, each of which is an error naming its own fix.
@@ -245,7 +245,7 @@ func (p *project) warnMissingBinary(binary string) {
 // project. Sharing grants the client group read and write on every file in the
 // tree, and faramir-exec is in that group: for a home that is ~/.ssh,
 // ~/.config/sops/age/keys.txt, and group write on the shell configuration that
-// decides what the operator's next login runs. Refused rather than warned
+// decides what the operator's next login runs. Blocked rather than warned
 // about, the walk not being reversible.
 func refuseOversharing(dir, operator string) error {
 	tooBig := func(what string) error {
@@ -383,7 +383,7 @@ func (p *project) warnf(format string, args ...any) {
 // [escalation] exec_user being the switch for the whole arrangement.
 //
 // The config has to load, --client-group or not. It is where the linked and
-// refused paths are, and those are rules an enrolment writes into the tree: a
+// blocked paths are, and those are rules an enrolment writes into the tree: a
 // tree enrolled without them carries a deny list that names the built-in paths
 // and not the credential file this install added, which reads exactly like one
 // that covers everything. --client-group overrides the group it found, and is
@@ -404,7 +404,7 @@ func (p *project) resolveGroup() error {
 		}
 		return fmt.Errorf("cannot read %s: %w\n"+
 			"An enrolment writes this install's deny rules into the tree, and the "+
-			"linked and refused paths among them are in that file, so a tree enrolled "+
+			"linked and blocked paths among them are in that file, so a tree enrolled "+
 			"without it would carry a rule list missing the paths this install added. "+
 			"Run `faramir init` first, or pass --config-dir if the config is "+
 			"elsewhere", configFile, err)

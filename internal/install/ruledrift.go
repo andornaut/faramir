@@ -46,7 +46,7 @@ func diagnoseAgentRuleDrift(report *DoctorReport, opts DoctorOptions) {
 func reportRuleDrift(report *DoctorReport, home, configDir string) {
 	// With every per-install path, or each is a rule faramir writes and this
 	// render does not, which staleRules would report as drift to delete. Both
-	// kinds: a refused path is only ever a rule, so being told to delete it is
+	// kinds: a blocked path is only ever a rule, so being told to delete it is
 	// being told to undo the entry.
 	layout := ruleLayout(configDir)
 
@@ -130,7 +130,7 @@ func diagnoseLinkedFiles(report *DoctorReport, opts DoctorOptions, cfg *config.C
 
 // uncoveredIn reports, for every account-wide rule file under home, which of
 // paths no rule in it names, and how many files were read at all. Shared by the
-// two checks that ask this: a linked file and a refused path are rendered into
+// two checks that ask this: a linked file and a blocked path are rendered into
 // the same rule files by the same step.
 func uncoveredIn(home string, paths []string) (files int, uncovered []string) {
 	for _, agent := range knownAgents() {
@@ -188,61 +188,61 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 	}
 }
 
-// diagnoseRefusedPaths asks whether the account-wide deny rules carry every
-// [[secret.refuse]] entry, by path and by name alike. The rule is the entire
+// diagnoseBlockedPaths asks whether the account-wide deny rules carry every
+// [[secret.block]] entry, by path and by name alike. The rule is the entire
 // content of one of these entries, so an entry the rules do not carry is an
 // entry doing nothing at all.
 //
 // Failed rather than a warning, for the reason the linked-file check fails: a
 // stale rule refuses more than the list asks for, while this refuses less.
-func diagnoseRefusedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
-	const name = "refused paths"
+func diagnoseBlockedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
+	const name = "blocked paths"
 	// Both forms, each compared as it is written: the rendered rule carries the
 	// pattern a name entry declared, so containment answers for one the way it
 	// answers for a path.
-	paths := make([]string, 0, len(cfg.Secret.Refused))
-	for _, entry := range cfg.Secret.Refused {
-		paths = append(paths, entry.Refuses())
+	paths := make([]string, 0, len(cfg.Secret.Blocked))
+	for _, entry := range cfg.Secret.Blocked {
+		paths = append(paths, entry.Blocks())
 	}
 	if len(paths) == 0 {
-		report.addf(name, StatusOK, "no [[secret.refuse]] entries are configured")
+		report.addf(name, StatusOK, "no [[secret.block]] entries are configured")
 		return
 	}
 	if opts.AgentUser == "" {
 		report.unaskedf(name, len(paths), "the agent account is not named, so the "+
-			"deny rules were not compared with the %d refused path(s): pass "+
+			"deny rules were not compared with the %d blocked path(s): pass "+
 			"--agent-user, or run through sudo so SUDO_USER carries it", len(paths))
 		return
 	}
 	home, err := agentHomeFor(opts.AgentUser)
 	if err != nil || home == "" {
 		report.unaskedf(name, len(paths), "could not read %s's home, so the deny "+
-			"rules were not compared with the %d refused path(s)", opts.AgentUser, len(paths))
+			"rules were not compared with the %d blocked path(s)", opts.AgentUser, len(paths))
 		return
 	}
-	reportRefusedPaths(report, home, paths)
+	reportBlockedPaths(report, home, paths)
 }
 
-// reportRefusedPaths is diagnoseRefusedPaths against a home already resolved.
+// reportBlockedPaths is diagnoseBlockedPaths against a home already resolved.
 //
 // Whether the path is there is not asked. An entry for a key on an unmounted
 // volume is doing its job by being in the rules, and a check that failed on the
 // absence would fail every time the volume was unmounted.
-func reportRefusedPaths(report *DoctorReport, home string, paths []string) {
-	const name = "refused paths"
+func reportBlockedPaths(report *DoctorReport, home string, paths []string) {
+	const name = "blocked paths"
 	files, uncovered := uncoveredIn(home, paths)
 
 	switch {
 	case files == 0:
 		report.unaskedf(name, len(paths), "no agent rule file is installed under %s, "+
-			"so there is nothing the %d refused path(s) could be refused by", home, len(paths))
+			"so there is nothing the %d blocked path(s) could be refused by", home, len(paths))
 	case len(uncovered) == 0:
-		report.addf(name, StatusOK, "%d refused path(s) are refused to the agent's "+
+		report.addf(name, StatusOK, "%d blocked path(s) are refused to the agent's "+
 			"file tools in %d rule file(s)", len(paths), files)
 	default:
 		report.addf(name, StatusFailed, "a path this install refuses is not refused "+
 			"by the agent's rules, which is the whole of what the entry does. "+
-			"`faramir refuse add` renders the rules with the entry, so this is an "+
+			"`faramir block add` renders the rules with the entry, so this is an "+
 			"entry written by hand or a run that stopped early; `faramir init` "+
 			"renders them again: %s", strings.Join(uncovered, "; "))
 	}
@@ -259,7 +259,7 @@ func ruleLayout(configDir string) Layout {
 	return Layout{
 		ConfigDir: configDir,
 		Links:     configuredLinks(configDir),
-		Refused:   configuredRefusedPaths(configDir),
+		Blocked:   configuredBlocked(configDir),
 	}
 }
 
@@ -274,14 +274,14 @@ func configuredLinks(configDir string) []config.Link {
 	return cfg.Secret.Links
 }
 
-// configuredRefusedPaths is every refused path the install names, on the same
+// configuredBlocked is every blocked path the install names, on the same
 // terms as configuredLinks.
-func configuredRefusedPaths(configDir string) []config.RefusedPath {
+func configuredBlocked(configDir string) []config.BlockedPath {
 	cfg, err := config.Load(filepath.Join(configDir, "config.toml"))
 	if err != nil {
 		return nil
 	}
-	return cfg.Secret.Refused
+	return cfg.Secret.Blocked
 }
 
 // named reports whether any rule in a file names this path. Containment rather

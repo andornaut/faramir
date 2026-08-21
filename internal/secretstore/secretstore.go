@@ -98,7 +98,7 @@ func (s *Store) Reload() {
 	// length gate, so a linked value is held to what a managed one is.
 	linkValues, linkState, linkErrors, linkUnresolved := loadLinks(s.config.Links)
 	for _, ref := range sortedKeys(linkValues) {
-		// Refused rather than resolved: a link shadowing a managed value would
+		// Blocked rather than resolved: a link shadowing a managed value would
 		// leave one of them rotating with nothing reading it.
 		if _, ok := values[ref]; ok {
 			linkErrors = append(linkErrors, fmt.Sprintf("%s: a [[secret.link]] entry "+

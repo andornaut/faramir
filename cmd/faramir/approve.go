@@ -11,7 +11,7 @@ package main
 // socket rather than through systemd-ask-password, whose reply socket's mode is
 // a weaker version of the same check.
 //
-// Refused here as well as by the broker, so the message says what to do rather
+// Blocked here as well as by the broker, so the message says what to do rather
 // than arriving as a forbidden from a socket the caller could open.
 
 import (

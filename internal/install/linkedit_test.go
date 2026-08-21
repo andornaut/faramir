@@ -67,7 +67,7 @@ func TestAddLinkRefusesBeforeItChangesAnything(t *testing.T) {
 			wantErr: "this file offers: token",
 		},
 		{
-			// Refused rather than recorded: a link nothing could verify may refuse
+			// Blocked rather than recorded: a link nothing could verify may refuse
 			// every brokered command later, at a moment nobody chose.
 			name:    "a file that is not there",
 			link:    config.Link{Ref: "a/ref", Path: filepath.Join(t.TempDir(), "gone"), Type: secretlink.KindText},

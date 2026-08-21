@@ -511,7 +511,7 @@ func checkNotifyRoundTrip(t *testing.T, awkward string) {
 	}
 }
 
-// Refused at install rather than at the daemon's next start. init is the only
+// Blocked at install rather than at the daemon's next start. init is the only
 // writer of this key, so a value it accepts and the loader will not is an install
 // that reported success and left the broker unable to come up.
 func TestAnUnusableNotifyCommandIsRefusedByInit(t *testing.T) {

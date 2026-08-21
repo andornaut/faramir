@@ -9,7 +9,7 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-// A [[secret.refuse]] entry against a [[secret.link]] one: both render the path
+// A [[secret.block]] entry against a [[secret.link]] one: both render the path
 // into every agent's account-wide deny rules, and there the resemblance stops.
 //
 // A link grants the broker read on the file, regroups it so a brokered command
@@ -23,13 +23,13 @@ import (
 // trade: reading the value to redact it would mean holding it, and these are
 // the files whose value faramir should not hold.
 
-// RefusedPathSteps is what an entry changes: the config it is written into,
+// BlockedSteps is what an entry changes: the config it is written into,
 // and the agent rule files rendered from it. No grant, so no step for one.
 //
 // Named for the entry rather than for the verb. In this package refuseX aborts
 // a run because of X (refuseSymlinks, refuseUnwritable), so a name built the
 // same way would read as the opposite of what this is.
-func (r *runner) RefusedPathSteps() []namedStep {
+func (r *runner) BlockedSteps() []namedStep {
 	return []namedStep{
 		{labelResolveIDs, r.resolveIDs},
 		{labelPreconditions, r.stepPreconditions},
@@ -38,7 +38,7 @@ func (r *runner) RefusedPathSteps() []namedStep {
 	}
 }
 
-// AddRefusedPath adds one entry and re-renders the rule files that name it.
+// AddBlockedPath adds one entry and re-renders the rule files that name it.
 //
 // Nothing is read and nothing is granted, so there is no order to get right and
 // nothing to put back on a failure: unlike AddLink, this either writes the
@@ -54,15 +54,15 @@ func (r *runner) RefusedPathSteps() []namedStep {
 // always mounted, and a rule costs nothing while its file is absent, so
 // refusing one would refuse the case the entry exists for. The caller is told,
 // because the other thing an absent path means is a typo.
-func AddRefusedPath(opts Options, refused config.RefusedPath) (Report, bool, error) {
-	report, added, err := AddRefusedPaths(opts, []config.RefusedPath{refused})
+func AddBlockedPath(opts Options, refused config.BlockedPath) (Report, bool, error) {
+	report, added, err := AddBlockedPaths(opts, []config.BlockedPath{refused})
 	if len(added) != 1 {
 		return report, false, err
 	}
 	return report, added[0], err
 }
 
-// AddRefusedPaths is the same for several entries at once, which is what a
+// AddBlockedPaths is the same for several entries at once, which is what a
 // first run pastes and what a converge hands over: a dozen names is a dozen
 // rules and one host to change.
 //
@@ -74,22 +74,22 @@ func AddRefusedPath(opts Options, refused config.RefusedPath) (Report, bool, err
 // The bools are per entry, in the order given, and say which were new. An entry
 // the install already carries is not an error, for the reason a second add of
 // one is not.
-func AddRefusedPaths(opts Options, refused []config.RefusedPath) (Report, []bool, error) {
+func AddBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []bool, error) {
 	if len(refused) == 0 {
 		return Report{}, nil, errors.New("name a path or a pattern to refuse")
 	}
 	for _, entry := range refused {
-		if err := config.ValidateRefusedPath(entry); err != nil {
+		if err := config.ValidateBlocked(entry); err != nil {
 			return Report{}, nil, err
 		}
 	}
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
-	existing, err := config.BaseRefusedPaths(configFile)
+	existing, err := config.BaseBlocked(configFile)
 	if err != nil {
 		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
 	}
-	entries, added := foldRefusals(existing, refused)
+	entries, added := foldBlocked(existing, refused)
 	// A link over the same file is not refused, both rendering the same rule,
 	// but it is said: the link already refuses that path, and this entry adds
 	// nothing the operator does not have.
@@ -98,7 +98,7 @@ func AddRefusedPaths(opts Options, refused []config.RefusedPath) (Report, []bool
 		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
 	}
 
-	opts.refused, opts.refusedSet = entries, true
+	opts.blocked, opts.blockedSet = entries, true
 	if err := keepInstalledGrant(&opts, configDir); err != nil {
 		return Report{}, nil, err
 	}
@@ -106,18 +106,18 @@ func AddRefusedPaths(opts Options, refused []config.RefusedPath) (Report, []bool
 	if err != nil {
 		return Report{}, nil, err
 	}
-	report, err := run.apply(run.RefusedPathSteps())
+	report, err := run.apply(run.BlockedSteps())
 	if err != nil {
 		return report, nil, err
 	}
 	for _, entry := range refused {
-		refusedWarnings(&report, entry, links)
+		blockedWarnings(&report, entry, links)
 	}
 	return report, added, nil
 }
 
-// refusedWarnings is what one entry is worth saying about once it is written.
-func refusedWarnings(report *Report, refused config.RefusedPath, links []config.Link) {
+// blockedWarnings is what one entry is worth saying about once it is written.
+func blockedWarnings(report *Report, refused config.BlockedPath, links []config.Link) {
 	// A name is not asked of the filesystem at all: it is matched against what an
 	// agent names, which is why it reaches a path this host does not have. What
 	// it will match is said instead, that being the thing a wide pattern hides.
@@ -125,7 +125,7 @@ func refusedWarnings(report *Report, refused config.RefusedPath, links []config.
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
 			"%s refuses %s. Nothing announces a pattern that matches more than it "+
 				"was meant to: the agent meets it as file tools failing on files "+
-				"nobody discussed", refused.Name, RefusedNameMatches(refused.Name)))
+				"nobody discussed", refused.Name, BlockedNameMatches(refused.Name)))
 		return
 	}
 	if _, statErr := os.Stat(refused.Path); statErr != nil {
@@ -144,42 +144,42 @@ func refusedWarnings(report *Report, refused config.RefusedPath, links []config.
 	}
 }
 
-// refusedWith is the set an add renders and whether the path was new to it.
+// blockedWith is the set an add renders and whether the path was new to it.
 // One entry per path: the path is the whole of what an entry says, so a second
 // one saying it again would render the same rule twice.
-func refusedWith(existing []config.RefusedPath,
-	refused config.RefusedPath) ([]config.RefusedPath, bool) {
-	entries := append([]config.RefusedPath{}, existing...)
+func blockedWith(existing []config.BlockedPath,
+	refused config.BlockedPath) ([]config.BlockedPath, bool) {
+	entries := append([]config.BlockedPath{}, existing...)
 	for _, other := range existing {
-		if sameRefusal(other, refused) {
+		if sameBlock(other, refused) {
 			return entries, false
 		}
 	}
 	return append(entries, refused), true
 }
 
-// foldRefusals is the set an add renders and which of the entries were new to
+// foldBlocked is the set an add renders and which of the entries were new to
 // it. Folded one at a time against what the last one left, so a list naming the
 // same entry twice adds it once and reports the second as already there, the
 // way two commands run in that order would.
-func foldRefusals(existing,
-	asked []config.RefusedPath) ([]config.RefusedPath, []bool) {
+func foldBlocked(existing,
+	asked []config.BlockedPath) ([]config.BlockedPath, []bool) {
 	entries := existing
 	added := make([]bool, len(asked))
 	for i, entry := range asked {
-		entries, added[i] = refusedWith(entries, entry)
+		entries, added[i] = blockedWith(entries, entry)
 	}
 	return entries, added
 }
 
-// sameRefusal is whether two entries ask for the same rule. The form counts as
+// sameBlock is whether two entries ask for the same rule. The form counts as
 // well as the string: a path and a name that read alike render different rules,
 // so one does not stand in for the other.
-func sameRefusal(a, b config.RefusedPath) bool {
+func sameBlock(a, b config.BlockedPath) bool {
 	return a.Path == b.Path && a.Name == b.Name
 }
 
-// RemoveRefusedPath drops one entry and re-renders. It does not take the rule
+// RemoveBlockedPath drops one entry and re-renders. It does not take the rule
 // out of an agent's file: those are merged rather than replaced, so nothing
 // here can remove an entry from one, and a rule carries no sign of who wrote
 // it.
@@ -196,36 +196,36 @@ func sameRefusal(a, b config.RefusedPath) bool {
 // refused, and leave the operator to find out otherwise from an agent. Removing
 // one means changing faramir, which is not something a host's config can ask
 // for.
-func RemoveRefusedPath(opts Options, refused config.RefusedPath) (Report, config.RefusedPath, error) {
-	report, removed, err := RemoveRefusedPaths(opts, []config.RefusedPath{refused})
+func RemoveBlockedPath(opts Options, refused config.BlockedPath) (Report, config.BlockedPath, error) {
+	report, removed, err := RemoveBlockedPaths(opts, []config.BlockedPath{refused})
 	if len(removed) != 1 {
-		return report, config.RefusedPath{}, err
+		return report, config.BlockedPath{}, err
 	}
 	return report, removed[0], err
 }
 
-// RemoveRefusedPaths is the same for several entries at once, the counterpart
-// of AddRefusedPaths: one config rewrite and one render, whatever the length.
+// RemoveBlockedPaths is the same for several entries at once, the counterpart
+// of AddBlockedPaths: one config rewrite and one render, whatever the length.
 //
 // A rule faramir carries itself is refused for the whole list before anything
 // is written, so a list holding one of those removes nothing rather than
 // removing what it could and failing halfway.
-func RemoveRefusedPaths(opts Options, refused []config.RefusedPath) (Report, []config.RefusedPath, error) {
+func RemoveBlockedPaths(opts Options, refused []config.BlockedPath) (Report, []config.BlockedPath, error) {
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
 	if len(refused) == 0 {
 		return Report{}, nil, errors.New("name a path or a pattern to stop refusing")
 	}
-	existing, err := config.BaseRefusedPaths(configFile)
+	existing, err := config.BaseBlocked(configFile)
 	if err != nil {
 		return Report{}, nil, fmt.Errorf("%s: %w", configFile, err)
 	}
 	kept := existing
-	removed := make([]config.RefusedPath, len(refused))
+	removed := make([]config.BlockedPath, len(refused))
 	for i, asked := range refused {
-		rest := make([]config.RefusedPath, 0, len(kept))
+		rest := make([]config.BlockedPath, 0, len(kept))
 		for _, entry := range kept {
-			if sameRefusal(entry, asked) {
+			if sameBlock(entry, asked) {
 				removed[i] = entry
 				continue
 			}
@@ -235,15 +235,15 @@ func RemoveRefusedPaths(opts Options, refused []config.RefusedPath) (Report, []c
 		// Asked before anything is written, and only where no entry matched: an
 		// install that declared the same rule as well may take its own entry back,
 		// and what it is left with is the built-in, which the warning below says.
-		if removed[i].Refuses() == "" {
-			if err := builtInRefusalError(asked); err != nil {
+		if removed[i].Blocks() == "" {
+			if err := builtInRuleError(asked); err != nil {
 				return Report{}, nil, err
 			}
 		}
 	}
 	// kept is existing where nothing matched, so the steps below re-render what
 	// is already there and report no change.
-	opts.refused, opts.refusedSet = kept, true
+	opts.blocked, opts.blockedSet = kept, true
 	if err := keepInstalledGrant(&opts, configDir); err != nil {
 		return Report{}, nil, err
 	}
@@ -251,35 +251,35 @@ func RemoveRefusedPaths(opts Options, refused []config.RefusedPath) (Report, []c
 	if err != nil {
 		return Report{}, nil, err
 	}
-	report, err := run.apply(run.RefusedPathSteps())
+	report, err := run.apply(run.BlockedSteps())
 	// An install that declared what faramir already refuses has one rule left
 	// after taking its entry back. Said here rather than left to be inferred from
 	// the entry going away, which reads as the file becoming readable.
 	if err == nil {
 		for _, entry := range removed {
-			if entry.Refuses() == "" {
+			if entry.Blocks() == "" {
 				continue
 			}
-			rule, ok := BuiltInRefusalFor(entry.Name)
+			rule, ok := BuiltInRuleFor(entry.Name)
 			if !ok && entry.Path != "" {
-				rule, ok = BuiltInRefusalCovering(entry.Path)
+				rule, ok = BuiltInRuleCovering(entry.Path)
 			}
 			if ok {
 				report.Warnings = append(report.Warnings, fmt.Sprintf(
 					"%s is still refused by a rule compiled into faramir (%s, the built-in "+
 						"%s rule %q). What was removed is this install's own entry, which was "+
 						"asking for what faramir already refuses",
-					entry.Refuses(), rule.Why, rule.Kind, rule.Entry))
+					entry.Blocks(), rule.Why, rule.Kind, rule.Entry))
 			}
 		}
 	}
 	return report, removed, err
 }
 
-// BuiltInRefusalError is why a request to stop refusing something cannot be
+// BuiltInRuleError is why a request to stop refusing something cannot be
 // met, or nil where it can. For the command, which asks before it asks for
 // root: a request that can never be granted has no business costing a sudo
-// first. RemoveRefusedPath asks again at the write, from the same function
+// first. RemoveBlockedPath asks again at the write, from the same function
 // below, for a caller that is not the command.
 //
 // The install's own entries are read first and win. An install may declare what
@@ -291,8 +291,8 @@ func RemoveRefusedPaths(opts Options, refused []config.RefusedPath) (Report, []c
 // A config that does not load leaves this to the write, where the error names
 // the config rather than the rule. One that is absent is a host declaring none,
 // which is a different thing and gets the built-in answer.
-func BuiltInRefusalError(configDir string, refused config.RefusedPath) error {
-	declared, err := RefusedPaths(configDir)
+func BuiltInRuleError(configDir string, refused config.BlockedPath) error {
+	declared, err := BlockedPaths(configDir)
 	if err != nil {
 		// Deliberately not this function's error to report: the write is about to
 		// fail on the same config and say so naming the file, which is the fault
@@ -302,35 +302,35 @@ func BuiltInRefusalError(configDir string, refused config.RefusedPath) error {
 		return nil
 	}
 	for _, entry := range declared {
-		if sameRefusal(entry, refused) {
+		if sameBlock(entry, refused) {
 			return nil
 		}
 	}
-	return builtInRefusalError(refused)
+	return builtInRuleError(refused)
 }
 
-// builtInRefusalError is the rule half of the question, with no config in it.
+// builtInRuleError is the rule half of the question, with no config in it.
 //
 // A path is answered as well as a pattern: "stop refusing ~/.ssh/id_rsa" and
 // "stop refusing the id_rsa rule" are one request, and only one of them names
 // a rule.
-func builtInRefusalError(refused config.RefusedPath) error {
-	rule, ok := BuiltInRefusalFor(refused.Name)
+func builtInRuleError(refused config.BlockedPath) error {
+	rule, ok := BuiltInRuleFor(refused.Name)
 	if !ok && refused.Path != "" {
-		rule, ok = BuiltInRefusalCovering(refused.Path)
+		rule, ok = BuiltInRuleCovering(refused.Path)
 	}
 	if !ok {
 		return nil
 	}
 	return fmt.Errorf("%s is refused by a rule compiled into faramir (%s, the "+
-		"built-in %s rule %q), not by a [[secret.refuse]] entry, so there is "+
+		"built-in %s rule %q), not by a [[secret.block]] entry, so there is "+
 		"nothing here to remove and this host does not stop refusing it. The "+
 		"built-in rules are the same on every install and change only with "+
-		"faramir itself; `faramir refuse ls` shows which rules are which",
-		refused.Refuses(), rule.Why, rule.Kind, rule.Entry)
+		"faramir itself; `faramir block ls` shows which rules are which",
+		refused.Blocks(), rule.Why, rule.Kind, rule.Entry)
 }
 
-// RefusedPaths is what the install declares, for `faramir refuse ls`.
-func RefusedPaths(configDir string) ([]config.RefusedPath, error) {
-	return config.BaseRefusedPaths(filepath.Join(configDirOr(configDir), "config.toml"))
+// BlockedPaths is what the install declares, for `faramir block ls`.
+func BlockedPaths(configDir string) ([]config.BlockedPath, error) {
+	return config.BaseBlocked(filepath.Join(configDirOr(configDir), "config.toml"))
 }

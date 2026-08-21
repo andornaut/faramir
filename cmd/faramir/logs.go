@@ -78,14 +78,14 @@ func runLogs(f logsFlags, args []string) int {
 	}
 
 	// A log-id names a command already recorded, so there is nothing to watch for.
-	// Refused before the root check, so the answer is the same whoever typed it.
+	// Blocked before the root check, so the answer is the same whoever typed it.
 	if f.watch && firstArg(args) != "" {
 		fmt.Fprintln(os.Stderr, "faramir logs: --watch prints records as they arrive, "+
 			"so it takes no log-id. Drop one or the other")
 		return 2
 	}
 
-	// Refused rather than attempted: otherwise a bare permission error on a path
+	// Blocked rather than attempted: otherwise a bare permission error on a path
 	// the caller did not name.
 	if !requireRoot("logs", "the audit log is readable only by the broker and by root") {
 		return 1

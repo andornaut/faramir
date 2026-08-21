@@ -50,7 +50,7 @@ func TestPreflightRefusesAConfigDirWhoseParentIsAbsent(t *testing.T) {
 }
 
 // A symlink where the install asserts a mode or an owner would apply it to the
-// target instead. Refused before anything is written, so the answer is one
+// target instead. Blocked before anything is written, so the answer is one
 // message and an untouched host rather than a run that dies with the accounts
 // created and no units.
 func TestPreflightRefusesASymlinkedPath(t *testing.T) {

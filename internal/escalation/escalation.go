@@ -414,7 +414,7 @@ func (s *Server) Ask(ancestors []int) (approved bool, code, reason string) {
 	run, known := s.runs[runID]
 	s.mu.Unlock()
 	if runID == "" || !known {
-		// Refused rather than asked about: an escalation that names no command is
+		// Blocked rather than asked about: an escalation that names no command is
 		// one a human cannot judge. This is what a `sudo` typed by hand as the
 		// executor's account looks like, and what one whose run has already ended
 		// looks like too.

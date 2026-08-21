@@ -406,7 +406,7 @@ func (k *Keeper) Handle(payload map[string]any) map[string]any {
 	}
 	// Before the op: the broker and the keeper are one binary under two units, so
 	// a caller of another release is one of them left running across the install
-	// that replaced it. Refused whatever it asked for, and told which.
+	// that replaced it. Blocked whatever it asked for, and told which.
 	caller, _ := payload["version"].(string)
 	if why := version.Mismatch(caller); why != "" {
 		return errorResponse("bad_request", why)

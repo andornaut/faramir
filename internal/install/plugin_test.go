@@ -335,7 +335,7 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 		// went: a credential faramir neither writes nor reads is the operator's
 		// to name, and the case worth covering here is that a declared one
 		// reaches this extension like a compiled-in one does.
-		Layout: Layout{ConfigDir: "/opt/conf", Refused: []config.RefusedPath{
+		Layout: Layout{ConfigDir: "/opt/conf", Blocked: []config.BlockedPath{
 			{Name: "id_ed25519"}, {Name: "id_rsa"}, {Name: "sops/age/"},
 		}},
 	})

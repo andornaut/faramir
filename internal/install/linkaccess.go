@@ -189,7 +189,7 @@ func AddLink(opts Options, link config.Link) (Report, bool, error) {
 		report, err := reassertLink(opts, existing, link)
 		return report, false, err
 	}
-	// Refused rather than recorded: a link nothing could verify may refuse every
+	// Blocked rather than recorded: a link nothing could verify may refuse every
 	// brokered command later, at a moment nobody chose.
 	if _, err := os.Stat(link.Path); err != nil {
 		return Report{}, false, fmt.Errorf("%s: %w\nA link is checked when it is added, so "+

@@ -394,7 +394,7 @@ func TestARefusedRequestDoesNotClearTheFirstRequestTimeout(t *testing.T) {
 	a, _ := startedAgent(t)
 	client := dialProxy(t, a.Env()["SSH_AUTH_SOCK"])
 
-	// Refused, answered, and the connection is still open.
+	// Blocked, answered, and the connection is still open.
 	if reply := request(t, client, msgExtension); !bytes.Equal(reply, []byte{msgFailure}) {
 		t.Fatalf("reply = %v, want SSH_AGENT_FAILURE [%d]", reply, msgFailure)
 	}

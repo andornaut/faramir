@@ -14,26 +14,26 @@ import (
 	"github.com/andornaut/faramir/internal/install"
 )
 
-// newRefuseCmd groups what is done to a path the agent's file tools are refused
+// newBlockCmd groups what is done to a path the agent's file tools are blocked
 // and faramir never reads.
 //
 // Its own noun rather than a mode of `faramir link`, because the two differ in
 // everything but the rule they render: a link grants the broker read, regroups
 // the file so a brokered command is refused it, and puts the value in the
 // redactor. This writes a rule. Naming that difference is the point.
-func newRefuseCmd() *cobra.Command {
+func newBlockCmd() *cobra.Command {
 	c := &cobra.Command{
-		Use:     "refuse",
-		Short:   "Manage paths the agent's file tools are refused",
+		Use:     "block",
+		Short:   "Block paths and names from the agent's file tools",
 		GroupID: groupProvisioning,
 		Args:    requiresSubcommand,
 		RunE:    func(c *cobra.Command, args []string) error { return nil },
 	}
-	c.AddCommand(newRefuseAddCmd(), newRefuseRemoveCmd(), newRefuseListCmd())
+	c.AddCommand(newBlockAddCmd(), newBlockRemoveCmd(), newBlockListCmd())
 	return c
 }
 
-type refuseFlags struct {
+type blockFlags struct {
 	configPath string
 	agentUser  string
 	names      []string
@@ -49,17 +49,17 @@ type refuseFlags struct {
 // so nothing here has to choose between the forms. A dozen names in one command
 // is what a first run pastes and what a converge hands over, and it costs one
 // config rewrite rather than a dozen.
-func (f *refuseFlags) entries(verb string, args []string) ([]config.RefusedPath, error) {
-	out := make([]config.RefusedPath, 0, len(args)+len(f.names))
+func (f *blockFlags) entries(verb string, args []string) ([]config.BlockedPath, error) {
+	out := make([]config.BlockedPath, 0, len(args)+len(f.names))
 	for _, path := range args {
-		out = append(out, config.RefusedPath{Path: path})
+		out = append(out, config.BlockedPath{Path: path})
 	}
 	for _, name := range f.names {
-		out = append(out, config.RefusedPath{Name: name})
+		out = append(out, config.BlockedPath{Name: name})
 	}
 	if len(out) == 0 {
-		return nil, fmt.Errorf("faramir refuse %s: name a path, or a pattern with "+
-			"--name. A path refuses that file on this host; a name refuses every "+
+		return nil, fmt.Errorf("faramir block %s: name a path, or a pattern with "+
+			"--name. A path blocks that file on this host; a name blocks every "+
 			"file whose name matches it, wherever it turns up, which is what "+
 			"reaches a path this host does not have. Either may be given more than "+
 			"once", verb)
@@ -67,7 +67,7 @@ func (f *refuseFlags) entries(verb string, args []string) ([]config.RefusedPath,
 	return out, nil
 }
 
-func (f *refuseFlags) register(c *cobra.Command) {
+func (f *blockFlags) register(c *cobra.Command) {
 	fl := c.Flags()
 	fl.StringVar(&f.configPath, "config-dir", "",
 		"the install to act on (default: where the running broker says it is)")
@@ -76,19 +76,19 @@ func (f *refuseFlags) register(c *cobra.Command) {
 }
 
 // registerName is on add and rm and not on ls, which takes neither form.
-func (f *refuseFlags) registerName(c *cobra.Command) {
+func (f *blockFlags) registerName(c *cobra.Command) {
 	c.Flags().StringArrayVar(&f.names, "name", nil,
 		"a file name, suffix (*.pem), prefix (.env*), name with a wildcard "+
 			"(secrets*.yml) or directory (.storage/) rather than a path; repeatable")
 }
 
-func newRefuseAddCmd() *cobra.Command {
-	var f refuseFlags
+func newBlockAddCmd() *cobra.Command {
+	var f blockFlags
 	c := &cobra.Command{
 		Use:   "add [options] [PATH...] [--name PATTERN]...",
-		Short: "Refuse a path or a name to the agent's file tools",
-		Long: "Adds a [[secret.refuse]] entry per path and per --name given, and\n" +
-			"re-renders your agent's deny rules, so each is refused to its file tools.\n" +
+		Short: "Block a path or a name from the agent's file tools",
+		Long: "Adds a [[secret.block]] entry per path and per --name given, and\n" +
+			"re-renders your agent's deny rules, so each is blocked from its file tools.\n" +
 			"For a credential faramir has no use for the value of: a LUKS keyfile, an\n" +
 			"SSH identity.\n\n" +
 			"The file is never opened: nothing is granted, the mode is left alone, and\n" +
@@ -98,20 +98,20 @@ func newRefuseAddCmd() *cobra.Command {
 			"the price of faramir reading the value.\n\n" +
 			"A path that is not there is still recorded, an unmounted volume being one\n" +
 			"of the cases this exists for. You are told, since a typo looks the same.\n\n" +
-			"A path this install already refuses is not an error: the entry stands, the\n" +
+			"A path this install already blocks is not an error: the entry stands, the\n" +
 			"rules are rendered again, which is what restores one an agent's settings\n" +
 			"dropped, and --json reports changed=false.\n\n" +
 			"Any number of paths and any number of --name patterns, in one command:\n" +
 			"each is its own entry, and the config and your agent's rule files are\n" +
 			"written once rather than once per entry.\n\n" +
-			"--name refuses a name rather than a path, matched against what the agent\n" +
+			"--name blocks a name rather than a path, matched against what the agent\n" +
 			"names rather than against this host: a container mounts a directory\n" +
 			"somewhere of its own, and only the name reaches the path it runs against.\n" +
 			"It is the wider form and nothing announces one that matches too much, so\n" +
 			"what a pattern will match is printed as it is written.",
 		Args: cobra.ArbitraryArgs,
 		RunE: func(c *cobra.Command, args []string) error {
-			return codeErr(runRefuseAdd(f, args))
+			return codeErr(runBlockAdd(f, args))
 		},
 	}
 	f.register(c)
@@ -120,20 +120,20 @@ func newRefuseAddCmd() *cobra.Command {
 	return c
 }
 
-func runRefuseAdd(f refuseFlags, args []string) int {
-	if !requireRoot("refuse add", "it writes the config and your agent's rule files") {
+func runBlockAdd(f blockFlags, args []string) int {
+	if !requireRoot("block add", "it writes the config and your agent's rule files") {
 		return 1
 	}
-	refused, err := f.entries("add", args)
+	blocked, err := f.entries("add", args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
 	}
-	report, added, err := install.AddRefusedPaths(refuseOptions(f), refused)
+	report, added, err := install.AddBlockedPaths(blockOptions(f), blocked)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir refuse add: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir block add: %v\n", err)
 	}
-	if code := reportEntry(f.json, "refuse add", report); code != 0 {
+	if code := reportEntry(f.json, "block add", report); code != 0 {
 		return code
 	}
 	if err != nil {
@@ -148,37 +148,37 @@ func runRefuseAdd(f refuseFlags, args []string) int {
 	// A line each, in the order they were given: a list where some were already
 	// there and some were not is the ordinary case for a converge, and a count
 	// would not say which was which.
-	for i, entry := range refused {
+	for i, entry := range blocked {
 		if added[i] {
-			fmt.Fprintf(os.Stderr, "refused %s\n", entry.Refuses())
+			fmt.Fprintf(os.Stderr, "blocked %s\n", entry.Blocks())
 			continue
 		}
-		fmt.Fprintf(os.Stderr, "%s was already refused, so nothing was added; the "+
-			"rules naming it were rendered again\n", entry.Refuses())
+		fmt.Fprintf(os.Stderr, "%s was already blocked, so nothing was added; the "+
+			"rules naming it were rendered again\n", entry.Blocks())
 	}
 	return 0
 }
 
-func newRefuseRemoveCmd() *cobra.Command {
-	var f refuseFlags
+func newBlockRemoveCmd() *cobra.Command {
+	var f blockFlags
 	c := &cobra.Command{
 		Use:   "rm [options] [PATH...] [--name PATTERN]...",
-		Short: "Stop refusing a path or a name",
+		Short: "Stop blocking a path or a name",
 		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
 			"It does not take the rule out of your agent's settings: those files are\n" +
 			"merged rather than replaced, and a merge can only add. Remove that line\n" +
 			"yourself, which this says on the way out.\n\n" +
-			"A path this install does not refuse is not an error: nothing is written\n" +
+			"A path this install does not block is not an error: nothing is written\n" +
 			"and --json reports changed=false, the entry being gone either way.\n\n" +
 			"Any number of either, as `add` takes them.\n\n" +
 			"--name removes a name entry. The form is part of what identifies one, so\n" +
 			"a name is not removed by giving the same string as a path.\n\n" +
 			"A rule compiled into faramir cannot be removed and is refused rather than\n" +
-			"reported as not refused: it is not an entry, this host goes on refusing\n" +
+			"reported as not blocked: it is not an entry, and this host goes on blocking\n" +
 			"what was named, and saying nothing was removed would read as saying the\n" +
-			"file became readable. `faramir refuse ls` shows which rules are which.",
+			"file became readable. `faramir block ls` shows which rules are which.",
 		Args: cobra.ArbitraryArgs,
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runRefuseRemove(f, args)) },
+		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockRemove(f, args)) },
 	}
 	f.register(c)
 	f.registerName(c)
@@ -186,7 +186,7 @@ func newRefuseRemoveCmd() *cobra.Command {
 	return c
 }
 
-func runRefuseRemove(f refuseFlags, args []string) int {
+func runBlockRemove(f blockFlags, args []string) int {
 	asked, err := f.entries("rm", args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -198,19 +198,19 @@ func runRefuseRemove(f refuseFlags, args []string) int {
 	// removable whatever else refuses the same file. Every one of them, so a list
 	// carrying a built-in is refused whole rather than halfway through.
 	for _, entry := range asked {
-		if err := install.BuiltInRefusalError(refuseConfigDir(f), entry); err != nil {
-			fmt.Fprintf(os.Stderr, "faramir refuse rm: %v\n", err)
+		if err := install.BuiltInRuleError(blockConfigDir(f), entry); err != nil {
+			fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 			return 1
 		}
 	}
-	if !requireRoot("refuse rm", "it writes the config") {
+	if !requireRoot("block rm", "it writes the config") {
 		return 1
 	}
-	report, removed, err := install.RemoveRefusedPaths(refuseOptions(f), asked)
+	report, removed, err := install.RemoveBlockedPaths(blockOptions(f), asked)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "faramir refuse rm: %v\n", err)
+		fmt.Fprintf(os.Stderr, "faramir block rm: %v\n", err)
 	}
-	if code := reportEntry(f.json, "refuse rm", report); code != 0 {
+	if code := reportEntry(f.json, "block rm", report); code != 0 {
 		return code
 	}
 	if err != nil {
@@ -221,13 +221,13 @@ func runRefuseRemove(f refuseFlags, args []string) int {
 	}
 	var gone bool
 	for i, entry := range removed {
-		if entry.Refuses() == "" {
-			fmt.Fprintf(os.Stderr, "%s was not refused, so nothing was removed; "+
-				"`faramir refuse ls` lists what is\n", asked[i].Refuses())
+		if entry.Blocks() == "" {
+			fmt.Fprintf(os.Stderr, "%s was not blocked, so nothing was removed; "+
+				"`faramir block ls` lists what is\n", asked[i].Blocks())
 			continue
 		}
 		gone = true
-		fmt.Fprintf(os.Stderr, "stopped refusing %s\n", entry.Refuses())
+		fmt.Fprintf(os.Stderr, "stopped blocking %s\n", entry.Blocks())
 	}
 	if gone {
 		fmt.Fprintf(os.Stderr, "the deny rules naming them stay in your agent's "+
@@ -237,13 +237,13 @@ func runRefuseRemove(f refuseFlags, args []string) int {
 	return 0
 }
 
-func newRefuseListCmd() *cobra.Command {
-	var f refuseFlags
+func newBlockListCmd() *cobra.Command {
+	var f blockFlags
 	c := &cobra.Command{
 		Use:   useLs,
-		Short: "List what the agent's file tools are refused",
+		Short: "List what the agent's file tools are blocked",
 		Long: "Lists both halves of what an agent's file tools are refused: the rules\n" +
-			"compiled into faramir, and the [[secret.refuse]] entries this install\n" +
+			"compiled into faramir, and the [[secret.block]] entries this install\n" +
 			"declares. The SOURCE column says which is which.\n\n" +
 			"The built-in rules are shown because there is otherwise no way to ask\n" +
 			"what they cover: the agent meets one as a file tool refusing a path, and\n" +
@@ -253,19 +253,19 @@ func newRefuseListCmd() *cobra.Command {
 			"--declared narrows this to the entries the config carries, which is the\n" +
 			"list a configuration manager converges.",
 		Args: noArgs,
-		RunE: func(c *cobra.Command, args []string) error { return codeErr(runRefuseList(f)) },
+		RunE: func(c *cobra.Command, args []string) error { return codeErr(runBlockList(f)) },
 	}
 	f.register(c)
 	c.Flags().BoolVar(&f.declared, "declared", false,
-		"only the [[secret.refuse]] entries this install declares")
+		"only the [[secret.block]] entries this install declares")
 	c.Flags().BoolVar(&f.json, "json", false, "print the entries as JSON")
 	return c
 }
 
-// refusalRow is one line of `refuse ls`, and the JSON a configuration manager
+// blockRow is one line of `block ls`, and the JSON a configuration manager
 // asserts on. Source and kind are separate fields rather than one string: a
 // caller filtering to what it declared should not have to parse prose.
-type refusalRow struct {
+type blockRow struct {
 	Source string `json:"source"`
 	Kind   string `json:"kind"`
 	Entry  string `json:"entry"`
@@ -282,55 +282,55 @@ type refusalRow struct {
 	Detail string `json:"detail,omitempty"`
 }
 
-// refusalRows is the listing, declared entries first: they are what the
+// blockRows is the listing, declared entries first: they are what the
 // operator wrote and what a converge acts on, and the built-in list is long
 // enough to push them off a screen.
-func refusalRows(declared []config.RefusedPath, builtIn bool) []refusalRow {
-	rows := make([]refusalRow, 0, len(declared)+len(install.BuiltInRefusals()))
+func blockRows(declared []config.BlockedPath, builtIn bool) []blockRow {
+	rows := make([]blockRow, 0, len(declared)+len(install.BuiltInRules()))
 	for _, entry := range declared {
 		if entry.Name != "" {
-			rows = append(rows, refusalRow{
-				Source: "declared", Kind: install.RefusedNameKind(entry.Name),
+			rows = append(rows, blockRow{
+				Source: "declared", Kind: install.BlockedNameKind(entry.Name),
 				Entry: entry.Name, Covers: coversBoth,
-				Detail: install.RefusedNameMatches(entry.Name),
+				Detail: install.BlockedNameMatches(entry.Name),
 			})
 			continue
 		}
-		rows = append(rows, refusalRow{
+		rows = append(rows, blockRow{
 			Source: "declared", Kind: "path", Entry: entry.Path, Covers: coversBoth,
-			State: refusedPathState(entry.Path),
+			State: blockedPathState(entry.Path),
 		})
 	}
 	if !builtIn {
 		return rows
 	}
-	for _, rule := range install.BuiltInRefusals() {
-		rows = append(rows, refusalRow{
+	for _, rule := range install.BuiltInRules() {
+		rows = append(rows, blockRow{
 			Source: "built-in", Kind: rule.Kind, Entry: rule.Entry,
 			Covers: coversBoth, Detail: rule.Why,
 		})
 	}
-	// What faramir refuses for what a command does rather than for what it
+	// What faramir blocks for what a command does rather than for what it
 	// names. No entry changes these, and nothing else can be asked what they
 	// are.
 	for _, pattern := range guard.ActionPatterns() {
-		rows = append(rows, refusalRow{
+		rows = append(rows, blockRow{
 			Source: "built-in", Kind: "command", Entry: pattern, Covers: coversCommands,
 		})
 	}
 	return rows
 }
 
-// refusedPathState is whether a declared path is there. The same state `link
+// blockedPathState is whether a declared path is there. The same state `link
 // ls` carries, and for the same reason: it changes without anybody touching the
 // config, and absent is not a fault here, a rule waiting for a volume being the
 // point.
 //
 // "not there" means the path is not there, so a stat that failed for any other
-// reason says so instead: this command needs no root, and a refused path under
+// reason says so instead: this command needs no root, and a blocked path under
 // a directory only root can enter would otherwise read as an entry waiting for
 // a volume that is never coming.
-func refusedPathState(path string) string {
+func blockedPathState(path string) string {
 	info, err := os.Stat(path)
 	switch {
 	case errors.Is(err, os.ErrNotExist):
@@ -349,36 +349,36 @@ const (
 	coversCommands = "commands"
 )
 
-func runRefuseList(f refuseFlags) int {
-	dir := refuseConfigDir(f)
-	declared, err := install.RefusedPaths(dir)
+func runBlockList(f blockFlags) int {
+	dir := blockConfigDir(f)
+	declared, err := install.BlockedPaths(dir)
 	if err != nil {
 		// The built-in rules are compiled in and hold whatever the config says, so
 		// they are still worth printing where it could not be read. --declared
 		// asked for the half that is missing, so that form fails.
 		if f.declared {
-			fmt.Fprintf(os.Stderr, "faramir refuse ls: %v\n", err)
+			fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(os.Stderr, "faramir refuse ls: %v; the built-in rules below are "+
+		fmt.Fprintf(os.Stderr, "faramir block ls: %v; the built-in rules below are "+
 			"compiled in and hold regardless\n", err)
 	}
-	rows := refusalRows(declared, !f.declared)
+	rows := blockRows(declared, !f.declared)
 	if f.json {
 		// [] rather than null, for the reason `link ls` gives.
 		if rows == nil {
-			rows = []refusalRow{}
+			rows = []blockRow{}
 		}
 		body, marshalErr := json.MarshalIndent(rows, "", "  ")
 		if marshalErr != nil {
-			fmt.Fprintf(os.Stderr, "faramir refuse ls: %v\n", marshalErr)
+			fmt.Fprintf(os.Stderr, "faramir block ls: %v\n", marshalErr)
 			return 1
 		}
 		fmt.Println(string(body))
 		return 0
 	}
 	if len(rows) == 0 {
-		fmt.Fprintln(os.Stderr, "no [[secret.refuse]] entries; `faramir refuse ls` "+
+		fmt.Fprintln(os.Stderr, "no [[secret.block]] entries; `faramir block ls` "+
 			"without --declared lists the rules compiled in")
 		return 0
 	}
@@ -386,7 +386,7 @@ func runRefuseList(f refuseFlags) int {
 	// regular expressions, one of them long enough that a cell holding it would
 	// take the alignment of every other row with it, and they are read as
 	// patterns rather than scanned as a column.
-	var commands []refusalRow
+	var commands []blockRow
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
 	_, _ = fmt.Fprintln(w, "SOURCE\tKIND\tENTRY\tCOVERS\tNOTES")
 	for _, row := range rows {
@@ -405,7 +405,7 @@ func runRefuseList(f refuseFlags) int {
 	if len(commands) == 0 {
 		return 0
 	}
-	fmt.Printf("\n%d command rule(s), which no entry changes: faramir refuses these "+
+	fmt.Printf("\n%d command rule(s), which no entry changes: faramir blocks these "+
 		"for what the command does rather than for what it names.\n", len(commands))
 	for _, row := range commands {
 		fmt.Printf("  %s\n", row.Entry)
@@ -421,14 +421,14 @@ func errReason(err error) string {
 	return "stat failed"
 }
 
-func refuseOptions(f refuseFlags) install.Options {
+func blockOptions(f blockFlags) install.Options {
 	return install.Options{
-		ConfigDir: refuseConfigDir(f),
+		ConfigDir: blockConfigDir(f),
 		AgentUser: operatorName(f.agentUser),
 		Log:       stepLog(f.json),
 	}
 }
 
-func refuseConfigDir(f refuseFlags) string {
+func blockConfigDir(f blockFlags) string {
 	return resolveConfigDir(f.configPath, socketDefault())
 }

@@ -115,7 +115,7 @@ func TestPreconditionsRunBeforeAnythingIsChowned(t *testing.T) {
 
 // Naming a second config directory does not install beside the first: there is
 // one set of units, so the daemons move and the old directory is left holding
-// its age key and its ciphertext, with its refs no longer redacted. Refused
+// its age key and its ciphertext, with its refs no longer redacted. Blocked
 // unless the run said so.
 func TestAConfigMoveIsRefusedUnlessAskedFor(t *testing.T) {
 	dir := t.TempDir()

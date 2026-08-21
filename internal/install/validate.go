@@ -264,7 +264,7 @@ func (c checkReport) linkNote() string {
 // [[secret.link]] entry fills the value set on its own, and a host that has not
 // written its first secret is every install on its first day, which is why
 // `init` warns there and carries on. The two sibling checks over links and
-// refused paths already report having none as ok; this one failing was the
+// blocked paths already report having none as ok; this one failing was the
 // outlier.
 func storeFinding(c checkReport) (Status, string) {
 	switch {

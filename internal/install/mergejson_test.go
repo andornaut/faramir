@@ -271,7 +271,7 @@ func TestMergeJSONAcceptsEmptyFileAndNormalisesIt(t *testing.T) {
 	}
 }
 
-// Refused rather than overwritten: replacing it would lose the operator's whole
+// Blocked rather than overwritten: replacing it would lose the operator's whole
 // configuration to a stray comma.
 func TestMergeJSONRefusesUnparseableFile(t *testing.T) {
 	_, err := mergeJSON([]byte(`{"hooks": [},`), []byte(`{"a":1}`))

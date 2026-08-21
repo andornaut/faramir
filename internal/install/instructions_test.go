@@ -898,7 +898,7 @@ func TestInitRefusesTwoAgentFilesThatAreOneFile(t *testing.T) {
 	if !strings.Contains(err.Error(), "are one file") {
 		t.Errorf("the error does not say the two are one file: %v", err)
 	}
-	// Refused before anything was written, which is what makes it recoverable.
+	// Blocked before anything was written, which is what makes it recoverable.
 	body, readErr := os.ReadFile(claude)
 	if readErr != nil {
 		t.Fatal(readErr)
@@ -1133,7 +1133,7 @@ func TestAFollowedLinkKeepsTheTempAndRename(t *testing.T) {
 
 // The bound is on the directory, not the file: Lstat declines to follow only
 // the last component, so a symlinked parent would carry the write out of the
-// tree before the leaf is looked at. Refused at the directory, which is the
+// tree before the leaf is looked at. Blocked at the directory, which is the
 // level a run reaches first.
 func TestASymlinkedParentCannotCarryTheWriteOutOfTheTree(t *testing.T) {
 	outside := t.TempDir()

@@ -204,7 +204,7 @@ func checkRef(name, uri string) error {
 	// The ref itself, not only the scheme. The two namespaces are not the same
 	// shape: an environment variable may open with an underscore and a ref may
 	// not, so a bare `_NAME` line is a usable variable name whose ref no store
-	// can hold. Refused here, with the file and the line, rather than at the
+	// can hold. Blocked here, with the file and the line, rather than at the
 	// broker with the line long gone.
 	if _, err := secretref.Parse(uri); err != nil {
 		return fmt.Errorf("%s names %s, which is not a ref a store can hold: "+

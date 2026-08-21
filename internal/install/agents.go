@@ -416,7 +416,7 @@ func refuseUnwritable(fs fsys, root string, uid int, within string, paths []stri
 }
 
 // oneFileTwice is what a run says about two of its paths resolving to one file.
-// Refused rather than reconciled: each file is written for the agent that reads
+// Blocked rather than reconciled: each file is written for the agent that reads
 // it, so one standing in for two keeps whichever was written last and leaves an
 // agent holding another agent's configuration. It names the path that claimed
 // the file first, neither half of the pair being wrong on its own.

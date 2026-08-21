@@ -132,7 +132,7 @@ func TestErrorResponseShape(t *testing.T) {
 }
 
 // A caller of another release is a process that outlived the install which
-// replaced the binary under it. Refused before the op, so what it is told is
+// replaced the binary under it. Blocked before the op, so what it is told is
 // the skew rather than whichever op or field changed in between: the first is
 // something to act on, the second is a symptom.
 func TestARequestOfAnotherReleaseIsRefused(t *testing.T) {

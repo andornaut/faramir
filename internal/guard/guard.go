@@ -64,7 +64,7 @@ var defaultInstallPaths = []string{
 // A host whose config was moved by --config-dir is covered by configDirRules
 // instead, which builds the same three rules for the path the config actually
 // has. What this cannot carry either way is what the host declares: a
-// [[secret.refuse]] entry is in the rendered file and nowhere else, so a host
+// [[secret.block]] entry is in the rendered file and nowhere else, so a host
 // running on the fallback is a host running on faramir's own paths alone.
 var fallback = fallbackPatterns()
 
@@ -72,7 +72,7 @@ var fallback = fallbackPatterns()
 // for what it points at: decryption, another tool's secret store, and the
 // commands that act on faramir's own install.
 //
-// Exported for `faramir refuse ls`, which lists them beside the entries this
+// Exported for `faramir block ls`, which lists them beside the entries this
 // host declares. Nothing else could be asked what they are: an agent meets one
 // as a refusal naming the rule that matched, never the set, so a rule that
 // covers something reads exactly like one that does not.
@@ -134,9 +134,9 @@ var fallbackOwn = []string{
 	// it, so they are the operator's whether or not sudo is in front: refused here
 	// so the agent is told that rather than meeting a permission error it will try
 	// to work around. Held to cli.OperatorOnly by a test.
-	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|recipient[ \t]+add|recipient[ \t]+rm|recipient[ \t]+ls|recipient[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|refuse[ \t]+add|refuse[ \t]+rm|refuse[ \t]+ls|logs|escalations|approve|deny|doctor|reload|uninstall)\b`,
+	`\bfaramir[-\s]+(init|init-project|vault[ \t]+add|vault[ \t]+edit|vault[ \t]+ls|vault[ \t]+rm|recipient[ \t]+add|recipient[ \t]+rm|recipient[ \t]+ls|recipient[ \t]+reseal|link[ \t]+add|link[ \t]+rm|link[ \t]+ls|block[ \t]+add|block[ \t]+rm|block[ \t]+ls|logs|escalations|approve|deny|doctor|reload|uninstall)\b`,
 	`\bsudo\b.*-u\s+faramir`,
-	// Refused for what it costs, not because it hides anything: the wrapper fails
+	// Blocked for what it costs, not because it hides anything: the wrapper fails
 	// closed, so a stopped broker withholds every command's output in every
 	// enrolled tree at once.
 	`\bsystemctl\b.*\b(stop|disable|mask|kill|edit)\b.*\bfaramir-`,

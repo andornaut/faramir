@@ -10,19 +10,19 @@ import (
 	"github.com/andornaut/faramir/internal/config"
 )
 
-func refusedAt(paths ...string) []config.RefusedPath {
-	out := make([]config.RefusedPath, 0, len(paths))
+func refusedAt(paths ...string) []config.BlockedPath {
+	out := make([]config.BlockedPath, 0, len(paths))
 	for _, path := range paths {
-		out = append(out, config.RefusedPath{Path: path})
+		out = append(out, config.BlockedPath{Path: path})
 	}
 	return out
 }
 
-// The rule is the entire content of a [[secret.refuse]] entry, so an entry that
+// The rule is the entire content of a [[secret.block]] entry, so an entry that
 // does not reach the rules does nothing whatsoever.
 func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 	layout := testLayout()
-	layout.Refused = refusedAt("/etc/luks/volume.key")
+	layout.Blocked = refusedAt("/etc/luks/volume.key")
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
@@ -34,7 +34,7 @@ func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 		}
 	}
 	if !slices.Contains(pluginPatterns(layout), "/etc/luks/volume.key") {
-		t.Error("the plugin hosts' patterns do not carry the refused path")
+		t.Error("the plugin hosts' patterns do not carry the blocked path")
 	}
 }
 
@@ -42,7 +42,7 @@ func TestARefusedPathIsRefusedToClaudeAndThePluginHosts(t *testing.T) {
 // not enough.
 func TestARefusedPathReachesTheRenderedAccountFiles(t *testing.T) {
 	layout := testLayout()
-	layout.Refused = refusedAt("/etc/luks/volume.key")
+	layout.Blocked = refusedAt("/etc/luks/volume.key")
 
 	for _, asset := range []string{"agent/claude/settings.json", "agent/permissions.json.tmpl"} {
 		body, err := render(asset, layout)
@@ -60,7 +60,7 @@ func TestARefusedPathReachesTheRenderedAccountFiles(t *testing.T) {
 func TestARefusedDirectoryCarriesWhatIsUnderIt(t *testing.T) {
 	dir := t.TempDir()
 	layout := testLayout()
-	layout.Refused = refusedAt(dir)
+	layout.Blocked = refusedAt(dir)
 
 	rules := claudeRules(layout)
 	for _, want := range []string{"Read(" + dir + ")", "Read(" + dir + "/**)"} {
@@ -80,7 +80,7 @@ func TestARefusedDirectoryCarriesWhatIsUnderIt(t *testing.T) {
 func TestAnAbsentRefusedPathStillCoversWhatAppearsUnderIt(t *testing.T) {
 	absent := "/mnt/nothing-is-mounted-here/keys"
 	layout := testLayout()
-	layout.Refused = refusedAt(absent)
+	layout.Blocked = refusedAt(absent)
 
 	rules := claudeRules(layout)
 	for _, want := range []string{
@@ -104,7 +104,7 @@ func TestAnAbsentRefusedPathStillCoversWhatAppearsUnderIt(t *testing.T) {
 func TestRefusedRulesDoNotDependOnWhatIsOnDisk(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "keys")
 	layout := testLayout()
-	layout.Refused = refusedAt(dir)
+	layout.Blocked = refusedAt(dir)
 
 	away := claudeRules(layout)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -124,7 +124,7 @@ func TestRefusedRulesDoNotDependOnWhatIsOnDisk(t *testing.T) {
 func TestAPathBothLinkedAndRefusedRendersOneRule(t *testing.T) {
 	layout := testLayout()
 	layout.Links = linksAt("/etc/luks/volume.key")
-	layout.Refused = refusedAt("/etc/luks/volume.key")
+	layout.Blocked = refusedAt("/etc/luks/volume.key")
 
 	n := 0
 	for _, rule := range claudeRules(layout) {
@@ -140,13 +140,13 @@ func TestAPathBothLinkedAndRefusedRendersOneRule(t *testing.T) {
 // Duplicates and order are settled so the rule files do not churn, and an empty
 // entry is dropped: in the plugin hosts' spelling it is a prefix of every path.
 func TestRefusedPathsAreCleanedAndOrdered(t *testing.T) {
-	got := refusedRulePaths(Layout{Refused: refusedAt("/b", "", "/a", "/b")})
+	got := blockedRulePaths(Layout{Blocked: refusedAt("/b", "", "/a", "/b")})
 	if !slices.Equal(got, []string{"/a", "/b"}) {
-		t.Errorf("refusedRulePaths = %v, want the two paths sorted and deduplicated", got)
+		t.Errorf("blockedRulePaths = %v, want the two paths sorted and deduplicated", got)
 	}
 }
 
-// An install with no refused paths renders what it always did.
+// An install with no blocked paths renders what it always did.
 func TestNoRefusedPathsChangeNothing(t *testing.T) {
 	layout := testLayout()
 	if !slices.Equal(claudeRules(layout), claudeRules(Layout{
@@ -154,7 +154,7 @@ func TestNoRefusedPathsChangeNothing(t *testing.T) {
 		BrokerUser: layout.BrokerUser, KeeperUser: layout.KeeperUser,
 		ExecUser: layout.ExecUser,
 	})) {
-		t.Error("a layout with no refused paths renders different rules")
+		t.Error("a layout with no blocked paths renders different rules")
 	}
 }
 
@@ -163,7 +163,7 @@ func TestNoRefusedPathsChangeNothing(t *testing.T) {
 // half alone would erase them, and erasing them drops the deny rules.
 func TestRefusedPathsRoundTripThroughTheRenderedConfig(t *testing.T) {
 	layout := testLayout()
-	layout.Refused = refusedAt("/etc/luks/volume.key", "/home/operator/.ssh")
+	layout.Blocked = refusedAt("/etc/luks/volume.key", "/home/operator/.ssh")
 
 	body, err := render("etc/config.toml.tmpl", layout)
 	if err != nil {
@@ -178,7 +178,7 @@ func TestRefusedPathsRoundTripThroughTheRenderedConfig(t *testing.T) {
 	if _, err := config.Load(path); err != nil {
 		t.Fatalf("the rendered config does not load: %v\n%s", err, body)
 	}
-	back, err := config.BaseRefusedPaths(path)
+	back, err := config.BaseBlocked(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,9 +200,9 @@ func TestDoctorPassesWhenARefusedPathIsRefused(t *testing.T) {
 	  ]}
 	}`)
 	var report DoctorReport
-	reportRefusedPaths(&report, home, []string{"/etc/luks/volume.key"})
+	reportBlockedPaths(&report, home, []string{"/etc/luks/volume.key"})
 
-	finding := findingFor(t, report, "refused paths")
+	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusOK {
 		t.Errorf("status = %v, want OK: %s", finding.Status, finding.Detail)
 	}
@@ -216,9 +216,9 @@ func TestDoctorFailsWhenARefusedPathIsNotRefused(t *testing.T) {
 	  "permissions": {"deny": ["Read(**/*.pem)"]}
 	}`)
 	var report DoctorReport
-	reportRefusedPaths(&report, home, []string{"/etc/luks/volume.key"})
+	reportBlockedPaths(&report, home, []string{"/etc/luks/volume.key"})
 
-	finding := findingFor(t, report, "refused paths")
+	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusFailed {
 		t.Errorf("status = %v, want Failed: %s", finding.Status, finding.Detail)
 	}
@@ -233,9 +233,9 @@ func TestDoctorFailsWhenARefusedPathIsNotRefused(t *testing.T) {
 // refuses nothing, and reporting OK would say the opposite.
 func TestDoctorDoesNotClaimARefusedPathIsCoveredWithNoRuleFile(t *testing.T) {
 	var report DoctorReport
-	reportRefusedPaths(&report, t.TempDir(), []string{"/etc/luks/volume.key"})
+	reportBlockedPaths(&report, t.TempDir(), []string{"/etc/luks/volume.key"})
 
-	finding := findingFor(t, report, "refused paths")
+	finding := findingFor(t, report, "blocked paths")
 	if finding.Status == StatusOK {
 		t.Errorf("an account with no rule file was reported as covered: %s", finding.Detail)
 	}
@@ -249,9 +249,9 @@ func TestDoctorDoesNotAskWhetherARefusedPathExists(t *testing.T) {
 	  "permissions": {"deny": ["Read(`+absent+`)"]}
 	}`)
 	var report DoctorReport
-	reportRefusedPaths(&report, home, []string{absent})
+	reportBlockedPaths(&report, home, []string{absent})
 
-	finding := findingFor(t, report, "refused paths")
+	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusOK {
 		t.Errorf("a rule for a path that is not there was reported as %v: %s",
 			finding.Status, finding.Detail)
@@ -260,23 +260,23 @@ func TestDoctorDoesNotAskWhetherARefusedPathExists(t *testing.T) {
 
 func TestDoctorSaysSoWhenNothingIsRefused(t *testing.T) {
 	var report DoctorReport
-	diagnoseRefusedPaths(&report, DoctorOptions{}, &config.Config{})
+	diagnoseBlockedPaths(&report, DoctorOptions{}, &config.Config{})
 
-	finding := findingFor(t, report, "refused paths")
+	finding := findingFor(t, report, "blocked paths")
 	if finding.Status != StatusOK {
 		t.Errorf("status = %v, want OK: %s", finding.Status, finding.Detail)
 	}
 }
 
-// A refused path is only ever a rule, so drift telling the operator to delete
+// A blocked path is only ever a rule, so drift telling the operator to delete
 // one is drift telling them to undo the entry. The drift check renders what
 // faramir would write and calls anything else stale, so that render has to
-// carry the refused paths as well as the linked ones.
+// carry the blocked paths as well as the linked ones.
 //
 // The path ends in .key, which looksManaged matches, so a finding would name it.
 func TestARefusedPathIsNotReportedAsDriftToRemove(t *testing.T) {
 	dir := t.TempDir()
-	body := "[command]\ntimeout_sec = 600\n\n[[secret.refuse]]\n" +
+	body := "[command]\ntimeout_sec = 600\n\n[[secret.block]]\n" +
 		"path = \"/etc/luks/volume.key\"\n"
 	if err := os.WriteFile(filepath.Join(dir, "config.toml"), []byte(body), 0o600); err != nil {
 		t.Fatal(err)
@@ -293,7 +293,7 @@ func TestARefusedPathIsNotReportedAsDriftToRemove(t *testing.T) {
 
 	finding := findingFor(t, report, "agent rule drift")
 	if strings.Contains(finding.Detail, "/etc/luks/volume.key") {
-		t.Errorf("a refused path was reported as a rule to remove, which would "+
+		t.Errorf("a blocked path was reported as a rule to remove, which would "+
 			"undo the entry: %s", finding.Detail)
 	}
 }

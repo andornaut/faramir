@@ -260,7 +260,7 @@ func TestAnExecutorWithoutACgroupRefusesEveryCommand(t *testing.T) {
 
 // The three daemons are one binary under three units, so an executor answering
 // a broker of another release is one of them left running across the install
-// that replaced it. Refused before the op and before the terminal fd, since
+// that replaced it. Blocked before the op and before the terminal fd, since
 // what changed under it may be either.
 func TestARequestOfAnotherReleaseIsRefused(t *testing.T) {
 	_, sock, _ := newExecutor(t)

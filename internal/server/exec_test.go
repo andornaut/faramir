@@ -313,7 +313,7 @@ func TestACwdTheBrokerCannotStatIsLeftToTheExecutor(t *testing.T) {
 
 // -- the concurrency limit --------------------------------------------------
 
-// Refused rather than queued. max_concurrency is 2 in the test config, so the
+// Blocked rather than queued. max_concurrency is 2 in the test config, so the
 // third request in flight is the one told.
 func TestOverTheConcurrencyLimitIsRefusedAsBusy(t *testing.T) {
 	s := newServer(t, map[string]string{"a/b": goodValue})

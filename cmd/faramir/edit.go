@@ -66,7 +66,7 @@ func newEditCmd() *cobra.Command {
 
 func runEdit(f editFlags, args []string) int {
 
-	// Refused rather than attempted: the bare permission error on the age key
+	// Blocked rather than attempted: the bare permission error on the age key
 	// does not say what to do.
 	if !requireRoot("vault edit", "the age key is readable only by the keeper and by root") {
 		return 1

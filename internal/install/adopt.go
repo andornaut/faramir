@@ -153,15 +153,15 @@ func (o *Options) adoptFromConfig(dir string, keep func(flag, adopted, otherwise
 	if !o.linksSet {
 		o.links = links
 	}
-	// The refused paths, kept across a re-run for the same reason and by the
+	// The blocked paths, kept across a re-run for the same reason and by the
 	// same rule: no flag names one, so an `init` that did not read them back
-	// would drop every deny rule `faramir refuse` had added.
-	refused, err := config.BaseRefusedPaths(configFile)
+	// would drop every deny rule `faramir block` had added.
+	blocked, err := config.BaseBlocked(configFile)
 	if err != nil {
 		return fmt.Errorf("%s: %w", configFile, err)
 	}
-	if !o.refusedSet {
-		o.refused = refused
+	if !o.blockedSet {
+		o.blocked = blocked
 	}
 	return nil
 }

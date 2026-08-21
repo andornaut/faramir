@@ -141,15 +141,15 @@ path = {{quote .Path}}
 type = {{quote .Type}}
 {{if .Key}}key = {{quote .Key}}
 {{end}}{{end}}
-{{range .Refused}}
-# Managed by `faramir refuse`. Refused to the agent's file tools and nothing
+{{range .Blocked}}
+# Managed by `faramir block`. Refused to the agent's file tools and nothing
 # more: faramir never reads these, so no account is granted anything and no
 # value of theirs enters the redactor.
 #
 # A path names one file on this host. A name names every file it matches,
 # wherever it turns up, which is what reaches a path this host does not have:
 # a container's own mount point, or a volume mounted somewhere else.
-[[secret.refuse]]
+[[secret.block]]
 {{if .Name}}name = {{quote .Name}}
 {{else}}path = {{quote .Path}}
 {{end}}{{end}}

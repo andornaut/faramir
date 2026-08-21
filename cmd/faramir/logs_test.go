@@ -461,7 +461,7 @@ func TestFollowerSurvivesAReopenThatFindsNothing(t *testing.T) {
 }
 
 // A log-id names one record that is already written, so there is nothing to
-// wait for. Refused before the root check and before the config is read, so an
+// wait for. Blocked before the root check and before the config is read, so an
 // operator who typed both is told which is wrong rather than told to use sudo
 // and then told this.
 func TestLogsRefusesAWatchWithALogID(t *testing.T) {

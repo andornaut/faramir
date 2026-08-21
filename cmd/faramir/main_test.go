@@ -729,7 +729,7 @@ func TestTheLastEnvFileWins(t *testing.T) {
 
 // A bare name has to be a usable ref as well as a usable variable name: the two
 // namespaces differ at the first character, an environment variable being
-// allowed to open with an underscore where a ref is not. Refused with the file
+// allowed to open with an underscore where a ref is not. Blocked with the file
 // and the line, which is what the bare form promises, rather than at the broker
 // with the line long gone.
 func TestABareNameThatCannotBeARefIsRefusedHere(t *testing.T) {

@@ -356,10 +356,10 @@ type SecretConfig struct {
 	// Links is the secrets read from files the operator's own tools maintain,
 	// each named individually rather than matched by a glob. See Link.
 	Links []Link
-	// Refused is the paths the agent's file tools are refused without faramir
+	// Blocked is the paths the agent's file tools are refused without faramir
 	// reading them. Under [secret] because that is what these files hold, not
-	// because the broker serves anything out of them. See RefusedPath.
-	Refused []RefusedPath
+	// because the broker serves anything out of them. See BlockedPath.
+	Blocked []BlockedPath
 }
 
 // Link is one secret the broker reads from a file outside the managed store: an
@@ -387,7 +387,7 @@ type Link struct {
 	Key string `json:"key,omitempty"`
 }
 
-// RefusedPath is a file the agent's own tools are refused and faramir does not
+// BlockedPath is a file the agent's own tools are refused and faramir does not
 // read: a LUKS keyfile, an SSH identity, anything whose value it has no use
 // for. Named in full or by a pattern, which are Path and Name: exactly one of
 // them, an entry saying both being two rules written as one.
@@ -408,7 +408,7 @@ type Link struct {
 //
 // That is the trade it exists for. Reading the value would mean holding it,
 // and these are the files whose value faramir should never hold.
-type RefusedPath struct {
+type BlockedPath struct {
 	// Path is the file or directory, absolute. No "~", for the reason a link's
 	// path carries none: nothing expands one here.
 	Path string `json:"path,omitempty"`
@@ -419,9 +419,9 @@ type RefusedPath struct {
 	Name string `json:"name,omitempty"`
 }
 
-// Refuses is what an entry names, whichever form it took, for a message or a
+// Blocks is what an entry names, whichever form it took, for a message or a
 // listing that wants one string.
-func (r RefusedPath) Refuses() string {
+func (r BlockedPath) Blocks() string {
 	if r.Name != "" {
 		return r.Name
 	}
@@ -502,10 +502,10 @@ func BaseLinks(path string) ([]Link, error) {
 	return cfg.Secret.Links, nil
 }
 
-// BaseRefusedPaths is the refused paths this install declares, for a caller about to
+// BaseBlocked is the blocked paths this install declares, for a caller about to
 // rewrite the file. A file that is not there yields nothing, which is a first
 // install.
-func BaseRefusedPaths(path string) ([]RefusedPath, error) {
+func BaseBlocked(path string) ([]BlockedPath, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -516,7 +516,7 @@ func BaseRefusedPaths(path string) ([]RefusedPath, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cfg.Secret.Refused, nil
+	return cfg.Secret.Blocked, nil
 }
 
 // ValidateLink holds one entry to what the loader would accept, for a command
@@ -553,9 +553,9 @@ var (
 		"ssh_agent", "ssh_add"}
 	escalationKeys = []string{"exec_user", "pam_service", "pam_stack", "helper",
 		"notify_command", "timeout_sec"}
-	secretKeys = []string{"min_length", "min_refresh_sec", "link", "refuse"}
+	secretKeys = []string{"min_length", "min_refresh_sec", "link", "block"}
 	linkKeys   = []string{"ref", "path", "type", "key"}
-	refuseKeys = []string{"path", "name"}
+	blockKeys  = []string{"path", "name"}
 	auditKeys  = []string{"log_path"}
 )
 
@@ -701,7 +701,7 @@ func loadCommand(raw map[string]any, path string, out *CommandConfig) error {
 
 	// PATH decides which file a bare cmd[0] resolves to, and the broker resolves
 	// it on behalf of a child that runs somewhere else, so a relative component
-	// names two different directories. Refused at load rather than skipped at
+	// names two different directories. Blocked at load rather than skipped at
 	// resolve time: the broker does not start, instead of running a file nobody
 	// named.
 	if out.Env["PATH"] == "" {
@@ -745,7 +745,7 @@ func loadSecret(raw map[string]any, path string, out *SecretConfig) error {
 	if out.Links, err = loadLinks(sec["link"], where); err != nil {
 		return err
 	}
-	if out.Refused, err = loadRefusedPaths(sec["refuse"], where); err != nil {
+	if out.Blocked, err = loadBlocked(sec["block"], where); err != nil {
 		return err
 	}
 	// At least 1: zero is what an unset flag looks like, so it cannot also mean
@@ -813,30 +813,30 @@ func loadLinks(value any, where string) ([]Link, error) {
 	return out, nil
 }
 
-// loadRefusedPaths validates every [[secret.refuse]] entry. Held to the same rules a
+// loadBlocked validates every [[secret.block]] entry. Held to the same rules a
 // link's path is, minus everything about reading the file: there is no type, no
 // key and no ref, because nothing is read out of it.
 //
 // A path that is not there is accepted. These are keys on volumes that are not
 // always mounted, and a deny rule costs nothing while the file is absent, so
 // refusing one would mean refusing the case the feature exists for.
-func loadRefusedPaths(value any, where string) ([]RefusedPath, error) {
+func loadBlocked(value any, where string) ([]BlockedPath, error) {
 	if value == nil {
 		return nil, nil
 	}
 	entries, ok := value.([]map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("%s: expected [[secret.refuse]] tables, got %T "+
-			"(write each entry as its own [[secret.refuse]] header)", where, value)
+		return nil, fmt.Errorf("%s: expected [[secret.block]] tables, got %T "+
+			"(write each entry as its own [[secret.block]] header)", where, value)
 	}
-	out := make([]RefusedPath, 0, len(entries))
+	out := make([]BlockedPath, 0, len(entries))
 	seen := map[string]bool{}
 	for i, entry := range entries {
-		at := fmt.Sprintf("%s: [[secret.refuse]] #%d", where, i+1)
-		if err := rejectUnknownKeys(entry, refuseKeys, at); err != nil {
+		at := fmt.Sprintf("%s: [[secret.block]] #%d", where, i+1)
+		if err := rejectUnknownKeys(entry, blockKeys, at); err != nil {
 			return nil, err
 		}
-		refused := RefusedPath{}
+		refused := BlockedPath{}
 		var err error
 		if refused.Path, err = str(entry["path"], at, ""); err != nil {
 			return nil, err
@@ -844,7 +844,7 @@ func loadRefusedPaths(value any, where string) ([]RefusedPath, error) {
 		if refused.Name, err = str(entry["name"], at, ""); err != nil {
 			return nil, err
 		}
-		if err := validateRefused(refused, at); err != nil {
+		if err := validateBlocked(refused, at); err != nil {
 			return nil, err
 		}
 		// Two entries naming one path or one pattern render one rule, so the
@@ -857,7 +857,7 @@ func loadRefusedPaths(value any, where string) ([]RefusedPath, error) {
 		}
 		if seen[key] {
 			return nil, fmt.Errorf("%s: %q is named by more than one entry",
-				at, refused.Refuses())
+				at, refused.Blocks())
 		}
 		seen[key] = true
 		out = append(out, refused)
@@ -865,17 +865,17 @@ func loadRefusedPaths(value any, where string) ([]RefusedPath, error) {
 	return out, nil
 }
 
-// ValidateRefusedPath holds one entry to what the loader would accept, for a
+// ValidateBlocked holds one entry to what the loader would accept, for a
 // command that builds one before anything writes it.
-func ValidateRefusedPath(refused RefusedPath) error {
-	return validateRefused(refused, "[[secret.refuse]]")
+func ValidateBlocked(refused BlockedPath) error {
+	return validateBlocked(refused, "[[secret.block]]")
 }
 
-// validateRefused sends an entry to the rules for the form it took, and refuses
+// validateBlocked sends an entry to the rules for the form it took, and refuses
 // one that took both or neither. Neither is an empty entry rendering nothing;
 // both is one entry asking for two rules, and answering it by picking a form
 // would render the one the operator was not looking at.
-func validateRefused(refused RefusedPath, at string) error {
+func validateBlocked(refused BlockedPath, at string) error {
 	switch {
 	case refused.Path != "" && refused.Name != "":
 		return fmt.Errorf("%s: names both path %q and name %q, and an entry is one "+
@@ -883,12 +883,12 @@ func validateRefused(refused RefusedPath, at string) error {
 			"every file it matches wherever it is. Write two entries",
 			at, refused.Path, refused.Name)
 	case refused.Name != "":
-		return validateRefusedName(refused.Name, at)
+		return validateBlockedName(refused.Name, at)
 	}
-	return validateRefusedPath(refused, at)
+	return validateBlockedPath(refused, at)
 }
 
-func validateRefusedPath(refused RefusedPath, at string) error {
+func validateBlockedPath(refused BlockedPath, at string) error {
 	if refused.Path == "" {
 		return fmt.Errorf("%s: path or name is required; one of them is the whole "+
 			"of the entry", at)
@@ -917,7 +917,7 @@ func validateRefusedPath(refused RefusedPath, at string) error {
 	return nil
 }
 
-// validateRefusedName holds a name pattern to what can be rendered and what is
+// validateBlockedName holds a name pattern to what can be rendered and what is
 // worth rendering. The forms are the built-in rules' own: a file name, a suffix
 // ("*.pem"), a prefix (".env*"), a name with a wildcard inside it
 // ("secrets*.yml"), or a directory tail (".storage/").
@@ -926,9 +926,9 @@ func validateRefusedPath(refused RefusedPath, at string) error {
 // one file and the operator meets the file still readable; a pattern that
 // matches too much refuses a class of files at once, and the agent meets that
 // as tools failing on files nobody discussed. So what is refused here is the
-// pattern that matches everything, and `refuse add` prints what a pattern will
+// pattern that matches everything, and `block add` prints what a pattern will
 // match rather than leaving a wide one silent.
-func validateRefusedName(name, at string) error {
+func validateBlockedName(name, at string) error {
 	switch {
 	case strings.TrimSpace(name) != name:
 		return fmt.Errorf("%s: name %q is padded with whitespace, and a rule matches "+

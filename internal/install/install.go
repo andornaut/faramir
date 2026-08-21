@@ -83,11 +83,11 @@ type Options struct {
 	// list back.
 	linksSet bool
 
-	// refused is the [[secret.refuse]] entries, adopted the same way and for the
-	// same reason. `faramir refuse` is what changes the list.
-	refused []config.RefusedPath
-	// refusedSet says the list above is deliberate, empty included.
-	refusedSet bool
+	// blocked is the [[secret.block]] entries, adopted the same way and for the
+	// same reason. `faramir block` is what changes the list.
+	blocked []config.BlockedPath
+	// blockedSet says the list above is deliberate, empty included.
+	blockedSet bool
 
 	// MoveConfig is consent to point this host's daemons at a different ConfigDir.
 	// Required because the units are one set with fixed names, so a second
@@ -448,7 +448,7 @@ func (o *Options) layout() (Layout, error) {
 	}
 	layout.NotifyCommand = resolveNotifyCommand(o.NotifyCommand)
 	layout.Links = o.links
-	layout.Refused = o.refused
+	layout.Blocked = o.blocked
 	layout.CommandEnv = o.CommandEnv
 	layout.AgentUser = o.AgentUser
 	layout.CommandTimeoutSec = o.CommandTimeoutSec

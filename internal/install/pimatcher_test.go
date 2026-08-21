@@ -26,7 +26,7 @@ func TestThePiMatcherRefusesALinkedFile(t *testing.T) {
 	}
 	layout := testLayout()
 	layout.Links = []config.Link{{Ref: "creds", Path: "/home/op/creds.txt", Type: "text"}}
-	layout.Refused = []config.RefusedPath{{Path: "/home/op/keydir"}}
+	layout.Blocked = []config.BlockedPath{{Path: "/home/op/keydir"}}
 	body, err := renderData("agent/pi/extension.ts.tmpl", pluginData{
 		BinDir: "/usr/local/bin", Agent: "pi", Path: "/srv/tree", Layout: layout,
 	})

@@ -464,7 +464,7 @@ func TestCheckPassesWhenTheSocketsNameTheBroker(t *testing.T) {
 // -- the gate on an empty value set -----------------------------------------
 
 // Holding nothing, the redactor is a no-op, so a command that printed a
-// credential it got from anywhere would print it in plaintext. Refused here
+// credential it got from anywhere would print it in plaintext. Blocked here
 // rather than by refusing to start, so the daemon stays diagnosable.
 func TestExecAndRedactAreRefusedWhileNoManagedFileWasRead(t *testing.T) {
 	s := newUnconfiguredServer(t, map[string]string{})

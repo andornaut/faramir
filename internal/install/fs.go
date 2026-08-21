@@ -212,7 +212,7 @@ func (f fsys) ensureOwnership(path string, mode os.FileMode, uid, gid int) (bool
 		return false, err
 	}
 	if info.Mode()&os.ModeSymlink != 0 {
-		// Refused rather than skipped: the mode and owner asserted here are what
+		// Blocked rather than skipped: the mode and owner asserted here are what
 		// keep the file out of the agent's reach.
 		return false, fmt.Errorf("%s is a symlink, and its mode and owner would be "+
 			"applied to whatever it points at: replace it with a regular file", path)

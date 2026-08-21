@@ -35,7 +35,7 @@ var hostilePaths = map[string]string{
 func layoutWithPath(path string) Layout {
 	l := testLayout()
 	l.Links = []config.Link{{Ref: "hostile", Path: path, Type: "text"}}
-	l.Refused = []config.RefusedPath{{Path: path + ".refused"}}
+	l.Blocked = []config.BlockedPath{{Path: path + ".refused"}}
 	return l
 }
 

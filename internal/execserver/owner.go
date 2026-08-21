@@ -101,7 +101,7 @@ func (e *Executor) ownerOf(ancestors []int) map[string]any {
 			}
 			if !stillRunning(owned.pidfd) {
 				// The process this run was forked as has been reaped, so the number is
-				// no longer proof of anything. Refused rather than matched.
+				// no longer proof of anything. Blocked rather than matched.
 				log.Printf("pid %d was %s's command and has been reaped; the process "+
 					"asking is not it", pid, runID)
 				continue

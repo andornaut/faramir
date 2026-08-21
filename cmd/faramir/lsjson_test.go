@@ -18,13 +18,13 @@ func TestListingNothingIsAnEmptyArray(t *testing.T) {
 		// --declared, which is the half a configuration manager converges. The
 		// bare form carries the built-in rules, which are compiled in and are
 		// never none: TestRefuseLsCarriesTheBuiltInRules.
-		"refuse ls --declared": func(dir string) int {
-			return runRefuseList(refuseFlags{json: true, declared: true, configPath: dir})
+		"block ls --declared": func(dir string) int {
+			return runBlockList(blockFlags{json: true, declared: true, configPath: dir})
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			// A directory with no config at all, which is a host not provisioned
-			// yet: Links and RefusedPaths both read that as declaring none.
+			// yet: Links and BlockedPaths both read that as declaring none.
 			out, code := captureStdout(t, func() int { return run(t.TempDir()) })
 			if code != 0 {
 				t.Fatalf("exit %d, want 0: %s", code, out)
@@ -49,7 +49,7 @@ func TestListingNothingIsAnEmptyArray(t *testing.T) {
 // in; TestRefuseLsCarriesTheCommandRules covers those.
 func TestRefuseLsCarriesNoBuiltInRules(t *testing.T) {
 	out, code := captureStdout(t, func() int {
-		return runRefuseList(refuseFlags{json: true, configPath: t.TempDir()})
+		return runBlockList(blockFlags{json: true, configPath: t.TempDir()})
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, want 0: %s", code, out)
@@ -72,7 +72,7 @@ func TestRefuseLsCarriesNoBuiltInRules(t *testing.T) {
 // set, which is how a rule that covers something comes to be reported as a gap.
 func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
 	out, code := captureStdout(t, func() int {
-		return runRefuseList(refuseFlags{json: true, configPath: t.TempDir()})
+		return runBlockList(blockFlags{json: true, configPath: t.TempDir()})
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, want 0: %s", code, out)
@@ -100,7 +100,7 @@ func TestRefuseLsCarriesTheCommandRules(t *testing.T) {
 	}
 	// --declared is the config's own half, which no command rule is part of.
 	out, _ = captureStdout(t, func() int {
-		return runRefuseList(refuseFlags{json: true, declared: true, configPath: t.TempDir()})
+		return runBlockList(blockFlags{json: true, declared: true, configPath: t.TempDir()})
 	})
 	if strings.Contains(out, `"command"`) {
 		t.Errorf("--declared listed a command rule: %s", out)

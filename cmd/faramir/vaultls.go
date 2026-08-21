@@ -74,7 +74,7 @@ func newVaultListCmd() *cobra.Command {
 func runVaultList(f vaultListFlags) int {
 	const label = "vault ls"
 	// The secrets directory is 2750 and the group is the keeper's, so the operator
-	// cannot list it. Refused with the reason rather than reported as an empty
+	// cannot list it. Blocked with the reason rather than reported as an empty
 	// store.
 	if !requireRoot(label, "the secrets directory is readable only by the keeper and by root") {
 		return 1

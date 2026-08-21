@@ -65,7 +65,7 @@ Failure | Why
 **Network egress** | Out of scope. No iptables, namespaces or proxy allowlist
 **Anything at rest** | The uid boundaries hold only while the machine runs; full-disk encryption is the measure. `--allow-sudo` mints no credential, so a stolen disk carries nothing that can sudo here
 **Unenrolled projects.** The value set is global | A command in a project you never enrolled can print a managed value uncaught
-**Credentials faramir does not manage.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials` | The deny rules cover this install's own paths. Anything faramir does not write is yours to declare with [`faramir refuse`](docs/configuration.md#refused-paths), by path or by name, and an install that declares none refuses none
+**Credentials faramir does not manage.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials` | The deny rules cover this install's own paths. Anything faramir does not write is yours to declare with [`faramir block`](docs/configuration.md#blocked-paths), by path or by name, and an install that declares none refuses none
 
 ## How it works
 
@@ -156,19 +156,19 @@ sudo faramir doctor
 
 Reports whether the install is doing its job, and as root what each account can reach. Without root it still runs, reporting what it could not ask as unasked. What it checks, and how every command finds the install: [docs/operating.md](docs/operating.md).
 
-### Naming what this machine should refuse
+### Naming what this machine should block
 
 **A fresh install refuses its own files and nothing else.** Everything under `<config-dir>`, the managed store, `/var/log/faramir`, `/usr/local/libexec/faramir` and the three service accounts' directories, at the paths this host uses. That is the whole of it: faramir does not guess at what else you keep, so an SSH private key, a `.pem`, a `.env` or an `~/.aws/credentials` is refused to your agent only once you say so.
 
 Say so once, in one command. Delete the lines that do not apply to this machine, and add the ones that do:
 
 ```bash
-sudo faramir refuse add     --name id_rsa --name id_ecdsa --name id_ed25519     --name '*.pem' --name '*.key'     --name '.env*' --name credentials     --name 'secrets*.yml' --name 'secrets*.yaml'     --name '*.kdbx' --name '.storage/auth'
+sudo faramir block add     --name id_rsa --name id_ecdsa --name id_ed25519     --name '*.pem' --name '*.key'     --name '.env*' --name credentials     --name 'secrets*.yml' --name 'secrets*.yaml'     --name '*.kdbx' --name '.storage/auth'
 ```
 
-A name is matched against the path your agent asks for rather than against this filesystem, which is what reaches a file inside a container. A path is one file on this host: `sudo faramir refuse add /etc/luks/volume.key`. Each entry refuses the agent's file tools and a command reading it alike, and `faramir refuse ls` lists everything in force, including the rules faramir carries itself.
+A name is matched against the path your agent asks for rather than against this filesystem, which is what reaches a file inside a container. A path is one file on this host: `sudo faramir block add /etc/luks/volume.key`. Each entry refuses the agent's file tools and a command reading it alike, and `faramir block ls` lists everything in force, including the rules faramir carries itself.
 
-A fleet declares these where it declares everything else: every `refuse` command is idempotent and reports what changed with `--json`, so a configuration manager can name the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#refused-paths).
+A fleet declares these where it declares everything else: every `block` command is idempotent and reports what changed with `--json`, so a configuration manager can name the whole list on every converge. [What each form matches, and what a wide one costs](docs/configuration.md#blocked-paths).
 
 ## Usage
 
@@ -233,10 +233,10 @@ The install | `init`, `init-project`, `doctor`, `reload`, `uninstall`
 The managed store | `vault add`, `vault ls`, `vault rm`, `vault edit`
 Who can decrypt it | `recipient add`, `recipient rm`, `recipient ls`, `recipient reseal`
 A secret another tool owns | `link add`, `link rm`, `link ls`
-A path refused to the agent | `refuse add`, `refuse rm`, `refuse ls`
+A path blocked from the agent | `block add`, `block rm`, `block ls`
 The record, and sudo | `logs`, `escalations`, `approve`, `deny`
 
-All need root except `doctor`, which degrades, and the three that only read: `recipient ls`, `link ls` and `refuse ls`. `init`, `init-project` and the four `link` and `refuse` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
+All need root except `doctor`, which degrades, and the three that only read: `recipient ls`, `link ls` and `block ls`. `init`, `init-project` and the four `link` and `block` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
 
 ### MCP tools
 

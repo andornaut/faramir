@@ -150,11 +150,11 @@ type Layout struct {
 	// does not carry these.
 	Links []config.Link
 
-	// Refused is the [[secret.refuse]] entries, read off the config the same way
+	// Blocked is the [[secret.block]] entries, read off the config the same way
 	// and rendering into the same deny rules. Separate from Links because that
 	// is the whole difference between them: these paths are refused to the
 	// agent and never read, so no grant is asked for and no value is held.
-	Refused []config.RefusedPath
+	Blocked []config.BlockedPath
 
 	// The tunables. Each is set by a flag, rendered into config.toml, and read
 	// back out of it on the next run, so a flag left out keeps what the install
@@ -344,7 +344,7 @@ func (l Layout) validate() error {
 	if strings.Contains(dir, "%") {
 		return fmt.Errorf("config dir must not contain '%%': %s", dir)
 	}
-	// Refused here rather than left to whatever renders it: these paths are
+	// Blocked here rather than left to whatever renders it: these paths are
 	// interpolated into the agents' JSON settings, into config.toml and into the
 	// deny patterns, and each format escapes a different set. A settings file the
 	// agent cannot parse reads as an enrolment that worked with every rule in it

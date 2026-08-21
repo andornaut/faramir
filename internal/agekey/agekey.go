@@ -69,7 +69,7 @@ func ValidateRecipient(s string) error {
 		return errors.New("empty age recipient")
 	}
 	// A line break would close the list item and let what follows be read as
-	// YAML. Refused rather than escaped: no recipient sops accepts carries
+	// YAML. Blocked rather than escaped: no recipient sops accepts carries
 	// one.
 	if strings.ContainsAny(s, "\n\r") {
 		return fmt.Errorf("age recipient contains a line break: %q", s)

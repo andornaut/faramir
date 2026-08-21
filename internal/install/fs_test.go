@@ -270,7 +270,7 @@ func TestRefuseUnenterableDirsNamesASymlinkedComponent(t *testing.T) {
 // checkout is one writeAgentFiles writes to happily: it calls ensureDir with
 // own=false, which reads through the link on purpose. So the precondition that
 // stands in for that write has to accept it too, or `init`, `link add` and
-// `refuse add` all refuse an install that would have worked.
+// `block add` all refuse an install that would have worked.
 //
 // The tree side keeps the strict rule, which refuseUnenterableDirs is for: there
 // the directory is handed to the client group, so a link would hand out whatever

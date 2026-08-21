@@ -147,7 +147,7 @@ func TestHostHandlesOnlyItsOwnShellTool(t *testing.T) {
 	}
 }
 
-// Refused before stdin is read; a fallback would answer in a dialect the agent
+// Blocked before stdin is read; a fallback would answer in a dialect the agent
 // ignores.
 func TestUnknownHostIsRefused(t *testing.T) {
 	if code := Run([]string{"--host", "nosuchagent"}); code != 2 {

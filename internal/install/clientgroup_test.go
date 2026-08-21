@@ -59,7 +59,7 @@ func TestAConfigThatAdmitsNoGroupIsRefused(t *testing.T) {
 }
 
 // No config: the enrolment cannot name the group, and it cannot write the deny
-// rules either, the linked and refused paths among them being only in that
+// rules either, the linked and blocked paths among them being only in that
 // file. The message carries both ways out.
 func TestAnEnrolmentWithNoConfigToReadSaysWhatToDo(t *testing.T) {
 	run := &project{opts: ProjectOptions{ConfigDir: t.TempDir()}}

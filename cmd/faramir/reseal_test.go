@@ -48,7 +48,7 @@ func TestTheRuleRecipientsAreReadInOrder(t *testing.T) {
 }
 
 // Two rules mean the recipients depend on which path_regex a file matches, and
-// this cannot answer that. Refused rather than guessed: a guess re-encrypts
+// this cannot answer that. Blocked rather than guessed: a guess re-encrypts
 // part of the secrets directory to a set that never governed it, which widens
 // who can read it.
 //

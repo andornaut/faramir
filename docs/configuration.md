@@ -25,7 +25,7 @@ Flag | Key | Default | Bounds
 `--secret-min-length` | `[secret] min_length` | 8 | at least 6
 `--secret-min-refresh-sec` | `[secret] min_refresh_sec` | 10 | at least 1. A minimum, not a schedule: the check runs when a command arrives and nothing polls in the background, so an idle host costs nothing. It bounds the keeper round trip only; linked files are stat'ed on every request
 
-`[[secret.link]]` is the eighth thing the file carries and is `faramir link`'s, [below](#linked-secrets). `[[secret.refuse]]` is the ninth and is `faramir refuse`'s, [below that](#refused-paths).
+`[[secret.link]]` is the eighth thing the file carries and is `faramir link`'s, [below](#linked-secrets). `[[secret.block]]` is the ninth and is `faramir block`'s, [below that](#blocked-paths).
 
 **`--secret-min-length` has a floor of 6, and a reason for being low.** The two failures are not symmetric: a value refused for being too short is absent from the redactor and reaches output in the clear, while one matched too eagerly only mangles the operator's own text. `password` is eight characters, so the default is not the safe point it looks like. [What the gate is for](redaction.md#the-pipeline-in-order).
 
@@ -109,16 +109,16 @@ Why it is shaped this way (one ref per entry rather than a whole-file flatten, t
 - **A tool that replaces its own file rather than rewriting it takes the grant with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file; `faramir init` grants it again, and so does adding the same entry a second time. That repair needs the reload it gets: the broker fingerprints a linked file by mtime and size, which a `chgrp` leaves alone, so a store already refusing over that file would go on refusing.
 - **A link that is there and will not read stops the host**, being a value the redactor is missing while the plaintext is still on disk: `run` and `redact` refuse until it is fixed. A link whose *path* is gone is the other case and is not fatal, the credential having left the machine.
 
-## Refused paths
+## Blocked paths
 
-A `[[secret.refuse]]` entry refuses one thing to the agent's file tools, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. [When to reach for one](integrations.md#where-the-value-lives).
+A `[[secret.block]]` entry refuses one thing to the agent's file tools, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. [When to reach for one](integrations.md#where-the-value-lives).
 
 ```sh
-sudo faramir refuse add /etc/luks/volume.key          # this file, on this host
-sudo faramir refuse add --name '*.htpasswd'           # any file of that name, anywhere
+sudo faramir block add /etc/luks/volume.key          # this file, on this host
+sudo faramir block add --name '*.htpasswd'           # any file of that name, anywhere
 
 # Each argument and each --name is one entry, and one command writes them all
-sudo faramir refuse add --name id_rsa --name '*.pem' --name '.env*'
+sudo faramir block add --name id_rsa --name '*.pem' --name '.env*'
 ```
 
 **A path and a name are not the same rule, and one entry is one of them.** A path refuses the file at that path. A name is matched against the path the agent names rather than against this host's filesystem, which is what reaches a path the host does not have: a container mounts `/srv/ha/config` as `/config`, the agent names the second, and a rule carrying the first covers nothing it runs. Naming both in one entry is refused rather than answered by picking one.
@@ -132,7 +132,7 @@ Name | Matches
 `secrets*.yml` | any file whose name matches, the wildcard not crossing a directory
 `.storage/` | everything under any directory of that name
 
-Which of the five a pattern is comes from its shape, and `refuse add` prints what it read before writing it. That inference is safe where inferring path-from-name would not be: the shapes differ in breadth, and reading one as another refuses more or fewer files of the same kind, while an inferred path could turn a typo into a rule that silently matches nothing.
+Which of the five a pattern is comes from its shape, and `block add` prints what it read before writing it. That inference is safe where inferring path-from-name would not be: the shapes differ in breadth, and reading one as another refuses more or fewer files of the same kind, while an inferred path could turn a typo into a rule that silently matches nothing.
 
 **The two forms fail in opposite directions.** A mistyped path refuses one file, and the file stays readable until somebody notices. A pattern that matches more than it was meant to refuses a class of files at once, and nothing announces it: the agent meets it as file tools failing on files nobody discussed. So a pattern that matches everything is refused at load the way `/` is as a path, and what a pattern will match is printed as it is written rather than left to be discovered.
 
@@ -140,14 +140,14 @@ Which of the five a pattern is comes from its shape, and `refuse add` prints wha
 
 **It is the weaker of the two entries.** A link reads the file, so it does three things this one cannot:
 
-What happens to the file | `[[secret.link]]` | `[[secret.refuse]]`
+What happens to the file | `[[secret.link]]` | `[[secret.block]]`
 --- | --- | ---
 refused to the agent's file tools | yes | yes
 regrouped to the broker's group, so a brokered command is refused it too | yes | no, the mode is left alone
 the value in the redactor, tokenised wherever it appears | yes | no, faramir never reads it
 injectable by ref | yes | no
 
-So a command the broker runs may still open a refused path, and print it in the clear. The deny rules stop the agent's own shell and its file tools; a brokered command is a different uid running with the operator's consent, and nothing of the refused file is in the redactor to cover its output.
+So a command the broker runs may still open a blocked path, and print it in the clear. The deny rules stop the agent's own shell and its file tools; a brokered command is a different uid running with the operator's consent, and nothing of the refused file is in the redactor to cover its output.
 
 Key | Rule
 --- | ---
@@ -156,10 +156,10 @@ Key | Rule
 
 - **A path that is not there is still recorded**, and you are told. The rule costs nothing while the file is absent and holds once the volume mounts, which is the case these exist for. A path spelled wrong looks the same, so the message says both.
 - **A name is not asked of the filesystem at all**, having nothing on this host to be asked about. What it will match is printed instead.
-- **`faramir refuse ls` is the answer to "what is refused here".** The declared entries in a table, each marked as covering the file tools and the commands together, and under it the command rules faramir carries itself: decryption, another tool's secret store, and the commands that act on this install rather than through it. Neither half can be asked any other way, a refusal naming the rule that matched rather than the set. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges.
+- **`faramir block ls` is the answer to "what is refused here".** The declared entries in a table, each marked as covering the file tools and the commands together, and under it the command rules faramir carries itself: decryption, another tool's secret store, and the commands that act on this install rather than through it. Neither half can be asked any other way, a refusal naming the rule that matched rather than the set. `--declared` narrows it to the entries the config carries, which is the list a configuration manager converges.
 - **A directory refuses what is under it.** Which it is, is asked of the filesystem as the rules are rendered, and a path that is not there renders as a file: the narrower of the two.
-- **A built-in rule cannot be removed, and asking fails.** `refuse rm --name '*.pem'` names a rule compiled into faramir rather than an entry this install carries, so there is nothing to remove and the host goes on refusing it; reporting that as "not refused, nothing removed" would read as the file becoming readable. Naming the file rather than the pattern gets the same answer, `refuse rm ~/.ssh/id_rsa` being the same request. Removing one means changing faramir. Where an install declared the same rule as well, its own entry is removed and the built-in is named as what still refuses it.
-- **Nothing is reloaded.** No daemon reads these entries, so `refuse add` does not restart the broker under a running command.
+- **A built-in rule cannot be removed, and asking fails.** `block rm --name '*.pem'` names a rule compiled into faramir rather than an entry this install carries, so there is nothing to remove and the host goes on refusing it; reporting that as "not refused, nothing removed" would read as the file becoming readable. Naming the file rather than the pattern gets the same answer, `block rm ~/.ssh/id_rsa` being the same request. Removing one means changing faramir. Where an install declared the same rule as well, its own entry is removed and the built-in is named as what still refuses it.
+- **Nothing is reloaded.** No daemon reads these entries, so `block add` does not restart the broker under a running command.
 - **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
 - **Pi is the exception**, as it is for linked paths: its rules are compiled into the extension, so there is no account-wide file to render one into.
 

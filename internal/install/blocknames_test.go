@@ -29,7 +29,7 @@ func TestADeclaredNameIsReadAsItsShape(t *testing.T) {
 		{"ssl/key/", kindDir, "ssl/key/"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rule := refusedNameRule(tc.name)
+			rule := blockedNameRule(tc.name)
 			if rule.kind != tc.kind {
 				t.Errorf("kind %v, want %v", rule.kind, tc.kind)
 			}
@@ -47,7 +47,7 @@ func TestADeclaredNameIsReadAsItsShape(t *testing.T) {
 func TestADeclaredNameReachesEveryAgentSpelling(t *testing.T) {
 	layout := Layout{
 		ConfigDir: "/etc/faramir",
-		Refused:   []config.RefusedPath{{Name: "*.htpasswd"}, {Name: ".storage/"}},
+		Blocked:   []config.BlockedPath{{Name: "*.htpasswd"}, {Name: ".storage/"}},
 	}
 	rules := claudeRules(layout)
 	for _, want := range []string{"Read(**/*.htpasswd)", "Edit(**/*.htpasswd)",
@@ -76,8 +76,8 @@ func TestADeclaredNameReachesEveryAgentSpelling(t *testing.T) {
 // every file of that name and without sweeping in the whole directory.
 func TestANameMayNameAFileInsideADirectory(t *testing.T) {
 	const pattern = ".storage/core.config_entries"
-	layout := Layout{ConfigDir: "/etc/faramir", Refused: []config.RefusedPath{{Name: pattern}}}
-	if rule := refusedNameRule(pattern); rule.kind != kindName {
+	layout := Layout{ConfigDir: "/etc/faramir", Blocked: []config.BlockedPath{{Name: pattern}}}
+	if rule := blockedNameRule(pattern); rule.kind != kindName {
 		t.Errorf("kind %v, want a name", rule.kind)
 	}
 	if !slices.Contains(claudeRules(layout), "Read(**/"+pattern+")") {
@@ -107,16 +107,16 @@ func TestANameMayNameAFileInsideADirectory(t *testing.T) {
 // The two forms are separate entries even where they read alike: they render
 // different rules, so one must not stand in for the other on add or on rm.
 func TestAPathAndANameAreNotOneEntry(t *testing.T) {
-	path := config.RefusedPath{Path: "/etc/luks/volume.key"}
-	name := config.RefusedPath{Name: "volume.key"}
-	if sameRefusal(path, name) {
+	path := config.BlockedPath{Path: "/etc/luks/volume.key"}
+	name := config.BlockedPath{Name: "volume.key"}
+	if sameBlock(path, name) {
 		t.Error("a path and a name were read as one entry")
 	}
-	entries, added := refusedWith([]config.RefusedPath{path}, name)
+	entries, added := blockedWith([]config.BlockedPath{path}, name)
 	if !added || len(entries) != 2 {
 		t.Errorf("adding a name beside a path gave %d entry(ies), added=%v", len(entries), added)
 	}
-	if _, again := refusedWith(entries, name); again {
+	if _, again := blockedWith(entries, name); again {
 		t.Error("the same name was added twice")
 	}
 }
@@ -131,7 +131,7 @@ func TestAPatternSaysWhatItMatches(t *testing.T) {
 		".storage/":    `under any directory named ".storage"`,
 		"auth":         `named "auth"`,
 	} {
-		if got := RefusedNameMatches(name); !strings.Contains(got, want) {
+		if got := BlockedNameMatches(name); !strings.Contains(got, want) {
 			t.Errorf("%s: %q does not say %q", name, got, want)
 		}
 	}
@@ -142,13 +142,13 @@ func TestAPatternSaysWhatItMatches(t *testing.T) {
 // still the right one to ask before a removal; what changed is the list it asks
 // against, which is now empty by design rather than by accident.
 func TestNothingIsRefusedByABuiltInRule(t *testing.T) {
-	if len(BuiltInRefusals()) != 0 {
+	if len(BuiltInRules()) != 0 {
 		t.Errorf("the built-in list carries %d rule(s): %+v",
-			len(BuiltInRefusals()), BuiltInRefusals())
+			len(BuiltInRules()), BuiltInRules())
 	}
 	// Every shape, including the two that used to be built in.
 	for _, name := range []string{"age.key", "sops/age/", "*.pem", ".env*", "id_rsa"} {
-		if rule, ok := BuiltInRefusalFor(name); ok {
+		if rule, ok := BuiltInRuleFor(name); ok {
 			t.Errorf("%s was read as the built-in %q", name, rule.Entry)
 		}
 	}
@@ -157,18 +157,18 @@ func TestNothingIsRefusedByABuiltInRule(t *testing.T) {
 		"/home/op/.config/sops/age/keys.txt",
 		"/home/op/.ssh/id_rsa",
 	} {
-		if rule, ok := BuiltInRefusalCovering(path); ok {
+		if rule, ok := BuiltInRuleCovering(path); ok {
 			t.Errorf("%s was read as covered by the built-in %q", path, rule.Entry)
 		}
 	}
 	// So a removal is never refused on those grounds, whatever it names.
-	dir := writeRefuseConfig(t, "")
-	for _, asked := range []config.RefusedPath{
+	dir := writeBlockConfig(t, "")
+	for _, asked := range []config.BlockedPath{
 		{Name: "age.key"}, {Path: "/home/op/.config/sops/age/keys.txt"},
 	} {
-		if err := BuiltInRefusalError(dir, asked); err != nil {
+		if err := BuiltInRuleError(dir, asked); err != nil {
 			t.Errorf("%s: removal was refused with no built-in to refuse it: %v",
-				asked.Refuses(), err)
+				asked.Blocks(), err)
 		}
 	}
 }
@@ -176,13 +176,13 @@ func TestNothingIsRefusedByABuiltInRule(t *testing.T) {
 // A declared entry is removable, which is what the check above must not get in
 // the way of.
 func TestADeclaredEntryIsRemovable(t *testing.T) {
-	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/home/op/age.key\"\n"+
-		"[[secret.refuse]]\nname = \"age.key\"\n")
-	for _, asked := range []config.RefusedPath{
+	dir := writeBlockConfig(t, "[[secret.block]]\npath = \"/home/op/age.key\"\n"+
+		"[[secret.block]]\nname = \"age.key\"\n")
+	for _, asked := range []config.BlockedPath{
 		{Path: "/home/op/age.key"}, {Name: "age.key"},
 	} {
-		if err := BuiltInRefusalError(dir, asked); err != nil {
-			t.Errorf("%s: a declared entry was refused: %v", asked.Refuses(), err)
+		if err := BuiltInRuleError(dir, asked); err != nil {
+			t.Errorf("%s: a declared entry was refused: %v", asked.Blocks(), err)
 		}
 	}
 }
@@ -192,15 +192,15 @@ func TestADeclaredEntryIsRemovable(t *testing.T) {
 // and what the resulting set is; that it costs one write rather than a dozen is
 // the caller applying it once, which the e2e suite exercises on a real host.
 func TestSeveralEntriesFoldIntoOneSet(t *testing.T) {
-	existing := []config.RefusedPath{{Name: "*.pem"}}
-	asked := []config.RefusedPath{
+	existing := []config.BlockedPath{{Name: "*.pem"}}
+	asked := []config.BlockedPath{
 		{Name: "id_rsa"},
 		{Name: "*.pem"}, // already there
 		{Name: ".env*"},
 		{Path: "/mnt/vol/luks.key"},
 		{Name: "id_rsa"}, // named twice in one call
 	}
-	entries, added := foldRefusals(existing, asked)
+	entries, added := foldBlocked(existing, asked)
 	if want := []bool{true, false, true, true, false}; !slices.Equal(added, want) {
 		t.Errorf("added = %v, want %v: an entry already there, and one named twice "+
 			"in one call, are both reported as not added", added, want)
@@ -212,12 +212,12 @@ func TestSeveralEntriesFoldIntoOneSet(t *testing.T) {
 		t.Fatalf("the set holds %d entries, want %d: %+v", len(entries), len(want), entries)
 	}
 	for i, refuses := range want {
-		if got := entries[i].Refuses(); got != refuses {
+		if got := entries[i].Blocks(); got != refuses {
 			t.Errorf("entry %d is %q, want %q", i, got, refuses)
 		}
 	}
 	// The one it started with is untouched by a fold that added nothing.
-	if _, added := foldRefusals(entries, []config.RefusedPath{{Name: "*.pem"}}); added[0] {
+	if _, added := foldBlocked(entries, []config.BlockedPath{{Name: "*.pem"}}); added[0] {
 		t.Error("an entry already in the set was reported as added")
 	}
 }
@@ -225,12 +225,12 @@ func TestSeveralEntriesFoldIntoOneSet(t *testing.T) {
 // One bad entry writes none of the list. A partial write would leave the
 // operator to work out which half of what they pasted took.
 func TestOneBadEntryWritesNoneOfTheList(t *testing.T) {
-	dir := writeRefuseConfig(t, "")
+	dir := writeBlockConfig(t, "")
 	before, err := os.ReadFile(filepath.Join(dir, "config.toml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, _, err = AddRefusedPaths(Options{ConfigDir: dir}, []config.RefusedPath{
+	_, _, err = AddBlockedPaths(Options{ConfigDir: dir}, []config.BlockedPath{
 		{Name: "id_rsa"},
 		{Name: "*"}, // every file on the host
 		{Name: ".env*"},

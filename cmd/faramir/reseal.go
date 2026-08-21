@@ -48,7 +48,7 @@ type storeContext struct {
 // from now on.
 func loadStore(label, configPath, socket string, named []string,
 	emptyStoreOK bool) (*storeContext, int) {
-	// Refused rather than attempted, like edit: as the operator this fails on the
+	// Blocked rather than attempted, like edit: as the operator this fails on the
 	// age key with a bare permission error.
 	if !requireRoot(label, "the age key is readable only by the keeper and by root") {
 		return nil, 1

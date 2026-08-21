@@ -83,7 +83,7 @@ func TestTheRelocatedRulesAreGone(t *testing.T) {
 		}
 	}
 	// And they are refusable by declaring them, which is where they went.
-	declared := Layout{ConfigDir: "/etc/faramir", Refused: []config.RefusedPath{
+	declared := Layout{ConfigDir: "/etc/faramir", Blocked: []config.BlockedPath{
 		{Name: "id_rsa"}, {Name: "*.pem"}, {Name: ".env*"},
 	}}
 	for _, fragment := range jsFragments(declared) {

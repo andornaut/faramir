@@ -90,7 +90,7 @@ Each suite prints one line per check and exits non-zero if any failed.
 | `check-doctor.sh` | `faramir doctor` as a fault detector |
 | `check-secrets.sh` | the secret lifecycle: edit, reseal, the `.sops.yaml` shapes that seal a store to the wrong people, and a store that will not open |
 | `check-link.sh` | `[[secret.link]]`: a value read out of a file another tool maintains, and the grant that lets the broker read it and nobody else |
-| `check-refuse.sh` | `[[secret.refuse]]`: a path or a name refused to the agent's file tools, the listing that shows the built-in rules beside them, and the two costs of never reading it: the mode is left alone and the value is absent from the redactor |
+| `check-block.sh` | `[[secret.block]]`: a path or a name blocked from the agent's file tools, the listing that shows the built-in rules beside them, and the two costs of never reading it: the mode is left alone and the value is absent from the redactor |
 | `check-uninstall.sh` | `faramir uninstall`, and what it is right to leave behind |
 
 ## Writing a check

@@ -267,7 +267,7 @@ func newInitCmd() *cobra.Command {
 			"one set of units, so the new directory replaces the old rather than "+
 			"standing beside it: the refs the old one served leave the value set and "+
 			"stop being redacted, while its age key and ciphertext stay on disk. "+
-			"Refused without this")
+			"Blocked without this")
 	fl.BoolVar(&f.dryRun, "dry-run", false, "report what would change and write nothing")
 	fl.BoolVar(&f.asJSON, "json", false, "print the report as JSON")
 	// The tunables, named for what they bound rather than for the section they
@@ -299,7 +299,7 @@ func namedValues(pairs []string) (map[string]string, error) {
 	for _, pair := range pairs {
 		name, value, found := strings.Cut(pair, "=")
 		if !found {
-			// Refused rather than skipped: `--command-env FOO` reads as setting
+			// Blocked rather than skipped: `--command-env FOO` reads as setting
 			// something, and accepting it would leave the child without it and no
 			// reason given.
 			return nil, fmt.Errorf("--command-env %q names no value; write it as NAME=VALUE", pair)
@@ -420,7 +420,7 @@ func newInitProjectCmd() *cobra.Command {
 	fl.StringVar(&f.clientGroup, "client-group", "",
 		"share the tree with this group instead of the one the installed config "+
 			"admits. It overrides that one value: the config still has to load, the "+
-			"linked and refused paths in the deny rules an enrolment writes being "+
+			"linked and blocked paths in the deny rules an enrolment writes being "+
 			"only there")
 	fl.StringArrayVar(&f.agents, "agent", nil,
 		"coding agent to enrol, repeatable. Default \""+install.AgentAuto+"\": "+
