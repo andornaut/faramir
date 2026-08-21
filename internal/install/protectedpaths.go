@@ -48,27 +48,27 @@ type protectedPath struct {
 // alphabetically.
 // What a protected path is, for the paths that share a description. Several
 // patterns describe one kind of file, and the wording is what a refusal says.
-const descSopsFile = "a managed sops file"
-
-// The encrypted store and the keys that open it, and nothing else. A
-// credential of the operator's own that faramir neither writes nor reads is
-// theirs to declare: `faramir refuse add`, or a configuration manager naming
-// what a fleet keeps. What that costs a host nobody declares anything on is in
-// installing.md, under the deny rules.
+// The age identities, and nothing else.
+//
+// Everything this install writes is refused by installDirs, which renders the
+// real paths out of the layout: the config directory wherever --config-dir put
+// it, the store, the log and libexec. Those cover the age key, the broker's SSH
+// key, the managed sops files and the audit log where they actually are, and a
+// mode refuses each of them to the agent's uid as well. A name rule for any of
+// them would be a third statement of what two mechanisms already hold, written
+// against the default path rather than this host's.
+//
+// What is left is what faramir does not install and no mode refuses: the
+// operator's own age identity, which is a key to this store and sits in their
+// home, and a copy of an age key anywhere else. Both are the agent's own uid's
+// to read, so a deny rule is the only thing in the way.
+//
+// A credential faramir neither writes nor reads is the operator's to declare:
+// `faramir refuse add`, or a configuration manager naming what a fleet keeps.
+// What that costs a host nobody declares anything on is in installing.md.
 var protectedPaths = []protectedPath{
-	// The managed store, by the names sops files are given.
-	{kindSuffix, ".sops.yml", descSopsFile},
-	{kindSuffix, ".sops.yaml", descSopsFile},
-	{kindSuffix, ".sops.json", descSopsFile},
-
-	// The keys that decrypt it. An age key replaced is every managed file
-	// unreadable, retroactively.
 	{kindName, "age.key", "an age identity"},
 	{kindDir, "sops/age/", "the age identities sops reads"},
-	{kindDir, ".config/sops/", "sops' own configuration and keys"},
-
-	// This install's own, wherever --config-dir put it.
-	{kindDir, ".config/faramir/", "faramir's configuration"},
 }
 
 // refusedNameRules is the [[secret.refuse]] entries that named a pattern rather
@@ -246,22 +246,6 @@ func (k pathKind) String() string {
 // second path through the renderers.
 func protectedFor(layout Layout) []protectedPath {
 	return append(append([]protectedPath{}, protectedPaths...), refusedNameRules(layout)...)
-}
-
-// retiredRules is what protectedPaths carried before these became the
-// operator's to declare. Nothing renders them and no install refuses them: they
-// are here for the drift check alone, which recognises a rule in an agent's
-// file as faramir's by the value it carries. Without them a host that ran an
-// earlier faramir keeps twelve rules in its agent settings that nothing writes
-// and nothing can name, and `agent rule drift` is the only report that would
-// ever have mentioned them.
-//
-// A rule an install still declares is rendered and so is not drift; this
-// reaches only the ones nobody re-declared.
-var retiredRules = []string{
-	"secrets*.yml", "secrets*.yaml", ".vault", "vault.yml",
-	"id_rsa", "id_dsa", "id_ecdsa", "id_ed25519",
-	".key", ".pem", "credentials", ".env",
 }
 
 // installDirs are the paths this install occupies, known only once it is laid

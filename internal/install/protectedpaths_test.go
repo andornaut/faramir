@@ -20,12 +20,8 @@ var samples = []struct {
 	refused string
 	allowed string
 }{
-	{"/etc/faramir/secrets/db.sops.yml", "/srv/app/db.yml"},
-	{"/srv/vars.sops.yaml", "/srv/vars.yaml"},
-	{"/srv/vars.sops.json", "/srv/vars.json"},
 	{"/home/op/age.key", "/home/op/age.pub"},
 	{"/home/op/.config/sops/age/keys.txt", "/home/op/notes.txt"},
-	{"/home/op/.config/faramir/config.toml", "/home/op/.config/other/config.toml"},
 }
 
 // What the list no longer carries, and so what a host nobody declares anything
@@ -42,6 +38,9 @@ var relocated = []string{
 	"/srv/app/secrets.yml",
 	"/srv/group_vars/all.vault",
 	"/srv/vault.yml",
+	// A sops file outside this install's own store, which is ciphertext and is
+	// covered where it matters by the literal store path.
+	"/srv/ansible/group_vars/db.sops.yml",
 }
 
 // The Go list is what every rendering is derived from, so it is what the
@@ -91,6 +90,28 @@ func TestTheRelocatedRulesAreGone(t *testing.T) {
 	for _, path := range []string{"/home/op/.ssh/id_rsa", "/srv/tls/chain.pem", "/srv/app/.env"} {
 		if !matchesAnyPath(res, path) {
 			t.Errorf("%s is not refused by the entry that declares it", path)
+		}
+	}
+}
+
+// What the two rules do not carry is carried by the layout instead: every path
+// this install writes is rendered as a literal, so it is refused where it
+// actually is rather than where a default would have put it. That is the reason
+// the list is two rules and not seven, so it is asserted rather than assumed.
+func TestTheInstallsOwnPathsAreRefusedAsLiterals(t *testing.T) {
+	layout := Layout{
+		ConfigDir:  "/opt/faramir",
+		LogDir:     "/var/log/faramir",
+		LibexecDir: "/usr/local/libexec/faramir",
+	}
+	rules := claudeRules(layout)
+	for _, want := range []string{
+		"Read(/opt/faramir/**)",         // the age key, the SSH key, config.toml
+		"Read(/opt/faramir/secrets/**)", // the managed sops files
+		"Read(/var/log/faramir/**)",     // the audit log
+	} {
+		if !slices.Contains(rules, want) {
+			t.Errorf("the rules do not carry %q", want)
 		}
 	}
 }

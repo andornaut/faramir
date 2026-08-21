@@ -504,8 +504,10 @@ func TestPiExtensionRefusesKeyMaterial(t *testing.T) {
 			map[string]any{"path": "/home/op/.ssh/id_ed25519"}, true},
 		{"the age identity sops reads", "read",
 			map[string]any{"path": "/home/op/.config/sops/age/keys.txt"}, true},
+		// Under this install's own store, which the layout renders as a literal:
+		// the rig's config dir is /opt/conf.
 		{"a managed sops file", "edit",
-			map[string]any{"file_path": "/etc/faramir/secrets/db.sops.yml"}, true},
+			map[string]any{"file_path": "/opt/conf/secrets/db.sops.yml"}, true},
 		{"this install's own directory", "read",
 			map[string]any{"path": "/opt/conf/config.toml"}, true},
 		// A tool this extension has never heard of, taking a list rather than a

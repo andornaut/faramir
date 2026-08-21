@@ -412,14 +412,6 @@ func looksManaged(entry, configDir string) bool {
 			return true
 		}
 	}
-	// What faramir used to refuse and no longer does. Recognised so that a rule
-	// an earlier version left in an agent's file is named as ours rather than
-	// read as the operator's own and left unmentioned for ever.
-	for _, value := range retiredRules {
-		if strings.Contains(entry, value) {
-			return true
-		}
-	}
 	for _, dir := range installDirs(Layout{ConfigDir: configDir}) {
 		if strings.Contains(entry, dir) {
 			return true

@@ -413,7 +413,7 @@ refuse ls --declared | grep -q 'built-in' \
 # and the host goes on refusing it. It fails before root is asked for, a request
 # that can never be granted having no business costing a sudo first.
 before=$(cat $CFG)
-out=$(refuse rm --name '*.sops.yml' 2>&1)
+out=$(refuse rm --name 'age.key' 2>&1)
 rc=$?
 [ $rc -ne 0 ] \
   && ok "refuse rm on a built-in rule fails" \

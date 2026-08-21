@@ -55,11 +55,12 @@ func TestAStaleRuleIsFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	// One rule faramir no longer writes, one it still writes, and one that is the
-	// operator's own.
+	// operator's own. The stale one names a config directory this install moved
+	// away from, which is what a --config-dir run leaves behind.
 	home := writeRules(t, ".claude/settings.json", `{
 	  "permissions": {"deny": [
-	    "Read(**/*.sops.yml)",
-	    "Read(**/retired-secrets.key)",
+	    "Read(**/age.key)",
+	    "Read(/opt/retired-faramir/**)",
 	    "Read(**/notes.md)"
 	  ]}
 	}`)
@@ -69,11 +70,11 @@ func TestAStaleRuleIsFound(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(got, " ")
-	if !strings.Contains(joined, "retired-secrets.key") {
+	if !strings.Contains(joined, "retired-faramir") {
 		t.Errorf("the rule faramir no longer writes was not found: %v", got)
 	}
 	// Still written, so not stale.
-	if strings.Contains(joined, ".sops.yml") {
+	if strings.Contains(joined, "age.key") {
 		t.Errorf("a rule faramir still writes was reported as stale: %v", got)
 	}
 	// Nothing to do with faramir, so never named: reporting an operator's own
@@ -111,7 +112,7 @@ func TestAFreshlyWrittenFileHasNoStaleRules(t *testing.T) {
 // name that rather than instruct a deletion.
 func TestTheDriftFindingSaysItCannotTellWhoseRuleItIs(t *testing.T) {
 	home := writeRules(t, ".claude/settings.json", `{
-	  "permissions": {"deny": ["Read(**/retired-secrets.key)"]}
+	  "permissions": {"deny": ["Read(/opt/retired-faramir/**)"]}
 	}`)
 
 	var report DoctorReport
@@ -128,7 +129,7 @@ func TestTheDriftFindingSaysItCannotTellWhoseRuleItIs(t *testing.T) {
 	if report.Failed {
 		t.Error("untidy rules failed the report")
 	}
-	if !strings.Contains(got.Detail, "retired-secrets.key") {
+	if !strings.Contains(got.Detail, "retired-faramir") {
 		t.Errorf("the finding does not name the rule: %s", got.Detail)
 	}
 	for _, want := range []string{"not yours", "no longer writes"} {
@@ -185,9 +186,13 @@ func TestLooksManagedMatchesOnlyTheInstallersOwnLine(t *testing.T) {
 		{"Read(/opt/faramir/**)", true},
 		// And the one this install actually uses.
 		{"Read(" + configDir + "/**)", true},
-		// Key material, which faramir refuses wherever it sits.
-		{"Read(**/id_ed25519)", true},
+		// The age identities, which faramir refuses wherever they sit.
+		{"Read(**/age.key)", true},
 		{"*sops/age/*", true},
+		// A credential of the operator's own. faramir does not write a rule for
+		// one, so a rule naming one is theirs and is never reported as drift.
+		{"Read(**/id_ed25519)", false},
+		{"Read(**/*.pem)", false},
 
 		{"Read(**/notes.md)", false},
 		{"Bash(git status)", false},

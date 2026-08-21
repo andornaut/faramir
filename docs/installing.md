@@ -50,12 +50,14 @@ Every path an install creates, with its mode and owner, is in [layout.md](layout
 
 ## Deny rules
 
-The rules `--agent` installs refuse the agent's file tools **the encrypted store and the keys that open it, and nothing else**: `*.sops.yml`, `*.sops.yaml` and `*.sops.json` by suffix, `age.key` by name, and the `~/.config/sops`, `sops/age` and `~/.config/faramir` directories, plus this install's own paths wherever `--config-dir` put them. Which file each agent reads them from is in [layout.md](layout.md); what they cost that agent is in [coding-agents.md](coding-agents.md).
+The rules `--agent` installs are **this install's own paths, and the age identities**. The paths come out of the layout, so they are the real ones: `<config-dir>`, the secrets directory, `/var/log/faramir` and `/usr/local/libexec/faramir`, each with everything under it, wherever `--config-dir` put them. The age identities are two patterns, `age.key` by name and any `sops/age` directory, which cover a key the operator keeps outside all of those: their own sops identity in their home is a key to this store and faramir neither writes nor refuses it by any other means. Which file each agent reads them from is in [layout.md](layout.md); what they cost that agent is in [coding-agents.md](coding-agents.md).
+
+Nothing else is compiled in, because nothing else would add a boundary. Every secret file an install writes is refused by its mode as well: `age.key` is `0400 faramir-keeper`, the broker's SSH key `0600 faramir-broker`, the secrets directory `2750 root:<secrets-group>`, the audit log `0600 faramir-broker`. A deny rule naming those by name would be a third statement of what two mechanisms already hold, and it would be written against the default path rather than this host's.
 
 > [!IMPORTANT]
 > **A credential faramir neither writes nor reads is yours to declare.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials`: none is refused by an install that declares nothing, so an agent's file tools can open them. `faramir refuse add` names one, `--name` names a class of them ([refused paths](configuration.md#refused-paths)), and `faramir refuse ls` shows both halves. A fleet declares them once in whatever converges its hosts.
 
-The line is drawn around the store rather than around credentials in general: what faramir writes and reads, it refuses, and what it never touches is the operator's to name. It also means the rules do not grow a list every host has to disagree with.
+The line is drawn around what faramir installs rather than around credentials in general: what it writes, it refuses, and what it never touches is the operator's to name. It also means the rules do not grow a list every host has to disagree with.
 
 ## Checking it worked
 
