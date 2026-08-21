@@ -275,6 +275,7 @@ jobs:
   e2e-result:
     name: E2E
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     needs: e2e
     if: always()
     steps:
