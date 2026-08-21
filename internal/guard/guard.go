@@ -18,6 +18,7 @@ import (
 
 	"github.com/andornaut/faramir/internal/cli"
 	"github.com/andornaut/faramir/internal/config"
+	"github.com/andornaut/faramir/internal/denyrules"
 	"github.com/andornaut/faramir/internal/version"
 )
 
@@ -39,23 +40,45 @@ func patternsFile() string {
 	return "/usr/local/libexec/faramir/deny-patterns.txt"
 }
 
-// The command alternations the path rules share, named so configDirRules can
-// build the same rules for a path known only at run time. Readers carry
-// interpreters and copiers as well as pagers: reading a key with python, or
-// copying it somewhere unmatched and reading it there, is the same disclosure.
-// "sed" is a writer only; "grep" is neither, so naming a .env file in a search
-// is not refused.
-const (
-	readCommands = `\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|` +
-		`hexdump|uuencode|rev|tac|awk|cut|nl|dd|jq|yq|python3?|perl|ruby|tee|cp|` +
-		`tar|scp|rsync)\b`
-	writeCommands = `\b(?-i:rm|shred|truncate|mv|cp|tee|dd|sed|chmod|chown|chgrp|` +
-		`setfacl|ln)\b`
-)
+// defaultInstallPaths is what an install at the compiled defaults occupies, in
+// the order installDirs renders them.
+//
+// Written here rather than taken from internal/install, which cannot be
+// imported: this package's own tests import that one, so the arrow only points
+// one way. The rules generated from these have to equal the ones the shipped
+// file carries at the same defaults, which TestTheFallbackMatchesTheShippedFile
+// holds them to.
+var defaultInstallPaths = []string{
+	`/etc/faramir`,
+	`/etc/faramir/secrets`,
+	`/var/log/faramir`,
+	`/usr/local/libexec/faramir`,
+	`/var/lib/faramir-broker`,
+	`/var/lib/faramir-keeper`,
+	`/var/lib/faramir-exec`,
+}
 
 // fallback is used if the patterns file is missing, so a broken install still
 // fails closed. Keep it in step with agent/hooks/deny-patterns.txt.
-var fallback = []string{
+//
+// A host whose config was moved by --config-dir is covered by configDirRules
+// instead, which builds the same three rules for the path the config actually
+// has. What this cannot carry either way is what the host declares: a
+// [[secret.refuse]] entry is in the rendered file and nowhere else, so a host
+// running on the fallback is a host running on faramir's own paths alone.
+var fallback = fallbackPatterns()
+
+// fallbackPatterns assembles the list in the shipped file's own order, which
+// TestTheFallbackMatchesTheShippedFile compares line by line.
+func fallbackPatterns() []string {
+	out := append([]string{}, fallbackVerbs...)
+	out = append(out, denyrules.For(defaultInstallPaths)...)
+	return append(out, fallbackOwn...)
+}
+
+// fallbackVerbs is what a command does rather than what it points at: the
+// decryption and secret-manager calls, which name no path of faramir's.
+var fallbackVerbs = []string{
 	`ansible-vault\s+(view|decrypt|edit|rekey)`,
 	`\bsops\s+(decrypt|-d|--decrypt|-i\s+.*-d)`,
 	`\bsops\s+(-e|--encrypt|encrypt|set|unset|rotate|updatekeys)\b`,
@@ -66,27 +89,21 @@ var fallback = []string{
 	`\bpass\s+show\b`,
 	`\bgopass\s+show\b`,
 	`\bvault\s+(read|kv\s+get)\b`,
-	// Readers, encoders, interpreters and copiers pointed at key material.
-	// "sops/age" is the operator's ~/.config/sops/age/keys.txt, which opens the
-	// same secrets and is readable by the agent's uid. "[^|]*" stops at the
-	// first pipe; "[\s/=]\.env" keeps faramir.env (refs, no values) out.
-	readCommands + `[^|]*` +
-		`(age\.key|sops/age|id_(rsa|dsa|ecdsa|ed25519)|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/var/log/faramir)`,
-	`\b(?-i:cat|less|more|head|tail|bat|xxd|od|strings|base64|base32|hexdump|uuencode|rev|tac)\b[^|]*` +
-		`(vault\.|secrets?\.(ya?ml|json|toml|env|ini|conf|txt|enc|gpg)\b|credentials\b|\.pem\b|` +
-		`[\s/=]\.env(\.(local|development|production|test|staging))?([\s"']|$))`,
-	`\bfind\b.*-name.*(age\.key|\.env|id_(rsa|dsa|ecdsa|ed25519))`,
-	// Writes to faramir's own files. The redirect rule matches the target word
-	// only, so a heredoc mentioning one of these paths is not a write to it.
-	writeCommands + `[^|]*` +
-		`(age\.key|sops/age|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml|\.vault\b)`,
-	`>\s*\S*(age\.key|sops/age|\.config/faramir\b|/etc/faramir|/etc/faramir/secrets|/usr/local/libexec/faramir|/usr/local/bin/faramir\b|\.sops\.ya?ml)`,
+}
+
+// fallbackOwn is the rest of faramir's own: its binary, the files an enrolment
+// installs, and the commands that act on the install rather than through it.
+var fallbackOwn = []string{
+	// The binary, named as one path rather than as its directory, or installing
+	// any unrelated tool into /usr/local/bin would be refused.
+	denyrules.WriteCommands + `[^|]*/usr/local/bin/faramir\b`,
+	`>\s*\S*/usr/local/bin/faramir\b`,
 	// The plugin and extension an enrolment installs, which are faramir's own
 	// files. The merged files (.claude/settings.json, .mcp.json, opencode.json,
 	// kilo.json, .agents/mcp_config.json) are deliberately absent: they carry the
 	// operator's own settings beside faramir's, so editing them is ordinary work,
 	// and `faramir doctor` reports a registration that went missing.
-	writeCommands + `[^|]*` +
+	denyrules.WriteCommands + `[^|]*` +
 		`(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
 	`>\s*\S*(\.opencode/plugins/faramir\.js|\.kilo/plugin/faramir\.js|\.pi/extensions/faramir\.ts)`,
 	// faramir under sudo, whichever subcommand. Nothing an agent may run needs
@@ -145,10 +162,10 @@ const adviceOwn = "Blocked: this is faramir's own file, account or unit. Not " +
 // ownershipMarkers are the substrings that identify a pattern as being about
 // faramir's own things rather than about disclosure. Matched against the
 // pattern's own text, which is the same string in the compiled fallback and in
-// the shipped file. A prefix of writeCommands rather than the constant, the
+// the shipped file. A prefix of denyrules.WriteCommands rather than the constant, the
 // shipped file carrying the expansion rather than the name.
 var ownershipMarkers = []string{
-	`(?-i:rm|shred|truncate`, // writeCommands: editing or destroying
+	`(?-i:rm|shred|truncate`, // denyrules.WriteCommands: editing or destroying
 	`>\s*\S*`,                // a redirect into one of those paths
 	`\bsystemctl\b`,          // stopping or masking a unit
 }
@@ -199,12 +216,7 @@ func configDir() string {
 // called: the same three shapes the literal rules use, so a moved install is
 // covered the way /etc/faramir is.
 func configDirRules(dir string) []string {
-	quoted := regexp.QuoteMeta(dir)
-	return []string{
-		readCommands + `[^|]*` + quoted,
-		writeCommands + `[^|]*` + quoted,
-		`>\s*\S*` + quoted,
-	}
+	return denyrules.For([]string{regexp.QuoteMeta(dir)})
 }
 
 func loadPatterns() []compiled {

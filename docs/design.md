@@ -78,7 +78,7 @@ Rendering linked paths into the per-project assets instead would change every en
 ## Three layers
 
 1. **No plaintext where the agent will trip over it.** Values are sops ciphertext; the age key is `0400` under a uid that executes nothing but sops.
-2. **Leak-prone commands are refused.** [deny-patterns.txt](../agent/hooks/deny-patterns.txt) names direct decryption, and readers or encoders pointed at this install's own files. The refusal states the alternative, because a denial the agent cannot act on gets worked around. Not an environment dump: in an enrolled tree the command is rewritten before it runs, so `printenv` comes back with every managed value replaced by its token, which is the same cover applied to whatever printed it.
+2. **Leak-prone commands are refused.** [deny-patterns.txt](../agent/hooks/deny-patterns.txt) names direct decryption, and readers or encoders pointed at anything the install protects. That second half is generated from the same set the agents' deny rules are: one list, two entry points, so a declared path is refused to a file tool and to `cat` together rather than to whichever was thought of. The refusal states the alternative, because a denial the agent cannot act on gets worked around. Not an environment dump: in an enrolled tree the command is rewritten before it runs, so `printenv` comes back with every managed value replaced by its token, which is the same cover applied to whatever printed it.
 3. **Redact what still gets through.** The `redact` op returns text with every known value replaced by its token. The caller never receives the value set.
 
 ## How the rewrite works

@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,16 +13,33 @@ import (
 // Point every test at the repo's own patterns rather than at whatever is
 // installed under /usr/local/libexec. Rendered first, because the shipped file
 // is a template whose path rules match nothing unexpanded.
+// The whole package runs against the shipped file as an install would render
+// it. Fatal rather than best-effort on every step: a render that failed used to
+// leave the variable unset, which sends the guard to whatever file this machine
+// has installed, and the suite then reports on that host's build instead of
+// this tree's.
 func TestMain(m *testing.M) {
-	cleanup := func() {}
-	if data, err := renderShippedBytes(); err == nil {
-		if dir, err := os.MkdirTemp("", "faramir-guard-patterns"); err == nil {
-			cleanup = func() { _ = os.RemoveAll(dir) }
-			path := filepath.Join(dir, "deny-patterns.txt")
-			if os.WriteFile(path, data, 0o644) == nil {
-				_ = os.Setenv("FARAMIR_DENY_PATTERNS", path)
-			}
-		}
+	data, err := renderShippedBytes()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot render the shipped patterns: %v\n", err)
+		os.Exit(1)
+	}
+	dir, err := os.MkdirTemp("", "faramir-guard-patterns")
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "cannot make a directory for them: %v\n", err)
+		os.Exit(1)
+	}
+	cleanup := func() { _ = os.RemoveAll(dir) }
+	path := filepath.Join(dir, "deny-patterns.txt")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		cleanup()
+		fmt.Fprintf(os.Stderr, "cannot write them: %v\n", err)
+		os.Exit(1)
+	}
+	if err := os.Setenv("FARAMIR_DENY_PATTERNS", path); err != nil {
+		cleanup()
+		fmt.Fprintf(os.Stderr, "cannot point the guard at them: %v\n", err)
+		os.Exit(1)
 	}
 	// Not deferred: os.Exit would skip it.
 	code := m.Run()
@@ -140,8 +158,8 @@ func TestEveryFallbackPatternCompiles(t *testing.T) {
 	}
 }
 
-// The fallback names /etc/faramir and the documented ~/.config/faramir, so an
-// install placed anywhere else would be refused by neither. The directory is
+// The fallback names the compiled defaults and nothing else, so an install
+// placed anywhere else is refused by the derived rule alone. The directory is
 // taken from where the daemons take it, so moving the config moves what the
 // hook refuses instead of silently narrowing it.
 func TestTheFallbackFollowsAMovedConfigDir(t *testing.T) {
@@ -165,16 +183,23 @@ func TestTheFallbackFollowsAMovedConfigDir(t *testing.T) {
 	}
 }
 
-// The documented per-operator placement, refused by name so that a store found
-// in someone else's home is refused too, not only the one this host installed.
-func TestTheFallbackNamesTheOperatorConvention(t *testing.T) {
+// A config directory this install does not have is refused by nothing, which is
+// the same answer the agents' own rules give: what is refused is where this
+// host put its install rather than every place a faramir install could be. A
+// second install in another home is that install's to refuse.
+func TestAConfigDirectoryThisInstallDoesNotHaveIsNotRefused(t *testing.T) {
 	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
+	t.Setenv("FARAMIR_CONFIG", "/etc/faramir/config.toml")
 	for _, command := range []string{
-		"cat ~/.config/faramir/config.toml",
+		"cat /home/someone/.config/faramir/config.toml",
 		"rm -f /home/someone/.config/faramir/secrets/x.sops.yml",
 	} {
-		if _, denied := decide(command); !denied {
-			t.Errorf("%q is allowed", command)
+		if pattern, denied := decide(command); denied {
+			t.Errorf("%q is denied by %q", command, pattern)
 		}
+	}
+	// This install's own, at the same defaults, still is.
+	if _, denied := decide("cat /etc/faramir/config.toml"); !denied {
+		t.Error("this install's own config directory is allowed")
 	}
 }

@@ -1,40 +1,27 @@
 package guard
 
 import (
-	"os"
-	"regexp"
 	"strings"
 	"testing"
-	"text/template"
 
 	"github.com/andornaut/faramir/internal/install"
 )
 
-const shippedPatterns = "../../agent/hooks/deny-patterns.txt"
-
 // The shipped file is a template, so the paths it refuses are the ones an
 // install writes into it. Rendered against the compiled defaults.
 func renderShippedBytes() ([]byte, error) {
-	data, err := os.ReadFile(shippedPatterns)
-	if err != nil {
-		return nil, err
-	}
-	tmpl, err := template.New("deny").Funcs(template.FuncMap{
-		"regexQuote": regexp.QuoteMeta,
-	}).Parse(string(data))
-	if err != nil {
-		return nil, err
-	}
-	var out strings.Builder
-	if err := tmpl.Execute(&out, install.Layout{
+	// install's own rendering rather than a second one here: the file now carries
+	// generated rules, and a test that built it another way would assert on rules
+	// nobody installs.
+	return install.RenderDenyPatterns(install.Layout{
 		ConfigDir:  install.DefaultConfigDir,
 		BinDir:     install.DefaultBinDir,
 		LibexecDir: install.DefaultLibexecDir,
 		LogDir:     install.DefaultLogDir,
-	}); err != nil {
-		return nil, err
-	}
-	return []byte(out.String()), nil
+		BrokerUser: install.DefaultBrokerUser,
+		KeeperUser: install.DefaultKeeperUser,
+		ExecUser:   install.DefaultExecUser,
+	})
 }
 
 func renderShipped(t *testing.T) string {
@@ -93,9 +80,8 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		want    string
 	}{
 		// Disclosure: what the command would put in the conversation.
-		{"cat ~/.ssh/id_ed25519", advice},
 		{"sops -d secrets.sops.yml", advice},
-		{"cat /home/op/.config/sops/age/keys.txt", advice},
+		{"cat /etc/faramir/secrets/db.sops.yml", advice},
 		{"age-keygen", advice},
 		{"sudo -u faramir-keeper cat /etc/faramir/age.key", advice},
 		// faramir's own. Nothing here is disclosed; something is changed or stopped.
@@ -147,7 +133,9 @@ func TestEveryPatternIsClassifiedOnPurpose(t *testing.T) {
 		which string
 		want  int
 	}{
-		{"faramir's own", adviceOwn, 5},
+		// Seven: the generated write and redirect rules, the binary's two, the
+		// plugin files' two, and systemctl.
+		{"faramir's own", adviceOwn, 7},
 		{"the operator's", adviceOperator, 2},
 	} {
 		if counts[tc.which] != tc.want {

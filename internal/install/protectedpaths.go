@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+
+	"github.com/andornaut/faramir/internal/denyrules"
 )
 
 // The paths an agent's file tools are refused, written once here and rendered
@@ -267,10 +269,27 @@ func installDirs(layout Layout) []string {
 	if layout.LibexecDir == "" {
 		layout.LibexecDir = DefaultLibexecDir
 	}
-	return []string{
+	dirs := []string{
 		layout.ConfigDir, layout.SecretsDir(), layout.LogDir, layout.LibexecDir,
 	}
+	// The three service accounts' own directories, which systemd creates from
+	// StateDirectory= and the units use as those accounts' homes: the broker's
+	// and the executor's .ssh among them. Derived from the account names the way
+	// systemd derives them, so a --broker-user of another name moves with it.
+	for _, account := range []string{
+		layout.BrokerUser, layout.KeeperUser, layout.ExecUser,
+	} {
+		if account != "" {
+			dirs = append(dirs, filepath.Join(stateDirRoot, account))
+		}
+	}
+	return dirs
 }
+
+// stateDirRoot is where systemd puts a StateDirectory=. Not a layout field:
+// the units say StateDirectory=<account> and systemd decides the rest, so this
+// is systemd's constant rather than an install's choice.
+const stateDirRoot = "/var/lib"
 
 // linkedPaths is the files [[secret.link]] entries name, as literal paths,
 // sorted and deduplicated so two links into one file do not change what is
@@ -455,6 +474,82 @@ func jsonDenyMap(indent string, items []string) string {
 		}
 	}
 	return b.String()
+}
+
+// commandRules is the protected set in the spelling the command guard needs: a
+// reader, a writer or a redirection pointed at any of it.
+//
+// The fourth rendering, beside the three agent spellings, and the point of
+// having one list. A rule refuses an agent's file tools and says nothing about
+// `cat`, which is half of what an operator declaring a path would assume; the
+// two entry points now name the same set because they are generated from it.
+//
+// The verbs come from internal/denyrules, which internal/guard builds the same
+// rules from for a config directory the rendered file did not name.
+func commandRules(layout Layout) []string {
+	return denyrules.For(commandSubjects(layout))
+}
+
+// commandSubjects is every protected thing as a regex fragment. Literal paths
+// are quoted whole; a pattern becomes the same matcher pi compiles, without the
+// path anchors: a command line carries a path inside other text, so what
+// anchors it is the reader in front of it rather than the start of a string.
+func commandSubjects(layout Layout) []string {
+	out := make([]string, 0, len(protectedPaths)+8)
+	for _, p := range protectedFor(layout) {
+		out = append(out, commandSubject(p))
+	}
+	// This install's own directories, and the files it names as linked or
+	// refused, at the paths this host uses.
+	for _, dir := range installDirs(layout) {
+		out = append(out, regexp.QuoteMeta(dir))
+	}
+	for _, path := range perInstallPaths(layout) {
+		out = append(out, regexp.QuoteMeta(path))
+	}
+	return out
+}
+
+// pathStart and pathEnd bound a name inside a command line, where a path sits
+// in the middle of other text rather than alone in a string.
+//
+// pathEnd is a class rather than \b, and the difference is the point: "id_rsa\b"
+// matches "id_rsa.pub", because a dot is a word boundary, and would refuse the
+// public half of a key the other three spellings leave alone. RE2 has no
+// lookahead, so what ends a name is stated positively.
+const (
+	pathStart = `(^|[\s/=:'"])`
+	pathEnd   = `([\s"';&|)]|$)`
+)
+
+// commandSubject is one rule as a fragment of a command line.
+func commandSubject(p protectedPath) string {
+	q := regexp.QuoteMeta(p.value)
+	switch p.kind {
+	case kindName:
+		// A name may carry separators, so what precedes it is a separator or the
+		// start of the word rather than the start of the line.
+		return pathStart + q + pathEnd
+	case kindSuffix:
+		return q + pathEnd
+	case kindPrefix:
+		// No end: a prefix is open by definition, ".env" covering ".env.local".
+		return pathStart + q
+	case kindGlobName:
+		return pathStart + strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/\s]*`) + pathEnd
+	case kindDir:
+		// No end either: what is refused is everything under it.
+		return strings.TrimSuffix(q, `/`) + `/`
+	}
+	return q
+}
+
+// RenderDenyPatterns is the shipped pattern file as an install would write it,
+// for a caller that has to read what a host would get. The rendering is the
+// real one rather than a second copy of it: a test that built the file another
+// way would be asserting on rules nobody installs.
+func RenderDenyPatterns(layout Layout) ([]byte, error) {
+	return render("agent/hooks/deny-patterns.txt", layout)
 }
 
 // jsFragments renders the list for an agent whose rules are applied by a plugin

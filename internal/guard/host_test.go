@@ -104,7 +104,7 @@ func TestEachHostDialectIsEmittedInItsOwnShape(t *testing.T) {
 	})
 
 	t.Run("a refusal reaches each host where it reads one", func(t *testing.T) {
-		denied := `{"tool_name":"%s","tool_input":{"command":"cat ~/.config/sops/age/keys.txt"}}`
+		denied := `{"tool_name":"%s","tool_input":{"command":"cat /etc/faramir/age.key"}}`
 
 		claude := guardOutput(t, nil, strings.Replace(denied, "%s", "Bash", 1))
 		out, ok := claude["hookSpecificOutput"].(map[string]any)

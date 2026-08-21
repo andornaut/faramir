@@ -62,6 +62,8 @@ func TestNoLinksChangesNothing(t *testing.T) {
 	layout := testLayout()
 	if !slices.Equal(claudeRules(layout), claudeRules(Layout{
 		ConfigDir: layout.ConfigDir, LogDir: layout.LogDir, LibexecDir: layout.LibexecDir,
+		BrokerUser: layout.BrokerUser, KeeperUser: layout.KeeperUser,
+		ExecUser: layout.ExecUser,
 	})) {
 		t.Error("a layout with no links renders different rules")
 	}

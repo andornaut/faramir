@@ -28,7 +28,10 @@ var renderFuncs = template.FuncMap{
 	"claudeRules":    claudeRules,
 	"pluginPatterns": pluginPatterns,
 	"jsFragments":    jsFragments,
-	"installDirs":    installDirs,
+	// The same protected set in the command guard's spelling, so a rule refuses
+	// a file tool and `cat` alike. See commandRules.
+	"commandRules": commandRules,
+	"installDirs":  installDirs,
 	// The literal paths this install names as linked or refused, for the agent
 	// that carries its rules rather than writing them into a config.
 	"perInstallPaths": perInstallPaths,

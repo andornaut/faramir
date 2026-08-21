@@ -419,6 +419,20 @@ done
 [ "$(cat $CFG)" = "$before" ] \
   && ok "and neither wrote to the config" \
   || bad "removing an entry that is not declared rewrote the config"
+# One set, two entry points: the same entry that refuses a file tool refuses a
+# command reading it. This is the half a rule file cannot show, so it is put to
+# the guard as the agent's own account would meet it.
+guard_says() {
+  printf '{"tool_name":"Bash","tool_input":{"command":%s}}' "$(printf '%s' "$1" | jq -R .)" |
+    runuser -u op -- env HOME=/home/op "$faramir" guard 2>/dev/null
+}
+guard_says "cat $KEY" | grep -q '"permissionDecision":"deny"' \
+  && ok "a declared path is refused to a command as well as to a file tool" \
+  || bad "the guard allows a read of the declared $KEY"
+guard_says "cat /etc/hostname" | grep -q '"permissionDecision":"deny"' \
+  && bad "the guard denies an ordinary read" \
+  || ok "and an ordinary read is left alone"
+
 out=$(refuse ls)
 grep -q 'built-in' <<<"$out" \
   && bad "refuse ls lists a built-in rule: ${out:0:200}" \

@@ -136,6 +136,8 @@ Which of the five a pattern is comes from its shape, and `refuse add` prints wha
 
 **The two forms fail in opposite directions.** A mistyped path refuses one file, and the file stays readable until somebody notices. A pattern that matches more than it was meant to refuses a class of files at once, and nothing announces it: the agent meets it as file tools failing on files nobody discussed. So a pattern that matches everything is refused at load the way `/` is as a path, and what a pattern will match is printed as it is written rather than left to be discovered.
 
+**An entry covers both entry points.** The agents' deny rules and the command guard's patterns are rendered from one set, so a declared path or name refuses a file tool and `cat` alike, and `faramir init` re-asserts both. Before, an entry reached the file tools only, and a command reading the very path an operator had just refused was allowed with nothing to say so.
+
 **It is the weaker of the two entries.** A link reads the file, so it does three things this one cannot:
 
 What happens to the file | `[[secret.link]]` | `[[secret.refuse]]`
@@ -145,7 +147,7 @@ regrouped to the broker's group, so a brokered command is refused it too | yes |
 the value in the redactor, tokenised wherever it appears | yes | no, faramir never reads it
 injectable by ref | yes | no
 
-So a command the broker runs may still open a refused path, and print it in the clear.
+So a command the broker runs may still open a refused path, and print it in the clear. The deny rules stop the agent's own shell and its file tools; a brokered command is a different uid running with the operator's consent, and nothing of the refused file is in the redactor to cover its output.
 
 Key | Rule
 --- | ---
