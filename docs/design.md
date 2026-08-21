@@ -123,7 +123,7 @@ The already-covered test is a prefix rather than a match anywhere, because two f
 - **A command that merely names the wrap script.** The path is in this project's documentation and in the wrapper itself, so a match anywhere would leave `echo /usr/local/libexec/faramir/wrap.sh; cat secrets` unrewritten.
 - **A command piping into the redactor.** A pipe carries stdout, so whatever the upstream wrote to stderr reaches the transcript unredacted, and chaining past it with `;`, `&&` or `||` runs the rest of the line uncovered. Wrapping one captures both streams and costs a second redaction pass, which changes nothing because a token is not a value.
 
-What each agent does with that rewrite, how the rules reach it, and what enrolling one costs is in [agents.md](coding-agents.md).
+What each agent does with that rewrite, how the rules reach it, and what enrolling one costs is in [coding-agents.md](coding-agents.md).
 
 ## What this gives up
 
@@ -135,7 +135,7 @@ A killed command loses its output | Redaction happens after the command finishes
 The wrapper needs a private `XDG_RUNTIME_DIR` | It captures output before redacting it, so that file holds plaintext and belongs where no other account can enter. `/dev/shm` is 1777, where a name nothing has created yet is one another account can create first. A session without one, which includes `sudo` and `cron`, gets a refusal on every Bash command.
 The wrapper takes the caller's `EXIT` trap | A command that runs `exit` ends the sourced shell at the `eval`, before the cleanup, and an `EXIT` trap is what bash still runs there. The caller's is saved and put back afterwards. Two ways past it, both leaving a `0600` capture file only the operator can reach: `SIGKILL`, which runs no trap, and a command that installs an `EXIT` trap of its own.
 
-What each agent gives up on top of this, Claude Code's cost per permission mode included, is in [agents.md](coding-agents.md#claude-code).
+What each agent gives up on top of this, Claude Code's cost per permission mode included, is in [coding-agents.md](coding-agents.md#claude-code).
 
 Rewriting rather than denying is the point: a deny list covers what somebody thought to name, and the command that leaks a credential is usually one nobody thought to name.
 

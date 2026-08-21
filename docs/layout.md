@@ -59,7 +59,7 @@ Kilo Code | `~/.config/kilo/kilo.json` | `~/.kilocode/rules/faramir.md`
 Pi | none | `~/.pi/agent/AGENTS.md`
 Antigravity | none | `~/.gemini/GEMINI.md`, under the directory the whole Antigravity family keeps its own things in
 
-Pi gets no rule file, having nowhere to put account-wide rules: the same paths are compiled into the extension `init-project` installs. It gets the section like the rest. Antigravity gets no rule file either, its permission lists being the IDE's own state. Kilo Code has no single home instructions file, so its section is a file of faramir's own in the global rules directory, every `.md` in which is loaded for every project. Why each agent gets what it gets is in [agents.md](coding-agents.md).
+Pi gets no rule file, having nowhere to put account-wide rules: the same paths are compiled into the extension `init-project` installs. It gets the section like the rest. Antigravity gets no rule file either, its permission lists being the IDE's own state. Kilo Code has no single home instructions file, so its section is a file of faramir's own in the global rules directory, every `.md` in which is loaded for every project. Why each agent gets what it gets is in [coding-agents.md](coding-agents.md).
 
 Every agent but one reads the enrolled tree's own `AGENTS.md`, or its `CLAUDE.md` where that is what the tree has. Antigravity reads no documented file at a tree's root, so it gets `.agents/rules/faramir.md` there instead, headed with the frontmatter that makes a rule always-on where this creates it.
 

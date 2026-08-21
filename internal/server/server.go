@@ -368,7 +368,7 @@ func (s *Server) opStatus() protocol.Response {
 	}
 	body, err := json.MarshalIndent(map[string]any{
 		"version": version.Version,
-		// Every file that contributed, in merge order.
+		// Every file that contributed, which is one.
 		"configs": s.Config.Sources,
 		"secrets": s.Store.Describe(),
 		"ssh":     map[string]any{"configured": configured, "usable": usable},

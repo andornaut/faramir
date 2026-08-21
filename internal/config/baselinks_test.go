@@ -70,8 +70,8 @@ func TestValidateLink(t *testing.T) {
 	}
 }
 
-// Derived, not configured: the store is where the config is, and the three
-// extensions are the three the agent deny rules already refuse.
+// Derived, not configured: the store is where the config is, and the one
+// extension is among the three the agent deny rules refuse.
 func TestTheStoreIsDerivedFromWhereTheConfigSits(t *testing.T) {
 	path := writeBase(t, minimal)
 	cfg, err := Load(path)

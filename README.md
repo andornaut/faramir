@@ -236,7 +236,7 @@ Target | Does
 `make e2e` | The end-to-end suites alone, against a real install in a container
 `make coverage` | Race-enabled Go suite plus per-function report
 `make fmt` | Apply the import and format rules CI checks
-`make lint` | Every linter that reads this tree, ShellCheck included
+`make lint` | golangci-lint and ShellCheck. CI's Lint job also runs markdownlint and `goreleaser check`, which this tree asks for no tooling for
 `make shellcheck` | The shell scripts alone, as CI checks them
 `make install`, `make uninstall` | Copy the binary to `/usr/local/bin` and remove it. Both use sudo
 

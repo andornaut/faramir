@@ -129,9 +129,9 @@ min_length = {{.SecretMinLength}}
 min_refresh_sec = {{.SecretMinRefreshSec}}
 #
 # The managed store is not a key. It is {{.SecretsDir}}, derived from where this
-# file sits, matching *.sops.yml, *.sops.yaml and *.sops.json: the three the
-# agent's deny rules already refuse, so what the broker reads and what the agent
-# cannot open cannot disagree. How the keeper invokes sops is not a key either.
+# file sits, matching *.sops.yml. The agent's deny rules refuse that suffix and
+# the other two sops reads, so what the broker reads and what the agent cannot
+# open cannot disagree. How the keeper invokes sops is not a key either.
 {{range .Links}}
 # Managed by `faramir link`. The file stays where its own tool keeps it; init
 # grants {{$.BrokerUser}} read on it and re-asserts that every run.

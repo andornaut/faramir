@@ -1,4 +1,4 @@
-# Agents
+# Coding agents
 
 The guard is one program speaking each agent's contract. What varies is the tool that runs a command, the shape of the reply and where it is registered; what does not is that the command is rewritten to redact its own output. Which agents, and what enrolling each costs, is the table in the [README](../README.md#supported-agents). How that rewrite is shaped, and why, is in [design.md](design.md#how-the-rewrite-works); which file each agent reads is in [layout.md](layout.md).
 
