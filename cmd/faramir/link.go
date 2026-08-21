@@ -208,6 +208,12 @@ func runLinkList(f linkFlags) int {
 		return 1
 	}
 	if f.json {
+		// An empty install prints [], not null: a nil slice marshals to null, and a
+		// caller iterating the document would break on the one answer it is most
+		// likely to get from a host that declares none.
+		if links == nil {
+			links = []config.Link{}
+		}
 		body, err := json.MarshalIndent(links, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "faramir link ls: %v\n", err)

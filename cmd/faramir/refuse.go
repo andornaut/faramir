@@ -172,6 +172,10 @@ func runRefuseList(f refuseFlags) int {
 		return 1
 	}
 	if f.json {
+		// [] rather than null, for the reason `link ls` gives.
+		if refused == nil {
+			refused = []config.RefusedPath{}
+		}
 		body, err := json.MarshalIndent(refused, "", "  ")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "faramir refuse ls: %v\n", err)
