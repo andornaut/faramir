@@ -283,7 +283,8 @@ func TestAccountRulesMergeIntoTheOperatorsConfig(t *testing.T) {
 	if read["*"] != "allow" {
 		t.Errorf("the operator's catch-all was lost: %s", merged)
 	}
-	if read["*age.key"] != "deny" {
+	// This install's own directory, which is what faramir writes rules for.
+	if read["/var/log/faramir/*"] != "deny" {
 		t.Errorf("faramir's rules were not added: %s", merged)
 	}
 	// faramir's wins on a shared pattern; the rest is carried through.

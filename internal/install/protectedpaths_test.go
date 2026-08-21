@@ -19,10 +19,7 @@ import (
 var samples = []struct {
 	refused string
 	allowed string
-}{
-	{"/home/op/age.key", "/home/op/age.pub"},
-	{"/home/op/.config/sops/age/keys.txt", "/home/op/notes.txt"},
-}
+}{}
 
 // What the list no longer carries, and so what a host nobody declares anything
 // on can read. Asserted rather than left implicit: these were built in, the
@@ -41,11 +38,16 @@ var relocated = []string{
 	// A sops file outside this install's own store, which is ciphertext and is
 	// covered where it matters by the literal store path.
 	"/srv/ansible/group_vars/db.sops.yml",
+	// An age identity of the operator's own. faramir mints one key, in its own
+	// directory, and never learns where a second lives.
+	"/home/op/age.key",
+	"/home/op/.config/sops/age/keys.txt",
 }
 
 // The Go list is what every rendering is derived from, so it is what the
 // samples are checked against first: an entry nothing matches is a path the
-// list only appears to cover.
+// list only appears to cover. The list is empty today, so this asserts nothing
+// until one is added, and the test stays because that is when it is needed.
 func TestEveryProtectedPathHasASampleThatReachesIt(t *testing.T) {
 	// Each refused sample must be matched by the JavaScript spelling, that being
 	// the one form these tests can execute directly.
@@ -256,9 +258,9 @@ func TestEnrollingATreeWritesTheDenyRules(t *testing.T) {
 		file  string
 		want  string
 	}{
-		{"claude", ".claude/settings.local.json", `"Read(**/age.key)"`},
-		{"opencode", "opencode.json", `"*age.key": "deny"`},
-		{"kilocode", "kilo.json", `"*age.key": "deny"`},
+		{"claude", ".claude/settings.local.json", `"Read(/etc/faramir/**)"`},
+		{"opencode", "opencode.json", `"/etc/faramir/*": "deny"`},
+		{"kilocode", "kilo.json", `"/etc/faramir/*": "deny"`},
 	} {
 		t.Run(tc.agent, func(t *testing.T) {
 			target := agentTargets[tc.agent]
@@ -276,7 +278,8 @@ func TestEnrollingATreeWritesTheDenyRules(t *testing.T) {
 				t.Fatal(err)
 			}
 			if !strings.Contains(string(body), tc.want) {
-				t.Errorf("%s carries no deny rule for the age key:\n%s", tc.file, body)
+				t.Errorf("%s carries no deny rule for this install's own directory:\n%s",
+					tc.file, body)
 			}
 			// This install's own directories with them, which are literal rather
 			// than patterns: a store moved by --config-dir is the one refused.

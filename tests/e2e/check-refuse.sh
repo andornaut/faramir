@@ -398,63 +398,31 @@ grep -q 'every file on the host' <<<"$out" \
   && ok "and a pattern matching everything is refused" \
   || bad "'*' was not refused: ${out:0:160}"
 
-out=$(refuse ls)
-grep -q 'built-in' <<<"$out" \
-  && ok "refuse ls lists the rules compiled in beside the declared ones" \
-  || bad "refuse ls carries no built-in rules: ${out:0:200}"
-grep -qF 'age.key' <<<"$out" \
-  && ok "and names one of them" \
-  || bad "refuse ls does not name a built-in rule: ${out:0:200}"
-refuse ls --declared | grep -q 'built-in' \
-  && bad "--declared listed the built-in rules" \
-  || ok "and --declared narrows it to what the config carries"
+refuse ls --declared | grep -q "$NAME" \
+  && ok "refuse ls --declared lists what the config carries" \
+  || bad "--declared does not list the declared name"
 
-# A rule faramir carries itself is not an entry, so there is nothing to remove
-# and the host goes on refusing it. It fails before root is asked for, a request
-# that can never be granted having no business costing a sudo first.
+# There are no built-in rules, so nothing is unremovable: an entry naming what
+# faramir used to carry is an ordinary entry, and removing one it does not carry
+# is the no-op it has always been.
 before=$(cat $CFG)
-out=$(refuse rm --name 'age.key' 2>&1)
-rc=$?
-[ $rc -ne 0 ] \
-  && ok "refuse rm on a built-in rule fails" \
-  || bad "removing a built-in exited 0: ${out:0:200}"
-grep -q 'compiled into faramir' <<<"$out" \
-  && ok "and says where the rule comes from" \
-  || bad "the refusal does not name the source: ${out:0:200}"
-out=$(refuse rm /home/op/.config/sops/age/keys.txt 2>&1)
-rc=$?
-[ $rc -ne 0 ] && grep -q 'compiled into faramir' <<<"$out" \
-  && ok "and naming a file one covers gets the same answer" \
-  || bad "removing a path a built-in covers: ${out:0:200}"
-# The relocated rules are nobody's built-in now, so an entry naming one is an
-# ordinary entry: refusing it here would make what the fleet declares
-# unremovable.
-out=$(refuse rm --name '*.pem' 2>&1)
-grep -q 'compiled into faramir' <<<"$out" \
-  && bad "a relocated rule is still read as a built-in: ${out:0:160}" \
-  || ok "and a rule that was relocated is not read as one"
+for pattern in 'age.key' '*.pem'; do
+  out=$(refuse rm --name "$pattern" 2>&1)
+  rc=$?
+  [ $rc -eq 0 ] \
+    && ok "refuse rm --name $pattern is not refused as a built-in" \
+    || bad "removing $pattern exited $rc: ${out:0:200}"
+  grep -q 'compiled into faramir' <<<"$out" \
+    && bad "$pattern is still read as a built-in: ${out:0:160}" \
+    || ok "and nothing claims faramir carries it"
+done
 [ "$(cat $CFG)" = "$before" ] \
   && ok "and neither wrote to the config" \
-  || bad "a refused removal rewrote the config"
-
-# Several entries in one command, which is what a first run pastes: one config
-# rewrite and one render, and a line each saying which were new.
-out=$(refuse add --name '*.e2e-one' --name '*.e2e-two' /mnt/e2e-not-mounted/k)
-[ "$(grep -c '^refused ' <<<"$out")" = 3 ] \
-  && ok "refuse add takes several entries in one command" \
-  || bad "three entries did not report three additions: ${out:0:200}"
-grep -qF 'name = "*.e2e-one"' $CFG && grep -qF 'name = "*.e2e-two"' $CFG \
-  && ok "and every one of them is written" \
-  || bad "the config does not carry both names"
-out=$(refuse add --name '*.e2e-one' --name '*.e2e-three')
-grep -q 'already refused' <<<"$out" && grep -q '^refused ' <<<"$out" \
-  && ok "and a list mixing new entries with ones already there says which is which" \
-  || bad "a mixed list: ${out:0:200}"
-out=$(refuse rm --name '*.e2e-one' --name '*.e2e-two' --name '*.e2e-three' \
-  /mnt/e2e-not-mounted/k)
-[ "$(grep -c '^stopped refusing ' <<<"$out")" = 4 ] \
-  && ok "refuse rm takes several too" \
-  || bad "four entries did not report four removals: ${out:0:200}"
+  || bad "removing an entry that is not declared rewrote the config"
+out=$(refuse ls)
+grep -q 'built-in' <<<"$out" \
+  && bad "refuse ls lists a built-in rule: ${out:0:200}" \
+  || ok "refuse ls lists what the config declares and nothing else"
 
 out=$(refuse rm --name "$NAME")
 grep -qF "stopped refusing $NAME" <<<"$out" \

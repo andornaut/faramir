@@ -336,7 +336,7 @@ func newPiRig(t *testing.T) (*pluginRig, piCall) {
 		// to name, and the case worth covering here is that a declared one
 		// reaches this extension like a compiled-in one does.
 		Layout: Layout{ConfigDir: "/opt/conf", Refused: []config.RefusedPath{
-			{Name: "id_ed25519"}, {Name: "id_rsa"},
+			{Name: "id_ed25519"}, {Name: "id_rsa"}, {Name: "sops/age/"},
 		}},
 	})
 	if err != nil {
@@ -502,7 +502,7 @@ func TestPiExtensionRefusesKeyMaterial(t *testing.T) {
 	}{
 		{"an SSH private key, declared rather than built in", "read",
 			map[string]any{"path": "/home/op/.ssh/id_ed25519"}, true},
-		{"the age identity sops reads", "read",
+		{"a declared age identity", "read",
 			map[string]any{"path": "/home/op/.config/sops/age/keys.txt"}, true},
 		// Under this install's own store, which the layout renders as a literal:
 		// the rig's config dir is /opt/conf.

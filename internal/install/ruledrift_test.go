@@ -59,7 +59,7 @@ func TestAStaleRuleIsFound(t *testing.T) {
 	// away from, which is what a --config-dir run leaves behind.
 	home := writeRules(t, ".claude/settings.json", `{
 	  "permissions": {"deny": [
-	    "Read(**/age.key)",
+	    "Read(/opt/conf/**)",
 	    "Read(/opt/retired-faramir/**)",
 	    "Read(**/notes.md)"
 	  ]}
@@ -74,7 +74,7 @@ func TestAStaleRuleIsFound(t *testing.T) {
 		t.Errorf("the rule faramir no longer writes was not found: %v", got)
 	}
 	// Still written, so not stale.
-	if strings.Contains(joined, "age.key") {
+	if strings.Contains(joined, "/opt/conf/**") {
 		t.Errorf("a rule faramir still writes was reported as stale: %v", got)
 	}
 	// Nothing to do with faramir, so never named: reporting an operator's own
@@ -186,13 +186,12 @@ func TestLooksManagedMatchesOnlyTheInstallersOwnLine(t *testing.T) {
 		{"Read(/opt/faramir/**)", true},
 		// And the one this install actually uses.
 		{"Read(" + configDir + "/**)", true},
-		// The age identities, which faramir refuses wherever they sit.
-		{"Read(**/age.key)", true},
-		{"*sops/age/*", true},
-		// A credential of the operator's own. faramir does not write a rule for
-		// one, so a rule naming one is theirs and is never reported as drift.
+		// A credential of the operator's own, and an age identity they keep
+		// themselves. faramir writes a rule for neither, so a rule naming one is
+		// theirs and is never reported as drift.
 		{"Read(**/id_ed25519)", false},
 		{"Read(**/*.pem)", false},
+		{"Read(**/age.key)", false},
 
 		{"Read(**/notes.md)", false},
 		{"Bash(git status)", false},

@@ -48,28 +48,30 @@ type protectedPath struct {
 // alphabetically.
 // What a protected path is, for the paths that share a description. Several
 // patterns describe one kind of file, and the wording is what a refusal says.
-// The age identities, and nothing else.
+// Empty, and that is the design rather than a list waiting to be filled.
 //
-// Everything this install writes is refused by installDirs, which renders the
+// Everything an install writes is refused by installDirs, which renders the
 // real paths out of the layout: the config directory wherever --config-dir put
 // it, the store, the log and libexec. Those cover the age key, the broker's SSH
 // key, the managed sops files and the audit log where they actually are, and a
-// mode refuses each of them to the agent's uid as well. A name rule for any of
-// them would be a third statement of what two mechanisms already hold, written
-// against the default path rather than this host's.
+// mode refuses each of them to the agent's uid as well.
 //
-// What is left is what faramir does not install and no mode refuses: the
-// operator's own age identity, which is a key to this store and sits in their
-// home, and a copy of an age key anywhere else. Both are the agent's own uid's
-// to read, so a deny rule is the only thing in the way.
+// A pattern here would have to be about a file faramir does not write. It
+// minted one age key, at <config-dir>/age.key, and the operator has a copy or
+// an identity of their own only if they made one: `recipient add` takes a
+// public key and never learns where the private half sits. So a rule for
+// ~/.config/sops/age or for "age.key" anywhere else guards a file that usually
+// is not there, at a path this install did not choose, and makes the default
+// look more protective than it is.
 //
-// A credential faramir neither writes nor reads is the operator's to declare:
-// `faramir refuse add`, or a configuration manager naming what a fleet keeps.
-// What that costs a host nobody declares anything on is in installing.md.
-var protectedPaths = []protectedPath{
-	{kindName, "age.key", "an age identity"},
-	{kindDir, "sops/age/", "the age identities sops reads"},
-}
+// What a host should refuse beyond its own install is the operator's to name:
+// `faramir refuse add`, or a configuration manager declaring what a fleet
+// keeps. What that costs a host nobody declares anything on is in
+// installing.md.
+//
+// The type and the renderers stay because declared entries use them: a name
+// entry becomes one of these and is spelled for each agent by the same code.
+var protectedPaths []protectedPath
 
 // refusedNameRules is the [[secret.refuse]] entries that named a pattern rather
 // than a path, in the same form the built-in rules take, so the renderers below
@@ -472,7 +474,11 @@ func jsFragments(layout Layout) []string {
 		case kindPrefix:
 			out = append(out, `(^|/)`+q)
 		case kindGlobName:
-			out = append(out, `(^|/)`+strings.Replace(q, regexp.QuoteMeta("*"), `[^/]*`, 1)+`$`)
+			// Every wildcard, not the first: the other two spellings pass a pattern
+			// through with all of them intact and the Go-side matcher is
+			// filepath.Match, so replacing one would leave this the only agent a
+			// two-wildcard pattern did not reach, and silently.
+			out = append(out, `(^|/)`+strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/]*`)+`$`)
 		case kindDir:
 			out = append(out, q)
 		}
