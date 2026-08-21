@@ -871,6 +871,12 @@ func joinCmd(record map[string]any) string {
 // beside them is UTC.
 const dateLayout = "2006-01-02 MST"
 
+// stampLayout is one moment in full, for a line that stands on its own rather
+// than under a day heading: dateLayout's day and zone with the time `logs`
+// prints against it. The approval prompt is the one place that needs it, a
+// question being read without the surrounding day the log has.
+const stampLayout = "2006-01-02 15:04:05 MST"
+
 // startedAt is when the record's subject happened: started_at where the record
 // has one, which is the child's fork rather than the moment the line was
 // written, and otherwise the `at` every other record carries.

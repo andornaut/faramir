@@ -551,6 +551,27 @@ func approves(line string) bool {
 	return strings.ToLower(answerOf(line)) == "y"
 }
 
+// receivedAt renders the broker's timestamp as a wall clock.
+//
+// In the zone the broker recorded it in, which the RFC 3339 string carries: the
+// broker and whoever is watching are the same host, so that is already the
+// terminal's own clock, and converting would be asking the process what zone it
+// thinks it is in to arrive back where it started.
+//
+// A value that will not parse is printed as it arrived rather than dropped: it
+// came from the broker, and a question missing the moment it was raised is worse
+// than one that looks odd.
+func receivedAt(stamp string) string {
+	if stamp == "" {
+		return "(unknown)"
+	}
+	at, err := time.Parse(time.RFC3339, stamp)
+	if err != nil {
+		return stamp
+	}
+	return at.Format(stampLayout)
+}
+
 // printQuestion shows one question. Every caller-chosen string in it was
 // rendered for a terminal by the broker (see escalation.Command), so what
 // arrives here holds no escape sequence to obey. One field per line: a question
@@ -586,20 +607,25 @@ func printQuestion(question escalation.Question) {
 	if question.Program != "" {
 		fmt.Printf("  program  %s\n", question.Program)
 	}
-	// What is left of the clock is what the answer is typed against, so it is
-	// always printed. How long the command has been blocked comes with it, from
-	// the moment sudo asked, wherever that rounds to a second or more.
+	// When sudo asked, then what is left of the clock. The wall clock is what
+	// puts the question beside everything else stamped in this terminal: a
+	// question raised a minute ago and one raised at lunchtime read the same when
+	// all that is printed is what remains of the timeout.
 	//
-	// Which is not the same as saying nobody was watching. A watcher running the
-	// whole time still shows a second here when its own start, the password it
-	// was run under, or the poll round trip took that long. The number is the
-	// command's wait, not a report on whoever is answering: read it at the sizes
-	// that mean something, a question that sat while nothing attended it.
-	waited := ""
+	// How long the command has been blocked comes with it, wherever it rounds to
+	// a second or more, joined by a comma: the ending this same watcher prints
+	// reads "exited 0 after 41.0s, waited 40s of it", and two durations about one
+	// question are separated the same way wherever they are printed. Which is not the same as saying nobody was watching: a
+	// watcher running the whole time still shows a second here when its own
+	// start, the password it was run under, or the poll round trip took that
+	// long. The number is the command's wait, not a report on whoever is
+	// answering, so it is read at the sizes that mean something.
+	waiting := ""
 	if question.WaitingSec > 0 {
-		waited = fmt.Sprintf(" (waited %ds)", question.WaitingSec)
+		waiting = fmt.Sprintf(", waiting %ds", question.WaitingSec)
 	}
-	fmt.Printf("  expires  %ds%s\n", question.ExpiresInSec, waited)
+	fmt.Printf("  received %s (expires %ds%s)\n",
+		receivedAt(question.Received), question.ExpiresInSec, waiting)
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.

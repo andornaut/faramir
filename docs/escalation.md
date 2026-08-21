@@ -55,7 +55,7 @@ sudo faramir escalations --watch
      cwd      /srv/ansible-ctrl
      caller   you (uid 1000)
      host     controller
-     expires  120s
+     received 2026-08-20 20:21:44 EDT (expires 120s, waiting 23s)
      approve? [y/n]
    ```
 
@@ -64,7 +64,7 @@ sudo faramir escalations --watch
    `log_id` | Beside the `id` because they are the two names this question has. The `id` is what an answer is typed against and means nothing once it is answered; the `log_id` is what the audit log and the `run` record keep, so it is the one to look it up by afterwards
    `cmd` | The command, on its own line so a long one does not push the fields off the screen. It is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted
    `caller` | The account that asked, never the account the command would run as. That is the executor on every question, so this is the uid worth judging, and more than one account can be in the client group
-   `expires` | Counts down to the refusal. It gains a `(waited 40s)` wherever the command's block, from the moment `sudo` asked, rounds to a second or more. That is the command's wait, not a report on whoever is answering: a watcher running the whole time still shows a second or two for its own start, the password it was run under, or the poll round trip. Read it at the sizes that mean something
+   `received` | The wall clock `sudo` asked at, which is what puts the question beside everything else stamped in this terminal: a question raised a minute ago and one raised at lunchtime read the same when all that is printed is what remains of the timeout. `expires` beside it counts down to the refusal, and is what an answer is typed against. Same shape as the day heading `faramir logs` prints, so the two clocks an operator reads are the same clock. `waiting` is added wherever the command's block, from the moment `sudo` asked, rounds to a second or more. That is the command's wait, not a report on whoever is answering: a watcher running the whole time still shows a second or two for its own start, the password it was run under, or the poll round trip. Read it at the sizes that mean something
    `program` | Present only where what argv[0] resolved to is not what argv[0] says, a relative program resolving against a tree the agent writes
 
    The question is per run rather than per `sudo`: a yes is spent on every `sudo` that command makes until it exits. `[escalation] notify_command` gets the whole sentence, having no second line to put the command on.

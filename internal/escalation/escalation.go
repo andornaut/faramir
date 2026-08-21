@@ -715,6 +715,12 @@ type Question struct {
 	// against the request's cwd, which the agent writes.
 	Program string `json:"program"`
 	LogID   string `json:"log_id"`
+	// Received is when sudo asked, as an RFC 3339 string in the broker's own
+	// timezone. Carried rather than derived from the two counters below: those
+	// are what is left and how long it has been, which both move, and a reader
+	// deciding whether anything was watching wants the wall clock the rest of
+	// their terminal is stamped with.
+	Received string `json:"received"`
 	// WaitingSec says how long sudo has been sitting on this, counted from the
 	// moment it asked. A second or two of it is the caller reaching the question
 	// at all, so it answers whether anything was watching only at the sizes
@@ -752,6 +758,7 @@ func (s *Server) questionsLocked() []Question {
 		// resolves against the request's cwd, so `bin/ansible-playbook` can be a
 		// file the agent wrote.
 		Program: safeUnlessEmpty(pending.run.resolvedProgram()), LogID: pending.run.LogID,
+		Received:     pending.asked.Format(time.RFC3339),
 		WaitingSec:   waited,
 		ExpiresInSec: max(0, s.config.TimeoutSec-waited),
 	}}

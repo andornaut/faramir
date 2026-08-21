@@ -609,7 +609,7 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	}
 }
 
-// The waiting count rides the expires line, and only where it says something. A
+// The waiting count rides the received line, and only where it says something. A
 // watcher already running is answered the moment a question is filed, so zero is
 // the ordinary reading and its absence says as much. It is the other case the
 // number is for: nobody was here yet.
@@ -617,23 +617,52 @@ func TestTheWaitingCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
 	question := escalation.Question{
 		ID: "9f2a1c", Prompt: "faramir: Approve this command to run as root? `true`",
 		Cmd: "true", ExpiresInSec: 120,
+		Received: "2026-08-20T20:21:44-04:00",
 	}
 	fresh, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
-	if strings.Contains(fresh, "waited") {
+	if strings.Contains(fresh, "waiting") {
 		t.Errorf("a question nobody was late for reports a wait:\n%s", fresh)
 	}
-	if !strings.Contains(fresh, "expires  120s\n") {
-		t.Errorf("the clock the answer is typed against is missing:\n%s", fresh)
+	// The zone token is not pinned: Go resolves the offset against wherever this
+	// runs, so it is EDT on the machine that wrote this and UTC in CI. What is
+	// asserted is the moment and the clock beside it.
+	if !strings.Contains(fresh, "received 2026-08-20 20:21:44 ") ||
+		!strings.Contains(fresh, "(expires 120s)") {
+		t.Errorf("the moment it was asked, and the clock the answer is typed "+
+			"against, are not both there:\n%s", fresh)
 	}
 
 	question.WaitingSec, question.ExpiresInSec = 40, 80
 	late, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
-	if !strings.Contains(late, "expires  80s (waited 40s)") {
-		t.Errorf("a question that sat for 40s does not say so on the expires line:\n%s", late)
+	if !strings.Contains(late, "received 2026-08-20 20:21:44 ") ||
+		!strings.Contains(late, "(expires 80s, waiting 40s)") {
+		t.Errorf("a question that sat for 40s does not say so on the received line:\n%s", late)
 	}
 	// One line, not two: the wait qualifies the clock rather than standing beside it.
 	if strings.Contains(late, "\n  waiting") {
 		t.Errorf("the wait is still a line of its own:\n%s", late)
+	}
+}
+
+// The timestamp is the broker's, in the zone it recorded it in, and a question
+// carrying none or carrying nonsense still prints the rest: the line an operator
+// answers against is the expiry, and dropping it over an unparseable stamp would
+// take that with it.
+func TestTheReceivedStampSurvivesABrokerThatSaidSomethingOdd(t *testing.T) {
+	for stamp, want := range map[string]string{
+		// An offset no machine running this is in, so the zone token is the offset
+		// itself wherever the test runs. Go resolves an offset that matches the
+		// local zone to its name instead, which is what makes this read like the
+		// day heading `logs` prints, and what makes pinning a name here flaky.
+		"2026-08-20T20:21:44+05:45": "received 2026-08-20 20:21:44 +0545 (expires 120s)",
+		"":                          "received (unknown) (expires 120s)",
+		"not-a-time":                "received not-a-time (expires 120s)",
+	} {
+		question := escalation.Question{ID: "9f2a1c", Cmd: "true", ExpiresInSec: 120, Received: stamp}
+		out, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
+		if !strings.Contains(out, want) {
+			t.Errorf("Received=%q rendered without %q:\n%s", stamp, want, out)
+		}
 	}
 }
 
