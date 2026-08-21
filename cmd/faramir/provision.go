@@ -513,7 +513,7 @@ func newDoctorCmd() *cobra.Command {
 	fl.StringVar(&f.execUser, "exec-user", "",
 		"override the account brokered commands run as, instead of reading faramir-exec.service")
 	fl.BoolVar(&f.asJSON, "json", false, "print the findings as JSON")
-	fl.StringVar(&f.when, "color", "auto", "colourise: auto, always or never")
+	addColorFlag(c, &f.when)
 	return c
 }
 

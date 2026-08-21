@@ -66,7 +66,7 @@ func newLogsCmd() *cobra.Command {
 	c.Flags().IntVarP(&f.count, "count", "n", defaultLogCount, "how many recent records to list")
 	c.Flags().BoolVar(&f.asJSON, "json", false, "print the records as JSON")
 	c.Flags().BoolVar(&f.watch, "watch", false, "keep printing records as they are appended")
-	c.Flags().StringVar(&f.when, "color", "auto", "colourise: auto, always or never")
+	addColorFlag(c, &f.when)
 	return c
 }
 

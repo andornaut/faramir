@@ -73,6 +73,7 @@ func newEscalationsCmd() *cobra.Command {
 	var (
 		o     brokerOptions
 		watch bool
+		when  string
 	)
 	c := &cobra.Command{
 		Use:     "escalations [options]",
@@ -89,15 +90,21 @@ func newEscalationsCmd() *cobra.Command {
 			if !requireRootToAnswer("escalations") {
 				return codeErr(1)
 			}
-			if watch {
-				return codeErr(watchEscalations(socketDefault()))
+			paint, err := newPalette(when)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "faramir escalations: %v\n", err)
+				return codeErr(2)
 			}
-			return codeErr(listEscalations(socketDefault(), o.json))
+			if watch {
+				return codeErr(watchEscalations(socketDefault(), paint))
+			}
+			return codeErr(listEscalations(socketDefault(), o.json, paint))
 		},
 	}
 	o.add(c)
 	c.Flags().BoolVar(&watch, "watch", false,
 		"answer questions as they arrive and report how each run ended")
+	addColorFlag(c, &when)
 	return c
 }
 
@@ -136,7 +143,10 @@ func newApproveCmd() *cobra.Command {
 // is ever outstanding, and refusing something unseen is safe in a way approving
 // it is not, a refusal costing a re-run.
 func newDenyCmd() *cobra.Command {
-	var o brokerOptions
+	var (
+		o    brokerOptions
+		when string
+	)
 	c := &cobra.Command{
 		Use:     "deny [options] [ID]",
 		Short:   "Say no, to that one or to whatever is waiting",
@@ -149,17 +159,23 @@ func newDenyCmd() *cobra.Command {
 			if len(args) == 1 && args[0] != "" {
 				return codeErr(answer("deny", socketDefault(), args[0], false, o.json))
 			}
-			return codeErr(denyWaiting(socketDefault(), o.json))
+			paint, err := newPalette(when)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "faramir deny: %v\n", err)
+				return codeErr(2)
+			}
+			return codeErr(denyWaiting(socketDefault(), o.json, paint))
 		},
 	}
 	o.add(c)
+	addColorFlag(c, &when)
 	return c
 }
 
 // denyWaiting refuses the one question outstanding, without it having to be
 // named. It prints what it refused first, so the scrollback says which command
 // was turned down.
-func denyWaiting(socketPath string, asJSON bool) int {
+func denyWaiting(socketPath string, asJSON bool, paint palette) int {
 	questions, code := waiting(socketPath, "refused")
 	if questions == nil {
 		return code
@@ -167,7 +183,7 @@ func denyWaiting(socketPath string, asJSON bool) int {
 	// Not under --json, where the answer is the whole output and a question
 	// printed ahead of it would leave nothing able to parse the result.
 	if !asJSON {
-		printQuestion(questions[0])
+		printQuestion(questions[0], paint)
 	}
 	return answer("deny", socketPath, questions[0].ID, false, asJSON)
 }
@@ -191,7 +207,7 @@ func waiting(socketPath, verb string) ([]escalation.Question, int) {
 
 // listEscalations reports what is waiting and returns, for a look rather than a
 // vigil. Non-zero on nothing waiting, so a script can tell the two apart.
-func listEscalations(socketPath string, asJSON bool) int {
+func listEscalations(socketPath string, asJSON bool, paint palette) int {
 	questions, code := waiting(socketPath, "approved")
 	if asJSON {
 		return listAsJSON(questions, code)
@@ -200,7 +216,7 @@ func listEscalations(socketPath string, asJSON bool) int {
 		return code
 	}
 	for _, question := range questions {
-		printQuestion(question)
+		printQuestion(question, paint)
 		// The answer is a second command here, so the question says how to type
 		// it.
 		fmt.Printf("  approve with: faramir approve %s\n", question.ID)
@@ -234,7 +250,7 @@ func listAsJSON(questions []escalation.Question, code int) int {
 // request arrives, shows it, reads the answer from this terminal, and reports
 // how an approved run ended. The prompt must not land where the agent can
 // type, so run it somewhere the agent does not reach.
-func watchEscalations(socketPath string) int {
+func watchEscalations(socketPath string, paint palette) int {
 	warnIfTypeable()
 	// The one rule the prompt below does not show: it asks for [y/n], which
 	// reads as though only "n" refuses.
@@ -249,7 +265,7 @@ func watchEscalations(socketPath string) int {
 	// of. One, never a list: an approved run holds every other brokered command
 	// until it ends.
 	var awaiting string
-	terminal := readLines()
+	terminal := readLines(paint)
 	for {
 		questions, finished, err := pending(socketPath, watchWait, awaiting)
 		if err != nil {
@@ -268,11 +284,11 @@ func watchEscalations(socketPath string) int {
 			return 69 // EX_UNAVAILABLE, as every other broker-facing command
 		}
 		if finished != nil {
-			printOutcome(*finished)
+			printOutcome(*finished, paint)
 			awaiting = ""
 		}
 		for _, question := range questions {
-			printQuestion(question)
+			printQuestion(question, paint)
 			// The question's own clock, which is what the answer is typed against.
 			// Reaching it ends the wait rather than the watch: the broker refused it
 			// on the way out, so there is nothing to send.
@@ -285,7 +301,7 @@ func watchEscalations(socketPath string) int {
 				fmt.Fprintln(os.Stderr, "faramir approve: stdin closed; stopping")
 				return 0
 			case expired:
-				fmt.Printf("\n  %s expired\n", question.LogID)
+				fmt.Printf("\n  %s %s\n", paint.dim(question.LogID), paint.bad("expired"))
 				continue
 			case answered:
 			}
@@ -305,13 +321,17 @@ func watchEscalations(socketPath string) int {
 				// start and raise the next question.
 				if approve {
 					awaiting = question.LogID
-					fmt.Printf("  %s started\n", question.LogID)
+					// Plain: a run beginning is not an ending, and the line the operator
+					// is waiting for is the one that comes after it.
+					fmt.Printf("  %s started\n", paint.dim(question.LogID))
 					break
 				}
 				// What it read, on a refusal: an answer nobody typed refuses a question
 				// exactly as one they did. Quoted rather than printed, a stray byte
 				// being the case this exists for.
-				fmt.Printf("  %s refused: %s\n", question.LogID,
+				// Painted as a failure for the reason `faramir logs` paints a refusal
+				// as one: not because refusing is wrong, but because something asked.
+				fmt.Printf("  %s %s %s\n", paint.dim(question.LogID), paint.bad("refused:"),
 					strconv.Quote(strings.Trim(line, "\r\n")))
 			case 69:
 				fmt.Fprintf(os.Stderr, "faramir approve: %s could not be answered and is "+
@@ -344,19 +364,29 @@ func waitedIn(outcome escalation.Outcome) string {
 // rather than reproducing it: the log holds the command, the refs and the
 // output. A run with no exit code is said to have ended without one, a zero
 // there reading as a clean exit.
-func printOutcome(outcome escalation.Outcome) {
-	id := outcome.LogID
+func printOutcome(outcome escalation.Outcome, paint palette) {
+	// The same green and red `faramir logs` gives the outcome column, the same
+	// operator reading both: a watcher left running all afternoon is scanned for
+	// the endings that were not clean. The log id is dimmed as it is there, and
+	// the ending itself carries the colour -- an exit status of 0 is the only
+	// green there is, everything else being something that asked to be read.
+	id := paint.dim(outcome.LogID)
 	switch {
 	case outcome.Error != "":
-		fmt.Printf("  %s failed: %s\n", id, outcome.Error)
+		fmt.Printf("  %s %s\n", id, paint.bad("failed: "+outcome.Error))
 	case outcome.ExitCode == nil:
-		fmt.Printf("  %s ended, no exit status\n", id)
+		fmt.Printf("  %s %s\n", id, paint.bad("ended, no exit status"))
 	case outcome.TimedOut:
-		fmt.Printf("  %s exited %d after %.1fs, timed out%s\n",
-			id, *outcome.ExitCode, outcome.DurationSec, waitedIn(outcome))
+		fmt.Printf("  %s %s\n", id, paint.bad(fmt.Sprintf("exited %d after %.1fs, timed out%s",
+			*outcome.ExitCode, outcome.DurationSec, waitedIn(outcome))))
 	default:
-		fmt.Printf("  %s exited %d after %.1fs%s\n",
-			id, *outcome.ExitCode, outcome.DurationSec, waitedIn(outcome))
+		ending := fmt.Sprintf("exited %d after %.1fs%s",
+			*outcome.ExitCode, outcome.DurationSec, waitedIn(outcome))
+		if *outcome.ExitCode != 0 {
+			fmt.Printf("  %s %s\n", id, paint.bad(ending))
+			break
+		}
+		fmt.Printf("  %s %s\n", id, paint.ok(ending))
 	}
 }
 
@@ -426,6 +456,10 @@ var fromTerminal = answers
 // question.
 type typed struct {
 	lines chan string
+	// paint is the palette the prompt below is printed with. Held here because
+	// the prompt is reprinted on every blank line, and the reader is what knows
+	// when that happens.
+	paint palette
 	// terminal is whether the reader is the operator's own, decided when this was
 	// built: the goroutine below holds the reader it started with, and a test
 	// substituting another must not make this one flush a terminal it is no
@@ -433,12 +467,12 @@ type typed struct {
 	terminal bool
 }
 
-func readLines() *typed {
+func readLines(paint palette) *typed {
 	// Captured, not read through the package variable: the goroutine outlives a
 	// test that substituted a reader of its own, and one reading whatever the
 	// variable holds now would take the lines meant for whoever set it.
 	source, fromTTY := answers, answers == fromTerminal
-	t := &typed{lines: make(chan string, 1), terminal: fromTTY}
+	t := &typed{lines: make(chan string, 1), terminal: fromTTY, paint: paint}
 	go func() {
 		defer close(t.lines)
 		for {
@@ -511,7 +545,10 @@ const (
 func (t *typed) answer(deadline time.Time) (string, answerState) {
 	t.discard()
 	for {
-		fmt.Print("  approve? [y/n] ")
+		// Bold, and the trailing space left outside it: what is being asked for is
+		// the last thing on the screen before the cursor, and the cursor sits on a
+		// plain space rather than inside a highlight.
+		fmt.Print("  " + t.paint.bold("approve? [y/n]") + " ")
 		select {
 		case line, open := <-t.lines:
 			if !open {
@@ -572,40 +609,64 @@ func receivedAt(stamp string) string {
 	return at.Format(stampLayout)
 }
 
+// promptLabelWidth is the widest label below, `received` at eight, plus the
+// separating space: every value on the question starts in the same column, and
+// pad() renders a label that fills the width with the one space after it.
+const promptLabelWidth = 9
+
+// promptField is one line of the question: a label this program owns, then a
+// value it does not. Only the label is painted. The broker renders the
+// caller's strings before they arrive (see escalation.Command), so colouring a
+// value would inject nothing -- but the field boundary is the one thing a
+// reader uses to tell faramir's words from the agent's, and a highlight that
+// straddles it is the confusion worth engineering. Chrome is coloured, content
+// is not, which is also what `faramir logs` does with its fields.
+func promptField(paint palette, label, value string) {
+	// Padded before it is painted, as the log's outcome column is: pad() counts
+	// escape bytes as width.
+	fmt.Printf("  %s%s\n", paint.key(pad(label, promptLabelWidth)), value)
+}
+
 // printQuestion shows one question. Every caller-chosen string in it was
 // rendered for a terminal by the broker (see escalation.Command), so what
 // arrives here holds no escape sequence to obey. One field per line: a question
 // is read before it is answered.
-func printQuestion(question escalation.Question) {
+func printQuestion(question escalation.Question, paint palette) {
 	// The question without the command, which is the cmd line below: a prompt
-	// carrying it too pushes everything worth reading off the screen.
-	fmt.Printf("\n%s\n", escalation.PromptPrefix)
-	fmt.Printf("  id       %s\n", question.ID)
+	// carrying it too pushes everything worth reading off the screen. Bold
+	// because it is the sentence being answered, and everything under it is the
+	// evidence: an operator scrolling back is looking for where a question
+	// starts.
+	fmt.Printf("\n%s\n", paint.bold(escalation.PromptPrefix))
+	// The two ids are dimmed, as `faramir logs` dims the log id in its rows:
+	// they are what this question is looked up by afterwards rather than what
+	// it is judged on, and the judgement is the cmd, the cwd and the caller.
+	promptField(paint, "id", paint.dim(question.ID))
 	// Beside the id, both being the names this question is known by afterwards:
 	// the id is what an answer is typed against and stops meaning anything once
 	// it is, and the log_id is what the audit log and the `run` record keep. A
 	// reader looking one of them up wants the other in the same glance.
 	if question.LogID != "" {
-		fmt.Printf("  log_id   %s\n", question.LogID)
+		promptField(paint, "log_id", paint.dim(question.LogID))
 	}
-	fmt.Printf("  cmd      %s\n", question.Cmd)
+	promptField(paint, "cmd", question.Cmd)
 	// The cwd above the host: it is what the command was typed against, and the
 	// host is the same on every question a given terminal shows.
 	if question.Cwd != "" {
-		fmt.Printf("  cwd      %s\n", question.Cwd)
+		promptField(paint, "cwd", question.Cwd)
 	}
 	// Who asked, not who would run it: that is the executor on every question.
 	if question.Caller != "" {
-		fmt.Printf("  caller   %s\n", question.Caller)
+		promptField(paint, "caller", question.Caller)
 	}
 	if question.Host != "" {
-		fmt.Printf("  host     %s\n", question.Host)
+		promptField(paint, "host", question.Host)
 	}
 	// Set only when it says something the command does not, which the broker
 	// decides: a relative argv[0] resolves against the cwd, and that is a tree the
 	// coding agent writes. Printed under the cwd it resolved against.
 	if question.Program != "" {
-		fmt.Printf("  program  %s\n", question.Program)
+		promptField(paint, "program", question.Program)
 	}
 	// When sudo asked, then what is left of the clock. The wall clock is what
 	// puts the question beside everything else stamped in this terminal: a
@@ -627,8 +688,8 @@ func printQuestion(question escalation.Question) {
 	if question.WaitingSec > 0 {
 		waited = fmt.Sprintf(", waited %ds", question.WaitingSec)
 	}
-	fmt.Printf("  received %s (expires %ds%s)\n",
-		receivedAt(question.Received), question.ExpiresInSec, waited)
+	promptField(paint, "received", fmt.Sprintf("%s (expires %ds%s)",
+		receivedAt(question.Received), question.ExpiresInSec, waited))
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.

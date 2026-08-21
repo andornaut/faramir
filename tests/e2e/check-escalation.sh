@@ -514,10 +514,12 @@ if MODE == "after":
 else:
     os.write(fd, b"y\n")
 
-# "refused: " with the colon, which is the watcher's own line. Bare "refused"
+# "refused:" with the colon, which is the watcher's own line. Bare "refused"
 # is in every question, the expires line saying what happens if nobody answers,
-# so waiting on that returns before the answer has been read at all.
-pump(lambda b: " started" in b or "refused: " in b, 60)
+# so waiting on that returns before the answer has been read at all. The colon
+# and no further: this is a pty, so the watcher paints, and what follows the
+# word is the reset rather than the space it reads as.
+pump(lambda b: " started" in b or "refused:" in b, 60)
 try:
     run.wait(timeout=60)
 except subprocess.TimeoutExpired:
@@ -525,7 +527,7 @@ except subprocess.TimeoutExpired:
 os.kill(pid, 15)
 
 print("PROMPTS", buf.count("approve? [y/n]"))
-print("REFUSED", "yes" if "refused: " in buf else "no")
+print("REFUSED", "yes" if "refused:" in buf else "no")
 print("STARTED", "yes" if " started" in buf else "no")
 EOS
 

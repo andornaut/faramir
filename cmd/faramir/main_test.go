@@ -444,7 +444,7 @@ func TestAWordyAnswerIsReadAsAnAnswer(t *testing.T) {
 	original := answers
 	t.Cleanup(func() { answers = original })
 	answers = bufio.NewReader(strings.NewReader("y please\n\ny\n"))
-	terminal := readLines()
+	terminal := readLines(palette{})
 	for _, want := range []bool{
 		false, // "y please" is not y, and is still an answer
 		true,  // the blank line is asked again, and the y after it read
@@ -582,7 +582,7 @@ func TestReadAnswerReturnsWhatItRead(t *testing.T) {
 	original := answers
 	t.Cleanup(func() { answers = original })
 	answers = bufio.NewReader(strings.NewReader("\x1b[?62;c\n"))
-	line, state := readLines().answer(time.Now().Add(time.Minute))
+	line, state := readLines(palette{}).answer(time.Now().Add(time.Minute))
 	if state != answered {
 		t.Fatalf("the wait ended in state %v, want an answer", state)
 	}
@@ -603,7 +603,7 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	t.Cleanup(func() { answers = original })
 	// One burst: a stray newline, then the answer behind it.
 	answers = bufio.NewReader(strings.NewReader("\ny\n"))
-	line, state := readLines().answer(time.Now().Add(time.Minute))
+	line, state := readLines(palette{}).answer(time.Now().Add(time.Minute))
 	if state != answered || !approves(line) {
 		t.Errorf("the wait gave (%q, %v), want the y behind the blank line", line, state)
 	}
@@ -620,7 +620,7 @@ func TestTheWaitedCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
 		Cmd: "true", ExpiresInSec: 120,
 		Received: "2026-08-20T20:21:44-04:00",
 	}
-	fresh, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
+	fresh, _ := captureStdout(t, func() int { printQuestion(question, palette{}); return 0 })
 	if strings.Contains(fresh, "waited") {
 		t.Errorf("a question nobody was late for reports a wait:\n%s", fresh)
 	}
@@ -634,7 +634,7 @@ func TestTheWaitedCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
 	}
 
 	question.WaitingSec, question.ExpiresInSec = 40, 80
-	late, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
+	late, _ := captureStdout(t, func() int { printQuestion(question, palette{}); return 0 })
 	if !strings.Contains(late, "received 2026-08-20 20:21:44 ") ||
 		!strings.Contains(late, "(expires 80s, waited 40s)") {
 		t.Errorf("a question that sat for 40s does not say so on the received line:\n%s", late)
@@ -660,7 +660,7 @@ func TestTheReceivedStampSurvivesABrokerThatSaidSomethingOdd(t *testing.T) {
 		"not-a-time":                "received not-a-time (expires 120s)",
 	} {
 		question := escalation.Question{ID: "9f2a1c", Cmd: "true", ExpiresInSec: 120, Received: stamp}
-		out, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
+		out, _ := captureStdout(t, func() int { printQuestion(question, palette{}); return 0 })
 		if !strings.Contains(out, want) {
 			t.Errorf("Received=%q rendered without %q:\n%s", stamp, want, out)
 		}
@@ -678,7 +678,7 @@ func TestTheWaitEndsWhenTheQuestionExpires(t *testing.T) {
 	answers = bufio.NewReader(blockingReader{make(chan struct{})})
 
 	start := time.Now()
-	line, state := readLines().answer(time.Now().Add(150 * time.Millisecond))
+	line, state := readLines(palette{}).answer(time.Now().Add(150 * time.Millisecond))
 	if state != expired {
 		t.Errorf("the wait ended in state %v with %q, want expired", state, line)
 	}

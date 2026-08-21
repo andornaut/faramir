@@ -51,7 +51,7 @@ func escalationsSocket(t *testing.T, questions []escalation.Question) string {
 func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	t.Run("nothing waiting", func(t *testing.T) {
 		out, code := captureStdout(t, func() int {
-			return listEscalations(escalationsSocket(t, nil), true)
+			return listEscalations(escalationsSocket(t, nil), true, palette{})
 		})
 		if code != 1 {
 			t.Errorf("code = %d, want 1 with nothing waiting", code)
@@ -69,7 +69,7 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 		socket := escalationsSocket(t, []escalation.Question{{
 			ID: "9f2a1c", Cmd: "ansible-playbook site.yml", ExpiresInSec: 118,
 		}})
-		out, code := captureStdout(t, func() int { return listEscalations(socket, true) })
+		out, code := captureStdout(t, func() int { return listEscalations(socket, true, palette{}) })
 		if code != 0 {
 			t.Errorf("code = %d, want 0 with one waiting", code)
 		}
@@ -86,7 +86,7 @@ func TestListEscalationsAsJSONIsAnArrayEitherWay(t *testing.T) {
 	// there would report a host as quiet when nothing was asked.
 	t.Run("no broker", func(t *testing.T) {
 		out, code := captureStdout(t, func() int {
-			return listEscalations(filepath.Join(t.TempDir(), "absent.sock"), true)
+			return listEscalations(filepath.Join(t.TempDir(), "absent.sock"), true, palette{})
 		})
 		if code != 69 {
 			t.Errorf("code = %d, want 69 with no broker", code)
