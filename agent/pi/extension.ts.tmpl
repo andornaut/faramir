@@ -81,7 +81,12 @@ function pathsIn(value, depth = 0) {
 function refusedPath(input) {
   for (const candidate of pathsIn(input)) {
     if (PROTECTED_PATHS.some((re) => re.test(candidate))) return candidate
-    if (PROTECTED_DIRS.some((dir) => candidate.startsWith(dir + "/"))) return candidate
+    // The path itself as well as anything under it. Every per-install path is in
+    // this list, and a linked one names a FILE: nothing is ever under a file, so
+    // a prefix test alone refused the one path the entry exists to refuse.
+    if (PROTECTED_DIRS.some((dir) => candidate === dir || candidate.startsWith(dir + "/"))) {
+      return candidate
+    }
   }
   return ""
 }
