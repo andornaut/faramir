@@ -622,3 +622,44 @@ func TestASharedStackLinkedToTheOtherIsAlreadyCovered(t *testing.T) {
 		t.Error("a stack linked outside the shared pair was written through")
 	}
 }
+
+// A stack carrying two blocks is collapsed to one. Nothing faramir writes makes
+// that state, but a conffile merge or a hand edit can, and taking out only the
+// block this run could see left the other there through every re-run and every
+// revoke, with nothing able to remove it.
+func TestASecondBlockIsNotLeftBehind(t *testing.T) {
+	dir := sudoStacks(t)
+	path := filepath.Join(dir, "sudo")
+	run := &runner{layout: testLayout()}
+	block, err := render("etc/pam.d-sudo.tmpl", run.layout)
+	if err != nil {
+		t.Fatal(err)
+	}
+	doubled := append(append(append([]byte{}, block...), block...), []byte(stockSudoStack)...)
+	if err := os.WriteFile(path, doubled, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := run.writeSudoPamBlock(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(body), pamBlockBegin); n != 1 {
+		t.Errorf("a re-run left %d blocks, want 1:\n%s", n, body)
+	}
+	// And a revoke takes the file back to what the distribution put there.
+	if err := os.WriteFile(path, doubled, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := removeSudoPamBlock(run.fs); err != nil {
+		t.Fatal(err)
+	}
+	if body, err = os.ReadFile(path); err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != stockSudoStack {
+		t.Errorf("a revoke left a block behind:\n%s", body)
+	}
+}

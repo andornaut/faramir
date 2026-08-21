@@ -124,7 +124,10 @@ func spliceSudoPamBlock(fs fsys, path string, block []byte) (bool, error) {
 		}
 		return false, err
 	}
-	start, end, found, err := placePamBlock(current)
+	// The span is not needed: the write below is built from the stack with every
+	// block cut out. What this asks is whether there was one, and whether the
+	// markers can be read at all.
+	_, _, found, err := placePamBlock(current)
 	if err != nil {
 		return false, fmt.Errorf("%s: %w: nothing was written. Delete the stray "+
 			"marker and re-run, or edit the block by hand: the lines between "+
@@ -135,17 +138,15 @@ func spliceSudoPamBlock(fs fsys, path string, block []byte) (bool, error) {
 	// found keeps whatever put it below an authenticating line there through every
 	// re-run, which is a host whose executor meets the password check first and
 	// whose every escalation fails.
+	rest := withoutPamBlock(current)
 	var out []byte
 	switch {
-	case found && len(block) == 0:
-		out = append(append([]byte{}, current[:start]...), current[end:]...)
-	case found:
-		rest := append(append([]byte{}, current[:start]...), current[end:]...)
-		out = append(append([]byte{}, block...), rest...)
-	case len(block) == 0:
+	case len(block) == 0 && !found:
 		return false, nil
+	case len(block) == 0:
+		out = rest
 	default:
-		out = append(append([]byte{}, block...), current...)
+		out = append(append([]byte{}, block...), rest...)
 	}
 	changed, err := fs.writeFile(path, out, info.Mode().Perm(), keep, keep)
 	if err != nil || !changed || fs.dryRun {
@@ -197,15 +198,21 @@ func spliceProblem(path string, before, block []byte) string {
 	return ""
 }
 
-// withoutPamBlock is a stack with faramir's block cut out, which is the part
+// withoutPamBlock is a stack with every faramir block cut out, which is the part
 // that must survive a write untouched. A half-marked file is returned whole:
 // spliceProblem names that case before this is reached.
+//
+// Every one, not the first: a file that somehow carries two is a file with two
+// branches, and taking out only the one this run can see would leave the other
+// there through every re-run and every revoke, with nothing able to remove it.
 func withoutPamBlock(body []byte) []byte {
-	start, end, found, err := placePamBlock(body)
-	if err != nil || !found {
-		return body
+	for {
+		start, end, found, err := placePamBlock(body)
+		if err != nil || !found {
+			return body
+		}
+		body = append(append([]byte{}, body[:start]...), body[end:]...)
 	}
-	return append(append([]byte{}, body[:start]...), body[end:]...)
 }
 
 // sharedStackTarget reports whether a link points at another of the shared

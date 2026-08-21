@@ -50,17 +50,18 @@ sudo faramir escalations --watch
    ```text
    faramir: Approve this command to run as root?
      id       9f2a1c
+     log_id   w5vq7dbf000119
      cmd      ansible-playbook msmtp.yml
      cwd      /srv/ansible-ctrl
      caller   you (uid 1000)
      host     controller
-     log_id   w5vq7dbf000119
      expires  120s
      approve? [y/n]
    ```
 
    Field | What it says
    --- | ---
+   `log_id` | Beside the `id` because they are the two names this question has. The `id` is what an answer is typed against and means nothing once it is answered; the `log_id` is what the audit log and the `run` record keep, so it is the one to look it up by afterwards
    `cmd` | The command, on its own line so a long one does not push the fields off the screen. It is the caller's, so it is rendered rather than printed: an argument holding a control character, a quote or a space is shown quoted
    `caller` | The account that asked, never the account the command would run as. That is the executor on every question, so this is the uid worth judging, and more than one account can be in the client group
    `expires` | Counts down to the refusal. It gains a `(waited 40s)` wherever the command's block, from the moment `sudo` asked, rounds to a second or more. That is the command's wait, not a report on whoever is answering: a watcher running the whole time still shows a second or two for its own start, the password it was run under, or the poll round trip. Read it at the sizes that mean something

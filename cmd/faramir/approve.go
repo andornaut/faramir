@@ -560,6 +560,13 @@ func printQuestion(question escalation.Question) {
 	// carrying it too pushes everything worth reading off the screen.
 	fmt.Printf("\n%s\n", escalation.PromptPrefix)
 	fmt.Printf("  id       %s\n", question.ID)
+	// Beside the id, both being the names this question is known by afterwards:
+	// the id is what an answer is typed against and stops meaning anything once
+	// it is, and the log_id is what the audit log and the `run` record keep. A
+	// reader looking one of them up wants the other in the same glance.
+	if question.LogID != "" {
+		fmt.Printf("  log_id   %s\n", question.LogID)
+	}
 	fmt.Printf("  cmd      %s\n", question.Cmd)
 	// The cwd above the host: it is what the command was typed against, and the
 	// host is the same on every question a given terminal shows.
@@ -578,9 +585,6 @@ func printQuestion(question escalation.Question) {
 	// coding agent writes. Printed under the cwd it resolved against.
 	if question.Program != "" {
 		fmt.Printf("  program  %s\n", question.Program)
-	}
-	if question.LogID != "" {
-		fmt.Printf("  log_id   %s\n", question.LogID)
 	}
 	// What is left of the clock is what the answer is typed against, so it is
 	// always printed. How long the command has been blocked comes with it, from
