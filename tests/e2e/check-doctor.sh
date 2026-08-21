@@ -158,6 +158,26 @@ head_ "3. the arrangement around them"
 
 probe "the rotation rule removed" "log rotation" failed \
   "rm -f /etc/logrotate.d/faramir" "faramir init --agent-user $OP"
+# A credential in the agent's home that nothing refuses. The check reports
+# rather than enforces, which is what makes a bare default safe to ship: the
+# host says what it found instead of the operator having to know.
+runuser -u op -- mkdir -p /home/op/.aws
+runuser -u op -- touch /home/op/.aws/credentials
+/usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null
+[[ "$(st 'unrefused credentials')" == *warn* ]] \
+  && ok "doctor names a credential in the agent's home that nothing refuses" \
+  || bad "unrefused credentials: $(st 'unrefused credentials') $(dt 'unrefused credentials')"
+grep -q 'refuse add' <<<"$(dt 'unrefused credentials')" \
+  && ok "and gives the command that would refuse it" \
+  || bad "the finding does not name the command: $(dt 'unrefused credentials')"
+/usr/local/bin/faramir refuse add --agent-user "$OP" --name '.aws/credentials' >/dev/null 2>&1
+/usr/local/bin/faramir doctor --agent-user "$OP" --json >$JSON 2>/dev/null
+[[ "$(st 'unrefused credentials')" == *ok* ]] \
+  && ok "and goes quiet once it is declared" \
+  || bad "still warning after the entry was added: $(dt 'unrefused credentials')"
+/usr/local/bin/faramir refuse rm --agent-user "$OP" --name '.aws/credentials' >/dev/null 2>&1
+rm -f /home/op/.aws/credentials
+
 probe "an outsider in the client group" "client group" warn \
   "useradd -M -N stranger 2>/dev/null; usermod -aG dev stranger" \
   "gpasswd -d stranger dev; userdel stranger"

@@ -226,6 +226,7 @@ func Diagnose(opts DoctorOptions) DoctorReport {
 	diagnoseAgentRuleDrift(&report, opts)
 	diagnoseLinkedFiles(&report, opts, cfg)
 	diagnoseRefusedPaths(&report, opts, cfg)
+	diagnoseUnrefusedCredentials(&report, opts)
 	diagnoseLinkedAccess(&report, opts, cfg)
 	diagnoseTreeConfig(&report, opts)
 	diagnoseEditableFiles(&report, opts)
