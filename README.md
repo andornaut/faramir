@@ -113,10 +113,36 @@ What a record is made of, and the rules a command does not state: [docs/operatin
 
 Requires [systemd](https://systemd.io/) and [sops](https://github.com/getsops/sops); Go to build. The binary is static, so the host needs no interpreter. The agent's session needs `XDG_RUNTIME_DIR`: the hook captures output before redacting it and will not write that anywhere another account can read, so a session without one refuses every Bash command.
 
+### Pre-compiled binary
+
+Archives are published on the
+[releases page](https://github.com/andornaut/faramir/releases): one per tagged
+version, plus a `dev` release rebuilt on every push to `main`. Linux only, since
+the broker reads peer credentials with `SO_PEERCRED` and the executor allocates
+PTYs with `TIOCGPTN`.
+
+Platform | Asset
+--- | ---
+Linux x86_64 | `faramir_linux_x86_64.tar.gz`
+Linux arm64 | `faramir_linux_arm64.tar.gz`
+
+The archive carries `LICENSE` and `README.md` alongside the binary, so name the
+binary rather than extracting everything into the current directory. `init`
+installs it, so there is nothing to copy into place first:
+
+```bash
+tar -xzf faramir_linux_x86_64.tar.gz faramir
+sudo ./faramir init
+```
+
+### Compile from source
+
 ```bash
 make build
 sudo ./bin/faramir init
 ```
+
+### What init does
 
 `init` creates the accounts and groups, mints the age key, installs the binary, the deny list and the docs, renders the config and the systemd units, and starts the sockets. It is idempotent, so it is also the upgrade, and a re-run with a flag left out keeps what the install already uses rather than reverting to the default.
 
