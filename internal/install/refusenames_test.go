@@ -250,3 +250,33 @@ func TestABuiltInKnowsWhatItCovers(t *testing.T) {
 		t.Errorf("an ordinary file was read as covered by %q", rule.Entry)
 	}
 }
+
+// An install may declare what faramir already refuses, and taking that entry
+// back is a request it can meet: the entry is this install's, and what remains
+// is the built-in. The command asks before it has root and so before it has
+// read anything, which is where the declared half has to be read too.
+func TestADeclaredEntryIsRemovableWhateverElseCoversIt(t *testing.T) {
+	// A path a built-in covers by suffix, which is the case the e2e suite meets:
+	// a key on a volume nobody has mounted is refused by the entry that named it
+	// and by the built-in ".key" alike.
+	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/mnt/vol/luks.key\"\n"+
+		"[[secret.refuse]]\nname = \"*.pem\"\n")
+
+	for _, asked := range []config.RefusedPath{
+		{Path: "/mnt/vol/luks.key"},
+		{Name: "*.pem"},
+	} {
+		if err := BuiltInRefusalError(dir, asked); err != nil {
+			t.Errorf("%s: a declared entry was refused: %v", asked.Refuses(), err)
+		}
+	}
+	// One nothing declares is still refused, which is the whole of the check.
+	if err := BuiltInRefusalError(dir, config.RefusedPath{Name: "*.key"}); err == nil {
+		t.Error("a built-in nothing declares was not refused")
+	}
+	// A host with no config declares none, so there is no entry to take back and
+	// the built-in is the whole of the answer.
+	if err := BuiltInRefusalError(t.TempDir(), config.RefusedPath{Name: "*.pem"}); err == nil {
+		t.Error("a built-in was removable on a host that declares nothing")
+	}
+}

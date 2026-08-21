@@ -169,7 +169,7 @@ func RemoveRefusedPath(opts Options, refused config.RefusedPath) (Report, config
 	// install that declared the same rule as well may take its own entry back,
 	// and what it is left with is the built-in, which the warning below says.
 	if removed.Refuses() == "" {
-		if err := BuiltInRefusalError(refused); err != nil {
+		if err := builtInRefusalError(refused); err != nil {
 			return Report{}, config.RefusedPath{}, err
 		}
 	}
@@ -204,15 +204,44 @@ func RemoveRefusedPath(opts Options, refused config.RefusedPath) (Report, config
 }
 
 // BuiltInRefusalError is why a request to stop refusing something cannot be
-// met, or nil where it can. One function rather than a check per caller: the
-// command refuses before it asks for root, a request that can never be granted
-// having no business costing a sudo first, and the library refuses again at the
-// write for a caller that is not the command. Two messages would drift.
+// met, or nil where it can. For the command, which asks before it asks for
+// root: a request that can never be granted has no business costing a sudo
+// first. RemoveRefusedPath asks again at the write, from the same function
+// below, for a caller that is not the command.
+//
+// The install's own entries are read first and win. An install may declare what
+// faramir already refuses, and taking that entry back is a request it can meet:
+// what it is left with is the built-in, which the removal names. Refusing here
+// on the strength of the built-in alone would make an entry the install carries
+// unremovable, which is the bug this guards.
+//
+// A config that does not load leaves this to the write, where the error names
+// the config rather than the rule. One that is absent is a host declaring none,
+// which is a different thing and gets the built-in answer.
+func BuiltInRefusalError(configDir string, refused config.RefusedPath) error {
+	declared, err := RefusedPaths(configDir)
+	if err != nil {
+		// Deliberately not this function's error to report: the write is about to
+		// fail on the same config and say so naming the file, which is the fault
+		// to fix. Answering here with a rule would send the operator to the wrong
+		// one.
+		//nolint:nilerr // see above
+		return nil
+	}
+	for _, entry := range declared {
+		if sameRefusal(entry, refused) {
+			return nil
+		}
+	}
+	return builtInRefusalError(refused)
+}
+
+// builtInRefusalError is the rule half of the question, with no config in it.
 //
 // A path is answered as well as a pattern: "stop refusing ~/.ssh/id_rsa" and
 // "stop refusing the id_rsa rule" are one request, and only one of them names
 // a rule.
-func BuiltInRefusalError(refused config.RefusedPath) error {
+func builtInRefusalError(refused config.RefusedPath) error {
 	rule, ok := BuiltInRefusalFor(refused.Name)
 	if !ok && refused.Path != "" {
 		rule, ok = BuiltInRefusalCovering(refused.Path)

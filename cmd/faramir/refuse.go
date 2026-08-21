@@ -178,9 +178,10 @@ func runRefuseRemove(f refuseFlags, args []string) int {
 		return 1
 	}
 	// Before root, not after: this one can never be granted, so making the
-	// operator find sudo to be told so is a round trip for nothing. The library
-	// asks again at the write, for a caller that is not this command.
-	if err := install.BuiltInRefusalError(asked); err != nil {
+	// operator find sudo to be told so is a round trip for nothing. It reads the
+	// config, which needs no root either, because an entry the install declares
+	// is removable whatever else refuses the same file.
+	if err := install.BuiltInRefusalError(refuseConfigDir(f), asked); err != nil {
 		fmt.Fprintf(os.Stderr, "faramir refuse rm: %v\n", err)
 		return 1
 	}
