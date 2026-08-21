@@ -116,6 +116,9 @@ A `[[secret.refuse]]` entry refuses one thing to the agent's file tools, for a c
 ```sh
 sudo faramir refuse add /etc/luks/volume.key          # this file, on this host
 sudo faramir refuse add --name '*.htpasswd'           # any file of that name, anywhere
+
+# Each argument and each --name is one entry, and one command writes them all
+sudo faramir refuse add --name id_rsa --name '*.pem' --name '.env*'
 ```
 
 **A path and a name are not the same rule, and one entry is one of them.** A path refuses the file at that path. A name is matched against the path the agent names rather than against this host's filesystem, which is what reaches a path the host does not have: a container mounts `/srv/ha/config` as `/config`, the agent names the second, and a rule carrying the first covers nothing it runs. Naming both in one entry is refused rather than answered by picking one.

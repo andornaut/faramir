@@ -437,6 +437,25 @@ grep -q 'compiled into faramir' <<<"$out" \
   && ok "and neither wrote to the config" \
   || bad "a refused removal rewrote the config"
 
+# Several entries in one command, which is what a first run pastes: one config
+# rewrite and one render, and a line each saying which were new.
+out=$(refuse add --name '*.e2e-one' --name '*.e2e-two' /mnt/e2e-not-mounted/k)
+[ "$(grep -c '^refused ' <<<"$out")" = 3 ] \
+  && ok "refuse add takes several entries in one command" \
+  || bad "three entries did not report three additions: ${out:0:200}"
+grep -qF 'name = "*.e2e-one"' $CFG && grep -qF 'name = "*.e2e-two"' $CFG \
+  && ok "and every one of them is written" \
+  || bad "the config does not carry both names"
+out=$(refuse add --name '*.e2e-one' --name '*.e2e-three')
+grep -q 'already refused' <<<"$out" && grep -q '^refused ' <<<"$out" \
+  && ok "and a list mixing new entries with ones already there says which is which" \
+  || bad "a mixed list: ${out:0:200}"
+out=$(refuse rm --name '*.e2e-one' --name '*.e2e-two' --name '*.e2e-three' \
+  /mnt/e2e-not-mounted/k)
+[ "$(grep -c '^stopped refusing ' <<<"$out")" = 4 ] \
+  && ok "refuse rm takes several too" \
+  || bad "four entries did not report four removals: ${out:0:200}"
+
 out=$(refuse rm --name "$NAME")
 grep -qF "stopped refusing $NAME" <<<"$out" \
   && ok "refuse rm --name removes it" \

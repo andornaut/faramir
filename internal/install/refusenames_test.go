@@ -282,3 +282,63 @@ func TestADeclaredEntryIsRemovableWhateverElseCoversIt(t *testing.T) {
 		t.Error("a built-in was removable on a host that declares nothing")
 	}
 }
+
+// A dozen names in one command, which is what a first run pastes and what a
+// converge hands over. What the fold has to get right is which entries were new
+// and what the resulting set is; that it costs one write rather than a dozen is
+// the caller applying it once, which the e2e suite exercises on a real host.
+func TestSeveralEntriesFoldIntoOneSet(t *testing.T) {
+	existing := []config.RefusedPath{{Name: "*.pem"}}
+	asked := []config.RefusedPath{
+		{Name: "id_rsa"},
+		{Name: "*.pem"}, // already there
+		{Name: ".env*"},
+		{Path: "/mnt/vol/luks.key"},
+		{Name: "id_rsa"}, // named twice in one call
+	}
+	entries, added := foldRefusals(existing, asked)
+	if want := []bool{true, false, true, true, false}; !slices.Equal(added, want) {
+		t.Errorf("added = %v, want %v: an entry already there, and one named twice "+
+			"in one call, are both reported as not added", added, want)
+	}
+	// Order kept, and the entry already there is not moved by the ones added
+	// beside it.
+	want := []string{"*.pem", "id_rsa", ".env*", "/mnt/vol/luks.key"}
+	if len(entries) != len(want) {
+		t.Fatalf("the set holds %d entries, want %d: %+v", len(entries), len(want), entries)
+	}
+	for i, refuses := range want {
+		if got := entries[i].Refuses(); got != refuses {
+			t.Errorf("entry %d is %q, want %q", i, got, refuses)
+		}
+	}
+	// The one it started with is untouched by a fold that added nothing.
+	if _, added := foldRefusals(entries, []config.RefusedPath{{Name: "*.pem"}}); added[0] {
+		t.Error("an entry already in the set was reported as added")
+	}
+}
+
+// One bad entry writes none of the list. A partial write would leave the
+// operator to work out which half of what they pasted took.
+func TestOneBadEntryWritesNoneOfTheList(t *testing.T) {
+	dir := writeRefuseConfig(t, "")
+	before, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _, err = AddRefusedPaths(Options{ConfigDir: dir}, []config.RefusedPath{
+		{Name: "id_rsa"},
+		{Name: "*"}, // every file on the host
+		{Name: ".env*"},
+	})
+	if err == nil {
+		t.Fatal("a list carrying a pattern that matches everything was accepted")
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("a refused list wrote part of itself:\n%s", after)
+	}
+}
