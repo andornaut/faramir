@@ -158,7 +158,7 @@ head_ "3. the arrangement around them"
 
 probe "the rotation rule removed" "log rotation" failed \
   "rm -f /etc/logrotate.d/faramir" "faramir init --agent-user $OP"
-probe "an outsider in the client group" "group" warn \
+probe "an outsider in the client group" "client group" warn \
   "useradd -M -N stranger 2>/dev/null; usermod -aG dev stranger" \
   "gpasswd -d stranger dev; userdel stranger"
 # The socket check, put to doctor two ways. Bare, doctor asks the broker where

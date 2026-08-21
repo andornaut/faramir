@@ -1040,7 +1040,7 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 	// A list so the bail-out below can say how many went unasked.
 	type granting struct{ label, name, grants string }
 	groups := []granting{
-		{"group", opts.ClientGroup,
+		{"client group", opts.ClientGroup,
 			"reach the broker socket, and enter a tree enrolled with it"},
 	}
 	// Only where the secrets group is not the client group, which is already
@@ -1054,9 +1054,9 @@ func diagnoseGroup(report *DoctorReport, opts DoctorOptions) {
 	// behind, and the remedy printed would be the one change that shuts the agent
 	// out of the broker socket.
 	if opts.AgentUser == "" {
-		report.unaskedf("group", len(groups), "the agent account is not named, so a "+
-			"member of %s cannot be told from an account left behind: pass "+
-			"--agent-user, or run through sudo so SUDO_USER carries it",
+		report.unaskedf("client group", len(groups), "the agent account is not "+
+			"named, so a member of %s cannot be told from an account left behind: "+
+			"pass --agent-user, or run through sudo so SUDO_USER carries it",
 			opts.ClientGroup)
 		return
 	}
