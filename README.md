@@ -11,6 +11,9 @@ $ faramir run --env ROUTER_PW=faramir://home/router/admin -- printenv ROUTER_PW
 faramir run: redacted «SECRET:home/router/admin»×1; log_id=w5vq7dbf00002c
 ```
 
+> [!IMPORTANT]
+> **One install per host, and it serves one operator.** Every member of the client group is the same caller to the broker: one value set, one SSH key, one executor uid, one `agent_user` on every record. A second operator needs a second host.
+
 ## Supported agents
 
 Four get full redaction: what the agent runs in an enrolled project is rewritten into a brokered command, and its output comes back with every value replaced.
