@@ -1,6 +1,8 @@
 package install
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -132,5 +134,119 @@ func TestAPatternSaysWhatItMatches(t *testing.T) {
 		if got := RefusedNameMatches(name); !strings.Contains(got, want) {
 			t.Errorf("%s: %q does not say %q", name, got, want)
 		}
+	}
+}
+
+// Removing a built-in fails rather than reporting that nothing was refused. The
+// rule is faramir's own, so the request cannot be met and the host goes on
+// refusing what was named; saying "not refused, nothing removed" would answer a
+// request to stop refusing something with a sentence denying it was refused at
+// all, which the operator would meet again as an agent still being denied.
+func TestRemovingABuiltInRuleFails(t *testing.T) {
+	dir := writeRefuseConfig(t, "")
+	before, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, name := range []string{"*.pem", "age.key", ".env*", "sops/age/"} {
+		_, removed, rmErr := RemoveRefusedPath(Options{ConfigDir: dir},
+			config.RefusedPath{Name: name})
+		if rmErr == nil {
+			t.Errorf("%s: removing a built-in was accepted", name)
+			continue
+		}
+		for _, want := range []string{"compiled into faramir", "refuse ls"} {
+			if !strings.Contains(rmErr.Error(), want) {
+				t.Errorf("%s: error %q does not say %q", name, rmErr, want)
+			}
+		}
+		if removed.Refuses() != "" {
+			t.Errorf("%s: reported %q as removed", name, removed.Refuses())
+		}
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("a refused removal rewrote the config:\n%s", after)
+	}
+}
+
+// The pattern is compared as the rule it becomes, not as the string typed:
+// "*.pem" is the built-in suffix written another way, while ".pem" alone is a
+// file of that name and is nobody's rule yet.
+func TestABuiltInIsFoundByTheRuleNotTheSpelling(t *testing.T) {
+	if _, ok := BuiltInRefusalFor("*.pem"); !ok {
+		t.Error(`"*.pem" did not find the built-in suffix`)
+	}
+	if _, ok := BuiltInRefusalFor(".pem"); ok {
+		t.Error(`".pem" as a file name found the suffix rule, which is a different rule`)
+	}
+	if _, ok := BuiltInRefusalFor("*.htpasswd"); ok {
+		t.Error("a pattern faramir does not carry was read as a built-in")
+	}
+}
+
+// The same answer for the operator who names the file rather than the pattern.
+// "Stop refusing ~/.ssh/id_rsa" and "stop refusing the id_rsa rule" are one
+// request, and only one of them names a pattern.
+func TestRemovingAPathABuiltInCoversFails(t *testing.T) {
+	dir := writeRefuseConfig(t, "")
+	var err error
+	for _, path := range []string{
+		"/home/op/.ssh/id_rsa",               // an exact name
+		"/srv/deploy/prod.pem",               // a suffix
+		"/home/op/.env.local",                // a prefix
+		"/srv/ansible/secrets-prod.yml",      // a glob
+		"/home/op/.config/sops/age/keys.txt", // a directory
+	} {
+		_, removed, rmErr := RemoveRefusedPath(Options{ConfigDir: dir},
+			config.RefusedPath{Path: path})
+		if rmErr == nil {
+			t.Errorf("%s: removing a path a built-in covers was accepted", path)
+			continue
+		}
+		if !strings.Contains(rmErr.Error(), "compiled into faramir") {
+			t.Errorf("%s: error %q does not say where the rule comes from", path, rmErr)
+		}
+		if removed.Refuses() != "" {
+			t.Errorf("%s: reported %q as removed", path, removed.Refuses())
+		}
+	}
+	// A path no built-in covers is not refused here, an rm of what is not
+	// declared being a request for the state the host is already in. It goes on
+	// to the steps, which want root, so what is asserted is that it got past this
+	// check rather than that the run succeeded.
+	_, _, err = RemoveRefusedPath(Options{ConfigDir: dir},
+		config.RefusedPath{Path: "/mnt/vol/luks.key.bin"})
+	if err != nil && strings.Contains(err.Error(), "compiled into faramir") {
+		t.Errorf("a path no built-in covers was refused as one: %v", err)
+	}
+}
+
+// What each built-in matches, since the message above names a rule and the
+// wrong one would send the operator to the wrong place.
+func TestABuiltInKnowsWhatItCovers(t *testing.T) {
+	for path, want := range map[string]string{
+		"/home/op/.ssh/id_rsa":       "id_rsa",
+		"/srv/deploy/prod.pem":       ".pem",
+		"/home/op/.env.local":        ".env",
+		"/srv/a/secrets-prod.yml":    "secrets*.yml",
+		"/home/op/.config/faramir/x": ".config/faramir/",
+		"/etc/faramir/x.sops.yml":    ".sops.yml",
+	} {
+		rule, ok := BuiltInRefusalCovering(path)
+		if !ok {
+			t.Errorf("%s: no built-in was found to cover it", path)
+			continue
+		}
+		if rule.Entry != want {
+			t.Errorf("%s: covered by %q, want %q", path, rule.Entry, want)
+		}
+	}
+	if rule, ok := BuiltInRefusalCovering("/srv/app/config.yml"); ok {
+		t.Errorf("an ordinary file was read as covered by %q", rule.Entry)
 	}
 }

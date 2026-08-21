@@ -157,7 +157,11 @@ func newRefuseRemoveCmd() *cobra.Command {
 			"A path this install does not refuse is not an error: nothing is written\n" +
 			"and --json reports changed=false, the entry being gone either way.\n\n" +
 			"--name removes a name entry. The form is part of what identifies one, so\n" +
-			"a name is not removed by giving the same string as a path.",
+			"a name is not removed by giving the same string as a path.\n\n" +
+			"A rule compiled into faramir cannot be removed and is refused rather than\n" +
+			"reported as not refused: it is not an entry, this host goes on refusing\n" +
+			"what was named, and saying nothing was removed would read as saying the\n" +
+			"file became readable. `faramir refuse ls` shows which rules are which.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runRefuseRemove(f, args)) },
 	}
@@ -168,12 +172,19 @@ func newRefuseRemoveCmd() *cobra.Command {
 }
 
 func runRefuseRemove(f refuseFlags, args []string) int {
-	if !requireRoot("refuse rm", "it writes the config") {
-		return 1
-	}
 	asked, err := f.entry("rm", args)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	// Before root, not after: this one can never be granted, so making the
+	// operator find sudo to be told so is a round trip for nothing. The library
+	// asks again at the write, for a caller that is not this command.
+	if err := install.BuiltInRefusalError(asked); err != nil {
+		fmt.Fprintf(os.Stderr, "faramir refuse rm: %v\n", err)
+		return 1
+	}
+	if !requireRoot("refuse rm", "it writes the config") {
 		return 1
 	}
 	path := asked.Refuses()

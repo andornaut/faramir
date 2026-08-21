@@ -141,6 +141,14 @@ func sameRefusal(a, b config.RefusedPath) bool {
 // add is not: what is asked for is the state the host is already in. The
 // returned entry is the zero value there, which is how the caller tells the two
 // apart.
+//
+// A built-in rule is the exception and fails. It is refused by faramir itself
+// rather than by an entry, so there is nothing here to remove and the host goes
+// on refusing it: reporting that as "not refused, nothing removed" would answer
+// a request to stop refusing something with a sentence saying it was never
+// refused, and leave the operator to find out otherwise from an agent. Removing
+// one means changing faramir, which is not something a host's config can ask
+// for.
 func RemoveRefusedPath(opts Options, refused config.RefusedPath) (Report, config.RefusedPath, error) {
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
@@ -157,6 +165,14 @@ func RemoveRefusedPath(opts Options, refused config.RefusedPath) (Report, config
 		}
 		kept = append(kept, entry)
 	}
+	// Asked before anything is written, and only where no entry matched: an
+	// install that declared the same rule as well may take its own entry back,
+	// and what it is left with is the built-in, which the warning below says.
+	if removed.Refuses() == "" {
+		if err := BuiltInRefusalError(refused); err != nil {
+			return Report{}, config.RefusedPath{}, err
+		}
+	}
 	// kept is existing where nothing matched, so the steps below re-render what
 	// is already there and report no change.
 	opts.refused, opts.refusedSet = kept, true
@@ -168,7 +184,48 @@ func RemoveRefusedPath(opts Options, refused config.RefusedPath) (Report, config
 		return Report{}, config.RefusedPath{}, err
 	}
 	report, err := run.apply(run.RefusedPathSteps())
+	// An install that declared what faramir already refuses has one rule left
+	// after taking its entry back. Said here rather than left to be inferred from
+	// the entry going away, which reads as the file becoming readable.
+	if err == nil && removed.Refuses() != "" {
+		rule, ok := BuiltInRefusalFor(removed.Name)
+		if !ok && removed.Path != "" {
+			rule, ok = BuiltInRefusalCovering(removed.Path)
+		}
+		if ok {
+			report.Warnings = append(report.Warnings, fmt.Sprintf(
+				"%s is still refused by a rule compiled into faramir (%s, the built-in "+
+					"%s rule %q). What was removed is this install's own entry, which was "+
+					"asking for what faramir already refuses",
+				removed.Refuses(), rule.Why, rule.Kind, rule.Entry))
+		}
+	}
 	return report, removed, err
+}
+
+// BuiltInRefusalError is why a request to stop refusing something cannot be
+// met, or nil where it can. One function rather than a check per caller: the
+// command refuses before it asks for root, a request that can never be granted
+// having no business costing a sudo first, and the library refuses again at the
+// write for a caller that is not the command. Two messages would drift.
+//
+// A path is answered as well as a pattern: "stop refusing ~/.ssh/id_rsa" and
+// "stop refusing the id_rsa rule" are one request, and only one of them names
+// a rule.
+func BuiltInRefusalError(refused config.RefusedPath) error {
+	rule, ok := BuiltInRefusalFor(refused.Name)
+	if !ok && refused.Path != "" {
+		rule, ok = BuiltInRefusalCovering(refused.Path)
+	}
+	if !ok {
+		return nil
+	}
+	return fmt.Errorf("%s is refused by a rule compiled into faramir (%s, the "+
+		"built-in %s rule %q), not by a [[secret.refuse]] entry, so there is "+
+		"nothing here to remove and this host does not stop refusing it. The "+
+		"built-in rules are the same on every install and change only with "+
+		"faramir itself; `faramir refuse ls` shows which rules are which",
+		refused.Refuses(), rule.Why, rule.Kind, rule.Entry)
 }
 
 // RefusedPaths is what the install declares, for `faramir refuse ls`.

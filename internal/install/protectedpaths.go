@@ -2,6 +2,7 @@ package install
 
 import (
 	"fmt"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -147,6 +148,62 @@ func BuiltInRefusals() []BuiltInRefusal {
 		out = append(out, BuiltInRefusal{p.kind.String(), p.value, p.why})
 	}
 	return out
+}
+
+// BuiltInRefusalCovering is the compiled-in rule that already refuses a path,
+// and whether there is one. For the operator who names the file rather than the
+// pattern: "stop refusing ~/.ssh/id_rsa" is the same request as naming the
+// built-in, and answering it with "that was not refused" would be false twice
+// over.
+func BuiltInRefusalCovering(path string) (BuiltInRefusal, bool) {
+	for _, p := range protectedPaths {
+		if p.covers(path) {
+			return BuiltInRefusal{p.kind.String(), p.value, p.why}, true
+		}
+	}
+	return BuiltInRefusal{}, false
+}
+
+// covers is whether this rule matches a path, in the terms each kind is written
+// in. An approximation of what an agent's own matcher will do with the rendered
+// spelling, and it is used to explain a refusal rather than to enforce one: the
+// enforcement is the agent host's, on a rule this never sees applied.
+func (p protectedPath) covers(path string) bool {
+	base := filepath.Base(path)
+	switch p.kind {
+	case kindName:
+		// A name may carry separators, so it is the tail of the path that answers
+		// rather than the last segment alone.
+		return path == p.value || strings.HasSuffix(path, "/"+p.value)
+	case kindSuffix:
+		return strings.HasSuffix(base, p.value)
+	case kindPrefix:
+		return strings.HasPrefix(base, p.value)
+	case kindGlobName:
+		matched, err := filepath.Match(p.value, base)
+		return err == nil && matched
+	case kindDir:
+		dir := strings.TrimSuffix(p.value, "/")
+		return strings.Contains(path, "/"+dir+"/") || strings.HasPrefix(path, dir+"/")
+	}
+	return false
+}
+
+// BuiltInRefusalFor is the compiled-in rule a pattern names, and whether there
+// is one.
+//
+// Compared as the rule each becomes rather than as the string typed: "*.pem"
+// and the built-in suffix ".pem" are one rule written two ways, while ".pem" on
+// its own is a file of that name and a different rule. A comparison on the
+// text would answer no to the first and yes to the second, both wrong.
+func BuiltInRefusalFor(name string) (BuiltInRefusal, bool) {
+	asked := refusedNameRule(name)
+	for _, p := range protectedPaths {
+		if p.kind == asked.kind && p.value == asked.value {
+			return BuiltInRefusal{p.kind.String(), p.value, p.why}, true
+		}
+	}
+	return BuiltInRefusal{}, false
 }
 
 // RefusedNameMatches says in a sentence what a name pattern will match, for the

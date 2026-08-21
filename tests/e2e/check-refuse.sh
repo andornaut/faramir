@@ -409,6 +409,27 @@ refuse ls --declared | grep -q 'built-in' \
   && bad "--declared listed the built-in rules" \
   || ok "and --declared narrows it to what the config carries"
 
+# A rule faramir carries itself is not an entry, so there is nothing to remove
+# and the host goes on refusing it. It fails before root is asked for, a request
+# that can never be granted having no business costing a sudo first.
+before=$(cat $CFG)
+out=$(refuse rm --name '*.pem' 2>&1)
+rc=$?
+[ $rc -ne 0 ] \
+  && ok "refuse rm on a built-in rule fails" \
+  || bad "removing a built-in exited 0: ${out:0:200}"
+grep -q 'compiled into faramir' <<<"$out" \
+  && ok "and says where the rule comes from" \
+  || bad "the refusal does not name the source: ${out:0:200}"
+out=$(refuse rm /home/op/.ssh/id_rsa 2>&1)
+rc=$?
+[ $rc -ne 0 ] && grep -q 'compiled into faramir' <<<"$out" \
+  && ok "and naming a file one covers gets the same answer" \
+  || bad "removing a path a built-in covers: ${out:0:200}"
+[ "$(cat $CFG)" = "$before" ] \
+  && ok "and neither wrote to the config" \
+  || bad "a refused removal rewrote the config"
+
 out=$(refuse rm --name "$NAME")
 grep -q "stopped refusing $NAME" <<<"$out" \
   && ok "refuse rm --name removes it" \
