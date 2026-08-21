@@ -20,40 +20,49 @@ func TestStoreFindingFailsOnlyOnSomethingWrong(t *testing.T) {
 		count      int
 		links      int
 		want       Status
-		says       string // a substring the detail has to carry
+		says       []string // substrings the detail has to carry
 	}{
 		{name: "a store holding refs",
 			patterns: []string{glob}, files: []string{"a.sops.yml"}, count: 3,
-			want: StatusOK, says: "3 ref(s)"},
+			want: StatusOK, says: []string{"3 ref(s)"}},
 		{name: "a store and links together",
 			patterns: []string{glob}, files: []string{"a.sops.yml"}, count: 14, links: 1,
-			want: StatusOK, says: "1 [[secret.link]] entry"},
+			want: StatusOK, says: []string{"1 [[secret.link]] entry"}},
 
 		// The state the fleet hit: no store written, value set entirely linked.
 		{name: "no managed file, one link",
 			patterns: []string{glob}, unresolved: []string{glob}, count: 1, links: 1,
-			want: StatusWarn, says: "the whole value set is 1 [[secret.link]] entry"},
+			want: StatusWarn, says: []string{"the whole value set is 1 [[secret.link]] entry"}},
 		{name: "no managed file and nothing linked, a first install",
 			patterns: []string{glob}, unresolved: []string{glob},
-			want: StatusWarn, says: "nothing is served"},
+			want: StatusWarn, says: []string{"nothing is served"}},
+		// The entry that named nothing is named, and what the entries that did
+		// name something hold is reported beside it: the daemon serves this store,
+		// so a detail saying nothing is served would be false.
 		{name: "one pattern named nothing while another loaded",
 			patterns: []string{glob, "/b/*.sops.yml"}, files: []string{"a.sops.yml"},
-			unresolved: []string{"/b/*.sops.yml"}, count: 3,
-			want: StatusWarn, says: "/b/*.sops.yml"},
+			unresolved: []string{"/b/*.sops.yml"}, count: 3, want: StatusWarn,
+			says: []string{"/b/*.sops.yml", "3 ref(s) are served from 1 file(s)"}},
+		// The file the other entry named opens the gate and held nothing, so the
+		// ops are not refused and no value is covered either.
+		{name: "one pattern named nothing, the file another named holding no ref",
+			patterns: []string{glob, "/b/*.sops.yml"}, files: []string{"a.sops.yml"},
+			unresolved: []string{"/b/*.sops.yml"}, count: 0, want: StatusWarn,
+			says: []string{"1 file(s) loaded and held no ref"}},
 
 		// Faults, which stay failures.
 		{name: "a file that is there and did not load",
 			patterns: []string{glob}, files: []string{"a.sops.yml"}, count: 3,
 			errors: []string{"a.sops.yml: bad mac"},
-			want:   StatusFailed, says: "bad mac"},
+			want:   StatusFailed, says: []string{"bad mac"}},
 		{name: "a load error outranks a count, the daemon refusing either way",
 			patterns: []string{glob}, files: []string{"a.sops.yml"}, count: 9, links: 1,
 			errors: []string{"a.sops.yml: bad mac"}, want: StatusFailed},
 		{name: "a file read that held no refs",
 			patterns: []string{glob}, files: []string{"a.sops.yml"}, count: 0,
-			want: StatusFailed, says: "loaded no refs"},
+			want: StatusFailed, says: []string{"loaded no refs"}},
 		{name: "nothing configured at all",
-			want: StatusFailed, says: "nothing is injectable"},
+			want: StatusFailed, says: []string{"nothing is injectable"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var c checkReport
@@ -67,8 +76,10 @@ func TestStoreFindingFailsOnlyOnSomethingWrong(t *testing.T) {
 			if status != tc.want {
 				t.Errorf("status %q, want %q: %s", status, tc.want, detail)
 			}
-			if tc.says != "" && !strings.Contains(detail, tc.says) {
-				t.Errorf("detail does not carry %q:\n%s", tc.says, detail)
+			for _, says := range tc.says {
+				if !strings.Contains(detail, says) {
+					t.Errorf("detail does not carry %q:\n%s", says, detail)
+				}
 			}
 		})
 	}

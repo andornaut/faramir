@@ -220,10 +220,14 @@ func loadErrorDetail(errors []string) string {
 	return "Load errors: " + strings.Join(errors, "; ")
 }
 
-// storeHolds is what the value set is made of where no managed file resolved,
-// which is what separates a host keeping its secrets in links alone from one
-// whose store went missing. Serving nothing is said plainly: exec and redact
-// are refused until something loads.
+// storeHolds is what the value set is made of beside an entry that named no
+// file, which is what separates a host keeping its secrets in links alone, or
+// in the files another entry did name, from one whose store went missing.
+//
+// Serving nothing is the last case and not the default: the daemon refuses exec
+// and redact on a store where no managed file loaded and nothing is linked, so
+// one entry naming nothing while another resolved is a value set that is served
+// and must not be described as one that is not.
 func (c checkReport) storeHolds() string {
 	switch {
 	case c.Secrets.Links > 0 && c.Secrets.Count > c.Secrets.Links:
@@ -231,9 +235,17 @@ func (c checkReport) storeHolds() string {
 			c.Secrets.Count, c.Secrets.Links, linkEntries(c.Secrets.Links))
 	case c.Secrets.Links > 0:
 		return "the whole value set is " + linkEntries(c.Secrets.Links)
-	default:
-		return "nothing is served, and exec and redact are refused until something is"
+	// A file that loaded and held nothing still opens the gate, which is on a
+	// managed file having been read and not on how many refs came out of it, so
+	// this is neither a store that serves values nor one that refuses the ops.
+	case len(c.Secrets.Files) > 0 && c.Secrets.Count == 0:
+		return fmt.Sprintf("%d file(s) loaded and held no ref, so nothing is "+
+			"injected and nothing is redacted", len(c.Secrets.Files))
+	case len(c.Secrets.Files) > 0:
+		return fmt.Sprintf("%d ref(s) are served from %d file(s)",
+			c.Secrets.Count, len(c.Secrets.Files))
 	}
+	return "nothing is served, and exec and redact are refused until something is"
 }
 
 // linkNote names the linked share of a value set that also has managed files,
