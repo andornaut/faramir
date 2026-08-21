@@ -57,9 +57,7 @@ No pattern is compiled in. One would have to name a file faramir does not write,
 Every secret an install writes is refused by its mode as well: `age.key` is `0400 faramir-keeper`, the broker's SSH key `0600 faramir-broker`, the secrets directory `2750 root:<secrets-group>`, the audit log `0600 faramir-broker`. So the rules above are the second of two mechanisms rather than the only one.
 
 > [!IMPORTANT]
-> **A credential faramir neither writes nor reads is yours to declare.** `sudo faramir doctor` names what it found in your agent's home with no rule over it, under `unrefused credentials`, so a bare default is reported rather than silent.
->
-> **The declaring:** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials`: none is refused by an install that declares nothing, so an agent's file tools can open them. `faramir refuse add` names one, `--name` names a class of them ([refused paths](configuration.md#refused-paths)), and `faramir refuse ls` shows both halves. A fleet declares them once in whatever converges its hosts.
+> **A credential faramir neither writes nor reads is yours to declare.** An SSH private key, a `.pem`, a `.env`, an `~/.aws/credentials`: none is refused by an install that declares nothing, so an agent's file tools can open them. `faramir refuse add` names one, `--name` names a class of them ([refused paths](configuration.md#refused-paths)), and `faramir refuse ls` shows both halves. A fleet declares them once in whatever converges its hosts.
 
 The line is drawn around what faramir installs rather than around credentials in general: what it writes, it refuses, and what it never touches is the operator's to name. It also means the rules do not grow a list every host has to disagree with.
 
