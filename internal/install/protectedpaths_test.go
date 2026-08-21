@@ -46,7 +46,7 @@ func TestEveryProtectedPathHasASampleThatReachesIt(t *testing.T) {
 	// Each refused sample must be matched by the JavaScript spelling, that being
 	// the one form these tests can execute directly.
 	res := make([]*regexp.Regexp, 0, len(protectedPaths))
-	for _, fragment := range jsFragments() {
+	for _, fragment := range jsFragments(Layout{}) {
 		re, err := regexp.Compile(fragment)
 		if err != nil {
 			t.Fatalf("fragment %q does not compile: %v", fragment, err)

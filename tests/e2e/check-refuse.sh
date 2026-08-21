@@ -371,4 +371,50 @@ grep -q 'faramir refuse ls' <<<"$out" \
   && ok "and writes nothing" \
   || bad "removing a path that is not refused rewrote the config"
 
+# --------------------------------------------------------------------------
+head_ "11. a name rather than a path"
+#
+# The case a path cannot reach: a file the agent names by a path this host does
+# not have. Nothing here mounts a container, so the assertion is on the rule
+# that was rendered rather than on a tool being refused, that rule being the
+# whole of what the entry does.
+NAME='*.e2e-htpasswd'
+out=$(refuse add --name "$NAME")
+grep -q 'ends in ".e2e-htpasswd"' <<<"$out" \
+  && ok "refuse add --name says what the pattern will match" \
+  || bad "refuse add --name printed no match description: ${out:0:200}"
+grep -qF 'name = "*.e2e-htpasswd"' $CFG \
+  && ok "and the entry is written as a name" \
+  || bad "the name entry is not in config.toml"
+grep -qF 'Read(**/*.e2e-htpasswd)' $RULES \
+  && ok "and the agent's rules carry it in their own spelling" \
+  || bad "the rule was not rendered into $RULES"
+out=$(refuse add --name "$NAME")
+grep -q 'already refused' <<<"$out" \
+  && ok "adding the same name again is not an error" \
+  || bad "a second add of one name: ${out:0:160}"
+out=$(refuse add --name '*' 2>&1)
+grep -q 'every file on the host' <<<"$out" \
+  && ok "and a pattern matching everything is refused" \
+  || bad "'*' was not refused: ${out:0:160}"
+
+out=$(refuse ls)
+grep -q 'built-in' <<<"$out" \
+  && ok "refuse ls lists the rules compiled in beside the declared ones" \
+  || bad "refuse ls carries no built-in rules: ${out:0:200}"
+grep -q 'age.key' <<<"$out" \
+  && ok "and names one of them" \
+  || bad "refuse ls does not name a built-in rule: ${out:0:200}"
+refuse ls --declared | grep -q 'built-in' \
+  && bad "--declared listed the built-in rules" \
+  || ok "and --declared narrows it to what the config carries"
+
+out=$(refuse rm --name "$NAME")
+grep -q "stopped refusing $NAME" <<<"$out" \
+  && ok "refuse rm --name removes it" \
+  || bad "refuse rm --name: ${out:0:160}"
+grep -qF 'name = "*.e2e-htpasswd"' $CFG \
+  && bad "the name entry is still in config.toml" \
+  || ok "and the entry is gone from config.toml"
+
 summary

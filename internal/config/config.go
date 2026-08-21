@@ -389,7 +389,14 @@ type Link struct {
 
 // RefusedPath is a file the agent's own tools are refused and faramir does not
 // read: a LUKS keyfile, an SSH identity, anything whose value it has no use
-// for. One field, because a path is the whole of what it is.
+// for. Named in full or by a pattern, which are Path and Name: exactly one of
+// them, an entry saying both being two rules written as one.
+//
+// The two forms are not interchangeable. A path refuses the file at that path
+// on this host. A name refuses every file whose name matches, wherever it
+// turns up, which is what reaches a path this host does not have: a container
+// mounts /srv/ha/config as /config, and the agent names the second, so a rule
+// carrying the first covers nothing it runs.
 //
 // The weaker half of the pair, and deliberately so. A [[secret.link]] entry
 // regroups its file to the broker's group, so a brokered command is refused it
@@ -404,7 +411,21 @@ type Link struct {
 type RefusedPath struct {
 	// Path is the file or directory, absolute. No "~", for the reason a link's
 	// path carries none: nothing expands one here.
-	Path string `json:"path"`
+	Path string `json:"path,omitempty"`
+	// Name is a file name, a suffix, a prefix, a name with a wildcard in it, or
+	// a directory tail ending in "/", matched against the path an agent names
+	// rather than against this host's filesystem. The same forms the built-in
+	// rules are written in, and rendered by the same code.
+	Name string `json:"name,omitempty"`
+}
+
+// Refuses is what an entry names, whichever form it took, for a message or a
+// listing that wants one string.
+func (r RefusedPath) Refuses() string {
+	if r.Name != "" {
+		return r.Name
+	}
+	return r.Path
 }
 
 // AuditConfig is the operator-only record of what the broker ran. Output is
@@ -534,7 +555,7 @@ var (
 		"notify_command", "timeout_sec"}
 	secretKeys = []string{"min_length", "min_refresh_sec", "link", "refuse"}
 	linkKeys   = []string{"ref", "path", "type", "key"}
-	refuseKeys = []string{"path"}
+	refuseKeys = []string{"path", "name"}
 	auditKeys  = []string{"log_path"}
 )
 
@@ -820,16 +841,25 @@ func loadRefusedPaths(value any, where string) ([]RefusedPath, error) {
 		if refused.Path, err = str(entry["path"], at, ""); err != nil {
 			return nil, err
 		}
-		if err := validateRefusedPath(refused, at); err != nil {
+		if refused.Name, err = str(entry["name"], at, ""); err != nil {
 			return nil, err
 		}
-		// Two entries naming one path render one rule, so the second is an
-		// operator who thinks something more was added.
-		if seen[refused.Path] {
-			return nil, fmt.Errorf("%s: path %q is named by more than one entry",
-				at, refused.Path)
+		if err := validateRefused(refused, at); err != nil {
+			return nil, err
 		}
-		seen[refused.Path] = true
+		// Two entries naming one path or one pattern render one rule, so the
+		// second is an operator who thinks something more was added. Keyed on the
+		// form as well as the value: a path and a name that read alike are two
+		// different rules.
+		key := "path\x00" + refused.Path
+		if refused.Name != "" {
+			key = "name\x00" + refused.Name
+		}
+		if seen[key] {
+			return nil, fmt.Errorf("%s: %q is named by more than one entry",
+				at, refused.Refuses())
+		}
+		seen[key] = true
 		out = append(out, refused)
 	}
 	return out, nil
@@ -838,12 +868,30 @@ func loadRefusedPaths(value any, where string) ([]RefusedPath, error) {
 // ValidateRefusedPath holds one entry to what the loader would accept, for a
 // command that builds one before anything writes it.
 func ValidateRefusedPath(refused RefusedPath) error {
-	return validateRefusedPath(refused, "[[secret.refuse]]")
+	return validateRefused(refused, "[[secret.refuse]]")
+}
+
+// validateRefused sends an entry to the rules for the form it took, and refuses
+// one that took both or neither. Neither is an empty entry rendering nothing;
+// both is one entry asking for two rules, and answering it by picking a form
+// would render the one the operator was not looking at.
+func validateRefused(refused RefusedPath, at string) error {
+	switch {
+	case refused.Path != "" && refused.Name != "":
+		return fmt.Errorf("%s: names both path %q and name %q, and an entry is one "+
+			"or the other: a path refuses that file on this host, a name refuses "+
+			"every file it matches wherever it is. Write two entries",
+			at, refused.Path, refused.Name)
+	case refused.Name != "":
+		return validateRefusedName(refused.Name, at)
+	}
+	return validateRefusedPath(refused, at)
 }
 
 func validateRefusedPath(refused RefusedPath, at string) error {
 	if refused.Path == "" {
-		return fmt.Errorf("%s: path is required; it is the whole of the entry", at)
+		return fmt.Errorf("%s: path or name is required; one of them is the whole "+
+			"of the entry", at)
 	}
 	if strings.HasPrefix(refused.Path, "~") {
 		return fmt.Errorf("%s: path %q starts with ~, which nothing expands here. "+
@@ -865,6 +913,47 @@ func validateRefusedPath(refused RefusedPath, at string) error {
 	if refused.Path == "/" {
 		return fmt.Errorf("%s: path is /, which would refuse the agent every file "+
 			"on the host. Name the file or the directory that holds it", at)
+	}
+	return nil
+}
+
+// validateRefusedName holds a name pattern to what can be rendered and what is
+// worth rendering. The forms are the built-in rules' own: a file name, a suffix
+// ("*.pem"), a prefix (".env*"), a name with a wildcard inside it
+// ("secrets*.yml"), or a directory tail (".storage/").
+//
+// The failure this guards is the opposite of a path's. A mistyped path refuses
+// one file and the operator meets the file still readable; a pattern that
+// matches too much refuses a class of files at once, and the agent meets that
+// as tools failing on files nobody discussed. So what is refused here is the
+// pattern that matches everything, and `refuse add` prints what a pattern will
+// match rather than leaving a wide one silent.
+func validateRefusedName(name, at string) error {
+	switch {
+	case strings.TrimSpace(name) != name:
+		return fmt.Errorf("%s: name %q is padded with whitespace, and a rule matches "+
+			"the pattern as written", at, name)
+	case strings.HasPrefix(name, "~"):
+		return fmt.Errorf("%s: name %q starts with ~, which nothing expands here", at, name)
+	case strings.HasPrefix(name, "/"):
+		return fmt.Errorf("%s: name %q is an absolute path, and a name is matched "+
+			"against the end of what an agent names rather than the whole of it. "+
+			"Write it as a path entry, or drop the leading /", at, name)
+	case strings.Contains(name, "**"):
+		return fmt.Errorf("%s: name %q carries **, and a name already matches in "+
+			"any directory. Write the name itself", at, name)
+	case slices.Contains(strings.Split(name, "/"), ".."):
+		return fmt.Errorf("%s: name %q carries a .. segment, and a rule matches the "+
+			"pattern as written rather than a path it resolves", at, name)
+	}
+	// What is left once the wildcards and the separators are taken out. Nothing
+	// left is a pattern matching every file the agent can name, which fails
+	// closed and leaves it unable to read anything at all: the same answer "/"
+	// gets as a path.
+	if strings.Trim(name, "*/") == "" {
+		return fmt.Errorf("%s: name %q matches every file on the host, which would "+
+			"refuse the agent all of them. Name the file, the suffix or the "+
+			"directory that holds it", at, name)
 	}
 	return nil
 }

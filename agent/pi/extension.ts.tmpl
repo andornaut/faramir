@@ -47,7 +47,7 @@ const SHELL_TOOLS = new Set(["bash", "shell", "exec"])
 // instead, and by shape rather than by tool name for the same reason the
 // commands are: a file tool this does not know the name of still carries a path.
 const PROTECTED_PATHS = [
-{{- range $fragment := jsFragments }}
+{{- range $fragment := jsFragments .Layout }}
   {{ printf "%s" (quote $fragment) }},
 {{- end }}
 ].map((source) => new RegExp(source))

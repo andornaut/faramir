@@ -51,8 +51,8 @@ func TestRefusedPathValidation(t *testing.T) {
 		body string
 		want string
 	}{
-		"no path":      {`[[secret.refuse]]`, "path is required"},
-		"empty path":   {"[[secret.refuse]]\npath = \"\"", "path is required"},
+		"no path":      {`[[secret.refuse]]`, "path or name is required"},
+		"empty path":   {"[[secret.refuse]]\npath = \"\"", "path or name is required"},
 		"relative":     {"[[secret.refuse]]\npath = \"etc/luks.key\"", "is relative"},
 		"a home":       {"[[secret.refuse]]\npath = \"~/.ssh/id_ed25519\"", "starts with ~"},
 		"not cleaned":  {"[[secret.refuse]]\npath = \"/etc/./luks.key\"", "shortest form"},
@@ -115,5 +115,63 @@ func TestBaseRefusedOnAFileThatIsNotThere(t *testing.T) {
 	}
 	if len(refused) != 0 {
 		t.Fatalf("BaseRefusedPaths = %+v, want nothing", refused)
+	}
+}
+
+// A name entry's own rules. The failure this guards runs the other way from a
+// path's: a pattern that matches everything refuses the agent every file it can
+// name, which is the answer "/" gets as a path.
+func TestRefusedNameValidation(t *testing.T) {
+	for name, tc := range map[string]struct{ body, want string }{
+		"both forms":       {"[[secret.refuse]]\npath = \"/etc/k\"\nname = \"k\"", "one or the other"},
+		"everything":       {"[[secret.refuse]]\nname = \"*\"", "every file on the host"},
+		"every file again": {"[[secret.refuse]]\nname = \"*/*\"", "every file on the host"},
+		"an absolute path": {"[[secret.refuse]]\nname = \"/etc/k\"", "absolute path"},
+		"a tilde":          {"[[secret.refuse]]\nname = \"~/.ssh/id_rsa\"", "nothing expands"},
+		"a globstar":       {"[[secret.refuse]]\nname = \"**/k\"", "already matches in"},
+		"a dot segment":    {"[[secret.refuse]]\nname = \"../k\"", ".. segment"},
+		"padded":           {"[[secret.refuse]]\nname = \" k \"", "whitespace"},
+		"two of one name": {"[[secret.refuse]]\nname = \"k\"\n\n[[secret.refuse]]\nname = \"k\"",
+			"more than one entry"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := load(t, minimal+"\n"+tc.body+"\n")
+			if err == nil {
+				t.Fatalf("loaded, want a refusal naming %q", tc.want)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error is %q, want it to name %q", err, tc.want)
+			}
+		})
+	}
+}
+
+// The shapes that load, and the fact that a name and a path may sit beside each
+// other: one entry is one or the other, a config is both.
+func TestRefusedNamesLoad(t *testing.T) {
+	cfg, err := load(t, minimal+`
+[[secret.refuse]]
+path = "/etc/luks/volume.key"
+
+[[secret.refuse]]
+name = "*.htpasswd"
+
+[[secret.refuse]]
+name = ".storage/"
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Secret.Refused) != 3 {
+		t.Fatalf("refused = %v, want three", cfg.Secret.Refused)
+	}
+	if got := cfg.Secret.Refused[1].Name; got != "*.htpasswd" {
+		t.Errorf("second names %q", got)
+	}
+	if got := cfg.Secret.Refused[1].Refuses(); got != "*.htpasswd" {
+		t.Errorf("Refuses() = %q, want the name", got)
+	}
+	if got := cfg.Secret.Refused[0].Refuses(); got != "/etc/luks/volume.key" {
+		t.Errorf("Refuses() = %q, want the path", got)
 	}
 }

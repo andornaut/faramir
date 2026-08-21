@@ -1,6 +1,7 @@
 package install
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -82,6 +83,121 @@ var protectedPaths = []protectedPath{
 
 	// This install's own, wherever --config-dir put it.
 	{kindDir, ".config/faramir/", "faramir's configuration"},
+}
+
+// refusedNameRules is the [[secret.refuse]] entries that named a pattern rather
+// than a path, in the same form the built-in rules take, so the renderers below
+// spell them the way they spell everything else.
+//
+// Which kind a pattern is comes from its shape, the way a .gitignore line's
+// does. That is inference, and it is safe where the path-or-name choice is not:
+// the shapes render to matchers that differ in breadth, and the operator is
+// shown which one their pattern became before it is written. Getting it wrong
+// refuses more or fewer files of the same kind; it cannot turn a rule into one
+// that silently matches nothing, which is what an inferred path would do.
+func refusedNameRules(layout Layout) []protectedPath {
+	seen := make(map[string]bool, len(layout.Refused))
+	out := make([]protectedPath, 0, len(layout.Refused))
+	for _, refused := range layout.Refused {
+		if refused.Name == "" || seen[refused.Name] {
+			continue
+		}
+		seen[refused.Name] = true
+		out = append(out, refusedNameRule(refused.Name))
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].value < out[j].value })
+	return out
+}
+
+// refusedNameRule is one pattern's kind and value. The order is the order the
+// shapes exclude each other in: a trailing separator is a directory whatever
+// else it holds, and a wildcard at one end is an open end rather than a name
+// with a hole in it.
+func refusedNameRule(name string) protectedPath {
+	const why = "a path this install refuses"
+	switch {
+	case strings.HasSuffix(name, "/"):
+		return protectedPath{kindDir, name, why}
+	case strings.Count(name, "*") == 1 && strings.HasPrefix(name, "*"):
+		return protectedPath{kindSuffix, strings.TrimPrefix(name, "*"), why}
+	case strings.Count(name, "*") == 1 && strings.HasSuffix(name, "*"):
+		return protectedPath{kindPrefix, strings.TrimSuffix(name, "*"), why}
+	case strings.Contains(name, "*"):
+		return protectedPath{kindGlobName, name, why}
+	}
+	return protectedPath{kindName, name, why}
+}
+
+// BuiltInRefusal is one compiled-in rule, for `faramir refuse ls`. The list is
+// otherwise invisible: an agent meets it as a file tool refusing a path, and an
+// operator had no way to ask what it covers short of tripping it, which reports
+// the one rule that matched and not the set. A rule nobody can enumerate is one
+// that gets declared a second time or reported as a gap.
+type BuiltInRefusal struct {
+	Kind  string `json:"kind"`
+	Entry string `json:"entry"`
+	Why   string `json:"why"`
+}
+
+// BuiltInRefusals is the compiled-in list, in the order it is written, which
+// groups it by what it protects.
+func BuiltInRefusals() []BuiltInRefusal {
+	out := make([]BuiltInRefusal, 0, len(protectedPaths))
+	for _, p := range protectedPaths {
+		out = append(out, BuiltInRefusal{p.kind.String(), p.value, p.why})
+	}
+	return out
+}
+
+// RefusedNameMatches says in a sentence what a name pattern will match, for the
+// command that writes one and the listing that shows it. A pattern's breadth is
+// the thing about it that goes unnoticed, so it is stated at the moment the
+// operator can still change it.
+func RefusedNameMatches(name string) string {
+	rule := refusedNameRule(name)
+	switch rule.kind {
+	case kindSuffix:
+		return fmt.Sprintf("any file whose name ends in %q, in any directory", rule.value)
+	case kindPrefix:
+		return fmt.Sprintf("any file whose name starts with %q, in any directory", rule.value)
+	case kindGlobName:
+		return fmt.Sprintf("any file whose name matches %q, in any directory", rule.value)
+	case kindDir:
+		return fmt.Sprintf("everything under any directory named %q",
+			strings.TrimSuffix(rule.value, "/"))
+	case kindName:
+		return fmt.Sprintf("any file named %q, in any directory", rule.value)
+	}
+	return fmt.Sprintf("any file named %q, in any directory", rule.value)
+}
+
+// RefusedNameKind is the shape a pattern was read as, for a listing that shows
+// the built-in rules and the declared ones side by side.
+func RefusedNameKind(name string) string { return refusedNameRule(name).kind.String() }
+
+// String names a kind the way the listing and the messages spell it.
+func (k pathKind) String() string {
+	switch k {
+	case kindSuffix:
+		return "suffix"
+	case kindPrefix:
+		return "prefix"
+	case kindGlobName:
+		return "glob"
+	case kindDir:
+		return "dir"
+	case kindName:
+		return "name"
+	}
+	return "name"
+}
+
+// protectedFor is every rule an install renders by name: the built-in list and
+// the patterns this install declares. One list, so a declared pattern is spelled
+// for each agent by the same code that spells a built-in, rather than by a
+// second path through the renderers.
+func protectedFor(layout Layout) []protectedPath {
+	return append(append([]protectedPath{}, protectedPaths...), refusedNameRules(layout)...)
 }
 
 // installDirs are the paths this install occupies, known only once it is laid
@@ -181,9 +297,10 @@ func perInstallPaths(layout Layout) []string {
 // claudePatterns renders the list in Claude Code's glob spelling, where "**/"
 // means "in any directory" and a plain "*" does not cross a separator, so a
 // suffix needs one of each.
-func claudePatterns() []string {
-	out := make([]string, 0, len(protectedPaths))
-	for _, p := range protectedPaths {
+func claudePatterns(layout Layout) []string {
+	rules := protectedFor(layout)
+	out := make([]string, 0, len(rules))
+	for _, p := range rules {
 		switch p.kind {
 		case kindName, kindGlobName:
 			out = append(out, "**/"+p.value)
@@ -201,9 +318,10 @@ func claudePatterns() []string {
 // pluginGlobs renders the list for the two plugin hosts, whose "*" matches any
 // run of characters including separators, so one leading wildcard does the work
 // of both "in any directory" and "any name ending this way".
-func pluginGlobs() []string {
-	out := make([]string, 0, len(protectedPaths)+1)
-	for _, p := range protectedPaths {
+func pluginGlobs(layout Layout) []string {
+	rules := protectedFor(layout)
+	out := make([]string, 0, len(rules)+1)
+	for _, p := range rules {
 		switch p.kind {
 		case kindName, kindGlobName, kindSuffix:
 			out = append(out, "*"+p.value)
@@ -229,7 +347,7 @@ func claudeRules(layout Layout) []string {
 	add := func(pattern string) {
 		out = append(out, "Read("+pattern+")", "Edit("+pattern+")")
 	}
-	for _, pattern := range claudePatterns() {
+	for _, pattern := range claudePatterns(layout) {
 		add(pattern)
 	}
 	for _, dir := range installDirs(layout) {
@@ -248,7 +366,7 @@ func claudeRules(layout Layout) []string {
 // pluginPatterns is the deny list the two plugin hosts read, which key a map by
 // the pattern rather than listing rules. Same paths, their spelling.
 func pluginPatterns(layout Layout) []string {
-	out := pluginGlobs()
+	out := pluginGlobs(layout)
 	for _, dir := range installDirs(layout) {
 		out = append(out, dir+"/*")
 	}
@@ -291,9 +409,10 @@ func jsonDenyMap(indent string, items []string) string {
 
 // jsFragments renders the list for an agent whose rules are applied by a plugin
 // this installs, as JavaScript regex source.
-func jsFragments() []string {
-	out := make([]string, 0, len(protectedPaths))
-	for _, p := range protectedPaths {
+func jsFragments(layout Layout) []string {
+	rules := protectedFor(layout)
+	out := make([]string, 0, len(rules))
+	for _, p := range rules {
 		q := regexp.QuoteMeta(p.value)
 		switch p.kind {
 		case kindName:

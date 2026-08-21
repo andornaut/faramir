@@ -29,7 +29,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 	}{
 		{"a relative path", "", "etc/luks.key", "is relative"},
 		{"a home", "", "~/.ssh/id_ed25519", "starts with ~"},
-		{"no path at all", "", "", "path is required"},
+		{"no path at all", "", "", "path or name is required"},
 		{"an uncleaned path", "", "/etc/./luks.key", "shortest form"},
 		{"the whole filesystem", "", "/", "every file on the host"},
 	} {
@@ -104,7 +104,7 @@ func TestRemoveRefusedOnAPathTheInstallDoesNotRefuse(t *testing.T) {
 	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n")
 	before := readConfigFile(t, dir)
 
-	_, removed, err := RemoveRefusedPath(Options{ConfigDir: dir}, "/etc/other.key")
+	_, removed, err := RemoveRefusedPath(Options{ConfigDir: dir}, config.RefusedPath{Path: "/etc/other.key"})
 	if err != nil && strings.Contains(err.Error(), "refuses no path") {
 		t.Fatalf("removing a path that is not refused was an error: %v", err)
 	}

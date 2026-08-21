@@ -84,6 +84,16 @@ func AddRefusedPath(opts Options, refused config.RefusedPath) (Report, bool, err
 	if err != nil {
 		return report, false, err
 	}
+	// A name is not asked of the filesystem at all: it is matched against what an
+	// agent names, which is why it reaches a path this host does not have. What
+	// it will match is said instead, that being the thing a wide pattern hides.
+	if refused.Name != "" {
+		report.Warnings = append(report.Warnings, fmt.Sprintf(
+			"%s refuses %s. Nothing announces a pattern that matches more than it "+
+				"was meant to: the agent meets it as file tools failing on files "+
+				"nobody discussed", refused.Name, RefusedNameMatches(refused.Name)))
+		return report, added, nil
+	}
 	if _, statErr := os.Stat(refused.Path); statErr != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
 			"%s is not there. The rule is written and will hold when it appears, "+
@@ -108,11 +118,18 @@ func refusedWith(existing []config.RefusedPath,
 	refused config.RefusedPath) ([]config.RefusedPath, bool) {
 	entries := append([]config.RefusedPath{}, existing...)
 	for _, other := range existing {
-		if other.Path == refused.Path {
+		if sameRefusal(other, refused) {
 			return entries, false
 		}
 	}
 	return append(entries, refused), true
+}
+
+// sameRefusal is whether two entries ask for the same rule. The form counts as
+// well as the string: a path and a name that read alike render different rules,
+// so one does not stand in for the other.
+func sameRefusal(a, b config.RefusedPath) bool {
+	return a.Path == b.Path && a.Name == b.Name
 }
 
 // RemoveRefusedPath drops one entry and re-renders. It does not take the rule
@@ -124,7 +141,7 @@ func refusedWith(existing []config.RefusedPath,
 // add is not: what is asked for is the state the host is already in. The
 // returned entry is the zero value there, which is how the caller tells the two
 // apart.
-func RemoveRefusedPath(opts Options, path string) (Report, config.RefusedPath, error) {
+func RemoveRefusedPath(opts Options, refused config.RefusedPath) (Report, config.RefusedPath, error) {
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
 	existing, err := config.BaseRefusedPaths(configFile)
@@ -134,7 +151,7 @@ func RemoveRefusedPath(opts Options, path string) (Report, config.RefusedPath, e
 	kept := make([]config.RefusedPath, 0, len(existing))
 	var removed config.RefusedPath
 	for _, entry := range existing {
-		if entry.Path == path {
+		if sameRefusal(entry, refused) {
 			removed = entry
 			continue
 		}

@@ -188,17 +188,21 @@ func reportLinkedFiles(report *DoctorReport, home string, links []string) {
 	}
 }
 
-// diagnoseRefusedPaths asks whether the account-wide deny rules refuse every
-// [[secret.refuse]] path. The rule is the entire content of one of these
-// entries, so an entry the rules do not carry is an entry doing nothing at all.
+// diagnoseRefusedPaths asks whether the account-wide deny rules carry every
+// [[secret.refuse]] entry, by path and by name alike. The rule is the entire
+// content of one of these entries, so an entry the rules do not carry is an
+// entry doing nothing at all.
 //
 // Failed rather than a warning, for the reason the linked-file check fails: a
 // stale rule refuses more than the list asks for, while this refuses less.
 func diagnoseRefusedPaths(report *DoctorReport, opts DoctorOptions, cfg *config.Config) {
 	const name = "refused paths"
+	// Both forms, each compared as it is written: the rendered rule carries the
+	// pattern a name entry declared, so containment answers for one the way it
+	// answers for a path.
 	paths := make([]string, 0, len(cfg.Secret.Refused))
 	for _, entry := range cfg.Secret.Refused {
-		paths = append(paths, entry.Path)
+		paths = append(paths, entry.Refuses())
 	}
 	if len(paths) == 0 {
 		report.addf(name, StatusOK, "no [[secret.refuse]] entries are configured")

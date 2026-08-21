@@ -111,11 +111,26 @@ Why it is shaped this way (one ref per entry rather than a whole-file flatten, t
 
 ## Refused paths
 
-A `[[secret.refuse]]` entry refuses one path to the agent's file tools, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. [When to reach for one](integrations.md#where-the-value-lives).
+A `[[secret.refuse]]` entry refuses one thing to the agent's file tools, for a credential faramir has no use for the value of: a LUKS keyfile, an SSH identity. [When to reach for one](integrations.md#where-the-value-lives).
 
 ```sh
-sudo faramir refuse add /etc/luks/volume.key
+sudo faramir refuse add /etc/luks/volume.key          # this file, on this host
+sudo faramir refuse add --name '*.htpasswd'           # any file of that name, anywhere
 ```
+
+**A path and a name are not the same rule, and one entry is one of them.** A path refuses the file at that path. A name is matched against the path the agent names rather than against this host's filesystem, which is what reaches a path the host does not have: a container mounts `/srv/ha/config` as `/config`, the agent names the second, and a rule carrying the first covers nothing it runs. Naming both in one entry is refused rather than answered by picking one.
+
+Name | Matches
+--- | ---
+`auth` | any file called `auth`, in any directory
+`*.htpasswd` | any file whose name ends that way
+`.env*` | any file whose name starts that way
+`secrets*.yml` | any file whose name matches, the wildcard not crossing a directory
+`.storage/` | everything under any directory of that name
+
+Which of the five a pattern is comes from its shape, and `refuse add` prints what it read before writing it. That inference is safe where inferring path-from-name would not be: the shapes differ in breadth, and reading one as another refuses more or fewer files of the same kind, while an inferred path could turn a typo into a rule that silently matches nothing.
+
+**The two forms fail in opposite directions.** A mistyped path refuses one file, and the file stays readable until somebody notices. A pattern that matches more than it was meant to refuses a class of files at once, and nothing announces it: the agent meets it as file tools failing on files nobody discussed. So a pattern that matches everything is refused at load the way `/` is as a path, and what a pattern will match is printed as it is written rather than left to be discovered.
 
 **It is the weaker of the two entries.** A link reads the file, so it does three things this one cannot:
 
@@ -131,8 +146,11 @@ So a command the broker runs may still open a refused path, and print it in the 
 Key | Rule
 --- | ---
 `path` | Absolute, and in its shortest form: a rule matches the path as written, so `/etc/./k` and `/etc/k` are two rules of which one matches nothing. No `~`, which nothing expands here. `/` is refused, being every file on the host
+`name` | A name, suffix, prefix, wildcard name or directory, per the table above. Not absolute, which is a path; no `~` and no `..`, nothing resolving either here; no `**`, a name matching in any directory already. A pattern with nothing left once the wildcards and separators are taken out is refused, being every file on the host
 
 - **A path that is not there is still recorded**, and you are told. The rule costs nothing while the file is absent and holds once the volume mounts, which is the case these exist for. A path spelled wrong looks the same, so the message says both.
+- **A name is not asked of the filesystem at all**, having nothing on this host to be asked about. What it will match is printed instead.
+- **`faramir refuse ls` lists the built-in rules beside the declared ones**, under a `SOURCE` column, because there is otherwise no way to ask what faramir already refuses: the agent meets a built-in as a file tool refusing a path, and the refusal names the rule that matched rather than the set. `--declared` narrows the listing to the entries the config carries, which is the list a configuration manager converges.
 - **A directory refuses what is under it.** Which it is, is asked of the filesystem as the rules are rendered, and a path that is not there renders as a file: the narrower of the two.
 - **Nothing is reloaded.** No daemon reads these entries, so `refuse add` does not restart the broker under a running command.
 - **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
