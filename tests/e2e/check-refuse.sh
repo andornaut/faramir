@@ -380,7 +380,7 @@ head_ "11. a name rather than a path"
 # whole of what the entry does.
 NAME='*.e2e-htpasswd'
 out=$(refuse add --name "$NAME")
-grep -q 'ends in ".e2e-htpasswd"' <<<"$out" \
+grep -qF 'ends in ".e2e-htpasswd"' <<<"$out" \
   && ok "refuse add --name says what the pattern will match" \
   || bad "refuse add --name printed no match description: ${out:0:200}"
 grep -qF 'name = "*.e2e-htpasswd"' $CFG \
@@ -402,7 +402,7 @@ out=$(refuse ls)
 grep -q 'built-in' <<<"$out" \
   && ok "refuse ls lists the rules compiled in beside the declared ones" \
   || bad "refuse ls carries no built-in rules: ${out:0:200}"
-grep -q 'age.key' <<<"$out" \
+grep -qF 'age.key' <<<"$out" \
   && ok "and names one of them" \
   || bad "refuse ls does not name a built-in rule: ${out:0:200}"
 refuse ls --declared | grep -q 'built-in' \
@@ -431,7 +431,7 @@ rc=$?
   || bad "a refused removal rewrote the config"
 
 out=$(refuse rm --name "$NAME")
-grep -q "stopped refusing $NAME" <<<"$out" \
+grep -qF "stopped refusing $NAME" <<<"$out" \
   && ok "refuse rm --name removes it" \
   || bad "refuse rm --name: ${out:0:160}"
 grep -qF 'name = "*.e2e-htpasswd"' $CFG \
