@@ -531,15 +531,30 @@ func TestWhatSkipsTheSSHAgentProbe(t *testing.T) {
 		})
 	}
 
-	// No key configured is the host that arranges SSH some other way, and is an
-	// answer rather than a check that went unmade.
+	// An install writes an [ssh] key on every run, minting one whether or not the
+	// host turns out to need it, so an empty one is an edit rather than a host
+	// that arranges SSH some other way. Nothing else would report it: the broker
+	// comes up and every other check passes, and the first thing to notice is a
+	// brokered command failing against a managed host.
 	var noKey DoctorReport
 	diagnoseSSHAgent(&noKey, DoctorOptions{}, &config.Config{}, servesUnknown)
-	if len(noKey.Findings) != 1 || noKey.Findings[0].Status != StatusOK {
+	if len(noKey.Findings) != 1 || noKey.Findings[0].Status != StatusFailed {
 		t.Fatalf("no [ssh] key: got %+v", noKey.Findings)
 	}
 	if noKey.NotAsked != 0 {
 		t.Errorf("NotAsked = %d, want 0 for a check that was answered", noKey.NotAsked)
+	}
+	if !strings.Contains(noKey.Findings[0].Detail, "the config") {
+		t.Errorf("an unloaded path is rendered into the message: %s", noKey.Findings[0].Detail)
+	}
+
+	// A config that did not load is a different answer: which key the broker
+	// lends is then unknown rather than absent.
+	var noConfig DoctorReport
+	diagnoseSSHAgent(&noConfig, DoctorOptions{}, nil, servesUnknown)
+	if noConfig.NotAsked != 1 || noConfig.Failed {
+		t.Errorf("a config that did not load: got %+v, failed=%v",
+			noConfig.Findings, noConfig.Failed)
 	}
 }
 

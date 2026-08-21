@@ -927,9 +927,27 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 // uid some other way, and `ssh-add -l` exits non-zero for want of an agent,
 // which is not a fault. Not skipped for want of root.
 func diagnoseSSHAgent(report *DoctorReport, opts DoctorOptions, cfg *config.Config, serves brokerServes) {
-	if cfg == nil || cfg.Ssh.Key == "" {
-		report.addf("ssh agent", StatusOK, "no [ssh] key configured, so no agent runs "+
-			"and none is expected")
+	if cfg == nil {
+		report.unaskedf("ssh agent", 1, "the config did not load, so which key the "+
+			"broker lends is unknown")
+		return
+	}
+	// An install always writes one: `init` mints a key whether or not the host
+	// turns out to need it, and renders the path into [ssh] key, so an empty one
+	// is an edit rather than a host that authenticates some other way. Reported
+	// as a fault because nothing else would say so: the broker comes up, every
+	// other check passes, and a brokered command reaching a managed host fails
+	// with ssh's own error at the point of use.
+	if cfg.Ssh.Key == "" {
+		where := cfg.Path
+		if where == "" {
+			where = "the config"
+		}
+		report.addf("ssh agent", StatusFailed, "no [ssh] key is configured, so the "+
+			"broker lends no identity and a brokered command that reaches a managed "+
+			"host fails at the point of use, with ssh's own error. `faramir init` "+
+			"writes one on every run, so this is an edit to %s. Re-run `sudo faramir "+
+			"init`, with --ssh-key to name one of your own", where)
 		return
 	}
 	if reason := skipSSHProbe(serves, opts.BrokerVersion); reason != "" {
