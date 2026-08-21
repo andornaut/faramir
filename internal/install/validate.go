@@ -27,6 +27,11 @@ type checkReport struct {
 		// and reason. They load and are never injected, so each is a value to
 		// lengthen rather than anything about the install.
 		NotRedactable map[string]string `json:"not_redactable"`
+		// Links is how many of Count came from [[secret.link]] entries rather than
+		// from a managed file. A count, not the paths, which are the operator's
+		// own files. An install whose whole value set is linked keeps no store,
+		// and the daemon serves it.
+		Links int `json:"links"`
 	} `json:"secrets"`
 	// Policy is the socket-policy problems, which --check also exits non-zero
 	// for. Read here so a caller can tell which reason it is looking at.
@@ -56,13 +61,25 @@ func (c checkReport) refusedRefs() string {
 	return strings.Join(out, ", ")
 }
 
-// serves reports whether the broker will run exec and redact: at least one
-// managed file was read, and every file it read loaded. The daemon's own gate,
-// mirrored so a probe that runs a brokered command is skipped only when it
-// would really be refused. Not a ref count: files that hold nothing still
-// serve.
+// serves reports whether the broker will run exec and redact: something was
+// read, and every file it read loaded. Store.Unreadable is the daemon's own
+// gate, mirrored here so a probe that runs a brokered command is skipped only
+// when it would really be refused.
+//
+// Links as well as files, because a [[secret.link]] entry fills the value set
+// without the keeper contributing anything, and an install whose whole set is
+// linked keeps no managed file at all. Counting files alone skipped the probes
+// that check redaction on exactly those hosts, and gave the broker refusing as
+// the reason when it was serving.
+//
+// Not a ref count: files that hold nothing still serve, the daemon asking what
+// was read rather than what was in it. Configured links rather than resolved
+// ones, which the report does not carry: a link whose file has gone reads as
+// serving here and the probe then fails on it, which names the fault. The other
+// direction skips the probe and reports nothing.
 func (c checkReport) serves() bool {
-	return len(c.Secrets.Files) > 0 && len(c.Secrets.Errors) == 0
+	return (len(c.Secrets.Files) > 0 || c.Secrets.Links > 0) &&
+		len(c.Secrets.Errors) == 0
 }
 
 // stepValidate asks the broker what it can do with what was installed. As the
@@ -201,4 +218,76 @@ func loadErrorDetail(errors []string) string {
 			"rather than unreadable."
 	}
 	return "Load errors: " + strings.Join(errors, "; ")
+}
+
+// storeHolds is what the value set is made of where no managed file resolved,
+// which is what separates a host keeping its secrets in links alone from one
+// whose store went missing. Serving nothing is said plainly: exec and redact
+// are refused until something loads.
+func (c checkReport) storeHolds() string {
+	switch {
+	case c.Secrets.Links > 0 && c.Secrets.Count > c.Secrets.Links:
+		return fmt.Sprintf("%d ref(s) are served, %d of them from %s",
+			c.Secrets.Count, c.Secrets.Links, linkEntries(c.Secrets.Links))
+	case c.Secrets.Links > 0:
+		return "the whole value set is " + linkEntries(c.Secrets.Links)
+	default:
+		return "nothing is served, and exec and redact are refused until something is"
+	}
+}
+
+// linkNote names the linked share of a value set that also has managed files,
+// so a count that changed says which half it changed in.
+func (c checkReport) linkNote() string {
+	if c.Secrets.Links == 0 {
+		return ""
+	}
+	return " and " + linkEntries(c.Secrets.Links)
+}
+
+// storeFinding is what the `secrets store` check reports: what the store holds,
+// and whether anything about it is wrong.
+//
+// Keeping no managed file is a valid install rather than a fault. A
+// [[secret.link]] entry fills the value set on its own, and a host that has not
+// written its first secret is every install on its first day, which is why
+// `init` warns there and carries on. The two sibling checks over links and
+// refused paths already report having none as ok; this one failing was the
+// outlier.
+func storeFinding(c checkReport) (Status, string) {
+	switch {
+	case len(c.Secrets.Errors) > 0:
+		// First, and on its own: the daemon refuses every redacted op while one
+		// file did not load, whatever else did, so a ref count beside it would
+		// describe a store that is not being served.
+		return StatusFailed, loadErrorDetail(c.Secrets.Errors)
+	case len(c.Secrets.Patterns) == 0 && c.Secrets.Links == 0:
+		return StatusFailed, "no managed sops files and no [[secret.link]] entries " +
+			"are configured, so nothing is injectable and nothing is redacted"
+	case len(c.Secrets.UnresolvedPatterns) > 0:
+		// A warning rather than a failure, because this cannot tell a host that
+		// keeps no store from one whose store went missing: the pattern is derived
+		// from the config directory, so it is on every install and names nothing
+		// until a first file is written. What is served is reported beside it,
+		// that being what tells an operator which of the two they are looking at.
+		// The entries carry their own reason, "matched no files" or the stat error
+		// a literal path gave, so this adds none.
+		return StatusWarn, fmt.Sprintf("%s, so %s. Either the secrets have not been "+
+			"written yet, or they are on a filesystem that is not mounted",
+			strings.Join(c.Secrets.UnresolvedPatterns, "; "), c.storeHolds())
+	case c.Secrets.Count == 0:
+		return StatusFailed, fmt.Sprintf("read %s and loaded no refs",
+			strings.Join(c.Secrets.Files, ", "))
+	}
+	return StatusOK, fmt.Sprintf("%d ref(s) from %d file(s)%s",
+		c.Secrets.Count, len(c.Secrets.Files), c.linkNote())
+}
+
+// linkEntries names a count of link entries, singular where there is one: this
+// reads in the middle of a sentence an operator is being told something by.
+func linkEntries(n int) string {
+	if n == 1 {
+		return "1 [[secret.link]] entry"
+	}
+	return fmt.Sprintf("%d [[secret.link]] entries", n)
 }

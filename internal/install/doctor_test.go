@@ -254,6 +254,7 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 		errors        []string
 		unresolved    []string
 		count         int
+		links         int
 		notRedactable map[string]string
 		want          bool
 	}{
@@ -271,6 +272,16 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 			unresolved: []string{"/b/*.sops.yml"}, want: true},
 		{name: "nothing matched", unresolved: []string{"/b/*.sops.yml"}, want: false},
 		{name: "nothing configured", want: false},
+		// A host keeping its whole value set in links reads no managed file and
+		// serves. Counting files alone skipped every probe that checks redaction
+		// on one, and gave the broker refusing as the reason.
+		{name: "no managed file, one link",
+			unresolved: []string{"/b/*.sops.yml"}, count: 1, links: 1, want: true},
+		{name: "no managed file, one link, nothing configured to match",
+			count: 1, links: 1, want: true},
+		{name: "one link and a file that did not load",
+			files: []string{"a.sops.yml"}, count: 1, links: 1,
+			errors: []string{"a.sops.yml: bad mac"}, want: false},
 		{name: "a file that did not load",
 			files: []string{"a.sops.yml"}, count: 3,
 			errors: []string{"a.sops.yml: bad mac"}, want: false},
@@ -281,6 +292,7 @@ func TestServesAsksWhatWasReadRatherThanHowMuchLoaded(t *testing.T) {
 			report.Secrets.Errors = tc.errors
 			report.Secrets.UnresolvedPatterns = tc.unresolved
 			report.Secrets.Count = tc.count
+			report.Secrets.Links = tc.links
 			report.Secrets.NotRedactable = tc.notRedactable
 			if got := report.serves(); got != tc.want {
 				t.Errorf("serves() = %v, want %v", got, tc.want)

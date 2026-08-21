@@ -882,31 +882,13 @@ func diagnoseBroker(report *DoctorReport, configFile, brokerUser string) brokerS
 		report.addf("broker", StatusFailed, "could not read the --check report: %v", err)
 		return servesUnknown
 	}
-	// Every one of these fails, though the daemon itself comes up while the
-	// secrets are not written yet and refuses exec and redact until they are.
-	// Named apart from the `secrets` boundary check, which asks who owns the
-	// directory.
 	const store = "secrets store"
-	explained := true
-	switch {
-	case len(check.Secrets.Patterns) == 0:
-		report.addf(store, StatusFailed, "no managed sops files are configured, so "+
-			"nothing is injectable and nothing is redacted")
-	case len(check.Secrets.UnresolvedPatterns) > 0:
-		// The unresolved entries alone: another pattern beside them may have
-		// matched and loaded.
-		report.addf(store, StatusFailed, "%s. Either the secrets have not been "+
-			"written yet, or they are on a filesystem that is not mounted; %d ref(s) "+
-			"loaded from what did resolve",
-			strings.Join(check.Secrets.UnresolvedPatterns, "; "), check.Secrets.Count)
-	case check.Secrets.Count == 0:
-		report.addf(store, StatusFailed, "read %s and loaded no refs. %s",
-			strings.Join(check.Secrets.Files, ", "), loadErrorDetail(check.Secrets.Errors))
-	default:
-		report.addf(store, StatusOK, "%d ref(s) from %d file(s)",
-			check.Secrets.Count, len(check.Secrets.Files))
-		explained = false
-	}
+	status, detail := storeFinding(check)
+	report.addf(store, status, "%s", detail)
+	// Whether this accounted for a non-zero --check. Only a clean store leaves it
+	// unexplained; a warning is still this function having named the reason.
+	explained := status != StatusOK
+
 	// Refs the store read and the redactor refused. Named here rather than left
 	// to the fallback below, which would report a condition --check describes
 	// precisely as one it cannot explain. A warning, not a failure: they are
