@@ -35,7 +35,7 @@ func fixture(t *testing.T) (dir, script string) {
 	return dir, script
 }
 
-func TestProgram(t *testing.T) {
+func TestProgramResolvesAgainstTheChildsOwnPath(t *testing.T) {
 	dir, script := fixture(t)
 
 	for _, tc := range []struct {

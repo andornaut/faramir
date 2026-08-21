@@ -163,49 +163,53 @@ func otherAccount(t *testing.T) (string, int32) {
 	return "", 0
 }
 
-// The group is usually a supplementary one, granted with usermod -aG, so
-// checking the gid alone would make allowed_group ineffective.
-func TestSupplementaryGroupMembershipIsHonoured(t *testing.T) {
+// allowed_group is usually granted with usermod -aG, so a check on the gid
+// alone would make it ineffective. Both paths are driven here against a written
+// group file: the group is a real one so user.LookupGroup resolves it, and the
+// member list is this test's. Hunting the host for a group that already has the
+// right shape makes a broken groupMembers skip the test rather than fail it.
+func TestInGroupHonoursBothTheGidAndTheMemberList(t *testing.T) {
 	self, err := user.Current()
 	if err != nil {
-		t.Skipf("no current user: %v", err)
+		t.Fatalf("no current user: %v", err)
 	}
-	gids, err := self.GroupIds()
+	group, err := user.LookupGroupId(self.Gid)
 	if err != nil {
-		t.Skipf("cannot read our groups: %v", err)
+		t.Fatalf("this user's primary group does not resolve: %v", err)
 	}
-	primary := self.Gid
+	gid, err := strconv.Atoi(self.Gid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	uid, err := strconv.Atoi(self.Uid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Not the group's gid, so only the member list can decide.
+	const otherGID = 65500
+	if gid == otherGID {
+		t.Fatalf("this user's gid is the one the test uses as an outsider's")
+	}
 
-	var group string
-	for _, gid := range gids {
-		if gid == primary {
-			continue
-		}
-		if g, err := user.LookupGroupId(gid); err == nil {
-			// A group we are in by name; the gid path is covered above.
-			for _, member := range groupMembers(g.Name) {
-				if member == self.Username {
-					group = g.Name
-				}
+	for _, tc := range []struct {
+		name    string
+		gid     int32
+		members string
+		want    bool
+	}{
+		{"the primary gid matches with no member list", int32(gid), "", true},
+		{"a listed member matches on another gid", otherGID, self.Username, true},
+		{"one of several listed members matches", otherGID, "someone," + self.Username, true},
+		{"an unlisted peer on another gid is refused", otherGID, "someone-else", false},
+		{"an empty member list on another gid is refused", otherGID, "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			useGroupFile(t, group.Name+":x:"+self.Gid+":"+tc.members+"\n")
+			if got := inGroup(&Peer{UID: int32(uid), GID: tc.gid}, group.Name); got != tc.want {
+				t.Errorf("inGroup(gid=%d, members=%q) = %v, want %v",
+					tc.gid, tc.members, got, tc.want)
 			}
-		}
-	}
-	if group == "" {
-		t.Skip("this user has no supplementary group listed in /etc/group")
-	}
-
-	// Not our gid, so only the member list can match.
-	uid, _ := strconv.Atoi(self.Uid)
-	peer := &Peer{UID: int32(uid), GID: 65500}
-	if os.Getuid() == uid {
-		// Allowed short-circuits on our own uid.
-		if !inGroup(peer, group) {
-			t.Errorf("supplementary membership of %s was not honoured", group)
-		}
-		return
-	}
-	if !Allowed(peer, "", group) {
-		t.Errorf("supplementary membership of %s was not honoured", group)
+		})
 	}
 }
 

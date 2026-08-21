@@ -169,7 +169,7 @@ func TestTheDriftFindingReportsACleanHome(t *testing.T) {
 //
 // And it has to stay narrow in the other direction, or every line of somebody's
 // settings ends up in the finding.
-func TestLooksManaged(t *testing.T) {
+func TestLooksManagedMatchesOnlyTheInstallersOwnLine(t *testing.T) {
 	const configDir = "/home/op/.config/faramir"
 	for _, tc := range []struct {
 		entry string

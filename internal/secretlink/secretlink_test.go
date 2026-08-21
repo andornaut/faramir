@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func TestExtractText(t *testing.T) {
+func TestExtractTextTakesTheWholeFileTrimmed(t *testing.T) {
 	for name, tc := range map[string]struct {
 		data string
 		want string
@@ -44,7 +44,7 @@ func TestExtractTextRefusesBinary(t *testing.T) {
 	}
 }
 
-func TestExtractBase64(t *testing.T) {
+func TestExtractBase64EncodesTheWholeFile(t *testing.T) {
 	got, err := Extract(KindBase64, "", []byte{0x00, 0x01, 0xff})
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
@@ -62,7 +62,7 @@ func TestExtractEmptyIsRefused(t *testing.T) {
 	}
 }
 
-func TestExtractJSON(t *testing.T) {
+func TestExtractJSONSelectsByKeyPath(t *testing.T) {
 	// The shape ~/.docker/config.json takes.
 	data := []byte(`{"auths":{"ghcr.io":{"auth":"c2VjcmV0"}},"count":3,"on":true}`)
 	for name, tc := range map[string]struct {
@@ -108,7 +108,7 @@ func TestExtractJSONList(t *testing.T) {
 }
 
 // The shape ~/.config/gh/hosts.yml takes, which is what the first link reads.
-func TestExtractYAML(t *testing.T) {
+func TestExtractYAMLSelectsByKeyPath(t *testing.T) {
 	data := []byte("github.com:\n    oauth_token: gho_example\n    user: someone\n" +
 		"    git_protocol: ssh\n")
 	got, err := Extract(KindYAML, "github.com/oauth_token", data)
@@ -125,7 +125,7 @@ func TestExtractYAML(t *testing.T) {
 
 // The shape ~/.npmrc takes: a key holding slashes and a colon, which is why the
 // selector is the whole key rather than a path through it.
-func TestExtractINI(t *testing.T) {
+func TestExtractINISelectsBySectionAndKey(t *testing.T) {
 	data := []byte("; a comment\n//registry.npmjs.org/:_authToken=npm_example\n" +
 		"[scoped]\ntoken = \"quoted\"\nblank=\n")
 	for name, tc := range map[string]struct {
@@ -213,7 +213,7 @@ func TestReadReportsAMissingFile(t *testing.T) {
 	}
 }
 
-func TestNeedsKey(t *testing.T) {
+func TestOnlyTheStructuredKindsNeedAKey(t *testing.T) {
 	for kind, want := range map[string]bool{
 		KindText: false, KindBase64: false,
 		KindJSON: true, KindYAML: true, KindTOML: true, KindINI: true,

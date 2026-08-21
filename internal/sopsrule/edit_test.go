@@ -49,7 +49,7 @@ func TestAnEditKeepsTheRestOfTheFile(t *testing.T) {
 
 // Appended rather than sorted: the keeper's own key leads the list on every host
 // the installer wrote, and a sort would move it for no reason anybody asked for.
-func TestAddAppends(t *testing.T) {
+func TestAddAppendsARecipientRatherThanSorting(t *testing.T) {
 	out, _, err := Add([]byte(installed), "test", "age1third")
 	if err != nil {
 		t.Fatal(err)

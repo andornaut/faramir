@@ -44,7 +44,7 @@ func guardOutput(t *testing.T, args []string, payload string) map[string]any {
 
 // The hosts disagree about where a refusal goes and what an escalation is, and
 // the wrong dialect fails open, so each shape is pinned.
-func TestHostDialects(t *testing.T) {
+func TestEachHostDialectIsEmittedInItsOwnShape(t *testing.T) {
 	t.Run("claude rewrites through updatedInput and approves explicitly", func(t *testing.T) {
 		got := guardOutput(t, nil,
 			`{"tool_name":"Bash","tool_input":{"command":"echo hi","timeout":5}}`)

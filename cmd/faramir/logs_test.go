@@ -658,7 +658,7 @@ func TestDescribePeerRendersTheObject(t *testing.T) {
 	}
 }
 
-func TestHumanBytes(t *testing.T) {
+func TestHumanBytesScalesToTheLargestWholeUnit(t *testing.T) {
 	for _, tc := range []struct {
 		size int64
 		want string

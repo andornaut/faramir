@@ -227,7 +227,7 @@ func TestKeeperCredentialSource(t *testing.T) {
 // The keeper runs with the homes taken away, so a config directory in one is
 // absent rather than unreadable unless it is bound back. One bind covers the
 // store and the key too.
-func TestKeeperBinds(t *testing.T) {
+func TestTheKeeperUnitBindsOnlyWhatTheConfigDirNeeds(t *testing.T) {
 	tests := []struct {
 		name      string
 		configDir string

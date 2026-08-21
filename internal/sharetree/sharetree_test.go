@@ -11,7 +11,7 @@ import (
 
 // "g+rwX": a directory needs group execute to be entered, a file gets it only if
 // it was executable already.
-func TestGroupShared(t *testing.T) {
+func TestGroupSharedAddsGroupAccessWithoutGrantingExecute(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		in   os.FileMode
@@ -34,7 +34,7 @@ func TestGroupShared(t *testing.T) {
 
 // From the home down to the tree's parent; the tree itself is group-owned rather
 // than traversed.
-func TestComponents(t *testing.T) {
+func TestComponentsWalkFromTheHomeToTheTreesParent(t *testing.T) {
 	home := "/home/op"
 	got := components(home, "/home/op/src/github.com/x/repo")
 	want := []string{"/home/op", "/home/op/src", "/home/op/src/github.com", "/home/op/src/github.com/x"}

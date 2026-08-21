@@ -249,7 +249,7 @@ func TestAnUpToDateFileIsSkippedAndReEncryptingItWouldNotBeFree(t *testing.T) {
 // Naming no file is every managed file, which is the case the command exists
 // for; naming one that is not managed is refused, so a reseal cannot walk out of
 // the secrets directory.
-func TestRekeyTargets(t *testing.T) {
+func TestResealTargetsCoverEveryManagedFile(t *testing.T) {
 	managed := []string{"/etc/faramir/secrets/a.sops.yml", "/etc/faramir/secrets/b.sops.yml"}
 
 	all, err := resealTargets(managed, nil)

@@ -11,7 +11,7 @@ import (
 // The secrets group holds nologin service accounts and belongs below GID_MIN.
 // The wrong number warns about a group that is fine, or stays quiet about one
 // that will collide.
-func TestFirstLoginGID(t *testing.T) {
+func TestFirstLoginGIDIsReadFromLoginDefs(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
 		content string

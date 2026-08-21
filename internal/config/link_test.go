@@ -7,7 +7,7 @@ import (
 	"github.com/andornaut/faramir/internal/secretlink"
 )
 
-func TestLinksLoad(t *testing.T) {
+func TestALinkIsLoadedFromTheConfig(t *testing.T) {
 	cfg, err := load(t, minimal+`
 [secret]
 
@@ -37,7 +37,7 @@ type = "base64"
 	}
 }
 
-func TestLinkValidation(t *testing.T) {
+func TestAnInvalidLinkIsRefusedWithAReason(t *testing.T) {
 	for name, tc := range map[string]struct {
 		body string
 		want string

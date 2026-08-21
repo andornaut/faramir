@@ -5,7 +5,7 @@ import "testing"
 // A ref starts with an alphanumeric, which refuses a leading ".." or an empty
 // first segment. A ".." in the middle is accepted: a ref is a key into the
 // flattened decrypted tree, never a path, so it comes back as unknown_secret.
-func TestParse(t *testing.T) {
+func TestParseAcceptsARefAndRefusesALiteral(t *testing.T) {
 	for _, tc := range []struct {
 		uri  string
 		want string // "" means the ref must be refused

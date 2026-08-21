@@ -19,7 +19,7 @@ func routerToken() string { return TokenFor("home/router/admin") }
 // One redactor, one text, and three questions: is the value gone, is its token
 // there, did the surrounding output survive. Each encoding is a separate way
 // for the same secret to escape.
-func TestRedactText(t *testing.T) {
+func TestRedactTextCoversEveryVariantSpelling(t *testing.T) {
 	// A quote and a backslash, so the JSON and shell forms differ from the
 	// value.
 	const specials = `p@ss "wo\rd" with+specials=x`

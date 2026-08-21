@@ -196,8 +196,10 @@ func cutAtRune(s string, limit int) string {
 	return cut
 }
 
-// decodeUTF8 returns the complete prefix of b as a string, plus any trailing
-// bytes that form an incomplete rune.
+// decodeUTF8 returns the valid prefix of b as a string, plus any trailing bytes
+// that are not valid on their own. A byte that can never start a rune is held
+// back too; the caller flushes the remainder at EOF, so that costs a read
+// rather than output.
 func decodeUTF8(b []byte) (string, []byte) {
 	// Only the last UTFMax bytes can hold an incomplete rune.
 	for i := 0; i < utf8.UTFMax && i < len(b); i++ {

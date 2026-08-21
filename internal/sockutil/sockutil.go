@@ -183,10 +183,14 @@ func inGroup(peer *Peer, group string) bool {
 	return slices.Contains(groupMembers(group), name)
 }
 
+// groupFile is the member list's source, a variable so a test can supply one
+// rather than depend on the accounts the host happens to have.
+var groupFile = "/etc/group"
+
 // groupMembers reads a group's supplementary members; os/user exposes no
 // equivalent of getgrnam()'s gr_mem.
 func groupMembers(name string) []string {
-	data, err := os.ReadFile("/etc/group")
+	data, err := os.ReadFile(groupFile)
 	if err != nil {
 		return nil
 	}

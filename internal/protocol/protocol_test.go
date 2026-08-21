@@ -25,7 +25,7 @@ func parse(t *testing.T, body string) (*Request, error) {
 
 // -- request parsing --------------------------------------------------------
 
-func TestMinimal(t *testing.T) {
+func TestARequestWithOnlyACmdDefaultsToTheRunOp(t *testing.T) {
 	req, err := parse(t, `{"cmd":["printenv","ROUTER_PW"]}`)
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestReservedEnvNamesAreRefused(t *testing.T) {
 }
 
 // status and refs carry no cmd.
-func TestOpsWithoutCmd(t *testing.T) {
+func TestStatusAndRefsCarryNoCmd(t *testing.T) {
 	for _, op := range []string{"status", "refs"} {
 		req, err := parse(t, `{"op":"`+op+`"}`)
 		if err != nil {
