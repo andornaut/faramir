@@ -105,7 +105,7 @@ every directory above it, down from the home | the client group, execute only, t
 
 Why it is shaped this way (one ref per entry rather than a whole-file flatten, the broker reading these rather than the keeper, and modes rather than an ACL) is in [design.md](design.md#linked-secrets-are-read-by-the-broker). What follows is what it costs you day to day.
 
-- **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi is the exception, having no account-wide rule file.
+- **Every linked path is refused to the agent's file tools.** `link add` and `init` both render them into the account-wide deny rules, and `faramir doctor` fails on a linked file that is not refused. Pi refuses them from its extension instead, having no account-wide rule file for one to be rendered into.
 - **A tool that replaces its own file rather than rewriting it takes the grant with it.** A temp file renamed over the original is created fresh, and `0600` on creation leaves nothing for a group to read. `faramir doctor` asks the broker's own account whether it can still read each file; `faramir init` grants it again, and so does adding the same entry a second time. That repair needs the reload it gets: the broker fingerprints a linked file by mtime and size, which a `chgrp` leaves alone, so a store already refusing over that file would go on refusing.
 - **A link that is there and will not read stops the host**, being a value the redactor is missing while the plaintext is still on disk: `run` and `redact` refuse until it is fixed. A link whose *path* is gone is the other case and is not fatal, the credential having left the machine.
 
@@ -135,7 +135,7 @@ Key | Rule
 - **A path that is not there is still recorded**, and you are told. The rule costs nothing while the file is absent and holds once the volume mounts, which is the case these exist for. A path spelled wrong looks the same, so the message says both.
 - **A directory refuses what is under it.** Which it is, is asked of the filesystem as the rules are rendered, and a path that is not there renders as a file: the narrower of the two.
 - **Nothing is reloaded.** No daemon reads these entries, so `refuse add` does not restart the broker under a running command.
-- **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again, which restores one an agent's settings dropped, and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
+- **Both commands are idempotent.** A path already refused is not an error: the entry stands, the rules are rendered again and `--json` reports `changed: false`. Removing a path this install does not refuse writes nothing.
 - **Pi is the exception**, as it is for linked paths: its rules are compiled into the extension, so there is no account-wide file to render one into.
 
 `init` reads the entries back before rewriting `config.toml`, so every rule is re-asserted on each run. That is what restores one an agent's settings dropped.
