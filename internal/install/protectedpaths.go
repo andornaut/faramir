@@ -166,6 +166,12 @@ func RefusedNameMatches(name string) string {
 		return fmt.Sprintf("everything under any directory named %q",
 			strings.TrimSuffix(rule.value, "/"))
 	case kindName:
+		// A name may carry separators, which is how a file inside a directory of a
+		// given name is said: it is matched against the end of the path rather
+		// than against the last segment of it.
+		if strings.Contains(rule.value, "/") {
+			return fmt.Sprintf("any path ending in %q, in any directory", rule.value)
+		}
 		return fmt.Sprintf("any file named %q, in any directory", rule.value)
 	}
 	return fmt.Sprintf("any file named %q, in any directory", rule.value)

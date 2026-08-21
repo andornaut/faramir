@@ -1,6 +1,7 @@
 package install
 
 import (
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -65,6 +66,39 @@ func TestADeclaredNameReachesEveryAgentSpelling(t *testing.T) {
 	}
 	if !carried {
 		t.Error("pi's fragments do not carry the suffix")
+	}
+}
+
+// A name may carry a directory component, which is the narrow form of the
+// container case: a file inside a directory of a given name, without refusing
+// every file of that name and without sweeping in the whole directory.
+func TestANameMayNameAFileInsideADirectory(t *testing.T) {
+	const pattern = ".storage/core.config_entries"
+	layout := Layout{ConfigDir: "/etc/faramir", Refused: []config.RefusedPath{{Name: pattern}}}
+	if rule := refusedNameRule(pattern); rule.kind != kindName {
+		t.Errorf("kind %v, want a name", rule.kind)
+	}
+	if !slices.Contains(claudeRules(layout), "Read(**/"+pattern+")") {
+		t.Error("Claude Code's rules do not carry the pattern")
+	}
+	if !slices.Contains(pluginPatterns(layout), "*"+pattern) {
+		t.Error("the plugin hosts' patterns do not carry it")
+	}
+	// pi applies its own regex, so this is the one spelling a test can execute.
+	var matched, swept bool
+	for _, fragment := range jsFragments(layout) {
+		if !strings.Contains(fragment, "storage") {
+			continue
+		}
+		re := regexp.MustCompile(fragment)
+		matched = matched || re.MatchString("/config/.storage/core.config_entries")
+		swept = swept || re.MatchString("/config/.storage/auth")
+	}
+	if !matched {
+		t.Error("the container path is not refused")
+	}
+	if swept {
+		t.Error("a sibling in the same directory is refused, so the rule is wider than it names")
 	}
 }
 

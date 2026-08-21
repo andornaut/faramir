@@ -123,6 +123,7 @@ sudo faramir refuse add --name '*.htpasswd'           # any file of that name, a
 Name | Matches
 --- | ---
 `auth` | any file called `auth`, in any directory
+`.storage/auth` | that file inside any directory called `.storage`, and no sibling of it
 `*.htpasswd` | any file whose name ends that way
 `.env*` | any file whose name starts that way
 `secrets*.yml` | any file whose name matches, the wildcard not crossing a directory
