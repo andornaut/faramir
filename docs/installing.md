@@ -26,7 +26,7 @@ Flag left out | Taken from
 Flag | Default | Sets
 --- | --- | ---
 `--agent-user NAME` | `$SUDO_USER`, then you | The account the coding agent runs as. It owns the checkouts brokered commands run in, so root is refused
-`--client-group NAME` | the install's, then `dev` | The group admitted to the broker socket and group-owning an enrolled tree
+`--client-group NAME` | the install's, then `faramir-client` | The group admitted to the broker socket and group-owning an enrolled tree. Membership is permission to ask the broker for any managed value, so name it for that rather than for a team: a group the host already has is adopted rather than refused, and every current member gains the grant
 `--secrets-group NAME` | the install's, then the keeper's own group | The group owning the ciphertext. `doctor` fails if the operator is in it
 `--config-dir DIR` | [found the usual way](operating.md#checking-an-install) | Where `config.toml`, the age key and the managed sops files live. Absolute, parent must exist, and a *different* one needs `--move-config`
 `--move-config` | off | Consent to that move. The refs the old directory served leave the value set

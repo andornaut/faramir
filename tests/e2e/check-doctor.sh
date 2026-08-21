@@ -159,8 +159,8 @@ head_ "3. the arrangement around them"
 probe "the rotation rule removed" "log rotation" failed \
   "rm -f /etc/logrotate.d/faramir" "faramir init --agent-user $OP"
 probe "an outsider in the client group" "client group" warn \
-  "useradd -M -N stranger 2>/dev/null; usermod -aG dev stranger" \
-  "gpasswd -d stranger dev; userdel stranger"
+  "useradd -M -N stranger 2>/dev/null; usermod -aG faramir-client stranger" \
+  "gpasswd -d stranger faramir-client; userdel stranger"
 # The socket check, put to doctor two ways. Bare, doctor asks the broker where
 # the install is, and that connection socket-activates the units it is about to
 # examine: the fault is repaired by the examination and the finding describes

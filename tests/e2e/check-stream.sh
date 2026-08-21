@@ -313,7 +313,7 @@ print(json.loads(sys.stdin.read()).get('input_bytes',0))" <<<"$record" 2>/dev/nu
 
 head_ "12. the agent path at the offsets that used to leak"
 printf 'nothing here\n' > /home/op/project/probe.txt
-chown op:dev /home/op/project/probe.txt
+chown op:faramir-client /home/op/project/probe.txt
 wrapped() {
   jq -cn --arg c "$1" '{tool_name:"Bash",tool_input:{command:$c}}' \
     | runuser -u op -- /usr/local/bin/faramir guard \

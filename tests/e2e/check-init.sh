@@ -67,7 +67,7 @@ head_ "accounts and groups"
 for account in faramir-broker faramir-keeper faramir-exec; do
   if id "$account" >/dev/null 2>&1; then ok "$account exists"; else bad "$account missing"; fi
 done
-inGroup op dev
+inGroup op faramir-client
 inGroup faramir-keeper faramir-keeper
 # The split the whole design rests on: only the keeper reads the ciphertext.
 notInGroup faramir-broker faramir-keeper

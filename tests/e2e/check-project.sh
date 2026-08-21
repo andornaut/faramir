@@ -238,8 +238,8 @@ head_ "7. the tree itself is shared with the executor"
 
 D=/home/op/p-claude
 mode=$(stat -c '%a %U:%G' "$D")
-[ "$mode" = "2770 op:dev" ] && ok "the tree is $mode: setgid, group-shared" \
-  || bad "the tree is $mode, want 2770 op:dev"
+[ "$mode" = "2770 op:faramir-client" ] && ok "the tree is $mode: setgid, group-shared" \
+  || bad "the tree is $mode, want 2770 op:faramir-client"
 # The agent's own directory is sticky as well, so unlink there is the file's
 # owner's: the settings naming the hook are 0640, which says nothing about being
 # unlinked. The root is deliberately not, so a tool rewriting a file there by
@@ -253,7 +253,7 @@ if runuser -u faramir-exec -- rm -f "$D/.claude/settings.local.json" 2>/dev/null
 else
   ok "and the executor cannot delete the settings naming the hook"
 fi
-id -nG faramir-exec | grep -qw dev && ok "and the executor is in that group" \
+id -nG faramir-exec | grep -qw faramir-client && ok "and the executor is in that group" \
   || bad "the executor is not in the tree's group"
 # Which is what lets a brokered command run there at all.
 out=$(runuser -u $OP -- /usr/local/bin/faramir run --quiet -t 20 -C "$D" -- /bin/pwd 2>&1)

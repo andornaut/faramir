@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/andornaut/faramir/internal/config"
 )
 
 // configDirWith is an install directory holding this config.toml, for the
@@ -150,5 +152,28 @@ func TestTheSectionFollowsTheGrantTheEnrolmentRead(t *testing.T) {
 	}
 	if !strings.Contains(body, marker) {
 		t.Errorf("a tree enrolled on a sudo host is not told about %s", marker)
+	}
+}
+
+// The default is named for what membership grants rather than for who tends to
+// hold it, and the two halves have to agree: the loader's default is what a
+// config with no [server] allowed_group reads as, and the installer's is what
+// a run with no --client-group creates. A host installed by one and read by
+// the other would admit a group nobody is in.
+func TestTheDefaultClientGroupNamesTheGrant(t *testing.T) {
+	if DefaultClientGroup != "faramir-client" {
+		t.Errorf("DefaultClientGroup = %q; a name like \"dev\" is one a host is "+
+			"likely to have already, and an install adopts a group that exists "+
+			"rather than refusing, so every current member gains the broker",
+			DefaultClientGroup)
+	}
+	dir := configDirWith(t, "[command]\ntimeout_sec = 600\n")
+	cfg, err := config.Load(filepath.Join(dir, "config.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.AllowedGroup != DefaultClientGroup {
+		t.Errorf("a config naming no group admits %q, an install with no flag "+
+			"creates %q", cfg.Server.AllowedGroup, DefaultClientGroup)
 	}
 }

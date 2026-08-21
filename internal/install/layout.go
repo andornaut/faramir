@@ -36,7 +36,15 @@ const (
 	keeperUnit = "faramir-keeper.service"
 	execUnit   = "faramir-exec.service"
 
-	DefaultClientGroup = "dev"
+	// DefaultClientGroup is named for what membership grants rather than for who
+	// tends to hold it. A member may ask the broker for any managed value, and
+	// once a tree is enrolled the group is on every directory from the
+	// operator's home down, so a name like "dev" invites adding a colleague for
+	// an unrelated reason and handing them the value set. It is also a name a
+	// host is likely to have already, and an install adopts a group that exists
+	// rather than refusing, so a collision grants every current member at
+	// install time.
+	DefaultClientGroup = "faramir-client"
 	DefaultBrokerUser  = "faramir-broker"
 	DefaultKeeperUser  = "faramir-keeper"
 	DefaultExecUser    = "faramir-exec"

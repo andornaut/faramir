@@ -606,7 +606,7 @@ func loadServer(raw map[string]any, path string, out *ServerConfig) error {
 	}
 	*out = ServerConfig{
 		SocketPath:   "/run/faramir/broker.sock",
-		AllowedGroup: "dev",
+		AllowedGroup: "faramir-client",
 	}
 	if out.SocketPath, err = str(sec[keySocketPath], where, out.SocketPath); err != nil {
 		return err

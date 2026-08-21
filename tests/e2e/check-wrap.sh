@@ -39,7 +39,7 @@ agentRun() {
 # which is the point -- a deny list only covers what someone thought to name.
 printf 'DB_PASSWORD=%s\nnote: the api token is %s\n' \
   "$SECRET" 'tok_live_0PENSESAME_9911' > /home/op/project/notes.txt
-chown op:dev /home/op/project/notes.txt
+chown op:faramir-client /home/op/project/notes.txt
 
 # --------------------------------------------------------------------------
 head_ "1. the case the deny list does not cover"
