@@ -31,16 +31,14 @@ ansible-vault\s+(view|decrypt|edit|rekey)
 \bgopass\s+show\b
 \bvault\s+(read|kv\s+get)\b
 
-# Wholesale environment dumps. The match ends after the flags, so
-# "env NAME=value cmd" and "env | grep FOO" are not dumps. printenv stays broad:
-# nothing here can tell which name is a secret.
-\bprintenv\b
-# "env" must sit in command position, or a filename ending in .env matches.
-(^|[\s;&|(])env(\s+-\S+)*\s*$
-\bset\s*$
-\bdeclare\s+-x\b
-/proc/\d+/environ
-/proc/self/environ
+# No rule for a wholesale environment dump. In an enrolled tree the command is
+# rewritten before it runs, so `printenv` comes back with every managed value
+# replaced by its token, which covers the case a pattern was for and covers it
+# whatever printed it. What a pattern would add is the operator's own exported
+# credentials, which faramir does not manage and cannot know the names of, and
+# it would add nothing at all in a tree that was never enrolled, where no hook
+# runs to apply it. A credential that must not reach this shell belongs outside
+# the environment the agent inherits.
 
 # Reading key material or encrypted blobs into the context window. Key names
 # are spelled out, a character class missing id_ed25519. "sops/age" is the

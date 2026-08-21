@@ -95,7 +95,6 @@ func TestARefusalExplainsWhyItWasRefused(t *testing.T) {
 		// Disclosure: what the command would put in the conversation.
 		{"cat ~/.ssh/id_ed25519", advice},
 		{"sops -d secrets.sops.yml", advice},
-		{"printenv", advice},
 		{"cat /home/op/.config/sops/age/keys.txt", advice},
 		{"age-keygen", advice},
 		{"sudo -u faramir-keeper cat /etc/faramir/age.key", advice},

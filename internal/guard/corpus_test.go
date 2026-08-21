@@ -24,17 +24,16 @@ var corpus = []denyCase{
 	{"age-keygen", true, "prints a fresh private key to stdout"},
 	{"age-keygen -o /tmp/throwaway.key", false, "-o writes a key without printing one"},
 
-	// -- environment dumps --------------------------------------------------
-	{"printenv", true, "dumps the whole environment"},
-	{"printenv ROUTER_PW", true, "prints an injected value"},
-	{"env", true, "the same dump by another name"},
-	{"env -i", true, "still a dump"},
-	{"declare -x", true, "bash's own spelling of the dump"},
-	{"set", true, "the bare builtin dumps every variable, exported or not"},
-	{"cat /proc/self/environ", true, "the environment through the filesystem"},
-	{"env | grep PATH", false, "a pipe narrows the dump rather than spilling it"},
-	{"env FOO=1 make build", false, "env with assignments sets, it does not dump"},
-	{"env DEBIAN_FRONTEND=noninteractive apt-get install -y jq", false, "the same, as an operator writes it"},
+	// -- environment dumps, which are not refused ----------------------------
+	//
+	// In an enrolled tree the command is rewritten before it runs, so a managed
+	// value comes back as its token whichever of these printed it. What a rule
+	// would add is the operator's own exports, which faramir does not manage.
+	{"printenv", false, "rewritten and redacted rather than refused"},
+	{"printenv ROUTER_PW", false, "an injected value comes back as its token"},
+	{"env", false, "the same dump by another name"},
+	{"declare -x", false, "bash's own spelling of the dump"},
+	{"cat /proc/self/environ", false, "the environment through the filesystem"},
 
 	// -- key material, through any tool -------------------------------------
 	{"cat /home/op/.config/sops/age/keys.txt", true, "the reachable age key"},
@@ -107,9 +106,9 @@ var corpus = []denyCase{
 	{"sudo faramir status", true, "nothing an agent may run needs root, so a sudo here is the operator's"},
 	{"faramir refs", false, "an operator subcommand"},
 	{"faramir status; faramir run --env A=faramir://a -- printenv A", false, "a chain of sanctioned calls, each stripped in turn"},
-	{"faramir status; printenv", true, "past the separator is a command of its own"},
-	{"faramir status && printenv", true, "whatever the separator is"},
-	{"faramir status | printenv", true, "including a pipe"},
+	{"faramir status; cat /etc/faramir/age.key", true, "past the separator is a command of its own"},
+	{"faramir status && cat /etc/faramir/age.key", true, "whatever the separator is"},
+	{"faramir status | cat /etc/faramir/age.key", true, "including a pipe"},
 	{"sudo faramir status; cat /etc/faramir/config.toml", true, "sudo does not extend the sanction either"},
 
 	// -- generic credential words, on the narrow tool list -------------------

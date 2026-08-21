@@ -126,7 +126,7 @@ func TestTheRefusalNamesEveryOperatorSubcommand(t *testing.T) {
 // A patterns file that cannot be read must not disable the hook.
 func TestFallbackIsUsedWhenThePatternsFileIsMissing(t *testing.T) {
 	t.Setenv("FARAMIR_DENY_PATTERNS", "/nonexistent/deny-patterns.txt")
-	if _, denied := decide("printenv"); !denied {
+	if _, denied := decide("sops -d secrets.sops.yml"); !denied {
 		t.Error("the fallback list did not apply")
 	}
 }

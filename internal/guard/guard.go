@@ -66,15 +66,6 @@ var fallback = []string{
 	`\bpass\s+show\b`,
 	`\bgopass\s+show\b`,
 	`\bvault\s+(read|kv\s+get)\b`,
-	// Broad on purpose: nothing here can tell which name holds a secret.
-	`\bprintenv\b`,
-	// Matches only a bare dump in command position, so "env NAME=v cmd",
-	// "env | grep FOO" and a filename ending in .env are not refused.
-	`(^|[\s;&|(])env(\s+-\S+)*\s*$`,
-	`\bset\s*$`,
-	`\bdeclare\s+-x\b`,
-	`/proc/\d+/environ`,
-	`/proc/self/environ`,
 	// Readers, encoders, interpreters and copiers pointed at key material.
 	// "sops/age" is the operator's ~/.config/sops/age/keys.txt, which opens the
 	// same secrets and is readable by the agent's uid. "[^|]*" stops at the
