@@ -615,17 +615,20 @@ func printQuestion(question escalation.Question) {
 	// How long the command has been blocked comes with it, wherever it rounds to
 	// a second or more, joined by a comma: the ending this same watcher prints
 	// reads "exited 0 after 41.0s, waited 40s of it", and two durations about one
-	// question are separated the same way wherever they are printed. Which is not the same as saying nobody was watching: a
-	// watcher running the whole time still shows a second here when its own
-	// start, the password it was run under, or the poll round trip took that
-	// long. The number is the command's wait, not a report on whoever is
-	// answering, so it is read at the sizes that mean something.
-	waiting := ""
+	// question are separated the same way wherever they are printed. Past tense
+	// for the same reason: this line is printed once and never rewritten, so the
+	// number is what the wait was at the moment it was printed rather than a
+	// figure counting up on the screen. Which is not the same as saying nobody
+	// was watching: a watcher running the whole time still shows a second here
+	// when its own start, the password it was run under, or the poll round trip
+	// took that long. The number is the command's wait, not a report on whoever
+	// is answering, so it is read at the sizes that mean something.
+	waited := ""
 	if question.WaitingSec > 0 {
-		waiting = fmt.Sprintf(", waiting %ds", question.WaitingSec)
+		waited = fmt.Sprintf(", waited %ds", question.WaitingSec)
 	}
 	fmt.Printf("  received %s (expires %ds%s)\n",
-		receivedAt(question.Received), question.ExpiresInSec, waiting)
+		receivedAt(question.Received), question.ExpiresInSec, waited)
 }
 
 // pending asks what is waiting, blocking up to waitSec for something to be.

@@ -609,18 +609,19 @@ func TestARetryKeepsWhatWasTypedAfterThePrompt(t *testing.T) {
 	}
 }
 
-// The waiting count rides the received line, and only where it says something. A
+// The wait rides the received line, and only where it says something. A
 // watcher already running is answered the moment a question is filed, so zero is
 // the ordinary reading and its absence says as much. It is the other case the
-// number is for: nobody was here yet.
-func TestTheWaitingCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
+// number is for: nobody was here yet. Past tense, because the line is printed
+// once and the number is frozen at what it was then.
+func TestTheWaitedCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
 	question := escalation.Question{
 		ID: "9f2a1c", Prompt: "faramir: Approve this command to run as root? `true`",
 		Cmd: "true", ExpiresInSec: 120,
 		Received: "2026-08-20T20:21:44-04:00",
 	}
 	fresh, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
-	if strings.Contains(fresh, "waiting") {
+	if strings.Contains(fresh, "waited") {
 		t.Errorf("a question nobody was late for reports a wait:\n%s", fresh)
 	}
 	// The zone token is not pinned: Go resolves the offset against wherever this
@@ -635,11 +636,11 @@ func TestTheWaitingCountIsPrintedOnlyWhenItSaysSomething(t *testing.T) {
 	question.WaitingSec, question.ExpiresInSec = 40, 80
 	late, _ := captureStdout(t, func() int { printQuestion(question); return 0 })
 	if !strings.Contains(late, "received 2026-08-20 20:21:44 ") ||
-		!strings.Contains(late, "(expires 80s, waiting 40s)") {
+		!strings.Contains(late, "(expires 80s, waited 40s)") {
 		t.Errorf("a question that sat for 40s does not say so on the received line:\n%s", late)
 	}
 	// One line, not two: the wait qualifies the clock rather than standing beside it.
-	if strings.Contains(late, "\n  waiting") {
+	if strings.Contains(late, "\n  waited") {
 		t.Errorf("the wait is still a line of its own:\n%s", late)
 	}
 }
