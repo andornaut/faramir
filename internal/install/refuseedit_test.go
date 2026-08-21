@@ -17,11 +17,10 @@ func writeRefuseConfig(t *testing.T, entries string) string {
 
 // Every refusal `refuse add` can make before it touches anything. There is no
 // grant and no probe to get wrong here, so unlike `link add` these are the only
-// ways it declines: the entry is held to what the loader would accept, and the
-// path has to be one the install does not already refuse.
+// ways it declines: the entry is held to what the loader would accept. A path
+// the install already refuses is not among them, an add of one being a request
+// for the state that is already there.
 func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
-	taken := "[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n"
-
 	for _, tc := range []struct {
 		name    string
 		entries string
@@ -33,7 +32,6 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 		{"no path at all", "", "", "path is required"},
 		{"an uncleaned path", "", "/etc/./luks.key", "shortest form"},
 		{"the whole filesystem", "", "/", "every file on the host"},
-		{"a path already refused", taken, "/etc/luks/volume.key", "already refuses"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			dir := writeRefuseConfig(t, tc.entries)
@@ -42,7 +40,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, err = AddRefusedPath(Options{ConfigDir: dir}, config.RefusedPath{Path: tc.path})
+			_, _, err = AddRefusedPath(Options{ConfigDir: dir}, config.RefusedPath{Path: tc.path})
 			if err == nil {
 				t.Fatalf("added %q, want a refusal naming %q", tc.path, tc.wantErr)
 			}
@@ -65,7 +63,7 @@ func TestAddRefusedRefusesBeforeItChangesAnything(t *testing.T) {
 // which of several entries was rejected.
 func TestAddRefusedNamesThePathItRefused(t *testing.T) {
 	dir := writeRefuseConfig(t, "")
-	_, err := AddRefusedPath(Options{ConfigDir: dir}, config.RefusedPath{Path: "relative/path"})
+	_, _, err := AddRefusedPath(Options{ConfigDir: dir}, config.RefusedPath{Path: "relative/path"})
 	if err == nil {
 		t.Fatal("a relative path was accepted")
 	}
@@ -74,19 +72,47 @@ func TestAddRefusedNamesThePathItRefused(t *testing.T) {
 	}
 }
 
-// Removing something the install does not refuse says so, and says where to
-// look. Silence would read as a path that had been refused and now is not.
+// Which entry set each edit renders, and whether it changed anything. This is
+// the whole of what makes the two commands idempotent: a configuration manager
+// runs them on every converge, so an add of what is there and a remove of what
+// is not have to be the state that is already on the host rather than an error.
+func TestTheEntrySetAnAddRenders(t *testing.T) {
+	luks := config.RefusedPath{Path: "/etc/luks/volume.key"}
+	ssh := config.RefusedPath{Path: "/home/op/.ssh"}
+
+	entries, added := refusedWith([]config.RefusedPath{luks}, ssh)
+	if !added {
+		t.Error("a path the install does not refuse was not added")
+	}
+	if len(entries) != 2 || entries[1] != ssh {
+		t.Errorf("entries = %+v, want both", entries)
+	}
+
+	entries, added = refusedWith([]config.RefusedPath{luks}, luks)
+	if added {
+		t.Error("a path the install already refuses was added a second time")
+	}
+	if len(entries) != 1 || entries[0] != luks {
+		t.Errorf("entries = %+v, want the one entry unchanged", entries)
+	}
+}
+
+// Removing a path the install does not refuse writes nothing and reports no
+// entry, the caller telling the two apart by that. It is not an error: what was
+// asked for is the state the host is in.
 func TestRemoveRefusedOnAPathTheInstallDoesNotRefuse(t *testing.T) {
 	dir := writeRefuseConfig(t, "[[secret.refuse]]\npath = \"/etc/luks/volume.key\"\n")
+	before := readConfigFile(t, dir)
 
-	_, _, err := RemoveRefusedPath(Options{ConfigDir: dir}, "/etc/other.key")
-	if err == nil {
-		t.Fatal("removed a path the config does not name")
+	_, removed, err := RemoveRefusedPath(Options{ConfigDir: dir}, "/etc/other.key")
+	if err != nil && strings.Contains(err.Error(), "refuses no path") {
+		t.Fatalf("removing a path that is not refused was an error: %v", err)
 	}
-	for _, want := range []string{"/etc/other.key", "refuse ls"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error is %q, want it to name %q", err, want)
-		}
+	if removed.Path != "" {
+		t.Errorf("removed = %+v, want nothing", removed)
+	}
+	if after := readConfigFile(t, dir); after != before {
+		t.Errorf("the config was rewritten:\n%s", after)
 	}
 }
 

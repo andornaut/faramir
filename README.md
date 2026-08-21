@@ -192,7 +192,7 @@ A secret another tool owns | `link add`, `link rm`, `link ls`
 A path refused to the agent | `refuse add`, `refuse rm`, `refuse ls`
 The record, and sudo | `logs`, `escalations`, `approve`, `deny`
 
-All need root except `doctor`, which degrades, and the three that only read: `recipient ls`, `link ls` and `refuse ls`. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
+All need root except `doctor`, which degrades, and the three that only read: `recipient ls`, `link ls` and `refuse ls`. `init`, `init-project` and the four `link` and `refuse` edits are idempotent and report what changed with `--json`, so a configuration manager can name every entry on every run. What each does, and which ops are root-only at the broker: [docs/operating.md](docs/operating.md).
 
 ### MCP tools
 

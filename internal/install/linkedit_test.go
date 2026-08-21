@@ -50,8 +50,9 @@ func TestAddLinkRefusesBeforeItChangesAnything(t *testing.T) {
 		},
 		{
 			// A ref has one definition: two entries claiming one would leave which
-			// file a caller reaches decided by the order of the file.
-			name:    "a ref another entry already claims",
+			// file a caller reaches decided by the order of the file. The same ref
+			// against the same file, type and key is not this, and is re-applied.
+			name:    "a ref another entry defines differently",
 			entries: taken,
 			link:    config.Link{Ref: "gh/token", Path: present, Type: secretlink.KindText},
 			wantErr: "already names gh/token",
@@ -77,7 +78,7 @@ func TestAddLinkRefusesBeforeItChangesAnything(t *testing.T) {
 			dir := writeLinkConfig(t, tc.entries)
 			before := readConfigFile(t, dir)
 
-			_, err := AddLink(Options{ConfigDir: dir}, tc.link)
+			_, _, err := AddLink(Options{ConfigDir: dir}, tc.link)
 
 			if err == nil {
 				t.Fatalf("AddLink accepted %+v", tc.link)
@@ -106,23 +107,69 @@ func TestAddLinkRefusesBeforeItChangesAnything(t *testing.T) {
 	}
 }
 
-// A ref that is not there names the command that lists the ones that are.
-// Nothing is written: the entry to remove was never found, so re-rendering the
-// config would only reformat somebody's file for a typo.
-func TestRemoveLinkNamesTheRefsItDoesHave(t *testing.T) {
+// The entry an add finds under the ref it was given, which decides between the
+// three answers: write it, re-apply it, or refuse a second definition.
+func TestTheEntryAnAddFindsUnderItsRef(t *testing.T) {
+	gh := config.Link{Ref: "gh/token", Path: "/home/op/.config/gh/hosts.yml",
+		Type: secretlink.KindYAML, Key: "token"}
+
+	if _, claimed := linkNamed([]config.Link{gh}, "npm/token"); claimed {
+		t.Error("a ref no entry names was reported as claimed")
+	}
+	other, claimed := linkNamed([]config.Link{gh}, "gh/token")
+	if !claimed || other != gh {
+		t.Errorf("linkNamed = %+v, %v, want the entry that claims it", other, claimed)
+	}
+
+	// Both sides in the message: which credential a caller of that name receives
+	// is the whole of what differs, and the ref shows neither.
+	err := redefinedRef("/root/.config/faramir/config.toml", gh,
+		config.Link{Ref: "gh/token", Path: "/home/op/.netrc", Type: secretlink.KindText})
+	for _, want := range []string{"gh/token", "hosts.yml", ".netrc", "yaml token", "text"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("err = %v, want it to contain %q", err, want)
+		}
+	}
+}
+
+// Adding the entry the install already carries is a re-application, not a
+// second definition: a configuration manager runs the command on every
+// converge. What it re-applies is the grant and the rules, which is why it is
+// not answered by doing nothing at all.
+func TestAddLinkTakesTheSameEntryTwice(t *testing.T) {
+	present := filepath.Join(t.TempDir(), "hosts.yml")
+	if err := os.WriteFile(present, []byte("token: a-long-secret-value\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := writeLinkConfig(t, "[[secret.link]]\nref = \"gh/token\"\npath = \""+present+"\"\n"+
+		"type = \"yaml\"\nkey = \"token\"\n")
+
+	_, added, err := AddLink(Options{ConfigDir: dir}, config.Link{
+		Ref: "gh/token", Path: present, Type: secretlink.KindYAML, Key: "token"})
+
+	if added {
+		t.Error("added = true, want the entry recognised as one this install carries")
+	}
+	// What follows needs the service accounts, so an unprivileged run stops
+	// somewhere in the steps. What it must not do is refuse the entry as a
+	// redefinition of itself.
+	if err != nil && strings.Contains(err.Error(), "already names") {
+		t.Errorf("the same entry twice was refused as a redefinition: %v", err)
+	}
+}
+
+// Removing a ref the install does not carry writes nothing and reports no
+// entry, the caller telling the two apart by that. It is not an error: what was
+// asked for is the state the host is in.
+func TestRemoveLinkOnARefTheInstallDoesNotCarry(t *testing.T) {
 	dir := writeLinkConfig(t, "[[secret.link]]\nref = \"gh/token\"\n"+
 		"path = \"/home/operator/.config/gh/hosts.yml\"\ntype = \"yaml\"\nkey = \"token\"\n")
 	before := readConfigFile(t, dir)
 
 	_, removed, err := RemoveLink(Options{ConfigDir: dir}, "no/such-ref")
 
-	if err == nil {
-		t.Fatal("RemoveLink accepted a ref the config does not name")
-	}
-	for _, want := range []string{"no/such-ref", "faramir link ls"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("err = %v, want it to contain %q", err, want)
-		}
+	if err != nil && strings.Contains(err.Error(), "names no link") {
+		t.Fatalf("removing a ref the config does not name was an error: %v", err)
 	}
 	if removed.Ref != "" {
 		t.Errorf("removed = %+v, want nothing", removed)

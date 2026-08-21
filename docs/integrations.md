@@ -64,6 +64,8 @@ Something over SSH | Nothing for the value: `init` renders `[ssh] key` and the c
 
 `link add` reads the file as root to check that the type and the selector yield a value, then grants the broker read on it, then reads it again as the broker's own account to check that the grant landed, and only then writes the entry and reloads. The value joins the redactor, and the path is refused to the agent's file tools.
 
+Adding an entry this install already carries runs the same thing again rather than refusing it, so a converge may name every link on every run: [what that re-applies](configuration.md#linked-secrets).
+
 The two reads answer different questions and are in that order for a reason. Root can read what the broker cannot, so the first says the content is ingestible and the second says the broker can reach it. Asking the content first means a wrong `--type` or a `--key` naming nothing costs nothing: the file's mode and group, and the directories above it, are untouched. A selector that names nothing fails the command and lists the selectors the file does offer, names only.
 
 ```bash

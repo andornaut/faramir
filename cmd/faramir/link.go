@@ -59,7 +59,12 @@ func newLinkAddCmd() *cobra.Command {
 			"agent's file tools, and the daemons are reloaded.\n\n" +
 			"The file is read once, as the broker's own account, before anything is\n" +
 			"written. A selector that names nothing is an error here rather than a\n" +
-			"broker refusing every command later.",
+			"broker refusing every command later.\n\n" +
+			"Adding the entry this install already carries re-applies it: the grant\n" +
+			"comes back where a tool took it away by renaming its own file, and so does\n" +
+			"a rule an agent's settings dropped. Nothing is written that was not there,\n" +
+			"and --json reports changed=false. The same ref against a different file,\n" +
+			"type or key is an error: a ref has one definition.",
 		Args: exactlyArgs(2, "a ref and a file"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runLinkAdd(f, args[0], args[1]))
@@ -70,6 +75,7 @@ func newLinkAddCmd() *cobra.Command {
 		"how to read the file: "+strings.Join(secretlink.Kinds(), ", "))
 	c.Flags().StringVar(&f.key, "key", "",
 		"what to select out of it, for the types that select")
+	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
@@ -78,21 +84,42 @@ func runLinkAdd(f linkFlags, ref, path string) int {
 		return 1
 	}
 	link := config.Link{Ref: ref, Path: path, Type: f.kind, Key: f.key}
-	report, err := install.AddLink(installOptions(f), link)
+	report, added, err := install.AddLink(installOptions(f), link)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link add: %v\n", err)
+	}
+	if code := reportEntry(f.json, "link add", report); code != 0 {
+		return code
+	}
+	if err != nil {
 		return 1
 	}
-	printLinkReport(report)
 	// Reloaded here rather than left to the operator: the daemons read the config
 	// once at startup, so an entry written and not reloaded is a link that exists
 	// in the file and in nothing else.
-	if err := install.Reload(); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir link add: added %s, but the daemons did not "+
-			"reload, so it is not being served yet: %v\n", ref, err)
-		return 1
+	//
+	// Only when something changed. A re-assert that found the host as it should
+	// be has nothing new for a daemon to read, and reloading would restart them
+	// under whatever brokered command is running. One that regranted a lost
+	// access does need it: the broker fingerprints a linked file by mtime and
+	// size, which a chgrp leaves alone, so it would go on refusing every command
+	// against a file it can now read.
+	if report.Changed {
+		if err := install.Reload(); err != nil {
+			fmt.Fprintf(os.Stderr, "faramir link add: applied %s, but the daemons did not "+
+				"reload, so it is not being served yet: %v\n", ref, err)
+			return 1
+		}
 	}
-	fmt.Fprintf(os.Stderr, "added %s\n", ref)
+	if f.json {
+		return 0
+	}
+	if added {
+		fmt.Fprintf(os.Stderr, "added %s\n", ref)
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "%s already reads %s, so nothing was added; its grant and "+
+		"the rules naming it were applied again\n", ref, path)
 	return 0
 }
 
@@ -108,11 +135,14 @@ func newLinkRemoveCmd() *cobra.Command {
 			"take an entry out of one. The access granted to the broker stays too: this\n" +
 			"does not know the mode the file had before, and guessing at one is as\n" +
 			"likely to break the tool that owns it. Both are printed, with what would\n" +
-			"undo them.",
+			"undo them.\n\n" +
+			"A ref this install does not carry is not an error: nothing is written and\n" +
+			"--json reports changed=false, the entry being gone either way.",
 		Args: exactlyOneArg("ref"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runLinkRemove(f, args[0])) },
 	}
 	f.register(c)
+	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
@@ -123,13 +153,28 @@ func runLinkRemove(f linkFlags, ref string) int {
 	report, removed, err := install.RemoveLink(installOptions(f), ref)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir link rm: %v\n", err)
+	}
+	if code := reportEntry(f.json, "link rm", report); code != 0 {
+		return code
+	}
+	if err != nil {
 		return 1
 	}
-	printLinkReport(report)
-	if err := install.Reload(); err != nil {
-		fmt.Fprintf(os.Stderr, "faramir link rm: removed %s, but the daemons did not "+
-			"reload, so it is still being served: %v\n", ref, err)
-		return 1
+	// Only what changed reaches a daemon, as in link add.
+	if report.Changed {
+		if err := install.Reload(); err != nil {
+			fmt.Fprintf(os.Stderr, "faramir link rm: removed %s, but the daemons did not "+
+				"reload, so it is still being served: %v\n", ref, err)
+			return 1
+		}
+	}
+	if f.json {
+		return 0
+	}
+	if removed.Ref == "" {
+		fmt.Fprintf(os.Stderr, "no link named %s, so nothing was removed; "+
+			"`faramir link ls` lists the ones there are\n", ref)
+		return 0
 	}
 	// What was granted and is still granted, so the operator decides rather than
 	// discovering it later.
@@ -203,18 +248,37 @@ func installOptions(f linkFlags) install.Options {
 	return install.Options{
 		ConfigDir: installConfigDir(f),
 		AgentUser: operatorName(f.agentUser),
-		Log:       func(line string) { fmt.Fprintln(os.Stderr, line) },
+		// Progress goes to stderr so --json owns stdout, and is suppressed under
+		// --json entirely, as `init` suppresses it: the steps are in the document.
+		Log: stepLog(f.json),
 	}
+}
+
+// stepLog is where a run's per-step lines go: stderr, or nowhere under --json.
+func stepLog(asJSON bool) func(string) {
+	if asJSON {
+		return nil
+	}
+	return func(line string) { fmt.Fprintln(os.Stderr, line) }
 }
 
 func installConfigDir(f linkFlags) string {
 	return resolveConfigDir(f.configPath, socketDefault())
 }
 
-// printLinkReport prints what changed, the steps having already been logged as
-// they ran.
-func printLinkReport(report install.Report) {
+// reportEntry is how `link` and `refuse` report an add or a remove: the whole
+// document under --json, and otherwise the warnings alone, the steps having
+// already been logged as they ran. A non-zero return is a document that would
+// not marshal, which is fatal on its own.
+//
+// Shared by the two commands, their reports being the same document and their
+// callers the same shape.
+func reportEntry(asJSON bool, label string, report install.Report) int {
+	if asJSON {
+		return printJSON(label, report)
+	}
 	for _, warning := range report.Warnings {
 		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
 	}
+	return 0
 }

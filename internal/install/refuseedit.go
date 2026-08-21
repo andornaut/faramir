@@ -43,44 +43,46 @@ func (r *runner) RefusedPathSteps() []namedStep {
 // nothing to put back on a failure: unlike AddLink, this either writes the
 // entry and the rules or leaves the host as it was.
 //
+// A path the install already refuses is not an error. The entry stands, the
+// rules are rendered again, and the report says nothing changed: the entry is
+// the whole of what one names, so a second add asks for the state that is
+// already there. Rendering again is the repair, restoring a rule an agent's
+// settings dropped. The bool says which of the two happened.
+//
 // A path that is not there is added. These are keys on volumes that are not
 // always mounted, and a rule costs nothing while its file is absent, so
 // refusing one would refuse the case the entry exists for. The caller is told,
 // because the other thing an absent path means is a typo.
-func AddRefusedPath(opts Options, refused config.RefusedPath) (Report, error) {
+func AddRefusedPath(opts Options, refused config.RefusedPath) (Report, bool, error) {
 	if err := config.ValidateRefusedPath(refused); err != nil {
-		return Report{}, err
+		return Report{}, false, err
 	}
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
 	existing, err := config.BaseRefusedPaths(configFile)
 	if err != nil {
-		return Report{}, fmt.Errorf("%s: %w", configFile, err)
+		return Report{}, false, fmt.Errorf("%s: %w", configFile, err)
 	}
-	for _, other := range existing {
-		if other.Path == refused.Path {
-			return Report{}, fmt.Errorf("%s already refuses %s", configFile, refused.Path)
-		}
-	}
+	entries, added := refusedWith(existing, refused)
 	// A link over the same file is not refused, both rendering the same rule,
 	// but it is said: the link already refuses that path, and this entry adds
 	// nothing the operator does not have.
 	links, err := config.BaseLinks(configFile)
 	if err != nil {
-		return Report{}, fmt.Errorf("%s: %w", configFile, err)
+		return Report{}, false, fmt.Errorf("%s: %w", configFile, err)
 	}
 
-	opts.refused, opts.refusedSet = append(append([]config.RefusedPath{}, existing...), refused), true
+	opts.refused, opts.refusedSet = entries, true
 	if err := keepInstalledGrant(&opts, configDir); err != nil {
-		return Report{}, err
+		return Report{}, false, err
 	}
 	run, err := newRunner(opts)
 	if err != nil {
-		return Report{}, err
+		return Report{}, false, err
 	}
 	report, err := run.apply(run.RefusedPathSteps())
 	if err != nil {
-		return report, err
+		return report, false, err
 	}
 	if _, statErr := os.Stat(refused.Path); statErr != nil {
 		report.Warnings = append(report.Warnings, fmt.Sprintf(
@@ -96,13 +98,32 @@ func AddRefusedPath(opts Options, refused config.RefusedPath) (Report, error) {
 					"output. This entry adds nothing to that", refused.Path, link.Ref))
 		}
 	}
-	return report, nil
+	return report, added, nil
+}
+
+// refusedWith is the set an add renders and whether the path was new to it.
+// One entry per path: the path is the whole of what an entry says, so a second
+// one saying it again would render the same rule twice.
+func refusedWith(existing []config.RefusedPath,
+	refused config.RefusedPath) ([]config.RefusedPath, bool) {
+	entries := append([]config.RefusedPath{}, existing...)
+	for _, other := range existing {
+		if other.Path == refused.Path {
+			return entries, false
+		}
+	}
+	return append(entries, refused), true
 }
 
 // RemoveRefusedPath drops one entry and re-renders. It does not take the rule
 // out of an agent's file: those are merged rather than replaced, so nothing
 // here can remove an entry from one, and a rule carries no sign of who wrote
 // it.
+//
+// A path the install does not refuse is not an error, for the reason a second
+// add is not: what is asked for is the state the host is already in. The
+// returned entry is the zero value there, which is how the caller tells the two
+// apart.
 func RemoveRefusedPath(opts Options, path string) (Report, config.RefusedPath, error) {
 	configDir := configDirOr(opts.ConfigDir)
 	configFile := filepath.Join(configDir, "config.toml")
@@ -119,11 +140,8 @@ func RemoveRefusedPath(opts Options, path string) (Report, config.RefusedPath, e
 		}
 		kept = append(kept, entry)
 	}
-	if removed.Path == "" {
-		return Report{}, config.RefusedPath{}, fmt.Errorf("%s refuses no path %q; "+
-			"`faramir refuse ls` lists the ones it does", configFile, path)
-	}
-
+	// kept is existing where nothing matched, so the steps below re-render what
+	// is already there and report no change.
 	opts.refused, opts.refusedSet = kept, true
 	if err := keepInstalledGrant(&opts, configDir); err != nil {
 		return Report{}, config.RefusedPath{}, err

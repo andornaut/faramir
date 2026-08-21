@@ -166,26 +166,33 @@ func keepInstalledGrant(opts *Options, configDir string) error {
 // written, a selector that names nothing otherwise leaving the broker refusing
 // every command. A probe that fails puts the grant back: a file the broker can
 // read but is not told about is a widening with nothing to show for it.
-func AddLink(opts Options, link config.Link) (Report, error) {
+//
+// An entry this install already carries, spelled the same way, is not an error:
+// it is re-applied by reassertLink and the bool comes back false. A ref it
+// carries against a different file, type or key is, a ref having one
+// definition. The two are not the same request, and answering the second one by
+// replacing the entry would change which credential every caller of that name
+// receives, silently.
+func AddLink(opts Options, link config.Link) (Report, bool, error) {
 	if err := config.ValidateLink(link); err != nil {
-		return Report{}, err
+		return Report{}, false, err
 	}
 	configFile := filepath.Join(configDirOr(opts.ConfigDir), "config.toml")
 	existing, err := config.BaseLinks(configFile)
 	if err != nil {
-		return Report{}, fmt.Errorf("%s: %w", configFile, err)
+		return Report{}, false, fmt.Errorf("%s: %w", configFile, err)
 	}
-	for _, other := range existing {
-		if other.Ref == link.Ref {
-			return Report{}, fmt.Errorf("%s already names %s, at %s. A ref has one "+
-				"definition; remove that one first, or choose another name",
-				configFile, link.Ref, other.Path)
+	if other, claimed := linkNamed(existing, link.Ref); claimed {
+		if other != link {
+			return Report{}, false, redefinedRef(configFile, other, link)
 		}
+		report, err := reassertLink(opts, existing, link)
+		return report, false, err
 	}
 	// Refused rather than recorded: a link nothing could verify may refuse every
 	// brokered command later, at a moment nobody chose.
 	if _, err := os.Stat(link.Path); err != nil {
-		return Report{}, fmt.Errorf("%s: %w\nA link is checked when it is added, so "+
+		return Report{}, false, fmt.Errorf("%s: %w\nA link is checked when it is added, so "+
 			"the file has to be there. If this is an encrypted home, mount it first",
 			link.Path, err)
 	}
@@ -196,11 +203,83 @@ func AddLink(opts Options, link config.Link) (Report, error) {
 	// cannot, so this is not the probe below: this says the content yields a
 	// value, and probeLink says the broker can reach it.
 	if _, err := secretlink.Read(link.Path, link.Type, link.Key); err != nil {
-		return Report{}, fmt.Errorf("%s: %w", link.Path,
+		return Report{}, false, fmt.Errorf("%s: %w", link.Path,
 			secretlink.Refusal(link.Path, link.Type, err))
 	}
 
 	opts.links, opts.linksSet = append(append([]config.Link{}, existing...), link), true
+	if err := keepInstalledGrant(&opts, configDirOr(opts.ConfigDir)); err != nil {
+		return Report{}, false, err
+	}
+	run, err := newRunner(opts)
+	if err != nil {
+		return Report{}, false, err
+	}
+	if err := run.resolveIDs(); err != nil {
+		return Report{}, false, err
+	}
+
+	restore, err := run.grantOne(link)
+	if err != nil {
+		return Report{}, false, err
+	}
+	// Put back on any failure from here on, not only the probe's: the file has
+	// been regrouped and the entry has not been written, so a run that stops in
+	// between leaves a credential file readable by the broker that nothing told
+	// it about.
+	if err := run.probeLink(link); err != nil {
+		return Report{}, false, revert(restore, err)
+	}
+	report, err := run.apply(run.LinkSteps())
+	if err != nil {
+		return report, false, revert(restore, err)
+	}
+	return report, true, nil
+}
+
+// linkNamed is the entry claiming a ref, and whether one does.
+func linkNamed(existing []config.Link, ref string) (config.Link, bool) {
+	for _, link := range existing {
+		if link.Ref == ref {
+			return link, true
+		}
+	}
+	return config.Link{}, false
+}
+
+// redefinedRef is one ref asked to name two different files, types or keys. It
+// names both sides: which credential a caller of that name receives is the
+// whole of what differs between them, and neither side is visible from the ref.
+func redefinedRef(configFile string, other, link config.Link) error {
+	return fmt.Errorf("%s already names %s, as %s (%s%s), and this asks for %s (%s%s). "+
+		"A ref has one definition, and a caller naming it cannot tell which file "+
+		"answered: remove that one with `faramir link rm %s` first, or choose another "+
+		"name", configFile, link.Ref, other.Path, other.Type, keySuffix(other.Key),
+		link.Path, link.Type, keySuffix(link.Key), link.Ref)
+}
+
+// keySuffix is a link's selector for a message that has already named its type,
+// and nothing at all for the two types that select nothing.
+func keySuffix(key string) string {
+	if key == "" {
+		return ""
+	}
+	return " " + key
+}
+
+// reassertLink re-applies an entry the config already carries: the grant, the
+// deny rules and the config are rendered again, so a grant a tool took away by
+// renaming its own file comes back, and so does a rule an agent's settings
+// dropped. Nothing is written that was not there, so an untouched host reports
+// no change and the caller skips the reload.
+//
+// The order AddLink keeps is not this one's to keep. Nothing here can leave a
+// file regrouped for an entry that was never written, the entry being written
+// already, so the steps grant and the probe asks afterwards whether the broker
+// can read what it was granted. There is nothing to put back on a failure
+// either: the grant belongs to an entry that stands whatever this run does.
+func reassertLink(opts Options, existing []config.Link, link config.Link) (Report, error) {
+	opts.links, opts.linksSet = existing, true
 	if err := keepInstalledGrant(&opts, configDirOr(opts.ConfigDir)); err != nil {
 		return Report{}, err
 	}
@@ -208,25 +287,20 @@ func AddLink(opts Options, link config.Link) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	if err := run.resolveIDs(); err != nil {
-		return Report{}, err
-	}
-
-	restore, err := run.grantOne(link)
-	if err != nil {
-		return Report{}, err
-	}
-	// Put back on any failure from here on, not only the probe's: the file has
-	// been regrouped and the entry has not been written, so a run that stops in
-	// between leaves a credential file readable by the broker that nothing told
-	// it about.
-	if err := run.probeLink(link); err != nil {
-		return Report{}, revert(restore, err)
-	}
 	report, err := run.apply(run.LinkSteps())
 	if err != nil {
-		return report, revert(restore, err)
+		return report, err
 	}
+	if _, statErr := os.Stat(link.Path); statErr == nil {
+		return report, run.probeLink(link)
+	}
+	// A file that is gone is the case the broker treats as an entry naming
+	// nothing rather than as an error, the credential having left the machine.
+	// Refusing here would fail a converge run over a home that is not mounted,
+	// so it is said and the probe is skipped: there is nothing to read.
+	report.Warnings = append(report.Warnings, fmt.Sprintf(
+		"%s: %s is not there, so nothing was granted or read. The entry stands "+
+			"and the broker treats it as a ref naming nothing", link.Ref, link.Path))
 	return report, nil
 }
 
@@ -243,6 +317,11 @@ func revert(restore func() error, cause error) error {
 // the file again: it does not know the mode that file had before the grant, so
 // the caller is told what the file is now and what would narrow it. Removing
 // the entry is what takes the value out of the redactor.
+//
+// A ref this install does not carry is not an error, for the reason a second
+// add is not: what is asked for is the state the host is already in. The
+// returned entry is the zero value there, which is how the caller tells the two
+// apart.
 func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 	configFile := filepath.Join(configDirOr(opts.ConfigDir), "config.toml")
 	existing, err := config.BaseLinks(configFile)
@@ -258,11 +337,8 @@ func RemoveLink(opts Options, ref string) (Report, config.Link, error) {
 		}
 		kept = append(kept, link)
 	}
-	if removed.Ref == "" {
-		return Report{}, config.Link{}, fmt.Errorf("%s names no link %q; `faramir link ls` "+
-			"lists the ones it does", configFile, ref)
-	}
-
+	// kept is existing where nothing matched, so the steps below re-render what
+	// is already there and report no change.
 	opts.links, opts.linksSet = kept, true
 	if err := keepInstalledGrant(&opts, configDirOr(opts.ConfigDir)); err != nil {
 		return Report{}, config.Link{}, err

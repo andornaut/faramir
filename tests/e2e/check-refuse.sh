@@ -50,6 +50,8 @@ restore_baseline() {
     "$faramir" refuse rm --agent-user op "$path" >/dev/null 2>&1 || true
   done
   cp -a "$BACKUP/config.toml" $CFG
+  # Section 9 empties the rule file to check that a re-add restores it.
+  [ -f "$BACKUP/settings.json" ] && cp -a "$BACKUP/settings.json" $RULES
   rm -rf "$BACKUP" "$KEYDIR" "$SSHDIR"
   rm -f /etc/refused-world.key
   "$faramir" link rm --agent-user op gh/refuse-suite >/dev/null 2>&1 || true
@@ -305,7 +307,35 @@ fi
 rm -rf $LINKDIR
 
 # --------------------------------------------------------------------------
-head_ "9. ls and rm"
+head_ "9. adding what is already there"
+# A configuration manager names every entry on every run, so a second add is the
+# ordinary case rather than a mistake: the entry stands and the rules are
+# rendered again.
+before=$(cat $CFG)
+out=$(refuse add "$KEY" --json)
+rc=$?
+[ $rc -eq 0 ] \
+  && ok "a path this install already refuses is not an error" \
+  || bad "a second add exited $rc: ${out:0:200}"
+grep -q '"changed": false' <<<"$out" \
+  && ok "and reports no change, nothing having been written" \
+  || bad "a second add reported a change: ${out:0:200}"
+[ "$(cat $CFG)" = "$before" ] \
+  && ok "the config is byte-identical" \
+  || bad "a second add rewrote the config"
+
+# What the re-rendering is for: an agent's settings are the operator's own file,
+# and a rule can leave one without faramir being involved.
+cp -a $RULES "$BACKUP/settings.json"
+printf '{}\n' > $RULES
+chown op:op $RULES
+refuse add "$KEY" >/dev/null 2>&1
+grep -qF "Read($KEY)" $RULES \
+  && ok "and a rule that left the agent's settings comes back" \
+  || bad "the rule was not restored to $RULES"
+
+# --------------------------------------------------------------------------
+head_ "10. ls and rm"
 out=$(refuse ls)
 grep -q "$KEY" <<<"$out" && grep -q "$ABSENT" <<<"$out" \
   && ok "refuse ls lists the entries" \
@@ -328,9 +358,17 @@ grep -q 'deny rule' <<<"$out" \
   && ok "and says the deny rule naming it stays, a merged file only being addable to" \
   || bad "removal does not say the rule stays: ${out:0:160}"
 
+before=$(cat $CFG)
 out=$(refuse rm /no/such/path 2>&1)
+rc=$?
+[ $rc -eq 0 ] \
+  && ok "removing a path this install does not refuse is not an error" \
+  || bad "refuse rm on an unknown path exited $rc: ${out:0:160}"
 grep -q 'faramir refuse ls' <<<"$out" \
-  && ok "removing a path that is not refused names the command that lists them" \
+  && ok "and names the command that lists the ones it does" \
   || bad "refuse rm on an unknown path: ${out:0:160}"
+[ "$(cat $CFG)" = "$before" ] \
+  && ok "and writes nothing" \
+  || bad "removing a path that is not refused rewrote the config"
 
 summary

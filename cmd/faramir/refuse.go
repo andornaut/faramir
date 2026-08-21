@@ -60,13 +60,17 @@ func newRefuseAddCmd() *cobra.Command {
 			"mode allows, and prints it in the clear. `faramir link` covers both, at\n" +
 			"the price of faramir reading the value.\n\n" +
 			"A path that is not there is still recorded, an unmounted volume being one\n" +
-			"of the cases this exists for. You are told, since a typo looks the same.",
+			"of the cases this exists for. You are told, since a typo looks the same.\n\n" +
+			"A path this install already refuses is not an error: the entry stands, the\n" +
+			"rules are rendered again, which is what restores one an agent's settings\n" +
+			"dropped, and --json reports changed=false.",
 		Args: exactlyOneArg("path"),
 		RunE: func(c *cobra.Command, args []string) error {
 			return codeErr(runRefuseAdd(f, args[0]))
 		},
 	}
 	f.register(c)
+	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
@@ -74,16 +78,28 @@ func runRefuseAdd(f refuseFlags, path string) int {
 	if !requireRoot("refuse add", "it writes the config and your agent's rule files") {
 		return 1
 	}
-	report, err := install.AddRefusedPath(refuseOptions(f), config.RefusedPath{Path: path})
+	report, added, err := install.AddRefusedPath(refuseOptions(f), config.RefusedPath{Path: path})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir refuse add: %v\n", err)
+	}
+	if code := reportEntry(f.json, "refuse add", report); code != 0 {
+		return code
+	}
+	if err != nil {
 		return 1
 	}
-	printRefuseReport(report)
 	// No reload. The daemons never read these entries: nothing is served out of
 	// the path and nothing of it is redacted, so a restart would cost a running
 	// command its broker for a change no daemon reads.
-	fmt.Fprintf(os.Stderr, "refused %s\n", path)
+	if f.json {
+		return 0
+	}
+	if added {
+		fmt.Fprintf(os.Stderr, "refused %s\n", path)
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "%s was already refused, so nothing was added; the rules "+
+		"naming it were rendered again\n", path)
 	return 0
 }
 
@@ -95,11 +111,14 @@ func newRefuseRemoveCmd() *cobra.Command {
 		Long: "Removes the entry, so `faramir init` stops rendering the rule.\n\n" +
 			"It does not take the rule out of your agent's settings: those files are\n" +
 			"merged rather than replaced, and a merge can only add. Remove that line\n" +
-			"yourself, which this says on the way out.",
+			"yourself, which this says on the way out.\n\n" +
+			"A path this install does not refuse is not an error: nothing is written\n" +
+			"and --json reports changed=false, the entry being gone either way.",
 		Args: exactlyOneArg("path"),
 		RunE: func(c *cobra.Command, args []string) error { return codeErr(runRefuseRemove(f, args[0])) },
 	}
 	f.register(c)
+	c.Flags().BoolVar(&f.json, "json", false, "print the report as JSON")
 	return c
 }
 
@@ -110,9 +129,21 @@ func runRefuseRemove(f refuseFlags, path string) int {
 	report, removed, err := install.RemoveRefusedPath(refuseOptions(f), path)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "faramir refuse rm: %v\n", err)
+	}
+	if code := reportEntry(f.json, "refuse rm", report); code != 0 {
+		return code
+	}
+	if err != nil {
 		return 1
 	}
-	printRefuseReport(report)
+	if f.json {
+		return 0
+	}
+	if removed.Path == "" {
+		fmt.Fprintf(os.Stderr, "%s was not refused, so nothing was removed; "+
+			"`faramir refuse ls` lists the paths that are\n", path)
+		return 0
+	}
 	fmt.Fprintf(os.Stderr, "stopped refusing %s\n", removed.Path)
 	fmt.Fprintf(os.Stderr, "the deny rule naming it stays in your agent's settings: "+
 		"a merged rule file carries no sign of who added an entry, so nothing "+
@@ -192,16 +223,10 @@ func refuseOptions(f refuseFlags) install.Options {
 	return install.Options{
 		ConfigDir: refuseConfigDir(f),
 		AgentUser: operatorName(f.agentUser),
-		Log:       func(line string) { fmt.Fprintln(os.Stderr, line) },
+		Log:       stepLog(f.json),
 	}
 }
 
 func refuseConfigDir(f refuseFlags) string {
 	return resolveConfigDir(f.configPath, socketDefault())
-}
-
-func printRefuseReport(report install.Report) {
-	for _, warning := range report.Warnings {
-		fmt.Fprintf(os.Stderr, "warning: %s\n", warning)
-	}
 }

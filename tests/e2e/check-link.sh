@@ -296,8 +296,36 @@ else bad "the ini link was refused: $out"; fi
 
 out=$(addlink gh/token $NPMRC --type text)
 grep -q 'already names gh/token' <<<"$out" \
-  && ok "a ref another entry claims is refused: a ref has one definition" \
+  && ok "a ref defined differently is refused: a ref has one definition" \
   || bad "a duplicate ref was accepted: $out"
+
+# The same ref against the same file, type and key is the other case, and a
+# configuration manager naming every link on every run is what makes it the
+# ordinary one. Nothing is written, so the report says so.
+out=$(addlink gh/token $GH --type yaml --key github.com/oauth_token --json)
+grep -q '"changed": false' <<<"$out" \
+  && ok "adding an entry already applied reports no change" \
+  || bad "a second add of the same entry reported a change: ${out:0:200}"
+
+# What that re-application is for. A tool that replaces its own file rather than
+# rewriting it takes the grant with it: 0600 in the operator's own group is what
+# a temp file renamed over the original leaves behind.
+chown op:op $GH
+chmod 600 $GH
+out=$(addlink gh/token $GH --type yaml --key github.com/oauth_token)
+[ "$(stat -c '%a %G' $GH)" = "640 $brokergroup" ] \
+  && ok "and adding it again puts back a grant the owning tool took away" \
+  || bad "the grant was not restored: $(stat -c '%a %G' $GH)"
+grep -q 'already reads' <<<"$out" \
+  && ok "saying it added nothing, the entry being the one that is there" \
+  || bad "the re-application does not say the entry was already there: ${out:0:200}"
+# The reload is the other half: the broker fingerprints a linked file by mtime
+# and size, which a chgrp leaves alone, so a store that refused over this file
+# would go on refusing without one.
+waitfor 25 asop refs >/dev/null 2>&1
+asop refs 2>/dev/null | grep -q 'faramir://gh/token' \
+  && ok "and the ref is served again" \
+  || bad "the ref is not being served after the grant was restored"
 
 # The credential leaves the machine while the entry stands, which is also what a
 # home that is not mounted looks like.
@@ -336,9 +364,17 @@ printf '%s\n' "$GH_VALUE" | asop redact 2>/dev/null | grep -qF "$GH_VALUE" \
   && ok "and the value leaves the redactor with it" \
   || bad "the value is still being redacted after the entry was removed"
 
+before=$(cat $CFG)
 out=$("$faramir" link rm --agent-user op no/such-ref 2>&1)
+rc=$?
+[ $rc -eq 0 ] \
+  && ok "removing a ref this install does not carry is not an error" \
+  || bad "link rm on an unknown ref exited $rc: $out"
 grep -q 'faramir link ls' <<<"$out" \
-  && ok "removing a ref that is not there names the command that lists them" \
+  && ok "and names the command that lists the ones it does" \
   || bad "link rm on an unknown ref: $out"
+[ "$(cat $CFG)" = "$before" ] \
+  && ok "and writes nothing" \
+  || bad "removing a ref that is not there rewrote the config"
 
 summary
