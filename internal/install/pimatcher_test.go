@@ -40,7 +40,10 @@ func TestThePiMatcherRefusesALinkedFile(t *testing.T) {
 		t.Fatalf("the extension no longer has %q .. %q; this test slices it and "+
 			"has to be updated with it", from, to)
 	}
-	script := string(body[start:end]) + `
+	// The slice starts below the imports, and spellings() uses two of them.
+	script := "import { homedir } from \"node:os\"\n" +
+		"import { normalize } from \"node:path\"\n" +
+		string(body[start:end]) + `
 const cases = ` + casesJSON + `
 let bad = 0
 for (const [name, path, want] of cases) {
@@ -67,10 +70,19 @@ console.log(bad === 0 ? "ALL-AS-EXPECTED" : "FAILURES=" + bad)
 // list matched only as a directory prefix refuses everything under it and not
 // the file itself, which is the one path the entry exists for.
 const casesJSON = `[
-  ["the linked file itself",       "/home/op/creds.txt",          true],
-  ["a file under the refused dir", "/home/op/keydir/private.key", true],
-  ["the refused directory itself", "/home/op/keydir",             true],
-  ["this install's own key",       "/opt/conf/age.key",           true],
-  ["an unrelated file",            "/home/op/notes.txt",          false],
-  ["a near miss on the prefix",    "/home/op/creds.txt.bak",      false]
+  ["the linked file itself",       "/home/op/creds.txt",           true],
+  ["a file under the refused dir", "/home/op/keydir/private.key",  true],
+  ["the refused directory itself", "/home/op/keydir",              true],
+  ["this install's own key",       "/opt/conf/age.key",            true],
+
+  ["a dot segment",                "/home/op/./creds.txt",         true],
+  ["a parent and back",            "/home/op/../op/creds.txt",     true],
+  ["a doubled separator",          "/home/op//creds.txt",          true],
+  ["a leading doubled separator",  "//home/op/creds.txt",          true],
+  ["dot segments under a dir",     "/home/op/keydir/./private.key", true],
+
+  ["an unrelated file",            "/home/op/notes.txt",           false],
+  ["a near miss on the prefix",    "/home/op/creds.txt.bak",       false],
+  ["a sibling of the refused dir", "/home/op/keydir-other/id",     false],
+  ["a relative path, left alone",  "creds.txt",                    false]
 ]`

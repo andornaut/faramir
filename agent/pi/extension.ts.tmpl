@@ -25,6 +25,8 @@
 // what lets the tests drive the shipped bytes rather than a stripped copy of
 // them. Everything here was `any` in any case.
 import { spawnSync } from "node:child_process"
+import { homedir } from "node:os"
+import { normalize } from "node:path"
 
 // The installed path, not an environment variable: see the note in the
 // opencode plugin. The file is the operator's to edit, so this closes one
@@ -77,15 +79,37 @@ function pathsIn(value, depth = 0) {
   return []
 }
 
+// spellings is the ways one path can be written that all name the same file:
+// as given, with "~" expanded, and with dot segments and doubled separators
+// taken out. The built-in patterns are regexes matching a name or a suffix
+// anywhere in the string, so they catch every spelling already; the paths this
+// install declares are literals, and a literal only ever matches itself.
+//
+// A relative path is deliberately not resolved. Doing that needs a working
+// directory, and the one this process has is the extension host's rather than
+// the one the tool call meant, so a guess there refuses the wrong file as
+// readily as the right one. What a relative path names is left to the agent to
+// have made absolute.
+function spellings(candidate) {
+  const out = [candidate]
+  if (candidate.startsWith("~/")) out.push(homedir() + candidate.slice(1))
+  for (const form of [...out]) {
+    if (form.startsWith("/")) out.push(normalize(form))
+  }
+  return out
+}
+
 // refusedPath is the first path in this call that names key material, or "".
 function refusedPath(input) {
-  for (const candidate of pathsIn(input)) {
-    if (PROTECTED_PATHS.some((re) => re.test(candidate))) return candidate
-    // The path itself as well as anything under it. Every per-install path is in
-    // this list, and a linked one names a FILE: nothing is ever under a file, so
-    // a prefix test alone refused the one path the entry exists to refuse.
-    if (PROTECTED_DIRS.some((dir) => candidate === dir || candidate.startsWith(dir + "/"))) {
-      return candidate
+  for (const given of pathsIn(input)) {
+    for (const candidate of spellings(given)) {
+      if (PROTECTED_PATHS.some((re) => re.test(candidate))) return candidate
+      // The path itself as well as anything under it. Every per-install path is
+      // in this list, and a linked one names a FILE: nothing is ever under a
+      // file, so a prefix test alone refused the one path the entry exists for.
+      if (PROTECTED_DIRS.some((dir) => candidate === dir || candidate.startsWith(dir + "/"))) {
+        return candidate
+      }
     }
   }
   return ""
