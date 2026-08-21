@@ -249,8 +249,6 @@ A playbook that touches every host then splits in two: the fleet through the bro
 
 The Ansible side needs nothing. `become` passes `-n` by default, which tells `sudo` to fail rather than authenticate; the grant sets `noninteractive_auth` for the executor alone, which is what lets the PAM stack run under it and the question be put. Nothing here prompts, so there is no `SUDO_ASKPASS` and no `-A`.
 
-An install made before that setting existed left `-n` to be dropped by hand, with `ansible_become_flags: '-H'` in `host_vars`. Re-running `faramir init --allow-sudo` rewrites the grant, after which the variable can go; leaving it in place still works.
-
 Nothing else changes: no `--ask-become-pass`, no vault, and no become password in a var, there being no become password. Leave a watcher running as root, in a terminal the coding agent cannot type into, and the first task that runs sudo puts its question there naming the playbook:
 
 ```bash

@@ -26,13 +26,6 @@ const binaryName = "faramir"
 // and wrap script.
 var installedBinaries = []string{binaryName}
 
-// legacyBinaries is what an earlier layout installed, one binary per role.
-// Only uninstall names them: init installs and never migrates, but a teardown
-// has to leave nothing behind.
-var legacyBinaries = []string{
-	"faramir-broker", "faramir-keeper", "faramir-exec", "faramir-mcp",
-}
-
 // stepDirectories creates what everything below writes into.
 func (r *runner) stepDirectories() error {
 	changed := false

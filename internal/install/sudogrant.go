@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 
 	"github.com/andornaut/faramir/internal/protocol"
@@ -123,21 +122,6 @@ func (r *runner) stepSudoGrant() error {
 			"broker and should hold no password of its own: usermod -L %s",
 			r.layout.ExecUser, err, r.layout.ExecUser)
 	}
-	// An earlier layout kept a password for this. Removed rather than left: a
-	// credential that authenticates nothing is still a credential.
-	for _, stale := range []string{
-		filepath.Join(r.layout.RunDir, "elevate.secret"),
-		filepath.Join(r.layout.ConfigDir, "elevate.secret"),
-	} {
-		if exists(stale) {
-			if err := os.Remove(stale); err != nil {
-				return err
-			}
-			r.warnf("removed %s, left by an earlier install: escalation no longer uses "+
-				"a password at all", stale)
-		}
-	}
-
 	if granted || authChanged || envChanged || branchChanged {
 		r.restartFor("sudo grant")
 	}
@@ -187,9 +171,6 @@ func (r *runner) revokeSudoGrant() error {
 		sudoersFile,
 		pamServiceFile,
 		r.layout.SudoEnvFile(),
-		// Where earlier layouts kept a password.
-		filepath.Join(r.layout.RunDir, "elevate.secret"),
-		filepath.Join(r.layout.ConfigDir, "elevate.secret"),
 	}
 	found := false
 	for _, path := range stale {
