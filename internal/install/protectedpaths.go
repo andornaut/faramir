@@ -519,7 +519,10 @@ func commandSubjects(layout Layout) []string {
 // lookahead, so what ends a name is stated positively.
 const (
 	pathStart = `(^|[\s/=:'"])`
-	pathEnd   = `([\s"';&|)]|$)`
+	pathEnd   = `(` + pathEndClass + `)`
+	// pathEndClass without the group, for a rule that offers it beside another
+	// way for a name to end.
+	pathEndClass = `[\s"';&|)]|$`
 )
 
 // commandSubject is one rule as a fragment of a command line.
@@ -538,8 +541,11 @@ func commandSubject(p protectedPath) string {
 	case kindGlobName:
 		return pathStart + strings.ReplaceAll(q, regexp.QuoteMeta("*"), `[^/\s]*`) + pathEnd
 	case kindDir:
-		// No end either: what is refused is everything under it.
-		return strings.TrimSuffix(q, `/`) + `/`
+		// The directory itself as well as what is under it. Matching only the form
+		// with the separator left `rm -rf ~/.ssh` allowed while `rm -rf ~/.ssh/`
+		// was refused, which is a rule a keystroke walks around and a deletion
+		// that destroys everything the rule was protecting.
+		return pathStart + strings.TrimSuffix(q, `/`) + `(/|` + pathEndClass + `)`
 	}
 	return q
 }

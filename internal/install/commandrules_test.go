@@ -69,3 +69,32 @@ func TestAnInstallThatDeclaresNothingRefusesItsOwn(t *testing.T) {
 		t.Error("an ordinary read is refused")
 	}
 }
+
+// A declared directory covers itself as well as what is under it. Matching only
+// the form carrying the separator left `rm -rf ~/.ssh` allowed while `rm -rf
+// ~/.ssh/` was refused: a rule a keystroke walks around, and a deletion that
+// destroys everything the rule was protecting.
+func TestADeclaredDirectoryCoversItself(t *testing.T) {
+	rules := commandRules(Layout{
+		ConfigDir: "/etc/faramir",
+		Refused:   []config.RefusedPath{{Name: ".ssh/"}},
+	})
+	for _, tc := range []struct {
+		command string
+		denied  bool
+		why     string
+	}{
+		{"rm -rf /home/op/.ssh", true, "the directory, named without its separator"},
+		{"rm -rf /home/op/.ssh/", true, "and with it"},
+		{"cat /home/op/.ssh/id_rsa", true, "and anything under it"},
+		{"cat /home/op/.ssh/id_rsa.pub", true, "the public half too: the entry named the directory"},
+		{"cat /home/op/.sshrc", false, "a longer name starting the same way"},
+		{"rm -rf /home/op/notes.ssh", false, "and one ending the same way"},
+	} {
+		t.Run(tc.command, func(t *testing.T) {
+			if denied := matchesAny(t, rules, tc.command); denied != tc.denied {
+				t.Errorf("denied = %v, want %v: %s", denied, tc.denied, tc.why)
+			}
+		})
+	}
+}
